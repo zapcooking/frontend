@@ -31,25 +31,25 @@
   // "pre" | "pending" | "success" | "error"
   $: state = "pre";
   $: useQR = false;
-
+  let error: Error;
 
   // TODO: add loading state while fetching invoice(s).
 
   async function submitNow(qr: boolean) {
     const a = await $ndk.zap(event, amount * 1000, message);
     a.on("complete", (results) => {
-      console.debug(results);
-
       const allSuccessful = Array.from(results.values()).every(result => result !== undefined && !(result instanceof Error));
-      state = allSuccessful ? "success" : (useQR ? "pending" : "error");
-
+      state = allSuccessful ? "success" : "error";
     });
 
     useQR = qr;
 
-
     // try webln first.
     if (a) {
+      a.onCashuPay = () => {
+        error = new Error("Cannot Zap This User");
+        return error;
+      };
       try {
         state = "pending";
         if (!qr) {
@@ -64,7 +64,7 @@
             paymentsToMakeQR.push(payment);
             paymentsToMakeQR = paymentsToMakeQR;
           
-            return undefined; // we don't have a preimage to return
+            return true; // we don't have a preimage to return
           };
         }
       } catch (err) {
@@ -80,17 +80,48 @@
 
 <Modal bind:open>
   <h1 slot="title">Zap</h1>
-    <div class="flex flex-col gap-3">
+  <div class="flex flex-col gap-3">
   {#if state == "pending"}
+    <div class="flex flex-col text-2xl">
+      <img class="w-52 self-center" src="/pan-animated.svg" alt="Loading" />
+
+      <span class="self-center">{useQR ? "Fetching Invoice(s)..." : "Waiting for Payment..."}</span>
+      {#if useQR}
+        <span class="self-center text-center">If this takes a while refresh and try again.</span>
+      {/if}
+    </div>
+  {:else if state == "pre"}
+      <div class="flex flex-col gap-3">
+        <div class="grid grid-cols-7 grid-rows-2 gap-2">
+          {#if selectedCurrency == 'SATS'}
+            {#each defaultZapSatsAmounts as zapPamount}
+              <Pill
+                selected={amount == zapPamount}
+                text={formatAmount(zapPamount)}
+                onClick={() => (amount = zapPamount)}
+              />
+            {/each}
+          {/if}
+        </div>
+        <input type="text" class="input" bind:value={amount} />
+        <textarea rows="2" class="input" bind:value={message} placeholder="Message (optional)" />
+      </div>
+      <div class="flex gap-2 justify-end">
+        <Button
+          class="!text-black bg-white border border-[#ECECEC] hover:bg-accent-gray"
+          on:click={() => open = false}>Cancel</Button
+        >
+        <Button on:click={() => submitNow(false)}>Zap with Extension</Button>
+        <Button on:click={() => submitNow(true)}>Zap with QR Code</Button>
+      </div>
+  {:else if state == "error"}
+    <div class="flex flex-col items-center justify-center">
+      <XIcon color="red" weight="bold" class="w-36 h-36" />
+      <span class="text-2xl ml-4 text-center">An Error Occurred. <br /> {error.toString()}</span>
+    </div>
+  {:else if state == "success"}
     {#if useQR == true}
       <div class="flex flex-col gap-3">
-      {#if paymentsToMakeQR.length == 0}
-          <div class="flex flex-col text-2xl">
-            <img class="w-52 self-center" src="/pan-animated.svg" alt="Loading" />
-
-            <span class="self-center">Fetching Invoice(s)...</span>
-          </div>
-        {:else}
           <div class="flex gap-3 text-lg">
             <Avatar class="w-14 h-14 rounded-full self-center" ndk={$ndk} pubkey={paymentsToMakeQR[selected_qr - 1].recipientPubkey} />
             <div class="self-center gap-1">
@@ -119,49 +150,13 @@
               <RightIcon class="self-center" />
             {/if}
           </div>
-      {/if}
       </div>
     {:else}
-      <div class="flex flex-col text-2xl">
-        <img class="w-52 self-center" src="/pan-animated.svg" alt="Loading" />
-
-        <span class="self-center">Waiting for Payment...</span>
+      <div class="flex flex-col items-center justify-center">
+        <Checkmark color="#90EE90" weight="fill" class="w-36 h-36" />
+        <span class="text-2xl ml-4">Payment Completed</span>
       </div>
     {/if}
-  {:else if state == "pre"}
-      <div class="flex flex-col gap-3">
-        <div class="grid grid-cols-7 grid-rows-2 gap-2">
-          {#if selectedCurrency == 'SATS'}
-            {#each defaultZapSatsAmounts as zapPamount}
-              <Pill
-                selected={amount == zapPamount}
-                text={formatAmount(zapPamount)}
-                onClick={() => (amount = zapPamount)}
-              />
-            {/each}
-          {/if}
-        </div>
-        <input type="text" class="input" bind:value={amount} />
-        <textarea rows="2" class="input" bind:value={message} placeholder="Message (optional)" />
-      </div>
-      <div class="flex gap-2 justify-end">
-        <Button
-          class="!text-black bg-white border border-[#ECECEC] hover:bg-accent-gray"
-          on:click={() => open = false}>Cancel</Button
-        >
-        <Button on:click={() => submitNow(false)}>Zap with Extension</Button>
-        <Button on:click={() => submitNow(true)}>Zap with QR Code</Button>
-      </div>
-  {:else if state == "error"}
-    <div class="flex flex-col items-center justify-center">
-      <XIcon color="red" weight="bold" class="w-36 h-36" />
-      <span class="text-2xl ml-4 text-center">An Error Occurred. <br /> Check console for more details.</span>
-    </div>
-  {:else if state == "success"}
-    <div class="flex flex-col items-center justify-center">
-      <Checkmark color="#90EE90" weight="fill" class="w-36 h-36" />
-      <span class="text-2xl ml-4">Payment Completed</span>
-    </div>
   {/if}
     </div>
 </Modal>
