@@ -8,7 +8,7 @@
 
   let link = '';
   $: {
-    if (event.id && event.sig && event.kind) {
+    if (event) {
       const d = event.tags.find((t) => t[0] == 'd')?.[1];
       if (d) {
         const naddr = nip19.naddrEncode({
