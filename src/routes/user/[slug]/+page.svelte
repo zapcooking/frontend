@@ -75,21 +75,6 @@
     url = profile && profile.image ? profile.image : '';
   }
 
-  async function zapEvt(amount: number, message: string) {
-    zapModal = false;
-    if (amount) {
-      const a = await user!.zap(amount * 1000, message);
-      if (a) {
-        try {
-          const webln = await requestProvider();
-          await webln.sendPayment(a);
-        } catch (err) {
-          console.log('error while handleing zap', err);
-        }
-      }
-    }
-  }
-
   let qrModal = false;
 
   function qrModalCleanup() {
@@ -207,7 +192,7 @@
   {/if}
 </svelte:head>
 
-<ZapModal open={zapModal} submit={zapEvt} cancel={() => (zapModal = false)} />
+<ZapModal bind:open={zapModal} event={user} />
 
 <Modal cleanup={editModalCleanup} open={editModal}>
   <h1 slot="title">Edit Profile</h1>

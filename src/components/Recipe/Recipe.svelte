@@ -32,21 +32,6 @@
   let bookmarkModal = false;
   let dropdownActive = false;
 
-  async function zapEvt(amount: number, message: string) {
-    zapModal = false;
-    if (amount) {
-      const a = await event.zap(amount * 1000, message);
-      if (a) {
-        try {
-          const webln = await requestProvider();
-          await webln.sendPayment(a);
-        } catch (err) {
-          console.log('error while handleing zap', err);
-        }
-      }
-    }
-  }
-
   let listsArr: NDKEvent[] = [];
   async function getLists(): Promise<NDKEvent[]> {
     const evts = await $ndk.fetchEvents([
@@ -133,7 +118,7 @@
   );*/
 </script>
 
-<ZapModal bind:open={zapModal} submit={zapEvt} cancel={() => (zapModal = false)} />
+<ZapModal bind:open={zapModal} event={event} />
 
 <Modal cleanup={cleanUpBookmarksModal} open={bookmarkModal}>
   <h1 slot="title">Save Recipe</h1>

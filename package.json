@@ -16,9 +16,10 @@
   "dependencies": {
     "@fortawesome/free-solid-svg-icons": "^6.5.1",
     "@gandlaf21/bolt11-decode": "^3.0.6",
-    "@nostr-dev-kit/ndk": "^2.4.0",
+    "@nostr-dev-kit/ndk": "^2.10.0",
     "@nostr-dev-kit/ndk-cache-dexie": "^2.2.5",
     "@nostr-dev-kit/ndk-svelte-components": "^2.2.5",
+    "@svelte-put/qr": "^2.0.0",
     "@sveltejs/adapter-auto": "^2.0.0",
     "@sveltejs/kit": "^1.20.4",
     "@tailwindcss/forms": "^0.5.6",
@@ -55,5 +56,6 @@
   },
   "devDependencies": {
     "@types/markdown-it": "^13.0.7"
-  }
+  },
+  "packageManager": "pnpm@9.12.1+sha512.e5a7e52a4183a02d5931057f7a0dbff9d5e9ce3161e33fa68ae392125b79282a8a8a470a51dfc8a0ed86221442eb2fb57019b0990ed24fab519bf0e1bc5ccfc4"
 }
