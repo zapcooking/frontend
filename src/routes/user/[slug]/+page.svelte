@@ -234,12 +234,14 @@
 <div class="flex flex-col gap-6">
   <div class="flex gap-16 md:gap-20">
     <div class="flex gap-4">
+      {#key hexpubkey}
       <Avatar
         class="cursor-pointer w-[100px] h-[100px] object-center rounded-full self-center hidden md:flex"
         ndk={$ndk}
         pubkey={hexpubkey}
       />
       <h1 class="self-center"><Name ndk={$ndk} pubkey={hexpubkey} npubMaxLength={10} /></h1>
+      {/key}
     </div>
     <div class="flex gap-2 self-center">
       <Button
@@ -285,7 +287,9 @@
 
     {#if recipesTab}
       <h2>
+      {#key hexpubkey}
         <Name ndk={$ndk} pubkey={hexpubkey} npubMaxLength={10} />'s Recipes
+      {/key}
       </h2>
         <Feed {events} />
     {:else}
