@@ -13,7 +13,6 @@
   import XIcon from "phosphor-svelte/lib/X"
   import { Avatar, Name } from '@nostr-dev-kit/ndk-svelte-components';
 
-  //const defaultZapUSDAmounts = [0.05, 0.5, 2, 5, 10, 21, 50, 100, 200];
   const defaultZapSatsAmounts = [
     21, 121, 400, 1000, 2100, 4200, 10000, 21000, 42000, 69000, 100000, 210000, 500000, 1000000
   ];
@@ -25,15 +24,12 @@
   let amount: number = 21;
   let message: string = '';
 
-  // only if we are using qr codes!
   $: paymentsToMakeQR = [];
+  $: paymentStatuses = [];
 
-  // "pre" | "pending" | "success" | "error"
   $: state = "pre";
   $: useQR = false;
   let error: Error;
-
-  // TODO: add loading state while fetching invoice(s).
 
   async function submitNow(qr: boolean) {
     const a = await $ndk.zap(event, amount * 1000, message);
@@ -44,7 +40,6 @@
 
     useQR = qr;
 
-    // try webln first.
     if (a) {
       a.onCashuPay = () => {
         error = new Error("Cannot Zap This User");
@@ -56,28 +51,41 @@
           const webln = await requestProvider();
           a.onLnPay = async (payment) => { 
             let preimage = (await webln.sendPayment(payment.pr)).preimage
-
             return { preimage };
           };
         } else {
           a.onLnPay = async (payment) => {
             paymentsToMakeQR.push(payment);
             paymentsToMakeQR = paymentsToMakeQR;
+            
+            subscribeToZapReceipt(payment.recipientPubkey, payment.pr);
           
-            return true; // we don't have a preimage to return
+            return true;
           };
         }
       } catch (err) {
-        console.log('error while handleing zap', err);
+        console.log('error while handling zap', err);
         state = "error";
       }
       a.zap();
     }
   }
 
-  let selected_qr = 1;
-</script>
+  function subscribeToZapReceipt(pubkey: string, expectedInvoice: string) {
+    const sub = $ndk.subscribe({ kinds: [9735], "#p": [pubkey], "#e": [event.id] }, { closeOnEose: false });
+    sub.on('event', (event: NDKEvent) => {
+      const receivedInvoice = event.getMatchingTags('bolt11')[0]?.[1];
+      if (receivedInvoice === expectedInvoice) {
+        const status = { pubkey, paid: true };
+        paymentStatuses = [...paymentStatuses, status];
+      }
+    });
+  }
 
+  let selected_qr = 1;
+
+  $: isPaid = (pubkey: string) => paymentStatuses.some(status => status.pubkey === pubkey && status.paid);
+</script>
 <Modal bind:open>
   <h1 slot="title">Zap</h1>
   <div class="flex flex-col gap-3">
@@ -117,7 +125,7 @@
   {:else if state == "error"}
     <div class="flex flex-col items-center justify-center">
       <XIcon color="red" weight="bold" class="w-36 h-36" />
-      <span class="text-2xl ml-4 text-center">An Error Occurred. <br /> {error.toString()}</span>
+      <span class="text-2xl ml-4 text-center">An Error Occurred. <br /> {error && error.toString()}</span>
     </div>
   {:else if state == "success"}
     {#if useQR == true}
@@ -128,26 +136,33 @@
               Zapping <span class="font-semibold">{amount} sats</span> to <Name class="font-semibold" ndk={$ndk} pubkey={paymentsToMakeQR[selected_qr - 1].recipientPubkey} />
             </div>
           </div>
-          Scan the QR Code below with a suitable Lightning Wallet to zap.
-          <svg class="self-center" style="width: 80%"
-            use:qr={{
-              data: paymentsToMakeQR[selected_qr - 1].pr,
-              logo: "https://zap.cooking/favicon.svg",
-              shape: "circle",
-              width: 100,
-              height: 100,
-            }}
-          />
-          <div class="break-all">
-            {paymentsToMakeQR[selected_qr - 1].pr}
-          </div>
+          {#if isPaid(paymentsToMakeQR[selected_qr - 1].recipientPubkey)}
+            <div class="flex flex-col items-center justify-center">
+              <Checkmark color="#90EE90" weight="fill" class="w-36 h-36" />
+              <span class="text-2xl ml-4">Payment Completed</span>
+            </div>
+          {:else}
+            Scan the QR Code below with a suitable Lightning Wallet to zap.
+            <svg class="self-center" style="width: 80%"
+              use:qr={{
+                data: paymentsToMakeQR[selected_qr - 1].pr,
+                logo: "https://zap.cooking/favicon.svg",
+                shape: "circle",
+                width: 100,
+                height: 100,
+              }}
+            />
+            <div class="break-all">
+              {paymentsToMakeQR[selected_qr - 1].pr}
+            </div>
+          {/if}
           <div class="flex gap-3 justify-center">
             {#if selected_qr > 1}
-              <LeftIcon class="self-center" />
+              <LeftIcon class="self-center" on:click={() => selected_qr--} />
             {/if}
             <span class="self-center">{selected_qr}/{paymentsToMakeQR.length}</span>
             {#if selected_qr < paymentsToMakeQR.length}
-              <RightIcon class="self-center" />
+              <RightIcon class="self-center" on:click={() => selected_qr++} />
             {/if}
           </div>
       </div>
@@ -160,4 +175,3 @@
   {/if}
     </div>
 </Modal>
-
