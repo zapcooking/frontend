@@ -10,6 +10,7 @@
   let loading = true;
   let totalZapAmount: number = 0;
   let didSigs = new Map();
+  let hasUserZapped = false;
 
   async function fetch() {
     const sub = await $ndk.subscribe({
@@ -24,9 +25,12 @@
           totalZapAmount =
             totalZapAmount + Number(decoded.sections.find((e) => e.name == 'amount').value);
           didSigs.set(event.sig, event.sig);
+
+          if (event.tags.some(tag => tag[0] === 'P' && tag[1] === $userPublickey)) {
+            hasUserZapped = true;
+          }
         }
       }
-
     });
   }
 
@@ -37,6 +41,6 @@
 </script>
 
 <div class="flex gap-1.5 hover:bg-input rounded px-0.5 transition duration-300">
-  <LightningIcon size={24} />
+  <LightningIcon size={24} color={hasUserZapped ? '#facc15' : ''} weight={hasUserZapped ? "fill" : "regular"} />
   {#if loading}...{:else}{formatAmount(totalZapAmount / 1000)} sats{/if}
 </div>
