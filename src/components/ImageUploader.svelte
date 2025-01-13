@@ -31,19 +31,31 @@
     const url = 'https://nostr.build/api/v2/upload/files';
     const template = new NDKEvent($ndk);
     template.kind = 27235;
+    template.created_at = Math.floor(Date.now() / 1000);
     template.content = '';
     template.tags = [
       ['u', url],
       ['method', 'POST']
     ];
 
-    template.sign();
+    await template.sign();
+    
+    // Ensure all fields are properly formatted according to NIP-98
+    const authEvent = {
+      id: template.id,
+      pubkey: template.pubkey,
+      created_at: template.created_at,
+      kind: template.kind,
+      tags: template.tags,
+      content: template.content,
+      sig: template.sig
+    };
 
     return Fetch.fetchJson(url, {
       body,
       method: 'POST',
       headers: {
-        Authorization: `Nostr ${btoa(JSON.stringify(event))}`
+        Authorization: `Nostr ${btoa(JSON.stringify(authEvent))}`
       }
     });
   }
