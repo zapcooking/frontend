@@ -3,7 +3,7 @@ export const standardRelays = [
   //'wss://nostr.mom',
   //'wss://relay.nostr.bg',
   //'wss://nostr.wine',
-  //'wss://relay.nostr.band'
+  'wss://relay.nostr.band'
 ];
 
 export type recipeTag =
