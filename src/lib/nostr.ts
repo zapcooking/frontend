@@ -6,11 +6,13 @@ import { standardRelays } from './consts';
 
 export const relays = JSON.parse(
   (browser && localStorage.getItem('nostrcooking_relays')) || JSON.stringify(standardRelays)
-);
+).filter(relay => relay !== 'wss://kitchen.zap.cooking'); // server is down, ndk has a bug!
 
 const dexieAdapter = new NDKCacheAdapterDexie({ dbName: 'zapcooking-ndk-cache-db' });
 const Ndk: NDK = new NDK({ outboxRelayUrls: ["wss://purplepag.es"], enableOutboxModel: true, explicitRelayUrls: relays, cacheAdapter: dexieAdapter });
-browser && Ndk.connect().then(() => console.log('ndk connected'));
+browser && (async () => {
+  await Ndk.connect();
+})()
 
 export const ndk: Writable<NDK> = writable(Ndk);
 

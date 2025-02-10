@@ -1,8 +1,8 @@
 export const standardRelays = [
   'wss://kitchen.zap.cooking',
-  //'wss://nostr.mom',
-  //'wss://relay.nostr.bg',
-  //'wss://nostr.wine',
+  'wss://nostr.mom',
+  'wss://relay.nostr.bg',
+  'wss://nostr.wine',
   'wss://relay.nostr.band'
 ];
 
