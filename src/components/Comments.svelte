@@ -6,18 +6,17 @@
   import Comment from './Comment.svelte';
 
   export let event: NDKEvent;
-  let events: Set<NDKEvent> = new Set();
+  let events = [];
 
 async function subscribe() {
   const sub = $ndk.subscribe({
     kinds: [1],
     '#a': [`${event.kind}:${event.author.pubkey}:${event.tags.find((e) => e[0] == 'd')?.[1]}`]
-  });
-
-  await sub.start();
+  }, { closeOnEose: false });
 
   sub.on('event', (event) => {
     events.push(event);
+    console.log(event);
     events = events;
   });
 }
@@ -43,16 +42,16 @@ async function subscribe() {
   <h1>Comments</h1>
   <ul class="flex flex-col gap-4">
     {#if events}
-      {#each Array.from(events).filter((e) => e.getMatchingTags('e').length === 0) as ev, i}
+      {#each events.filter((e) => e.getMatchingTags('e').length === 0) as ev, i}
         <li>
           <Comment
-            replies={Array.from(events).filter((e) =>
+            replies={events.filter((e) =>
               e.getMatchingTags('e').find((v) => v[1] === ev.id)
             )}
             event={ev}
             refresh={fetch}
           />
-          {#if Array.from(events)[i + 1]}
+          {#if events[i + 1]}
             <hr />
           {/if}
         </li>
