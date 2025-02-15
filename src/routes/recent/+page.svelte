@@ -31,19 +31,28 @@
 
   const popTags = recipeTags.filter((v) => isPopTag(v.title));
 
-  let events: NDKEvent[] = [];
 
-  onMount(async () => {
+let events: NDKEvent[] = [];
+
+onMount(() => {
+  try {
     let filter: NDKFilter = { limit: 256, kinds: [30023], '#t': ['nostrcooking'] };
-    const evts = await $ndk.fetchEvents(filter);
-    let evtsArr = Array.from(evts);
-    evtsArr.forEach((ev, i) => {
-      if (validateMarkdownTemplate(ev.content) == null) {
-        evtsArr.splice(i, 1);
+    const subscription = $ndk.subscribe(filter);
+
+    subscription.on('event', (event: NDKEvent) => {
+      if (validateMarkdownTemplate(event.content) !== null) {
+        events = [...events, event];
       }
     });
-    events = evtsArr;
-  });
+
+    subscription.on('eose', () => {
+      console.log('End of stored events');
+    });
+
+  } catch (error) {
+    console.error(error);
+  }
+});
 </script>
 
 <svelte:head>

@@ -8,15 +8,22 @@
   export let event: NDKEvent;
   let events: Set<NDKEvent> = new Set();
 
-  async function fetch() {
-    events = await $ndk.fetchEvents({
-      kinds: [1],
-      '#a': [`${event.kind}:${event.author.pubkey}:${event.tags.find((e) => e[0] == 'd')?.[1]}`]
-    });
-  }
+async function subscribe() {
+  const sub = $ndk.subscribe({
+    kinds: [1],
+    '#a': [`${event.kind}:${event.author.pubkey}:${event.tags.find((e) => e[0] == 'd')?.[1]}`]
+  });
+
+  await sub.start();
+
+  sub.on('event', (event) => {
+    events.push(event);
+    events = events;
+  });
+}
 
   $: {
-    fetch();
+    subscribe();
   }
 
   let commentText = '';
@@ -29,7 +36,6 @@
     ];
 
     await ev.publish();
-    await fetch();
   }
 </script>
 

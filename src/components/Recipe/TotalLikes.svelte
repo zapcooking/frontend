@@ -8,19 +8,24 @@
   let totalLikeAmount: number = 0;
   let liked = false;
 
-  $: {
-    (async () => {
-      const evs = await $ndk.fetchEvents({
-        kinds: [7],
-        '#a': [
-          `${event.kind}:${event.author.hexpubkey}:${event.tags.find((e) => e[0] == 'd')?.[1]}`
-        ]
-      });
-      if (Array.from(evs).find((e) => e.pubkey == $userPublickey)) liked = true;
-      totalLikeAmount = evs.size;
-    })();
-  }
-  loading = false;
+  (async () => {
+    const sub = $ndk.subscribe({
+      kinds: [7],
+      '#a': [
+        `${event.kind}:${event.author.hexpubkey}:${event.tags.find((e) => e[0] == 'd')?.[1]}`
+      ]
+    });
+
+    sub.on('event', (e) => {
+      if (e.pubkey == $userPublickey) liked = true;
+      totalLikeAmount++;
+    });
+
+    sub.on('eose', () => {
+      loading = false;
+    });
+  })();
+
   async function likePost() {
     if (liked) return;
     await event.react('+', true);

@@ -7,18 +7,26 @@
   let loading = true;
   let totalCommentAmount: number = 0;
 
-  $: {
-    (async () => {
-      const evs = await $ndk.fetchEvents({
+{
+  (async () => {
+    const sub = $ndk.subscribe(
+      {
         kinds: [1],
         '#a': [
           `${event.kind}:${event.author.hexpubkey}:${event.tags.find((e) => e[0] == 'd')?.[1]}`
         ]
-      });
-      totalCommentAmount = evs.size; // normal way
-    })();
-  }
-  loading = false;
+      },
+    );
+
+    sub.on('event', (event) => {
+      totalCommentAmount++;
+    });
+
+    sub.on('eose', () => {
+      loading = false;
+    });
+  })();
+}
 </script>
 
 <a href="#comments" class="flex gap-1.5">

@@ -53,23 +53,25 @@
         profile = p;
       }
 
-      // load feed
-      let filter: NDKFilter = {
-        authors: [hexpubkey],
-        limit: 256,
-        kinds: [30023],
-        '#t': ['nostrcooking']
-      };
-      const evts = await $ndk.fetchEvents(filter);
-      let evtsArr = Array.from(evts);
-      evtsArr.forEach((ev, i) => {
-        if (validateMarkdownTemplate(ev.content) == null) {
-          evtsArr.splice(i, 1);
-        }
-      });
-      events = evtsArr;
+// load feed
+let filter: NDKFilter = {
+  authors: [hexpubkey],
+  limit: 256,
+  kinds: [30023],
+  '#t': ['nostrcooking']
+};
 
-      loaded = true;
+let subscription = $ndk.subscribe(filter);
+
+subscription.on('event', (ev) => {
+  if (validateMarkdownTemplate(ev.content) != null) {
+    events.push(ev);
+  }
+});
+
+subscription.on('eose', () => {
+  loaded = true;
+});
     }
     profileName = profile && profile.displayName ? profile.displayName : '';
     url = profile && profile.image ? profile.image : '';

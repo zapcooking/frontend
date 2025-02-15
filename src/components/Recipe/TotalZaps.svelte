@@ -16,7 +16,7 @@
     const sub = await $ndk.subscribe({
       kinds: [9735],
       '#a': [`${event.kind}:${event.author.pubkey}:${event.tags.find((e) => e[0] == 'd')?.[1]}`]
-    }, { closeOnEose: false });
+    });
     sub.on("event", (event: NDKEvent) => {
       let bolt11 = event.tags.find((e) => e[0] == 'bolt11')?.[1];
       if (bolt11 && event.sig) {
