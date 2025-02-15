@@ -66,6 +66,7 @@ let subscription = $ndk.subscribe(filter);
 subscription.on('event', (ev) => {
   if (validateMarkdownTemplate(ev.content) != null) {
     events.push(ev);
+    events = events;
   }
 });
 

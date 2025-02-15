@@ -38,6 +38,7 @@ async function loadData() {
       
       subscription.on('event', (event) => {
         events.push(event);
+        events = events;
       });
 
       subscription.on('eose', () => {
