@@ -18,7 +18,7 @@
     }
   }
 
-  async function loadData() {
+async function loadData() {
     if (hexpubkey) {
       // load user
       const u = await $ndk.getUser({ hexpubkey: hexpubkey }).fetchProfile();
@@ -33,11 +33,17 @@
         kinds: [30001],
         '#t': ['nostrcooking']
       };
-      const evts = await $ndk.fetchEvents(filter);
-      let evtsArr = Array.from(evts);
-      events = evtsArr;
+      
+      const subscription = $ndk.subscribe(filter);
+      
+      subscription.on('event', (event) => {
+        events.push(event);
+        events = events;
+      });
 
-      loaded = true;
+      subscription.on('eose', () => {
+        loaded = true;
+      });
     }
   }
 </script>

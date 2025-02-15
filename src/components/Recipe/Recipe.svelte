@@ -32,9 +32,10 @@
   let bookmarkModal = false;
   let dropdownActive = false;
 
-  let listsArr: NDKEvent[] = [];
-  async function getLists(): Promise<NDKEvent[]> {
-    const evts = await $ndk.fetchEvents([
+let listsArr: NDKEvent[] = [];
+async function getLists(): Promise<NDKEvent[]> {
+  return new Promise((resolve) => {
+    const sub = $ndk.subscribe([
       {
         authors: [$userPublickey],
         limit: 256,
@@ -47,13 +48,21 @@
         kinds: [30001]
       }
     ]);
-    listsArr = Array.from(evts).sort((a, b) => {
-      if (a.replaceableDTag() == 'nostrcooking-bookmarks') return -1;
-      if (b.replaceableDTag() == 'nostrcooking-bookmarks') return 1;
-      return a.replaceableDTag().localeCompare(b.replaceableDTag());
+
+    sub.on('event', (event: NDKEvent) => {
+      listsArr.push(event);
     });
-    return listsArr;
-  }
+
+    sub.on('eose', () => {
+      listsArr.sort((a, b) => {
+        if (a.replaceableDTag() == 'nostrcooking-bookmarks') return -1;
+        if (b.replaceableDTag() == 'nostrcooking-bookmarks') return 1;
+        return a.replaceableDTag().localeCompare(b.replaceableDTag());
+      });
+      resolve(listsArr);
+    });
+  });
+}
 
   // If a list's d id is found here, then modifyLists will make the inverse change to what's there currently.
   let toggleLists: Set<string> = new Set();

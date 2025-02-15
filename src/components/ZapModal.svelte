@@ -72,7 +72,7 @@
   }
 
   function subscribeToZapReceipt(pubkey: string, expectedInvoice: string) {
-    const sub = $ndk.subscribe({ kinds: [9735], "#p": [pubkey], "#e": [event.id] }, { closeOnEose: false });
+    const sub = $ndk.subscribe({ kinds: [9735], "#p": [pubkey], "#e": [event.id] });
     sub.on('event', (event: NDKEvent) => {
       const receivedInvoice = event.getMatchingTags('bolt11')[0]?.[1];
       if (receivedInvoice === expectedInvoice) {

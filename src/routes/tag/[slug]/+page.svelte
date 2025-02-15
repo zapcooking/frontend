@@ -21,7 +21,8 @@
     goto(`/tag/${query}`);
   }
 
-  async function loadData() {
+
+async function loadData() {
     loaded = false;
     events = [];
     let filter: NDKFilter = {
@@ -29,14 +30,16 @@
       kinds: [30023],
       '#t': [`nostrcooking-${$page.params.slug.toLowerCase().replaceAll(' ', '-')}`]
     };
-    const evts = await $ndk.fetchEvents(filter);
-    let evtsArr = Array.from(evts);
-    evtsArr.forEach((ev, i) => {
-      if (validateMarkdownTemplate(ev.content) == null) {
-        evtsArr.splice(i, 1);
+    
+    const subscription = $ndk.subscribe(filter);
+
+    subscription.on("event", (ev) => {
+      if (validateMarkdownTemplate(ev.content) != null) {
+        events.push(ev);
+        events = events;
       }
     });
-    events = evtsArr;
+    
     loaded = true;
   }
 </script>
