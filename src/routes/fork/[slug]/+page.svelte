@@ -2,7 +2,7 @@
   import TagsComboBox from '../../../components/TagsComboBox.svelte';
   import { ndk, userPublickey } from '$lib/nostr';
   import { createMarkdown, validateMarkdownTemplate } from '$lib/pharser';
-  import { NDKEvent } from '@nostr-dev-kit/ndk';
+  import { NDKEvent, AddressPointer } from '@nostr-dev-kit/ndk';
   import { recipeTags, type recipeTagSimple } from '$lib/consts';
   import FeedItem from '../../../components/RecipeCard.svelte';
   import { browser } from '$app/environment';
@@ -26,6 +26,7 @@
   });
 
   let previewEvent: NDKEvent | undefined = undefined;
+  let identifier: string | undefined; // THIS SHOULD ALWAYS BE THERE. IF NOT, VERY BAD!
 
   function addTag(query: string) {
     let tag = recipeTags.find(
@@ -41,7 +42,8 @@
   async function loadData() {
     let event: NDKEvent;
     if ($page.params.slug.startsWith('naddr1')) {
-      const b = nip19.decode($page.params.slug).data;
+      const b: AddressPointer = nip19.decode($page.params.slug).data;
+      identifier = b.identifier;
       let e = await $ndk.fetchEvent({
         // @ts-ignore
         '#d': [b.identifier],
@@ -209,10 +211,14 @@
       } else if ($images.length == 0) {
         resultMessage = `Error: No Image Uploaded`;
       } else if (va) {
+        if (identifier == undefined) { // NOT GOOD!
+          identifier = title.toLowerCase().replaceAll(' ', '-');
+        }
+
         const event = new NDKEvent($ndk);
         event.kind = 30023;
         event.content = md;
-        event.tags.push(['d', title.toLowerCase().replaceAll(' ', '-')]);
+        event.tags.push(['d', identifier]);
         event.tags.push(['title', title]);
         event.tags.push(['t', 'nostrcooking']);
         event.tags.push(['t', `nostrcooking-${title.toLowerCase().replaceAll(' ', '-')}`]);
