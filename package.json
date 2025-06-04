@@ -20,7 +20,7 @@
     "@nostr-dev-kit/ndk-cache-dexie": "^2.2.5",
     "@nostr-dev-kit/ndk-svelte-components": "^2.2.5",
     "@svelte-put/qr": "^2.0.0",
-    "@sveltejs/adapter-auto": "^2.0.0",
+    "@sveltejs/adapter-cloudflare": "^7.0.3",
     "@sveltejs/kit": "^1.20.4",
     "@tailwindcss/forms": "^0.5.6",
     "@tailwindcss/typography": "^0.5.10",
