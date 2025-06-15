@@ -121,9 +121,7 @@
           </div>
         {/if}
       {:else}
-        <Button on:click={() => goto('/login')} class="font-semibold" primary={false}
-          >Sign in</Button
-        >
+        <a href="/login" class="text-white rounded-full bg-black disabled:bg-black/50 hover:bg-gray-800 px-4 py-2.5 font-semibold transition duration-300">Sign in</a>
       {/if}
     </div>
   </div>
