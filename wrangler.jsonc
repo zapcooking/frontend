@@ -12,5 +12,8 @@
 	},
 	"build": {
 		"command": "pnpm build"
-	}
+	},
+	"observability": {
+		"logs": true
+	},
 }
