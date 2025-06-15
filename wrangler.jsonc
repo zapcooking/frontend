@@ -5,7 +5,7 @@
 	"assets": {
 		"binding": "ASSETS",
 		"directory": ".svelte-kit/cloudflare",
-		"not_found_handling": "404-page",
+		"not_found_handling": "single-page-application"
 	},
 	"build": {
 		"command": "pnpm build"
