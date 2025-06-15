@@ -15,7 +15,10 @@ const config = {
         input: '#F6F6F6',
         'accent-gray': '#DDDDDD',
         caption: '#716F6C'
-      }
+      },
+      screens: {
+        "print": "print"
+      },
     }
   },
 

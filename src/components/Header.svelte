@@ -54,18 +54,18 @@
     <img src={SVGNostrCookingWithText} class="w-40 my-3" alt="Nostr.Cooking Logo With Text" />
   </a>
 
-  <div class="hidden lg:flex gap-10 self-center font-semibold">
+  <div class="hidden lg:flex gap-10 self-center font-semibold  print:hidden">
     <a class="transition duration-300 hover:text-primary" href="/recent">Discover</a>
     <a class="transition duration-300 hover:text-primary" href="/tags">Categories</a>
   </div>
 
-  <div class="hidden sm:flex flex-1 grow self-center">
+  <div class="hidden sm:flex flex-1 grow self-center print:hidden">
     <TagsSearchAutocomplete
       placeholderString={"Search by tag, like 'italian', 'steak' or 'glutenfree'."}
       action={openTag}
     />
   </div>
-  <div class="flex gap-4 self-center flex-none">
+  <div class="flex gap-4 self-center flex-none print:hidden">
     <div class="block sm:hidden self-center">
       <!-- for some reason if i have all of these selector classes then it styles correctly. wtf. -->
       <Button class="self-center max-md:w-10 max-md:h-10 flex max-md:justify-center max-md:px-1 max-md:py-1 font-semibold !bg-[#FFECE8]" on:click={() => searchActive = true}>
@@ -82,7 +82,7 @@
           <div class="hidden md:flex">Add Recipe</div>
       </Button>
     {/if}
-    <div class="self-center">
+    <div class="self-center print:hidden">
       {#if $userPublickey !== ''}
         <button class="flex self-center" on:click={() => (dropdownActive = !dropdownActive)}>
           <Avatar

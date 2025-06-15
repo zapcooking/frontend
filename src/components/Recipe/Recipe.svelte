@@ -5,6 +5,7 @@
   import DotsIcon from 'phosphor-svelte/lib/DotsThreeVertical';
   import PencilIcon from 'phosphor-svelte/lib/Pencil';
   import BookmarkIcon from 'phosphor-svelte/lib/BookmarkSimple';
+  import PrinterIcon from 'phosphor-svelte/lib/Printer';
   import Button from '../Button.svelte';
   import { translateOption } from '$lib/state';
   import { translate } from '$lib/translation';
@@ -131,7 +132,7 @@ async function getLists(): Promise<NDKEvent[]> {
 
 <Modal cleanup={cleanUpBookmarksModal} open={bookmarkModal}>
   <h1 slot="title">Save Recipe</h1>
-  <div>
+  <div class="print:hidden">
     {#if $userPublickey}
       {#await getLists()}
         Loading your Lists...
@@ -195,7 +196,7 @@ async function getLists(): Promise<NDKEvent[]> {
       {#each event.tags.filter((e) => e[0] === 'image') as image, i}
         <img class="rounded-3xl aspect-video object-cover" src={image[1]} alt="Image {i + 1}" />
       {/each}
-      <div class="flex">
+      <div class="flex print:hidden">
         <div class="flex gap-6 grow">
           <TotalLikes {event} />
           <TotalComments {event} />
@@ -226,6 +227,10 @@ async function getLists(): Promise<NDKEvent[]> {
               <button class="flex gap-2 cursor-pointer" on:click={() => (bookmarkModal = true)}>
                 <BookmarkIcon size={24} />
                 Save
+              </button>
+              <button class="flex gap-2 cursor-pointer" on:click={() => window.print()}>
+                <PrinterIcon size={24} />
+                Print
               </button>
             </button>
           </div>
@@ -266,7 +271,7 @@ async function getLists(): Promise<NDKEvent[]> {
           {@html parseMarkdown(event.content)}
         {/if}
       </div>
-      <div class="flex flex-col items-center gap-4 bg-input py-6 rounded-3xl">
+      <div class="flex flex-col items-center gap-4 bg-input py-6 rounded-3xl print:hidden">
         <h2>Enjoy this recipe?</h2>
         <Button on:click={() => (zapModal = true)}>Zap it</Button>
       </div>
