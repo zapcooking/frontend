@@ -5,7 +5,7 @@
 </script>
 
 <nav
-  class="lg:hidden pt-2 bg-white w-full fixed bottom-0 left-0 grid grid-cols-3 grid-rows-1 text-center"
+  class="lg:hidden pt-2 bg-white w-full fixed bottom-0 left-0 grid grid-cols-3 grid-rows-1 text-center print:hidden"
 >
   <a href="/recent" class="flex flex-col">
     <MagnifyingIcon class="self-center" size={24} />

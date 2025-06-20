@@ -42,6 +42,9 @@ async function subscribe() {
   <h1>Comments</h1>
   <ul class="flex flex-col gap-4">
     {#if events}
+      {#if events.length == 0}
+        No comments yet!
+      {/if}
       {#each events.filter((e) => e.getMatchingTags('e').length === 0) as ev, i}
         <li>
           <Comment
@@ -60,7 +63,8 @@ async function subscribe() {
       Loading...
     {/if}
   </ul>
-  <h2>Reply</h2>
+  <div class="flex flex-col gap-6 print:hidden">
+    <h2>Reply</h2>
   <textarea
     bind:value={commentText}
     class="bg-input border-input focus:ring-primary focus:border-primary rounded-3xl px-8 py-6 transition duration-300"
@@ -68,4 +72,5 @@ async function subscribe() {
     placeholder="This tastes..."
   />
   <Button on:click={postComment} class="self-end">Post Reply</Button>
+  </div>
 </div>
