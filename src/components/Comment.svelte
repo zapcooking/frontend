@@ -5,6 +5,7 @@
   import { format as formatDate } from 'timeago.js';
   import { Avatar, Name } from '@nostr-dev-kit/ndk-svelte-components';
   import Button from './Button.svelte';
+  import { ArrowUp, ArrowUpRight } from 'phosphor-svelte';
 
   export let replies: NDKEvent[] = [];
   export let event: NDKEvent;
@@ -27,7 +28,26 @@
     await ev.publish();
     refresh();
   }
+
+  let parts: string[] = [];
+
+  $: {
+    let text = event.content;
+    const regex = /\bnostr:([a-z0-9]+)\b/gi;
+    parts = text.split(regex);
+  }
+
+  function decodePart(part: string): string {
+    let decoded = nip19.decode(part);
+                if (decoded.type == "nprofile") {
+                  return decoded.data.pubkey;
+                } else if (decoded.type == "npub") {
+                  return decoded.data;
+                }
+                return ""
+  }
 </script>
+
 
 <div id="comments" class="flex gap-4 break-all">
   <a class="flex flex-shrink-0" href="/user/{nip19.npubEncode(event.pubkey)}"
@@ -40,7 +60,15 @@
     </div>
     <div class="flex flex-col gap-3">
       <p class="text-wrap">
-        {event.content}
+        {#each parts as part}
+          {#if part.startsWith("npub1") || part.startsWith("nprofile1")}
+            <a href="/user/{part}" class="text-primary">
+              <Name class="underline" ndk={$ndk} pubkey={decodePart(part)} />
+            </a>
+          {:else}
+            {part}
+          {/if}
+        {/each}
       </p>
       <button
         on:click={() => (showReplyBox = !showReplyBox)}
