@@ -7,7 +7,7 @@
   import { NDKNip07Signer, NDKPrivateKeySigner } from '@nostr-dev-kit/ndk';
   import { goto } from '$app/navigation';
   import Modal from '../../components/Modal.svelte';
-  import { nip06, nip19 } from 'nostr-tools';
+  import { nip19 } from 'nostr-tools';
 
   async function loadUserData() {
     if ($ndk.signer && $userPublickey == '') {
@@ -77,7 +77,11 @@
   async function loginWithSeed() {
     try {
       if (browser && seedInput) {
-        let pk = nip06.privateKeyFromSeedWords(seedInput);
+        // Note: nip06.privateKeyFromSeedWords is not available in this version of nostr-tools
+        // For now, we'll show an error message
+        seedError = 'Seed word login temporarily unavailable - please use private key or browser extension';
+        console.warn('Seed word login not available:', seedInput);
+        return;
         if (!$ndk.signer) {
           if (pk.startsWith('nsec1')) {
             pk = nip19.decode(pk).data.toString();
