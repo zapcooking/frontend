@@ -9,9 +9,25 @@ export const relays = JSON.parse(
 )
 
 const dexieAdapter = new NDKCacheAdapterDexie({ dbName: 'zapcooking-ndk-cache-db' });
-const Ndk: NDK = new NDK({ outboxRelayUrls: ["wss://purplepag.es"], enableOutboxModel: true, explicitRelayUrls: relays, cacheAdapter: dexieAdapter });
+const Ndk: NDK = new NDK({ 
+  outboxRelayUrls: ["wss://purplepag.es"], 
+  enableOutboxModel: true, 
+  explicitRelayUrls: relays, 
+  cacheAdapter: dexieAdapter,
+  // Add connection timeout and retry settings
+  connectTimeout: 10000,
+  autoConnectUserRelays: false
+});
+
 browser && (async () => {
-  await Ndk.connect();
+  try {
+    console.log('🔗 Connecting to NDK relays...');
+    await Ndk.connect();
+    console.log('✅ NDK connected successfully');
+  } catch (error) {
+    console.error('❌ NDK connection failed:', error);
+    // Don't throw here, let individual operations handle connection failures
+  }
 })()
 
 export const ndk: Writable<NDK> = writable(Ndk);
