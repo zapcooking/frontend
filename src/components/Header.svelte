@@ -56,6 +56,7 @@
 
   <div class="hidden lg:flex gap-10 self-center font-semibold  print:hidden">
     <a class="transition duration-300 hover:text-primary" href="/recent">Discover</a>
+    <a class="transition duration-300 hover:text-primary" href="/foodstr">Feed</a>
     <a class="transition duration-300 hover:text-primary" href="/tags">Categories</a>
   </div>
 
