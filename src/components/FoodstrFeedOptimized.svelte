@@ -5,8 +5,8 @@
   import { Avatar } from '@nostr-dev-kit/ndk-svelte-components';
   import type { NDKEvent, NDKSubscription } from '@nostr-dev-kit/ndk';
   import NoteTotalLikes from './NoteTotalLikes.svelte';
-  import NoteTotalComments from './NoteTotalComments.svelte';
   import NoteTotalZaps from './NoteTotalZaps.svelte';
+  import InlineComments from './InlineComments.svelte';
   import ZapModal from './ZapModal.svelte';
   import NoteContent from './NoteContent.svelte';
 
@@ -511,8 +511,8 @@
   {:else}
     <div class="space-y-0">
       {#each events as event (event.id)}
-        <article class="border-b border-gray-200 py-6 first:pt-0">
-          <div class="flex space-x-3">
+        <article class="border-b border-gray-200 py-4 sm:py-6 first:pt-0">
+          <div class="flex space-x-3 px-2 sm:px-0">
             <!-- Avatar -->
             <div class="flex-shrink-0">
               <Avatar
@@ -544,9 +544,9 @@
               {#if getImageUrls(event).length > 0}
                 {@const mediaUrls = getImageUrls(event)}
                 
-                <div class="mb-3">
+                <div class="mb-3 -mx-2 sm:mx-0">
                   <!-- Single image container -->
-                  <div class="relative overflow-hidden rounded-lg border border-gray-200 bg-gray-100 h-64">
+                  <div class="relative overflow-hidden rounded-none sm:rounded-lg border-0 sm:border border-gray-200 bg-gray-100 h-48 sm:h-64">
                     {#each mediaUrls as imageUrl, index}
                       <div 
                         class="absolute inset-0 transition-opacity duration-300"
@@ -638,15 +638,19 @@
               {/if}
 
               <!-- Actions: Likes, Comments, Zaps -->
-              <div class="flex items-center space-x-4 text-sm text-gray-500">
-                <NoteTotalLikes {event} />
-                <NoteTotalComments {event} />
-                <button 
-                  class="cursor-pointer hover:bg-input rounded px-0.5 transition duration-300"
-                  on:click={() => openZapModal(event)}
-                >
-                  <NoteTotalZaps {event} />
-                </button>
+              <div class="space-y-2">
+                <div class="flex items-center space-x-3 sm:space-x-4 text-sm text-gray-500 px-2 sm:px-0">
+                  <NoteTotalLikes {event} />
+                  <button 
+                    class="cursor-pointer hover:bg-input rounded px-0.5 transition duration-300"
+                    on:click={() => openZapModal(event)}
+                  >
+                    <NoteTotalZaps {event} />
+                  </button>
+                </div>
+                
+                <!-- Inline Comments -->
+                <InlineComments {event} />
               </div>
             </div>
           </div>
