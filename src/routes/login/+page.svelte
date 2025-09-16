@@ -8,7 +8,7 @@
   import { goto } from '$app/navigation';
   import Modal from '../../components/Modal.svelte';
   import { nip19 } from 'nostr-tools';
-  import { privateKeyFromSeedWords } from 'nostr-tools/nip06';
+  import * as nip06 from 'nostr-tools/nip06';
 
   async function loadUserData() {
     if ($ndk.signer && $userPublickey == '') {
@@ -78,7 +78,7 @@
   async function loginWithSeed() {
     try {
       if (browser && seedInput) {
-        let pk = privateKeyFromSeedWords(seedInput);
+        let pk = nip06.privateKeyFromSeedWords(seedInput);
         if (!$ndk.signer) {
           if (pk.startsWith('nsec1')) {
             pk = nip19.decode(pk).data.toString();
