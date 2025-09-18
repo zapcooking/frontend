@@ -5,6 +5,7 @@
   import { Avatar } from '@nostr-dev-kit/ndk-svelte-components';
   import type { NDKEvent, NDKSubscription } from '@nostr-dev-kit/ndk';
   import NoteTotalLikes from './NoteTotalLikes.svelte';
+  import NoteTotalComments from './NoteTotalComments.svelte';
   import NoteTotalZaps from './NoteTotalZaps.svelte';
   import InlineComments from './InlineComments.svelte';
   import ZapModal from './ZapModal.svelte';
@@ -442,8 +443,10 @@
   }
 
   function openZapModal(event: NDKEvent) {
+    console.log('Opening zap modal for event:', event.id);
     selectedEvent = event;
     zapModal = true;
+    console.log('Zap modal state:', zapModal);
   }
 </script>
 
@@ -641,6 +644,7 @@
               <div class="space-y-2">
                 <div class="flex items-center space-x-3 sm:space-x-4 text-sm text-gray-500 px-2 sm:px-0">
                   <NoteTotalLikes {event} />
+                  <NoteTotalComments {event} />
                   <button 
                     class="cursor-pointer hover:bg-input rounded px-0.5 transition duration-300"
                     on:click={() => openZapModal(event)}
@@ -680,10 +684,7 @@
 <!-- Zap Modal -->
 {#if zapModal && selectedEvent}
   <ZapModal 
+    bind:open={zapModal}
     event={selectedEvent} 
-    on:close={() => {
-      zapModal = false;
-      selectedEvent = null;
-    }} 
   />
 {/if}
