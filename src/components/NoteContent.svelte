@@ -2,6 +2,10 @@
   import { nip19 } from 'nostr-tools';
   import { goto } from '$app/navigation';
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
+  import ProfileLink from './ProfileLink.svelte';
+  import NoteEmbed from './NoteEmbed.svelte';
+  import { processContentWithProfiles } from '$lib/contentProcessor';
+  import { onMount } from 'svelte';
 
   export let content: string;
   export let className: string = '';
@@ -69,6 +73,11 @@
   }
 
   $: parsedContent = parseContent(content);
+
+  // Preload profiles when content changes
+  $: if (content) {
+    processContentWithProfiles(content);
+  }
 </script>
 
 <div class="whitespace-pre-wrap break-words {className}">
@@ -85,12 +94,18 @@
         {part.content}
       </a>
     {:else if part.type === 'nostr'}
-      <button
-        class="text-blue-500 hover:text-blue-700 hover:underline cursor-pointer"
-        on:click={() => handleNostrClick(part.content)}
-      >
-        {part.content}
-      </button>
+      {#if part.prefix === 'nprofile1'}
+        <ProfileLink nostrString={part.content} />
+      {:else if part.prefix === 'nevent1'}
+        <NoteEmbed nostrString={part.content} />
+      {:else}
+        <button
+          class="text-blue-500 hover:text-blue-700 hover:underline cursor-pointer"
+          on:click={() => handleNostrClick(part.content)}
+        >
+          {part.content}
+        </button>
+      {/if}
     {/if}
   {/each}
 </div>

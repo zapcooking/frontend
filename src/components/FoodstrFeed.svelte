@@ -5,6 +5,7 @@
   import { formatDistanceToNow } from 'date-fns';
   import { Avatar } from '@nostr-dev-kit/ndk-svelte-components';
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
+  import AuthorName from './AuthorName.svelte';
 
   let events: NDKEvent[] = [];
   let loading = true;
@@ -359,14 +360,6 @@
     return formatDistanceToNow(new Date(timestamp * 1000), { addSuffix: true });
   }
 
-  function getDisplayName(event: NDKEvent): string {
-    const metadata = event.author?.profile;
-    const pubkey = event.author?.hexpubkey;
-    if (metadata?.display_name) return metadata.display_name;
-    if (metadata?.name) return metadata.name;
-    if (pubkey) return String(pubkey).slice(0, 8);
-    return 'Anonymous';
-  }
 
   function getProfileImage(event: NDKEvent): string | undefined {
     return event.author?.profile?.image;
@@ -505,9 +498,7 @@
             <div class="flex-1 min-w-0">
               <!-- Header -->
               <div class="flex items-center space-x-2 mb-2">
-                <span class="font-semibold text-sm text-gray-900">
-                  {getDisplayName(event)}
-                </span>
+                <AuthorName {event} />
                 <span class="text-gray-500 text-sm">·</span>
                 <span class="text-gray-500 text-sm">
                   {event.created_at ? formatTimeAgo(event.created_at) : 'Unknown time'}
