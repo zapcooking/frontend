@@ -14,8 +14,6 @@ const Ndk: NDK = new NDK({
   enableOutboxModel: true, 
   explicitRelayUrls: relays, 
   cacheAdapter: dexieAdapter,
-  // Add connection timeout and retry settings
-  connectTimeout: 10000,
   autoConnectUserRelays: false
 });
 
