@@ -10,7 +10,7 @@
 >
   <a href="/recent" class="flex flex-col">
     <MagnifyingIcon class="self-center" size={24} />
-    Discover
+    Recipes
   </a>
   <a href="/foodstr" class="flex flex-col">
     <UtensilsIcon class="self-center" size={24} />
