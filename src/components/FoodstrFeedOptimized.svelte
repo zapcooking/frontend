@@ -27,8 +27,7 @@
   let lastEventTime: number = 0;
   
   // Caching
-  const CACHE_KEY = 'foodstr_feed_cache';
-  const CACHE_EXPIRY = 5 * 60 * 1000; // 5 minutes
+  let cacheLoaded = false;
   
   // Carousel state - tracks current slide for each event
   let carouselStates: { [eventId: string]: number } = {};
@@ -74,7 +73,10 @@
     batchTimeout = setTimeout(processBatch, 300); // 300ms debounce
   }
 
-  // Caching functions
+  // Simple caching functions (restored for stability)
+  const CACHE_KEY = 'foodstr_feed_cache';
+  const CACHE_EXPIRY = 5 * 60 * 1000; // 5 minutes
+
   function cacheEvents() {
     if (typeof window === 'undefined') return;
     
@@ -138,22 +140,39 @@
     }
   }
 
+  // Utility function to handle image/video errors
+  function handleMediaError(e: Event) {
+    const target = e.target;
+    if (target && 'style' in target) {
+      (target as any).style.display = 'none';
+    }
+  }
+
   async function loadFoodstrFeed(useCache = true) {
     try {
-      // Try to load from cache first
+      const filter = {
+        kinds: [1],
+        '#t': ['foodstr', 'cook', 'cookstr', 'zapcooking', 'cooking', 'drinkstr', 'foodies', 'carnivor', 'carnivorediet'],
+        limit: 25,
+        since: Math.floor(Date.now() / 1000) - (7 * 24 * 60 * 60)
+      };
+
+      // Try to load from cache first (simplified for now)
       if (useCache && loadCachedEvents()) {
         loading = false;
         error = false;
+        cacheLoaded = true;
         debugInfo = `Loaded ${events.length} events from cache`;
         
-        // Still fetch fresh data in background
-        setTimeout(() => fetchFreshData(), 100);
+          // Trigger background refresh
+          setTimeout(() => fetchFreshData(), 100);
         return;
       }
       
       loading = true;
       error = false;
       events = [];
+      cacheLoaded = false;
       
       console.log('🍽️ Loading cooking feed...');
       debugInfo = 'Loading cooking feed...';
@@ -162,14 +181,6 @@
       if (!$ndk) {
         throw new Error('NDK not initialized');
       }
-      
-      // Optimized filter with reduced initial limit
-      const filter = {
-        kinds: [1],
-        '#t': ['foodstr', 'cook', 'cookstr', 'zapcooking', 'cooking', 'drinkstr', 'foodies', 'carnivor', 'carnivorediet'],
-        limit: 25, // Reduced from 20 to 25 for better initial load
-        since: Math.floor(Date.now() / 1000) - (7 * 24 * 60 * 60) // Only last 7 days
-      };
       
       console.log('🔍 Filter:', filter);
       
@@ -318,6 +329,7 @@
       if (newEvents.length > 0) {
         events = [...events, ...newEvents];
         hasMore = newEvents.length === 20;
+        // Cache the updated events
         cacheEvents();
       } else {
         hasMore = false;
@@ -554,11 +566,7 @@
                             class="w-full h-full object-cover"
                             loading="lazy"
                             decoding="async"
-                            on:error={(e) => {
-                              console.log('Image failed to load:', imageUrl);
-                              const target = e.target;
-                              if (target && target.style) target.style.display = 'none';
-                            }}
+                            on:error={handleMediaError}
                           />
                         {:else if isVideoUrl(imageUrl)}
                           <video 
@@ -566,11 +574,7 @@
                             controls 
                             class="w-full h-full object-cover"
                             preload="metadata"
-                            on:error={(e) => {
-                              console.log('Video failed to load:', imageUrl);
-                              const target = e.target;
-                              if (target && target.style) target.style.display = 'none';
-                            }}
+                            on:error={handleMediaError}
                           >
                             Your browser does not support the video tag.
                           </video>
