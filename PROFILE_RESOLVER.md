@@ -186,3 +186,4 @@ clearProfileCache();
 ## License
 
 MIT License - Same as the main project.
+

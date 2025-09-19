@@ -84,6 +84,11 @@
       </Button>
     {/if}
     <div class="self-center print:hidden">
+      <a href="lightning:sethd@getalby.com" class="text-white rounded-full bg-gradient-to-r from-yellow-400 to-orange-500 hover:from-yellow-500 hover:to-orange-600 px-4 py-2.5 font-semibold transition duration-300 flex items-center gap-2">
+        Support Us ⚡
+      </a>
+    </div>
+    <div class="self-center print:hidden">
       {#if $userPublickey !== ''}
         <button class="flex self-center" on:click={() => (dropdownActive = !dropdownActive)}>
           <Avatar
