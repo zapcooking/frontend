@@ -3,7 +3,7 @@
   import { nip19 } from 'nostr-tools';
   import { ndk } from '$lib/nostr';
   import { format as formatDate } from 'timeago.js';
-  import { Avatar } from '@nostr-dev-kit/ndk-svelte-components';
+  import CustomAvatar from './CustomAvatar.svelte';
   import { resolveProfileByPubkey, formatDisplayName } from '$lib/profileResolver';
   import Button from './Button.svelte';
   import CommentLikes from './CommentLikes.svelte';
@@ -51,7 +51,7 @@
 
 <div id="comments" class="flex gap-4 break-all">
   <a class="flex flex-shrink-0" href="/user/{nip19.npubEncode(event.pubkey)}"
-    ><Avatar class="rounded-full w-12 h-12" ndk={$ndk} pubkey={event.pubkey} /></a
+    ><CustomAvatar className="rounded-full" pubkey={event.pubkey} size={48} /></a
   >
   <div class="flex flex-col self-center">
     <div class="flex gap-2">

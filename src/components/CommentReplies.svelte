@@ -2,7 +2,8 @@
   import { onMount } from 'svelte';
   import { ndk, userPublickey } from '$lib/nostr';
   import { NDKEvent } from '@nostr-dev-kit/ndk';
-  import { Avatar, Name } from '@nostr-dev-kit/ndk-svelte-components';
+  import CustomAvatar from './CustomAvatar.svelte';
+  import CustomName from './CustomName.svelte';
   import { nip19 } from 'nostr-tools';
   import { format as formatDate } from 'timeago.js';
   import Button from './Button.svelte';
@@ -157,15 +158,15 @@
         {:else}
           {#each replies as reply}
             <div class="flex gap-2">
-              <Avatar
-                class="h-6 w-6 rounded-full flex-shrink-0"
-                ndk={$ndk}
+              <CustomAvatar
+                className="flex-shrink-0"
                 pubkey={reply.pubkey}
+                size={24}
               />
               <div class="flex-1 min-w-0">
                 <div class="flex items-center gap-1 mb-1">
                   <span class="font-medium text-xs text-gray-900">
-                    <Name ndk={$ndk} pubkey={reply.pubkey} />
+                    <CustomName pubkey={reply.pubkey} />
                   </span>
                   <span class="text-xs text-gray-500">
                     {formatDate(new Date((reply.created_at || 0) * 1000))}

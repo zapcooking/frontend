@@ -57,8 +57,8 @@
       reactionEvent.kind = 7; // Reaction kind
       reactionEvent.content = '+'; // Reaction content
       reactionEvent.tags = [
-        ['a', `${event.kind}:${event.author.hexpubkey}:${event.tags.find((e) => e[0] == 'd')?.[1]}`], // Reference the recipe
-        ['p', event.pubkey] // Reference the original author
+        ['a', `${event.kind}:${event.author?.hexpubkey || event.pubkey}:${event.tags.find((e: any) => e[0] == 'd')?.[1]}`], // Reference the recipe
+        ['p', event.author?.hexpubkey || event.pubkey] // Reference the original author
       ];
       
       console.log('Publishing reaction:', reactionEvent);

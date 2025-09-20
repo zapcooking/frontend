@@ -5,9 +5,14 @@
   import { nip19 } from 'nostr-tools';
   import { goto } from '$app/navigation';
   import Recipe from '../../../components/Recipe/Recipe.svelte';
+  import type { PageData } from './$types';
+
+  export const data: PageData = {} as PageData;
 
   let event: NDKEvent | null = null;
   let naddr: string = '';
+  let loading = true;
+  let error: string | null = null;
 
   $: {
     if ($page.params.slug) {
@@ -16,45 +21,77 @@
   }
 
   async function loadData() {
-    if ($page.params.slug.startsWith('naddr1')) {
-      const a = nip19.decode($page.params.slug);
-      if (!(a.type == 'naddr')) {
-        throw new Error();
-      }
-      const b = a.data;
-      naddr = nip19.naddrEncode({
-        identifier: b.identifier,
-        pubkey: b.pubkey,
-        kind: 30023
-      });
-      let e = await $ndk.fetchEvent({
-        '#d': [b.identifier],
-        authors: [b.pubkey],
-        kinds: [30023]
-      });
-      if (e) {
-        event = e;
-      }
-    } else {
-      let e = await $ndk.fetchEvent($page.params.slug);
-      if (e) {
-        event = e;
-        const id = e.tags.find((z) => z[0] == 'd')?.[1];
-        if (!id || !e.kind) {
-          throw new Error();
+    if (!$page.params.slug) return;
+    
+    loading = true;
+    error = null;
+    
+    try {
+      if ($page.params.slug.startsWith('naddr1')) {
+        const a = nip19.decode($page.params.slug);
+        if (a.type !== 'naddr') {
+          throw new Error('Invalid naddr format');
         }
+        const b = a.data;
         naddr = nip19.naddrEncode({
-          identifier: id,
-          kind: e.kind,
-          pubkey: e.author.pubkey
+          identifier: b.identifier,
+          pubkey: b.pubkey,
+          kind: 30023
         });
-        const c = nip19.naddrEncode({
-          identifier: id,
-          kind: e.kind,
-          pubkey: e.author.pubkey
+        
+        // Add timeout protection for recipe loading
+        const fetchPromise = $ndk.fetchEvent({
+          '#d': [b.identifier],
+          authors: [b.pubkey],
+          kinds: [30023]
         });
-        goto(`/recipe/${c}`);
+        const timeoutPromise = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Recipe loading timeout - relays may be unreachable')), 10000)
+        );
+        
+        let e = await Promise.race([fetchPromise, timeoutPromise]);
+        if (e) {
+          event = e;
+          loading = false;
+          console.log('✅ Recipe loaded successfully:', e.id);
+        } else {
+          loading = false;
+          error = 'Recipe not found';
+          console.warn('⚠️ Recipe not found:', b.identifier);
+        }
+      } else {
+        // Add timeout protection for direct event ID loading
+        const fetchPromise = $ndk.fetchEvent($page.params.slug);
+        const timeoutPromise = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Recipe loading timeout - relays may be unreachable')), 10000)
+        );
+        
+        let e = await Promise.race([fetchPromise, timeoutPromise]);
+        if (e) {
+          event = e;
+          const id = e.tags.find((z: any) => z[0] == 'd')?.[1];
+          if (!id || !e.kind) {
+            throw new Error('Invalid recipe event - missing d tag or kind');
+          }
+          naddr = nip19.naddrEncode({
+            identifier: id,
+            kind: e.kind,
+            pubkey: e.author.pubkey
+          });
+          const c = nip19.naddrEncode({
+            identifier: id,
+            kind: e.kind,
+            pubkey: e.author.pubkey
+          });
+          loading = false;
+          goto(`/recipe/${c}`);
+        }
       }
+    } catch (err) {
+      console.error('❌ Error loading recipe:', err);
+      loading = false;
+      error = err instanceof Error ? err.message : 'Failed to load recipe';
+      event = null;
     }
   }
 
@@ -93,9 +130,24 @@
   {/key}
 </svelte:head>
 
-{#if event}
+{#if loading}
+  <div class="flex justify-center items-center h-screen">
+    <img class="w-64" src="/pan-animated.svg" alt="Loading" />
+  </div>
+{:else if error}
+  <div class="flex flex-col justify-center items-center h-screen gap-4">
+    <h1 class="text-2xl font-bold text-red-600">Recipe Loading Error</h1>
+    <p class="text-gray-600">{error}</p>
+    <button 
+      class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+      on:click={() => loadData()}
+    >
+      Try Again
+    </button>
+  </div>
+{:else if event}
   <Recipe {event} />
-  {:else}
+{:else}
   <div class="flex justify-center items-center h-screen">
     <img class="w-64" src="/pan-animated.svg" alt="Loading" />
   </div>

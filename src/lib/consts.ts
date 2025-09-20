@@ -1,12 +1,10 @@
 export const standardRelays = [
-  'wss://kitchen.zap.cooking',
-  'wss://nostr.mom',
-  'wss://relay.nostr.band',
-  'wss://relay.primal.net',
-  'wss://relay.damus.io',
-  'wss://nos.lol',
-  'wss://relay.snort.social',
-  'wss://purplepag.es'
+  'wss://relay.damus.io',      // 214ms - Fastest
+  'wss://nostr.mom',           // 349ms
+  'wss://kitchen.zap.cooking', // 871ms - Your relay
+  'wss://nos.lol',             // 365ms
+  'wss://purplepag.es',        // 370ms
+  'wss://relay.nostr.band'     // 526ms
 ];
 
 export type recipeTag =
@@ -21,6 +19,9 @@ export type recipeTagSimple = {
   title: string;
   emoji?: string;
 };
+
+// Default profile image URL
+export const DEFAULT_PROFILE_IMAGE = 'https://zap.cooking/default-pfp.jpg';
 
 export const recipeTags: recipeTagSimple[] = [
   { title: 'Alcohol', emoji: '🍸' },

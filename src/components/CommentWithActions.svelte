@@ -3,7 +3,7 @@
   import { nip19 } from 'nostr-tools';
   import { ndk } from '$lib/nostr';
   import { format as formatDate } from 'timeago.js';
-  import { Avatar } from '@nostr-dev-kit/ndk-svelte-components';
+  import CustomAvatar from './CustomAvatar.svelte';
   import { resolveProfileByPubkey, formatDisplayName } from '$lib/profileResolver';
   import CommentLikes from './CommentLikes.svelte';
   import CommentReplies from './CommentReplies.svelte';
@@ -31,10 +31,10 @@
 </script>
 
 <div class="flex gap-3 mb-3">
-  <Avatar
-    class="h-8 w-8 rounded-full flex-shrink-0"
-    ndk={$ndk}
+  <CustomAvatar
+    className="flex-shrink-0"
     pubkey={event.pubkey}
+    size={32}
   />
   <div class="flex-1 min-w-0">
     <div class="flex items-center gap-2 mb-1">

@@ -4,7 +4,7 @@
   import { nip19 } from 'nostr-tools';
   import { ndk } from '$lib/nostr';
   import { onMount } from 'svelte';
-  import { Avatar } from '@nostr-dev-kit/ndk-svelte-components';
+  import CustomAvatar from '../../components/CustomAvatar.svelte';
   import { formatDistanceToNow } from 'date-fns';
   import NoteContent from '../../components/NoteContent.svelte';
   import NoteTotalLikes from '../../components/NoteTotalLikes.svelte';
@@ -12,6 +12,9 @@
   import NoteTotalZaps from '../../components/NoteTotalZaps.svelte';
   import ZapModal from '../../components/ZapModal.svelte';
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
+  import type { PageData } from './$types';
+
+  export const data: PageData = {} as PageData;
 
   let decoded: any = null;
   let event: NDKEvent | null = null;
@@ -23,6 +26,14 @@
     const nip19Id = $page.params.nip19;
     
     if (!nip19Id) {
+      error = true;
+      loading = false;
+      return;
+    }
+
+    // Validate NIP-19 identifier format
+    if (nip19Id.length < 8 || !nip19Id.match(/^[a-z0-9]+$/)) {
+      console.warn('Invalid NIP-19 identifier format:', nip19Id);
       error = true;
       loading = false;
       return;
@@ -43,7 +54,7 @@
         const eventArray = Array.from(events);
         
         if (eventArray.length > 0) {
-          event = eventArray[0];
+          event = eventArray[0] as NDKEvent;
         } else {
           error = true;
         }
@@ -61,9 +72,9 @@
   function getDisplayName(event: NDKEvent): string {
     const metadata = event.author?.profile;
     const pubkey = event.author?.hexpubkey;
-    if (metadata?.display_name) return metadata.display_name;
-    if (metadata?.name) return metadata.name;
-    if (pubkey) return String(pubkey).slice(0, 8);
+    if (metadata?.display_name) return String(metadata.display_name);
+    if (metadata?.name) return String(metadata.name);
+    if (pubkey) return pubkey.slice(0, 8);
     return 'Anonymous';
   }
 
@@ -97,7 +108,7 @@
           <p class="text-sm">The referenced note could not be loaded.</p>
         </div>
         <button 
-          on:click={() => goto('/foodstr')}
+          on:click={() => goto('/feed')}
           class="px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors"
         >
           Back to Feed
@@ -109,10 +120,10 @@
       <div class="flex space-x-3">
         <!-- Avatar -->
         <div class="flex-shrink-0">
-          <Avatar
-            class="h-10 w-10 rounded-full cursor-pointer"
-            ndk={$ndk}
+          <CustomAvatar
+            className="cursor-pointer"
             pubkey={event.author.hexpubkey}
+            size={40}
           />
         </div>
 
@@ -152,7 +163,7 @@
     <!-- Back to Feed -->
     <div class="py-4 text-center">
       <button 
-        on:click={() => goto('/foodstr')}
+        on:click={() => goto('/feed')}
         class="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
       >
         Back to Feed

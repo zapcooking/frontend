@@ -40,7 +40,12 @@ export class ZapManager {
 
   constructor(ndk: NDK) {
     this.ndk = ndk;
-    this.initializeWebLN();
+    // Only initialize WebLN in browser environment
+    if (typeof window !== 'undefined') {
+      this.initializeWebLN().catch(error => {
+        console.log('WebLN not available:', error.message);
+      });
+    }
   }
 
   private async initializeWebLN() {
@@ -48,7 +53,7 @@ export class ZapManager {
       if (typeof window !== 'undefined' && (window as any).webln) {
         this.webln = (window as any).webln;
         this.weblnAvailable = true;
-      } else {
+      } else if (typeof window !== 'undefined') {
         this.webln = await requestProvider();
         this.weblnAvailable = true;
       }
@@ -563,7 +568,8 @@ export class ZapManager {
     console.log('Fetching zap totals with filter:', filter);
     
     try {
-      const receipts = await this.ndk.fetchEvents(filter);
+      const receiptsSet = await this.ndk.fetchEvents(filter);
+      const receipts = Array.from(receiptsSet);
       console.log('Found zap receipts:', receipts.length);
       
       let total = 0;
