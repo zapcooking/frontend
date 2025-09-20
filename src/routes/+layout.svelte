@@ -1,69 +1,34 @@
-<script>
-  import { onMount } from 'svelte';
+<script lang="ts">
+  import { onMount, onDestroy } from 'svelte';
   import '../app.css';
   import Header from '../components/Header.svelte';
   import { browser } from '$app/environment';
-  import { NDKNip07Signer, NDKPrivateKeySigner } from '@nostr-dev-kit/ndk';
   import { ndk, userPublickey } from '$lib/nostr';
   import BottomNav from '../components/BottomNav.svelte';
+  import { createAuthManager, type AuthState } from '$lib/authManager';
 
-  async function loadUserData() {
-    if ($ndk.signer && $userPublickey == '') {
-      const newUserPublicKey = (await $ndk.signer.user()).hexpubkey;
-      localStorage.setItem('nostrcooking_loggedInPublicKey', newUserPublicKey);
-      $userPublickey = newUserPublicKey;
-      userPublickey.set($userPublickey);
-    }
-    if ($ndk.signer) {
-      console.log('signer activated');
-    }
-  }
-
-  async function tryLoginWithNIP07() {
-    if (browser) {
-      if (!$ndk.signer) {
-        try {
-          const signer = new NDKNip07Signer();
-          $ndk.signer = signer;
-          ndk.set($ndk);
-        } catch (err) {}
-      }
-      if (!$userPublickey) {
-        loadUserData();
-      }
-    }
-  }
-
-  async function tryAuthenticateLocalPrivatekey() {
-    if (!$ndk.signer) {
-      try {
-        const sk = localStorage.getItem('nostrcooking_privateKey');
-        if (sk) {
-          const signer = new NDKPrivateKeySigner(sk);
-          $ndk.signer = signer;
-          ndk.set($ndk);
-        }
-      } catch (err) {}
-    }
-    if (!$userPublickey) {
-      loadUserData();
-    }
-  }
+  let authManager = createAuthManager($ndk);
+  let authState: AuthState = authManager.getState();
+  let unsubscribe: (() => void) | null = null;
 
   onMount(() => {
-    setTimeout(async () => {
-      const pk = localStorage.getItem('nostrcooking_loggedInPublicKey');
-      const sk = localStorage.getItem('nostrcooking_privateKey');
-
-      if (sk && pk) {
-        tryAuthenticateLocalPrivatekey();
-      } else if (pk) {
-        tryLoginWithNIP07();
+    // Subscribe to auth state changes
+    unsubscribe = authManager.subscribe((state) => {
+      authState = state;
+      
+      // Update the legacy userPublickey store for compatibility
+      if (state.isAuthenticated && state.publicKey) {
+        userPublickey.set(state.publicKey);
       } else {
-        localStorage.removeItem('nostrcooking_loggedInPublicKey');
-        localStorage.removeItem('nostrcooking_privateKey');
+        userPublickey.set('');
       }
-    }, 5);
+    });
+  });
+
+  onDestroy(() => {
+    if (unsubscribe) {
+      unsubscribe();
+    }
   });
 </script>
 

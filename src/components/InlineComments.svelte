@@ -6,6 +6,7 @@
   import { nip19 } from 'nostr-tools';
   import { format as formatDate } from 'timeago.js';
   import Button from './Button.svelte';
+  import CommentWithActions from './CommentWithActions.svelte';
 
   export let event: NDKEvent;
   
@@ -252,26 +253,7 @@
           <div class="text-center py-4 text-sm text-gray-500">No comments yet</div>
         {:else}
           {#each comments as comment}
-            <div class="flex gap-3">
-              <Avatar
-                class="h-8 w-8 rounded-full flex-shrink-0"
-                ndk={$ndk}
-                pubkey={comment.pubkey}
-              />
-              <div class="flex-1 min-w-0">
-                <div class="flex items-center gap-2 mb-1">
-                  <span class="font-medium text-sm text-gray-900">
-                    <Name ndk={$ndk} pubkey={comment.pubkey} />
-                  </span>
-                  <span class="text-xs text-gray-500">
-                    {formatDate(new Date((comment.created_at || 0) * 1000))}
-                  </span>
-                </div>
-                <p class="text-sm text-gray-700 leading-relaxed">
-                  {comment.content}
-                </p>
-              </div>
-            </div>
+            <CommentWithActions event={comment} />
           {/each}
         {/if}
       </div>

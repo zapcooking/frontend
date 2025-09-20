@@ -1,66 +1,105 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
-  import { getPublicKey, nip19 } from 'nostr-tools';
-  import { privateKeyFromSeedWords, generateSeedWords } from 'nostr-tools/nip06';
+  import { nip19 } from 'nostr-tools';
   import ImageUploader from '../../components/ImageUploader.svelte';
-  import { NDKEvent, NDKPrivateKeySigner } from '@nostr-dev-kit/ndk';
+  import { NDKEvent } from '@nostr-dev-kit/ndk';
   import { browser } from '$app/environment';
   import { ndk, userPublickey } from '$lib/nostr';
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import Button from '../../components/Button.svelte';
+  import { createAuthManager, type AuthState } from '$lib/authManager';
   import { Fetch } from 'hurdak';
 
+  let authManager = createAuthManager($ndk);
+  let authState: AuthState = authManager.getState();
+  let unsubscribe: (() => void) | null = null;
+
   let step = 0;
-  let seed = '';
-  let privateKey = '';
-  //let nsec = "";
+  let generatedKeys: { privateKey: Uint8Array; publicKey: string; seedPhrase: string } | null = null;
   let npub = '';
 
   let disableStepButtons = false;
   let name = '';
+  let username = '';
   let picture = 'https://zap.cooking/default-pfp.jpg';
   let about = '';
 
-  if ($userPublickey !== '') {
-    goto('/settings');
+  onMount(() => {
+    // Subscribe to auth state changes
+    unsubscribe = authManager.subscribe((state) => {
+      authState = state;
+      
+      // Update the legacy userPublickey store for compatibility
+      if (state.isAuthenticated && state.publicKey) {
+        userPublickey.set(state.publicKey);
+      } else {
+        userPublickey.set('');
+      }
+    });
+
+    // Redirect if already authenticated
+    if (authState.isAuthenticated) {
+      goto('/settings');
+    }
+  });
+
+  onDestroy(() => {
+    if (unsubscribe) {
+      unsubscribe();
+    }
+  });
+
+  function generateNewKeys() {
+    generatedKeys = authManager.generateKeyPair();
+    npub = nip19.npubEncode(generatedKeys.publicKey);
   }
 
-  async function loginWithPrivateKey(privateKey: string) {
-    if (browser && privateKey) {
-      let pk = privateKey;
-      if (!$ndk.signer) {
-        if (pk.startsWith('nsec1')) {
-          pk = nip19.decode(pk).data.toString();
-        }
-        const signer = new NDKPrivateKeySigner(pk);
-        $ndk.signer = signer;
-        ndk.set($ndk);
-      }
-      if ($ndk.signer) {
-        localStorage.setItem('nostrcooking_privateKey', pk);
-      }
-      if ($ndk.signer && $userPublickey == '') {
-        const newUserPublicKey = (await $ndk.signer.user()).hexpubkey;
-        localStorage.setItem('nostrcooking_loggedInPublicKey', newUserPublicKey);
-        $userPublickey = newUserPublicKey;
-        userPublickey.set($userPublickey);
-      }
+  function copyToClipboard(text: string) {
+    if (browser) {
+      navigator.clipboard.writeText(text);
     }
   }
 
   async function continuestep() {
     disableStepButtons = true;
+    
     if (step == 1) {
-      privateKey = privateKeyFromSeedWords(seed);
-      npub = nip19.npubEncode(getPublicKey(privateKey));
-      await loginWithPrivateKey(privateKey);
+      // Generate keys and authenticate
+      if (!generatedKeys) {
+        generateNewKeys();
+      }
+      if (generatedKeys) {
+        // Convert Uint8Array to hex string for authentication
+        const privateKeyHex = Array.from(generatedKeys.privateKey)
+          .map(b => b.toString(16).padStart(2, '0'))
+          .join('');
+        await authManager.authenticateWithPrivateKey(privateKeyHex);
+      }
     }
+    
     if (step == 2 && name !== '') {
+      // Create profile
       const metaEvent = new NDKEvent($ndk);
       metaEvent.kind = 0;
       metaEvent.tags = [];
-      metaEvent.content = JSON.stringify({ displayName: name, picture });
+      
+      // Build profile content with username
+      const profileContent: any = { 
+        displayName: name, 
+        picture 
+      };
+      
+      // Add username if provided with NIP-05 verification
+      if (username.trim()) {
+        profileContent.name = username.trim();
+        profileContent.nip05 = `${username.trim()}@zap.cooking`;
+      }
+      
+      metaEvent.content = JSON.stringify(profileContent);
       let relays = await metaEvent.publish();
+      
+      // Small delay to allow relays to propagate
+      await new Promise(resolve => setTimeout(resolve, 1000));
       relays.forEach((relay) => {
         relay.once('published', () => {
           console.log('published to', relay);
@@ -70,9 +109,11 @@
         });
       });
     }
+    
     if (step == 3) {
       goto('/');
     }
+    
     step++;
     disableStepButtons = false;
   }
@@ -86,9 +127,6 @@
     disableStepButtons = false;
   }
 
-  onMount(async () => {
-    seed = generateSeedWords();
-  });
 
   let input: HTMLElement, listener;
 
@@ -164,21 +202,93 @@
       <li><a target="_blank" rel="noopener noreferrer" href="https://nostr.com">nostr.com</a></li>
       <li><a target="_blank" rel="noopener noreferrer" href="https://nostr.how">nostr.how</a></li>
     </ul>
-    <p>
-      Here, you can securely <button
-        class="inline underline"
-        on:click={() => (seed = generateSeedWords())}>generate</button
-      > 12 seed words ("seed pharse"). These seed words serve as your private key; which will serve as
-      your permanent password for the nostr network; It's crucial to store them in a secure location
-      and avoid sharing them with anyone.
-    </p>
-    <input bind:value={seed} type="text" disabled class="input w-full" />
+    <div class="space-y-4">
+      <div class="bg-red-50 border border-red-200 rounded-md p-4">
+        <div class="text-sm font-medium text-red-800 mb-2">🔒 Security Warning</div>
+        <div class="text-sm text-red-700 space-y-2">
+          <p>• This will generate a new Nostr private key (nsec format)</p>
+          <p>• <strong>Never share your private key with anyone</strong></p>
+          <p>• Store it securely - if lost, your account cannot be recovered</p>
+          <p>• Consider using a hardware wallet for maximum security</p>
+        </div>
+      </div>
+      
+      <p>
+        Here, you can securely generate a new Nostr private key. This key serves as your permanent password for the Nostr network. 
+        It's crucial to store it in a secure location and avoid sharing it with anyone.
+      </p>
+      
+      <button
+        class="w-full py-3 px-4 bg-blue-500 text-white rounded-md hover:bg-blue-600 disabled:opacity-50"
+        on:click={generateNewKeys}
+        disabled={disableStepButtons}
+      >
+        Generate New Account
+      </button>
+    </div>
     <p>
       While generating a seed on the web is convenient, it may not be the most secure option.
       Consider downloading a native Nostr client for a more robust and secure experience.
     </p>
   {:else if step == 1}
-    <p>Please only continue if you saved your seed pharse.</p>
+    <div class="space-y-4">
+      <div class="bg-red-50 border border-red-200 rounded-md p-4">
+        <div class="text-sm font-medium text-red-800 mb-2">🚨 CRITICAL: Save Your Private Key</div>
+        <div class="text-sm text-red-700 space-y-2">
+          <p>• <strong>Write down your private key (nsec) immediately</strong></p>
+          <p>• Store it in a secure location (password manager, encrypted file)</p>
+          <p>• <strong>Never share it with anyone</strong></p>
+          <p>• If you lose this key, you cannot recover your account</p>
+          <p>• This is your only way to prove ownership of this account</p>
+        </div>
+      </div>
+      
+      {#if generatedKeys}
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Private Key (nsec) - SAVE THIS!</label>
+          <div class="flex gap-2">
+            <textarea
+              readonly
+              value={nip19.nsecEncode(generatedKeys.privateKey)}
+              rows="3"
+              class="flex-1 shadow-sm border-red-300 rounded-md text-sm font-mono bg-red-50"
+            ></textarea>
+            <button
+              on:click={() => generatedKeys && copyToClipboard(nip19.nsecEncode(generatedKeys.privateKey))}
+              class="px-3 py-2 bg-red-100 hover:bg-red-200 rounded-md text-sm text-red-800 font-medium"
+            >
+              Copy
+            </button>
+          </div>
+          <div class="text-xs text-red-600 mt-1">⚠️ This is your private key - keep it secret!</div>
+        </div>
+
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Public Key (npub)</label>
+          <div class="flex gap-2">
+            <input
+              readonly
+              value={nip19.npubEncode(generatedKeys.publicKey)}
+              class="flex-1 shadow-sm border-gray-300 rounded-md text-sm font-mono"
+            />
+            <button
+              on:click={() => generatedKeys && copyToClipboard(nip19.npubEncode(generatedKeys.publicKey))}
+              class="px-3 py-2 bg-gray-100 hover:bg-gray-200 rounded-md text-sm"
+            >
+              Copy
+            </button>
+          </div>
+          <div class="text-xs text-gray-500 mt-1">This is safe to share - it's your public identity</div>
+        </div>
+      {/if}
+      
+      <div class="bg-yellow-50 border border-yellow-200 rounded-md p-3">
+        <div class="text-sm font-medium text-yellow-800 mb-1">⚠️ Important</div>
+        <div class="text-sm text-yellow-700">
+          Only continue if you have safely saved your private key (nsec). You cannot recover your account without it.
+        </div>
+      </div>
+    </div>
   {:else if step == 2}
     <p>
       Your public key, often referred to as npub, can be shared with anyone. With this public key,
@@ -201,10 +311,21 @@
           <input id="file-upload" bind:this={input} type="file" class="sr-only self-center" />
         </label>
       </div>
-      <div class="flex flex-col gap-2 self-center">
-        <h2>Display Name</h2>
-        <p class="break-words hidden md:visible">This will be visible to others.</p>
-        <input bind:value={name} class="input" type="text" placeholder="Zap Cooking Chef" />
+      <div class="flex flex-col gap-4 self-center">
+        <div class="flex flex-col gap-2">
+          <h2>Display Name</h2>
+          <p class="break-words hidden md:visible text-sm text-gray-400">This will be visible to others.</p>
+          <input bind:value={name} class="input" type="text" placeholder="Zap Cooking Chef" />
+        </div>
+        
+        <div class="flex flex-col gap-2">
+          <h2>Username (Optional)</h2>
+          <p class="break-words hidden md:visible text-sm text-gray-400">A unique identifier for your profile.</p>
+          <input bind:value={username} class="input" type="text" placeholder="chef123" />
+          <div class="text-xs text-gray-500">
+            This will be your @username on Nostr. Leave empty if you prefer to use your public key.
+          </div>
+        </div>
       </div>
     </div>
   {:else}
