@@ -2,8 +2,6 @@
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
   import { nip19 } from 'nostr-tools';
   import { onMount } from 'svelte';
-  import ZapButton from './ZapButton.svelte';
-  import ZapDisplay from './ZapDisplay.svelte';
 
   export let event: NDKEvent;
   export let list = false;
@@ -61,11 +59,6 @@
       {event.tags.find((e) => e[0] == 'd')?.[1]}
     {/if}
   </h5>
-  
-  <div class="flex items-center justify-between mt-2">
-    <ZapDisplay {event} size="sm" />
-    <ZapButton {event} size="sm" variant="minimal" />
-  </div>
 </a>
 
 <style lang="postcss">
