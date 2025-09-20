@@ -84,12 +84,7 @@
     </a>
     
     <!-- Right side buttons for mobile -->
-    <div class="flex gap-4 self-center flex-none print:hidden md:hidden">
-      <div class="block self-center">
-        <Button class="self-center w-10 h-10 flex justify-center px-1 py-1 font-semibold !bg-[#FFECE8]" on:click={() => searchActive = true}>
-            <SearchIcon class="self-center text-primary" size={16} weight="bold" />
-        </Button>
-      </div>
+    <div class="flex gap-3 self-center flex-none print:hidden md:hidden">
       {#if $userPublickey !== ''}
         <Button class="self-center w-10 h-10 flex justify-center px-1 py-1 font-semibold gap-2" on:click={() => goto('/create')}>
             <AddIcon class="self-center" size={16} />
