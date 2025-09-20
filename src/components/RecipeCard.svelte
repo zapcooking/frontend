@@ -69,7 +69,7 @@
   {:else}
     <a
       href={link}
-      class="flex flex-col gap-4 max-w-[160px] place-self-center md:place-self-start self-start hover:text-primary transition-colors duration-300"
+      class="flex flex-col gap-4 w-full max-w-[160px] justify-self-center hover:text-primary transition-colors duration-300"
     >
       <div class="relative image" style={`background-image: url('/placeholder.png');`}>
         <div
