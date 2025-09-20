@@ -1,7 +1,7 @@
 import { profileActions } from './profileStore';
 import { decodeNostrProfile } from './profileResolver';
 import { ndk } from './nostr';
-import type { NDK } from '@nostr-dev-kit/ndk';
+import type NDK from '@nostr-dev-kit/ndk';
 
 // Extract all nostr profile links from content
 export function extractProfileLinks(content: string): string[] {

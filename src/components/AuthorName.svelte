@@ -1,17 +1,38 @@
 <script lang="ts">
   import { nip19 } from 'nostr-tools';
   import { ndk } from '$lib/nostr';
-  import { Name } from '@nostr-dev-kit/ndk-svelte-components';
+  import { resolveProfileByPubkey, formatDisplayName } from '$lib/profileResolver';
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
+  import { onMount } from 'svelte';
 
   export let event: NDKEvent;
   export let className: string = 'font-semibold text-sm text-gray-900';
 
   let pubkey: string = '';
+  let displayName: string = '';
+  let isLoading: boolean = true;
 
   // Get pubkey from event
   $: {
     pubkey = event.author?.hexpubkey || '';
+    if (pubkey) {
+      loadProfile();
+    }
+  }
+
+  async function loadProfile() {
+    if (!pubkey || !$ndk) return;
+    
+    try {
+      isLoading = true;
+      const profile = await resolveProfileByPubkey(pubkey, $ndk);
+      displayName = formatDisplayName(profile);
+    } catch (error) {
+      console.error('AuthorName: Failed to load profile:', error);
+      displayName = '@Anonymous';
+    } finally {
+      isLoading = false;
+    }
   }
 
   // Handle click to navigate to profile
@@ -28,7 +49,11 @@
   on:click={handleClick}
   disabled={!pubkey}
 >
-  <Name ndk={$ndk} pubkey={pubkey} />
+  {#if isLoading}
+    <span class="animate-pulse">Loading...</span>
+  {:else}
+    {displayName}
+  {/if}
 </button>
 
 <style>

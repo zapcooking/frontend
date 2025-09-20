@@ -1,6 +1,7 @@
 import { nip19 } from 'nostr-tools';
 import { ndk } from './nostr';
-import type { NDKUserProfile, NDK } from '@nostr-dev-kit/ndk';
+import type { NDKUserProfile } from '@nostr-dev-kit/ndk';
+import type NDK from '@nostr-dev-kit/ndk';
 
 // Types for profile data
 export interface ProfileData {
@@ -86,14 +87,18 @@ async function fetchProfileFromRelays(pubkey: string, ndkInstance: NDK): Promise
 
     // Get user profile using NDK
     const user = ndkInstance.getUser({ hexpubkey: pubkey });
+    
+    // Force a fresh fetch by clearing any cached profile first
+    user.profile = undefined;
     await user.fetchProfile();
     
     const profile = user.profile;
     if (!profile) {
+      console.log('fetchProfileFromRelays: No profile found for pubkey:', pubkey);
       return null;
     }
 
-    return {
+    const profileData = {
       pubkey,
       name: profile.name,
       display_name: profile.displayName,
@@ -103,6 +108,8 @@ async function fetchProfileFromRelays(pubkey: string, ndkInstance: NDK): Promise
       lud16: profile.lud16,
       lastFetched: Date.now()
     };
+
+    return profileData;
   } catch (error) {
     console.warn(`Failed to fetch profile for ${pubkey}:`, error);
     return null;
@@ -147,6 +154,39 @@ export async function resolveProfile(nostrString: string, ndkInstance: NDK): Pro
   }
 }
 
+// Resolve profile by pubkey directly (for npub strings)
+export async function resolveProfileByPubkey(pubkey: string, ndkInstance: NDK): Promise<ProfileData | null> {
+  try {
+    if (!pubkey) {
+      console.warn('No pubkey provided for profile resolution');
+      return null;
+    }
+
+    if (!ndkInstance) {
+      console.warn('No NDK instance provided for profile resolution');
+      return null;
+    }
+
+    // Check cache first
+    const cached = profileCache[pubkey];
+    if (cached && isCacheValid(cached)) {
+      return cached;
+    }
+
+    // Fetch from relays
+    const profile = await fetchProfileFromRelays(pubkey, ndkInstance);
+    if (profile) {
+      profileCache[pubkey] = profile;
+      cleanupCache();
+    }
+
+    return profile;
+  } catch (error) {
+    console.warn('Error in resolveProfileByPubkey:', error);
+    return null;
+  }
+}
+
 // Get display name for a profile
 export function getDisplayName(profile: ProfileData | null): string {
   if (!profile) {
@@ -163,13 +203,27 @@ export function getDisplayName(profile: ProfileData | null): string {
   }
 
   // Fallback to truncated pubkey
-  return `@${profile.pubkey.slice(0, 8)}...${profile.pubkey.slice(-4)}`;
+  return `${profile.pubkey.slice(0, 8)}...${profile.pubkey.slice(-4)}`;
+}
+
+// Get username for a profile (without @ prefix)
+export function getUsername(profile: ProfileData | null): string {
+  if (!profile) {
+    return 'Anonymous';
+  }
+
+  // If user has a name, show username without @ prefix
+  if (profile.name) {
+    return profile.name;
+  }
+
+  // Fallback to truncated pubkey
+  return `${profile.pubkey.slice(0, 8)}...${profile.pubkey.slice(-4)}`;
 }
 
 // Format display name with @ prefix
 export function formatDisplayName(profile: ProfileData | null): string {
-  const name = getDisplayName(profile);
-  return name.startsWith('@') ? name : `@${name}`;
+  return getUsername(profile);
 }
 
 // Batch resolve multiple profiles

@@ -218,3 +218,4 @@ export function shouldUseCache(maxAge: number = 5 * 60 * 1000): boolean {
   return typeof window !== 'undefined' && 'localStorage' in window;
 }
 
+
