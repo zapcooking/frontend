@@ -2,7 +2,7 @@
   import KeyIcon from 'phosphor-svelte/lib/Key';
   import SeedIcon from 'phosphor-svelte/lib/Plant';
   import UserPlusIcon from 'phosphor-svelte/lib/UserPlus';
-  import LightningIcon from 'phosphor-svelte/lib/Lightning';
+  // import LightningIcon from 'phosphor-svelte/lib/Lightning';
   import Button from '../../components/Button.svelte';
   import { ndk, userPublickey } from '$lib/nostr';
   import { browser } from '$app/environment';
@@ -348,10 +348,9 @@
         </div>
 
         <div class="flex gap-2">
-          <Button on:click={useGeneratedKeys} primary={true} disabled={authState.isLoading} class="flex-1">
+          <Button on:click={useGeneratedKeys} primary={true} disabled={authState.isLoading} class="w-full">
             {authState.isLoading ? '⚡ Creating Account...' : '⚡ Create Account'}
           </Button>
-          <Button on:click={() => generatedKeys = null} primary={false}>Generate New</Button>
         </div>
       </div>
     {/if}
@@ -403,7 +402,7 @@
           class="w-full lightning-border electric-glow bg-gradient-to-r from-orange-500 to-purple-600 hover:from-orange-600 hover:to-purple-700 text-white font-semibold py-4 px-6 rounded-2xl transition-all duration-300 transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
         >
           <div class="flex items-center justify-center gap-3">
-            <LightningIcon size={24} class="lightning-pulse" />
+            <span class="text-2xl lightning-pulse">⚡</span>
             <span class="text-lg">
               {authState.isLoading ? '⚡ Connecting...' : '⚡ Connect Nostr Extension'}
             </span>
