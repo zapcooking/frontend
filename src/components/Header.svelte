@@ -217,7 +217,7 @@
       <div class="flex justify-center mb-4">
         <svg class="w-40 h-40" 
              use:qr={{
-               data: "lightning:sethd@getalby.com",
+               data: "lightning:ZapCooking@getalby.com",
                logo: "https://zap.cooking/favicon.svg",
                shape: "circle",
                width: 160,
@@ -236,11 +236,11 @@
       <div class="text-sm font-medium text-gray-700 mb-2">Lightning Address</div>
       <div class="flex items-center gap-2">
         <div class="flex-1 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-800 break-all">
-          sethd@getalby.com
+          ZapCooking@getalby.com
         </div>
         <button 
           on:click={() => {
-            navigator.clipboard.writeText('sethd@getalby.com');
+            navigator.clipboard.writeText('ZapCooking@getalby.com');
             // Simple feedback - you could enhance this with a toast
             const btn = event.target;
             const originalText = btn.textContent;
@@ -262,7 +262,7 @@
     <!-- Action Buttons -->
     <div class="flex gap-3 w-full">
       <a 
-        href="lightning:sethd@getalby.com"
+        href="lightning:ZapCooking@getalby.com"
         class="flex-1 bg-gradient-to-r from-yellow-400 to-orange-500 hover:from-yellow-500 hover:to-orange-600 text-white font-semibold py-2.5 px-4 rounded-lg transition duration-300 text-center text-sm"
       >
         Open in Wallet
