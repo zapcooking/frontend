@@ -14,6 +14,7 @@
   import { clickOutside } from '$lib/clickOutside';
   import { fade, blur } from 'svelte/transition';
   import TagsSearchAutocomplete from './TagsSearchAutocomplete.svelte';
+  import { getAuthManager } from '$lib/authManager';
 
   let dropdownActive = false;
   let searchActive = false;
@@ -29,10 +30,11 @@
     }
   }
 
-  function logout() {
-    localStorage.removeItem('nostrcooking_loggedInPublicKey');
-    localStorage.removeItem('nostrcooking_privateKey');
-    userPublickey.set('');
+  async function logout() {
+    const authManager = getAuthManager();
+    if (authManager) {
+      await authManager.logout();
+    }
     setTimeout(() => (window.location.href = ''), 1);
   }
 </script>

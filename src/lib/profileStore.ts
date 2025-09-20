@@ -1,7 +1,7 @@
 import { writable, derived, type Writable } from 'svelte/store';
 import { resolveProfile, resolveProfiles, formatDisplayName, type ProfileData } from './profileResolver';
 import { ndk } from './nostr';
-import type { NDK } from '@nostr-dev-kit/ndk';
+import type NDK from '@nostr-dev-kit/ndk';
 
 // Store for individual profile data
 const profileData: Writable<Map<string, ProfileData | null>> = writable(new Map());

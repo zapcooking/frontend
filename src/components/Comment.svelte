@@ -3,16 +3,36 @@
   import { nip19 } from 'nostr-tools';
   import { ndk } from '$lib/nostr';
   import { format as formatDate } from 'timeago.js';
-  import { Avatar, Name } from '@nostr-dev-kit/ndk-svelte-components';
+  import { Avatar } from '@nostr-dev-kit/ndk-svelte-components';
+  import { resolveProfileByPubkey, formatDisplayName } from '$lib/profileResolver';
   import Button from './Button.svelte';
+  import CommentLikes from './CommentLikes.svelte';
+  import CommentReplies from './CommentReplies.svelte';
+  import { onMount } from 'svelte';
 
   export let replies: NDKEvent[] = [];
   export let event: NDKEvent;
   export let refresh: () => void;
 
   let replyText = '';
-
   let showReplyBox = false;
+  let displayName: string = '';
+  let isLoading: boolean = true;
+
+  onMount(async () => {
+    if (event.pubkey && $ndk) {
+      try {
+        isLoading = true;
+        const profile = await resolveProfileByPubkey(event.pubkey, $ndk);
+        displayName = formatDisplayName(profile);
+      } catch (error) {
+        console.error('Failed to load profile:', error);
+        displayName = '@Anonymous';
+      } finally {
+        isLoading = false;
+      }
+    }
+  });
 
   async function postComment() {
     const ev = new NDKEvent($ndk);
@@ -35,18 +55,32 @@
   >
   <div class="flex flex-col self-center">
     <div class="flex gap-2">
-      <a href="/user/{nip19.npubEncode(event.pubkey)}"><Name ndk={$ndk} pubkey={event.pubkey} /></a>
+      <a href="/user/{nip19.npubEncode(event.pubkey)}">
+        {#if isLoading}
+          <span class="animate-pulse">Loading...</span>
+        {:else}
+          {displayName}
+        {/if}
+      </a>
       <div class="text-gray-500">{formatDate(new Date((event.created_at || 0) * 1000))}</div>
     </div>
     <div class="flex flex-col gap-3">
       <p class="text-wrap">
         {event.content}
       </p>
+      
+      <!-- Comment Actions -->
+      <div class="flex items-center gap-3">
+        <CommentLikes {event} />
+        <CommentReplies parentComment={event} />
+      </div>
+      
+      <!-- Legacy Reply Box (keeping for backward compatibility) -->
       <button
         on:click={() => (showReplyBox = !showReplyBox)}
         class="text-gray-500 cursor-pointer self-start"
       >
-        Reply
+        Legacy Reply
       </button>
       {#if showReplyBox}
         <textarea

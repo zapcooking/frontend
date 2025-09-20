@@ -47,6 +47,9 @@ importers:
       autoprefixer:
         specifier: ^10.4.14
         version: 10.4.20(postcss@8.4.49)
+      bech32:
+        specifier: ^2.0.0
+        version: 2.0.0
       date-fns:
         specifier: ^3.6.0
         version: 3.6.0
@@ -1178,6 +1181,9 @@ packages:
 
   bech32@1.1.4:
     resolution: {integrity: sha512-s0IrSOzLlbvX7yp4WBfPITzpAU8sqQcpsmwXDiKwrG4r491vwCO/XpejasRNl0piBMe/DvP4Tz0mIS/X1DPJBQ==}
+
+  bech32@2.0.0:
+    resolution: {integrity: sha512-LcknSilhIGatDAsY1ak2I8VtGaHNhgMSYVxFrGLXv+xLHytaKZKcaUJJUE7qmBr7h33o5YQwP55pMI0xmkpJwg==}
 
   binary-extensions@2.3.0:
     resolution: {integrity: sha512-Ceh+7ox5qe7LJuLHoY0feh3pHuUDHAcRUeyL2VYghZwfpkNIy/+8Ocg0a3UuSoYzavmylwuLWQOf3hl0jjMMIw==}
@@ -3793,6 +3799,8 @@ snapshots:
   base64-js@1.5.1: {}
 
   bech32@1.1.4: {}
+
+  bech32@2.0.0: {}
 
   binary-extensions@2.3.0: {}
 
