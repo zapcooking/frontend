@@ -3,6 +3,9 @@
   import PostModal from '../../components/PostModal.svelte';
   import { userPublickey } from '$lib/nostr';
   import AddIcon from 'phosphor-svelte/lib/Plus';
+  import type { PageData } from './$types';
+
+  export const data: PageData = {} as PageData;
 
   let showPostModal = false;
 </script>

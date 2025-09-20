@@ -2,7 +2,8 @@
   import { onMount } from 'svelte';
   import { ndk, userPublickey } from '$lib/nostr';
   import { NDKEvent } from '@nostr-dev-kit/ndk';
-  import { Avatar, Name } from '@nostr-dev-kit/ndk-svelte-components';
+  import CustomAvatar from './CustomAvatar.svelte';
+  import CustomName from './CustomName.svelte';
   import { nip19 } from 'nostr-tools';
   import { format as formatDate } from 'timeago.js';
   import Button from './Button.svelte';

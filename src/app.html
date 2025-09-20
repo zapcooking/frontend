@@ -3,7 +3,54 @@
   <head>
     <meta charset="utf-8" />
     <link rel="icon" href="%sveltekit.assets%/favicon.svg" />
-    <meta name="viewport" content="width=device-width" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    
+    <!-- Default SEO Meta Tags -->
+    <title>Zap.Cooking - Decentralized Recipe Sharing</title>
+    <meta name="description" content="Share and discover delicious recipes on the decentralized web. Built on Nostr protocol for censorship-resistant cooking content." />
+    <meta name="keywords" content="recipes, cooking, food, decentralized, nostr, censorship-resistant, community" />
+    <meta name="author" content="Zap.Cooking" />
+    <meta name="robots" content="index, follow" />
+    
+    <!-- Open Graph Meta Tags -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Zap.Cooking" />
+    <meta property="og:title" content="Zap.Cooking - Decentralized Recipe Sharing" />
+    <meta property="og:description" content="Share and discover delicious recipes on the decentralized web. Built on Nostr protocol for censorship-resistant cooking content." />
+    <meta property="og:image" content="https://zap.cooking/logo_with_text.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Zap.Cooking Logo" />
+    
+    <!-- Twitter Card Meta Tags -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:site" content="@zapcooking" />
+    <meta name="twitter:title" content="Zap.Cooking - Decentralized Recipe Sharing" />
+    <meta name="twitter:description" content="Share and discover delicious recipes on the decentralized web. Built on Nostr protocol for censorship-resistant cooking content." />
+    <meta name="twitter:image" content="https://zap.cooking/logo_with_text.png" />
+    
+    <!-- Additional Meta Tags -->
+    <meta name="theme-color" content="#f59e0b" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="Zap.Cooking" />
+    
+    <!-- Structured Data -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "WebSite",
+      "name": "Zap.Cooking",
+      "description": "Decentralized recipe sharing platform built on Nostr protocol",
+      "url": "https://zap.cooking",
+      "potentialAction": {
+        "@type": "SearchAction",
+        "target": "https://zap.cooking/search?q={search_term_string}",
+        "query-input": "required name=search_term_string"
+      }
+    }
+    </script>
+    
     %sveltekit.head%
   </head>
   <body data-sveltekit-preload-data="hover">

@@ -137,7 +137,6 @@
 {#if zapModalOpen}
   <ZapModal 
     bind:open={zapModalOpen} 
-    user={testUser} 
     event={testEvent}
     on:zap-complete={handleZapComplete}
   />

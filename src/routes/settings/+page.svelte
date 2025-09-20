@@ -1,17 +1,12 @@
 <script lang="ts">
   import { browser } from '$app/environment';
   import { standardRelays } from '$lib/consts';
-  import { translateOption } from '$lib/state';
   import TrashIcon from 'phosphor-svelte/lib/Trash';
-  import WarningIcon from 'phosphor-svelte/lib/Warning';
   import Button from '../../components/Button.svelte';
   import { nip19 } from 'nostr-tools';
 
   let relays: string[] = [];
   let newRelay = '';
-  let translation = '';
-  let translationLanguage = '';
-  let translationOption = '';
 
   function removeRelay(index: number) {
     relays.splice(index, 1);
@@ -28,20 +23,6 @@
 
   function saveData() {
     addRelay();
-    if (translation !== '' && translationLanguage !== '') {
-      if (translation == 'google' && translationOption == '') {
-        translationOption = 'https://corsproxy.io/?';
-      }
-      if (translation == 'libretranslate' && translationOption == '') {
-        translationOption = 'https://libretranslate.de';
-      }
-      localStorage.setItem(
-        'nostrcooking_translationOptions',
-        JSON.stringify({ option: translation, lang: translationLanguage, data: translationOption })
-      );
-    } else {
-      localStorage.removeItem('nostrcooking_translationOptions');
-    }
     if (relays !== standardRelays) {
       localStorage.setItem('nostrcooking_relays', JSON.stringify(relays));
     }
@@ -57,13 +38,37 @@
     } else {
       relays = standardRelays;
     }
-    translation = $translateOption.option;
-    translationLanguage = $translateOption.lang;
-    translationOption = $translateOption.data;
   }
 
   let showPrivkey = false;
+  let copiedKey = '';
   const sk = localStorage.getItem('nostrcooking_privateKey');
+  const pk = localStorage.getItem('nostrcooking_loggedInPublicKey');
+
+  async function copyToClipboard(text: string, keyType: string) {
+    if (browser) {
+      try {
+        await navigator.clipboard.writeText(text);
+        copiedKey = keyType;
+        setTimeout(() => {
+          copiedKey = '';
+        }, 2000);
+      } catch (err) {
+        console.error('Failed to copy: ', err);
+      }
+    }
+  }
+
+  function getEncodedPrivateKey(): string {
+    if (!sk) return '';
+    try {
+      const bytes = new Uint8Array(sk.match(/.{1,2}/g)!.map(byte => parseInt(byte, 16)));
+      return nip19.nsecEncode(bytes);
+    } catch (error) {
+      console.error('Error encoding private key:', error);
+      return sk; // fallback to raw key
+    }
+  }
 </script>
 
 <svelte:head>
@@ -94,75 +99,77 @@
     </div>
   </div>
 
-  <div class="flex flex-col gap-4">
-    <h2>Translation</h2>
-    <div class="flex flex-col mx-0.5 gap-4">
-      <select bind:value={translation} class="flex p-3 bg-input rounded-xl border-none">
-        <option value="">Disabled</option>
-        <option value="google">Google Translate (with proxy)</option>
-        <!--<option value="libretranslate">Libretranslate Instance</option>-->
-      </select>
-      {#if translation !== ''}
-        <input
-          bind:value={translationLanguage}
-          placeholder="2 letter language code, like: 'en', 'es', 'fr' ect"
-          class="flex p-3 bg-input rounded-xl border-none"
-        />
-        <input
-          bind:value={translationOption}
-          placeholder={(translation == 'google'
-            ? 'set CORS proxy url,'
-            : translation == 'libretranslate'
-            ? 'libretranslate instance url,'
-            : '') + ' leave blank for default'}
-          class="flex p-3 bg-input rounded-xl border-none"
-        />
-      {/if}
-    </div>
-    {#if translation !== ''}
-      Warning: You may leak data to third parties while using this.
-    {/if}
-  </div>
 
   <Button on:click={saveData}>Save</Button>
   <hr />
 
   <div class="flex flex-col gap-5">
-    <h2>Danger</h2>
-    {#if sk}
-      <h3>Account Private Key</h3>
-      <div>
-        <div>
-          Your Account's Private Key. <span class="text-danger font-bold"
-            >DO NOT SHOW THIS TO ANYONE ELSE!</span
+    <h2>Keys</h2>
+    
+    <!-- Public Key Section -->
+    <div class="flex flex-col gap-3">
+      <h3>Public Key (npub)</h3>
+      <div class="text-sm text-gray-600 mb-2">
+        This is your public identity. Safe to share with others.
+      </div>
+      {#if pk}
+        <div class="flex gap-2">
+          <div class="flex-1 bg-input p-3 rounded-xl font-mono text-sm break-all">
+            {nip19.npubEncode(pk)}
+          </div>
+          <button
+            class="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-xl text-sm font-medium transition-colors"
+            on:click={() => copyToClipboard(nip19.npubEncode(pk), 'public')}
           >
+            {copiedKey === 'public' ? '✓ Copied' : 'Copy'}
+          </button>
         </div>
-        <div
-          role="button"
-          tabindex="0"
-          on:keydown={() => (showPrivkey = true)}
-          on:click={() => (showPrivkey = true)}
-          class="input !border-accent-gray !border-2 flex flex-wrap text-wrap break-all"
-        >
-          {#if showPrivkey}
-            {nip19.nsecEncode(sk)}
-          {:else}
-            Click to show your private key
-          {/if}
+      {:else}
+        <div class="text-gray-500 italic">No public key found</div>
+      {/if}
+    </div>
+
+    <!-- Private Key Section -->
+    <div class="flex flex-col gap-3">
+      <h3>Private Key (nsec)</h3>
+      <div class="text-sm text-gray-600 mb-2">
+        <span class="text-red-600 font-bold">⚠️ KEEP THIS SECRET!</span> Never share this with anyone.
+      </div>
+      {#if sk}
+        <div class="flex gap-2">
+          <div class="flex-1 bg-input p-3 rounded-xl font-mono text-sm break-all min-h-[3rem] flex items-center">
+            {#if showPrivkey}
+              {getEncodedPrivateKey()}
+            {:else}
+              <span class="text-gray-400 font-mono">••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••</span>
+            {/if}
+          </div>
+          <div class="flex flex-col gap-2">
+            <button
+              class="px-4 py-2 bg-gray-500 hover:bg-gray-600 text-white rounded-xl text-sm font-medium transition-colors"
+              on:click={() => (showPrivkey = !showPrivkey)}
+            >
+              {showPrivkey ? 'Hide' : 'Show'}
+            </button>
+            {#if showPrivkey}
+              <button
+                class="px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-xl text-sm font-medium transition-colors"
+                on:click={() => copyToClipboard(getEncodedPrivateKey(), 'private')}
+              >
+                {copiedKey === 'private' ? '✓ Copied' : 'Copy'}
+              </button>
+            {/if}
+          </div>
         </div>
         {#if showPrivkey}
-          <button on:click={() => (showPrivkey = false)}>Click here to hide.</button>
+          <div class="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-800">
+            <strong>Security Warning:</strong> Your private key is now visible. Make sure no one else can see your screen.
+          </div>
         {/if}
-      </div>
-    {/if}
-    <h3>Clear all Data</h3>
-    <Button
-      class="flex !bg-danger self-start gap-2"
-      primary={false}
-      on:click={() => (window.location.href = '/clearall')}
-    >
-      <WarningIcon class="self-center" />
-      Clear all data
-    </Button>
+      {:else}
+        <div class="text-gray-500 italic">No private key found</div>
+      {/if}
+    </div>
+
   </div>
 </div>

@@ -1,7 +1,6 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
   import { nip19 } from 'nostr-tools';
-  import ImageUploader from '../../components/ImageUploader.svelte';
   import { NDKEvent } from '@nostr-dev-kit/ndk';
   import { browser } from '$app/environment';
   import { ndk, userPublickey } from '$lib/nostr';
@@ -9,6 +8,7 @@
   import Button from '../../components/Button.svelte';
   import { createAuthManager, type AuthState } from '$lib/authManager';
   import { Fetch } from 'hurdak';
+  import { DEFAULT_PROFILE_IMAGE } from '$lib/consts';
 
   let authManager = createAuthManager($ndk);
   let authState: AuthState = authManager.getState();
@@ -21,7 +21,7 @@
   let disableStepButtons = false;
   let name = '';
   let username = '';
-  let picture = 'https://zap.cooking/default-pfp.jpg';
+  let picture = DEFAULT_PROFILE_IMAGE;
   let about = '';
 
   onMount(() => {
@@ -127,19 +127,16 @@
     disableStepButtons = false;
   }
 
-
-  let input: HTMLElement, listener;
+  let input: HTMLElement;
 
   $: {
     if (input) {
       input.addEventListener('change', async (e) => {
         const target = e.target as HTMLInputElement;
-        console.log('attempted');
         if (target.files && target.files?.length > 0) {
           const body = new FormData();
           body.append('file[]', target.files[0]);
           const result = await uploadToNostrBuild(body);
-          console.log(result);
           if (result && result.data && result.data[0].url) {
             picture = result.data[0].url;
           }
@@ -180,6 +177,7 @@
       }
     });
   }
+
 </script>
 
 <!-- TODO -->
@@ -245,9 +243,10 @@
       
       {#if generatedKeys}
         <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">Private Key (nsec) - SAVE THIS!</label>
+          <label for="private-key-textarea" class="block text-sm font-medium text-gray-700 mb-1">Private Key (nsec) - SAVE THIS!</label>
           <div class="flex gap-2">
             <textarea
+              id="private-key-textarea"
               readonly
               value={nip19.nsecEncode(generatedKeys.privateKey)}
               rows="3"
@@ -264,9 +263,10 @@
         </div>
 
         <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">Public Key (npub)</label>
+          <label for="public-key-input" class="block text-sm font-medium text-gray-700 mb-1">Public Key (npub)</label>
           <div class="flex gap-2">
             <input
+              id="public-key-input"
               readonly
               value={nip19.npubEncode(generatedKeys.publicKey)}
               class="flex-1 shadow-sm border-gray-300 rounded-md text-sm font-mono"
@@ -301,27 +301,41 @@
     </p>
     <div class="flex gap-4 md:gap-10 mx-auto">
       <div class="flex flex-col self-center">
-        <h2 class="text-white">Picture</h2>
-        <label for="file-upload" class="cursor-pointer self-center">
-          <img
-            class="w-[100px] h-[100px] md:w-[200px] md:h-[200px] rounded-full bg-input self-center"
-            src={picture}
-            alt="Profile"
-          />
-          <input id="file-upload" bind:this={input} type="file" class="sr-only self-center" />
-        </label>
+        <div class="flex flex-col self-center">
+          <h2 class="text-white mb-2">Profile Picture</h2>
+          <div class="relative">
+            <label for="file-upload" class="cursor-pointer self-center group">
+              <div class="relative">
+                <img
+                  class="w-[100px] h-[100px] md:w-[200px] md:h-[200px] rounded-full bg-input self-center border-2 border-gray-300 group-hover:border-orange-500 transition-colors"
+                  src={picture}
+                  alt="Profile"
+                />
+                <div class="absolute inset-0 rounded-full bg-black bg-opacity-0 group-hover:bg-opacity-20 transition-all duration-200 flex items-center justify-center">
+                  <div class="opacity-0 group-hover:opacity-100 transition-opacity duration-200 text-white text-sm font-medium">
+                    📷 Upload
+                  </div>
+                </div>
+              </div>
+              <input id="file-upload" bind:this={input} type="file" accept="image/*" class="sr-only self-center" />
+            </label>
+          </div>
+          <p class="text-xs text-gray-400 mt-2 text-center max-w-[200px]">
+            Click to upload a custom profile picture or keep the default ZapCooking logo
+          </p>
+        </div>
       </div>
       <div class="flex flex-col gap-4 self-center">
         <div class="flex flex-col gap-2">
           <h2>Display Name</h2>
           <p class="break-words hidden md:visible text-sm text-gray-400">This will be visible to others.</p>
-          <input bind:value={name} class="input" type="text" placeholder="Zap Cooking Chef" />
+          <input bind:value={name} class="input" type="text" placeholder="Zap Cooking Chef" id="display-name" />
         </div>
         
         <div class="flex flex-col gap-2">
           <h2>Username (Optional)</h2>
           <p class="break-words hidden md:visible text-sm text-gray-400">A unique identifier for your profile.</p>
-          <input bind:value={username} class="input" type="text" placeholder="chef123" />
+          <input bind:value={username} class="input" type="text" placeholder="chef123" id="username" />
           <div class="text-xs text-gray-500">
             This will be your @username on Nostr. Leave empty if you prefer to use your public key.
           </div>

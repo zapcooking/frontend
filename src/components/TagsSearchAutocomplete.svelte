@@ -83,7 +83,6 @@
         on:blur={handleInputBlur}
         class="block w-full input"
         placeholder={placeholderString}
-        autofocus
       />
       {:else}
       <input

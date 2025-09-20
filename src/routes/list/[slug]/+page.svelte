@@ -5,9 +5,12 @@
   import type { NDKEvent, NDKUserProfile } from '@nostr-dev-kit/ndk';
   import { nip19 } from 'nostr-tools';
   import { onMount } from 'svelte';
-  import Feed from '../../../components/Feed.svelte';
+  import Feed from '../../../components/FeedOptimized.svelte';
   import { formatDate } from '$lib/utils';
   import AuthorProfile from '../../../components/AuthorProfile.svelte';
+  import type { PageData } from './$types';
+
+  export const data: PageData = {} as PageData;
 
   $: {
     if ($page.params.slug) {
@@ -23,7 +26,7 @@
   async function loadData() {
     loaded = false;
     // load event
-    if ($page.params.slug.startsWith('naddr1')) {
+    if ($page.params.slug?.startsWith('naddr1')) {
       const b = nip19.decode($page.params.slug).data;
       let e = await $ndk.fetchEvent({
         // @ts-ignore
@@ -51,7 +54,7 @@
     }
 
     // load list
-    event.tags.forEach(async (a) => {
+    event?.tags?.forEach(async (a) => {
       if (a[0] == 'a') {
         const parts = a[1].split(':');
         if (parts.length !== 3) {

@@ -2,10 +2,13 @@
   import { page } from '$app/stores';
   import { ndk } from '$lib/nostr';
   import type { NDKEvent, NDKFilter } from '@nostr-dev-kit/ndk';
-  import Feed from '../../../components/Feed.svelte';
+  import Feed from '../../../components/FeedOptimized.svelte';
   import { validateMarkdownTemplate } from '$lib/pharser';
   import { recipeTags } from '$lib/consts';
   import { goto } from '$app/navigation';
+  import type { PageData } from './$types';
+
+  export const data: PageData = {} as PageData;
 
   // let tag: string | undefined = undefined;
   let events: NDKEvent[] = [];
@@ -28,12 +31,12 @@ async function loadData() {
     let filter: NDKFilter = {
       limit: 256,
       kinds: [30023],
-      '#t': [`nostrcooking-${$page.params.slug.toLowerCase().replaceAll(' ', '-')}`]
+      '#t': [`nostrcooking-${$page.params.slug?.toLowerCase().replaceAll(' ', '-') || 'unknown'}`]
     };
     
     const subscription = $ndk.subscribe(filter);
 
-    subscription.on("event", (ev) => {
+    subscription.on("event", (ev: NDKEvent) => {
       if (validateMarkdownTemplate(ev.content) != null) {
         events.push(ev);
         events = events;

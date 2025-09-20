@@ -11,7 +11,9 @@
   import RightIcon from "phosphor-svelte/lib/CaretRight"
   import Checkmark from "phosphor-svelte/lib/CheckFat"
   import XIcon from "phosphor-svelte/lib/X"
-  import { Avatar, Name } from '@nostr-dev-kit/ndk-svelte-components';
+  import CustomAvatar from './CustomAvatar.svelte';
+  import CustomName from './CustomName.svelte';
+  import { browser } from '$app/environment';
   import { ZapManager } from '$lib/zapManager';
 
   const defaultZapSatsAmounts = [
@@ -35,8 +37,8 @@
   let zapManager: ZapManager;
   let subscription: any = null;
 
-  // Initialize zap manager
-  $: if ($ndk) {
+  // Initialize zap manager only in browser
+  $: if ($ndk && browser) {
     zapManager = new ZapManager($ndk);
   }
 
@@ -49,6 +51,8 @@
       // Get the recipient pubkey
       console.log('ZapModal - event:', event);
       console.log('ZapModal - event type:', event?.constructor?.name);
+      console.log('ZapModal - event.author:', (event as any)?.author);
+      console.log('ZapModal - event.pubkey:', event?.pubkey);
       
       let recipientPubkey: string;
       let eventId: string | undefined;
@@ -58,10 +62,11 @@
         eventId = undefined; // No event ID for user zaps
         console.log('ZapModal - User zap, pubkey:', recipientPubkey);
       } else if (event && event.author) {
-        recipientPubkey = event.author.pubkey;
+        recipientPubkey = event.author?.hexpubkey || event.pubkey;
         eventId = event.id;
         console.log('ZapModal - Event zap, pubkey:', recipientPubkey, 'eventId:', eventId);
       } else {
+        console.error('ZapModal - Invalid event or user:', { event, author: event?.author, pubkey: event?.pubkey });
         throw new Error('Invalid event or user provided to ZapModal');
       }
       
@@ -267,13 +272,13 @@
       <div class="flex flex-col gap-3">
           <div class="flex flex-col gap-3 text-lg">
             <div class="flex gap-3 items-center">
-              <Avatar class="w-14 h-14 rounded-full flex-shrink-0" ndk={$ndk} pubkey={paymentsToMakeQR[selected_qr - 1].recipientPubkey} />
+              <CustomAvatar className="flex-shrink-0" pubkey={paymentsToMakeQR[selected_qr - 1].recipientPubkey} size={56} />
               <div class="flex flex-col gap-1 min-w-0">
                 <div class="break-words">
                   Zapping <span class="font-semibold">{amount} sats</span> to
                 </div>
                 <div class="break-all text-sm font-semibold text-gray-700">
-                  <Name ndk={$ndk} pubkey={paymentsToMakeQR[selected_qr - 1].recipientPubkey} />
+                  <CustomName pubkey={paymentsToMakeQR[selected_qr - 1].recipientPubkey} />
                 </div>
                 {#if event}
                   <span class="text-sm text-gray-600">for this recipe</span>

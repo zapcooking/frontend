@@ -16,7 +16,7 @@
       '#e': [event.id] // For regular notes, use the event ID instead of 'd' tag
     });
 
-    sub.on('event', (e) => {
+    sub.on('event', (e: NDKEvent) => {
       // Prevent counting the same event multiple times
       if (processedEvents.has(e.id)) return;
       processedEvents.add(e.id);
@@ -56,7 +56,7 @@
       reactionEvent.content = '+'; // Reaction content
       reactionEvent.tags = [
         ['e', event.id, '', 'reply'], // Reference the original event
-        ['p', event.pubkey] // Reference the original author
+        ['p', event.author?.hexpubkey || event.pubkey] // Reference the original author
       ];
       
       console.log('Publishing reaction:', reactionEvent);

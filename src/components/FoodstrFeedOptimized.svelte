@@ -2,7 +2,7 @@
   import { onMount, onDestroy } from 'svelte';
   import { ndk } from '$lib/nostr';
   import { formatDistanceToNow } from 'date-fns';
-  import { Avatar } from '@nostr-dev-kit/ndk-svelte-components';
+  import CustomAvatar from './CustomAvatar.svelte';
   import type { NDKEvent, NDKSubscription } from '@nostr-dev-kit/ndk';
   import NoteTotalLikes from './NoteTotalLikes.svelte';
   import NoteTotalComments from './NoteTotalComments.svelte';
@@ -11,6 +11,12 @@
   import ZapModal from './ZapModal.svelte';
   import NoteContent from './NoteContent.svelte';
   import AuthorName from './AuthorName.svelte';
+  import { optimizeImageUrl, getOptimalFormat } from '$lib/imageOptimizer';
+  import { compressedCacheManager, COMPRESSED_FEED_CACHE_CONFIG } from '$lib/compressedCache';
+  import { createSubscriptionManager } from '$lib/subscriptionManager';
+  import FeedErrorBoundary from './FeedErrorBoundary.svelte';
+  import FeedPostSkeleton from './FeedPostSkeleton.svelte';
+  import LoadingState from './LoadingState.svelte';
 
   // State management
   let events: NDKEvent[] = [];
@@ -19,12 +25,14 @@
   let hasMore = true;
   let loadingMore = false;
   let debugInfo = '';
+  let isRefreshing = false;
   
   // Performance optimizations
   let subscription: NDKSubscription | null = null;
   let batchTimeout: ReturnType<typeof setTimeout> | null = null;
   let pendingEvents: NDKEvent[] = [];
   let lastEventTime: number = 0;
+  let subscriptionManager: any = null;
   
   // Caching
   let cacheLoaded = false;
@@ -77,7 +85,7 @@
   const CACHE_KEY = 'foodstr_feed_cache';
   const CACHE_EXPIRY = 5 * 60 * 1000; // 5 minutes
 
-  function cacheEvents() {
+  async function cacheEvents() {
     if (typeof window === 'undefined') return;
     
     try {
@@ -97,31 +105,81 @@
         lastEventTime: lastEventTime
       };
       
-      localStorage.setItem(CACHE_KEY, JSON.stringify(cacheData));
-      console.log('💾 Events cached to localStorage');
+      // Use compressed cache for better performance
+      await compressedCacheManager.set({
+        ...COMPRESSED_FEED_CACHE_CONFIG,
+        key: CACHE_KEY
+      }, cacheData);
+      
+      console.log('💾 Events cached with compression');
     } catch (err) {
       console.warn('⚠️ Failed to cache events:', err);
+      // Fallback to localStorage
+      try {
+        const fallbackCacheData = {
+          events: events.map(e => ({
+            id: e.id,
+            pubkey: e.pubkey,
+            content: e.content,
+            created_at: e.created_at,
+            tags: e.tags,
+            author: e.author ? {
+              hexpubkey: e.author.hexpubkey,
+              profile: e.author.profile
+            } : null
+          })),
+          timestamp: Date.now(),
+          lastEventTime: lastEventTime
+        };
+        localStorage.setItem(CACHE_KEY, JSON.stringify(fallbackCacheData));
+        console.log('💾 Events cached to localStorage (fallback)');
+      } catch (fallbackErr) {
+        console.error('❌ Failed to cache events (fallback):', fallbackErr);
+      }
     }
   }
 
-  function loadCachedEvents(): boolean {
+  async function loadCachedEvents(): Promise<boolean> {
     if (typeof window === 'undefined') return false;
     
     try {
+      // Try compressed cache first
+      const cacheData = await compressedCacheManager.get({
+        ...COMPRESSED_FEED_CACHE_CONFIG,
+        key: CACHE_KEY
+      });
+      
+      if (cacheData && typeof cacheData === 'object' && cacheData !== null && 'events' in cacheData) {
+        // Restore events from compressed cache
+        events = (cacheData as any).events.map((e: any) => ({
+          ...e,
+          author: e.author ? {
+            hexpubkey: e.author.hexpubkey,
+            profile: e.author.profile
+          } : null
+        })) as NDKEvent[];
+        
+        lastEventTime = (cacheData as any).lastEventTime || 0;
+        
+        console.log(`📦 Loaded ${events.length} events from compressed cache`);
+        return true;
+      }
+      
+      // Fallback to localStorage
       const cached = localStorage.getItem(CACHE_KEY);
       if (!cached) return false;
       
-      const cacheData = JSON.parse(cached);
+      const fallbackCacheData = JSON.parse(cached);
       const now = Date.now();
       
       // Check if cache is still valid
-      if (now - cacheData.timestamp > CACHE_EXPIRY) {
+      if (now - fallbackCacheData.timestamp > CACHE_EXPIRY) {
         localStorage.removeItem(CACHE_KEY);
         return false;
       }
       
-      // Restore events from cache
-      events = cacheData.events.map((e: any) => ({
+      // Restore events from localStorage cache
+      events = fallbackCacheData.events.map((e: any) => ({
         ...e,
         author: e.author ? {
           hexpubkey: e.author.hexpubkey,
@@ -129,13 +187,19 @@
         } : null
       })) as NDKEvent[];
       
-      lastEventTime = cacheData.lastEventTime || 0;
+      lastEventTime = fallbackCacheData.lastEventTime || 0;
       
-      console.log(`📦 Loaded ${events.length} events from cache`);
+      console.log(`📦 Loaded ${events.length} events from localStorage cache (fallback)`);
       return true;
+      
     } catch (err) {
       console.warn('⚠️ Failed to load cached events:', err);
-      localStorage.removeItem(CACHE_KEY);
+      // Clean up corrupted cache
+      try {
+        localStorage.removeItem(CACHE_KEY);
+      } catch (cleanupErr) {
+        console.warn('Failed to cleanup corrupted cache:', cleanupErr);
+      }
       return false;
     }
   }
@@ -153,19 +217,19 @@
       const filter = {
         kinds: [1],
         '#t': ['foodstr', 'cook', 'cookstr', 'zapcooking', 'cooking', 'drinkstr', 'foodies', 'carnivor', 'carnivorediet'],
-        limit: 25,
-        since: Math.floor(Date.now() / 1000) - (7 * 24 * 60 * 60)
+        limit: 20, // Reduced initial limit for faster loading
+        since: Math.floor(Date.now() / 1000) - (3 * 24 * 60 * 60) // Reduced to 3 days for faster loading
       };
 
       // Try to load from cache first (simplified for now)
-      if (useCache && loadCachedEvents()) {
+      if (useCache && await loadCachedEvents()) {
         loading = false;
         error = false;
         cacheLoaded = true;
         debugInfo = `Loaded ${events.length} events from cache`;
         
-          // Trigger background refresh
-          setTimeout(() => fetchFreshData(), 100);
+        // Trigger background refresh
+        setTimeout(() => fetchFreshData(), 100);
         return;
       }
       
@@ -180,6 +244,13 @@
       // Check if NDK is connected
       if (!$ndk) {
         throw new Error('NDK not initialized');
+      }
+
+      // Ensure NDK is connected before making requests
+      try {
+        await $ndk.connect();
+      } catch (connectError) {
+        console.warn('Failed to connect NDK, proceeding anyway:', connectError);
       }
       
       console.log('🔍 Filter:', filter);
@@ -240,8 +311,9 @@
   }
 
   function startRealtimeSubscription() {
-    if (subscription) {
-      subscription.stop();
+    // Initialize subscription manager if needed
+    if (!subscriptionManager) {
+      subscriptionManager = createSubscriptionManager($ndk);
     }
     
     console.log('🔄 Starting real-time subscription...');
@@ -252,20 +324,25 @@
       since: lastEventTime + 1 // Only get events newer than what we have
     };
     
-    subscription = $ndk.subscribe(subscriptionFilter);
-    
-    subscription.on('event', (event: NDKEvent) => {
-      console.log('📨 New real-time event:', event.id);
-      
-      // Add to pending batch
-      pendingEvents.push(event);
-      
-      // Debounced batch processing
-      debouncedBatchProcess();
-    });
-    
-    subscription.on('eose', () => {
-      console.log('🏁 Real-time subscription established');
+    subscription = subscriptionManager.subscribe({
+      id: 'foodstr-feed-realtime',
+      filter: subscriptionFilter,
+      onEvent: (event: NDKEvent) => {
+        // Reduce logging frequency - only log every 10th event
+        if (pendingEvents.length % 10 === 0) {
+          console.log('📨 New real-time event:', event.id);
+        }
+        
+        // Add to pending batch
+        pendingEvents.push(event);
+        
+        // Debounced batch processing
+        debouncedBatchProcess();
+      },
+      onEose: () => {
+        console.log('🏁 Real-time subscription established');
+      },
+      closeOnEose: false
     });
   }
 
@@ -283,7 +360,7 @@
       const fetchedEvents = await $ndk.fetchEvents(filter);
       
       if (fetchedEvents.size > 0) {
-        const eventArray = Array.from(fetchedEvents);
+        const eventArray = Array.from(fetchedEvents) as NDKEvent[];
         const sortedEvents = eventArray.sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
         
         // Merge with existing events
@@ -293,7 +370,7 @@
         if (newEvents.length > 0) {
           events = [...events, ...newEvents].sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
           lastEventTime = Math.max(...events.map(e => e.created_at || 0));
-          cacheEvents();
+          await cacheEvents();
           
           console.log(`🔄 Background refresh added ${newEvents.length} new events`);
           debugInfo = `Found ${events.length} events (${newEvents.length} new)`;
@@ -324,13 +401,13 @@
       };
 
       const fetchedEvents = await $ndk.fetchEvents(filter);
-      const newEvents = Array.from(fetchedEvents);
+      const newEvents = Array.from(fetchedEvents) as NDKEvent[];
       
       if (newEvents.length > 0) {
         events = [...events, ...newEvents];
         hasMore = newEvents.length === 20;
         // Cache the updated events
-        cacheEvents();
+        await cacheEvents();
       } else {
         hasMore = false;
       }
@@ -342,18 +419,31 @@
   }
 
   async function retryWithDelay(attempts = 3, delay = 2000) {
-    for (let i = 0; i < attempts; i++) {
-      try {
-        await loadFoodstrFeed(i === 0); // Use cache only on first attempt
-        if (!error) return; // Success, exit retry loop
-      } catch (err) {
-        console.log(`🔄 Retry attempt ${i + 1}/${attempts} failed:`, err);
+    try {
+      for (let i = 0; i < attempts; i++) {
+        try {
+          await loadFoodstrFeed(i === 0); // Use cache only on first attempt
+          if (!error) return; // Success, exit retry loop
+        } catch (err) {
+          console.log(`🔄 Retry attempt ${i + 1}/${attempts} failed:`, err);
+        }
+        
+        if (i < attempts - 1) {
+          debugInfo = `Retrying in ${delay/1000}s... (attempt ${i + 2}/${attempts})`;
+          await new Promise(resolve => setTimeout(resolve, delay));
+        }
       }
       
-      if (i < attempts - 1) {
-        debugInfo = `Retrying in ${delay/1000}s... (attempt ${i + 2}/${attempts})`;
-        await new Promise(resolve => setTimeout(resolve, delay));
-      }
+      // All attempts failed
+      console.error('❌ All retry attempts failed');
+      error = true;
+      loading = false;
+      debugInfo = 'Failed to load feed after multiple attempts. Please check your connection.';
+    } catch (err) {
+      console.error('❌ Critical error in retryWithDelay:', err);
+      error = true;
+      loading = false;
+      debugInfo = 'Critical error occurred. Please refresh the page.';
     }
   }
 
@@ -361,9 +451,8 @@
   function cleanup() {
     console.log('🧹 Cleaning up subscriptions...');
     
-    if (subscription) {
-      subscription.stop();
-      subscription = null;
+    if (subscriptionManager) {
+      subscriptionManager.unsubscribe('foodstr-feed-realtime');
     }
     
     if (batchTimeout) {
@@ -375,10 +464,20 @@
     if (pendingEvents.length > 0) {
       processBatch();
     }
+    
+    // Cleanup stale cache entries
+    compressedCacheManager.invalidateStale();
   }
 
   onMount(() => {
-    retryWithDelay();
+    try {
+      retryWithDelay();
+    } catch (error) {
+      console.error('❌ Error in FoodstrFeedOptimized onMount:', error);
+      loading = false;
+      error = true;
+      debugInfo = 'Failed to initialize feed. Please refresh the page.';
+    }
   });
 
   onDestroy(() => {
@@ -390,6 +489,7 @@
   }
 
 
+  // Simple functions (memoization temporarily disabled to avoid crashes)
   function getImageUrls(event: NDKEvent): string[] {
     // Extract image URLs from event content (not tags)
     const content = event.content || '';
@@ -427,6 +527,15 @@
     }).replace(/\s+/g, ' ').trim(); // Clean up extra spaces
   }
 
+  // Simple image optimization (no memoization for now)
+  function getOptimizedImageUrl(url: string): string {
+    return optimizeImageUrl(url, {
+      width: 640,
+      quality: 85,
+      format: getOptimalFormat()
+    });
+  }
+
   // Simple function to get current slide for an event
   function getCurrentSlide(eventId: string): number {
     return carouselStates[eventId] || 0;
@@ -451,7 +560,7 @@
     console.log('Opening zap modal for event:', event);
     console.log('Event ID:', event.id);
     console.log('Event author:', event.author);
-    console.log('Event author pubkey:', event.author?.pubkey);
+    console.log('Event author pubkey:', event.author?.hexpubkey || event.pubkey);
     selectedEvent = event;
     zapModal = true;
     console.log('Zap modal state:', zapModal);
@@ -459,29 +568,26 @@
   }
 </script>
 
-<div class="max-w-2xl mx-auto">
+<FeedErrorBoundary>
+  <div class="max-w-2xl mx-auto">
+  
+  <!-- Refresh indicator -->
+  {#if isRefreshing}
+    <div class="mb-4">
+      <LoadingState 
+        type="spinner" 
+        size="sm" 
+        text="Refreshing feed..." 
+        showText={true}
+      />
+    </div>
+  {/if}
 
   {#if loading}
-    <!-- Optimized skeleton loading -->
+    <!-- Enhanced skeleton loading -->
     <div class="space-y-6">
       {#each Array(3) as _}
-        <div class="border-b border-gray-200 py-6">
-          <div class="flex space-x-3">
-            <div class="h-10 w-10 rounded-full bg-gray-200 animate-pulse flex-shrink-0"></div>
-            <div class="flex-1 space-y-3">
-              <div class="flex items-center space-x-2">
-                <div class="h-4 w-24 bg-gray-200 animate-pulse rounded"></div>
-                <div class="h-4 w-16 bg-gray-200 animate-pulse rounded"></div>
-              </div>
-              <div class="space-y-2">
-                <div class="h-4 w-full bg-gray-200 animate-pulse rounded"></div>
-                <div class="h-4 w-4/5 bg-gray-200 animate-pulse rounded"></div>
-              </div>
-              <!-- Image skeleton -->
-              <div class="h-64 bg-gray-200 animate-pulse rounded-lg"></div>
-            </div>
-          </div>
-        </div>
+        <FeedPostSkeleton />
       {/each}
     </div>
   {:else if error}
@@ -527,10 +633,10 @@
           <div class="flex space-x-3 px-2 sm:px-0">
             <!-- Avatar -->
             <div class="flex-shrink-0">
-              <Avatar
-                class="h-10 w-10 rounded-full cursor-pointer"
-                ndk={$ndk}
+              <CustomAvatar
+                className="cursor-pointer"
                 pubkey={event.author.hexpubkey}
+                size={40}
               />
             </div>
 
@@ -565,8 +671,8 @@
                       >
                         {#if isImageUrl(imageUrl)}
                           <img 
-                            src={imageUrl} 
-                            alt="Shared image" 
+                            src={getOptimizedImageUrl(imageUrl)} 
+                            alt="Recipe image"
                             class="w-full h-full object-cover"
                             loading="lazy"
                             decoding="async"
@@ -580,6 +686,7 @@
                             preload="metadata"
                             on:error={handleMediaError}
                           >
+                            <track kind="captions" src="" srclang="en" label="English" />
                             Your browser does not support the video tag.
                           </video>
                         {:else}
@@ -663,9 +770,12 @@
       {#if hasMore}
         <div class="py-4 text-center">
           {#if loadingMore}
-            <div class="flex justify-center">
-              <div class="animate-spin rounded-full h-6 w-6 border-b-2 border-primary"></div>
-            </div>
+            <LoadingState 
+              type="spinner" 
+              size="sm" 
+              text="Loading more posts..." 
+              showText={true}
+            />
           {:else}
             <button 
               on:click={loadMore}
@@ -678,7 +788,8 @@
       {/if}
     </div>
   {/if}
-</div>
+  </div>
+</FeedErrorBoundary>
 
 <!-- Zap Modal -->
 {#if zapModal && selectedEvent}

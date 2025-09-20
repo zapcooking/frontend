@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { nip19 } from 'nostr-tools';
   import { ndk } from '$lib/nostr';
-  import { Avatar } from '@nostr-dev-kit/ndk-svelte-components';
+  import CustomAvatar from './CustomAvatar.svelte';
   import AuthorName from './AuthorName.svelte';
   import ProfileLink from './ProfileLink.svelte';
   import { formatDistanceToNow } from 'date-fns';
@@ -203,10 +203,10 @@
     <div class="flex space-x-3">
       <!-- Avatar -->
       <div class="flex-shrink-0">
-        <Avatar
-          class="h-8 w-8 rounded-full cursor-pointer"
-          ndk={$ndk}
+        <CustomAvatar
+          className="cursor-pointer"
           pubkey={event.author.hexpubkey}
+          size={32}
         />
       </div>
 
@@ -262,10 +262,10 @@
                 {#if isImageUrl(imageUrl)}
                   <img 
                     src={imageUrl} 
-                    alt="Shared image" 
                     class="w-full h-full object-cover"
                     loading="lazy"
                     decoding="async"
+                    alt="Embedded image"
                     on:error={handleImageError}
                   />
                 {:else if isVideoUrl(imageUrl)}
@@ -276,6 +276,7 @@
                     preload="metadata"
                     on:error={handleVideoError}
                   >
+                    <track kind="captions" src="" srclang="en" label="English" />
                     Your browser does not support the video tag.
                   </video>
                 {/if}
