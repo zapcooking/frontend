@@ -448,10 +448,14 @@
   }
 
   function openZapModal(event: NDKEvent) {
-    console.log('Opening zap modal for event:', event.id);
+    console.log('Opening zap modal for event:', event);
+    console.log('Event ID:', event.id);
+    console.log('Event author:', event.author);
+    console.log('Event author pubkey:', event.author?.pubkey);
     selectedEvent = event;
     zapModal = true;
     console.log('Zap modal state:', zapModal);
+    console.log('Selected event set to:', selectedEvent);
   }
 </script>
 

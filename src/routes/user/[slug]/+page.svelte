@@ -10,7 +10,7 @@
   import { page } from '$app/stores';
   import { Avatar, Name } from '@nostr-dev-kit/ndk-svelte-components';
   import Button from '../../../components/Button.svelte';
-  import LightningIcon from 'phosphor-svelte/lib/Lightning';
+  // import LightningIcon from 'phosphor-svelte/lib/Lightning';
   import QrIcon from 'phosphor-svelte/lib/QrCode';
   import { requestProvider } from 'webln';
   import ProfileLists from '../../../components/ProfileLists.svelte';
@@ -266,7 +266,7 @@ subscription.on('eose', () => {
       {#if hexpubkey !== $userPublickey}
         <Button
           class="flex self-center !bg-accent-gray !text-[#675F5F] !px-3"
-          on:click={() => (zapModal = true)}><LightningIcon /></Button
+          on:click={() => (zapModal = true)}><span class="text-lg">⚡</span></Button
         >
         <!-- <Button class="flex self-center">Follow</Button> -->
       {/if}
