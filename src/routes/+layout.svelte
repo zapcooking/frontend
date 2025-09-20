@@ -56,12 +56,12 @@
 </script>
 
 <ErrorBoundary fallback="Something went wrong with the page layout. Please refresh the page.">
-  <div class="h-[100%] scroll-smooth">
+  <div class="h-[100%] scroll-smooth overflow-x-hidden">
     <OfflineIndicator />
     <div class="flex h-screen">
-      <div class="mx-auto flex-1 pt-2 print:pt-[0] px-4">
+      <div class="mx-auto flex-1 pt-2 print:pt-[0] px-4 max-w-full">
         <Header />
-        <div class="container mx-auto mt-6 pb-24">
+        <div class="w-full mt-6 pb-24">
           <slot />
         </div>
         <BottomNav />

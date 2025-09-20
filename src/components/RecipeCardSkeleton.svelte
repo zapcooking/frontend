@@ -30,7 +30,7 @@
 
 <style>
   .recipe-card-skeleton {
-    @apply flex flex-col gap-4 max-w-[160px] place-self-center md:place-self-start self-start;
+    @apply flex flex-col gap-4 w-full max-w-[160px] justify-self-center;
   }
 
 </style>

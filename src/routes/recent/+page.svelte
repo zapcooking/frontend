@@ -88,7 +88,7 @@ onMount(() => {
 </svelte:head>
 
 <div class="flex flex-col gap-3 md:gap-10 max-w-full md:max-w-none">
-  <div class="hidden lg:flex w-screen gap-6 overflow-y-hidden overflow-x-auto">
+  <div class="hidden lg:flex w-full gap-6 overflow-y-hidden overflow-x-auto">
     {#each popTags as tag}
       <a class="flex transition duration-300 hover:text-primary" href="/tag/{tag.title}">{tag.title}</a>
     {/each}
