@@ -53,29 +53,40 @@ export class AuthManager {
   private updateState(updates: Partial<AuthState>) {
     this.authState = { ...this.authState, ...updates };
     this.listeners.forEach(listener => listener(this.authState));
+    
+    // Update NDK instance with new signer if authenticated
+    if (this.authState.isAuthenticated && this.authState.publicKey && this.ndk) {
+      // The signer should already be set, but ensure NDK is updated
+      this.ndk.signer = this.ndk.signer;
+    }
   }
 
   // Initialize authentication from localStorage
   private async initializeFromStorage() {
     if (!browser) return;
 
-    const storedPublicKey = localStorage.getItem('nostrcooking_loggedInPublicKey');
-    const storedPrivateKey = localStorage.getItem('nostrcooking_privateKey');
+    try {
+      const storedPublicKey = localStorage.getItem('nostrcooking_loggedInPublicKey');
+      const storedPrivateKey = localStorage.getItem('nostrcooking_privateKey');
 
-    if (storedPrivateKey && storedPublicKey) {
-      try {
-        await this.authenticateWithPrivateKey(storedPrivateKey);
-      } catch (error) {
-        console.error('Failed to restore authentication:', error);
-        this.clearStorage();
+      if (storedPrivateKey && storedPublicKey) {
+        try {
+          await this.authenticateWithPrivateKey(storedPrivateKey);
+        } catch (error) {
+          console.error('Failed to restore authentication:', error);
+          this.clearStorage();
+        }
+      } else if (storedPublicKey) {
+        try {
+          await this.authenticateWithNIP07();
+        } catch (error) {
+          console.error('Failed to restore NIP-07 authentication:', error);
+          this.clearStorage();
+        }
       }
-    } else if (storedPublicKey) {
-      try {
-        await this.authenticateWithNIP07();
-      } catch (error) {
-        console.error('Failed to restore NIP-07 authentication:', error);
-        this.clearStorage();
-      }
+    } catch (error) {
+      console.error('Error during authentication initialization:', error);
+      this.clearStorage();
     }
   }
 
@@ -180,7 +191,10 @@ export class AuthManager {
         throw new Error('Browser environment required');
       }
 
-      const privateKey = nip06.privateKeyFromSeedWords(seedPhrase);
+      const privateKeyBytes = nip06.privateKeyFromSeedWords(seedPhrase);
+      const privateKey = Array.from(privateKeyBytes)
+        .map(b => b.toString(16).padStart(2, '0'))
+        .join('');
       await this.authenticateWithPrivateKey(privateKey);
       
       this.updateState({
@@ -204,8 +218,11 @@ export class AuthManager {
 
   // Generate new key pair for anonymous posting
   generateAnonymousKey(): { privateKey: string; publicKey: string } {
-    const privateKey = generateSecretKey();
-    const publicKey = getPublicKey(privateKey);
+    const privateKeyBytes = generateSecretKey();
+    const privateKey = Array.from(privateKeyBytes)
+      .map(b => b.toString(16).padStart(2, '0'))
+      .join('');
+    const publicKey = getPublicKey(privateKeyBytes);
     
     return { privateKey, publicKey };
   }
@@ -285,6 +302,9 @@ let authManager: AuthManager | null = null;
 export function createAuthManager(ndk: any): AuthManager {
   if (!authManager) {
     authManager = new AuthManager(ndk);
+  } else {
+    // Update NDK instance if it has changed
+    authManager['ndk'] = ndk;
   }
   return authManager;
 }

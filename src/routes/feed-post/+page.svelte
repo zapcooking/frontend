@@ -49,7 +49,7 @@
         
         // Redirect to feed after a short delay
         setTimeout(() => {
-          goto('/foodstr');
+          goto('/feed');
         }, 1500);
       } else {
         error = 'Failed to publish note';
@@ -126,7 +126,7 @@
       
       <div class="flex gap-3">
         <Button
-          on:click={() => goto('/foodstr')}
+          on:click={() => goto('/feed')}
           class="px-4 py-2 text-gray-600 hover:text-gray-800"
         >
           Cancel

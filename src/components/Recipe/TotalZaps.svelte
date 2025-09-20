@@ -29,7 +29,7 @@
         return;
       }
 
-      const aTag = `${event.kind}:${event.author.pubkey}:${dTag}`;
+      const aTag = `${event.kind}:${event.author?.hexpubkey || event.pubkey}:${dTag}`;
       
       // First, fetch existing zap events
       const zapEvents = await $ndk.fetchEvents({
@@ -101,8 +101,8 @@
   onDestroy(() => {
     if (subscription) {
       subscription.stop();
-      subscription = null;
     }
+    subscription = null;
   });
 
   // Reload when event changes

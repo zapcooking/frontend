@@ -2,12 +2,22 @@
   import { ndk, userPublickey } from '$lib/nostr';
   import type { NDKEvent, NDKFilter } from '@nostr-dev-kit/ndk';
   import { onMount } from 'svelte';
-  import Feed from '../../components/Feed.svelte';
+  import Feed from '../../components/FeedOptimized.svelte';
   import { validateMarkdownTemplate } from '$lib/pharser';
   import TagsSearchAutocomplete from '../../components/TagsSearchAutocomplete.svelte';
   import { goto } from '$app/navigation';
-  import { Name } from '@nostr-dev-kit/ndk-svelte-components';
+  // import { Name } from '@nostr-dev-kit/ndk-svelte-components'; // Temporarily disabled due to browser compatibility issues
   import { recipeTags } from '$lib/consts';
+  import type { PageData } from './$types';
+
+  export const data: PageData = {} as PageData;
+
+  function handleSelectChange(e: Event) {
+    const target = e.target as HTMLSelectElement;
+    if (target?.value) {
+      window.location.href = target.value;
+    }
+  }
 
   function isPopTag(tag: string): boolean {
     switch (tag.toLowerCase()) {
@@ -36,6 +46,11 @@ let events: NDKEvent[] = [];
 
 onMount(() => {
   try {
+    if (!$ndk) {
+      console.warn('NDK not available, skipping subscription');
+      return;
+    }
+    
     let filter: NDKFilter = { limit: 256, kinds: [30023], '#t': ['nostrcooking'] };
     const subscription = $ndk.subscribe(filter);
 
@@ -72,7 +87,7 @@ onMount(() => {
   <meta property="twitter:image" content="https://zap.cooking/logo_with_text.png" />
 </svelte:head>
 
-<div class="flex flex-col gap-3 md:gap-10">
+<div class="flex flex-col gap-3 md:gap-10 max-w-full md:max-w-none">
   <div class="hidden lg:flex w-screen gap-6 overflow-y-hidden overflow-x-auto">
     {#each popTags as tag}
       <a class="flex transition duration-300 hover:text-primary" href="/tag/{tag.title}">{tag.title}</a>
@@ -80,7 +95,7 @@ onMount(() => {
   </div>
 
   <div class="lg:hidden">
-    <select class="w-full input" onchange="window.location.href=this.value">
+    <select class="w-full input" on:change={handleSelectChange}>
       <option value="">All categories</option>
       {#each popTags as tag}
         <option value="/tag/{tag.title}">{tag.title}</option>
@@ -89,7 +104,6 @@ onMount(() => {
   </div>
 
   <div class="flex flex-col gap-2">
-    <h2>Recent Recipes</h2>
     <div><Feed {events} hideHide={true} /></div>
   </div>
 </div>

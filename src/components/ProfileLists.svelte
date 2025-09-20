@@ -1,16 +1,18 @@
 <script lang="ts">
   import { page } from '$app/stores';
   import { ndk, userPublickey } from '$lib/nostr';
-  import type { NDKEvent, NDKFilter, NDKUser, NDKUserProfile } from '@nostr-dev-kit/ndk';
+  import type { NDKEvent, NDKFilter, NDKUser, NDKUserProfile, NDKSubscription } from '@nostr-dev-kit/ndk';
   import { nip19 } from 'nostr-tools';
   import { goto } from '$app/navigation';
   import { formatDate } from '$lib/utils';
   import Feed from './Feed.svelte';
+  import { onDestroy } from 'svelte';
 
   export let hexpubkey: string | undefined = undefined;
   let events: NDKEvent[] = [];
   let user: NDKUserProfile;
   let loaded = false;
+  let subscription: NDKSubscription | null = null;
 
   $: {
     if ($page.params.slug) {
@@ -18,7 +20,13 @@
     }
   }
 
-async function loadData() {
+  async function loadData() {
+    // Clean up existing subscription
+    if (subscription) {
+      subscription.stop();
+      subscription = null;
+    }
+
     if (hexpubkey) {
       // load user
       const u = await $ndk.getUser({ hexpubkey: hexpubkey }).fetchProfile();
@@ -34,18 +42,27 @@ async function loadData() {
         '#t': ['nostrcooking']
       };
       
-      const subscription = $ndk.subscribe(filter);
+      subscription = $ndk.subscribe(filter);
       
-      subscription.on('event', (event) => {
-        events.push(event);
-        events = events;
-      });
+      if (subscription) {
+        subscription.on('event', (event) => {
+          events.push(event);
+          events = events;
+        });
 
-      subscription.on('eose', () => {
-        loaded = true;
-      });
+        subscription.on('eose', () => {
+          loaded = true;
+        });
+      }
     }
   }
+
+  onDestroy(() => {
+    if (subscription) {
+      subscription.stop();
+      subscription = null;
+    }
+  });
 </script>
 
 <Feed lists={true} {events} />

@@ -12,7 +12,7 @@
     <MagnifyingIcon class="self-center" size={24} />
     Recipes
   </a>
-  <a href="/foodstr" class="flex flex-col">
+  <a href="/feed" class="flex flex-col">
     <UtensilsIcon class="self-center" size={24} />
     Feed
   </a>

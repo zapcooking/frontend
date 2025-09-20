@@ -8,12 +8,23 @@
   import { browser } from '$app/environment';
   import { goto } from '$app/navigation';
   import Modal from '../../components/Modal.svelte';
+  import type { PageData } from './$types';
+
+  export const data: PageData = {} as PageData;
   import { nip19 } from 'nostr-tools';
   import { createAuthManager, type AuthState } from '$lib/authManager';
   import { onMount, onDestroy } from 'svelte';
+  import { DEFAULT_PROFILE_IMAGE } from '$lib/consts';
 
-  let authManager = createAuthManager($ndk);
-  let authState: AuthState = authManager.getState();
+  let authManager: any = null;
+  let authState: AuthState = {
+    isAuthenticated: false,
+    user: null,
+    publicKey: '',
+    authMethod: null,
+    isLoading: false,
+    error: null
+  };
   let unsubscribe: (() => void) | null = null;
 
   // Form states
@@ -33,16 +44,36 @@
   let isHovered = false;
 
   onMount(() => {
-    // Subscribe to auth state changes
-    unsubscribe = authManager.subscribe((state) => {
-      authState = state;
-      
-      // Redirect to home if authenticated
-      if (state.isAuthenticated) {
-        goto('/');
+    try {
+      // Initialize auth manager
+      authManager = createAuthManager($ndk);
+      if (authManager) {
+        authState = authManager.getState();
+        
+        // Subscribe to auth state changes
+        unsubscribe = authManager.subscribe((state: AuthState) => {
+          authState = state;
+          
+          // Sync with legacy userPublickey store for compatibility
+          if (state.isAuthenticated && state.publicKey) {
+            userPublickey.set(state.publicKey);
+          } else {
+            userPublickey.set('');
+          }
+          
+          // Redirect to home if authenticated
+          if (state.isAuthenticated) {
+            goto('/');
+          }
+        });
       }
-    });
-
+    } catch (error) {
+      console.error('Failed to initialize auth manager in login page:', error);
+      // Set authManager to a safe default to prevent template errors
+      authManager = {
+        isNIP07Available: () => false
+      };
+    }
   });
 
   onDestroy(() => {
@@ -52,6 +83,7 @@
   });
 
   async function loginWithNIP07() {
+    if (!authManager) return;
     try {
       await authManager.authenticateWithNIP07();
     } catch (error) {
@@ -60,6 +92,7 @@
   }
 
   async function loginWithPrivateKey() {
+    if (!authManager) return;
     try {
       nsecError = '';
       if (!nsecInput.trim()) {
@@ -77,6 +110,7 @@
   }
 
   async function loginWithSeed() {
+    if (!authManager) return;
     try {
       seedError = '';
       if (!seedInput.trim()) {
@@ -94,11 +128,12 @@
   }
 
   function generateNewKeys() {
+    if (!authManager) return;
     generatedKeys = authManager.generateKeyPair();
   }
 
   async function useGeneratedKeys() {
-    if (!generatedKeys) return;
+    if (!generatedKeys || !authManager) return;
     
     try {
       // Convert Uint8Array to hex string for authentication
@@ -116,7 +151,7 @@
         
         const profileContent: any = { 
           displayName: newAccountUsername.trim(),
-          picture: 'https://zap.cooking/default-pfp.jpg'
+          picture: DEFAULT_PROFILE_IMAGE
         };
         
         // Add username to profile with NIP-05 verification
@@ -457,7 +492,7 @@
       {/if}
 
       <!-- Extension Help -->
-      {#if !authManager.isNIP07Available()}
+      {#if !authManager?.isNIP07Available()}
         <div class="bg-blue-500/20 border border-blue-500/30 rounded-xl p-4 mb-6">
           <div class="text-blue-200 text-sm">
             <strong>⚡ No Nostr Extension Detected</strong><br/>

@@ -1,8 +1,8 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
   import Button from './Button.svelte';
-  import { Avatar } from '@nostr-dev-kit/ndk-svelte-components';
-  import { ndk, userPublickey } from '$lib/nostr';
+  // import { Avatar } from '@nostr-dev-kit/ndk-svelte-components';
+  import { userPublickey } from '$lib/nostr';
   import SVGNostrCookingWithText from '../assets/nostr.cooking-withtext.svg';
   import UserIcon from 'phosphor-svelte/lib/User';
   import GearIcon from 'phosphor-svelte/lib/Gear';
@@ -17,10 +17,13 @@
   import { getAuthManager } from '$lib/authManager';
   import Modal from './Modal.svelte';
   import { qr } from "@svelte-put/qr/svg";
+  import CustomAvatar from './CustomAvatar.svelte';
+  import HeaderSkeleton from './HeaderSkeleton.svelte';
 
   let dropdownActive = false;
   let searchActive = false;
   let supportModalOpen = false;
+  let isLoading = true;
 
   function openTag(query: string) {
     searchActive = false;
@@ -38,7 +41,22 @@
     if (authManager) {
       await authManager.logout();
     }
+    
+    // Clear the userPublickey store
+    userPublickey.set('');
+    
+    // Clear any additional localStorage items
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('nostrcooking_loggedInPublicKey');
+      localStorage.removeItem('nostrcooking_privateKey');
+    }
+    
     setTimeout(() => (window.location.href = ''), 1);
+  }
+
+  // Simple loading state management
+  $: if ($userPublickey !== undefined) {
+    isLoading = false;
   }
 </script>
 
@@ -54,6 +72,9 @@
   </div>  
 {/if}
 
+{#if isLoading}
+  <HeaderSkeleton />
+{:else}
 <!-- Mobile-first layout -->
 <div class="flex flex-col md:flex-row md:gap-9 md:justify-between">
   <!-- Top row for mobile: Logo and right buttons -->
@@ -82,11 +103,7 @@
       <div class="self-center print:hidden">
         {#if $userPublickey !== ''}
           <button class="flex self-center" on:click={() => (dropdownActive = !dropdownActive)}>
-            <Avatar
-              class="cursor-pointer w-10 h-10 object-center rounded-full"
-              ndk={$ndk}
-              pubkey={$userPublickey}
-            />
+            <CustomAvatar pubkey={$userPublickey} size={40} />
           </button>
           {#if dropdownActive}
             <div class="relative z-20" transition:fade={{ delay: 0, duration: 150 }}>
@@ -127,7 +144,7 @@
   <!-- Desktop navigation and search -->
   <div class="hidden md:flex gap-10 self-center font-semibold print:hidden">
     <a class="transition duration-300 hover:text-primary" href="/recent">Recipes</a>
-    <a class="transition duration-300 hover:text-primary" href="/foodstr">Feed</a>
+    <a class="transition duration-300 hover:text-primary" href="/feed">Feed</a>
     <a class="transition duration-300 hover:text-primary" href="/tags">Categories</a>
   </div>
 
@@ -157,11 +174,7 @@
     <div class="self-center print:hidden">
       {#if $userPublickey !== ''}
         <button class="flex self-center" on:click={() => (dropdownActive = !dropdownActive)}>
-          <Avatar
-            class="cursor-pointer w-12 h-12 object-center rounded-full"
-            ndk={$ndk}
-            pubkey={$userPublickey}
-          />
+          <CustomAvatar pubkey={$userPublickey} size={48} />
         </button>
         {#if dropdownActive}
           <div class="relative z-20" transition:fade={{ delay: 0, duration: 150 }}>
@@ -198,6 +211,7 @@
     </div>
   </div>
 </div>
+{/if}
 
 <!-- Support Modal -->
 <Modal bind:open={supportModalOpen}>
