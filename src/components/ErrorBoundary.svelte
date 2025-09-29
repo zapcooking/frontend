@@ -166,7 +166,7 @@
   <slot />
 {/if}
 
-<style>
+<style scoped lang="postcss">
   .error-boundary {
     @apply min-h-[200px] flex items-center justify-center p-6;
   }

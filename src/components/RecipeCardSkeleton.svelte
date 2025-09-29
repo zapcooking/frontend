@@ -28,9 +28,9 @@
   />
 </div>
 
-<style>
+<style lang="postcss">
+  @reference "../app.css";
   .recipe-card-skeleton {
     @apply flex flex-col gap-4 w-full max-w-[160px] justify-self-center;
   }
-
 </style>
