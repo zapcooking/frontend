@@ -2,7 +2,7 @@
   import { ndk, userPublickey } from '$lib/nostr';
   import type { NDKEvent, NDKFilter } from '@nostr-dev-kit/ndk';
   import { onMount } from 'svelte';
-  import Feed from '../../components/FeedOptimized.svelte';
+  import Feed from '../../components/Feed.svelte';
   import { validateMarkdownTemplate } from '$lib/pharser';
   import TagsSearchAutocomplete from '../../components/TagsSearchAutocomplete.svelte';
   import { goto } from '$app/navigation';

@@ -2,7 +2,7 @@
   import { page } from '$app/stores';
   import { ndk } from '$lib/nostr';
   import type { NDKEvent, NDKFilter } from '@nostr-dev-kit/ndk';
-  import Feed from '../../../components/FeedOptimized.svelte';
+  import Feed from '../../../components/Feed.svelte';
   import { validateMarkdownTemplate } from '$lib/pharser';
   import { recipeTags } from '$lib/consts';
   import { goto } from '$app/navigation';

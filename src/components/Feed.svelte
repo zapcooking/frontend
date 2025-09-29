@@ -6,8 +6,11 @@
   export let events: NDKEvent[];
   export let hideHide = false;
   export let lists = false;
-  if (!lists)
+  
+  // Simple filtering - same as original Feed.svelte
+  if (!lists) {
     events = events.filter((e) => typeof validateMarkdownTemplate(e.content) !== 'string');
+  }
 </script>
 
 <svelte:head>
@@ -18,7 +21,7 @@
   class="grid gap-x-2 gap-y-10 grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-7 2xl:grid-cols-8 justify-items-center"
 >
   {#if events.length > 0}
-    {#each events as event}
+    {#each events as event (event.id)}
       {#if !(hideHide == true && event.tags.find((t) => t[0] == 't' && t[1] == 'nostrcooking-hide'))}
         <RecipeCard list={lists} {event} />
       {/if}

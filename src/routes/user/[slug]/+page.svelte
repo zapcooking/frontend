@@ -4,7 +4,7 @@
   import type { NDKFilter, NDKUser, NDKUserProfile } from '@nostr-dev-kit/ndk';
   import { nip19 } from 'nostr-tools';
   import ZapModal from '../../../components/ZapModal.svelte';
-  import Feed from '../../../components/FeedOptimized.svelte';
+  import Feed from '../../../components/Feed.svelte';
   import { validateMarkdownTemplate } from '$lib/pharser';
   import { goto } from '$app/navigation';
   import { page } from '$app/stores';
