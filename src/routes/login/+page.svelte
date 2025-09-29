@@ -1,8 +1,4 @@
 <script lang="ts">
-  import KeyIcon from 'phosphor-svelte/lib/Key';
-  import SeedIcon from 'phosphor-svelte/lib/Plant';
-  import UserPlusIcon from 'phosphor-svelte/lib/UserPlus';
-  // import LightningIcon from 'phosphor-svelte/lib/Lightning';
   import Button from '../../components/Button.svelte';
   import { ndk, userPublickey } from '$lib/nostr';
   import { browser } from '$app/environment';
@@ -287,7 +283,7 @@
 
 <!-- Generate Keys Modal -->
 <Modal bind:open={generateModal} on:close={modalCleanup}>
-  <svelte:fragment slot="title">👨‍🍳 Create New ZapCooking Account</svelte:fragment>
+  <svelte:fragment slot="title">👨‍🍳 Create New Zap Cooking Account</svelte:fragment>
   <div class="flex flex-col gap-4">
     {#if !generatedKeys}
       <div class="space-y-4">
@@ -393,7 +389,7 @@
 </Modal>
 
 <!-- Main Login Page -->
-<main class="min-h-screen lightning-bg relative overflow-hidden" aria-label="ZapCooking login page">
+<main class="min-h-screen lightning-bg relative overflow-hidden" aria-label="Zap Cooking login page">
   <!-- Background Lightning Effects -->
   <div class="absolute inset-0 opacity-5">
     <div class="absolute top-10 left-10 text-6xl lightning-pulse">⚡</div>
@@ -411,14 +407,14 @@
     <div class="absolute bottom-20 right-1/4 text-3xl animate-bounce" style="animation-delay: 0.6s;">🍽️</div>
   </div>
 
-  <div class="relative z-10 flex flex-col justify-center items-center min-h-screen px-4 py-8">
+  <div class="relative flex flex-col justify-center items-center min-h-screen px-4 py-8">
     <!-- Main Content Card -->
     <section class="glass-card rounded-3xl p-8 md:p-12 max-w-md w-full mx-auto text-center" aria-label="Authentication options">
       <!-- Logo and Title -->
       <div class="mb-8">
-        <div class="text-6xl mb-4 lightning-pulse">⚡</div>
+        <img src="/favicon.svg" class="w-20 mb-4 mx-auto" alt="Frying Pan with Lightning Bolt" />
         <h1 class="text-3xl md:text-4xl font-bold text-gray-800 mb-2">
-          Welcome to <span class="text-orange-500">ZapCooking</span>
+          Welcome to <span class="text-orange-500">Zap Cooking</span>
         </h1>
         <p class="text-lg text-gray-600 mb-6">
           Share recipes, support creators with Bitcoin zaps, and join the decentralized cooking revolution
@@ -433,13 +429,13 @@
           on:mouseenter={() => isHovered = true}
           on:mouseleave={() => isHovered = false}
           disabled={authState.isLoading}
-          aria-label="Connect to ZapCooking using your Nostr browser extension"
+          aria-label="Connect to Zap Cooking using your Nostr browser extension"
           class="w-full lightning-border electric-glow bg-gradient-to-r from-orange-500 to-purple-600 hover:from-orange-600 hover:to-purple-700 text-white font-semibold py-4 px-6 rounded-2xl transition-all duration-300 transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
         >
           <div class="flex items-center justify-center gap-3">
             <span class="text-2xl lightning-pulse">⚡</span>
             <span class="text-lg">
-              {authState.isLoading ? '⚡ Connecting...' : '⚡ Connect Nostr Extension'}
+              {authState.isLoading ? 'Connecting...' : 'Connect Nostr Extension'}
             </span>
           </div>
         </button>
@@ -448,12 +444,12 @@
         <button
           on:click={() => (nsecModal = true)}
           disabled={authState.isLoading}
-          aria-label="Log in to ZapCooking using your private key"
+          aria-label="Log in to Zap Cooking using your private key"
           class="w-full glass-card hover:bg-gray-50 text-gray-800 font-semibold py-4 px-6 rounded-2xl transition-all duration-300 transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none border border-gray-200"
         >
           <div class="flex items-center justify-center gap-3">
-            <KeyIcon size={24} />
-            <span class="text-lg">🔑 Import Private Key</span>
+            🔑
+            <span class="text-lg">Import Private Key</span>
           </div>
         </button>
 
@@ -461,12 +457,12 @@
         <button
           on:click={() => (seedModal = true)}
           disabled={authState.isLoading}
-          aria-label="Restore your ZapCooking account using a seed phrase"
+          aria-label="Restore your Zap Cooking account using a seed phrase"
           class="w-full glass-card hover:bg-gray-50 text-gray-800 font-semibold py-4 px-6 rounded-2xl transition-all duration-300 transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none border border-gray-200"
         >
           <div class="flex items-center justify-center gap-3">
-            <SeedIcon size={24} />
-            <span class="text-lg">🌱 Restore from Seed Phrase</span>
+            🌱
+            <span class="text-lg">Restore from Seed Phrase</span>
           </div>
         </button>
 
@@ -474,12 +470,12 @@
         <button
           on:click={() => (generateModal = true)}
           disabled={authState.isLoading}
-          aria-label="Create a new ZapCooking account with a fresh Nostr identity"
+          aria-label="Create a new Zap Cooking account with a fresh Nostr identity"
           class="w-full glass-card hover:bg-gray-50 text-gray-800 font-semibold py-4 px-6 rounded-2xl transition-all duration-300 transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none border border-gray-200"
         >
           <div class="flex items-center justify-center gap-3">
-            <UserPlusIcon size={24} />
-            <span class="text-lg">👨‍🍳 Create New Identity</span>
+            👨‍🍳
+            <span class="text-lg">Create New Identity</span>
           </div>
         </button>
       </nav>
@@ -504,7 +500,7 @@
       {/if}
 
       <!-- Value Propositions -->
-      <section class="grid grid-cols-2 gap-4 text-sm text-gray-600" aria-label="ZapCooking features">
+      <section class="grid grid-cols-2 gap-4 text-sm text-gray-600" aria-label="Zap Cooking features">
         <div class="flex items-center gap-2">
           <span class="text-orange-500">⚡</span>
           <span>Instant Bitcoin Tips</span>
@@ -523,12 +519,4 @@
         </div>
       </section>
     </section>
-
-    <!-- Call to Action -->
-    <div class="mt-8 text-center">
-      <p class="text-gray-600 mb-4">Ready to join the recipe revolution?</p>
-      <a href="/onboarding" class="inline-block glass-card text-gray-800 font-medium py-3 px-6 rounded-xl hover:bg-gray-50 transition-all duration-300 border border-gray-200">
-        Learn More About ZapCooking →
-      </a>
-    </div>
 </main>
