@@ -77,7 +77,7 @@
 
 <button
   on:click={likePost}
-  class="flex gap-1.5 hover:bg-input rounded px-0.5 transition duration-300 cursor-pointer"
+  class="flex gap-1.5 hover:bg-input rounded px-0.5 transition duration-300 cursor-pointer self-center"
   class:opacity-50={!$userPublickey}
   class:hover:opacity-75={!$userPublickey}
   title={!$userPublickey ? 'Login to like recipes' : liked ? 'You liked this recipe' : 'Like this recipe'}
@@ -85,7 +85,7 @@
   <HeartIcon 
     size={24} 
     weight={liked ? 'fill' : 'regular'} 
-    class={liked ? 'text-red-500' : 'text-gray-500'}
+    class={liked ? 'text-red-500' : ''}
   />
   {#if loading}...{:else}{totalLikeAmount}{/if}
 </button>
