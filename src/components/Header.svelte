@@ -18,7 +18,6 @@
   import Modal from './Modal.svelte';
   import { qr } from "@svelte-put/qr/svg";
   import CustomAvatar from './CustomAvatar.svelte';
-  import HeaderSkeleton from './HeaderSkeleton.svelte';
 
   let dropdownActive = false;
   let searchActive = false;
@@ -72,98 +71,43 @@
   </div>  
 {/if}
 
-{#if isLoading}
-  <HeaderSkeleton />
-{:else}
 <!-- Mobile-first layout -->
-<div class="flex flex-col md:flex-row md:gap-9 md:justify-between">
-  <!-- Top row for mobile: Logo and right buttons -->
-  <div class="flex justify-between items-center md:flex-none">
+<div class="flex gap-9 justify-between">
     <a href="/recent" class="flex-none">
       <img src={SVGNostrCookingWithText} class="w-40 my-3" alt="Nostr.Cooking Logo With Text" />
     </a>
-    
-    <!-- Right side buttons for mobile -->
-    <div class="flex gap-3 self-center flex-none print:hidden md:hidden">
-      {#if $userPublickey !== ''}
-        <Button class="self-center w-10 h-10 flex justify-center px-1 py-1 font-semibold gap-2" on:click={() => goto('/create')}>
-            <AddIcon class="self-center" size={16} />
-        </Button>
-      {/if}
-      <div class="self-center print:hidden">
-        <button on:click={() => supportModalOpen = true} class="text-white rounded-full bg-gradient-to-r from-yellow-400 to-orange-500 hover:from-yellow-500 hover:to-orange-600 px-3 py-2 font-semibold transition duration-300 flex items-center gap-1 text-sm">
-          Support Us ⚡
-        </button>
-      </div>
-      <div class="self-center print:hidden">
-        {#if $userPublickey !== ''}
-          <button class="flex self-center" on:click={() => (dropdownActive = !dropdownActive)}>
-            <CustomAvatar pubkey={$userPublickey} size={40} />
-          </button>
-          {#if dropdownActive}
-            <div class="relative z-20" transition:fade={{ delay: 0, duration: 150 }}>
-              <div
-                role="button"
-                tabindex="-1"
-                on:click={() => (dropdownActive = false)}
-                on:keydown={(e) => e.key === 'Escape' && (dropdownActive = false)}
-                use:clickOutside
-                on:click_outside={() => (dropdownActive = false)}
-                class="flex flex-col right-3 gap-4 absolute z-10 bg-white rounded-3xl drop-shadow px-5 py-6"
-              >
-                <button
-                  class="flex gap-2 cursor-pointer"
-                  on:click={() => goto(`/user/${nip19.npubEncode($userPublickey)}`)}
-                >
-                  <UserIcon class="self-center" size={18} />
-                  Profile
-                </button>
-                <button class="flex gap-2 cursor-pointer" on:click={() => goto('/settings')}>
-                  <GearIcon class="self-center" size={18} />
-                  Settings
-                </button>
-                <button class="flex gap-2 cursor-pointer" on:click={logout}>
-                  <SignOutIcon class="self-center" size={18} />
-                  Log out
-                </button>
-              </div>
-            </div>
-          {/if}
-        {:else}
-          <a href="/login" class="text-white rounded-full bg-black disabled:bg-black/50 hover:bg-gray-800 px-3 py-2 font-semibold transition duration-300 text-sm">Sign in</a>
-        {/if}
-      </div>
-    </div>
-  </div>
-
-  <!-- Desktop navigation and search -->
-  <div class="hidden md:flex gap-10 self-center font-semibold print:hidden">
+  <!-- Top row for mobile: Logo and right buttons -->
+  <div class="hidden lg:flex gap-9 self-center font-semibold print:hidden">
     <a class="transition duration-300 hover:text-primary" href="/recent">Recipes</a>
     <a class="transition duration-300 hover:text-primary" href="/feed">Feed</a>
     <a class="transition duration-300 hover:text-primary" href="/tags">Categories</a>
   </div>
 
-  <div class="hidden sm:flex flex-1 grow self-center print:hidden">
+  <div class="hidden sm:max-lg:flex xl:flex flex-1 grow self-center print:hidden">
     <TagsSearchAutocomplete
       placeholderString={"Search by tag, like 'italian', 'steak' or 'glutenfree'."}
       action={openTag}
     />
   </div>
-  
-  <!-- Desktop right side buttons -->
-  <div class="hidden md:flex gap-4 self-center flex-none print:hidden">
-    {#if $userPublickey !== ''}
+  <span class="hidden lg:max-xl:flex lg:max-xl:grow"></span>
+  <div class="flex gap-4 self-center flex-none print:hidden">
+    <div class="block sm:max-lg:hidden xl:hidden self-center grow">
+      <!-- for some reason if i have all of these selector classes then it styles correctly. wtf. -->
+      <Button class="self-center max-md:w-10 max-md:h-10 flex max-md:justify-center max-md:px-1 max-md:py-1 font-semibold !bg-[#FFECE8] cursor-pointer" on:click={() => searchActive = true}>
+          <SearchIcon class="self-center text-primary" size={16} weight="bold" />
+      </Button>
+    </div>
       <a class="hidden lg:flex self-center gap-2 transition duration-300 font-semibold hover:text-primary" href="/bookmarks">
         <BookmarkIcon class="self-center" size="30px" weight="bold" />
         <span class="self-center">Bookmarks</span>
       </a>
-      <a href="/create" class="text-white rounded-full bg-gradient-to-r from-orange-400 to-orange-500 hover:from-orange-500 hover:to-orange-600 px-4 py-2.5 font-semibold transition duration-300 flex items-center gap-2">
-        + Add Recipe
-      </a>
-    {/if}
+      <Button class="self-center max-md:w-10 max-md:h-10 flex max-md:justify-center max-md:px-1 max-md:py-1 font-semibold gap-2 cursor-pointer" on:click={() => goto('/create')}>
+          <AddIcon class="self-center" size={16} />
+          <div class="hidden md:flex">Create</div>
+      </Button>
     <div class="self-center print:hidden">
-      <button on:click={() => supportModalOpen = true} class="text-white rounded-full bg-gradient-to-r from-yellow-400 to-orange-500 hover:from-yellow-500 hover:to-orange-600 px-4 py-2.5 font-semibold transition duration-300 flex items-center gap-2">
-        Support Us ⚡
+      <button on:click={() => supportModalOpen = true} class="text-white rounded-full bg-gradient-to-r from-yellow-400 to-orange-500 hover:from-yellow-500 hover:to-orange-600 px-4 py-2.5 font-semibold transition duration-300 flex items-center gap-2 cursor-pointer">
+        ⚡ Support Us
       </button>
     </div>
     <div class="self-center print:hidden">
@@ -206,7 +150,6 @@
     </div>
   </div>
 </div>
-{/if}
 
 <!-- Support Modal -->
 <Modal bind:open={supportModalOpen}>
