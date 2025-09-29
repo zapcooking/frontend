@@ -5,7 +5,7 @@
   import { NDKEvent, type NDKUserProfile } from '@nostr-dev-kit/ndk';
   import { nip19 } from 'nostr-tools';
   import { onMount } from 'svelte';
-  import Feed from '../../components/FeedOptimized.svelte';
+  import Feed from '../../components/Feed.svelte';
   import { formatDate } from '$lib/utils';
   import MagnifyingGlassIcon from 'phosphor-svelte/lib/MagnifyingGlass';
   import type { PageData } from './$types';

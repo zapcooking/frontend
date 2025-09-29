@@ -5,7 +5,7 @@
   import type { NDKEvent, NDKUserProfile } from '@nostr-dev-kit/ndk';
   import { nip19 } from 'nostr-tools';
   import { onMount } from 'svelte';
-  import Feed from '../../../components/FeedOptimized.svelte';
+  import Feed from '../../../components/Feed.svelte';
   import { formatDate } from '$lib/utils';
   import AuthorProfile from '../../../components/AuthorProfile.svelte';
   import type { PageData } from './$types';
