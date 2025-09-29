@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { ndk } from '$lib/nostr';
+  import { ndk, userPublickey } from '$lib/nostr';
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
   import CommentIcon from 'phosphor-svelte/lib/ChatTeardropText';
 
@@ -30,7 +30,7 @@
 </script>
 
 <button 
-  class="flex gap-1.5 hover:bg-input rounded px-0.5 transition duration-300 cursor-pointer"
+  class="flex gap-1.5 hover:bg-input rounded px-0.5 transition duration-300 cursor-pointer self-center"
   on:click={() => {
     // Find the InlineComments component for this recipe and trigger toggleComments
     const inlineCommentsComponent = document.querySelector(`[data-event-id="${event.id}"]`)?.closest('.inline-comments');
@@ -41,6 +41,6 @@
   }}
   title="View comments"
 >
-  <CommentIcon size={24} class="text-gray-500" />
+  <CommentIcon size={24} />
   {#if loading}...{:else}{totalCommentAmount}{/if}
 </button>

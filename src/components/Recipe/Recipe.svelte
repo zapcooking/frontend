@@ -181,7 +181,7 @@ async function getLists(): Promise<NDKEvent[]> {
   </div>
 </Modal>
 
-<article class="max-w-[760px] mx-auto px-4 md:px-0">
+<article class="max-w-[760px] mx-auto">
   {#if event}
     <div class="flex flex-col gap-6">
       <div class="flex flex-col gap-4">
