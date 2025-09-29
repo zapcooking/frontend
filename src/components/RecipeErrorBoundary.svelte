@@ -17,8 +17,8 @@
   <slot />
 </ErrorBoundary>
 
-<style>
-  /* Recipe-specific error styling */
+<style lang="postcss">
+  @reference "../app.css";
   :global(.error-boundary) {
     @apply min-h-[237px] w-[160px] flex items-center justify-center;
   }

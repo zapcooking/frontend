@@ -1,6 +1,6 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+@plugin "@tailwindcss/forms";
+@plugin "@tailwindcss/typography";
 
 /* Prevent horizontal overflow on mobile */
 html, body {
@@ -21,11 +21,22 @@ html, body {
   font-display: auto;
 }
 
+@theme {
+  --font-display: "Geist", sans;
+
+  --color-primary: #EC4700;
+  --color-input: #F6F6F6;
+  --color-accent-gray: #DDDDDD;
+  --color-caption: #716F6C;
+  --color-danger: #FF3535;
+
+  --breakpoint-print: print;
+}
+
 .input {
   @apply rounded-xl bg-input border-input focus:ring-primary focus:border-primary p-3 transition duration-300;
 }
 
-@layer base {
   h1 {
     @apply text-2xl md:text-3xl font-semibold tracking-tight;
   }
@@ -35,4 +46,3 @@ html, body {
   h3 {
     @apply text-lg md:text-xl font-semibold tracking-tight;
   }
-}

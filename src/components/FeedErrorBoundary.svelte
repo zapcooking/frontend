@@ -17,7 +17,3 @@
 >
   <slot />
 </ErrorBoundary>
-
-<style>
-  /* Feed-specific error styling can be added here if needed */
-</style>
