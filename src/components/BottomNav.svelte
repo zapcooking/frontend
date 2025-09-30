@@ -1,6 +1,6 @@
 <script lang="ts">
   import MagnifyingIcon from 'phosphor-svelte/lib/MagnifyingGlass';
-  // import LightningIcon from 'phosphor-svelte/lib/Lightning';
+  import LightningIcon from 'phosphor-svelte/lib/Lightning';
   import BookmarkIcon from 'phosphor-svelte/lib/Bookmark';
   import UtensilsIcon from 'phosphor-svelte/lib/ForkKnife';
 </script>
@@ -17,7 +17,7 @@
     Feed
   </a>
   <a href="/tags" class="flex flex-col">
-    <span class="text-xl self-center">⚡</span>
+    <LightningIcon class="self-center" size={24} />
     Categories
   </a>
   <a href="/bookmarks" class="flex flex-col">
