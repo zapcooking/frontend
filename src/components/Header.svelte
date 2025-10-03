@@ -74,7 +74,7 @@
 <!-- Mobile-first layout -->
 <div class="flex gap-4 sm:gap-9 justify-between">
     <a href="/recent" class="flex-none">
-      <img src={SVGNostrCookingWithText} class="w-35 sm:w-40 my-3" alt="Nostr.Cooking Logo With Text" />
+      <img src={SVGNostrCookingWithText} class="w-35 sm:w-40 my-3" alt="zap.cooking Logo With Text" />
     </a>
   <!-- Top row for mobile: Logo and right buttons -->
   <div class="hidden lg:flex gap-9 self-center font-semibold print:hidden">
