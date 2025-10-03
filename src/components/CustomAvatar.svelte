@@ -93,7 +93,7 @@
   {#if profilePicture}
     <img 
       src={profilePicture} 
-      alt="Profile picture"
+      alt="Avatar"
       style="
         width: 100%; 
         height: 100%; 
