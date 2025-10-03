@@ -31,6 +31,9 @@
     }, 1);
   }
 
+  let sk: string | null = null;
+  let pk: string | null = null;
+
   if (browser) {
     const a = localStorage.getItem('nostrcooking_relays');
     if (a) {
@@ -38,12 +41,12 @@
     } else {
       relays = standardRelays;
     }
+    sk = localStorage.getItem('nostrcooking_privateKey');
+    pk = localStorage.getItem('nostrcooking_loggedInPublicKey');
   }
 
   let showPrivkey = false;
   let copiedKey = '';
-  const sk = localStorage.getItem('nostrcooking_privateKey');
-  const pk = localStorage.getItem('nostrcooking_loggedInPublicKey');
 
   async function copyToClipboard(text: string, keyType: string) {
     if (browser) {
@@ -62,7 +65,13 @@
   function getEncodedPrivateKey(): string {
     if (!sk) return '';
     try {
-      const bytes = new Uint8Array(sk.match(/.{1,2}/g)!.map(byte => parseInt(byte, 16)));
+      const match = sk.match(/.{1,2}/g);  
+      if (!match) {  
+        console.error('Private key format is invalid:', sk);  
+        return sk; // fallback to raw key  
+      }  
+      const bytes = new Uint8Array(match.map(byte => parseInt(byte, 16)));  
+
       return nip19.nsecEncode(bytes);
     } catch (error) {
       console.error('Error encoding private key:', error);
