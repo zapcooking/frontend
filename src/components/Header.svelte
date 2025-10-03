@@ -107,7 +107,7 @@
       </Button>
     <div class="self-center print:hidden">
       <button on:click={() => supportModalOpen = true} class="text-white rounded-full bg-gradient-to-r from-yellow-400 to-orange-500 hover:from-yellow-500 hover:to-orange-600 px-4 py-2.5 font-semibold transition duration-300 flex items-center gap-2 cursor-pointer">
-        ⚡ Support Us
+        ⚡ <span class="hidden md:inline">Support Us</span>
       </button>
     </div>
     <div class="self-center print:hidden">
