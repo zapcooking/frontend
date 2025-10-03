@@ -16,6 +16,8 @@
   import { browser } from '$app/environment';
   import { ZapManager } from '$lib/zapManager';
 
+  let authMethodIsNip07 = $ndk.signer?.constructor.name === "NDKNip07Signer";
+
   const defaultZapSatsAmounts = [
     21, 121, 400, 1000, 2100, 4200, 10000, 21000, 42000, 69000, 100000, 210000, 500000, 1000000
   ];
@@ -27,12 +29,14 @@
   let amount: number = 21;
   let message: string = '';
 
-  $: paymentsToMakeQR = [];
-  $: paymentStatuses = [];
+  type PaymentToMake = { pr: string; recipientPubkey: string; amount: number };
+  type PaymentStatus = { pubkey: string; paid: boolean };
+  let paymentsToMakeQR: PaymentToMake[] = [];
+  let paymentStatuses: PaymentStatus[] = [];
 
-  $: state = "pre";
-  $: useQR = false;
-  let error: Error;
+  let state: "pre" | "pending" | "success" | "error" = "pre";
+  let useQR = false;
+  let error: Error | null = null;
 
   let zapManager: ZapManager;
   let subscription: any = null;
@@ -220,6 +224,9 @@
 
       <span class="self-center">{useQR ? "Fetching Invoice(s)..." : "Waiting for Payment..."}</span>
       {#if useQR}
+        {#if authMethodIsNip07}
+          <span class="self-center text-center">If you did not recieve a popup from your signer extension, try clicking on it's icon in your browser's extensions menu.</span>
+        {/if}
         <span class="self-center text-center">If this takes a while refresh and try again.</span>
       {/if}
     </div>
@@ -307,10 +314,10 @@
                 {paymentsToMakeQR[selected_qr - 1].pr}
               </div>
               <button 
-                on:click={() => {
+                on:click={(e) => {
                   navigator.clipboard.writeText(paymentsToMakeQR[selected_qr - 1].pr);
                   // Simple feedback
-                  const btn = event.target;
+                  const btn = e.target;
                   const originalText = btn.textContent;
                   btn.textContent = 'Copied!';
                   btn.classList.add('bg-green-500');
