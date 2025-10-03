@@ -64,7 +64,7 @@
   });
 </script>
 
-<div class="relative flex-1">
+<div class="relative flex-1 print:hidden">
   <form
     class="flex rounded-xl shadow-sm bg-input"
     on:submit|preventDefault={() => {

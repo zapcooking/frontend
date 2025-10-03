@@ -101,7 +101,7 @@
   <!-- Reply Button -->
   <button
     on:click={toggleReplies}
-    class="text-xs text-gray-500 hover:text-gray-700 cursor-pointer transition duration-300"
+    class="text-xs text-gray-500 hover:text-gray-700 cursor-pointer transition duration-300 print:hidden"
   >
     {showReplies ? 'Hide' : 'Reply'} {replyCount > 0 ? `(${replyCount})` : ''}
   </button>
@@ -118,19 +118,19 @@
       
       <!-- Error/Success Messages -->
       {#if errorMessage}
-        <div class="text-xs text-red-600 bg-red-50 p-2 rounded">
+        <div class="text-xs text-red-600 bg-red-50 p-2 rounded print:hidden">
           {errorMessage}
         </div>
       {/if}
       
       {#if successMessage}
-        <div class="text-xs text-green-600 bg-green-50 p-2 rounded">
+        <div class="text-xs text-green-600 bg-green-50 p-2 rounded print:hidden">
           {successMessage}
         </div>
       {/if}
       
       <!-- Reply Form -->
-      <div class="space-y-1">
+      <div class="space-y-1 print:hidden">
         <textarea
           bind:value={replyText}
           placeholder={$ndk.signer ? "Add a reply..." : "Log in to reply..."}
@@ -152,7 +152,7 @@
       <!-- Replies List -->
       <div class="space-y-2">
         {#if loading}
-          <div class="text-center py-2 text-xs text-gray-500">Loading replies...</div>
+          <div class="text-center py-2 text-xs text-gray-500 print:hidden">Loading replies...</div>
         {:else if replies.length === 0}
           <div class="text-center py-2 text-xs text-gray-500">No replies yet</div>
         {:else}
