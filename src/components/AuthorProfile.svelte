@@ -23,7 +23,7 @@
   </a>
   
   {#if user}
-    <div class="flex items-center gap-2">
+    <div class="flex items-center gap-2 print:hidden">
       <ZapButton {user} size="sm" variant="minimal" />
     </div>
   {/if}

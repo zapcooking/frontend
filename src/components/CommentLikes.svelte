@@ -75,7 +75,7 @@
 
 <button
   on:click={likeComment}
-  class="flex gap-1 items-center hover:bg-gray-100 rounded px-1 py-0.5 transition duration-300 cursor-pointer text-xs"
+  class="flex gap-1 items-center hover:bg-gray-100 rounded px-1 py-0.5 transition duration-300 cursor-pointer text-xs print:hidden"
   class:opacity-50={!$userPublickey}
   class:hover:opacity-75={!$userPublickey}
   title={!$userPublickey ? 'Login to like comments' : liked ? 'You liked this comment' : 'Like this comment'}
