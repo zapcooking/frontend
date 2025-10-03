@@ -75,22 +75,6 @@
         <CommentReplies parentComment={event} />
       </div>
       
-      <!-- Legacy Reply Box (keeping for backward compatibility) -->
-      <button
-        on:click={() => (showReplyBox = !showReplyBox)}
-        class="text-gray-500 cursor-pointer self-start"
-      >
-        Legacy Reply
-      </button>
-      {#if showReplyBox}
-        <textarea
-          bind:value={replyText}
-          class="bg-input border-input focus:ring-primary focus:border-primary rounded-3xl px-8 py-6 transition duration-300"
-          rows="2"
-          placeholder="This tastes..."
-        />
-        <Button on:click={postComment} class="self-end">Post Reply</Button>
-      {/if}
     </div>
   </div>
 </div>
