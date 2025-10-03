@@ -319,6 +319,20 @@
         </div>
         
         <div>
+          <label for="username-input" class="block text-sm font-medium text-gray-700 mb-1">👨‍🍳 Username (Optional)</label>
+          <input
+            id="username-input"
+            bind:value={newAccountUsername}
+            placeholder="chef123"
+            class="w-full shadow-sm focus:ring-orange-500 focus:border-orange-500 block sm:text-sm border-gray-300 rounded-md p-3"
+            disabled={authState.isLoading}
+          />
+          <div class="text-xs text-gray-500 mt-1">
+            This will be your @username on Nostr. Leave empty if you prefer to use your public key.
+          </div>
+        </div>
+
+        <div>
           <label for="private-key-textarea" class="block text-sm font-medium text-gray-700 mb-1">Private Key (nsec) - SAVE THIS!</label>
           <div class="flex gap-2">
             <textarea
@@ -355,20 +369,6 @@
             </button>
           </div>
           <div class="text-xs text-gray-500 mt-1">This is safe to share - it's your public identity</div>
-        </div>
-
-        <div>
-          <label for="username-input" class="block text-sm font-medium text-gray-700 mb-1">👨‍🍳 Username (Optional)</label>
-          <input
-            id="username-input"
-            bind:value={newAccountUsername}
-            placeholder="chef123"
-            class="w-full shadow-sm focus:ring-orange-500 focus:border-orange-500 block sm:text-sm border-gray-300 rounded-md p-3"
-            disabled={authState.isLoading}
-          />
-          <div class="text-xs text-gray-500 mt-1">
-            This will be your @username on Nostr. Leave empty if you prefer to use your public key.
-          </div>
         </div>
 
         <div class="bg-blue-50 border border-blue-200 rounded-md p-3">
