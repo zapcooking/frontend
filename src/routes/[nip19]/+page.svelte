@@ -88,7 +88,7 @@
 </script>
 
 <svelte:head>
-  <title>Referenced Note - Nostr.Cooking</title>
+  <title>Referenced Note - zap.cooking</title>
 </svelte:head>
 
 <div class="max-w-2xl mx-auto">

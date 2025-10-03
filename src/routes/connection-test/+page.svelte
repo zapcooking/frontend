@@ -213,7 +213,7 @@
 </script>
 
 <svelte:head>
-  <title>Connection Test - Nostr Cooking</title>
+  <title>Connection Test - zap.cooking</title>
 </svelte:head>
 
 <div class="min-h-screen bg-gray-50 py-8">

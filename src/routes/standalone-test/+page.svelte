@@ -24,7 +24,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>Standalone Test - Zap Cooking</title>
+  <title>Standalone Test - zap.cooking</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
 </head>
 <body>

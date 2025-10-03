@@ -71,14 +71,14 @@
 </script>
 
 <svelte:head>
-  <title>Post to Feed - Zap.Cooking</title>
-  <meta name="description" content="Share your thoughts with the Zap.Cooking community" />
+  <title>Post to Feed - zap.cooking</title>
+  <meta name="description" content="Share your thoughts with the zap.cooking community" />
 </svelte:head>
 
 <div class="container mx-auto px-4 max-w-2xl py-8">
   <div class="mb-6">
     <h1 class="text-2xl sm:text-3xl font-bold text-gray-900 mb-2">Share with the Community</h1>
-    <p class="text-sm sm:text-base text-gray-600">Post your thoughts, cooking tips, or food discoveries to the Zap.Cooking feed</p>
+  <p class="text-sm sm:text-base text-gray-600">Post your thoughts, cooking tips, or food discoveries to the zap.cooking feed</p>
   </div>
 
   {#if success}

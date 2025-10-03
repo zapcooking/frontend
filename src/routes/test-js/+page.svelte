@@ -17,7 +17,7 @@
 </script>
 
 <svelte:head>
-  <title>JavaScript Test - Zap Cooking</title>
+  <title>JavaScript Test - zap.cooking</title>
 </svelte:head>
 
 <div style="max-width: 600px; margin: 0 auto; padding: 20px;">

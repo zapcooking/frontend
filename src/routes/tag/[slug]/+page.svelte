@@ -48,20 +48,20 @@ async function loadData() {
 </script>
 
 <svelte:head>
-  <title>{$page.params.slug} Recipes</title>
+  <title>{$page.params.slug} Recipes - zap.cooking</title>
 
-  <meta name="description" content="View {$page.params.slug} Recipes on Zap Cooking" />
+  <meta name="description" content="View {$page.params.slug} Recipes on zap.cooking" />
   <meta property="og:url" content="https://zap.cooking/tag/{$page.params.slug}" />
   <meta property="og:type" content="website" />
-  <meta property="og:title" content="{$page.params.slug} Recipes" />
-  <meta property="og:description" content="View {$page.params.slug} Recipes on Zap Cooking" />
+  <meta property="og:title" content="{$page.params.slug} Recipes - zap.cooking" />
+  <meta property="og:description" content="View {$page.params.slug} Recipes on zap.cooking" />
   <meta property="og:image" content="https://zap.cooking/logo_with_text.png" />
 
   <meta name="twitter:card" content="summary" />
   <meta property="twitter:domain" content="zap.cooking" />
   <meta property="twitter:url" content="https://zap.cooking/tag/{$page.params.slug}" />
-  <meta name="twitter:title" content="{$page.params.slug} Recipes" />
-  <meta name="twitter:description" content="View {$page.params.slug} Recipes on Zap Cooking" />
+  <meta name="twitter:title" content="{$page.params.slug} Recipes - zap.cooking" />
+  <meta name="twitter:description" content="View {$page.params.slug} Recipes on zap.cooking" />
   <meta property="twitter:image" content="https://zap.cooking/logo_with_text.png" />
 </svelte:head>
 

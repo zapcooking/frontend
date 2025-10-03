@@ -11,7 +11,7 @@
 </script>
 
 <svelte:head>
-  <title>Feed - Zap.Cooking</title>
+  <title>Feed - zap.cooking</title>
   <meta name="description" content="Feed - Discover delicious food content from the Nostr network" />
 </svelte:head>
 

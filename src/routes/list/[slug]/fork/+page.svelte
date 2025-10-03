@@ -201,7 +201,7 @@
 </script>
 
 <svelte:head>
-  <title>fork list {loaded == true ? title : '...'} on zap.cooking</title>
+  <title>{loaded ? `Fork List ${title}` : 'Fork List...'} - zap.cooking</title>
 </svelte:head>
 
 {#if loaded == false}

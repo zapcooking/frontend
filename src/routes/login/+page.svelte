@@ -189,7 +189,7 @@
 </script>
 
 <svelte:head>
-  <title>Welcome to ZapCooking - Join the Recipe Revolution</title>
+  <title>Welcome to ZapCooking - Join the Recipe Revolution - zap.cooking</title>
 </svelte:head>
 
 <style>

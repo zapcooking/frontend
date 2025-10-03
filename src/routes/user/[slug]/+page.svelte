@@ -224,13 +224,13 @@
     editModalCleanup();
   }
 
+  $: profileTitleBase = profile
+    ? profile.name || (user ? user.npub.slice(0, 10) + '...' : 'Unknown User')
+    : 'Unknown User';
+
   $: og_meta = {
-    title:
-      (profile
-        ? profile.name ||
-          (user ? user.npub.slice(0, 10) + '...' : 'Unknown User')
-        : 'Unknown User') + ' on Zap Cooking',
-    description: "View this user's recipes on Zap Cooking",
+    title: `${profileTitleBase} - zap.cooking`,
+    description: "View this user's recipes on zap.cooking",
     image: profile ? profile.picture : 'https://zap.cooking/logo_with_text.png'
   };
 </script>
