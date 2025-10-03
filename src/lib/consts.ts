@@ -1,10 +1,10 @@
 export const standardRelays = [
-  'wss://relay.damus.io',      // 214ms - Fastest
-  'wss://nostr.mom',           // 349ms
-  'wss://kitchen.zap.cooking', // 871ms - Your relay
-  'wss://nos.lol',             // 365ms
-  'wss://purplepag.es',        // 370ms
-  'wss://relay.nostr.band'     // 526ms
+  'wss://relay.damus.io',      // Fastest
+  'wss://nostr.mom',
+  'wss://kitchen.zap.cooking', // Your relay
+  'wss://nos.lol',
+  'wss://purplepag.es',
+  'wss://relay.nostr.band'
 ];
 
 export type recipeTag =
