@@ -1,8 +1,10 @@
-import { NDKEvent, NDKUser } from '@nostr-dev-kit/ndk';
+import { NDKEvent, NDKPrivateKeySigner, NDKUser } from '@nostr-dev-kit/ndk';
 import NDK from '@nostr-dev-kit/ndk';
 import { bech32 } from 'bech32';
 import { requestProvider } from 'webln';
 import { resolveProfileByPubkey } from './profileResolver';
+import { AuthManager, getAuthManager } from './authManager';
+import { generateSecretKey } from 'nostr-tools';
 
 export interface ZapRequest {
   eventId?: string;
@@ -211,6 +213,12 @@ export class ZapManager {
         console.log('Signing failed due to missing signer - creating anonymous zap request');
         // For zap requests, we might not need a signer if the LNURL endpoint doesn't require it
         // Let's try without signing first
+        try {
+          const sk = generateSecretKey();
+          await zapRequest.sign(new NDKPrivateKeySigner(sk));
+        } catch (ex) {
+          console.error(`Couldn't post zap anon: ${ex}`)
+        }
       } else {
         throw new Error(`Failed to sign zap request: ${error}`);
       }
