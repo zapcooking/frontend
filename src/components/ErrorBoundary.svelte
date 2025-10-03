@@ -167,12 +167,14 @@
 {/if}
 
 <style scoped lang="postcss">
+  @reference "../app.css";
+  
   .error-boundary {
     @apply min-h-[200px] flex items-center justify-center p-6;
   }
 
   .error-content {
-    @apply max-w-md mx-auto text-center space-y-4;
+    @apply max-w-md mx-auto text-center gap-4;
   }
 
   .error-icon {

@@ -60,7 +60,8 @@
   </div>
 {/if}
 
-<style>
+<style scoped lang="postcss">
+  @reference "../app.css";
   .offline-indicator {
     @apply fixed top-4 right-4 z-50 max-w-sm;
     @apply transition-all duration-300 ease-in-out;
