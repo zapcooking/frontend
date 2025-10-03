@@ -83,7 +83,7 @@
   <HeartIcon 
     size={14} 
     weight={liked ? 'fill' : 'regular'} 
-    class={liked ? 'text-red-500' : 'text-gray-500'}
+    class={liked ? 'text-red-500' : ''}
   />
   {#if loading}...{:else if totalLikeAmount > 0}{totalLikeAmount}{/if}
 </button>
