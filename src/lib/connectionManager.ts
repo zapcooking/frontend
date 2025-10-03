@@ -200,7 +200,12 @@ export class ConnectionManager {
         setTimeout(() => {
           if (health.circuitBreaker.state !== 'open') {
             console.log(`🔄 Attempting reconnection to ${url}`);
-            this.ndk.pool.relays.get(url)?.connect();
+            const relayInstance = this.ndk.pool.relays.get(url);
+            if (relayInstance) {
+              relayInstance.connect();
+            } else {
+              console.warn(`⚠️ Relay instance for ${url} not found in pool. Cannot attempt reconnection.`);
+            }
           }
         }, Math.min(1000 * Math.pow(2, health.failures), 30000)); // Exponential backoff, max 30s
       }
