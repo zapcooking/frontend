@@ -672,7 +672,7 @@
                         {#if isImageUrl(imageUrl)}
                           <img 
                             src={getOptimizedImageUrl(imageUrl)} 
-                            alt="Recipe image"
+                            alt="Preview"
                             class="w-full h-full object-cover"
                             loading="lazy"
                             decoding="async"
@@ -772,7 +772,7 @@
           {#if loadingMore}
             <LoadingState 
               type="spinner" 
-              size="sm" 
+              size="lg" 
               text="Loading more posts..." 
               showText={true}
             />
