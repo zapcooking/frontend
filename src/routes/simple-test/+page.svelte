@@ -9,7 +9,7 @@
 </script>
 
 <svelte:head>
-  <title>Simple Test - Zap Cooking</title>
+  <title>Simple Test - zap.cooking</title>
 </svelte:head>
 
 <div class="max-w-2xl mx-auto p-6">

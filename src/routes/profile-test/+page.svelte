@@ -3,7 +3,7 @@
 </script>
 
 <svelte:head>
-  <title>Profile Resolver Test - Zap Cooking</title>
+  <title>Profile Resolver Test - zap.cooking</title>
 </svelte:head>
 
 <ProfileResolverTest />

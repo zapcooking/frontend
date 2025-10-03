@@ -57,7 +57,7 @@
 </script>
 
 <svelte:head>
-  <title>Debug - Zap Cooking</title>
+  <title>Debug - zap.cooking</title>
 </svelte:head>
 
 <div class="max-w-2xl mx-auto p-6">

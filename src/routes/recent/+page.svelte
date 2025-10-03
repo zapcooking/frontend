@@ -71,19 +71,19 @@ onMount(() => {
 </script>
 
 <svelte:head>
-  <title>Recent Recipes</title>
-  <meta name="description" content="View Recent Recipes on Zap Cooking" />
+  <title>Recent Recipes - zap.cooking</title>
+  <meta name="description" content="View Recent Recipes on zap.cooking" />
   <meta property="og:url" content="https://zap.cooking/recent" />
   <meta property="og:type" content="website" />
-  <meta property="og:title" content="Recent Recipes" />
-  <meta property="og:description" content="View Recent Recipes on Zap Cooking" />
+  <meta property="og:title" content="Recent Recipes - zap.cooking" />
+  <meta property="og:description" content="View Recent Recipes on zap.cooking" />
   <meta property="og:image" content="https://zap.cooking/logo_with_text.png" />
 
   <meta name="twitter:card" content="summary" />
   <meta property="twitter:domain" content="zap.cooking" />
   <meta property="twitter:url" content="https://zap.cooking/recent" />
-  <meta name="twitter:title" content="Recent Recipes" />
-  <meta name="twitter:description" content="View Recent Recipes on Zap Cooking" />
+  <meta name="twitter:title" content="Recent Recipes - zap.cooking" />
+  <meta name="twitter:description" content="View Recent Recipes on zap.cooking" />
   <meta property="twitter:image" content="https://zap.cooking/logo_with_text.png" />
 </svelte:head>
 

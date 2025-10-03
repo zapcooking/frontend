@@ -62,7 +62,7 @@
 </script>
 
 <svelte:head>
-  <title>create a list on zap.cooking</title>
+  <title>Create a List - zap.cooking</title>
 </svelte:head>
 
 <form on:submit|preventDefault={createList} class="flex flex-col gap-6 max-w-[760px] mx-auto">

@@ -82,7 +82,7 @@
           });
           if (newEv) {
             events.push(newEv);
-            $items.push({ title: newEv.tags.find((z) => z[0] == 'title')?.[1], naddr: naddr });
+            $items.push({ title: newEv.tags.find((z: string[]) => z[0] == 'title')?.[1], naddr: naddr });
             $items = $items;
             items.set($items);
           }
@@ -162,7 +162,7 @@
         if (newEv) {
           const updatedItems = i.map((item) => {
             if (item === t) {
-              return { ...item, title: newEv.tags.find((z) => z[0] === 'title')?.[1] };
+              return { ...item, title: newEv.tags.find((z: string[]) => z[0] === 'title')?.[1] };
             }
             return item;
           });
@@ -175,7 +175,7 @@
 </script>
 
 <svelte:head>
-  <title>edit bookmarks zap.cooking</title>
+  <title>Edit Bookmarks - zap.cooking</title>
 </svelte:head>
 
 {#if loaded == false}

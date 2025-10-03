@@ -268,7 +268,7 @@
 </script>
 
 <svelte:head>
-  <title>edit recipe {title} on zap.cooking</title>
+  <title>{title ? `Edit Recipe ${title}` : 'Edit Recipe'} - zap.cooking</title>
 </svelte:head>
 
 <form on:submit|preventDefault={publishRecipe} class="flex flex-col gap-6 max-w-[760px] mx-auto">

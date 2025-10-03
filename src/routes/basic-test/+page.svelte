@@ -21,7 +21,7 @@
 </script>
 
 <svelte:head>
-  <title>Basic Test - Zap Cooking</title>
+  <title>Basic Test - zap.cooking</title>
 </svelte:head>
 
 <div class="max-w-2xl mx-auto p-6">

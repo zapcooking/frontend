@@ -83,9 +83,13 @@
     loaded = true;
   }
 
+  $: listTitleBase = event
+    ? (event.tags.find((t) => t[0] == 'title')?.[1] || 'Unknown Recipe') + ' list'
+    : 'Unknown Recipe list';
+
   $: og_meta = {
-    title: event ? event.tags.find((t) => t[0] == 'title')?.[1] + ' list' : 'Unknown Recipe list',
-    description: 'View this list on Zap Cooking'
+    title: `${listTitleBase} - zap.cooking`,
+    description: 'View this list on zap.cooking'
   };
 </script>
 

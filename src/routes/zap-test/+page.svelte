@@ -3,7 +3,7 @@
 </script>
 
 <svelte:head>
-  <title>Zap Test - Zap Cooking</title>
+  <title>Zap Test - zap.cooking</title>
   <meta name="description" content="Test NIP-57 Lightning Zaps functionality" />
 </svelte:head>
 

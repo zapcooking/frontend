@@ -111,7 +111,7 @@
 </script>
 
 <svelte:head>
-  <title>your bookmarks on zap.cooking</title>
+  <title>Your Bookmarks - zap.cooking</title>
 </svelte:head>
 
 {#if event}

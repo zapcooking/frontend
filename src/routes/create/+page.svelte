@@ -166,7 +166,7 @@
 </script>
 
 <svelte:head>
-  <title>create a recipe on zap.cooking</title>
+  <title>Create a Recipe - zap.cooking</title>
 </svelte:head>
 
 <form on:submit|preventDefault={publishRecipe} class="flex flex-col max-w-[760px] mx-auto gap-6">
