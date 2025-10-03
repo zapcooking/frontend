@@ -72,9 +72,9 @@
 {/if}
 
 <!-- Mobile-first layout -->
-<div class="flex gap-9 justify-between">
+<div class="flex gap-4 sm:gap-9 justify-between">
     <a href="/recent" class="flex-none">
-      <img src={SVGNostrCookingWithText} class="w-40 my-3" alt="Nostr.Cooking Logo With Text" />
+      <img src={SVGNostrCookingWithText} class="w-35 sm:w-40 my-3" alt="Nostr.Cooking Logo With Text" />
     </a>
   <!-- Top row for mobile: Logo and right buttons -->
   <div class="hidden lg:flex gap-9 self-center font-semibold print:hidden">
@@ -90,7 +90,7 @@
     />
   </div>
   <span class="hidden lg:max-xl:flex lg:max-xl:grow"></span>
-  <div class="flex gap-4 self-center flex-none print:hidden">
+  <div class="flex gap-3 sm:gap-4 self-center flex-none print:hidden">
     <div class="block sm:max-lg:hidden xl:hidden self-center grow">
       <!-- for some reason if i have all of these selector classes then it styles correctly. wtf. -->
       <Button class="self-center max-md:w-10 max-md:h-10 flex max-md:justify-center max-md:px-1 max-md:py-1 font-semibold !bg-[#FFECE8] cursor-pointer" on:click={() => searchActive = true}>
@@ -105,11 +105,9 @@
           <AddIcon class="self-center" size={16} />
           <div class="hidden md:flex">Create</div>
       </Button>
-    <div class="self-center print:hidden">
-      <button on:click={() => supportModalOpen = true} class="text-white rounded-full bg-gradient-to-r from-yellow-400 to-orange-500 hover:from-yellow-500 hover:to-orange-600 px-4 py-2.5 font-semibold transition duration-300 flex items-center gap-2 cursor-pointer">
+      <button on:click={() => supportModalOpen = true} class="self-center max-md:w-10 max-md:h-10 flex max-md:justify-center max-md:px-1 max-md:py-1 text-white rounded-full bg-gradient-to-r from-yellow-400 to-orange-500 hover:from-yellow-500 hover:to-orange-600 px-4 py-2.5 font-semibold transition duration-300 flex items-center gap-2 cursor-pointer">
         ⚡ <span class="hidden md:inline">Support Us</span>
       </button>
-    </div>
     <div class="self-center print:hidden">
       {#if $userPublickey !== ''}
         <button class="flex self-center" on:click={() => (dropdownActive = !dropdownActive)}>
