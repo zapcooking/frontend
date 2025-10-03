@@ -16,9 +16,9 @@
 
   // Size configurations
   $: sizeConfig = {
-    sm: { spinner: 16, text: 'text-sm', container: 'py-2' },
-    md: { spinner: 24, text: 'text-base', container: 'py-4' },
-    lg: { spinner: 32, text: 'text-lg', container: 'py-8' }
+    sm: { spinner: 38, text: 'text-sm', container: 'py-2' },
+    md: { spinner: 60, text: 'text-base', container: 'py-4' },
+    lg: { spinner: 80, text: 'text-lg', container: 'py-8' }
   };
 
   $: currentSize = sizeConfig[size];
@@ -34,21 +34,9 @@
   <div class="loading-content">
     {#if type === 'spinner'}
       <div class="spinner" style="width: {currentSize.spinner}px; height: {currentSize.spinner}px;">
-        <svg class="animate-spin" viewBox="0 0 24 24">
-          <circle 
-            cx="12" 
-            cy="12" 
-            r="10" 
-            stroke="currentColor" 
-            stroke-width="2" 
-            fill="none" 
-            stroke-dasharray="31.416" 
-            stroke-dashoffset="31.416"
-            stroke-linecap="round"
-          />
-        </svg>
+        <img src="/pan-animated.svg" alt="Loading" />
       </div>
-    {:else if type === 'dots'}
+      {:else if type === 'dots'}
       <div class="dots">
         <div class="dot"></div>
         <div class="dot"></div>
@@ -75,7 +63,9 @@
   </div>
 </div>
 
-<style>
+<style scoped lang="postcss">
+  @reference "../app.css";
+
   .loading-state {
     @apply flex items-center justify-center;
   }
@@ -85,7 +75,7 @@
   }
 
   .loading-content {
-    @apply flex flex-col items-center space-y-3;
+    @apply flex flex-col items-center gap-3;
   }
 
   .spinner {
@@ -97,7 +87,7 @@
   }
 
   .dots {
-    @apply flex space-x-1;
+    @apply flex gap-1;
   }
 
   .dot {
