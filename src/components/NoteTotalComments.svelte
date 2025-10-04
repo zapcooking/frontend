@@ -17,6 +17,7 @@
     );
 
     sub.on('event', (event) => {
+      loading = false;
       totalCommentAmount++;
     });
 

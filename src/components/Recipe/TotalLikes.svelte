@@ -19,16 +19,13 @@
     });
 
     sub.on('event', (e) => {
+      loading = false;
       // Prevent counting the same event multiple times
       if (processedEvents.has(e.id)) return;
       processedEvents.add(e.id);
       
       if (e.pubkey == $userPublickey) liked = true;
       totalLikeAmount++;
-    });
-
-    sub.on('eose', () => {
-      loading = false;
     });
   })();
 

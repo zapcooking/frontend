@@ -23,6 +23,7 @@
       
       if (e.pubkey == $userPublickey) liked = true;
       totalLikeAmount++;
+      loading = false;
     });
 
     sub.on('eose', () => {

@@ -29,19 +29,17 @@
     commentCount = 0;
     
     try {
-      // Use fetchEvents for more reliable comment loading
-      const commentEvents = await $ndk.fetchEvents({
+      // Use subscribe collection for more reliable comment loading
+      const commentEvents = $ndk.subscribe({
         kinds: [1],
         '#e': [event.id] // Comments that reference this event
       });
+      commentEvents.on("event", (ev) => {
+        loading = false;
+        comments.push(ev);
+        comments = comments;
+      });
 
-      if (commentEvents.size > 0) {
-        comments = Array.from(commentEvents);
-        commentCount = comments.length;
-        comments = [...comments]; // Trigger reactivity
-      }
-      
-      loading = false;
     } catch (error) {
       console.error('Error loading comments:', error);
       loading = false;

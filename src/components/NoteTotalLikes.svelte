@@ -17,6 +17,7 @@
     });
 
     sub.on('event', (e: NDKEvent) => {
+      loading = false;
       // Prevent counting the same event multiple times
       if (processedEvents.has(e.id)) return;
       processedEvents.add(e.id);

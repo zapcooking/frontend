@@ -30,19 +30,6 @@
       }
 
       const aTag = `${event.kind}:${event.author?.hexpubkey || event.pubkey}:${dTag}`;
-      
-      // First, fetch existing zap events
-      const zapEvents = await $ndk.fetchEvents({
-        kinds: [9735],
-        '#a': [aTag]
-      });
-
-      console.log(`Found ${zapEvents.size} existing zap events for recipe ${aTag}`);
-
-      // Process existing zap events
-      for (const zapEvent of zapEvents) {
-        processZapEvent(zapEvent);
-      }
 
       // Then subscribe to new zap events
       subscription = $ndk.subscribe({

@@ -29,19 +29,16 @@
     replyCount = 0;
     
     try {
-      // Use fetchEvents for more reliable reply loading
-      const replyEvents = await $ndk.fetchEvents({
+      // Use subscribe collection for more reliable reply loading
+      const replyEvents = $ndk.subscribe({
         kinds: [1],
         '#e': [parentComment.id] // Replies that reference this comment
       });
-
-      if (replyEvents.size > 0) {
-        replies = Array.from(replyEvents);
-        replyCount = replies.length;
-        replies = [...replies]; // Trigger reactivity
-      }
-      
-      loading = false;
+      replyEvents.on("event", (ev) => {
+        loading = false;
+        replies.push(ev);
+        replies = replies;
+      });
     } catch (error) {
       console.error('Error loading replies:', error);
       loading = false;
