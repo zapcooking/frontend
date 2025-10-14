@@ -576,29 +576,40 @@ export class ZapManager {
     console.log('Fetching zap totals with filter:', filter);
     
     try {
-      const receiptsSet = await this.ndk.fetchEvents(filter);
-      const receipts = Array.from(receiptsSet);
-      console.log('Found zap receipts:', receipts.length);
-      
       let total = 0;
       let count = 0;
-
-      for (const receipt of receipts) {
-        console.log('Processing receipt:', receipt.id, 'tags:', receipt.tags);
-        const bolt11Tags = receipt.tags.filter((tag: any) => tag[0] === 'bolt11');
-        if (bolt11Tags.length > 0) {
-          // Parse bolt11 invoice to get amount (simplified - in production you'd want proper bolt11 parsing)
-          const bolt11 = bolt11Tags[0][1];
-          // This is a simplified amount extraction - you might want to use a proper bolt11 decoder
-          const amountMatch = bolt11.match(/lnbc(\d+)/);
-          if (amountMatch) {
-            total += parseInt(amountMatch[1]);
+      
+      const subscription = this.ndk.subscribe(filter, { closeOnEose: true });
+      
+      await new Promise<void>((resolve) => {
+        subscription.on('event', (receipt: any) => {
+          console.log('Processing receipt:', receipt.id, 'tags:', receipt.tags);
+          const bolt11Tags = receipt.tags.filter((tag: any) => tag[0] === 'bolt11');
+          if (bolt11Tags.length > 0) {
+            // Parse bolt11 invoice to get amount (simplified - in production you'd want proper bolt11 parsing)
+            const bolt11 = bolt11Tags[0][1];
+            // This is a simplified amount extraction - you might want to use a proper bolt11 decoder
+            const amountMatch = bolt11.match(/lnbc(\d+)/);
+            if (amountMatch) {
+              total += parseInt(amountMatch[1]);
+            }
+            count++;
           }
-          count++;
-        }
-      }
+        });
+        
+        subscription.on('eose', () => {
+          console.log('Found zap receipts:', count);
+          console.log('Zap totals:', { count, total });
+          resolve();
+        });
+        
+        // Timeout after 5 seconds
+        setTimeout(() => {
+          subscription.stop();
+          resolve();
+        }, 5000);
+      });
 
-      console.log('Zap totals:', { count, total });
       return { count, total };
     } catch (error) {
       console.error('Error fetching zap totals:', error);

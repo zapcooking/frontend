@@ -40,18 +40,31 @@
           ids: [eventId]
         };
         
-        const events = await $ndk.fetchEvents(filter);
-        const eventArray = Array.from(events);
+        const subscription = $ndk.subscribe(filter, { closeOnEose: true });
         
-        if (eventArray.length > 0) {
-          event = eventArray[0];
-        } else {
-          error = true;
-        }
+        subscription.on('event', (receivedEvent: NDKEvent) => {
+          if (!event) {
+            event = receivedEvent;
+          }
+        });
+        
+        subscription.on('eose', () => {
+          if (!event) {
+            error = true;
+          }
+          loading = false;
+        });
+        
+        // Handle timeout
+        setTimeout(() => {
+          if (loading) {
+            error = true;
+            loading = false;
+          }
+        }, 5000);
       } catch (err) {
         console.error('Failed to fetch embedded event:', err);
         error = true;
-      } finally {
         loading = false;
       }
     } else {

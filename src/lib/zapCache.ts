@@ -62,17 +62,21 @@ export class ZapCache {
    */
   private async loadExistingZaps(entry: ZapCacheEntry) {
     try {
-      const zapEvents = await this.ndk.fetchEvents({
+      const subscription = this.ndk.subscribe({
         kinds: [9735],
         '#e': [entry.eventId]
+      }, { closeOnEose: true });
+
+      let zapCount = 0;
+      
+      subscription.on('event', (zapEvent: NDKEvent) => {
+        zapCount++;
+        this.processZapEvent(entry, zapEvent);
       });
 
-      console.log(`Found ${zapEvents.size} existing zap events for event ${entry.eventId}`);
-
-      // Process existing zap events
-      for (const zapEvent of zapEvents) {
-        this.processZapEvent(entry, zapEvent);
-      }
+      subscription.on('eose', () => {
+        console.log(`Found ${zapCount} existing zap events for event ${entry.eventId}`);
+      });
     } catch (error) {
       console.error('Error loading existing zaps:', error);
     }

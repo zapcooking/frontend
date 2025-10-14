@@ -27,14 +27,28 @@
           
           // Test basic connectivity with shorter timeout
           const filter = { kinds: [1], limit: 1 };
-          const fetchPromise = $ndk.fetchEvents(filter);
-          const timeoutPromise = new Promise((_, reject) => 
-            setTimeout(() => reject(new Error('Connection timeout after 5 seconds')), 5000)
-          );
           
-          const events = await Promise.race([fetchPromise, timeoutPromise]);
+          let eventCount = 0;
+          const subscription = $ndk.subscribe(filter, { closeOnEose: true });
           
-          debugInfo = `✅ Success! Found ${events.size} events. NDK is working.`;
+          const subscriptionPromise = new Promise((resolve, reject) => {
+            subscription.on('event', () => {
+              eventCount++;
+            });
+            
+            subscription.on('eose', () => {
+              resolve(eventCount);
+            });
+            
+            setTimeout(() => {
+              subscription.stop();
+              reject(new Error('Connection timeout after 5 seconds'));
+            }, 5000);
+          });
+          
+          await subscriptionPromise;
+          
+          debugInfo = `✅ Success! Found ${eventCount} events. NDK is working.`;
           isConnected = true;
         } else {
           debugInfo = '❌ NDK pool not found';

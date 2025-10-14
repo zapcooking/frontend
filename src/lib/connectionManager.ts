@@ -98,7 +98,21 @@ export class ConnectionManager {
         );
         
         await Promise.race([
-          this.ndk.fetchEvents(testFilter, { relays: [url] }),
+          new Promise((resolve, reject) => {
+            const subscription = this.ndk.subscribe(testFilter, { closeOnEose: true, relays: [url] });
+            subscription.on('event', () => {
+              subscription.stop();
+              resolve(null);
+            });
+            subscription.on('eose', () => {
+              subscription.stop();
+              resolve(null);
+            });
+            setTimeout(() => {
+              subscription.stop();
+              reject(new Error('Health check timeout'));
+            }, 5000);
+          }),
           timeoutPromise
         ]);
         
@@ -248,7 +262,21 @@ export class ConnectionManager {
         );
         
         await Promise.race([
-          this.ndk.fetchEvents(testFilter),
+          new Promise((resolve, reject) => {
+            const subscription = this.ndk.subscribe(testFilter, { closeOnEose: true });
+            subscription.on('event', () => {
+              subscription.stop();
+              resolve(null);
+            });
+            subscription.on('eose', () => {
+              subscription.stop();
+              resolve(null);
+            });
+            setTimeout(() => {
+              subscription.stop();
+              reject(new Error('Heartbeat timeout'));
+            }, this.MAX_RESPONSE_TIME);
+          }),
           timeoutPromise
         ]);
         

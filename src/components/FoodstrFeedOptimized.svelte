@@ -255,19 +255,34 @@
       
       console.log('🔍 Filter:', filter);
       
-      // Use fetchEvents with timeout
-      const fetchPromise = $ndk.fetchEvents(filter);
-      const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Connection timeout - relays may be unreachable')), 10000)
-      );
+      // Use subscribe instead of fetchEvents
+      let eventCount = 0;
+      const subscription = $ndk.subscribe(filter, { closeOnEose: true });
       
-      const fetchedEvents = await Promise.race([fetchPromise, timeoutPromise]) as Set<NDKEvent>;
-      console.log('📊 Fetched events:', fetchedEvents.size);
+      const subscriptionPromise = new Promise<NDKEvent[]>((resolve, reject) => {
+        const receivedEvents: NDKEvent[] = [];
+        
+        subscription.on('event', (event: NDKEvent) => {
+          receivedEvents.push(event);
+          eventCount++;
+        });
+        
+        subscription.on('eose', () => {
+          console.log('📊 Fetched events:', eventCount);
+          resolve(receivedEvents);
+        });
+        
+        setTimeout(() => {
+          subscription.stop();
+          reject(new Error('Connection timeout - relays may be unreachable'));
+        }, 10000);
+      });
       
-      if (fetchedEvents.size > 0) {
-        const eventArray = Array.from(fetchedEvents);
+      const fetchedEvents = await subscriptionPromise;
+      
+      if (fetchedEvents.length > 0) {
         // Sort by newest first
-        events = eventArray.sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
+        events = fetchedEvents.sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
         lastEventTime = Math.max(...events.map(e => e.created_at || 0));
         
         loading = false;
@@ -357,25 +372,39 @@
         since: Math.floor(Date.now() / 1000) - (7 * 24 * 60 * 60)
       };
       
-      const fetchedEvents = await $ndk.fetchEvents(filter);
+      const subscription = $ndk.subscribe(filter, { closeOnEose: true });
+      const fetchedEvents: NDKEvent[] = [];
       
-      if (fetchedEvents.size > 0) {
-        const eventArray = Array.from(fetchedEvents) as NDKEvent[];
-        const sortedEvents = eventArray.sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
+      await new Promise<void>((resolve) => {
+        subscription.on('event', (event: NDKEvent) => {
+          fetchedEvents.push(event);
+        });
         
-        // Merge with existing events
-        const existingIds = new Set(events.map(e => e.id));
-        const newEvents = sortedEvents.filter(e => !existingIds.has(e.id));
+        subscription.on('eose', () => {
+          if (fetchedEvents.length > 0) {
+            const sortedEvents = fetchedEvents.sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
+            
+            // Merge with existing events
+            const existingIds = new Set(events.map(e => e.id));
+            const newEvents = sortedEvents.filter(e => !existingIds.has(e.id));
+            
+            if (newEvents.length > 0) {
+              events = [...events, ...newEvents].sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
+              lastEventTime = Math.max(...events.map(e => e.created_at || 0));
+              cacheEvents();
+              
+              console.log(`🔄 Background refresh added ${newEvents.length} new events`);
+              debugInfo = `Found ${events.length} events (${newEvents.length} new)`;
+            }
+          }
+          resolve();
+        });
         
-        if (newEvents.length > 0) {
-          events = [...events, ...newEvents].sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
-          lastEventTime = Math.max(...events.map(e => e.created_at || 0));
-          await cacheEvents();
-          
-          console.log(`🔄 Background refresh added ${newEvents.length} new events`);
-          debugInfo = `Found ${events.length} events (${newEvents.length} new)`;
-        }
-      }
+        setTimeout(() => {
+          subscription.stop();
+          resolve();
+        }, 10000);
+      });
     } catch (err) {
       console.warn('⚠️ Background refresh failed:', err);
     }
@@ -400,14 +429,32 @@
         limit: 20
       };
 
-      const fetchedEvents = await $ndk.fetchEvents(filter);
-      const newEvents = Array.from(fetchedEvents) as NDKEvent[];
+      const subscription = $ndk.subscribe(filter, { closeOnEose: true });
+      const newEvents: NDKEvent[] = [];
       
-      if (newEvents.length > 0) {
-        events = [...events, ...newEvents];
-        hasMore = newEvents.length === 20;
-        // Cache the updated events
-        await cacheEvents();
+      await new Promise<void>((resolve) => {
+        subscription.on('event', (event: NDKEvent) => {
+          newEvents.push(event);
+        });
+        
+        subscription.on('eose', () => {
+          if (newEvents.length > 0) {
+            events = [...events, ...newEvents];
+            hasMore = newEvents.length === 20;
+            // Cache the updated events
+            cacheEvents();
+          } else {
+            hasMore = false;
+          }
+          resolve();
+        });
+        
+        setTimeout(() => {
+          subscription.stop();
+          hasMore = false;
+          resolve();
+        }, 10000);
+      });
       } else {
         hasMore = false;
       }
