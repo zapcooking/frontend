@@ -40,22 +40,62 @@
   }
 
   async function loadData() {
-    let event: NDKEvent;
+    let event: NDKEvent | null = null;
     if ($page.params.slug.startsWith('naddr1')) {
       const b: AddressPointer = nip19.decode($page.params.slug).data;
       identifier = b.identifier;
-      let e = await $ndk.fetchEvent({
+      let e: any = null;
+      const subscription = $ndk.subscribe({
         // @ts-ignore
         '#d': [b.identifier],
         // @ts-ignore
         authors: [b.pubkey],
         kinds: [30023]
+      }, { closeOnEose: true });
+      
+      await new Promise<void>((resolve) => {
+        subscription.on('event', (receivedEvent: any) => {
+          if (!e) {
+            e = receivedEvent;
+          }
+        });
+        
+        subscription.on('eose', () => {
+          resolve();
+        });
+        
+        setTimeout(() => {
+          subscription.stop();
+          resolve();
+        }, 5000);
       });
+      
       if (e) {
         event = e;
       }
     } else {
-      let e = await $ndk.fetchEvent($page.params.slug);
+      let e: any = null;
+      const subscription = $ndk.subscribe({
+        ids: [$page.params.slug]
+      }, { closeOnEose: true });
+      
+      await new Promise<void>((resolve) => {
+        subscription.on('event', (receivedEvent: any) => {
+          if (!e) {
+            e = receivedEvent;
+          }
+        });
+        
+        subscription.on('eose', () => {
+          resolve();
+        });
+        
+        setTimeout(() => {
+          subscription.stop();
+          resolve();
+        }, 5000);
+      });
+      
       if (e) {
         event = e;
         const c = nip19.naddrEncode({

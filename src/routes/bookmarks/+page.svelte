@@ -40,13 +40,32 @@
     }
 
     // load event
-    let e = await $ndk.fetchEvent({
+    let e: any = null;
+    const subscription = $ndk.subscribe({
       // @ts-ignore
       '#d': ['nostrcooking-bookmarks'],
       // @ts-ignore
       authors: [$userPublickey],
       kinds: [30001]
+    }, { closeOnEose: true });
+    
+    await new Promise<void>((resolve) => {
+      subscription.on('event', (event: any) => {
+        if (!e) {
+          e = event;
+        }
+      });
+      
+      subscription.on('eose', () => {
+        resolve();
+      });
+      
+      setTimeout(() => {
+        subscription.stop();
+        resolve();
+      }, 5000);
     });
+    
     if (e) {
       event = e;
     } else {
@@ -89,15 +108,18 @@
           ) {
             return;
           }
-          const newEv = await $ndk.fetchEvent({
+          const subscription = $ndk.subscribe({
             kinds: [Number(kind)],
             '#d': [identifier],
             authors: [pubkey]
+          }, { closeOnEose: true });
+          
+          subscription.on('event', (newEv: any) => {
+            if (newEv) {
+              events.push(newEv);
+              events = events;
+            }
           });
-          if (newEv) {
-            events.push(newEv);
-            events = events;
-          }
         }
       });
     }

@@ -40,16 +40,32 @@
         });
         
         // Add timeout protection for recipe loading
-        const fetchPromise = $ndk.fetchEvent({
+        let e: any = null;
+        const subscription = $ndk.subscribe({
           '#d': [b.identifier],
           authors: [b.pubkey],
           kinds: [30023]
-        });
-        const timeoutPromise = new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('Recipe loading timeout - relays may be unreachable')), 10000)
-        );
+        }, { closeOnEose: true });
         
-        let e = await Promise.race([fetchPromise, timeoutPromise]);
+        await new Promise<void>((resolve, reject) => {
+          subscription.on('event', (event: any) => {
+            if (!e) {
+              e = event;
+              subscription.stop();
+              resolve();
+            }
+          });
+          
+          subscription.on('eose', () => {
+            resolve();
+          });
+          
+          setTimeout(() => {
+            subscription.stop();
+            reject(new Error('Recipe loading timeout - relays may be unreachable'));
+          }, 10000);
+        });
+        
         if (e) {
           event = e;
           loading = false;
@@ -61,12 +77,30 @@
         }
       } else {
         // Add timeout protection for direct event ID loading
-        const fetchPromise = $ndk.fetchEvent($page.params.slug);
-        const timeoutPromise = new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('Recipe loading timeout - relays may be unreachable')), 10000)
-        );
+        let e: any = null;
+        const subscription = $ndk.subscribe({
+          ids: [$page.params.slug]
+        }, { closeOnEose: true });
         
-        let e = await Promise.race([fetchPromise, timeoutPromise]);
+        await new Promise<void>((resolve, reject) => {
+          subscription.on('event', (event: any) => {
+            if (!e) {
+              e = event;
+              subscription.stop();
+              resolve();
+            }
+          });
+          
+          subscription.on('eose', () => {
+            resolve();
+          });
+          
+          setTimeout(() => {
+            subscription.stop();
+            reject(new Error('Recipe loading timeout - relays may be unreachable'));
+          }, 10000);
+        });
+        
         if (e) {
           event = e;
           const id = e.tags.find((z: any) => z[0] == 'd')?.[1];

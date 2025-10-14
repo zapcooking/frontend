@@ -28,18 +28,58 @@
     // load event
     if ($page.params.slug?.startsWith('naddr1')) {
       const b = nip19.decode($page.params.slug).data;
-      let e = await $ndk.fetchEvent({
+      let e: any = null;
+      const subscription = $ndk.subscribe({
         // @ts-ignore
         '#d': [b.identifier],
         // @ts-ignore
         authors: [b.pubkey],
         kinds: [30001]
+      }, { closeOnEose: true });
+      
+      await new Promise<void>((resolve) => {
+        subscription.on('event', (event: any) => {
+          if (!e) {
+            e = event;
+          }
+        });
+        
+        subscription.on('eose', () => {
+          resolve();
+        });
+        
+        setTimeout(() => {
+          subscription.stop();
+          resolve();
+        }, 5000);
       });
+      
       if (e) {
         event = e;
       }
     } else {
-      let e = await $ndk.fetchEvent($page.params.slug);
+      let e: any = null;
+      const subscription = $ndk.subscribe({
+        ids: [$page.params.slug]
+      }, { closeOnEose: true });
+      
+      await new Promise<void>((resolve) => {
+        subscription.on('event', (receivedEvent: any) => {
+          if (!e) {
+            e = receivedEvent;
+          }
+        });
+        
+        subscription.on('eose', () => {
+          resolve();
+        });
+        
+        setTimeout(() => {
+          subscription.stop();
+          resolve();
+        }, 5000);
+      });
+      
       if (e) {
         event = e;
         const c = nip19.naddrEncode({
@@ -68,15 +108,18 @@
         ) {
           return;
         }
-        const newEv = await $ndk.fetchEvent({
+        const subscription = $ndk.subscribe({
           kinds: [Number(kind)],
           '#d': [identifier],
           authors: [pubkey]
+        }, { closeOnEose: true });
+        
+        subscription.on('event', (newEv: any) => {
+          if (newEv) {
+            events.push(newEv);
+            events = events;
+          }
         });
-        if (newEv) {
-          events.push(newEv);
-          events = events;
-        }
       }
     });
 

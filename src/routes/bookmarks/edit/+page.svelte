@@ -33,13 +33,32 @@
       goto('/login');
       return;
     }
-    let e = await $ndk.fetchEvent({
+    let e: any = null;
+    const subscription = $ndk.subscribe({
       // @ts-ignore
       '#d': ['nostrcooking-bookmarks'],
       // @ts-ignore
       authors: [$userPublickey],
       kinds: [30001]
+    }, { closeOnEose: true });
+    
+    await new Promise<void>((resolve) => {
+      subscription.on('event', (event: any) => {
+        if (!e) {
+          e = event;
+        }
+      });
+      
+      subscription.on('eose', () => {
+        resolve();
+      });
+      
+      setTimeout(() => {
+        subscription.stop();
+        resolve();
+      }, 5000);
     });
+    
     if (e) {
       event = e;
     }
@@ -75,17 +94,20 @@
             identifier: identifier,
             pubkey: pubkey
           });
-          const newEv = await $ndk.fetchEvent({
+          const subscription = $ndk.subscribe({
             kinds: [Number(kind)],
             '#d': [identifier],
             authors: [pubkey]
+          }, { closeOnEose: true });
+          
+          subscription.on('event', (newEv: any) => {
+            if (newEv) {
+              events.push(newEv);
+              $items.push({ title: newEv.tags.find((z: string[]) => z[0] == 'title')?.[1], naddr: naddr });
+              $items = $items;
+              items.set($items);
+            }
           });
-          if (newEv) {
-            events.push(newEv);
-            $items.push({ title: newEv.tags.find((z: string[]) => z[0] == 'title')?.[1], naddr: naddr });
-            $items = $items;
-            items.set($items);
-          }
         }
       });
     }
@@ -150,25 +172,27 @@
     i.forEach(async (t) => {
       if (!t.title) {
         const data = nip19.decode(t.naddr).data;
-        const newEv = await $ndk.fetchEvent({
+        const subscription = $ndk.subscribe({
           // @ts-ignore
           kinds: [Number(data.kind)],
           // @ts-ignore
           '#d': [data.identifier],
           // @ts-ignore
           authors: [data.pubkey]
+        }, { closeOnEose: true });
+
+        subscription.on('event', (newEv: any) => {
+          if (newEv) {
+            const updatedItems = i.map((item) => {
+              if (item === t) {
+                return { ...item, title: newEv.tags.find((z: string[]) => z[0] === 'title')?.[1] };
+              }
+              return item;
+            });
+
+            items.set(updatedItems);
+          }
         });
-
-        if (newEv) {
-          const updatedItems = i.map((item) => {
-            if (item === t) {
-              return { ...item, title: newEv.tags.find((z: string[]) => z[0] === 'title')?.[1] };
-            }
-            return item;
-          });
-
-          items.set(updatedItems);
-        }
       }
     });
   });
