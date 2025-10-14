@@ -45,7 +45,7 @@
   let selectedEvent: NDKEvent | null = null;
 
   // Debounced batch processing for rapid updates
-  function processBatch() {
+  async function processBatch() {
     if (pendingEvents.length === 0) return;
     
     console.log(`🔄 Processing batch of ${pendingEvents.length} events`);
@@ -69,7 +69,7 @@
     pendingEvents = [];
     
     // Cache the updated events
-    cacheEvents();
+    await cacheEvents();
     
     console.log(`✅ Batch processed. Total events: ${events.length}`);
   }
@@ -78,7 +78,7 @@
     if (batchTimeout) {
       clearTimeout(batchTimeout);
     }
-    batchTimeout = setTimeout(processBatch, 300); // 300ms debounce
+    batchTimeout = setTimeout(async () => await processBatch(), 300); // 300ms debounce
   }
 
   // Simple caching functions (restored for stability)
@@ -396,7 +396,7 @@
           fetchedEvents.push(event);
         });
         
-        subscription.on('eose', () => {
+        subscription.on('eose', async () => {
           if (!resolved) {
             resolved = true;
             subscription.stop();
@@ -420,7 +420,7 @@
           }
         });
         
-        setTimeout(() => {
+        setTimeout(async () => {
           if (!resolved) {
             resolved = true;
             subscription.stop();
@@ -479,7 +479,7 @@
           newEvents.push(event);
         });
         
-        subscription.on('eose', () => {
+        subscription.on('eose', async () => {
           if (!resolved) {
             resolved = true;
             subscription.stop();
@@ -495,7 +495,7 @@
           }
         });
         
-        setTimeout(() => {
+        setTimeout(async () => {
           if (!resolved) {
             resolved = true;
             subscription.stop();
@@ -549,7 +549,7 @@
   }
 
   // Cleanup function
-  function cleanup() {
+  async function cleanup() {
     console.log('🧹 Cleaning up subscriptions...');
     
     if (subscriptionManager) {
@@ -563,16 +563,16 @@
     
     // Process any remaining pending events
     if (pendingEvents.length > 0) {
-      processBatch();
+      await processBatch();
     }
     
     // Cleanup stale cache entries
     compressedCacheManager.invalidateStale();
   }
 
-  onMount(() => {
+  onMount(async () => {
     try {
-      retryWithDelay();
+      await retryWithDelay();
     } catch (error) {
       console.error('❌ Error in FoodstrFeedOptimized onMount:', error);
       loading = false;
@@ -581,8 +581,8 @@
     }
   });
 
-  onDestroy(() => {
-    cleanup();
+  onDestroy(async () => {
+    await cleanup();
   });
 
   function formatTimeAgo(timestamp: number): string {
