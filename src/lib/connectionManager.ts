@@ -1,4 +1,5 @@
 import type NDK from '@nostr-dev-kit/ndk';
+import { NDKRelaySet } from '@nostr-dev-kit/ndk';
 
 export interface RelayHealth {
   status: 'connected' | 'disconnected' | 'degraded' | 'circuit-open';
@@ -96,36 +97,11 @@ export class ConnectionManager {
         const timeoutPromise = new Promise((_, reject) => 
           setTimeout(() => reject(new Error('Health check timeout')), 5000)
         );
+
+        const relay_set = NDKRelaySet.fromRelayUrls([url], this.ndk, true);
         
         await Promise.race([
-          new Promise((resolve, reject) => {
-            const subscription = this.ndk.subscribe(testFilter, { closeOnEose: false, relays: [url] });
-            let resolved = false;
-            
-            subscription.on('event', () => {
-              if (!resolved) {
-                resolved = true;
-                subscription.stop();
-                resolve(null);
-              }
-            });
-            
-            subscription.on('eose', () => {
-              if (!resolved) {
-                resolved = true;
-                subscription.stop();
-                resolve(null);
-              }
-            });
-            
-            setTimeout(() => {
-              if (!resolved) {
-                resolved = true;
-                subscription.stop();
-                reject(new Error('Health check timeout'));
-              }
-            }, 5000);
-          }),
+          this.ndk.fetchEvents(testFilter, undefined, relay_set),
           timeoutPromise
         ]);
         
