@@ -33,40 +33,13 @@
       goto('/login');
       return;
     }
-    let e: any = null;
-    const subscription = $ndk.subscribe({
+    let e = await $ndk.fetchEvent({
       // @ts-ignore
       '#d': ['nostrcooking-bookmarks'],
       // @ts-ignore
       authors: [$userPublickey],
       kinds: [30001]
-    }, { closeOnEose: false });
-    
-    let resolved = false;
-    await new Promise<void>((resolve) => {
-      subscription.on('event', (event: any) => {
-        if (!e) {
-          e = event;
-        }
-      });
-      
-      subscription.on('eose', () => {
-        if (!resolved) {
-          resolved = true;
-          subscription.stop();
-          resolve();
-        }
-      });
-      
-      setTimeout(() => {
-        if (!resolved) {
-          resolved = true;
-          subscription.stop();
-          resolve();
-        }
-      }, 5000);
     });
-    
     if (e) {
       event = e;
     }
@@ -102,30 +75,17 @@
             identifier: identifier,
             pubkey: pubkey
           });
-          const subscription = $ndk.subscribe({
+          const newEv = await $ndk.fetchEvent({
             kinds: [Number(kind)],
             '#d': [identifier],
             authors: [pubkey]
-          }, { closeOnEose: false });
-          
-          subscription.on('event', (newEv: any) => {
+          });
             if (newEv) {
               events.push(newEv);
               $items.push({ title: newEv.tags.find((z: string[]) => z[0] == 'title')?.[1], naddr: naddr });
               $items = $items;
               items.set($items);
-              subscription.stop();
-            }
-          });
-          
-          subscription.on('eose', () => {
-            subscription.stop();
-          });
-          
-          // Timeout to ensure subscription closes
-          setTimeout(() => {
-            subscription.stop();
-          }, 5000);
+          }
         }
       });
     }
@@ -190,16 +150,15 @@
     i.forEach(async (t) => {
       if (!t.title) {
         const data = nip19.decode(t.naddr).data;
-        const subscription = $ndk.subscribe({
+        const newEv = await $ndk.fetchEvent({
           // @ts-ignore
           kinds: [Number(data.kind)],
           // @ts-ignore
           '#d': [data.identifier],
           // @ts-ignore
           authors: [data.pubkey]
-        }, { closeOnEose: false });
+        });
 
-        subscription.on('event', (newEv: any) => {
           if (newEv) {
             const updatedItems = i.map((item) => {
               if (item === t) {
@@ -209,18 +168,7 @@
             });
 
             items.set(updatedItems);
-            subscription.stop();
-          }
-        });
-        
-        subscription.on('eose', () => {
-          subscription.stop();
-        });
-        
-        // Timeout to ensure subscription closes
-        setTimeout(() => {
-          subscription.stop();
-        }, 5000);
+        }
       }
     });
   });

@@ -22,13 +22,21 @@
   let error = false;
   let zapModal = false;
 
-  onMount(async () => {
-    const nip19Id = $page.params.nip19;
+  async function loadEvent(nip19Id: string) {
+    decoded = null;
+    event = null;
+    loading = true;
+    error = false;
+    zapModal = false;
     
     if (!nip19Id) {
       error = true;
       loading = false;
       return;
+    }
+
+    if (nip19Id.startsWith("nostr:")) {
+      nip19Id = nip19Id.split("nostr:")[1];
     }
 
     // Validate NIP-19 identifier format
@@ -45,7 +53,15 @@
       
       if (decoded.type === 'nevent' || decoded.type === 'note') {
         // Fetch the referenced event
-        const eventId = decoded.data.id;
+        let eventId = '';
+        switch (decoded.type) {
+          case "nevent":
+            eventId = (decoded as nip19.DecodedNevent).data.id;
+            break;
+          case "note":
+            eventId = (decoded as nip19.DecodedNote).data;
+            break;
+        }
         const filter = {
           ids: [eventId]
         };
@@ -90,7 +106,15 @@
       error = true;
       loading = false;
     }
-  });
+  }
+
+  $: {
+    if ($page.params.nip19) {
+      (async () => {
+      await loadEvent($page.params.nip19!);
+    })()
+    }
+  }
 
   function getDisplayName(event: NDKEvent): string {
     const metadata = event.author?.profile;

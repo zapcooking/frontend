@@ -40,41 +40,16 @@
         });
         
         // Add timeout protection for recipe loading
-        let e: any = null;
-        const subscription = $ndk.subscribe({
+        const fetchPromise = $ndk.fetchEvent({
           '#d': [b.identifier],
           authors: [b.pubkey],
           kinds: [30023]
-        }, { closeOnEose: false });
-        
-        let resolved = false;
-        await new Promise<void>((resolve, reject) => {
-          subscription.on('event', (event: any) => {
-            if (!e && !resolved) {
-              e = event;
-              resolved = true;
-              subscription.stop();
-              resolve();
-            }
-          });
-          
-          subscription.on('eose', () => {
-            if (!resolved) {
-              resolved = true;
-              subscription.stop();
-              resolve();
-            }
-          });
-          
-          setTimeout(() => {
-            if (!resolved) {
-              resolved = true;
-              subscription.stop();
-              reject(new Error('Recipe loading timeout - relays may be unreachable'));
-            }
-          }, 10000);
         });
+        const timeoutPromise = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Recipe loading timeout - relays may be unreachable')), 10000)
+        );
         
+        let e = await Promise.race([fetchPromise, timeoutPromise]);
         if (e) {
           event = e;
           loading = false;
@@ -86,39 +61,12 @@
         }
       } else {
         // Add timeout protection for direct event ID loading
-        let e: any = null;
-        const subscription = $ndk.subscribe({
-          ids: [$page.params.slug]
-        }, { closeOnEose: false });
+        const fetchPromise = $ndk.fetchEvent($page.params.slug);
+        const timeoutPromise = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Recipe loading timeout - relays may be unreachable')), 10000)
+        );
         
-        let resolved = false;
-        await new Promise<void>((resolve, reject) => {
-          subscription.on('event', (event: any) => {
-            if (!e && !resolved) {
-              e = event;
-              resolved = true;
-              subscription.stop();
-              resolve();
-            }
-          });
-          
-          subscription.on('eose', () => {
-            if (!resolved) {
-              resolved = true;
-              subscription.stop();
-              resolve();
-            }
-          });
-          
-          setTimeout(() => {
-            if (!resolved) {
-              resolved = true;
-              subscription.stop();
-              reject(new Error('Recipe loading timeout - relays may be unreachable'));
-            }
-          }, 10000);
-        });
-        
+        let e = await Promise.race([fetchPromise, timeoutPromise]);
         if (e) {
           event = e;
           const id = e.tags.find((z: any) => z[0] == 'd')?.[1];
