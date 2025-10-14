@@ -305,7 +305,7 @@
         console.log('✅ Successfully loaded', events.length, 'events');
         
         // Cache the events
-        cacheEvents();
+        await cacheEvents();
         
         // Start real-time subscription for new events
         startRealtimeSubscription();
@@ -410,7 +410,7 @@
               if (newEvents.length > 0) {
                 events = [...events, ...newEvents].sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
                 lastEventTime = Math.max(...events.map(e => e.created_at || 0));
-                cacheEvents();
+                await cacheEvents();
                 
                 console.log(`🔄 Background refresh added ${newEvents.length} new events`);
                 debugInfo = `Found ${events.length} events (${newEvents.length} new)`;
@@ -435,7 +435,7 @@
               if (newEvents.length > 0) {
                 events = [...events, ...newEvents].sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
                 lastEventTime = Math.max(...events.map(e => e.created_at || 0));
-                cacheEvents();
+                await cacheEvents();
                 
                 console.log(`🔄 Background refresh added ${newEvents.length} new events`);
                 debugInfo = `Found ${events.length} events (${newEvents.length} new)`;
@@ -487,7 +487,7 @@
               events = [...events, ...newEvents];
               hasMore = newEvents.length === 20;
               // Cache the updated events
-              cacheEvents();
+              await cacheEvents();
             } else {
               hasMore = false;
             }
@@ -504,7 +504,7 @@
               events = [...events, ...newEvents];
               hasMore = newEvents.length === 20;
               // Cache the updated events
-              cacheEvents();
+              await cacheEvents();
             } else {
               hasMore = false;
             }
