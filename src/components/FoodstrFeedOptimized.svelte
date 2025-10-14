@@ -512,9 +512,6 @@
           }
         }, 5000);
       });
-      } else {
-        hasMore = false;
-      }
     } catch (err) {
       console.error('Error loading more events:', err);
     } finally {
