@@ -40,8 +40,9 @@
       // @ts-ignore
       authors: [$userPublickey],
       kinds: [30001]
-    }, { closeOnEose: true });
+    }, { closeOnEose: false });
     
+    let resolved = false;
     await new Promise<void>((resolve) => {
       subscription.on('event', (event: any) => {
         if (!e) {
@@ -50,12 +51,19 @@
       });
       
       subscription.on('eose', () => {
-        resolve();
+        if (!resolved) {
+          resolved = true;
+          subscription.stop();
+          resolve();
+        }
       });
       
       setTimeout(() => {
-        subscription.stop();
-        resolve();
+        if (!resolved) {
+          resolved = true;
+          subscription.stop();
+          resolve();
+        }
       }, 5000);
     });
     
@@ -98,7 +106,7 @@
             kinds: [Number(kind)],
             '#d': [identifier],
             authors: [pubkey]
-          }, { closeOnEose: true });
+          }, { closeOnEose: false });
           
           subscription.on('event', (newEv: any) => {
             if (newEv) {
@@ -106,8 +114,18 @@
               $items.push({ title: newEv.tags.find((z: string[]) => z[0] == 'title')?.[1], naddr: naddr });
               $items = $items;
               items.set($items);
+              subscription.stop();
             }
           });
+          
+          subscription.on('eose', () => {
+            subscription.stop();
+          });
+          
+          // Timeout to ensure subscription closes
+          setTimeout(() => {
+            subscription.stop();
+          }, 5000);
         }
       });
     }
@@ -179,7 +197,7 @@
           '#d': [data.identifier],
           // @ts-ignore
           authors: [data.pubkey]
-        }, { closeOnEose: true });
+        }, { closeOnEose: false });
 
         subscription.on('event', (newEv: any) => {
           if (newEv) {
@@ -191,8 +209,18 @@
             });
 
             items.set(updatedItems);
+            subscription.stop();
           }
         });
+        
+        subscription.on('eose', () => {
+          subscription.stop();
+        });
+        
+        // Timeout to ensure subscription closes
+        setTimeout(() => {
+          subscription.stop();
+        }, 5000);
       }
     });
   });

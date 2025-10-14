@@ -25,13 +25,23 @@
         kinds: [30023],
         '#t': ['nostrcooking'],
         limit: 1
-      }, { closeOnEose: true });
+      }, { closeOnEose: false });
       
       subscription.on('event', (event: NDKEvent) => {
         if (!testEvent) {
           testEvent = event;
+          subscription.stop();
         }
       });
+      
+      subscription.on('eose', () => {
+        subscription.stop();
+      });
+      
+      // Timeout to ensure subscription closes
+      setTimeout(() => {
+        subscription.stop();
+      }, 5000);
     } catch (error) {
       console.log('No test events found:', error);
     }

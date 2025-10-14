@@ -579,7 +579,8 @@ export class ZapManager {
       let total = 0;
       let count = 0;
       
-      const subscription = this.ndk.subscribe(filter, { closeOnEose: true });
+      const subscription = this.ndk.subscribe(filter, { closeOnEose: false });
+      let resolved = false;
       
       await new Promise<void>((resolve) => {
         subscription.on('event', (receipt: any) => {
@@ -598,15 +599,23 @@ export class ZapManager {
         });
         
         subscription.on('eose', () => {
-          console.log('Found zap receipts:', count);
-          console.log('Zap totals:', { count, total });
-          resolve();
+          if (!resolved) {
+            resolved = true;
+            subscription.stop();
+            console.log('Found zap receipts:', count);
+            console.log('Zap totals:', { count, total });
+            resolve();
+          }
         });
         
         // Timeout after 5 seconds
         setTimeout(() => {
-          subscription.stop();
-          resolve();
+          if (!resolved) {
+            resolved = true;
+            subscription.stop();
+            console.log('Timeout: Found zap receipts:', count);
+            resolve();
+          }
         }, 5000);
       });
 

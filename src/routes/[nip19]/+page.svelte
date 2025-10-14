@@ -50,7 +50,8 @@
           ids: [eventId]
         };
         
-        const subscription = $ndk.subscribe(filter, { closeOnEose: true });
+        const subscription = $ndk.subscribe(filter, { closeOnEose: false });
+        let resolved = false;
         
         subscription.on('event', (receivedEvent: NDKEvent) => {
           if (!event) {
@@ -59,16 +60,24 @@
         });
         
         subscription.on('eose', () => {
-          if (!event) {
-            error = true;
+          if (!resolved) {
+            resolved = true;
+            subscription.stop();
+            if (!event) {
+              error = true;
+            }
+            loading = false;
           }
-          loading = false;
         });
         
-        // Handle timeout
+        // Handle timeout - resolve with whatever we have
         setTimeout(() => {
-          if (loading) {
-            error = true;
+          if (!resolved) {
+            resolved = true;
+            subscription.stop();
+            if (!event) {
+              error = true;
+            }
             loading = false;
           }
         }, 5000);

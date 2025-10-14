@@ -29,7 +29,8 @@
           const filter = { kinds: [1], limit: 1 };
           
           let eventCount = 0;
-          const subscription = $ndk.subscribe(filter, { closeOnEose: true });
+          let resolved = false;
+          const subscription = $ndk.subscribe(filter, { closeOnEose: false });
           
           const subscriptionPromise = new Promise((resolve, reject) => {
             subscription.on('event', () => {
@@ -37,12 +38,19 @@
             });
             
             subscription.on('eose', () => {
-              resolve(eventCount);
+              if (!resolved) {
+                resolved = true;
+                subscription.stop();
+                resolve(eventCount);
+              }
             });
             
             setTimeout(() => {
-              subscription.stop();
-              reject(new Error('Connection timeout after 5 seconds'));
+              if (!resolved) {
+                resolved = true;
+                subscription.stop();
+                resolve(eventCount);
+              }
             }, 5000);
           });
           

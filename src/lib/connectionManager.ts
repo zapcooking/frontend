@@ -99,18 +99,31 @@ export class ConnectionManager {
         
         await Promise.race([
           new Promise((resolve, reject) => {
-            const subscription = this.ndk.subscribe(testFilter, { closeOnEose: true, relays: [url] });
+            const subscription = this.ndk.subscribe(testFilter, { closeOnEose: false, relays: [url] });
+            let resolved = false;
+            
             subscription.on('event', () => {
-              subscription.stop();
-              resolve(null);
+              if (!resolved) {
+                resolved = true;
+                subscription.stop();
+                resolve(null);
+              }
             });
+            
             subscription.on('eose', () => {
-              subscription.stop();
-              resolve(null);
+              if (!resolved) {
+                resolved = true;
+                subscription.stop();
+                resolve(null);
+              }
             });
+            
             setTimeout(() => {
-              subscription.stop();
-              reject(new Error('Health check timeout'));
+              if (!resolved) {
+                resolved = true;
+                subscription.stop();
+                reject(new Error('Health check timeout'));
+              }
             }, 5000);
           }),
           timeoutPromise
@@ -263,18 +276,31 @@ export class ConnectionManager {
         
         await Promise.race([
           new Promise((resolve, reject) => {
-            const subscription = this.ndk.subscribe(testFilter, { closeOnEose: true });
+            const subscription = this.ndk.subscribe(testFilter, { closeOnEose: false });
+            let resolved = false;
+            
             subscription.on('event', () => {
-              subscription.stop();
-              resolve(null);
+              if (!resolved) {
+                resolved = true;
+                subscription.stop();
+                resolve(null);
+              }
             });
+            
             subscription.on('eose', () => {
-              subscription.stop();
-              resolve(null);
+              if (!resolved) {
+                resolved = true;
+                subscription.stop();
+                resolve(null);
+              }
             });
+            
             setTimeout(() => {
-              subscription.stop();
-              reject(new Error('Heartbeat timeout'));
+              if (!resolved) {
+                resolved = true;
+                subscription.stop();
+                reject(new Error('Heartbeat timeout'));
+              }
             }, this.MAX_RESPONSE_TIME);
           }),
           timeoutPromise

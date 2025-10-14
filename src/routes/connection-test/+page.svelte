@@ -40,7 +40,8 @@
       const testFilter = { kinds: [1], limit: 5 };
       let eventCount = 0;
       
-      const subscription = ndkInstance.subscribe(testFilter, { closeOnEose: true });
+      const subscription = ndkInstance.subscribe(testFilter, { closeOnEose: false });
+      let resolved = false;
       
       await new Promise((resolve, reject) => {
         subscription.on('event', () => {
@@ -48,23 +49,30 @@
         });
         
         subscription.on('eose', () => {
-          const endTime = Date.now();
-          const responseTime = endTime - startTime;
-          
-          testResults.push({
-            test: 'Basic Event Fetch',
-            status: 'success',
-            message: `Fetched ${eventCount} events in ${responseTime}ms`,
-            details: `Events from subscription`
-          });
-          
-          testStatus = 'Basic connectivity test completed successfully';
-          resolve(null);
+          if (!resolved) {
+            resolved = true;
+            subscription.stop();
+            const endTime = Date.now();
+            const responseTime = endTime - startTime;
+            
+            testResults.push({
+              test: 'Basic Event Fetch',
+              status: 'success',
+              message: `Fetched ${eventCount} events in ${responseTime}ms`,
+              details: `Events from subscription`
+            });
+            
+            testStatus = 'Basic connectivity test completed successfully';
+            resolve(null);
+          }
         });
         
         setTimeout(() => {
-          subscription.stop();
-          reject(new Error('Test timeout'));
+          if (!resolved) {
+            resolved = true;
+            subscription.stop();
+            reject(new Error('Test timeout'));
+          }
         }, 10000);
       });
       
@@ -100,10 +108,12 @@
       const subscription = ndkInstance.subscribe(
         { kinds: [1], limit: 10 },
         {
-          closeOnEose: true,
+          closeOnEose: false,
           timeout: 10000 // 10 second timeout
         }
       );
+      
+      let resolved = false;
       
       // Listen for events
       subscription.on('event', (event: any) => {
@@ -114,12 +124,21 @@
       // Wait for subscription to complete or timeout
       await new Promise((resolve, reject) => {
         const timeout = setTimeout(() => {
-          subscription.stop();
-          reject(new Error('Subscription timeout'));
+          if (!resolved) {
+            resolved = true;
+            subscription.stop();
+            reject(new Error('Subscription timeout'));
+          }
         }, 10000);
         
         subscription.on('eose', () => {
-          clearTimeout(timeout);
+          if (!resolved) {
+            resolved = true;
+            clearTimeout(timeout);
+            subscription.stop();
+            resolve(null);
+          }
+        });
           subscription.stop();
           resolve(null);
         });

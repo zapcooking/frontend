@@ -65,9 +65,10 @@ export class ZapCache {
       const subscription = this.ndk.subscribe({
         kinds: [9735],
         '#e': [entry.eventId]
-      }, { closeOnEose: true });
+      }, { closeOnEose: false });
 
       let zapCount = 0;
+      let resolved = false;
       
       subscription.on('event', (zapEvent: NDKEvent) => {
         zapCount++;
@@ -75,8 +76,21 @@ export class ZapCache {
       });
 
       subscription.on('eose', () => {
-        console.log(`Found ${zapCount} existing zap events for event ${entry.eventId}`);
+        if (!resolved) {
+          resolved = true;
+          subscription.stop();
+          console.log(`Found ${zapCount} existing zap events for event ${entry.eventId}`);
+        }
       });
+      
+      // Timeout to ensure subscription closes
+      setTimeout(() => {
+        if (!resolved) {
+          resolved = true;
+          subscription.stop();
+          console.log(`Timeout: Found ${zapCount} existing zap events for event ${entry.eventId}`);
+        }
+      }, 5000);
     } catch (error) {
       console.error('Error loading existing zaps:', error);
     }

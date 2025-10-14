@@ -45,24 +45,33 @@
           '#d': [b.identifier],
           authors: [b.pubkey],
           kinds: [30023]
-        }, { closeOnEose: true });
+        }, { closeOnEose: false });
         
+        let resolved = false;
         await new Promise<void>((resolve, reject) => {
           subscription.on('event', (event: any) => {
-            if (!e) {
+            if (!e && !resolved) {
               e = event;
+              resolved = true;
               subscription.stop();
               resolve();
             }
           });
           
           subscription.on('eose', () => {
-            resolve();
+            if (!resolved) {
+              resolved = true;
+              subscription.stop();
+              resolve();
+            }
           });
           
           setTimeout(() => {
-            subscription.stop();
-            reject(new Error('Recipe loading timeout - relays may be unreachable'));
+            if (!resolved) {
+              resolved = true;
+              subscription.stop();
+              reject(new Error('Recipe loading timeout - relays may be unreachable'));
+            }
           }, 10000);
         });
         
@@ -80,24 +89,33 @@
         let e: any = null;
         const subscription = $ndk.subscribe({
           ids: [$page.params.slug]
-        }, { closeOnEose: true });
+        }, { closeOnEose: false });
         
+        let resolved = false;
         await new Promise<void>((resolve, reject) => {
           subscription.on('event', (event: any) => {
-            if (!e) {
+            if (!e && !resolved) {
               e = event;
+              resolved = true;
               subscription.stop();
               resolve();
             }
           });
           
           subscription.on('eose', () => {
-            resolve();
+            if (!resolved) {
+              resolved = true;
+              subscription.stop();
+              resolve();
+            }
           });
           
           setTimeout(() => {
-            subscription.stop();
-            reject(new Error('Recipe loading timeout - relays may be unreachable'));
+            if (!resolved) {
+              resolved = true;
+              subscription.stop();
+              reject(new Error('Recipe loading timeout - relays may be unreachable'));
+            }
           }, 10000);
         });
         

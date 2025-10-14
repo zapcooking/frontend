@@ -35,8 +35,9 @@
         // @ts-ignore
         authors: [b.pubkey],
         kinds: [30001]
-      }, { closeOnEose: true });
+      }, { closeOnEose: false });
       
+      let resolved = false;
       await new Promise<void>((resolve) => {
         subscription.on('event', (event: any) => {
           if (!e) {
@@ -45,12 +46,19 @@
         });
         
         subscription.on('eose', () => {
-          resolve();
+          if (!resolved) {
+            resolved = true;
+            subscription.stop();
+            resolve();
+          }
         });
         
         setTimeout(() => {
-          subscription.stop();
-          resolve();
+          if (!resolved) {
+            resolved = true;
+            subscription.stop();
+            resolve();
+          }
         }, 5000);
       });
       
@@ -61,14 +69,32 @@
       let e: any = null;
       const subscription = $ndk.subscribe({
         ids: [$page.params.slug]
-      }, { closeOnEose: true });
+      }, { closeOnEose: false });
       
+      let resolved = false;
       await new Promise<void>((resolve) => {
         subscription.on('event', (receivedEvent: any) => {
           if (!e) {
             e = receivedEvent;
           }
         });
+        
+        subscription.on('eose', () => {
+          if (!resolved) {
+            resolved = true;
+            subscription.stop();
+            resolve();
+          }
+        });
+        
+        setTimeout(() => {
+          if (!resolved) {
+            resolved = true;
+            subscription.stop();
+            resolve();
+          }
+        }, 5000);
+      });
         
         subscription.on('eose', () => {
           resolve();
@@ -112,14 +138,24 @@
           kinds: [Number(kind)],
           '#d': [identifier],
           authors: [pubkey]
-        }, { closeOnEose: true });
+        }, { closeOnEose: false });
         
         subscription.on('event', (newEv: any) => {
           if (newEv) {
             events.push(newEv);
             events = events;
+            subscription.stop();
           }
         });
+        
+        subscription.on('eose', () => {
+          subscription.stop();
+        });
+        
+        // Timeout to ensure subscription closes
+        setTimeout(() => {
+          subscription.stop();
+        }, 5000);
       }
     });
 

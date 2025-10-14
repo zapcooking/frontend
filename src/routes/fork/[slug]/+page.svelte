@@ -51,8 +51,9 @@
         // @ts-ignore
         authors: [b.pubkey],
         kinds: [30023]
-      }, { closeOnEose: true });
+      }, { closeOnEose: false });
       
+      let resolved = false;
       await new Promise<void>((resolve) => {
         subscription.on('event', (receivedEvent: any) => {
           if (!e) {
@@ -61,12 +62,19 @@
         });
         
         subscription.on('eose', () => {
-          resolve();
+          if (!resolved) {
+            resolved = true;
+            subscription.stop();
+            resolve();
+          }
         });
         
         setTimeout(() => {
-          subscription.stop();
-          resolve();
+          if (!resolved) {
+            resolved = true;
+            subscription.stop();
+            resolve();
+          }
         }, 5000);
       });
       
@@ -77,8 +85,9 @@
       let e: any = null;
       const subscription = $ndk.subscribe({
         ids: [$page.params.slug]
-      }, { closeOnEose: true });
+      }, { closeOnEose: false });
       
+      let resolved = false;
       await new Promise<void>((resolve) => {
         subscription.on('event', (receivedEvent: any) => {
           if (!e) {
@@ -87,12 +96,19 @@
         });
         
         subscription.on('eose', () => {
-          resolve();
+          if (!resolved) {
+            resolved = true;
+            subscription.stop();
+            resolve();
+          }
         });
         
         setTimeout(() => {
-          subscription.stop();
-          resolve();
+          if (!resolved) {
+            resolved = true;
+            subscription.stop();
+            resolve();
+          }
         }, 5000);
       });
       
