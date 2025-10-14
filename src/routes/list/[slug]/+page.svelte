@@ -73,9 +73,9 @@
           '#d': [identifier],
           authors: [pubkey]
         });
-        if (newEv) {
-          events.push(newEv);
-          events = events;
+          if (newEv) {
+            events.push(newEv);
+            events = events;
         }
       }
     });

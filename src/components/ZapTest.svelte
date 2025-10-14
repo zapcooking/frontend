@@ -21,15 +21,27 @@
     
     // Try to find a test event (recipe)
     try {
-      const events = await $ndk.fetchEvents({
+      const subscription = $ndk.subscribe({
         kinds: [30023],
         '#t': ['nostrcooking'],
         limit: 1
+      }, { closeOnEose: false });
+      
+      subscription.on('event', (event: NDKEvent) => {
+        if (!testEvent) {
+          testEvent = event;
+          subscription.stop();
+        }
       });
       
-      if (events.size > 0) {
-        testEvent = Array.from(events)[0];
-      }
+      subscription.on('eose', () => {
+        subscription.stop();
+      });
+      
+      // Timeout to ensure subscription closes
+      setTimeout(() => {
+        subscription.stop();
+      }, 5000);
     } catch (error) {
       console.log('No test events found:', error);
     }

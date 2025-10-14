@@ -44,14 +44,54 @@
   let zapModal = false;
   let selectedEvent: NDKEvent | null = null;
 
+  const MAX_HASHTAGS = 5;
+  const HASHTAG_PATTERN = /(^|\s)#([^\s#]+)/g;
+
+  function countContentHashtags(content: string): number {
+    if (!content) {
+      return 0;
+    }
+
+    const matches = content.match(HASHTAG_PATTERN);
+    return matches ? matches.length : 0;
+  }
+
+  function getHashtagCount(event: NDKEvent): number {
+    const contentHashtags = countContentHashtags(event.content || '');
+    const tagHashtags = Array.isArray(event.tags)
+      ? event.tags.filter(tag => Array.isArray(tag) && tag[0] === 't').length
+      : 0;
+
+    return Math.max(contentHashtags, tagHashtags);
+  }
+
+  function shouldIncludeEvent(event: NDKEvent): boolean {
+    const hashtagCount = getHashtagCount(event);
+
+    if (hashtagCount > MAX_HASHTAGS) {
+      console.log(`⏭️ Skipping event ${event.id || 'unknown'} with ${hashtagCount} hashtags`);
+      return false;
+    }
+
+    return true;
+  }
+
   // Debounced batch processing for rapid updates
-  function processBatch() {
+  async function processBatch() {
     if (pendingEvents.length === 0) return;
-    
-    console.log(`🔄 Processing batch of ${pendingEvents.length} events`);
-    
+
+    const batch = pendingEvents.filter(shouldIncludeEvent);
+    pendingEvents = [];
+
+    if (batch.length === 0) {
+      console.log('⏭️ Batch contained only events filtered by hashtag limit');
+      return;
+    }
+
+    console.log(`🔄 Processing batch of ${batch.length} events`);
+
     // Sort new events by creation time
-    const sortedNewEvents = pendingEvents.sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
+    const sortedNewEvents = batch.sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
     
     // Merge with existing events, avoiding duplicates
     const existingIds = new Set(events.map(e => e.id));
@@ -66,10 +106,8 @@
     }
     
     // Clear pending events
-    pendingEvents = [];
-    
     // Cache the updated events
-    cacheEvents();
+    await cacheEvents();
     
     console.log(`✅ Batch processed. Total events: ${events.length}`);
   }
@@ -78,7 +116,7 @@
     if (batchTimeout) {
       clearTimeout(batchTimeout);
     }
-    batchTimeout = setTimeout(processBatch, 300); // 300ms debounce
+    batchTimeout = setTimeout(async () => await processBatch(), 300); // 300ms debounce
   }
 
   // Simple caching functions (restored for stability)
@@ -151,18 +189,25 @@
       
       if (cacheData && typeof cacheData === 'object' && cacheData !== null && 'events' in cacheData) {
         // Restore events from compressed cache
-        events = (cacheData as any).events.map((e: any) => ({
+        const cachedEvents = (cacheData as any).events.map((e: any) => ({
           ...e,
           author: e.author ? {
             hexpubkey: e.author.hexpubkey,
             profile: e.author.profile
           } : null
         })) as NDKEvent[];
-        
-        lastEventTime = (cacheData as any).lastEventTime || 0;
-        
+
+        const filteredEvents = cachedEvents.filter(shouldIncludeEvent);
+        events = filteredEvents;
+        lastEventTime = events.length > 0 ? Math.max(...events.map(e => e.created_at || 0)) : 0;
+
         console.log(`📦 Loaded ${events.length} events from compressed cache`);
-        return true;
+
+        if (cachedEvents.length !== filteredEvents.length) {
+          console.log(`⏭️ Filtered out ${cachedEvents.length - filteredEvents.length} cached events due to hashtag limit`);
+        }
+
+        return events.length > 0;
       }
       
       // Fallback to localStorage
@@ -179,18 +224,25 @@
       }
       
       // Restore events from localStorage cache
-      events = fallbackCacheData.events.map((e: any) => ({
+      const cachedEvents = fallbackCacheData.events.map((e: any) => ({
         ...e,
         author: e.author ? {
           hexpubkey: e.author.hexpubkey,
           profile: e.author.profile
         } : null
       })) as NDKEvent[];
-      
-      lastEventTime = fallbackCacheData.lastEventTime || 0;
-      
+
+      const filteredEvents = cachedEvents.filter(shouldIncludeEvent);
+      events = filteredEvents;
+      lastEventTime = events.length > 0 ? Math.max(...events.map(e => e.created_at || 0)) : 0;
+
       console.log(`📦 Loaded ${events.length} events from localStorage cache (fallback)`);
-      return true;
+
+      if (cachedEvents.length !== filteredEvents.length) {
+        console.log(`⏭️ Filtered out ${cachedEvents.length - filteredEvents.length} cached events due to hashtag limit`);
+      }
+
+      return events.length > 0;
       
     } catch (err) {
       console.warn('⚠️ Failed to load cached events:', err);
@@ -255,35 +307,74 @@
       
       console.log('🔍 Filter:', filter);
       
-      // Use fetchEvents with timeout
-      const fetchPromise = $ndk.fetchEvents(filter);
-      const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Connection timeout - relays may be unreachable')), 10000)
-      );
+      // Use subscribe instead of fetchEvents
+      let eventCount = 0;
+      let skippedCount = 0;
+      const subscription = $ndk.subscribe(filter, { closeOnEose: false });
       
-      const fetchedEvents = await Promise.race([fetchPromise, timeoutPromise]) as Set<NDKEvent>;
-      console.log('📊 Fetched events:', fetchedEvents.size);
+      const subscriptionPromise = new Promise<NDKEvent[]>((resolve, reject) => {
+        const receivedEvents: NDKEvent[] = [];
+        let eoseCount = 0;
+        let resolved = false;
+        
+        subscription.on('event', (event: NDKEvent) => {
+          if (!shouldIncludeEvent(event)) {
+            skippedCount++;
+            return;
+          }
+
+          receivedEvents.push(event);
+          eventCount++;
+        });
+        
+        subscription.on('eose', () => {
+          eoseCount++;
+          console.log(`📊 EOSE received from relay ${eoseCount}`);
+          // Resolve after first EOSE or timeout
+          if (!resolved) {
+            resolved = true;
+            console.log('📊 Fetched events after filtering:', eventCount);
+            subscription.stop();
+            resolve(receivedEvents);
+          }
+        });
+        
+        // Timeout to resolve with whatever events were collected
+        setTimeout(() => {
+          if (!resolved) {
+            resolved = true;
+            console.log('⏱️ Timeout reached, resolving with', eventCount, 'events after filtering');
+            subscription.stop();
+            resolve(receivedEvents);
+          }
+        }, 5000); // Reduced timeout to 5 seconds for faster response
+      });
       
-      if (fetchedEvents.size > 0) {
-        const eventArray = Array.from(fetchedEvents);
+      const fetchedEvents = await subscriptionPromise;
+
+      if (skippedCount > 0) {
+        console.log(`⏭️ Skipped ${skippedCount} events due to hashtag limit during initial load`);
+      }
+      
+      if (fetchedEvents.length > 0) {
         // Sort by newest first
-        events = eventArray.sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
-        lastEventTime = Math.max(...events.map(e => e.created_at || 0));
+        events = fetchedEvents.sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
+        lastEventTime = events.length > 0 ? Math.max(...events.map(e => e.created_at || 0)) : 0;
         
         loading = false;
         error = false;
-        debugInfo = `Found ${events.length} events`;
+        debugInfo = `Found ${events.length} events${skippedCount ? ` (filtered out ${skippedCount})` : ''}`;
         console.log('✅ Successfully loaded', events.length, 'events');
         
         // Cache the events
-        cacheEvents();
+        await cacheEvents();
         
         // Start real-time subscription for new events
         startRealtimeSubscription();
       } else {
         loading = false;
         error = false;
-        debugInfo = 'No cooking events found';
+        debugInfo = skippedCount > 0 ? 'Filtered out posts with too many hashtags' : 'No cooking events found';
         console.log('ℹ️ No events found');
         
         // Still start subscription for real-time updates
@@ -328,6 +419,10 @@
       id: 'foodstr-feed-realtime',
       filter: subscriptionFilter,
       onEvent: (event: NDKEvent) => {
+        if (!shouldIncludeEvent(event)) {
+          return;
+        }
+
         // Reduce logging frequency - only log every 10th event
         if (pendingEvents.length % 10 === 0) {
           console.log('📨 New real-time event:', event.id);
@@ -357,25 +452,79 @@
         since: Math.floor(Date.now() / 1000) - (7 * 24 * 60 * 60)
       };
       
-      const fetchedEvents = await $ndk.fetchEvents(filter);
+      const subscription = $ndk.subscribe(filter, { closeOnEose: false });
+      const fetchedEvents: NDKEvent[] = [];
+      let skippedCount = 0;
       
-      if (fetchedEvents.size > 0) {
-        const eventArray = Array.from(fetchedEvents) as NDKEvent[];
-        const sortedEvents = eventArray.sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
+      await new Promise<void>((resolve) => {
+        let resolved = false;
         
-        // Merge with existing events
-        const existingIds = new Set(events.map(e => e.id));
-        const newEvents = sortedEvents.filter(e => !existingIds.has(e.id));
+        subscription.on('event', (event: NDKEvent) => {
+          if (!shouldIncludeEvent(event)) {
+            skippedCount++;
+            return;
+          }
+
+          fetchedEvents.push(event);
+        });
         
-        if (newEvents.length > 0) {
-          events = [...events, ...newEvents].sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
-          lastEventTime = Math.max(...events.map(e => e.created_at || 0));
-          await cacheEvents();
-          
-          console.log(`🔄 Background refresh added ${newEvents.length} new events`);
-          debugInfo = `Found ${events.length} events (${newEvents.length} new)`;
-        }
-      }
+        subscription.on('eose', async () => {
+          if (!resolved) {
+            resolved = true;
+            subscription.stop();
+            if (fetchedEvents.length > 0) {
+              const sortedEvents = fetchedEvents.sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
+              
+              // Merge with existing events
+              const existingIds = new Set(events.map(e => e.id));
+              const newEvents = sortedEvents.filter(e => !existingIds.has(e.id));
+              
+              if (newEvents.length > 0) {
+                events = [...events, ...newEvents].sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
+                lastEventTime = events.length > 0 ? Math.max(...events.map(e => e.created_at || 0)) : lastEventTime;
+                await cacheEvents();
+                
+                console.log(`🔄 Background refresh added ${newEvents.length} new events`);
+                debugInfo = `Found ${events.length} events (${newEvents.length} new)`;
+              }
+            }
+            
+            if (skippedCount > 0) {
+              console.log(`⏭️ Background refresh skipped ${skippedCount} events due to hashtag limit`);
+            }
+            resolve();
+          }
+        });
+        
+        setTimeout(async () => {
+          if (!resolved) {
+            resolved = true;
+            subscription.stop();
+            console.log('⏱️ Background refresh timeout, collected', fetchedEvents.length, 'events');
+            if (fetchedEvents.length > 0) {
+              const sortedEvents = fetchedEvents.sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
+              
+              // Merge with existing events
+              const existingIds = new Set(events.map(e => e.id));
+              const newEvents = sortedEvents.filter(e => !existingIds.has(e.id));
+              
+              if (newEvents.length > 0) {
+                events = [...events, ...newEvents].sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
+                lastEventTime = events.length > 0 ? Math.max(...events.map(e => e.created_at || 0)) : lastEventTime;
+                await cacheEvents();
+                
+                console.log(`🔄 Background refresh added ${newEvents.length} new events`);
+                debugInfo = `Found ${events.length} events (${newEvents.length} new)`;
+              }
+            }
+            
+            if (skippedCount > 0) {
+              console.log(`⏭️ Background refresh skipped ${skippedCount} events due to hashtag limit`);
+            }
+            resolve();
+          }
+        }, 5000);
+      });
     } catch (err) {
       console.warn('⚠️ Background refresh failed:', err);
     }
@@ -400,17 +549,63 @@
         limit: 20
       };
 
-      const fetchedEvents = await $ndk.fetchEvents(filter);
-      const newEvents = Array.from(fetchedEvents) as NDKEvent[];
+      const subscription = $ndk.subscribe(filter, { closeOnEose: false });
+      const newEvents: NDKEvent[] = [];
       
-      if (newEvents.length > 0) {
-        events = [...events, ...newEvents];
-        hasMore = newEvents.length === 20;
-        // Cache the updated events
-        await cacheEvents();
-      } else {
-        hasMore = false;
-      }
+      await new Promise<void>((resolve) => {
+        let resolved = false;
+        
+        subscription.on('event', (event: NDKEvent) => {
+          newEvents.push(event);
+        });
+        
+        subscription.on('eose', async () => {
+          if (!resolved) {
+            resolved = true;
+            subscription.stop();
+            const filteredNewEvents = newEvents.filter(shouldIncludeEvent);
+            const skipped = newEvents.length - filteredNewEvents.length;
+            
+            if (filteredNewEvents.length > 0) {
+              events = [...events, ...filteredNewEvents];
+              hasMore = newEvents.length === 20;
+              // Cache the updated events
+              await cacheEvents();
+            } else {
+              hasMore = newEvents.length === 20;
+            }
+
+            if (skipped > 0) {
+              console.log(`⏭️ Skipped ${skipped} older events due to hashtag limit`);
+            }
+            resolve();
+          }
+        });
+        
+        setTimeout(async () => {
+          if (!resolved) {
+            resolved = true;
+            subscription.stop();
+            console.log('⏱️ Load more timeout, collected', newEvents.length, 'events');
+            const filteredNewEvents = newEvents.filter(shouldIncludeEvent);
+            const skipped = newEvents.length - filteredNewEvents.length;
+
+            if (filteredNewEvents.length > 0) {
+              events = [...events, ...filteredNewEvents];
+              hasMore = newEvents.length === 20;
+              // Cache the updated events
+              await cacheEvents();
+            } else {
+              hasMore = newEvents.length === 20;
+            }
+
+            if (skipped > 0) {
+              console.log(`⏭️ Skipped ${skipped} older events due to hashtag limit`);
+            }
+            resolve();
+          }
+        }, 5000);
+      });
     } catch (err) {
       console.error('Error loading more events:', err);
     } finally {
@@ -448,7 +643,7 @@
   }
 
   // Cleanup function
-  function cleanup() {
+  async function cleanup() {
     console.log('🧹 Cleaning up subscriptions...');
     
     if (subscriptionManager) {
@@ -462,16 +657,16 @@
     
     // Process any remaining pending events
     if (pendingEvents.length > 0) {
-      processBatch();
+      await processBatch();
     }
     
     // Cleanup stale cache entries
     compressedCacheManager.invalidateStale();
   }
 
-  onMount(() => {
+  onMount(async () => {
     try {
-      retryWithDelay();
+      await retryWithDelay();
     } catch (error) {
       console.error('❌ Error in FoodstrFeedOptimized onMount:', error);
       loading = false;
@@ -480,8 +675,8 @@
     }
   });
 
-  onDestroy(() => {
-    cleanup();
+  onDestroy(async () => {
+    await cleanup();
   });
 
   function formatTimeAgo(timestamp: number): string {

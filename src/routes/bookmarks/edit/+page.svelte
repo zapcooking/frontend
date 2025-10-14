@@ -80,11 +80,11 @@
             '#d': [identifier],
             authors: [pubkey]
           });
-          if (newEv) {
-            events.push(newEv);
-            $items.push({ title: newEv.tags.find((z: string[]) => z[0] == 'title')?.[1], naddr: naddr });
-            $items = $items;
-            items.set($items);
+            if (newEv) {
+              events.push(newEv);
+              $items.push({ title: newEv.tags.find((z: string[]) => z[0] == 'title')?.[1], naddr: naddr });
+              $items = $items;
+              items.set($items);
           }
         }
       });
@@ -159,15 +159,15 @@
           authors: [data.pubkey]
         });
 
-        if (newEv) {
-          const updatedItems = i.map((item) => {
-            if (item === t) {
-              return { ...item, title: newEv.tags.find((z: string[]) => z[0] === 'title')?.[1] };
-            }
-            return item;
-          });
+          if (newEv) {
+            const updatedItems = i.map((item) => {
+              if (item === t) {
+                return { ...item, title: newEv.tags.find((z: string[]) => z[0] === 'title')?.[1] };
+              }
+              return item;
+            });
 
-          items.set(updatedItems);
+            items.set(updatedItems);
         }
       }
     });

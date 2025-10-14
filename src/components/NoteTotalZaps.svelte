@@ -1,33 +1,40 @@
 <script lang="ts">
   import { ndk, userPublickey } from '$lib/nostr';
-  import type { NDKEvent } from '@nostr-dev-kit/ndk';
+  import type { NDKEvent, NDKSubscription } from '@nostr-dev-kit/ndk';
   import { onMount, onDestroy } from 'svelte';
   import { formatAmount } from '$lib/utils';
   import LightningIcon from 'phosphor-svelte/lib/Lightning';
-  import { createZapCache, getZapCache } from '$lib/zapCache';
+  import { decode } from '@gandlaf21/bolt11-decode';
   import NoteTotalZapsSkeleton from './NoteTotalZapsSkeleton.svelte';
 
   export let event: NDKEvent;
   let loading = true;
   let totalZapAmount: number = 0;
   let hasUserZapped = false;
-  let zapCache: any = null;
+  let processedEvents = new Set<string>();
+  let subscription: NDKSubscription | null = null;
 
   async function loadZaps() {
     if (!event?.id) return;
     
     loading = true;
+    totalZapAmount = 0;
+    processedEvents.clear();
+    hasUserZapped = false;
 
     try {
-      // Get or create zap cache
-      if (!zapCache) {
-        zapCache = createZapCache($ndk, $userPublickey);
+      if (subscription) {
+        subscription.stop();
       }
 
-      // Get zap data from cache
-      const zapData = await zapCache.getZapData(event.id);
-      totalZapAmount = zapData.totalAmount;
-      hasUserZapped = zapData.userHasZapped;
+      subscription = $ndk.subscribe({
+        kinds: [9735],
+        '#e': [event.id]
+      });
+
+      subscription.on('event', (zapEvent: NDKEvent) => {
+        processZapEvent(zapEvent);
+      });
 
     } catch (error) {
       console.error('Error loading zaps:', error);
@@ -41,10 +48,10 @@
   });
 
   onDestroy(() => {
-    // Clean up cache entry when component is destroyed
-    if (zapCache && event?.id) {
-      zapCache.removeEvent(event.id);
+    if (subscription) {
+      subscription.stop();
     }
+    subscription = null;
   });
 
   // Reload when event changes
@@ -52,10 +59,36 @@
     loadZaps();
   }
 
-  // Update when user public key changes
-  $: if (zapCache && $userPublickey) {
-    zapCache.updateUserPublickey($userPublickey);
-    loadZaps(); // Reload to update userHasZapped status
+  function processZapEvent(zapEvent: NDKEvent) {
+    if (!zapEvent.sig || processedEvents.has(zapEvent.sig)) {
+      return;
+    }
+
+    const bolt11 = zapEvent.tags.find((tag) => tag[0] === 'bolt11')?.[1];
+    if (!bolt11) {
+      return;
+    }
+
+    try {
+      const decoded = decode(bolt11);
+      const amountSection = decoded.sections.find((section) => section.name === 'amount');
+
+      if (amountSection && amountSection.value) {
+        const amount = Number(amountSection.value);
+        if (!isNaN(amount) && amount > 0) {
+          totalZapAmount += amount;
+          processedEvents.add(zapEvent.sig);
+
+          if (zapEvent.tags.some((tag) => tag[0] === 'P' && tag[1] === $userPublickey)) {
+            hasUserZapped = true;
+          }
+
+          console.log(`Processed note zap: ${amount} sats, total: ${totalZapAmount}`);
+        }
+      }
+    } catch (error) {
+      console.error('Error decoding bolt11:', error);
+    }
   }
 </script>
 

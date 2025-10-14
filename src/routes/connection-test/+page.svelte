@@ -40,17 +40,17 @@
       const testFilter = { kinds: [1], limit: 5 };
       const events = await ndkInstance.fetchEvents(testFilter);
       
-      const endTime = Date.now();
-      const responseTime = endTime - startTime;
-      
-      testResults.push({
-        test: 'Basic Event Fetch',
-        status: 'success',
+            const endTime = Date.now();
+            const responseTime = endTime - startTime;
+            
+            testResults.push({
+              test: 'Basic Event Fetch',
+              status: 'success',
         message: `Fetched ${events.size} events in ${responseTime}ms`,
         details: `Events from ${events.size} relays`
-      });
-      
-      testStatus = 'Basic connectivity test completed successfully';
+            });
+            
+            testStatus = 'Basic connectivity test completed successfully';
       
     } catch (error: any) {
       testResults.push({
@@ -97,14 +97,14 @@
       // Wait for subscription to complete or timeout
       await new Promise((resolve, reject) => {
         const timeout = setTimeout(() => {
-          subscription.stop();
-          reject(new Error('Subscription timeout'));
+            subscription.stop();
+            reject(new Error('Subscription timeout'));
         }, 10000);
         
         subscription.on('eose', () => {
-          clearTimeout(timeout);
-          subscription.stop();
-          resolve(null);
+            clearTimeout(timeout);
+            subscription.stop();
+            resolve(null);
         });
         
         subscription.on('error', (error: any) => {
