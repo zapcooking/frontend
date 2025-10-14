@@ -96,7 +96,7 @@ export function resetCircuitBreaker(url: string) {
   }
 }
 
-export const ndk: Writable<any> = writable(Ndk);
+export const ndk: Writable<NDK> = writable(Ndk);
 
 export const userPublickey: Writable<string> = writable(
   (browser && localStorage.getItem('nostrcooking_loggedInPublicKey')) || ''
