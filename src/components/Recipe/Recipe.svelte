@@ -2,7 +2,6 @@
   import { NDKEvent } from '@nostr-dev-kit/ndk';
   import TagLinks from './TagLinks.svelte';
   import { ndk, userPublickey } from '$lib/nostr';
-  import DotsIcon from 'phosphor-svelte/lib/DotsThreeVertical';
   import PencilIcon from 'phosphor-svelte/lib/Pencil';
   import BookmarkIcon from 'phosphor-svelte/lib/BookmarkSimple';
   import PrinterIcon from 'phosphor-svelte/lib/Printer';
@@ -18,9 +17,7 @@
   import { requestProvider } from 'webln';
   import { nip19 } from 'nostr-tools';
   import Modal from '../Modal.svelte';
-  import { clickOutside } from '$lib/clickOutside';
   import AuthorProfile from '../AuthorProfile.svelte';
-  import { fade } from 'svelte/transition';
   import { recipeTags, type recipeTagSimple } from '$lib/consts';
 
   export let event: NDKEvent;
@@ -31,7 +28,6 @@
   });
   let zapModal = false;
   let bookmarkModal = false;
-  let dropdownActive = false;
 
 let listsArr: NDKEvent[] = [];
 async function getLists(): Promise<NDKEvent[]> {
@@ -194,7 +190,34 @@ async function getLists(): Promise<NDKEvent[]> {
         <AuthorProfile pubkey={event.author.pubkey} />
       </div>
       {#each event.tags.filter((e) => e[0] === 'image') as image, i}
-        <img class="rounded-3xl aspect-video object-cover" src={image[1]} alt="Image {i + 1}" />
+        {#if i === 0}
+          <!-- First image with Pinterest-style hover Save button -->
+          <div class="relative rounded-3xl overflow-hidden group w-full">
+            <img
+              class="aspect-video object-cover w-full block"
+              src={image[1]}
+              alt="Image {i + 1}"
+            />
+            <!-- Hover overlay with Save button -->
+            <div class="absolute inset-0 transition-all duration-300 pointer-events-none">
+              <button
+                class="absolute top-4 right-4 bg-primary text-white font-semibold px-4 py-2 rounded-full shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-200 opacity-0 group-hover:opacity-100 pointer-events-auto flex items-center gap-2"
+                on:click={() => (bookmarkModal = true)}
+                aria-label="Save recipe to list"
+              >
+                <BookmarkIcon size={18} weight="fill" />
+                <span>Save</span>
+              </button>
+            </div>
+          </div>
+        {:else}
+          <!-- Other images without overlay -->
+          <img
+            class="rounded-3xl aspect-video object-cover"
+            src={image[1]}
+            alt="Image {i + 1}"
+          />
+        {/if}
       {/each}
       <div class="flex print:hidden">
         <div class="flex gap-6 grow">
@@ -204,37 +227,26 @@ async function getLists(): Promise<NDKEvent[]> {
             <TotalZaps {event} />
           </button>
         </div>
-        <button
-          class="cursor-pointer hover:bg-input rounded p-0.5 transition duration-300"
-          on:click={() => (dropdownActive = !dropdownActive)}
-        >
-          <DotsIcon size={24} />
-        </button>
-        {#if dropdownActive}
-          <div class="relative" tabindex="-1" transition:fade={{ delay: 0, duration: 150 }}>
-            <button
-              on:click={() => (dropdownActive = false)}
-              use:clickOutside
-              on:click_outside={() => (dropdownActive = false)}
-              class="flex flex-col right-0 gap-4 absolute z-20 bg-white rounded-3xl drop-shadow px-5 py-6 my-6"
+        <div class="flex gap-2 sm:gap-4">
+          {#if event.author?.pubkey === $userPublickey}
+            <a
+              href="/fork/{naddr}"
+              class="hover:bg-input rounded p-1.5 transition duration-300 cursor-pointer"
+              title="Edit recipe"
+              aria-label="Edit recipe"
             >
-              {#if event.author?.pubkey === $userPublickey}
-                <a class="flex gap-2 cursor-pointer" href="/fork/{naddr}">
-                  <PencilIcon size={24} />
-                  Edit
-                </a>
-              {/if}
-              <button class="flex gap-2 cursor-pointer" on:click={() => (bookmarkModal = true)}>
-                <BookmarkIcon size={24} />
-                Save
-              </button>
-              <button class="flex gap-2 cursor-pointer" on:click={() => window.print()}>
-                <PrinterIcon size={24} />
-                Print
-              </button>
-            </button>
-          </div>
-        {/if}
+              <PencilIcon size={24} />
+            </a>
+          {/if}
+          <button
+            class="hover:bg-input rounded p-1.5 transition duration-300 cursor-pointer"
+            on:click={() => window.print()}
+            title="Print recipe"
+            aria-label="Print recipe"
+          >
+            <PrinterIcon size={24} />
+          </button>
+        </div>
       </div>
       <div class="prose">
         {#if $translateOption.lang}
