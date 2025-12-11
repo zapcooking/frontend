@@ -76,16 +76,20 @@
 
 <button
   on:click={likeComment}
-  class="flex gap-1 items-center hover:bg-gray-100 rounded px-1 py-0.5 transition duration-300 cursor-pointer text-xs print:hidden"
+  class="flex gap-1 items-center hover:bg-gray-100 rounded px-1.5 py-0.5 transition duration-300 cursor-pointer text-sm print:hidden"
   class:opacity-50={!$userPublickey}
   class:hover:opacity-75={!$userPublickey}
+  class:text-red-500={liked}
   title={!$userPublickey ? 'Login to like comments' : liked ? 'You liked this comment' : 'Like this comment'}
 >
-  <HeartIcon 
-    size={14} 
-    weight={liked ? 'fill' : 'regular'} 
-    class={liked ? 'text-red-500' : ''}
+  <HeartIcon
+    size={16}
+    weight={liked ? 'fill' : 'regular'}
   />
-  {#if loading}...{:else if totalLikeAmount > 0}{totalLikeAmount}{/if}
+  {#if loading}
+    <span class="text-gray-500 text-xs">...</span>
+  {:else if totalLikeAmount > 0}
+    <span class="text-gray-600 text-sm">{totalLikeAmount}</span>
+  {/if}
 </button>
 
