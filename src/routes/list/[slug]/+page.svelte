@@ -102,14 +102,14 @@
     <meta property="og:type" content="website" />
     <meta property="og:title" content={og_meta.title} />
     <meta property="og:description" content={og_meta.description} />
-    <meta property="og:image" content="https://zap.cooking/logo_with_text.png" />
+    <meta property="og:image" content="https://zap.cooking/social-share.png" />
 
-    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:card" content="summary_large_image" />
     <meta property="twitter:domain" content="zap.cooking" />
     <meta property="twitter:url" content={`https://zap.cooking/list/${$page.params.slug}`} />
     <meta name="twitter:title" content={og_meta.title} />
     <meta name="twitter:description" content={og_meta.description} />
-    <meta property="twitter:image" content="https://zap.cooking/logo_with_text.png" />
+    <meta property="twitter:image" content="https://zap.cooking/social-share.png" />
   {/if}
 </svelte:head>
 {#if loaded && event}

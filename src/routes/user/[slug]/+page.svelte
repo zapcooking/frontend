@@ -120,7 +120,7 @@
   $: og_meta = {
     title: `${profileTitleBase} - zap.cooking`,
     description: "View this user's recipes on zap.cooking",
-    image: profile ? profile.picture : 'https://zap.cooking/logo_with_text.png'
+    image: profile ? profile.picture : 'https://zap.cooking/social-share.png'
   };
 </script>
 
@@ -271,7 +271,7 @@
         <CustomName pubkey={hexpubkey || ''} />'s Recipes
       {/key}
       </h2>
-        <Feed {events} />
+        <Feed {events} {loaded} />
     {:else}
       <h2>
         <CustomName pubkey={hexpubkey || ''} />'s Lists

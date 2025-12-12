@@ -7,7 +7,7 @@
   import NoteTotalLikes from './NoteTotalLikes.svelte';
   import NoteTotalComments from './NoteTotalComments.svelte';
   import NoteTotalZaps from './NoteTotalZaps.svelte';
-  import InlineComments from './InlineComments.svelte';
+  import FeedComments from './FeedComments.svelte';
   import ZapModal from './ZapModal.svelte';
   import NoteContent from './NoteContent.svelte';
   import AuthorName from './AuthorName.svelte';
@@ -17,6 +17,9 @@
   import FeedErrorBoundary from './FeedErrorBoundary.svelte';
   import FeedPostSkeleton from './FeedPostSkeleton.svelte';
   import LoadingState from './LoadingState.svelte';
+  import { nip19 } from 'nostr-tools';
+  import CopyIcon from 'phosphor-svelte/lib/Copy';
+  import CheckIcon from 'phosphor-svelte/lib/Check';
 
   // State management
   let events: NDKEvent[] = [];
@@ -43,6 +46,60 @@
   // Zap modal state
   let zapModal = false;
   let selectedEvent: NDKEvent | null = null;
+
+  // Image modal state
+  let imageModalOpen = false;
+  let selectedImageUrl = '';
+  let selectedEventImages: string[] = [];
+  let selectedImageIndex = 0;
+
+  // Copy note ID state
+  let copiedNoteId = '';
+
+  async function copyNoteId(event: NDKEvent) {
+    const noteId = nip19.noteEncode(event.id);
+    await navigator.clipboard.writeText(noteId);
+    copiedNoteId = event.id;
+    setTimeout(() => {
+      copiedNoteId = '';
+    }, 2000);
+  }
+
+  function openImageModal(imageUrl: string, allImages: string[], index: number) {
+    selectedImageUrl = imageUrl;
+    selectedEventImages = allImages;
+    selectedImageIndex = index;
+    imageModalOpen = true;
+  }
+
+  function closeImageModal() {
+    imageModalOpen = false;
+    selectedImageUrl = '';
+    selectedEventImages = [];
+    selectedImageIndex = 0;
+  }
+
+  function nextModalImage() {
+    selectedImageIndex = (selectedImageIndex + 1) % selectedEventImages.length;
+    selectedImageUrl = selectedEventImages[selectedImageIndex];
+  }
+
+  function prevModalImage() {
+    selectedImageIndex = selectedImageIndex === 0 ? selectedEventImages.length - 1 : selectedImageIndex - 1;
+    selectedImageUrl = selectedEventImages[selectedImageIndex];
+  }
+
+  function handleImageModalKeydown(e: KeyboardEvent) {
+    if (!imageModalOpen) return;
+
+    if (e.key === 'Escape') {
+      closeImageModal();
+    } else if (e.key === 'ArrowLeft') {
+      prevModalImage();
+    } else if (e.key === 'ArrowRight') {
+      nextModalImage();
+    }
+  }
 
   const MAX_HASHTAGS = 5;
   const HASHTAG_PATTERN = /(^|\s)#([^\s#]+)/g;
@@ -827,13 +884,13 @@
         <article class="border-b border-gray-200 py-4 sm:py-6 first:pt-0">
           <div class="flex space-x-3 px-2 sm:px-0">
             <!-- Avatar -->
-            <div class="flex-shrink-0">
+            <a href="/user/{nip19.npubEncode(event.author.hexpubkey || event.pubkey)}" class="flex-shrink-0">
               <CustomAvatar
                 className="cursor-pointer"
                 pubkey={event.author.hexpubkey}
                 size={40}
               />
-            </div>
+            </a>
 
             <!-- Content -->
             <div class="flex-1 min-w-0">
@@ -865,14 +922,19 @@
                         class:opacity-0={index !== (carouselStates[event.id] || 0)}
                       >
                         {#if isImageUrl(imageUrl)}
-                          <img 
-                            src={getOptimizedImageUrl(imageUrl)} 
-                            alt="Preview"
-                            class="w-full h-full object-cover"
-                            loading="lazy"
-                            decoding="async"
-                            on:error={handleMediaError}
-                          />
+                          <button
+                            class="w-full h-full"
+                            on:click={() => openImageModal(imageUrl, mediaUrls, index)}
+                          >
+                            <img
+                              src={getOptimizedImageUrl(imageUrl)}
+                              alt="Preview"
+                              class="w-full h-full object-cover cursor-pointer hover:opacity-95 transition-opacity"
+                              loading="lazy"
+                              decoding="async"
+                              on:error={handleMediaError}
+                            />
+                          </button>
                         {:else if isVideoUrl(imageUrl)}
                           <video 
                             src={imageUrl} 
@@ -941,21 +1003,36 @@
                 </div>
               {/if}
 
-              <!-- Actions: Likes, Comments, Zaps -->
+              <!-- Actions: Likes, Comments, Zaps, Copy -->
               <div class="space-y-2">
-                <div class="flex items-center space-x-3 sm:space-x-4 text-sm text-gray-500 px-2 sm:px-0">
-                  <NoteTotalLikes {event} />
-                  <NoteTotalComments {event} />
-                  <button 
-                    class="cursor-pointer hover:bg-input rounded px-0.5 transition duration-300"
-                    on:click={() => openZapModal(event)}
+                <div class="flex items-center justify-between px-2 sm:px-0">
+                  <div class="flex items-center space-x-3 sm:space-x-4 text-sm text-gray-500">
+                    <NoteTotalLikes {event} />
+                    <NoteTotalComments {event} />
+                    <button
+                      class="cursor-pointer hover:bg-input rounded px-0.5 transition duration-300"
+                      on:click={() => openZapModal(event)}
+                    >
+                      <NoteTotalZaps {event} />
+                    </button>
+                  </div>
+
+                  <!-- Copy Note ID Button -->
+                  <button
+                    class="flex items-center gap-1 text-gray-500 hover:text-gray-700 transition p-1 rounded hover:bg-gray-100"
+                    on:click={() => copyNoteId(event)}
+                    title="Copy note ID"
                   >
-                    <NoteTotalZaps {event} />
+                    {#if copiedNoteId === event.id}
+                      <CheckIcon size={16} weight="bold" />
+                    {:else}
+                      <CopyIcon size={16} />
+                    {/if}
                   </button>
                 </div>
-                
-                <!-- Inline Comments -->
-                <InlineComments {event} />
+
+                <!-- Pinterest-style Comments -->
+                <FeedComments {event} />
               </div>
             </div>
           </div>
@@ -988,8 +1065,74 @@
 
 <!-- Zap Modal -->
 {#if zapModal && selectedEvent}
-  <ZapModal 
+  <ZapModal
     bind:open={zapModal}
-    event={selectedEvent} 
+    event={selectedEvent}
   />
+{/if}
+
+<!-- Keyboard handler for image modal -->
+<svelte:window on:keydown={handleImageModalKeydown} />
+
+<!-- Image Modal -->
+{#if imageModalOpen}
+  <div
+    class="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-75 p-4"
+    on:click={closeImageModal}
+    role="dialog"
+    aria-modal="true"
+  >
+    <!-- Modal Container -->
+    <div class="relative bg-white rounded-lg shadow-2xl max-w-4xl max-h-[90vh] overflow-hidden" on:click|stopPropagation>
+      <!-- Close button -->
+      <button
+        class="absolute top-2 right-2 bg-white hover:bg-gray-100 text-gray-700 rounded-full p-2 shadow-md transition z-10"
+        on:click={closeImageModal}
+        aria-label="Close image"
+      >
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+        </svg>
+      </button>
+
+      <!-- Image counter (if multiple images) -->
+      {#if selectedEventImages.length > 1}
+        <div class="absolute top-2 left-2 bg-black/60 text-white text-sm px-3 py-1.5 rounded-full z-10">
+          {selectedImageIndex + 1} / {selectedEventImages.length}
+        </div>
+      {/if}
+
+      <!-- Navigation buttons (if multiple images) -->
+      {#if selectedEventImages.length > 1}
+        <!-- Previous button -->
+        <button
+          on:click|stopPropagation={prevModalImage}
+          class="absolute left-2 top-1/2 -translate-y-1/2 bg-white/90 hover:bg-white text-gray-800 rounded-full p-2 shadow-md transition z-10"
+          aria-label="Previous image"
+        >
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+          </svg>
+        </button>
+
+        <!-- Next button -->
+        <button
+          on:click|stopPropagation={nextModalImage}
+          class="absolute right-2 top-1/2 -translate-y-1/2 bg-white/90 hover:bg-white text-gray-800 rounded-full p-2 shadow-md transition z-10"
+          aria-label="Next image"
+        >
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+          </svg>
+        </button>
+      {/if}
+
+      <!-- Image -->
+      <img
+        src={selectedImageUrl}
+        alt="Full size preview"
+        class="w-full h-auto max-h-[90vh] object-contain"
+      />
+    </div>
+  </div>
 {/if}
