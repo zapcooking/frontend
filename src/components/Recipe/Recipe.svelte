@@ -5,6 +5,7 @@
   import PencilIcon from 'phosphor-svelte/lib/Pencil';
   import BookmarkIcon from 'phosphor-svelte/lib/BookmarkSimple';
   import PrinterIcon from 'phosphor-svelte/lib/Printer';
+  import LightningIcon from 'phosphor-svelte/lib/Lightning';
   import Button from '../Button.svelte';
   import { translateOption } from '$lib/state';
   import { translate } from '$lib/translation';
@@ -191,15 +192,26 @@ async function getLists(): Promise<NDKEvent[]> {
       </div>
       {#each event.tags.filter((e) => e[0] === 'image') as image, i}
         {#if i === 0}
-          <!-- First image with Pinterest-style hover Save button -->
+          <!-- First image with Pinterest-style hover Save and Zap buttons -->
           <div class="relative rounded-3xl overflow-hidden group w-full">
             <img
               class="aspect-video object-cover w-full block"
               src={image[1]}
               alt="Image {i + 1}"
             />
-            <!-- Hover overlay with Save button -->
+            <!-- Hover overlay with Zap and Save buttons -->
             <div class="absolute inset-0 transition-all duration-300 pointer-events-none">
+              <!-- Zap button (left side) -->
+              <button
+                class="absolute top-4 left-4 bg-yellow-500 text-white font-semibold px-4 py-2 rounded-full shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-200 opacity-0 group-hover:opacity-100 pointer-events-auto flex items-center gap-2"
+                on:click={() => (zapModal = true)}
+                aria-label="Zap recipe"
+              >
+                <LightningIcon size={18} weight="fill" />
+                <span>Zap</span>
+              </button>
+
+              <!-- Save button (right side) -->
               <button
                 class="absolute top-4 right-4 bg-primary text-white font-semibold px-4 py-2 rounded-full shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-200 opacity-0 group-hover:opacity-100 pointer-events-auto flex items-center gap-2"
                 on:click={() => (bookmarkModal = true)}

@@ -11,8 +11,10 @@
   import CustomAvatar from '../../../components/CustomAvatar.svelte';
   import CustomName from '../../../components/CustomName.svelte';
   import Button from '../../../components/Button.svelte';
-  // import LightningIcon from 'phosphor-svelte/lib/Lightning';
+  import LightningIcon from 'phosphor-svelte/lib/Lightning';
   import QrIcon from 'phosphor-svelte/lib/QrCode';
+  import CopyIcon from 'phosphor-svelte/lib/Copy';
+  import CheckIcon from 'phosphor-svelte/lib/Check';
   import { requestProvider } from 'webln';
   import ProfileLists from '../../../components/ProfileLists.svelte';
   import Modal from '../../../components/Modal.svelte';
@@ -21,8 +23,6 @@
   import type { PageData } from './$types';
 
   export const data: PageData = {} as PageData;
-  import { Fetch } from 'hurdak';
-  import { profileCacheManager } from '$lib/profileCache';
 
   let hexpubkey: string | undefined = undefined;
   let events: NDKEvent[] = [];
@@ -85,144 +85,33 @@
           loaded = true;
         });
       }
-      
-      profileName = profile && profile.name ? String(profile.name) : '';
-      url = profile && profile.picture ? String(profile.picture) : '';
     } catch (error) {
       console.error('Error in loadData:', error);
       // Set default values on error
       events = [];
       profile = {};
-      profileName = '';
-      url = '';
       loaded = true; // Set loaded to true to prevent infinite loading
     }
   }
 
   let qrModal = false;
+  let npubCopied = false;
 
   function qrModalCleanup() {
     qrModal = false;
+    npubCopied = false;
   }
 
-  let editModal = false;
-
-  function editModalCleanup() {
-    editModal = false;
-  }
-
-  let input: HTMLElement;
-  let url = '';
-
-  $: {
-    if (input) {
-      input.addEventListener('change', async (e) => {
-        try {
-          const target = e.target as HTMLInputElement;
-          if (target.files && target.files?.length > 0) {
-            const body = new FormData();
-            body.append('file[]', target.files[0]);
-            const result = await uploadToNostrBuild(body);
-            if (result && result.data && result.data[0].url) {
-              url = result.data[0].url;
-            }
-          }
-        } catch (error) {
-          console.error('Error uploading image:', error);
-          // You could show a user-friendly error message here
-        }
-      });
-    }
-  }
-
-  export async function uploadToNostrBuild(body: any) {
-    try {
-      const url = 'https://nostr.build/api/v2/upload/profile';
-      const template = new NDKEvent($ndk);
-      template.kind = 27235;
-      template.created_at = Math.floor(Date.now() / 1000);
-      template.content = '';
-      template.tags = [
-        ['u', url],
-        ['method', 'POST']
-      ];
-
-      await template.sign();
-      
-      // Ensure all fields are properly formatted according to NIP-98
-      const authEvent = {
-        id: template.id,
-        pubkey: template.pubkey,
-        created_at: template.created_at,
-        kind: template.kind,
-        tags: template.tags,
-        content: template.content,
-        sig: template.sig
-      };
-
-      return await Fetch.fetchJson(url, {
-        body,
-        method: 'POST',
-        headers: {
-          Authorization: `Nostr ${btoa(JSON.stringify(authEvent))}`
-        }
-      });
-    } catch (error) {
-      console.error('Error in uploadToNostrBuild:', error);
-      throw error; // Re-throw to be caught by the caller
-    }
-  }
-
-  let profileName = '';
-  async function updateProfile() {
-    const metaEvent = new NDKEvent($ndk);
-    metaEvent.kind = 0;
-    metaEvent.tags = [];
-    // @ts-expect-error typescript is wrong
-    profile = user.profile;
-    if (!profile) profile = {};
-    
-    // Use correct Nostr profile field names according to NIP-05
-    profile.picture = url;
-    profile.name = profileName;
-    
-    console.log('Updated profile:', profile);
-
-    try {
-      console.log('Publishing profile for pubkey:', hexpubkey);
-      console.log('Profile data:', profile);
-      console.log('Profile JSON:', JSON.stringify(profile));
-      
-      $ndk.cacheAdapter!.saveProfile!(hexpubkey!, profile); // for some reason the caching doesn't happen automatically
-      metaEvent.content = JSON.stringify(profile);
-      
-      console.log('Publishing kind 0 event with content:', metaEvent.content);
-      let relays = await metaEvent.publish();
-      
-      console.log('Published to relays:', relays.size);
-      relays.forEach((relay) => {
-        relay.once('published', () => {
-          console.log('✅ Successfully published to relay:', relay);
-        });
-        relay.once('publish:failed', (relay, err) => {
-          console.log('❌ Failed to publish to relay:', relay, err);
-        });
-      });
-      
-      // Invalidate the profile cache so the header avatar updates
-      if (hexpubkey) {
-        profileCacheManager.invalidateProfile(hexpubkey);
-      }
-      
-      // Reload the page to refresh the header avatar
+  async function copyNpub() {
+    if (user?.npub) {
+      await navigator.clipboard.writeText(user.npub);
+      npubCopied = true;
       setTimeout(() => {
-        window.location.reload();
-      }, 1000);
-    } catch (error) {
-      console.error('error while publishing update: ', error);
+        npubCopied = false;
+      }, 2000);
     }
-    editModalCleanup();
   }
+
 
   $: profileTitleBase = profile
     ? profile.name || (user ? user.npub.slice(0, 10) + '...' : 'Unknown User')
@@ -259,59 +148,71 @@
   <ZapModal bind:open={zapModal} event={user} />
 {/if}
 
-<Modal cleanup={editModalCleanup} open={editModal}>
-  <h1 slot="title">Edit Profile</h1>
-  <div class="flex gap-4 md:gap-10 mx-auto">
-    <div class="flex flex-col self-center">
-      <h2 class="text-white mb-2">Profile Picture</h2>
-      <div class="flex flex-col items-center gap-3">
-        <img
-          class="w-[100px] h-[100px] md:w-[200px] md:h-[200px] rounded-full bg-input border-2 border-gray-300"
-          src={url}
-          alt="Profile"
-        />
-        <label for="file-upload" class="cursor-pointer">
-          <span class="text-blue-400 hover:text-blue-300 underline text-sm font-medium">
-            📷 Upload New Image
-          </span>
-          <input id="file-upload" bind:this={input} type="file" accept="image/*" class="sr-only" />
-        </label>
-        <p class="text-xs text-gray-400 text-center max-w-[200px]">
-          Click "Upload New Image" to change your profile picture
-        </p>
+<Modal cleanup={qrModalCleanup} open={qrModal}>
+  <h1 slot="title">{profile && profile.name ? profile.name : '...'}'s Profile</h1>
+
+  <div class="flex flex-col items-center gap-6">
+    <!-- QR Code -->
+    <div class="flex flex-col items-center gap-3">
+      <p class="text-sm text-gray-600">Scan to view profile on mobile</p>
+      <div class="bg-white p-4 rounded-lg">
+        <QrCode value="nostr:{nip19.nprofileEncode({ pubkey: user?.pubkey || '', relays: user?.relayUrls || [] })}" />
       </div>
     </div>
-    <div class="flex flex-col gap-3 self-center">
-      <h2 class="text-white">Display Name</h2>
-      <p class="text-sm text-gray-400">This will be visible to others.</p>
-      <input 
-        bind:value={profileName} 
-        class="input bg-white text-black placeholder-gray-500 border border-gray-300 focus:border-blue-500" 
-        type="text" 
-        placeholder="Enter your display name" 
-      />
-    </div>
-  </div>
-  <div class="flex gap-2 justify-end">
-    <Button
-      class="!text-black bg-white border border-[#ECECEC] hover:bg-accent-gray"
-      on:click={editModalCleanup}>Cancel</Button
-    >
-    <Button on:click={updateProfile}>Save</Button>
-  </div>
-</Modal>
 
-<Modal cleanup={qrModalCleanup} open={qrModal}>
-  <h1 slot="title">{profile && profile.name ? profile.name : '...'}'s QR Code</h1>
-  Scan this on your mobile device to see their profile!
-  <div>
-    <QrCode value="nostr:{nip19.nprofileEncode({ pubkey: user?.pubkey || '', relays: user?.relayUrls || [] })}" />
+    <!-- Profile Info -->
+    <div class="w-full space-y-3 border-t pt-4">
+      <!-- NIP-05 -->
+      {#if profile?.nip05}
+        <div class="flex items-center gap-2 text-sm">
+          <span class="text-gray-500 font-medium">NIP-05:</span>
+          <span class="text-gray-900">{profile.nip05}</span>
+        </div>
+      {/if}
+
+      <!-- Lightning Address -->
+      {#if profile?.lud16 || profile?.lud06}
+        <div class="flex items-center gap-2 text-sm">
+          <LightningIcon size={16} class="text-yellow-500" />
+          <span class="text-gray-500 font-medium">Lightning:</span>
+          <span class="text-gray-900 break-all">{profile.lud16 || profile.lud06}</span>
+        </div>
+      {/if}
+
+      <!-- Copy Npub Button -->
+      <button
+        on:click={copyNpub}
+        class="w-full flex items-center justify-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors text-sm font-medium"
+      >
+        {#if npubCopied}
+          <CheckIcon size={18} weight="bold" />
+          <span>Copied!</span>
+        {:else}
+          <CopyIcon size={18} />
+          <span>Copy npub</span>
+        {/if}
+      </button>
+
+      <!-- Zap Button -->
+      {#if hexpubkey !== $userPublickey}
+        <Button
+          class="w-full flex items-center justify-center gap-2"
+          on:click={() => {
+            qrModal = false;
+            zapModal = true;
+          }}
+        >
+          <LightningIcon size={18} weight="fill" />
+          <span>Send Zap</span>
+        </Button>
+      {/if}
+    </div>
   </div>
 </Modal>
 
 <div class="flex flex-col gap-6">
   <div class="flex gap-16 md:gap-20">
-    <div class="flex gap-4">
+    <button class="flex gap-4 hover:opacity-80 transition-opacity" on:click={() => (qrModal = true)}>
       {#key hexpubkey}
       <CustomAvatar
         className="cursor-pointer self-center hidden md:flex"
@@ -320,23 +221,24 @@
       />
       <h1 class="self-center"><CustomName pubkey={hexpubkey || ''} /></h1>
       {/key}
-    </div>
+    </button>
     <div class="flex gap-2 self-center">
-      <Button
-        class="flex self-center !bg-accent-gray !text-[#675F5F] !px-3"
-        on:click={() => (qrModal = true)}><QrIcon /></Button
+      <button
+        class="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+        on:click={() => (qrModal = true)}
+        aria-label="Show QR code"
       >
+        <QrIcon size={28} weight="regular" />
+      </button>
       {#if hexpubkey !== $userPublickey}
-        <Button
-          class="flex self-center !bg-accent-gray !text-[#675F5F] !px-3"
-          on:click={() => (zapModal = true)}><span class="text-lg">⚡</span></Button
+        <button
+          class="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+          on:click={() => (zapModal = true)}
+          aria-label="Zap user"
         >
+          <LightningIcon size={28} weight="regular" />
+        </button>
         <!-- <Button class="flex self-center">Follow</Button> -->
-      {/if}
-      {#if hexpubkey === $userPublickey}
-        <Button class="flex self-center" primary={false} on:click={() => (editModal = true)}
-          >Edit Profile</Button
-        >
       {/if}
     </div>
   </div>

@@ -10,6 +10,7 @@
   import SignOutIcon from 'phosphor-svelte/lib/SignOut';
   import SearchIcon from 'phosphor-svelte/lib/MagnifyingGlass';
   import BookmarkIcon from 'phosphor-svelte/lib/Bookmark';
+  import LightningIcon from 'phosphor-svelte/lib/Lightning';
   import { nip19 } from 'nostr-tools';
   import { clickOutside } from '$lib/clickOutside';
   import { fade, blur } from 'svelte/transition';
@@ -98,15 +99,16 @@
       </Button>
     </div>
       <a class="hidden lg:flex self-center gap-2 transition duration-300 font-semibold hover:text-primary" href="/bookmarks">
-        <BookmarkIcon class="self-center" size="30px" weight="bold" />
+        <BookmarkIcon class="self-center" size={24} weight="regular" />
         <span class="self-center">Bookmarks</span>
       </a>
       <Button class="self-center max-md:w-10 max-md:h-10 flex max-md:justify-center max-md:px-1 max-md:py-1 font-semibold gap-2 cursor-pointer" on:click={() => goto('/create')}>
-          <AddIcon class="self-center" size={16} />
+          <AddIcon class="self-center" size={18} weight="bold" style="stroke-width: 3;" />
           <div class="hidden md:flex">Create</div>
       </Button>
       <button on:click={() => supportModalOpen = true} class="self-center max-md:w-10 max-md:h-10 flex max-md:justify-center max-md:px-1 max-md:py-1 text-white rounded-full bg-gradient-to-r from-yellow-400 to-orange-500 hover:from-yellow-500 hover:to-orange-600 px-4 py-2.5 font-semibold transition duration-300 flex items-center gap-2 cursor-pointer">
-        ⚡ <span class="hidden md:inline">Support Us</span>
+        <LightningIcon class="self-center" size={16} weight="fill" />
+        <span class="hidden md:inline">Zap Us</span>
       </button>
     <div class="self-center print:hidden">
       {#if $userPublickey !== ''}
