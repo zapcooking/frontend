@@ -142,8 +142,9 @@
       <!-- Like Button -->
       <button
         on:click={toggleLike}
-        class="flex items-center gap-1 hover:text-red-500 transition"
+        class="flex items-center gap-1 transition"
         class:text-red-500={liked}
+        class:text-black={!liked}
         disabled={!$userPublickey}
       >
         <HeartIcon size={14} weight={liked ? 'fill' : 'regular'} />

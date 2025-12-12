@@ -79,10 +79,10 @@
   class:hover:opacity-75={!$userPublickey}
   title={!$userPublickey ? 'Login to like recipes' : liked ? 'You liked this recipe' : 'Like this recipe'}
 >
-  <HeartIcon 
-    size={24} 
-    weight={liked ? 'fill' : 'regular'} 
-    class={liked ? 'text-red-500' : ''}
+  <HeartIcon
+    size={24}
+    weight={liked ? 'fill' : 'regular'}
+    class={liked ? 'text-red-500' : 'text-black'}
   />
   {#if loading}...{:else}{totalLikeAmount}{/if}
 </button>

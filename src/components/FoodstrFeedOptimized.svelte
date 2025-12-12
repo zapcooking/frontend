@@ -1019,7 +1019,7 @@
 
                   <!-- Copy Note ID Button -->
                   <button
-                    class="flex items-center gap-1 text-gray-500 hover:text-gray-700 transition p-1 rounded hover:bg-gray-100"
+                    class="flex items-center gap-1 text-black hover:text-gray-800 transition p-1 rounded hover:bg-gray-100"
                     on:click={() => copyNoteId(event)}
                     title="Copy note ID"
                   >
