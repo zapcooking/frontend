@@ -16,9 +16,9 @@
     <UtensilsIcon class="self-center" size={24} />
     Feed
   </a>
-  <a href="/tags" class="flex flex-col">
+  <a href="/explore" class="flex flex-col">
     <LightningIcon class="self-center" size={24} />
-    Categories
+    Explore
   </a>
   <a href="/bookmarks" class="flex flex-col">
     <BookmarkIcon class="self-center" size={24} />

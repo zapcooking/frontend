@@ -80,7 +80,7 @@
   <div class="hidden lg:flex gap-9 self-center font-semibold print:hidden">
     <a class="transition duration-300 hover:text-primary" href="/recent">Recipes</a>
     <a class="transition duration-300 hover:text-primary" href="/feed">Feed</a>
-    <a class="transition duration-300 hover:text-primary" href="/tags">Categories</a>
+    <a class="transition duration-300 hover:text-primary" href="/explore">Explore</a>
   </div>
 
   <div class="hidden sm:max-lg:flex xl:flex flex-1 grow self-center print:hidden">

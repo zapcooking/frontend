@@ -187,3 +187,89 @@ export const recipeTags: recipeTagSimple[] = [
   { title: 'Healthy', emoji: '🍏'},
   { title: 'Gluten Free', emoji: '🥗'}
 ];
+
+// Curated tags for the discovery page (60 tags)
+export const CURATED_TAGS: string[] = [
+  // Intent
+  'Easy', 'Quick', 'Breakfast', 'Lunch', 'Supper', 'Dessert', 'Snack', 'Drinks',
+  // Cuisines
+  'American', 'Asian', 'Chinese', 'French', 'German', 'Greek', 'Indian', 'Italian',
+  'Japanese', 'Mexican', 'Spanish', 'Thai', 'Turkish', 'Vietnamese', 'Mediterranean',
+  'Middle-Eastern', 'Brazilian', 'Filipino', 'Lebanese',
+  // Proteins
+  'Beef', 'Chicken', 'Fish', 'Lamb', 'Pork', 'Seafood', 'Steak', 'Turkey', 'Duck', 'Eggs', 'Tofu',
+  // Ingredients
+  'Apple', 'Beans', 'Bread', 'Cheese', 'Chocolate', 'Coconut', 'Corn', 'Cream',
+  'Fruit', 'Garlic', 'Mushrooms', 'Noodles', 'Pasta', 'Peppers', 'Potato', 'Rice',
+  'Spinach', 'Tomato', 'Vegetables',
+  // Meals
+  'Pizza', 'Pasta', 'Soup', 'Salad', 'Sandwich',
+  // Methods
+  'Baked', 'Fry', 'Oven', 'Roast', 'Slowcooked',
+  // Lifestyle
+  'Vegan', 'Keto', 'Healthy', 'Gluten Free',
+  // Flavor
+  'Spicy', 'Sweet', 'Curry'
+];
+
+// Tag sections for the discovery page
+export type TagSection = {
+  emoji: string;
+  title: string;
+  tags: string[];
+};
+
+export const CURATED_TAG_SECTIONS: TagSection[] = [
+  {
+    emoji: '🍽️',
+    title: 'Why are you cooking?',
+    tags: ['Easy', 'Quick', 'Breakfast', 'Lunch', 'Supper', 'Dessert', 'Snack', 'Drinks']
+  },
+  {
+    emoji: '🌍',
+    title: 'Explore by culture',
+    tags: ['American', 'Asian', 'Chinese', 'French', 'German', 'Greek', 'Indian', 'Italian', 'Japanese', 'Mexican', 'Spanish', 'Thai', 'Turkish', 'Vietnamese', 'Mediterranean', 'Middle-Eastern', 'Brazilian', 'Filipino', 'Lebanese']
+  },
+  {
+    emoji: '🥩',
+    title: 'Proteins',
+    tags: ['Beef', 'Chicken', 'Fish', 'Lamb', 'Pork', 'Seafood', 'Steak', 'Turkey', 'Duck', 'Eggs', 'Tofu']
+  },
+  {
+    emoji: '🥕',
+    title: 'Ingredients',
+    tags: ['Apple', 'Beans', 'Bread', 'Cheese', 'Chocolate', 'Coconut', 'Corn', 'Cream', 'Fruit', 'Garlic', 'Mushrooms', 'Noodles', 'Pasta', 'Peppers', 'Potato', 'Rice', 'Spinach', 'Tomato', 'Vegetables']
+  },
+  {
+    emoji: '🍳',
+    title: 'Meals',
+    tags: ['Pizza', 'Pasta', 'Soup', 'Salad', 'Sandwich', 'Breakfast', 'Lunch', 'Supper']
+  },
+  {
+    emoji: '🔥',
+    title: 'Methods',
+    tags: ['Baked', 'Fry', 'Oven', 'Roast', 'Slowcooked']
+  },
+  {
+    emoji: '🥗',
+    title: 'Lifestyle',
+    tags: ['Vegan', 'Keto', 'Healthy', 'Gluten Free']
+  },
+  {
+    emoji: '🌶️',
+    title: 'Flavor',
+    tags: ['Spicy', 'Sweet', 'Curry']
+  }
+];
+
+// Tag aliases for normalization (maps variations to canonical tag names)
+export const TAG_ALIASES: Record<string, string> = {
+  'Spice': 'Spicy',
+  'Spices': 'Spicy',
+  'Hot': 'Spicy',
+  'Vegetarian': 'Vegan', // Note: This is a simplification, but helps with normalization
+  'Gluten-Free': 'Gluten Free',
+  'GlutenFree': 'Gluten Free',
+  'Middle Eastern': 'Middle-Eastern',
+  'MiddleEastern': 'Middle-Eastern'
+};
