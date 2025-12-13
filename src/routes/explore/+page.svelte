@@ -3,7 +3,7 @@
   import { goto } from '$app/navigation';
   import { recipeTags, CURATED_TAG_SECTIONS, type recipeTagSimple } from '$lib/consts';
   import { computePopularTags, type TagWithCount } from '$lib/tagUtils';
-  import { fetchCollectionsWithImages, fetchPopularCooks, fetchTrendingRecipes, type Collection, type PopularCook } from '$lib/exploreUtils';
+  import { fetchCollectionsWithImages, fetchPopularCooks, fetchDiscoverRecipes, type Collection, type PopularCook } from '$lib/exploreUtils';
   import TagSectionCard from '../../components/TagSectionCard.svelte';
   import TagChip from '../../components/TagChip.svelte';
   import CollectionCard from '../../components/CollectionCard.svelte';
@@ -18,10 +18,10 @@
   // New data for Explore sections
   let collections: Collection[] = [];
   let popularCooks: PopularCook[] = [];
-  let trendingRecipes: NDKEvent[] = [];
+  let discoverRecipes: NDKEvent[] = [];
   let loadingCollections = true;
   let loadingCooks = true;
-  let loadingTrending = true;
+  let loadingDiscover = true;
   let cultureExpanded = false;
 
   // Compute section references reactively
@@ -42,11 +42,11 @@
     });
     loadingPopular = false;
 
-    // Load collections with images, popular cooks, and trending recipes in parallel
-    const [collectionsData, cooksData, recipesData] = await Promise.all([
+    // Load collections with images, popular cooks, and discover recipes in parallel
+    const [collectionsData, cooksData, discoverData] = await Promise.all([
       fetchCollectionsWithImages(),
       fetchPopularCooks(12),
-      fetchTrendingRecipes(10) // Fetch at least 10 to ensure we have enough after filtering
+      fetchDiscoverRecipes(12)
     ]);
 
     collections = collectionsData;
@@ -55,8 +55,8 @@
     popularCooks = cooksData;
     loadingCooks = false;
 
-    trendingRecipes = recipesData;
-    loadingTrending = false;
+    discoverRecipes = discoverData;
+    loadingDiscover = false;
   });
 
 
@@ -163,21 +163,21 @@
         {/if}
       </section>
 
-      <!-- Trending Recipes -->
+      <!-- Discover New -->
       <section class="flex flex-col gap-4">
         <h2 class="text-2xl font-bold flex items-center gap-2">
-          <span>🔥</span>
-          <span>Trending Recipes</span>
+          <span>✨</span>
+          <span>Discover New</span>
         </h2>
-        {#if loadingTrending}
+        {#if loadingDiscover}
           <div class="flex gap-4 overflow-x-auto pb-2 -mx-4 px-4">
             {#each Array(6) as _}
               <div class="flex-shrink-0 w-56 h-72 bg-gray-200 rounded-xl animate-pulse"></div>
             {/each}
           </div>
-        {:else if trendingRecipes.length > 0}
+        {:else if discoverRecipes.length > 0}
           <div class="flex gap-4 overflow-x-auto pb-2 -mx-4 px-4 scrollbar-hide">
-            {#each trendingRecipes.filter(r => r && r.author?.pubkey) as recipe (recipe.id || recipe.created_at)}
+            {#each discoverRecipes.filter(r => r && r.author?.pubkey) as recipe (recipe.id || recipe.created_at)}
               <TrendingRecipeCard event={recipe} />
             {/each}
           </div>
@@ -248,9 +248,9 @@
             <div class="flex flex-wrap gap-2 transition-all duration-300">
               {#each getCultureTags(cultureExpanded) as tag (tag.title)}
                 <TagChip {tag} onClick={() => navigateToTag(tag)} />
-    {/each}
-  </div>
-</div>
+              {/each}
+            </div>
+          </div>
         {/if}
 
         <!-- Collapsible Sections -->

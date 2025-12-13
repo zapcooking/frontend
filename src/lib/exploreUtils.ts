@@ -2,6 +2,8 @@ import { ndk } from './nostr';
 import { get } from 'svelte/store';
 import type { NDKEvent, NDKFilter, NDKUser } from '@nostr-dev-kit/ndk';
 import { validateMarkdownTemplate } from './pharser';
+import { profileCacheManager } from './profileCache';
+import { logger } from './logger';
 
 export type Collection = {
   id: string;
@@ -51,19 +53,108 @@ export type PopularCook = {
 };
 
 /**
+ * Check if a profile image is valid (not empty and looks like a URL)
+ */
+function hasValidProfileImage(user: any): boolean {
+  const image = user?.profile?.image;
+  if (!image || typeof image !== 'string') {
+    return false;
+  }
+  
+  // Trim whitespace and check it's not empty
+  const trimmed = image.trim();
+  if (trimmed.length === 0) {
+    return false;
+  }
+  
+  // Check if it looks like a URL (starts with http:// or https://)
+  // This filters out placeholder values like numbers or initials
+  return trimmed.startsWith('http://') || trimmed.startsWith('https://');
+}
+
+/**
+ * Process authors and filter to only those with profile pictures
+ */
+async function processAuthorsWithProfiles(
+  authorCounts: Map<string, number>,
+  limit: number,
+  ndkInstance: any,
+  resolve: (cooks: PopularCook[]) => void
+) {
+  // Sort authors by recipe count
+  const sortedAuthors = Array.from(authorCounts.entries())
+    .sort((a, b) => b[1] - a[1])
+    .map(([pubkey]) => pubkey);
+
+  const cooksWithPics: PopularCook[] = [];
+  let checkedCount = 0;
+  // Check up to 5x the limit to ensure we have enough with valid profile pics
+  const maxToCheck = Math.min(sortedAuthors.length, limit * 5);
+
+  // Check authors in batches for efficiency
+  const batchSize = 10;
+  for (let i = 0; i < maxToCheck && cooksWithPics.length < limit; i += batchSize) {
+    const batch = sortedAuthors.slice(i, i + batchSize);
+    
+    // Fetch profiles in parallel
+    const profileChecks = await Promise.all(
+      batch.map(async (pubkey) => {
+        try {
+          const user = await profileCacheManager.getProfile(pubkey, ndkInstance);
+          const hasValidPic = hasValidProfileImage(user);
+          
+          if (!hasValidPic && user?.profile?.image) {
+            // Log when we find an invalid image for debugging
+            logger.debug(`User ${pubkey} has invalid image: "${user.profile.image}"`, 'Popular Cooks');
+          }
+          
+          return {
+            pubkey,
+            recipeCount: authorCounts.get(pubkey),
+            hasPic: hasValidPic
+          };
+        } catch (error) {
+          logger.warn(`Error checking profile for ${pubkey}`, 'Popular Cooks', error);
+          return { pubkey, recipeCount: authorCounts.get(pubkey), hasPic: false };
+        }
+      })
+    );
+
+    // Add users with valid profile pictures
+    for (const check of profileChecks) {
+      if (check.hasPic) {
+        cooksWithPics.push({
+          pubkey: check.pubkey,
+          recipeCount: check.recipeCount
+        });
+        if (cooksWithPics.length >= limit) {
+          break;
+        }
+      }
+    }
+
+    checkedCount += batch.length;
+  }
+
+  logger.debug(`Checked ${checkedCount} authors, found ${cooksWithPics.length} with valid profile pictures`, 'Popular Cooks');
+  resolve(cooksWithPics);
+}
+
+/**
  * Fetch popular cooks (users who have published recipes)
+ * Only returns users with profile pictures
  */
 export async function fetchPopularCooks(limit: number = 12): Promise<PopularCook[]> {
   try {
     const ndkInstance = get(ndk);
     if (!ndkInstance) {
-      console.warn('NDK not available');
+      logger.warn('NDK not available', 'fetchPopularCooks');
       return [];
     }
 
     // Fetch recent recipes to find active authors
     const filter: NDKFilter = {
-      limit: 100,
+      limit: 200, // Fetch more to ensure we have enough with profile pics
       kinds: [30023],
       '#t': ['nostrcooking']
     };
@@ -71,14 +162,10 @@ export async function fetchPopularCooks(limit: number = 12): Promise<PopularCook
     const authorCounts = new Map<string, number>();
     const subscription = ndkInstance.subscribe(filter);
 
-    return new Promise((resolve) => {
-      const timeout = setTimeout(() => {
+    return new Promise(async (resolve) => {
+      const timeout = setTimeout(async () => {
         subscription.stop();
-        const sorted = Array.from(authorCounts.entries())
-          .sort((a, b) => b[1] - a[1])
-          .slice(0, limit)
-          .map(([pubkey]) => ({ pubkey, recipeCount: authorCounts.get(pubkey) }));
-        resolve(sorted);
+        await processAuthorsWithProfiles(authorCounts, limit, ndkInstance, resolve);
       }, 5000);
 
       subscription.on('event', (event: NDKEvent) => {
@@ -88,18 +175,14 @@ export async function fetchPopularCooks(limit: number = 12): Promise<PopularCook
         }
       });
 
-      subscription.on('eose', () => {
+      subscription.on('eose', async () => {
         clearTimeout(timeout);
         subscription.stop();
-        const sorted = Array.from(authorCounts.entries())
-          .sort((a, b) => b[1] - a[1])
-          .slice(0, limit)
-          .map(([pubkey]) => ({ pubkey, recipeCount: authorCounts.get(pubkey) }));
-        resolve(sorted);
+        await processAuthorsWithProfiles(authorCounts, limit, ndkInstance, resolve);
       });
     });
   } catch (error) {
-    console.error('Error fetching popular cooks:', error);
+    logger.error('Error fetching popular cooks', 'fetchPopularCooks', error);
     return [];
   }
 }
@@ -149,7 +232,7 @@ export async function fetchCollectionImage(tag: string): Promise<string | undefi
       });
     });
   } catch (error) {
-    console.error('Error fetching collection image:', error);
+    logger.error('Error fetching collection image', 'fetchCollectionImage', error);
     return undefined;
   }
 }
@@ -210,7 +293,7 @@ async function getRecipeLikes(recipe: NDKEvent, ndkInstance: any): Promise<numbe
       });
     });
   } catch (error) {
-    console.warn('Error fetching likes for recipe:', error);
+    logger.warn('Error fetching likes for recipe', 'getRecipeLikes', error);
     return 0;
   }
 }
@@ -253,7 +336,7 @@ async function getRecipeZaps(recipe: NDKEvent, ndkInstance: any): Promise<number
       });
     });
   } catch (error) {
-    console.warn('Error fetching zaps for recipe:', error);
+    logger.warn('Error fetching zaps for recipe', 'getRecipeZaps', error);
     return 0;
   }
 }
@@ -265,7 +348,7 @@ export async function fetchTrendingRecipes(limit: number = 12): Promise<NDKEvent
   try {
     const ndkInstance = get(ndk);
     if (!ndkInstance) {
-      console.warn('NDK not available');
+      logger.warn('NDK not available', 'fetchTrendingRecipes');
       return [];
     }
 
@@ -299,7 +382,7 @@ export async function fetchTrendingRecipes(limit: number = 12): Promise<NDKEvent
       });
     });
   } catch (error) {
-    console.error('Error fetching trending recipes:', error);
+    logger.error('Error fetching trending recipes', 'fetchTrendingRecipes', error);
     return [];
   }
 }
@@ -360,5 +443,245 @@ async function sortAndResolveRecipes(
   }
   
   resolve(topRecipes);
+}
+
+/**
+ * Configuration for discover recipes sampling
+ */
+const DISCOVER_CONFIG = {
+  MAX_AGE_DAYS: 90, // 3 months
+  MIN_RECIPES_TO_SAMPLE: 8,
+  MAX_RECIPES_TO_SAMPLE: 12,
+  MAX_RECIPES_PER_AUTHOR: 2
+};
+
+/**
+ * Check if a recipe has at least one image
+ */
+function hasImage(recipe: NDKEvent): boolean {
+  if (!recipe.tags) return false;
+  return recipe.tags.some((tag) => Array.isArray(tag) && tag[0] === 'image' && tag[1]);
+}
+
+/**
+ * Calculate quality score for a recipe
+ * baseScore + log(zapCount + 1) + log(likeCount + 1)
+ */
+async function calculateRecipeScore(
+  recipe: NDKEvent,
+  ndkInstance: any
+): Promise<number> {
+  const baseScore = 1; // Base score for all valid recipes
+  const [likes, zaps] = await Promise.all([
+    getRecipeLikes(recipe, ndkInstance),
+    getRecipeZaps(recipe, ndkInstance)
+  ]);
+  
+  // Use logarithmic scaling to prevent very popular recipes from dominating
+  const zapScore = Math.log(zaps + 1);
+  const likeScore = Math.log(likes + 1);
+  
+  return baseScore + zapScore + likeScore;
+}
+
+/**
+ * Sample recipes with quality-weighted random selection
+ * Optimized to avoid recalculating probabilities on each iteration
+ */
+function sampleRecipesWithWeights(
+  recipes: Array<{ recipe: NDKEvent; score: number }>,
+  limit: number,
+  maxPerAuthor: number = DISCOVER_CONFIG.MAX_RECIPES_PER_AUTHOR
+): NDKEvent[] {
+  if (recipes.length === 0) return [];
+  if (recipes.length <= limit) {
+    return recipes.map((r) => r.recipe);
+  }
+
+  const selected: NDKEvent[] = [];
+  const authorCounts = new Map<string, number>();
+  // Use indices instead of copying arrays for better performance
+  const availableIndices = new Set(recipes.map((_, i) => i));
+  let totalScore = recipes.reduce((sum, r) => sum + r.score, 0);
+
+  while (selected.length < limit && availableIndices.size > 0) {
+    // Weighted random selection using cumulative distribution
+    const random = Math.random() * totalScore;
+    let cumulative = 0;
+    let selectedIndex = -1;
+
+    // Find the selected index
+    for (const idx of availableIndices) {
+      cumulative += recipes[idx].score;
+      if (random <= cumulative) {
+        selectedIndex = idx;
+        break;
+      }
+    }
+
+    // Fallback to last available item if rounding issues
+    if (selectedIndex === -1) {
+      selectedIndex = Array.from(availableIndices)[availableIndices.size - 1];
+    }
+
+    const selectedItem = recipes[selectedIndex];
+    const authorPubkey = selectedItem.recipe.author?.pubkey || '';
+
+    // Check author limit
+    const authorCount = authorCounts.get(authorPubkey) || 0;
+    if (authorCount < maxPerAuthor) {
+      selected.push(selectedItem.recipe);
+      authorCounts.set(authorPubkey, authorCount + 1);
+      // Update total score by removing this item's score
+      totalScore -= selectedItem.score;
+    }
+
+    // Remove selected index from available pool
+    availableIndices.delete(selectedIndex);
+  }
+
+  return selected;
+}
+
+/**
+ * Fetch and sample discover recipes
+ */
+export async function fetchDiscoverRecipes(
+  limit: number = DISCOVER_CONFIG.MAX_RECIPES_TO_SAMPLE
+): Promise<NDKEvent[]> {
+  try {
+    const ndkInstance = get(ndk);
+    if (!ndkInstance) {
+      logger.warn('NDK not available', 'fetchDiscoverRecipes');
+      return [];
+    }
+
+    const threeMonthsAgo = Math.floor(Date.now() / 1000) - (DISCOVER_CONFIG.MAX_AGE_DAYS * 24 * 60 * 60);
+    logger.debug(`Fetching recipes since: ${new Date(threeMonthsAgo * 1000).toISOString()}`, 'fetchDiscoverRecipes');
+
+    // Fetch recipes from the last 6 months
+    const filter: NDKFilter = {
+      limit: 200, // Fetch a larger pool for better sampling
+      kinds: [30023],
+      '#t': ['nostrcooking'],
+      since: threeMonthsAgo
+    };
+
+    const allRecipes: NDKEvent[] = [];
+    let eventCount = 0;
+    let validCount = 0;
+    let noImageCount = 0;
+    let invalidMarkdownCount = 0;
+    let noAuthorCount = 0;
+
+    const subscription = ndkInstance.subscribe(filter);
+
+    return new Promise((resolve) => {
+      const timeout = setTimeout(async () => {
+        subscription.stop();
+        logger.debug(`Timeout reached. Events: ${eventCount}, Valid: ${validCount}, No image: ${noImageCount}, Invalid markdown: ${invalidMarkdownCount}, No author: ${noAuthorCount}`, 'fetchDiscoverRecipes');
+        await processAndSampleRecipes(allRecipes, limit, ndkInstance, resolve);
+      }, 8000); // 8 second timeout (reduced from 10s)
+
+      subscription.on('event', (event: NDKEvent) => {
+        eventCount++;
+        
+        // Check each condition separately for debugging
+        const hasValidMarkdown = typeof validateMarkdownTemplate(event.content) !== 'string';
+        const hasAuthor = !!event.author?.pubkey;
+        const hasImg = hasImage(event);
+
+        if (!hasAuthor) {
+          noAuthorCount++;
+        } else if (!hasValidMarkdown) {
+          invalidMarkdownCount++;
+        } else if (!hasImg) {
+          noImageCount++;
+        }
+
+        // Filter: must have valid markdown and author (image is preferred but not required if we don't have enough)
+        if (hasValidMarkdown && hasAuthor) {
+          validCount++;
+          allRecipes.push(event);
+        }
+      });
+
+      subscription.on('eose', async () => {
+        clearTimeout(timeout);
+        subscription.stop();
+        logger.debug(`EOSE reached. Events: ${eventCount}, Valid: ${validCount}, No image: ${noImageCount}, Invalid markdown: ${invalidMarkdownCount}, No author: ${noAuthorCount}`, 'fetchDiscoverRecipes');
+        await processAndSampleRecipes(allRecipes, limit, ndkInstance, resolve);
+      });
+    });
+  } catch (error) {
+    logger.error('Error fetching discover recipes', 'fetchDiscoverRecipes', error);
+    return [];
+  }
+}
+
+/**
+ * Process recipes and sample them
+ */
+async function processAndSampleRecipes(
+  recipes: NDKEvent[],
+  limit: number,
+  ndkInstance: any,
+  resolve: (recipes: NDKEvent[]) => void
+) {
+  logger.debug(`Processing ${recipes.length} recipes, target limit: ${limit}`, 'processAndSampleRecipes');
+  
+  if (recipes.length === 0) {
+    logger.warn('No recipes found matching criteria', 'processAndSampleRecipes');
+    resolve([]);
+    return;
+  }
+
+  // If we don't have enough recipes, use simple random selection
+  if (recipes.length < DISCOVER_CONFIG.MIN_RECIPES_TO_SAMPLE) {
+    logger.debug(`Only ${recipes.length} recipes found, using simple random selection`, 'processAndSampleRecipes');
+    // Shuffle and return what we have
+    const shuffled = [...recipes].sort(() => Math.random() - 0.5);
+    const result = shuffled.slice(0, limit);
+    logger.debug(`Returning ${result.length} recipes`, 'processAndSampleRecipes');
+    resolve(result);
+    return;
+  }
+
+  // Prioritize recipes with images, but include some without if needed
+  const recipesWithImages = recipes.filter(r => hasImage(r));
+  const recipesWithoutImages = recipes.filter(r => !hasImage(r));
+  
+  logger.debug(`Recipes with images: ${recipesWithImages.length}, without: ${recipesWithoutImages.length}`, 'processAndSampleRecipes');
+  
+  // Prefer recipes with images, but mix in some without if we need more
+  const mixedRecipes = [
+    ...recipesWithImages.sort(() => Math.random() - 0.5),
+    ...recipesWithoutImages.sort(() => Math.random() - 0.5).slice(0, Math.max(0, limit - recipesWithImages.length))
+  ];
+
+  // Calculate scores for a sample of recipes (for performance)
+  const sampleSize = Math.min(100, mixedRecipes.length);
+  const recipesToScore = mixedRecipes.slice(0, sampleSize);
+
+  // Calculate scores in parallel (with timeout per recipe)
+  const recipesWithScores = await Promise.all(
+    recipesToScore.map(async (recipe) => {
+      try {
+        const score = await Promise.race([
+          calculateRecipeScore(recipe, ndkInstance),
+          new Promise<number>((resolve) => setTimeout(() => resolve(1), 2000)) // 2s timeout per recipe
+        ]);
+        return { recipe, score };
+      } catch (error) {
+        logger.warn('Error calculating score for recipe', 'processAndSampleRecipes', error);
+        return { recipe, score: 1 }; // Fallback score
+      }
+    })
+  );
+
+  // Sample with quality-weighted random selection
+  const sampled = sampleRecipesWithWeights(recipesWithScores, limit);
+  logger.debug(`Sampled ${sampled.length} recipes from ${recipesWithScores.length} scored recipes`, 'processAndSampleRecipes');
+  resolve(sampled);
 }
 
