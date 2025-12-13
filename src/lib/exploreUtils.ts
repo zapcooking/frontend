@@ -82,7 +82,7 @@ export async function fetchPopularCooks(limit: number = 12): Promise<PopularCook
       }, 5000);
 
       subscription.on('event', (event: NDKEvent) => {
-        if (validateMarkdownTemplate(event.content) !== null && event.author?.pubkey) {
+        if (typeof validateMarkdownTemplate(event.content) !== 'string' && event.author?.pubkey) {
           const count = authorCounts.get(event.author.pubkey) || 0;
           authorCounts.set(event.author.pubkey, count + 1);
         }
@@ -130,7 +130,7 @@ export async function fetchCollectionImage(tag: string): Promise<string | undefi
       }, 3000); // Shorter timeout for collection images
 
       subscription.on('event', (event: NDKEvent) => {
-        if (validateMarkdownTemplate(event.content) !== null && !imageUrl) {
+        if (typeof validateMarkdownTemplate(event.content) !== 'string' && !imageUrl) {
           // Find first image tag
           const imageTag = event.tags.find((t) => Array.isArray(t) && t[0] === 'image');
           if (imageTag && Array.isArray(imageTag) && imageTag[1]) {
@@ -287,7 +287,7 @@ export async function fetchTrendingRecipes(limit: number = 12): Promise<NDKEvent
       }, 8000); // Longer timeout to get more recipes
 
       subscription.on('event', (event: NDKEvent) => {
-        if (validateMarkdownTemplate(event.content) !== null && event.author?.pubkey) {
+        if (typeof validateMarkdownTemplate(event.content) !== 'string' && event.author?.pubkey) {
           recipes.push(event);
         }
       });
