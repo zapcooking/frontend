@@ -109,8 +109,6 @@
 </svelte:head>
 
 <div class="flex flex-col">
-  <h1 class="text-3xl font-bold mb-6">Explore</h1>
-
   <!-- Explore Content -->
   <div class="flex flex-col gap-8">
       <!-- Top Collections -->
