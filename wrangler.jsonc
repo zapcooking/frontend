@@ -1,6 +1,6 @@
 {
   "name": "zapcooking-frontend",
   "compatibility_date": "2025-01-01",
-  "compatibility_flags": ["assets_navigation_prefers_asset_serving"],
+  "compatibility_flags": ["assets_navigation_prefers_asset_serving", "nodejs_compat"],
   "pages_build_output_dir": ".svelte-kit/cloudflare"
 }
