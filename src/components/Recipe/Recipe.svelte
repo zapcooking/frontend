@@ -212,8 +212,8 @@ async function getLists(): Promise<NDKEvent[]> {
         </button>
         {#if dropdownActive}
           <div class="relative" tabindex="-1" transition:fade={{ delay: 0, duration: 150 }}>
-            <button
-              on:click={() => (dropdownActive = false)}
+            <div
+              role="menu"
               use:clickOutside
               on:click_outside={() => (dropdownActive = false)}
               class="flex flex-col right-0 gap-4 absolute z-20 bg-white rounded-3xl drop-shadow px-5 py-6 my-6"
@@ -232,7 +232,7 @@ async function getLists(): Promise<NDKEvent[]> {
                 <PrinterIcon size={24} />
                 Print
               </button>
-            </button>
+            </div>
           </div>
         {/if}
       </div>
