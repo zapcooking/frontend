@@ -7,7 +7,7 @@
 	],
 	"pages_build_output_dir": ".svelte-kit/cloudflare",
 	"assets": {
-		"binding": "ASSETS",
+		"binding": "CF_ASSETS",
 		"directory": ".svelte-kit/cloudflare",
 		"not_found_handling": "single-page-application"
 	},
