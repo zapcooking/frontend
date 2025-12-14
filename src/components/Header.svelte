@@ -76,6 +76,14 @@
     <a href="/recent" class="flex-none">
       <img src={SVGNostrCookingWithText} class="w-35 sm:w-40 my-3" alt="zap.cooking Logo With Text" />
     </a>
+  <!-- Top row for desktop: Navigation links -->
+  <div class="hidden lg:flex gap-9 self-center font-semibold print:hidden">
+    <a class="transition duration-300 hover:text-primary" href="/recent">Recipes</a>
+    <a class="transition duration-300 hover:text-primary" href="/feed">Feed</a>
+    <a class="transition duration-300 hover:text-primary" href="/explore">Explore</a>
+    <a class="transition duration-300 hover:text-primary" href="https://plebeian.market/community/seth@zap.cooking/zap-cooking-wear-orcd8yg6jd" target="_blank" rel="noopener noreferrer">Shop</a>
+  </div>
+
   <div class="hidden sm:max-lg:flex xl:flex flex-1 grow self-center print:hidden">
     <TagsSearchAutocomplete
       placeholderString={"Search by tag, like 'italian', 'steak' or 'glutenfree'."}
