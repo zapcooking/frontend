@@ -76,14 +76,6 @@
     <a href="/recent" class="flex-none">
       <img src={SVGNostrCookingWithText} class="w-35 sm:w-40 my-3" alt="zap.cooking Logo With Text" />
     </a>
-  <!-- Top row for mobile: Logo and right buttons -->
-  <div class="hidden lg:flex gap-9 self-center font-semibold print:hidden">
-    <a class="transition duration-300 hover:text-primary" href="/recent">Recipes</a>
-    <a class="transition duration-300 hover:text-primary" href="/feed">Feed</a>
-    <a class="transition duration-300 hover:text-primary" href="/explore">Explore</a>
-    <a class="transition duration-300 hover:text-primary" href="https://plebeian.market/community/seth@zap.cooking/zap-cooking-wear-orcd8yg6jd" target="_blank" rel="noopener noreferrer">Shop</a>
-  </div>
-
   <div class="hidden sm:max-lg:flex xl:flex flex-1 grow self-center print:hidden">
     <TagsSearchAutocomplete
       placeholderString={"Search by tag, like 'italian', 'steak' or 'glutenfree'."}
@@ -98,16 +90,12 @@
           <SearchIcon class="self-center text-primary" size={16} weight="bold" />
       </Button>
     </div>
-      <a class="hidden lg:flex self-center gap-2 transition duration-300 font-semibold hover:text-primary" href="/bookmarks">
-        <BookmarkIcon class="self-center" size="30px" weight="bold" />
-        <span class="self-center">Bookmarks</span>
-      </a>
       <Button class="self-center max-md:w-10 max-md:h-10 flex max-md:justify-center max-md:px-1 max-md:py-1 font-semibold gap-2 cursor-pointer" on:click={() => goto('/create')}>
           <AddIcon class="self-center" size={16} />
           <div class="hidden md:flex">Create</div>
       </Button>
       <button on:click={() => supportModalOpen = true} class="self-center max-md:w-10 max-md:h-10 flex max-md:justify-center max-md:px-1 max-md:py-1 text-white rounded-full bg-gradient-to-r from-yellow-400 to-orange-500 hover:from-yellow-500 hover:to-orange-600 px-4 py-2.5 font-semibold transition duration-300 flex items-center gap-2 cursor-pointer">
-        ⚡ <span class="hidden md:inline">Support Us</span>
+        <span class="hidden md:inline">Tip</span> ⚡️
       </button>
     <div class="self-center print:hidden">
       {#if $userPublickey !== ''}
@@ -131,6 +119,10 @@
               >
                 <UserIcon class="self-center" size={18} />
                 Profile
+              </button>
+              <button class="flex gap-2 cursor-pointer" on:click={() => goto('/bookmarks')}>
+                <BookmarkIcon class="self-center" size={18} />
+                Bookmarks
               </button>
               <button class="flex gap-2 cursor-pointer" on:click={() => goto('/settings')}>
                 <GearIcon class="self-center" size={18} />

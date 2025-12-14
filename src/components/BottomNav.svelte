@@ -1,7 +1,7 @@
 <script lang="ts">
   import MagnifyingIcon from 'phosphor-svelte/lib/MagnifyingGlass';
   import LightningIcon from 'phosphor-svelte/lib/Lightning';
-  import BookmarkIcon from 'phosphor-svelte/lib/Bookmark';
+  import ShoppingBagIcon from 'phosphor-svelte/lib/ShoppingBag';
   import UtensilsIcon from 'phosphor-svelte/lib/ForkKnife';
 </script>
 
@@ -20,8 +20,8 @@
     <LightningIcon class="self-center" size={24} />
     Explore
   </a>
-  <a href="/bookmarks" class="flex flex-col">
-    <BookmarkIcon class="self-center" size={24} />
-    Bookmarks
+  <a href="https://plebeian.market/community/seth@zap.cooking/zap-cooking-wear-orcd8yg6jd" target="_blank" rel="noopener noreferrer" class="flex flex-col">
+    <ShoppingBagIcon class="self-center" size={24} />
+    Shop
   </a>
 </nav>
