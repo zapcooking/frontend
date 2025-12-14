@@ -12,10 +12,10 @@ jobs:
       - name: Checkout 🛎️
         uses: actions/checkout@v4
 
-      - name: Setup pnpm 🎯
-        uses: pnpm/action-setup@v4
-        with:
-          version: 9.12.1
+      - name: Enable Corepack (pnpm) 🎯
+        run: |
+          corepack enable
+          pnpm --version
 
       - name: Use cache for pnpm 🎁
         id: cache-pnpm
