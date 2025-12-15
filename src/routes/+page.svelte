@@ -6,6 +6,6 @@
   export const data: PageData = {} as PageData;
 
   onMount(async () => {
-    goto(`/recent`);
+    goto(`/explore`);
   });
 </script>

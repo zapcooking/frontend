@@ -9,3 +9,17 @@ node_modules
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vercel
+
+# Capacitor
+android/
+ios/
+build/
+
+# Additional build outputs
+.svelte-kit/
+dist/
+
+# Capacitor
+android/
+ios/
+build/

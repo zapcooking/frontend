@@ -1,0 +1,301 @@
+<script lang="ts">
+  import { onMount } from 'svelte';
+  import { goto } from '$app/navigation';
+  import { recipeTags, CURATED_TAG_SECTIONS, type recipeTagSimple } from '$lib/consts';
+  import { computePopularTags, type TagWithCount } from '$lib/tagUtils';
+  import { fetchCollectionsWithImages, fetchPopularCooks, fetchDiscoverRecipes, type Collection, type PopularCook } from '$lib/exploreUtils';
+  import TagSectionCard from '../../components/TagSectionCard.svelte';
+  import TagChip from '../../components/TagChip.svelte';
+  import CollectionCard from '../../components/CollectionCard.svelte';
+  import ProfileAvatar from '../../components/ProfileAvatar.svelte';
+  import TrendingRecipeCard from '../../components/TrendingRecipeCard.svelte';
+  import type { NDKEvent } from '@nostr-dev-kit/ndk';
+  import { nip19 } from 'nostr-tools';
+  let popularTags: TagWithCount[] = [];
+  let loadingPopular = true;
+  let popularTagCounts = new Map<string, number>();
+  
+  // New data for Explore sections
+  let collections: Collection[] = [];
+  let popularCooks: PopularCook[] = [];
+  let discoverRecipes: NDKEvent[] = [];
+  let loadingCollections = true;
+  let loadingCooks = true;
+  let loadingDiscover = true;
+  let cultureExpanded = false;
+
+  // Compute section references reactively
+  $: intentSection = CURATED_TAG_SECTIONS.find((s) => s.title === 'Why are you cooking?');
+  $: cultureSection = CURATED_TAG_SECTIONS.find((s) => s.title === 'Explore by culture');
+  $: collapsibleSections = CURATED_TAG_SECTIONS.filter(
+    (s) => s.title !== 'Why are you cooking?' && s.title !== 'Explore by culture'
+  );
+
+
+  onMount(async () => {
+    // Load popular tags
+    popularTags = await computePopularTags(12);
+    popularTags.forEach((tag) => {
+      if (tag.count !== undefined) {
+        popularTagCounts.set(tag.title, tag.count);
+      }
+    });
+    loadingPopular = false;
+
+    // Load collections with images, popular cooks, and discover recipes in parallel
+    const [collectionsData, cooksData, discoverData] = await Promise.all([
+      fetchCollectionsWithImages(),
+      fetchPopularCooks(12),
+      fetchDiscoverRecipes(12)
+    ]);
+
+    collections = collectionsData;
+    loadingCollections = false;
+
+    popularCooks = cooksData;
+    loadingCooks = false;
+
+    discoverRecipes = discoverData;
+    loadingDiscover = false;
+  });
+
+
+  function navigateToTag(tag: recipeTagSimple) {
+    goto(`/tag/${tag.title}`);
+  }
+
+  function handleCollectionClick(collection: Collection) {
+    if (collection.tag) {
+      goto(`/tag/${collection.tag}`);
+    }
+  }
+
+  function getSectionTags(sectionTitle: string): recipeTagSimple[] {
+    const section = CURATED_TAG_SECTIONS.find((s) => s.title === sectionTitle);
+    if (!section) return [];
+    
+    return section.tags
+      .map((tagName) => recipeTags.find((t) => t.title === tagName))
+      .filter((tag): tag is recipeTagSimple => tag !== undefined);
+  }
+
+  function getCultureTags(showAll: boolean): recipeTagSimple[] {
+    const cultureSection = CURATED_TAG_SECTIONS.find((s) => s.title === 'Explore by culture');
+    if (!cultureSection) return [];
+    
+    const allTags = cultureSection.tags
+      .map((tagName) => recipeTags.find((t) => t.title === tagName))
+      .filter((tag): tag is recipeTagSimple => tag !== undefined);
+    
+    return showAll ? allTags : allTags.slice(0, 10);
+  }
+</script>
+
+<svelte:head>
+  <title>Explore - zap.cooking</title>
+  <meta name="description" content="Discover recipes, collections, and cooks on zap.cooking" />
+  <meta property="og:url" content="https://zap.cooking/explore" />
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="Explore - zap.cooking" />
+  <meta property="og:description" content="Discover recipes, collections, and cooks on zap.cooking" />
+  <meta property="og:image" content="https://zap.cooking/logo_with_text.png" />
+
+  <meta name="twitter:card" content="summary" />
+  <meta property="twitter:domain" content="zap.cooking" />
+  <meta property="twitter:url" content="https://zap.cooking/explore" />
+  <meta name="twitter:title" content="Explore - zap.cooking" />
+  <meta name="twitter:description" content="Discover recipes, collections, and cooks on zap.cooking" />
+  <meta property="twitter:image" content="https://zap.cooking/logo_with_text.png" />
+</svelte:head>
+
+<div class="flex flex-col">
+  <!-- Explore Content -->
+  <div class="flex flex-col gap-8">
+      <!-- Top Collections -->
+      <section class="flex flex-col gap-4">
+        <h2 class="text-2xl font-bold flex items-center gap-2">
+          <span>📚</span>
+          <span>Top Collections</span>
+        </h2>
+        {#if loadingCollections}
+          <div class="flex gap-4 overflow-x-auto pb-2 -mx-4 px-4">
+            {#each Array(5) as _}
+              <div class="flex-shrink-0 w-64 h-40 bg-gray-200 rounded-xl animate-pulse"></div>
+            {/each}
+          </div>
+        {:else if collections.length > 0}
+          <div class="flex gap-4 overflow-x-auto pb-2 -mx-4 px-4 scrollbar-hide">
+            {#each collections as collection}
+              <CollectionCard
+                title={collection.title}
+                subtitle={collection.subtitle}
+                imageUrl={collection.imageUrl}
+                onClick={() => handleCollectionClick(collection)}
+              />
+            {/each}
+          </div>
+        {/if}
+      </section>
+
+      <!-- Popular Cooks -->
+      <section class="flex flex-col gap-4">
+        <h2 class="text-2xl font-bold flex items-center gap-2">
+          <span>👨‍🍳</span>
+          <span>Popular Cooks</span>
+        </h2>
+        {#if loadingCooks}
+          <div class="flex gap-4 overflow-x-auto pb-2 -mx-4 px-4">
+            {#each Array(6) as _}
+              <div class="flex-shrink-0 w-20 flex flex-col items-center gap-2">
+                <div class="w-16 h-16 bg-gray-200 rounded-full animate-pulse"></div>
+                <div class="h-4 w-16 bg-gray-200 rounded animate-pulse"></div>
+              </div>
+            {/each}
+          </div>
+        {:else if popularCooks.length > 0}
+          <div class="flex gap-4 overflow-x-auto pb-2 -mx-4 px-4 scrollbar-hide">
+            {#each popularCooks as cook}
+              <ProfileAvatar pubkey={cook.pubkey} showZapIndicator={false} />
+            {/each}
+          </div>
+        {/if}
+      </section>
+
+      <!-- Discover New -->
+      <section class="flex flex-col gap-4">
+        <h2 class="text-2xl font-bold flex items-center gap-2">
+          <span>✨</span>
+          <span>Discover New</span>
+        </h2>
+        {#if loadingDiscover}
+          <div class="flex gap-4 overflow-x-auto pb-2 -mx-4 px-4">
+            {#each Array(6) as _}
+              <div class="flex-shrink-0 w-56 h-72 bg-gray-200 rounded-xl animate-pulse"></div>
+            {/each}
+          </div>
+        {:else if discoverRecipes.length > 0}
+          <div class="flex gap-4 overflow-x-auto pb-2 -mx-4 px-4 scrollbar-hide">
+            {#each discoverRecipes.filter(r => r && r.author?.pubkey) as recipe (recipe.id || recipe.created_at)}
+              <TrendingRecipeCard event={recipe} />
+            {/each}
+          </div>
+        {/if}
+      </section>
+
+      <!-- Hot Tags -->
+      <section class="flex flex-col gap-4">
+        <h2 class="text-2xl font-bold flex items-center gap-2">
+          <span>⭐</span>
+          <span>Hot Tags</span>
+        </h2>
+        {#if loadingPopular}
+          <div class="flex flex-wrap gap-2">
+            {#each Array(10) as _}
+              <div class="h-9 w-24 bg-gray-200 rounded-full animate-pulse"></div>
+            {/each}
+          </div>
+        {:else if popularTags.length > 0}
+          <div class="flex flex-wrap gap-2">
+            {#each popularTags.slice(0, 12) as tag}
+              <TagChip {tag} count={popularTagCounts.get(tag.title)} onClick={() => navigateToTag(tag)} />
+            {/each}
+          </div>
+        {/if}
+      </section>
+
+      <!-- Explore More (Below the fold) -->
+      <div class="flex flex-col gap-6 pt-4 border-t">
+        <h2 class="text-2xl font-bold flex items-center gap-2">
+          <span>🔍</span>
+          <span>Explore More</span>
+        </h2>
+
+        <!-- Intent Section -->
+        {#if intentSection}
+          <TagSectionCard
+            emoji={intentSection.emoji}
+            title={intentSection.title}
+            helperText="Browse by intention, not ingredients."
+            tags={getSectionTags(intentSection.title).slice(0, 8)}
+            alwaysExpanded={true}
+            previewCount={8}
+            onTagClick={navigateToTag}
+          />
+        {/if}
+
+        <!-- Culture Section -->
+        {#if cultureSection}
+          <div class="rounded-xl border border-gray-200 bg-[#fafafa] shadow-sm p-5 md:p-6 transition-all duration-300">
+            <div class="flex items-start justify-between gap-4 mb-4">
+              <div class="flex-1">
+                <h2 class="text-2xl font-bold flex items-center gap-2 mb-1.5">
+                  <span>{cultureSection.emoji}</span>
+                  <span>{cultureSection.title}</span>
+                </h2>
+              </div>
+              {#if getCultureTags(false).length < getCultureTags(true).length}
+                <button
+                  on:click={() => cultureExpanded = !cultureExpanded}
+                  type="button"
+                  class="flex-shrink-0 text-sm text-primary hover:text-[#d64000] transition-colors font-medium"
+                >
+                  {cultureExpanded ? 'Show less' : 'Show all cultures'}
+                </button>
+              {/if}
+            </div>
+            <div class="flex flex-wrap gap-2 transition-all duration-300">
+              {#each getCultureTags(cultureExpanded) as tag (tag.title)}
+                <TagChip {tag} onClick={() => navigateToTag(tag)} />
+              {/each}
+            </div>
+          </div>
+        {/if}
+
+        <!-- Collapsible Sections -->
+        {#each collapsibleSections as section}
+          <TagSectionCard
+            emoji={section.emoji}
+            title={section.title}
+            tags={getSectionTags(section.title)}
+            alwaysExpanded={false}
+            previewCount={8}
+            onTagClick={navigateToTag}
+          />
+        {/each}
+
+        <!-- View All Tags Link -->
+        <div class="pt-4 border-t">
+          <a
+            href="/explore/all"
+            class="inline-flex items-center gap-2 text-primary hover:underline font-medium"
+          >
+            <span>View all tags</span>
+            <span>→</span>
+          </a>
+        </div>
+      </div>
+    </div>
+</div>
+
+<style>
+  /* Hide scrollbar but keep functionality */
+  :global(.scrollbar-hide) {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  :global(.scrollbar-hide::-webkit-scrollbar) {
+    display: none;
+  }
+
+  /* Smooth horizontal scroll */
+  :global(.scrollbar-hide) {
+    scroll-behavior: smooth;
+  }
+
+  /* Mobile-first tap targets */
+  @media (max-width: 640px) {
+    button {
+      min-height: 44px;
+    }
+  }
+</style>
