@@ -2,7 +2,7 @@
   import { NDKEvent } from '@nostr-dev-kit/ndk';
   import TagLinks from './TagLinks.svelte';
   import { ndk, userPublickey } from '$lib/nostr';
-  import DotsIcon from 'phosphor-svelte/lib/DotsThreeVertical';
+  import DotsIcon from 'phosphor-svelte/lib/DotsThree';
   import PencilIcon from 'phosphor-svelte/lib/Pencil';
   import BookmarkIcon from 'phosphor-svelte/lib/BookmarkSimple';
   import PrinterIcon from 'phosphor-svelte/lib/Printer';
@@ -33,6 +33,16 @@
   let zapModal = false;
   let bookmarkModal = false;
   let dropdownActive = false;
+
+  // Image modal state
+  let imageModalOpen = false;
+  let selectedImageUrl = '';
+  let selectedEventImages: string[] = [];
+  let selectedImageIndex = 0;
+
+  // Touch handling for swipe
+  let touchStartX = 0;
+  let touchEndX = 0;
 
 let listsArr: NDKEvent[] = [];
 async function getLists(): Promise<NDKEvent[]> {
@@ -124,10 +134,78 @@ async function getLists(): Promise<NDKEvent[]> {
     else toggleLists.add(id);
   }
 
+  // Image modal functions
+  function openImageModal(imageUrl: string, allImages: string[], index: number) {
+    selectedImageUrl = imageUrl;
+    selectedEventImages = allImages;
+    selectedImageIndex = index;
+    imageModalOpen = true;
+  }
+
+  function closeImageModal() {
+    imageModalOpen = false;
+    selectedImageUrl = '';
+    selectedEventImages = [];
+    selectedImageIndex = 0;
+  }
+
+  function nextModalImage() {
+    if (selectedEventImages.length === 0) return;
+    selectedImageIndex = (selectedImageIndex + 1) % selectedEventImages.length;
+    selectedImageUrl = selectedEventImages[selectedImageIndex];
+  }
+
+  function prevModalImage() {
+    if (selectedEventImages.length === 0) return;
+    selectedImageIndex = selectedImageIndex === 0
+      ? selectedEventImages.length - 1
+      : selectedImageIndex - 1;
+    selectedImageUrl = selectedEventImages[selectedImageIndex];
+  }
+
+  function handleImageModalKeydown(e: KeyboardEvent) {
+    if (!imageModalOpen) return;
+
+    if (e.key === 'Escape') {
+      closeImageModal();
+    } else if (e.key === 'ArrowLeft') {
+      prevModalImage();
+    } else if (e.key === 'ArrowRight') {
+      nextModalImage();
+    }
+  }
+
+  // Touch swipe handling
+  function handleTouchStart(e: TouchEvent) {
+    touchStartX = e.changedTouches[0].screenX;
+  }
+
+  function handleTouchEnd(e: TouchEvent) {
+    touchEndX = e.changedTouches[0].screenX;
+    handleSwipe();
+  }
+
+  function handleSwipe() {
+    const swipeThreshold = 50; // Minimum distance for swipe
+    const diff = touchStartX - touchEndX;
+
+    if (Math.abs(diff) < swipeThreshold) return;
+
+    if (diff > 0) {
+      // Swiped left -> next image
+      nextModalImage();
+    } else {
+      // Swiped right -> previous image
+      prevModalImage();
+    }
+  }
+
   /*const firstTag = recipeTags.find(
     (e) => e.title.toLowerCase().replaceAll(' ', '-') == event.getMatchingTags("t").filter((t) => t[1].slice(13)[0])[0][1].slice(13)
   );*/
 </script>
+
+<svelte:window on:keydown={handleImageModalKeydown} />
 
 <ZapModal bind:open={zapModal} event={event} />
 
@@ -192,33 +270,65 @@ async function getLists(): Promise<NDKEvent[]> {
             : event.tags.find((e) => e[0] === 'd')?.[1]}
         </h1>
         <TagLinks {event} />
-        <AuthorProfile pubkey={event.author.pubkey} />
+
+        <!-- Author + Action Buttons Row -->
+        <div class="flex justify-between items-center gap-4">
+          <!-- Left: Author Profile -->
+          <AuthorProfile pubkey={event.author.pubkey} />
+
+          <!-- Right: Icon-only Zap/Save buttons -->
+          <div class="flex gap-2">
+            <button
+              on:click={() => (zapModal = true)}
+              class="w-10 h-10 flex items-center justify-center rounded-full bg-yellow-500 hover:bg-yellow-600 text-white transition duration-200"
+              aria-label="Zap recipe"
+            >
+              <LightningIcon size={20} weight="fill" />
+            </button>
+
+            <button
+              on:click={() => (bookmarkModal = true)}
+              class="w-10 h-10 flex items-center justify-center rounded-full bg-primary hover:bg-primary/90 text-white transition duration-200"
+              aria-label="Save recipe"
+            >
+              <BookmarkIcon size={20} weight="fill" />
+            </button>
+          </div>
+        </div>
       </div>
       {#each event.tags.filter((e) => e[0] === 'image') as image, i}
         {#if i === 0}
-          <!-- First image with hover overlay -->
+          <!-- First image with hover overlay + click to open modal -->
           <div class="relative group rounded-3xl overflow-hidden">
-            <img
-              class="rounded-3xl aspect-video object-cover w-full"
-              src={image[1]}
-              alt="Image {i + 1}"
-            />
-            <!-- Hover overlay with Zap and Save buttons -->
+            <button
+              on:click={() => openImageModal(
+                image[1],
+                event.tags.filter((e) => e[0] === 'image').map(img => img[1]),
+                i
+              )}
+              class="w-full cursor-pointer"
+            >
+              <img
+                class="rounded-3xl aspect-video object-cover w-full"
+                src={image[1]}
+                alt="Recipe image {i + 1}"
+              />
+            </button>
+
+            <!-- Image overlay buttons (visible on mobile/tablet, hover on desktop) -->
             <div class="absolute inset-0 transition-all duration-300 pointer-events-none">
-              <!-- Zap button (left side) -->
               <button
-                class="absolute top-4 left-4 bg-yellow-500 text-white font-semibold px-4 py-2 rounded-full shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-200 opacity-0 group-hover:opacity-100 pointer-events-auto flex items-center gap-2"
-                on:click={() => (zapModal = true)}
+                class="absolute top-4 left-4 bg-yellow-500 text-white font-semibold px-4 py-2 rounded-full shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-200 opacity-100 lg:opacity-0 lg:group-hover:opacity-100 pointer-events-auto flex items-center gap-2"
+                on:click|stopPropagation={() => (zapModal = true)}
                 aria-label="Zap recipe"
               >
                 <LightningIcon size={18} weight="fill" />
                 <span>Zap</span>
               </button>
 
-              <!-- Save button (right side) -->
               <button
-                class="absolute top-4 right-4 bg-primary text-white font-semibold px-4 py-2 rounded-full shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-200 opacity-0 group-hover:opacity-100 pointer-events-auto flex items-center gap-2"
-                on:click={() => (bookmarkModal = true)}
+                class="absolute top-4 right-4 bg-primary text-white font-semibold px-4 py-2 rounded-full shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-200 opacity-100 lg:opacity-0 lg:group-hover:opacity-100 pointer-events-auto flex items-center gap-2"
+                on:click|stopPropagation={() => (bookmarkModal = true)}
                 aria-label="Save recipe to list"
               >
                 <BookmarkIcon size={18} weight="fill" />
@@ -227,12 +337,21 @@ async function getLists(): Promise<NDKEvent[]> {
             </div>
           </div>
         {:else}
-          <!-- Other images without overlay -->
-          <img
-            class="rounded-3xl aspect-video object-cover"
-            src={image[1]}
-            alt="Image {i + 1}"
-          />
+          <!-- Other images - clickable to open modal -->
+          <button
+            on:click={() => openImageModal(
+              image[1],
+              event.tags.filter((e) => e[0] === 'image').map(img => img[1]),
+              i
+            )}
+            class="w-full cursor-pointer"
+          >
+            <img
+              class="rounded-3xl aspect-video object-cover w-full"
+              src={image[1]}
+              alt="Recipe image {i + 1}"
+            />
+          </button>
         {/if}
       {/each}
       <div class="flex print:hidden">
@@ -247,7 +366,7 @@ async function getLists(): Promise<NDKEvent[]> {
           class="cursor-pointer hover:bg-input rounded p-0.5 transition duration-300"
           on:click={() => (dropdownActive = !dropdownActive)}
         >
-          <DotsIcon size={24} />
+          <DotsIcon size={28} weight="bold" />
         </button>
         {#if dropdownActive}
           <div class="relative" tabindex="-1" transition:fade={{ delay: 0, duration: 150 }}>
@@ -263,10 +382,6 @@ async function getLists(): Promise<NDKEvent[]> {
                   Edit
                 </a>
               {/if}
-              <button class="flex gap-2 cursor-pointer" on:click={() => (bookmarkModal = true)}>
-                <BookmarkIcon size={24} />
-                Save
-              </button>
               <button class="flex gap-2 cursor-pointer" on:click={() => window.print()}>
                 <PrinterIcon size={24} />
                 Print
@@ -322,6 +437,79 @@ async function getLists(): Promise<NDKEvent[]> {
       -->
       <Comments {event} />
     </div>
+
+    <!-- Image Lightbox Modal -->
+    {#if imageModalOpen}
+      <div
+        class="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-90 p-4"
+        on:click={closeImageModal}
+        on:touchstart={handleTouchStart}
+        on:touchend={handleTouchEnd}
+        role="dialog"
+        aria-modal="true"
+      >
+        <!-- Modal Container -->
+        <div
+          class="relative bg-black rounded-lg max-w-6xl max-h-[95vh] w-full overflow-hidden"
+          on:click|stopPropagation
+        >
+          <!-- Close button -->
+          <button
+            class="absolute top-4 right-4 bg-white/90 hover:bg-white text-gray-800 rounded-full p-2 shadow-md transition z-20"
+            on:click={closeImageModal}
+            aria-label="Close image"
+          >
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+
+          <!-- Image counter (if multiple images) -->
+          {#if selectedEventImages.length > 1}
+            <div class="absolute top-4 left-4 bg-black/70 text-white text-sm px-4 py-2 rounded-full z-20">
+              {selectedImageIndex + 1} / {selectedEventImages.length}
+            </div>
+          {/if}
+
+          <!-- Navigation buttons (if multiple images) - Desktop -->
+          {#if selectedEventImages.length > 1}
+            <button
+              on:click|stopPropagation={prevModalImage}
+              class="hidden md:flex absolute left-4 top-1/2 -translate-y-1/2 bg-white/90 hover:bg-white text-gray-800 rounded-full p-3 shadow-md transition z-20 items-center justify-center"
+              aria-label="Previous image"
+            >
+              <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+              </svg>
+            </button>
+
+            <button
+              on:click|stopPropagation={nextModalImage}
+              class="hidden md:flex absolute right-4 top-1/2 -translate-y-1/2 bg-white/90 hover:bg-white text-gray-800 rounded-full p-3 shadow-md transition z-20 items-center justify-center"
+              aria-label="Next image"
+            >
+              <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+              </svg>
+            </button>
+          {/if}
+
+          <!-- Swipe indicator for mobile -->
+          {#if selectedEventImages.length > 1}
+            <div class="md:hidden absolute bottom-4 left-1/2 -translate-x-1/2 bg-black/70 text-white text-xs px-4 py-2 rounded-full z-20">
+              Swipe to navigate
+            </div>
+          {/if}
+
+          <!-- Image -->
+          <img
+            src={selectedImageUrl}
+            alt="Recipe image {selectedImageIndex + 1}"
+            class="w-full h-auto max-h-[95vh] object-contain"
+          />
+        </div>
+      </div>
+    {/if}
   {:else}
     Loading...
   {/if}

@@ -15,7 +15,7 @@
 
   async function loadZaps() {
     if (!event?.id) return;
-    
+
     loading = true;
     totalZapAmount = 0;
     processedEvents.clear();
@@ -26,16 +26,46 @@
       const dTag = event.tags.find((tag) => tag[0] === 'd')?.[1];
       if (!dTag) {
         console.warn('No d tag found for recipe event');
+        loading = false;
         return;
       }
 
       const aTag = `${event.kind}:${event.author?.hexpubkey || event.pubkey}:${dTag}`;
 
-      // Then subscribe to new zap events
-      subscription = $ndk.subscribe({
+      // Fetch existing zaps with both #e (event ID) and #a (address) tags
+      // Different clients use different tagging conventions
+      // Explicitly request no limit to get all zaps
+      const zapsByE = await $ndk.fetchEvents({
         kinds: [9735],
-        '#a': [aTag]
+        '#e': [event.id],
+        limit: 1000 // Request up to 1000 zaps
       });
+
+      const zapsByA = await $ndk.fetchEvents({
+        kinds: [9735],
+        '#a': [aTag],
+        limit: 1000 // Request up to 1000 zaps
+      });
+
+      // Process all found zaps (deduplicate with Set)
+      const allZaps = new Set([...zapsByE, ...zapsByA]);
+      allZaps.forEach((zapEvent) => {
+        processZapEvent(zapEvent);
+      });
+
+      // We've processed existing zaps, now stop loading
+      loading = false;
+
+      // Stop existing subscription if any
+      if (subscription) {
+        subscription.stop();
+      }
+
+      // Subscribe to listen for NEW zaps (both #e and #a tags)
+      subscription = $ndk.subscribe([
+        { kinds: [9735], '#a': [aTag] },
+        { kinds: [9735], '#e': [event.id] }
+      ]);
 
       subscription.on('event', (zapEvent: NDKEvent) => {
         processZapEvent(zapEvent);
@@ -43,13 +73,14 @@
 
     } catch (error) {
       console.error('Error loading recipe zaps:', error);
-    } finally {
       loading = false;
     }
   }
 
   function processZapEvent(zapEvent: NDKEvent) {
-    if (!zapEvent.sig || processedEvents.has(zapEvent.sig)) {
+    // Use event ID as unique identifier (more reliable than sig in NDK)
+    const eventId = zapEvent.id;
+    if (!eventId || processedEvents.has(eventId)) {
       return;
     }
 
@@ -61,19 +92,17 @@
     try {
       const decoded = decode(bolt11);
       const amountSection = decoded.sections.find((section) => section.name === 'amount');
-      
+
       if (amountSection && amountSection.value) {
         const amount = Number(amountSection.value);
         if (!isNaN(amount) && amount > 0) {
           totalZapAmount += amount;
-          processedEvents.add(zapEvent.sig);
+          processedEvents.add(eventId);
 
           // Check if current user zapped
           if (zapEvent.tags.some(tag => tag[0] === 'P' && tag[1] === $userPublickey)) {
             hasUserZapped = true;
           }
-
-          console.log(`Processed recipe zap: ${amount} sats, total: ${totalZapAmount}`);
         }
       }
     } catch (error) {
