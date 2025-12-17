@@ -315,10 +315,10 @@ async function getLists(): Promise<NDKEvent[]> {
               />
             </button>
 
-            <!-- Image overlay buttons (visible on mobile/tablet, hover on desktop) -->
+            <!-- Image overlay buttons (hover only on desktop) -->
             <div class="absolute inset-0 transition-all duration-300 pointer-events-none">
               <button
-                class="absolute top-4 left-4 bg-yellow-500 text-white font-semibold px-4 py-2 rounded-full shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-200 opacity-100 lg:opacity-0 lg:group-hover:opacity-100 pointer-events-auto flex items-center gap-2"
+                class="absolute top-4 left-4 bg-yellow-500 text-white font-semibold px-4 py-2 rounded-full shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-200 opacity-0 lg:group-hover:opacity-100 pointer-events-auto flex items-center gap-2"
                 on:click|stopPropagation={() => (zapModal = true)}
                 aria-label="Zap recipe"
               >
@@ -327,7 +327,7 @@ async function getLists(): Promise<NDKEvent[]> {
               </button>
 
               <button
-                class="absolute top-4 right-4 bg-primary text-white font-semibold px-4 py-2 rounded-full shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-200 opacity-100 lg:opacity-0 lg:group-hover:opacity-100 pointer-events-auto flex items-center gap-2"
+                class="absolute top-4 right-4 bg-primary text-white font-semibold px-4 py-2 rounded-full shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-200 opacity-0 lg:group-hover:opacity-100 pointer-events-auto flex items-center gap-2"
                 on:click|stopPropagation={() => (bookmarkModal = true)}
                 aria-label="Save recipe to list"
               >
