@@ -197,7 +197,6 @@
         });
         // Trigger Svelte reactivity by reassigning
         previewEvent = tempEvent;
-        console.log('Preview event created:', previewEvent);
         resultMessage = 'Preview loaded successfully!';
       }
     }
