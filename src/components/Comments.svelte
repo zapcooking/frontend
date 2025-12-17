@@ -14,7 +14,6 @@
   $: if ($ndk && !subscribed) {
     subscribed = true;
     const filterTag = `${event.kind}:${event.author.pubkey}:${event.tags.find((e) => e[0] == 'd')?.[1]}`;
-    console.log('Comments: Subscribing to #a:', filterTag);
 
     const sub = $ndk.subscribe({
       kinds: [1],
