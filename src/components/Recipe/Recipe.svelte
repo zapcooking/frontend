@@ -167,10 +167,13 @@ async function getLists(): Promise<NDKEvent[]> {
     if (!imageModalOpen) return;
 
     if (e.key === 'Escape') {
+      e.preventDefault();
       closeImageModal();
     } else if (e.key === 'ArrowLeft') {
+      e.preventDefault();
       prevModalImage();
     } else if (e.key === 'ArrowRight') {
+      e.preventDefault();
       nextModalImage();
     }
   }
