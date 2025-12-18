@@ -2,7 +2,7 @@
   import TagsComboBox from '../../../components/TagsComboBox.svelte';
   import { ndk, userPublickey } from '$lib/nostr';
   import { createMarkdown, validateMarkdownTemplate } from '$lib/pharser';
-  import { NDKEvent, AddressPointer } from '@nostr-dev-kit/ndk';
+  import { NDKEvent } from '@nostr-dev-kit/ndk';
   import { recipeTags, type recipeTagSimple } from '$lib/consts';
   import FeedItem from '../../../components/RecipeCard.svelte';
   import { browser } from '$app/environment';
@@ -10,20 +10,26 @@
   import { page } from '$app/stores';
   import StringComboBox from '../../../components/StringComboBox.svelte';
   import { writable, type Writable } from 'svelte/store';
-  import { nip19 } from 'nostr-tools';
+  import { nip19, type AddressPointer } from 'nostr-tools';
   import { goto } from '$app/navigation';
   import ImagesComboBox from '../../../components/ImagesComboBox.svelte';
   import Button from '../../../components/Button.svelte';
 
-  $: {
-    if ($page.params.slug) {
-      loadData();
-    }
-  }
+  let currentSlug = '';
 
   onMount(() => {
     if ($userPublickey == '') goto('/login');
+    if ($page.params.slug) {
+      currentSlug = $page.params.slug;
+      loadData();
+    }
   });
+
+  // Watch for slug changes after mount
+  $: if (browser && $page.params.slug && $page.params.slug !== currentSlug) {
+    currentSlug = $page.params.slug;
+    loadData();
+  }
 
   let previewEvent: NDKEvent | undefined = undefined;
   let identifier: string | undefined; // THIS SHOULD ALWAYS BE THERE. IF NOT, VERY BAD!
@@ -79,11 +85,11 @@
         let summaryTagValue = event.tags.find((e) => e[0] == 'summary')?.[1];
         if (summaryTagValue) summary = summaryTagValue;
         let imageTagsValue = event.tags.filter((e) => e[0] == 'image');
-        if (imageTagsValue) {
-          for (let i = 0; i < imageTagsValue.length; i++) {
-            $images.push(imageTagsValue[i][1]);
-          }
-          images.set($images); // svelte reactivity
+        if (imageTagsValue && imageTagsValue.length > 0) {
+          const imageUrls = imageTagsValue.map(img => img[1]);
+          images.set(imageUrls); // Replace the entire array instead of pushing
+        } else {
+          images.set([]); // Clear images if none found
         }
         selectedTags.set([]);
         let tagTags = event.tags.filter(
@@ -166,28 +172,32 @@
       } else if ($images.length == 0) {
         resultMessage = `Error: No Image Uploaded`;
       } else if (va) {
-        previewEvent = new NDKEvent($ndk);
-        previewEvent.kind = 30023;
-        previewEvent.content = md;
-        previewEvent.tags.push(['d', title.toLowerCase().replaceAll(' ', '-')]);
-        previewEvent.tags.push(['title', title]);
-        previewEvent.tags.push(['t', 'nostrcooking']);
+        const tempEvent = new NDKEvent($ndk);
+        tempEvent.kind = 30023;
+        tempEvent.content = md;
+        tempEvent.pubkey = $userPublickey;
+        tempEvent.tags.push(['d', title.toLowerCase().replaceAll(' ', '-')]);
+        tempEvent.tags.push(['title', title]);
+        tempEvent.tags.push(['t', 'nostrcooking']);
         if (summary !== '') {
-          previewEvent.tags.push(['summary', summary]);
+          tempEvent.tags.push(['summary', summary]);
         }
         if ($images.length > 0) {
           for (let i = 0; i < $images.length; i++) {
-            previewEvent.tags.push(['image', $images[i]]);
+            tempEvent.tags.push(['image', $images[i]]);
           }
         }
         $selectedTags.forEach((t) => {
           if (t.title) {
-            previewEvent?.tags.push([
+            tempEvent.tags.push([
               't',
               `nostrcooking-${t.title.toLowerCase().replaceAll(' ', '-')}`
             ]);
           }
         });
+        // Trigger Svelte reactivity by reassigning
+        previewEvent = tempEvent;
+        resultMessage = 'Preview loaded successfully!';
       }
     }
   }
@@ -247,8 +257,8 @@
           });
         });
         const naddr = nip19.naddrEncode({
-          identifier: title.toLowerCase().replaceAll(' ', '-'),
-          pubkey: event.author.hexpubkey,
+          identifier: identifier || title.toLowerCase().replaceAll(' ', '-'),
+          pubkey: event.pubkey,
           kind: 30023
         });
         setTimeout(() => {
@@ -342,16 +352,19 @@
     </div>
   </div>
   {#if $images.length > 0 && title && $selectedTags.length > 0 && $directionsArray.length > 0 && $ingredientsArray.length > 0}
-    <div class="flex flex-col gap-2">
+    <div class="flex flex-col gap-4 p-4 border border-gray-300 rounded-lg bg-gray-50">
       <h2>Card Preview</h2>
       <div>
         <Button on:click={loadPreview}>Load Preview</Button>
       </div>
-      <div class="">
-        {#if previewEvent}
+      {#if previewEvent}
+        <div class="bg-white p-4 rounded-lg">
+          <p class="text-sm text-gray-600 mb-4">Preview of how your recipe card will look:</p>
           <FeedItem event={previewEvent} />
-        {/if}
-      </div>
+        </div>
+      {:else}
+        <p class="text-sm text-gray-500">Click "Load Preview" to see how your recipe will look</p>
+      {/if}
     </div>
   {/if}
 </form>

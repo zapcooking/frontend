@@ -11,6 +11,7 @@
   export let event: NDKEvent;
   export let replies: NDKEvent[] = [];
   export let refresh: () => void;
+  export let mainEventId: string;
 
   // Display state
   let displayName = '';
@@ -86,11 +87,12 @@
     const ev = new NDKEvent($ndk);
     ev.kind = 1;
     ev.content = replyText.trim();
+
+    // Tag the main event, this comment, and relevant people
     ev.tags = [
-      ['a', event.getMatchingTags('a')[0][1]],
+      ['e', mainEventId, '', 'root'],
       ['e', event.id, '', 'reply'],
-      ['p', event.pubkey],
-      ...event.getMatchingTags('e')
+      ['p', event.pubkey]
     ];
 
     await ev.publish();
@@ -101,77 +103,81 @@
   }
 
   // Filter direct replies to this comment
-  $: directReplies = replies.filter((e) =>
-    e.getMatchingTags('e').length === event.getMatchingTags('e').length + 1
-  );
+  $: directReplies = replies.filter((e) => {
+    const eTags = e.getMatchingTags('e');
+    // Find replies that reference this comment
+    return eTags.some(tag => tag[1] === event.id && tag[3] === 'reply');
+  });
 </script>
 
-<div class="flex gap-3 mb-4">
+<div class="flex gap-2 sm:gap-3">
   <!-- Avatar -->
   <a href="/user/{nip19.npubEncode(event.pubkey)}" class="flex-shrink-0">
-    <CustomAvatar className="rounded-full" pubkey={event.pubkey} size={40} />
+    <CustomAvatar className="rounded-full" pubkey={event.pubkey} size={32} />
   </a>
 
   <!-- Content -->
   <div class="flex-1 min-w-0">
     <!-- Name + Time -->
     <div class="flex items-center gap-2 mb-1">
-      <a href="/user/{nip19.npubEncode(event.pubkey)}" class="font-semibold text-base hover:underline">
+      <a href="/user/{nip19.npubEncode(event.pubkey)}" class="font-semibold text-sm hover:underline">
         {#if isLoading}
           <span class="animate-pulse">Loading...</span>
         {:else}
           {displayName}
         {/if}
       </a>
-      <span class="text-gray-500 text-sm">
+      <span class="text-gray-500 text-xs">
         {formatDate(new Date((event.created_at || 0) * 1000))}
       </span>
     </div>
 
     <!-- Comment Text -->
-    <p class="text-base text-gray-900 mb-2 break-words">
+    <p class="text-sm text-gray-900 mb-2 break-words">
       {event.content}
     </p>
 
     <!-- Actions -->
-    <div class="flex items-center gap-4 text-sm text-gray-600">
+    <div class="flex items-center gap-3 text-xs text-gray-600">
       <!-- Like Button -->
       <button
         on:click={toggleLike}
-        class="flex items-center gap-1 hover:text-red-500 transition"
+        class="flex items-center gap-1 transition"
         class:text-red-500={liked}
         class:text-black={!liked}
         disabled={!$userPublickey}
       >
-        <HeartIcon size={16} weight={liked ? 'fill' : 'regular'} />
+        <HeartIcon size={14} weight={liked ? 'fill' : 'regular'} />
         {#if !likesLoading && likeCount > 0}
           <span>{likeCount}</span>
         {/if}
       </button>
 
       <!-- Reply Button -->
-      <button
-        on:click={() => (showReplyBox = !showReplyBox)}
-        class="hover:text-primary transition font-medium"
-      >
-        {showReplyBox ? 'Cancel' : 'Reply'}
-      </button>
+      {#if $userPublickey}
+        <button
+          on:click={() => (showReplyBox = !showReplyBox)}
+          class="hover:text-primary transition font-medium"
+        >
+          {showReplyBox ? 'Cancel' : 'Reply'}
+        </button>
+      {/if}
     </div>
 
     <!-- Inline Reply Box -->
     {#if showReplyBox}
-      <div class="mt-3 space-y-2">
+      <div class="mt-2 space-y-2">
         <textarea
           bind:value={replyText}
           placeholder="Add a reply..."
-          class="w-full px-3 py-2 text-base border border-gray-300 rounded-lg resize-none focus:ring-2 focus:ring-primary focus:border-transparent"
-          rows="3"
+          class="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-lg resize-none focus:ring-2 focus:ring-primary focus:border-transparent"
+          rows="2"
         />
         <div class="flex gap-2">
           <button
             on:click={postReply}
             disabled={!replyText.trim() || postingReply}
-            class="px-4 py-2 bg-primary text-white rounded-lg font-medium hover:bg-opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
+            class="px-3 py-1.5 text-xs bg-primary text-white rounded-lg font-medium hover:bg-opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {postingReply ? 'Posting...' : 'Post'}
           </button>
@@ -180,7 +186,7 @@
               showReplyBox = false;
               replyText = '';
             }}
-            class="px-4 py-2 bg-gray-100 rounded-lg font-medium hover:bg-gray-200"
+            class="px-3 py-1.5 text-xs bg-gray-100 rounded-lg font-medium hover:bg-gray-200"
           >
             Cancel
           </button>
@@ -190,9 +196,9 @@
 
     <!-- Nested Replies -->
     {#if directReplies.length > 0}
-      <div class="mt-4 space-y-4 pl-4 border-l-2 border-gray-100">
+      <div class="mt-3 space-y-3 pl-3 border-l-2 border-gray-100">
         {#each directReplies as reply}
-          <svelte:self event={reply} {replies} {refresh} />
+          <svelte:self event={reply} {replies} {refresh} {mainEventId} />
         {/each}
       </div>
     {/if}

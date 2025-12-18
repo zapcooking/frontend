@@ -37,21 +37,22 @@
 
 <div class="mb-2">
   {#if $uploadedImages.length > 0}
-    <ul class="bg-white border border-gray-300 rounded-lg mt-1">
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
       {#each $uploadedImages as image, index}
-        <li class="flex items-center justify-between p-2 hover:bg-gray-100">
-          <div class="flex items-center">
-            <img class="rounded" src={image} alt="Uploaded" />
-          </div>
+        <div class="relative group">
+          <img class="rounded-lg w-full h-auto object-cover" src={image} alt="Uploaded" />
           <button
             type="button"
-            class="ml-2 px-3 py-[0.05rem] bg-red-500 hover:bg-red-600 text-white rounded"
+            class="absolute top-2 right-2 bg-red-500 hover:bg-red-600 text-white rounded-full p-2 shadow-lg transition-all duration-200 opacity-90 hover:opacity-100"
             on:click={() => removeImage(index)}
+            aria-label="Remove image"
           >
-            X
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+            </svg>
           </button>
-        </li>
+        </div>
       {/each}
-    </ul>
+    </div>
   {/if}
 </div>

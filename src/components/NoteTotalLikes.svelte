@@ -32,44 +32,65 @@
   })();
 
   async function likePost() {
-    if (liked) return;
-    
+    if (liked) {
+      console.log('Already liked this post');
+      return;
+    }
+
     // Check if user is authenticated
     if (!$userPublickey) {
       console.log('User not authenticated - redirecting to login');
       window.location.href = '/login';
       return;
     }
-    
+
     // Check if NDK has a signer
     if (!$ndk.signer) {
       console.log('No signer available - redirecting to login');
       window.location.href = '/login';
       return;
     }
-    
+
+    let reactionEvent: NDKEvent | null = null;
+
     try {
       console.log('Attempting to like post:', event.id);
-      
-      // Create a reaction event manually
-      const reactionEvent = new NDKEvent($ndk);
+
+      // Create a reaction event
+      reactionEvent = new NDKEvent($ndk);
       reactionEvent.kind = 7; // Reaction kind
       reactionEvent.content = '+'; // Reaction content
       reactionEvent.tags = [
         ['e', event.id, '', 'reply'], // Reference the original event
         ['p', event.author?.hexpubkey || event.pubkey] // Reference the original author
       ];
-      
+
+      // Sign the event first to get its ID
+      await reactionEvent.sign();
+      console.log('Reaction event signed:', reactionEvent.id);
+
+      // Add to processed events to prevent double-counting when subscription picks it up
+      if (reactionEvent.id) {
+        processedEvents.add(reactionEvent.id);
+      }
+
+      // Update UI immediately for better UX
+      liked = true;
+      totalLikeAmount++;
+
+      // Publish the reaction
       console.log('Publishing reaction:', reactionEvent);
       await reactionEvent.publish();
       console.log('Successfully liked post');
-      
-      // Update local state immediately for better UX (only liked, not count)
-      liked = true;
-      
+
     } catch (error) {
       console.error('Error liking post:', error);
-      // You could show a toast notification here
+      // Revert optimistic update on error
+      liked = false;
+      totalLikeAmount--;
+      if (reactionEvent?.id) {
+        processedEvents.delete(reactionEvent.id);
+      }
     }
   }
 </script>
@@ -81,10 +102,10 @@
   class:hover:opacity-75={!$userPublickey}
   title={!$userPublickey ? 'Login to like posts' : liked ? 'You liked this post' : 'Like this post'}
 >
-  <HeartIcon 
-    size={24} 
-    weight={liked ? 'fill' : 'regular'} 
-    class={liked ? 'text-red-500' : 'text-gray-500'}
+  <HeartIcon
+    size={24}
+    weight={liked ? 'fill' : 'regular'}
+    class={liked ? 'text-red-500' : 'text-black'}
   />
   {#if loading}...{:else}{totalLikeAmount}{/if}
 </button>

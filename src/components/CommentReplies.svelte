@@ -98,14 +98,14 @@
   <!-- Reply Button -->
   <button
     on:click={toggleReplies}
-    class="text-xs text-gray-500 hover:text-gray-700 cursor-pointer transition duration-300 print:hidden"
+    class="text-sm text-gray-600 hover:text-primary font-medium cursor-pointer transition duration-300 print:hidden"
   >
-    {showReplies ? 'Hide' : 'Reply'} {replyCount > 0 ? `(${replyCount})` : ''}
+    {showReplies ? 'Hide replies' : 'Reply'} {replyCount > 0 ? `(${replyCount})` : ''}
   </button>
 
   <!-- Replies Section -->
   {#if showReplies}
-    <div class="mt-2 ml-4 space-y-2 border-l border-gray-100 pl-3">
+    <div class="mt-3 space-y-3">
       <!-- Authentication Status -->
       {#if !$ndk.signer}
         <div class="text-xs text-amber-600 bg-amber-50 p-2 rounded">
@@ -132,14 +132,14 @@
           bind:value={replyText}
           placeholder={$ndk.signer ? "Add a reply..." : "Log in to reply..."}
           disabled={!$ndk.signer}
-          class="w-full p-2 text-xs border border-gray-200 rounded resize-none focus:ring-1 focus:ring-primary focus:border-transparent disabled:bg-gray-100 disabled:cursor-not-allowed"
-          rows="2"
+          class="w-full px-4 py-3 text-sm border border-gray-200 rounded-xl resize-none focus:ring-2 focus:ring-primary focus:border-transparent disabled:bg-gray-100 disabled:cursor-not-allowed transition duration-200"
+          rows="3"
         />
         <div class="flex justify-end">
-          <Button 
+          <Button
             on:click={postReply}
             disabled={!replyText.trim() || postingReply || !$ndk.signer}
-            class="px-3 py-1 text-xs"
+            class="px-4 py-2 text-sm"
           >
             {postingReply ? 'Posting...' : ($ndk.signer ? 'Post Reply' : 'Log in to reply')}
           </Button>
@@ -149,7 +149,7 @@
       <!-- Replies List -->
       <div class="space-y-2">
         {#if loading}
-          <div class="text-center py-2 text-xs text-gray-500 print:hidden">Loading replies...</div>
+          <div class="py-2 text-sm text-gray-500">Loading replies...</div>
         {:else if replies.length === 0}
           <div class="text-center py-2 text-xs text-gray-500">No replies yet</div>
         {:else}
@@ -161,15 +161,15 @@
                 size={24}
               />
               <div class="flex-1 min-w-0">
-                <div class="flex items-center gap-1 mb-1">
-                  <span class="font-medium text-xs text-gray-900">
+                <div class="flex items-center gap-2 mb-1">
+                  <span class="font-semibold text-sm text-gray-900">
                     <CustomName pubkey={reply.pubkey} />
                   </span>
                   <span class="text-xs text-gray-500">
                     {formatDate(new Date((reply.created_at || 0) * 1000))}
                   </span>
                 </div>
-                <p class="text-xs text-gray-700 leading-relaxed mb-1">
+                <p class="text-sm text-gray-700 leading-relaxed mb-2">
                   {reply.content}
                 </p>
                 <!-- Reply Actions -->

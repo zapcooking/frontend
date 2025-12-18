@@ -109,7 +109,7 @@
   $: og_meta = {
     title: fullMetaTitle,
     description: event ? event.content.slice(0, 200) + '...' : 'Click to view on zap.cooking',
-    image: event ? event.tags.find((tag) => tag[0] === 'image')?.[1] || '' : ''
+    image: event ? event.tags.find((tag) => tag[0] === 'image')?.[1] || 'https://zap.cooking/social-share.png' : 'https://zap.cooking/social-share.png'
   };
 </script>
 

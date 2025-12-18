@@ -1,16 +1,12 @@
 <script lang="ts">
   import { page } from '$app/stores';
-  import { ndk, userPublickey } from '$lib/nostr';
-  import type { NDKEvent, NDKFilter, NDKUser, NDKUserProfile, NDKSubscription } from '@nostr-dev-kit/ndk';
-  import { nip19 } from 'nostr-tools';
-  import { goto } from '$app/navigation';
-  import { formatDate } from '$lib/utils';
+  import { ndk } from '$lib/nostr';
+  import type { NDKEvent, NDKFilter, NDKSubscription } from '@nostr-dev-kit/ndk';
   import Feed from './Feed.svelte';
   import { onDestroy } from 'svelte';
 
   export let hexpubkey: string | undefined = undefined;
   let events: NDKEvent[] = [];
-  let user: NDKUserProfile;
   let loaded = false;
   let subscription: NDKSubscription | null = null;
 
@@ -27,13 +23,11 @@
       subscription = null;
     }
 
-    if (hexpubkey) {
-      // load user
-      const u = await $ndk.getUser({ hexpubkey: hexpubkey }).fetchProfile();
-      if (u) {
-        user = u;
-      }
+    // Reset state
+    events = [];
+    loaded = false;
 
+    if (hexpubkey) {
       // load feed
       let filter: NDKFilter = {
         authors: [hexpubkey],
@@ -41,9 +35,9 @@
         kinds: [30001],
         '#t': ['nostrcooking']
       };
-      
+
       subscription = $ndk.subscribe(filter);
-      
+
       if (subscription) {
         subscription.on('event', (event) => {
           events.push(event);
@@ -65,4 +59,4 @@
   });
 </script>
 
-<Feed lists={true} {events} />
+<Feed lists={true} {events} {loaded} />

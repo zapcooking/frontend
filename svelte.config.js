@@ -1,4 +1,4 @@
-import adapter from '@sveltejs/adapter-static';
+import adapter from '@sveltejs/adapter-vercel';
 import { vitePreprocess } from '@sveltejs/vite-plugin-svelte';
 
 /** @type {import('@sveltejs/kit').Config} */
@@ -7,11 +7,9 @@ const config = {
 
   kit: {
     adapter: adapter({
-      pages: 'build',
-      assets: 'build',
-      fallback: 'index.html',
-      precompress: false,
-      strict: false
+      // Explicitly set runtime to nodejs20.x for Vercel compatibility
+      // (Capacitor needs Node 22+ locally, but Vercel adapter only supports up to Node 20)
+      runtime: 'nodejs20.x'
     })
   }
 };

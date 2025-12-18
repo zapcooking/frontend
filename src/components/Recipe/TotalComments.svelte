@@ -30,18 +30,25 @@
 }
 </script>
 
-<button 
+<button
   class="flex gap-1.5 hover:bg-input rounded px-0.5 transition duration-300 cursor-pointer self-center"
   on:click={() => {
-    // Find the InlineComments component for this recipe and trigger toggleComments
-    const inlineCommentsComponent = document.querySelector(`[data-event-id="${event.id}"]`)?.closest('.inline-comments');
-    if (inlineCommentsComponent) {
-      // Dispatch a custom event to trigger the toggleComments function
-      inlineCommentsComponent.dispatchEvent(new CustomEvent('toggleComments'));
+    // Scroll to comments section
+    const commentsSection = document.getElementById('comments-section');
+    if (commentsSection) {
+      commentsSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+      // Auto-focus the comment input after scroll completes
+      setTimeout(() => {
+        const commentInput = document.getElementById('comment-input');
+        if (commentInput) {
+          commentInput.focus();
+        }
+      }, 500); // Wait for smooth scroll to complete
     }
   }}
   title="View comments"
 >
-  <CommentIcon size={24} />
+  <CommentIcon size={24} class="text-black" />
   {#if loading}...{:else}{totalCommentAmount}{/if}
 </button>
