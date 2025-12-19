@@ -165,10 +165,9 @@
         
         const profileContent: any = {};
         
-        // Add display name if provided
+        // Add name if provided
         if (profileName) {
           profileContent.name = profileName;
-          profileContent.display_name = profileName;
         }
         
         // Add bio if provided
