@@ -287,16 +287,6 @@
           />
         {/each}
 
-        <!-- View All Tags Link -->
-        <div class="pt-4 border-t">
-          <a
-            href="/explore/all"
-            class="inline-flex items-center gap-2 text-primary hover:underline font-medium"
-          >
-            <span>View all tags</span>
-            <span>→</span>
-          </a>
-        </div>
       </div>
     </div>
 </div>

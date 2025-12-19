@@ -65,6 +65,10 @@
         <div class="w-full mt-6 pb-24">
           <slot />
         </div>
+        <!-- Mobile-only footer with Why link (at bottom of content, not fixed) -->
+        <footer class="lg:hidden text-center py-6 mb-16 print:hidden">
+          <a href="/why" class="text-gray-400 hover:text-gray-600 text-sm transition duration-300">Why</a>
+        </footer>
         <BottomNav />
       </div>
     </div>
