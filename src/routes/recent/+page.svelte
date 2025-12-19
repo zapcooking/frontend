@@ -56,6 +56,14 @@ onMount(() => {
 </svelte:head>
 
 <div class="flex flex-col gap-3 md:gap-10 max-w-full md:max-w-none">
+  <!-- Orientation text for signed-out users -->
+  {#if $userPublickey === ''}
+    <div class="pt-1 px-4 md:px-0">
+      <p class="text-sm text-gray-400">All recipes, shared openly.</p>
+      <p class="text-xs text-gray-300 mt-0.5">Browse everything without rankings or algorithms.</p>
+    </div>
+  {/if}
+
   <div class="flex flex-col gap-2">
     <div><Feed {events} hideHide={true} /></div>
   </div>
