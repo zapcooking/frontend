@@ -59,7 +59,7 @@
         setTimeout(() => {
           isComposerOpen = false;
           success = false;
-        }, 1500);
+        }, 2500);
       } else {
         error = 'Failed to publish';
       }
