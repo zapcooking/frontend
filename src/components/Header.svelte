@@ -114,14 +114,15 @@
       <span class="hidden sm:inline">Create</span>
     </button>
     
-    <!-- Zap Us - Demoted to small icon -->
+    <!-- Zap Us - Accessible with visible label on larger screens -->
     <button 
       on:click={() => supportModalOpen = true} 
-      class="w-9 h-9 flex items-center justify-center text-amber-500 hover:text-amber-600 hover:bg-amber-50 rounded-full transition-colors cursor-pointer"
+      class="flex items-center gap-2 px-3 py-2 text-amber-500 hover:text-amber-600 hover:bg-amber-50 rounded-full transition-colors cursor-pointer text-sm"
       aria-label="Support Zap Cooking"
       title="Support Zap Cooking"
     >
       <LightningIcon size={20} weight="fill" />
+      <span class="hidden sm:inline">Zap Us</span>
     </button>
     
     <!-- Sign in / User menu -->
