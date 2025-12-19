@@ -789,8 +789,8 @@
   function deduplicateText(text: string): string {
     if (!text || text.length < 20) return text;
     
-    // Split into sentences/segments
-    const segments = text.split(/(?<=[.!?\n])\s*/);
+    // Split into sentences/segments: only after punctuation followed by whitespace or end of string
+    const segments = text.split(/(?<=[.!?\n])(?:\s+|$)/);
     if (segments.length < 2) return text;
     
     // Check for exact duplicate consecutive segments
