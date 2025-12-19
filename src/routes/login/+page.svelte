@@ -283,11 +283,13 @@
       const uploadUrl = 'https://nostr.build/api/v2/upload/files';
       const authEvent = new NDKEvent($ndk);
       authEvent.kind = 27235;
-      authEvent.created_at = Math.floor(Date.now() / 1000);
+      const now = Math.floor(Date.now() / 1000);
+      authEvent.created_at = now;
       authEvent.content = '';
       authEvent.tags = [
         ['u', uploadUrl],
-        ['method', 'POST']
+        ['method', 'POST'],
+        ['expiration', String(now + 60)]
       ];
       
       // Sign with the generated keys
