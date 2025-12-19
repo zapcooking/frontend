@@ -88,7 +88,7 @@
 
   <div class="hidden sm:max-lg:flex xl:flex flex-1 self-center print:hidden max-w-md">
     <TagsSearchAutocomplete
-      placeholderString={"Search tags or recipes..."}
+      placeholderString={"Search by tag, like 'italian', 'steak' or 'glutenfree'."}
       action={openTag}
     />
   </div>
