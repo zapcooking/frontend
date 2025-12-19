@@ -189,7 +189,6 @@
       
       if (user?.profile?.image) {
         imageCandidates = buildImageCandidates(user.profile.image);
-        console.debug('[avatar] candidates', pubkey.slice(0, 8), imageCandidates);
         if (imageCandidates.length > 0) {
           currentCandidateIndex = 0;
           profilePicture = imageCandidates[0];
