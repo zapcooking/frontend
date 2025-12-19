@@ -58,8 +58,6 @@
     fetchDiscoverRecipes(12).then((discoverData) => {
       discoverRecipes = discoverData;
       loadingDiscover = false;
-      // Debug log: verify early resolve timing
-      console.log(`[explore:debug] fetchDiscoverRecipes resolved with ${discoverData.length} recipes at ${new Date().toISOString()}`);
     });
 
     // Load popular tags (non-blocking)
