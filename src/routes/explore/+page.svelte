@@ -11,9 +11,9 @@
   import TrendingRecipeCard from '../../components/TrendingRecipeCard.svelte';
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
   import { nip19 } from 'nostr-tools';
-import { init, markOnce } from '$lib/perf/explorePerf';
-import { userPublickey } from '$lib/nostr';
-import type { PageData } from './$types';
+  import { init, markOnce } from '$lib/perf/explorePerf';
+  import { userPublickey } from '$lib/nostr';
+  import type { PageData } from './$types';
 
   // Accept SvelteKit props to prevent warnings
   export let data: PageData;
