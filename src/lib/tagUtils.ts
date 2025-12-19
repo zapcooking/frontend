@@ -2,6 +2,7 @@ import { recipeTags, type recipeTagSimple, TAG_ALIASES } from './consts';
 import { ndk } from './nostr';
 import { get } from 'svelte/store';
 import type { NDKFilter } from '@nostr-dev-kit/ndk';
+import { markOnce } from './perf/explorePerf';
 
 /**
  * Normalize a tag name using aliases
@@ -66,13 +67,17 @@ export async function computePopularTags(limit: number = 8): Promise<TagWithCoun
     let eventCount = 0;
 
     return new Promise((resolve) => {
-      const subscription = ndkInstance.subscribe(filter);
+      const subscription = ndkInstance.subscribe(filter, { closeOnEose: true });
       const timeout = setTimeout(() => {
         subscription.stop();
         resolve(getPopularTagsFromCounts(tagCounts, defaultPopular, limit));
       }, 5000); // 5 second timeout
 
       subscription.on('event', (event) => {
+        // t3_explore_first_live_event_received: When the Explore page receives the first Nostr event
+        if (eventCount === 0) {
+          markOnce('t3_explore_first_live_event_received');
+        }
         eventCount++;
         // Extract tags from the event
         const tags = event.tags.filter((t) => 

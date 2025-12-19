@@ -10,8 +10,9 @@
   import ErrorBoundary from '../components/ErrorBoundary.svelte';
   import OfflineIndicator from '../components/OfflineIndicator.svelte';
 
-  // Accept any props to prevent warnings (external reference only)
-  export const data: LayoutData = {} as LayoutData;
+  // Accept props from SvelteKit to prevent warnings
+  export let data: LayoutData = {} as LayoutData;
+  export let params: Record<string, string> = {};
 
   let authManager: any = null;
   let authState: AuthState = {

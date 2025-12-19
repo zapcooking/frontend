@@ -1,6 +1,8 @@
+import type NDK from '@nostr-dev-kit/ndk';
 import type { NDKUser } from '@nostr-dev-kit/ndk';
 import { writable } from 'svelte/store';
 import { performanceMonitor } from './performanceMonitor';
+import { ndkReady, getNdkInstance, isNdkReady } from './nostr';
 
 interface ProfileCacheEntry {
   user: NDKUser;
@@ -65,8 +67,12 @@ export class ProfileCacheManager {
     profileCache.set(newCache);
   }
 
-  async getProfile(pubkey: string, ndk: any): Promise<NDKUser | null> {
-    if (!pubkey || !ndk) return null;
+  /**
+   * Get a profile, waiting for NDK to be ready if needed.
+   * Can be called without passing NDK - will use the global instance.
+   */
+  async getProfile(pubkey: string, ndk?: NDK): Promise<NDKUser | null> {
+    if (!pubkey) return null;
 
     // Check if we already have a valid cached entry
     const cached = this.cache[pubkey];
@@ -92,34 +98,45 @@ export class ProfileCacheManager {
     }
   }
 
-  private async fetchProfile(pubkey: string, ndk: any): Promise<NDKUser | null> {
+  private async fetchProfile(pubkey: string, ndkParam?: NDK): Promise<NDKUser | null> {
     performanceMonitor.recordProfileCacheMiss();
     const startTime = Date.now();
     
     try {
-      const user = await ndk.getUser({ hexpubkey: pubkey });
-      if (user) {
-        await user.fetchProfile();
-        
-        // Cache the result
-        const entry: ProfileCacheEntry = {
-          user,
-          profile: user.profile,
-          timestamp: Date.now(),
-          expiresAt: Date.now() + CACHE_DURATION
-        };
-
-        profileCache.update(cache => {
-          cache[pubkey] = entry;
-          return cache;
-        });
-
-        // Cleanup old entries
-        this.cleanup();
-
-        performanceMonitor.recordProfileFetch(startTime);
-        return user;
+      // Wait for NDK to be ready before attempting fetch
+      await ndkReady;
+      
+      // Get NDK instance - use passed instance or get global
+      const ndk = ndkParam || getNdkInstance();
+      
+      if (!ndk) {
+        console.warn('[profileCache] NDK not available for profile fetch');
+        return null;
       }
+      
+      // Use ndk.getUser() to properly bind user to NDK instance
+      const user = ndk.getUser({ pubkey });
+      
+      await user.fetchProfile();
+        
+      // Cache the result
+      const entry: ProfileCacheEntry = {
+        user,
+        profile: user.profile,
+        timestamp: Date.now(),
+        expiresAt: Date.now() + CACHE_DURATION
+      };
+
+      profileCache.update(cache => {
+        cache[pubkey] = entry;
+        return cache;
+      });
+
+      // Cleanup old entries
+      this.cleanup();
+
+      performanceMonitor.recordProfileFetch(startTime);
+      return user;
     } catch (error) {
       console.warn('Failed to fetch profile for', pubkey, error);
       performanceMonitor.recordProfileFetch(startTime);
