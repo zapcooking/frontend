@@ -16,7 +16,6 @@
 
   // Accept SvelteKit props to prevent warnings
   export let data: PageData;
-  export let params: Record<string, string> = {};
 
   // t0_explore_nav_start: Earliest point for the Explore route
   init();
