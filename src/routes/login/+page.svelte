@@ -273,11 +273,11 @@
       
       const { NDKEvent, NDKPrivateKeySigner } = await import('@nostr-dev-kit/ndk');
       
-      // Create a signer from the generated private key
-      const privateKeyHex = Array.from(generatedKeys.privateKey)
-        .map(b => b.toString(16).padStart(2, '0'))
-        .join('');
+      // Create a signer from the previously converted private key hex
       const signer = new NDKPrivateKeySigner(privateKeyHex);
+      
+      
+      
       
       // Create NIP-98 auth event
       const uploadUrl = 'https://nostr.build/api/v2/upload/files';
