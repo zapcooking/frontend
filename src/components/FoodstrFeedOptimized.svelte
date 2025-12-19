@@ -22,6 +22,21 @@
   import CheckIcon from 'phosphor-svelte/lib/Check';
   import ChatCircleIcon from 'phosphor-svelte/lib/ChatCircle';
 
+  // Optional prop to filter by specific author (for user profile pages)
+  export let authorPubkey: string | undefined = undefined;
+  
+  // Props for profile page view
+  export let hideAvatar: boolean = false;
+  export let hideAuthorName: boolean = false;
+
+  // Expanded food-related hashtags for curated content
+  const FOOD_HASHTAGS = [
+    'foodstr', 'cook', 'cookstr', 'zapcooking', 'cooking', 'drinkstr', 'foodies', 'carnivor', 'carnivorediet',
+    'soup', 'soupstr', 'drink', 'eat', 'burger', 'steak', 'steakstr', 'dine', 'dinner', 'lunch', 
+    'breakfast', 'supper', 'yum', 'snack', 'snackstr', 'dessert', 'beef', 'chicken', 'bbq', 
+    'coffee', 'mealprep', 'meal', 'recipe', 'recipestr', 'recipes'
+  ];
+
   // State management
   let events: NDKEvent[] = [];
   let loading = true;
@@ -324,12 +339,17 @@
 
   async function loadFoodstrFeed(useCache = true) {
     try {
-      const filter = {
+      const filter: any = {
         kinds: [1],
-        '#t': ['foodstr', 'cook', 'cookstr', 'zapcooking', 'cooking', 'drinkstr', 'foodies', 'carnivor', 'carnivorediet'],
+        '#t': FOOD_HASHTAGS,
         limit: 20, // Reduced initial limit for faster loading
         since: Math.floor(Date.now() / 1000) - (3 * 24 * 60 * 60) // Reduced to 3 days for faster loading
       };
+      
+      // Filter by author if provided (for user profile pages)
+      if (authorPubkey) {
+        filter.authors = [authorPubkey];
+      }
 
       // Try to load from cache first (simplified for now)
       if (useCache && await loadCachedEvents()) {
@@ -467,11 +487,16 @@
     
     console.log('🔄 Starting real-time subscription...');
     
-    const subscriptionFilter = {
+    const subscriptionFilter: any = {
       kinds: [1],
-      '#t': ['foodstr', 'cook', 'cookstr', 'zapcooking', 'cooking', 'drinkstr', 'foodies', 'carnivor', 'carnivorediet'],
+      '#t': FOOD_HASHTAGS,
       since: lastEventTime + 1 // Only get events newer than what we have
     };
+    
+    // Filter by author if provided (for user profile pages)
+    if (authorPubkey) {
+      subscriptionFilter.authors = [authorPubkey];
+    }
     
     subscription = subscriptionManager.subscribe({
       id: 'foodstr-feed-realtime',
@@ -503,12 +528,17 @@
     try {
       console.log('🔄 Fetching fresh data in background...');
       
-      const filter = {
+      const filter: any = {
         kinds: [1],
-        '#t': ['foodstr', 'cook', 'cookstr', 'zapcooking', 'cooking', 'drinkstr', 'foodies', 'carnivor', 'carnivorediet'],
+        '#t': FOOD_HASHTAGS,
         limit: 50,
         since: Math.floor(Date.now() / 1000) - (7 * 24 * 60 * 60)
       };
+      
+      // Filter by author if provided (for user profile pages)
+      if (authorPubkey) {
+        filter.authors = [authorPubkey];
+      }
       
       const subscription = $ndk.subscribe(filter, { closeOnEose: false });
       const fetchedEvents: NDKEvent[] = [];
@@ -600,12 +630,17 @@
         return;
       }
       
-      const filter = {
+      const filter: any = {
         kinds: [1],
-        '#t': ['foodstr', 'cook', 'cookstr', 'zapcooking', 'cooking', 'drinkstr', 'foodies', 'carnivor', 'carnivorediet'],
+        '#t': FOOD_HASHTAGS,
         until: oldestEvent.created_at - 1,
         limit: 20
       };
+      
+      // Filter by author if provided (for user profile pages)
+      if (authorPubkey) {
+        filter.authors = [authorPubkey];
+      }
 
       const subscription = $ndk.subscribe(filter, { closeOnEose: false });
       const newEvents: NDKEvent[] = [];
@@ -931,21 +966,25 @@
       {#each events as event (event.id)}
         <article class="border-b border-gray-200 py-4 sm:py-6 first:pt-0">
           <div class="flex space-x-3 px-2 sm:px-0">
-            <!-- Avatar -->
-            <a href="/user/{nip19.npubEncode(event.author.hexpubkey || event.pubkey)}" class="flex-shrink-0">
-              <CustomAvatar
-                className="cursor-pointer"
-                pubkey={event.author.hexpubkey}
-                size={40}
-              />
-            </a>
+            <!-- Avatar (hidden on profile pages) -->
+            {#if !hideAvatar}
+              <a href="/user/{nip19.npubEncode(event.author.hexpubkey || event.pubkey)}" class="flex-shrink-0">
+                <CustomAvatar
+                  className="cursor-pointer"
+                  pubkey={event.author.hexpubkey}
+                  size={40}
+                />
+              </a>
+            {/if}
 
             <!-- Content -->
             <div class="flex-1 min-w-0">
-              <!-- Header -->
+              <!-- Header (simplified on profile pages) -->
               <div class="flex items-center space-x-2 mb-2">
-                <AuthorName {event} />
-                <span class="text-gray-500 text-sm">·</span>
+                {#if !hideAuthorName}
+                  <AuthorName {event} />
+                  <span class="text-gray-500 text-sm">·</span>
+                {/if}
                 <span class="text-gray-500 text-sm">
                   {event.created_at ? formatTimeAgo(event.created_at) : 'Unknown time'}
                 </span>

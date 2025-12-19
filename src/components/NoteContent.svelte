@@ -10,51 +10,100 @@
   export let content: string;
   export let className: string = '';
 
-  // Parse content and create clickable links for URLs and nostr references
+  // Parse content and create clickable links for URLs, hashtags, and nostr references
   function parseContent(text: string) {
-    // Regex to find URLs and nostr references
     const urlRegex = /(https?:\/\/[^\s]+)|nostr:(nevent1|note1|npub1|nprofile1)([023456789acdefghjklmnpqrstuvwxyz]+)/g;
+    const hashtagRegex = /#[\w]+/g;
     
     const parts = [];
     let lastIndex = 0;
     let match;
     let keyCounter = 0;
-
+    
+    // First find URLs and nostr references
+    const urlMatches: Array<{index: number, content: string, type: 'url' | 'nostr', url?: string, prefix?: string, data?: string}> = [];
+    urlRegex.lastIndex = 0;
     while ((match = urlRegex.exec(text)) !== null) {
       const [fullMatch, url, nostrPrefix, nostrData] = match;
-      const index = match.index;
-
+      if (url) {
+        urlMatches.push({
+          index: match.index,
+          content: fullMatch,
+          type: 'url',
+          url: url
+        });
+      } else if (nostrPrefix && nostrData) {
+        urlMatches.push({
+          index: match.index,
+          content: fullMatch,
+          type: 'nostr',
+          prefix: nostrPrefix,
+          data: nostrData
+        });
+      }
+    }
+    
+    // Helper to check if index is inside a URL/nostr reference
+    function isInUrl(index: number): boolean {
+      return urlMatches.some(m => index >= m.index && index < m.index + m.content.length);
+    }
+    
+    // Find all hashtags (excluding those inside URLs)
+    const hashtagMatches: Array<{index: number, content: string}> = [];
+    hashtagRegex.lastIndex = 0;
+    while ((match = hashtagRegex.exec(text)) !== null) {
+      // Only include hashtag if it's not inside a URL
+      if (!isInUrl(match.index)) {
+        hashtagMatches.push({
+          index: match.index,
+          content: match[0]
+        });
+      }
+    }
+    
+    // Combine and sort all matches by index
+    const allMatches = [
+      ...hashtagMatches.map(m => ({...m, type: 'hashtag' as const})),
+      ...urlMatches
+    ].sort((a, b) => a.index - b.index);
+    
+    // Process matches in order
+    for (const match of allMatches) {
       // Add text before this match
-      if (index > lastIndex) {
+      if (match.index > lastIndex) {
         parts.push({
           type: 'text',
-          content: text.substring(lastIndex, index),
+          content: text.substring(lastIndex, match.index),
           key: `text-${keyCounter++}`
         });
       }
-
-      if (url) {
-        // Add the URL as a clickable link
+      
+      if (match.type === 'hashtag') {
+        parts.push({
+          type: 'hashtag',
+          content: match.content,
+          key: `hashtag-${keyCounter++}`
+        });
+      } else if (match.type === 'url') {
         parts.push({
           type: 'url',
-          content: fullMatch,
-          url: url,
+          content: match.content,
+          url: match.url,
           key: `url-${keyCounter++}`
         });
-      } else if (nostrPrefix && nostrData) {
-        // Add the nostr reference as a clickable link
+      } else if (match.type === 'nostr') {
         parts.push({
           type: 'nostr',
-          content: fullMatch,
-          prefix: nostrPrefix,
-          data: nostrData,
+          content: match.content,
+          prefix: match.prefix,
+          data: match.data,
           key: `nostr-${keyCounter++}`
         });
       }
-
-      lastIndex = index + fullMatch.length;
+      
+      lastIndex = match.index + match.content.length;
     }
-
+    
     // Add any remaining text
     if (lastIndex < text.length) {
       parts.push({
@@ -63,8 +112,23 @@
         key: `text-${keyCounter++}`
       });
     }
+    
+    // If no matches, return the whole text as a single part
+    if (parts.length === 0) {
+      parts.push({
+        type: 'text',
+        content: text,
+        key: `text-${keyCounter++}`
+      });
+    }
 
     return parts;
+  }
+  
+  function handleHashtagClick(hashtag: string) {
+    // Navigate to tag page (remove #)
+    const tag = hashtag.slice(1);
+    goto(`/tag/${tag}`);
   }
 
   function handleNostrClick(nostrId: string) {
@@ -84,6 +148,13 @@
   {#each parsedContent as part}
     {#if part.type === 'text'}
       {part.content}
+    {:else if part.type === 'hashtag'}
+      <button
+        class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-orange-50 text-orange-600 hover:bg-orange-500 hover:text-white transition-colors cursor-pointer"
+        on:click={() => handleHashtagClick(part.content)}
+      >
+        {part.content}
+      </button>
     {:else if part.type === 'url'}
       <a
         href={part.url}
