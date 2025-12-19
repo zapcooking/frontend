@@ -20,6 +20,7 @@
   import { nip19 } from 'nostr-tools';
   import CopyIcon from 'phosphor-svelte/lib/Copy';
   import CheckIcon from 'phosphor-svelte/lib/Check';
+  import ChatCircleIcon from 'phosphor-svelte/lib/ChatCircle';
 
   // State management
   let events: NDKEvent[] = [];
@@ -770,13 +771,60 @@
   function getContentWithoutMedia(content: string): string {
     // Remove image and video URLs from content to avoid duplication
     const urlRegex = /(https?:\/\/[^\s]+)/g;
-    return content.replace(urlRegex, (url) => {
+    let cleaned = content.replace(urlRegex, (url) => {
       // Only remove URLs that are images or videos
       if (isImageUrl(url) || isVideoUrl(url)) {
         return '';
       }
       return url; // Keep other URLs (like marketplace links)
     }).replace(/\s+/g, ' ').trim(); // Clean up extra spaces
+    
+    // Deduplicate repeated text segments
+    cleaned = deduplicateText(cleaned);
+    
+    return cleaned;
+  }
+
+  // Detect and remove back-to-back repeated text segments
+  function deduplicateText(text: string): string {
+    if (!text || text.length < 20) return text;
+    
+    // Split into sentences/segments
+    const segments = text.split(/(?<=[.!?\n])\s*/);
+    if (segments.length < 2) return text;
+    
+    // Check for exact duplicate consecutive segments
+    const deduplicated: string[] = [];
+    for (let i = 0; i < segments.length; i++) {
+      const current = segments[i].trim();
+      const prev = deduplicated[deduplicated.length - 1]?.trim();
+      
+      // Skip if exact duplicate of previous segment
+      if (current && current !== prev) {
+        deduplicated.push(segments[i]);
+      }
+    }
+    
+    // Also check if entire text is repeated (first half equals second half)
+    const result = deduplicated.join(' ').trim();
+    const halfLen = Math.floor(result.length / 2);
+    if (halfLen > 20) {
+      const firstHalf = result.substring(0, halfLen).trim();
+      const secondHalf = result.substring(halfLen).trim();
+      if (firstHalf === secondHalf) {
+        return firstHalf;
+      }
+    }
+    
+    return result;
+  }
+
+  // Track expanded state for each post
+  let expandedPosts: { [eventId: string]: boolean } = {};
+  
+  function toggleExpanded(eventId: string) {
+    expandedPosts[eventId] = !expandedPosts[eventId];
+    expandedPosts = { ...expandedPosts }; // Trigger reactivity
   }
 
   // Simple image optimization (no memoization for now)
@@ -904,9 +952,25 @@
               </div>
 
               <!-- Content -->
-              <div class="text-sm leading-relaxed mb-3 text-gray-900">
-                <NoteContent content={getContentWithoutMedia(event.content)} />
-              </div>
+              {#if getContentWithoutMedia(event.content)}
+                {@const cleanContent = getContentWithoutMedia(event.content)}
+                <div class="text-sm leading-relaxed mb-3 text-gray-900">
+                  <div 
+                    class="overflow-hidden transition-all duration-200"
+                    class:line-clamp-3={!expandedPosts[event.id]}
+                  >
+                    <NoteContent content={cleanContent} />
+                  </div>
+                  {#if cleanContent.length > 100}
+                    <button 
+                      on:click={() => toggleExpanded(event.id)}
+                      class="text-gray-500 hover:text-gray-700 text-xs mt-1 transition-colors"
+                    >
+                      {expandedPosts[event.id] ? 'Show less' : 'Read more'}
+                    </button>
+                  {/if}
+                </div>
+              {/if}
 
               <!-- Images with optimized loading -->
               {#if getImageUrls(event).length > 0}
@@ -1003,35 +1067,46 @@
                 </div>
               {/if}
 
-              <!-- Actions: Likes, Comments, Zaps, Copy -->
-              <div class="space-y-2">
-                <div class="flex items-center justify-between px-2 sm:px-0">
-                  <div class="flex items-center space-x-3 sm:space-x-4 text-sm text-gray-500">
+              <!-- Actions Row -->
+              <div class="flex items-center justify-between px-2 sm:px-0 py-1">
+                <div class="flex items-center space-x-1">
+                  <!-- Like -->
+                  <div class="hover:bg-gray-100 rounded-full p-1.5 transition-colors">
                     <NoteTotalLikes {event} />
-                    <NoteTotalComments {event} />
-                    <button
-                      class="cursor-pointer hover:bg-input rounded px-0.5 transition duration-300"
-                      on:click={() => openZapModal(event)}
-                    >
-                      <NoteTotalZaps {event} />
-                    </button>
                   </div>
-
-                  <!-- Copy Note ID Button -->
+                  
+                  <!-- Reply/Comment -->
+                  <div class="hover:bg-gray-100 rounded-full p-1.5 transition-colors">
+                    <NoteTotalComments {event} />
+                  </div>
+                  
+                  <!-- Zap -->
                   <button
-                    class="flex items-center gap-1 text-black hover:text-gray-800 transition p-1 rounded hover:bg-gray-100"
+                    class="flex items-center hover:bg-amber-50 rounded-full p-1.5 transition-colors cursor-pointer"
+                    on:click={() => openZapModal(event)}
+                  >
+                    <NoteTotalZaps {event} />
+                  </button>
+                </div>
+
+                <div class="flex items-center space-x-1">
+                  <!-- Copy Note ID -->
+                  <button
+                    class="flex items-center text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-full p-1.5 transition-colors"
                     on:click={() => copyNoteId(event)}
                     title="Copy note ID"
                   >
                     {#if copiedNoteId === event.id}
-                      <CheckIcon size={16} weight="bold" />
+                      <CheckIcon size={16} weight="bold" class="text-green-500" />
                     {:else}
                       <CopyIcon size={16} />
                     {/if}
                   </button>
                 </div>
+              </div>
 
-                <!-- Pinterest-style Comments -->
+              <!-- Comments Section -->
+              <div class="px-2 sm:px-0">
                 <FeedComments {event} />
               </div>
             </div>
@@ -1136,3 +1211,14 @@
     </div>
   </div>
 {/if}
+
+<style>
+  /* Line clamping for feed post content */
+  .line-clamp-3 {
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+</style>

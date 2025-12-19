@@ -11,8 +11,9 @@
   import TrendingRecipeCard from '../../components/TrendingRecipeCard.svelte';
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
   import { nip19 } from 'nostr-tools';
-  import { init, markOnce } from '$lib/perf/explorePerf';
-  import type { PageData } from './$types';
+import { init, markOnce } from '$lib/perf/explorePerf';
+import { userPublickey } from '$lib/nostr';
+import type { PageData } from './$types';
 
   // Accept SvelteKit props to prevent warnings
   export let data: PageData;
@@ -133,6 +134,14 @@
 </svelte:head>
 
 <div class="flex flex-col">
+  <!-- Orientation text for signed-out users -->
+  {#if $userPublickey === ''}
+    <div class="mb-4 pt-1">
+      <p class="text-sm text-gray-400">Curated recipes and popular cooks.</p>
+      <p class="text-xs text-gray-300 mt-0.5">A starting point for discovering people and ideas.</p>
+    </div>
+  {/if}
+
   <!-- Explore Content -->
   <div class="flex flex-col gap-8">
       <!-- Top Collections -->

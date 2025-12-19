@@ -12,9 +12,9 @@
     <MagnifyingIcon class="self-center" size={24} />
     Recipes
   </a>
-  <a href="/feed" class="flex flex-col">
+  <a href="/community" class="flex flex-col">
     <UtensilsIcon class="self-center" size={24} />
-    Feed
+    Community
   </a>
   <a href="/explore" class="flex flex-col">
     <LightningIcon class="self-center" size={24} />

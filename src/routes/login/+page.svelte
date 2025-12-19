@@ -30,11 +30,19 @@
   let seedError = '';
   let generatedKeys: { privateKey: Uint8Array; publicKey: string; seedPhrase: string } | null = null;
   let newAccountUsername = '';
+  let newAccountBio = '';
+  let newAccountPicture = '';
+  let uploadingPicture = false;
+  let pictureUploadError = '';
   
   // Modal states
   let nsecModal = false;
   let seedModal = false;
   let generateModal = false;
+  let showPrivateKey = false;
+  
+  // File input reference
+  let fileInput: HTMLInputElement;
 
   // Animation states
   let isHovered = false;
@@ -128,42 +136,66 @@
     generatedKeys = authManager.generateKeyPair();
   }
 
-  async function useGeneratedKeys() {
+  async function useGeneratedKeys(skipProfile = false) {
     if (!generatedKeys || !authManager) return;
+    
+    // Capture profile data before any state changes
+    const profileName = newAccountUsername.trim();
+    const profileBio = newAccountBio.trim();
+    const profilePicture = newAccountPicture;
     
     try {
       // Convert Uint8Array to hex string for authentication
       const privateKeyHex = Array.from(generatedKeys.privateKey)
         .map(b => b.toString(16).padStart(2, '0'))
         .join('');
+      
       await authManager.authenticateWithPrivateKey(privateKeyHex);
       
-      // Create profile with username if provided
-      if (newAccountUsername.trim()) {
+      // Create profile if any profile data is provided (and not skipping)
+      const hasProfileData = !skipProfile && (profileName || profileBio || profilePicture);
+      
+      if (hasProfileData) {
+        console.log('[Profile] Publishing kind-0 metadata...');
+        
         const { NDKEvent } = await import('@nostr-dev-kit/ndk');
         const metaEvent = new NDKEvent($ndk);
         metaEvent.kind = 0;
         metaEvent.tags = [];
         
-        const profileContent: any = { 
-          displayName: newAccountUsername.trim(),
-          picture: DEFAULT_PROFILE_IMAGE
-        };
+        const profileContent: any = {};
         
-        // Add username to profile with NIP-05 verification
-        profileContent.name = newAccountUsername.trim();
-        profileContent.nip05 = `${newAccountUsername.trim()}@zap.cooking`;
+        // Add display name if provided
+        if (profileName) {
+          profileContent.name = profileName;
+          profileContent.display_name = profileName;
+        }
+        
+        // Add bio if provided
+        if (profileBio) {
+          profileContent.about = profileBio;
+        }
+        
+        // Add profile picture if uploaded
+        if (profilePicture) {
+          profileContent.picture = profilePicture;
+        }
         
         metaEvent.content = JSON.stringify(profileContent);
-        await metaEvent.publish();
+        console.log('[Profile] Event content:', metaEvent.content);
         
-        // Small delay to allow relays to propagate
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        const relays = await metaEvent.publish();
+        console.log('[Profile] Published to relays:', relays);
+        
+        // Wait for relay propagation
+        await new Promise(resolve => setTimeout(resolve, 2000));
       }
       
       generateModal = false;
       generatedKeys = null;
       newAccountUsername = '';
+      newAccountBio = '';
+      newAccountPicture = '';
     } catch (error) {
       console.error('Generated key login failed:', error);
     }
@@ -179,12 +211,139 @@
     nsecModal = false;
     seedModal = false;
     generateModal = false;
+    showPrivateKey = false;
     nsecInput = '';
     seedInput = '';
     nsecError = '';
     seedError = '';
     generatedKeys = null;
     newAccountUsername = '';
+    newAccountBio = '';
+    newAccountPicture = '';
+    uploadingPicture = false;
+    pictureUploadError = '';
+    showPictureUrlInput = false;
+    pictureUrlInput = '';
+  }
+
+  // For manual URL entry
+  let showPictureUrlInput = false;
+  let pictureUrlInput = '';
+
+  function applyPictureUrl() {
+    const url = pictureUrlInput.trim();
+    if (url && (url.startsWith('http://') || url.startsWith('https://'))) {
+      newAccountPicture = url;
+      showPictureUrlInput = false;
+      pictureUrlInput = '';
+      pictureUploadError = '';
+    } else {
+      pictureUploadError = 'Please enter a valid URL';
+    }
+  }
+
+  async function uploadProfilePicture(event: Event) {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    if (!file) return;
+
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+      pictureUploadError = 'Please select an image file';
+      return;
+    }
+
+    // Validate file size (max 5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      pictureUploadError = 'Image must be less than 5MB';
+      return;
+    }
+
+    if (!generatedKeys) {
+      pictureUploadError = 'Please generate keys first';
+      return;
+    }
+
+    uploadingPicture = true;
+    pictureUploadError = '';
+    let uploadedUrl = '';
+
+    // Use nostr.build with NIP-98 auth (same as ImageUploader component)
+    try {
+      console.log('[Upload] Uploading to nostr.build with NIP-98 auth...');
+      
+      const { NDKEvent, NDKPrivateKeySigner } = await import('@nostr-dev-kit/ndk');
+      
+      // Create a signer from the generated private key
+      const privateKeyHex = Array.from(generatedKeys.privateKey)
+        .map(b => b.toString(16).padStart(2, '0'))
+        .join('');
+      const signer = new NDKPrivateKeySigner(privateKeyHex);
+      
+      // Create NIP-98 auth event
+      const uploadUrl = 'https://nostr.build/api/v2/upload/files';
+      const authEvent = new NDKEvent($ndk);
+      authEvent.kind = 27235;
+      authEvent.created_at = Math.floor(Date.now() / 1000);
+      authEvent.content = '';
+      authEvent.tags = [
+        ['u', uploadUrl],
+        ['method', 'POST']
+      ];
+      
+      // Sign with the generated keys
+      await authEvent.sign(signer);
+      
+      // Build the auth header
+      const authPayload = {
+        id: authEvent.id,
+        pubkey: authEvent.pubkey,
+        created_at: authEvent.created_at,
+        kind: authEvent.kind,
+        tags: authEvent.tags,
+        content: authEvent.content,
+        sig: authEvent.sig
+      };
+      const authHeader = `Nostr ${btoa(JSON.stringify(authPayload))}`;
+      
+      // Upload with NIP-98 auth
+      const formData = new FormData();
+      formData.append('file[]', file);
+      
+      const res = await fetch(uploadUrl, {
+        method: 'POST',
+        body: formData,
+        headers: {
+          'Authorization': authHeader
+        }
+      });
+      
+      console.log('[Upload] Response status:', res.status);
+      
+      if (res.ok) {
+        const data = await res.json();
+        console.log('[Upload] Response:', data);
+        if (data.data?.[0]?.url) {
+          uploadedUrl = data.data[0].url;
+          console.log('[Upload] Success:', uploadedUrl);
+        }
+      } else {
+        const errorText = await res.text();
+        console.error('[Upload] Error:', res.status, errorText);
+      }
+    } catch (error: any) {
+      console.error('[Upload] Failed:', error?.message || error);
+    }
+
+    if (uploadedUrl) {
+      newAccountPicture = uploadedUrl;
+    } else {
+      pictureUploadError = 'Upload failed. Try pasting a URL instead.';
+      showPictureUrlInput = true;
+    }
+
+    uploadingPicture = false;
+    if (input) input.value = '';
   }
 </script>
 
@@ -283,105 +442,240 @@
 
 <!-- Generate Keys Modal -->
 <Modal bind:open={generateModal} on:close={modalCleanup}>
-  <svelte:fragment slot="title">👨‍🍳 Create New Zap Cooking Account</svelte:fragment>
+  <svelte:fragment slot="title">{generatedKeys ? '🔐 Save your backup key' : '🎉 Your Zap Cooking account is almost ready'}</svelte:fragment>
   <div class="flex flex-col gap-4">
     {#if !generatedKeys}
       <div class="space-y-4">
-        <div class="bg-orange-50 border border-orange-200 rounded-md p-4">
-          <div class="text-sm font-medium text-orange-800 mb-2">🔒 Security Warning</div>
-          <div class="text-sm text-orange-700 space-y-2">
-            <p>• This will generate a new Nostr private key</p>
-            <p>• <strong>Never share your private key with anyone</strong></p>
-            <p>• Store it securely - if lost, your account cannot be recovered</p>
-            <p>• Consider using a hardware wallet for maximum security</p>
-          </div>
+        <div class="bg-gray-50 border border-gray-200 rounded-lg p-4">
+          <div class="text-sm font-medium text-gray-700 mb-2">🔐 Your account, your keys</div>
+          <p class="text-sm text-gray-600 mb-3">
+            Zap Cooking uses Nostr, which means you own your account and data.
+          </p>
+          <ul class="text-sm text-gray-600 space-y-1.5">
+            <li class="flex items-start gap-2">
+              <span class="text-gray-400">•</span>
+              <span>Your account will be created on this device</span>
+            </li>
+            <li class="flex items-start gap-2">
+              <span class="text-gray-400">•</span>
+              <span>You'll see a backup key after creation</span>
+            </li>
+            <li class="flex items-start gap-2">
+              <span class="text-gray-400">•</span>
+              <span>Saving it lets you recover your account later</span>
+            </li>
+          </ul>
         </div>
         
-        <div class="text-sm text-gray-600">
-          Click "Generate Account" to create a new Nostr identity. You'll be shown your private key (nsec) and public key (npub) that you must save securely.
-        </div>
+        <p class="text-sm text-gray-500">
+          When you continue, we'll create your account and show you a backup key to save for safekeeping.
+        </p>
         
-        <Button on:click={generateNewKeys} primary={true} class="w-full">
-          ⚡ Generate Account
-        </Button>
+        <div>
+          <Button on:click={generateNewKeys} primary={true} class="w-full">
+            ⚡ Create Account
+          </Button>
+          <p class="text-xs text-gray-400 text-center mt-2">Takes less than 10 seconds</p>
+        </div>
       </div>
     {:else}
       <div class="space-y-4">
-        <div class="bg-orange-50 border border-orange-200 rounded-md p-4">
-          <div class="text-sm font-medium text-orange-800 mb-2">🚨 CRITICAL: Save Your Private Key</div>
-          <div class="text-sm text-orange-700 space-y-2">
-            <p>• <strong>Write down your private key (nsec) immediately</strong></p>
-            <p>• Store it in a secure location (password manager, encrypted file)</p>
-            <p>• <strong>Never share it with anyone</strong></p>
-            <p>• If you lose this key, you cannot recover your account</p>
-            <p>• This is your only way to prove ownership of this account</p>
-          </div>
-        </div>
-        
-        <div>
-          <label for="username-input" class="block text-sm font-medium text-gray-700 mb-1">👨‍🍳 Username (Optional)</label>
-          <input
-            id="username-input"
-            bind:value={newAccountUsername}
-            placeholder="chef123"
-            class="w-full shadow-sm focus:ring-orange-500 focus:border-orange-500 block sm:text-sm border-gray-300 rounded-md p-3"
-            disabled={authState.isLoading}
-          />
-          <div class="text-xs text-gray-500 mt-1">
-            This will be your @username on Nostr. Leave empty if you prefer to use your public key.
-          </div>
+        <!-- Calm intro message -->
+        <div class="bg-green-50 border border-green-200 rounded-lg p-3">
+          <p class="text-sm text-green-700">
+            ✓ Your account has been created. Save your backup key below to recover it later.
+          </p>
         </div>
 
+        <!-- Backup Key (Private) - Hidden by default -->
         <div>
-          <label for="private-key-textarea" class="block text-sm font-medium text-gray-700 mb-1">Private Key (nsec) - SAVE THIS!</label>
-          <div class="flex gap-2">
-            <textarea
-              id="private-key-textarea"
-              readonly
-              value={nip19.nsecEncode(generatedKeys.privateKey)}
-              rows="3"
-              class="flex-1 shadow-sm border-orange-300 rounded-md text-sm font-mono bg-orange-50 p-3"
-            ></textarea>
-            <button
-              on:click={() => generatedKeys && copyToClipboard(nip19.nsecEncode(generatedKeys.privateKey))}
-              class="px-3 py-2 bg-orange-100 hover:bg-orange-200 rounded-md text-sm text-orange-800 font-medium transition-colors"
-            >
-              Copy
-            </button>
-          </div>
-          <div class="text-xs text-orange-600 mt-1">⚠️ This is your private key - keep it secret!</div>
+          <p class="block text-sm font-medium text-gray-700 mb-1">Backup key (private)</p>
+          {#if showPrivateKey}
+            <div class="flex gap-2">
+              <textarea
+                id="private-key-textarea"
+                readonly
+                value={nip19.nsecEncode(generatedKeys.privateKey)}
+                rows="2"
+                class="flex-1 shadow-sm border-gray-300 rounded-lg text-sm font-mono bg-gray-50 p-3"
+              ></textarea>
+              <button
+                on:click={() => generatedKeys && copyToClipboard(nip19.nsecEncode(generatedKeys.privateKey))}
+                class="px-3 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-sm font-medium transition-colors"
+              >
+                Copy
+              </button>
+            </div>
+            <div class="flex items-center justify-between mt-1.5">
+              <p class="text-xs text-amber-600">⚠️ Anyone with this key can control your account. Never share it.</p>
+              <button
+                on:click={() => showPrivateKey = false}
+                class="text-xs text-gray-400 hover:text-gray-500 underline"
+              >
+                Hide
+              </button>
+            </div>
+          {:else}
+            <div class="flex gap-2">
+              <div class="flex-1 bg-gray-100 border border-gray-200 rounded-lg p-3 text-sm text-gray-400 font-mono">
+                ••••••••••••••••••••••••••••••••
+              </div>
+              <button
+                on:click={() => showPrivateKey = true}
+                class="px-3 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-sm font-medium transition-colors"
+              >
+                Reveal
+              </button>
+            </div>
+            <p class="text-xs text-gray-400 mt-1.5">Reveal to copy and save securely</p>
+          {/if}
         </div>
 
+        <!-- Public Identity (npub) -->
         <div>
-          <label for="public-key-input" class="block text-sm font-medium text-gray-700 mb-1">Public Key (npub)</label>
+          <label for="public-key-input" class="block text-sm font-medium text-gray-700 mb-1">Public identity (npub)</label>
           <div class="flex gap-2">
             <input
               id="public-key-input"
               readonly
               value={nip19.npubEncode(generatedKeys.publicKey)}
-              class="flex-1 shadow-sm border-gray-300 rounded-md text-sm font-mono p-3"
+              class="flex-1 shadow-sm border-gray-300 rounded-lg text-sm font-mono p-3 bg-gray-50"
             />
             <button
               on:click={() => generatedKeys && copyToClipboard(nip19.npubEncode(generatedKeys.publicKey))}
-              class="px-3 py-2 bg-gray-100 hover:bg-gray-200 rounded-md text-sm transition-colors"
+              class="px-3 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-sm transition-colors"
             >
               Copy
             </button>
           </div>
-          <div class="text-xs text-gray-500 mt-1">This is safe to share - it's your public identity</div>
+          <p class="text-xs text-gray-400 mt-1.5">This is safe to share - it's your public identity</p>
         </div>
 
-        <div class="bg-blue-50 border border-blue-200 rounded-md p-3">
-          <div class="text-sm font-medium text-blue-800 mb-1">💡 What's Next?</div>
-          <div class="text-sm text-blue-700">
-            After creating your account, you can set up your profile, add a display name, and start sharing recipes with the Nostr community!
+        <!-- Divider -->
+        <div class="border-t border-gray-100 pt-4">
+          <!-- Profile Setup Section -->
+          <p class="text-sm font-medium text-gray-700 mb-3">👋 Set up your profile (optional)</p>
+          
+          <div class="space-y-3 mb-4">
+            <!-- Profile Photo -->
+            <div>
+              <div class="flex items-center gap-3 mb-2">
+                <div class="relative">
+                  {#if newAccountPicture}
+                    <img 
+                      src={newAccountPicture} 
+                      alt="Profile preview" 
+                      class="w-14 h-14 rounded-full object-cover border-2 border-gray-200"
+                    />
+                  {:else}
+                    <div class="w-14 h-14 rounded-full bg-gray-100 border-2 border-dashed border-gray-300 flex items-center justify-center">
+                      <span class="text-gray-400 text-xl">👤</span>
+                    </div>
+                  {/if}
+                </div>
+                <div class="flex-1">
+                  <input
+                    type="file"
+                    accept="image/*"
+                    class="hidden"
+                    bind:this={fileInput}
+                    on:change={uploadProfilePicture}
+                    disabled={uploadingPicture || authState.isLoading}
+                  />
+                  <div class="flex items-center gap-2">
+                    <button
+                      on:click={() => fileInput?.click()}
+                      disabled={uploadingPicture || authState.isLoading}
+                      class="text-sm text-orange-500 hover:text-orange-600 font-medium transition-colors disabled:opacity-50"
+                    >
+                      {#if uploadingPicture}
+                        Uploading...
+                      {:else if newAccountPicture}
+                        Change photo
+                      {:else}
+                        Upload photo
+                      {/if}
+                    </button>
+                    {#if !newAccountPicture && !uploadingPicture}
+                      <span class="text-gray-300">|</span>
+                      <button
+                        on:click={() => showPictureUrlInput = !showPictureUrlInput}
+                        class="text-sm text-gray-400 hover:text-gray-500 transition-colors"
+                      >
+                        Paste URL
+                      </button>
+                    {/if}
+                  </div>
+                  {#if pictureUploadError && !showPictureUrlInput}
+                    <p class="text-xs text-red-500 mt-0.5">{pictureUploadError}</p>
+                  {:else if newAccountPicture}
+                    <p class="text-xs text-gray-400 mt-0.5">Looking good!</p>
+                  {/if}
+                </div>
+              </div>
+              
+              <!-- URL Input (shown on demand or after upload failure) -->
+              {#if showPictureUrlInput && !newAccountPicture}
+                <div class="flex gap-2 mt-2">
+                  <input
+                    type="url"
+                    bind:value={pictureUrlInput}
+                    placeholder="https://example.com/photo.jpg"
+                    class="flex-1 shadow-sm focus:ring-orange-500 focus:border-orange-500 text-sm border-gray-300 rounded-lg p-2"
+                    disabled={authState.isLoading}
+                  />
+                  <button
+                    on:click={applyPictureUrl}
+                    disabled={!pictureUrlInput.trim() || authState.isLoading}
+                    class="px-3 py-2 bg-orange-500 hover:bg-orange-600 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-50"
+                  >
+                    Apply
+                  </button>
+                </div>
+                {#if pictureUploadError}
+                  <p class="text-xs text-red-500 mt-1">{pictureUploadError}</p>
+                {/if}
+              {/if}
+            </div>
+
+            <!-- Display Name -->
+            <div>
+              <input
+                id="username-input"
+                bind:value={newAccountUsername}
+                placeholder="Display name"
+                class="w-full shadow-sm focus:ring-orange-500 focus:border-orange-500 block text-sm border-gray-300 rounded-lg p-2.5"
+                disabled={authState.isLoading}
+              />
+              <p class="text-xs text-gray-400 mt-1">Shown on your profile across Nostr clients</p>
+            </div>
+
+            <!-- Bio -->
+            <div>
+              <textarea
+                bind:value={newAccountBio}
+                placeholder="A short bio about you..."
+                rows="2"
+                class="w-full shadow-sm focus:ring-orange-500 focus:border-orange-500 block text-sm border-gray-300 rounded-lg p-2.5 resize-none"
+                disabled={authState.isLoading}
+              ></textarea>
+              <p class="text-xs text-gray-400 mt-1">A short description about you</p>
+            </div>
           </div>
-        </div>
 
-        <div class="flex gap-2">
-          <Button on:click={useGeneratedKeys} primary={true} disabled={authState.isLoading} class="w-full">
-            {authState.isLoading ? '⚡ Creating Account...' : '⚡ Create Account'}
-          </Button>
+          <!-- Actions -->
+          <div class="space-y-2">
+            <Button on:click={() => useGeneratedKeys(false)} primary={true} disabled={authState.isLoading || uploadingPicture} class="w-full">
+              {authState.isLoading ? '⚡ Setting up...' : '⚡ Continue to Zap Cooking'}
+            </Button>
+            <button
+              on:click={() => useGeneratedKeys(true)}
+              disabled={authState.isLoading || uploadingPicture}
+              class="w-full text-sm text-gray-400 hover:text-gray-500 transition-colors disabled:opacity-50"
+            >
+              Skip profile setup for now
+            </button>
+          </div>
         </div>
       </div>
     {/if}
@@ -407,116 +701,95 @@
     <div class="absolute bottom-20 right-1/4 text-3xl animate-bounce" style="animation-delay: 0.6s;">🍽️</div>
   </div>
 
-  <div class="relative flex flex-col justify-center items-center min-h-screen px-4 py-8">
+  <div class="relative flex flex-col items-center min-h-screen px-4 pt-12 md:pt-20 pb-8">
     <!-- Main Content Card -->
-    <section class="glass-card rounded-3xl p-8 md:p-12 max-w-md w-full mx-auto text-center" aria-label="Authentication options">
+    <section class="glass-card rounded-2xl p-6 md:p-8 w-full mx-auto text-center" style="max-width: 420px;" aria-label="Authentication options">
       <!-- Logo and Title -->
-      <div class="mb-8">
-        <img src="/favicon.svg" class="w-20 mb-4 mx-auto" alt="Frying Pan with Lightning Bolt" />
-        <h1 class="text-3xl md:text-4xl font-bold text-gray-800 mb-2">
+      <div class="mb-5">
+        <img src="/favicon.svg" class="w-14 md:w-16 mb-2 mx-auto" alt="Frying Pan with Lightning Bolt" />
+        <h1 class="text-xl md:text-2xl font-bold text-gray-800 mb-1">
           Welcome to <span class="text-orange-500">Zap Cooking</span>
         </h1>
-        <p class="text-lg text-gray-600 mb-6">
-          Share recipes, support creators with Bitcoin zaps, and join the decentralized cooking revolution
+        <p class="text-sm text-gray-500">
+          Share recipes and support creators with Bitcoin zaps
         </p>
       </div>
 
       <!-- Authentication Options -->
-      <nav class="space-y-4 mb-8">
-        <!-- NIP-07 Extension Login -->
-        <button
-          on:click={loginWithNIP07}
-          on:mouseenter={() => isHovered = true}
-          on:mouseleave={() => isHovered = false}
-          disabled={authState.isLoading}
-          aria-label="Connect to Zap Cooking using your Nostr browser extension"
-          class="w-full lightning-border electric-glow bg-gradient-to-r from-orange-500 to-purple-600 hover:from-orange-600 hover:to-purple-700 text-white font-semibold py-4 px-6 rounded-2xl transition-all duration-300 transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
-        >
-          <div class="flex items-center justify-center gap-3">
-            <span class="text-2xl lightning-pulse">⚡</span>
-            <span class="text-lg">
-              {authState.isLoading ? 'Connecting...' : 'Connect Nostr Extension'}
-            </span>
-          </div>
-        </button>
+      <div class="space-y-2.5 mb-3">
+        <!-- NIP-07 Extension Login - Primary CTA -->
+        <div>
+          <button
+            on:click={loginWithNIP07}
+            on:mouseenter={() => isHovered = true}
+            on:mouseleave={() => isHovered = false}
+            disabled={authState.isLoading}
+            aria-label="Sign in to Zap Cooking using your Nostr browser extension"
+            class="w-full bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white font-semibold h-[52px] md:h-12 px-6 rounded-xl transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
+          >
+            <div class="flex items-center justify-center gap-2">
+              <span class="text-lg">⚡</span>
+              <span class="text-[15px]">
+                {authState.isLoading ? 'Connecting...' : 'Sign in with Nostr Extension'}
+              </span>
+            </div>
+          </button>
+          <!-- Extension helper - only show if no extension -->
+          {#if !authManager?.isNIP07Available()}
+            <p class="text-[11px] text-gray-400 mt-1.5 leading-relaxed">
+              No extension detected. Install <a href="https://getalby.com" target="_blank" rel="noopener noreferrer" class="underline hover:text-gray-500">Alby</a> or <a href="https://github.com/fiatjaf/nos2x" target="_blank" rel="noopener noreferrer" class="underline hover:text-gray-500">nos2x</a>.
+            </p>
+          {/if}
+        </div>
 
-        <!-- Private Key Login -->
-        <button
-          on:click={() => (nsecModal = true)}
-          disabled={authState.isLoading}
-          aria-label="Log in to Zap Cooking using your private key"
-          class="w-full glass-card hover:bg-gray-50 text-gray-800 font-semibold py-4 px-6 rounded-2xl transition-all duration-300 transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none border border-gray-200"
-        >
-          <div class="flex items-center justify-center gap-3">
-            🔑
-            <span class="text-lg">Import Private Key</span>
-          </div>
-        </button>
-
-        <!-- Seed Phrase Login -->
-        <button
-          on:click={() => (seedModal = true)}
-          disabled={authState.isLoading}
-          aria-label="Restore your Zap Cooking account using a seed phrase"
-          class="w-full glass-card hover:bg-gray-50 text-gray-800 font-semibold py-4 px-6 rounded-2xl transition-all duration-300 transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none border border-gray-200"
-        >
-          <div class="flex items-center justify-center gap-3">
-            🌱
-            <span class="text-lg">Restore from Seed Phrase</span>
-          </div>
-        </button>
-
-        <!-- Generate New Account -->
+        <!-- Generate New Account - Secondary CTA -->
         <button
           on:click={() => (generateModal = true)}
           disabled={authState.isLoading}
-          aria-label="Create a new Zap Cooking account with a fresh Nostr identity"
-          class="w-full glass-card hover:bg-gray-50 text-gray-800 font-semibold py-4 px-6 rounded-2xl transition-all duration-300 transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none border border-gray-200"
+          aria-label="Create a new Zap Cooking account"
+          class="w-full bg-white hover:bg-gray-50 text-gray-600 font-medium h-11 px-6 rounded-xl transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed border border-gray-200"
         >
-          <div class="flex items-center justify-center gap-3">
-            👨‍🍳
-            <span class="text-lg">Create New Identity</span>
-          </div>
+          <span class="text-sm">Create Account</span>
         </button>
-      </nav>
+      </div>
 
       <!-- Error Display -->
       {#if authState.error}
-        <div class="bg-red-500/20 border border-red-500/30 rounded-xl p-4 mb-6">
-          <div class="text-red-200 text-sm">{authState.error}</div>
+        <div class="bg-red-50 border border-red-200 rounded-lg p-2.5 mb-3">
+          <p class="text-red-600 text-xs">{authState.error}</p>
         </div>
       {/if}
 
-      <!-- Extension Help -->
-      {#if !authManager?.isNIP07Available()}
-        <div class="bg-blue-500/20 border border-blue-500/30 rounded-xl p-4 mb-6">
-          <div class="text-blue-200 text-sm">
-            <strong>⚡ No Nostr Extension Detected</strong><br/>
-            Install <a href="https://getalby.com" target="_blank" class="underline text-blue-300 hover:text-blue-200">Alby</a> or 
-            <a href="https://github.com/fiatjaf/nos2x" target="_blank" class="underline text-blue-300 hover:text-blue-200">nos2x</a> 
-            for the easiest login experience.
-          </div>
-        </div>
-      {/if}
+      <!-- Advanced option - Import Private Key -->
+      <div class="py-3">
+        <button
+          on:click={() => (nsecModal = true)}
+          disabled={authState.isLoading}
+          class="text-[11px] text-gray-400 hover:text-gray-500 hover:underline transition-colors disabled:opacity-50"
+        >
+          Advanced: Import existing key
+        </button>
+      </div>
 
-      <!-- Value Propositions -->
-      <section class="grid grid-cols-2 gap-4 text-sm text-gray-600" aria-label="Zap Cooking features">
-        <div class="flex items-center gap-2">
-          <span class="text-orange-500">⚡</span>
+      <!-- Value Propositions - Quieter styling -->
+      <section class="grid grid-cols-2 gap-x-3 gap-y-1.5 text-[11px] text-gray-400 pt-3 border-t border-gray-100" aria-label="Zap Cooking features">
+        <div class="flex items-center gap-1">
+          <span class="text-orange-400 text-xs">⚡</span>
           <span>Instant Bitcoin Tips</span>
         </div>
-        <div class="flex items-center gap-2">
-          <span class="text-blue-500">🔒</span>
+        <div class="flex items-center gap-1">
+          <span class="text-blue-400 text-xs">🔒</span>
           <span>Decentralized & Private</span>
         </div>
-        <div class="flex items-center gap-2">
-          <span class="text-purple-500">🌍</span>
+        <div class="flex items-center gap-1">
+          <span class="text-purple-400 text-xs">🌍</span>
           <span>Global Recipe Community</span>
         </div>
-        <div class="flex items-center gap-2">
-          <span class="text-green-500">📱</span>
+        <div class="flex items-center gap-1">
+          <span class="text-green-400 text-xs">📱</span>
           <span>Cross-Platform Access</span>
         </div>
       </section>
     </section>
+  </div>
 </main>

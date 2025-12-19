@@ -80,34 +80,51 @@
   <!-- Top row for desktop: Navigation links -->
   <div class="hidden lg:flex gap-9 self-center font-semibold print:hidden">
     <a class="transition duration-300 hover:text-primary" href="/recent">Recipes</a>
-    <a class="transition duration-300 hover:text-primary" href="/feed">Feed</a>
+    <a class="transition duration-300 hover:text-primary" href="/community">Community</a>
     <a class="transition duration-300 hover:text-primary" href="/explore">Explore</a>
     <a class="transition duration-300 hover:text-primary" href="https://plebeian.market/community/seth@zap.cooking/zap-cooking-wear-orcd8yg6jd" target="_blank" rel="noopener noreferrer">Shop</a>
     <a class="transition duration-300 hover:text-primary" href="/why">Why</a>
   </div>
 
-  <div class="hidden sm:max-lg:flex xl:flex flex-1 grow self-center print:hidden">
+  <div class="hidden sm:max-lg:flex xl:flex flex-1 self-center print:hidden max-w-md">
     <TagsSearchAutocomplete
-      placeholderString={"Search by tag, like 'italian', 'steak' or 'glutenfree'."}
+      placeholderString={"Search tags or recipes..."}
       action={openTag}
     />
   </div>
   <span class="hidden lg:max-xl:flex lg:max-xl:grow"></span>
-  <div class="flex gap-3 sm:gap-4 self-center flex-none print:hidden">
-    <div class="block sm:max-lg:hidden xl:hidden self-center grow">
-      <!-- for some reason if i have all of these selector classes then it styles correctly. wtf. -->
-      <Button class="self-center max-md:w-10 max-md:h-10 flex max-md:justify-center max-md:px-1 max-md:py-1 font-semibold !bg-[#FFECE8] cursor-pointer" on:click={() => searchActive = true}>
-          <SearchIcon class="self-center text-primary" size={16} weight="bold" />
-      </Button>
-    </div>
-      <Button class="self-center max-md:w-10 max-md:h-10 flex max-md:justify-center max-md:px-1 max-md:py-1 font-semibold gap-2 cursor-pointer" on:click={() => goto('/create')}>
-          <AddIcon class="self-center" size={18} weight="bold" style="stroke-width: 3;" />
-          <div class="hidden md:flex">Create</div>
-      </Button>
-      <button on:click={() => supportModalOpen = true} class="self-center max-md:w-10 max-md:h-10 flex max-md:justify-center max-md:px-1 max-md:py-1 text-white rounded-full bg-gradient-to-r from-yellow-400 to-orange-500 hover:from-yellow-500 hover:to-orange-600 px-4 py-2.5 font-semibold transition duration-300 flex items-center gap-2 cursor-pointer">
-        <LightningIcon class="self-center" size={16} weight="fill" />
-        <span class="hidden md:inline">Zap Us</span>
+  <div class="flex gap-2 sm:gap-3 self-center flex-none print:hidden">
+    <!-- Search icon (mobile/tablet only when search bar hidden) -->
+    <div class="block sm:max-lg:hidden xl:hidden self-center">
+      <button 
+        on:click={() => searchActive = true}
+        class="w-9 h-9 flex items-center justify-center text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-full transition-colors cursor-pointer"
+        aria-label="Search"
+      >
+        <SearchIcon size={20} weight="bold" />
       </button>
+    </div>
+    
+    <!-- Create - Primary CTA -->
+    <button 
+      on:click={() => goto('/create')}
+      class="flex items-center gap-2 px-4 py-2 text-white rounded-full bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 font-semibold transition duration-300 cursor-pointer text-sm"
+    >
+      <AddIcon size={18} weight="bold" />
+      <span class="hidden sm:inline">Create</span>
+    </button>
+    
+    <!-- Zap Us - Demoted to small icon -->
+    <button 
+      on:click={() => supportModalOpen = true} 
+      class="w-9 h-9 flex items-center justify-center text-amber-500 hover:text-amber-600 hover:bg-amber-50 rounded-full transition-colors cursor-pointer"
+      aria-label="Support Zap Cooking"
+      title="Support Zap Cooking"
+    >
+      <LightningIcon size={20} weight="fill" />
+    </button>
+    
+    <!-- Sign in / User menu -->
     <div class="self-center print:hidden">
       {#if $userPublickey !== ''}
         <button class="flex self-center" on:click={() => (dropdownActive = !dropdownActive)}>
@@ -147,7 +164,7 @@
           </div>
         {/if}
       {:else}
-        <a href="/login" class="text-white rounded-full bg-black disabled:bg-black/50 hover:bg-gray-800 px-4 py-2.5 font-semibold transition duration-300">Sign in</a>
+        <a href="/login" class="px-4 py-2 text-gray-700 rounded-full border border-gray-300 hover:border-gray-400 hover:bg-gray-50 font-medium transition duration-300 text-sm">Sign in</a>
       {/if}
     </div>
   </div>
