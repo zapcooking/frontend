@@ -248,7 +248,7 @@
 
     // Validate file type
     if (!file.type.startsWith('image/')) {
-      pictureUploadError = 'Please select an image file';
+      pictureUploadError = 'Please select an image file (such as JPG, PNG, GIF)';
       return;
     }
 
