@@ -18,6 +18,7 @@
   // Site-wide meta tag defaults
   const siteUrl = 'https://zap.cooking';
   const title = 'Zap Cooking';
+  const ogTitle = 'Zap Cooking - A place to share food with friends';
   const description = 'A place to share food with friends';
   const ogImage = `${siteUrl}/social-share.png`;
   $: canonical = `${siteUrl}${$page.url.pathname === '/' ? '' : $page.url.pathname}`;
@@ -69,14 +70,14 @@
   <meta name="description" content={description} />
   <link rel="canonical" href={canonical} />
 
-  <meta property="og:title" content={title} />
+  <meta property="og:title" content={ogTitle} />
   <meta property="og:description" content={description} />
   <meta property="og:type" content="website" />
   <meta property="og:url" content={canonical} />
   <meta property="og:image" content={ogImage} />
 
   <meta name="twitter:card" content="summary_large_image" />
-  <meta name="twitter:title" content={title} />
+  <meta name="twitter:title" content={ogTitle} />
   <meta name="twitter:description" content={description} />
   <meta name="twitter:image" content={ogImage} />
 </svelte:head>
