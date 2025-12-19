@@ -1,6 +1,5 @@
 <script lang="ts">
   import { createEventDispatcher, onMount } from 'svelte';
-  import { ndk } from '$lib/nostr';
   import { profileCacheManager } from '$lib/profileCache';
   import type { NDKUser } from '@nostr-dev-kit/ndk';
   
@@ -49,8 +48,8 @@
         return;
       }
       
-      // If not in cache, fetch from relays
-      user = await profileCacheManager.getProfile(pubkey, $ndk);
+      // If not in cache, fetch from relays (waits for NDK ready)
+      user = await profileCacheManager.getProfile(pubkey);
       
       if (user?.profile) {
         displayName = user.profile.displayName || user.profile.name || generateDisplayName(pubkey);

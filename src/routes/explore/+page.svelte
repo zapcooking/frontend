@@ -11,6 +11,15 @@
   import TrendingRecipeCard from '../../components/TrendingRecipeCard.svelte';
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
   import { nip19 } from 'nostr-tools';
+  import { init, markOnce } from '$lib/perf/explorePerf';
+  import type { PageData } from './$types';
+
+  // Accept SvelteKit props to prevent warnings
+  export let data: PageData;
+
+  // t0_explore_nav_start: Earliest point for the Explore route
+  init();
+  markOnce('t0_explore_nav_start');
   let popularTags: TagWithCount[] = [];
   let loadingPopular = true;
   let popularTagCounts = new Map<string, number>();
@@ -31,32 +40,47 @@
     (s) => s.title !== 'Why are you cooking?' && s.title !== 'Explore by culture'
   );
 
+  // t2_explore_first_content_rendered: When Explore renders its first recipe cards
+  // Track when discoverRecipes first becomes non-empty (matches template condition)
+  let t2Marked = false;
+  $: if (!t2Marked && discoverRecipes?.length > 0) {
+    markOnce('t2_explore_first_content_rendered');
+    t2Marked = true;
+  }
+
 
   onMount(async () => {
-    // Load popular tags
-    popularTags = await computePopularTags(12);
-    popularTags.forEach((tag) => {
-      if (tag.count !== undefined) {
-        popularTagCounts.set(tag.title, tag.count);
-      }
+    // t1_explore_shell_rendered: When Explore UI shell is mounted
+    markOnce('t1_explore_shell_rendered');
+
+    // Start discover recipes immediately (don't block on other data)
+    fetchDiscoverRecipes(12).then((discoverData) => {
+      discoverRecipes = discoverData;
+      loadingDiscover = false;
     });
-    loadingPopular = false;
 
-    // Load collections with images, popular cooks, and discover recipes in parallel
-    const [collectionsData, cooksData, discoverData] = await Promise.all([
+    // Load popular tags (non-blocking)
+    computePopularTags(12).then((tags) => {
+      popularTags = tags;
+      popularTags.forEach((tag) => {
+        if (tag.count !== undefined) {
+          popularTagCounts.set(tag.title, tag.count);
+        }
+      });
+      loadingPopular = false;
+    });
+
+    // Load collections and popular cooks in parallel (non-blocking)
+    Promise.all([
       fetchCollectionsWithImages(),
-      fetchPopularCooks(12),
-      fetchDiscoverRecipes(12)
-    ]);
+      fetchPopularCooks(12)
+    ]).then(([collectionsData, cooksData]) => {
+      collections = collectionsData;
+      loadingCollections = false;
 
-    collections = collectionsData;
-    loadingCollections = false;
-
-    popularCooks = cooksData;
-    loadingCooks = false;
-
-    discoverRecipes = discoverData;
-    loadingDiscover = false;
+      popularCooks = cooksData;
+      loadingCooks = false;
+    });
   });
 
 
