@@ -83,6 +83,7 @@
     <a class="transition duration-300 hover:text-primary" href="/feed">Feed</a>
     <a class="transition duration-300 hover:text-primary" href="/explore">Explore</a>
     <a class="transition duration-300 hover:text-primary" href="https://plebeian.market/community/seth@zap.cooking/zap-cooking-wear-orcd8yg6jd" target="_blank" rel="noopener noreferrer">Shop</a>
+    <a class="transition duration-300 hover:text-primary" href="/why">Why</a>
   </div>
 
   <div class="hidden sm:max-lg:flex xl:flex flex-1 grow self-center print:hidden">
