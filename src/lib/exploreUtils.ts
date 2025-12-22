@@ -4,6 +4,7 @@ import type { NDKEvent, NDKFilter, NDKUser } from '@nostr-dev-kit/ndk';
 import { validateMarkdownTemplate } from './pharser';
 import { profileCacheManager } from './profileCache';
 import { logger } from './logger';
+import { markOnce } from './perf/explorePerf';
 
 export type Collection = {
   id: string;
@@ -13,37 +14,42 @@ export type Collection = {
   tag?: string; // Tag to filter by
 };
 
-// Static collections for now (can be made dynamic later)
+// Static collections with pre-defined images (no network fetch needed)
 export const STATIC_COLLECTIONS: Collection[] = [
   {
     id: 'breakfast',
     title: 'Breakfast Favorites',
     subtitle: '12 recipes',
-    tag: 'Breakfast'
+    tag: 'Breakfast',
+    imageUrl: '/tags/breakfast.webp'
   },
   {
     id: 'dessert',
     title: 'Sweet Treats',
     subtitle: '24 recipes',
-    tag: 'Dessert'
+    tag: 'Dessert',
+    imageUrl: '/tags/dessert.webp'
   },
   {
     id: 'quick',
     title: 'Quick & Easy',
     subtitle: '18 recipes',
-    tag: 'Quick'
+    tag: 'Quick',
+    imageUrl: '/tags/easy.webp'
   },
   {
     id: 'italian',
     title: 'Italian Classics',
     subtitle: '15 recipes',
-    tag: 'Italian'
+    tag: 'Italian',
+    imageUrl: '/tags/italian.webp'
   },
   {
-    id: 'healthy',
-    title: 'Healthy Choices',
+    id: 'mexican',
+    title: 'Mexican Flavors',
     subtitle: '20 recipes',
-    tag: 'Healthy'
+    tag: 'Mexican',
+    imageUrl: '/tags/mexican.webp'
   }
 ];
 
@@ -100,7 +106,7 @@ async function processAuthorsWithProfiles(
     const profileChecks = await Promise.all(
       batch.map(async (pubkey) => {
         try {
-          const user = await profileCacheManager.getProfile(pubkey, ndkInstance);
+          const user = await profileCacheManager.getProfile(pubkey);
           const hasValidPic = hasValidProfileImage(user);
           
           if (!hasValidPic && user?.profile?.image) {
@@ -160,7 +166,7 @@ export async function fetchPopularCooks(limit: number = 12): Promise<PopularCook
     };
 
     const authorCounts = new Map<string, number>();
-    const subscription = ndkInstance.subscribe(filter);
+    const subscription = ndkInstance.subscribe(filter, { closeOnEose: true });
 
     return new Promise(async (resolve) => {
       const timeout = setTimeout(async () => {
@@ -168,7 +174,13 @@ export async function fetchPopularCooks(limit: number = 12): Promise<PopularCook
         await processAuthorsWithProfiles(authorCounts, limit, ndkInstance, resolve);
       }, 5000);
 
+      let eventCount = 0;
       subscription.on('event', (event: NDKEvent) => {
+        // t3_explore_first_live_event_received: When the Explore page receives the first Nostr event
+        if (eventCount === 0) {
+          markOnce('t3_explore_first_live_event_received');
+        }
+        eventCount++;
         if (typeof validateMarkdownTemplate(event.content) !== 'string' && event.author?.pubkey) {
           const count = authorCounts.get(event.author.pubkey) || 0;
           authorCounts.set(event.author.pubkey, count + 1);
@@ -204,7 +216,7 @@ export async function fetchCollectionImage(tag: string): Promise<string | undefi
     };
 
     let imageUrl: string | undefined = undefined;
-    const subscription = ndkInstance.subscribe(filter);
+    const subscription = ndkInstance.subscribe(filter, { closeOnEose: true });
 
     return new Promise((resolve) => {
       const timeout = setTimeout(() => {
@@ -238,21 +250,11 @@ export async function fetchCollectionImage(tag: string): Promise<string | undefi
 }
 
 /**
- * Fetch collections with images
+ * Get collections with images (uses static pre-defined images, no network fetch)
  */
 export async function fetchCollectionsWithImages(): Promise<Collection[]> {
-  const collections = [...STATIC_COLLECTIONS];
-  
-  // Fetch images for each collection in parallel
-  const imagePromises = collections.map(async (collection) => {
-    if (collection.tag) {
-      const imageUrl = await fetchCollectionImage(collection.tag);
-      return { ...collection, imageUrl };
-    }
-    return collection;
-  });
-
-  return Promise.all(imagePromises);
+  // Return static collections immediately - images are pre-defined
+  return [...STATIC_COLLECTIONS];
 }
 
 /**
@@ -361,7 +363,7 @@ export async function fetchTrendingRecipes(limit: number = 12): Promise<NDKEvent
     };
 
     const recipes: NDKEvent[] = [];
-    const subscription = ndkInstance.subscribe(filter);
+    const subscription = ndkInstance.subscribe(filter, { closeOnEose: true });
 
     return new Promise((resolve) => {
       const timeout = setTimeout(async () => {
@@ -449,7 +451,7 @@ async function sortAndResolveRecipes(
  * Configuration for discover recipes sampling
  */
 const DISCOVER_CONFIG = {
-  MAX_AGE_DAYS: 90, // 3 months
+  MAX_AGE_DAYS: 100, // ~3.3 months
   MIN_RECIPES_TO_SAMPLE: 8,
   MAX_RECIPES_TO_SAMPLE: 12,
   MAX_RECIPES_PER_AUTHOR: 2
@@ -574,16 +576,49 @@ export async function fetchDiscoverRecipes(
     let invalidMarkdownCount = 0;
     let noAuthorCount = 0;
 
-    const subscription = ndkInstance.subscribe(filter);
+    const subscription = ndkInstance.subscribe(filter, { closeOnEose: true });
 
     return new Promise((resolve) => {
+      // Early-resolve support: prevent double resolve
+      let resolved = false;
+
+      // First paint threshold: resolve early once we have enough for initial render
+      const FIRST_PAINT_MIN = Math.min(8, limit);
+
       const timeout = setTimeout(async () => {
+        if (resolved) return;
         subscription.stop();
         logger.debug(`Timeout reached. Events: ${eventCount}, Valid: ${validCount}, No image: ${noImageCount}, Invalid markdown: ${invalidMarkdownCount}, No author: ${noAuthorCount}`, 'fetchDiscoverRecipes');
         await processAndSampleRecipes(allRecipes, limit, ndkInstance, resolve);
       }, 8000); // 8 second timeout (reduced from 10s)
 
+      // Helper to stop subscription and resolve early
+      const stopAndResolve = (recipes: NDKEvent[]) => {
+        if (resolved) return;
+        resolved = true;
+        clearTimeout(timeout);
+        // Use .stop() to halt the subscription
+        // Note: NDK may log "No filters to merge" warnings when new relays connect
+        // after early resolve - this is expected and doesn't affect functionality
+        subscription.stop();
+        resolve(recipes);
+      };
+
+      // Quick pick: prefer recipes with images, then randomize and slice
+      const quickPick = (recipes: NDKEvent[], count: number): NDKEvent[] => {
+        const withImages = recipes.filter(hasImage);
+        const withoutImages = recipes.filter(r => !hasImage(r));
+        // Shuffle each group for variety
+        const shuffledWith = [...withImages].sort(() => Math.random() - 0.5);
+        const shuffledWithout = [...withoutImages].sort(() => Math.random() - 0.5);
+        return [...shuffledWith, ...shuffledWithout].slice(0, count);
+      };
+
       subscription.on('event', (event: NDKEvent) => {
+        // t3_explore_first_live_event_received: When the Explore page receives the first Nostr event
+        if (eventCount === 0) {
+          markOnce('t3_explore_first_live_event_received');
+        }
         eventCount++;
         
         // Check each condition separately for debugging
@@ -603,10 +638,18 @@ export async function fetchDiscoverRecipes(
         if (hasValidMarkdown && hasAuthor) {
           validCount++;
           allRecipes.push(event);
+
+          // Early resolve: trigger once we have enough for first paint (not waiting for full limit)
+          if (!resolved && allRecipes.length >= FIRST_PAINT_MIN) {
+            logger.debug(`Early resolve triggered with ${allRecipes.length} recipes`, 'fetchDiscoverRecipes');
+            stopAndResolve(quickPick(allRecipes, Math.min(allRecipes.length, limit)));
+            return;
+          }
         }
       });
 
       subscription.on('eose', async () => {
+        if (resolved) return;
         clearTimeout(timeout);
         subscription.stop();
         logger.debug(`EOSE reached. Events: ${eventCount}, Valid: ${validCount}, No image: ${noImageCount}, Invalid markdown: ${invalidMarkdownCount}, No author: ${noAuthorCount}`, 'fetchDiscoverRecipes');

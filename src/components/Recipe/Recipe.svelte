@@ -47,7 +47,12 @@
 let listsArr: NDKEvent[] = [];
 async function getLists(): Promise<NDKEvent[]> {
   return new Promise((resolve) => {
-    const sub = $ndk.subscribe([
+    if (!$userPublickey) {
+      resolve([]);
+      return;
+    }
+    
+    const filters = [
       {
         authors: [$userPublickey],
         limit: 256,
@@ -59,7 +64,14 @@ async function getLists(): Promise<NDKEvent[]> {
         authors: [$userPublickey],
         kinds: [30001]
       }
-    ]);
+    ];
+    
+    if (filters.length === 0) {
+      resolve([]);
+      return;
+    }
+    
+    const sub = $ndk.subscribe(filters);
 
     sub.on('event', (event: NDKEvent) => {
       listsArr.push(event);

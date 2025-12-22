@@ -79,61 +79,62 @@ export class ConnectionManager {
       });
     });
 
-    // Perform initial health check
-    this.performInitialHealthCheck();
+    // Run health checks in BACKGROUND - don't block connection
+    // Relays are usable as soon as WebSocket connects
+    this.runBackgroundHealthChecks();
   }
 
-  private async performInitialHealthCheck() {
-    console.log('🔍 Performing initial relay health check...');
+  /**
+   * Run health checks in background for quality scoring.
+   * Does NOT block relay usage - relays are usable immediately on WebSocket connect.
+   */
+  private runBackgroundHealthChecks() {
+    console.log('🔍 Starting background relay health checks...');
     
-    const healthCheckPromises = Array.from(this.relayHealth.keys()).map(async (url) => {
-      try {
-        const startTime = Date.now();
-        
-        // Create a simple test filter
-        const testFilter = { kinds: [1], limit: 1 };
-        
-        // Try to fetch events with a timeout
-        const timeoutPromise = new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('Health check timeout')), 5000)
-        );
+    // Run health checks async - don't await
+    Promise.allSettled(
+      Array.from(this.relayHealth.keys()).map(async (url) => {
+        try {
+          const startTime = Date.now();
+          const testFilter = { kinds: [1], limit: 1 };
+          
+          const timeoutPromise = new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('Health check timeout')), 5000)
+          );
 
-        const relay_set = NDKRelaySet.fromRelayUrls([url], this.ndk, true);
-        
-        await Promise.race([
-          this.ndk.fetchEvents(testFilter, undefined, relay_set),
-          timeoutPromise
-        ]);
-        
-        const responseTime = Date.now() - startTime;
-        const health = this.relayHealth.get(url);
-        
-        if (health) {
-          health.status = 'connected';
-          health.lastSeen = Date.now();
-          health.responseTime = responseTime;
-          health.failures = 0;
+          const relay_set = NDKRelaySet.fromRelayUrls([url], this.ndk, true);
           
-          console.log(`✅ Initial health check passed for ${url} (${responseTime}ms)`);
-        }
-        
-      } catch (error) {
-        const health = this.relayHealth.get(url);
-        if (health) {
-          health.status = 'disconnected';
-          health.failures++;
-          health.circuitBreaker.failures++;
-          health.circuitBreaker.lastFailure = Date.now();
+          await Promise.race([
+            this.ndk.fetchEvents(testFilter, undefined, relay_set),
+            timeoutPromise
+          ]);
           
-          console.log(`❌ Initial health check failed for ${url}:`, error.message);
+          const responseTime = Date.now() - startTime;
+          const health = this.relayHealth.get(url);
+          
+          if (health) {
+            health.lastSeen = Date.now();
+            health.responseTime = responseTime;
+            // Don't override 'connected' status - WebSocket connect already set it
+            if (health.status === 'disconnected') {
+              health.status = 'connected';
+            }
+            health.failures = 0;
+          }
+          
+        } catch (error: any) {
+          // Health check failed - but don't mark relay as disconnected
+          // if WebSocket is still connected. Just note the failure for scoring.
+          const health = this.relayHealth.get(url);
+          if (health && health.status === 'disconnected') {
+            health.failures++;
+          }
         }
-      }
+      })
+    ).then(() => {
+      const connectedCount = this.getConnectedRelays().length;
+      console.log(`🔍 Background health checks complete: ${connectedCount} relays connected`);
     });
-
-    await Promise.allSettled(healthCheckPromises);
-    
-    const healthyCount = this.getHealthyRelays().length;
-    console.log(`🔍 Initial health check complete: ${healthyCount}/${this.relayHealth.size} relays healthy`);
   }
 
   private setupEventListeners() {
@@ -240,65 +241,31 @@ export class ConnectionManager {
     // Clear existing heartbeat if any
     this.stopHeartbeat(url);
     
-    const interval = setInterval(async () => {
+    // Simplified heartbeat: just check if relay is still in pool and update lastSeen
+    // Avoids creating new subscriptions which can cause "No filters to merge" errors
+    const interval = setInterval(() => {
       try {
-        const startTime = Date.now();
-        
-        // Send a simple ping by requesting a single event
-        const testFilter = { kinds: [1], limit: 1 };
-        const timeoutPromise = new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('Heartbeat timeout')), this.MAX_RESPONSE_TIME)
-        );
-        
-        await Promise.race([
-          new Promise((resolve, reject) => {
-            const subscription = this.ndk.subscribe(testFilter, { closeOnEose: false });
-            let resolved = false;
-            
-            subscription.on('event', () => {
-              if (!resolved) {
-                resolved = true;
-                subscription.stop();
-                resolve(null);
-              }
-            });
-            
-            subscription.on('eose', () => {
-              if (!resolved) {
-                resolved = true;
-                subscription.stop();
-                resolve(null);
-              }
-            });
-            
-            setTimeout(() => {
-              if (!resolved) {
-                resolved = true;
-                subscription.stop();
-                reject(new Error('Heartbeat timeout'));
-              }
-            }, this.MAX_RESPONSE_TIME);
-          }),
-          timeoutPromise
-        ]);
-        
-        const responseTime = Date.now() - startTime;
         const health = this.relayHealth.get(url);
+        if (!health) return;
         
-        if (health) {
+        // Check if relay is still connected via the pool
+        const relayInstance = this.ndk.pool.relays.get(url);
+        const isConnected = relayInstance?.connectivity?.status === 1; // 1 = OPEN
+        
+        if (isConnected) {
           health.lastSeen = Date.now();
-          health.responseTime = responseTime;
-          
-          // Mark as degraded if response time is too high
-          if (responseTime > this.MAX_RESPONSE_TIME && health.status === 'connected') {
-            health.status = 'degraded';
-            console.warn(`⚠️ Relay ${url} response time: ${responseTime}ms`);
+          // Keep status as connected if WebSocket is open
+          if (health.status === 'disconnected') {
+            health.status = 'connected';
+          }
+        } else {
+          // WebSocket closed - handle disconnect
+          if (health.status === 'connected' || health.status === 'degraded') {
+            this.handleRelayDisconnect({ url });
           }
         }
-        
       } catch (error) {
-        console.warn(`💔 Heartbeat failed for ${url}:`, error);
-        this.handleRelayDisconnect({ url });
+        // Silently ignore heartbeat errors
       }
     }, this.HEARTBEAT_INTERVAL);
     
@@ -332,27 +299,83 @@ export class ConnectionManager {
 
   // Public API methods
   async connectWithCircuitBreaker(): Promise<void> {
-    // Wait a bit for initial health check to complete
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    
-    const healthyRelays = this.getHealthyRelays();
-    
-    console.log(`🔗 Available relays for connection:`, healthyRelays);
-    
-    // If no healthy relays, try connecting anyway - NDK will handle relay selection
-    if (healthyRelays.length === 0) {
-      console.log('⚠️ No healthy relays detected, attempting connection anyway...');
-    } else {
-      console.log(`🔗 Connecting to ${healthyRelays.length} healthy relays...`);
-    }
+    // Don't wait for health checks - connect immediately
+    // Health checks run in background for quality scoring
+    console.log(`🔗 Connecting to relays (health checks running in background)...`);
     
     try {
       await this.ndk.connect();
-      console.log('✅ NDK connected successfully');
+      console.log('✅ NDK.connect() completed');
+      
+      // Wait for at least one relay WebSocket to be connected (fast - typically <500ms)
+      await this.waitForFirstRelay(3000); // Reduced timeout since we're not waiting for health checks
     } catch (error) {
       console.error('❌ NDK connection failed:', error);
       throw error;
     }
+  }
+
+  /**
+   * Wait for at least one relay WebSocket to be connected (with timeout)
+   * This is fast - just waits for WebSocket open, not health check
+   */
+  async waitForFirstRelay(timeoutMs: number = 3000): Promise<void> {
+    // Check if already connected (via relay:connect event)
+    if (this.getConnectedRelays().length > 0) {
+      console.log('✅ Relay already connected');
+      return;
+    }
+
+    // Also check NDK pool directly for connected relays
+    const poolConnected = this.getPoolConnectedRelays();
+    if (poolConnected.length > 0) {
+      console.log(`✅ Relay connected (from pool): ${poolConnected[0]}`);
+      return;
+    }
+    
+    return new Promise((resolve) => {
+      const startTime = Date.now();
+      
+      // Poll frequently for fast response
+      const checkInterval = setInterval(() => {
+        const connected = this.getConnectedRelays();
+        const poolRelays = this.getPoolConnectedRelays();
+        
+        if (connected.length > 0 || poolRelays.length > 0) {
+          clearInterval(checkInterval);
+          const firstRelay = connected[0] || poolRelays[0];
+          console.log(`✅ First relay connected: ${firstRelay}`);
+          resolve();
+          return;
+        }
+        
+        // Check timeout
+        if (Date.now() - startTime > timeoutMs) {
+          clearInterval(checkInterval);
+          console.warn('⚠️ Timeout waiting for relay connections, proceeding anyway');
+          resolve();
+          return;
+        }
+      }, 50); // Check every 50ms for fast response
+    });
+  }
+
+  /**
+   * Check NDK pool directly for connected relays
+   */
+  private getPoolConnectedRelays(): string[] {
+    const connected: string[] = [];
+    try {
+      for (const [url, relay] of this.ndk.pool.relays) {
+        // Check if relay WebSocket is open
+        if (relay.connectivity?.status === 1) { // 1 = OPEN
+          connected.push(url);
+        }
+      }
+    } catch (e) {
+      // Pool might not be ready yet
+    }
+    return connected;
   }
 
   getHealthyRelays(): string[] {
@@ -392,9 +415,15 @@ export class ConnectionManager {
   }
 
   getConnectedRelays(): string[] {
-    return Array.from(this.relayHealth.entries())
-      .filter(([, health]) => health.status === 'connected')
+    // Check both our health tracking and actual NDK pool status
+    const fromHealth = Array.from(this.relayHealth.entries())
+      .filter(([, health]) => health.status === 'connected' || health.status === 'degraded')
       .map(([url]) => url);
+    
+    const fromPool = this.getPoolConnectedRelays();
+    
+    // Return union of both sources
+    return [...new Set([...fromHealth, ...fromPool])];
   }
 
   // Force circuit breaker reset for testing/recovery

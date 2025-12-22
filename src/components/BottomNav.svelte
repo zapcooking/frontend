@@ -13,9 +13,9 @@
     <MagnifyingIcon class="self-center" size={24} />
     Recipes
   </a>
-  <a href="/feed" class="flex flex-col hover:text-primary">
+  <a href="/community" class="flex flex-col hover:text-primary">
     <UtensilsIcon class="self-center" size={24} />
-    Feed
+    Community
   </a>
   <a href="/explore" class="flex flex-col hover:text-primary">
     <LightningIcon class="self-center" size={24} />

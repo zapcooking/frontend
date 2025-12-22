@@ -62,10 +62,21 @@
       }
 
       // Subscribe to listen for NEW zaps (both #e and #a tags)
-      subscription = $ndk.subscribe([
+      // Guard: ensure we have valid event.id and aTag before subscribing
+      if (!event.id || !aTag) {
+        return;
+      }
+      
+      const filters = [
         { kinds: [9735], '#a': [aTag] },
         { kinds: [9735], '#e': [event.id] }
-      ]);
+      ];
+      
+      if (filters.length === 0) {
+        return;
+      }
+      
+      subscription = $ndk.subscribe(filters);
 
       subscription.on('event', (zapEvent: NDKEvent) => {
         processZapEvent(zapEvent);
