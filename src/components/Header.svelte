@@ -19,6 +19,7 @@
   import Modal from './Modal.svelte';
   import { qr } from "@svelte-put/qr/svg";
   import CustomAvatar from './CustomAvatar.svelte';
+  import { theme } from '$lib/themeStore';
 
   let dropdownActive = false;
   let searchActive = false;
@@ -58,6 +59,10 @@
   $: if ($userPublickey !== undefined) {
     isLoading = false;
   }
+
+  // Reactive resolved theme for logo switching
+  $: resolvedTheme = $theme === 'system' ? theme.getResolvedTheme() : $theme;
+  $: isDarkMode = resolvedTheme === 'dark';
 </script>
 
 {#if searchActive}
@@ -75,10 +80,10 @@
 <!-- Mobile-first layout -->
 <div class="flex gap-4 sm:gap-9 justify-between">
     <a href="/recent" class="flex-none">
-      <img src={SVGNostrCookingWithText} class="w-35 sm:w-40 my-3" alt="zap.cooking Logo With Text" />
+      <img src={isDarkMode ? '/zap_cooking_logo_white.svg' : SVGNostrCookingWithText} class="w-35 sm:w-40 my-3" alt="zap.cooking Logo With Text" />
     </a>
   <!-- Top row for desktop: Navigation links -->
-  <div class="hidden lg:flex gap-9 self-center font-semibold print:hidden">
+  <div class="hidden lg:flex gap-9 self-center font-semibold print:hidden" style="color: var(--color-text-primary)">
     <a class="transition duration-300 hover:text-primary" href="/recent">Recipes</a>
     <a class="transition duration-300 hover:text-primary" href="/feed">Feed</a>
     <a class="transition duration-300 hover:text-primary" href="/explore">Explore</a>
@@ -121,24 +126,25 @@
               on:keydown={(e) => e.key === 'Escape' && (dropdownActive = false)}
               use:clickOutside
               on:click_outside={() => (dropdownActive = false)}
-              class="flex flex-col right-3 gap-4 absolute z-10 bg-white rounded-3xl drop-shadow px-5 py-6"
+              class="flex flex-col right-3 gap-4 absolute z-10 bg-input rounded-3xl drop-shadow px-5 py-6"
+              style="color: var(--color-text-primary)"
             >
               <button
-                class="flex gap-2 cursor-pointer"
+                class="flex gap-2 cursor-pointer hover:text-primary"
                 on:click={() => goto(`/user/${nip19.npubEncode($userPublickey)}`)}
               >
                 <UserIcon class="self-center" size={18} />
                 Profile
               </button>
-              <button class="flex gap-2 cursor-pointer" on:click={() => goto('/bookmarks')}>
+              <button class="flex gap-2 cursor-pointer hover:text-primary" on:click={() => goto('/bookmarks')}>
                 <BookmarkIcon class="self-center" size={18} />
                 Bookmarks
               </button>
-              <button class="flex gap-2 cursor-pointer" on:click={() => goto('/settings')}>
+              <button class="flex gap-2 cursor-pointer hover:text-primary" on:click={() => goto('/settings')}>
                 <GearIcon class="self-center" size={18} />
                 Settings
               </button>
-              <button class="flex gap-2 cursor-pointer" on:click={logout}>
+              <button class="flex gap-2 cursor-pointer hover:text-primary" on:click={logout}>
                 <SignOutIcon class="self-center" size={18} />
                 Log out
               </button>
@@ -158,17 +164,17 @@
     <!-- Header -->
     <div class="text-center mb-6">
       <div class="text-3xl mb-3">⚡</div>
-      <h2 class="text-xl font-bold text-gray-800 mb-2">Support Zap Cooking</h2>
-      <p class="text-sm text-gray-600">
+      <h2 class="text-xl font-bold text-gray-800 dark:text-gray-200 mb-2">Support Zap Cooking</h2>
+      <p class="text-sm text-gray-600 dark:text-gray-400">
         Help us keep Zap Cooking running and improving!
       </p>
     </div>
-    
+
     <!-- QR Code Section -->
-    <div class="bg-white p-6 rounded-2xl shadow-lg border border-gray-200 mb-4 w-full">
+    <div class="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-lg border border-gray-200 dark:border-gray-700 mb-4 w-full">
       <!-- QR Code -->
       <div class="flex justify-center mb-4">
-        <svg class="w-40 h-40" 
+        <svg class="w-40 h-40"
              use:qr={{
                data: "lightning:ZapCooking@getalby.com",
                logo: "https://zap.cooking/favicon.svg",
@@ -178,17 +184,17 @@
              }}
         />
       </div>
-      
-      <div class="text-center text-xs text-gray-500 mb-4">
+
+      <div class="text-center text-xs text-gray-500 dark:text-gray-400 mb-4">
         Scan with your Lightning wallet
       </div>
     </div>
-    
+
     <!-- Lightning Address Section -->
     <div class="w-full mb-4">
-      <div class="text-sm font-medium text-gray-700 mb-2">Lightning Address</div>
+      <div class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Lightning Address</div>
       <div class="flex items-center gap-2">
-        <div class="flex-1 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-800 break-all">
+        <div class="flex-1 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-sm text-gray-800 dark:text-gray-200 break-all">
           ZapCooking@getalby.com
         </div>
         <button 

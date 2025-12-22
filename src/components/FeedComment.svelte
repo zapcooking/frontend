@@ -120,31 +120,31 @@
   <div class="flex-1 min-w-0">
     <!-- Name + Time -->
     <div class="flex items-center gap-2 mb-1">
-      <a href="/user/{nip19.npubEncode(event.pubkey)}" class="font-semibold text-sm hover:underline">
+      <a href="/user/{nip19.npubEncode(event.pubkey)}" class="font-semibold text-sm hover:underline" style="color: var(--color-text-primary)">
         {#if isLoading}
           <span class="animate-pulse">Loading...</span>
         {:else}
           {displayName}
         {/if}
       </a>
-      <span class="text-gray-500 text-xs">
+      <span class="text-caption text-xs">
         {formatDate(new Date((event.created_at || 0) * 1000))}
       </span>
     </div>
 
     <!-- Comment Text -->
-    <p class="text-sm text-gray-900 mb-2 break-words">
+    <p class="text-sm mb-2 break-words" style="color: var(--color-text-primary)">
       {event.content}
     </p>
 
     <!-- Actions -->
-    <div class="flex items-center gap-3 text-xs text-gray-600">
+    <div class="flex items-center gap-3 text-xs" style="color: var(--color-text-secondary)">
       <!-- Like Button -->
       <button
         on:click={toggleLike}
         class="flex items-center gap-1 transition"
         class:text-red-500={liked}
-        class:text-black={!liked}
+        style={!liked ? 'color: var(--color-text-primary)' : ''}
         disabled={!$userPublickey}
       >
         <HeartIcon size={14} weight={liked ? 'fill' : 'regular'} />
@@ -170,7 +170,8 @@
         <textarea
           bind:value={replyText}
           placeholder="Add a reply..."
-          class="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-lg resize-none focus:ring-2 focus:ring-primary focus:border-transparent"
+          class="w-full px-2 py-1.5 text-sm rounded-lg resize-none focus:ring-2 focus:ring-primary focus:border-transparent bg-input"
+          style="border: 1px solid var(--color-input-border); color: var(--color-text-primary)"
           rows="2"
         />
         <div class="flex gap-2">
@@ -186,7 +187,8 @@
               showReplyBox = false;
               replyText = '';
             }}
-            class="px-3 py-1.5 text-xs bg-gray-100 rounded-lg font-medium hover:bg-gray-200"
+            class="px-3 py-1.5 text-xs rounded-lg font-medium bg-input hover:opacity-80"
+            style="color: var(--color-text-primary)"
           >
             Cancel
           </button>
@@ -196,7 +198,7 @@
 
     <!-- Nested Replies -->
     {#if directReplies.length > 0}
-      <div class="mt-3 space-y-3 pl-3 border-l-2 border-gray-100">
+      <div class="mt-3 space-y-3 pl-3 border-l-2" style="border-color: var(--color-input-border)">
         {#each directReplies as reply}
           <svelte:self event={reply} {replies} {refresh} {mainEventId} />
         {/each}

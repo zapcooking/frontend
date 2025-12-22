@@ -881,7 +881,7 @@
   {:else}
     <div class="space-y-0">
       {#each events as event (event.id)}
-        <article class="border-b border-gray-200 py-4 sm:py-6 first:pt-0">
+        <article class="border-b py-4 sm:py-6 first:pt-0" style="border-color: var(--color-input-border)">
           <div class="flex space-x-3 px-2 sm:px-0">
             <!-- Avatar -->
             <a href="/user/{nip19.npubEncode(event.author.hexpubkey || event.pubkey)}" class="flex-shrink-0">
@@ -897,14 +897,14 @@
               <!-- Header -->
               <div class="flex items-center space-x-2 mb-2">
                 <AuthorName {event} />
-                <span class="text-gray-500 text-sm">·</span>
-                <span class="text-gray-500 text-sm">
+                <span class="text-caption text-sm">·</span>
+                <span class="text-caption text-sm">
                   {event.created_at ? formatTimeAgo(event.created_at) : 'Unknown time'}
                 </span>
               </div>
 
               <!-- Content -->
-              <div class="text-sm leading-relaxed mb-3 text-gray-900">
+              <div class="text-sm leading-relaxed mb-3" style="color: var(--color-text-primary)">
                 <NoteContent content={getContentWithoutMedia(event.content)} />
               </div>
 
@@ -914,7 +914,7 @@
                 
                 <div class="mb-3 -mx-2 sm:mx-0">
                   <!-- Single image container -->
-                  <div class="relative overflow-hidden rounded-none sm:rounded-lg border-0 sm:border border-gray-200 bg-gray-100 h-48 sm:h-64">
+                  <div class="relative overflow-hidden rounded-none sm:rounded-lg border-0 sm:border h-48 sm:h-64 image-placeholder" style="border-color: var(--color-input-border)">
                     {#each mediaUrls as imageUrl, index}
                       <div 
                         class="absolute inset-0 transition-opacity duration-300"
@@ -947,8 +947,8 @@
                             Your browser does not support the video tag.
                           </video>
                         {:else}
-                          <div class="w-full h-full flex items-center justify-center bg-gray-200">
-                            <span class="text-gray-600">Unknown media type</span>
+                          <div class="w-full h-full flex items-center justify-center image-placeholder">
+                            <span class="text-caption">Unknown media type</span>
                           </div>
                         {/if}
                       </div>
@@ -1006,7 +1006,7 @@
               <!-- Actions: Likes, Comments, Zaps, Copy -->
               <div class="space-y-2">
                 <div class="flex items-center justify-between px-2 sm:px-0">
-                  <div class="flex items-center space-x-3 sm:space-x-4 text-sm text-gray-500">
+                  <div class="flex items-center space-x-3 sm:space-x-4 text-sm text-caption">
                     <NoteTotalLikes {event} />
                     <NoteTotalComments {event} />
                     <button
@@ -1019,7 +1019,8 @@
 
                   <!-- Copy Note ID Button -->
                   <button
-                    class="flex items-center gap-1 text-black hover:text-gray-800 transition p-1 rounded hover:bg-gray-100"
+                    class="flex items-center gap-1 transition p-1 rounded hover:bg-accent-gray"
+                    style="color: var(--color-text-secondary)"
                     on:click={() => copyNoteId(event)}
                     title="Copy note ID"
                   >
@@ -1049,9 +1050,10 @@
               showText={true}
             />
           {:else}
-            <button 
+            <button
               on:click={loadMore}
-              class="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
+              class="px-4 py-2 bg-input rounded-lg hover:opacity-80 transition-colors"
+              style="color: var(--color-text-primary)"
             >
               Load More
             </button>
@@ -1083,10 +1085,11 @@
     aria-modal="true"
   >
     <!-- Modal Container -->
-    <div class="relative bg-white rounded-lg shadow-2xl max-w-4xl max-h-[90vh] overflow-hidden" on:click|stopPropagation>
+    <div class="relative rounded-lg shadow-2xl max-w-4xl max-h-[90vh] overflow-hidden" style="background-color: var(--color-bg-primary)" on:click|stopPropagation>
       <!-- Close button -->
       <button
-        class="absolute top-2 right-2 bg-white hover:bg-gray-100 text-gray-700 rounded-full p-2 shadow-md transition z-10"
+        class="absolute top-2 right-2 hover:opacity-80 rounded-full p-2 shadow-md transition z-10"
+        style="background-color: var(--color-bg-primary); color: var(--color-text-primary)"
         on:click={closeImageModal}
         aria-label="Close image"
       >

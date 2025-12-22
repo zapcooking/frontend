@@ -120,7 +120,7 @@
         {#if loadingCollections}
           <div class="flex gap-4 overflow-x-auto pb-2 -mx-4 px-4">
             {#each Array(5) as _}
-              <div class="flex-shrink-0 w-64 h-40 bg-gray-200 rounded-xl animate-pulse"></div>
+              <div class="flex-shrink-0 w-64 h-40 rounded-xl animate-pulse skeleton-bg"></div>
             {/each}
           </div>
         {:else if collections.length > 0}
@@ -147,8 +147,8 @@
           <div class="flex gap-4 overflow-x-auto pb-2 -mx-4 px-4">
             {#each Array(6) as _}
               <div class="flex-shrink-0 w-20 flex flex-col items-center gap-2">
-                <div class="w-16 h-16 bg-gray-200 rounded-full animate-pulse"></div>
-                <div class="h-4 w-16 bg-gray-200 rounded animate-pulse"></div>
+                <div class="w-16 h-16 rounded-full animate-pulse skeleton-bg"></div>
+                <div class="h-4 w-16 rounded animate-pulse skeleton-bg"></div>
               </div>
             {/each}
           </div>
@@ -170,7 +170,7 @@
         {#if loadingDiscover}
           <div class="flex gap-4 overflow-x-auto pb-2 -mx-4 px-4">
             {#each Array(6) as _}
-              <div class="flex-shrink-0 w-56 h-72 bg-gray-200 rounded-xl animate-pulse"></div>
+              <div class="flex-shrink-0 w-56 h-72 rounded-xl animate-pulse skeleton-bg"></div>
             {/each}
           </div>
         {:else if discoverRecipes.length > 0}
@@ -191,7 +191,7 @@
         {#if loadingPopular}
           <div class="flex flex-wrap gap-2">
             {#each Array(10) as _}
-              <div class="h-9 w-24 bg-gray-200 rounded-full animate-pulse"></div>
+              <div class="h-9 w-24 rounded-full animate-pulse skeleton-bg"></div>
             {/each}
           </div>
         {:else if popularTags.length > 0}
@@ -204,7 +204,7 @@
       </section>
 
       <!-- Explore More (Below the fold) -->
-      <div class="flex flex-col gap-6 pt-4 border-t">
+      <div class="flex flex-col gap-6 pt-4 border-t" style="border-color: var(--color-input-border)">
         <h2 class="text-2xl font-bold flex items-center gap-2">
           <span>🔍</span>
           <span>Explore More</span>
@@ -225,7 +225,7 @@
 
         <!-- Culture Section -->
         {#if cultureSection}
-          <div class="rounded-xl border border-gray-200 bg-[#fafafa] shadow-sm p-5 md:p-6 transition-all duration-300">
+          <div class="rounded-xl shadow-sm p-5 md:p-6 transition-all duration-300" style="border: 1px solid var(--color-input-border); background-color: var(--color-bg-secondary)">
             <div class="flex items-start justify-between gap-4 mb-4">
               <div class="flex-1">
                 <h2 class="text-2xl font-bold flex items-center gap-2 mb-1.5">
@@ -264,7 +264,7 @@
         {/each}
 
         <!-- View All Tags Link -->
-        <div class="pt-4 border-t">
+        <div class="pt-4 border-t" style="border-color: var(--color-input-border)">
           <a
             href="/explore/all"
             class="inline-flex items-center gap-2 text-primary hover:underline font-medium"

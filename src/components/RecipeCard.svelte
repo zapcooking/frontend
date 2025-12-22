@@ -71,7 +71,7 @@
       href={link}
       class="flex flex-col gap-4 w-full max-w-[160px] justify-self-center hover:text-primary transition-colors duration-300"
     >
-      <div class="relative image" style={`background-image: url('/placeholder.png');`}>
+      <div class="relative image image-placeholder">
         <div
           bind:this={imageElement}
           class="absolute top-0 left-0 bottom-0 right-0 image hover:scale-105 transition-transform duration-700 ease-in-out"

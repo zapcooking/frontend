@@ -12,8 +12,9 @@
     py-3
     font-semibold
     rounded-full
-    text-black
     text-center
-    ${selected ? 'bg-accent-gray' : 'bg-input hover:bg-gray-200'}
-    `}>{text}</button
+    ${selected ? 'bg-accent-gray' : 'bg-input'}
+    `}
+  style="color: var(--color-text-primary)"
+>{text}</button
 >

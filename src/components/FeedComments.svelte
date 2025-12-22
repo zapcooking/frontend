@@ -88,11 +88,11 @@
 
 <div class="inline-comments" data-event-id={event.id}>
   {#if showComments}
-    <div class="mt-3 space-y-4 border-t border-gray-100 pt-3">
+    <div class="mt-3 space-y-4 pt-3" style="border-top: 1px solid var(--color-input-border)">
       <!-- Comments List -->
       <div class="space-y-4">
         {#if topLevelComments.length === 0}
-          <p class="text-sm text-gray-500">No comments yet. Be the first to comment!</p>
+          <p class="text-sm text-caption">No comments yet. Be the first to comment!</p>
         {:else}
           {#each topLevelComments as comment}
             <FeedComment event={comment} replies={events} {refresh} mainEventId={event.id} />
@@ -102,11 +102,12 @@
 
       <!-- Add Comment Form -->
       {#if $userPublickey}
-        <div class="space-y-2 pt-2 border-t border-gray-100">
+        <div class="space-y-2 pt-2" style="border-top: 1px solid var(--color-input-border)">
           <textarea
             bind:value={commentText}
             placeholder="Add a comment..."
-            class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg resize-none focus:ring-2 focus:ring-primary focus:border-transparent"
+            class="w-full px-3 py-2 text-sm rounded-lg resize-none focus:ring-2 focus:ring-primary focus:border-transparent bg-input"
+            style="border: 1px solid var(--color-input-border); color: var(--color-text-primary)"
             rows="2"
           />
           <div class="flex justify-end">
@@ -116,7 +117,7 @@
           </div>
         </div>
       {:else}
-        <div class="text-sm text-gray-500 pt-2 border-t border-gray-100">
+        <div class="text-sm text-caption pt-2" style="border-top: 1px solid var(--color-input-border)">
           <a href="/login" class="text-primary hover:underline">Log in</a> to comment
         </div>
       {/if}

@@ -99,7 +99,8 @@
   </form>
   {#if showAutocomplete && filteredTags.length > 0}
     <ul
-      class="max-h-[256px] overflow-y-scroll absolute top-full left-0 w-full bg-white border border-gray-300 shadow-lg rounded-xl mt-1 z-[60]"
+      class="max-h-[256px] overflow-y-scroll absolute top-full left-0 w-full bg-input border border-gray-300 shadow-lg rounded-xl mt-1 z-[60]"
+      style="border-color: var(--color-input-border);"
     >
       {#each filteredTags as tag (tag.title)}
         <!-- svelte-ignore a11y-click-events-have-key-events -->
@@ -110,7 +111,10 @@
             action(tagquery);
             tagquery = '';
           }}
-          class="cursor-pointer p-2 hover:bg-gray-100 autocomplete-item"
+          class="cursor-pointer p-2 bg-accent-gray autocomplete-item"
+          style="background-color: transparent; color: var(--color-text-primary);"
+          on:mouseenter={(e) => e.currentTarget.style.backgroundColor = 'var(--color-accent-gray)'}
+          on:mouseleave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
         >
           {#if tag.emoji}
             <span>{tag.emoji} </span>
