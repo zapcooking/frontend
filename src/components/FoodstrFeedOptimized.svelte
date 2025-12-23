@@ -7,6 +7,7 @@
   import NoteTotalLikes from './NoteTotalLikes.svelte';
   import NoteTotalComments from './NoteTotalComments.svelte';
   import NoteTotalZaps from './NoteTotalZaps.svelte';
+  import NoteRepost from './NoteRepost.svelte';
   import FeedComments from './FeedComments.svelte';
   import ZapModal from './ZapModal.svelte';
   import NoteContent from './NoteContent.svelte';
@@ -112,10 +113,7 @@
     'dairyfree','dairy free',
 
     // Restaurants (strong enough on Nostr)
-    'restaurant','restaurants',
-
-    // Cuisines
-    'italian','mexican','thai','indian','mediterranean','japanese','korean'
+    'restaurant','restaurants'
   ];
 
   // Soft words (common metaphor / news words; require 2 hits)
@@ -125,7 +123,9 @@
     // slang/metaphor prone
     'spicy','sweet','flavor','healthy','organic',
     // journalism-metaphor prone
-    'grill','grilled','roast','roasted'
+    'grill','grilled','roast','roasted',
+    // cuisines (can be ambiguous - e.g., "Italian politics")
+    'italian','mexican','thai','indian','mediterranean','japanese','korean'
   ];
 
   // Helper to escape special regex characters
@@ -702,7 +702,7 @@
           
           // Apply food filter only if enabled
           if (foodFilterEnabled) {
-            return shouldIncludeEvent(event);
+          return shouldIncludeEvent(event);
           }
           
           return true;
@@ -854,14 +854,27 @@
 
       // Filter, dedupe, and sort - exclude followed users from Global feed
       const validEvents = allFetchedEvents.filter(event => {
-        // First check standard food content filter
-        if (!shouldIncludeEvent(event)) return false;
-        
-        // For Global feed (no authorPubkey), exclude posts from followed users
-        if (!authorPubkey && followedSet.size > 0) {
+        // Check muted users first
+        if ($userPublickey) {
+          const mutedUsers = getMutedUsers();
           const authorKey = event.author?.hexpubkey || event.pubkey;
-          if (authorKey && followedSet.has(authorKey)) {
-            return false; // Exclude - this belongs in Following/Notes & Replies
+          if (authorKey && mutedUsers.includes(authorKey)) return false;
+        }
+        
+        // Apply food filter based on context
+        if (authorPubkey) {
+          // Profile view: respect the toggle
+          if (foodFilterEnabled && !shouldIncludeEvent(event)) return false;
+        } else {
+          // Global feed: always apply food filter
+          if (!shouldIncludeEvent(event)) return false;
+          
+          // Also exclude posts from followed users
+          if (followedSet.size > 0) {
+            const authorKey = event.author?.hexpubkey || event.pubkey;
+            if (authorKey && followedSet.has(authorKey)) {
+              return false; // Exclude - this belongs in Following/Notes & Replies
+            }
           }
         }
         
@@ -1042,13 +1055,28 @@
       
       const validNew = freshEvents.filter(e => {
         if (seenEventIds.has(e.id)) return false;
-        if (!shouldIncludeEvent(e)) return false;
         
-        // Exclude followed users from Global feed
-        if (!authorPubkey && followedSet.size > 0) {
+        // Check muted users
+        if ($userPublickey) {
+          const mutedUsers = getMutedUsers();
           const authorKey = e.author?.hexpubkey || e.pubkey;
-          if (authorKey && followedSet.has(authorKey)) {
-            return false;
+          if (authorKey && mutedUsers.includes(authorKey)) return false;
+        }
+        
+        // Apply food filter based on context
+        if (authorPubkey) {
+          // Profile view: respect the toggle
+          if (foodFilterEnabled && !shouldIncludeEvent(e)) return false;
+        } else {
+          // Global feed: always apply food filter
+          if (!shouldIncludeEvent(e)) return false;
+          
+          // Exclude followed users from Global feed
+          if (followedSet.size > 0) {
+            const authorKey = e.author?.hexpubkey || e.pubkey;
+            if (authorKey && followedSet.has(authorKey)) {
+              return false;
+            }
           }
         }
         
@@ -1103,13 +1131,28 @@
       
       const validOlder = olderEvents.filter(e => {
         if (seenEventIds.has(e.id)) return false;
-        if (!shouldIncludeEvent(e)) return false;
         
-        // Exclude followed users from Global feed
-        if (!authorPubkey && followedSet.size > 0) {
+        // Check muted users
+        if ($userPublickey) {
+          const mutedUsers = getMutedUsers();
           const authorKey = e.author?.hexpubkey || e.pubkey;
-          if (authorKey && followedSet.has(authorKey)) {
-            return false;
+          if (authorKey && mutedUsers.includes(authorKey)) return false;
+        }
+        
+        // Apply food filter based on context
+        if (authorPubkey) {
+          // Profile view: respect the toggle
+          if (foodFilterEnabled && !shouldIncludeEvent(e)) return false;
+        } else {
+          // Global feed: always apply food filter
+          if (!shouldIncludeEvent(e)) return false;
+          
+          // Exclude followed users from Global feed
+          if (followedSet.size > 0) {
+            const authorKey = e.author?.hexpubkey || e.pubkey;
+            if (authorKey && followedSet.has(authorKey)) {
+              return false;
+            }
           }
         }
         
@@ -1495,11 +1538,15 @@
     </div>
   {/if}
 
-  {#if filterMode === 'following' || filterMode === 'replies'}
+  {#if filterMode === 'following' || filterMode === 'replies' || authorPubkey}
     <div class="flex items-center justify-end gap-2 px-2 sm:px-0 mb-4">
-      <span class="text-sm text-gray-500">
-        {foodFilterEnabled ? 'Food posts' : 'All posts'}
-      </span>
+      {#if foodFilterEnabled}
+        <span class="text-sm">
+          🍳 <span class="text-gray-400">Only</span><span class="font-bold text-gray-700">Food</span>
+        </span>
+      {:else}
+        <span class="text-sm text-gray-500">All posts</span>
+      {/if}
       <button
         on:click={() => {
           foodFilterEnabled = !foodFilterEnabled;
@@ -1811,6 +1858,10 @@
                   
                   <div class="hover:bg-gray-100 rounded-full p-1.5 transition-colors">
                     <NoteTotalComments {event} />
+                  </div>
+                  
+                  <div class="hover:bg-gray-100 rounded-full p-1.5 transition-colors">
+                    <NoteRepost {event} />
                   </div>
                   
                   <button

@@ -621,31 +621,45 @@
 
   <div class="flex flex-col gap-4">
     <!-- Tabs: Recipes | Posts | Lists | Mute -->
-    <div class="flex gap-2 items-center">
-      <button
-        class="rounded-full px-4 py-2 font-semibold cursor-pointer transition-colors {activeTab === 'recipes'
-          ? 'bg-orange-100 text-orange-700'
-          : 'bg-accent-gray opacity-70 hover:opacity-100'}"
-        on:click={() => (activeTab = 'recipes')}
-      >
-        Recipes
-      </button>
-      <button
-        class="rounded-full px-4 py-2 font-semibold cursor-pointer transition-colors {activeTab === 'posts'
-          ? 'bg-orange-100 text-orange-700'
-          : 'bg-accent-gray opacity-70 hover:opacity-100'}"
-        on:click={() => (activeTab = 'posts')}
-      >
-        Posts
-      </button>
-      <button
-        class="rounded-full px-4 py-2 font-semibold cursor-pointer transition-colors {activeTab === 'lists'
-          ? 'bg-orange-100 text-orange-700'
-          : 'bg-accent-gray opacity-70 hover:opacity-100'}"
-        on:click={() => (activeTab = 'lists')}
-      >
-        Lists
-      </button>
+    <div class="flex items-center border-b border-gray-200">
+      <div class="flex gap-1">
+        <button
+          on:click={() => (activeTab = 'recipes')}
+          class="px-4 py-2 text-sm font-medium transition-colors relative"
+          class:text-gray-900={activeTab === 'recipes'}
+          class:text-gray-500={activeTab !== 'recipes'}
+          class:hover:text-gray-900={activeTab !== 'recipes'}
+        >
+          Recipes
+          {#if activeTab === 'recipes'}
+            <span class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-orange-500 to-amber-500"></span>
+          {/if}
+        </button>
+        <button
+          on:click={() => (activeTab = 'posts')}
+          class="px-4 py-2 text-sm font-medium transition-colors relative"
+          class:text-gray-900={activeTab === 'posts'}
+          class:text-gray-500={activeTab !== 'posts'}
+          class:hover:text-gray-900={activeTab !== 'posts'}
+        >
+          Posts
+          {#if activeTab === 'posts'}
+            <span class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-orange-500 to-amber-500"></span>
+          {/if}
+        </button>
+        <button
+          on:click={() => (activeTab = 'lists')}
+          class="px-4 py-2 text-sm font-medium transition-colors relative"
+          class:text-gray-900={activeTab === 'lists'}
+          class:text-gray-500={activeTab !== 'lists'}
+          class:hover:text-gray-900={activeTab !== 'lists'}
+        >
+          Lists
+          {#if activeTab === 'lists'}
+            <span class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-orange-500 to-amber-500"></span>
+          {/if}
+        </button>
+      </div>
       
       <!-- Spacer to push mute button to the right -->
       <div class="flex-1"></div>
@@ -655,7 +669,7 @@
         <button
           on:click={toggleMute}
           disabled={muteLoading}
-          class="flex items-center gap-1.5 px-3 py-2 rounded-full font-medium text-sm transition-colors disabled:opacity-50 {isMuted 
+          class="flex items-center gap-1.5 px-3 py-1.5 rounded-full font-medium text-xs transition-colors disabled:opacity-50 {isMuted 
             ? 'bg-red-100 text-red-700 hover:bg-red-200' 
             : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}"
           aria-label={isMuted ? 'Unmute user' : 'Mute user'}
@@ -664,10 +678,10 @@
           {#if muteLoading}
             <span class="animate-pulse">...</span>
           {:else if isMuted}
-            <SpeakerSlashIcon size={16} weight="bold" />
+            <SpeakerSlashIcon size={14} weight="bold" />
             <span class="hidden sm:inline">Unmute</span>
           {:else}
-            <SpeakerHighIcon size={16} weight="bold" />
+            <SpeakerHighIcon size={14} weight="bold" />
             <span class="hidden sm:inline">Mute</span>
           {/if}
         </button>
@@ -689,9 +703,7 @@
       <div class="max-w-2xl">
         <FoodstrFeedOptimized 
           bind:this={foodstrFeedComponent}
-          authorPubkey={hexpubkey} 
-          hideAvatar={true} 
-          hideAuthorName={true} 
+          authorPubkey={hexpubkey}
         />
         <!-- Infinite scroll sentinel for posts -->
         <div bind:this={postsSentinel} class="py-4 text-center">
