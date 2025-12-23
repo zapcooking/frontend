@@ -78,7 +78,7 @@ const CONFIG = {
   MAX_AUTHORS_PER_RELAY: 50,
   MIN_AUTHORS_PER_RELAY: 3,         // Skip relays with < 3 authors
   MAX_RELAYS_PER_USER: 2,
-  TARGET_EVENT_COUNT: 300,          // Stop once we have enough
+  TARGET_EVENT_COUNT: 5000,        // Was 300 - effectively disable early stop
   
   RELAY_LIST_BATCH_SIZE: 150,
   CONCURRENT_BATCHES: 4,            // Query 4 relays at a time

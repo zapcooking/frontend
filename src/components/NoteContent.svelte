@@ -225,7 +225,7 @@
         </a>
       {/if}
     {:else if part.type === 'nostr'}
-      {#if part.prefix === 'nprofile1'}
+      {#if part.prefix === 'nprofile1' || part.prefix === 'npub1'}
         <ProfileLink nostrString={part.content} />
       {:else if part.prefix === 'nevent1'}
         <NoteEmbed nostrString={part.content} />

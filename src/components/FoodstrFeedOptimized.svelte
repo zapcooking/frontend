@@ -19,7 +19,7 @@
   import { nip19 } from 'nostr-tools';
   import CopyIcon from 'phosphor-svelte/lib/Copy';
   import CheckIcon from 'phosphor-svelte/lib/Check';
-  
+
   // Outbox model for efficient following feed
   import { 
     fetchFollowingEvents, 
@@ -62,17 +62,94 @@
 
 
   // Pre-compiled regexes for performance (compiled once at module level)
-  const FOOD_HASHTAG_REGEX = /(?:^|\s)#(foodstr|cookstr|soupstr|drinkstr|snackstr|steakstr|recipestr|foodies|carnivor|carnivorediet|zapcooking|mealprep)/i;
-  
-  // Comprehensive food words regex - expanded for better discovery
-  // Cooking terms: cook, cooking, bake, baking, grill, roast, fry, sauté, simmer, prep, steam, braise, poach, sear
-  // Meals: breakfast, lunch, dinner, brunch, supper, snack, dessert, appetizer, entree, main course
-  // Kitchen terms: kitchen, ingredient, ingredients, dish, meal, cuisine, chef, culinary, recipe, recipes
-  // Food descriptors: yum, delicious, tasty, flavor, plating, savory, sweet, spicy, umami, aromatic
-  // Related terms: homemade, foodie, mealprep, meal prep, leftovers, hungry, eating, ate, cooked, baked, grilled, restaurant, potluck
-  // Food items: pasta, pizza, sushi, taco, burrito, sandwich, salad, soup, stew, curry, burger, steak
-  // Food types: vegan, vegetarian, keto, paleo, gluten-free, dairy-free, organic
-  const FOOD_WORDS_REGEX = /\b(cook|cooking|bake|baking|grill|grilling|roast|roasting|fry|frying|sauté|simmer|prep|steam|braise|poach|sear|searing|breakfast|lunch|dinner|brunch|supper|snack|dessert|appetizer|entree|kitchen|ingredient|ingredients|dish|meal|meals|cuisine|chef|chefs|culinary|yum|delicious|tasty|flavor|flavours|plating|savory|sweet|spicy|umami|aromatic|homemade|foodie|mealprep|leftovers|hungry|eating|ate|cooked|baked|grilled|restaurant|restaurants|potluck|food|recipe|recipes|pasta|pizza|sushi|taco|tacos|burrito|sandwich|salad|soup|stew|curry|burger|steak|vegan|vegetarian|keto|paleo|glutenfree|dairyfree|organic|nutrition|healthy)\b|meal\s+prep|gluten\s+free|dairy\s+free/i;
+  // ═══════════════════════════════════════════════════════════════
+  // FOOD FILTERING - HARD/SOFT KEYWORD SCORING SYSTEM
+  // ═══════════════════════════════════════════════════════════════
+  // 
+  // Include logic:
+  // - Has food hashtag => include
+  // - Has >= 1 HARD food word => include
+  // - Has >= 2 SOFT food words => include
+  // 
+  // HARD words = very low false-positive risk (1 hit is enough)
+  // SOFT words = common in metaphor/news/etc (require 2 hits)
+  // 
+  // Removals: "dish" (Dish Network), "ate" (too many non-food uses), "cook" (Cook Islands, etc.)
+
+  // Hashtag terms (strong signal)
+  const FOOD_HASHTAG_TERMS = [
+    'foodstr','cookstr','zapcooking','recipestr','soupstr','drinkstr','snackstr','steakstr','mealprep',
+    'foodies','carnivor','carnivorediet'
+  ];
+
+  // Hard words (very low false positive risk; 1 hit is enough)
+  const HARD_FOOD_WORDS = [
+    // Recipes & cooking intent
+    'recipe','recipes','recipestr',
+    'cooking','baking','bake',
+    'chef','chefs','kitchen',
+    'ingredient','ingredients',
+    'seasoned','seasoning','marinated','saute','sauteed','simmer','braised',
+    'fermented','pickled','smoked','slow cooked','air fried',
+
+    // Meals (strong real-world food signal)
+    'breakfast','lunch','dinner','dessert',
+    'mealprep','meal prep',
+    'homecooking','home cooked','fromscratch','homemade',
+
+    // Food items & dishes
+    'pasta','pizza','sushi','taco','tacos','burrito','sandwich','salad',
+    'soup','stew','curry','burger','steak','bbq',
+    'coffee',
+
+    // Ingredients & staples
+    'garlic','onion','tomato','cheese','butter','olive oil',
+    'rice','beans','eggs','flour',
+
+    // Diets & preferences (safe as hard)
+    'vegan','vegetarian','keto','paleo',
+    'glutenfree','gluten free',
+    'dairyfree','dairy free',
+
+    // Restaurants (strong enough on Nostr)
+    'restaurant','restaurants',
+
+    // Cuisines
+    'italian','mexican','thai','indian','mediterranean','japanese','korean'
+  ];
+
+  // Soft words (common metaphor / news words; require 2 hits)
+  const SOFT_FOOD_WORDS = [
+    // ambiguous/general
+    'food','meal','supper',
+    // slang/metaphor prone
+    'spicy','sweet','flavor','healthy','organic',
+    // journalism-metaphor prone
+    'grill','grilled','roast','roasted'
+  ];
+
+  // Helper to escape special regex characters
+  function escapeRegex(s: string): string {
+    return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+
+  // Convert term to regex pattern (supports multi-word phrases)
+  function termToPattern(term: string): string {
+    const parts = term.trim().split(/\s+/).map(escapeRegex);
+    if (parts.length === 1) return `\\b${parts[0]}\\b`;
+    return `\\b${parts.join('\\s+')}\\b`;
+  }
+
+  // Build precompiled regexes
+  const FOOD_HASHTAG_REGEX = new RegExp(`(?:^|\\s)#(${FOOD_HASHTAG_TERMS.map(escapeRegex).join('|')})\\b`, 'i');
+  const HARD_FOOD_REGEX = new RegExp(HARD_FOOD_WORDS.map(termToPattern).join('|'), 'ig');
+  const SOFT_FOOD_REGEX = new RegExp(SOFT_FOOD_WORDS.map(termToPattern).join('|'), 'ig');
+
+  // Macro exclusion for economics phrases
+  const MACRO_EXCLUDING_FOOD_ENERGY_REGEX = /\b(excluding|exclude)\s+food\s+and\s+energy\b/i;
+
+  // Debug flag (set to true to log filter decisions)
+  const DEBUG_FOOD_FILTER = false;
 
   const HASHTAG_PATTERN = /(^|\s)#([^\s#]+)/g;
   const URL_REGEX = /(https?:\/\/[^\s]+)/g;
@@ -90,7 +167,7 @@
   const RELAY_POOLS = {
     recipes: ['wss://kitchen.zap.cooking'],      // Curated recipe content (510ms, but worth it for relevance)
     fallback: ['wss://nos.lol', 'wss://relay.damus.io'],  // Fast general relays (nos.lol 342ms, relay.damus.io 394ms)
-    discovery: ['wss://nostr.wine', 'wss://relay.nostr.band', 'wss://purplepag.es'],  // Additional relays for discovery
+    discovery: ['wss://nostr.wine', 'wss://relay.primal.net', 'wss://purplepag.es'],  // Additional relays for discovery
     profiles: ['wss://purplepag.es']             // Profile metadata (356ms, specialized for kind:0)
   };
 
@@ -137,6 +214,7 @@
   let copiedNoteId = '';
   let expandedParentNotes: { [eventId: string]: boolean } = {}; // Track expanded parent notes
   let parentNoteCache: { [eventId: string]: NDKEvent | null } = {}; // Cache full parent notes
+  let foodFilterEnabled = true; // Toggle for food filtering in Following/Replies modes
   
   // Modals
   let zapModal = false;
@@ -234,13 +312,48 @@
       return false;
     }
     
-    // Check for food-related hashtags first (like #foodstr, #cookstr, etc.)
+    // Check for food-related hashtags first (strong signal)
     if (FOOD_HASHTAG_REGEX.test(normalizedContent)) {
+      if (DEBUG_FOOD_FILTER) console.log('[FoodFilter] PASS: hashtag match');
       return true;
     }
     
-    // Check for food words as whole words
-    return FOOD_WORDS_REGEX.test(normalizedContent);
+    // Count hard and soft word matches
+    // Reset regex lastIndex before matching (since we use 'g' flag)
+    HARD_FOOD_REGEX.lastIndex = 0;
+    SOFT_FOOD_REGEX.lastIndex = 0;
+    
+    const hardMatches = normalizedContent.match(HARD_FOOD_REGEX) ?? [];
+    const softMatches = normalizedContent.match(SOFT_FOOD_REGEX) ?? [];
+    const hardCount = hardMatches.length;
+    const softCount = softMatches.length;
+    
+    // Macro exclusion: "excluding food and energy" is a common economics phrase
+    if (MACRO_EXCLUDING_FOOD_ENERGY_REGEX.test(normalizedContent)) {
+      // Only allow if there's a strong signal beyond just the word "food"
+      if (hardCount === 0 && softCount < 2) {
+        if (DEBUG_FOOD_FILTER) console.log('[FoodFilter] REJECT: macro phrase, no other signals');
+        return false;
+      }
+    }
+    
+    // Include if at least 1 hard match
+    if (hardCount >= 1) {
+      if (DEBUG_FOOD_FILTER) console.log('[FoodFilter] PASS: hard matches:', hardMatches.slice(0, 2));
+      return true;
+    }
+    
+    // Include if at least 2 soft matches
+    if (softCount >= 2) {
+      if (DEBUG_FOOD_FILTER) console.log('[FoodFilter] PASS: soft matches:', softMatches.slice(0, 2));
+      return true;
+    }
+    
+    // Not enough food signals
+    if (DEBUG_FOOD_FILTER && (hardCount > 0 || softCount > 0)) {
+      console.log('[FoodFilter] REJECT: insufficient signals - hard:', hardCount, 'soft:', softCount);
+    }
+    return false;
   }
 
   function countContentHashtags(content: string): number {
@@ -560,27 +673,54 @@
           timeoutMs: 8000
         });
         
+        console.log('[Feed] Raw events from outbox:', result.events.length);
+        
         console.log(`[Feed] Outbox fetch: ${result.events.length} events from ${result.queriedRelays.length} relays in ${result.timing.totalMs}ms`);
         
         if (result.failedRelays.length > 0) {
           console.warn(`[Feed] Failed relays:`, result.failedRelays);
-        }
+          }
         
         // Cache followed pubkeys for real-time subscription
         followedPubkeysForRealtime = await getFollowedPubkeys($ndk, $userPublickey);
         
         // Filter for food-related content AND exclude replies (only top-level notes)
+        const beforeFilter = result.events.length;
         const validEvents = result.events.filter((event) => {
           // Exclude replies - only show top-level notes in Following
           const isReplyEvent = event.tags.some(tag => 
-            Array.isArray(tag) && tag[0] === 'e'
+            Array.isArray(tag) && tag[0] === 'e' && tag[3] === 'reply'
           );
-          
           if (isReplyEvent) return false;
           
-          // Apply standard food content filtering
-          return shouldIncludeEvent(event);
+          // Check muted users
+          if ($userPublickey) {
+            const mutedUsers = getMutedUsers();
+            const authorKey = event.author?.hexpubkey || event.pubkey;
+            if (authorKey && mutedUsers.includes(authorKey)) return false;
+          }
+          
+          // Apply food filter only if enabled
+          if (foodFilterEnabled) {
+            return shouldIncludeEvent(event);
+          }
+          
+          return true;
         });
+        
+        console.log('[Feed] After food filter:', validEvents.length, '/', beforeFilter);
+        
+        // Show what's being filtered out (sample)
+        const rejected = result.events.filter(e => {
+          const isReplyEvent = e.tags.some(tag => 
+            Array.isArray(tag) && tag[0] === 'e'
+          );
+          return isReplyEvent || !shouldIncludeEvent(e);
+        }).slice(0, 5);
+        console.log('[Feed] Sample rejected:', rejected.map(e => ({
+          content: e.content?.slice(0, 100),
+          tags: e.tags.filter(t => t[0] === 't').map(t => t[1])
+        })));
         
         events = dedupeAndSort(validEvents);
         loading = false;
@@ -613,15 +753,39 @@
           timeoutMs: 8000
         });
         
+        console.log('[Feed] Raw events from outbox:', result.events.length);
+        
         console.log(`[Feed] Outbox fetch (replies): ${result.events.length} events from ${result.queriedRelays.length} relays in ${result.timing.totalMs}ms`);
         
         // Cache followed pubkeys for real-time subscription
         followedPubkeysForRealtime = await getFollowedPubkeys($ndk, $userPublickey);
         
         // Filter for food-related content (both notes AND replies)
+        const beforeFilter = result.events.length;
         const foodEvents = result.events.filter((event) => {
-          return shouldIncludeEvent(event);
+          // Check muted users
+          if ($userPublickey) {
+            const mutedUsers = getMutedUsers();
+            const authorKey = event.author?.hexpubkey || event.pubkey;
+            if (authorKey && mutedUsers.includes(authorKey)) return false;
+          }
+          
+          // Apply food filter only if enabled
+          if (foodFilterEnabled) {
+            return shouldIncludeEvent(event);
+          }
+          
+          return true;
         });
+        
+        console.log('[Feed] After food filter:', foodEvents.length, '/', beforeFilter);
+        
+        // Show what's being filtered out (sample)
+        const rejected = result.events.filter(e => !shouldIncludeEvent(e)).slice(0, 5);
+        console.log('[Feed] Sample rejected:', rejected.map(e => ({
+          content: e.content?.slice(0, 100),
+          tags: e.tags.filter(t => t[0] === 't').map(t => t[1])
+        })));
         
         events = dedupeAndSort(foodEvents);
         loading = false;
@@ -758,11 +922,11 @@
         const batch = followedPubkeysForRealtime.slice(i, i + 100);
         
         const filter: any = {
-          kinds: [1],
+        kinds: [1],
           authors: batch,
-          since
-        };
-        
+        since
+      };
+      
         const sub = $ndk.subscribe(filter, { closeOnEose: false });
         
         sub.on('event', (event: NDKEvent) => {
@@ -775,10 +939,10 @@
           }
           
           if (shouldIncludeEvent(event)) {
-            handleRealtimeEvent(event);
+        handleRealtimeEvent(event);
           }
-        });
-        
+      });
+      
         activeSubscriptions.push(sub);
       }
       
@@ -1328,6 +1492,27 @@
         text="Refreshing feed..." 
         showText={true}
       />
+    </div>
+  {/if}
+
+  {#if filterMode === 'following' || filterMode === 'replies'}
+    <div class="flex items-center justify-end gap-2 px-2 sm:px-0 mb-4">
+      <span class="text-sm text-gray-500">
+        {foodFilterEnabled ? 'Food posts' : 'All posts'}
+      </span>
+      <button
+        on:click={() => {
+          foodFilterEnabled = !foodFilterEnabled;
+          seenEventIds.clear();
+          events = [];
+          loadFoodstrFeed(false);
+        }}
+        class="relative inline-flex h-6 w-11 items-center rounded-full transition-colors {foodFilterEnabled ? 'bg-primary' : 'bg-gray-300'}"
+      >
+        <span
+          class="inline-block h-4 w-4 transform rounded-full bg-white transition-transform {foodFilterEnabled ? 'translate-x-6' : 'translate-x-1'}"
+        />
+      </button>
     </div>
   {/if}
 

@@ -3,7 +3,7 @@ export const standardRelays = [
   'wss://kitchen.zap.cooking', // Your relay
   'wss://nos.lol',
   'wss://purplepag.es',
-  'wss://relay.nostr.band',
+  'wss://relay.primal.net',
   'wss://nostr.wine'
 ];
 

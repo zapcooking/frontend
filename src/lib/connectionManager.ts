@@ -60,7 +60,7 @@ export class ConnectionManager {
         'wss://relay.damus.io',
         'wss://nos.lol',
         'wss://nostr.mom',
-        'wss://relay.nostr.band'
+        'wss://relay.primal.net'
       ];
       relayUrls.push(...defaultRelays);
       console.log('🔧 Using default relays:', defaultRelays);

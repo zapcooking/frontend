@@ -204,7 +204,7 @@
         class:text-gray-500={activeTab !== 'global'}
         class:hover:text-gray-900={activeTab !== 'global'}
       >
-        Global
+        Global Food
         {#if activeTab === 'global'}
           <span class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-orange-500 to-amber-500"></span>
         {/if}
