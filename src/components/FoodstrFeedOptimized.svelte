@@ -19,6 +19,17 @@
   import { nip19 } from 'nostr-tools';
   import CopyIcon from 'phosphor-svelte/lib/Copy';
   import CheckIcon from 'phosphor-svelte/lib/Check';
+  
+  // Outbox model for efficient following feed
+  import { 
+    fetchFollowingEvents, 
+    getFollowedPubkeys,
+    prewarmOutboxCache,
+    type OutboxFetchResult 
+  } from '$lib/followOutbox';
+  
+  // Reply context prefetching for better UX
+  import { prefetchReplyContexts } from '$lib/replyContext';
 
   // ═══════════════════════════════════════════════════════════════
   // PROPS
@@ -60,8 +71,8 @@
   // Food descriptors: yum, delicious, tasty, flavor, plating, savory, sweet, spicy, umami, aromatic
   // Related terms: homemade, foodie, mealprep, meal prep, leftovers, hungry, eating, ate, cooked, baked, grilled, restaurant, potluck
   // Food items: pasta, pizza, sushi, taco, burrito, sandwich, salad, soup, stew, curry, burger, steak
-  // Food types: vegan, vegetarian, keto, paleo, gluten-free, dairy-free, organic, fresh
-  const FOOD_WORDS_REGEX = /\b(cook|cooking|bake|baking|grill|grilling|roast|roasting|fry|frying|sauté|simmer|prep|steam|braise|poach|sear|searing|breakfast|lunch|dinner|brunch|supper|snack|dessert|appetizer|entree|kitchen|ingredient|ingredients|dish|meal|meals|cuisine|chef|chefs|culinary|yum|delicious|tasty|flavor|flavours|plating|savory|sweet|spicy|umami|aromatic|homemade|foodie|mealprep|leftovers|hungry|eating|ate|cooked|baked|grilled|restaurant|restaurants|potluck|food|recipe|recipes|pasta|pizza|sushi|taco|tacos|burrito|sandwich|salad|soup|stew|curry|burger|steak|vegan|vegetarian|keto|paleo|glutenfree|dairyfree|organic|fresh|nutrition|healthy)\b|meal\s+prep|gluten\s+free|dairy\s+free/i;
+  // Food types: vegan, vegetarian, keto, paleo, gluten-free, dairy-free, organic
+  const FOOD_WORDS_REGEX = /\b(cook|cooking|bake|baking|grill|grilling|roast|roasting|fry|frying|sauté|simmer|prep|steam|braise|poach|sear|searing|breakfast|lunch|dinner|brunch|supper|snack|dessert|appetizer|entree|kitchen|ingredient|ingredients|dish|meal|meals|cuisine|chef|chefs|culinary|yum|delicious|tasty|flavor|flavours|plating|savory|sweet|spicy|umami|aromatic|homemade|foodie|mealprep|leftovers|hungry|eating|ate|cooked|baked|grilled|restaurant|restaurants|potluck|food|recipe|recipes|pasta|pizza|sushi|taco|tacos|burrito|sandwich|salad|soup|stew|curry|burger|steak|vegan|vegetarian|keto|paleo|glutenfree|dairyfree|organic|nutrition|healthy)\b|meal\s+prep|gluten\s+free|dairy\s+free/i;
 
   const HASHTAG_PATTERN = /(^|\s)#([^\s#]+)/g;
   const URL_REGEX = /(https?:\/\/[^\s]+)/g;
@@ -94,17 +105,17 @@
   let loadingMore = false;
   let isRefreshing = false;
   
-  // Subscription management
-  let activeSubscriptionIds: string[] = [];
+  // Subscription management - store actual subscription references for proper cleanup
+  let activeSubscriptions: NDKSubscription[] = [];
   let batchTimeout: ReturnType<typeof setTimeout> | null = null;
   let pendingEvents: NDKEvent[] = [];
   let lastEventTime: number = 0;
   
-  // Following list cache
-  let followedPubkeys: string[] = [];
-  let followListLoading = false;
-  let followListCached = false;
+  // Track filter mode for reactive updates
   let lastFilterMode: 'global' | 'following' | 'replies' = 'global';
+  
+  // Followed pubkeys for real-time subscriptions (populated by outbox module)
+  let followedPubkeysForRealtime: string[] = [];
   
   // Reply context cache (parent note info)
   const replyContextCache = new Map<string, {
@@ -433,54 +444,6 @@
     }
   }
 
-  // Fetch user's follow list (kind 3 contact list)
-  async function fetchFollowList(): Promise<string[]> {
-    if (!$userPublickey || followListCached) {
-      return followedPubkeys;
-    }
-    
-    if (followListLoading) {
-      // Wait for existing fetch
-      return new Promise((resolve) => {
-        const checkInterval = setInterval(() => {
-          if (!followListLoading) {
-            clearInterval(checkInterval);
-            resolve(followedPubkeys);
-          }
-        }, 100);
-      });
-    }
-    
-    followListLoading = true;
-    
-    try {
-      // Fetch kind 3 event (contact list)
-      const contactList = await $ndk.fetchEvent({
-        kinds: [3],
-        authors: [$userPublickey],
-        limit: 1
-      });
-      
-      if (contactList) {
-        followedPubkeys = contactList.tags
-          .filter(tag => Array.isArray(tag) && tag[0] === 'p')
-          .map(tag => tag[1] as string)
-          .filter(Boolean);
-        followListCached = true;
-      } else {
-        followedPubkeys = [];
-        followListCached = true;
-      }
-    } catch {
-      followedPubkeys = [];
-      followListCached = true;
-    } finally {
-      followListLoading = false;
-    }
-    
-    return followedPubkeys;
-  }
-
   // Fetch recent notes and filter client-side for notes without hashtags
   async function fetchNotesWithoutHashtags(since: number): Promise<NDKEvent[]> {
     
@@ -581,6 +544,7 @@
       // Handle different filter modes
       if (filterMode === 'following') {
         // Following mode: only show notes (not replies) from followed users
+        // Uses outbox model for efficient fetching from correct relays
         if (!$userPublickey) {
           loading = false;
           error = false;
@@ -588,43 +552,31 @@
           return;
         }
         
-        const followed = await fetchFollowList();
-        if (followed.length === 0) {
-          loading = false;
-          error = false;
-          events = [];
-          return;
-        }
-        
-        // Build filter for followed users
-        const followingFilter: any = {
+        // Use outbox model for optimized fetching
+        const result: OutboxFetchResult = await fetchFollowingEvents($ndk, $userPublickey, {
+          since,
           kinds: [1],
-          authors: followed.slice(0, 100), // Limit to first 100 follows
           limit: 100,
-          since
-        };
-        
-        const fetchPromises: Promise<NDKEvent[]>[] = [
-          fetchFromRelays(followingFilter, [...RELAY_POOLS.recipes, ...RELAY_POOLS.fallback])
-        ];
-        
-        const results = await Promise.allSettled(fetchPromises);
-        const allFetchedEvents: NDKEvent[] = [];
-        
-        results.forEach((result) => {
-          if (result.status === 'fulfilled') {
-            allFetchedEvents.push(...result.value);
-          }
+          timeoutMs: 8000
         });
         
+        console.log(`[Feed] Outbox fetch: ${result.events.length} events from ${result.queriedRelays.length} relays in ${result.timing.totalMs}ms`);
+        
+        if (result.failedRelays.length > 0) {
+          console.warn(`[Feed] Failed relays:`, result.failedRelays);
+        }
+        
+        // Cache followed pubkeys for real-time subscription
+        followedPubkeysForRealtime = await getFollowedPubkeys($ndk, $userPublickey);
+        
         // Filter for food-related content AND exclude replies (only top-level notes)
-        const validEvents = allFetchedEvents.filter((event) => {
-          // Exclude replies - only show top-level notes
-          const isReply = event.tags.some(tag => 
-            Array.isArray(tag) && tag[0] === 'e' && tag[3] === 'reply'
+        const validEvents = result.events.filter((event) => {
+          // Exclude replies - only show top-level notes in Following
+          const isReplyEvent = event.tags.some(tag => 
+            Array.isArray(tag) && tag[0] === 'e'
           );
           
-          if (isReply) return false;
+          if (isReplyEvent) return false;
           
           // Apply standard food content filtering
           return shouldIncludeEvent(event);
@@ -645,6 +597,7 @@
       
       if (filterMode === 'replies') {
         // Notes & Replies mode: show ALL food-related content from followed users (both notes and replies)
+        // Uses outbox model for efficient fetching from correct relays
         if (!$userPublickey) {
           loading = false;
           error = false;
@@ -652,38 +605,21 @@
           return;
         }
         
-        const followed = await fetchFollowList();
-        if (followed.length === 0) {
-          loading = false;
-          error = false;
-          events = [];
-          return;
-        }
-        
-        // Fetch all notes from followed users (including replies)
-        const allContentFilter: any = {
+        // Use outbox model - same fetch, different filtering
+        const result: OutboxFetchResult = await fetchFollowingEvents($ndk, $userPublickey, {
+          since,
           kinds: [1],
-          authors: followed.slice(0, 100), // Limit to first 100 follows
           limit: 100,
-          since
-        };
-        
-        const fetchPromises: Promise<NDKEvent[]>[] = [
-          fetchFromRelays(allContentFilter, [...RELAY_POOLS.recipes, ...RELAY_POOLS.fallback])
-        ];
-        
-        const results = await Promise.allSettled(fetchPromises);
-        const allFetchedEvents: NDKEvent[] = [];
-        
-        results.forEach((result) => {
-          if (result.status === 'fulfilled') {
-            allFetchedEvents.push(...result.value);
-          }
+          timeoutMs: 8000
         });
         
+        console.log(`[Feed] Outbox fetch (replies): ${result.events.length} events from ${result.queriedRelays.length} relays in ${result.timing.totalMs}ms`);
+        
+        // Cache followed pubkeys for real-time subscription
+        followedPubkeysForRealtime = await getFollowedPubkeys($ndk, $userPublickey);
+        
         // Filter for food-related content (both notes AND replies)
-        const foodEvents = allFetchedEvents.filter((event) => {
-          // Must pass food content filter (hashtags or food words)
+        const foodEvents = result.events.filter((event) => {
           return shouldIncludeEvent(event);
         });
         
@@ -695,6 +631,11 @@
           lastEventTime = Math.max(...events.map(e => e.created_at || 0));
           await cacheEvents();
         }
+        
+        // Prefetch reply contexts for better UX (batch fetch parent notes)
+        prefetchReplyContexts($ndk, events.slice(0, 20)).catch(() => {
+          // Non-critical - individual contexts will be fetched as needed
+        });
         
         startRealtimeSubscription();
         return;
@@ -741,8 +682,10 @@
       // Get followed users to exclude from Global feed (if logged in)
       let followedSet = new Set<string>();
       if ($userPublickey && !authorPubkey) {
-        const followed = await fetchFollowList();
+        // Use the outbox module's function for consistent follow list
+        const followed = await getFollowedPubkeys($ndk, $userPublickey);
         followedSet = new Set(followed);
+        followedPubkeysForRealtime = followed; // Cache for real-time subscription
       }
 
       // Filter, dedupe, and sort - exclude followed users from Global feed
@@ -793,68 +736,52 @@
   // REAL-TIME SUBSCRIPTION
   // ═══════════════════════════════════════════════════════════════
 
-  function startRealtimeSubscription() {
+  async function startRealtimeSubscription() {
     // Clean up any existing subscriptions
     stopSubscriptions();
-    
     
     const since = lastEventTime > 0 ? lastEventTime + 1 : Math.floor(Date.now() / 1000);
     
     // Handle different filter modes for real-time subscriptions
-    if (filterMode === 'following') {
-      if (!$userPublickey || followedPubkeys.length === 0) {
-        return; // No subscription needed if not logged in or not following anyone
+    if (filterMode === 'following' || filterMode === 'replies') {
+      if (!$userPublickey) return;
+      
+      // Get followed pubkeys for subscription (may already be cached)
+      if (followedPubkeysForRealtime.length === 0) {
+        followedPubkeysForRealtime = await getFollowedPubkeys($ndk, $userPublickey);
       }
       
-      const followingFilter: any = {
-        kinds: [1],
-        authors: followedPubkeys.slice(0, 100),
-        since
-      };
+      if (followedPubkeysForRealtime.length === 0) return;
       
-      const followingSub = $ndk.subscribe(followingFilter, { 
-        closeOnEose: false
-      });
-      followingSub.on('event', (event: NDKEvent) => {
-        // Exclude replies - only show top-level notes
-        const isReply = event.tags.some(tag => 
-          Array.isArray(tag) && tag[0] === 'e' && tag[3] === 'reply'
-        );
+      // Subscribe in batches of 100 (Nostr relay limit)
+      for (let i = 0; i < followedPubkeysForRealtime.length; i += 100) {
+        const batch = followedPubkeysForRealtime.slice(i, i + 100);
         
-        if (!isReply && shouldIncludeEvent(event)) {
-          handleRealtimeEvent(event);
-        }
-      });
-      followingSub.on('eose', () => {});
-      
-      activeSubscriptionIds.push('following-realtime');
-      return;
-    }
-    
-    if (filterMode === 'replies') {
-      if (!$userPublickey || followedPubkeys.length === 0) {
-        return; // No subscription needed if not logged in or not following anyone
+        const filter: any = {
+          kinds: [1],
+          authors: batch,
+          since
+        };
+        
+        const sub = $ndk.subscribe(filter, { closeOnEose: false });
+        
+        sub.on('event', (event: NDKEvent) => {
+          // For Following mode, exclude replies
+          if (filterMode === 'following') {
+            const isReplyEvent = event.tags.some(tag => 
+              Array.isArray(tag) && tag[0] === 'e'
+            );
+            if (isReplyEvent) return;
+          }
+          
+          if (shouldIncludeEvent(event)) {
+            handleRealtimeEvent(event);
+          }
+        });
+        
+        activeSubscriptions.push(sub);
       }
       
-      // Subscribe to ALL food-related content from followed users (notes + replies)
-      const allContentFilter: any = {
-        kinds: [1],
-        authors: followedPubkeys.slice(0, 100),
-        since
-      };
-      
-      const allContentSub = $ndk.subscribe(allContentFilter, { 
-        closeOnEose: false
-      });
-      allContentSub.on('event', (event: NDKEvent) => {
-        // Must pass food content filter (includes both notes and replies)
-        if (!shouldIncludeEvent(event)) return;
-        
-        handleRealtimeEvent(event);
-      });
-      allContentSub.on('eose', () => {});
-      
-      activeSubscriptionIds.push('notes-replies-realtime');
       return;
     }
     
@@ -871,23 +798,21 @@
     }
 
     // Subscribe without relay targeting for now (NDK will use connected relays)
-    // Relay targeting can be added later if needed
     const hashtagSub = $ndk.subscribe(hashtagFilter, { 
       closeOnEose: false
     });
     hashtagSub.on('event', (event: NDKEvent) => {
       // For Global feed, exclude posts from followed users
-      if (!authorPubkey && followedPubkeys.length > 0) {
+      if (!authorPubkey && followedPubkeysForRealtime.length > 0) {
         const authorKey = event.author?.hexpubkey || event.pubkey;
-        if (authorKey && followedPubkeys.includes(authorKey)) {
+        if (authorKey && followedPubkeysForRealtime.includes(authorKey)) {
           return; // Skip - belongs in Following/Notes & Replies
         }
       }
       handleRealtimeEvent(event);
     });
-    hashtagSub.on('eose', () => {});
     
-    activeSubscriptionIds.push('hashtag-realtime');
+    activeSubscriptions.push(hashtagSub);
   }
 
   function handleRealtimeEvent(event: NDKEvent) {
@@ -949,7 +874,7 @@
       );
       
       // For Global feed, exclude posts from followed users
-      const followedSet = new Set(followedPubkeys);
+      const followedSet = new Set(followedPubkeysForRealtime);
       
       const validNew = freshEvents.filter(e => {
         if (seenEventIds.has(e.id)) return false;
@@ -1010,7 +935,7 @@
       );
       
       // For Global feed, exclude posts from followed users
-      const followedSet = new Set(followedPubkeys);
+      const followedSet = new Set(followedPubkeysForRealtime);
       
       const validOlder = olderEvents.filter(e => {
         if (seenEventIds.has(e.id)) return false;
@@ -1069,9 +994,15 @@
   // ═══════════════════════════════════════════════════════════════
 
   function stopSubscriptions() {
-    // NDK doesn't expose subscription manager directly, 
-    // but we track our own state
-    activeSubscriptionIds = [];
+    // Stop all active subscriptions properly
+    for (const sub of activeSubscriptions) {
+      try {
+        sub.stop();
+      } catch {
+        // Subscription already stopped - ignore
+      }
+    }
+    activeSubscriptions = [];
   }
 
   async function cleanup() {
@@ -1356,6 +1287,14 @@
   onMount(async () => {
     lastFilterMode = filterMode;
     
+    // Prewarm outbox cache in background (non-blocking)
+    // This fetches relay configs for all follows, making subsequent loads faster
+    if ($userPublickey) {
+      prewarmOutboxCache($ndk, $userPublickey).catch(() => {
+        // Ignore prewarm errors - it's just an optimization
+      });
+    }
+    
     try {
       await retryWithDelay();
     } catch {
@@ -1367,6 +1306,15 @@
   onDestroy(async () => {
     await cleanup();
   });
+  
+  // Reactive statement to handle filter mode changes
+  $: if (typeof window !== 'undefined' && filterMode !== lastFilterMode && !loading) {
+    lastFilterMode = filterMode;
+    seenEventIds.clear();
+    events = [];
+    followedPubkeysForRealtime = []; // Reset for new subscription
+    loadFoodstrFeed(false);
+  }
 </script>
 
 <FeedErrorBoundary>
