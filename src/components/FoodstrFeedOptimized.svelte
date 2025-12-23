@@ -702,7 +702,7 @@
           
           // Apply food filter only if enabled
           if (foodFilterEnabled) {
-          return shouldIncludeEvent(event);
+            return shouldIncludeEvent(event);
           }
           
           return true;
