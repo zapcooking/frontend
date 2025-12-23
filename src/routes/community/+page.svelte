@@ -393,7 +393,7 @@
                   </button>
                   <button
                     on:click={postToFeed}
-                    disabled={posting || (!content.trim() && uploadedImages.length === 0 && !quotedNote)}
+                    disabled={posting || uploadingImage || (!content.trim() && uploadedImages.length === 0 && !quotedNote)}
                     class="px-4 py-1.5 text-xs font-medium text-white bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 rounded-full disabled:opacity-50 disabled:cursor-not-allowed transition-all"
                   >
                     {posting ? 'Posting...' : 'Post'}
