@@ -4,9 +4,41 @@
   import { NDKEvent } from '@nostr-dev-kit/ndk';
   import PencilSimpleIcon from 'phosphor-svelte/lib/PencilSimple';
   import CustomAvatar from '../../components/CustomAvatar.svelte';
+  import { page } from '$app/stores';
+  import { goto } from '$app/navigation';
+  import { onMount } from 'svelte';
   import type { PageData } from './$types';
 
   export const data: PageData = {} as PageData;
+
+  // Tab state - use local state for immediate reactivity
+  type FilterMode = 'global' | 'following' | 'replies';
+  
+  // Local state for immediate UI updates
+  let activeTab: FilterMode = 'global';
+  
+  // Initialize from URL on mount
+  onMount(() => {
+    const tab = $page.url.searchParams.get('tab');
+    if (tab === 'following' || tab === 'replies' || tab === 'global') {
+      activeTab = tab;
+    }
+  });
+  
+  // Key to force component recreation
+  let feedKey = 0;
+  
+  function setTab(tab: FilterMode) {
+    if (tab === activeTab) return;
+    
+    activeTab = tab;
+    feedKey++;
+    
+    // Update URL for bookmarking/sharing
+    const url = new URL($page.url);
+    url.searchParams.set('tab', tab);
+    goto(url.pathname + url.search, { noScroll: true, replaceState: true });
+  }
 
   let isComposerOpen = false;
   let content = '';
@@ -161,6 +193,65 @@
       {/if}
     </div>
   {/if}
+
+  <!-- Filter Tabs -->
+  <div class="mb-4 border-b border-gray-200">
+    <div class="flex gap-1">
+      <button
+        on:click={() => setTab('global')}
+        class="px-4 py-2 text-sm font-medium transition-colors relative"
+        class:text-gray-900={activeTab === 'global'}
+        class:text-gray-500={activeTab !== 'global'}
+        class:hover:text-gray-900={activeTab !== 'global'}
+      >
+        Global
+        {#if activeTab === 'global'}
+          <span class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-orange-500 to-amber-500"></span>
+        {/if}
+      </button>
+      
+      <button
+        on:click={() => setTab('following')}
+        class="px-4 py-2 text-sm font-medium transition-colors relative"
+        class:text-gray-900={activeTab === 'following'}
+        class:text-gray-500={activeTab !== 'following'}
+        class:hover:text-gray-900={activeTab !== 'following'}
+        disabled={!$userPublickey}
+        class:opacity-50={!$userPublickey}
+        class:cursor-not-allowed={!$userPublickey}
+        class:cursor-pointer={$userPublickey}
+      >
+        Following
+        {#if activeTab === 'following'}
+          <span class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-orange-500 to-amber-500"></span>
+        {/if}
+      </button>
+      
+      <button
+        on:click={() => setTab('replies')}
+        class="px-4 py-2 text-sm font-medium transition-colors relative"
+        class:text-gray-900={activeTab === 'replies'}
+        class:text-gray-500={activeTab !== 'replies'}
+        class:hover:text-gray-900={activeTab !== 'replies'}
+      >
+        Notes & Replies
+        {#if activeTab === 'replies'}
+          <span class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-orange-500 to-amber-500"></span>
+        {/if}
+      </button>
+    </div>
+  </div>
+
+  <!-- Show login prompt for Following/Replies tabs if not logged in -->
+  {#if (activeTab === 'following' || activeTab === 'replies') && !$userPublickey}
+    <div class="mb-4 p-4 bg-amber-50 border border-amber-200 rounded-lg">
+      <p class="text-sm text-amber-800">
+        <a href="/login" class="font-medium underline hover:text-amber-900">Log in</a> to see {activeTab === 'following' ? 'posts from people you follow' : 'replies from people you follow'}.
+      </p>
+    </div>
+  {/if}
   
-  <FoodstrFeedOptimized />
+  {#key feedKey}
+    <FoodstrFeedOptimized filterMode={activeTab} />
+  {/key}
 </div>

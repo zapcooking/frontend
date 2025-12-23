@@ -73,9 +73,32 @@ async function connectWithRetry(ndk: NDK, maxRetries = 3) {
 
 // Connect when in browser environment (non-blocking)
 if (browser) {
+  // Suppress expected WebSocket connection errors from NDK during initial connection
+  // These are normal when relays are down and are handled by the connection manager
+  const originalError = console.error;
+  let errorSuppressionActive = true;
+  
+  console.error = (...args: any[]) => {
+    const message = args.join(' ');
+    // Suppress expected WebSocket connection failures during initial connection
+    if (errorSuppressionActive && message.includes('WebSocket connection to') && message.includes('failed')) {
+      // Silently ignore - connection manager handles these gracefully
+      return;
+    }
+    // Log all other errors normally
+    originalError.apply(console, args);
+  };
+
   connectWithRetry(Ndk).catch(error => {
     console.error('🚨 Failed to establish NDK connection:', error);
     ndkReadyResolve(); // Resolve anyway so components don't hang
+  }).finally(() => {
+    // Restore original console.error after initial connection attempt
+    // Keep suppression active for a short time to handle initial relay connections
+    setTimeout(() => {
+      errorSuppressionActive = false;
+      console.error = originalError;
+    }, 3000); // Restore after 3 seconds to allow initial connections to complete
   });
 } else {
   // Server-side: resolve immediately (no NDK operations on server)

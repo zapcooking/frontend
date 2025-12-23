@@ -10,7 +10,7 @@
   import Button from '../Button.svelte';
   import { translateOption } from '$lib/state';
   import { translate } from '$lib/translation';
-  import { parseMarkdown } from '$lib/pharser';
+  import { parseMarkdown } from '$lib/parser';
   import TotalZaps from './TotalZaps.svelte';
   import TotalLikes from './TotalLikes.svelte';
   import TotalComments from './TotalComments.svelte';

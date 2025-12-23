@@ -3,7 +3,7 @@
   import type { NDKEvent, NDKFilter } from '@nostr-dev-kit/ndk';
   import { onMount } from 'svelte';
   import Feed from '../../components/Feed.svelte';
-  import { validateMarkdownTemplate } from '$lib/pharser';
+  import { validateMarkdownTemplate } from '$lib/parser';
   import type { PageData } from './$types';
 
   export const data: PageData = {} as PageData;

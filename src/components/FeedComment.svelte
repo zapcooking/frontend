@@ -4,6 +4,7 @@
   import { nip19 } from 'nostr-tools';
   import { format as formatDate } from 'timeago.js';
   import CustomAvatar from './CustomAvatar.svelte';
+  import NoteContent from './NoteContent.svelte';
   import { resolveProfileByPubkey, formatDisplayName } from '$lib/profileResolver';
   import HeartIcon from 'phosphor-svelte/lib/Heart';
   import { onMount } from 'svelte';
@@ -12,6 +13,7 @@
   export let replies: NDKEvent[] = [];
   export let refresh: () => void;
   export let mainEventId: string;
+  export let depth: number = 0; // Track nesting depth
 
   // Display state
   let displayName = '';
@@ -66,17 +68,21 @@
   async function toggleLike() {
     if (liked || !$userPublickey) return;
 
-    const reactionEvent = new NDKEvent($ndk);
-    reactionEvent.kind = 7;
-    reactionEvent.content = '+';
-    reactionEvent.tags = [
-      ['e', event.id, '', 'reply'],
-      ['p', event.pubkey]
-    ];
+    try {
+      const reactionEvent = new NDKEvent($ndk);
+      reactionEvent.kind = 7;
+      reactionEvent.content = '+';
+      reactionEvent.tags = [
+        ['e', event.id, '', 'reply'],
+        ['p', event.pubkey]
+      ];
 
-    await reactionEvent.publish();
-    liked = true;
-    likeCount++;
+      await reactionEvent.publish();
+      liked = true;
+      likeCount++;
+    } catch {
+      // Failed to like
+    }
   }
 
   // Post reply
@@ -84,22 +90,27 @@
     if (!replyText.trim() || postingReply) return;
 
     postingReply = true;
-    const ev = new NDKEvent($ndk);
-    ev.kind = 1;
-    ev.content = replyText.trim();
+    try {
+      const ev = new NDKEvent($ndk);
+      ev.kind = 1;
+      ev.content = replyText.trim();
 
-    // Tag the main event, this comment, and relevant people
-    ev.tags = [
-      ['e', mainEventId, '', 'root'],
-      ['e', event.id, '', 'reply'],
-      ['p', event.pubkey]
-    ];
+      // Tag the main event, this comment, and relevant people
+      ev.tags = [
+        ['e', mainEventId, '', 'root'],
+        ['e', event.id, '', 'reply'],
+        ['p', event.pubkey]
+      ];
 
-    await ev.publish();
-    replyText = '';
-    showReplyBox = false;
-    postingReply = false;
-    refresh();
+      await ev.publish();
+      replyText = '';
+      showReplyBox = false;
+      refresh();
+    } catch {
+      // Failed to post reply
+    } finally {
+      postingReply = false;
+    }
   }
 
   // Filter direct replies to this comment
@@ -117,7 +128,7 @@
   </a>
 
   <!-- Content -->
-  <div class="flex-1 min-w-0">
+  <div class="flex-1 min-w-0" style="word-break: break-word; overflow-wrap: anywhere;">
     <!-- Name + Time -->
     <div class="flex items-center gap-2 mb-1">
       <a href="/user/{nip19.npubEncode(event.pubkey)}" class="font-semibold text-sm hover:underline">
@@ -132,10 +143,10 @@
       </span>
     </div>
 
-    <!-- Comment Text -->
-    <p class="text-sm text-gray-900 mb-2 break-words">
-      {event.content}
-    </p>
+    <!-- Comment Text + Images -->
+    <div class="text-sm text-gray-900 mb-2 break-words" style="word-break: break-word; overflow-wrap: anywhere;">
+      <NoteContent content={event.content} />
+    </div>
 
     <!-- Actions -->
     <div class="flex items-center gap-3 text-xs text-gray-600">
@@ -196,9 +207,18 @@
 
     <!-- Nested Replies -->
     {#if directReplies.length > 0}
-      <div class="mt-3 space-y-3 pl-3 border-l-2 border-gray-100">
+      <!-- On mobile, limit indentation after depth 2 to prevent compression -->
+      <div 
+        class="mt-3 space-y-3 border-l border-gray-200"
+        class:pl-1={depth < 2}
+        class:pl-0={depth >= 2}
+        class:sm:pl-2={depth < 3}
+        class:sm:pl-1={depth >= 3}
+        class:md:pl-3={depth < 4}
+        class:md:pl-2={depth >= 4}
+      >
         {#each directReplies as reply}
-          <svelte:self event={reply} {replies} {refresh} {mainEventId} />
+          <svelte:self event={reply} {replies} {refresh} {mainEventId} depth={depth + 1} />
         {/each}
       </div>
     {/if}
