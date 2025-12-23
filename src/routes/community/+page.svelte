@@ -362,8 +362,10 @@
                 <div class="flex items-center gap-3">
                   <!-- Image upload button -->
                   <label
-                    class="cursor-pointer p-1.5 rounded-full hover:bg-gray-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                    disabled={posting || uploadingImage}
+                    class="cursor-pointer p-1.5 rounded-full hover:bg-gray-100 transition-colors"
+                    class:opacity-50={posting || uploadingImage}
+                    class:cursor-not-allowed={posting || uploadingImage}
+                    aria-disabled={posting || uploadingImage}
                   >
                     <ImageIcon size={18} class="text-gray-500" />
                     <input
