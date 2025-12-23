@@ -113,23 +113,28 @@
       const batchSize = 100;
       for (let i = 0; i < followPubkeys.length; i += batchSize) {
         const batch = followPubkeys.slice(i, i + batchSize);
-        const events = await $ndk.fetchEvents({
-          kinds: [0],
-          authors: batch
-        });
-        
-        for (const event of events) {
-          try {
-            const profile = JSON.parse(event.content);
-            const name = profile.display_name || profile.name || '';
-            if (name) {
-              profileCache.set(event.pubkey, {
-                name,
-                npub: nip19.npubEncode(event.pubkey),
-                picture: profile.picture
-              });
-            }
-          } catch {}
+        try {
+          const events = await $ndk.fetchEvents({
+            kinds: [0],
+            authors: batch
+          });
+          
+          for (const event of events) {
+            try {
+              const profile = JSON.parse(event.content);
+              const name = profile.display_name || profile.name || '';
+              if (name) {
+                profileCache.set(event.pubkey, {
+                  name,
+                  npub: nip19.npubEncode(event.pubkey),
+                  picture: profile.picture
+                });
+              }
+            } catch {}
+          }
+        } catch (e) {
+          console.debug('Failed to fetch follow list profile batch:', e);
+          continue;
         }
       }
       
