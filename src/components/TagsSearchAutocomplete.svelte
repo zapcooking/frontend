@@ -302,6 +302,7 @@
         on:blur={handleInputBlur}
         class="block w-full input"
         placeholder={placeholderString}
+        autofocus={autofocus}
       />
     </div>
     <input type="submit" class="hidden" />
