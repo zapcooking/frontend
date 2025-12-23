@@ -64,7 +64,7 @@
   <div class="fixed z-20 w-full h-full top-0 left-0 duration-500 transition-opacity bg-opacity-50 backdrop-blur-sm" transition:blur={{ amount: 10, duration: 300 }}>
     <div class="fixed z-25 inset-x-0 top-20 w-3/4 md:w-1/2 lg:w-1/3 mx-auto" use:clickOutside on:click_outside={() => (searchActive = false)} >
         <TagsSearchAutocomplete
-            placeholderString={"Search by tag, like 'italian', 'steak' or 'glutenfree'."}
+            placeholderString={"Search recipes, tags, or users..."}
             action={openTag}
             autofocus={true}
         />
@@ -88,7 +88,7 @@
 
   <div class="hidden sm:max-lg:flex xl:flex flex-1 self-center print:hidden max-w-md">
     <TagsSearchAutocomplete
-      placeholderString={"Search by tag, like 'italian', 'steak' or 'glutenfree'."}
+      placeholderString={"Search recipes, tags, or users..."}
       action={openTag}
     />
   </div>
