@@ -3,7 +3,7 @@
   import TagsComboBox from '../../components/TagsComboBox.svelte';
   import StringComboBox from '../../components/StringComboBox.svelte';
   import { ndk, userPublickey } from '$lib/nostr';
-  import { createMarkdown, validateMarkdownTemplate } from '$lib/pharser';
+  import { createMarkdown, validateMarkdownTemplate } from '$lib/parser';
   import { NDKEvent } from '@nostr-dev-kit/ndk';
   import type { recipeTagSimple } from '$lib/consts';
   import FeedItem from '../../components/RecipeCard.svelte';

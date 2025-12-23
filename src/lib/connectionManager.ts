@@ -60,7 +60,7 @@ export class ConnectionManager {
         'wss://relay.damus.io',
         'wss://nos.lol',
         'wss://nostr.mom',
-        'wss://relay.nostr.band'
+        'wss://relay.primal.net'
       ];
       relayUrls.push(...defaultRelays);
       console.log('🔧 Using default relays:', defaultRelays);
@@ -94,40 +94,40 @@ export class ConnectionManager {
     // Run health checks async - don't await
     Promise.allSettled(
       Array.from(this.relayHealth.keys()).map(async (url) => {
-        try {
-          const startTime = Date.now();
-          const testFilter = { kinds: [1], limit: 1 };
-          
-          const timeoutPromise = new Promise((_, reject) => 
-            setTimeout(() => reject(new Error('Health check timeout')), 5000)
-          );
+      try {
+        const startTime = Date.now();
+        const testFilter = { kinds: [1], limit: 1 };
+        
+        const timeoutPromise = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Health check timeout')), 5000)
+        );
 
-          const relay_set = NDKRelaySet.fromRelayUrls([url], this.ndk, true);
-          
-          await Promise.race([
-            this.ndk.fetchEvents(testFilter, undefined, relay_set),
-            timeoutPromise
-          ]);
-          
-          const responseTime = Date.now() - startTime;
-          const health = this.relayHealth.get(url);
-          
-          if (health) {
-            health.lastSeen = Date.now();
-            health.responseTime = responseTime;
+        const relay_set = NDKRelaySet.fromRelayUrls([url], this.ndk, true);
+        
+        await Promise.race([
+          this.ndk.fetchEvents(testFilter, undefined, relay_set),
+          timeoutPromise
+        ]);
+        
+        const responseTime = Date.now() - startTime;
+        const health = this.relayHealth.get(url);
+        
+        if (health) {
+          health.lastSeen = Date.now();
+          health.responseTime = responseTime;
             // Don't override 'connected' status - WebSocket connect already set it
             if (health.status === 'disconnected') {
               health.status = 'connected';
             }
-            health.failures = 0;
-          }
-          
+          health.failures = 0;
+        }
+        
         } catch (error: any) {
           // Health check failed - but don't mark relay as disconnected
           // if WebSocket is still connected. Just note the failure for scoring.
-          const health = this.relayHealth.get(url);
+        const health = this.relayHealth.get(url);
           if (health && health.status === 'disconnected') {
-            health.failures++;
+          health.failures++;
           }
         }
       })

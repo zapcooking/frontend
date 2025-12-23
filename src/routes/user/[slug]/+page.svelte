@@ -5,7 +5,7 @@
   import { nip19 } from 'nostr-tools';
   import ZapModal from '../../../components/ZapModal.svelte';
   import Feed from '../../../components/Feed.svelte';
-  import { validateMarkdownTemplate } from '$lib/pharser';
+  import { validateMarkdownTemplate } from '$lib/parser';
   import { goto } from '$app/navigation';
   import { page } from '$app/stores';
   import CustomAvatar from '../../../components/CustomAvatar.svelte';
@@ -15,6 +15,8 @@
   import CopyIcon from 'phosphor-svelte/lib/Copy';
   import CheckIcon from 'phosphor-svelte/lib/Check';
   import UserPlusIcon from 'phosphor-svelte/lib/UserPlus';
+  import SpeakerSlashIcon from 'phosphor-svelte/lib/SpeakerSlash';
+  import SpeakerHighIcon from 'phosphor-svelte/lib/SpeakerHigh';
   import { requestProvider } from 'webln';
   import ProfileLists from '../../../components/ProfileLists.svelte';
   import Modal from '../../../components/Modal.svelte';
@@ -52,6 +54,11 @@
   let followLoading = false;
   let currentFollows: string[] = [];
   
+  // Mute state
+  let isMuted = false;
+  let muteLoading = false;
+  let mutedUsers: string[] = [];
+  
 
   $: {
     if ($page.params.slug) {
@@ -62,6 +69,7 @@
   // Check follow status when user logs in or profile changes
   $: if ($userPublickey && hexpubkey) {
     checkFollowStatus();
+    checkMuteStatus();
   }
 
   async function loadData() {
@@ -77,6 +85,9 @@
       oldestRecipeTime = null;
       // Reset bio expanded state
       bioExpanded = false;
+      // Reset mute state
+      isMuted = false;
+      mutedUsers = [];
       console.log('loadData');
       
       if ($page.params.slug?.startsWith(`npub1`)) {
@@ -128,9 +139,10 @@
           hasMoreRecipes = events.length >= 20;
         });
         
-        // Check follow status if logged in
+        // Check follow status and mute status if logged in
         if ($userPublickey) {
           checkFollowStatus();
+          checkMuteStatus();
         }
       }
     } catch (error) {
@@ -197,6 +209,74 @@
       console.error('Error toggling follow:', error);
     } finally {
       followLoading = false;
+    }
+  }
+
+  async function checkMuteStatus() {
+    if (!$userPublickey || !hexpubkey) return;
+    
+    try {
+      // Load mute list from localStorage first (fast)
+      const storedMutes = localStorage.getItem('mutedUsers');
+      if (storedMutes) {
+        mutedUsers = JSON.parse(storedMutes);
+        isMuted = mutedUsers.includes(hexpubkey);
+      }
+      
+      // Also fetch from Nostr (kind:10000 = mute list)
+      const muteFilter: NDKFilter = {
+        authors: [$userPublickey],
+        kinds: [10000],
+        limit: 1
+      };
+
+      const muteEvents = await $ndk.fetchEvents(muteFilter);
+      const muteList = Array.from(muteEvents)[0];
+      
+      if (muteList) {
+        // Extract muted pubkeys from 'p' tags
+        mutedUsers = muteList.tags
+          .filter(tag => tag[0] === 'p')
+          .map(tag => tag[1]);
+        
+        // Update localStorage
+        localStorage.setItem('mutedUsers', JSON.stringify(mutedUsers));
+        
+        isMuted = mutedUsers.includes(hexpubkey);
+      }
+    } catch (error) {
+      console.error('Error checking mute status:', error);
+    }
+  }
+
+  async function toggleMute() {
+    if (!$userPublickey || !hexpubkey || muteLoading) return;
+    
+    muteLoading = true;
+    
+    try {
+      const newMuted = isMuted
+        ? mutedUsers.filter(pk => pk !== hexpubkey)
+        : [...mutedUsers, hexpubkey];
+      
+      // Create new kind:10000 mute list event
+      const muteEvent = new NDKEvent($ndk);
+      muteEvent.kind = 10000;
+      muteEvent.content = '';
+      muteEvent.tags = newMuted.map(pk => ['p', pk]);
+      
+      await muteEvent.publish();
+      
+      // Update local state
+      mutedUsers = newMuted;
+      isMuted = !isMuted;
+      
+      // Update localStorage
+      localStorage.setItem('mutedUsers', JSON.stringify(mutedUsers));
+    } catch (error) {
+      console.error('Error toggling mute:', error);
+    } finally {
+      muteLoading = false;
     }
   }
 
@@ -460,14 +540,14 @@
   <div class="flex justify-between items-start gap-6">
     <div class="flex gap-4 flex-1">
       <button class="hover:opacity-80 transition-opacity flex-shrink-0" on:click={() => (qrModal = true)}>
-        {#key hexpubkey}
-        <CustomAvatar
+      {#key hexpubkey}
+      <CustomAvatar
           className="cursor-pointer hidden md:flex"
-          pubkey={hexpubkey || ''}
-          size={100}
-        />
-        {/key}
-      </button>
+        pubkey={hexpubkey || ''}
+        size={100}
+      />
+      {/key}
+    </button>
       
       <div class="flex flex-col gap-2 flex-1 min-w-0">
         <!-- Name -->
@@ -490,12 +570,12 @@
               {formattedBio}
             </p>
             {#if needsTruncation}
-              <button
+      <button
                 on:click={() => (bioExpanded = !bioExpanded)}
                 class="text-xs text-orange-500 hover:text-orange-600 self-start transition-colors mt-0.5 md:hidden"
-              >
+      >
                 {bioExpanded ? 'Show less' : 'Read more'}
-              </button>
+      </button>
             {/if}
           </div>
         {/if}
@@ -540,8 +620,8 @@
   <hr />
 
   <div class="flex flex-col gap-4">
-    <!-- Tabs: Recipes | Posts | Lists -->
-    <div class="flex gap-2">
+    <!-- Tabs: Recipes | Posts | Lists | Mute -->
+    <div class="flex gap-2 items-center">
       <button
         class="rounded-full px-4 py-2 font-semibold cursor-pointer transition-colors {activeTab === 'recipes'
           ? 'bg-orange-100 text-orange-700'
@@ -566,11 +646,37 @@
       >
         Lists
       </button>
+      
+      <!-- Spacer to push mute button to the right -->
+      <div class="flex-1"></div>
+      
+      <!-- Mute Button (only for logged-in users viewing other profiles) -->
+      {#if $userPublickey && hexpubkey && hexpubkey !== $userPublickey}
+        <button
+          on:click={toggleMute}
+          disabled={muteLoading}
+          class="flex items-center gap-1.5 px-3 py-2 rounded-full font-medium text-sm transition-colors disabled:opacity-50 {isMuted 
+            ? 'bg-red-100 text-red-700 hover:bg-red-200' 
+            : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}"
+          aria-label={isMuted ? 'Unmute user' : 'Mute user'}
+          title={isMuted ? 'Unmute user' : 'Mute user'}
+        >
+          {#if muteLoading}
+            <span class="animate-pulse">...</span>
+          {:else if isMuted}
+            <SpeakerSlashIcon size={16} weight="bold" />
+            <span class="hidden sm:inline">Unmute</span>
+          {:else}
+            <SpeakerHighIcon size={16} weight="bold" />
+            <span class="hidden sm:inline">Mute</span>
+          {/if}
+        </button>
+      {/if}
     </div>
 
     <!-- Tab Content -->
     {#if activeTab === 'recipes'}
-      <Feed {events} {loaded} />
+        <Feed {events} {loaded} />
       <!-- Infinite scroll sentinel for recipes -->
       {#if hasMoreRecipes}
         <div bind:this={recipeSentinel} class="py-4 text-center">

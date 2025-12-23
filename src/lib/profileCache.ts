@@ -117,26 +117,26 @@ export class ProfileCacheManager {
       // Use ndk.getUser() to properly bind user to NDK instance
       const user = ndk.getUser({ pubkey });
       
-      await user.fetchProfile();
+        await user.fetchProfile();
         
-      // Cache the result
-      const entry: ProfileCacheEntry = {
-        user,
-        profile: user.profile,
-        timestamp: Date.now(),
-        expiresAt: Date.now() + CACHE_DURATION
-      };
+        // Cache the result
+        const entry: ProfileCacheEntry = {
+          user,
+          profile: user.profile,
+          timestamp: Date.now(),
+          expiresAt: Date.now() + CACHE_DURATION
+        };
 
-      profileCache.update(cache => {
-        cache[pubkey] = entry;
-        return cache;
-      });
+        profileCache.update(cache => {
+          cache[pubkey] = entry;
+          return cache;
+        });
 
-      // Cleanup old entries
-      this.cleanup();
+        // Cleanup old entries
+        this.cleanup();
 
-      performanceMonitor.recordProfileFetch(startTime);
-      return user;
+        performanceMonitor.recordProfileFetch(startTime);
+        return user;
     } catch (error) {
       console.warn('Failed to fetch profile for', pubkey, error);
       performanceMonitor.recordProfileFetch(startTime);

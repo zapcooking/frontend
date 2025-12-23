@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
-  import { ndk } from '$lib/nostr';
+  import { ndk, userPublickey } from '$lib/nostr';
   import { formatDistanceToNow } from 'date-fns';
   import CustomAvatar from './CustomAvatar.svelte';
   import type { NDKEvent, NDKSubscription } from '@nostr-dev-kit/ndk';
@@ -13,118 +13,351 @@
   import AuthorName from './AuthorName.svelte';
   import { optimizeImageUrl, getOptimalFormat } from '$lib/imageOptimizer';
   import { compressedCacheManager, COMPRESSED_FEED_CACHE_CONFIG } from '$lib/compressedCache';
-  import { createSubscriptionManager } from '$lib/subscriptionManager';
   import FeedErrorBoundary from './FeedErrorBoundary.svelte';
   import FeedPostSkeleton from './FeedPostSkeleton.svelte';
   import LoadingState from './LoadingState.svelte';
   import { nip19 } from 'nostr-tools';
   import CopyIcon from 'phosphor-svelte/lib/Copy';
   import CheckIcon from 'phosphor-svelte/lib/Check';
-  import ChatCircleIcon from 'phosphor-svelte/lib/ChatCircle';
 
-  // Optional prop to filter by specific author (for user profile pages)
-  export let authorPubkey: string | undefined = undefined;
+  // Outbox model for efficient following feed
+  import { 
+    fetchFollowingEvents, 
+    getFollowedPubkeys,
+    prewarmOutboxCache,
+    type OutboxFetchResult 
+  } from '$lib/followOutbox';
   
-  // Props for profile page view
+  // Reply context prefetching for better UX
+  import { prefetchReplyContexts } from '$lib/replyContext';
+
+  // ═══════════════════════════════════════════════════════════════
+  // PROPS
+  // ═══════════════════════════════════════════════════════════════
+  
+  export let authorPubkey: string | undefined = undefined;
   export let hideAvatar: boolean = false;
   export let hideAuthorName: boolean = false;
+  export let filterMode: 'global' | 'following' | 'replies' = 'global';
 
-  // Expanded food-related hashtags for curated content
+  // ═══════════════════════════════════════════════════════════════
+  // CONSTANTS - Compiled once at module level
+  // ═══════════════════════════════════════════════════════════════
+
+  // Food-related hashtags for filtering - expanded for better discovery
   const FOOD_HASHTAGS = [
-    'foodstr', 'cook', 'cookstr', 'zapcooking', 'cooking', 'drinkstr', 'foodies', 'carnivor', 'carnivorediet',
-    'soup', 'soupstr', 'drink', 'eat', 'burger', 'steak', 'steakstr', 'dine', 'dinner', 'lunch', 
-    'breakfast', 'supper', 'yum', 'snack', 'snackstr', 'dessert', 'beef', 'chicken', 'bbq', 
-    'coffee', 'mealprep', 'meal', 'recipe', 'recipestr', 'recipes'
+    'foodstr', 'cook', 'cookstr', 'zapcooking', 'cooking', 'drinkstr', 'foodies', 
+    'carnivor', 'carnivorediet', 'soup', 'soupstr', 'drink', 'eat', 'burger', 
+    'steak', 'steakstr', 'dine', 'dinner', 'lunch', 'breakfast', 'supper', 'yum', 
+    'snack', 'snackstr', 'dessert', 'beef', 'chicken', 'bbq', 'coffee', 'mealprep', 
+    'meal', 'recipe', 'recipestr', 'recipes', 'food', 'foodie', 'foodporn', 'instafood',
+    'foodstagram', 'foodblogger', 'homecooking', 'fromscratch', 'baking', 'baker',
+    'pastry', 'chef', 'chefs', 'cuisine', 'gourmet', 'restaurant', 'restaurants',
+    'pasta', 'pizza', 'sushi', 'tacos', 'taco', 'burrito', 'sandwich', 'salad',
+    'soup', 'stew', 'curry', 'stirfry', 'grill', 'grilled', 'roast', 'roasted',
+    'fried', 'baked', 'smoked', 'fermented', 'pickled', 'preserved', 'homemade',
+    'vegan', 'vegetarian', 'keto', 'paleo', 'glutenfree', 'dairyfree', 'healthy',
+    'nutrition', 'nutritionist', 'dietitian', 'mealplan', 'mealprep', 'batchcooking'
   ];
 
-  // State management
+
+  // Pre-compiled regexes for performance (compiled once at module level)
+  // ═══════════════════════════════════════════════════════════════
+  // FOOD FILTERING - HARD/SOFT KEYWORD SCORING SYSTEM
+  // ═══════════════════════════════════════════════════════════════
+  // 
+  // Include logic:
+  // - Has food hashtag => include
+  // - Has >= 1 HARD food word => include
+  // - Has >= 2 SOFT food words => include
+  // 
+  // HARD words = very low false-positive risk (1 hit is enough)
+  // SOFT words = common in metaphor/news/etc (require 2 hits)
+  // 
+  // Removals: "dish" (Dish Network), "ate" (too many non-food uses), "cook" (Cook Islands, etc.)
+
+  // Hashtag terms (strong signal)
+  const FOOD_HASHTAG_TERMS = [
+    'foodstr','cookstr','zapcooking','recipestr','soupstr','drinkstr','snackstr','steakstr','mealprep',
+    'foodies','carnivor','carnivorediet'
+  ];
+
+  // Hard words (very low false positive risk; 1 hit is enough)
+  const HARD_FOOD_WORDS = [
+    // Recipes & cooking intent
+    'recipe','recipes','recipestr',
+    'cooking','baking','bake',
+    'chef','chefs','kitchen',
+    'ingredient','ingredients',
+    'seasoned','seasoning','marinated','saute','sauteed','simmer','braised',
+    'fermented','pickled','smoked','slow cooked','air fried',
+
+    // Meals (strong real-world food signal)
+    'breakfast','lunch','dinner','dessert',
+    'mealprep','meal prep',
+    'homecooking','home cooked','fromscratch','homemade',
+
+    // Food items & dishes
+    'pasta','pizza','sushi','taco','tacos','burrito','sandwich','salad',
+    'soup','stew','curry','burger','steak','bbq',
+    'coffee',
+
+    // Ingredients & staples
+    'garlic','onion','tomato','cheese','butter','olive oil',
+    'rice','beans','eggs','flour',
+
+    // Diets & preferences (safe as hard)
+    'vegan','vegetarian','keto','paleo',
+    'glutenfree','gluten free',
+    'dairyfree','dairy free',
+
+    // Restaurants (strong enough on Nostr)
+    'restaurant','restaurants',
+
+    // Cuisines
+    'italian','mexican','thai','indian','mediterranean','japanese','korean'
+  ];
+
+  // Soft words (common metaphor / news words; require 2 hits)
+  const SOFT_FOOD_WORDS = [
+    // ambiguous/general
+    'food','meal','supper',
+    // slang/metaphor prone
+    'spicy','sweet','flavor','healthy','organic',
+    // journalism-metaphor prone
+    'grill','grilled','roast','roasted'
+  ];
+
+  // Helper to escape special regex characters
+  function escapeRegex(s: string): string {
+    return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+
+  // Convert term to regex pattern (supports multi-word phrases)
+  function termToPattern(term: string): string {
+    const parts = term.trim().split(/\s+/).map(escapeRegex);
+    if (parts.length === 1) return `\\b${parts[0]}\\b`;
+    return `\\b${parts.join('\\s+')}\\b`;
+  }
+
+  // Build precompiled regexes
+  const FOOD_HASHTAG_REGEX = new RegExp(`(?:^|\\s)#(${FOOD_HASHTAG_TERMS.map(escapeRegex).join('|')})\\b`, 'i');
+  const HARD_FOOD_REGEX = new RegExp(HARD_FOOD_WORDS.map(termToPattern).join('|'), 'ig');
+  const SOFT_FOOD_REGEX = new RegExp(SOFT_FOOD_WORDS.map(termToPattern).join('|'), 'ig');
+
+  // Macro exclusion for economics phrases
+  const MACRO_EXCLUDING_FOOD_ENERGY_REGEX = /\b(excluding|exclude)\s+food\s+and\s+energy\b/i;
+
+  // Debug flag (set to true to log filter decisions)
+  const DEBUG_FOOD_FILTER = false;
+
+  const HASHTAG_PATTERN = /(^|\s)#([^\s#]+)/g;
+  const URL_REGEX = /(https?:\/\/[^\s]+)/g;
+  const IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.avif', '.svg'];
+  const VIDEO_EXTENSIONS = ['.mp4', '.webm', '.mov', '.avi', '.mkv', '.m4v'];
+
+  const MAX_HASHTAGS = 5;
+  const CACHE_KEY = 'foodstr_feed_cache';
+  const BATCH_DEBOUNCE_MS = 300;
+  const SUBSCRIPTION_TIMEOUT_MS = 4000;
+  const SEVEN_DAYS_SECONDS = 7 * 24 * 60 * 60;
+
+  // Relay pools by purpose - optimized based on speed test results
+  // Speed test: nostr.wine (305ms) > nos.lol (342ms) > purplepag.es (356ms) > relay.damus.io (394ms) > kitchen.zap.cooking (510ms) > relay.nostr.band (514ms)
+  const RELAY_POOLS = {
+    recipes: ['wss://kitchen.zap.cooking'],      // Curated recipe content (510ms, but worth it for relevance)
+    fallback: ['wss://nos.lol', 'wss://relay.damus.io'],  // Fast general relays (nos.lol 342ms, relay.damus.io 394ms)
+    discovery: ['wss://nostr.wine', 'wss://relay.primal.net', 'wss://purplepag.es'],  // Additional relays for discovery
+    profiles: ['wss://purplepag.es']             // Profile metadata (356ms, specialized for kind:0)
+  };
+
+  // ═══════════════════════════════════════════════════════════════
+  // STATE
+  // ═══════════════════════════════════════════════════════════════
+
   let events: NDKEvent[] = [];
   let loading = true;
   let error = false;
   let hasMore = true;
   let loadingMore = false;
-  let debugInfo = '';
   let isRefreshing = false;
   
-  // Performance optimizations
-  let subscription: NDKSubscription | null = null;
+  // Subscription management - store actual subscription references for proper cleanup
+  let activeSubscriptions: NDKSubscription[] = [];
   let batchTimeout: ReturnType<typeof setTimeout> | null = null;
   let pendingEvents: NDKEvent[] = [];
   let lastEventTime: number = 0;
-  let subscriptionManager: any = null;
   
-  // Caching
-  let cacheLoaded = false;
+  // Track filter mode for reactive updates
+  let lastFilterMode: 'global' | 'following' | 'replies' = 'global';
   
-  // Carousel state - tracks current slide for each event
+  // Followed pubkeys for real-time subscriptions (populated by outbox module)
+  let followedPubkeysForRealtime: string[] = [];
+  
+  // Reply context cache (parent note info)
+  const replyContextCache = new Map<string, {
+    authorName: string;
+    authorPubkey: string;
+    notePreview: string;
+    noteId: string;
+    loading: boolean;
+    error?: string;
+  }>();
+  
+  
+  // Deduplication
+  const seenEventIds = new Set<string>();
+  
+  // UI state
   let carouselStates: { [eventId: string]: number } = {};
+  let expandedPosts: { [eventId: string]: boolean } = {};
+  let copiedNoteId = '';
+  let expandedParentNotes: { [eventId: string]: boolean } = {}; // Track expanded parent notes
+  let parentNoteCache: { [eventId: string]: NDKEvent | null } = {}; // Cache full parent notes
+  let foodFilterEnabled = true; // Toggle for food filtering in Following/Replies modes
   
-  // Zap modal state
+  // Modals
   let zapModal = false;
   let selectedEvent: NDKEvent | null = null;
-
-  // Image modal state
   let imageModalOpen = false;
   let selectedImageUrl = '';
   let selectedEventImages: string[] = [];
   let selectedImageIndex = 0;
 
-  // Copy note ID state
-  let copiedNoteId = '';
+  // ═══════════════════════════════════════════════════════════════
+  // UTILITY FUNCTIONS
+  // ═══════════════════════════════════════════════════════════════
 
-  async function copyNoteId(event: NDKEvent) {
-    const noteId = nip19.noteEncode(event.id);
-    await navigator.clipboard.writeText(noteId);
-    copiedNoteId = event.id;
-    setTimeout(() => {
-      copiedNoteId = '';
-    }, 2000);
+  function sevenDaysAgo(): number {
+    return Math.floor(Date.now() / 1000) - SEVEN_DAYS_SECONDS;
   }
 
-  function openImageModal(imageUrl: string, allImages: string[], index: number) {
-    selectedImageUrl = imageUrl;
-    selectedEventImages = allImages;
-    selectedImageIndex = index;
-    imageModalOpen = true;
+  function formatTimeAgo(timestamp: number): string {
+    return formatDistanceToNow(new Date(timestamp * 1000), { addSuffix: true });
   }
 
-  function closeImageModal() {
-    imageModalOpen = false;
-    selectedImageUrl = '';
-    selectedEventImages = [];
-    selectedImageIndex = 0;
+  function isImageUrl(url: string): boolean {
+    const lower = url.toLowerCase();
+    return IMAGE_EXTENSIONS.some(ext => lower.includes(ext));
   }
 
-  function nextModalImage() {
-    selectedImageIndex = (selectedImageIndex + 1) % selectedEventImages.length;
-    selectedImageUrl = selectedEventImages[selectedImageIndex];
+  function isVideoUrl(url: string): boolean {
+    const lower = url.toLowerCase();
+    return VIDEO_EXTENSIONS.some(ext => lower.includes(ext)) ||
+           lower.includes('youtube.com') || 
+           lower.includes('youtu.be') ||
+           lower.includes('vimeo.com');
   }
 
-  function prevModalImage() {
-    selectedImageIndex = selectedImageIndex === 0 ? selectedEventImages.length - 1 : selectedImageIndex - 1;
-    selectedImageUrl = selectedEventImages[selectedImageIndex];
+  function getImageUrls(event: NDKEvent): string[] {
+    const content = event.content || '';
+    const urls = content.match(URL_REGEX) || [];
+    return urls.filter(url => isImageUrl(url) || isVideoUrl(url));
   }
 
-  function handleImageModalKeydown(e: KeyboardEvent) {
-    if (!imageModalOpen) return;
+  function getOptimizedImageUrl(url: string): string {
+    return optimizeImageUrl(url, {
+      width: 640,
+      quality: 85,
+      format: getOptimalFormat()
+    });
+  }
 
-    if (e.key === 'Escape') {
-      closeImageModal();
-    } else if (e.key === 'ArrowLeft') {
-      prevModalImage();
-    } else if (e.key === 'ArrowRight') {
-      nextModalImage();
+  function deduplicateText(text: string): string {
+    if (!text || text.length < 20) return text;
+    
+    const segments = text.split(/(?<=[.!?\n])(?:\s+|$)/);
+    if (segments.length < 2) return text;
+    
+    const deduplicated: string[] = [];
+    for (const segment of segments) {
+      const current = segment.trim();
+      const prev = deduplicated[deduplicated.length - 1]?.trim();
+      if (current && current !== prev) {
+        deduplicated.push(segment);
+      }
     }
+    
+    const result = deduplicated.join(' ').trim();
+    const halfLen = Math.floor(result.length / 2);
+    if (halfLen > 20) {
+      const firstHalf = result.substring(0, halfLen).trim();
+      const secondHalf = result.substring(halfLen).trim();
+      if (firstHalf === secondHalf) return firstHalf;
+    }
+    
+    return result;
   }
 
-  const MAX_HASHTAGS = 5;
-  const HASHTAG_PATTERN = /(^|\s)#([^\s#]+)/g;
+  function getContentWithoutMedia(content: string): string {
+    let cleaned = content.replace(URL_REGEX, (url) => {
+      return (isImageUrl(url) || isVideoUrl(url)) ? '' : url;
+    }).replace(/\s+/g, ' ').trim();
+    
+    return deduplicateText(cleaned);
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // CONTENT FILTERING
+  // ═══════════════════════════════════════════════════════════════
+
+  function contentContainsFoodWords(content: string): boolean {
+    if (!content) return false;
+    
+    // Normalize content - replace newlines/whitespace with single spaces for better matching
+    const normalizedContent = content.replace(/\s+/g, ' ').trim();
+    
+    // Exclude posts containing "root" as a standalone word (not part of other words)
+    if (/\broot\b/i.test(normalizedContent)) {
+      return false;
+    }
+    
+    // Check for food-related hashtags first (strong signal)
+    if (FOOD_HASHTAG_REGEX.test(normalizedContent)) {
+      if (DEBUG_FOOD_FILTER) console.log('[FoodFilter] PASS: hashtag match');
+      return true;
+    }
+    
+    // Count hard and soft word matches
+    // Reset regex lastIndex before matching (since we use 'g' flag)
+    HARD_FOOD_REGEX.lastIndex = 0;
+    SOFT_FOOD_REGEX.lastIndex = 0;
+    
+    const hardMatches = normalizedContent.match(HARD_FOOD_REGEX) ?? [];
+    const softMatches = normalizedContent.match(SOFT_FOOD_REGEX) ?? [];
+    const hardCount = hardMatches.length;
+    const softCount = softMatches.length;
+    
+    // Macro exclusion: "excluding food and energy" is a common economics phrase
+    if (MACRO_EXCLUDING_FOOD_ENERGY_REGEX.test(normalizedContent)) {
+      // Only allow if there's a strong signal beyond just the word "food"
+      if (hardCount === 0 && softCount < 2) {
+        if (DEBUG_FOOD_FILTER) console.log('[FoodFilter] REJECT: macro phrase, no other signals');
+        return false;
+      }
+    }
+    
+    // Include if at least 1 hard match
+    if (hardCount >= 1) {
+      if (DEBUG_FOOD_FILTER) console.log('[FoodFilter] PASS: hard matches:', hardMatches.slice(0, 2));
+      return true;
+    }
+    
+    // Include if at least 2 soft matches
+    if (softCount >= 2) {
+      if (DEBUG_FOOD_FILTER) console.log('[FoodFilter] PASS: soft matches:', softMatches.slice(0, 2));
+      return true;
+    }
+    
+    // Not enough food signals
+    if (DEBUG_FOOD_FILTER && (hardCount > 0 || softCount > 0)) {
+      console.log('[FoodFilter] REJECT: insufficient signals - hard:', hardCount, 'soft:', softCount);
+    }
+    return false;
+  }
 
   function countContentHashtags(content: string): number {
-    if (!content) {
-      return 0;
-    }
-
+    if (!content) return 0;
     const matches = content.match(HASHTAG_PATTERN);
     return matches ? matches.length : 0;
   }
@@ -134,74 +367,70 @@
     const tagHashtags = Array.isArray(event.tags)
       ? event.tags.filter(tag => Array.isArray(tag) && tag[0] === 't').length
       : 0;
-
     return Math.max(contentHashtags, tagHashtags);
   }
 
-  function shouldIncludeEvent(event: NDKEvent): boolean {
-    const hashtagCount = getHashtagCount(event);
+  function getMutedUsers(): string[] {
+    if (!$userPublickey) return [];
+    try {
+      const storedMutes = localStorage.getItem('mutedUsers');
+      return storedMutes ? JSON.parse(storedMutes) : [];
+    } catch {
+      return [];
+    }
+  }
 
-    if (hashtagCount > MAX_HASHTAGS) {
-      console.log(`⏭️ Skipping event ${event.id || 'unknown'} with ${hashtagCount} hashtags`);
-      return false;
+  function shouldIncludeEvent(event: NDKEvent): boolean {
+    // Check muted users
+    if ($userPublickey) {
+      const mutedUsers = getMutedUsers();
+      const authorKey = event.author?.hexpubkey || event.pubkey;
+      if (authorKey && mutedUsers.includes(authorKey)) return false;
     }
 
+    // Client-side filtered results: notes without hashtags that contain food words
+    // These are discovered through client-side filtering
+    if ((event as any)._fromNip50Search) {
+      // Only check hashtag spam, not content (content already validated by client-side filter)
+      const hashtagCount = getHashtagCount(event);
+      if (hashtagCount > MAX_HASHTAGS) {
+        return false;
+      }
+      return true;
+    }
+
+    // Regular events: check for food content or hashtags
+    const content = event.content || '';
+    const contentHasFood = contentContainsFoodWords(content);
+    const hasFoodHashtag = event.tags.some(tag => 
+      Array.isArray(tag) && 
+      tag[0] === 't' && 
+      FOOD_HASHTAGS.includes(tag[1]?.toLowerCase() || '')
+    );
+    
+    if (!contentHasFood && !hasFoodHashtag) {
+      return false;
+    }
+    
+    // Check hashtag spam
+    const hashtagCount = getHashtagCount(event);
+    if (hashtagCount > MAX_HASHTAGS) {
+      return false;
+    }
+    
     return true;
   }
 
-  // Debounced batch processing for rapid updates
-  async function processBatch() {
-    if (pendingEvents.length === 0) return;
-
-    const batch = pendingEvents.filter(shouldIncludeEvent);
-    pendingEvents = [];
-
-    if (batch.length === 0) {
-      console.log('⏭️ Batch contained only events filtered by hashtag limit');
-      return;
-    }
-
-    console.log(`🔄 Processing batch of ${batch.length} events`);
-
-    // Sort new events by creation time
-    const sortedNewEvents = batch.sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
-    
-    // Merge with existing events, avoiding duplicates
-    const existingIds = new Set(events.map(e => e.id));
-    const uniqueNewEvents = sortedNewEvents.filter(e => !existingIds.has(e.id));
-    
-    // Insert new events in chronological order
-    events = [...events, ...uniqueNewEvents].sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
-    
-    // Update last event time
-    if (uniqueNewEvents.length > 0) {
-      lastEventTime = Math.max(lastEventTime, ...uniqueNewEvents.map(e => e.created_at || 0));
-    }
-    
-    // Clear pending events
-    // Cache the updated events
-    await cacheEvents();
-    
-    console.log(`✅ Batch processed. Total events: ${events.length}`);
-  }
-
-  function debouncedBatchProcess() {
-    if (batchTimeout) {
-      clearTimeout(batchTimeout);
-    }
-    batchTimeout = setTimeout(async () => await processBatch(), 300); // 300ms debounce
-  }
-
-  // Simple caching functions (restored for stability)
-  const CACHE_KEY = 'foodstr_feed_cache';
-  const CACHE_EXPIRY = 5 * 60 * 1000; // 5 minutes
+  // ═══════════════════════════════════════════════════════════════
+  // CACHING
+  // ═══════════════════════════════════════════════════════════════
 
   async function cacheEvents() {
-    if (typeof window === 'undefined') return;
+    if (typeof window === 'undefined' || events.length === 0) return;
     
     try {
       const cacheData = {
-        events: events.map(e => ({
+        events: events.slice(0, 100).map(e => ({
           id: e.id,
           pubkey: e.pubkey,
           content: e.content,
@@ -213,40 +442,15 @@
           } : null
         })),
         timestamp: Date.now(),
-        lastEventTime: lastEventTime
+        lastEventTime
       };
       
-      // Use compressed cache for better performance
       await compressedCacheManager.set({
         ...COMPRESSED_FEED_CACHE_CONFIG,
         key: CACHE_KEY
       }, cacheData);
-      
-      console.log('💾 Events cached with compression');
-    } catch (err) {
-      console.warn('⚠️ Failed to cache events:', err);
-      // Fallback to localStorage
-      try {
-        const fallbackCacheData = {
-          events: events.map(e => ({
-            id: e.id,
-            pubkey: e.pubkey,
-            content: e.content,
-            created_at: e.created_at,
-            tags: e.tags,
-            author: e.author ? {
-              hexpubkey: e.author.hexpubkey,
-              profile: e.author.profile
-            } : null
-          })),
-          timestamp: Date.now(),
-          lastEventTime: lastEventTime
-        };
-        localStorage.setItem(CACHE_KEY, JSON.stringify(fallbackCacheData));
-        console.log('💾 Events cached to localStorage (fallback)');
-      } catch (fallbackErr) {
-        console.error('❌ Failed to cache events (fallback):', fallbackErr);
-      }
+    } catch {
+      // Cache write failed - non-critical
     }
   }
 
@@ -254,111 +458,183 @@
     if (typeof window === 'undefined') return false;
     
     try {
-      // Try compressed cache first
-      const cacheData = await compressedCacheManager.get({
+      const cacheData: any = await compressedCacheManager.get({
         ...COMPRESSED_FEED_CACHE_CONFIG,
         key: CACHE_KEY
       });
       
-      if (cacheData && typeof cacheData === 'object' && cacheData !== null && 'events' in cacheData) {
-        // Restore events from compressed cache
-        const cachedEvents = (cacheData as any).events.map((e: any) => ({
+      if (!cacheData || !cacheData.events || !Array.isArray(cacheData.events) || cacheData.events.length === 0) {
+        return false;
+      }
+      
+      const cachedEvents = cacheData.events
+        .map((e: any) => ({
           ...e,
           author: e.author ? {
             hexpubkey: e.author.hexpubkey,
             profile: e.author.profile
           } : null
-        })) as NDKEvent[];
-
-        const filteredEvents = cachedEvents.filter(shouldIncludeEvent);
-        events = filteredEvents;
-        lastEventTime = events.length > 0 ? Math.max(...events.map(e => e.created_at || 0)) : 0;
-
-        console.log(`📦 Loaded ${events.length} events from compressed cache`);
-
-        if (cachedEvents.length !== filteredEvents.length) {
-          console.log(`⏭️ Filtered out ${cachedEvents.length - filteredEvents.length} cached events due to hashtag limit`);
-        }
-
-        return events.length > 0;
-      }
+        }))
+        .filter(shouldIncludeEvent);
       
-      // Fallback to localStorage
-      const cached = localStorage.getItem(CACHE_KEY);
-      if (!cached) return false;
+      if (cachedEvents.length === 0) return false;
       
-      const fallbackCacheData = JSON.parse(cached);
-      const now = Date.now();
+      // Add to seen set
+      cachedEvents.forEach((e: NDKEvent) => seenEventIds.add(e.id));
       
-      // Check if cache is still valid
-      if (now - fallbackCacheData.timestamp > CACHE_EXPIRY) {
-        localStorage.removeItem(CACHE_KEY);
-        return false;
-      }
-      
-      // Restore events from localStorage cache
-      const cachedEvents = fallbackCacheData.events.map((e: any) => ({
-        ...e,
-        author: e.author ? {
-          hexpubkey: e.author.hexpubkey,
-          profile: e.author.profile
-        } : null
-      })) as NDKEvent[];
-
-      const filteredEvents = cachedEvents.filter(shouldIncludeEvent);
-      events = filteredEvents;
-      lastEventTime = events.length > 0 ? Math.max(...events.map(e => e.created_at || 0)) : 0;
-
-      console.log(`📦 Loaded ${events.length} events from localStorage cache (fallback)`);
-
-      if (cachedEvents.length !== filteredEvents.length) {
-        console.log(`⏭️ Filtered out ${cachedEvents.length - filteredEvents.length} cached events due to hashtag limit`);
-      }
-
-      return events.length > 0;
-      
-    } catch (err) {
-      console.warn('⚠️ Failed to load cached events:', err);
-      // Clean up corrupted cache
-      try {
-        localStorage.removeItem(CACHE_KEY);
-      } catch (cleanupErr) {
-        console.warn('Failed to cleanup corrupted cache:', cleanupErr);
-      }
+      events = cachedEvents;
+      lastEventTime = Math.max(...events.map(e => e.created_at || 0));
+      return true;
+    } catch {
       return false;
     }
   }
 
-  // Utility function to handle image/video errors
-  function handleMediaError(e: Event) {
-    const target = e.target;
-    if (target && 'style' in target) {
-      (target as any).style.display = 'none';
+  // ═══════════════════════════════════════════════════════════════
+  // RELAY FETCHING
+  // ═══════════════════════════════════════════════════════════════
+
+  async function fetchFromRelays(
+    filter: any, 
+    relayUrls: string[], 
+    timeoutMs: number = SUBSCRIPTION_TIMEOUT_MS
+  ): Promise<NDKEvent[]> {
+    try {
+      // Use fetchEvents with relay set for targeted querying
+      // This ensures we query the specific relays the user posted to
+      // Note: WebSocket connection errors from NDK are expected when relays are down
+      // and are handled gracefully by the connection manager's circuit breaker
+      const { NDKRelaySet } = await import('@nostr-dev-kit/ndk');
+      const relaySet = NDKRelaySet.fromRelayUrls(relayUrls, $ndk, true);
+      
+      const timeoutPromise = new Promise<NDKEvent[]>((_, reject) => 
+        setTimeout(() => reject(new Error('Timeout')), timeoutMs)
+      );
+      
+      const eventsPromise = $ndk.fetchEvents(filter, undefined, relaySet);
+      
+      // Race between fetchEvents and timeout
+      const events = await Promise.race([eventsPromise, timeoutPromise]);
+      return Array.from(events);
+    } catch (err: any) {
+      if (err.message === 'Timeout') {
+        return [];
+      }
+      
+      // Fallback to subscription if fetchEvents fails
+      return new Promise((resolve) => {
+        const fetchedEvents: NDKEvent[] = [];
+        const seenIds = new Set<string>();
+        let resolved = false;
+        
+        const sub = $ndk.subscribe(filter, { 
+          closeOnEose: true
+        });
+        
+        sub.on('event', (event: NDKEvent) => {
+          if (event.id && !seenIds.has(event.id)) {
+            seenIds.add(event.id);
+            fetchedEvents.push(event);
+          }
+        });
+        
+        sub.on('eose', () => {
+          if (!resolved) {
+            resolved = true;
+            sub.stop();
+            resolve(fetchedEvents);
+          }
+        });
+        
+        setTimeout(() => {
+          if (!resolved) {
+            resolved = true;
+            sub.stop();
+            resolve(fetchedEvents);
+          }
+        }, timeoutMs);
+      });
     }
   }
 
+  // Fetch recent notes and filter client-side for notes without hashtags
+  async function fetchNotesWithoutHashtags(since: number): Promise<NDKEvent[]> {
+    
+    const filter = {
+      kinds: [1],
+      limit: 300, // Increased limit for better discovery
+      since
+    };
+    
+    try {
+      const { NDKRelaySet } = await import('@nostr-dev-kit/ndk');
+      // Query from multiple relay pools in parallel for maximum discovery
+      const allRelays = [...RELAY_POOLS.fallback, ...RELAY_POOLS.discovery];
+      const relaySet = NDKRelaySet.fromRelayUrls(
+        allRelays, 
+        $ndk, 
+        true
+      );
+      
+      const timeoutPromise = new Promise<NDKEvent[]>((_, reject) => 
+        setTimeout(() => reject(new Error('Timeout')), 10000)
+      );
+      
+      const eventsPromise = $ndk.fetchEvents(filter, undefined, relaySet);
+      const events = await Promise.race([eventsPromise, timeoutPromise]);
+      const eventArray = Array.from(events);
+      
+      // Filter for notes without food hashtags that contain food words
+      // We want maximum discovery, but still need to filter for food-related content
+      const notesWithoutHashtags = eventArray.filter((event: NDKEvent) => {
+        // Exclude notes with food hashtags (already covered by hashtag filter)
+        const hasFoodHashtag = event.tags.some(tag => 
+          Array.isArray(tag) && 
+          tag[0] === 't' && 
+          FOOD_HASHTAGS.includes(tag[1]?.toLowerCase() || '')
+        );
+        
+        if (hasFoodHashtag) return false;
+        
+        // Include notes that contain food words (client-side filtering for food-related content)
+        const content = event.content || '';
+        return contentContainsFoodWords(content);
+      });
+      
+      // Mark as from client-side filtering
+      notesWithoutHashtags.forEach(event => {
+        (event as any)._fromNip50Search = true;
+      });
+      
+      return notesWithoutHashtags;
+    } catch {
+      return [];
+    }
+  }
+
+
+  function dedupeAndSort(eventList: NDKEvent[]): NDKEvent[] {
+    const unique: NDKEvent[] = [];
+    
+    for (const event of eventList) {
+      if (!event.id || seenEventIds.has(event.id)) continue;
+      seenEventIds.add(event.id);
+      unique.push(event);
+    }
+    
+    return unique.sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // MAIN LOAD FUNCTION
+  // ═══════════════════════════════════════════════════════════════
+
   async function loadFoodstrFeed(useCache = true) {
     try {
-      const filter: any = {
-        kinds: [1],
-        '#t': FOOD_HASHTAGS,
-        limit: 20, // Reduced initial limit for faster loading
-        since: Math.floor(Date.now() / 1000) - (3 * 24 * 60 * 60) // Reduced to 3 days for faster loading
-      };
-      
-      // Filter by author if provided (for user profile pages)
-      if (authorPubkey) {
-        filter.authors = [authorPubkey];
-      }
-
-      // Try to load from cache first (simplified for now)
+      // Try cache first
       if (useCache && await loadCachedEvents()) {
         loading = false;
         error = false;
-        cacheLoaded = true;
-        debugInfo = `Loaded ${events.length} events from cache`;
-        
-        // Trigger background refresh
         setTimeout(() => fetchFreshData(), 100);
         return;
       }
@@ -366,257 +642,433 @@
       loading = true;
       error = false;
       events = [];
-      cacheLoaded = false;
+      seenEventIds.clear();
       
-      console.log('🍽️ Loading cooking feed...');
-      debugInfo = 'Loading cooking feed...';
+      if (!$ndk) throw new Error('NDK not initialized');
       
-      // Check if NDK is connected
-      if (!$ndk) {
-        throw new Error('NDK not initialized');
-      }
-
-      // Ensure NDK is connected before making requests
       try {
         await $ndk.connect();
-      } catch (connectError) {
-        console.warn('Failed to connect NDK, proceeding anyway:', connectError);
+      } catch {
+        // Connection warning - continue anyway
       }
-      
-      console.log('🔍 Filter:', filter);
-      
-      // Use subscribe instead of fetchEvents
-      let eventCount = 0;
-      let skippedCount = 0;
-      const subscription = $ndk.subscribe(filter, { closeOnEose: false });
-      
-      const subscriptionPromise = new Promise<NDKEvent[]>((resolve, reject) => {
-        const receivedEvents: NDKEvent[] = [];
-        let eoseCount = 0;
-        let resolved = false;
-        
-        subscription.on('event', (event: NDKEvent) => {
-          if (!shouldIncludeEvent(event)) {
-            skippedCount++;
-            return;
-          }
 
-          receivedEvents.push(event);
-          eventCount++;
-        });
-        
-        subscription.on('eose', () => {
-          eoseCount++;
-          console.log(`📊 EOSE received from relay ${eoseCount}`);
-          // Resolve after first EOSE or timeout
-          if (!resolved) {
-            resolved = true;
-            console.log('📊 Fetched events after filtering:', eventCount);
-            subscription.stop();
-            resolve(receivedEvents);
-          }
-        });
-        
-        // Timeout to resolve with whatever events were collected
-        setTimeout(() => {
-          if (!resolved) {
-            resolved = true;
-            console.log('⏱️ Timeout reached, resolving with', eventCount, 'events after filtering');
-            subscription.stop();
-            resolve(receivedEvents);
-          }
-        }, 5000); // Reduced timeout to 5 seconds for faster response
-      });
+      const since = sevenDaysAgo();
       
-      const fetchedEvents = await subscriptionPromise;
-
-      if (skippedCount > 0) {
-        console.log(`⏭️ Skipped ${skippedCount} events due to hashtag limit during initial load`);
-      }
-      
-      if (fetchedEvents.length > 0) {
-        // Sort by newest first
-        events = fetchedEvents.sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
-        lastEventTime = events.length > 0 ? Math.max(...events.map(e => e.created_at || 0)) : 0;
-        
-        loading = false;
-        error = false;
-        debugInfo = `Found ${events.length} events${skippedCount ? ` (filtered out ${skippedCount})` : ''}`;
-        console.log('✅ Successfully loaded', events.length, 'events');
-        
-        // Cache the events
-        await cacheEvents();
-        
-        // Start real-time subscription for new events
-        startRealtimeSubscription();
-      } else {
-        loading = false;
-        error = false;
-        debugInfo = skippedCount > 0 ? 'Filtered out posts with too many hashtags' : 'No cooking events found';
-        console.log('ℹ️ No events found');
-        
-        // Still start subscription for real-time updates
-        startRealtimeSubscription();
-      }
-      
-    } catch (err) {
-      console.error('❌ Error:', err);
-      loading = false;
-      error = true;
-      
-      // Provide more specific error messages
-      if (err instanceof Error) {
-        if (err.message.includes('timeout')) {
-          debugInfo = 'Connection timeout - relays may be unreachable. Try again or check your connection.';
-        } else if (err.message.includes('WebSocket')) {
-          debugInfo = 'WebSocket connection failed - relays may be down. Try again later.';
-        } else {
-          debugInfo = `Error: ${err.message}`;
-        }
-      } else {
-        debugInfo = `Error: ${String(err)}`;
-      }
-    }
-  }
-
-  function startRealtimeSubscription() {
-    // Initialize subscription manager if needed
-    if (!subscriptionManager) {
-      subscriptionManager = createSubscriptionManager($ndk);
-    }
-    
-    console.log('🔄 Starting real-time subscription...');
-    
-    const subscriptionFilter: any = {
-      kinds: [1],
-      '#t': FOOD_HASHTAGS,
-      since: lastEventTime + 1 // Only get events newer than what we have
-    };
-    
-    // Filter by author if provided (for user profile pages)
-    if (authorPubkey) {
-      subscriptionFilter.authors = [authorPubkey];
-    }
-    
-    subscription = subscriptionManager.subscribe({
-      id: 'foodstr-feed-realtime',
-      filter: subscriptionFilter,
-      onEvent: (event: NDKEvent) => {
-        if (!shouldIncludeEvent(event)) {
+      // Handle different filter modes
+      if (filterMode === 'following') {
+        // Following mode: only show notes (not replies) from followed users
+        // Uses outbox model for efficient fetching from correct relays
+        if (!$userPublickey) {
+          loading = false;
+          error = false;
+          events = [];
           return;
         }
-
-        // Reduce logging frequency - only log every 10th event
-        if (pendingEvents.length % 10 === 0) {
-          console.log('📨 New real-time event:', event.id);
+        
+        // Use outbox model for optimized fetching
+        const result: OutboxFetchResult = await fetchFollowingEvents($ndk, $userPublickey, {
+          since,
+          kinds: [1],
+          limit: 100,
+          timeoutMs: 8000
+        });
+        
+        console.log('[Feed] Raw events from outbox:', result.events.length);
+        
+        console.log(`[Feed] Outbox fetch: ${result.events.length} events from ${result.queriedRelays.length} relays in ${result.timing.totalMs}ms`);
+        
+        if (result.failedRelays.length > 0) {
+          console.warn(`[Feed] Failed relays:`, result.failedRelays);
+          }
+        
+        // Cache followed pubkeys for real-time subscription
+        followedPubkeysForRealtime = await getFollowedPubkeys($ndk, $userPublickey);
+        
+        // Filter for food-related content AND exclude replies (only top-level notes)
+        const beforeFilter = result.events.length;
+        const validEvents = result.events.filter((event) => {
+          // Exclude replies - only show top-level notes in Following
+          const isReplyEvent = event.tags.some(tag => 
+            Array.isArray(tag) && tag[0] === 'e' && tag[3] === 'reply'
+          );
+          if (isReplyEvent) return false;
+          
+          // Check muted users
+          if ($userPublickey) {
+            const mutedUsers = getMutedUsers();
+            const authorKey = event.author?.hexpubkey || event.pubkey;
+            if (authorKey && mutedUsers.includes(authorKey)) return false;
+          }
+          
+          // Apply food filter only if enabled
+          if (foodFilterEnabled) {
+            return shouldIncludeEvent(event);
+          }
+          
+          return true;
+        });
+        
+        console.log('[Feed] After food filter:', validEvents.length, '/', beforeFilter);
+        
+        // Show what's being filtered out (sample)
+        const rejected = result.events.filter(e => {
+          const isReplyEvent = e.tags.some(tag => 
+            Array.isArray(tag) && tag[0] === 'e'
+          );
+          return isReplyEvent || !shouldIncludeEvent(e);
+        }).slice(0, 5);
+        console.log('[Feed] Sample rejected:', rejected.map(e => ({
+          content: e.content?.slice(0, 100),
+          tags: e.tags.filter(t => t[0] === 't').map(t => t[1])
+        })));
+        
+        events = dedupeAndSort(validEvents);
+        loading = false;
+        error = false;
+        
+        if (events.length > 0) {
+          lastEventTime = Math.max(...events.map(e => e.created_at || 0));
+          await cacheEvents();
         }
         
-        // Add to pending batch
-        pendingEvents.push(event);
+        startRealtimeSubscription();
+        return;
+      }
+      
+      if (filterMode === 'replies') {
+        // Notes & Replies mode: show ALL food-related content from followed users (both notes and replies)
+        // Uses outbox model for efficient fetching from correct relays
+        if (!$userPublickey) {
+          loading = false;
+          error = false;
+          events = [];
+          return;
+        }
         
-        // Debounced batch processing
-        debouncedBatchProcess();
-      },
-      onEose: () => {
-        console.log('🏁 Real-time subscription established');
-      },
+        // Use outbox model - same fetch, different filtering
+        const result: OutboxFetchResult = await fetchFollowingEvents($ndk, $userPublickey, {
+          since,
+          kinds: [1],
+          limit: 100,
+          timeoutMs: 8000
+        });
+        
+        console.log('[Feed] Raw events from outbox:', result.events.length);
+        
+        console.log(`[Feed] Outbox fetch (replies): ${result.events.length} events from ${result.queriedRelays.length} relays in ${result.timing.totalMs}ms`);
+        
+        // Cache followed pubkeys for real-time subscription
+        followedPubkeysForRealtime = await getFollowedPubkeys($ndk, $userPublickey);
+        
+        // Filter for food-related content (both notes AND replies)
+        const beforeFilter = result.events.length;
+        const foodEvents = result.events.filter((event) => {
+          // Check muted users
+          if ($userPublickey) {
+            const mutedUsers = getMutedUsers();
+            const authorKey = event.author?.hexpubkey || event.pubkey;
+            if (authorKey && mutedUsers.includes(authorKey)) return false;
+          }
+          
+          // Apply food filter only if enabled
+          if (foodFilterEnabled) {
+            return shouldIncludeEvent(event);
+          }
+          
+          return true;
+        });
+        
+        console.log('[Feed] After food filter:', foodEvents.length, '/', beforeFilter);
+        
+        // Show what's being filtered out (sample)
+        const rejected = result.events.filter(e => !shouldIncludeEvent(e)).slice(0, 5);
+        console.log('[Feed] Sample rejected:', rejected.map(e => ({
+          content: e.content?.slice(0, 100),
+          tags: e.tags.filter(t => t[0] === 't').map(t => t[1])
+        })));
+        
+        events = dedupeAndSort(foodEvents);
+        loading = false;
+        error = false;
+        
+        if (events.length > 0) {
+          lastEventTime = Math.max(...events.map(e => e.created_at || 0));
+          await cacheEvents();
+        }
+        
+        // Prefetch reply contexts for better UX (batch fetch parent notes)
+        prefetchReplyContexts($ndk, events.slice(0, 20)).catch(() => {
+          // Non-critical - individual contexts will be fetched as needed
+        });
+        
+        startRealtimeSubscription();
+        return;
+      }
+      
+      // Global mode (default) - existing logic
+      // Build filters
+      const hashtagFilter: any = {
+        kinds: [1],
+        '#t': FOOD_HASHTAGS,
+        limit: 50,
+        since
+      };
+      
+      if (authorPubkey) {
+        hashtagFilter.authors = [authorPubkey];
+      }
+
+      // Parallel fetch strategy:
+      // 1. Primary: hashtag filter (fast, reliable) - your relay + fast fallback
+      // 2. Secondary: Client-side content filter (catches notes with food words but no hashtags) - only for community feed
+      const fetchPromises: Promise<NDKEvent[]>[] = [
+        // Primary: Your relay + fast fallback with hashtag filter
+        fetchFromRelays(hashtagFilter, [...RELAY_POOLS.recipes, ...RELAY_POOLS.fallback])
+      ];
+      
+      // Add client-side filtering for notes without hashtags (only for community feed)
+      // This discovers notes without food hashtags that contain food words
+      if (!authorPubkey) {
+        fetchPromises.push(fetchNotesWithoutHashtags(since));
+      }
+
+      const results = await Promise.allSettled(fetchPromises);
+      
+      // Collect all events from successful fetches
+      const allFetchedEvents: NDKEvent[] = [];
+      
+      results.forEach((result) => {
+        if (result.status === 'fulfilled') {
+          allFetchedEvents.push(...result.value);
+        }
+      });
+
+      // Get followed users to exclude from Global feed (if logged in)
+      let followedSet = new Set<string>();
+      if ($userPublickey && !authorPubkey) {
+        // Use the outbox module's function for consistent follow list
+        const followed = await getFollowedPubkeys($ndk, $userPublickey);
+        followedSet = new Set(followed);
+        followedPubkeysForRealtime = followed; // Cache for real-time subscription
+      }
+
+      // Filter, dedupe, and sort - exclude followed users from Global feed
+      const validEvents = allFetchedEvents.filter(event => {
+        // First check standard food content filter
+        if (!shouldIncludeEvent(event)) return false;
+        
+        // For Global feed (no authorPubkey), exclude posts from followed users
+        if (!authorPubkey && followedSet.size > 0) {
+          const authorKey = event.author?.hexpubkey || event.pubkey;
+          if (authorKey && followedSet.has(authorKey)) {
+            return false; // Exclude - this belongs in Following/Notes & Replies
+          }
+        }
+        
+        return true;
+      });
+      events = dedupeAndSort(validEvents);
+      
+      // Always set loading to false, even if no events
+      loading = false;
+      error = false;
+      
+      if (events.length > 0) {
+        lastEventTime = Math.max(...events.map(e => e.created_at || 0));
+        try {
+          await cacheEvents();
+        } catch {
+          // Cache write failed - non-critical
+        }
+      }
+      
+      // Start real-time subscription
+      try {
+        startRealtimeSubscription();
+      } catch {
+        // Subscription setup failed - non-critical, events already loaded
+      }
+      
+    } catch {
+      loading = false;
+      error = true;
+      events = [];
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // REAL-TIME SUBSCRIPTION
+  // ═══════════════════════════════════════════════════════════════
+
+  async function startRealtimeSubscription() {
+    // Clean up any existing subscriptions
+    stopSubscriptions();
+    
+    const since = lastEventTime > 0 ? lastEventTime + 1 : Math.floor(Date.now() / 1000);
+    
+    // Handle different filter modes for real-time subscriptions
+    if (filterMode === 'following' || filterMode === 'replies') {
+      if (!$userPublickey) return;
+      
+      // Get followed pubkeys for subscription (may already be cached)
+      if (followedPubkeysForRealtime.length === 0) {
+        followedPubkeysForRealtime = await getFollowedPubkeys($ndk, $userPublickey);
+      }
+      
+      if (followedPubkeysForRealtime.length === 0) return;
+      
+      // Subscribe in batches of 100 (Nostr relay limit)
+      for (let i = 0; i < followedPubkeysForRealtime.length; i += 100) {
+        const batch = followedPubkeysForRealtime.slice(i, i + 100);
+        
+        const filter: any = {
+        kinds: [1],
+          authors: batch,
+        since
+      };
+      
+        const sub = $ndk.subscribe(filter, { closeOnEose: false });
+        
+        sub.on('event', (event: NDKEvent) => {
+          // For Following mode, exclude replies
+          if (filterMode === 'following') {
+            const isReplyEvent = event.tags.some(tag => 
+              Array.isArray(tag) && tag[0] === 'e'
+            );
+            if (isReplyEvent) return;
+          }
+          
+          if (shouldIncludeEvent(event)) {
+        handleRealtimeEvent(event);
+          }
+      });
+      
+        activeSubscriptions.push(sub);
+      }
+      
+      return;
+    }
+    
+    // Global mode - default subscription
+    // Single subscription for hashtag-tagged content
+    const hashtagFilter: any = {
+      kinds: [1],
+      '#t': FOOD_HASHTAGS,
+      since
+    };
+    
+    if (authorPubkey) {
+      hashtagFilter.authors = [authorPubkey];
+    }
+
+    // Subscribe without relay targeting for now (NDK will use connected relays)
+    const hashtagSub = $ndk.subscribe(hashtagFilter, { 
       closeOnEose: false
     });
+    hashtagSub.on('event', (event: NDKEvent) => {
+      // For Global feed, exclude posts from followed users
+      if (!authorPubkey && followedPubkeysForRealtime.length > 0) {
+        const authorKey = event.author?.hexpubkey || event.pubkey;
+        if (authorKey && followedPubkeysForRealtime.includes(authorKey)) {
+          return; // Skip - belongs in Following/Notes & Replies
+        }
+      }
+      handleRealtimeEvent(event);
+    });
+    
+    activeSubscriptions.push(hashtagSub);
   }
+
+  function handleRealtimeEvent(event: NDKEvent) {
+    // Skip if already seen
+    if (seenEventIds.has(event.id)) return;
+    
+    // Validate content
+    if (!shouldIncludeEvent(event)) return;
+    
+    // Mark as seen and queue for batch processing
+    seenEventIds.add(event.id);
+    pendingEvents.push(event);
+    
+    debouncedBatchProcess();
+  }
+
+  function debouncedBatchProcess() {
+    if (batchTimeout) clearTimeout(batchTimeout);
+    batchTimeout = setTimeout(processBatch, BATCH_DEBOUNCE_MS);
+  }
+
+  async function processBatch() {
+    if (pendingEvents.length === 0) return;
+    
+    const batch = [...pendingEvents];
+    pendingEvents = [];
+    
+    // Sort and merge with existing events
+    const sortedBatch = batch.sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
+    events = [...sortedBatch, ...events].sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
+    
+    // Update last event time
+    const maxTime = Math.max(...batch.map(e => e.created_at || 0));
+    if (maxTime > lastEventTime) lastEventTime = maxTime;
+    
+    await cacheEvents();
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // BACKGROUND REFRESH
+  // ═══════════════════════════════════════════════════════════════
 
   async function fetchFreshData() {
     try {
-      console.log('🔄 Fetching fresh data in background...');
-      
       const filter: any = {
         kinds: [1],
         '#t': FOOD_HASHTAGS,
         limit: 50,
-        since: Math.floor(Date.now() / 1000) - (7 * 24 * 60 * 60)
+        since: sevenDaysAgo()
       };
       
-      // Filter by author if provided (for user profile pages)
       if (authorPubkey) {
         filter.authors = [authorPubkey];
       }
       
-      const subscription = $ndk.subscribe(filter, { closeOnEose: false });
-      const fetchedEvents: NDKEvent[] = [];
-      let skippedCount = 0;
+      const freshEvents = await fetchFromRelays(
+        filter, 
+        [...RELAY_POOLS.recipes, ...RELAY_POOLS.fallback]
+      );
       
-      await new Promise<void>((resolve) => {
-        let resolved = false;
+      // For Global feed, exclude posts from followed users
+      const followedSet = new Set(followedPubkeysForRealtime);
+      
+      const validNew = freshEvents.filter(e => {
+        if (seenEventIds.has(e.id)) return false;
+        if (!shouldIncludeEvent(e)) return false;
         
-        subscription.on('event', (event: NDKEvent) => {
-          if (!shouldIncludeEvent(event)) {
-            skippedCount++;
-            return;
+        // Exclude followed users from Global feed
+        if (!authorPubkey && followedSet.size > 0) {
+          const authorKey = e.author?.hexpubkey || e.pubkey;
+          if (authorKey && followedSet.has(authorKey)) {
+            return false;
           }
-
-          fetchedEvents.push(event);
-        });
+        }
         
-        subscription.on('eose', async () => {
-          if (!resolved) {
-            resolved = true;
-            subscription.stop();
-            if (fetchedEvents.length > 0) {
-              const sortedEvents = fetchedEvents.sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
-              
-              // Merge with existing events
-              const existingIds = new Set(events.map(e => e.id));
-              const newEvents = sortedEvents.filter(e => !existingIds.has(e.id));
-              
-              if (newEvents.length > 0) {
-                events = [...events, ...newEvents].sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
-                lastEventTime = events.length > 0 ? Math.max(...events.map(e => e.created_at || 0)) : lastEventTime;
-                await cacheEvents();
-                
-                console.log(`🔄 Background refresh added ${newEvents.length} new events`);
-                debugInfo = `Found ${events.length} events (${newEvents.length} new)`;
-              }
-            }
-            
-            if (skippedCount > 0) {
-              console.log(`⏭️ Background refresh skipped ${skippedCount} events due to hashtag limit`);
-            }
-            resolve();
-          }
-        });
-        
-        setTimeout(async () => {
-          if (!resolved) {
-            resolved = true;
-            subscription.stop();
-            console.log('⏱️ Background refresh timeout, collected', fetchedEvents.length, 'events');
-            if (fetchedEvents.length > 0) {
-              const sortedEvents = fetchedEvents.sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
-              
-              // Merge with existing events
-              const existingIds = new Set(events.map(e => e.id));
-              const newEvents = sortedEvents.filter(e => !existingIds.has(e.id));
-              
-              if (newEvents.length > 0) {
-                events = [...events, ...newEvents].sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
-                lastEventTime = events.length > 0 ? Math.max(...events.map(e => e.created_at || 0)) : lastEventTime;
-                await cacheEvents();
-                
-                console.log(`🔄 Background refresh added ${newEvents.length} new events`);
-                debugInfo = `Found ${events.length} events (${newEvents.length} new)`;
-              }
-            }
-            
-            if (skippedCount > 0) {
-              console.log(`⏭️ Background refresh skipped ${skippedCount} events due to hashtag limit`);
-            }
-            resolve();
-          }
-        }, 5000);
+        return true;
       });
-    } catch (err) {
-      console.warn('⚠️ Background refresh failed:', err);
+      
+      if (validNew.length > 0) {
+        validNew.forEach(e => seenEventIds.add(e.id));
+        events = [...validNew, ...events].sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
+        lastEventTime = Math.max(lastEventTime, ...validNew.map(e => e.created_at || 0));
+        await cacheEvents();
+      }
+    } catch {
+      // Background refresh failed - non-critical
     }
   }
+
+  // ═══════════════════════════════════════════════════════════════
+  // LOAD MORE (PAGINATION)
+  // ═══════════════════════════════════════════════════════════════
 
   async function loadMore() {
     if (loadingMore || !hasMore) return;
@@ -637,276 +1089,401 @@
         limit: 20
       };
       
-      // Filter by author if provided (for user profile pages)
       if (authorPubkey) {
         filter.authors = [authorPubkey];
       }
 
-      const subscription = $ndk.subscribe(filter, { closeOnEose: false });
-      const newEvents: NDKEvent[] = [];
+      const olderEvents = await fetchFromRelays(
+        filter, 
+        [...RELAY_POOLS.recipes, ...RELAY_POOLS.fallback]
+      );
       
-      await new Promise<void>((resolve) => {
-        let resolved = false;
+      // For Global feed, exclude posts from followed users
+      const followedSet = new Set(followedPubkeysForRealtime);
+      
+      const validOlder = olderEvents.filter(e => {
+        if (seenEventIds.has(e.id)) return false;
+        if (!shouldIncludeEvent(e)) return false;
         
-        subscription.on('event', (event: NDKEvent) => {
-          newEvents.push(event);
-        });
-        
-        subscription.on('eose', async () => {
-          if (!resolved) {
-            resolved = true;
-            subscription.stop();
-            const filteredNewEvents = newEvents.filter(shouldIncludeEvent);
-            const skipped = newEvents.length - filteredNewEvents.length;
-            
-            if (filteredNewEvents.length > 0) {
-              events = [...events, ...filteredNewEvents];
-              hasMore = newEvents.length === 20;
-              // Cache the updated events
-              await cacheEvents();
-            } else {
-              hasMore = newEvents.length === 20;
-            }
-
-            if (skipped > 0) {
-              console.log(`⏭️ Skipped ${skipped} older events due to hashtag limit`);
-            }
-            resolve();
+        // Exclude followed users from Global feed
+        if (!authorPubkey && followedSet.size > 0) {
+          const authorKey = e.author?.hexpubkey || e.pubkey;
+          if (authorKey && followedSet.has(authorKey)) {
+            return false;
           }
-        });
+        }
         
-        setTimeout(async () => {
-          if (!resolved) {
-            resolved = true;
-            subscription.stop();
-            console.log('⏱️ Load more timeout, collected', newEvents.length, 'events');
-            const filteredNewEvents = newEvents.filter(shouldIncludeEvent);
-            const skipped = newEvents.length - filteredNewEvents.length;
-
-            if (filteredNewEvents.length > 0) {
-              events = [...events, ...filteredNewEvents];
-              hasMore = newEvents.length === 20;
-              // Cache the updated events
-              await cacheEvents();
-            } else {
-              hasMore = newEvents.length === 20;
-            }
-
-            if (skipped > 0) {
-              console.log(`⏭️ Skipped ${skipped} older events due to hashtag limit`);
-            }
-            resolve();
-          }
-        }, 5000);
+        return true;
       });
-    } catch (err) {
-      console.error('Error loading more events:', err);
+      
+      if (validOlder.length > 0) {
+        validOlder.forEach(e => seenEventIds.add(e.id));
+        events = [...events, ...validOlder];
+        hasMore = olderEvents.length === 20;
+        await cacheEvents();
+      } else {
+        hasMore = olderEvents.length === 20;
+      }
+    } catch {
+      // Load more failed
     } finally {
       loadingMore = false;
     }
   }
 
+  // ═══════════════════════════════════════════════════════════════
+  // RETRY LOGIC
+  // ═══════════════════════════════════════════════════════════════
+
   async function retryWithDelay(attempts = 3, delay = 2000) {
-    try {
-      for (let i = 0; i < attempts; i++) {
-        try {
-          await loadFoodstrFeed(i === 0); // Use cache only on first attempt
-          if (!error) return; // Success, exit retry loop
-        } catch (err) {
-          console.log(`🔄 Retry attempt ${i + 1}/${attempts} failed:`, err);
-        }
-        
-        if (i < attempts - 1) {
-          debugInfo = `Retrying in ${delay/1000}s... (attempt ${i + 2}/${attempts})`;
-          await new Promise(resolve => setTimeout(resolve, delay));
-        }
+    for (let i = 0; i < attempts; i++) {
+      try {
+        await loadFoodstrFeed(i === 0);
+        if (!error) return;
+      } catch {
+        // Retry failed
       }
       
-      // All attempts failed
-      console.error('❌ All retry attempts failed');
-      error = true;
-      loading = false;
-      debugInfo = 'Failed to load feed after multiple attempts. Please check your connection.';
-    } catch (err) {
-      console.error('❌ Critical error in retryWithDelay:', err);
-      error = true;
-      loading = false;
-      debugInfo = 'Critical error occurred. Please refresh the page.';
+      if (i < attempts - 1) {
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
     }
+    
+    error = true;
+    loading = false;
   }
 
-  // Cleanup function
-  async function cleanup() {
-    console.log('🧹 Cleaning up subscriptions...');
-    
-    if (subscriptionManager) {
-      subscriptionManager.unsubscribe('foodstr-feed-realtime');
+  // ═══════════════════════════════════════════════════════════════
+  // CLEANUP
+  // ═══════════════════════════════════════════════════════════════
+
+  function stopSubscriptions() {
+    // Stop all active subscriptions properly
+    for (const sub of activeSubscriptions) {
+      try {
+        sub.stop();
+      } catch {
+        // Subscription already stopped - ignore
+      }
     }
+    activeSubscriptions = [];
+  }
+
+  async function cleanup() {
+    stopSubscriptions();
     
     if (batchTimeout) {
       clearTimeout(batchTimeout);
       batchTimeout = null;
     }
     
-    // Process any remaining pending events
     if (pendingEvents.length > 0) {
       await processBatch();
     }
     
-    // Cleanup stale cache entries
     compressedCacheManager.invalidateStale();
   }
 
+  // ═══════════════════════════════════════════════════════════════
+  // ═══════════════════════════════════════════════════════════════
+  // REPLY CONTEXT RESOLUTION
+  // ═══════════════════════════════════════════════════════════════
+
+  function getParentNoteId(event: NDKEvent): string | null {
+    // Get all e tags
+    const eTags = event.tags.filter(tag => Array.isArray(tag) && tag[0] === 'e');
+    
+    if (eTags.length === 0) return null;
+    
+    // Priority 1: Look for explicit 'reply' marker
+    const replyTag = eTags.find(tag => tag[3] === 'reply');
+    if (replyTag) return replyTag[1] as string;
+    
+    // Priority 2: If there's a 'root' tag and other e tags, the non-root one is the reply target
+    const rootTag = eTags.find(tag => tag[3] === 'root');
+    if (rootTag && eTags.length > 1) {
+      // Find an e tag that's not the root
+      const nonRootTag = eTags.find(tag => tag[1] !== rootTag[1]);
+      if (nonRootTag) return nonRootTag[1] as string;
+    }
+    
+    // Priority 3: If only a root tag exists, this is a direct reply to root
+    if (rootTag) return rootTag[1] as string;
+    
+    // Priority 4: Old style - any e tag indicates a reply (use the last one as it's typically the immediate parent)
+    if (eTags.length > 0) {
+      // Use the last e tag (typically the immediate parent in old convention)
+      return eTags[eTags.length - 1][1] as string;
+    }
+    
+    return null;
+  }
+  
+  function isReply(event: NDKEvent): boolean {
+    // Check if this event has any e tags (indicating it's a reply)
+    const eTags = event.tags.filter(tag => Array.isArray(tag) && tag[0] === 'e');
+    return eTags.length > 0;
+  }
+  
+  // Resolve reply context (parent note author and preview)
+  // Returns a promise that resolves with context info
+  function resolveReplyContext(eventId: string): Promise<{
+    authorName: string;
+    authorPubkey: string;
+    notePreview: string;
+    noteId: string;
+    error?: string;
+  }> {
+    // Check cache first
+    const cached = replyContextCache.get(eventId);
+    if (cached && !cached.loading) {
+      return Promise.resolve({
+        authorName: cached.authorName,
+        authorPubkey: cached.authorPubkey,
+        notePreview: cached.notePreview,
+        noteId: cached.noteId,
+        error: cached.error
+      });
+    }
+    
+    // If already loading, return a promise that waits
+    if (cached?.loading) {
+      return new Promise((resolve) => {
+        const checkInterval = setInterval(() => {
+          const updated = replyContextCache.get(eventId);
+          if (updated && !updated.loading) {
+            clearInterval(checkInterval);
+            resolve({
+              authorName: updated.authorName,
+              authorPubkey: updated.authorPubkey,
+              notePreview: updated.notePreview,
+              noteId: updated.noteId,
+              error: updated.error
+            });
+          }
+        }, 100);
+      });
+    }
+    
+    // Mark as loading
+    replyContextCache.set(eventId, {
+      authorName: '',
+      authorPubkey: '',
+      notePreview: '',
+      noteId: eventId,
+      loading: true
+    });
+    
+    // Return async operation
+    return (async () => {
+      try {
+        // Fetch parent note
+        const parentNote = await $ndk.fetchEvent({
+          kinds: [1],
+          ids: [eventId]
+        });
+        
+        if (!parentNote) {
+          const error = 'deleted';
+          replyContextCache.set(eventId, {
+            authorName: 'a deleted note',
+            authorPubkey: '',
+            notePreview: '',
+            noteId: eventId,
+            loading: false,
+            error
+          });
+          return {
+            authorName: 'a deleted note',
+            authorPubkey: '',
+            notePreview: '',
+            noteId: eventId,
+            error
+          };
+        }
+        
+        const authorPubkey = parentNote.pubkey || parentNote.author?.hexpubkey;
+        if (!authorPubkey) {
+          throw new Error('No author pubkey found');
+        }
+        
+        // Fetch author profile
+        const author = $ndk.getUser({ hexpubkey: authorPubkey });
+        await author.fetchProfile();
+        
+        // Get author name with proper fallback to bech32 npub
+        let authorName: string;
+        if (author.profile?.displayName) {
+          authorName = author.profile.displayName;
+        } else if (author.profile?.name) {
+          authorName = author.profile.name;
+        } else {
+          // Fallback to bech32 npub format (not hex)
+          const npub = nip19.npubEncode(authorPubkey);
+          authorName = npub; // Use full npub, not truncated
+        }
+        
+        // Get note preview (50-80 characters, prefer 70)
+        const content = parentNote.content || '';
+        // Remove URLs and media tags for cleaner preview
+        const cleanContent = content
+          .replace(/https?:\/\/[^\s]+/g, '') // Remove URLs
+          .replace(/nostr:[^\s]+/g, '') // Remove nostr: links
+          .replace(/\s+/g, ' ')
+          .trim();
+        const previewLength = Math.min(70, Math.max(50, cleanContent.length));
+        const notePreview = cleanContent.length > previewLength 
+          ? cleanContent.substring(0, previewLength) + '...'
+          : cleanContent;
+        
+        const result = {
+          authorName,
+          authorPubkey,
+          notePreview,
+          noteId: eventId
+        };
+        
+        // Cache result
+        replyContextCache.set(eventId, {
+          ...result,
+          loading: false
+        });
+        
+        return result;
+      } catch {
+        const error = 'Failed to load';
+        replyContextCache.set(eventId, {
+          authorName: 'a note',
+          authorPubkey: '',
+          notePreview: '',
+          noteId: eventId,
+          loading: false,
+          error
+        });
+        return {
+          authorName: 'a note',
+          authorPubkey: '',
+          notePreview: '',
+          noteId: eventId,
+          error: 'Failed to load'
+        };
+      }
+    })();
+  }
+
+  function handleMediaError(e: Event) {
+    const target = e.target as HTMLElement;
+    if (target) target.style.display = 'none';
+  }
+
+  async function copyNoteId(event: NDKEvent) {
+    const noteId = nip19.noteEncode(event.id);
+    await navigator.clipboard.writeText(noteId);
+    copiedNoteId = event.id;
+    setTimeout(() => copiedNoteId = '', 2000);
+  }
+
+  function toggleExpanded(eventId: string) {
+    expandedPosts[eventId] = !expandedPosts[eventId];
+    expandedPosts = { ...expandedPosts };
+  }
+
+  // Carousel navigation
+  function getCurrentSlide(eventId: string): number {
+    return carouselStates[eventId] || 0;
+  }
+
+  function nextSlide(eventId: string, totalSlides: number) {
+    carouselStates[eventId] = ((carouselStates[eventId] || 0) + 1) % totalSlides;
+    carouselStates = { ...carouselStates };
+  }
+
+  function prevSlide(eventId: string, totalSlides: number) {
+    const current = carouselStates[eventId] || 0;
+    carouselStates[eventId] = current === 0 ? totalSlides - 1 : current - 1;
+    carouselStates = { ...carouselStates };
+  }
+
+  // Zap modal
+  function openZapModal(event: NDKEvent) {
+    selectedEvent = event;
+    zapModal = true;
+  }
+
+  // Image modal
+  function openImageModal(imageUrl: string, allImages: string[], index: number) {
+    selectedImageUrl = imageUrl;
+    selectedEventImages = allImages;
+    selectedImageIndex = index;
+    imageModalOpen = true;
+  }
+
+  function closeImageModal() {
+    imageModalOpen = false;
+    selectedImageUrl = '';
+    selectedEventImages = [];
+    selectedImageIndex = 0;
+  }
+
+  function nextModalImage() {
+    selectedImageIndex = (selectedImageIndex + 1) % selectedEventImages.length;
+    selectedImageUrl = selectedEventImages[selectedImageIndex];
+  }
+
+  function prevModalImage() {
+    selectedImageIndex = selectedImageIndex === 0 
+      ? selectedEventImages.length - 1 
+      : selectedImageIndex - 1;
+    selectedImageUrl = selectedEventImages[selectedImageIndex];
+  }
+
+  function handleImageModalKeydown(e: KeyboardEvent) {
+    if (!imageModalOpen) return;
+    if (e.key === 'Escape') closeImageModal();
+    else if (e.key === 'ArrowLeft') prevModalImage();
+    else if (e.key === 'ArrowRight') nextModalImage();
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // LIFECYCLE
+  // ═══════════════════════════════════════════════════════════════
+
   onMount(async () => {
+    lastFilterMode = filterMode;
+    
+    // Prewarm outbox cache in background (non-blocking)
+    // This fetches relay configs for all follows, making subsequent loads faster
+    if ($userPublickey) {
+      prewarmOutboxCache($ndk, $userPublickey).catch(() => {
+        // Ignore prewarm errors - it's just an optimization
+      });
+    }
+    
     try {
       await retryWithDelay();
-    } catch (error) {
-      console.error('❌ Error in FoodstrFeedOptimized onMount:', error);
+    } catch {
       loading = false;
       error = true;
-      debugInfo = 'Failed to initialize feed. Please refresh the page.';
     }
   });
 
   onDestroy(async () => {
     await cleanup();
   });
-
-  function formatTimeAgo(timestamp: number): string {
-    return formatDistanceToNow(new Date(timestamp * 1000), { addSuffix: true });
-  }
-
-
-  // Simple functions (memoization temporarily disabled to avoid crashes)
-  function getImageUrls(event: NDKEvent): string[] {
-    // Extract image URLs from event content (not tags)
-    const content = event.content || '';
-    const urlRegex = /(https?:\/\/[^\s]+)/g;
-    const urls = content.match(urlRegex) || [];
-    
-    // Filter for image and video URLs
-    return urls.filter(url => isImageUrl(url) || isVideoUrl(url));
-  }
-
-  function isImageUrl(url: string): boolean {
-    const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.avif', '.svg'];
-    const lowercaseUrl = url.toLowerCase();
-    return imageExtensions.some(ext => lowercaseUrl.includes(ext));
-  }
-
-  function isVideoUrl(url: string): boolean {
-    const videoExtensions = ['.mp4', '.webm', '.mov', '.avi', '.mkv', '.m4v'];
-    const lowercaseUrl = url.toLowerCase();
-    return videoExtensions.some(ext => lowercaseUrl.includes(ext)) ||
-           lowercaseUrl.includes('youtube.com') || 
-           lowercaseUrl.includes('youtu.be') ||
-           lowercaseUrl.includes('vimeo.com');
-  }
-
-  function getContentWithoutMedia(content: string): string {
-    // Remove image and video URLs from content to avoid duplication
-    const urlRegex = /(https?:\/\/[^\s]+)/g;
-    let cleaned = content.replace(urlRegex, (url) => {
-      // Only remove URLs that are images or videos
-      if (isImageUrl(url) || isVideoUrl(url)) {
-        return '';
-      }
-      return url; // Keep other URLs (like marketplace links)
-    }).replace(/\s+/g, ' ').trim(); // Clean up extra spaces
-    
-    // Deduplicate repeated text segments
-    cleaned = deduplicateText(cleaned);
-    
-    return cleaned;
-  }
-
-  // Detect and remove back-to-back repeated text segments
-  function deduplicateText(text: string): string {
-    if (!text || text.length < 20) return text;
-    
-    // Split into sentences/segments: only after punctuation followed by whitespace or end of string
-    const segments = text.split(/(?<=[.!?\n])(?:\s+|$)/);
-    if (segments.length < 2) return text;
-    
-    // Check for exact duplicate consecutive segments
-    const deduplicated: string[] = [];
-    for (let i = 0; i < segments.length; i++) {
-      const current = segments[i].trim();
-      const prev = deduplicated[deduplicated.length - 1]?.trim();
-      
-      // Skip if exact duplicate of previous segment
-      if (current && current !== prev) {
-        deduplicated.push(segments[i]);
-      }
-    }
-    
-    // Also check if entire text is repeated (first half equals second half)
-    const result = deduplicated.join(' ').trim();
-    const halfLen = Math.floor(result.length / 2);
-    if (halfLen > 20) {
-      const firstHalf = result.substring(0, halfLen).trim();
-      const secondHalf = result.substring(halfLen).trim();
-      if (firstHalf === secondHalf) {
-        return firstHalf;
-      }
-    }
-    
-    return result;
-  }
-
-  // Track expanded state for each post
-  let expandedPosts: { [eventId: string]: boolean } = {};
   
-  function toggleExpanded(eventId: string) {
-    expandedPosts[eventId] = !expandedPosts[eventId];
-    expandedPosts = { ...expandedPosts }; // Trigger reactivity
-  }
-
-  // Simple image optimization (no memoization for now)
-  function getOptimizedImageUrl(url: string): string {
-    return optimizeImageUrl(url, {
-      width: 640,
-      quality: 85,
-      format: getOptimalFormat()
-    });
-  }
-
-  // Simple function to get current slide for an event
-  function getCurrentSlide(eventId: string): number {
-    return carouselStates[eventId] || 0;
-  }
-
-  // Navigation functions
-  function nextSlide(eventId: string, totalSlides: number) {
-    const current = getCurrentSlide(eventId);
-    const next = (current + 1) % totalSlides;
-    carouselStates[eventId] = next;
-    carouselStates = { ...carouselStates }; // Trigger reactivity
-  }
-
-  function prevSlide(eventId: string, totalSlides: number) {
-    const current = getCurrentSlide(eventId);
-    const prev = current === 0 ? totalSlides - 1 : current - 1;
-    carouselStates[eventId] = prev;
-    carouselStates = { ...carouselStates }; // Trigger reactivity
-  }
-
-  function openZapModal(event: NDKEvent) {
-    console.log('Opening zap modal for event:', event);
-    console.log('Event ID:', event.id);
-    console.log('Event author:', event.author);
-    console.log('Event author pubkey:', event.author?.hexpubkey || event.pubkey);
-    selectedEvent = event;
-    zapModal = true;
-    console.log('Zap modal state:', zapModal);
-    console.log('Selected event set to:', selectedEvent);
+  // Reactive statement to handle filter mode changes
+  $: if (typeof window !== 'undefined' && filterMode !== lastFilterMode && !loading) {
+    lastFilterMode = filterMode;
+    seenEventIds.clear();
+    events = [];
+    followedPubkeysForRealtime = []; // Reset for new subscription
+    loadFoodstrFeed(false);
   }
 </script>
 
 <FeedErrorBoundary>
   <div class="max-w-2xl mx-auto">
   
-  <!-- Refresh indicator -->
   {#if isRefreshing}
     <div class="mb-4">
       <LoadingState 
@@ -918,8 +1495,28 @@
     </div>
   {/if}
 
+  {#if filterMode === 'following' || filterMode === 'replies'}
+    <div class="flex items-center justify-end gap-2 px-2 sm:px-0 mb-4">
+      <span class="text-sm text-gray-500">
+        {foodFilterEnabled ? 'Food posts' : 'All posts'}
+      </span>
+      <button
+        on:click={() => {
+          foodFilterEnabled = !foodFilterEnabled;
+          seenEventIds.clear();
+          events = [];
+          loadFoodstrFeed(false);
+        }}
+        class="relative inline-flex h-6 w-11 items-center rounded-full transition-colors {foodFilterEnabled ? 'bg-primary' : 'bg-gray-300'}"
+      >
+        <span
+          class="inline-block h-4 w-4 transform rounded-full bg-white transition-transform {foodFilterEnabled ? 'translate-x-6' : 'translate-x-1'}"
+        />
+      </button>
+    </div>
+  {/if}
+
   {#if loading}
-    <!-- Enhanced skeleton loading -->
     <div class="space-y-6">
       {#each Array(3) as _}
         <FeedPostSkeleton />
@@ -966,20 +1563,134 @@
       {#each events as event (event.id)}
         <article class="border-b border-gray-200 py-4 sm:py-6 first:pt-0">
           <div class="flex space-x-3 px-2 sm:px-0">
-            <!-- Avatar (hidden on profile pages) -->
             {#if !hideAvatar}
-              <a href="/user/{nip19.npubEncode(event.author.hexpubkey || event.pubkey)}" class="flex-shrink-0">
+              <a href="/user/{nip19.npubEncode(event.author?.hexpubkey || event.pubkey)}" class="flex-shrink-0">
                 <CustomAvatar
                   className="cursor-pointer"
-                  pubkey={event.author.hexpubkey}
+                  pubkey={event.author?.hexpubkey || event.pubkey}
                   size={40}
                 />
               </a>
             {/if}
 
-            <!-- Content -->
             <div class="flex-1 min-w-0">
-              <!-- Header (simplified on profile pages) -->
+              {#if isReply(event)}
+                {@const parentNoteId = getParentNoteId(event)}
+                {#if parentNoteId}
+                  {#await resolveReplyContext(parentNoteId)}
+                    <!-- Loading state - simple inline -->
+                    <button class="mb-1.5 flex items-center gap-1 text-xs text-gray-400">
+                      <svg class="w-3 h-3 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
+                      </svg>
+                      <span>Loading...</span>
+                    </button>
+                  {:then context}
+                    <!-- Simple reply indicator - click to expand thread -->
+                    <button
+                      on:click={() => {
+                        expandedParentNotes[parentNoteId] = !expandedParentNotes[parentNoteId];
+                        expandedParentNotes = { ...expandedParentNotes };
+                        // Fetch full parent note if expanding
+                        if (expandedParentNotes[parentNoteId] && !parentNoteCache[parentNoteId]) {
+                          $ndk.fetchEvent({ kinds: [1], ids: [parentNoteId] }).then(note => {
+                            parentNoteCache[parentNoteId] = note;
+                            parentNoteCache = { ...parentNoteCache };
+                          });
+                        }
+                      }}
+                      class="mb-1.5 flex items-center gap-1 text-xs text-gray-500 hover:text-blue-600 transition-colors group"
+                    >
+                      <svg class="w-3 h-3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
+                      </svg>
+                      <span>
+                        Replying to
+                        {#if context.error === 'deleted'}
+                          <span class="italic">deleted note</span>
+                        {:else if context.error === 'Failed to load'}
+                          <span>a note</span>
+                        {:else}
+                          <span class="text-blue-600 group-hover:text-blue-700 font-medium">
+                            @{context.authorName.startsWith('npub') ? context.authorName.substring(0, 12) + '...' : context.authorName}
+                          </span>
+                        {/if}
+                      </span>
+                      <svg 
+                        class="w-3 h-3 transition-transform duration-200"
+                        class:rotate-180={expandedParentNotes[parentNoteId]}
+                        fill="none" 
+                        stroke="currentColor" 
+                        viewBox="0 0 24 24"
+                      >
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                      </svg>
+                    </button>
+                    
+                    <!-- Expanded thread view with smooth transition -->
+                    <div 
+                      class="overflow-hidden transition-all duration-300 ease-in-out"
+                      class:max-h-0={!expandedParentNotes[parentNoteId]}
+                      class:max-h-96={expandedParentNotes[parentNoteId]}
+                      class:opacity-0={!expandedParentNotes[parentNoteId]}
+                      class:opacity-100={expandedParentNotes[parentNoteId]}
+                      class:mb-3={expandedParentNotes[parentNoteId]}
+                    >
+                      {#if parentNoteCache[parentNoteId]}
+                        {#each [parentNoteCache[parentNoteId]] as parentNote}
+                          <!-- Thread connection line -->
+                          <div class="relative pl-4 border-l-2 border-gray-200 ml-1">
+                            <div class="bg-gray-50 rounded-lg p-3 text-sm">
+                              <div class="flex items-center gap-2 mb-2">
+                                <CustomAvatar pubkey={parentNote.pubkey} size={20} />
+                                <AuthorName event={parentNote} />
+                                <span class="text-gray-400">·</span>
+                                <span class="text-gray-400 text-xs">{formatTimeAgo(parentNote.created_at || 0)}</span>
+                              </div>
+                              <div class="text-gray-700 whitespace-pre-wrap break-words text-sm leading-relaxed">
+                                <NoteContent content={parentNote.content || ''} />
+                              </div>
+                              <a 
+                                href="/{nip19.noteEncode(parentNoteId)}" 
+                                class="mt-2 inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 text-xs font-medium"
+                                on:click|stopPropagation
+                              >
+                                View full thread
+                                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7l5 5m0 0l-5 5m5-5H6" />
+                                </svg>
+                              </a>
+                            </div>
+                          </div>
+                        {/each}
+                      {:else}
+                        <div class="pl-4 border-l-2 border-gray-200 ml-1">
+                          <div class="bg-gray-50 rounded-lg p-3 animate-pulse">
+                            <div class="flex items-center gap-2 mb-2">
+                              <div class="w-5 h-5 bg-gray-200 rounded-full"></div>
+                              <div class="h-3 bg-gray-200 rounded w-24"></div>
+                            </div>
+                            <div class="h-3 bg-gray-200 rounded w-full mb-1"></div>
+                            <div class="h-3 bg-gray-200 rounded w-3/4"></div>
+                          </div>
+                        </div>
+                      {/if}
+                    </div>
+                  {:catch}
+                    <!-- Fallback - simple link -->
+                    <a 
+                      href="/{nip19.noteEncode(parentNoteId)}" 
+                      class="mb-1.5 flex items-center gap-1 text-xs text-gray-500 hover:text-blue-600 transition-colors"
+                    >
+                      <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
+                      </svg>
+                      <span>Replying to a note</span>
+                    </a>
+                  {/await}
+                {/if}
+              {/if}
+              
               <div class="flex items-center space-x-2 mb-2">
                 {#if !hideAuthorName}
                   <AuthorName {event} />
@@ -990,7 +1701,6 @@
                 </span>
               </div>
 
-              <!-- Content -->
               {#if getContentWithoutMedia(event.content)}
                 {@const cleanContent = getContentWithoutMedia(event.content)}
                 <div class="text-sm leading-relaxed mb-3 text-gray-900">
@@ -1011,18 +1721,16 @@
                 </div>
               {/if}
 
-              <!-- Images with optimized loading -->
               {#if getImageUrls(event).length > 0}
                 {@const mediaUrls = getImageUrls(event)}
                 
                 <div class="mb-3 -mx-2 sm:mx-0">
-                  <!-- Single image container -->
                   <div class="relative overflow-hidden rounded-none sm:rounded-lg border-0 sm:border border-gray-200 bg-gray-100 h-48 sm:h-64">
                     {#each mediaUrls as imageUrl, index}
                       <div 
                         class="absolute inset-0 transition-opacity duration-300"
-                        class:opacity-100={index === (carouselStates[event.id] || 0)}
-                        class:opacity-0={index !== (carouselStates[event.id] || 0)}
+                        class:opacity-100={index === getCurrentSlide(event.id)}
+                        class:opacity-0={index !== getCurrentSlide(event.id)}
                       >
                         {#if isImageUrl(imageUrl)}
                           <button
@@ -1047,19 +1755,12 @@
                             on:error={handleMediaError}
                           >
                             <track kind="captions" src="" srclang="en" label="English" />
-                            Your browser does not support the video tag.
                           </video>
-                        {:else}
-                          <div class="w-full h-full flex items-center justify-center bg-gray-200">
-                            <span class="text-gray-600">Unknown media type</span>
-                          </div>
                         {/if}
                       </div>
                     {/each}
                     
-                    <!-- Navigation buttons (only show if multiple images) -->
                     {#if mediaUrls.length > 1}
-                      <!-- Previous button -->
                       <button
                         on:click={() => prevSlide(event.id, mediaUrls.length)}
                         class="absolute left-2 top-1/2 -translate-y-1/2 bg-black/50 hover:bg-black/70 text-white rounded-full p-2 transition-colors z-10"
@@ -1069,7 +1770,6 @@
                         </svg>
                       </button>
                       
-                      <!-- Next button -->
                       <button
                         on:click={() => nextSlide(event.id, mediaUrls.length)}
                         class="absolute right-2 top-1/2 -translate-y-1/2 bg-black/50 hover:bg-black/70 text-white rounded-full p-2 transition-colors z-10"
@@ -1079,12 +1779,10 @@
                         </svg>
                       </button>
                       
-                      <!-- Slide Counter -->
                       <div class="absolute top-2 right-2 bg-black/50 text-white text-xs px-2 py-1 rounded">
-                        {(carouselStates[event.id] || 0) + 1} / {mediaUrls.length}
+                        {getCurrentSlide(event.id) + 1} / {mediaUrls.length}
                       </div>
                       
-                      <!-- Dot Indicators (only show if 5 or fewer items) -->
                       {#if mediaUrls.length <= 5}
                         <div class="absolute bottom-2 left-1/2 -translate-x-1/2 flex space-x-1">
                           {#each mediaUrls as _, index}
@@ -1094,9 +1792,8 @@
                                 carouselStates = { ...carouselStates };
                               }}
                               class="w-2 h-2 rounded-full transition-all"
-                              class:bg-white={index === (carouselStates[event.id] || 0)}
-                              class:bg-gray-300={index !== (carouselStates[event.id] || 0)}
-                              class:hover:bg-gray-200={index !== (carouselStates[event.id] || 0)}
+                              class:bg-white={index === getCurrentSlide(event.id)}
+                              class:bg-gray-300={index !== getCurrentSlide(event.id)}
                             />
                           {/each}
                         </div>
@@ -1106,20 +1803,16 @@
                 </div>
               {/if}
 
-              <!-- Actions Row -->
               <div class="flex items-center justify-between px-2 sm:px-0 py-1">
                 <div class="flex items-center space-x-1">
-                  <!-- Like -->
                   <div class="hover:bg-gray-100 rounded-full p-1.5 transition-colors">
                     <NoteTotalLikes {event} />
                   </div>
                   
-                  <!-- Reply/Comment -->
                   <div class="hover:bg-gray-100 rounded-full p-1.5 transition-colors">
                     <NoteTotalComments {event} />
                   </div>
                   
-                  <!-- Zap -->
                   <button
                     class="flex items-center hover:bg-amber-50 rounded-full p-1.5 transition-colors cursor-pointer"
                     on:click={() => openZapModal(event)}
@@ -1129,7 +1822,6 @@
                 </div>
 
                 <div class="flex items-center space-x-1">
-                  <!-- Copy Note ID -->
                   <button
                     class="flex items-center text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-full p-1.5 transition-colors"
                     on:click={() => copyNoteId(event)}
@@ -1144,7 +1836,6 @@
                 </div>
               </div>
 
-              <!-- Comments Section -->
               <div class="px-2 sm:px-0">
                 <FeedComments {event} />
               </div>
@@ -1177,7 +1868,6 @@
   </div>
 </FeedErrorBoundary>
 
-<!-- Zap Modal -->
 {#if zapModal && selectedEvent}
   <ZapModal
     bind:open={zapModal}
@@ -1185,10 +1875,8 @@
   />
 {/if}
 
-<!-- Keyboard handler for image modal -->
 <svelte:window on:keydown={handleImageModalKeydown} />
 
-<!-- Image Modal -->
 {#if imageModalOpen}
   <div
     class="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-75 p-4"
@@ -1196,9 +1884,7 @@
     role="dialog"
     aria-modal="true"
   >
-    <!-- Modal Container -->
     <div class="relative bg-white rounded-lg shadow-2xl max-w-4xl max-h-[90vh] overflow-hidden" on:click|stopPropagation>
-      <!-- Close button -->
       <button
         class="absolute top-2 right-2 bg-white hover:bg-gray-100 text-gray-700 rounded-full p-2 shadow-md transition z-10"
         on:click={closeImageModal}
@@ -1209,16 +1895,11 @@
         </svg>
       </button>
 
-      <!-- Image counter (if multiple images) -->
       {#if selectedEventImages.length > 1}
         <div class="absolute top-2 left-2 bg-black/60 text-white text-sm px-3 py-1.5 rounded-full z-10">
           {selectedImageIndex + 1} / {selectedEventImages.length}
         </div>
-      {/if}
 
-      <!-- Navigation buttons (if multiple images) -->
-      {#if selectedEventImages.length > 1}
-        <!-- Previous button -->
         <button
           on:click|stopPropagation={prevModalImage}
           class="absolute left-2 top-1/2 -translate-y-1/2 bg-white/90 hover:bg-white text-gray-800 rounded-full p-2 shadow-md transition z-10"
@@ -1229,7 +1910,6 @@
           </svg>
         </button>
 
-        <!-- Next button -->
         <button
           on:click|stopPropagation={nextModalImage}
           class="absolute right-2 top-1/2 -translate-y-1/2 bg-white/90 hover:bg-white text-gray-800 rounded-full p-2 shadow-md transition z-10"
@@ -1241,7 +1921,6 @@
         </button>
       {/if}
 
-      <!-- Image -->
       <img
         src={selectedImageUrl}
         alt="Full size preview"
@@ -1252,7 +1931,6 @@
 {/if}
 
 <style>
-  /* Line clamping for feed post content */
   .line-clamp-3 {
     display: -webkit-box;
     -webkit-line-clamp: 3;
