@@ -5,6 +5,7 @@
   import { ndk, userPublickey } from '$lib/nostr';
   import { onMount } from 'svelte';
   import CustomAvatar from '../../components/CustomAvatar.svelte';
+  import CustomName from '../../components/CustomName.svelte';
   import AuthorName from '../../components/AuthorName.svelte';
   import { formatDistanceToNow } from 'date-fns';
   import NoteContent from '../../components/NoteContent.svelte';
@@ -206,15 +207,6 @@
     }
   }
 
-  function getDisplayName(evt: NDKEvent): string {
-    const metadata = evt.author?.profile;
-    const pubkey = evt.author?.hexpubkey;
-    if (metadata?.display_name) return String(metadata.display_name);
-    if (metadata?.name) return String(metadata.name);
-    if (pubkey) return pubkey.slice(0, 8);
-    return 'Anonymous';
-  }
-
   function formatTimeAgo(timestamp: number): string {
     return formatDistanceToNow(new Date(timestamp * 1000), { addSuffix: true });
   }
@@ -371,7 +363,7 @@
                 <div class="flex-1 min-w-0">
                   <div class="flex items-center space-x-2 mb-1">
                     <span class="font-semibold text-sm text-gray-900 group-hover:text-blue-600">
-                      {getDisplayName(parentNote)}
+                      <CustomName pubkey={parentNote.author?.hexpubkey || parentNote.pubkey} />
                     </span>
                     <span class="text-gray-400 text-sm">·</span>
                     <span class="text-gray-400 text-sm">
@@ -402,7 +394,7 @@
         <div class="flex-1 min-w-0">
           <div class="flex items-center space-x-2 mb-2">
             <a href="/user/{nip19.npubEncode(event.author?.hexpubkey || event.pubkey)}" class="font-semibold text-gray-900 hover:underline">
-              {getDisplayName(event)}
+              <CustomName pubkey={event.author?.hexpubkey || event.pubkey} />
             </a>
             <span class="text-gray-400">·</span>
             <span class="text-gray-400 text-sm">
@@ -496,7 +488,7 @@
                   <div class="flex-1 min-w-0">
                     <div class="flex items-center space-x-2 mb-1">
                       <a href="/user/{nip19.npubEncode(reply.author?.hexpubkey || reply.pubkey)}" class="font-medium text-sm text-gray-900 hover:underline">
-                        {getDisplayName(reply)}
+                        <CustomName pubkey={reply.author?.hexpubkey || reply.pubkey} />
                       </a>
                       <span class="text-gray-400 text-xs">·</span>
                       <span class="text-gray-400 text-xs">
@@ -535,7 +527,7 @@
                       <div class="flex-1 min-w-0">
                         <div class="flex items-center space-x-2 mb-0.5">
                           <span class="font-medium text-xs text-gray-900">
-                            {getDisplayName(nestedReply)}
+                            <CustomName pubkey={nestedReply.author?.hexpubkey || nestedReply.pubkey} />
                           </span>
                           <span class="text-gray-400 text-xs">·</span>
                           <span class="text-gray-400 text-xs">

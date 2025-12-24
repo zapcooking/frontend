@@ -19,6 +19,7 @@
   import Modal from './Modal.svelte';
   import { qr } from "@svelte-put/qr/svg";
   import CustomAvatar from './CustomAvatar.svelte';
+  import NotificationBell from './NotificationBell.svelte';
 
   let dropdownActive = false;
   let searchActive = false;
@@ -124,6 +125,11 @@
       <LightningIcon size={20} weight="fill" />
       <span class="hidden sm:inline">Zap Us</span>
     </button>
+    
+    <!-- Notifications - only show when logged in -->
+    {#if $userPublickey}
+      <NotificationBell />
+    {/if}
     
     <!-- Sign in / User menu -->
     <div class="self-center print:hidden">
