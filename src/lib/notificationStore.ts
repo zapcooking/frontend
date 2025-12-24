@@ -192,10 +192,17 @@ function parseNotification(event: NDKEvent, userPubkey: string): Notification | 
       };
       
     case 1: // Reply or mention
-      const replyToEvent = event.tags.find(t => t[0] === 'e')?.[1];
-      const isMention = !replyToEvent || !event.tags.some(t => 
-        t[0] === 'e' && t[3] === 'reply'
-      );
+      // Collect all 'e' tags to better distinguish replies from mentions.
+      // NIP-10 uses a marker at index [3] ('root' | 'reply' | 'mention'),
+      // but not all clients set this consistently. As a heuristic:
+      // - if there is a 'reply' marker OR
+      // - if there are multiple 'e' tags (typical root + reply),
+      // then treat as a reply (comment); otherwise treat as a mention.
+      const eTags = event.tags.filter(t => t[0] === 'e');
+      const replyToEvent = eTags[0]?.[1];
+      const hasReplyMarker = eTags.some(t => t[3] === 'reply');
+      const hasMultipleETags = eTags.length > 1;
+      const isMention = !replyToEvent || (!hasReplyMarker && !hasMultipleETags);
       return {
         ...baseNotification,
         type: isMention ? 'mention' : 'comment',
