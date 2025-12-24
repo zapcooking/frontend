@@ -197,7 +197,7 @@ export async function fetchHandlerInfo(
     let handlerEvent: NDKEvent | null = null;
     
     // Fetch handler event from default relays
-    // Note: relay hint is parsed but not used for relay selection to keep implementation simple
+    // Note: relayHint is currently not used for relay selection; this parameter is reserved for future use.
     const events = await ndk.fetchEvents(filter, { closeOnEose: true });
     if (events.size > 0) {
       handlerEvent = Array.from(events)[0] as NDKEvent;
