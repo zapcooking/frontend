@@ -7,6 +7,7 @@
   import { nip19 } from 'nostr-tools';
   import { format as formatDate } from 'timeago.js';
   import Button from './Button.svelte';
+  import { addClientTagToEvent } from '$lib/nip89';
   import CommentLikes from './CommentLikes.svelte';
 
   export let parentComment: NDKEvent;
@@ -62,6 +63,9 @@
         ['p', parentComment.pubkey], // Reference the parent comment author
         ...parentComment.getMatchingTags('e') // Include any other event references from parent
       ];
+      
+      // Add NIP-89 client tag
+      addClientTagToEvent(replyEvent);
       
       await replyEvent.publish();
       

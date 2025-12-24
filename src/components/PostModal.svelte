@@ -5,6 +5,7 @@
   import Button from './Button.svelte';
   import Modal from './Modal.svelte';
   import { NDKEvent } from '@nostr-dev-kit/ndk';
+  import { addClientTagToEvent } from '$lib/nip89';
 
   export let open = false;
 
@@ -43,6 +44,9 @@
       event.kind = 1;
       event.content = content.trim();
       event.tags = [['t', 'zapcooking']];
+      
+      // Add NIP-89 client tag
+      addClientTagToEvent(event);
 
       // Publish the event
       const publishedEvent = await event.publish();

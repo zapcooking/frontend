@@ -26,7 +26,7 @@
   }
 </script>
 
-<div class="relative">
+<div class="relative" use:clickOutside on:click_outside={() => showPanel = false}>
   <button
     on:click={() => showPanel = !showPanel}
     class="relative p-2 rounded-full hover:bg-gray-100 transition-colors cursor-pointer"
@@ -43,8 +43,6 @@
   
   {#if showPanel}
     <div
-      use:clickOutside
-      on:click_outside={() => showPanel = false}
       class="absolute right-0 mt-2 w-80 sm:w-96 bg-white rounded-xl shadow-lg border border-gray-200 z-50 overflow-hidden"
     >
       <NotificationPanel onClose={() => showPanel = false} />
