@@ -285,10 +285,12 @@ export async function getClientDisplayName(
  */
 export function clearHandlerCache(): void {
   handlerMemoryCache.clear();
-  try {
-    localStorage.removeItem(HANDLER_CACHE_KEY);
-  } catch {
-    // Ignore localStorage errors
+  if (typeof window !== 'undefined' && 'localStorage' in window) {
+    try {
+      localStorage.removeItem(HANDLER_CACHE_KEY);
+    } catch {
+      // Ignore localStorage errors
+    }
   }
 }
 
