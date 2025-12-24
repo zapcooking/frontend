@@ -20,6 +20,8 @@
   
   // Resubscribe when user changes
   $: if ($userPublickey && $ndk) {
+    // Ensure any existing subscription is cleaned up before creating a new one
+    unsubscribeFromNotifications();
     subscribeToNotifications($ndk, $userPublickey);
   }
 </script>
