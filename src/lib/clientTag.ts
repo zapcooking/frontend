@@ -233,8 +233,9 @@ export async function fetchHandlerInfo(
     if (handlerEvent.content) {
       try {
         const metadata = JSON.parse(handlerEvent.content);
-        if (metadata.name) handlerInfo.name = metadata.name;
-        if (metadata.display_name) handlerInfo.name = metadata.display_name;
+        // Prefer display_name over name if both are present
+        const preferredName = metadata.display_name ?? metadata.name;
+        if (preferredName) handlerInfo.name = preferredName;
         if (metadata.picture) handlerInfo.picture = metadata.picture;
         if (metadata.about) handlerInfo.about = metadata.about;
       } catch {
