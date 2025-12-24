@@ -224,6 +224,30 @@
   let selectedEventImages: string[] = [];
   let selectedImageIndex = 0;
 
+  // Lazy loading for engagement components
+  let visibleNotes = new Set<string>();
+
+  function lazyLoadAction(node: HTMLElement, eventId: string) {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting) {
+          visibleNotes = visibleNotes.add(eventId);
+          visibleNotes = visibleNotes; // trigger reactivity
+          observer.disconnect();
+        }
+      },
+      { rootMargin: '100px' }
+    );
+    
+    observer.observe(node);
+    
+    return {
+      destroy() {
+        observer.disconnect();
+      }
+    };
+  }
+
   // ═══════════════════════════════════════════════════════════════
   // UTILITY FUNCTIONS
   // ═══════════════════════════════════════════════════════════════
@@ -1520,6 +1544,7 @@
     seenEventIds.clear();
     events = [];
     followedPubkeysForRealtime = []; // Reset for new subscription
+    visibleNotes = new Set(); // Reset lazy loading state
     loadFoodstrFeed(false);
   }
 </script>
@@ -1850,26 +1875,33 @@
                 </div>
               {/if}
 
-              <div class="flex items-center justify-between px-2 sm:px-0 py-1">
+              <div class="flex items-center justify-between px-2 sm:px-0 py-1" use:lazyLoadAction={event.id}>
                 <div class="flex items-center space-x-1">
-                  <div class="hover:bg-gray-100 rounded-full p-1.5 transition-colors">
-                    <NoteTotalLikes {event} />
-                  </div>
-                  
-                  <div class="hover:bg-gray-100 rounded-full p-1.5 transition-colors">
-                    <NoteTotalComments {event} />
-                  </div>
-                  
-                  <div class="hover:bg-gray-100 rounded-full p-1.5 transition-colors">
-                    <NoteRepost {event} />
-                  </div>
-                  
-                  <button
-                    class="flex items-center hover:bg-amber-50 rounded-full p-1.5 transition-colors cursor-pointer"
-                    on:click={() => openZapModal(event)}
-                  >
-                    <NoteTotalZaps {event} />
-                  </button>
+                  {#if visibleNotes.has(event.id)}
+                    <div class="hover:bg-gray-100 rounded-full p-1.5 transition-colors">
+                      <NoteTotalLikes {event} />
+                    </div>
+                    
+                    <div class="hover:bg-gray-100 rounded-full p-1.5 transition-colors">
+                      <NoteTotalComments {event} />
+                    </div>
+                    
+                    <div class="hover:bg-gray-100 rounded-full p-1.5 transition-colors">
+                      <NoteRepost {event} />
+                    </div>
+                    
+                    <button
+                      class="flex items-center hover:bg-amber-50 rounded-full p-1.5 transition-colors cursor-pointer"
+                      on:click={() => openZapModal(event)}
+                    >
+                      <NoteTotalZaps {event} />
+                    </button>
+                  {:else}
+                    <span class="text-gray-300 p-1.5">♡ –</span>
+                    <span class="text-gray-300 p-1.5">💬 –</span>
+                    <span class="text-gray-300 p-1.5">🔁 –</span>
+                    <span class="text-gray-300 p-1.5">⚡ –</span>
+                  {/if}
                 </div>
 
                 <div class="flex items-center space-x-1">
@@ -1888,7 +1920,9 @@
               </div>
 
               <div class="px-2 sm:px-0">
-                <FeedComments {event} />
+                {#if visibleNotes.has(event.id)}
+                  <FeedComments {event} />
+                {/if}
               </div>
             </div>
           </div>

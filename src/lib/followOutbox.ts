@@ -70,18 +70,18 @@ const CONFIG = {
   RELAY_CONFIG_CACHE_MS: 30 * 60 * 1000,
   
   // Timeouts
-  PER_RELAY_TIMEOUT_MS: 4000,      // 4 seconds per relay
-  GLOBAL_TIMEOUT_MS: 10000,         // 10 seconds total max
+  PER_RELAY_TIMEOUT_MS: 2500,      // Faster timeout per relay
+  GLOBAL_TIMEOUT_MS: 5000,         // 5 second cap
   
   // Limits
-  MAX_RELAYS_TO_QUERY: 20,          // Fewer relays = faster
+  MAX_RELAYS_TO_QUERY: 20,          // Keep all 20
   MAX_AUTHORS_PER_RELAY: 50,
   MIN_AUTHORS_PER_RELAY: 3,         // Skip relays with < 3 authors
   MAX_RELAYS_PER_USER: 2,
-  TARGET_EVENT_COUNT: 5000,        // Was 300 - effectively disable early stop
+  TARGET_EVENT_COUNT: 300,        // Slightly higher target
   
   RELAY_LIST_BATCH_SIZE: 150,
-  CONCURRENT_BATCHES: 4,            // Query 4 relays at a time
+  CONCURRENT_BATCHES: 6,            // More parallel (was 4)
   
   FALLBACK_RELAYS: [
     'wss://relay.damus.io',
@@ -117,6 +117,47 @@ const userRelayCache = new Map<string, UserRelayConfig>();
 let cachedFollowList: FollowWithRelays[] | null = null;
 let followListPubkey: string | null = null;
 let followListTimestamp = 0;
+
+// ═══════════════════════════════════════════════════════════════
+// LOCALSTORAGE CACHING FOR RELAY CONFIGS
+// ═══════════════════════════════════════════════════════════════
+
+const RELAY_CACHE_KEY = 'outbox_relay_configs';
+const RELAY_CACHE_VERSION = 1;
+
+function loadRelayConfigsFromStorage(): Map<string, UserRelayConfig> | null {
+  try {
+    if (typeof localStorage === 'undefined') return null;
+    
+    const stored = localStorage.getItem(RELAY_CACHE_KEY);
+    if (!stored) return null;
+    
+    const { version, data, timestamp } = JSON.parse(stored);
+    
+    // Check version and age (cache for 24 hours)
+    if (version !== RELAY_CACHE_VERSION) return null;
+    if (Date.now() - timestamp > 24 * 60 * 60 * 1000) return null;
+    
+    return new Map(Object.entries(data));
+  } catch {
+    return null;
+  }
+}
+
+function saveRelayConfigsToStorage(configs: Map<string, UserRelayConfig>) {
+  try {
+    if (typeof localStorage === 'undefined') return;
+    
+    const data = Object.fromEntries(configs);
+    localStorage.setItem(RELAY_CACHE_KEY, JSON.stringify({
+      version: RELAY_CACHE_VERSION,
+      timestamp: Date.now(),
+      data
+    }));
+  } catch {
+    // localStorage full or unavailable
+  }
+}
 
 // ═══════════════════════════════════════════════════════════════
 // UTILITIES
@@ -250,6 +291,17 @@ export async function fetchRelayLists(
   const results = new Map<string, UserRelayConfig>();
   const needsFetch: string[] = [];
   
+  // Try loading from localStorage first if memory cache is empty
+  if (!forceRefresh && userRelayCache.size === 0) {
+    const stored = loadRelayConfigsFromStorage();
+    if (stored) {
+      console.log(`[Outbox] Loaded ${stored.size} relay configs from storage`);
+      for (const [k, v] of stored) {
+        userRelayCache.set(k, v);
+      }
+    }
+  }
+  
   for (const pubkey of pubkeys) {
     const cached = userRelayCache.get(pubkey);
     if (!forceRefresh && cached && now - cached.lastUpdated < CONFIG.RELAY_CONFIG_CACHE_MS) {
@@ -291,6 +343,11 @@ export async function fetchRelayLists(
           lastUpdated: now
         });
       }
+    }
+    
+    // Save to localStorage after fetching new configs
+    if (userRelayCache.size > 0) {
+      saveRelayConfigsToStorage(userRelayCache);
     }
   } catch (err) {
     console.warn('[Outbox] Failed to fetch relay lists:', err);
@@ -441,7 +498,7 @@ export async function fetchFollowingEvents(
   const {
     since,
     until,
-    limit = 50,
+    limit = 15,  // Fewer per relay for faster queries
     kinds = [1],
     additionalFilter = {},
     timeoutMs = CONFIG.PER_RELAY_TIMEOUT_MS,
@@ -510,11 +567,16 @@ export async function fetchFollowingEvents(
       break;
     }
     
-    // Check if we have enough events
+    // Check if we have enough events AND enough relay coverage
     if (allEvents.length >= targetEventCount) {
-      console.log(`[Outbox] Target reached: ${allEvents.length} events`);
-      stoppedEarly = true;
-      break;
+      const relaysQueried = i + CONFIG.CONCURRENT_BATCHES;
+      const minRelaysBeforeEarlyStop = 12;  // Query at least 12 relays
+      
+      if (relaysQueried >= minRelaysBeforeEarlyStop) {
+        console.log(`[Outbox] Target reached: ${allEvents.length} events from ${relaysQueried} relays`);
+        stoppedEarly = true;
+        break;
+      }
     }
     
     const batch = queryPlan.slice(i, i + CONFIG.CONCURRENT_BATCHES);
@@ -572,6 +634,15 @@ export function clearOutboxCaches(): void {
   cachedFollowList = null;
   followListPubkey = null;
   followListTimestamp = 0;
+  
+  // Also clear localStorage cache
+  try {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.removeItem(RELAY_CACHE_KEY);
+    }
+  } catch {
+    // Ignore errors
+  }
 }
 
 export function getOutboxCacheStats(): {
