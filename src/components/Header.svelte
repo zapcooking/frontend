@@ -103,7 +103,7 @@
     <div class="block sm:max-lg:hidden xl:hidden self-center">
       <button 
         on:click={() => searchActive = true}
-        class="w-9 h-9 flex items-center justify-center text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-full transition-colors cursor-pointer"
+        class="w-9 h-9 flex items-center justify-center text-caption hover:opacity-80 hover:bg-accent-gray rounded-full transition-colors cursor-pointer"
         aria-label="Search"
       >
         <SearchIcon size={20} weight="bold" />
@@ -120,9 +120,9 @@
     </button>
     
     <!-- Zap Us - Accessible with visible label on larger screens -->
-    <button 
-      on:click={() => supportModalOpen = true} 
-      class="flex items-center gap-2 px-3 py-2 text-amber-500 hover:text-amber-600 hover:bg-amber-50 rounded-full transition-colors cursor-pointer text-sm"
+    <button
+      on:click={() => supportModalOpen = true}
+      class="flex items-center gap-2 px-3 py-2 text-amber-500 hover:text-amber-600 hover:bg-accent-gray rounded-full transition-colors cursor-pointer text-sm"
       aria-label="Support Zap Cooking"
       title="Support Zap Cooking"
     >
@@ -171,7 +171,7 @@
           </div>
         {/if}
       {:else}
-        <a href="/login" class="px-4 py-2 text-gray-700 rounded-full border border-gray-300 hover:border-gray-400 hover:bg-gray-50 font-medium transition duration-300 text-sm">Sign in</a>
+        <a href="/login" class="px-4 py-2 rounded-full border font-medium transition duration-300 text-sm signin-button" style="color: var(--color-text-primary); border-color: var(--color-input-border);">Sign in</a>
       {/if}
     </div>
   </div>
@@ -183,37 +183,40 @@
     <!-- Header -->
     <div class="text-center mb-6">
       <div class="text-3xl mb-3">⚡</div>
-      <h2 class="text-xl font-bold text-gray-800 dark:text-gray-200 mb-2">Support Zap Cooking</h2>
-      <p class="text-sm text-gray-600 dark:text-gray-400">
+      <h2 class="text-xl font-bold mb-2" style="color: var(--color-text-primary)">Support Zap Cooking</h2>
+      <p class="text-sm text-caption">
         Help us keep Zap Cooking running and improving!
       </p>
     </div>
 
     <!-- QR Code Section -->
-    <div class="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-lg border border-gray-200 dark:border-gray-700 mb-4 w-full">
+    <div class="p-6 rounded-2xl shadow-lg border mb-4 w-full" style="background-color: var(--color-bg-primary); border-color: var(--color-input-border);">
       <!-- QR Code -->
       <div class="flex justify-center mb-4">
-        <svg class="w-40 h-40"
-             use:qr={{
-               data: "lightning:ZapCooking@getalby.com",
-               logo: "https://zap.cooking/favicon.svg",
-               shape: "circle",
-               width: 160,
-               height: 160,
-             }}
-        />
+        <!-- QR code on white background for optimal scanning -->
+        <div class="p-4 bg-white rounded-xl">
+          <svg class="w-40 h-40"
+               use:qr={{
+                 data: "lightning:ZapCooking@getalby.com",
+                 logo: "https://zap.cooking/favicon.svg",
+                 shape: "circle",
+                 width: 160,
+                 height: 160,
+               }}
+          />
+        </div>
       </div>
 
-      <div class="text-center text-xs text-gray-500 dark:text-gray-400 mb-4">
+      <div class="text-center text-xs text-caption mb-4">
         Scan with your Lightning wallet
       </div>
     </div>
 
     <!-- Lightning Address Section -->
     <div class="w-full mb-4">
-      <div class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Lightning Address</div>
+      <div class="text-sm font-medium mb-2" style="color: var(--color-text-primary)">Lightning Address</div>
       <div class="flex items-center gap-2">
-        <div class="flex-1 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-sm text-gray-800 dark:text-gray-200 break-all">
+        <div class="flex-1 bg-input border rounded-lg px-3 py-2 text-sm break-all" style="color: var(--color-text-primary); border-color: var(--color-input-border);">
           ZapCooking@getalby.com
         </div>
         <button 
@@ -245,12 +248,19 @@
       >
         Open in Wallet
       </a>
-      <button 
+      <button
         on:click={() => supportModalOpen = false}
-        class="px-4 py-2.5 text-gray-500 hover:text-gray-700 font-medium text-sm transition duration-200"
+        class="px-4 py-2.5 text-caption hover:opacity-80 font-medium text-sm transition duration-200"
       >
         Close
       </button>
     </div>
   </div>
 </Modal>
+
+<style>
+  .signin-button:hover {
+    border-color: var(--color-accent-gray);
+    background-color: var(--color-input-bg);
+  }
+</style>

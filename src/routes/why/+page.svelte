@@ -7,9 +7,9 @@
 </svelte:head>
 
 <article class="max-w-2xl mx-auto">
-  <h1 class="text-3xl font-bold mb-8">Why Zap Cooking Exists</h1>
+  <h1 class="text-3xl font-bold mb-8" style="color: var(--color-text-primary)">Why Zap Cooking Exists</h1>
 
-  <div class="flex flex-col gap-6 text-gray-700 leading-relaxed">
+  <div class="flex flex-col gap-6 leading-relaxed" style="color: var(--color-text-primary)">
     <p>Food has always been social.</p>
 
     <p>Long before feeds, likes, or algorithms, recipes were shared person to person. Around tables. In kitchens. Through stories, notes, and small variations passed along over time. Food was never about optimization or scale. It was about connection.</p>
@@ -26,7 +26,7 @@
 
     <p>The goal is to create a place where food culture can live openly and grow naturally.</p>
 
-    <h2 class="text-2xl font-bold mt-8 mb-4">A Note From the Founder</h2>
+    <h2 class="text-2xl font-bold mt-8 mb-4" style="color: var(--color-text-primary)">A Note From the Founder</h2>
 
     <p>Zap Cooking started with a simple curiosity. What would food sharing look like if it lived on open rails?</p>
 
@@ -38,7 +38,7 @@
 
     <p>I help prepare the ground and tend the space. What grows here is up to the community.</p>
 
-    <h2 class="text-2xl font-bold mt-8 mb-4">What This Place Is About</h2>
+    <h2 class="text-2xl font-bold mt-8 mb-4" style="color: var(--color-text-primary)">What This Place Is About</h2>
 
     <p>Zap Cooking is built on a few simple beliefs:</p>
 
@@ -52,7 +52,7 @@
 
     <p>If you believe those things too, you already belong here.</p>
 
-    <h2 class="text-2xl font-bold mt-8 mb-4">An Open Invitation</h2>
+    <h2 class="text-2xl font-bold mt-8 mb-4" style="color: var(--color-text-primary)">An Open Invitation</h2>
 
     <p>Post a recipe.</p>
     <p>Follow a cook.</p>
@@ -64,7 +64,7 @@
 
     <p class="font-medium">Zap Cooking is simply a modern expression of that truth.</p>
 
-    <h2 class="text-2xl font-bold mt-8 mb-4">Why Nostr</h2>
+    <h2 class="text-2xl font-bold mt-8 mb-4" style="color: var(--color-text-primary)">Why Nostr</h2>
 
     <p>Zap Cooking is built on Nostr because it lets people participate without giving anything up.</p>
 
@@ -84,7 +84,7 @@
 
     <p>Under the hood, Nostr keeps things honest. On the surface, it simply feels more human.</p>
 
-    <h2 class="text-2xl font-bold mt-8 mb-4">Open by Design</h2>
+    <h2 class="text-2xl font-bold mt-8 mb-4" style="color: var(--color-text-primary)">Open by Design</h2>
 
     <p>Zap Cooking is built in the open.</p>
 

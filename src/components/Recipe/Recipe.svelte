@@ -389,7 +389,8 @@ async function getLists(): Promise<NDKEvent[]> {
               role="menu"
               use:clickOutside
               on:click_outside={() => (dropdownActive = false)}
-              class="flex flex-col right-0 gap-4 absolute z-20 bg-white rounded-3xl drop-shadow px-5 py-6 my-6"
+              class="flex flex-col right-0 gap-4 absolute z-20 bg-input rounded-3xl drop-shadow px-5 py-6 my-6"
+              style="color: var(--color-text-primary)"
             >
               {#if event.author?.pubkey === $userPublickey}
                 <a class="flex gap-2 cursor-pointer" href="/fork/{naddr}">
@@ -440,7 +441,7 @@ async function getLists(): Promise<NDKEvent[]> {
           {@html parseMarkdown(event.content)}
         {/if}
       </div>
-      <div class="flex flex-col items-center gap-4 bg-input py-6 rounded-3xl print:hidden">
+      <div class="flex flex-col items-center gap-4 bg-input py-6 rounded-3xl print:hidden" style="color: var(--color-text-primary)">
         <h2>Enjoy this recipe?</h2>
         <Button on:click={() => (zapModal = true)}>Zap it</Button>
       </div>
@@ -529,3 +530,65 @@ async function getLists(): Promise<NDKEvent[]> {
     Loading...
   {/if}
 </article>
+
+<style>
+  /* Dark mode support for prose content */
+  :global(.prose) {
+    color: var(--color-text-primary);
+  }
+
+  :global(.prose h1),
+  :global(.prose h2),
+  :global(.prose h3),
+  :global(.prose h4),
+  :global(.prose h5),
+  :global(.prose h6) {
+    color: var(--color-text-primary);
+  }
+
+  :global(.prose p),
+  :global(.prose li),
+  :global(.prose td),
+  :global(.prose th) {
+    color: var(--color-text-primary);
+  }
+
+  :global(.prose strong) {
+    color: var(--color-text-primary);
+  }
+
+  :global(.prose code) {
+    color: var(--color-text-primary);
+    background-color: var(--color-input-bg);
+  }
+
+  :global(.prose pre) {
+    background-color: var(--color-input-bg);
+    color: var(--color-text-primary);
+  }
+
+  :global(.prose blockquote) {
+    color: var(--color-text-secondary);
+    border-left-color: var(--color-input-border);
+  }
+
+  :global(.prose hr) {
+    border-color: var(--color-input-border);
+  }
+
+  :global(.prose a) {
+    color: var(--color-primary);
+  }
+
+  :global(.prose table) {
+    color: var(--color-text-primary);
+  }
+
+  :global(.prose thead) {
+    border-bottom-color: var(--color-input-border);
+  }
+
+  :global(.prose tbody tr) {
+    border-bottom-color: var(--color-input-border);
+  }
+</style>
