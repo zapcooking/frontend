@@ -64,10 +64,10 @@
 
 <div class="flex flex-col max-h-[480px]">
   <!-- Header -->
-  <div class="flex items-center justify-between px-4 py-3 border-b border-gray-100">
-    <h3 class="font-semibold text-gray-900">Notifications</h3>
+  <div class="flex items-center justify-between px-4 py-3 border-b" style="border-color: var(--color-input-border)">
+    <h3 class="font-semibold" style="color: var(--color-text-primary)">Notifications</h3>
     {#if $unreadCount > 0}
-      <button 
+      <button
         on:click={markAllRead}
         class="text-sm text-orange-500 hover:text-orange-600 cursor-pointer"
       >
@@ -75,11 +75,11 @@
       </button>
     {/if}
   </div>
-  
+
   <!-- Notification List -->
   <div class="overflow-y-auto flex-1">
     {#if $notifications.length === 0}
-      <div class="px-4 py-8 text-center text-gray-500">
+      <div class="px-4 py-8 text-center text-caption">
         <span class="text-3xl">🔔</span>
         <p class="mt-2">No notifications yet</p>
       </div>
@@ -87,7 +87,7 @@
       {#each $notifications.slice(0, MAX_PREVIEW) as notification (notification.id)}
         <button
           on:click={() => handleNotificationClick(notification)}
-          class="w-full flex items-start gap-3 px-4 py-3 hover:bg-gray-50 transition-colors cursor-pointer text-left
+          class="w-full flex items-start gap-3 px-4 py-3 hover:bg-accent-gray transition-colors cursor-pointer text-left
             {notification.read ? 'opacity-60' : ''}"
         >
           <div class="relative flex-shrink-0">
@@ -96,24 +96,24 @@
               {getIcon(notification.type)}
             </span>
           </div>
-          
+
           <div class="flex-1 min-w-0">
-            <p class="text-sm text-gray-900">
+            <p class="text-sm" style="color: var(--color-text-primary)">
               <span class="font-semibold">
                 <CustomName pubkey={notification.fromPubkey} />
               </span>
               {' '}{getMessage(notification)}
             </p>
             {#if notification.content}
-              <p class="text-sm text-gray-500 truncate mt-0.5">
+              <p class="text-sm text-caption truncate mt-0.5">
                 "{notification.content}"
               </p>
             {/if}
-            <p class="text-xs text-gray-400 mt-1">
+            <p class="text-xs text-caption mt-1">
               {formatTime(notification.createdAt)}
             </p>
           </div>
-          
+
           {#if !notification.read}
             <span class="w-2 h-2 bg-orange-500 rounded-full flex-shrink-0 mt-2"></span>
           {/if}
@@ -121,13 +121,13 @@
       {/each}
     {/if}
   </div>
-  
+
   <!-- Footer -->
   {#if $notifications.length > 0}
-    <div class="border-t border-gray-100">
+    <div class="border-t" style="border-color: var(--color-input-border)">
       <button
         on:click={viewAll}
-        class="w-full px-4 py-3 text-sm text-center text-orange-500 hover:bg-gray-50 font-medium cursor-pointer"
+        class="w-full px-4 py-3 text-sm text-center text-orange-500 hover:bg-accent-gray font-medium cursor-pointer"
       >
         See all notifications
       </button>

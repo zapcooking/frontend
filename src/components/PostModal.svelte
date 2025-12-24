@@ -89,7 +89,7 @@
 
 <Modal bind:open>
   <svelte:fragment slot="title">
-    <h2 class="text-lg font-semibold text-gray-900">Post to Feed</h2>
+    <h2 class="text-lg font-semibold" style="color: var(--color-text-primary)">Post to Feed</h2>
   </svelte:fragment>
 
   {#if success}
@@ -114,21 +114,21 @@
         id="post-content"
         bind:value={content}
         placeholder="What's on your mind?"
-        class="w-full h-32 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:border-transparent resize-none"
+        class="w-full h-32 px-3 py-2 input rounded-md focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:border-transparent resize-none"
         disabled={posting}
         on:keydown={handleKeydown}
       ></textarea>
     </div>
 
     <div class="flex items-center justify-between">
-      <div class="text-sm text-gray-500">
+      <div class="text-sm text-caption">
         <span class="font-medium text-yellow-600">#zapcooking</span>
       </div>
-      
+
       <div class="flex gap-3">
         <Button
           on:click={closeModal}
-          class="px-4 py-2 text-gray-600 hover:text-gray-800"
+          class="px-4 py-2 text-caption hover:opacity-80"
         >
           Cancel
         </Button>
