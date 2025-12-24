@@ -20,7 +20,7 @@ describe('NIP-89 Client Tag', () => {
         ['p', 'pubkey']
       ];
       
-      const result = ensureClientTag(tags);
+      const result = ensureClientTag([...tags]);
       
       expect(result).toHaveLength(3);
       expect(result[2]).toEqual(['client', CLIENT_TAG_IDENTIFIER]);
