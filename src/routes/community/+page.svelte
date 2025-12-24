@@ -9,6 +9,7 @@
   import { nip19 } from 'nostr-tools';
   import NoteContent from '../../components/NoteContent.svelte';
   import { page } from '$app/stores';
+  import { addClientTagToEvent } from '$lib/nip89';
   import { goto } from '$app/navigation';
   import { onMount, onDestroy } from 'svelte';
   import { Fetch } from 'hurdak';
@@ -210,6 +211,9 @@
         event.tags.push(['q', quotedNote.event.id]);
         event.tags.push(['p', quotedNote.event.pubkey]);
       }
+      
+      // Add NIP-89 client tag
+      addClientTagToEvent(event);
 
       const publishedEvent = await event.publish();
       

@@ -3,6 +3,7 @@
   import { ndk, userPublickey } from '$lib/nostr';
   import { NDKEvent } from '@nostr-dev-kit/ndk';
   import Button from './Button.svelte';
+  import { addClientTagToEvent } from '$lib/nip89';
   import FeedComment from './FeedComment.svelte';
 
   export let event: NDKEvent;
@@ -64,6 +65,9 @@
         ['e', event.id, '', 'reply'],
         ['p', event.pubkey]
       ];
+      
+      // Add NIP-89 client tag
+      addClientTagToEvent(ev);
 
       await ev.publish();
       commentText = '';

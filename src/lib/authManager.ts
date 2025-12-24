@@ -267,6 +267,10 @@ export class AuthManager {
       event.content = content;
       event.tags = tags;
       
+      // Add NIP-89 client tag
+      const { addClientTagToEvent } = await import('./nip89');
+      addClientTagToEvent(event);
+      
       await event.publish();
     } finally {
       // Restore original signer

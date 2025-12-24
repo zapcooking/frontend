@@ -128,7 +128,10 @@ async function getLists(): Promise<NDKEvent[]> {
       eventsToPublish.push(nevent);
     }
 
+    // Add NIP-89 client tag to all events before publishing
+    const { addClientTagToEvent } = await import('$lib/nip89');
     for (let i = 0; i < eventsToPublish.length; i++) {
+      addClientTagToEvent(eventsToPublish[i]);
       await eventsToPublish[i].publish();
     }
     // clear for next time

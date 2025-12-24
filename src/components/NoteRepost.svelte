@@ -2,6 +2,7 @@
   import { ndk, userPublickey } from '$lib/nostr';
   import { NDKEvent } from '@nostr-dev-kit/ndk';
   import { nip19 } from 'nostr-tools';
+  import { addClientTagToEvent } from '$lib/nip89';
   import ArrowsClockwise from 'phosphor-svelte/lib/ArrowsClockwise';
   import { clickOutside } from '$lib/clickOutside';
 
@@ -60,6 +61,9 @@
         ['e', event.id, '', 'mention'],
         ['p', event.pubkey]
       ];
+
+      // Add NIP-89 client tag
+      addClientTagToEvent(repostEvent);
 
       await repostEvent.sign();
       console.log('Repost event signed:', repostEvent.id);

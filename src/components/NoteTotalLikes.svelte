@@ -2,6 +2,7 @@
   import { ndk, userPublickey } from '$lib/nostr';
   import { NDKEvent } from '@nostr-dev-kit/ndk';
   import HeartIcon from 'phosphor-svelte/lib/Heart';
+  import { addClientTagToEvent } from '$lib/nip89';
 
   export let event: NDKEvent;
   let loading = true;
@@ -64,6 +65,9 @@
         ['e', event.id, '', 'reply'], // Reference the original event
         ['p', event.author?.hexpubkey || event.pubkey] // Reference the original author
       ];
+
+      // Add NIP-89 client tag
+      addClientTagToEvent(reactionEvent);
 
       // Sign the event first to get its ID
       await reactionEvent.sign();

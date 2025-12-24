@@ -5,6 +5,7 @@ import { requestProvider } from 'webln';
 import { resolveProfileByPubkey } from './profileResolver';
 import { AuthManager, getAuthManager } from './authManager';
 import { generateSecretKey } from 'nostr-tools';
+import { ensureClientTag } from './nip89';
 
 export interface ZapRequest {
   eventId?: string;
@@ -153,6 +154,9 @@ export class ZapManager {
 
     // Add lnurl tag (will be populated when we get the LNURL)
     zapRequest.tags.push(['lnurl', '']);
+
+    // Add NIP-89 client tag
+    zapRequest.tags = ensureClientTag(zapRequest.tags);
 
     return zapRequest;
   }

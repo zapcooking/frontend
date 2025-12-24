@@ -7,6 +7,7 @@
   import NoteContent from './NoteContent.svelte';
   import { resolveProfileByPubkey, formatDisplayName } from '$lib/profileResolver';
   import HeartIcon from 'phosphor-svelte/lib/Heart';
+  import { addClientTagToEvent } from '$lib/nip89';
   import { onMount } from 'svelte';
 
   export let event: NDKEvent;
@@ -76,6 +77,9 @@
         ['e', event.id, '', 'reply'],
         ['p', event.pubkey]
       ];
+      
+      // Add NIP-89 client tag
+      addClientTagToEvent(reactionEvent);
 
       await reactionEvent.publish();
       liked = true;
@@ -101,6 +105,9 @@
         ['e', event.id, '', 'reply'],
         ['p', event.pubkey]
       ];
+      
+      // Add NIP-89 client tag
+      addClientTagToEvent(ev);
 
       await ev.publish();
       replyText = '';

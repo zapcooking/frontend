@@ -14,6 +14,7 @@
   import NoteTotalZaps from '../../components/NoteTotalZaps.svelte';
   import ZapModal from '../../components/ZapModal.svelte';
   import Button from '../../components/Button.svelte';
+  import { addClientTagToEvent } from '$lib/nip89';
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
   import type { PageData } from './$types';
 
@@ -227,6 +228,9 @@
         ['e', event.id, '', 'reply'],
         ['p', event.pubkey]
       ];
+      
+      // Add NIP-89 client tag
+      addClientTagToEvent(ev);
 
       await ev.publish();
       commentText = '';

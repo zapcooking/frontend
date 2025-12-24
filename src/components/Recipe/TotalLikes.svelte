@@ -2,6 +2,7 @@
   import { ndk, userPublickey } from '$lib/nostr';
   import { NDKEvent } from '@nostr-dev-kit/ndk';
   import HeartIcon from 'phosphor-svelte/lib/Heart';
+  import { addClientTagToEvent } from '$lib/nip89';
 
   export let event: NDKEvent;
   let loading = true;
@@ -57,6 +58,9 @@
         ['a', `${event.kind}:${event.author?.hexpubkey || event.pubkey}:${event.tags.find((e: any) => e[0] == 'd')?.[1]}`], // Reference the recipe
         ['p', event.author?.hexpubkey || event.pubkey] // Reference the original author
       ];
+      
+      // Add NIP-89 client tag
+      addClientTagToEvent(reactionEvent);
       
       console.log('Publishing reaction:', reactionEvent);
       await reactionEvent.publish();
