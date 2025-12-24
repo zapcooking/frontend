@@ -192,13 +192,30 @@ export async function fetchHandlerInfo(
       authors: [parsed.pubkey],
       '#d': [parsed.dTag]
     };
+
+    // Timeout (in milliseconds) for fetching the handler event
+    const HANDLER_FETCH_TIMEOUT_MS = 10000;
     
     // Fetch the handler event
     let handlerEvent: NDKEvent | null = null;
     
-    // Fetch handler event from default relays
-    // Note: relayHint is currently not used for relay selection; this parameter is reserved for future use.
-    const events = await ndk.fetchEvents(filter, { closeOnEose: true });
+    // Fetch handler event from default relays with a timeout
+    // Note: relay hint is parsed but not used for relay selection to keep implementation simple
+    const events = await new Promise<Set<NDKEvent>>((resolve, reject) => {
+      const timeoutId = setTimeout(() => {
+        reject(new Error('Handler info fetch timed out'));
+      }, HANDLER_FETCH_TIMEOUT_MS);
+
+      ndk.fetchEvents(filter, { closeOnEose: true })
+        .then((result) => {
+          clearTimeout(timeoutId);
+          resolve(result);
+        })
+        .catch((error) => {
+          clearTimeout(timeoutId);
+          reject(error);
+        });
+    });
     if (events.size > 0) {
       handlerEvent = Array.from(events)[0] as NDKEvent;
     }
