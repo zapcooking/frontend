@@ -569,7 +569,7 @@ export async function fetchFollowingEvents(
     
     // Check if we have enough events AND enough relay coverage
     if (allEvents.length >= targetEventCount) {
-      const relaysQueried = i + CONFIG.CONCURRENT_BATCHES;
+      const relaysQueried = queriedRelays.length;
       const minRelaysBeforeEarlyStop = 12;  // Query at least 12 relays
       
       if (relaysQueried >= minRelaysBeforeEarlyStop) {
