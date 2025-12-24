@@ -176,7 +176,6 @@ function parseNotification(event: NDKEvent, userPubkey: string): Notification | 
     case 9735: // Zap
       let amount = 0;
       try {
-        const bolt11 = event.tags.find(t => t[0] === 'bolt11')?.[1];
         const descTag = event.tags.find(t => t[0] === 'description')?.[1];
         if (descTag) {
           const desc = JSON.parse(descTag);
