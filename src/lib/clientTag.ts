@@ -142,7 +142,7 @@ function parseHandlerAddress(address: string): { kind: number; pubkey: string; d
     if (isNaN(kind) || kind !== 31990) return null;
     
     const pubkey = parts[1];
-    if (!pubkey || pubkey.length !== 64) return null;
+    if (!pubkey || !/^[0-9a-f]{64}$/i.test(pubkey)) return null;
     
     // d-tag can contain colons, so join remaining parts
     const dTag = parts.slice(2).join(':');
