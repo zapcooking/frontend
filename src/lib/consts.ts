@@ -1,10 +1,10 @@
 export const standardRelays = [
   'wss://relay.damus.io',      // Fastest
-  'wss://nostr.mom',
   'wss://kitchen.zap.cooking', // Your relay
   'wss://nos.lol',
   'wss://purplepag.es',
-  'wss://relay.nostr.band'
+  'wss://relay.primal.net',
+  'wss://nostr.wine'
 ];
 
 export type recipeTag =
@@ -22,6 +22,10 @@ export type recipeTagSimple = {
 
 // Default profile image URL
 export const DEFAULT_PROFILE_IMAGE = 'https://zap.cooking/default-pfp.jpg';
+
+// NIP-89 Client identification
+export const CLIENT_TAG_IDENTIFIER = 'zap.cooking';
+export const CLIENT_DISPLAY_NAME = 'Zap Cooking';
 
 export const recipeTags: recipeTagSimple[] = [
   { title: 'Alcohol', emoji: '🍸' },

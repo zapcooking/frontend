@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
   import RecipeCard from './RecipeCard.svelte';
-  import { validateMarkdownTemplate } from '$lib/pharser';
+  import { validateMarkdownTemplate } from '$lib/parser';
 
   export let events: NDKEvent[];
   export let hideHide = false;

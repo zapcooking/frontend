@@ -3,7 +3,7 @@
   import TagsComboBox from '../../components/TagsComboBox.svelte';
   import StringComboBox from '../../components/StringComboBox.svelte';
   import { ndk, userPublickey } from '$lib/nostr';
-  import { createMarkdown, validateMarkdownTemplate } from '$lib/pharser';
+  import { createMarkdown, validateMarkdownTemplate } from '$lib/parser';
   import { NDKEvent } from '@nostr-dev-kit/ndk';
   import type { recipeTagSimple } from '$lib/consts';
   import FeedItem from '../../components/RecipeCard.svelte';
@@ -11,6 +11,7 @@
   import { goto } from '$app/navigation';
   import { nip19 } from 'nostr-tools';
   import ImagesComboBox from '../../components/ImagesComboBox.svelte';
+  import { addClientTagToEvent } from '$lib/nip89';
   import Button from '../../components/Button.svelte';
   import { onMount } from 'svelte';
 
@@ -133,6 +134,10 @@
             event.tags.push(['t', `nostrcooking-${t.title.toLowerCase().replaceAll(' ', '-')}`]);
           }
         });
+        
+        // Add NIP-89 client tag
+        addClientTagToEvent(event);
+        
         console.log('event to publish:', event);
         let relays = await event.publish();
         relays.forEach((relay) => {

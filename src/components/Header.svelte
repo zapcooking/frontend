@@ -20,6 +20,7 @@
   import { qr } from "@svelte-put/qr/svg";
   import CustomAvatar from './CustomAvatar.svelte';
   import { theme } from '$lib/themeStore';
+  import NotificationBell from './NotificationBell.svelte';
 
   let dropdownActive = false;
   let searchActive = false;
@@ -69,7 +70,7 @@
   <div class="fixed z-20 w-full h-full top-0 left-0 duration-500 transition-opacity bg-opacity-50 backdrop-blur-sm" transition:blur={{ amount: 10, duration: 300 }}>
     <div class="fixed z-25 inset-x-0 top-20 w-3/4 md:w-1/2 lg:w-1/3 mx-auto" use:clickOutside on:click_outside={() => (searchActive = false)} >
         <TagsSearchAutocomplete
-            placeholderString={"Search by tag, like 'italian', 'steak' or 'glutenfree'."}
+            placeholderString={"Search recipes, tags, or users..."}
             action={openTag}
             autofocus={true}
         />
@@ -93,12 +94,12 @@
 
   <div class="hidden sm:max-lg:flex xl:flex flex-1 self-center print:hidden max-w-md">
     <TagsSearchAutocomplete
-      placeholderString={"Search by tag, like 'italian', 'steak' or 'glutenfree'."}
+      placeholderString={"Search recipes, tags, or users..."}
       action={openTag}
     />
   </div>
   <span class="hidden lg:max-xl:flex lg:max-xl:grow"></span>
-  <div class="flex gap-2 sm:gap-3 self-center flex-none print:hidden">
+  <div class="flex gap-1.5 sm:gap-3 self-center flex-none print:hidden">
     <!-- Search icon (mobile/tablet only when search bar hidden) -->
     <div class="block sm:max-lg:hidden xl:hidden self-center">
       <button 
@@ -110,30 +111,35 @@
       </button>
     </div>
     
-    <!-- Create - Primary CTA -->
+    <!-- Create - Primary CTA (compact on mobile) -->
     <button 
       on:click={() => goto('/create')}
-      class="flex items-center gap-2 px-4 py-2 text-white rounded-full bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 font-semibold transition duration-300 cursor-pointer text-sm"
+      class="flex items-center justify-center gap-1.5 w-9 h-9 sm:w-auto sm:h-auto sm:gap-2 sm:px-4 sm:py-2 text-white rounded-full bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 font-semibold transition duration-300 cursor-pointer text-sm"
     >
       <AddIcon size={18} weight="bold" />
       <span class="hidden sm:inline">Create</span>
     </button>
-    
-    <!-- Zap Us - Accessible with visible label on larger screens -->
+
+    <!-- Zap Us - Hidden on mobile to save space, dark mode optimized -->
     <button
       on:click={() => supportModalOpen = true}
-      class="flex items-center gap-2 px-3 py-2 text-amber-500 hover:text-amber-600 hover:bg-accent-gray rounded-full transition-colors cursor-pointer text-sm"
+      class="hidden sm:flex items-center gap-2 px-3 py-2 text-amber-500 hover:text-amber-600 hover:bg-accent-gray rounded-full transition-colors cursor-pointer text-sm"
       aria-label="Support Zap Cooking"
       title="Support Zap Cooking"
     >
       <LightningIcon size={20} weight="fill" />
       <span class="hidden sm:inline">Zap Us</span>
     </button>
+
+    <!-- Notifications - only show when logged in -->
+    {#if $userPublickey}
+      <NotificationBell />
+    {/if}
     
     <!-- Sign in / User menu -->
-    <div class="self-center print:hidden">
+    <div class="self-center print:hidden flex-shrink-0">
       {#if $userPublickey !== ''}
-        <button class="flex self-center" on:click={() => (dropdownActive = !dropdownActive)}>
+        <button class="flex self-center scale-[0.85] sm:scale-100 origin-right" on:click={() => (dropdownActive = !dropdownActive)}>
           <CustomAvatar pubkey={$userPublickey} size={48} />
         </button>
         {#if dropdownActive}

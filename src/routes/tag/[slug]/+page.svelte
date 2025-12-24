@@ -3,7 +3,7 @@
   import { ndk } from '$lib/nostr';
   import type { NDKEvent, NDKFilter } from '@nostr-dev-kit/ndk';
   import Feed from '../../../components/Feed.svelte';
-  import { validateMarkdownTemplate } from '$lib/pharser';
+  import { validateMarkdownTemplate } from '$lib/parser';
   import { recipeTags } from '$lib/consts';
   import { goto } from '$app/navigation';
   import type { PageData } from './$types';

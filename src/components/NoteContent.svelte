@@ -9,6 +9,43 @@
 
   export let content: string;
   export let className: string = '';
+  
+  // Image extensions to detect
+  const IMAGE_EXTENSIONS = /\.(jpg|jpeg|png|gif|webp|svg|bmp|avif)(\?.*)?$/i;
+  const VIDEO_EXTENSIONS = /\.(mp4|webm|mov|avi|mkv)(\?.*)?$/i;
+  
+  function isImageUrl(url: string): boolean {
+    try {
+      const urlObj = new URL(url);
+      // Check extension
+      if (IMAGE_EXTENSIONS.test(urlObj.pathname)) return true;
+      // Check common image hosting patterns
+      if (urlObj.hostname.includes('image.nostr.build')) return true;
+      if (urlObj.hostname.includes('nostr.build') && urlObj.pathname.includes('/i/')) return true;
+      if (urlObj.hostname.includes('imgur.com')) return true;
+      if (urlObj.hostname.includes('imgproxy')) return true;
+      if (urlObj.hostname.includes('primal.b-cdn.net')) return true;
+      if (urlObj.hostname.includes('media.tenor.com')) return true;
+      if (urlObj.hostname.includes('i.ibb.co')) return true;
+      return false;
+    } catch {
+      return false;
+    }
+  }
+  
+  function isVideoUrl(url: string): boolean {
+    try {
+      const urlObj = new URL(url);
+      return VIDEO_EXTENSIONS.test(urlObj.pathname);
+    } catch {
+      return false;
+    }
+  }
+  
+  function handleImageError(e: Event) {
+    const target = e.target as HTMLImageElement;
+    if (target) target.style.display = 'none';
+  }
 
   // Parse content and create clickable links for URLs, hashtags, and nostr references
   function parseContent(text: string) {
@@ -19,7 +56,7 @@
     let lastIndex = 0;
     let match;
     let keyCounter = 0;
-    
+
     // First find URLs and nostr references
     const urlMatches: Array<{index: number, content: string, type: 'url' | 'nostr', url?: string, prefix?: string, data?: string}> = [];
     urlRegex.lastIndex = 0;
@@ -77,7 +114,7 @@
           key: `text-${keyCounter++}`
         });
       }
-      
+
       if (match.type === 'hashtag') {
         parts.push({
           type: 'hashtag',
@@ -100,10 +137,10 @@
           key: `nostr-${keyCounter++}`
         });
       }
-      
+
       lastIndex = match.index + match.content.length;
     }
-    
+
     // Add any remaining text
     if (lastIndex < text.length) {
       parts.push({
@@ -156,16 +193,39 @@
         {part.content}
       </button>
     {:else if part.type === 'url'}
-      <a
-        href={part.url}
-        target="_blank"
-        rel="noopener noreferrer"
-        class="text-blue-500 hover:text-blue-700 hover:underline break-all"
-      >
-        {part.content}
-      </a>
+      {#if part.url && isImageUrl(part.url)}
+        <div class="my-2">
+          <img 
+            src={part.url} 
+            alt="" 
+            class="max-w-full rounded-lg max-h-96 object-contain"
+            loading="lazy"
+            on:error={handleImageError}
+          />
+        </div>
+      {:else if part.url && isVideoUrl(part.url)}
+        <div class="my-2">
+          <video 
+            src={part.url} 
+            controls 
+            class="max-w-full rounded-lg max-h-96"
+            preload="metadata"
+          >
+            <track kind="captions" />
+          </video>
+        </div>
+      {:else}
+        <a
+          href={part.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          class="text-blue-500 hover:text-blue-700 hover:underline break-all"
+        >
+          {part.content}
+        </a>
+      {/if}
     {:else if part.type === 'nostr'}
-      {#if part.prefix === 'nprofile1'}
+      {#if part.prefix === 'nprofile1' || part.prefix === 'npub1'}
         <ProfileLink nostrString={part.content} />
       {:else if part.prefix === 'nevent1'}
         <NoteEmbed nostrString={part.content} />

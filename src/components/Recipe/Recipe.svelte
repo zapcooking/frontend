@@ -10,7 +10,7 @@
   import Button from '../Button.svelte';
   import { translateOption } from '$lib/state';
   import { translate } from '$lib/translation';
-  import { parseMarkdown } from '$lib/pharser';
+  import { parseMarkdown } from '$lib/parser';
   import TotalZaps from './TotalZaps.svelte';
   import TotalLikes from './TotalLikes.svelte';
   import TotalComments from './TotalComments.svelte';
@@ -128,7 +128,10 @@ async function getLists(): Promise<NDKEvent[]> {
       eventsToPublish.push(nevent);
     }
 
+    // Add NIP-89 client tag to all events before publishing
+    const { addClientTagToEvent } = await import('$lib/nip89');
     for (let i = 0; i < eventsToPublish.length; i++) {
+      addClientTagToEvent(eventsToPublish[i]);
       await eventsToPublish[i].publish();
     }
     // clear for next time

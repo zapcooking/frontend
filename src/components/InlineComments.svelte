@@ -5,6 +5,7 @@
   import CustomAvatar from './CustomAvatar.svelte';
   import CustomName from './CustomName.svelte';
   import { nip19 } from 'nostr-tools';
+  import { addClientTagToEvent } from '$lib/nip89';
   import { format as formatDate } from 'timeago.js';
   import Button from './Button.svelte';
   import CommentWithActions from './CommentWithActions.svelte';
@@ -86,6 +87,9 @@
         ['e', event.id, '', 'reply'], // Reference the original event
         ['p', event.pubkey] // Reference the original author
       ];
+      
+      // Add NIP-89 client tag
+      addClientTagToEvent(commentEvent);
 
       console.log('Created comment event:', commentEvent);
       console.log('Comment event tags:', commentEvent.tags);
@@ -127,6 +131,9 @@
             ['e', event.id, '', 'reply'],
             ['p', event.pubkey]
           ];
+          
+          // Add NIP-89 client tag
+          addClientTagToEvent(newCommentEvent);
           
           await newCommentEvent.sign();
           console.log('New event signed, attempting publish...');

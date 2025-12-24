@@ -2,6 +2,7 @@
   import { ndk } from '$lib/nostr';
   import { NDKEvent } from '@nostr-dev-kit/ndk';
   import Button from './Button.svelte';
+  import { addClientTagToEvent } from '$lib/nip89';
   import Comment from './Comment.svelte';
 
   export let event: NDKEvent;
@@ -47,6 +48,9 @@
     ev.tags = [
       ['a', `${event.kind}:${event.author.pubkey}:${event.tags.find((e) => e[0] == 'd')?.[1]}`]
     ];
+    
+    // Add NIP-89 client tag
+    addClientTagToEvent(ev);
 
     await ev.publish();
     commentText = '';

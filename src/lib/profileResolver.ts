@@ -57,13 +57,16 @@ function cleanupCache(): void {
 // Decode nostr profile string to get pubkey
 export function decodeNostrProfile(nostrString: string): string | null {
   try {
-    if (!nostrString.startsWith('nostr:nprofile1')) {
+    // Handle both nprofile1 and npub1 formats
+    if (!nostrString.startsWith('nostr:nprofile1') && !nostrString.startsWith('nostr:npub1')) {
       return null;
     }
     
     const decoded = nip19.decode(nostrString.replace('nostr:', ''));
     if (decoded.type === 'nprofile') {
       return decoded.data.pubkey;
+    } else if (decoded.type === 'npub') {
+      return decoded.data;
     }
     return null;
   } catch (error) {

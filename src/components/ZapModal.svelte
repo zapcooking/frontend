@@ -2,8 +2,6 @@
   import { NDKEvent, NDKUser } from "@nostr-dev-kit/ndk";
   import { ndk } from "$lib/nostr";
   import Modal from './Modal.svelte';
-  import { formatAmount } from '$lib/utils';
-  import Pill from './Pill.svelte';
   import Button from './Button.svelte';
   import { requestProvider } from 'webln';
   import { qr } from "@svelte-put/qr/svg"
@@ -14,15 +12,21 @@
   import CustomAvatar from './CustomAvatar.svelte';
   import CustomName from './CustomName.svelte';
   import { browser } from '$app/environment';
+  import { onMount } from 'svelte';
   import { ZapManager } from '$lib/zapManager';
 
   let authMethodIsNip07 = $ndk.signer?.constructor.name === "NDKNip07Signer";
 
   const defaultZapSatsAmounts = [
-    21, 121, 400, 1000, 2100, 4200, 10000, 21000, 42000, 69000, 100000, 210000, 500000, 1000000
+    { amount: 21, emoji: '☕', label: '21' },
+    { amount: 100, emoji: '🍪', label: '100' },
+    { amount: 250, emoji: '🧁', label: '250' },
+    { amount: 500, emoji: '🌮', label: '500' },
+    { amount: 1000, emoji: '🍕', label: '1K' },
+    { amount: 2100, emoji: '🍔', label: '2.1K' },
+    { amount: 10000, emoji: '🍣', label: '10K' },
+    { amount: 21000, emoji: '👨‍🍳', label: '21K' },
   ];
-
-  let selectedCurrency: 'SATS' | 'USD' = 'SATS';
 
   export let open = false;
   export let event: NDKEvent | NDKUser;
@@ -40,10 +44,27 @@
 
   let zapManager: ZapManager;
   let subscription: any = null;
+  let hasWebLN = false;
+
+  onMount(async () => {
+    try {
+      hasWebLN = !!(window as any).webln;
+    } catch {
+      hasWebLN = false;
+    }
+  });
 
   // Initialize zap manager only in browser
   $: if ($ndk && browser) {
     zapManager = new ZapManager($ndk);
+  }
+
+  async function submitSmart() {
+    if (hasWebLN) {
+      await submitNow(false);
+    } else {
+      await submitNow(true);
+    }
   }
 
   async function submitNow(qr: boolean) {
@@ -232,27 +253,41 @@
     </div>
   {:else if state == "pre"}
       <div class="flex flex-col gap-3">
-        <div class="grid grid-cols-7 grid-rows-2 gap-2">
-          {#if selectedCurrency == 'SATS'}
-            {#each defaultZapSatsAmounts as zapPamount}
-              <Pill
-                selected={amount == zapPamount}
-                text={formatAmount(zapPamount)}
-                onClick={() => (amount = zapPamount)}
-              />
-            {/each}
-          {/if}
+        <div class="grid grid-cols-4 gap-2">
+          {#each defaultZapSatsAmounts as zapOption}
+            <button
+              on:click={() => (amount = zapOption.amount)}
+              class="flex flex-col items-center justify-center py-3 px-2 rounded-xl transition-all duration-200 cursor-pointer
+                {amount === zapOption.amount 
+                  ? 'bg-gradient-to-r from-orange-500 to-amber-500 text-white shadow-md scale-105' 
+                  : 'bg-gray-100 hover:bg-gray-200 text-gray-700'}"
+            >
+              <span class="text-xl">{zapOption.emoji}</span>
+              <span class="text-sm font-semibold">{zapOption.label}</span>
+            </button>
+          {/each}
         </div>
         <input type="text" class="input" bind:value={amount} />
         <textarea rows="2" class="input" bind:value={message} placeholder="Message (optional)" />
       </div>
-      <div class="flex gap-2 justify-end">
-        <Button
-          class="!text-black bg-white border border-[#ECECEC] hover:bg-accent-gray"
-          on:click={() => open = false}>Cancel</Button
-        >
-        <Button on:click={() => submitNow(false)}>Zap with Extension</Button>
-        <Button on:click={() => submitNow(true)}>Zap with QR Code</Button>
+      <div class="flex flex-col gap-3">
+        <Button class="w-full py-3 text-lg" on:click={submitSmart}>
+          ⚡ Send {amount.toLocaleString()} sats
+        </Button>
+        <div class="flex justify-between items-center px-1">
+          <button 
+            class="text-sm text-gray-500 hover:text-gray-700 underline cursor-pointer"
+            on:click={() => submitNow(true)}
+          >
+            Show QR code instead
+          </button>
+          <button 
+            class="text-sm text-gray-500 hover:text-gray-700 cursor-pointer"
+            on:click={() => open = false}
+          >
+            Cancel
+          </button>
+        </div>
       </div>
   {:else if state == "error"}
     <div class="flex flex-col items-center justify-center">

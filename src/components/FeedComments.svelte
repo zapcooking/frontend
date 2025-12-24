@@ -3,6 +3,7 @@
   import { ndk, userPublickey } from '$lib/nostr';
   import { NDKEvent } from '@nostr-dev-kit/ndk';
   import Button from './Button.svelte';
+  import { addClientTagToEvent } from '$lib/nip89';
   import FeedComment from './FeedComment.svelte';
 
   export let event: NDKEvent;
@@ -32,7 +33,6 @@
   // Create subscription once when ndk is ready
   $: if ($ndk && !subscribed && showComments) {
     subscribed = true;
-    console.log('FeedComments: Subscribing to #e:', event.id);
 
     const sub = $ndk.subscribe({
       kinds: [1],
@@ -40,18 +40,13 @@
     }, { closeOnEose: false });
 
     sub.on('event', (e) => {
-      console.log('FeedComments: Received event:', e.id);
-      // Prevent adding the same event multiple times
       if (processedEvents.has(e.id)) return;
       processedEvents.add(e.id);
-
       events.push(e);
       events = events;
     });
 
-    sub.on('eose', () => {
-      console.log('FeedComments: EOSE - total events:', events.length);
-    });
+    sub.on('eose', () => {});
   }
 
   // Dummy refresh function for FeedComment component - not needed since subscription stays open
@@ -62,27 +57,64 @@
   async function postComment() {
     if (!commentText.trim()) return;
 
-    const ev = new NDKEvent($ndk);
-    ev.kind = 1;
-    ev.content = commentText;
-    ev.tags = [
-      ['e', event.id, '', 'reply'],
-      ['p', event.pubkey]
-    ];
+    try {
+      const ev = new NDKEvent($ndk);
+      ev.kind = 1;
+      ev.content = commentText;
+      ev.tags = [
+        ['e', event.id, '', 'reply'],
+        ['p', event.pubkey]
+      ];
+      
+      // Add NIP-89 client tag
+      addClientTagToEvent(ev);
 
-    await ev.publish();
-    commentText = '';
+      await ev.publish();
+      commentText = '';
+    } catch {
+      // Failed to post comment
+    }
   }
 
   function toggleComments() {
     showComments = !showComments;
   }
 
-  // Filter top-level comments (only direct replies to the main event)
+  // Filter top-level comments (direct replies to the main event)
   $: topLevelComments = events.filter((e) => {
     const eTags = e.getMatchingTags('e');
-    // Only include comments that reference the main event directly
-    return eTags.length === 1 && eTags[0][1] === event.id;
+    
+    // Check if this is a direct reply to the main event
+    // A comment is a direct reply if:
+    // 1. It has a 'reply' marker pointing to the main event, OR
+    // 2. It has only one e tag pointing to the main event, OR
+    // 3. It has the main event as 'root' and no other 'reply' marker
+    
+    const replyTag = eTags.find(tag => tag[3] === 'reply');
+    const rootTag = eTags.find(tag => tag[3] === 'root');
+    
+    // If there's a specific reply marker, check if it points to main event
+    if (replyTag) {
+      return replyTag[1] === event.id;
+    }
+    
+    // If only one e tag, it's a direct reply
+    if (eTags.length === 1 && eTags[0][1] === event.id) {
+      return true;
+    }
+    
+    // If root is main event and no reply marker, it's a direct reply
+    if (rootTag && rootTag[1] === event.id && !replyTag) {
+      return true;
+    }
+    
+    // Otherwise, check if any e tag (without markers) references main event
+    // This handles older/simpler tagging conventions
+    if (eTags.length > 0 && !replyTag && !rootTag) {
+      return eTags.some(tag => tag[1] === event.id);
+    }
+    
+    return false;
   });
 </script>
 

@@ -1,7 +1,7 @@
 import { ndk } from './nostr';
 import { get } from 'svelte/store';
 import type { NDKEvent, NDKFilter, NDKUser } from '@nostr-dev-kit/ndk';
-import { validateMarkdownTemplate } from './pharser';
+import { validateMarkdownTemplate } from './parser';
 import { profileCacheManager } from './profileCache';
 import { logger } from './logger';
 import { markOnce } from './perf/explorePerf';

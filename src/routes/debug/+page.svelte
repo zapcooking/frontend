@@ -1,9 +1,126 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { ndk } from '$lib/nostr';
+  import { standardRelays } from '$lib/consts';
+  import { NDKRelaySet } from '@nostr-dev-kit/ndk';
+  import type { NDKEvent } from '@nostr-dev-kit/ndk';
   
   let debugInfo = 'Loading...';
   let isConnected = false;
+  let relayTests: Array<{
+    url: string;
+    status: 'testing' | 'success' | 'error' | 'timeout';
+    responseTime?: number;
+    eventsReceived?: number;
+    error?: string;
+  }> = [];
+  let isTestingRelays = false;
+  
+  interface RelayTestResult {
+    url: string;
+    status: 'testing' | 'success' | 'error' | 'timeout';
+    responseTime?: number;
+    eventsReceived?: number;
+    error?: string;
+  }
+  
+  async function testRelaySpeed(url: string): Promise<RelayTestResult> {
+    const result: RelayTestResult = {
+      url,
+      status: 'testing'
+    };
+    
+    try {
+      const startTime = Date.now();
+      const testFilter = { kinds: [1], limit: 10 };
+      
+      // Create a relay set for this specific relay
+      const relaySet = NDKRelaySet.fromRelayUrls([url], $ndk, true);
+      
+      const timeoutPromise = new Promise<never>((_, reject) => 
+        setTimeout(() => reject(new Error('Timeout')), 10000)
+      );
+      
+      const events = await Promise.race([
+        $ndk.fetchEvents(testFilter, undefined, relaySet),
+        timeoutPromise
+      ]);
+      
+      const responseTime = Date.now() - startTime;
+      
+      result.status = 'success';
+      result.responseTime = responseTime;
+      result.eventsReceived = events.size;
+      
+    } catch (error: any) {
+      if (error.message === 'Timeout') {
+        result.status = 'timeout';
+        result.error = '10s timeout';
+      } else {
+        result.status = 'error';
+        result.error = error.message || 'Unknown error';
+      }
+    }
+    
+    return result;
+  }
+  
+  async function testAllRelays() {
+    if (!$ndk || isTestingRelays) return;
+    
+    isTestingRelays = true;
+    relayTests = standardRelays.map(url => ({
+      url,
+      status: 'testing' as const
+    }));
+    
+    console.log('🏃 Starting relay speed tests...');
+    
+    // Test all relays in parallel
+    const testPromises = standardRelays.map(url => testRelaySpeed(url));
+    const results = await Promise.allSettled(testPromises);
+    
+    relayTests = results.map((result, index) => {
+      if (result.status === 'fulfilled') {
+        return result.value;
+      } else {
+        return {
+          url: standardRelays[index],
+          status: 'error' as const,
+          error: result.reason?.message || 'Test failed'
+        };
+      }
+    });
+    
+    // Sort by response time (fastest first)
+    relayTests.sort((a, b) => {
+      if (a.status === 'success' && b.status === 'success') {
+        return (a.responseTime || 0) - (b.responseTime || 0);
+      }
+      if (a.status === 'success') return -1;
+      if (b.status === 'success') return 1;
+      return 0;
+    });
+    
+    isTestingRelays = false;
+    
+    // Log summary
+    const successful = relayTests.filter(r => r.status === 'success');
+    const avgTime = successful.length > 0
+      ? Math.round(successful.reduce((sum, r) => sum + (r.responseTime || 0), 0) / successful.length)
+      : 0;
+    
+    console.log(`✅ Relay speed test complete:`);
+    console.log(`   ${successful.length}/${relayTests.length} relays successful`);
+    console.log(`   Average response time: ${avgTime}ms`);
+    relayTests.forEach(r => {
+      if (r.status === 'success') {
+        console.log(`   ${r.url}: ${r.responseTime}ms (${r.eventsReceived} events)`);
+      } else {
+        console.log(`   ${r.url}: ${r.status} (${r.error || ''})`);
+      }
+    });
+  }
   
   onMount(async () => {
     try {
@@ -79,10 +196,82 @@
   </div>
   
   <div class="mt-6">
+    <h2 class="font-semibold mb-4">Relay Speed Test</h2>
+    
+    <button
+      on:click={testAllRelays}
+      disabled={isTestingRelays || !isConnected}
+      class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors mb-4"
+    >
+      {#if isTestingRelays}
+        Testing Relays...
+      {:else}
+        Test All Relays
+      {/if}
+    </button>
+    
+    {#if relayTests.length > 0}
+      <div class="space-y-2">
+        {#each relayTests as test}
+          <div class="border border-gray-200 rounded-lg p-3">
+            <div class="flex items-center justify-between">
+              <div class="flex-1">
+                <div class="font-mono text-sm font-semibold">{test.url}</div>
+                <div class="text-xs text-gray-600 mt-1">
+                  {#if test.status === 'testing'}
+                    <span class="text-blue-600">⏳ Testing...</span>
+                  {:else if test.status === 'success'}
+                    <span class="text-green-600">✅ {test.responseTime}ms • {test.eventsReceived} events</span>
+                  {:else if test.status === 'timeout'}
+                    <span class="text-red-600">⏱️ Timeout (10s)</span>
+                  {:else}
+                    <span class="text-red-600">❌ {test.error || 'Error'}</span>
+                  {/if}
+                </div>
+              </div>
+              {#if test.status === 'success' && test.responseTime}
+                <div class="ml-4">
+                  {#if test.responseTime < 500}
+                    <span class="text-green-600 font-semibold">⚡ Fast</span>
+                  {:else if test.responseTime < 1500}
+                    <span class="text-yellow-600 font-semibold">🟡 Medium</span>
+                  {:else}
+                    <span class="text-red-600 font-semibold">🐌 Slow</span>
+                  {/if}
+                </div>
+              {/if}
+            </div>
+          </div>
+        {/each}
+      </div>
+      
+      {@const successful = relayTests.filter(r => r.status === 'success')}
+      {@const avgTime = successful.length > 0 ? Math.round(successful.reduce((sum, r) => sum + (r.responseTime || 0), 0) / successful.length) : 0}
+      
+      {#if successful.length > 0}
+        <div class="mt-4 p-3 bg-gray-50 rounded-lg">
+          <div class="text-sm">
+            <div class="font-semibold">Summary:</div>
+            <div class="mt-1">
+              {successful.length}/{relayTests.length} relays successful
+            </div>
+            <div class="mt-1">
+              Average response time: <span class="font-mono font-semibold">{avgTime}ms</span>
+            </div>
+            <div class="mt-1">
+              Fastest: <span class="font-mono">{successful[0]?.responseTime}ms</span> ({successful[0]?.url})
+            </div>
+          </div>
+        </div>
+      {/if}
+    {/if}
+  </div>
+  
+  <div class="mt-6">
     <h2 class="font-semibold mb-2">Test Links:</h2>
     <div class="space-y-2">
       <a href="/" class="block text-blue-600 hover:text-blue-800">Home</a>
-      <a href="/feed" class="block text-blue-600 hover:text-blue-800">Feed</a>
+      <a href="/community" class="block text-blue-600 hover:text-blue-800">Community</a>
       <a href="/create" class="block text-blue-600 hover:text-blue-800">Create Recipe</a>
     </div>
   </div>

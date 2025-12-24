@@ -5,6 +5,7 @@
   import { format as formatDate } from 'timeago.js';
   import CustomAvatar from './CustomAvatar.svelte';
   import { resolveProfileByPubkey, formatDisplayName } from '$lib/profileResolver';
+  import { addClientTagToEvent } from '$lib/nip89';
   import HeartIcon from 'phosphor-svelte/lib/Heart';
   import { onMount } from 'svelte';
 
@@ -72,6 +73,9 @@
       ['e', event.id, '', 'reply'],
       ['p', event.pubkey]
     ];
+    
+    // Add NIP-89 client tag
+    addClientTagToEvent(reactionEvent);
 
     await reactionEvent.publish();
     liked = true;
@@ -92,6 +96,9 @@
       ['p', event.pubkey],
       ...event.getMatchingTags('e')
     ];
+    
+    // Add NIP-89 client tag
+    addClientTagToEvent(ev);
 
     await ev.publish();
     replyText = '';
