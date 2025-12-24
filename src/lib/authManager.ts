@@ -143,11 +143,27 @@ export class AuthManager {
         throw new Error('Browser environment required');
       }
 
-      let pk = privateKey;
+      let pk = privateKey.trim();
       
-      // Handle nsec1 format
+      // Handle nsec1 format - decode to Uint8Array then convert to hex
       if (pk.startsWith('nsec1')) {
-        pk = nip19.decode(pk).data.toString();
+        try {
+          const decoded = nip19.decode(pk);
+          if (decoded.type !== 'nsec') {
+            throw new Error('Invalid nsec key format');
+          }
+          const bytes = decoded.data as Uint8Array;
+          pk = Array.from(bytes)
+            .map(b => b.toString(16).padStart(2, '0'))
+            .join('');
+        } catch (decodeError) {
+          throw new Error('Invalid nsec key - could not decode');
+        }
+      }
+      
+      // Validate hex key format (should be 64 hex characters)
+      if (!/^[0-9a-fA-F]{64}$/.test(pk)) {
+        throw new Error('Invalid private key format - expected 64 hex characters or nsec1 key');
       }
 
       const signer = new NDKPrivateKeySigner(pk);
