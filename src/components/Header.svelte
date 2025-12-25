@@ -11,6 +11,8 @@
   import SearchIcon from 'phosphor-svelte/lib/MagnifyingGlass';
   import LightningIcon from 'phosphor-svelte/lib/Lightning';
   import BookmarkIcon from 'phosphor-svelte/lib/Bookmark';
+  import SunIcon from 'phosphor-svelte/lib/Sun';
+  import MoonIcon from 'phosphor-svelte/lib/Moon';
   import { nip19 } from 'nostr-tools';
   import { clickOutside } from '$lib/clickOutside';
   import { fade, blur } from 'svelte/transition';
@@ -64,6 +66,16 @@
   // Reactive resolved theme for logo switching
   $: resolvedTheme = $theme === 'system' ? theme.getResolvedTheme() : $theme;
   $: isDarkMode = resolvedTheme === 'dark';
+
+  function toggleTheme(e: Event) {
+    // Prevent any default behavior or navigation
+    e.preventDefault();
+    e.stopPropagation();
+    // Toggle between light and dark (not system)
+    theme.setTheme(isDarkMode ? 'light' : 'dark');
+    // Close dropdown after toggling
+    dropdownActive = false;
+  }
 </script>
 
 {#if searchActive}
@@ -133,7 +145,9 @@
 
     <!-- Notifications - only show when logged in -->
     {#if $userPublickey}
-      <NotificationBell />
+      <div class="self-center">
+        <NotificationBell />
+      </div>
     {/if}
     
     <!-- Sign in / User menu -->
@@ -164,6 +178,15 @@
               <button class="flex gap-2 cursor-pointer hover:text-primary" on:click={() => goto('/bookmarks')}>
                 <BookmarkIcon class="self-center" size={18} />
                 Bookmarks
+              </button>
+              <button class="flex gap-2 cursor-pointer hover:text-primary" on:click={toggleTheme} type="button">
+                {#if isDarkMode}
+                  <SunIcon class="self-center" size={18} />
+                  Mode
+                {:else}
+                  <MoonIcon class="self-center" size={18} />
+                  Mode
+                {/if}
               </button>
               <button class="flex gap-2 cursor-pointer hover:text-primary" on:click={() => goto('/settings')}>
                 <GearIcon class="self-center" size={18} />

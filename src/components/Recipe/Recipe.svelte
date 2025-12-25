@@ -236,8 +236,7 @@ async function getLists(): Promise<NDKEvent[]> {
       {:then lists}
         <div class="flex flex-col gap-2">
           {#each lists as list, index}
-            <div class="flex gap-14 w-full">
-              <p class="font-semibold">{list.getMatchingTags('title')[0][1]}</p>
+            <div class="flex gap-3 w-full">
               <input
                 class="self-center"
                 type="checkbox"
@@ -251,6 +250,7 @@ async function getLists(): Promise<NDKEvent[]> {
                   ? true
                   : false}
               />
+              <p class="font-semibold">{list.getMatchingTags('title')[0][1]}</p>
             </div>
             {#if index === 0}
               <hr />
@@ -265,9 +265,12 @@ async function getLists(): Promise<NDKEvent[]> {
     {/if}
   </div>
   <div class="flex">
-    <a href="/list/create" target="_blank" class="text-sm underline grow self-center"
-      >Create a New List</a
-    >
+    <a href="/list/create" target="_blank" class="flex items-center gap-1.5 text-sm grow self-center hover:opacity-80 transition-opacity">
+      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 256 256">
+        <path d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm0,192a88,88,0,1,1,88-88A88.1,88.1,0,0,1,128,216Zm48-88a8,8,0,0,1-8,8H136v32a8,8,0,0,1-16,0V136H88a8,8,0,0,1,0-16h32V88a8,8,0,0,1,16,0v32h32A8,8,0,0,1,176,128Z"></path>
+      </svg>
+      Create a New List
+    </a>
     <Button
       class="flex"
       on:click={async () => {

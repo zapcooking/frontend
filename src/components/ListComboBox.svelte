@@ -57,9 +57,9 @@
 
 <div class="mb-0">
   {#if $selected.length > 0}
-    <ul class="flex flex-col gap-2">
+    <ul class="flex flex-col">
       {#each $selected as tag, index}
-        <li class="flex input" transition:slide|global={{ duration: 300 }}>
+        <li class="flex input mb-1" transition:slide|global={{ duration: 300 }}>
           <a class="grow underline" target="_blank" href={`/recipe/${tag.naddr}`}
             >{#if tag.title}{tag.title}{:else}{tag.naddr}{/if}</a
           >

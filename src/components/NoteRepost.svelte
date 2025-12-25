@@ -120,27 +120,29 @@
     <ArrowsClockwise
       size={24}
       weight={reposted ? 'fill' : 'regular'}
-      class={reposted ? 'text-green-500' : 'text-black'}
+      class={reposted ? 'text-green-500' : ''}
+      style="{!reposted ? 'color: var(--color-text-primary)' : ''}"
     />
     {#if loading}...{:else}{totalReposts}{/if}
   </button>
 
   {#if showMenu}
-    <div 
-      class="absolute bottom-full left-0 mb-2 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-50 min-w-[120px]"
+    <div
+      class="absolute bottom-full left-0 mb-2 bg-input rounded-lg shadow-lg py-1 z-50 min-w-[120px]"
+      style="border: 1px solid var(--color-input-border); color: var(--color-text-primary);"
       use:clickOutside
       on:click_outside={() => showMenu = false}
     >
       <button
         on:click={repost}
-        class="w-full px-4 py-2 text-left text-sm hover:bg-gray-100 flex items-center gap-2"
+        class="w-full px-4 py-2 text-left text-sm hover:bg-accent-gray flex items-center gap-2"
       >
         <ArrowsClockwise size={16} />
         Repost
       </button>
       <button
         on:click={quote}
-        class="w-full px-4 py-2 text-left text-sm hover:bg-gray-100 flex items-center gap-2"
+        class="w-full px-4 py-2 text-left text-sm hover:bg-accent-gray flex items-center gap-2"
       >
         <span>💬</span>
         Quote

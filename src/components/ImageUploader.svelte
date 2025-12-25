@@ -62,19 +62,20 @@
 </script>
 
 <div
-  class="flex justify-center bg-input rounded-lg border border-dashed border-[#CCCCCC] px-6 py-10 text-[#1F1D1B]/50"
+  class="flex justify-center bg-input rounded-lg border border-dashed px-6 py-10"
+  style="border-color: var(--color-input-border)"
 >
   <div class="text-center">
     <div class="flex gap-0.5 text-sm leading-6 items-center">
       <label
         for="file-upload"
-        class="relative cursor-pointer rounded-md font-semibold text-blue-600 focus-within:outline-none focus-within:ring-2 focus-within:ring-blue-600 focus-within:ring-offset-2 hover:text-blue-500"
+        class="relative cursor-pointer rounded-md font-semibold focus-within:outline-none focus-within:ring-2 focus-within:ring-blue-600 focus-within:ring-offset-2 hover:opacity-80"
       >
         <span class="text-primary">Upload {name}</span>
         <input id="file-upload" bind:this={input} type="file" class="sr-only" />
       </label>
-      <p class="pl-1">or drag and drop</p>
+      <p class="pl-1 text-caption">or drag and drop</p>
     </div>
-    <p class="text-xs leading-5">JPG, PNG, WEBP, or GIF</p>
+    <p class="text-xs leading-5 text-caption">JPG, PNG, WEBP, or GIF</p>
   </div>
 </div>

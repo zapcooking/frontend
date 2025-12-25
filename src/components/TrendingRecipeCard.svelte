@@ -26,9 +26,9 @@
           console.warn('Failed to encode naddr:', e);
         }
       }
-      
+
       imageUrl = event.tags.find((e) => Array.isArray(e) && e[0] == 'image')?.[1] || '';
-      title = event.tags.find((e) => Array.isArray(e) && e[0] == 'title')?.[1] || 
+      title = event.tags.find((e) => Array.isArray(e) && e[0] == 'title')?.[1] ||
               event.tags.find((e) => Array.isArray(e) && e[0] == 'd')?.[1] || 'Untitled Recipe';
       authorPubkey = event.author?.pubkey || null;
     } else {

@@ -130,25 +130,25 @@
           {displayName}
         {/if}
       </a>
-      <span class="text-gray-500 text-sm">
+      <span class="text-caption text-sm">
         {formatDate(new Date((event.created_at || 0) * 1000))}
       </span>
     </div>
 
     <!-- Comment Text -->
-    <p class="text-base text-gray-900 mb-2 break-words">
+    <p class="text-base mb-2 break-words" style="color: var(--color-text-primary)">
       {event.content}
     </p>
 
     <!-- Actions -->
-    <div class="flex items-center gap-4 text-sm text-gray-600">
+    <div class="flex items-center gap-4 text-sm text-caption">
       <!-- Like Button -->
       <button
         on:click={toggleLike}
         class="flex items-center gap-1 hover:text-red-500 transition"
         class:text-red-500={liked}
-        class:text-black={!liked}
         disabled={!$userPublickey}
+        style="{!liked ? 'color: var(--color-text-primary)' : ''}"
       >
         <HeartIcon size={16} weight={liked ? 'fill' : 'regular'} />
         {#if !likesLoading && likeCount > 0}
@@ -171,7 +171,7 @@
         <textarea
           bind:value={replyText}
           placeholder="Add a reply..."
-          class="w-full px-3 py-2 text-base border border-gray-300 rounded-lg resize-none focus:ring-2 focus:ring-primary focus:border-transparent"
+          class="w-full px-3 py-2 text-base input rounded-lg resize-none focus:ring-2 focus:ring-primary focus:border-transparent"
           rows="3"
         />
         <div class="flex gap-2">
@@ -187,7 +187,7 @@
               showReplyBox = false;
               replyText = '';
             }}
-            class="px-4 py-2 bg-gray-100 rounded-lg font-medium hover:bg-gray-200"
+            class="px-4 py-2 bg-input rounded-lg font-medium hover:bg-accent-gray"
           >
             Cancel
           </button>
@@ -197,7 +197,7 @@
 
     <!-- Nested Replies -->
     {#if directReplies.length > 0}
-      <div class="mt-4 space-y-4 pl-4 border-l-2 border-gray-100">
+      <div class="mt-4 space-y-4 pl-4 border-l-2" style="border-color: var(--color-input-border)">
         {#each directReplies as reply}
           <svelte:self event={reply} {replies} {refresh} />
         {/each}

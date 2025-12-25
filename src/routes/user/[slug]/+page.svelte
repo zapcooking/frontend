@@ -490,8 +490,8 @@
       <!-- NIP-05 -->
       {#if profile?.nip05}
         <div class="flex items-center gap-2 text-sm">
-          <span class="text-gray-500 font-medium">NIP-05:</span>
-          <span class="text-gray-900">{profile.nip05}</span>
+          <span class="text-caption font-medium">NIP-05:</span>
+          <span style="color: var(--color-text-primary)">{profile.nip05}</span>
         </div>
       {/if}
 
@@ -499,15 +499,15 @@
       {#if profile?.lud16 || profile?.lud06}
         <div class="flex items-center gap-2 text-sm">
           <LightningIcon size={16} class="text-yellow-500" />
-          <span class="text-gray-500 font-medium">Lightning:</span>
-          <span class="text-gray-900 break-all">{profile.lud16 || profile.lud06}</span>
+          <span class="text-caption font-medium">Lightning:</span>
+          <span class="break-all" style="color: var(--color-text-primary)">{profile.lud16 || profile.lud06}</span>
         </div>
       {/if}
 
       <!-- Copy Npub Button -->
       <button
         on:click={copyNpub}
-        class="w-full flex items-center justify-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors text-sm font-medium"
+        class="w-full flex items-center justify-center gap-2 px-4 py-2 bg-input hover:bg-accent-gray rounded-lg transition-colors text-sm font-medium"
       >
         {#if npubCopied}
           <CheckIcon size={18} weight="bold" />
@@ -563,8 +563,8 @@
           {@const needsTruncation = formattedBio.length > 150}
           
           <div class="flex flex-col gap-1">
-            <p 
-              class="text-xs text-gray-400 leading-relaxed transition-all md:line-clamp-none"
+            <p
+              class="text-xs text-caption leading-relaxed transition-all md:line-clamp-none"
               class:line-clamp-2={!bioExpanded && needsTruncation}
             >
               {formattedBio}
@@ -586,7 +586,7 @@
     <div class="flex gap-2 flex-shrink-0">
       {#if hexpubkey !== $userPublickey}
         <button
-          class="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+          class="p-2 hover:bg-accent-gray rounded-lg transition-colors"
           on:click={() => (zapModal = true)}
           aria-label="Zap user"
         >
@@ -598,9 +598,10 @@
           <button
             on:click={toggleFollow}
             disabled={followLoading}
-            class="flex items-center gap-1.5 px-4 py-2 rounded-full font-medium text-sm transition-colors disabled:opacity-50 {isFollowing 
-              ? 'bg-gray-100 text-gray-700 hover:bg-gray-200' 
+            class="flex items-center gap-1.5 px-4 py-2 rounded-full font-medium text-sm transition-colors disabled:opacity-50 {isFollowing
+              ? 'bg-input hover:bg-accent-gray'
               : 'bg-orange-500 text-white hover:bg-orange-600'}"
+            style="{isFollowing ? 'color: var(--color-text-primary)' : ''}"
           >
             {#if followLoading}
               <span class="animate-pulse">...</span>
@@ -621,14 +622,12 @@
 
   <div class="flex flex-col gap-4">
     <!-- Tabs: Recipes | Posts | Lists | Mute -->
-    <div class="flex items-center border-b border-gray-200">
+    <div class="flex items-center border-b" style="border-color: var(--color-input-border)">
       <div class="flex gap-1">
         <button
           on:click={() => (activeTab = 'recipes')}
           class="px-4 py-2 text-sm font-medium transition-colors relative"
-          class:text-gray-900={activeTab === 'recipes'}
-          class:text-gray-500={activeTab !== 'recipes'}
-          class:hover:text-gray-900={activeTab !== 'recipes'}
+          style="color: {activeTab === 'recipes' ? 'var(--color-text-primary)' : 'var(--color-text-secondary)'}"
         >
           Recipes
           {#if activeTab === 'recipes'}
@@ -638,9 +637,7 @@
         <button
           on:click={() => (activeTab = 'posts')}
           class="px-4 py-2 text-sm font-medium transition-colors relative"
-          class:text-gray-900={activeTab === 'posts'}
-          class:text-gray-500={activeTab !== 'posts'}
-          class:hover:text-gray-900={activeTab !== 'posts'}
+          style="color: {activeTab === 'posts' ? 'var(--color-text-primary)' : 'var(--color-text-secondary)'}"
         >
           Posts
           {#if activeTab === 'posts'}
@@ -650,9 +647,7 @@
         <button
           on:click={() => (activeTab = 'lists')}
           class="px-4 py-2 text-sm font-medium transition-colors relative"
-          class:text-gray-900={activeTab === 'lists'}
-          class:text-gray-500={activeTab !== 'lists'}
-          class:hover:text-gray-900={activeTab !== 'lists'}
+          style="color: {activeTab === 'lists' ? 'var(--color-text-primary)' : 'var(--color-text-secondary)'}"
         >
           Lists
           {#if activeTab === 'lists'}
@@ -669,9 +664,10 @@
         <button
           on:click={toggleMute}
           disabled={muteLoading}
-          class="flex items-center gap-1.5 px-3 py-1.5 rounded-full font-medium text-xs transition-colors disabled:opacity-50 {isMuted 
-            ? 'bg-red-100 text-red-700 hover:bg-red-200' 
-            : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}"
+          class="flex items-center gap-1.5 px-3 py-1.5 rounded-full font-medium text-xs transition-colors disabled:opacity-50 {isMuted
+            ? 'bg-red-100 text-red-700 hover:bg-red-200'
+            : 'bg-input hover:bg-accent-gray'}"
+          style="{!isMuted ? 'color: var(--color-text-primary)' : ''}"
           aria-label={isMuted ? 'Unmute user' : 'Mute user'}
           title={isMuted ? 'Unmute user' : 'Mute user'}
         >

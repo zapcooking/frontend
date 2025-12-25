@@ -258,9 +258,10 @@
             <button
               on:click={() => (amount = zapOption.amount)}
               class="flex flex-col items-center justify-center py-3 px-2 rounded-xl transition-all duration-200 cursor-pointer
-                {amount === zapOption.amount 
-                  ? 'bg-gradient-to-r from-orange-500 to-amber-500 text-white shadow-md scale-105' 
-                  : 'bg-gray-100 hover:bg-gray-200 text-gray-700'}"
+                {amount === zapOption.amount
+                  ? 'bg-gradient-to-r from-orange-500 to-amber-500 text-white shadow-md scale-105'
+                  : 'bg-input hover:bg-accent-gray'}"
+              style="{amount !== zapOption.amount ? 'color: var(--color-text-primary)' : ''}"
             >
               <span class="text-xl">{zapOption.emoji}</span>
               <span class="text-sm font-semibold">{zapOption.label}</span>
@@ -275,14 +276,14 @@
           ⚡ Send {amount.toLocaleString()} sats
         </Button>
         <div class="flex justify-between items-center px-1">
-          <button 
-            class="text-sm text-gray-500 hover:text-gray-700 underline cursor-pointer"
+          <button
+            class="text-sm text-caption hover:opacity-80 underline cursor-pointer"
             on:click={() => submitNow(true)}
           >
             Show QR code instead
           </button>
-          <button 
-            class="text-sm text-gray-500 hover:text-gray-700 cursor-pointer"
+          <button
+            class="text-sm text-caption hover:opacity-80 cursor-pointer"
             on:click={() => open = false}
           >
             Cancel
@@ -319,11 +320,11 @@
                 <div class="break-words">
                   Zapping <span class="font-semibold">{amount} sats</span> to
                 </div>
-                <div class="break-all text-sm font-semibold text-gray-700">
+                <div class="break-all text-sm font-semibold" style="color: var(--color-text-primary)">
                   <CustomName pubkey={paymentsToMakeQR[selected_qr - 1].recipientPubkey} />
                 </div>
                 {#if event}
-                  <span class="text-sm text-gray-600">for this recipe</span>
+                  <span class="text-sm text-caption">for this recipe</span>
                 {/if}
               </div>
             </div>
@@ -345,7 +346,7 @@
               }}
             />
             <div class="flex items-center gap-2">
-              <div class="flex-1 break-all text-xs bg-gray-50 p-2 rounded border">
+              <div class="flex-1 break-all text-xs bg-input p-2 rounded" style="border: 1px solid var(--color-input-border)">
                 {paymentsToMakeQR[selected_qr - 1].pr}
               </div>
               <button 
@@ -391,7 +392,7 @@
       <div class="flex flex-col items-center justify-center">
         <Checkmark color="#90EE90" weight="fill" class="w-36 h-36" />
         <span class="text-2xl ml-4 text-center">Payment Sent!</span>
-        <span class="text-lg text-gray-600 text-center mt-2">
+        <span class="text-lg text-caption text-center mt-2">
           Your zap of {amount} sats has been sent via your Lightning wallet.
         </span>
         <div class="flex gap-2 mt-4">

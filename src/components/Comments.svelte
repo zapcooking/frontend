@@ -66,7 +66,7 @@
   <!-- Comments List -->
   <div class="space-y-4">
     {#if topLevelComments.length === 0}
-      <p class="text-gray-500">No comments yet. Be the first to comment!</p>
+      <p class="text-caption">No comments yet. Be the first to comment!</p>
     {:else}
       {#each topLevelComments as comment}
         <Comment event={comment} replies={events} refresh={refresh} />
@@ -81,7 +81,7 @@
       id="comment-input"
       bind:value={commentText}
       placeholder="Share your thoughts..."
-      class="w-full px-4 py-3 text-base border border-gray-300 rounded-lg resize-none focus:ring-2 focus:ring-primary focus:border-transparent"
+      class="w-full px-4 py-3 text-base input rounded-lg resize-none focus:ring-2 focus:ring-primary focus:border-transparent"
       rows="4"
     />
     <Button on:click={postComment} disabled={!commentText.trim()}>

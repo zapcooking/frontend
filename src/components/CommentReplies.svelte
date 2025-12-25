@@ -102,7 +102,7 @@
   <!-- Reply Button -->
   <button
     on:click={toggleReplies}
-    class="text-sm text-gray-600 hover:text-primary font-medium cursor-pointer transition duration-300 print:hidden"
+    class="text-sm text-caption hover:text-primary font-medium cursor-pointer transition duration-300 print:hidden"
   >
     {showReplies ? 'Hide replies' : 'Reply'} {replyCount > 0 ? `(${replyCount})` : ''}
   </button>
@@ -136,7 +136,7 @@
           bind:value={replyText}
           placeholder={$ndk.signer ? "Add a reply..." : "Log in to reply..."}
           disabled={!$ndk.signer}
-          class="w-full px-4 py-3 text-sm border border-gray-200 rounded-xl resize-none focus:ring-2 focus:ring-primary focus:border-transparent disabled:bg-gray-100 disabled:cursor-not-allowed transition duration-200"
+          class="w-full px-4 py-3 text-sm input rounded-xl resize-none focus:ring-2 focus:ring-primary focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed transition duration-200"
           rows="3"
         />
         <div class="flex justify-end">
@@ -153,9 +153,9 @@
       <!-- Replies List -->
       <div class="space-y-2">
         {#if loading}
-          <div class="py-2 text-sm text-gray-500">Loading replies...</div>
+          <div class="py-2 text-sm text-caption">Loading replies...</div>
         {:else if replies.length === 0}
-          <div class="text-center py-2 text-xs text-gray-500">No replies yet</div>
+          <div class="text-center py-2 text-xs text-caption">No replies yet</div>
         {:else}
           {#each replies as reply}
             <div class="flex gap-2">
@@ -166,14 +166,14 @@
               />
               <div class="flex-1 min-w-0">
                 <div class="flex items-center gap-2 mb-1">
-                  <span class="font-semibold text-sm text-gray-900">
+                  <span class="font-semibold text-sm" style="color: var(--color-text-primary)">
                     <CustomName pubkey={reply.pubkey} />
                   </span>
-                  <span class="text-xs text-gray-500">
+                  <span class="text-xs text-caption">
                     {formatDate(new Date((reply.created_at || 0) * 1000))}
                   </span>
                 </div>
-                <p class="text-sm text-gray-700 leading-relaxed mb-2">
+                <p class="text-sm leading-relaxed mb-2" style="color: var(--color-text-primary)">
                   {reply.content}
                 </p>
                 <!-- Reply Actions -->
