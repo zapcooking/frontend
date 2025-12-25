@@ -18,8 +18,9 @@
   import FeedPostSkeleton from './FeedPostSkeleton.svelte';
   import LoadingState from './LoadingState.svelte';
   import { nip19 } from 'nostr-tools';
-  import CopyIcon from 'phosphor-svelte/lib/Copy';
-  import CheckIcon from 'phosphor-svelte/lib/Check';
+import CopyIcon from 'phosphor-svelte/lib/Copy';
+import CheckIcon from 'phosphor-svelte/lib/Check';
+import ClientAttribution from './ClientAttribution.svelte';
 
   // Outbox model for efficient following feed
   import { 
@@ -1713,11 +1714,12 @@
                           <!-- Thread connection line -->
                           <div class="relative pl-4 border-l-2 ml-1" style="border-color: var(--color-input-border)">
                             <div class="bg-input rounded-lg p-3 text-sm">
-                              <div class="flex items-center gap-2 mb-2">
+                              <div class="flex items-center gap-2 mb-2 flex-wrap">
                                 <CustomAvatar pubkey={parentNote.pubkey} size={20} />
                                 <AuthorName event={parentNote} />
                                 <span class="text-caption">·</span>
                                 <span class="text-caption text-xs">{formatTimeAgo(parentNote.created_at || 0)}</span>
+                                <ClientAttribution tags={parentNote.tags} enableEnrichment={false} />
                               </div>
                               <div class="whitespace-pre-wrap break-words text-sm leading-relaxed" style="color: var(--color-text-primary)">
                                 <NoteContent content={parentNote.content || ''} />
@@ -1763,7 +1765,7 @@
                 {/if}
               {/if}
               
-              <div class="flex items-center space-x-2 mb-2">
+              <div class="flex items-center space-x-2 mb-2 flex-wrap">
                 {#if !hideAuthorName}
                   <AuthorName {event} />
                   <span class="text-gray-500 text-sm">·</span>
@@ -1771,6 +1773,7 @@
                 <span class="text-gray-500 text-sm">
                   {event.created_at ? formatTimeAgo(event.created_at) : 'Unknown time'}
                 </span>
+                <ClientAttribution tags={event.tags} enableEnrichment={false} />
               </div>
 
               {#if getContentWithoutMedia(event.content)}

@@ -15,6 +15,7 @@
   import ZapModal from '../../components/ZapModal.svelte';
   import Button from '../../components/Button.svelte';
   import { addClientTagToEvent } from '$lib/nip89';
+  import ClientAttribution from '../../components/ClientAttribution.svelte';
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
   import type { PageData } from './$types';
 
@@ -396,7 +397,7 @@
           />
         </a>
         <div class="flex-1 min-w-0">
-          <div class="flex items-center space-x-2 mb-2">
+          <div class="flex items-center space-x-2 mb-2 flex-wrap">
             <a href="/user/{nip19.npubEncode(event.author?.hexpubkey || event.pubkey)}" class="font-semibold text-gray-900 hover:underline">
               <CustomName pubkey={event.author?.hexpubkey || event.pubkey} />
             </a>
@@ -404,6 +405,7 @@
             <span class="text-gray-400 text-sm">
               {event.created_at ? formatTimeAgo(event.created_at) : 'Unknown time'}
             </span>
+            <ClientAttribution tags={event.tags} enableEnrichment={true} />
           </div>
           <div class="text-gray-900 leading-relaxed mb-4">
             <NoteContent content={event.content} />

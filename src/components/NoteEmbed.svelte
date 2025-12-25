@@ -8,6 +8,7 @@
   import { formatDistanceToNow } from 'date-fns';
   import { goto } from '$app/navigation';
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
+  import ClientAttribution from './ClientAttribution.svelte';
 
   export let nostrString: string;
 
@@ -235,12 +236,13 @@
       <!-- Content -->
       <div class="flex-1 min-w-0">
         <!-- Header -->
-        <div class="flex items-center space-x-2 mb-2">
+        <div class="flex items-center space-x-2 mb-2 flex-wrap">
           <AuthorName {event} />
           <span class="text-gray-500 text-sm">·</span>
           <span class="text-gray-500 text-sm">
             {event.created_at ? formatTimeAgo(event.created_at) : 'Unknown time'}
           </span>
+          <ClientAttribution tags={event.tags} enableEnrichment={false} />
         </div>
 
         <!-- Content Preview -->
