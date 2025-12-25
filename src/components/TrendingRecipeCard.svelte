@@ -54,7 +54,7 @@
   >
     <!-- Recipe Image -->
     <div
-      class="absolute inset-0 image-placeholder"
+      class="absolute inset-0 {imageUrl ? '' : 'image-placeholder'}"
       style={imageUrl ? `background-image: url('${imageUrl}'); background-size: cover; background-position: center;` : ''}
     >
       <div class="absolute inset-0 bg-black/20 group-hover:bg-black/10 transition-colors"></div>
