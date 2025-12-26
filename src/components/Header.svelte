@@ -182,10 +182,10 @@
               <button class="flex gap-2 cursor-pointer hover:text-primary" on:click={toggleTheme} type="button">
                 {#if isDarkMode}
                   <SunIcon class="self-center" size={18} />
-                  Mode
+                  Light mode
                 {:else}
                   <MoonIcon class="self-center" size={18} />
-                  Mode
+                  Dark mode
                 {/if}
               </button>
               <button class="flex gap-2 cursor-pointer hover:text-primary" on:click={() => goto('/settings')}>
