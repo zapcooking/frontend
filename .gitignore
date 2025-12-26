@@ -23,3 +23,6 @@ dist/
 android/
 ios/
 build/
+
+# Claude Code
+CLAUDE.md
