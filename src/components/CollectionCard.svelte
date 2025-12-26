@@ -21,7 +21,7 @@
 
   <!-- Content -->
   <div class="relative h-full flex flex-col justify-end p-4 text-white">
-    <h3 class="text-lg font-bold mb-1">{title}</h3>
+    <h3 class="!text-white text-lg font-bold mb-1">{title}</h3>
     <p class="text-sm text-white/90">{subtitle}</p>
   </div>
 </button>
