@@ -69,7 +69,7 @@
 
     <!-- Content -->
     <div class="absolute inset-x-0 bottom-0 p-4 bg-gradient-to-t from-black/80 via-black/60 to-transparent">
-      <h3 class="text-white font-semibold text-sm line-clamp-2">{title}</h3>
+      <h3 class="!text-white font-semibold text-sm line-clamp-2">{title}</h3>
     </div>
   </button>
 {/if}
