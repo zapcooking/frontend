@@ -33,8 +33,8 @@
   {#each tags as tag}
     <a
       href="/tag/{tag.title}"
-      class="rounded-full px-2 py-1 bg-input text-black hover:bg-accent-gray transition duration-300
-     cursor-pointer"
+      class="rounded-full px-2 py-1 bg-input hover:bg-accent-gray transition duration-300 cursor-pointer"
+      style="color: var(--color-text-primary)"
     >
       {tag.title}
     </a>

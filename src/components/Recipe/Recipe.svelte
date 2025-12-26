@@ -387,7 +387,7 @@ async function getLists(): Promise<NDKEvent[]> {
           class="cursor-pointer hover:bg-input rounded p-0.5 transition duration-300"
           on:click={() => (dropdownActive = !dropdownActive)}
         >
-          <DotsIcon size={28} weight="bold" />
+          <DotsIcon size={28} weight="bold" class="text-caption" />
         </button>
         {#if dropdownActive}
           <div class="relative" tabindex="-1" transition:fade={{ delay: 0, duration: 150 }}>

@@ -165,34 +165,34 @@
               on:keydown={(e) => e.key === 'Escape' && (dropdownActive = false)}
               use:clickOutside
               on:click_outside={() => (dropdownActive = false)}
-              class="flex flex-col right-3 gap-4 absolute z-10 bg-input rounded-3xl drop-shadow px-5 py-6"
+              class="flex flex-col right-3 gap-4 absolute z-10 bg-input rounded-3xl drop-shadow px-5 py-6 min-w-[160px]"
               style="color: var(--color-text-primary)"
             >
               <button
-                class="flex gap-2 cursor-pointer hover:text-primary"
+                class="flex gap-2 cursor-pointer hover:text-primary whitespace-nowrap"
                 on:click={() => goto(`/user/${nip19.npubEncode($userPublickey)}`)}
               >
                 <UserIcon class="self-center" size={18} />
                 Profile
               </button>
-              <button class="flex gap-2 cursor-pointer hover:text-primary" on:click={() => goto('/bookmarks')}>
+              <button class="flex gap-2 cursor-pointer hover:text-primary whitespace-nowrap" on:click={() => goto('/bookmarks')}>
                 <BookmarkIcon class="self-center" size={18} />
                 Bookmarks
               </button>
-              <button class="flex gap-2 cursor-pointer hover:text-primary" on:click={toggleTheme} type="button">
+              <button class="flex gap-2 cursor-pointer hover:text-primary whitespace-nowrap" on:click={toggleTheme} type="button">
                 {#if isDarkMode}
                   <SunIcon class="self-center" size={18} />
-                  Mode
+                  Light Mode
                 {:else}
                   <MoonIcon class="self-center" size={18} />
-                  Mode
+                  Dark Mode
                 {/if}
               </button>
-              <button class="flex gap-2 cursor-pointer hover:text-primary" on:click={() => goto('/settings')}>
+              <button class="flex gap-2 cursor-pointer hover:text-primary whitespace-nowrap" on:click={() => goto('/settings')}>
                 <GearIcon class="self-center" size={18} />
                 Settings
               </button>
-              <button class="flex gap-2 cursor-pointer hover:text-primary" on:click={logout}>
+              <button class="flex gap-2 cursor-pointer hover:text-primary whitespace-nowrap" on:click={logout}>
                 <SignOutIcon class="self-center" size={18} />
                 Log out
               </button>

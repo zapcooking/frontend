@@ -407,14 +407,14 @@
             </span>
             <ClientAttribution tags={event.tags} enableEnrichment={true} />
           </div>
-          <div class="text-gray-900 leading-relaxed mb-4">
+          <div class="leading-relaxed mb-4" style="color: var(--color-text-primary)">
             <NoteContent content={event.content} />
           </div>
-          <div class="flex items-center space-x-4 text-sm text-gray-500 pt-3 border-t border-gray-100">
+          <div class="flex items-center space-x-4 text-sm pt-3 border-t" style="color: var(--color-text-secondary); border-color: var(--color-input-border)">
             <NoteTotalLikes {event} />
             <NoteTotalComments {event} />
-            <button 
-              class="cursor-pointer hover:bg-gray-100 rounded px-1 py-0.5 transition duration-200"
+            <button
+              class="cursor-pointer hover:bg-accent-gray rounded px-1 py-0.5 transition duration-200"
               on:click={openZapModal}
             >
               <NoteTotalZaps {event} />

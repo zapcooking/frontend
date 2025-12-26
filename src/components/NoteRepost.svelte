@@ -120,8 +120,7 @@
     <ArrowsClockwise
       size={24}
       weight={reposted ? 'fill' : 'regular'}
-      class={reposted ? 'text-green-500' : ''}
-      style="{!reposted ? 'color: var(--color-text-primary)' : ''}"
+      class={reposted ? 'text-green-500' : 'text-caption'}
     />
     {#if loading}...{:else}{totalReposts}{/if}
   </button>
@@ -137,7 +136,7 @@
         on:click={repost}
         class="w-full px-4 py-2 text-left text-sm hover:bg-accent-gray flex items-center gap-2"
       >
-        <ArrowsClockwise size={16} />
+        <ArrowsClockwise size={16} class="text-caption" />
         Repost
       </button>
       <button

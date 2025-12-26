@@ -49,6 +49,6 @@
   }}
   title="View comments"
 >
-  <CommentIcon size={24} class="text-black" />
+  <CommentIcon size={24} class="text-caption" />
   {#if loading}...{:else}{totalCommentAmount}{/if}
 </button>
