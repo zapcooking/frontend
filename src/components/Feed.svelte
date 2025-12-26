@@ -14,9 +14,6 @@
   }
 </script>
 
-<svelte:head>
-  <link rel="preload" as="image" href="/placeholder.png" />
-</svelte:head>
 
 {#if events.length > 0}
   <div
@@ -35,22 +32,17 @@
   >
     {#each new Array(24) as i}
       <div
-        class="flex flex-col gap-4 w-full max-w-[160px] justify-self-center hover:text-primary transition-colors duration-300"
+        class="flex flex-col gap-4 w-full max-w-[160px] justify-self-center"
       >
         <div
-          class="rounded-3xl w-[160px] h-[237px] cursor-pointer transition relative overflow-hidden bg-cover bg-center animate-pulse"
-          style="background-image: url('/placeholder.png');"
+          class="rounded-3xl w-[160px] h-[237px] transition relative overflow-hidden bg-cover bg-center animate-pulse image-placeholder"
         />
-
-        <h5 class="text-md leading-tight text-wrap text-input bg-input animate-pulse">
-          PLACEHOLDER RECIPE {i}
-        </h5>
       </div>
     {/each}
   </div>
 {:else}
   <!-- Empty state -->
-  <div class="text-center py-12 text-gray-500">
+  <div class="text-center py-12 text-caption">
     <p class="text-lg">No {lists ? 'lists' : 'recipes'} found</p>
   </div>
 {/if}

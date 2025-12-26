@@ -24,7 +24,7 @@
 
 <style>
   .skeleton {
-    background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+    background: linear-gradient(90deg, var(--color-skeleton-base) 25%, var(--color-skeleton-highlight) 50%, var(--color-skeleton-base) 75%);
     background-size: 200% 100%;
     animation: shimmer 1.5s infinite;
   }
@@ -47,8 +47,8 @@
   @media (prefers-reduced-motion: reduce) {
     .skeleton {
       animation: none;
-      background: #f0f0f0;
+      background: var(--color-skeleton-base);
     }
-    
+
   }
 </style>

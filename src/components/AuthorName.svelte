@@ -6,7 +6,7 @@
   import { onMount } from 'svelte';
 
   export let event: NDKEvent;
-  export let className: string = 'font-semibold text-sm text-gray-900';
+  export let className: string = 'font-semibold text-sm';
 
   let pubkey: string = '';
   let displayName: string = '';
@@ -45,7 +45,8 @@
 </script>
 
 <button
-  class="{className} hover:text-blue-600 hover:underline cursor-pointer"
+  class="{className} hover:text-primary hover:underline cursor-pointer"
+  style="color: var(--color-text-primary)"
   on:click={handleClick}
   disabled={!pubkey}
 >

@@ -38,18 +38,18 @@
   />
   <div class="flex-1 min-w-0">
     <div class="flex items-center gap-2 mb-1">
-      <span class="font-medium text-sm text-gray-900">
+      <span class="font-medium text-sm" style="color: var(--color-text-primary)">
         {#if isLoading}
           <span class="animate-pulse">Loading...</span>
         {:else}
           {displayName}
         {/if}
       </span>
-      <span class="text-xs text-gray-500">
+      <span class="text-xs text-caption">
         {formatDate(new Date((event.created_at || 0) * 1000))}
       </span>
     </div>
-    <p class="text-sm text-gray-700 leading-relaxed mb-2">
+    <p class="text-sm leading-relaxed mb-2" style="color: var(--color-text-primary)">
       {event.content}
     </p>
     

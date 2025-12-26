@@ -307,47 +307,47 @@
     </div>
     <input type="submit" class="hidden" />
   </form>
-  
+
   {#if showAutocomplete && (searchResults.tags.length > 0 || searchResults.recipes.length > 0 || searchResults.users.length > 0 || isSearching)}
-    <ul class="max-h-[320px] overflow-y-auto absolute top-full left-0 w-full bg-white border border-gray-300 shadow-lg rounded-xl mt-1 z-[60]">
-      
+    <ul class="max-h-[320px] overflow-y-auto absolute top-full left-0 w-full bg-input border shadow-lg rounded-xl mt-1 z-[60]" style="border-color: var(--color-input-border); color: var(--color-text-primary);">
+
       {#if searchResults.tags.length > 0}
-        <li class="px-3 py-1.5 text-xs font-semibold text-gray-500 bg-gray-50 border-b">🏷️ Tags</li>
+        <li class="px-3 py-1.5 text-xs font-semibold text-caption bg-accent-gray border-b" style="border-color: var(--color-input-border)">🏷️ Tags</li>
         {#each searchResults.tags as tag (tag.title)}
           <!-- svelte-ignore a11y-click-events-have-key-events -->
           <!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
           <li
             on:click={() => selectTag(tag.title)}
-            class="cursor-pointer px-3 py-2 hover:bg-gray-100"
+            class="cursor-pointer px-3 py-2 hover:bg-accent-gray"
           >
             {#if tag.emoji}<span>{tag.emoji} </span>{/if}
             {tag.title}
           </li>
         {/each}
       {/if}
-      
+
       {#if searchResults.recipes.length > 0}
-        <li class="px-3 py-1.5 text-xs font-semibold text-gray-500 bg-gray-50 border-b border-t">📖 Recipes</li>
+        <li class="px-3 py-1.5 text-xs font-semibold text-caption bg-accent-gray border-b border-t" style="border-color: var(--color-input-border)">📖 Recipes</li>
         {#each searchResults.recipes as recipe (recipe.naddr)}
           <!-- svelte-ignore a11y-click-events-have-key-events -->
           <!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
           <li
             on:click={() => selectRecipe(recipe.naddr)}
-            class="cursor-pointer px-3 py-2 hover:bg-gray-100"
+            class="cursor-pointer px-3 py-2 hover:bg-accent-gray"
           >
             {recipe.title}
           </li>
         {/each}
       {/if}
-      
+
       {#if searchResults.users.length > 0}
-        <li class="px-3 py-1.5 text-xs font-semibold text-gray-500 bg-gray-50 border-b border-t">👤 Users</li>
+        <li class="px-3 py-1.5 text-xs font-semibold text-caption bg-accent-gray border-b border-t" style="border-color: var(--color-input-border)">👤 Users</li>
         {#each searchResults.users as user (user.npub)}
           <!-- svelte-ignore a11y-click-events-have-key-events -->
           <!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
           <li
             on:click={() => selectUser(user.npub)}
-            class="cursor-pointer px-3 py-2 hover:bg-gray-100 flex items-center gap-2"
+            class="cursor-pointer px-3 py-2 hover:bg-accent-gray flex items-center gap-2"
           >
             {#if user.picture}
               <img src={user.picture} alt="" class="w-6 h-6 rounded-full object-cover" />
@@ -356,13 +356,13 @@
           </li>
         {/each}
       {/if}
-      
+
       {#if isSearching}
-        <li class="px-3 py-2 text-sm text-gray-500 text-center">Searching...</li>
+        <li class="px-3 py-2 text-sm text-caption text-center">Searching...</li>
       {/if}
-      
+
       {#if !isSearching && searchResults.tags.length === 0 && searchResults.recipes.length === 0 && searchResults.users.length === 0 && tagquery.length > 0}
-        <li class="px-3 py-2 text-sm text-gray-500 text-center">No results found</li>
+        <li class="px-3 py-2 text-sm text-caption text-center">No results found</li>
       {/if}
     </ul>
   {/if}

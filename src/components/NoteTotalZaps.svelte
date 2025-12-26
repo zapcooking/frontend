@@ -95,8 +95,8 @@
 {#if loading}
   <NoteTotalZapsSkeleton />
 {:else}
-  <div class="flex gap-1.5 hover:bg-input rounded px-0.5 transition duration-300">
-    <LightningIcon size={24} class={totalZapAmount > 0 ? 'text-yellow-500' : 'text-black'} weight={hasUserZapped ? "fill" : "regular"} />
+  <div class="flex gap-1.5 hover:bg-input rounded px-0.5 transition duration-300" style="color: var(--color-text-primary)">
+    <LightningIcon size={24} class={totalZapAmount > 0 ? 'text-yellow-500' : 'text-caption'} weight={hasUserZapped ? "fill" : "regular"} />
     {formatAmount(totalZapAmount / 1000)}
   </div>
 {/if}

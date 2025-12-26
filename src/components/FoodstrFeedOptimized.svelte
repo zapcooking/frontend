@@ -1568,10 +1568,10 @@ import ClientAttribution from './ClientAttribution.svelte';
     <div class="flex items-center justify-end gap-2 px-2 sm:px-0 mb-4">
       {#if foodFilterEnabled}
         <span class="text-sm">
-          🍳 <span class="text-gray-400">Only</span><span class="font-bold text-gray-700">Food</span>
+          🍳 <span class="text-caption">Only</span><span class="font-bold" style="color: var(--color-text-primary)">Food</span>
         </span>
       {:else}
-        <span class="text-sm text-gray-500">All posts</span>
+        <span class="text-sm text-caption">All posts</span>
       {/if}
       <button
         on:click={() => {
@@ -1580,7 +1580,7 @@ import ClientAttribution from './ClientAttribution.svelte';
           events = [];
           loadFoodstrFeed(false);
         }}
-        class="relative inline-flex h-6 w-11 items-center rounded-full transition-colors {foodFilterEnabled ? 'bg-primary' : 'bg-gray-300'}"
+        class="relative inline-flex h-6 w-11 items-center rounded-full transition-colors {foodFilterEnabled ? 'bg-primary' : 'bg-accent-gray'}"
       >
         <span
           class="inline-block h-4 w-4 transform rounded-full bg-white transition-transform {foodFilterEnabled ? 'translate-x-6' : 'translate-x-1'}"
@@ -1712,16 +1712,16 @@ import ClientAttribution from './ClientAttribution.svelte';
                       {#if parentNoteCache[parentNoteId]}
                         {#each [parentNoteCache[parentNoteId]] as parentNote}
                           <!-- Thread connection line -->
-                          <div class="relative pl-4 border-l-2 border-gray-200 ml-1">
-                            <div class="bg-gray-50 rounded-lg p-3 text-sm">
+                          <div class="relative pl-4 border-l-2 ml-1" style="border-color: var(--color-input-border)">
+                            <div class="bg-input rounded-lg p-3 text-sm">
                               <div class="flex items-center gap-2 mb-2 flex-wrap">
                                 <CustomAvatar pubkey={parentNote.pubkey} size={20} />
                                 <AuthorName event={parentNote} />
-                                <span class="text-gray-400">·</span>
-                                <span class="text-gray-400 text-xs">{formatTimeAgo(parentNote.created_at || 0)}</span>
+                                <span class="text-caption">·</span>
+                                <span class="text-caption text-xs">{formatTimeAgo(parentNote.created_at || 0)}</span>
                                 <ClientAttribution tags={parentNote.tags} enableEnrichment={false} />
                               </div>
-                              <div class="text-gray-700 whitespace-pre-wrap break-words text-sm leading-relaxed">
+                              <div class="whitespace-pre-wrap break-words text-sm leading-relaxed" style="color: var(--color-text-primary)">
                                 <NoteContent content={parentNote.content || ''} />
                               </div>
                               <a 
@@ -1738,23 +1738,23 @@ import ClientAttribution from './ClientAttribution.svelte';
                           </div>
                         {/each}
                       {:else}
-                        <div class="pl-4 border-l-2 border-gray-200 ml-1">
-                          <div class="bg-gray-50 rounded-lg p-3 animate-pulse">
+                        <div class="pl-4 border-l-2 ml-1" style="border-color: var(--color-input-border)">
+                          <div class="bg-input rounded-lg p-3 animate-pulse">
                             <div class="flex items-center gap-2 mb-2">
-                              <div class="w-5 h-5 bg-gray-200 rounded-full"></div>
-                              <div class="h-3 bg-gray-200 rounded w-24"></div>
+                              <div class="w-5 h-5 bg-accent-gray rounded-full"></div>
+                              <div class="h-3 bg-accent-gray rounded w-24"></div>
                             </div>
-                            <div class="h-3 bg-gray-200 rounded w-full mb-1"></div>
-                            <div class="h-3 bg-gray-200 rounded w-3/4"></div>
+                            <div class="h-3 bg-accent-gray rounded w-full mb-1"></div>
+                            <div class="h-3 bg-accent-gray rounded w-3/4"></div>
                           </div>
                         </div>
                       {/if}
                     </div>
                   {:catch}
                     <!-- Fallback - simple link -->
-                    <a 
-                      href="/{nip19.noteEncode(parentNoteId)}" 
-                      class="mb-1.5 flex items-center gap-1 text-xs text-gray-500 hover:text-blue-600 transition-colors"
+                    <a
+                      href="/{nip19.noteEncode(parentNoteId)}"
+                      class="mb-1.5 flex items-center gap-1 text-xs text-caption hover:text-blue-600 transition-colors"
                     >
                       <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
@@ -1778,17 +1778,17 @@ import ClientAttribution from './ClientAttribution.svelte';
 
               {#if getContentWithoutMedia(event.content)}
                 {@const cleanContent = getContentWithoutMedia(event.content)}
-                <div class="text-sm leading-relaxed mb-3 text-gray-900">
-                  <div 
+                <div class="text-sm leading-relaxed mb-3" style="color: var(--color-text-primary)">
+                  <div
                     class="overflow-hidden transition-all duration-200"
                     class:line-clamp-3={!expandedPosts[event.id]}
                   >
                     <NoteContent content={cleanContent} />
                   </div>
                   {#if cleanContent.length > 100}
-                    <button 
+                    <button
                       on:click={() => toggleExpanded(event.id)}
-                      class="text-gray-500 hover:text-gray-700 text-xs mt-1 transition-colors"
+                      class="text-caption hover:opacity-80 text-xs mt-1 transition-colors"
                     >
                       {expandedPosts[event.id] ? 'Show less' : 'Read more'}
                     </button>
@@ -1800,7 +1800,7 @@ import ClientAttribution from './ClientAttribution.svelte';
                 {@const mediaUrls = getImageUrls(event)}
                 
                 <div class="mb-3 -mx-2 sm:mx-0">
-                  <div class="relative overflow-hidden rounded-none sm:rounded-lg border-0 sm:border border-gray-200 bg-gray-100 h-48 sm:h-64">
+                  <div class="relative overflow-hidden rounded-none sm:rounded-lg border-0 sm:border bg-input h-48 sm:h-64" style="border-color: var(--color-input-border)">
                     {#each mediaUrls as imageUrl, index}
                       <div 
                         class="absolute inset-0 transition-opacity duration-300"
@@ -1868,7 +1868,7 @@ import ClientAttribution from './ClientAttribution.svelte';
                               }}
                               class="w-2 h-2 rounded-full transition-all"
                               class:bg-white={index === getCurrentSlide(event.id)}
-                              class:bg-gray-300={index !== getCurrentSlide(event.id)}
+                              class:bg-accent-gray={index !== getCurrentSlide(event.id)}
                             />
                           {/each}
                         </div>
@@ -1881,18 +1881,18 @@ import ClientAttribution from './ClientAttribution.svelte';
               <div class="flex items-center justify-between px-2 sm:px-0 py-1" use:lazyLoadAction={event.id}>
                 <div class="flex items-center space-x-1">
                   {#if visibleNotes.has(event.id)}
-                    <div class="hover:bg-gray-100 rounded-full p-1.5 transition-colors">
+                    <div class="hover:bg-accent-gray rounded-full p-1.5 transition-colors">
                       <NoteTotalLikes {event} />
                     </div>
-                    
-                    <div class="hover:bg-gray-100 rounded-full p-1.5 transition-colors">
+
+                    <div class="hover:bg-accent-gray rounded-full p-1.5 transition-colors">
                       <NoteTotalComments {event} />
                     </div>
-                    
-                    <div class="hover:bg-gray-100 rounded-full p-1.5 transition-colors">
+
+                    <div class="hover:bg-accent-gray rounded-full p-1.5 transition-colors">
                       <NoteRepost {event} />
                     </div>
-                    
+
                     <button
                       class="flex items-center hover:bg-amber-50 rounded-full p-1.5 transition-colors cursor-pointer"
                       on:click={() => openZapModal(event)}
@@ -1900,16 +1900,16 @@ import ClientAttribution from './ClientAttribution.svelte';
                       <NoteTotalZaps {event} />
                     </button>
                   {:else}
-                    <span class="text-gray-300 p-1.5">♡ –</span>
-                    <span class="text-gray-300 p-1.5">💬 –</span>
-                    <span class="text-gray-300 p-1.5">🔁 –</span>
-                    <span class="text-gray-300 p-1.5">⚡ –</span>
+                    <span class="text-caption p-1.5">♡ –</span>
+                    <span class="text-caption p-1.5">💬 –</span>
+                    <span class="text-caption p-1.5">🔁 –</span>
+                    <span class="text-caption p-1.5">⚡ –</span>
                   {/if}
                 </div>
 
                 <div class="flex items-center space-x-1">
                   <button
-                    class="flex items-center text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-full p-1.5 transition-colors"
+                    class="flex items-center text-caption hover:opacity-80 hover:bg-accent-gray rounded-full p-1.5 transition-colors"
                     on:click={() => copyNoteId(event)}
                     title="Copy note ID"
                   >
@@ -1942,9 +1942,10 @@ import ClientAttribution from './ClientAttribution.svelte';
               showText={true}
             />
           {:else}
-            <button 
+            <button
               on:click={loadMore}
-              class="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
+              class="px-4 py-2 bg-input rounded-lg hover:bg-accent-gray transition-colors"
+              style="color: var(--color-text-primary)"
             >
               Load More
             </button>
@@ -1972,9 +1973,10 @@ import ClientAttribution from './ClientAttribution.svelte';
     role="dialog"
     aria-modal="true"
   >
-    <div class="relative bg-white rounded-lg shadow-2xl max-w-4xl max-h-[90vh] overflow-hidden" on:click|stopPropagation>
+    <div class="relative bg-input rounded-lg shadow-2xl max-w-4xl max-h-[90vh] overflow-hidden" on:click|stopPropagation>
       <button
-        class="absolute top-2 right-2 bg-white hover:bg-gray-100 text-gray-700 rounded-full p-2 shadow-md transition z-10"
+        class="absolute top-2 right-2 bg-input hover:bg-accent-gray rounded-full p-2 shadow-md transition z-10"
+        style="color: var(--color-text-primary)"
         on:click={closeImageModal}
         aria-label="Close image"
       >
@@ -1990,7 +1992,8 @@ import ClientAttribution from './ClientAttribution.svelte';
 
         <button
           on:click|stopPropagation={prevModalImage}
-          class="absolute left-2 top-1/2 -translate-y-1/2 bg-white/90 hover:bg-white text-gray-800 rounded-full p-2 shadow-md transition z-10"
+          class="absolute left-2 top-1/2 -translate-y-1/2 bg-input/90 hover:bg-input rounded-full p-2 shadow-md transition z-10"
+          style="color: var(--color-text-primary)"
           aria-label="Previous image"
         >
           <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -2000,7 +2003,8 @@ import ClientAttribution from './ClientAttribution.svelte';
 
         <button
           on:click|stopPropagation={nextModalImage}
-          class="absolute right-2 top-1/2 -translate-y-1/2 bg-white/90 hover:bg-white text-gray-800 rounded-full p-2 shadow-md transition z-10"
+          class="absolute right-2 top-1/2 -translate-y-1/2 bg-input/90 hover:bg-input rounded-full p-2 shadow-md transition z-10"
+          style="color: var(--color-text-primary)"
           aria-label="Next image"
         >
           <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

@@ -28,8 +28,9 @@
 }
 </script>
 
-<button 
+<button
   class="flex gap-1.5 hover:bg-input rounded px-0.5 transition duration-300 cursor-pointer"
+  style="color: var(--color-text-primary)"
   on:click={() => {
     // Find the InlineComments component for this event and trigger toggleComments
     const inlineCommentsComponent = document.querySelector(`[data-event-id="${event.id}"]`)?.closest('.inline-comments');
@@ -40,6 +41,6 @@
   }}
   title="View comments"
 >
-  <CommentIcon size={24} class="text-black" />
+  <CommentIcon size={24} class="text-caption" />
   {#if loading}...{:else}{totalCommentAmount}{/if}
 </button>

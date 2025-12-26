@@ -31,10 +31,6 @@
     return `hsl(${hue}, ${saturation}%, ${lightness}%)`;
   }
   
-  function getInitials(pubkey: string): string {
-    // Use first 2 characters of pubkey as initials
-    return pubkey.substring(0, 2).toUpperCase();
-  }
 
 
   // Strip protocol from URL for proxy usage
@@ -200,9 +196,8 @@
       loading = false;
     }
   });
-  
+
   $: avatarColor = generateAvatar(pubkey);
-  $: initials = getInitials(pubkey);
 </script>
 
 <div 
@@ -210,7 +205,7 @@
   style="
     width: {size}px; 
     height: {size}px; 
-    background-color: {profilePicture ? 'transparent' : avatarColor}; 
+    background-color: transparent; 
     border-radius: 50%; 
     display: flex; 
     align-items: center; 
@@ -260,7 +255,18 @@
       }}
     />
   {:else}
-    {initials}
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 32 40"
+      width="100%"
+      height="100%"
+    >
+      <path
+        fill="#9ca3af"
+        fill-rule="evenodd"
+        d="M16,6c-7.73,0-14,6.27-14,14s6.27,14,14,14,14-6.27,14-14-6.27-14-14-14ZM16,14c2.21,0,4,1.79,4,4s-1.79,4-4,4-4-1.79-4-4,1.79-4,4-4ZM16,32c-2.85,0-5.61-1.01-7.77-2.86.64-2.67,2.61-4.83,5.22-5.71,1.62.76,3.48.76,5.1,0,2.61.88,4.58,3.04,5.22,5.71-2.16,1.85-4.92,2.87-7.77,2.86Z"
+      />
+    </svg>
   {/if}
 </div>
 

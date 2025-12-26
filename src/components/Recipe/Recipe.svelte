@@ -236,8 +236,7 @@ async function getLists(): Promise<NDKEvent[]> {
       {:then lists}
         <div class="flex flex-col gap-2">
           {#each lists as list, index}
-            <div class="flex gap-14 w-full">
-              <p class="font-semibold">{list.getMatchingTags('title')[0][1]}</p>
+            <div class="flex gap-3 w-full">
               <input
                 class="self-center"
                 type="checkbox"
@@ -251,6 +250,7 @@ async function getLists(): Promise<NDKEvent[]> {
                   ? true
                   : false}
               />
+              <p class="font-semibold">{list.getMatchingTags('title')[0][1]}</p>
             </div>
             {#if index === 0}
               <hr />
@@ -265,9 +265,12 @@ async function getLists(): Promise<NDKEvent[]> {
     {/if}
   </div>
   <div class="flex">
-    <a href="/list/create" target="_blank" class="text-sm underline grow self-center"
-      >Create a New List</a
-    >
+    <a href="/list/create" target="_blank" class="flex items-center gap-1.5 text-sm grow self-center hover:opacity-80 transition-opacity">
+      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 256 256">
+        <path d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm0,192a88,88,0,1,1,88-88A88.1,88.1,0,0,1,128,216Zm48-88a8,8,0,0,1-8,8H136v32a8,8,0,0,1-16,0V136H88a8,8,0,0,1,0-16h32V88a8,8,0,0,1,16,0v32h32A8,8,0,0,1,176,128Z"></path>
+      </svg>
+      Create a New List
+    </a>
     <Button
       class="flex"
       on:click={async () => {
@@ -384,7 +387,7 @@ async function getLists(): Promise<NDKEvent[]> {
           class="cursor-pointer hover:bg-input rounded p-0.5 transition duration-300"
           on:click={() => (dropdownActive = !dropdownActive)}
         >
-          <DotsIcon size={28} weight="bold" />
+          <DotsIcon size={28} weight="bold" class="text-caption" />
         </button>
         {#if dropdownActive}
           <div class="relative" tabindex="-1" transition:fade={{ delay: 0, duration: 150 }}>
@@ -392,7 +395,8 @@ async function getLists(): Promise<NDKEvent[]> {
               role="menu"
               use:clickOutside
               on:click_outside={() => (dropdownActive = false)}
-              class="flex flex-col right-0 gap-4 absolute z-20 bg-white rounded-3xl drop-shadow px-5 py-6 my-6"
+              class="flex flex-col right-0 gap-4 absolute z-20 bg-input rounded-3xl drop-shadow px-5 py-6 my-6"
+              style="color: var(--color-text-primary)"
             >
               {#if event.author?.pubkey === $userPublickey}
                 <a class="flex gap-2 cursor-pointer" href="/fork/{naddr}">
@@ -443,7 +447,7 @@ async function getLists(): Promise<NDKEvent[]> {
           {@html parseMarkdown(event.content)}
         {/if}
       </div>
-      <div class="flex flex-col items-center gap-4 bg-input py-6 rounded-3xl print:hidden">
+      <div class="flex flex-col items-center gap-4 bg-input py-6 rounded-3xl print:hidden" style="color: var(--color-text-primary)">
         <h2>Enjoy this recipe?</h2>
         <Button on:click={() => (zapModal = true)}>Zap it</Button>
       </div>
@@ -532,3 +536,65 @@ async function getLists(): Promise<NDKEvent[]> {
     Loading...
   {/if}
 </article>
+
+<style>
+  /* Dark mode support for prose content */
+  :global(.prose) {
+    color: var(--color-text-primary);
+  }
+
+  :global(.prose h1),
+  :global(.prose h2),
+  :global(.prose h3),
+  :global(.prose h4),
+  :global(.prose h5),
+  :global(.prose h6) {
+    color: var(--color-text-primary);
+  }
+
+  :global(.prose p),
+  :global(.prose li),
+  :global(.prose td),
+  :global(.prose th) {
+    color: var(--color-text-primary);
+  }
+
+  :global(.prose strong) {
+    color: var(--color-text-primary);
+  }
+
+  :global(.prose code) {
+    color: var(--color-text-primary);
+    background-color: var(--color-input-bg);
+  }
+
+  :global(.prose pre) {
+    background-color: var(--color-input-bg);
+    color: var(--color-text-primary);
+  }
+
+  :global(.prose blockquote) {
+    color: var(--color-text-secondary);
+    border-left-color: var(--color-input-border);
+  }
+
+  :global(.prose hr) {
+    border-color: var(--color-input-border);
+  }
+
+  :global(.prose a) {
+    color: var(--color-primary);
+  }
+
+  :global(.prose table) {
+    color: var(--color-text-primary);
+  }
+
+  :global(.prose thead) {
+    border-bottom-color: var(--color-input-border);
+  }
+
+  :global(.prose tbody tr) {
+    border-bottom-color: var(--color-input-border);
+  }
+</style>

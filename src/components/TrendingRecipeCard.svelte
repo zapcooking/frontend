@@ -26,9 +26,9 @@
           console.warn('Failed to encode naddr:', e);
         }
       }
-      
+
       imageUrl = event.tags.find((e) => Array.isArray(e) && e[0] == 'image')?.[1] || '';
-      title = event.tags.find((e) => Array.isArray(e) && e[0] == 'title')?.[1] || 
+      title = event.tags.find((e) => Array.isArray(e) && e[0] == 'title')?.[1] ||
               event.tags.find((e) => Array.isArray(e) && e[0] == 'd')?.[1] || 'Untitled Recipe';
       authorPubkey = event.author?.pubkey || null;
     } else {
@@ -54,7 +54,7 @@
   >
     <!-- Recipe Image -->
     <div
-      class="absolute inset-0 bg-gradient-to-br from-gray-200 to-gray-300"
+      class="absolute inset-0 {imageUrl ? '' : 'image-placeholder'}"
       style={imageUrl ? `background-image: url('${imageUrl}'); background-size: cover; background-position: center;` : ''}
     >
       <div class="absolute inset-0 bg-black/20 group-hover:bg-black/10 transition-colors"></div>
@@ -69,7 +69,7 @@
 
     <!-- Content -->
     <div class="absolute inset-x-0 bottom-0 p-4 bg-gradient-to-t from-black/80 via-black/60 to-transparent">
-      <h3 class="text-white font-semibold text-sm line-clamp-2">{title}</h3>
+      <h3 class="!text-white font-semibold text-sm line-clamp-2">{title}</h3>
     </div>
   </button>
 {/if}

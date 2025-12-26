@@ -35,7 +35,7 @@
   }
 </script>
 
-<div class="rounded-xl border border-gray-200 bg-[#fafafa] shadow-sm p-5 md:p-6 transition-all duration-300">
+<div class="rounded-xl shadow-sm p-5 md:p-6 transition-all duration-300" style="border: 1px solid var(--color-input-border); background-color: var(--color-bg-secondary)">
   <!-- Header -->
   <div class="flex items-start justify-between gap-4 mb-4">
     <div class="flex-1">
@@ -44,7 +44,7 @@
         <span>{title}</span>
       </h2>
       {#if helperText}
-        <p class="text-sm text-gray-500 mt-0.5">{helperText}</p>
+        <p class="text-sm text-caption mt-0.5">{helperText}</p>
       {/if}
     </div>
     {#if showAllToggle && !alwaysExpanded}

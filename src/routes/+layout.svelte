@@ -10,6 +10,7 @@
   import type { LayoutData } from './$types';
   import ErrorBoundary from '../components/ErrorBoundary.svelte';
   import OfflineIndicator from '../components/OfflineIndicator.svelte';
+  import { theme } from '$lib/themeStore';
 
   // Accept props from SvelteKit to prevent warnings
   export let data: LayoutData = {} as LayoutData;
@@ -36,14 +37,17 @@
 
   onMount(() => {
     try {
+      // Initialize theme first to prevent FOUC
+      theme.initialize();
+
       // Initialize auth manager
       authManager = createAuthManager($ndk);
       authState = authManager.getState();
-      
+
       // Subscribe to auth state changes
       unsubscribe = authManager.subscribe((state: AuthState) => {
         authState = state;
-        
+
         // Sync with legacy userPublickey store for compatibility
         if (state.isAuthenticated && state.publicKey) {
           userPublickey.set(state.publicKey);
@@ -51,7 +55,7 @@
           userPublickey.set('');
         }
       });
-      
+
       console.log('Layout mounted - auth manager initialized');
     } catch (error) {
       console.error('Failed to initialize auth manager:', error);
@@ -83,7 +87,7 @@
 </svelte:head>
 
 <ErrorBoundary fallback="Something went wrong with the page layout. Please refresh the page.">
-  <div class="h-[100%] scroll-smooth overflow-x-hidden">
+  <div class="h-[100%] scroll-smooth overflow-x-hidden transition-colors duration-200">
     <OfflineIndicator />
     <div class="flex h-full">
       <div class="mx-auto flex-1 pt-2 print:pt-[0] px-4 max-w-full">

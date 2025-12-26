@@ -258,25 +258,25 @@
   <!-- Orientation text for signed-out users -->
   {#if $userPublickey === ''}
     <div class="mb-4 pt-1">
-      <p class="text-sm text-gray-400">A place to share food with friends.</p>
-      <p class="text-xs text-gray-300 mt-0.5">People share meals, recipes, and food ideas here. <a href="/login" class="text-gray-400 hover:text-gray-500 underline">Sign in</a> to share your own and follow cooks you like.</p>
+      <p class="text-sm text-caption">A place to share food with friends.</p>
+      <p class="text-xs text-caption mt-0.5">People share meals, recipes, and food ideas here. <a href="/login" class="text-caption hover:opacity-80 underline">Sign in</a> to share your own and follow cooks you like.</p>
     </div>
   {/if}
 
   <!-- Inline Post Composer for logged-in users -->
   {#if $userPublickey !== ''}
-    <div class="mb-4 bg-white border border-gray-200 rounded-xl overflow-hidden transition-all">
+    <div class="mb-4 bg-input rounded-xl overflow-hidden transition-all" style="border: 1px solid var(--color-input-border)">
       {#if !isComposerOpen}
         <!-- Collapsed state -->
         <button
-          class="w-full p-3 hover:bg-gray-50 transition-colors cursor-pointer text-left"
+          class="w-full p-3 hover:bg-accent-gray transition-colors cursor-pointer text-left"
           on:click={openComposer}
         >
           <div class="flex items-center gap-3">
-            <div class="w-9 h-9 bg-gray-100 rounded-full flex items-center justify-center">
-              <PencilSimpleIcon size={18} class="text-gray-400" />
+            <div class="w-9 h-9 bg-accent-gray rounded-full flex items-center justify-center">
+              <PencilSimpleIcon size={18} class="text-caption" />
             </div>
-            <span class="text-gray-400 text-sm">Share what you're eating, cooking, or loving</span>
+            <span class="text-caption text-sm">Share what you're eating, cooking, or loving</span>
           </div>
         </button>
       {:else}
@@ -290,6 +290,7 @@
                 bind:value={content}
                 placeholder="What are you eating, cooking, or loving?"
                 class="w-full min-h-[80px] p-2 text-sm border-0 focus:outline-none focus:ring-0 resize-none bg-transparent"
+                style="color: var(--color-text-primary)"
                 disabled={posting}
                 on:keydown={handleKeydown}
               ></textarea>
@@ -304,14 +305,14 @@
               
               <!-- Quoted note preview -->
               {#if quotedNote}
-                <div class="mb-3 border border-gray-200 rounded-xl overflow-hidden bg-gray-50">
+                <div class="mb-3 rounded-xl overflow-hidden bg-input" style="border: 1px solid var(--color-input-border)">
                   <!-- Header with remove button -->
-                  <div class="flex items-center justify-between px-3 py-2 bg-gray-100 border-b border-gray-200">
-                    <span class="text-xs font-medium text-gray-500">Quoting post</span>
+                  <div class="flex items-center justify-between px-3 py-2 bg-accent-gray" style="border-bottom: 1px solid var(--color-input-border)">
+                    <span class="text-xs font-medium text-caption">Quoting post</span>
                     <button
                       type="button"
                       on:click={() => quotedNote = null}
-                      class="text-gray-400 hover:text-gray-600 p-1 hover:bg-gray-200 rounded transition-colors"
+                      class="text-caption hover:opacity-80 p-1 hover:bg-input rounded transition-colors"
                       aria-label="Remove quote"
                     >
                       <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -329,7 +330,7 @@
                     </div>
                     
                     <!-- Note content with proper rendering -->
-                    <div class="text-sm text-gray-700 max-h-32 overflow-hidden">
+                    <div class="text-sm max-h-32 overflow-hidden" style="color: var(--color-text-primary)">
                       <NoteContent content={quotedNote.event.content || ''} />
                     </div>
                   </div>
@@ -341,10 +342,11 @@
                 <div class="mb-2 flex flex-wrap gap-2">
                   {#each uploadedImages as imageUrl, index}
                     <div class="relative group">
-                      <img 
-                        src={imageUrl} 
-                        alt="Upload preview" 
-                        class="w-20 h-20 object-cover rounded-lg border border-gray-200"
+                      <img
+                        src={imageUrl}
+                        alt="Upload preview"
+                        class="w-20 h-20 object-cover rounded-lg"
+                        style="border: 1px solid var(--color-input-border)"
                       />
                       <button
                         type="button"
@@ -362,16 +364,16 @@
                 </div>
               {/if}
               
-              <div class="flex items-center justify-between pt-2 border-t border-gray-100">
+              <div class="flex items-center justify-between pt-2 border-t" style="border-color: var(--color-input-border)">
                 <div class="flex items-center gap-3">
                   <!-- Image upload button -->
                   <label
-                    class="cursor-pointer p-1.5 rounded-full hover:bg-gray-100 transition-colors"
+                    class="cursor-pointer p-1.5 rounded-full hover:bg-accent-gray transition-colors"
                     class:opacity-50={posting || uploadingImage}
                     class:cursor-not-allowed={posting || uploadingImage}
                     aria-disabled={posting || uploadingImage}
                   >
-                    <ImageIcon size={18} class="text-gray-500" />
+                    <ImageIcon size={18} class="text-caption" />
                     <input
                       bind:this={imageInputEl}
                       type="file"
@@ -383,14 +385,14 @@
                   </label>
                   
                   {#if uploadingImage}
-                    <span class="text-xs text-gray-400">Uploading...</span>
+                    <span class="text-xs text-caption">Uploading...</span>
                   {/if}
                 </div>
-                
+
                 <div class="flex items-center gap-2">
                   <button
                     on:click={closeComposer}
-                    class="px-3 py-1.5 text-xs text-gray-500 hover:text-gray-700 transition-colors"
+                    class="px-3 py-1.5 text-xs text-caption hover:opacity-80 transition-colors"
                     disabled={posting}
                   >
                     Cancel
@@ -412,27 +414,23 @@
   {/if}
 
   <!-- Filter Tabs -->
-  <div class="mb-4 border-b border-gray-200">
+  <div class="mb-4 border-b" style="border-color: var(--color-input-border)">
     <div class="flex gap-1">
       <button
         on:click={() => setTab('global')}
         class="px-4 py-2 text-sm font-medium transition-colors relative"
-        class:text-gray-900={activeTab === 'global'}
-        class:text-gray-500={activeTab !== 'global'}
-        class:hover:text-gray-900={activeTab !== 'global'}
+        style="color: {activeTab === 'global' ? 'var(--color-text-primary)' : 'var(--color-text-secondary)'}"
       >
         Global Food
         {#if activeTab === 'global'}
           <span class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-orange-500 to-amber-500"></span>
         {/if}
       </button>
-      
+
       <button
         on:click={() => setTab('following')}
         class="px-4 py-2 text-sm font-medium transition-colors relative"
-        class:text-gray-900={activeTab === 'following'}
-        class:text-gray-500={activeTab !== 'following'}
-        class:hover:text-gray-900={activeTab !== 'following'}
+        style="color: {activeTab === 'following' ? 'var(--color-text-primary)' : 'var(--color-text-secondary)'}"
         disabled={!$userPublickey}
         class:opacity-50={!$userPublickey}
         class:cursor-not-allowed={!$userPublickey}
@@ -443,13 +441,11 @@
           <span class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-orange-500 to-amber-500"></span>
         {/if}
       </button>
-      
+
       <button
         on:click={() => setTab('replies')}
         class="px-4 py-2 text-sm font-medium transition-colors relative"
-        class:text-gray-900={activeTab === 'replies'}
-        class:text-gray-500={activeTab !== 'replies'}
-        class:hover:text-gray-900={activeTab !== 'replies'}
+        style="color: {activeTab === 'replies' ? 'var(--color-text-primary)' : 'var(--color-text-secondary)'}"
       >
         Notes & Replies
         {#if activeTab === 'replies'}
@@ -461,9 +457,9 @@
 
   <!-- Show login prompt for Following/Replies tabs if not logged in -->
   {#if (activeTab === 'following' || activeTab === 'replies') && !$userPublickey}
-    <div class="mb-4 p-4 bg-amber-50 border border-amber-200 rounded-lg">
-      <p class="text-sm text-amber-800">
-        <a href="/login" class="font-medium underline hover:text-amber-900">Log in</a> to see {activeTab === 'following' ? 'posts from people you follow' : 'replies from people you follow'}.
+    <div class="mb-4 p-4 bg-accent-gray rounded-lg" style="border: 1px solid var(--color-input-border)">
+      <p class="text-sm" style="color: var(--color-text-primary)">
+        <a href="/login" class="font-medium underline hover:opacity-80">Log in</a> to see {activeTab === 'following' ? 'posts from people you follow' : 'replies from people you follow'}.
       </p>
     </div>
   {/if}

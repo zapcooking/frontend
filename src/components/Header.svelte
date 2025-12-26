@@ -11,6 +11,8 @@
   import SearchIcon from 'phosphor-svelte/lib/MagnifyingGlass';
   import LightningIcon from 'phosphor-svelte/lib/Lightning';
   import BookmarkIcon from 'phosphor-svelte/lib/Bookmark';
+  import SunIcon from 'phosphor-svelte/lib/Sun';
+  import MoonIcon from 'phosphor-svelte/lib/Moon';
   import { nip19 } from 'nostr-tools';
   import { clickOutside } from '$lib/clickOutside';
   import { fade, blur } from 'svelte/transition';
@@ -19,6 +21,7 @@
   import Modal from './Modal.svelte';
   import { qr } from "@svelte-put/qr/svg";
   import CustomAvatar from './CustomAvatar.svelte';
+  import { theme } from '$lib/themeStore';
   import NotificationBell from './NotificationBell.svelte';
 
   let dropdownActive = false;
@@ -59,6 +62,20 @@
   $: if ($userPublickey !== undefined) {
     isLoading = false;
   }
+
+  // Reactive resolved theme for logo switching
+  $: resolvedTheme = $theme === 'system' ? theme.getResolvedTheme() : $theme;
+  $: isDarkMode = resolvedTheme === 'dark';
+
+  function toggleTheme(e: Event) {
+    // Prevent any default behavior or navigation
+    e.preventDefault();
+    e.stopPropagation();
+    // Toggle between light and dark (not system)
+    theme.setTheme(isDarkMode ? 'light' : 'dark');
+    // Close dropdown after toggling
+    dropdownActive = false;
+  }
 </script>
 
 {#if searchActive}
@@ -76,10 +93,10 @@
 <!-- Mobile-first layout -->
 <div class="flex gap-4 sm:gap-9 justify-between">
     <a href="/recent" class="flex-none">
-      <img src={SVGNostrCookingWithText} class="w-35 sm:w-40 my-3" alt="zap.cooking Logo With Text" />
+      <img src={isDarkMode ? '/zap_cooking_logo_white.svg' : SVGNostrCookingWithText} class="w-35 sm:w-40 my-3" alt="zap.cooking Logo With Text" />
     </a>
   <!-- Top row for desktop: Navigation links -->
-  <div class="hidden lg:flex gap-9 self-center font-semibold print:hidden">
+  <div class="hidden lg:flex gap-9 self-center font-semibold print:hidden" style="color: var(--color-text-primary)">
     <a class="transition duration-300 hover:text-primary" href="/recent">Recipes</a>
     <a class="transition duration-300 hover:text-primary" href="/community">Community</a>
     <a class="transition duration-300 hover:text-primary" href="/explore">Explore</a>
@@ -99,7 +116,7 @@
     <div class="block sm:max-lg:hidden xl:hidden self-center">
       <button 
         on:click={() => searchActive = true}
-        class="w-9 h-9 flex items-center justify-center text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-full transition-colors cursor-pointer"
+        class="w-9 h-9 flex items-center justify-center text-caption hover:opacity-80 hover:bg-accent-gray rounded-full transition-colors cursor-pointer"
         aria-label="Search"
       >
         <SearchIcon size={20} weight="bold" />
@@ -114,21 +131,23 @@
       <AddIcon size={18} weight="bold" />
       <span class="hidden sm:inline">Create</span>
     </button>
-    
-    <!-- Zap Us - Hidden on mobile to save space -->
-    <button 
-      on:click={() => supportModalOpen = true} 
-      class="hidden sm:flex items-center gap-2 px-3 py-2 text-amber-500 hover:text-amber-600 hover:bg-amber-50 rounded-full transition-colors cursor-pointer text-sm"
+
+    <!-- Zap Us - Hidden on mobile to save space, dark mode optimized -->
+    <button
+      on:click={() => supportModalOpen = true}
+      class="hidden sm:flex items-center gap-2 px-3 py-2 text-amber-500 hover:text-amber-600 hover:bg-accent-gray rounded-full transition-colors cursor-pointer text-sm"
       aria-label="Support Zap Cooking"
       title="Support Zap Cooking"
     >
       <LightningIcon size={20} weight="fill" />
       <span class="hidden sm:inline">Zap Us</span>
     </button>
-    
+
     <!-- Notifications - only show when logged in -->
     {#if $userPublickey}
-      <NotificationBell />
+      <div class="self-center">
+        <NotificationBell />
+      </div>
     {/if}
     
     <!-- Sign in / User menu -->
@@ -146,24 +165,34 @@
               on:keydown={(e) => e.key === 'Escape' && (dropdownActive = false)}
               use:clickOutside
               on:click_outside={() => (dropdownActive = false)}
-              class="flex flex-col right-3 gap-4 absolute z-10 bg-white rounded-3xl drop-shadow px-5 py-6"
+              class="flex flex-col right-3 gap-4 absolute z-10 bg-input rounded-3xl drop-shadow px-5 py-6 min-w-[160px]"
+              style="color: var(--color-text-primary)"
             >
               <button
-                class="flex gap-2 cursor-pointer"
+                class="flex gap-2 cursor-pointer hover:text-primary whitespace-nowrap"
                 on:click={() => goto(`/user/${nip19.npubEncode($userPublickey)}`)}
               >
                 <UserIcon class="self-center" size={18} />
                 Profile
               </button>
-              <button class="flex gap-2 cursor-pointer" on:click={() => goto('/bookmarks')}>
+              <button class="flex gap-2 cursor-pointer hover:text-primary whitespace-nowrap" on:click={() => goto('/bookmarks')}>
                 <BookmarkIcon class="self-center" size={18} />
                 Bookmarks
               </button>
-              <button class="flex gap-2 cursor-pointer" on:click={() => goto('/settings')}>
+              <button class="flex gap-2 cursor-pointer hover:text-primary whitespace-nowrap" on:click={toggleTheme} type="button">
+                {#if isDarkMode}
+                  <SunIcon class="self-center" size={18} />
+                  Light Mode
+                {:else}
+                  <MoonIcon class="self-center" size={18} />
+                  Dark Mode
+                {/if}
+              </button>
+              <button class="flex gap-2 cursor-pointer hover:text-primary whitespace-nowrap" on:click={() => goto('/settings')}>
                 <GearIcon class="self-center" size={18} />
                 Settings
               </button>
-              <button class="flex gap-2 cursor-pointer" on:click={logout}>
+              <button class="flex gap-2 cursor-pointer hover:text-primary whitespace-nowrap" on:click={logout}>
                 <SignOutIcon class="self-center" size={18} />
                 Log out
               </button>
@@ -171,7 +200,7 @@
           </div>
         {/if}
       {:else}
-        <a href="/login" class="px-4 py-2 text-gray-700 rounded-full border border-gray-300 hover:border-gray-400 hover:bg-gray-50 font-medium transition duration-300 text-sm">Sign in</a>
+        <a href="/login" class="px-4 py-2 rounded-full border font-medium transition duration-300 text-sm signin-button" style="color: var(--color-text-primary); border-color: var(--color-input-border);">Sign in</a>
       {/if}
     </div>
   </div>
@@ -183,37 +212,40 @@
     <!-- Header -->
     <div class="text-center mb-6">
       <div class="text-3xl mb-3">⚡</div>
-      <h2 class="text-xl font-bold text-gray-800 mb-2">Support Zap Cooking</h2>
-      <p class="text-sm text-gray-600">
+      <h2 class="text-xl font-bold mb-2" style="color: var(--color-text-primary)">Support Zap Cooking</h2>
+      <p class="text-sm text-caption">
         Help us keep Zap Cooking running and improving!
       </p>
     </div>
-    
+
     <!-- QR Code Section -->
-    <div class="bg-white p-6 rounded-2xl shadow-lg border border-gray-200 mb-4 w-full">
+    <div class="p-6 rounded-2xl shadow-lg border mb-4 w-full" style="background-color: var(--color-bg-primary); border-color: var(--color-input-border);">
       <!-- QR Code -->
       <div class="flex justify-center mb-4">
-        <svg class="w-40 h-40" 
-             use:qr={{
-               data: "lightning:ZapCooking@getalby.com",
-               logo: "https://zap.cooking/favicon.svg",
-               shape: "circle",
-               width: 160,
-               height: 160,
-             }}
-        />
+        <!-- QR code on white background for optimal scanning -->
+        <div class="p-4 bg-white rounded-xl">
+          <svg class="w-40 h-40"
+               use:qr={{
+                 data: "lightning:ZapCooking@getalby.com",
+                 logo: "https://zap.cooking/favicon.svg",
+                 shape: "circle",
+                 width: 160,
+                 height: 160,
+               }}
+          />
+        </div>
       </div>
-      
-      <div class="text-center text-xs text-gray-500 mb-4">
+
+      <div class="text-center text-xs text-caption mb-4">
         Scan with your Lightning wallet
       </div>
     </div>
-    
+
     <!-- Lightning Address Section -->
     <div class="w-full mb-4">
-      <div class="text-sm font-medium text-gray-700 mb-2">Lightning Address</div>
+      <div class="text-sm font-medium mb-2" style="color: var(--color-text-primary)">Lightning Address</div>
       <div class="flex items-center gap-2">
-        <div class="flex-1 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-800 break-all">
+        <div class="flex-1 bg-input border rounded-lg px-3 py-2 text-sm break-all" style="color: var(--color-text-primary); border-color: var(--color-input-border);">
           ZapCooking@getalby.com
         </div>
         <button 
@@ -245,12 +277,19 @@
       >
         Open in Wallet
       </a>
-      <button 
+      <button
         on:click={() => supportModalOpen = false}
-        class="px-4 py-2.5 text-gray-500 hover:text-gray-700 font-medium text-sm transition duration-200"
+        class="px-4 py-2.5 text-caption hover:opacity-80 font-medium text-sm transition duration-200"
       >
         Close
       </button>
     </div>
   </div>
 </Modal>
+
+<style>
+  .signin-button:hover {
+    border-color: var(--color-accent-gray);
+    background-color: var(--color-input-bg);
+  }
+</style>
