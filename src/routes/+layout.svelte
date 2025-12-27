@@ -6,6 +6,7 @@
   import { page } from '$app/stores';
   import { userPublickey, ndk } from '$lib/nostr';
   import BottomNav from '../components/BottomNav.svelte';
+  import Footer from '../components/Footer.svelte';
   import { createAuthManager, type AuthState } from '$lib/authManager';
   import type { LayoutData } from './$types';
   import ErrorBoundary from '../components/ErrorBoundary.svelte';
@@ -95,10 +96,7 @@
         <div class="w-full mt-6 pb-24">
           <slot />
         </div>
-        <!-- Mobile-only footer with Why link (at bottom of content, not fixed) -->
-        <footer class="lg:hidden text-center py-6 mb-16 print:hidden">
-          <a href="/why" class="text-gray-400 hover:text-gray-600 text-sm transition duration-300">Why</a>
-        </footer>
+        <Footer />
         <BottomNav />
       </div>
     </div>

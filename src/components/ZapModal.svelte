@@ -336,15 +336,17 @@
             </div>
           {:else}
             Scan the QR Code below with a suitable Lightning Wallet to zap.
-            <svg class="self-center" style="width: 80%"
-              use:qr={{
-                data: paymentsToMakeQR[selected_qr - 1].pr,
-                logo: "https://zap.cooking/favicon.svg",
-                shape: "circle",
-                width: 100,
-                height: 100,
-              }}
-            />
+            <div class="self-center p-4 rounded-xl qr-wrapper" style="width: 80%;">
+              <svg class="w-full"
+                use:qr={{
+                  data: paymentsToMakeQR[selected_qr - 1].pr,
+                  logo: "https://zap.cooking/favicon.svg",
+                  shape: "circle",
+                  width: 100,
+                  height: 100,
+                }}
+              />
+            </div>
             <div class="flex items-center gap-2">
               <div class="flex-1 break-all text-xs bg-input p-2 rounded" style="border: 1px solid var(--color-input-border)">
                 {paymentsToMakeQR[selected_qr - 1].pr}
@@ -403,3 +405,4 @@
   {/if}
     </div>
 </Modal>
+

@@ -1,7 +1,7 @@
 import type { NDKEvent } from '@nostr-dev-kit/ndk';
 
 // Quick emoji grid - 8 common reactions
-export const QUICK_EMOJIS = ['❤️', '🔥', '👍', '🤙', '🫂', '😂', '🤔', '💯'] as const;
+export const QUICK_EMOJIS = ['❤️', '🔥', '👍', '🤙', '😋', '🤤', '🤩', '💯'] as const;
 
 export type QuickEmoji = (typeof QUICK_EMOJIS)[number];
 
