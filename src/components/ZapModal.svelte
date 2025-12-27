@@ -14,8 +14,10 @@
   import { browser } from '$app/environment';
   import { onMount } from 'svelte';
   import { ZapManager } from '$lib/zapManager';
+  import { breezSdk, walletInitialized, sendZap } from '$lib/spark';
 
   let authMethodIsNip07 = $ndk.signer?.constructor.name === "NDKNip07Signer";
+  let useSparkWallet = false; // New state variable
 
   const defaultZapSatsAmounts = [
     { amount: 21, emoji: '☕', label: '21' },
@@ -52,6 +54,11 @@
     } catch {
       hasWebLN = false;
     }
+
+    // Set initial payment method preference
+    if (!hasWebLN && $walletInitialized) {
+      useSparkWallet = true;
+    }
   });
 
   // Initialize zap manager only in browser
@@ -59,8 +66,14 @@
     zapManager = new ZapManager($ndk);
   }
 
+  function isSparkWalletAvailable(): boolean {
+    return useSparkWallet && !!$breezSdk && $walletInitialized;
+  }
+
   async function submitSmart() {
-    if (hasWebLN) {
+    if (isSparkWalletAvailable()) {
+      await submitNow(false); // Spark wallet payments are direct, no QR
+    } else if (hasWebLN) {
       await submitNow(false);
     } else {
       await submitNow(true);
@@ -68,7 +81,45 @@
   }
 
   async function submitNow(qr: boolean) {
-    useQR = qr;
+    // If Spark wallet is selected and available, prioritize it
+    if (isSparkWalletAvailable()) {
+      useQR = false; // Spark wallet payments are direct
+      state = "pending";
+      error = null;
+
+      try {
+        let recipientPubkey: string;
+        let eventId: string | undefined;
+
+        if (event instanceof NDKUser) {
+          recipientPubkey = event.pubkey;
+          eventId = undefined;
+        } else if (event && event.author) {
+          recipientPubkey = event.author?.hexpubkey || event.pubkey;
+          eventId = event.id;
+        } else {
+          throw new Error('Invalid event or user provided to ZapModal');
+        }
+
+        // Get the invoice from zapManager first
+        const zapResult = await zapManager.createZap(recipientPubkey, amount * 1000, message, eventId);
+        
+        // Then use Spark SDK to send the payment
+        await sendZap(zapResult.invoice, amount, message);
+        
+        // Subscribe to zap receipts to confirm payment
+        subscribeToZapReceipt(zapResult.zapPubkey, zapResult.invoice);
+        
+        state = "success";
+      } catch (e) {
+        console.error('Spark wallet payment failed:', e);
+        error = e as Error;
+        state = "error";
+      }
+      return; // Exit as Spark wallet handled the payment
+    }
+    
+    useQR = qr; // Fallback to existing logic if Spark wallet is not used
     
     try {
       state = "pending";
@@ -272,23 +323,76 @@
         <textarea rows="2" class="input" bind:value={message} placeholder="Message (optional)" />
       </div>
       <div class="flex flex-col gap-3">
+        <h3 class="text-lg font-semibold">Payment Method</h3>
+        <div class="flex flex-col gap-2">
+          <!-- WebLN Option -->
+          <label class="flex items-center gap-3 p-3 bg-input rounded-xl cursor-pointer hover:ring-2 hover:ring-primary transition-all duration-200">
+            <input
+              type="radio"
+              name="paymentMethod"
+              value="webln"
+              checked={!useSparkWallet && !useQR}
+              on:change={() => { useSparkWallet = false; useQR = false; }}
+              disabled={!hasWebLN}
+              class="w-4 h-4 text-primary focus:ring-primary"
+            />
+            <div class="flex flex-col">
+              <span class="font-semibold" class:text-gray-500={!hasWebLN}>WebLN Extension</span>
+              {#if !hasWebLN}
+                <span class="text-sm text-caption text-red-500">No WebLN provider found (e.g., Alby)</span>
+              {:else}
+                <span class="text-sm text-caption">Pay directly via browser extension</span>
+              {/if}
+            </div>
+          </label>
+
+          <!-- Spark Wallet Option -->
+          <label class="flex items-center gap-3 p-3 bg-input rounded-xl cursor-pointer hover:ring-2 hover:ring-primary transition-all duration-200">
+            <input
+              type="radio"
+              name="paymentMethod"
+              value="spark"
+              checked={useSparkWallet}
+              on:change={() => { useSparkWallet = true; useQR = false; }}
+              disabled={!$walletInitialized}
+              class="w-4 h-4 text-primary focus:ring-primary"
+            />
+            <div class="flex flex-col">
+              <span class="font-semibold" class:text-gray-500={!$walletInitialized}>Spark Wallet</span>
+              {#if !$walletInitialized}
+                <span class="text-sm text-caption text-red-500">Spark wallet not connected</span>
+              {:else}
+                <span class="text-sm text-caption">Pay via your in-app Spark wallet</span>
+              {/if}
+            </div>
+          </label>
+
+          <!-- QR Code Option -->
+          <label class="flex items-center gap-3 p-3 bg-input rounded-xl cursor-pointer hover:ring-2 hover:ring-primary transition-all duration-200">
+            <input
+              type="radio"
+              name="paymentMethod"
+              value="qr"
+              checked={useQR}
+              on:change={() => { useSparkWallet = false; useQR = true; }}
+              class="w-4 h-4 text-primary focus:ring-primary"
+            />
+            <div class="flex flex-col">
+              <span class="font-semibold">QR Code</span>
+              <span class="text-sm text-caption">Scan with any Lightning wallet</span>
+            </div>
+          </label>
+        </div>
         <Button class="w-full py-3 text-lg" on:click={submitSmart}>
           ⚡ Send {amount.toLocaleString()} sats
+          {#if useSparkWallet}
+            (Spark Wallet)
+          {:else if !useQR}
+            (WebLN)
+          {:else}
+            (QR Code)
+          {/if}
         </Button>
-        <div class="flex justify-between items-center px-1">
-          <button
-            class="text-sm text-caption hover:opacity-80 underline cursor-pointer"
-            on:click={() => submitNow(true)}
-          >
-            Show QR code instead
-          </button>
-          <button
-            class="text-sm text-caption hover:opacity-80 cursor-pointer"
-            on:click={() => open = false}
-          >
-            Cancel
-          </button>
-        </div>
       </div>
   {:else if state == "error"}
     <div class="flex flex-col items-center justify-center">
