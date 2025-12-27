@@ -4,7 +4,9 @@
 
   const currentYear = new Date().getFullYear();
 
-  $: logoSrc = $theme === 'dark' ? '/zap_cooking_logo_white.svg' : '/zap_cooking_logo_black.svg';
+  // Reactive resolved theme for logo switching (handles 'system' preference)
+  $: resolvedTheme = $theme === 'system' ? theme.getResolvedTheme() : $theme;
+  $: logoSrc = resolvedTheme === 'dark' ? '/zap_cooking_logo_white.svg' : '/zap_cooking_logo_black.svg';
 </script>
 
 <footer
