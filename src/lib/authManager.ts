@@ -302,7 +302,7 @@ export class AuthManager {
     if (trimmed.startsWith('npub1')) {
       const parts = trimmed.split(/\s+/);
       const npub = parts[0];
-      const relays = parts.slice(1).filter(r => r.startsWith('wss://') || r.startsWith('ws://'));
+      const relays = parts.slice(1).filter(r => r.startsWith('wss://'));
       
       try {
         const decoded = nip19.decode(npub);
