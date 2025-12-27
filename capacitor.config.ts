@@ -7,6 +7,11 @@ const config: CapacitorConfig = {
   server: {
     androidScheme: 'https'
   },
+  android: {
+    // Enable edge-to-edge display
+    backgroundColor: '#111827',
+    allowMixedContent: true
+  },
   plugins: {
     SplashScreen: {
       launchShowDuration: 2000,

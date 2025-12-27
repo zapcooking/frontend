@@ -30,7 +30,9 @@
     >
       <div class="flex flex-col gap-6">
         <div class="flex justify-between">
-          <slot class="self-center" id="title" name="title" />
+          <h2 class="self-center text-lg font-semibold" style="color: var(--color-text-primary)">
+            <slot id="title" name="title" />
+          </h2>
           <button class="self-center cursor-pointer" style="color: var(--color-text-primary)" on:click={close}>
             <CloseIcon size={24} />
           </button>

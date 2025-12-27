@@ -87,12 +87,12 @@
 </svelte:head>
 
 <ErrorBoundary fallback="Something went wrong with the page layout. Please refresh the page.">
-  <div class="h-[100%] scroll-smooth overflow-x-hidden transition-colors duration-200">
+  <div class="h-[100%] scroll-smooth overflow-x-hidden transition-colors duration-200 safe-area-container">
     <OfflineIndicator />
     <div class="flex h-full">
-      <div class="mx-auto flex-1 pt-2 print:pt-[0] px-4 max-w-full">
+      <div class="mx-auto flex-1 pt-2 print:pt-[0] px-4 max-w-full safe-area-content">
         <Header />
-        <div class="w-full mt-6 pb-24">
+        <div class="w-full mt-6 pb-24 lg:pb-8">
           <slot />
         </div>
         <Footer />
@@ -101,3 +101,19 @@
     </div>
   </div>
 </ErrorBoundary>
+
+<style>
+  /* Safe area support for Android/iOS edge-to-edge displays */
+  .safe-area-container {
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-left: env(safe-area-inset-left, 0px);
+    padding-right: env(safe-area-inset-right, 0px);
+  }
+  
+  /* Extra bottom padding on mobile to account for bottom nav + safe area */
+  @media (max-width: 1023px) {
+    .safe-area-content {
+      padding-bottom: env(safe-area-inset-bottom, 0px);
+    }
+  }
+</style>

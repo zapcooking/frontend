@@ -6,7 +6,7 @@
 </script>
 
 <nav
-  class="lg:hidden pt-2 bg-input w-full fixed bottom-0 left-0 grid grid-cols-4 grid-rows-1 text-center print:hidden"
+  class="lg:hidden pt-2 bg-input w-full fixed bottom-0 left-0 grid grid-cols-4 grid-rows-1 text-center print:hidden bottom-nav-safe"
   style="color: var(--color-text-primary); border-top: 1px solid var(--color-input-border);"
 >
   <a href="/recent" class="flex flex-col hover:text-primary">
@@ -26,3 +26,12 @@
     Shop
   </a>
 </nav>
+
+<style>
+  /* Add safe area padding for bottom navigation bar on Android/iOS */
+  .bottom-nav-safe {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    padding-left: env(safe-area-inset-left, 0px);
+    padding-right: env(safe-area-inset-right, 0px);
+  }
+</style>
