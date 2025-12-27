@@ -50,6 +50,9 @@ importers:
       date-fns:
         specifier: ^3.6.0
         version: 3.6.0
+      emoji-picker-element:
+        specifier: ^1.28.1
+        version: 1.28.1
       google-translate-api-browser:
         specifier: ^3.0.1
         version: 3.0.1
@@ -1968,6 +1971,9 @@ packages:
   elementtree@0.1.7:
     resolution: {integrity: sha512-wkgGT6kugeQk/P6VZ/f4T+4HB41BVgNBq5CDIZVbQ02nvTVqAiVTbskxxu3eA/X96lMlfYOwnLQpN2v5E1zDEg==}
     engines: {node: '>= 0.4.0'}
+
+  emoji-picker-element@1.28.1:
+    resolution: {integrity: sha512-8c64IPish2PWoV9oYCo2pvuPHwIv+uK9bO0dfpPyMupDAvaWL9ZvYhWNTAR+2sx7BhfRjciImqP6CIUgNX+DMg==}
 
   emoji-regex@8.0.0:
     resolution: {integrity: sha512-MSjYzcWNOA0ewAHpz0MxpYFvwg6yjy1NG3xteoqz644VCo/RPgnr1/GGt+ic3iJTzQ8Eu3TdM14SawnVUmGE6A==}
@@ -5968,6 +5974,8 @@ snapshots:
   elementtree@0.1.7:
     dependencies:
       sax: 1.1.4
+
+  emoji-picker-element@1.28.1: {}
 
   emoji-regex@8.0.0: {}
 
