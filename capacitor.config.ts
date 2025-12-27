@@ -10,7 +10,7 @@ const config: CapacitorConfig = {
   android: {
     // Enable edge-to-edge display
     backgroundColor: '#111827',
-    allowMixedContent: true
+    allowMixedContent: false
   },
   plugins: {
     SplashScreen: {
