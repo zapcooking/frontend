@@ -422,6 +422,12 @@ async function getLists(): Promise<NDKEvent[]> {
         {/if}
         </div>
       </div>
+      <!-- Recipe Summary -->
+      {#if event.tags.find((e) => e[0] === 'summary')?.[1]}
+        <p class="text-lg text-caption leading-relaxed">
+          {event.tags.find((e) => e[0] === 'summary')?.[1]}
+        </p>
+      {/if}
       <div class="prose">
         {#if $translateOption.lang}
           {#await translate($translateOption, parseMarkdown(event.content))}
