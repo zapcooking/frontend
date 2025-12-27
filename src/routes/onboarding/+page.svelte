@@ -127,26 +127,62 @@
     disableStepButtons = false;
   }
 
-  let input: HTMLElement;
+  let input: HTMLInputElement;
+  let uploadingPicture = false;
+  let uploadError = '';
 
-  $: {
-    if (input) {
-      input.addEventListener('change', async (e) => {
-        const target = e.target as HTMLInputElement;
-        if (target.files && target.files?.length > 0) {
-          const body = new FormData();
-          body.append('file[]', target.files[0]);
-          const result = await uploadToNostrBuild(body);
-          if (result && result.data && result.data[0].url) {
-            picture = result.data[0].url;
-          }
-        }
-      });
+  async function handleImageUpload(e: Event) {
+    const target = e.target as HTMLInputElement;
+    if (!target.files || target.files.length === 0) return;
+    
+    uploadingPicture = true;
+    uploadError = '';
+    
+    try {
+      const file = target.files[0];
+      
+      // Validate file type
+      if (!file.type.startsWith('image/')) {
+        uploadError = 'Please upload an image file';
+        uploadingPicture = false;
+        return;
+      }
+      
+      // Validate file size (max 10MB)
+      if (file.size > 10 * 1024 * 1024) {
+        uploadError = 'Image must be less than 10MB';
+        uploadingPicture = false;
+        return;
+      }
+      
+      const body = new FormData();
+      body.append('file[]', file);
+      const result = await uploadToNostrBuild(body);
+      if (result && result.data && result.data[0]?.url) {
+        picture = result.data[0].url;
+      } else {
+        uploadError = 'Failed to upload image';
+      }
+    } catch (err) {
+      console.error('Error uploading image:', err);
+      uploadError = 'Failed to upload image. Please try again.';
+    } finally {
+      uploadingPicture = false;
+      // Reset input
+      if (input) {
+        input.value = '';
+      }
     }
   }
 
-  export async function uploadToNostrBuild(body: any) {
+  async function uploadToNostrBuild(body: FormData) {
     const url = 'https://nostr.build/api/v2/upload/profile';
+    
+    // Check if we have a signer
+    if (!$ndk.signer) {
+      throw new Error('Not authenticated - please complete the previous step first');
+    }
+    
     const template = new NDKEvent($ndk);
     template.kind = 27235;
     template.created_at = Math.floor(Date.now() / 1000);
@@ -304,7 +340,7 @@
         <div class="flex flex-col self-center">
           <h2 class="text-white mb-2">Profile Picture</h2>
           <div class="relative">
-            <label for="file-upload" class="cursor-pointer self-center group">
+            <label for="file-upload" class="cursor-pointer self-center group {uploadingPicture ? 'pointer-events-none opacity-50' : ''}">
               <div class="relative">
                 <img
                   class="w-[100px] h-[100px] md:w-[200px] md:h-[200px] rounded-full bg-input self-center border-2 border-gray-300 group-hover:border-orange-500 transition-colors"
@@ -313,13 +349,24 @@
                 />
                 <div class="absolute inset-0 rounded-full bg-black bg-opacity-0 group-hover:bg-opacity-20 transition-all duration-200 flex items-center justify-center">
                   <div class="opacity-0 group-hover:opacity-100 transition-opacity duration-200 text-white text-sm font-medium">
-                    📷 Upload
+                    {uploadingPicture ? '⏳ Uploading...' : '📷 Upload'}
                   </div>
                 </div>
               </div>
-              <input id="file-upload" bind:this={input} type="file" accept="image/*" class="sr-only self-center" />
+              <input 
+                id="file-upload" 
+                bind:this={input} 
+                type="file" 
+                accept="image/*" 
+                class="sr-only self-center" 
+                on:change={handleImageUpload}
+                disabled={uploadingPicture}
+              />
             </label>
           </div>
+          {#if uploadError}
+            <p class="text-xs text-red-500 mt-1 text-center">{uploadError}</p>
+          {/if}
           <p class="text-xs text-gray-400 mt-2 text-center max-w-[200px]">
             Click to upload a custom profile picture or keep the default ZapCooking logo
           </p>

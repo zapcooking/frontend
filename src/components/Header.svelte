@@ -2,7 +2,7 @@
   import { goto } from '$app/navigation';
   import Button from './Button.svelte';
   // import { Avatar } from '@nostr-dev-kit/ndk-svelte-components';
-  import { userPublickey } from '$lib/nostr';
+  import { userPublickey, userProfilePictureOverride } from '$lib/nostr';
   import SVGNostrCookingWithText from '../assets/nostr.cooking-withtext.svg';
   import UserIcon from 'phosphor-svelte/lib/User';
   import GearIcon from 'phosphor-svelte/lib/Gear';
@@ -24,6 +24,11 @@
   let dropdownActive = false;
   let searchActive = false;
   let isLoading = true;
+
+  // Debug: log when profile picture override changes
+  $: if ($userProfilePictureOverride) {
+    console.log('[Header] userProfilePictureOverride changed:', $userProfilePictureOverride);
+  }
 
   function openTag(query: string) {
     searchActive = false;
@@ -140,7 +145,7 @@
       {#if $userPublickey !== ''}
         <div class="relative" use:clickOutside on:click_outside={() => (dropdownActive = false)}>
           <button class="flex self-center scale-[0.85] sm:scale-100 origin-right cursor-pointer" on:click={() => (dropdownActive = !dropdownActive)}>
-            <CustomAvatar pubkey={$userPublickey} size={48} />
+            <CustomAvatar pubkey={$userPublickey} size={48} imageUrl={$userProfilePictureOverride} />
           </button>
           {#if dropdownActive}
             <div class="absolute right-0 top-full mt-2 z-20" transition:fade={{ delay: 0, duration: 150 }}>

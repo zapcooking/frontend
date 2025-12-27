@@ -273,7 +273,12 @@
       
       const { NDKEvent, NDKPrivateKeySigner } = await import('@nostr-dev-kit/ndk');
       
-      // Create a signer from the previously converted private key hex
+      // Convert private key Uint8Array to hex string
+      const privateKeyHex = Array.from(generatedKeys.privateKey)
+        .map(b => b.toString(16).padStart(2, '0'))
+        .join('');
+      
+      // Create a signer from the private key hex
       const signer = new NDKPrivateKeySigner(privateKeyHex);
       
       
