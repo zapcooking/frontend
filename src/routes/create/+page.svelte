@@ -13,6 +13,7 @@
   import ImagesComboBox from '../../components/ImagesComboBox.svelte';
   import { addClientTagToEvent } from '$lib/nip89';
   import Button from '../../components/Button.svelte';
+  import MarkdownEditor from '../../components/MarkdownEditor.svelte';
   import { onMount } from 'svelte';
 
   let previewEvent: NDKEvent | undefined = undefined;
@@ -201,11 +202,10 @@
   <div class="flex flex-col gap-2">
     <h3>Chef's Notes</h3>
     <span class="text-caption">Some notes about this recipe. (Markdown is supported)</span>
-    <textarea
-      placeholder="Eg. where the recipe is from, or any additional information"
+    <MarkdownEditor
       bind:value={chefsnotes}
-      rows="6"
-      class="input"
+      placeholder="Eg. where the recipe is from, or any additional information"
+      rows={6}
     />
   </div>
 
