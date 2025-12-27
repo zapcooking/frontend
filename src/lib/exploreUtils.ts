@@ -58,11 +58,45 @@ export type PopularCook = {
   recipeCount?: number;
 };
 
+// Cache for popular cooks
+const POPULAR_COOKS_CACHE_KEY = 'zc_popular_cooks_v1';
+const POPULAR_COOKS_CACHE_TTL = 10 * 60 * 1000; // 10 minutes
+
+interface PopularCooksCache {
+  cooks: PopularCook[];
+  timestamp: number;
+}
+
+function getCachedPopularCooks(): PopularCook[] | null {
+  try {
+    const cached = localStorage.getItem(POPULAR_COOKS_CACHE_KEY);
+    if (cached) {
+      const data: PopularCooksCache = JSON.parse(cached);
+      if (Date.now() - data.timestamp < POPULAR_COOKS_CACHE_TTL) {
+        return data.cooks;
+      }
+    }
+  } catch {}
+  return null;
+}
+
+function setCachedPopularCooks(cooks: PopularCook[]) {
+  try {
+    const data: PopularCooksCache = {
+      cooks,
+      timestamp: Date.now()
+    };
+    localStorage.setItem(POPULAR_COOKS_CACHE_KEY, JSON.stringify(data));
+  } catch {}
+}
+
 /**
- * Check if a profile image is valid (not empty and looks like a URL)
+ * Check if a profile image is valid (not empty, looks like a real image URL)
+ * Checks both 'image' and 'picture' since Nostr profiles use 'picture'
  */
 function hasValidProfileImage(user: any): boolean {
-  const image = user?.profile?.image;
+  // Check both 'image' and 'picture' - Nostr standard uses 'picture'
+  const image = user?.profile?.image || user?.profile?.picture;
   if (!image || typeof image !== 'string') {
     return false;
   }
@@ -74,83 +108,83 @@ function hasValidProfileImage(user: any): boolean {
   }
   
   // Check if it looks like a URL (starts with http:// or https://)
-  // This filters out placeholder values like numbers or initials
-  return trimmed.startsWith('http://') || trimmed.startsWith('https://');
-}
-
-/**
- * Process authors and filter to only those with profile pictures
- */
-async function processAuthorsWithProfiles(
-  authorCounts: Map<string, number>,
-  limit: number,
-  ndkInstance: any,
-  resolve: (cooks: PopularCook[]) => void
-) {
-  // Sort authors by recipe count
-  const sortedAuthors = Array.from(authorCounts.entries())
-    .sort((a, b) => b[1] - a[1])
-    .map(([pubkey]) => pubkey);
-
-  const cooksWithPics: PopularCook[] = [];
-  let checkedCount = 0;
-  // Check up to 5x the limit to ensure we have enough with valid profile pics
-  const maxToCheck = Math.min(sortedAuthors.length, limit * 5);
-
-  // Check authors in batches for efficiency
-  const batchSize = 10;
-  for (let i = 0; i < maxToCheck && cooksWithPics.length < limit; i += batchSize) {
-    const batch = sortedAuthors.slice(i, i + batchSize);
-    
-    // Fetch profiles in parallel
-    const profileChecks = await Promise.all(
-      batch.map(async (pubkey) => {
-        try {
-          const user = await profileCacheManager.getProfile(pubkey);
-          const hasValidPic = hasValidProfileImage(user);
-          
-          if (!hasValidPic && user?.profile?.image) {
-            // Log when we find an invalid image for debugging
-            logger.debug(`User ${pubkey} has invalid image: "${user.profile.image}"`, 'Popular Cooks');
-          }
-          
-          return {
-            pubkey,
-            recipeCount: authorCounts.get(pubkey),
-            hasPic: hasValidPic
-          };
-        } catch (error) {
-          logger.warn(`Error checking profile for ${pubkey}`, 'Popular Cooks', error);
-          return { pubkey, recipeCount: authorCounts.get(pubkey), hasPic: false };
-        }
-      })
-    );
-
-    // Add users with valid profile pictures
-    for (const check of profileChecks) {
-      if (check.hasPic) {
-        cooksWithPics.push({
-          pubkey: check.pubkey,
-          recipeCount: check.recipeCount
-        });
-        if (cooksWithPics.length >= limit) {
-          break;
-        }
-      }
-    }
-
-    checkedCount += batch.length;
+  if (!trimmed.startsWith('http://') && !trimmed.startsWith('https://')) {
+    return false;
   }
-
-  logger.debug(`Checked ${checkedCount} authors, found ${cooksWithPics.length} with valid profile pictures`, 'Popular Cooks');
-  resolve(cooksWithPics);
+  
+  // URL must be reasonably long (minimum viable image URL is ~20 chars)
+  if (trimmed.length < 20) {
+    return false;
+  }
+  
+  // Filter out known placeholder/default avatar patterns
+  const lowerUrl = trimmed.toLowerCase();
+  const invalidPatterns = [
+    'placeholder',
+    'default',
+    'avatar-default',
+    'no-image',
+    'noimage',
+    'blank',
+    'empty',
+    'null',
+    'undefined',
+    // Common default avatar services (robohash, identicon, etc. are generated, not real photos)
+    'robohash.org',
+    'gravatar.com/avatar/0', // Default gravatar
+    'ui-avatars.com',
+    'dicebear.com',
+    'boring-avatars',
+    'jazzicon',
+    'blockies'
+  ];
+  
+  for (const pattern of invalidPatterns) {
+    if (lowerUrl.includes(pattern)) {
+      return false;
+    }
+  }
+  
+  return true;
 }
 
 /**
  * Fetch popular cooks (users who have published recipes)
  * Only returns users with profile pictures
+ * Uses caching for instant loading on repeat visits
  */
 export async function fetchPopularCooks(limit: number = 12): Promise<PopularCook[]> {
+  // Return cached data immediately if available
+  const cached = getCachedPopularCooks();
+  if (cached && cached.length >= limit) {
+    logger.debug('Returning cached popular cooks', 'fetchPopularCooks');
+    // Refresh cache in background
+    refreshPopularCooksCache(limit);
+    return cached.slice(0, limit);
+  }
+
+  // No cache, fetch fresh data
+  return fetchPopularCooksFresh(limit);
+}
+
+/**
+ * Refresh the popular cooks cache in the background
+ */
+async function refreshPopularCooksCache(limit: number) {
+  try {
+    const fresh = await fetchPopularCooksFresh(limit);
+    if (fresh.length > 0) {
+      setCachedPopularCooks(fresh);
+    }
+  } catch (error) {
+    logger.debug('Background cache refresh failed', 'fetchPopularCooks');
+  }
+}
+
+/**
+ * Fetch fresh popular cooks data from relays
+ */
+async function fetchPopularCooksFresh(limit: number): Promise<PopularCook[]> {
   try {
     const ndkInstance = get(ndk);
     if (!ndkInstance) {
@@ -160,7 +194,7 @@ export async function fetchPopularCooks(limit: number = 12): Promise<PopularCook
 
     // Fetch recent recipes to find active authors
     const filter: NDKFilter = {
-      limit: 200, // Fetch more to ensure we have enough with profile pics
+      limit: 150, // Reduced from 200 for faster response
       kinds: [30023],
       '#t': ['nostrcooking']
     };
@@ -169,14 +203,25 @@ export async function fetchPopularCooks(limit: number = 12): Promise<PopularCook
     const subscription = ndkInstance.subscribe(filter, { closeOnEose: true });
 
     return new Promise(async (resolve) => {
-      const timeout = setTimeout(async () => {
+      let resolved = false;
+      
+      const finalize = async () => {
+        if (resolved) return;
+        resolved = true;
         subscription.stop();
-        await processAuthorsWithProfiles(authorCounts, limit, ndkInstance, resolve);
-      }, 5000);
+        const cooks = await processAuthorsWithProfilesFast(authorCounts, limit, ndkInstance);
+        // Cache the results
+        if (cooks.length > 0) {
+          setCachedPopularCooks(cooks);
+        }
+        resolve(cooks);
+      };
+
+      // Reduced timeout from 5s to 3s
+      const timeout = setTimeout(finalize, 3000);
 
       let eventCount = 0;
       subscription.on('event', (event: NDKEvent) => {
-        // t3_explore_first_live_event_received: When the Explore page receives the first Nostr event
         if (eventCount === 0) {
           markOnce('t3_explore_first_live_event_received');
         }
@@ -185,18 +230,82 @@ export async function fetchPopularCooks(limit: number = 12): Promise<PopularCook
           const count = authorCounts.get(event.author.pubkey) || 0;
           authorCounts.set(event.author.pubkey, count + 1);
         }
+        
+        // Early resolve: once we have enough unique authors, start processing
+        if (authorCounts.size >= limit * 3 && eventCount >= 50) {
+          clearTimeout(timeout);
+          finalize();
+        }
       });
 
-      subscription.on('eose', async () => {
+      subscription.on('eose', () => {
         clearTimeout(timeout);
-        subscription.stop();
-        await processAuthorsWithProfiles(authorCounts, limit, ndkInstance, resolve);
+        finalize();
       });
     });
   } catch (error) {
     logger.error('Error fetching popular cooks', 'fetchPopularCooks', error);
     return [];
   }
+}
+
+/**
+ * Faster version of processAuthorsWithProfiles - processes in larger batches
+ */
+async function processAuthorsWithProfilesFast(
+  authorCounts: Map<string, number>,
+  limit: number,
+  ndkInstance: any
+): Promise<PopularCook[]> {
+  // Sort authors by recipe count
+  const sortedAuthors = Array.from(authorCounts.entries())
+    .sort((a, b) => b[1] - a[1])
+    .map(([pubkey]) => pubkey);
+
+  const cooksWithPics: PopularCook[] = [];
+  // Check up to 3x the limit (reduced from 5x)
+  const maxToCheck = Math.min(sortedAuthors.length, limit * 3);
+
+  // Larger batch size for faster processing
+  const batchSize = 15;
+  for (let i = 0; i < maxToCheck && cooksWithPics.length < limit; i += batchSize) {
+    const batch = sortedAuthors.slice(i, i + batchSize);
+    
+    // Fetch profiles in parallel with shorter timeout
+    const profileChecks = await Promise.race([
+      Promise.all(
+        batch.map(async (pubkey) => {
+          try {
+            const user = await profileCacheManager.getProfile(pubkey);
+            return {
+              pubkey,
+              recipeCount: authorCounts.get(pubkey),
+              hasPic: hasValidProfileImage(user)
+            };
+          } catch {
+            return { pubkey, recipeCount: authorCounts.get(pubkey), hasPic: false };
+          }
+        })
+      ),
+      // Timeout for batch after 1.5s
+      new Promise<Array<{pubkey: string; recipeCount: number | undefined; hasPic: boolean}>>((resolve) => 
+        setTimeout(() => resolve(batch.map(pubkey => ({ pubkey, recipeCount: authorCounts.get(pubkey), hasPic: false }))), 1500)
+      )
+    ]);
+
+    // Add users with valid profile pictures
+    for (const check of profileChecks) {
+      if (check.hasPic && cooksWithPics.length < limit) {
+        cooksWithPics.push({
+          pubkey: check.pubkey,
+          recipeCount: check.recipeCount
+        });
+      }
+    }
+  }
+
+  logger.debug(`Found ${cooksWithPics.length} popular cooks with valid profile pictures`, 'Popular Cooks');
+  return cooksWithPics;
 }
 
 /**

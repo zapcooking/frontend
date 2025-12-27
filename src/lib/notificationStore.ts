@@ -13,7 +13,7 @@ export interface Notification {
   read: boolean;
 }
 
-const STORAGE_KEY = 'zc_notifications_v2'; // Bumped to clear old cached notifications with raw nostr: URIs
+const STORAGE_KEY = 'zc_notifications_v4'; // Bumped to fix reply vs mention classification
 const MAX_NOTIFICATIONS = 100;
 
 // Load from localStorage
@@ -21,7 +21,9 @@ function loadNotifications(): Notification[] {
   try {
     const stored = localStorage.getItem(STORAGE_KEY);
     if (stored) {
-      return JSON.parse(stored);
+      const parsed = JSON.parse(stored) as Notification[];
+      // Sort by createdAt descending (most recent first)
+      return parsed.sort((a, b) => b.createdAt - a.createdAt);
     }
   } catch {}
   return [];
@@ -47,7 +49,10 @@ function createNotificationStore() {
         if (notifications.some(n => n.id === notification.id)) {
           return notifications;
         }
-        const updated = [notification, ...notifications].slice(0, MAX_NOTIFICATIONS);
+        // Add and re-sort by createdAt descending (most recent first)
+        const updated = [notification, ...notifications]
+          .sort((a, b) => b.createdAt - a.createdAt)
+          .slice(0, MAX_NOTIFICATIONS);
         saveNotifications(updated);
         return updated;
       });
@@ -173,38 +178,84 @@ function parseNotification(event: NDKEvent, userPubkey: string): Notification | 
         emoji: event.content || '❤️'
       };
       
-    case 9735: // Zap
-      let amount = 0;
+    case 9735: // Zap receipt
+      // The zap receipt is published by the zapper service (e.g., Alby)
+      // The actual sender info is in the embedded zap request in the 'description' tag
+      let zapAmount = 0;
+      let zapSenderPubkey = event.pubkey; // fallback to zapper if we can't parse
       try {
         const descTag = event.tags.find(t => t[0] === 'description')?.[1];
         if (descTag) {
-          const desc = JSON.parse(descTag);
-          amount = Math.floor((desc.amount || 0) / 1000); // msats to sats
+          const zapRequest = JSON.parse(descTag);
+          // The sender's pubkey is in the zap request
+          if (zapRequest.pubkey) {
+            zapSenderPubkey = zapRequest.pubkey;
+          }
+          // Amount is in the zap request tags as 'amount' (in millisats)
+          const amountTag = zapRequest.tags?.find((t: string[]) => t[0] === 'amount');
+          if (amountTag && amountTag[1]) {
+            zapAmount = Math.floor(parseInt(amountTag[1], 10) / 1000); // msats to sats
+          }
         }
-      } catch {}
+      } catch (e) {
+        console.error('[Notifications] Error parsing zap:', e);
+      }
+      
+      // Also try to get amount from bolt11 if we didn't get it from description
+      if (zapAmount === 0) {
+        try {
+          const bolt11Tag = event.tags.find(t => t[0] === 'bolt11')?.[1];
+          if (bolt11Tag) {
+            // Parse amount from bolt11 - look for the amount prefix (e.g., lnbc100n, lnbc1000u, lnbc1m)
+            const amountMatch = bolt11Tag.match(/lnbc(\d+)([munp]?)/i);
+            if (amountMatch) {
+              const num = parseInt(amountMatch[1], 10);
+              const unit = amountMatch[2]?.toLowerCase() || '';
+              // Convert to sats based on unit
+              if (unit === 'm') zapAmount = num * 100000; // milli-bitcoin = 100,000 sats
+              else if (unit === 'u') zapAmount = num * 100; // micro-bitcoin = 100 sats  
+              else if (unit === 'n') zapAmount = Math.floor(num / 10); // nano-bitcoin = 0.1 sats
+              else if (unit === 'p') zapAmount = Math.floor(num / 10000); // pico-bitcoin
+              else zapAmount = num; // assume sats if no unit
+            }
+          }
+        } catch {}
+      }
+      
       const zappedEventId = event.tags.find(t => t[0] === 'e')?.[1];
       return {
         ...baseNotification,
+        fromPubkey: zapSenderPubkey,
         type: 'zap',
         eventId: zappedEventId,
-        amount
+        amount: zapAmount
       };
       
     case 1: // Reply or mention
-      // Collect all 'e' tags to better distinguish replies from mentions.
-      // NIP-10 uses a marker at index [3] ('root' | 'reply' | 'mention'),
-      // but not all clients set this consistently. As a heuristic:
-      // - if there is a 'reply' marker OR
-      // - if there are multiple 'e' tags (typical root + reply),
-      // then treat as a reply (comment); otherwise treat as a mention.
+      // Distinguish between replies and mentions:
+      // - Reply: Someone is replying to a post (has 'e' tags indicating it's a reply)
+      // - Mention: Someone tagged you in a standalone post (no 'e' tags)
       const eTags = event.tags.filter(t => t[0] === 'e');
-      const replyToEvent = eTags[0]?.[1];
-      const hasReplyMarker = eTags.some(t => t[3] === 'reply');
-      const hasMultipleETags = eTags.length > 1;
-      const isMention = !replyToEvent || (!hasReplyMarker && !hasMultipleETags);
+      
+      // Check if this is a reply to something (has any e tags)
+      const isReply = eTags.length > 0;
+      
+      // Get the event being replied to (prefer 'reply' marker, then 'root', then first e tag)
+      let replyToEvent: string | undefined;
+      const replyMarkerTag = eTags.find(t => t[3] === 'reply');
+      const rootMarkerTag = eTags.find(t => t[3] === 'root');
+      if (replyMarkerTag) {
+        replyToEvent = replyMarkerTag[1];
+      } else if (rootMarkerTag) {
+        replyToEvent = rootMarkerTag[1];
+      } else if (eTags.length > 0) {
+        // No markers - use last e tag (NIP-10 deprecated positional)
+        replyToEvent = eTags[eTags.length - 1][1];
+      }
+      
       return {
         ...baseNotification,
-        type: isMention ? 'mention' : 'comment',
+        type: isReply ? 'comment' : 'mention',
         eventId: replyToEvent,
         content: cleanContentForPreview(event.content || '')
       };

@@ -41,8 +41,6 @@
 <div
   class="fixed inset-0 z-[1000]"
   on:click={handleBackdropClick}
-  role="button"
-  tabindex="-1"
   on:keydown={(e) => e.key === 'Escape' && dispatch('close')}
   transition:fade={{ duration: 100 }}
 >
@@ -59,6 +57,7 @@
           class="flex items-center justify-center text-2xl rounded-lg border border-transparent transition-all duration-200 cursor-pointer aspect-square p-3 hover:scale-110 {userReactions.has(emoji) ? 'bg-primary text-white' : 'bg-accent-gray hover:border-primary'}"
           on:click={() => handleEmojiClick(emoji)}
           title={userReactions.has(emoji) ? 'Remove reaction' : 'React with ' + emoji}
+          aria-label={userReactions.has(emoji) ? 'Remove reaction ' + emoji : 'React with ' + emoji}
         >
           {emoji}
         </button>

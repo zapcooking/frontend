@@ -5,10 +5,21 @@
   import { nip19 } from 'nostr-tools';
   import CustomAvatar from './CustomAvatar.svelte';
   import CustomName from './CustomName.svelte';
+  import { onMount } from 'svelte';
   
   export let onClose: () => void;
   
   const MAX_PREVIEW = 8;
+  
+  // Auto-mark all as read when panel is opened
+  onMount(() => {
+    if ($unreadCount > 0) {
+      // Small delay to let user see unread indicators briefly
+      setTimeout(() => {
+        notifications.markAllAsRead();
+      }, 500);
+    }
+  });
   
   function getIcon(type: string): string {
     switch (type) {
@@ -52,10 +63,6 @@
     }
   }
   
-  function markAllRead() {
-    notifications.markAllAsRead();
-  }
-  
   function viewAll() {
     onClose();
     goto('/notifications');
@@ -66,14 +73,6 @@
   <!-- Header -->
   <div class="flex items-center justify-between px-4 py-3 border-b" style="border-color: var(--color-input-border)">
     <h3 class="font-semibold" style="color: var(--color-text-primary)">Notifications</h3>
-    {#if $unreadCount > 0}
-      <button
-        on:click={markAllRead}
-        class="text-sm text-orange-500 hover:text-orange-600 cursor-pointer"
-      >
-        Mark all read
-      </button>
-    {/if}
   </div>
 
   <!-- Notification List -->

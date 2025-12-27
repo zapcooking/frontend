@@ -22,7 +22,7 @@
   type FilterMode = 'global' | 'following' | 'replies';
   
   // Local state for immediate UI updates
-  let activeTab: FilterMode = 'global';
+  let activeTab: FilterMode = 'following';
   
   // Tab initialization is now in the onMount with quote listener
   

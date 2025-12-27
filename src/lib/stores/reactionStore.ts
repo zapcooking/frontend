@@ -24,7 +24,16 @@ const defaultData: ReactionStoreData = {
 
 export function getReactionStore(eventId: string): Writable<ReactionStoreData> {
   if (!reactionStores.has(eventId)) {
-    reactionStores.set(eventId, writable({ ...defaultData }));
+    reactionStores.set(
+      eventId,
+      writable({
+        ...defaultData,
+        reactions: {
+          ...defaultData.reactions,
+          userReactions: new Set(defaultData.reactions.userReactions)
+        }
+      })
+    );
   }
   return reactionStores.get(eventId)!;
 }
