@@ -78,7 +78,7 @@
         />
       </div>
 
-      <h5 class="text-md leading-tight text-wrap">
+      <h5 class="text-md leading-tight text-wrap" style="color: var(--color-text-primary)">
         {title}
       </h5>
     </a>
