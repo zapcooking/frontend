@@ -146,9 +146,3 @@ html.dark .image-placeholder::before {
   fill: #000000 !important;
 }
 
-html.dark .qr-wrapper,
-html.dark .qr-wrapper * {
-  background-color: #ffffff !important;
-  color: #000000 !important;
-  fill: #000000 !important;
-}
