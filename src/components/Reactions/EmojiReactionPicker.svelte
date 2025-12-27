@@ -41,8 +41,6 @@
 <div
   class="fixed inset-0 z-[1000]"
   on:click={handleBackdropClick}
-  role="button"
-  tabindex="-1"
   on:keydown={(e) => e.key === 'Escape' && dispatch('close')}
   transition:fade={{ duration: 100 }}
 >
