@@ -15,6 +15,7 @@
   import TotalLikes from './TotalLikes.svelte';
   import TotalComments from './TotalComments.svelte';
   import Comments from '../Comments.svelte';
+  import RecipeReactionPills from './RecipeReactionPills.svelte';
   import ZapModal from '../ZapModal.svelte';
   import { requestProvider } from 'webln';
   import { nip19 } from 'nostr-tools';
@@ -221,6 +222,11 @@ async function getLists(): Promise<NDKEvent[]> {
   /*const firstTag = recipeTags.find(
     (e) => e.title.toLowerCase().replaceAll(' ', '-') == event.getMatchingTags("t").filter((t) => t[1].slice(13)[0])[0][1].slice(13)
   );*/
+
+  // Deduplicate image tags by URL
+  $: uniqueImages = event.tags
+    .filter((e) => e[0] === 'image')
+    .filter((img, index, arr) => arr.findIndex((t) => t[1] === img[1]) === index);
 </script>
 
 <svelte:window on:keydown={handleImageModalKeydown} />
@@ -317,14 +323,14 @@ async function getLists(): Promise<NDKEvent[]> {
           </div>
         </div>
       </div>
-      {#each event.tags.filter((e) => e[0] === 'image') as image, i}
+      {#each uniqueImages as image, i}
         {#if i === 0}
           <!-- First image with hover overlay + click to open modal -->
           <div class="relative group rounded-3xl overflow-hidden">
             <button
               on:click={() => openImageModal(
                 image[1],
-                event.tags.filter((e) => e[0] === 'image').map(img => img[1]),
+                uniqueImages.map(img => img[1]),
                 i
               )}
               class="w-full cursor-pointer"
@@ -362,7 +368,7 @@ async function getLists(): Promise<NDKEvent[]> {
           <button
             on:click={() => openImageModal(
               image[1],
-              event.tags.filter((e) => e[0] === 'image').map(img => img[1]),
+              uniqueImages.map(img => img[1]),
               i
             )}
             class="w-full cursor-pointer"
@@ -375,20 +381,23 @@ async function getLists(): Promise<NDKEvent[]> {
           </button>
         {/if}
       {/each}
-      <div class="flex print:hidden">
-        <div class="flex gap-6 grow">
-          <TotalLikes {event} />
-          <TotalComments {event} />
-          <button class="cursor-pointer" on:click={() => (zapModal = true)}>
-            <TotalZaps {event} />
+      <!-- Reactions and actions -->
+      <div class="flex flex-col gap-1 print:hidden -mt-2">
+        <RecipeReactionPills {event} />
+        <div class="flex">
+          <div class="flex gap-6 grow">
+            <TotalLikes {event} />
+            <TotalComments {event} />
+            <button class="cursor-pointer" on:click={() => (zapModal = true)}>
+              <TotalZaps {event} />
+            </button>
+          </div>
+          <button
+            class="cursor-pointer hover:bg-input rounded p-0.5 transition duration-300"
+            on:click={() => (dropdownActive = !dropdownActive)}
+          >
+            <DotsIcon size={28} weight="bold" class="text-caption" />
           </button>
-        </div>
-        <button
-          class="cursor-pointer hover:bg-input rounded p-0.5 transition duration-300"
-          on:click={() => (dropdownActive = !dropdownActive)}
-        >
-          <DotsIcon size={28} weight="bold" class="text-caption" />
-        </button>
         {#if dropdownActive}
           <div class="relative" tabindex="-1" transition:fade={{ delay: 0, duration: 150 }}>
             <div
@@ -411,6 +420,7 @@ async function getLists(): Promise<NDKEvent[]> {
             </div>
           </div>
         {/if}
+        </div>
       </div>
       <div class="prose">
         {#if $translateOption.lang}

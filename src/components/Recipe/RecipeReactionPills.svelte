@@ -1,8 +1,8 @@
 <script lang="ts">
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
-  import ReactionTrigger from './Reactions/ReactionTrigger.svelte';
+  import ReactionPills from '../Reactions/ReactionPills.svelte';
 
   export let event: NDKEvent;
 </script>
 
-<ReactionTrigger {event} targetType="note" />
+<ReactionPills {event} targetType="recipe" />

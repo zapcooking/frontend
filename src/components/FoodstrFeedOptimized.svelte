@@ -5,6 +5,7 @@
   import CustomAvatar from './CustomAvatar.svelte';
   import type { NDKEvent, NDKSubscription } from '@nostr-dev-kit/ndk';
   import NoteTotalLikes from './NoteTotalLikes.svelte';
+  import NoteReactionPills from './NoteReactionPills.svelte';
   import NoteTotalComments from './NoteTotalComments.svelte';
   import NoteTotalZaps from './NoteTotalZaps.svelte';
   import NoteRepost from './NoteRepost.svelte';
@@ -1875,6 +1876,13 @@ import ClientAttribution from './ClientAttribution.svelte';
                       {/if}
                     {/if}
                   </div>
+                </div>
+              {/if}
+
+              <!-- Reaction pills row -->
+              {#if visibleNotes.has(event.id)}
+                <div class="px-2 sm:px-0">
+                  <NoteReactionPills {event} />
                 </div>
               {/if}
 
