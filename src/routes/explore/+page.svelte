@@ -54,10 +54,20 @@
     // t1_explore_shell_rendered: When Explore UI shell is mounted
     markOnce('t1_explore_shell_rendered');
 
+    // Load collections immediately (static data, no network)
+    collections = await fetchCollectionsWithImages();
+    loadingCollections = false;
+
     // Start discover recipes immediately (don't block on other data)
     fetchDiscoverRecipes(12).then((discoverData) => {
       discoverRecipes = discoverData;
       loadingDiscover = false;
+    });
+
+    // Load popular cooks (uses cache for instant load)
+    fetchPopularCooks(12).then((cooksData) => {
+      popularCooks = cooksData;
+      loadingCooks = false;
     });
 
     // Load popular tags (non-blocking)
@@ -69,18 +79,6 @@
         }
       });
       loadingPopular = false;
-    });
-
-    // Load collections and popular cooks in parallel (non-blocking)
-    Promise.all([
-      fetchCollectionsWithImages(),
-      fetchPopularCooks(12)
-    ]).then(([collectionsData, cooksData]) => {
-      collections = collectionsData;
-      loadingCollections = false;
-
-      popularCooks = cooksData;
-      loadingCooks = false;
     });
   });
 
@@ -194,11 +192,11 @@
         {/if}
       </section>
 
-      <!-- Discover New -->
+      <!-- Fresh from the kitchen -->
       <section class="flex flex-col gap-4">
         <h2 class="text-2xl font-bold flex items-center gap-2">
-          <span>✨</span>
-          <span>Discover New</span>
+          <span>🍳</span>
+          <span>Fresh from the kitchen</span>
         </h2>
         {#if loadingDiscover}
           <div class="flex gap-4 overflow-x-auto pb-2 -mx-4 px-4">

@@ -301,12 +301,12 @@
   {#if loading}
     <div class="py-12 text-center">
       <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
-      <p class="mt-4 text-gray-600">Loading note...</p>
+      <p class="mt-4" style="color: var(--color-caption)">Loading note...</p>
     </div>
   {:else if error}
     <div class="py-12 text-center">
       <div class="max-w-sm mx-auto space-y-6">
-        <div class="text-gray-500">
+        <div style="color: var(--color-caption)">
           <svg class="h-12 w-12 mx-auto mb-4 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
           </svg>
@@ -325,7 +325,7 @@
     <!-- Thread Header -->
     {#if parentThread.length > 0 || loadingParents}
       <div class="pt-4 pb-2">
-        <div class="flex items-center gap-2 text-xs text-gray-500">
+        <div class="flex items-center gap-2 text-xs" style="color: var(--color-caption)">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
           </svg>
@@ -339,10 +339,10 @@
       <div class="py-4">
         <div class="animate-pulse space-y-3">
           <div class="flex gap-3">
-            <div class="w-10 h-10 bg-gray-200 rounded-full"></div>
+            <div class="w-10 h-10 rounded-full skeleton-bg"></div>
             <div class="flex-1 space-y-2">
-              <div class="h-4 bg-gray-200 rounded w-1/4"></div>
-              <div class="h-4 bg-gray-200 rounded w-3/4"></div>
+              <div class="h-4 rounded w-1/4 skeleton-bg"></div>
+              <div class="h-4 rounded w-3/4 skeleton-bg"></div>
             </div>
           </div>
         </div>
@@ -352,12 +352,12 @@
         {#each parentThread as parentNote, index}
           <div class="relative">
             <!-- Thread line connecting to next note -->
-            <div class="absolute left-5 top-12 bottom-0 w-0.5 bg-gray-200"></div>
+            <div class="absolute left-5 top-12 bottom-0 w-0.5" style="background-color: var(--color-input-border)"></div>
             
             <article class="py-3">
               <a 
                 href="/{nip19.noteEncode(parentNote.id)}"
-                class="flex space-x-3 group hover:bg-gray-50 -mx-2 px-2 py-2 rounded-lg transition-colors"
+                class="flex space-x-3 group -mx-2 px-2 py-2 rounded-lg transition-colors parent-thread-link"
               >
                 <div class="flex-shrink-0 z-10">
                   <CustomAvatar
@@ -367,15 +367,15 @@
                 </div>
                 <div class="flex-1 min-w-0">
                   <div class="flex items-center space-x-2 mb-1">
-                    <span class="font-semibold text-sm text-gray-900 group-hover:text-blue-600">
+                    <span class="font-semibold text-sm group-hover:text-primary" style="color: var(--color-text-primary)">
                       <CustomName pubkey={parentNote.author?.hexpubkey || parentNote.pubkey} />
                     </span>
-                    <span class="text-gray-400 text-sm">·</span>
-                    <span class="text-gray-400 text-sm">
+                    <span class="text-sm" style="color: var(--color-caption)">·</span>
+                    <span class="text-sm" style="color: var(--color-caption)">
                       {parentNote.created_at ? formatTimeAgo(parentNote.created_at) : ''}
                     </span>
                   </div>
-                  <div class="text-sm text-gray-700 leading-relaxed line-clamp-3">
+                  <div class="text-sm leading-relaxed line-clamp-3" style="color: var(--color-text-secondary)">
                     <NoteContent content={parentNote.content} />
                   </div>
                 </div>
@@ -387,7 +387,7 @@
     {/if}
     
     <!-- Main Note (highlighted) -->
-    <article class="bg-white border border-gray-200 rounded-xl p-4 my-2 shadow-sm">
+    <article class="rounded-xl p-4 my-2 shadow-sm" style="background-color: var(--color-bg-secondary); border: 1px solid var(--color-input-border)">
       <div class="flex space-x-3">
         <a href="/user/{nip19.npubEncode(event.author?.hexpubkey || event.pubkey)}" class="flex-shrink-0">
           <CustomAvatar
@@ -398,11 +398,11 @@
         </a>
         <div class="flex-1 min-w-0">
           <div class="flex items-center space-x-2 mb-2 flex-wrap">
-            <a href="/user/{nip19.npubEncode(event.author?.hexpubkey || event.pubkey)}" class="font-semibold text-gray-900 hover:underline">
+            <a href="/user/{nip19.npubEncode(event.author?.hexpubkey || event.pubkey)}" class="font-semibold hover:underline" style="color: var(--color-text-primary)">
               <CustomName pubkey={event.author?.hexpubkey || event.pubkey} />
             </a>
-            <span class="text-gray-400">·</span>
-            <span class="text-gray-400 text-sm">
+            <span style="color: var(--color-caption)">·</span>
+            <span class="text-sm" style="color: var(--color-caption)">
               {event.created_at ? formatTimeAgo(event.created_at) : 'Unknown time'}
             </span>
             <ClientAttribution tags={event.tags} enableEnrichment={true} />
@@ -426,7 +426,7 @@
     
     <!-- Replies Section -->
     <div class="mt-4">
-      <div class="flex items-center gap-2 text-sm font-medium text-gray-700 mb-3">
+      <div class="flex items-center gap-2 text-sm font-medium mb-3" style="color: var(--color-text-secondary)">
         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
         </svg>
@@ -435,14 +435,15 @@
       
       <!-- Reply Input -->
       {#if $userPublickey}
-        <div class="mb-4 p-3 bg-gray-50 rounded-lg">
+        <div class="mb-4 p-3 rounded-lg" style="background-color: var(--color-bg-secondary)">
           <div class="flex gap-3">
             <CustomAvatar pubkey={$userPublickey} size={32} />
             <div class="flex-1">
               <textarea
                 bind:value={commentText}
                 placeholder="Write a reply..."
-                class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg resize-none focus:ring-2 focus:ring-primary focus:border-transparent bg-white"
+                class="w-full px-3 py-2 text-sm rounded-lg resize-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                style="background-color: var(--color-bg-primary); border: 1px solid var(--color-input-border); color: var(--color-text-primary)"
                 rows="2"
               ></textarea>
               <div class="flex justify-end mt-2">
@@ -454,7 +455,7 @@
           </div>
         </div>
       {:else}
-        <div class="mb-4 p-3 bg-gray-50 rounded-lg text-sm text-gray-500">
+        <div class="mb-4 p-3 rounded-lg text-sm" style="background-color: var(--color-bg-secondary); color: var(--color-caption)">
           <a href="/login" class="text-primary hover:underline font-medium">Log in</a> to reply
         </div>
       {/if}
@@ -464,26 +465,26 @@
         <div class="space-y-3">
           {#each [1, 2] as _}
             <div class="animate-pulse flex gap-3 p-3">
-              <div class="w-8 h-8 bg-gray-200 rounded-full"></div>
+              <div class="w-8 h-8 rounded-full skeleton-bg"></div>
               <div class="flex-1 space-y-2">
-                <div class="h-3 bg-gray-200 rounded w-1/4"></div>
-                <div class="h-3 bg-gray-200 rounded w-full"></div>
+                <div class="h-3 rounded w-1/4 skeleton-bg"></div>
+                <div class="h-3 rounded w-full skeleton-bg"></div>
               </div>
             </div>
           {/each}
         </div>
       {:else if directReplies.length === 0}
-        <p class="text-sm text-gray-500 py-4 text-center">No replies yet. Be the first to reply!</p>
+        <p class="text-sm py-4 text-center" style="color: var(--color-caption)">No replies yet. Be the first to reply!</p>
       {:else}
         <div class="space-y-0">
           {#each directReplies as reply}
             <div class="relative">
               <!-- Thread line for nested replies -->
               {#if getNestedReplies(reply.id).length > 0}
-                <div class="absolute left-4 top-12 bottom-0 w-0.5 bg-gray-100"></div>
+                <div class="absolute left-4 top-12 bottom-0 w-0.5" style="background-color: var(--color-input-border)"></div>
               {/if}
               
-              <article class="py-3 border-b border-gray-100 last:border-0">
+              <article class="py-3 border-b last:border-0" style="border-color: var(--color-input-border)">
                 <div class="flex space-x-3">
                   <a href="/user/{nip19.npubEncode(reply.author?.hexpubkey || reply.pubkey)}" class="flex-shrink-0">
                     <CustomAvatar
@@ -493,21 +494,21 @@
                   </a>
                   <div class="flex-1 min-w-0">
                     <div class="flex items-center space-x-2 mb-1">
-                      <a href="/user/{nip19.npubEncode(reply.author?.hexpubkey || reply.pubkey)}" class="font-medium text-sm text-gray-900 hover:underline">
+                      <a href="/user/{nip19.npubEncode(reply.author?.hexpubkey || reply.pubkey)}" class="font-medium text-sm hover:underline" style="color: var(--color-text-primary)">
                         <CustomName pubkey={reply.author?.hexpubkey || reply.pubkey} />
                       </a>
-                      <span class="text-gray-400 text-xs">·</span>
-                      <span class="text-gray-400 text-xs">
+                      <span class="text-xs" style="color: var(--color-caption)">·</span>
+                      <span class="text-xs" style="color: var(--color-caption)">
                         {reply.created_at ? formatTimeAgo(reply.created_at) : ''}
                       </span>
                     </div>
-                    <div class="text-sm text-gray-700 leading-relaxed">
+                    <div class="text-sm leading-relaxed" style="color: var(--color-text-secondary)">
                       <NoteContent content={reply.content} />
                     </div>
-                    <div class="flex items-center gap-4 mt-2 text-xs text-gray-400">
+                    <div class="flex items-center gap-4 mt-2 text-xs" style="color: var(--color-caption)">
                       <a 
                         href="/{nip19.noteEncode(reply.id)}"
-                        class="hover:text-blue-600 transition-colors flex items-center gap-1"
+                        class="hover:text-primary transition-colors flex items-center gap-1"
                       >
                         <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
@@ -521,7 +522,7 @@
               
               <!-- Nested Replies (1 level deep shown inline) -->
               {#each getNestedReplies(reply.id).slice(0, 2) as nestedReply}
-                <div class="ml-8 pl-3 border-l-2 border-gray-100">
+                <div class="ml-8 pl-3 border-l-2" style="border-color: var(--color-input-border)">
                   <article class="py-2">
                     <div class="flex space-x-2">
                       <a href="/user/{nip19.npubEncode(nestedReply.author?.hexpubkey || nestedReply.pubkey)}" class="flex-shrink-0">
@@ -532,15 +533,15 @@
                       </a>
                       <div class="flex-1 min-w-0">
                         <div class="flex items-center space-x-2 mb-0.5">
-                          <span class="font-medium text-xs text-gray-900">
+                          <span class="font-medium text-xs" style="color: var(--color-text-primary)">
                             <CustomName pubkey={nestedReply.author?.hexpubkey || nestedReply.pubkey} />
                           </span>
-                          <span class="text-gray-400 text-xs">·</span>
-                          <span class="text-gray-400 text-xs">
+                          <span class="text-xs" style="color: var(--color-caption)">·</span>
+                          <span class="text-xs" style="color: var(--color-caption)">
                             {nestedReply.created_at ? formatTimeAgo(nestedReply.created_at) : ''}
                           </span>
                         </div>
-                        <div class="text-xs text-gray-600 leading-relaxed line-clamp-2">
+                        <div class="text-xs leading-relaxed line-clamp-2" style="color: var(--color-text-secondary)">
                           <NoteContent content={nestedReply.content} />
                         </div>
                       </div>
@@ -553,7 +554,8 @@
               {#if getNestedReplies(reply.id).length > 2}
                 <a 
                   href="/{nip19.noteEncode(reply.id)}"
-                  class="ml-8 pl-3 border-l-2 border-gray-100 py-2 block text-xs text-blue-600 hover:text-blue-700"
+                  class="ml-8 pl-3 border-l-2 py-2 block text-xs text-primary hover:opacity-80"
+                  style="border-color: var(--color-input-border)"
                 >
                   Show {getNestedReplies(reply.id).length - 2} more {getNestedReplies(reply.id).length - 2 === 1 ? 'reply' : 'replies'}
                 </a>
@@ -565,10 +567,11 @@
     </div>
 
     <!-- Back to Community -->
-    <div class="py-6 text-center border-t border-gray-200 mt-6">
+    <div class="py-6 text-center mt-6" style="border-top: 1px solid var(--color-input-border)">
       <button 
         on:click={() => goto('/community')}
-        class="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors text-sm"
+        class="px-4 py-2 rounded-lg transition-colors text-sm"
+        style="background-color: var(--color-bg-secondary); color: var(--color-text-secondary)"
       >
         ← Back to Community
       </button>
@@ -583,3 +586,9 @@
     on:close={() => zapModal = false} 
   />
 {/if}
+
+<style>
+  .parent-thread-link:hover {
+    background-color: var(--color-bg-secondary);
+  }
+</style>

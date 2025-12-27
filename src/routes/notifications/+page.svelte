@@ -8,9 +8,37 @@
   import { userPublickey } from '$lib/nostr';
   import { onMount } from 'svelte';
   
+  type TabType = 'all' | 'zaps' | 'replies' | 'mentions';
+  
+  let activeTab: TabType = 'all';
+  
+  const tabs: { id: TabType; label: string }[] = [
+    { id: 'all', label: 'All' },
+    { id: 'zaps', label: 'Zaps' },
+    { id: 'replies', label: 'Replies' },
+    { id: 'mentions', label: 'Mentions' }
+  ];
+  
+  $: filteredNotifications = $notifications.filter(n => {
+    if (activeTab === 'all') return true;
+    if (activeTab === 'zaps') return n.type === 'zap';
+    if (activeTab === 'replies') return n.type === 'comment';
+    if (activeTab === 'mentions') return n.type === 'mention';
+    return true;
+  });
+  
   onMount(() => {
     if (!$userPublickey) {
       goto('/login');
+      return;
+    }
+    
+    // Auto-mark all notifications as read when viewing the page
+    if ($unreadCount > 0) {
+      // Small delay to let user see the unread state briefly before clearing
+      setTimeout(() => {
+        notifications.markAllAsRead();
+      }, 500);
     }
   });
   
@@ -62,29 +90,45 @@
 <div class="max-w-2xl mx-auto px-4 py-8">
   <div class="flex items-center justify-between mb-6">
     <h1 class="text-2xl font-bold">Notifications</h1>
-    {#if $unreadCount > 0}
-      <button 
-        on:click={() => notifications.markAllAsRead()}
-        class="text-sm text-orange-500 hover:text-orange-600 cursor-pointer"
-      >
-        Mark all as read
-      </button>
-    {/if}
+  </div>
+  
+  <!-- Tabs -->
+  <div class="mb-6 border-b" style="border-color: var(--color-input-border)">
+    <div class="flex gap-1">
+      {#each tabs as tab}
+        <button
+          on:click={() => activeTab = tab.id}
+          class="px-4 py-2 text-sm font-medium transition-colors relative cursor-pointer"
+          style="color: {activeTab === tab.id ? 'var(--color-text-primary)' : 'var(--color-text-secondary)'}"
+        >
+          {tab.label}
+          {#if activeTab === tab.id}
+            <span class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-orange-500 to-amber-500"></span>
+          {/if}
+        </button>
+      {/each}
+    </div>
   </div>
   
   {#if $notifications.length === 0}
-    <div class="text-center py-12 text-gray-500">
+    <div class="text-center py-12 text-caption">
       <span class="text-5xl">🔔</span>
       <p class="mt-4 text-lg">No notifications yet</p>
       <p class="mt-2">When someone reacts, zaps, or replies to you, it will show up here.</p>
     </div>
+  {:else if filteredNotifications.length === 0}
+    <div class="text-center py-12 text-caption">
+      <span class="text-5xl">🔔</span>
+      <p class="mt-4 text-lg">No {activeTab === 'all' ? '' : activeTab} notifications</p>
+    </div>
   {:else}
-    <div class="bg-white rounded-xl border border-gray-200 divide-y divide-gray-100">
-      {#each $notifications as notification (notification.id)}
+    <div class="rounded-xl divide-y" style="background-color: var(--color-bg-secondary); border: 1px solid var(--color-input-border);">
+      {#each filteredNotifications as notification (notification.id)}
         <button
           on:click={() => handleNotificationClick(notification)}
-          class="w-full flex items-start gap-4 p-4 hover:bg-gray-50 transition-colors cursor-pointer text-left
+          class="w-full flex items-start gap-4 p-4 transition-colors cursor-pointer text-left hover:opacity-80
             {notification.read ? 'opacity-60' : ''}"
+          style="border-color: var(--color-input-border);"
         >
           <div class="relative flex-shrink-0">
             <CustomAvatar pubkey={notification.fromPubkey} size={48} />
@@ -94,18 +138,18 @@
           </div>
           
           <div class="flex-1 min-w-0">
-            <p class="text-gray-900">
+            <p style="color: var(--color-text-primary);">
               <span class="font-semibold">
                 <CustomName pubkey={notification.fromPubkey} />
               </span>
               {' '}{getMessage(notification)}
             </p>
             {#if notification.content}
-              <p class="text-gray-500 mt-1 line-clamp-2">
+              <p class="mt-1 line-clamp-2" style="color: var(--color-text-secondary);">
                 "{notification.content}"
               </p>
             {/if}
-            <p class="text-sm text-gray-400 mt-2">
+            <p class="text-sm mt-2" style="color: var(--color-caption);">
               {formatTime(notification.createdAt)}
             </p>
           </div>

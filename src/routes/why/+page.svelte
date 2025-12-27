@@ -7,6 +7,15 @@
 </svelte:head>
 
 <article class="max-w-2xl mx-auto">
+  <!-- Hero Image -->
+  <div class="mb-8 -mx-4 sm:mx-0">
+    <img 
+      src="/why-hero.png" 
+      alt="You have a friend at Zap Cooking" 
+      class="w-full rounded-none sm:rounded-2xl"
+    />
+  </div>
+
   <h1 class="text-3xl font-bold mb-8" style="color: var(--color-text-primary)">Why Zap Cooking Exists</h1>
 
   <div class="flex flex-col gap-6 leading-relaxed" style="color: var(--color-text-primary)">

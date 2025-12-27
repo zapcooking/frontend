@@ -1462,6 +1462,46 @@ import ClientAttribution from './ClientAttribution.svelte';
     return carouselStates[eventId] || 0;
   }
 
+  function getCarouselContainer(eventId: string): HTMLElement | null {
+    return document.querySelector(`[data-carousel-id="${eventId}"]`) as HTMLElement | null;
+  }
+
+  function scrollCarouselTo(eventId: string, index: number) {
+    const container = getCarouselContainer(eventId);
+    if (container) {
+      const slideWidth = container.offsetWidth;
+      container.scrollTo({ left: slideWidth * index, behavior: 'smooth' });
+    }
+  }
+
+  function scrollCarouselPrev(eventId: string) {
+    const container = getCarouselContainer(eventId);
+    if (container) {
+      const slideWidth = container.offsetWidth;
+      container.scrollTo({ left: container.scrollLeft - slideWidth, behavior: 'smooth' });
+    }
+  }
+
+  function scrollCarouselNext(eventId: string) {
+    const container = getCarouselContainer(eventId);
+    if (container) {
+      const slideWidth = container.offsetWidth;
+      container.scrollTo({ left: container.scrollLeft + slideWidth, behavior: 'smooth' });
+    }
+  }
+
+  function handleCarouselScroll(e: Event, eventId: string) {
+    const container = e.currentTarget as HTMLElement;
+    if (!container) return;
+    const slideWidth = container.offsetWidth;
+    if (slideWidth === 0) return;
+    const newIndex = Math.round(container.scrollLeft / slideWidth);
+    if (carouselStates[eventId] !== newIndex) {
+      carouselStates[eventId] = newIndex;
+      carouselStates = { ...carouselStates };
+    }
+  }
+
   function nextSlide(eventId: string, totalSlides: number) {
     carouselStates[eventId] = ((carouselStates[eventId] || 0) + 1) % totalSlides;
     carouselStates = { ...carouselStates };
@@ -1599,7 +1639,7 @@ import ClientAttribution from './ClientAttribution.svelte';
   {:else if error}
     <div class="py-12 text-center">
       <div class="max-w-sm mx-auto space-y-6">
-        <div class="text-gray-500">
+        <div style="color: var(--color-caption)">
           <svg class="h-12 w-12 mx-auto mb-4 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
           </svg>
@@ -1617,7 +1657,7 @@ import ClientAttribution from './ClientAttribution.svelte';
   {:else if events.length === 0}
     <div class="py-12 text-center">
       <div class="max-w-sm mx-auto space-y-6">
-        <div class="text-gray-500">
+        <div style="color: var(--color-caption)">
           <svg class="h-12 w-12 mx-auto mb-4 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
           </svg>
@@ -1635,7 +1675,7 @@ import ClientAttribution from './ClientAttribution.svelte';
   {:else}
     <div class="space-y-0">
       {#each events as event (event.id)}
-        <article class="border-b border-gray-200 py-4 sm:py-6 first:pt-0">
+        <article class="border-b py-4 sm:py-6 first:pt-0" style="border-color: var(--color-input-border)">
           <div class="flex space-x-3 px-2 sm:px-0">
             {#if !hideAvatar}
               <a href="/user/{nip19.npubEncode(event.author?.hexpubkey || event.pubkey)}" class="flex-shrink-0">
@@ -1653,7 +1693,7 @@ import ClientAttribution from './ClientAttribution.svelte';
                 {#if parentNoteId}
                   {#await resolveReplyContext(parentNoteId)}
                     <!-- Loading state - simple inline -->
-                    <button class="mb-1.5 flex items-center gap-1 text-xs text-gray-400">
+                    <button class="mb-1.5 flex items-center gap-1 text-xs" style="color: var(--color-caption)">
                       <svg class="w-3 h-3 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
                       </svg>
@@ -1673,7 +1713,8 @@ import ClientAttribution from './ClientAttribution.svelte';
                           });
                         }
                       }}
-                      class="mb-1.5 flex items-center gap-1 text-xs text-gray-500 hover:text-blue-600 transition-colors group"
+                      class="mb-1.5 flex items-center gap-1 text-xs hover:text-primary transition-colors group"
+                      style="color: var(--color-caption)"
                     >
                       <svg class="w-3 h-3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
@@ -1769,9 +1810,9 @@ import ClientAttribution from './ClientAttribution.svelte';
               <div class="flex items-center space-x-2 mb-2 flex-wrap">
                 {#if !hideAuthorName}
                   <AuthorName {event} />
-                  <span class="text-gray-500 text-sm">·</span>
+                  <span class="text-sm" style="color: var(--color-caption)">·</span>
                 {/if}
-                <span class="text-gray-500 text-sm">
+                <span class="text-sm" style="color: var(--color-caption)">
                   {event.created_at ? formatTimeAgo(event.created_at) : 'Unknown time'}
                 </span>
                 <ClientAttribution tags={event.tags} enableEnrichment={false} />
@@ -1801,45 +1842,49 @@ import ClientAttribution from './ClientAttribution.svelte';
                 {@const mediaUrls = getImageUrls(event)}
                 
                 <div class="mb-3 -mx-2 sm:mx-0">
-                  <div class="relative overflow-hidden rounded-none sm:rounded-lg border-0 sm:border bg-input h-48 sm:h-64" style="border-color: var(--color-input-border)">
-                    {#each mediaUrls as imageUrl, index}
-                      <div 
-                        class="absolute inset-0 transition-opacity duration-300"
-                        class:opacity-100={index === getCurrentSlide(event.id)}
-                        class:opacity-0={index !== getCurrentSlide(event.id)}
-                      >
-                        {#if isImageUrl(imageUrl)}
-                          <button
-                            class="w-full h-full"
-                            on:click={() => openImageModal(imageUrl, mediaUrls, index)}
-                          >
-                            <img
-                              src={getOptimizedImageUrl(imageUrl)}
-                              alt="Preview"
-                              class="w-full h-full object-cover cursor-pointer hover:opacity-95 transition-opacity"
-                              loading="lazy"
-                              decoding="async"
+                  <div class="relative rounded-none sm:rounded-lg border-0 sm:border bg-input" style="border-color: var(--color-input-border)">
+                    <!-- Swipeable carousel container -->
+                    <div 
+                      class="carousel-container flex overflow-x-auto h-48 sm:h-64"
+                      data-carousel-id={event.id}
+                      on:scroll={(e) => handleCarouselScroll(e, event.id)}
+                    >
+                      {#each mediaUrls as imageUrl, index}
+                        <div class="carousel-slide flex-shrink-0 w-full h-full">
+                          {#if isImageUrl(imageUrl)}
+                            <button
+                              class="w-full h-full"
+                              on:click={() => openImageModal(imageUrl, mediaUrls, index)}
+                            >
+                              <img
+                                src={getOptimizedImageUrl(imageUrl)}
+                                alt="Preview"
+                                class="w-full h-full object-cover cursor-pointer hover:opacity-95 transition-opacity"
+                                loading="lazy"
+                                decoding="async"
+                                on:error={handleMediaError}
+                              />
+                            </button>
+                          {:else if isVideoUrl(imageUrl)}
+                            <video 
+                              src={imageUrl} 
+                              controls 
+                              class="w-full h-full object-cover"
+                              preload="metadata"
                               on:error={handleMediaError}
-                            />
-                          </button>
-                        {:else if isVideoUrl(imageUrl)}
-                          <video 
-                            src={imageUrl} 
-                            controls 
-                            class="w-full h-full object-cover"
-                            preload="metadata"
-                            on:error={handleMediaError}
-                          >
-                            <track kind="captions" src="" srclang="en" label="English" />
-                          </video>
-                        {/if}
-                      </div>
-                    {/each}
+                            >
+                              <track kind="captions" src="" srclang="en" label="English" />
+                            </video>
+                          {/if}
+                        </div>
+                      {/each}
+                    </div>
                     
                     {#if mediaUrls.length > 1}
+                      <!-- Arrow buttons (hidden on mobile, visible on larger screens) -->
                       <button
-                        on:click={() => prevSlide(event.id, mediaUrls.length)}
-                        class="absolute left-2 top-1/2 -translate-y-1/2 bg-black/50 hover:bg-black/70 text-white rounded-full p-2 transition-colors z-10"
+                        on:click={() => scrollCarouselPrev(event.id)}
+                        class="hidden sm:block absolute left-2 top-1/2 -translate-y-1/2 bg-black/50 hover:bg-black/70 text-white rounded-full p-2 transition-colors z-10"
                       >
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
@@ -1847,29 +1892,26 @@ import ClientAttribution from './ClientAttribution.svelte';
                       </button>
                       
                       <button
-                        on:click={() => nextSlide(event.id, mediaUrls.length)}
-                        class="absolute right-2 top-1/2 -translate-y-1/2 bg-black/50 hover:bg-black/70 text-white rounded-full p-2 transition-colors z-10"
+                        on:click={() => scrollCarouselNext(event.id)}
+                        class="hidden sm:block absolute right-2 top-1/2 -translate-y-1/2 bg-black/50 hover:bg-black/70 text-white rounded-full p-2 transition-colors z-10"
                       >
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
                         </svg>
                       </button>
                       
-                      <div class="absolute top-2 right-2 bg-black/50 text-white text-xs px-2 py-1 rounded">
+                      <!-- Slide counter -->
+                      <div class="absolute top-2 right-2 bg-black/50 text-white text-xs px-2 py-1 rounded z-10">
                         {getCurrentSlide(event.id) + 1} / {mediaUrls.length}
                       </div>
                       
+                      <!-- Dot indicators -->
                       {#if mediaUrls.length <= 5}
-                        <div class="absolute bottom-2 left-1/2 -translate-x-1/2 flex space-x-1">
+                        <div class="absolute bottom-2 left-1/2 -translate-x-1/2 flex space-x-1.5 z-10">
                           {#each mediaUrls as _, index}
                             <button
-                              on:click={() => {
-                                carouselStates[event.id] = index;
-                                carouselStates = { ...carouselStates };
-                              }}
-                              class="w-2 h-2 rounded-full transition-all"
-                              class:bg-white={index === getCurrentSlide(event.id)}
-                              class:bg-accent-gray={index !== getCurrentSlide(event.id)}
+                              on:click={() => scrollCarouselTo(event.id, index)}
+                              class="w-2 h-2 rounded-full transition-all {index === getCurrentSlide(event.id) ? 'bg-white' : 'bg-white/50'}"
                             />
                           {/each}
                         </div>
@@ -2037,5 +2079,22 @@ import ClientAttribution from './ClientAttribution.svelte';
     line-clamp: 3;
     -webkit-box-orient: vertical;
     overflow: hidden;
+  }
+  
+  /* Swipeable carousel styles */
+  .carousel-container {
+    scroll-snap-type: x mandatory;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none; /* Firefox */
+    -ms-overflow-style: none; /* IE/Edge */
+  }
+  
+  .carousel-container::-webkit-scrollbar {
+    display: none; /* Chrome/Safari */
+  }
+  
+  .carousel-slide {
+    scroll-snap-align: start;
+    scroll-snap-stop: always;
   }
 </style>
