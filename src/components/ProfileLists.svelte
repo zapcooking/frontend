@@ -1,6 +1,6 @@
 <script lang="ts">
   import { page } from '$app/stores';
-  import { ndk } from '$lib/nostr';
+  import { ndk, userPublickey } from '$lib/nostr';
   import type { NDKEvent, NDKFilter, NDKSubscription } from '@nostr-dev-kit/ndk';
   import Feed from './Feed.svelte';
   import { onDestroy } from 'svelte';
@@ -9,6 +9,8 @@
   let events: NDKEvent[] = [];
   let loaded = false;
   let subscription: NDKSubscription | null = null;
+  
+  $: isOwnProfile = $userPublickey && hexpubkey && $userPublickey === hexpubkey;
 
   $: {
     if ($page.params.slug) {
@@ -59,4 +61,4 @@
   });
 </script>
 
-<Feed lists={true} {events} {loaded} />
+<Feed lists={true} {events} {loaded} isProfileView={true} isOwnProfile={isOwnProfile} />

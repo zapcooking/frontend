@@ -535,10 +535,10 @@
   </div>
 </Modal>
 
-<div class="flex flex-col gap-6">
+<div class="flex flex-col gap-6 overflow-hidden">
   <!-- Profile Header -->
-  <div class="flex justify-between items-start gap-6">
-    <div class="flex gap-4 flex-1">
+  <div class="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-4">
+    <div class="flex gap-4 flex-1 min-w-0">
       <button class="hover:opacity-80 transition-opacity flex-shrink-0" on:click={() => (qrModal = true)}>
       {#key hexpubkey}
       <CustomAvatar
@@ -550,10 +550,47 @@
     </button>
       
       <div class="flex flex-col gap-2 flex-1 min-w-0">
-        <!-- Name -->
-        <button class="text-left hover:opacity-80 transition-opacity" on:click={() => (qrModal = true)}>
-          <h1 class="text-2xl font-bold"><CustomName pubkey={hexpubkey || ''} /></h1>
-        </button>
+        <!-- Name and action buttons row on mobile -->
+        <div class="flex items-start justify-between gap-2">
+          <button class="text-left hover:opacity-80 transition-opacity min-w-0 flex-1" on:click={() => (qrModal = true)}>
+            <h1 class="text-2xl font-bold truncate"><CustomName pubkey={hexpubkey || ''} /></h1>
+          </button>
+          
+          <!-- Action Buttons (inline on mobile) -->
+          <div class="flex gap-2 flex-shrink-0">
+            {#if hexpubkey !== $userPublickey}
+              <button
+                class="p-2 hover:bg-accent-gray rounded-lg transition-colors"
+                on:click={() => (zapModal = true)}
+                aria-label="Zap user"
+              >
+                <LightningIcon size={24} weight="regular" />
+              </button>
+              
+              <!-- Follow Button -->
+              {#if $userPublickey}
+                <button
+                  on:click={toggleFollow}
+                  disabled={followLoading}
+                  class="flex items-center gap-1.5 px-3 py-2 rounded-full font-medium text-sm transition-colors disabled:opacity-50 {isFollowing
+                    ? 'bg-input hover:bg-accent-gray'
+                    : 'bg-orange-500 text-white hover:bg-orange-600'}"
+                  style="{isFollowing ? 'color: var(--color-text-primary)' : ''}"
+                >
+                  {#if followLoading}
+                    <span class="animate-pulse">...</span>
+                  {:else if isFollowing}
+                    <CheckIcon size={16} weight="bold" />
+                    <span class="hidden xs:inline">Following</span>
+                  {:else}
+                    <UserPlusIcon size={18} weight="bold" />
+                    <span class="hidden xs:inline">Follow</span>
+                  {/if}
+                </button>
+              {/if}
+            {/if}
+          </div>
+        </div>
         
         <!-- Bio with dot separators and read more -->
         {#if profile?.about}
@@ -580,41 +617,6 @@
           </div>
         {/if}
       </div>
-    </div>
-    
-    <!-- Action Buttons (top-right) -->
-    <div class="flex gap-2 flex-shrink-0">
-      {#if hexpubkey !== $userPublickey}
-        <button
-          class="p-2 hover:bg-accent-gray rounded-lg transition-colors"
-          on:click={() => (zapModal = true)}
-          aria-label="Zap user"
-        >
-          <LightningIcon size={24} weight="regular" />
-        </button>
-        
-        <!-- Follow Button -->
-        {#if $userPublickey}
-          <button
-            on:click={toggleFollow}
-            disabled={followLoading}
-            class="flex items-center gap-1.5 px-4 py-2 rounded-full font-medium text-sm transition-colors disabled:opacity-50 {isFollowing
-              ? 'bg-input hover:bg-accent-gray'
-              : 'bg-orange-500 text-white hover:bg-orange-600'}"
-            style="{isFollowing ? 'color: var(--color-text-primary)' : ''}"
-          >
-            {#if followLoading}
-              <span class="animate-pulse">...</span>
-            {:else if isFollowing}
-              <CheckIcon size={16} weight="bold" />
-              <span>Following</span>
-            {:else}
-              <UserPlusIcon size={18} weight="bold" />
-              <span>Follow</span>
-            {/if}
-          </button>
-        {/if}
-      {/if}
     </div>
   </div>
 
@@ -686,7 +688,7 @@
 
     <!-- Tab Content -->
     {#if activeTab === 'recipes'}
-        <Feed {events} {loaded} />
+        <Feed {events} {loaded} isProfileView={true} isOwnProfile={$userPublickey === hexpubkey} />
       <!-- Infinite scroll sentinel for recipes -->
       {#if hasMoreRecipes}
         <div bind:this={recipeSentinel} class="py-4 text-center">

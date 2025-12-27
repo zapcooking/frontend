@@ -206,23 +206,23 @@
 </script>
 
 {#if loading}
-  <div class="border border-gray-200 rounded-lg p-4 bg-gray-50 animate-pulse">
+  <div class="rounded-lg p-4 animate-pulse" style="background-color: var(--color-bg-secondary); border: 1px solid var(--color-input-border)">
     <div class="flex space-x-3">
-      <div class="w-8 h-8 bg-gray-300 rounded-full"></div>
+      <div class="w-8 h-8 rounded-full skeleton-bg"></div>
       <div class="flex-1">
-        <div class="h-4 bg-gray-300 rounded w-1/4 mb-2"></div>
-        <div class="h-3 bg-gray-300 rounded w-1/6 mb-2"></div>
-        <div class="h-3 bg-gray-300 rounded w-full"></div>
+        <div class="h-4 rounded w-1/4 mb-2 skeleton-bg"></div>
+        <div class="h-3 rounded w-1/6 mb-2 skeleton-bg"></div>
+        <div class="h-3 rounded w-full skeleton-bg"></div>
       </div>
     </div>
   </div>
 {:else if error}
-  <div class="border border-red-200 rounded-lg p-4 bg-red-50">
-    <p class="text-red-600 text-sm">Failed to load embedded note</p>
-    <p class="text-gray-500 text-xs mt-1">{nostrString}</p>
+  <div class="border border-red-200 rounded-lg p-4 bg-red-50 dark:bg-red-900/20 dark:border-red-800">
+    <p class="text-red-600 dark:text-red-400 text-sm">Failed to load embedded note</p>
+    <p class="text-xs mt-1" style="color: var(--color-caption)">{nostrString}</p>
   </div>
 {:else if event}
-  <div class="border border-gray-200 rounded-lg p-4 bg-gray-50 hover:bg-gray-100 transition-colors">
+  <div class="rounded-lg p-4 transition-colors note-embed-card" style="background-color: var(--color-bg-secondary); border: 1px solid var(--color-input-border)">
     <div class="flex space-x-3">
       <!-- Avatar -->
       <div class="flex-shrink-0">
@@ -238,15 +238,15 @@
         <!-- Header -->
         <div class="flex items-center space-x-2 mb-2 flex-wrap">
           <AuthorName {event} />
-          <span class="text-gray-500 text-sm">·</span>
-          <span class="text-gray-500 text-sm">
+          <span class="text-sm" style="color: var(--color-caption)">·</span>
+          <span class="text-sm" style="color: var(--color-caption)">
             {event.created_at ? formatTimeAgo(event.created_at) : 'Unknown time'}
           </span>
           <ClientAttribution tags={event.tags} enableEnrichment={false} />
         </div>
 
         <!-- Content Preview -->
-        <div class="text-sm text-gray-700 mb-2">
+        <div class="text-sm mb-2" style="color: var(--color-text-secondary)">
           {#each parseContent(truncateContent(getContentWithoutMedia(event.content))) as part}
             {#if part.type === 'text'}
               {part.content}
@@ -255,7 +255,7 @@
                 href={part.url}
                 target="_blank"
                 rel="noopener noreferrer"
-                class="text-blue-500 hover:text-blue-700 hover:underline break-all"
+                class="text-primary hover:opacity-80 hover:underline break-all"
               >
                 {part.content}
               </a>
@@ -264,10 +264,10 @@
                 <ProfileLink nostrString={part.content} />
               {:else if part.prefix === 'nevent1'}
                 <!-- Skip nested embeds to avoid infinite recursion -->
-                <span class="text-blue-500">{part.content}</span>
+                <span class="text-primary">{part.content}</span>
               {:else}
                 <button
-                  class="text-blue-500 hover:text-blue-700 hover:underline cursor-pointer"
+                  class="text-primary hover:opacity-80 hover:underline cursor-pointer"
                   on:click={() => handleNostrClick(part.content)}
                 >
                   {part.content}
@@ -281,7 +281,7 @@
         {#if getImageUrls(event).length > 0}
           {@const mediaUrls = getImageUrls(event)}
           <div class="mb-2">
-            <div class="relative overflow-hidden rounded-lg border border-gray-200 bg-gray-100 h-32">
+            <div class="relative overflow-hidden rounded-lg h-32" style="background-color: var(--color-bg-secondary); border: 1px solid var(--color-input-border)">
               {#each mediaUrls.slice(0, 1) as imageUrl}
                 {#if isImageUrl(imageUrl)}
                   <img 
@@ -307,7 +307,7 @@
               {/each}
             </div>
             {#if mediaUrls.length > 1}
-              <div class="text-xs text-gray-500 mt-1">
+              <div class="text-xs mt-1" style="color: var(--color-caption)">
                 +{mediaUrls.length - 1} more image{mediaUrls.length - 1 !== 1 ? 's' : ''}
               </div>
             {/if}
@@ -315,14 +315,20 @@
         {/if}
 
         <!-- Footer -->
-        <div class="text-xs text-gray-500">
+        <div class="text-xs" style="color: var(--color-caption)">
           Embedded note
         </div>
       </div>
     </div>
   </div>
 {:else}
-  <div class="border border-gray-200 rounded-lg p-4 bg-gray-50">
-    <p class="text-gray-500 text-sm">Note not found</p>
+  <div class="rounded-lg p-4" style="background-color: var(--color-bg-secondary); border: 1px solid var(--color-input-border)">
+    <p class="text-sm" style="color: var(--color-caption)">Note not found</p>
   </div>
 {/if}
+
+<style>
+  .note-embed-card:hover {
+    background-color: var(--color-input-bg) !important;
+  }
+</style>

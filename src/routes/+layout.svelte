@@ -15,7 +15,6 @@
 
   // Accept props from SvelteKit to prevent warnings
   export let data: LayoutData = {} as LayoutData;
-  export let params: Record<string, string> = {};
 
   // Site-wide meta tag defaults
   const siteUrl = 'https://zap.cooking';
