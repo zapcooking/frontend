@@ -5,6 +5,7 @@
   import { goto } from '$app/navigation';
   import Modal from '../../components/Modal.svelte';
   import type { PageData } from './$types';
+  import QRCode from 'svelte-qrcode';
 
   export const data: PageData = {} as PageData;
   import { nip19 } from 'nostr-tools';
@@ -41,17 +42,26 @@
   let generateModal = false;
   let showPrivateKey = false;
   let bunkerModal = false;
+  let nip46UniversalModal = false;
   
   // Bunker form states
   let bunkerConnectionString = '';
   let bunkerError = '';
   let bunkerConnecting = false;
   
+  // Universal NIP-46 pairing states
+  let nip46PairingUri = '';
+  let nip46PairingStatus = 'Waiting for approval…';
+  let nip46PairingError = '';
+  
   // File input reference
   let fileInput: HTMLInputElement;
 
   // Animation states
   let isHovered = false;
+  
+  // UX state for extension detection warning
+  let showMissingSignerNotice = false;
 
   onMount(() => {
     try {
@@ -71,9 +81,9 @@
             userPublickey.set('');
           }
           
-          // Redirect to home if authenticated
+          // Redirect to explore page if authenticated
           if (state.isAuthenticated) {
-            goto('/');
+            goto('/explore');
           }
         });
       }
@@ -94,6 +104,16 @@
 
   async function loginWithNIP07() {
     if (!authManager) return;
+    
+    // Check if extension is available before trying
+    if (!authManager.isNIP07Available()) {
+      showMissingSignerNotice = true;
+      return;
+    }
+    
+    // Hide notice on successful attempt
+    showMissingSignerNotice = false;
+    
     try {
       await authManager.authenticateWithNIP07();
     } catch (error) {
@@ -235,11 +255,35 @@
     }
   }
 
+  async function startUniversalPairing() {
+    if (!authManager) return;
+    
+    try {
+      nip46PairingError = '';
+      nip46PairingStatus = 'Generating connection...';
+      nip46UniversalModal = true;
+      
+      const result = await authManager.startNip46PairingUniversal();
+      nip46PairingUri = result.uri;
+      nip46PairingStatus = 'Waiting for approval…';
+      
+      // On Android, open the URI with _system target
+      if (browser && (window as any).Capacitor?.getPlatform() === 'android') {
+        window.open(result.uri, '_system');
+      }
+    } catch (error) {
+      console.error('[NIP-46] Failed to start universal pairing:', error);
+      nip46PairingError = error instanceof Error ? error.message : 'Failed to start pairing';
+      nip46PairingStatus = '';
+    }
+  }
+
   function modalCleanup() {
     nsecModal = false;
     seedModal = false;
     generateModal = false;
     bunkerModal = false;
+    nip46UniversalModal = false;
     showPrivateKey = false;
     nsecInput = '';
     seedInput = '';
@@ -256,6 +300,9 @@
     pictureUploadError = '';
     showPictureUrlInput = false;
     pictureUrlInput = '';
+    nip46PairingUri = '';
+    nip46PairingStatus = 'Waiting for approval…';
+    nip46PairingError = '';
   }
 
   // For manual URL entry
@@ -481,18 +528,18 @@
 
 <!-- Bunker (NIP-46) Modal -->
 <Modal bind:open={bunkerModal} on:close={modalCleanup}>
-  <svelte:fragment slot="title">🔐 Sign in with Bunker (NIP-46)</svelte:fragment>
+  <svelte:fragment slot="title">🔐 Connect External Signer</svelte:fragment>
   <div class="flex flex-col gap-4">
     <div class="bg-input border rounded-lg p-3" style="border-color: var(--color-input-border)">
       <p class="text-sm text-caption">
-        Use a remote signer (bunker) so your private key never touches this device. 
+        Use a remote signer so your private key never touches this device. 
         This is the most secure way to sign in.
       </p>
     </div>
     
     <div>
       <label for="bunker-input" class="block text-sm font-medium mb-1.5" style="color: var(--color-text-primary)">
-        Bunker / NIP-46 Connection
+        NIP-46 Connection String
       </label>
       <textarea
         id="bunker-input"
@@ -503,7 +550,7 @@
         disabled={bunkerConnecting}
       ></textarea>
       <p class="text-xs text-caption mt-1.5">
-        Paste your bunker connection string from nsec.app, Amber, or another NIP-46 signer.
+        Paste your NIP-46 connection string from Amber or another remote signer.
       </p>
     </div>
     
@@ -528,6 +575,61 @@
         {bunkerConnecting ? '⏳ Connecting...' : '🔐 Connect'}
       </Button>
       <Button on:click={modalCleanup} primary={false} disabled={bunkerConnecting}>Cancel</Button>
+    </div>
+  </div>
+</Modal>
+
+<!-- Universal NIP-46 Pairing Modal -->
+<Modal bind:open={nip46UniversalModal} on:close={modalCleanup}>
+  <svelte:fragment slot="title">🔐 Connect External Signer</svelte:fragment>
+  <div class="flex flex-col gap-4">
+    <div class="bg-input border rounded-lg p-3" style="border-color: var(--color-input-border)">
+      <p class="text-sm text-caption">
+        Use a remote signer so your private key never touches this device. 
+        This is the most secure way to sign in.
+      </p>
+    </div>
+    
+    {#if nip46PairingError}
+      <div class="bg-input border rounded-lg p-2.5" style="border-color: var(--color-danger, #ef4444)">
+        <p class="text-sm" style="color: var(--color-danger, #ef4444)">{nip46PairingError}</p>
+      </div>
+    {/if}
+    
+    {#if nip46PairingUri}
+      <div class="flex flex-col items-center gap-4">
+        <!-- QR Code -->
+        <div class="bg-white p-4 rounded-lg">
+          <QRCode value={nip46PairingUri} size={200} />
+        </div>
+        
+        <!-- Status -->
+        <div class="text-center">
+          <p class="text-sm font-medium mb-1" style="color: var(--color-text-primary)">{nip46PairingStatus}</p>
+          <p class="text-xs text-caption">Approve the connection in your signer app (Amber)</p>
+        </div>
+        
+        <!-- Action Buttons -->
+        <div class="flex flex-col gap-2 w-full">
+          {#if browser && (window as any).Capacitor?.getPlatform() === 'android'}
+            <Button on:click={() => window.open(nip46PairingUri, '_system')} primary={true} class="w-full">
+              📱 Open Signer
+            </Button>
+          {/if}
+          <Button on:click={() => copyToClipboard(nip46PairingUri)} primary={false} class="w-full">
+            📋 Copy Link
+          </Button>
+        </div>
+      </div>
+    {:else if nip46PairingStatus}
+      <div class="flex items-center justify-center gap-2 py-8">
+        <div class="animate-spin h-5 w-5 border-2 border-orange-500 border-t-transparent rounded-full"></div>
+        <p class="text-sm" style="color: var(--color-text-primary)">{nip46PairingStatus}</p>
+      </div>
+    {/if}
+    
+    <div class="flex gap-2">
+      <Button on:click={modalCleanup} primary={false} disabled={false}>Cancel</Button>
     </div>
   </div>
 </Modal>
@@ -826,15 +928,23 @@
             <div class="flex items-center justify-center gap-2">
               <span class="text-lg">⚡</span>
               <span class="text-[15px]">
-                {authState.isLoading ? 'Connecting...' : 'Sign in with Nostr Extension'}
+                {authState.isLoading ? 'Connecting...' : 'Sign in with Browser Signer'}
               </span>
             </div>
           </button>
-          <!-- Extension helper - only show if no extension -->
-          {#if !authManager?.isNIP07Available()}
+          <!-- Extension helper - show neutral info initially, warning only after click -->
+          {#if !showMissingSignerNotice && authManager?.isNIP07Available() === false}
             <p class="text-[11px] text-caption mt-1.5 leading-relaxed">
-              No extension detected. Install <a href="https://getalby.com" target="_blank" rel="noopener noreferrer" class="underline hover:opacity-80">Alby</a> or <a href="https://github.com/fiatjaf/nos2x" target="_blank" rel="noopener noreferrer" class="underline hover:opacity-80">nos2x</a>.
+              Works with <a href="https://getalby.com" target="_blank" rel="noopener noreferrer" class="underline hover:opacity-80">Alby</a> or <a href="https://github.com/fiatjaf/nos2x" target="_blank" rel="noopener noreferrer" class="underline hover:opacity-80">nos2x</a>.
             </p>
+          {/if}
+          <!-- Missing signer notice - shown only after user clicks and no extension detected -->
+          {#if showMissingSignerNotice}
+            <div class="bg-input border rounded-lg p-2.5 mt-1.5" style="border-color: var(--color-input-border)">
+              <p class="text-[11px] text-caption leading-relaxed">
+                No browser signer detected. Install <a href="https://getalby.com" target="_blank" rel="noopener noreferrer" class="underline hover:opacity-80">Alby</a> or <a href="https://github.com/fiatjaf/nos2x" target="_blank" rel="noopener noreferrer" class="underline hover:opacity-80">nos2x</a>, or use an external signer like Amber.
+              </p>
+            </div>
           {/if}
         </div>
 
@@ -846,7 +956,7 @@
           class="w-full bg-input hover:opacity-90 font-medium h-11 px-6 rounded-xl transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed border"
           style="color: var(--color-text-primary); border-color: var(--color-input-border)"
         >
-          <span class="text-sm">Create Account</span>
+          <span class="text-sm">🔑 Create Account</span>
         </button>
       </div>
 
@@ -861,11 +971,11 @@
       <div class="py-3 space-y-2">
         <div class="flex items-center justify-center gap-3 text-[11px]">
           <button
-            on:click={() => (bunkerModal = true)}
+            on:click={startUniversalPairing}
             disabled={authState.isLoading}
             class="text-caption hover:opacity-80 hover:underline transition-colors disabled:opacity-50"
           >
-            🔐 Bunker (NIP-46)
+            🔐 Connect External Signer
           </button>
           <span class="text-caption">|</span>
           <button

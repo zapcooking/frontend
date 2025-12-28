@@ -6,6 +6,7 @@
   import { nip19 } from 'nostr-tools';
   import { NDKEvent } from '@nostr-dev-kit/ndk';
   import { addClientTagToEvent } from '$lib/nip89';
+  import { getAuthManager } from '$lib/authManager';
 
   let content = '';
   let posting = false;
@@ -35,6 +36,12 @@
     error = '';
 
     try {
+      // Ensure NIP-46 signer is ready if using remote signer
+      const authManager = getAuthManager();
+      if (authManager) {
+        await authManager.ensureNip46SignerReady();
+      }
+
       // Create a note event with #zapcooking tag
       const event = new NDKEvent($ndk);
       event.kind = 1;
@@ -44,8 +51,13 @@
       // Add NIP-89 client tag
       addClientTagToEvent(event);
 
-      // Publish the event
-      const publishedEvent = await event.publish();
+      // Publish the event with timeout
+      const publishPromise = event.publish();
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error('Publishing timeout - signer may not be responding')), 30000);
+      });
+      
+      const publishedEvent = await Promise.race([publishPromise, timeoutPromise]);
       
       if (publishedEvent) {
         success = true;
@@ -60,7 +72,7 @@
       }
     } catch (err) {
       console.error('Error posting to feed:', err);
-      error = 'Failed to post. Please try again.';
+      error = err instanceof Error ? err.message : 'Failed to post. Please try again.';
     } finally {
       posting = false;
     }
