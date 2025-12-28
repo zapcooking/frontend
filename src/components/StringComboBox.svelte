@@ -155,6 +155,7 @@
               on:keydown={(e) => handleEditKeydown(e, index)}
               class="grow bg-transparent border-none outline-none p-0"
               style="color: var(--color-text-primary)"
+              aria-label={`Edit ${tag}`}
             />
           {:else}
             <span
