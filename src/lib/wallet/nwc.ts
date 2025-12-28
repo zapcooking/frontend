@@ -30,8 +30,11 @@ let pendingBalanceRequest: Promise<number> | null = null
  */
 export function parseNwcUrl(url: string): { pubkey: string; relay: string; secret: string } | null {
 	try {
+		// Trim whitespace, newlines, and any invisible characters
+		let cleaned = url.trim().replace(/[\r\n\t]/g, '')
+
 		// Handle both formats: with and without //
-		let cleaned = url
+		cleaned = cleaned
 			.replace('nostr+walletconnect://', '')
 			.replace('nostrwalletconnect://', '')
 			.replace('nostr+walletconnect:', '')
@@ -44,14 +47,14 @@ export function parseNwcUrl(url: string): { pubkey: string; relay: string; secre
 		}
 
 		const params = new URLSearchParams(queryString)
-		const relay = params.get('relay')
-		const secret = params.get('secret')
+		const relay = params.get('relay')?.trim()
+		const secret = params.get('secret')?.trim()
 
 		if (!relay || !secret) {
 			return null
 		}
 
-		return { pubkey, relay, secret }
+		return { pubkey: pubkey.trim(), relay, secret }
 	} catch (e) {
 		console.error('[NWC] Failed to parse connection URL:', e)
 		return null

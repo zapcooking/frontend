@@ -11,9 +11,10 @@ const LOCAL_STORAGE_KEY_PREFIX = 'spark_wallet_'
  * @returns A Uint8Array representing the 32-byte encryption key.
  */
 function deriveKey(pubkey: string): Uint8Array {
-	// Use SHA-256 of pubkey as encryption key (32 bytes)
+	// Convert hex pubkey to bytes, then hash with SHA-256
 	// This ties the encryption to the user's Nostr identity
-	return sha256(pubkey)
+	const pubkeyBytes = hexToBytes(pubkey)
+	return sha256(pubkeyBytes)
 }
 
 /**

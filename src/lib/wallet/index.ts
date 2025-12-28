@@ -17,13 +17,15 @@ export {
 	walletConnected,
 	walletLoading,
 	walletLastSync,
+	balanceVisible,
 	getWalletKindName,
 	setActiveWallet,
 	addWallet,
 	removeWallet,
 	clearAllWallets,
 	getActiveWallet,
-	hasWalletKind
+	hasWalletKind,
+	toggleBalanceVisibility
 } from './walletStore'
 
 // Export manager functions

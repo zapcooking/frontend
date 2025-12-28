@@ -9,8 +9,10 @@ export default defineConfig({
   },
   optimizeDeps: {
     include: ['buffer'],
-    // Exclude @getalby/sdk from pre-bundling so WebSocket is available at runtime
-    exclude: ['@getalby/sdk']
+    // Exclude packages from pre-bundling:
+    // - @getalby/sdk: needs browser WebSocket at runtime
+    // - @breeztech/breez-sdk-spark: WASM module needs special handling
+    exclude: ['@getalby/sdk', '@breeztech/breez-sdk-spark']
   },
   resolve: {
     alias: {

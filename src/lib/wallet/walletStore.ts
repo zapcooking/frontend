@@ -80,6 +80,46 @@ export const walletLoading = writable<boolean>(false)
 // Last sync timestamp
 export const walletLastSync = writable<number | null>(null)
 
+// Balance visibility (privacy feature)
+const BALANCE_VISIBLE_KEY = 'zapcooking_balance_visible'
+
+function loadBalanceVisibility(): boolean {
+	if (!browser) return true
+	try {
+		const stored = localStorage.getItem(BALANCE_VISIBLE_KEY)
+		return stored !== 'false' // Default to visible
+	} catch {
+		return true
+	}
+}
+
+export const balanceVisible = writable<boolean>(true)
+
+// Initialize on client
+if (browser) {
+	setTimeout(() => {
+		balanceVisible.set(loadBalanceVisibility())
+	}, 0)
+}
+
+// Persist changes
+balanceVisible.subscribe((visible) => {
+	if (browser) {
+		try {
+			localStorage.setItem(BALANCE_VISIBLE_KEY, String(visible))
+		} catch {
+			// Ignore storage errors
+		}
+	}
+})
+
+/**
+ * Toggle balance visibility
+ */
+export function toggleBalanceVisibility(): void {
+	balanceVisible.update((v) => !v)
+}
+
 // --- Wallet Operations ---
 
 /**

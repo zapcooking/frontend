@@ -8,10 +8,12 @@
     walletBalance,
     walletConnected,
     walletLoading,
+    balanceVisible,
     getWalletKindName,
     disconnectWallet,
     refreshBalance,
-    setActiveWallet
+    setActiveWallet,
+    toggleBalanceVisibility
   } from '$lib/wallet';
   import LightningIcon from 'phosphor-svelte/lib/Lightning';
   import WalletIcon from 'phosphor-svelte/lib/Wallet';
@@ -20,6 +22,8 @@
   import SignOutIcon from 'phosphor-svelte/lib/SignOut';
   import CaretDownIcon from 'phosphor-svelte/lib/CaretDown';
   import CheckIcon from 'phosphor-svelte/lib/Check';
+  import EyeIcon from 'phosphor-svelte/lib/Eye';
+  import EyeSlashIcon from 'phosphor-svelte/lib/EyeSlash';
 
   let dropdownActive = false;
 
@@ -66,8 +70,10 @@
       <LightningIcon size={16} weight="fill" class="text-amber-500" />
       {#if $walletLoading || $walletBalance === null}
         <span class="animate-pulse">...</span>
-      {:else}
+      {:else if $balanceVisible}
         <span>{formatBalance($walletBalance)}</span>
+      {:else}
+        <span>***</span>
       {/if}
       <span class="text-caption text-xs">sats</span>
       <CaretDownIcon size={12} class="text-caption ml-0.5" />
@@ -80,14 +86,14 @@
           role="menu"
           tabindex="-1"
           on:keydown={(e) => e.key === 'Escape' && (dropdownActive = false)}
-          class="flex flex-col gap-3 bg-input rounded-2xl drop-shadow px-4 py-4 min-w-[200px]"
+          class="flex flex-col gap-3 bg-input rounded-2xl drop-shadow px-4 py-4 min-w-[220px] max-w-[280px]"
           style="color: var(--color-text-primary)"
         >
           <!-- Current wallet info -->
           <div class="flex items-center gap-2 pb-2 border-b" style="border-color: var(--color-input-border);">
-            <WalletIcon size={18} class="text-amber-500" />
-            <div class="flex-1">
-              <div class="font-medium text-sm">{$activeWallet.name}</div>
+            <WalletIcon size={18} class="text-amber-500 flex-shrink-0" />
+            <div class="flex-1 min-w-0">
+              <div class="font-medium text-sm truncate">{$activeWallet.name}</div>
               <div class="text-xs text-caption">{getWalletKindName($activeWallet.kind)}</div>
             </div>
           </div>
@@ -103,12 +109,12 @@
                   on:click={() => handleSwitchWallet(wallet.id)}
                 >
                   {#if wallet.active}
-                    <CheckIcon size={14} class="text-primary" />
+                    <CheckIcon size={14} class="text-primary flex-shrink-0" />
                   {:else}
-                    <span class="w-3.5"></span>
+                    <span class="w-3.5 flex-shrink-0"></span>
                   {/if}
-                  <span class="flex-1 text-left">{wallet.name}</span>
-                  <span class="text-xs text-caption">{getWalletKindName(wallet.kind)}</span>
+                  <span class="flex-1 text-left truncate">{wallet.name}</span>
+                  <span class="text-xs text-caption flex-shrink-0">{getWalletKindName(wallet.kind)}</span>
                 </button>
               {/each}
             </div>
@@ -116,6 +122,19 @@
           {/if}
 
           <!-- Actions -->
+          <button
+            class="flex items-center gap-2 text-sm hover:text-primary transition-colors cursor-pointer"
+            on:click={toggleBalanceVisibility}
+          >
+            {#if $balanceVisible}
+              <EyeSlashIcon size={16} />
+              Hide Balance
+            {:else}
+              <EyeIcon size={16} />
+              Show Balance
+            {/if}
+          </button>
+
           <button
             class="flex items-center gap-2 text-sm hover:text-primary transition-colors cursor-pointer"
             on:click={handleRefresh}

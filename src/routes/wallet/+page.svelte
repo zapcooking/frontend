@@ -9,15 +9,16 @@
     walletBalance,
     walletConnected,
     walletLoading,
+    balanceVisible,
     getWalletKindName,
     setActiveWallet,
+    toggleBalanceVisibility,
     type WalletKind
   } from '$lib/wallet';
   import {
     connectWallet,
     disconnectWallet,
     refreshBalance,
-    isWeblnAvailable,
     isValidNwcUrl,
     getPaymentHistory,
     type Transaction
@@ -26,8 +27,12 @@
     isSparkWalletConfigured,
     createAndConnectWallet as createSparkWallet,
     connectWallet as connectSparkWallet,
+    restoreFromMnemonic,
+    restoreFromBackup,
+    createBackup,
     backupWalletToNostr,
-    restoreWalletFromNostr
+    restoreWalletFromNostr,
+    type SparkWalletBackup
   } from '$lib/spark';
   import LightningIcon from 'phosphor-svelte/lib/Lightning';
   import WalletIcon from 'phosphor-svelte/lib/Wallet';
@@ -41,6 +46,8 @@
   import CloudArrowDownIcon from 'phosphor-svelte/lib/CloudArrowDown';
   import CheckCircleIcon from 'phosphor-svelte/lib/CheckCircle';
   import WarningIcon from 'phosphor-svelte/lib/Warning';
+  import EyeIcon from 'phosphor-svelte/lib/Eye';
+  import EyeSlashIcon from 'phosphor-svelte/lib/EyeSlash';
 
   let showAddWallet = false;
   let selectedWalletType: WalletKind | null = null;
@@ -50,6 +57,12 @@
   let successMessage = '';
   let sparkMnemonic = '';
   let showMnemonic = false;
+
+  // Spark restore options
+  let sparkRestoreMode: 'options' | 'mnemonic' | 'file' = 'options';
+  let restoreMnemonicInput = '';
+  let fileInput: HTMLInputElement;
+  let sparkLoadingMessage = ''; // Status message during Spark operations
 
   // Delete confirmation state
   let walletToDelete: { id: number; name: string } | null = null;
@@ -116,31 +129,6 @@
     return balance.toLocaleString();
   }
 
-  async function handleConnectWebLN() {
-    if (!isWeblnAvailable()) {
-      errorMessage = 'No WebLN provider found. Please install a Lightning wallet extension like Alby.';
-      return;
-    }
-
-    isConnecting = true;
-    errorMessage = '';
-
-    try {
-      const result = await connectWallet(1); // Kind 1 = WebLN
-      if (result.success) {
-        successMessage = 'WebLN wallet connected successfully!';
-        showAddWallet = false;
-        selectedWalletType = null;
-      } else {
-        errorMessage = result.error || 'Failed to connect WebLN wallet';
-      }
-    } catch (e) {
-      errorMessage = e instanceof Error ? e.message : 'Connection failed';
-    } finally {
-      isConnecting = false;
-    }
-  }
-
   async function handleConnectNWC() {
     if (!nwcConnectionString.trim()) {
       errorMessage = 'Please enter a NWC connection string';
@@ -179,22 +167,24 @@
     }
 
     isConnecting = true;
+    sparkLoadingMessage = 'Creating new wallet...';
     errorMessage = '';
 
     try {
       const mnemonic = await createSparkWallet($userPublickey, BREEZ_API_KEY);
       sparkMnemonic = mnemonic;
       showMnemonic = true;
+      successMessage = 'Spark wallet created! Please save your recovery phrase.';
 
-      // Also add to unified wallet store
-      const result = await connectWallet(4, 'spark'); // Kind 4 = Spark
-      if (result.success) {
-        successMessage = 'Spark wallet created! Please save your recovery phrase.';
-      }
+      // Register in wallet store (don't await - let balance refresh happen in background)
+      connectWallet(4, 'spark').catch(e => {
+        console.warn('[Wallet] Background wallet registration warning:', e);
+      });
     } catch (e) {
       errorMessage = e instanceof Error ? e.message : 'Failed to create Spark wallet';
     } finally {
       isConnecting = false;
+      sparkLoadingMessage = '';
     }
   }
 
@@ -205,17 +195,21 @@
     }
 
     isConnecting = true;
+    sparkLoadingMessage = 'Connecting to existing wallet...';
     errorMessage = '';
 
     try {
       const connected = await connectSparkWallet($userPublickey, BREEZ_API_KEY);
       if (connected) {
-        const result = await connectWallet(4, 'spark');
-        if (result.success) {
-          successMessage = 'Spark wallet connected successfully!';
-          showAddWallet = false;
-          selectedWalletType = null;
-        }
+        // Close modal immediately after successful connection
+        successMessage = 'Spark wallet connected successfully!';
+        showAddWallet = false;
+        selectedWalletType = null;
+
+        // Register in wallet store (don't await - let balance refresh happen in background)
+        connectWallet(4, 'spark').catch(e => {
+          console.warn('[Wallet] Background wallet registration warning:', e);
+        });
       } else {
         errorMessage = 'No existing Spark wallet found. Create a new one instead.';
       }
@@ -223,6 +217,7 @@
       errorMessage = e instanceof Error ? e.message : 'Failed to connect Spark wallet';
     } finally {
       isConnecting = false;
+      sparkLoadingMessage = '';
     }
   }
 
@@ -233,17 +228,21 @@
     }
 
     isConnecting = true;
+    sparkLoadingMessage = 'Restoring from Nostr backup...';
     errorMessage = '';
 
     try {
       const mnemonic = await restoreWalletFromNostr($userPublickey, BREEZ_API_KEY);
       if (mnemonic) {
-        const result = await connectWallet(4, 'spark');
-        if (result.success) {
-          successMessage = 'Spark wallet restored from Nostr backup!';
-          showAddWallet = false;
-          selectedWalletType = null;
-        }
+        // Close modal immediately after successful restore
+        successMessage = 'Spark wallet restored from Nostr backup!';
+        showAddWallet = false;
+        selectedWalletType = null;
+
+        // Register in wallet store (don't await - let balance refresh happen in background)
+        connectWallet(4, 'spark').catch(e => {
+          console.warn('[Wallet] Background wallet registration warning:', e);
+        });
       } else {
         errorMessage = 'No backup found on Nostr relays.';
       }
@@ -251,6 +250,7 @@
       errorMessage = e instanceof Error ? e.message : 'Failed to restore from Nostr';
     } finally {
       isConnecting = false;
+      sparkLoadingMessage = '';
     }
   }
 
@@ -265,6 +265,107 @@
       errorMessage = e instanceof Error ? e.message : 'Failed to backup to Nostr';
     } finally {
       isConnecting = false;
+    }
+  }
+
+  async function handleRestoreFromMnemonic() {
+    if (!BREEZ_API_KEY) {
+      errorMessage = 'Breez API key not configured. Please contact support.';
+      return;
+    }
+
+    const mnemonic = restoreMnemonicInput.trim();
+    if (!mnemonic) {
+      errorMessage = 'Please enter your recovery phrase';
+      return;
+    }
+
+    isConnecting = true;
+    sparkLoadingMessage = 'Restoring from recovery phrase...';
+    errorMessage = '';
+
+    try {
+      const success = await restoreFromMnemonic($userPublickey, mnemonic, BREEZ_API_KEY);
+      if (success) {
+        // Close modal immediately after successful restore
+        successMessage = 'Spark wallet restored from recovery phrase!';
+        showAddWallet = false;
+        selectedWalletType = null;
+        sparkRestoreMode = 'options';
+        restoreMnemonicInput = '';
+
+        // Register in wallet store (don't await - let balance refresh happen in background)
+        connectWallet(4, 'spark').catch(e => {
+          console.warn('[Wallet] Background wallet registration warning:', e);
+        });
+      } else {
+        errorMessage = 'Failed to restore wallet from recovery phrase';
+      }
+    } catch (e) {
+      errorMessage = e instanceof Error ? e.message : 'Failed to restore wallet';
+    } finally {
+      isConnecting = false;
+      sparkLoadingMessage = '';
+    }
+  }
+
+  async function handleFileSelect(event: Event) {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    if (!file) return;
+
+    if (!BREEZ_API_KEY) {
+      errorMessage = 'Breez API key not configured. Please contact support.';
+      return;
+    }
+
+    isConnecting = true;
+    sparkLoadingMessage = 'Restoring from backup file...';
+    errorMessage = '';
+
+    try {
+      const text = await file.text();
+      const backup = JSON.parse(text) as SparkWalletBackup;
+
+      sparkLoadingMessage = 'Decrypting wallet backup...';
+
+      // Decrypt the mnemonic using NIP-44 via browser extension
+      const decryptFn = async (ciphertext: string, senderPubkey: string): Promise<string> => {
+        const nostr = (window as any).nostr;
+        if (!nostr) {
+          throw new Error('No Nostr extension found. Please install Alby or another NIP-07 extension.');
+        }
+        if (nostr.nip44?.decrypt) {
+          const decrypted = await nostr.nip44.decrypt(senderPubkey, ciphertext);
+          if (decrypted) return decrypted;
+        }
+        throw new Error('Decryption failed. Make sure your browser extension supports NIP-44.');
+      };
+
+      sparkLoadingMessage = 'Connecting to Spark network...';
+
+      const success = await restoreFromBackup($userPublickey, backup, BREEZ_API_KEY, decryptFn);
+      if (success) {
+        // Close modal immediately after successful restore
+        successMessage = 'Spark wallet restored from backup file!';
+        showAddWallet = false;
+        selectedWalletType = null;
+        sparkRestoreMode = 'options';
+
+        // Register in wallet store (don't await - let balance refresh happen in background)
+        connectWallet(4, 'spark').catch(e => {
+          console.warn('[Wallet] Background wallet registration warning:', e);
+        });
+      } else {
+        errorMessage = 'Failed to restore wallet from backup file';
+      }
+    } catch (e) {
+      errorMessage = e instanceof Error ? e.message : 'Failed to restore from backup file';
+    } finally {
+      isConnecting = false;
+      sparkLoadingMessage = '';
+      // Reset file input
+      if (input) input.value = '';
     }
   }
 
@@ -318,22 +419,37 @@
           <LightningIcon size={24} weight="fill" class="text-amber-500" />
           <span class="font-medium text-primary-color">Balance</span>
         </div>
-        <button
-          class="flex items-center gap-1 text-sm text-caption hover:text-primary transition-colors cursor-pointer"
-          on:click={() => refreshBalance()}
-          disabled={$walletLoading}
-        >
-          <span class:animate-spin={$walletLoading}>
-            <ArrowsClockwiseIcon size={16} />
-          </span>
-          Refresh
-        </button>
+        <div class="flex items-center gap-3">
+          <button
+            class="flex items-center gap-1 text-sm text-caption hover:text-primary transition-colors cursor-pointer"
+            on:click={toggleBalanceVisibility}
+            title={$balanceVisible ? 'Hide balance' : 'Show balance'}
+          >
+            {#if $balanceVisible}
+              <EyeSlashIcon size={16} />
+            {:else}
+              <EyeIcon size={16} />
+            {/if}
+          </button>
+          <button
+            class="flex items-center gap-1 text-sm text-caption hover:text-primary transition-colors cursor-pointer"
+            on:click={() => refreshBalance()}
+            disabled={$walletLoading}
+          >
+            <span class:animate-spin={$walletLoading}>
+              <ArrowsClockwiseIcon size={16} />
+            </span>
+            Refresh
+          </button>
+        </div>
       </div>
-      <div class="text-4xl font-bold mb-2 text-primary-color">
+      <div class="text-4xl font-bold mb-2 text-primary-color flex items-center gap-3">
         {#if $walletLoading || $walletBalance === null}
           <span class="animate-pulse">...</span>
-        {:else}
+        {:else if $balanceVisible}
           {formatBalance($walletBalance)} <span class="text-lg font-normal text-caption">sats</span>
+        {:else}
+          *** <span class="text-lg font-normal text-caption">sats</span>
         {/if}
       </div>
       <div class="text-sm text-caption">
@@ -450,14 +566,18 @@
                 </div>
                 <div class="text-sm text-caption">
                   {formatTransactionDate(tx.timestamp)}
-                  {#if tx.fees}
+                  {#if tx.fees && $balanceVisible}
                     <span class="ml-2">• Fee: {tx.fees} sats</span>
                   {/if}
                 </div>
               </div>
               <div class="text-right">
                 <div class="font-semibold {tx.type === 'incoming' ? 'text-green-500' : 'text-orange-500'}">
-                  {tx.type === 'incoming' ? '+' : '-'}{tx.amount.toLocaleString()} sats
+                  {#if $balanceVisible}
+                    {tx.type === 'incoming' ? '+' : '-'}{tx.amount.toLocaleString()} sats
+                  {:else}
+                    {tx.type === 'incoming' ? '+' : '-'}*** sats
+                  {/if}
                 </div>
               </div>
             </div>
@@ -488,20 +608,6 @@
             <button
               class="w-full p-4 rounded-xl text-left flex items-center gap-4 transition-colors cursor-pointer"
               style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);"
-              on:click={() => selectedWalletType = 1}
-            >
-              <div class="w-10 h-10 rounded-full bg-amber-500/20 flex items-center justify-center">
-                <LightningIcon size={24} class="text-amber-500" />
-              </div>
-              <div>
-                <div class="font-medium" style="color: var(--color-text-primary)">WebLN (Browser Extension)</div>
-                <div class="text-sm text-caption">Connect Alby, Zeus, or other WebLN wallets</div>
-              </div>
-            </button>
-
-            <button
-              class="w-full p-4 rounded-xl text-left flex items-center gap-4 transition-colors cursor-pointer"
-              style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);"
               on:click={() => selectedWalletType = 3}
             >
               <div class="w-10 h-10 rounded-full bg-purple-500/20 flex items-center justify-center">
@@ -527,36 +633,24 @@
               </div>
             </button>
           </div>
-        {:else if selectedWalletType === 1}
-          <!-- WebLN connection -->
-          <div>
-            <p class="text-caption mb-4">
-              Click the button below to connect your browser's WebLN provider (like Alby).
-            </p>
-            {#if !isWeblnAvailable()}
-              <div class="mb-4 p-4 rounded-lg" style="background-color: rgba(239, 68, 68, 0.1); color: #ef4444;">
-                No WebLN provider detected. Please install a Lightning wallet extension.
-              </div>
-            {/if}
-            <div class="flex gap-2">
-              <Button on:click={() => selectedWalletType = null} disabled={isConnecting}>Back</Button>
-              <Button on:click={handleConnectWebLN} disabled={isConnecting || !isWeblnAvailable()}>
-                {isConnecting ? 'Connecting...' : 'Connect WebLN'}
-              </Button>
-            </div>
-          </div>
         {:else if selectedWalletType === 3}
           <!-- NWC connection -->
           <div>
             <p class="text-caption mb-4">
               Paste your NWC connection string below. You can get this from your wallet app.
             </p>
-            <textarea
+            <input
+              type="text"
               class="w-full p-3 rounded-lg mb-4 input"
-              rows="4"
               placeholder="nostr+walletconnect://..."
               bind:value={nwcConnectionString}
-            ></textarea>
+              on:paste={(e) => {
+                // Clean pasted content immediately
+                setTimeout(() => {
+                  nwcConnectionString = nwcConnectionString.trim().replace(/[\r\n\t]/g, '');
+                }, 0);
+              }}
+            />
             <div class="flex gap-2">
               <Button on:click={() => { selectedWalletType = null; nwcConnectionString = ''; }} disabled={isConnecting}>Back</Button>
               <Button on:click={handleConnectNWC} disabled={isConnecting}>
@@ -567,30 +661,76 @@
         {:else if selectedWalletType === 4}
           <!-- Spark wallet options -->
           <div>
-            <p class="text-caption mb-4">
-              Spark is a self-custodial Lightning wallet built into zap.cooking.
-            </p>
-            <div class="space-y-3 mb-4">
-              {#if isSparkWalletConfigured($userPublickey)}
-                <Button on:click={handleConnectExistingSpark} disabled={isConnecting} class="w-full">
-                  {isConnecting ? 'Connecting...' : 'Connect Existing Wallet'}
-                </Button>
+            {#if sparkRestoreMode === 'options'}
+              <p class="text-caption mb-4">
+                Spark is a self-custodial Lightning wallet built into zap.cooking.
+              </p>
+
+              {#if isConnecting && sparkLoadingMessage}
+                <!-- Show loading state -->
+                <div class="p-8 rounded-xl text-center" style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);">
+                  <div class="animate-spin w-8 h-8 border-2 border-amber-500 border-t-transparent rounded-full mx-auto mb-4"></div>
+                  <p class="text-primary-color font-medium">{sparkLoadingMessage}</p>
+                  <p class="text-caption text-sm mt-2">This may take a moment...</p>
+                </div>
+              {:else}
+                <div class="space-y-3 mb-4">
+                  {#if isSparkWalletConfigured($userPublickey)}
+                    <Button on:click={handleConnectExistingSpark} disabled={isConnecting} class="w-full">
+                      Connect Existing Wallet
+                    </Button>
+                  {/if}
+                  <Button on:click={handleCreateSparkWallet} disabled={isConnecting} class="w-full">
+                    Create New Wallet
+                  </Button>
+                  <div class="border-t pt-3 mt-3" style="border-color: var(--color-input-border);">
+                    <p class="text-sm text-caption mb-2">Restore existing wallet:</p>
+                    <div class="space-y-2">
+                      <Button on:click={() => sparkRestoreMode = 'mnemonic'} disabled={isConnecting} class="w-full">
+                        Restore from Recovery Phrase
+                      </Button>
+                      <Button on:click={() => fileInput?.click()} disabled={isConnecting} class="w-full">
+                        Restore from Backup File
+                      </Button>
+                      <input
+                        type="file"
+                        accept=".json"
+                        class="hidden"
+                        bind:this={fileInput}
+                        on:change={handleFileSelect}
+                      />
+                      <Button on:click={handleRestoreFromNostr} disabled={isConnecting} class="w-full">
+                        <CloudArrowDownIcon size={16} />
+                        Restore from Nostr Backup
+                      </Button>
+                    </div>
+                  </div>
+                </div>
               {/if}
-              <Button on:click={handleCreateSparkWallet} disabled={isConnecting} class="w-full">
-                {isConnecting ? 'Creating...' : 'Create New Wallet'}
-              </Button>
-              <Button on:click={handleRestoreFromNostr} disabled={isConnecting} class="w-full">
-                <CloudArrowDownIcon size={16} />
-                {isConnecting ? 'Restoring...' : 'Restore from Nostr Backup'}
-              </Button>
-            </div>
-            <Button on:click={() => selectedWalletType = null} disabled={isConnecting}>Back</Button>
+              <Button on:click={() => selectedWalletType = null} disabled={isConnecting}>Back</Button>
+            {:else if sparkRestoreMode === 'mnemonic'}
+              <p class="text-caption mb-4">
+                Enter your 12 or 24 word recovery phrase to restore your wallet.
+              </p>
+              <textarea
+                class="w-full p-3 rounded-lg mb-4 input"
+                rows="3"
+                placeholder="Enter your recovery phrase..."
+                bind:value={restoreMnemonicInput}
+              ></textarea>
+              <div class="flex gap-2">
+                <Button on:click={() => { sparkRestoreMode = 'options'; restoreMnemonicInput = ''; }} disabled={isConnecting}>Back</Button>
+                <Button on:click={handleRestoreFromMnemonic} disabled={isConnecting}>
+                  {isConnecting ? 'Restoring...' : 'Restore Wallet'}
+                </Button>
+              </div>
+            {/if}
           </div>
         {/if}
 
         <button
           class="mt-4 w-full text-center text-sm text-caption hover:text-primary cursor-pointer"
-          on:click={() => { showAddWallet = false; selectedWalletType = null; nwcConnectionString = ''; errorMessage = ''; }}
+          on:click={() => { showAddWallet = false; selectedWalletType = null; nwcConnectionString = ''; errorMessage = ''; sparkRestoreMode = 'options'; restoreMnemonicInput = ''; }}
         >
           Cancel
         </button>

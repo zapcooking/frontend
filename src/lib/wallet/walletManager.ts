@@ -40,12 +40,17 @@ import {
 	getWeblnDisplayName
 } from './webln'
 
-// Import Spark functions (these will be updated after we fix the Spark module)
+// Import Spark functions
 import {
 	walletBalance as sparkBalance,
 	walletInitialized as sparkInitialized,
-	lightningAddress as sparkLightningAddress
+	lightningAddress as sparkLightningAddress,
+	connectWallet as connectSparkWallet,
+	disconnectWallet as disconnectSparkWallet,
+	listPayments as listSparkPayments,
+	refreshBalance as refreshSparkBalance
 } from '$lib/spark'
+import { userPublickey } from '$lib/nostr'
 
 /**
  * Connect a new wallet
@@ -130,8 +135,7 @@ export async function disconnectWallet(walletId?: number): Promise<void> {
 				break
 
 			case 4: // Spark
-				// Spark disconnection is handled by the Spark module
-				// We just remove it from the wallet list
+				await disconnectSparkWallet()
 				break
 		}
 
@@ -143,6 +147,59 @@ export async function disconnectWallet(walletId?: number): Promise<void> {
 		console.error('[WalletManager] Disconnect error:', e)
 		// Still remove from store even if disconnect fails
 		removeWallet(wallet.id)
+	}
+}
+
+/**
+ * Ensure the active wallet is connected (reconnect if needed)
+ */
+async function ensureWalletConnected(wallet: Wallet): Promise<boolean> {
+	try {
+		switch (wallet.kind) {
+			case 1: // WebLN
+				if (!isWeblnConnected()) {
+					if (isWeblnAvailable()) {
+						await connectWebln()
+						return true
+					}
+					return false
+				}
+				return true
+
+			case 3: // NWC
+				if (!isNwcConnected()) {
+					if (wallet.data) {
+						await connectNwc(wallet.data)
+						return true
+					}
+					return false
+				}
+				return true
+
+			case 4: // Spark
+				if (!get(sparkInitialized)) {
+					const apiKey = import.meta.env.VITE_BREEZ_API_KEY
+					const pubkey = get(userPublickey)
+					if (apiKey && pubkey) {
+						try {
+							const connected = await connectSparkWallet(pubkey, apiKey)
+							return connected
+						} catch (sparkError) {
+							// WASM errors can occur if SDK is in bad state
+							console.warn('[WalletManager] Spark reconnect failed (WASM error?):', sparkError)
+							return false
+						}
+					}
+					return false
+				}
+				return true
+
+			default:
+				return false
+		}
+	} catch (e) {
+		console.warn('[WalletManager] Failed to reconnect wallet:', e)
+		return false
 	}
 }
 
@@ -159,6 +216,14 @@ export async function refreshBalance(): Promise<number | null> {
 
 	try {
 		walletLoading.set(true)
+
+		// Ensure the wallet is connected before trying to get balance
+		const connected = await ensureWalletConnected(wallet)
+		if (!connected) {
+			console.warn('[WalletManager] Wallet not connected, cannot refresh balance')
+			walletBalance.set(null)
+			return null
+		}
 
 		let balance: number | null = null
 
@@ -183,9 +248,16 @@ export async function refreshBalance(): Promise<number | null> {
 				break
 
 			case 4: // Spark
-				// Get balance from Spark store (it's a bigint, convert to number)
-				const sparkBal = get(sparkBalance)
-				balance = sparkBal !== null ? Number(sparkBal) : null
+				// Trigger a refresh and get balance from Spark store
+				try {
+					const sparkBal = await refreshSparkBalance()
+					balance = sparkBal !== null ? Number(sparkBal) : null
+				} catch (e) {
+					console.warn('[WalletManager] Spark balance refresh failed:', e)
+					// Fall back to current store value
+					const currentBal = get(sparkBalance)
+					balance = currentBal !== null ? Number(currentBal) : null
+				}
 				break
 		}
 
@@ -316,6 +388,13 @@ export async function getPaymentHistory(options: {
 		return { transactions: [], hasMore: false }
 	}
 
+	// Ensure the wallet is connected before trying to get history
+	const connected = await ensureWalletConnected(wallet)
+	if (!connected) {
+		console.warn('[WalletManager] Wallet not connected, cannot get payment history')
+		return { transactions: [], hasMore: false }
+	}
+
 	const limit = options.limit || 10
 	const offset = options.offset || 0
 
@@ -336,8 +415,42 @@ export async function getPaymentHistory(options: {
 				}
 
 			case 4: // Spark
-				// TODO: Implement Spark transaction history
-				return { transactions: [], hasMore: false }
+				const sparkPayments = await listSparkPayments()
+				// Apply offset and limit manually since Spark API doesn't support pagination
+				const slicedPayments = sparkPayments.slice(offset, offset + limit)
+				return {
+					transactions: slicedPayments.map((p: any) => {
+						// Handle different SDK property naming conventions (camelCase, snake_case)
+						const paymentType = p.paymentType || p.payment_type || p.type || ''
+						const isIncoming = paymentType === 'received' || paymentType === 'RECEIVED' ||
+							paymentType === 'receive' || paymentType === 'incoming'
+
+						// Amount - try multiple property names, SDK may use msat or sat
+						const amountMsat = p.amountMsat || p.amount_msat || p.amountMSat || 0
+						const amountSat = p.amountSat || p.amount_sat || p.amount || Math.floor(amountMsat / 1000)
+
+						// Timestamp - SDK might use seconds or milliseconds
+						let timestamp = p.createdAt || p.created_at || p.timestamp || p.time || 0
+						// If timestamp looks like milliseconds (> year 2100 in seconds), convert to seconds
+						if (timestamp > 4102444800) {
+							timestamp = Math.floor(timestamp / 1000)
+						}
+
+						// Fees
+						const feesMsat = p.feesMsat || p.fees_msat || p.feesMSat || 0
+						const feesSat = p.feesSat || p.fees_sat || p.fees || (feesMsat ? Math.floor(feesMsat / 1000) : undefined)
+
+						return {
+							id: p.id || p.paymentHash || p.payment_hash || String(Math.random()),
+							type: isIncoming ? 'incoming' : 'outgoing' as 'incoming' | 'outgoing',
+							amount: Number(amountSat),
+							description: p.description || p.memo || p.bolt11?.substring(0, 20),
+							timestamp: timestamp || Math.floor(Date.now() / 1000),
+							fees: feesSat
+						}
+					}),
+					hasMore: sparkPayments.length > offset + limit
+				}
 
 			default:
 				// WebLN doesn't support transaction history
@@ -395,7 +508,12 @@ export async function initializeWalletManager(): Promise<void> {
 						break
 
 					case 4: // Spark
-						// Spark auto-restores on its own
+						// Reconnect Spark wallet if API key is available
+						const apiKey = import.meta.env.VITE_BREEZ_API_KEY
+						const pubkey = get(userPublickey)
+						if (apiKey && pubkey) {
+							await connectSparkWallet(pubkey, apiKey)
+						}
 						break
 				}
 
