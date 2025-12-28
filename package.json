@@ -21,6 +21,7 @@
     "@capacitor/cli": "^8.0.0",
     "@capacitor/core": "^8.0.0",
     "@capacitor/splash-screen": "^8.0.0",
+    "dompurify": "^3.0.6",
     "@fortawesome/free-solid-svg-icons": "^6.5.1",
     "@gandlaf21/bolt11-decode": "^3.0.6",
     "@nostr-dev-kit/ndk": "^2.10.0",
@@ -48,6 +49,7 @@
   },
   "devDependencies": {
     "@capacitor/assets": "^3.0.5",
+    "@types/dompurify": "^3.0.5",
     "@sveltejs/adapter-auto": "^3.0.0",
     "@sveltejs/adapter-cloudflare": "^7.2.4",
     "@sveltejs/adapter-vercel": "^6.2.0",
