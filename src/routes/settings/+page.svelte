@@ -1,10 +1,13 @@
 <script lang="ts">
   import { browser } from '$app/environment';
+  import { goto } from '$app/navigation';
   import { standardRelays } from '$lib/consts';
   import TrashIcon from 'phosphor-svelte/lib/Trash';
   import Button from '../../components/Button.svelte';
   import { nip19 } from 'nostr-tools';
   import { theme, type Theme } from '$lib/themeStore';
+  import { getAuthManager, type NIP46ConnectionInfo } from '$lib/authManager';
+  import { userPublickey } from '$lib/nostr';
 
   let relays: string[] = [];
   let newRelay = '';
@@ -34,6 +37,9 @@
 
   let sk: string | null = null;
   let pk: string | null = null;
+  let authMethod: string | null = null;
+  let nip46Info: NIP46ConnectionInfo | null = null;
+  let disconnectingBunker = false;
 
   if (browser) {
     const a = localStorage.getItem('nostrcooking_relays');
@@ -44,6 +50,35 @@
     }
     sk = localStorage.getItem('nostrcooking_privateKey');
     pk = localStorage.getItem('nostrcooking_loggedInPublicKey');
+    authMethod = localStorage.getItem('nostrcooking_authMethod');
+    
+    // Get NIP-46 info if connected via bunker
+    const authManager = getAuthManager();
+    if (authManager) {
+      nip46Info = authManager.getNIP46Info();
+    }
+  }
+
+  async function disconnectBunker() {
+    if (!browser) return;
+    disconnectingBunker = true;
+    
+    try {
+      const authManager = getAuthManager();
+      if (authManager) {
+        await authManager.disconnectNIP46();
+      }
+      
+      // Clear the userPublickey store
+      userPublickey.set('');
+      
+      // Redirect to login
+      goto('/login');
+    } catch (error) {
+      console.error('Failed to disconnect bunker:', error);
+    } finally {
+      disconnectingBunker = false;
+    }
   }
 
   let showPrivkey = false;
@@ -266,10 +301,64 @@
             <strong>Security Warning:</strong> Your private key is now visible. Make sure no one else can see your screen.
           </div>
         {/if}
+      {:else if authMethod === 'nip46'}
+        <div class="text-caption italic">Using remote signer (bunker) - no private key stored on this device</div>
       {:else}
         <div class="text-caption italic">No private key found</div>
       {/if}
     </div>
 
+    <!-- NIP-46 Bunker Section -->
+    {#if authMethod === 'nip46' && nip46Info}
+      <div class="flex flex-col gap-3">
+        <h3>🔐 Remote Signer (NIP-46 Bunker)</h3>
+        <div class="text-sm text-caption mb-2">
+          You're using a remote signer. Your private key never touches this device.
+        </div>
+        
+        <div class="bg-green-50 border border-green-200 rounded-lg p-3">
+          <div class="flex items-center gap-2 mb-2">
+            <span class="text-green-600">✓</span>
+            <span class="text-green-700 font-medium">Connected to bunker</span>
+          </div>
+          
+          <div class="space-y-2 text-sm">
+            <div>
+              <span class="text-green-700 font-medium">Signer:</span>
+              <span class="font-mono text-xs text-green-800 break-all">
+                {nip19.npubEncode(nip46Info.signerPubkey).slice(0, 20)}...
+              </span>
+            </div>
+            <div>
+              <span class="text-green-700 font-medium">Relays:</span>
+              <span class="text-green-800 text-xs">
+                {nip46Info.relays.join(', ')}
+              </span>
+            </div>
+          </div>
+        </div>
+        
+        <button
+          on:click={disconnectBunker}
+          disabled={disconnectingBunker}
+          class="px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-xl text-sm font-medium transition-colors disabled:opacity-50 w-fit"
+        >
+          {disconnectingBunker ? 'Disconnecting...' : '🔌 Disconnect Bunker'}
+        </button>
+      </div>
+    {/if}
+
+  </div>
+
+  <hr style="border-color: var(--color-input-border);" />
+
+  <div class="flex flex-col gap-5">
+    <h2>⚡ Spark Wallet</h2>
+    <p class="text-sm text-caption">
+      Manage your in-app self-custodial Lightning wallet for zaps.
+    </p>
+    <Button on:click={() => goto('/settings/wallet')}>
+      Manage Spark Wallet
+    </Button>
   </div>
 </div>

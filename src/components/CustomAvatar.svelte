@@ -6,6 +6,7 @@
   export let pubkey: string;
   export let size: number = 40;
   export let className: string = '';
+  export let imageUrl: string | null = null; // Optional override for profile picture
   
   const dispatch = createEventDispatcher();
   
@@ -166,11 +167,26 @@
     if (!pubkey) return;
     
     try {
+      // Check both 'image' and 'picture' fields (Nostr supports both)
+      const getProfileImage = (profile: any) => profile?.image || profile?.picture;
+      
+      // If imageUrl prop is provided, use it directly (skip cache)
+      if (imageUrl) {
+        console.debug('[avatar] using provided imageUrl', pubkey.slice(0, 8), imageUrl);
+        imageCandidates = buildImageCandidates(imageUrl);
+        if (imageCandidates.length > 0) {
+          currentCandidateIndex = 0;
+          profilePicture = imageCandidates[0];
+        }
+        loading = false;
+        return;
+      }
+      
       // First try to get from cache
       user = profileCacheManager.getCachedProfile(pubkey);
       
-      if (user && user.profile?.image) {
-        imageCandidates = buildImageCandidates(user.profile.image);
+      if (user && getProfileImage(user.profile)) {
+        imageCandidates = buildImageCandidates(getProfileImage(user.profile));
         console.debug('[avatar] candidates', pubkey.slice(0, 8), imageCandidates);
         if (imageCandidates.length > 0) {
           currentCandidateIndex = 0;
@@ -183,8 +199,8 @@
       // If not in cache or no image, fetch from relays (waits for NDK ready)
       user = await profileCacheManager.getProfile(pubkey);
       
-      if (user?.profile?.image) {
-        imageCandidates = buildImageCandidates(user.profile.image);
+      if (getProfileImage(user?.profile)) {
+        imageCandidates = buildImageCandidates(getProfileImage(user?.profile));
         if (imageCandidates.length > 0) {
           currentCandidateIndex = 0;
           profilePicture = imageCandidates[0];
@@ -196,6 +212,18 @@
       loading = false;
     }
   });
+
+  // Reactive statement to update picture when imageUrl prop changes
+  $: if (imageUrl) {
+    console.debug('[avatar] imageUrl prop changed', pubkey?.slice(0, 8), imageUrl);
+    const newCandidates = buildImageCandidates(imageUrl);
+    if (newCandidates.length > 0) {
+      imageCandidates = newCandidates;
+      currentCandidateIndex = 0;
+      profilePicture = newCandidates[0];
+      imageError = false;
+    }
+  }
 
   $: avatarColor = generateAvatar(pubkey);
 </script>

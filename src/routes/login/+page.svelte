@@ -40,6 +40,12 @@
   let seedModal = false;
   let generateModal = false;
   let showPrivateKey = false;
+  let bunkerModal = false;
+  
+  // Bunker form states
+  let bunkerConnectionString = '';
+  let bunkerError = '';
+  let bunkerConnecting = false;
   
   // File input reference
   let fileInput: HTMLInputElement;
@@ -131,6 +137,29 @@
     }
   }
 
+  async function loginWithBunker() {
+    if (!authManager) return;
+    try {
+      bunkerError = '';
+      bunkerConnecting = true;
+      
+      if (!bunkerConnectionString.trim()) {
+        bunkerError = 'Please enter a bunker connection string';
+        bunkerConnecting = false;
+        return;
+      }
+      
+      await authManager.authenticateWithNIP46(bunkerConnectionString.trim());
+      bunkerModal = false;
+      bunkerConnectionString = '';
+    } catch (error: any) {
+      bunkerError = error?.message || authState.error || 'Failed to connect to bunker';
+      console.error('Bunker login failed:', error);
+    } finally {
+      bunkerConnecting = false;
+    }
+  }
+
   function generateNewKeys() {
     if (!authManager) return;
     generatedKeys = authManager.generateKeyPair();
@@ -210,11 +239,15 @@
     nsecModal = false;
     seedModal = false;
     generateModal = false;
+    bunkerModal = false;
     showPrivateKey = false;
     nsecInput = '';
     seedInput = '';
     nsecError = '';
     seedError = '';
+    bunkerConnectionString = '';
+    bunkerError = '';
+    bunkerConnecting = false;
     generatedKeys = null;
     newAccountUsername = '';
     newAccountBio = '';
@@ -273,7 +306,12 @@
       
       const { NDKEvent, NDKPrivateKeySigner } = await import('@nostr-dev-kit/ndk');
       
-      // Create a signer from the previously converted private key hex
+      // Convert private key Uint8Array to hex string
+      const privateKeyHex = Array.from(generatedKeys.privateKey)
+        .map(b => b.toString(16).padStart(2, '0'))
+        .join('');
+      
+      // Create a signer from the private key hex
       const signer = new NDKPrivateKeySigner(privateKeyHex);
       
       
@@ -404,7 +442,7 @@
       disabled={authState.isLoading}
     />
     {#if nsecError}
-      <div class="text-red-500 text-sm">{nsecError}</div>
+      <div class="text-sm" style="color: var(--color-danger, #ef4444)">{nsecError}</div>
     {/if}
     <div class="flex gap-2">
       <Button on:click={loginWithPrivateKey} primary={true} disabled={authState.isLoading}>
@@ -430,13 +468,66 @@
       disabled={authState.isLoading}
     ></textarea>
     {#if seedError}
-      <div class="text-red-500 text-sm">{seedError}</div>
+      <div class="text-sm" style="color: var(--color-danger, #ef4444)">{seedError}</div>
     {/if}
     <div class="flex gap-2">
       <Button on:click={loginWithSeed} primary={true} disabled={authState.isLoading}>
         {authState.isLoading ? '⚡ Restoring...' : '⚡ Restore'}
       </Button>
       <Button on:click={modalCleanup} primary={false} disabled={authState.isLoading}>Cancel</Button>
+    </div>
+  </div>
+</Modal>
+
+<!-- Bunker (NIP-46) Modal -->
+<Modal bind:open={bunkerModal} on:close={modalCleanup}>
+  <svelte:fragment slot="title">🔐 Sign in with Bunker (NIP-46)</svelte:fragment>
+  <div class="flex flex-col gap-4">
+    <div class="bg-input border rounded-lg p-3" style="border-color: var(--color-input-border)">
+      <p class="text-sm text-caption">
+        Use a remote signer (bunker) so your private key never touches this device. 
+        This is the most secure way to sign in.
+      </p>
+    </div>
+    
+    <div>
+      <label for="bunker-input" class="block text-sm font-medium mb-1.5" style="color: var(--color-text-primary)">
+        Bunker / NIP-46 Connection
+      </label>
+      <textarea
+        id="bunker-input"
+        bind:value={bunkerConnectionString}
+        placeholder="bunker://pubkey?relay=wss://relay.example.com&#10;or&#10;nostrconnect://pubkey?relay=wss://relay.example.com&#10;or&#10;npub1... wss://relay.example.com"
+        rows="3"
+        class="input block w-full sm:text-sm p-3 font-mono text-xs"
+        disabled={bunkerConnecting}
+      ></textarea>
+      <p class="text-xs text-caption mt-1.5">
+        Paste your bunker connection string from nsec.app, Amber, or another NIP-46 signer.
+      </p>
+    </div>
+    
+    {#if bunkerError}
+      <div class="bg-input border rounded-lg p-2.5" style="border-color: var(--color-danger, #ef4444)">
+        <p class="text-sm" style="color: var(--color-danger, #ef4444)">{bunkerError}</p>
+      </div>
+    {/if}
+    
+    {#if bunkerConnecting}
+      <div class="bg-input border rounded-lg p-3" style="border-color: var(--color-primary, #f97316)">
+        <div class="flex items-center gap-2">
+          <div class="animate-spin h-4 w-4 border-2 border-orange-500 border-t-transparent rounded-full"></div>
+          <p class="text-sm" style="color: var(--color-text-primary)">Connecting to bunker... This may take a moment.</p>
+        </div>
+        <p class="text-xs text-caption mt-1">Check your signer app to approve the connection request.</p>
+      </div>
+    {/if}
+    
+    <div class="flex gap-2">
+      <Button on:click={loginWithBunker} primary={true} disabled={bunkerConnecting || !bunkerConnectionString.trim()}>
+        {bunkerConnecting ? '⏳ Connecting...' : '🔐 Connect'}
+      </Button>
+      <Button on:click={modalCleanup} primary={false} disabled={bunkerConnecting}>Cancel</Button>
     </div>
   </div>
 </Modal>
@@ -761,20 +852,30 @@
 
       <!-- Error Display -->
       {#if authState.error}
-        <div class="bg-red-50 border border-red-200 rounded-lg p-2.5 mb-3">
-          <p class="text-red-600 text-xs">{authState.error}</p>
+        <div class="bg-input border rounded-lg p-2.5 mb-3" style="border-color: var(--color-danger, #ef4444)">
+          <p class="text-xs" style="color: var(--color-danger, #ef4444)">{authState.error}</p>
         </div>
       {/if}
 
-      <!-- Advanced option - Import Private Key -->
-      <div class="py-3">
-        <button
-          on:click={() => (nsecModal = true)}
-          disabled={authState.isLoading}
-          class="text-[11px] text-caption hover:opacity-80 hover:underline transition-colors disabled:opacity-50"
-        >
-          Advanced: Import existing key
-        </button>
+      <!-- Advanced options -->
+      <div class="py-3 space-y-2">
+        <div class="flex items-center justify-center gap-3 text-[11px]">
+          <button
+            on:click={() => (bunkerModal = true)}
+            disabled={authState.isLoading}
+            class="text-caption hover:opacity-80 hover:underline transition-colors disabled:opacity-50"
+          >
+            🔐 Bunker (NIP-46)
+          </button>
+          <span class="text-caption">|</span>
+          <button
+            on:click={() => (nsecModal = true)}
+            disabled={authState.isLoading}
+            class="text-caption hover:opacity-80 hover:underline transition-colors disabled:opacity-50"
+          >
+            Import key
+          </button>
+        </div>
       </div>
 
       <!-- Value Propositions - Quieter styling -->

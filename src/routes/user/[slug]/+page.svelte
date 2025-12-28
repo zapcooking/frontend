@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { ndk, userPublickey } from '$lib/nostr';
+  import { ndk, userPublickey, userProfilePictureOverride } from '$lib/nostr';
   import { NDKEvent } from '@nostr-dev-kit/ndk';
   import type { NDKFilter, NDKUser, NDKUserProfile } from '@nostr-dev-kit/ndk';
   import { nip19 } from 'nostr-tools';
@@ -23,6 +23,8 @@
   import FoodstrFeedOptimized from '../../../components/FoodstrFeedOptimized.svelte';
   import type { PageData } from './$types';
   import { onMount, onDestroy } from 'svelte';
+  import { Fetch } from 'hurdak';
+  import { profileCacheManager } from '$lib/profileCache';
 
   export const data: PageData = {} as PageData;
 
@@ -59,6 +61,10 @@
   let muteLoading = false;
   let mutedUsers: string[] = [];
   
+  // Profile picture upload state
+  let uploadingPicture = false;
+  let pictureInputEl: HTMLInputElement;
+  let avatarRefreshKey = 0; // Used to force CustomAvatar to remount after picture change
 
   $: {
     if ($page.params.slug) {
@@ -72,7 +78,7 @@
     checkMuteStatus();
   }
 
-  async function loadData() {
+  async function loadData(forceRefresh = false) {
     try {
       events = [];
       profile = {};
@@ -88,7 +94,9 @@
       // Reset mute state
       isMuted = false;
       mutedUsers = [];
-      console.log('loadData');
+      // Note: We don't reset userProfilePictureOverride here since it's a global store
+      // that should persist until the user logs out or the session ends
+      console.log('loadData', forceRefresh ? '(force refresh)' : '');
       
       if ($page.params.slug?.startsWith(`npub1`)) {
         hexpubkey = nip19.decode($page.params.slug).data.toString();
@@ -102,11 +110,33 @@
       if (hexpubkey) {
         // load user
         const u = $ndk.getUser({ pubkey: hexpubkey });
-        const p = await u.fetchProfile();
-        user = u;
-        if (p) {
-          profile = p;
+        
+        // If force refresh, fetch profile metadata directly from relays
+        if (forceRefresh) {
+          console.log('[loadData] Force refreshing profile from relays...');
+          const profileFilter: NDKFilter = {
+            kinds: [0],
+            authors: [hexpubkey],
+            limit: 1
+          };
+          const profileEvents = await $ndk.fetchEvents(profileFilter);
+          const latestProfile = Array.from(profileEvents).sort((a, b) => (b.created_at || 0) - (a.created_at || 0))[0];
+          if (latestProfile) {
+            try {
+              const profileData = JSON.parse(latestProfile.content);
+              profile = profileData;
+              console.log('[loadData] Fresh profile:', profileData);
+            } catch (e) {
+              console.error('[loadData] Failed to parse profile:', e);
+            }
+          }
+        } else {
+          const p = await u.fetchProfile();
+          if (p) {
+            profile = p;
+          }
         }
+        user = u;
 
         // load recipes (initial load with smaller limit for pagination)
         let filter: NDKFilter = {
@@ -384,6 +414,197 @@
     }
   }
 
+  async function uploadProfilePicture(body: FormData) {
+    const url = 'https://nostr.build/api/v2/upload/profile';
+    
+    // Check if we have a signer
+    if (!$ndk.signer) {
+      console.error('[Profile Upload] No signer available');
+      throw new Error('Not authenticated - please sign in again');
+    }
+    
+    console.log('[Profile Upload] Creating NIP-98 auth event...');
+    
+    const template = new NDKEvent($ndk);
+    template.kind = 27235;
+    template.created_at = Math.floor(Date.now() / 1000);
+    template.content = '';
+    template.tags = [
+      ['u', url],
+      ['method', 'POST']
+    ];
+
+    await template.sign();
+    
+    console.log('[Profile Upload] Event signed, uploading...');
+    
+    const authEvent = {
+      id: template.id,
+      pubkey: template.pubkey,
+      created_at: template.created_at,
+      kind: template.kind,
+      tags: template.tags,
+      content: template.content,
+      sig: template.sig
+    };
+
+    const result = await Fetch.fetchJson(url, {
+      body,
+      method: 'POST',
+      headers: {
+        Authorization: `Nostr ${btoa(JSON.stringify(authEvent))}`
+      }
+    });
+    
+    console.log('[Profile Upload] Upload result:', result);
+    return result;
+  }
+
+  async function handlePictureUpload(event: Event) {
+    console.log('[Profile Upload] handlePictureUpload called');
+    const target = event.target as HTMLInputElement;
+    if (!target.files || target.files.length === 0) {
+      console.log('[Profile Upload] No files selected');
+      return;
+    }
+    if (!$userPublickey || hexpubkey !== $userPublickey) {
+      console.log('[Profile Upload] Not own profile or not logged in');
+      return;
+    }
+    
+    uploadingPicture = true;
+    console.log('[Profile Upload] Starting upload...');
+    
+    try {
+      const file = target.files[0];
+      console.log('[Profile Upload] File:', file.name, file.type, file.size);
+      
+      // Validate file type
+      if (!file.type.startsWith('image/')) {
+        alert('Please upload an image file');
+        uploadingPicture = false;
+        return;
+      }
+      
+      // Validate file size (max 10MB)
+      if (file.size > 10 * 1024 * 1024) {
+        alert('Image must be less than 10MB');
+        uploadingPicture = false;
+        return;
+      }
+      
+      const body = new FormData();
+      body.append('file[]', file);
+      
+      const result = await uploadProfilePicture(body);
+      console.log('[Profile Upload] Upload complete, result:', result);
+      
+      if (result && result.data && result.data[0]?.url) {
+        const newPictureUrl = result.data[0].url;
+        console.log('[Profile Upload] New picture URL:', newPictureUrl);
+        
+        // Get current profile
+        const currentUser = $ndk.getUser({ pubkey: $userPublickey });
+        await currentUser.fetchProfile();
+        
+        // Update profile metadata (kind 0)
+        const metaEvent = new NDKEvent($ndk);
+        metaEvent.kind = 0;
+        metaEvent.tags = [];
+        
+        // Preserve existing profile data, update picture
+        const profileContent: any = {
+          picture: newPictureUrl
+        };
+        
+        if (currentUser.profile?.displayName) {
+          profileContent.display_name = currentUser.profile.displayName;
+        }
+        if (currentUser.profile?.name) {
+          profileContent.name = currentUser.profile.name;
+        }
+        if (currentUser.profile?.about) {
+          profileContent.about = currentUser.profile.about;
+        }
+        if (currentUser.profile?.nip05) {
+          profileContent.nip05 = currentUser.profile.nip05;
+        }
+        if (currentUser.profile?.lud16) {
+          profileContent.lud16 = currentUser.profile.lud16;
+        }
+        if (currentUser.profile?.lud06) {
+          profileContent.lud06 = currentUser.profile.lud06;
+        }
+        
+        metaEvent.content = JSON.stringify(profileContent);
+        console.log('[Profile Upload] Publishing profile update:', profileContent);
+        
+        // Publish and wait for relay confirmations
+        const publishedRelays = await metaEvent.publish();
+        console.log('[Profile Upload] Published to relays:', publishedRelays.size);
+        
+        // Wait for at least one relay to confirm
+        if (publishedRelays.size > 0) {
+          console.log('[Profile Upload] Profile updated successfully on', publishedRelays.size, 'relays');
+        } else {
+          console.warn('[Profile Upload] No relays confirmed the publish');
+        }
+        
+        // Clear profile cache so it refreshes
+        profileCacheManager.invalidateProfile($userPublickey);
+        
+        // Small delay to allow relays to propagate
+        await new Promise(resolve => setTimeout(resolve, 1500));
+        
+        // Update local profile immediately with new picture
+        if (profile) {
+          profile = { ...profile, picture: newPictureUrl, image: newPictureUrl };
+        }
+        
+        // Set override URL so avatar shows new picture immediately (global store updates header too)
+        console.log('[Profile Upload] Setting userProfilePictureOverride store to:', newPictureUrl);
+        userProfilePictureOverride.set(newPictureUrl);
+        console.log('[Profile Upload] Store value after set:', $userProfilePictureOverride);
+        
+        // Force CustomAvatar to remount with fresh data
+        avatarRefreshKey++;
+        
+        // Reload profile data with force refresh
+        await loadData(true);
+      } else {
+        console.error('[Profile Upload] No URL in result:', result);
+        alert('Failed to upload image');
+      }
+    } catch (err) {
+      console.error('[Profile Upload] Error:', err);
+      alert('Failed to upload image. Please try again.');
+    } finally {
+      uploadingPicture = false;
+      // Reset input
+      if (pictureInputEl) {
+        pictureInputEl.value = '';
+      }
+    }
+  }
+
+  function triggerPictureUpload() {
+    console.log('[Profile Upload] triggerPictureUpload called');
+    console.log('[Profile Upload] userPublickey:', $userPublickey);
+    console.log('[Profile Upload] hexpubkey:', hexpubkey);
+    console.log('[Profile Upload] pictureInputEl:', pictureInputEl);
+    
+    if (!$userPublickey || hexpubkey !== $userPublickey) {
+      console.log('[Profile Upload] Not own profile, skipping');
+      return;
+    }
+    if (pictureInputEl) {
+      console.log('[Profile Upload] Triggering file input click');
+      pictureInputEl.click();
+    } else {
+      console.error('[Profile Upload] pictureInputEl is not available');
+    }
+  }
+
 
   $: profileTitleBase = profile
     ? profile.name || (user ? user.npub.slice(0, 10) + '...' : 'Unknown User')
@@ -539,15 +760,54 @@
   <!-- Profile Header -->
   <div class="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-4">
     <div class="flex gap-4 flex-1 min-w-0">
-      <button class="hover:opacity-80 transition-opacity flex-shrink-0" on:click={() => (qrModal = true)}>
-      {#key hexpubkey}
-      <CustomAvatar
-          className="cursor-pointer hidden md:flex"
-        pubkey={hexpubkey || ''}
-        size={100}
-      />
-      {/key}
-    </button>
+      <!-- Hidden file input for profile picture upload -->
+      {#if $userPublickey && hexpubkey === $userPublickey}
+        <input
+          bind:this={pictureInputEl}
+          type="file"
+          accept="image/*"
+          class="sr-only"
+          on:change={handlePictureUpload}
+          disabled={uploadingPicture}
+        />
+      {/if}
+      
+      <button 
+        class="hover:opacity-80 transition-opacity flex-shrink-0 relative" 
+        on:click={() => {
+          console.log('[Profile Upload] Avatar button clicked');
+          if ($userPublickey && hexpubkey === $userPublickey) {
+            triggerPictureUpload();
+          } else {
+            qrModal = true;
+          }
+        }}
+        disabled={uploadingPicture}
+        title={$userPublickey && hexpubkey === $userPublickey ? 'Change profile picture' : 'View profile details'}
+      >
+        {#key `${hexpubkey}-${avatarRefreshKey}`}
+        <div class="relative">
+          <CustomAvatar
+            className="cursor-pointer {uploadingPicture ? 'opacity-50' : ''}"
+            pubkey={hexpubkey || ''}
+            size={100}
+            imageUrl={$userPublickey === hexpubkey ? $userProfilePictureOverride : null}
+          />
+          {#if uploadingPicture}
+            <div class="absolute inset-0 flex items-center justify-center bg-black/50 rounded-full">
+              <span class="text-white text-xs">Uploading...</span>
+            </div>
+          {:else if $userPublickey && hexpubkey === $userPublickey}
+            <div class="absolute bottom-0 right-0 w-8 h-8 bg-primary rounded-full flex items-center justify-center border-2 border-white shadow-lg">
+              <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+              </svg>
+            </div>
+          {/if}
+        </div>
+        {/key}
+      </button>
       
       <div class="flex flex-col gap-2 flex-1 min-w-0">
         <!-- Name and action buttons row on mobile -->

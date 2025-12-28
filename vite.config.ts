@@ -8,7 +8,11 @@ export default defineConfig({
     Buffer: ['buffer', 'Buffer']
   },
   optimizeDeps: {
-    include: ['buffer']
+    include: ['buffer'],
+    // Exclude packages from pre-bundling:
+    // - @getalby/sdk: needs browser WebSocket at runtime
+    // - @breeztech/breez-sdk-spark: WASM module needs special handling
+    exclude: ['@getalby/sdk', '@breeztech/breez-sdk-spark']
   },
   resolve: {
     alias: {
@@ -19,5 +23,10 @@ export default defineConfig({
     fs: {
       allow: ['..']
     }
+  },
+  ssr: {
+    // Don't bundle @getalby/sdk on server - it needs browser WebSocket
+    noExternal: [],
+    external: ['@getalby/sdk']
   }
 });

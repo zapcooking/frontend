@@ -158,3 +158,6 @@ export const ndk: Writable<NDK> = writable(Ndk);
 export const userPublickey: Writable<string> = writable(
   (browser && localStorage.getItem('nostrcooking_loggedInPublicKey')) || ''
 );
+
+// Store for user's profile picture URL override (used after upload to immediately show new picture)
+export const userProfilePictureOverride: Writable<string | null> = writable(null);
