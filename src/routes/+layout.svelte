@@ -68,6 +68,13 @@
   // Setup Capacitor deep link listeners
   async function setupCapacitorListeners() {
     if (!browser) return;
+    
+    // Only import Capacitor if it's available (mobile build only)
+    // Check for Capacitor presence first to avoid build errors in web builds
+    if (typeof window === 'undefined' || !(window as any).Capacitor) {
+      console.log('[Capacitor] Not available (web environment)');
+      return;
+    }
 
     try {
       const { App } = await import('@capacitor/app');
