@@ -103,7 +103,7 @@
     nSelected.splice(draggedIndex, 1);
 
     // Insert at new position
-    const insertIndex = draggedIndex < index ? index : index;
+    const insertIndex = draggedIndex < index ? index - 1 : index;
     nSelected.splice(insertIndex, 0, draggedItem);
 
     selected.set(nSelected);
