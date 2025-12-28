@@ -142,6 +142,7 @@
             type="button"
             class="cursor-grab active:cursor-grabbing text-caption hover:text-primary flex-shrink-0"
             title="Drag to reorder"
+            aria-label="Drag to reorder"
           >
             <DotsSixVertical size={20} weight="bold" />
           </button>
