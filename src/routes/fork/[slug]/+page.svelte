@@ -14,6 +14,7 @@
   import { goto } from '$app/navigation';
   import ImagesComboBox from '../../../components/ImagesComboBox.svelte';
   import Button from '../../../components/Button.svelte';
+  import MarkdownEditor from '../../../components/MarkdownEditor.svelte';
 
   let currentSlug = '';
 
@@ -247,7 +248,7 @@
         });
         console.log('event to publish:', event);
         let relays = await event.publish();
-        resultMessage = 'Succes!';
+        resultMessage = 'Success!';
         relays.forEach((relay) => {
           relay.once('published', () => {
             console.log('published to', relay);
@@ -308,11 +309,10 @@
   <div class="flex flex-col gap-2">
     <h3>Chef's Notes</h3>
     <span class="text-caption">Some notes about this recipe. (Markdown is supported)</span>
-    <textarea
-      placeholder="Eg. where the recipe is from, or any additional information"
+    <MarkdownEditor
       bind:value={chefsnotes}
-      rows="6"
-      class="input"
+      placeholder="Eg. where the recipe is from, or any additional information"
+      rows={6}
     />
   </div>
 
@@ -352,18 +352,18 @@
     </div>
   </div>
   {#if $images.length > 0 && title && $selectedTags.length > 0 && $directionsArray.length > 0 && $ingredientsArray.length > 0}
-    <div class="flex flex-col gap-4 p-4 border border-gray-300 rounded-lg bg-gray-50">
+    <div class="flex flex-col gap-4 p-4 rounded-lg" style="border: 1px solid var(--color-input-border); background-color: var(--color-bg-secondary);">
       <h2>Card Preview</h2>
       <div>
         <Button on:click={loadPreview}>Load Preview</Button>
       </div>
       {#if previewEvent}
-        <div class="bg-white p-4 rounded-lg">
-          <p class="text-sm text-gray-600 mb-4">Preview of how your recipe card will look:</p>
+        <div class="p-4 rounded-lg" style="background-color: var(--color-bg-primary);">
+          <p class="text-sm text-caption mb-4">Preview of how your recipe card will look:</p>
           <FeedItem event={previewEvent} />
         </div>
       {:else}
-        <p class="text-sm text-gray-500">Click "Load Preview" to see how your recipe will look</p>
+        <p class="text-sm text-caption">Click "Load Preview" to see how your recipe will look</p>
       {/if}
     </div>
   {/if}
