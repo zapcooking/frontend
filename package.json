@@ -6,7 +6,6 @@
   "scripts": {
     "dev": "vite dev",
     "build": "vite build",
-    "build:mobile": "BUILD_TARGET=mobile npm run build",
     "preview": "vite preview",
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
@@ -20,7 +19,6 @@
   "dependencies": {
     "@breeztech/breez-sdk-spark": "0.6.4-rc3",
     "@capacitor/android": "^8.0.0",
-    "@capacitor/app": "^6.0.0",
     "@capacitor/cli": "^8.0.0",
     "@capacitor/core": "^8.0.0",
     "@capacitor/splash-screen": "^8.0.0",
@@ -32,6 +30,7 @@
     "@nostr-dev-kit/ndk-cache-dexie": "^2.2.5",
     "@nostr-dev-kit/ndk-svelte-components": "^2.3.4",
     "@svelte-put/qr": "^1.2.1",
+    "@sveltejs/adapter-static": "^3.0.10",
     "bech32": "^2.0.0",
     "bip39": "^3.1.0",
     "buffer": "^6.0.3",
@@ -56,7 +55,6 @@
     "@types/dompurify": "^3.0.5",
     "@sveltejs/adapter-auto": "^3.0.0",
     "@sveltejs/adapter-cloudflare": "^7.2.4",
-    "@sveltejs/adapter-static": "^3.0.10",
     "@sveltejs/adapter-vercel": "^6.2.0",
     "@sveltejs/kit": "^2.0.0",
     "@sveltejs/vite-plugin-svelte": "^3.1.2",

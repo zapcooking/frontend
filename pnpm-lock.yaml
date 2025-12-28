@@ -14,9 +14,6 @@ importers:
       '@capacitor/android':
         specifier: ^8.0.0
         version: 8.0.0(@capacitor/core@8.0.0)
-      '@capacitor/app':
-        specifier: ^6.0.0
-        version: 6.0.3(@capacitor/core@8.0.0)
       '@capacitor/cli':
         specifier: ^8.0.0
         version: 8.0.0
@@ -222,11 +219,6 @@ packages:
     resolution: {integrity: sha512-FrBSvVAC5JuLaYHNyDnwQny0/SYnP+xDQbc/KA4wInmRkMXLDv22fkx9aBJIDrxjuUVd+jsRih4SAt8FgMEzCw==}
     peerDependencies:
       '@capacitor/core': ^8.0.0
-
-  '@capacitor/app@6.0.3':
-    resolution: {integrity: sha512-4gFUCbcVz0N/YYN32OBFerocWXslIv3Nc90gDiRsBkJc0plwK6kIUT6PKa5WtW2kfhteUeCVXQbvArH2fH+0Ug==}
-    peerDependencies:
-      '@capacitor/core': ^6.0.0
 
   '@capacitor/assets@3.0.5':
     resolution: {integrity: sha512-ohz/OUq61Y1Fc6aVSt0uDrUdeOA7oTH4pkWDbv/8I3UrPjH7oPkzYhShuDRUjekNp9RBi198VSFdt0CetpEOzw==}
@@ -4246,10 +4238,6 @@ snapshots:
       better-sqlite3: 12.5.0
 
   '@capacitor/android@8.0.0(@capacitor/core@8.0.0)':
-    dependencies:
-      '@capacitor/core': 8.0.0
-
-  '@capacitor/app@6.0.3(@capacitor/core@8.0.0)':
     dependencies:
       '@capacitor/core': 8.0.0
 
