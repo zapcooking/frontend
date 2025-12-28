@@ -58,11 +58,23 @@
   }
 
   function handleBulletList() {
-    insertMarkdown('\n- ', '', 'list item');
+    if (!textarea) return;
+
+    const start = textarea.selectionStart;
+    const needsNewline = start > 0 && value.charAt(start - 1) !== '\n';
+    const prefix = (needsNewline ? '\n' : '') + '- ';
+
+    insertMarkdown(prefix, '', 'list item');
   }
 
   function handleNumberedList() {
-    insertMarkdown('\n1. ', '', 'list item');
+    if (!textarea) return;
+
+    const start = textarea.selectionStart;
+    const needsNewline = start > 0 && value.charAt(start - 1) !== '\n';
+    const prefix = (needsNewline ? '\n' : '') + '1. ';
+
+    insertMarkdown(prefix, '', 'list item');
   }
 
   function handleQuote() {
