@@ -119,6 +119,14 @@ h3 {
   color: var(--color-danger) !important;
 }
 
+.text-primary-color {
+  color: var(--color-text-primary) !important;
+}
+
+.border-input {
+  border-color: var(--color-input-border) !important;
+}
+
 .skeleton-bg {
   background-color: var(--color-skeleton-base) !important;
 }

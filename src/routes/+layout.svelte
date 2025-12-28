@@ -12,6 +12,7 @@
   import ErrorBoundary from '../components/ErrorBoundary.svelte';
   import OfflineIndicator from '../components/OfflineIndicator.svelte';
   import { theme } from '$lib/themeStore';
+  import { initializeWalletManager } from '$lib/wallet';
 
   // Accept props from SvelteKit to prevent warnings
   export let data: LayoutData = {} as LayoutData;
@@ -55,6 +56,9 @@
           userPublickey.set('');
         }
       });
+
+      // Initialize wallet manager to restore saved wallets
+      initializeWalletManager();
 
       console.log('Layout mounted - auth manager initialized');
     } catch (error) {

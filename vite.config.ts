@@ -8,7 +8,9 @@ export default defineConfig({
     Buffer: ['buffer', 'Buffer']
   },
   optimizeDeps: {
-    include: ['buffer']
+    include: ['buffer'],
+    // Exclude @getalby/sdk from pre-bundling so WebSocket is available at runtime
+    exclude: ['@getalby/sdk']
   },
   resolve: {
     alias: {
@@ -19,5 +21,10 @@ export default defineConfig({
     fs: {
       allow: ['..']
     }
+  },
+  ssr: {
+    // Don't bundle @getalby/sdk on server - it needs browser WebSocket
+    noExternal: [],
+    external: ['@getalby/sdk']
   }
 });

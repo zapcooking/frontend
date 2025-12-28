@@ -1,23 +1,13 @@
-import {
-	BreezSDK,
-	Environment,
-	SdkLiquid,
-	SdkServices,
-	connect,
-	defaultConfig,
-	seedFromMnemonic,
-	disconnect,
-	Payment,
-	LightningAddressData,
-	prepareSendPayment,
-	sendPayment,
-	lnurlPay,
-	parseInput,
-	PaymentType,
-	LNURLPayRequest
-} from '@breeztech/breez-sdk-spark'
+/**
+ * Spark Wallet Module
+ *
+ * Self-custodial Lightning wallet integration using Breez SDK Spark.
+ * Uses the v0.6.3+ API with SdkBuilder pattern.
+ */
+
+import { browser } from '$app/environment'
+import { writable, get } from 'svelte/store'
 import { generateMnemonic, validateMnemonic } from 'bip39'
-import { writable } from 'svelte/store'
 import {
 	saveMnemonic,
 	loadMnemonic,
@@ -25,166 +15,233 @@ import {
 	deleteMnemonic,
 	clearAllSparkWallets
 } from './storage'
-import { getNdkInstance } from '$lib/nostr'
-import NDK, { NDKEvent, NDKKind, NDKPrivateKeySigner, NDKFilter, NDKUser } from '@nostr-dev-kit/ndk'
-import { bytesToHex, hexToBytes } from '@noble/hashes/utils'
-import { AuthManager } from '$lib/authManager'
 import { logger } from '$lib/logger'
 
-const NOSTR_WALLET_BACKUP_KIND = 30078 // NIP-33 event for generic parameters
-
 // --- Writable Stores for Reactivity ---
-export const breezSdk = writable<BreezSDK | null>(null)
+export const breezSdk = writable<any | null>(null)
 export const lightningAddress = writable<string | null>(null)
 export const walletBalance = writable<bigint | null>(null)
 export const walletInitialized = writable<boolean>(false)
+export const sparkLoading = writable<boolean>(false)
 
 // --- Internal State ---
+let _sdkInstance: any = null
+let _wasmInitialized = false
 let _currentPubkey: string | null = null
-let _ndk: NDK | null = null
-let _authManager: AuthManager | null = null
 
-// --- Helper for NDK Instance ---
-function getNDK(): NDK {
-	if (!_ndk) {
-		_ndk = getNdkInstance()
-		if (!_ndk) {
-			throw new Error('NDK instance not available. Ensure Nostr is connected.')
+/**
+ * Event listener class for Spark SDK events
+ */
+class SparkEventListener {
+	onEvent = (event: any) => {
+		logger.info('[Spark] Event received:', event)
+
+		// Handle different event types
+		if (event.type === 'synced' || event.type === 'payment_received') {
+			// Refresh balance on sync or incoming payment
+			refreshBalanceInternal()
 		}
 	}
-	return _ndk
 }
 
-function getAuthManager(): AuthManager {
-	if (!_authManager) {
-		_authManager = new AuthManager(getNDK())
+/**
+ * Initialize the WASM module (must be called before any SDK operations)
+ */
+async function initWasm(): Promise<void> {
+	if (_wasmInitialized) return
+
+	if (!browser) {
+		throw new Error('Spark SDK can only be initialized in browser')
 	}
-	return _authManager
+
+	try {
+		const { default: init } = await import('@breeztech/breez-sdk-spark/web')
+		await init()
+		_wasmInitialized = true
+		logger.info('[Spark] WASM module initialized')
+	} catch (error) {
+		logger.error('[Spark] Failed to initialize WASM:', error)
+		throw error
+	}
 }
 
-// --- Breez SDK Listeners ---
-function startBreezSDKListeners(sdk: BreezSDK) {
-	sdk.nodeInfoNotifications().subscribe({
-		next: (nodeState) => {
-			if (nodeState.blockHeight && nodeState.channelsBalanceMsat) {
-				walletBalance.set(nodeState.channelsBalanceMsat / BigInt(1000))
-				logger.debug('Breez SDK: Node info updated', nodeState)
-			}
-		},
-		error: (e) => logger.error('Breez SDK: Node info error', e),
-		complete: () => logger.info('Breez SDK: Node info subscription completed')
-	})
+/**
+ * Refresh balance from the SDK (internal helper)
+ */
+async function refreshBalanceInternal(): Promise<void> {
+	if (!_sdkInstance) return
 
-	sdk.paymentsNotifications().subscribe({
-		next: (payment) => {
-			logger.info('Breez SDK: New payment received/sent', payment)
-			// TODO: Handle zap receipt publishing here if it's an incoming zap
-		},
-		error: (e) => logger.error('Breez SDK: Payments notification error', e),
-		complete: () => logger.info('Breez SDK: Payments subscription completed')
-	})
+	try {
+		const info = await _sdkInstance.getInfo({})
+		// Balance is in sats
+		const balance = BigInt(info.balanceSat || 0)
+		walletBalance.set(balance)
+		logger.debug('[Spark] Balance updated:', balance.toString(), 'sats')
+	} catch (error) {
+		logger.error('[Spark] Failed to get balance:', error)
+	}
+}
+
+/**
+ * Fetch lightning address from the SDK (internal helper)
+ */
+async function fetchLightningAddress(): Promise<void> {
+	if (!_sdkInstance) return
+
+	try {
+		const addr = await _sdkInstance.getLightningAddress()
+		if (addr) {
+			const address = addr.address || addr
+			lightningAddress.set(address)
+			logger.info('[Spark] Lightning address:', address)
+		}
+	} catch (error) {
+		// Lightning address might not be available for all configurations
+		logger.debug('[Spark] No lightning address available:', error)
+	}
 }
 
 /**
  * Initializes the Breez SDK and connects the wallet.
  * @param pubkey The user's Nostr public key (hex string).
- * @param password The user-provided password for decrypting the mnemonic.
  * @param mnemonic The BIP39 mnemonic phrase.
  * @param apiKey The Breez API key.
  * @returns True if initialization was successful, false otherwise.
  */
 export async function initializeSdk(
 	pubkey: string,
-	password: string,
 	mnemonic: string,
 	apiKey: string
 ): Promise<boolean> {
-	if (_currentPubkey === pubkey && (await breezSdk.get())) {
-		logger.info('Breez SDK already initialized for this pubkey.')
+	if (!browser) return false
+
+	// Already initialized for this pubkey
+	if (_currentPubkey === pubkey && _sdkInstance) {
+		logger.info('[Spark] SDK already initialized for this pubkey')
 		return true
 	}
 
-	logger.info('Initializing Breez SDK...')
 	try {
-		await disconnectWallet() // Ensure any previous SDK instance is disconnected
+		sparkLoading.set(true)
 
+		// Disconnect any existing connection
+		await disconnectWallet()
+
+		// Initialize WASM
+		await initWasm()
+
+		// Import SDK functions
+		const { defaultConfig, SdkBuilder, initLogging } = await import(
+			'@breeztech/breez-sdk-spark/web'
+		)
+
+		// Initialize logging
+		try {
+			await initLogging({
+				log: (entry: any) => {
+					const level = entry.level?.toLowerCase() || 'debug'
+					if (level === 'error') {
+						logger.error('[Spark SDK]', entry.line)
+					} else if (level === 'warn') {
+						logger.warn('[Spark SDK]', entry.line)
+					} else {
+						logger.debug('[Spark SDK]', entry.line)
+					}
+				}
+			})
+		} catch (e) {
+			// Logging initialization might fail if already initialized
+			logger.debug('[Spark] Logging already initialized or failed:', e)
+		}
+
+		// Create config for mainnet
+		const config = defaultConfig('mainnet')
+		config.apiKey = apiKey
+
+		logger.info('[Spark] Building SDK with config...')
+
+		// Build SDK with mnemonic
+		let builder = SdkBuilder.new(config, {
+			type: 'mnemonic',
+			mnemonic: mnemonic
+		})
+
+		// Use a unique storage directory per user
+		const storageDir = `/spark-${pubkey.slice(0, 8)}`
+		builder = await builder.withDefaultStorage(storageDir)
+
+		// Build the SDK
+		_sdkInstance = await builder.build()
+		breezSdk.set(_sdkInstance)
 		_currentPubkey = pubkey
 
-		const config = await defaultConfig(Environment.PRODUCTION)
-		config.apiKey = apiKey
-		config.workingDir = `/${pubkey}-breez-sdk` // Unique working directory per user
+		// Add event listener
+		const eventListener = new SparkEventListener()
+		await _sdkInstance.addEventListener(eventListener)
 
-		const seed = seedFromMnemonic(mnemonic)
-
-		const sdk = await connect({ config, seed })
-		breezSdk.set(sdk)
-
-		startBreezSDKListeners(sdk)
-
-		// Fetch initial balance
-		const nodeInfo = await sdk.nodeInfo()
-		walletBalance.set(nodeInfo.channelsBalanceMsat / BigInt(1000))
-
-		// Handle Lightning Address registration/fetching and profile sync
-		await registerOrFetchLightningAddressAndSync(sdk, pubkey)
+		// Get initial balance and lightning address
+		await refreshBalanceInternal()
+		await fetchLightningAddress()
 
 		walletInitialized.set(true)
-		logger.info('Breez SDK initialized successfully.')
+		logger.info('[Spark] SDK initialized successfully')
 		return true
 	} catch (error) {
-		logger.error('Failed to initialize Breez SDK:', error)
+		logger.error('[Spark] Failed to initialize SDK:', error)
 		breezSdk.set(null)
 		walletInitialized.set(false)
+		_sdkInstance = null
+		_currentPubkey = null
 		return false
+	} finally {
+		sparkLoading.set(false)
 	}
 }
 
 /**
  * Creates a new BIP39 mnemonic, saves it securely, and connects the wallet.
  * @param pubkey The user's Nostr public key (hex string).
- * @param password The user-provided password for encrypting the mnemonic.
  * @param apiKey The Breez API key.
  * @returns The newly generated mnemonic phrase.
  * @throws Error if wallet creation or connection fails.
  */
-export async function createAndConnectWallet(
-	pubkey: string,
-	password: string,
-	apiKey: string
-): Promise<string> {
-	if (!validateMnemonic(password)) {
-		throw new Error('Password must be a valid BIP39 mnemonic.')
-	}
+export async function createAndConnectWallet(pubkey: string, apiKey: string): Promise<string> {
 	const newMnemonic = generateMnemonic(128) // 12 words, 128-bit entropy
-	await saveMnemonic(pubkey, password, newMnemonic)
-	const connected = await initializeSdk(pubkey, password, newMnemonic, apiKey)
+
+	// Save the mnemonic first
+	await saveMnemonic(pubkey, newMnemonic)
+
+	// Try to initialize
+	const connected = await initializeSdk(pubkey, newMnemonic, apiKey)
 	if (!connected) {
-		deleteMnemonic(pubkey) // Clean up if connection fails
+		// Clean up if connection fails
+		deleteMnemonic(pubkey)
 		throw new Error('Failed to connect new wallet after creation.')
 	}
+
 	return newMnemonic
 }
 
 /**
  * Loads a securely stored mnemonic and connects the wallet.
  * @param pubkey The user's Nostr public key (hex string).
- * @param password The user-provided password for decrypting the mnemonic.
  * @param apiKey The Breez API key.
  * @returns True if the wallet was successfully connected, false otherwise.
  */
-export async function connectWallet(pubkey: string, password: string, apiKey: string): Promise<boolean> {
-	_currentPubkey = pubkey
-	const mnemonic = await loadMnemonic(pubkey, password)
+export async function connectWallet(pubkey: string, apiKey: string): Promise<boolean> {
+	const mnemonic = await loadMnemonic(pubkey)
 	if (!mnemonic) {
-		logger.warn('No mnemonic found in local storage for this pubkey.')
+		logger.warn('[Spark] No mnemonic found in local storage for this pubkey')
 		return false
 	}
+
 	if (!validateMnemonic(mnemonic)) {
-		logger.error('Loaded mnemonic is invalid.')
+		logger.error('[Spark] Loaded mnemonic is invalid')
 		deleteMnemonic(pubkey) // Delete corrupted mnemonic
 		return false
 	}
-	return initializeSdk(pubkey, password, mnemonic, apiKey)
+
+	return initializeSdk(pubkey, mnemonic, apiKey)
 }
 
 /**
@@ -192,240 +249,176 @@ export async function connectWallet(pubkey: string, password: string, apiKey: st
  */
 export async function disconnectWallet(): Promise<void> {
 	try {
-		const sdk = await breezSdk.get()
-		if (sdk) {
-			await disconnect()
-			logger.info('Breez SDK disconnected.')
+		if (_sdkInstance) {
+			try {
+				await _sdkInstance.disconnect()
+				logger.info('[Spark] SDK disconnected')
+			} catch (error) {
+				// Suppress harmless disconnect errors
+				const errorMsg = error instanceof Error ? error.message : String(error)
+				if (!errorMsg.includes('RecvError') && !errorMsg.includes('sync trigger failed')) {
+					logger.warn('[Spark] Disconnect error:', error)
+				}
+			}
 		}
-	} catch (error) {
-		logger.error('Error disconnecting Breez SDK:', error)
 	} finally {
 		breezSdk.set(null)
 		lightningAddress.set(null)
 		walletBalance.set(null)
 		walletInitialized.set(false)
+		_sdkInstance = null
 		_currentPubkey = null
 	}
 }
 
 /**
- * Sends a zap payment via the Breez SDK.
+ * Sends a payment via the Spark wallet.
+ * @param destination The BOLT11 invoice, LNURL, or Lightning address.
+ * @param amountSats Optional amount in sats (for amountless invoices or LNURL).
+ * @param comment Optional comment for LNURL payments.
+ * @returns The payment result.
+ */
+export async function sendPayment(
+	destination: string,
+	amountSats?: number,
+	comment?: string
+): Promise<any> {
+	if (!_sdkInstance) {
+		throw new Error('Spark SDK is not initialized')
+	}
+
+	try {
+		sparkLoading.set(true)
+
+		// Prepare the payment request
+		const prepareRequest: any = {
+			destination
+		}
+
+		if (amountSats) {
+			prepareRequest.amountSat = amountSats
+		}
+
+		// Prepare the payment (get fees, validate)
+		logger.info('[Spark] Preparing payment...')
+		const prepareResponse = await _sdkInstance.prepareSendPayment(prepareRequest)
+
+		// Execute the payment
+		logger.info('[Spark] Sending payment...')
+		const sendRequest: any = {
+			prepareResponse
+		}
+
+		if (comment) {
+			sendRequest.comment = comment
+		}
+
+		const payment = await _sdkInstance.sendPayment(sendRequest)
+
+		logger.info('[Spark] Payment sent successfully:', payment)
+
+		// Refresh balance after payment
+		await refreshBalanceInternal()
+
+		return payment
+	} catch (error) {
+		logger.error('[Spark] Payment failed:', error)
+		throw error
+	} finally {
+		sparkLoading.set(false)
+	}
+}
+
+/**
+ * Sends a zap payment (alias for sendPayment with LNURL support).
  * @param recipientInput The LNURL or Lightning Address of the recipient.
  * @param amountSats The amount in satoshis to send.
  * @param comment An optional comment for the payment.
  * @returns The payment object if successful.
- * @throws Error if SDK is not initialized or payment fails.
  */
 export async function sendZap(
 	recipientInput: string,
 	amountSats: number,
 	comment: string
-): Promise<Payment> {
-	const sdk = await breezSdk.get()
-	if (!sdk) {
-		throw new Error('Breez SDK is not initialized.')
+): Promise<any> {
+	return sendPayment(recipientInput, amountSats, comment)
+}
+
+/**
+ * Create an invoice to receive payment.
+ * @param amountSats Amount in sats.
+ * @param description Optional description.
+ * @returns The invoice details.
+ */
+export async function receivePayment(
+	amountSats: number,
+	description?: string
+): Promise<{ invoice: string; paymentHash?: string }> {
+	if (!_sdkInstance) {
+		throw new Error('Spark SDK is not initialized')
 	}
 
 	try {
-		const parsed = await parseInput(recipientInput)
+		sparkLoading.set(true)
 
-		let payment: Payment
-
-		if (parsed.type === PaymentType.LNURL_PAY) {
-			const lnurlPayRequest = parsed.data as LNURLPayRequest
-
-			// Ensure amount is within min/max limits
-			const minSendable = Number(lnurlPayRequest.minSendable) / 1000;
-			const maxSendable = Number(lnurlPayRequest.maxSendable) / 1000;
-
-			if (amountSats < minSendable || amountSats > maxSendable) {
-				throw new Error(`Amount must be between ${minSendable} and ${maxSendable} sats for this LNURL.`)
-			}
-
-			// Breez SDK expects amount in millisats
-			const amountMsat = BigInt(amountSats) * BigInt(1000)
-
-			const prepay = await prepareSendPayment({
-				amountMsat,
-				lnurlPayRequest,
-				comment
-			})
-			payment = await lnurlPay(prepay)
-		} else {
-			// Fallback for Bolt11 invoices or other types if supported
-			const amountMsat = BigInt(amountSats) * BigInt(1000)
-			const prepay = await prepareSendPayment({
-				amountMsat,
-				destination: recipientInput,
-				comment
-			})
-			payment = await sendPayment(prepay)
+		const request: any = {
+			amountSat: amountSats
 		}
 
-		logger.info('Zap sent successfully:', payment)
-		return payment
+		if (description) {
+			request.description = description
+		}
+
+		const response = await _sdkInstance.receivePayment(request)
+
+		logger.info('[Spark] Invoice created')
+		return {
+			invoice: response.invoice || response.bolt11,
+			paymentHash: response.paymentHash
+		}
 	} catch (error) {
-		logger.error('Failed to send zap:', error)
+		logger.error('[Spark] Failed to create invoice:', error)
+		throw error
+	} finally {
+		sparkLoading.set(false)
+	}
+}
+
+/**
+ * Get payment history.
+ */
+export async function listPayments(): Promise<any[]> {
+	if (!_sdkInstance) {
+		throw new Error('Spark SDK is not initialized')
+	}
+
+	try {
+		const response = await _sdkInstance.listPayments({})
+		return response.payments || []
+	} catch (error) {
+		logger.error('[Spark] Failed to list payments:', error)
 		throw error
 	}
 }
 
 /**
- * Backs up the encrypted wallet mnemonic to Nostr relays as a NIP-33 event.
- * The event content is the hex-encoded encrypted mnemonic.
- * @param pubkey The user's Nostr public key (hex string).
- * @param password The user-provided password used for encryption.
- * @returns The NDKEvent that was published.
- * @throws Error if mnemonic cannot be loaded or publishing fails.
+ * Sync wallet state with the network.
  */
-export async function backupWalletToNostr(pubkey: string, password: string): Promise<NDKEvent> {
-	const mnemonic = await loadMnemonic(pubkey, password)
-	if (!mnemonic) {
-		throw new Error('Mnemonic not found in local storage. Cannot backup.')
-	}
-
-	// Mnemonic is already encrypted and stored locally. We'll store this same encrypted string.
-	// This ensures the backup on Nostr requires the same password to decrypt.
-	const encryptedMnemonicHex = localStorage.getItem(`spark_wallet_${pubkey}`)
-	if (!encryptedMnemonicHex) {
-		throw new Error('Encrypted mnemonic not found in local storage.')
-	}
-
-	const ndk = getNDK()
-	const signer = getAuthManager().signer
-	if (!signer) {
-		throw new Error('No NDK signer available. Please log in.')
-	}
-
-	const event = new NDKEvent(ndk, {
-		kind: NOSTR_WALLET_BACKUP_KIND,
-		pubkey: pubkey,
-		content: encryptedMnemonicHex, // Store the hex-encoded encrypted mnemonic
-		tags: [
-			['d', 'spark-wallet-backup'], // Identifier for this backup
-			['t', 'breez-sdk-spark']
-		]
-	})
-
-	event.signer = signer
-	await event.sign()
-	await event.publish()
-
-	logger.info('Spark wallet backup published to Nostr relays:', event.rawEvent())
-	return event
-}
-
-/**
- * Restores a wallet from a NIP-33 event on Nostr relays.
- * @param pubkey The user's Nostr public key (hex string).
- * @param password The user-provided password to decrypt the mnemonic.
- * @param apiKey The Breez API key.
- * @returns The decrypted mnemonic string if successful, or null if not found or decryption fails.
- * @throws Error if NDK signer is not available or restore fails.
- */
-export async function restoreWalletFromNostr(
-	pubkey: string,
-	password: string,
-	apiKey: string
-): Promise<string | null> {
-	const ndk = getNDK()
-	const signer = getAuthManager().signer
-	if (!signer) {
-		throw new Error('No NDK signer available. Please log in.')
-	}
-
-	logger.info(`Attempting to restore Spark wallet for ${pubkey} from Nostr...`)
-
-	const filter: NDKFilter = {
-		kinds: [NOSTR_WALLET_BACKUP_KIND],
-		authors: [pubkey],
-		'#d': ['spark-wallet-backup'],
-		limit: 1 // Get the latest backup
-	}
-
-	const event = await ndk.fetchEvent(filter)
-
-	if (!event) {
-		logger.warn('No Spark wallet backup event found on Nostr for this pubkey.')
-		return null
+export async function syncWallet(): Promise<void> {
+	if (!_sdkInstance) {
+		throw new Error('Spark SDK is not initialized')
 	}
 
 	try {
-		// The event content is the hex-encoded encrypted mnemonic
-		const encryptedMnemonicHex = event.content
-		if (!encryptedMnemonicHex) {
-			throw new Error('Nostr backup event content is empty.')
-		}
-
-		// To use loadMnemonic, we temporarily store the fetched encrypted hex string
-		// as if it came from localStorage, then attempt to load it.
-		// This re-uses the existing decryption logic.
-		localStorage.setItem(`spark_wallet_${pubkey}`, encryptedMnemonicHex)
-		const mnemonic = await loadMnemonic(pubkey, password)
-		localStorage.removeItem(`spark_wallet_${pubkey}`) // Clean up temporary item
-
-		if (mnemonic && validateMnemonic(mnemonic)) {
-			await saveMnemonic(pubkey, password, mnemonic) // Save to local storage permanently
-			await initializeSdk(pubkey, password, mnemonic, apiKey)
-			logger.info('Spark wallet restored and connected from Nostr.')
-			return mnemonic
-		} else {
-			throw new Error('Decrypted mnemonic is invalid or password incorrect.')
-		}
+		sparkLoading.set(true)
+		await _sdkInstance.syncWallet({})
+		await refreshBalanceInternal()
+		logger.info('[Spark] Wallet synced')
 	} catch (error) {
-		logger.error('Failed to restore wallet from Nostr:', error)
-		return null
-	}
-}
-
-/**
- * Registers or fetches the Lightning Address and optionally syncs it to the Nostr profile.
- * @param sdk The initialized Breez SDK instance.
- * @param pubkey The user's Nostr public key.
- */
-async function registerOrFetchLightningAddressAndSync(sdk: BreezSDK, pubkey: string): Promise<void> {
-	try {
-		let currentLnAddress = (await sdk.nodeInfo()).id // Node ID is often the LA for Spark
-
-		if (currentLnAddress && currentLnAddress.includes('@')) {
-			lightningAddress.set(currentLnAddress)
-			logger.info('Breez Lightning Address:', currentLnAddress)
-
-			// Attempt to sync to Nostr profile if not already set
-			const ndk = getNDK()
-			const currentUser = ndk.getUser({ hexpubkey: pubkey })
-			await currentUser.fetchProfile()
-
-			if (currentUser.profile && currentUser.profile.lud16 !== currentLnAddress) {
-				logger.info(`Updating Nostr profile lud16 to ${currentLnAddress}...`)
-				const authManager = getAuthManager()
-				const signer = authManager.signer
-
-				if (!signer) {
-					logger.warn('Cannot update Nostr profile lud16: No NDK signer available.')
-					return
-				}
-
-				// Create an event to update the profile
-				const profileEvent = new NDKEvent(ndk, {
-					kind: NDKKind.Profile,
-					pubkey: pubkey,
-					content: JSON.stringify({ ...currentUser.profile, lud16: currentLnAddress }),
-					tags: []
-				})
-				profileEvent.signer = signer
-				await profileEvent.sign()
-				await profileEvent.publish()
-				logger.info('Nostr profile lud16 updated successfully.')
-				// Also update the local NDKUser profile
-				currentUser.profile.lud16 = currentLnAddress
-			}
-		} else {
-			logger.warn('Could not determine Lightning Address from Breez SDK node info.')
-			lightningAddress.set(null)
-		}
-	} catch (error) {
-		logger.error('Error in registerOrFetchLightningAddressAndSync:', error)
+		logger.error('[Spark] Sync failed:', error)
+		throw error
+	} finally {
+		sparkLoading.set(false)
 	}
 }
 
@@ -438,5 +431,45 @@ export function isSparkWalletConfigured(pubkey: string): boolean {
 	return hasMnemonic(pubkey)
 }
 
-// Export the clearAllSparkWallets function from storage
-export { clearAllSparkWallets }
+/**
+ * Get the current SDK instance (for advanced usage).
+ */
+export function getSdkInstance(): any {
+	return _sdkInstance
+}
+
+/**
+ * Manually refresh the balance.
+ */
+export async function refreshBalance(): Promise<bigint | null> {
+	await refreshBalanceInternal()
+	return get(walletBalance)
+}
+
+/**
+ * Backup wallet mnemonic to Nostr (stub - needs NDK integration).
+ * @param pubkey The user's Nostr public key.
+ */
+export async function backupWalletToNostr(pubkey: string): Promise<any> {
+	// TODO: Implement Nostr backup using NDK
+	// This requires NIP-78 event publishing
+	throw new Error('Nostr backup not yet implemented in v0.6.3 integration')
+}
+
+/**
+ * Restore wallet from Nostr backup (stub - needs NDK integration).
+ * @param pubkey The user's Nostr public key.
+ * @param apiKey The Breez API key.
+ */
+export async function restoreWalletFromNostr(
+	pubkey: string,
+	apiKey: string
+): Promise<string | null> {
+	// TODO: Implement Nostr restore using NDK
+	// This requires NIP-78 event fetching
+	logger.warn('[Spark] Nostr restore not yet implemented in v0.6.3 integration')
+	return null
+}
+
+// Export storage utilities
+export { clearAllSparkWallets, deleteMnemonic }
