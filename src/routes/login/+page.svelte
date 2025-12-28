@@ -54,6 +54,9 @@
   let nip46PairingStatus = 'Waiting for approval…';
   let nip46PairingError = '';
   
+  // Check if running on Android via Capacitor
+  $: isAndroid = browser && typeof window !== 'undefined' && (window as any).Capacitor?.getPlatform?.() === 'android';
+  
   // File input reference
   let fileInput: HTMLInputElement;
 
@@ -268,7 +271,7 @@
       nip46PairingStatus = 'Waiting for approval…';
       
       // On Android, open the URI with _system target
-      if (browser && (window as any).Capacitor?.getPlatform() === 'android') {
+      if (isAndroid) {
         window.open(result.uri, '_system');
       }
     } catch (error) {
@@ -611,7 +614,7 @@
         
         <!-- Action Buttons -->
         <div class="flex flex-col gap-2 w-full">
-          {#if browser && (window as any).Capacitor?.getPlatform() === 'android'}
+          {#if isAndroid}
             <Button on:click={() => window.open(nip46PairingUri, '_system')} primary={true} class="w-full">
               📱 Open Signer
             </Button>
