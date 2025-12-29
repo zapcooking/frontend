@@ -6,7 +6,7 @@
  */
 
 import { browser } from '$app/environment'
-import { ndk } from '$lib/nostr'
+import { ndk, ndkReady } from '$lib/nostr'
 import { get } from 'svelte/store'
 import { NDKEvent, NDKPrivateKeySigner } from '@nostr-dev-kit/ndk'
 import type { NDKRelay } from '@nostr-dev-kit/ndk'
@@ -30,7 +30,8 @@ let pendingBalanceRequest: Promise<number> | null = null
  */
 export function parseNwcUrl(url: string): { pubkey: string; relay: string; secret: string } | null {
 	try {
-		// Trim whitespace, newlines, and any invisible characters
+		// CRITICAL: Trim whitespace, newlines, and any invisible characters
+		// Without this, pasted URLs with trailing newlines cause relay connection timeouts
 		let cleaned = url.trim().replace(/[\r\n\t]/g, '')
 
 		// Handle both formats: with and without //
@@ -121,8 +122,13 @@ function getPublicKey(secret: string): string {
 export async function connectNwc(connectionUrl: string): Promise<boolean> {
 	if (!browser) return false
 
+	// Ensure NDK is ready before connecting
+	console.log('[NWC] Waiting for NDK to be ready...')
+	await ndkReady
+	console.log('[NWC] NDK is ready')
+
 	// Already connected to this URL
-	if (currentConnectionUrl === connectionUrl && isNwcConnected()) {
+	if (currentConnectionUrl === connectionUrl && isNwcConnected() && nwcRelay?.status === 1) {
 		console.log('[NWC] Already connected to this wallet')
 		return true
 	}
@@ -139,7 +145,11 @@ export async function connectNwc(connectionUrl: string): Promise<boolean> {
 		currentConnectionUrl = connectionUrl
 
 		// Connect to the NWC relay using NDK
-		const relayUrl = parsed.relay
+		// Normalize URL to match NDK's format (adds trailing slash)
+		let relayUrl = parsed.relay
+		if (!relayUrl.endsWith('/')) {
+			relayUrl = relayUrl + '/'
+		}
 		console.log('[NWC] Connecting to relay:', relayUrl)
 
 		const { NDKRelay } = await import('@nostr-dev-kit/ndk')
@@ -148,49 +158,35 @@ export async function connectNwc(connectionUrl: string): Promise<boolean> {
 		// Check if relay already exists in NDK's pool
 		let existingRelay: NDKRelay | undefined
 		for (const relay of ndkInstance.pool.relays.values()) {
-			if (relay.url === relayUrl || relay.url === relayUrl + '/') {
+			if (relay.url === relayUrl) {
 				existingRelay = relay
+				console.log('[NWC] Found existing relay in pool, status:', existingRelay.status)
 				break
 			}
 		}
 
-		if (existingRelay && existingRelay.status === 1) {
-			// Use existing connected relay
-			nwcRelay = existingRelay
-			console.log('[NWC] Using existing connected relay:', relayUrl)
-		} else {
-			// Create new relay and connect
-			nwcRelay = new NDKRelay(relayUrl, undefined, ndkInstance)
-			ndkInstance.pool.addRelay(nwcRelay)
-
-			// Wait for relay to connect with timeout
-			await new Promise<void>((resolve, reject) => {
-				const connectTimeout = setTimeout(() => {
-					reject(new Error('Relay connection timeout'))
-				}, 10000)
-
-				if (nwcRelay!.status === 1) {
-					clearTimeout(connectTimeout)
-					resolve()
-					return
-				}
-
-				nwcRelay!.on('connect', () => {
-					clearTimeout(connectTimeout)
-					resolve()
-				})
-
-				nwcRelay!.on('disconnect', () => {
-					clearTimeout(connectTimeout)
-					reject(new Error('Relay disconnected'))
-				})
-
-				nwcRelay!.connect()
-			})
-
-			console.log('[NWC] Connected successfully to', relayUrl)
+		// Remove any existing relay with this URL from pool to avoid conflicts
+		if (existingRelay) {
+			console.log('[NWC] Removing existing relay from pool, status:', existingRelay.status)
+			try {
+				existingRelay.disconnect()
+			} catch (e) {
+				// Ignore disconnect errors
+			}
+			ndkInstance.pool.removeRelay(relayUrl)
+			// Wait a moment for cleanup
+			await new Promise((r) => setTimeout(r, 100))
 		}
 
+		// Create new relay WITHOUT adding to pool
+		// This avoids NDK's automatic connection management interfering
+		console.log('[NWC] Creating independent relay connection')
+		nwcRelay = new NDKRelay(relayUrl, undefined, ndkInstance)
+
+		// Connect manually without adding to pool
+		await waitForRelayConnection(nwcRelay, 15000)
+
+		console.log('[NWC] Connected successfully to', relayUrl, 'status:', nwcRelay.status)
 		return true
 	} catch (e) {
 		console.error('[NWC] Connection failed:', e)
@@ -203,9 +199,70 @@ export async function connectNwc(connectionUrl: string): Promise<boolean> {
 }
 
 /**
+ * Wait for relay to connect with timeout
+ */
+async function waitForRelayConnection(relay: NDKRelay, timeoutMs: number): Promise<void> {
+	return new Promise<void>((resolve, reject) => {
+		const connectTimeout = setTimeout(() => {
+			console.error('[NWC] Connection timeout. Relay status:', relay.status)
+			reject(new Error('Relay connection timeout'))
+		}, timeoutMs)
+
+		// Already connected
+		if (relay.status === 1) {
+			console.log('[NWC] Relay already connected')
+			clearTimeout(connectTimeout)
+			resolve()
+			return
+		}
+
+		const onConnect = () => {
+			console.log('[NWC] Relay connected event received')
+			clearTimeout(connectTimeout)
+			relay.off('connect', onConnect)
+			relay.off('disconnect', onDisconnect)
+			resolve()
+		}
+
+		const onDisconnect = () => {
+			console.warn('[NWC] Relay disconnected during connect attempt')
+			// Don't reject immediately - relay might reconnect
+		}
+
+		relay.on('connect', onConnect)
+		relay.on('disconnect', onDisconnect)
+
+		// Always initiate connection (relay is not in pool, so it won't auto-connect)
+		console.log('[NWC] Initiating relay connection... (status:', relay.status, ')')
+		relay.connect()
+	})
+}
+
+/**
  * Disconnect NWC wallet
  */
 export async function disconnectNwc(): Promise<void> {
+	// Properly clean up the relay
+	if (nwcRelay) {
+		const ndkInstance = getNdk()
+		const relayUrl = nwcRelay.url
+
+		// Disconnect the relay
+		try {
+			nwcRelay.disconnect()
+		} catch (e) {
+			console.warn('[NWC] Error disconnecting relay:', e)
+		}
+
+		// Remove from NDK's pool to prevent stale references
+		try {
+			ndkInstance.pool.removeRelay(relayUrl)
+			console.log('[NWC] Removed relay from pool:', relayUrl)
+		} catch (e) {
+			console.warn('[NWC] Error removing relay from pool:', e)
+		}
+	}
+
 	nwcRelay = null
 	nwcSecret = null
 	nwcWalletPubkey = null
@@ -305,8 +362,8 @@ async function executeNip47Request(method: string, params: Record<string, any> =
 	// Small delay to ensure subscription is registered with relay
 	await new Promise((r) => setTimeout(r, 100))
 
-	// Publish the request to the NWC relay specifically
-	console.log('[NWC] Publishing request:', method, 'to', nwcRelay.url)
+	// Publish to the relay via NDK
+	console.log('[NWC] Publishing request:', method, 'to', nwcRelay.url, 'status:', nwcRelay.status)
 	await event.publish(relaySet)
 
 	// Wait for response

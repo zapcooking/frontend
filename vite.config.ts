@@ -4,20 +4,13 @@ import { defineConfig } from 'vite';
 export default defineConfig({
   plugins: [sveltekit()],
   define: {
-    global: 'globalThis',
-    Buffer: ['buffer', 'Buffer']
+    global: 'globalThis'
   },
   optimizeDeps: {
-    include: ['buffer'],
     // Exclude packages from pre-bundling:
     // - @getalby/sdk: needs browser WebSocket at runtime
     // - @breeztech/breez-sdk-spark: WASM module needs special handling
     exclude: ['@getalby/sdk', '@breeztech/breez-sdk-spark']
-  },
-  resolve: {
-    alias: {
-      buffer: 'buffer'
-    }
   },
   server: {
     fs: {
@@ -25,8 +18,11 @@ export default defineConfig({
     }
   },
   ssr: {
-    // Don't bundle @getalby/sdk on server - it needs browser WebSocket
+    // External packages that shouldn't be bundled/evaluated during SSR
+    // - @getalby/sdk: needs browser WebSocket
+    // - buffer, bip39: CommonJS packages that use require()
+    // - @breeztech/breez-sdk-spark: WASM module, browser only
     noExternal: [],
-    external: ['@getalby/sdk']
+    external: ['@getalby/sdk', 'buffer', 'bip39', '@breeztech/breez-sdk-spark']
   }
 });

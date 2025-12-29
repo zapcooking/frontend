@@ -230,7 +230,7 @@ export function getWalletKindName(kind: WalletKind): string {
 		case 3:
 			return 'NWC'
 		case 4:
-			return 'Spark'
+			return 'Self-custodial'
 		default:
 			return 'Unknown'
 	}

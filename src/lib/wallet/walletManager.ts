@@ -27,6 +27,7 @@ import {
 	payNwcInvoice,
 	isNwcConnected,
 	getNwcDisplayName,
+	getNwcInfo,
 	listNwcTransactions,
 	type NwcTransaction
 } from './nwc'
@@ -78,13 +79,19 @@ export async function connectWallet(
 					throw new Error('NWC connection URL required')
 				}
 				await connectNwc(data)
-				name = getNwcDisplayName(data)
+				// Try to get wallet alias, fall back to pubkey-based name
+				try {
+					const info = await getNwcInfo()
+					name = info.alias || getNwcDisplayName(data)
+				} catch {
+					name = getNwcDisplayName(data)
+				}
 				break
 
 			case 4: // Spark
 				// Spark connection is handled separately via the Spark module
 				// This just registers it in the wallet list
-				name = 'Spark Wallet'
+				name = 'Breez Spark'
 				break
 
 			default:
@@ -167,14 +174,13 @@ async function ensureWalletConnected(wallet: Wallet): Promise<boolean> {
 				return true
 
 			case 3: // NWC
-				if (!isNwcConnected()) {
-					if (wallet.data) {
-						await connectNwc(wallet.data)
-						return true
-					}
-					return false
+				// Always call connectNwc to ensure we're connected to the correct wallet
+				// (connectNwc handles the case where we're already connected to the same wallet)
+				if (wallet.data) {
+					await connectNwc(wallet.data)
+					return true
 				}
-				return true
+				return false
 
 			case 4: // Spark
 				if (!get(sparkInitialized)) {

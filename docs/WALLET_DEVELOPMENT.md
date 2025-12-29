@@ -91,7 +91,7 @@ This is called automatically in:
 
 1. User pastes connection URL: `nostr+walletconnect://pubkey?relay=wss://...&secret=...`
 2. `parseNwcUrl()` extracts pubkey, relay, secret (trims whitespace/newlines)
-3. `connectNwc()` creates NDKRelay and connects
+3. `connectNwc()` creates NDKRelay and connects **independently** (not added to NDK pool)
 4. Module state is stored (nwcSecret, nwcWalletPubkey, nwcRelay)
 5. Wallet is saved to store with `data` field containing the connection URL
 
@@ -101,6 +101,31 @@ The `parseNwcUrl()` function MUST trim whitespace and newlines:
 let cleaned = url.trim().replace(/[\r\n\t]/g, '')
 ```
 Without this, pasted URLs with trailing newlines cause relay connection timeouts.
+
+### NWC Relay Pool Fix - CRITICAL
+**Do NOT add the NWC relay to NDK's pool!** NDK's automatic connection management interferes with NWC's specific relay requirements:
+
+```typescript
+// WRONG - causes immediate RECONNECTING state (status 4) and timeouts
+nwcRelay = new NDKRelay(relayUrl, undefined, ndkInstance)
+ndkInstance.pool.addRelay(nwcRelay)  // DON'T DO THIS
+
+// CORRECT - manage relay connection independently
+nwcRelay = new NDKRelay(relayUrl, undefined, ndkInstance)
+// Don't add to pool - connect manually
+relay.connect()
+```
+
+The relay still works for publishing and subscriptions via `NDKRelaySet` without being in the pool.
+
+### NWC URL Normalization
+NDK normalizes relay URLs by adding a trailing slash. Always normalize the relay URL before using:
+```typescript
+let relayUrl = parsed.relay
+if (!relayUrl.endsWith('/')) {
+  relayUrl = relayUrl + '/'
+}
+```
 
 ## Initialization Flow
 
@@ -139,7 +164,37 @@ Balance shows "..." when:
 - `walletLoading` is true
 - `walletBalance` is null (not connected or fetch failed)
 
-## Spark-Specific Notes
+## Breez Spark Wallet - Complete Guide
+
+The Spark wallet is a self-custodial Lightning wallet built on the Breez SDK. It provides full wallet functionality including payments, receiving, and lightning addresses.
+
+### Key Files
+
+```
+src/lib/spark/
+├── index.ts           # Main SDK integration, all wallet operations
+├── storage.ts         # Encrypted mnemonic storage (XChaCha20-Poly1305)
+└── profileSync.ts     # Nostr profile lud16 sync functionality
+```
+
+### Single Wallet Restriction
+
+**Only one Spark wallet can be connected at a time.** This prevents conflicts with the SDK's storage and state management.
+
+```typescript
+// In wallet page - check if Spark wallet already exists
+$: hasExistingSparkWallet = $wallets.some(w => w.kind === 4);
+
+// Disable the Spark option if one exists
+<button
+  disabled={hasExistingSparkWallet}
+  class:opacity-50={hasExistingSparkWallet}
+>
+  {#if hasExistingSparkWallet}
+    <div class="text-amber-500">You already have a Spark wallet connected</div>
+  {/if}
+</button>
+```
 
 ### SDK Connection Pattern
 The Spark SDK uses the `connect()` pattern (not `SdkBuilder`):
@@ -234,6 +289,259 @@ function deriveKey(pubkey: string): Uint8Array {
 }
 ```
 
+### Lightning Address (breez.tips)
+
+Spark wallets can have a lightning address (e.g., `username@breez.tips`) for easy receiving.
+
+#### Lightning Address State
+```typescript
+// Store for the current lightning address
+export const lightningAddress = writable<string | null>(null)
+
+// Helper to extract address from SDK response (handles object or string)
+function extractLightningAddressString(addr: unknown): string | null {
+  if (typeof addr === 'string') return addr
+  if (typeof addr === 'object' && addr !== null) {
+    // Try common property names: lightningAddress, address, etc.
+    // Look for any string containing @
+  }
+  return null
+}
+```
+
+#### Registration Flow
+```typescript
+// Check availability (debounced, 500ms)
+const isAvailable = await sdk.checkLightningAddressAvailable({ username })
+
+// Register if available
+const address = await sdk.registerLightningAddress({
+  username,
+  description: 'zap.cooking user'
+})
+lightningAddress.set(address) // e.g., "username@breez.tips"
+```
+
+#### Delete Address
+```typescript
+await sdk.deleteLightningAddress()
+lightningAddress.set(null)
+```
+
+#### Fetching After Restore
+When restoring a wallet, the lightning address must be explicitly fetched:
+```typescript
+// After successful SDK initialization in any restore function
+try {
+  const addr = await getLightningAddress()
+  logger.info('[Spark] Wallet lightning address:', addr || 'none')
+} catch (e) {
+  logger.warn('[Spark] Could not fetch lightning address after restore:', String(e))
+}
+```
+
+This is added to all three restore functions:
+- `restoreFromMnemonic()`
+- `restoreFromBackup()`
+- `restoreWalletFromNostr()`
+
+### Profile Sync (lud16)
+
+The `profileSync.ts` module handles syncing the lightning address to the user's Nostr profile.
+
+#### Safety Pattern - CRITICAL
+When updating the profile, we must preserve ALL existing fields:
+
+```typescript
+// src/lib/spark/profileSync.ts
+export async function syncLightningAddressToProfile(
+  lightningAddress: string,
+  pubkey: string,
+  ndk: NDK
+): Promise<void> {
+  // 1. Fetch current kind 0 event
+  const events = await ndk.fetchEvents({
+    kinds: [0],
+    authors: [pubkey],
+    limit: 1
+  })
+
+  // 2. Parse existing content
+  const existingProfile = JSON.parse(event.content)
+
+  // 3. Check if already synced (avoid unnecessary publishes)
+  if (existingProfile.lud16 === lightningAddress) {
+    return // Already synced
+  }
+
+  // 4. Merge with spread operator - preserves ALL fields
+  const newProfile = {
+    ...existingProfile,
+    lud16: lightningAddress
+  }
+
+  // 5. Validate no data loss
+  if (Object.keys(newProfile).length < Object.keys(existingProfile).length) {
+    throw new Error('Profile merge would lose data')
+  }
+
+  // 6. Create and publish new kind 0 event
+  const event = new NDKEvent(ndk)
+  event.kind = 0
+  event.content = JSON.stringify(newProfile)
+  await event.publish()
+}
+```
+
+#### UI Sync Status
+The wallet page shows whether the profile is synced:
+```typescript
+// Fetch user's current profile lud16
+let profileLud16: string | null = null
+
+// Compare with Spark wallet address
+$: isProfileSynced = profileLud16 && $sparkLightningAddressStore &&
+  profileLud16.toLowerCase().trim() === $sparkLightningAddressStore.toLowerCase().trim()
+```
+
+Visual indicators:
+- ✅ Green checkmark: Profile lud16 matches Spark address
+- ⚠️ Amber warning: Profile has different lud16 or none set
+
+### Backup & Restore
+
+Spark wallets support multiple backup and restore methods.
+
+#### Backup Types
+
+**1. Nostr Relay Backup (Recommended)**
+Uses NIP-78 (kind 30078) replaceable events with encrypted mnemonic:
+```typescript
+const BACKUP_EVENT_KIND = 30078
+const BACKUP_D_TAG = 'spark-wallet-backup'
+
+// Event structure
+{
+  kind: 30078,
+  tags: [
+    ['d', 'spark-wallet-backup'],
+    ['client', 'zap.cooking'],
+    ['encryption', 'nip44']  // or 'nip04'
+  ],
+  content: encryptedMnemonic  // NIP-44 or NIP-04 encrypted
+}
+```
+
+**2. JSON Backup File**
+Downloaded file with encrypted mnemonic:
+```typescript
+interface SparkWalletBackup {
+  version: number           // 1 or 2
+  type: 'spark-wallet-backup'
+  encryption?: 'nip44' | 'nip04'  // Optional for v1
+  pubkey: string
+  encryptedMnemonic: string
+  createdAt: number
+  createdBy?: string
+}
+```
+
+#### Backup File Versions
+
+| Version | Encryption | Format |
+|---------|------------|--------|
+| 1 (Yakihonne/sparkihonne) | NIP-04 | No explicit encryption field |
+| 2 (zap.cooking, Primal) | NIP-44 or NIP-04 | Has encryption field |
+
+#### Encryption Detection (for imports)
+```typescript
+// Smart detection for backup file imports
+let useNip44 = false
+if (backup.encryption) {
+  // Explicit field (v2 backups)
+  useNip44 = backup.encryption === 'nip44'
+} else if (ciphertext.includes('?iv=')) {
+  // NIP-04 format has ?iv= separator
+  useNip44 = false
+} else {
+  // Default: v2 = NIP-44, v1 = NIP-04
+  useNip44 = backup.version === 2
+}
+```
+
+#### NIP-44 vs NIP-04 Fallback
+Some browser extensions (e.g., keys.band) don't support NIP-44. We detect and fall back:
+```typescript
+export function hasNip44Support(): boolean {
+  const nostr = window.nostr
+  return !!(nostr?.nip44?.encrypt && nostr?.nip44?.decrypt)
+}
+
+export function hasNip04Support(): boolean {
+  const nostr = window.nostr
+  return !!(nostr?.nip04?.encrypt && nostr?.nip04?.decrypt)
+}
+
+export function getBestEncryptionMethod(): 'nip44' | 'nip04' | null {
+  if (hasNip44Support()) return 'nip44'
+  if (hasNip04Support()) return 'nip04'
+  return null
+}
+```
+
+#### Restore from Nostr Backup
+```typescript
+async function restoreWalletFromNostr(pubkey: string, apiKey: string) {
+  // 1. Fetch backup event from relays
+  const events = await ndk.fetchEvents({
+    kinds: [30078],
+    authors: [pubkey],
+    '#d': ['spark-wallet-backup']
+  })
+
+  // 2. Get encryption method from tags
+  const encryptionTag = event.tags.find(t => t[0] === 'encryption')
+  const encryptionMethod = encryptionTag?.[1] || 'nip44'
+
+  // 3. Decrypt with appropriate method
+  let mnemonic: string
+  if (encryptionMethod === 'nip04') {
+    mnemonic = await nostr.nip04.decrypt(pubkey, event.content)
+  } else {
+    mnemonic = await nostr.nip44.decrypt(pubkey, event.content)
+  }
+
+  // 4. Initialize SDK
+  await initializeSdk(pubkey, mnemonic, apiKey)
+
+  // 5. Fetch lightning address for this wallet
+  await getLightningAddress()
+}
+```
+
+#### Pubkey Validation
+When restoring from backup file, verify the backup belongs to the current user:
+```typescript
+if (backup.pubkey && backup.pubkey !== pubkey) {
+  throw new Error(
+    'This backup belongs to a different Nostr account. ' +
+    'Please log in with the correct account or use a backup file created with your current account.'
+  )
+}
+```
+
+#### Backup Reminder on Delete
+When removing a Spark wallet, show backup options before allowing deletion:
+```svelte
+{#if walletToDelete.kind === 4}
+  <div class="warning-box">
+    <p>Back up your wallet first!</p>
+    <button on:click={handleBackupToNostr}>Backup to Nostr</button>
+    <button on:click={handleDownloadBackup}>Download Backup</button>
+  </div>
+{/if}
+```
+
 ### WASM Loading
 The Breez SDK requires WASM. Vite config must include:
 ```typescript
@@ -266,19 +574,35 @@ Before any wallet changes, verify:
 - [ ] NWC connects with pasted URL
 - [ ] NWC balance displays after connection
 - [ ] Transaction history loads for NWC
+- [ ] NWC backup file downloads with connection string on separate line
+- [ ] Backup reminder shown when deleting NWC wallet
 
 ### Spark
 - [ ] Create new Spark wallet shows mnemonic
 - [ ] Restore from mnemonic works
 - [ ] Restore from backup file works (NIP-44 decryption)
+- [ ] Restore from backup file works (NIP-04 / v1 format)
+- [ ] Restore from Nostr backup works
 - [ ] Balance displays immediately (not hanging)
 - [ ] Transaction history shows with correct amounts/timestamps
 - [ ] Modal closes promptly after restore (no hanging)
+- [ ] Cannot add second Spark wallet (option disabled)
+- [ ] Lightning address after restore shows correctly (not [object Object])
+- [ ] Backup reminder shown when deleting Spark wallet
+
+### Lightning Address
+- [ ] Can register new lightning address
+- [ ] Username availability check works (debounced)
+- [ ] Address displays after registration
+- [ ] Can delete lightning address
+- [ ] Profile sync status shows correctly (green/amber indicator)
+- [ ] "Sync to Profile" updates Nostr kind 0 lud16
 
 ### General
 - [ ] Switching between wallets shows correct balance
 - [ ] Page refresh restores active wallet and shows balance
 - [ ] Wallet deletion works with confirmation
+- [ ] Restore order: Nostr Backup → Backup File → Recovery Phrase
 
 ## Common Issues
 
