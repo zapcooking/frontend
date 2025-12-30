@@ -196,20 +196,123 @@ $: hasExistingSparkWallet = $wallets.some(w => w.kind === 4);
 </button>
 ```
 
-### SDK Connection Pattern
-The Spark SDK uses the `connect()` pattern (not `SdkBuilder`):
+### SDK Connection Pattern - CRITICAL
+The Spark SDK uses the `connect()` pattern. **Event listener setup immediately after connect is critical for real-time payment detection.**
+
 ```typescript
 const { defaultConfig, connect } = await import('@breeztech/breez-sdk-spark/web')
 const config = defaultConfig('mainnet')
 config.apiKey = apiKey
-config.realTimeSyncServerUrl = undefined // Disable to avoid sync loop issues
+config.privateEnabledDefault = true  // Required for some payment types
 
-const sdk = await connect({
-  config,
-  seed: { type: 'mnemonic', mnemonic },
-  storageDir: `spark-${pubkey.slice(0, 8)}`
-})
+// Connect with timeout
+const sdk = await withTimeout(
+  connect({
+    config,
+    seed: { type: 'mnemonic', mnemonic },
+    storageDir: 'zapcooking-spark'  // Fixed name, not per-user
+  }),
+  60000,
+  'SDK connect'
+)
+
+// CRITICAL: Set up event listener IMMEDIATELY after connect
+await setupEventListener()
+
+// Then sync (with timeout, non-blocking if fails)
+try {
+  await withTimeout(sdk.syncWallet({}), 15000, 'Initial sync')
+} catch (e) {
+  console.warn('Sync failed, events will handle updates')
+}
 ```
+
+### Event Listener Setup - CRITICAL FOR INCOMING PAYMENTS
+
+**This is the fix for incoming payment detection.** The event listener MUST be:
+1. A dedicated function
+2. Called immediately after `connect()`
+3. Store the listener ID for cleanup on disconnect
+
+```typescript
+// Module state
+let _eventListenerId: string | null = null
+
+// Dedicated setup function (following jumble-spark pattern)
+async function setupEventListener(): Promise<void> {
+  if (!_sdkInstance) return
+
+  const listener = {
+    onEvent: (event: any) => {
+      console.log('[Spark] SDK Event:', event.type, event)
+
+      // Handle payment events
+      if (event.type === 'paymentSucceeded' && event.payment) {
+        recentSparkPayments.update(payments => {
+          if (!payments.find(p => p.id === event.payment.id)) {
+            return [event.payment, ...payments].slice(0, 20)
+          }
+          return payments
+        })
+        refreshBalanceInternal()
+      }
+
+      // Handle sync events
+      if (event.type === 'synced') {
+        refreshBalanceInternal()
+      }
+
+      // Notify registered callbacks
+      _eventCallbacks.forEach(callback => callback(event))
+    }
+  }
+
+  _eventListenerId = await _sdkInstance.addEventListener(listener)
+}
+```
+
+### Disconnect with Cleanup
+Always remove the event listener before disconnecting:
+
+```typescript
+async function disconnectWallet(): Promise<void> {
+  if (_sdkInstance) {
+    // Remove event listener FIRST
+    if (_eventListenerId) {
+      await _sdkInstance.removeEventListener(_eventListenerId)
+      _eventListenerId = null
+    }
+
+    await _sdkInstance.disconnect()
+  }
+  // Reset all state...
+}
+```
+
+### What NOT To Do (Caused Incoming Payment Bug)
+
+The following patterns broke incoming payment detection:
+
+```typescript
+// BAD: Connection locks and complex state management
+let _connectionInProgress = false
+let _connectionPromise: Promise<boolean> | null = null
+let _syncInProgress = false  // This flag caused sync requests to be skipped
+
+// BAD: Inline event listener in initializeSdk (not a dedicated function)
+const listener = { onEvent: ... }
+await _sdkInstance.addEventListener(listener)
+// Without storing the listener ID!
+
+// BAD: Excessive timeout wrapping on everything
+_sdkInstance = await withTimeout(connect(...), 60000, 'connect')
+await withTimeout(setupEventListener(), 5000, 'listener')  // Don't timeout this!
+await withTimeout(syncWallet(), 15000, 'sync')
+await withTimeout(refreshBalance(), 10000, 'balance')
+// Events never fired because something was interfering
+```
+
+The fix: Follow the **jumble-spark pattern** exactly - simple, dedicated functions, minimal state flags.
 
 ### Balance Fetch - CRITICAL
 **Never use `ensureSynced: true` for initial balance!** It causes 30+ second hangs waiting for network sync.
@@ -542,6 +645,13 @@ When removing a Spark wallet, show backup options before allowing deletion:
 {/if}
 ```
 
+### SDK Version
+Currently using `@breeztech/breez-sdk-spark@0.4.2` (same as jumble-spark reference implementation).
+
+Stable versions available: 0.4.2, 0.5.x, 0.6.x (latest: 0.6.3)
+
+**Recommendation**: Stay on 0.4.2 until there's a specific reason to upgrade, as this version is proven to work with our event listener pattern.
+
 ### WASM Loading
 The Breez SDK requires WASM. Vite config must include:
 ```typescript
@@ -584,6 +694,8 @@ Before any wallet changes, verify:
 - [ ] Restore from backup file works (NIP-04 / v1 format)
 - [ ] Restore from Nostr backup works
 - [ ] Balance displays immediately (not hanging)
+- [ ] **Incoming payment detected in real-time** (check console for `[Spark] SDK Event: paymentSucceeded`)
+- [ ] Balance updates automatically after receiving payment
 - [ ] Transaction history shows with correct amounts/timestamps
 - [ ] Modal closes promptly after restore (no hanging)
 - [ ] Cannot add second Spark wallet (option disabled)

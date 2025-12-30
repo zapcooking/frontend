@@ -19,11 +19,18 @@
     connectWallet,
     disconnectWallet,
     refreshBalance,
+    createInvoice,
+    lookupInvoice,
+    sendPayment,
     isValidNwcUrl,
     getPaymentHistory,
+    pendingTransactions,
+    removePendingTransaction,
+    transactionsNeedRefresh,
+    ensurePendingTransactionsLoaded,
     type Transaction
   } from '$lib/wallet/walletManager';
-  import { parseNwcUrl, getNwcInfo, connectNwc, isNwcConnected } from '$lib/wallet/nwc';
+  import { parseNwcUrl, getNwcInfo, connectNwc, isNwcConnected, getNwcLud16 } from '$lib/wallet/nwc';
   import {
     createAndConnectWallet as createSparkWallet,
     restoreFromMnemonic,
@@ -36,10 +43,14 @@
     checkLightningAddressAvailable,
     registerLightningAddress,
     deleteLightningAddress,
+    onSparkEvent,
+    recentSparkPayments,
     type SparkWalletBackup
   } from '$lib/spark';
   import { syncLightningAddressToProfile } from '$lib/spark/profileSync';
+  import { qr } from '@svelte-put/qr/svg';
   import { ndk, ndkReady } from '$lib/nostr';
+  import { nip19 } from 'nostr-tools';
   import LightningIcon from 'phosphor-svelte/lib/Lightning';
   import WalletIcon from 'phosphor-svelte/lib/Wallet';
   import PlusIcon from 'phosphor-svelte/lib/Plus';
@@ -102,6 +113,7 @@
   let isDeletingAddress = false;
   let isSyncingProfile = false;
   let showSyncConfirmModal = false;
+  let showNwcSyncConfirmModal = false;
   let showDeleteAddressConfirmModal = false;
   let availabilityCheckTimeout: ReturnType<typeof setTimeout> | null = null;
 
@@ -113,8 +125,20 @@
   $: isProfileSynced = profileLud16 && $sparkLightningAddressStore &&
     profileLud16.toLowerCase().trim() === $sparkLightningAddressStore.toLowerCase().trim();
 
+  // NWC Lightning address from connection string
+  $: nwcLud16 = $activeWallet?.kind === 3 && $activeWallet?.data
+    ? getNwcLud16($activeWallet.data)
+    : null;
+
+  // Check if NWC lud16 matches profile
+  $: isNwcProfileSynced = nwcLud16 && profileLud16 &&
+    nwcLud16.toLowerCase().trim() === profileLud16.toLowerCase().trim();
+
   // Check if a Spark wallet already exists (only one allowed at a time)
   $: hasExistingSparkWallet = $wallets.some(w => w.kind === 4);
+
+  // Check if an NWC wallet already exists (only one allowed at a time)
+  $: hasExistingNwcWallet = $wallets.some(w => w.kind === 3);
 
   // Transaction history state
   let transactions: Transaction[] = [];
@@ -122,14 +146,178 @@
   let hasMoreTransactions = false;
   const TRANSACTIONS_PER_PAGE = 10;
 
+  // Send/Receive modal state
+  let showSendModal = false;
+  let showReceiveModal = false;
+  let sendInput = ''; // Invoice or Lightning address
+  let sendAmount = 0; // Amount for Lightning address sends
+  let sendComment = ''; // Optional message for Lightning address sends
+  let receiveAmount = 0;
+  let customReceiveAmount = '';
+  let generatedInvoice = '';
+  let invoiceCreatedAt: number = 0; // Unix timestamp when invoice was created
+  let generatedPaymentHash = '';
+  let invoicePollInterval: ReturnType<typeof setInterval> | null = null;
+  let invoicePaid = false;
+  let balanceBeforeInvoice: number | null = null; // For Spark balance-based detection
+  let isSending = false;
+  let isGeneratingInvoice = false;
+  let sendError = '';
+  let receiveError = '';
+  let sendSuccess = '';
+
+  // Preset amounts for receiving (matching jumble-spark)
+  const RECEIVE_PRESETS = [1000, 5000, 10000, 20000, 50000, 100000];
+
+  // Check if input is a Lightning address (contains @)
+  $: isLightningAddress = sendInput.includes('@') && !sendInput.toLowerCase().startsWith('lnbc');
+
   // Breez API key (should be in environment variable)
   const BREEZ_API_KEY = import.meta.env.VITE_BREEZ_API_KEY || '';
+
+  // Transaction metadata storage (for persisting descriptions across page reloads)
+  const TX_METADATA_KEY = 'zapcooking_tx_metadata';
+
+  interface TransactionMetadata {
+    description?: string;
+    recipient?: string; // Lightning address or npub
+  }
+
+  function getTransactionMetadata(txId: string): TransactionMetadata | null {
+    if (typeof localStorage === 'undefined') return null;
+    try {
+      const stored = localStorage.getItem(TX_METADATA_KEY);
+      if (stored) {
+        const all = JSON.parse(stored) as Record<string, TransactionMetadata>;
+        return all[txId] || null;
+      }
+    } catch (e) {
+      console.error('[Wallet] Failed to load tx metadata:', e);
+    }
+    return null;
+  }
+
+  function saveTransactionMetadata(txId: string, metadata: TransactionMetadata): void {
+    if (typeof localStorage === 'undefined') return;
+    try {
+      const stored = localStorage.getItem(TX_METADATA_KEY);
+      const all: Record<string, TransactionMetadata> = stored ? JSON.parse(stored) : {};
+      all[txId] = { ...all[txId], ...metadata };
+
+      // Keep only last 100 entries to avoid unbounded growth
+      const entries = Object.entries(all);
+      if (entries.length > 100) {
+        const trimmed = Object.fromEntries(entries.slice(-100));
+        localStorage.setItem(TX_METADATA_KEY, JSON.stringify(trimmed));
+      } else {
+        localStorage.setItem(TX_METADATA_KEY, JSON.stringify(all));
+      }
+    } catch (e) {
+      console.error('[Wallet] Failed to save tx metadata:', e);
+    }
+  }
+
+  // Cache for profile lookups to avoid repeated fetches
+  const profileCache = new Map<string, { name: string; fetchedAt: number }>();
+
+  /**
+   * Parse zap request from invoice description
+   * Returns the relevant pubkey (recipient for outgoing, sender for incoming)
+   */
+  function parseZapFromDescription(description: string, isIncoming: boolean): { pubkey: string; isZap: boolean } | null {
+    if (!description) return null;
+
+    try {
+      // Try to parse as JSON (zap request event)
+      const parsed = JSON.parse(description);
+
+      // Check if it's a kind 9734 zap request event
+      if (parsed.kind === 9734) {
+        if (isIncoming) {
+          // For incoming zaps, the sender is the event author
+          return { pubkey: parsed.pubkey, isZap: true };
+        } else {
+          // For outgoing zaps, the recipient is in the 'p' tag
+          const pTag = parsed.tags?.find((t: string[]) => t[0] === 'p');
+          if (pTag && pTag[1]) {
+            return { pubkey: pTag[1], isZap: true };
+          }
+        }
+      }
+    } catch {
+      // Not JSON, might be a plain description with embedded JSON
+      // Try to find JSON object in the string
+      const jsonMatch = description.match(/\{[^{}]*"kind"\s*:\s*9734[^{}]*\}/);
+      if (jsonMatch) {
+        try {
+          const parsed = JSON.parse(jsonMatch[0]);
+          if (isIncoming) {
+            return { pubkey: parsed.pubkey, isZap: true };
+          } else {
+            const pTag = parsed.tags?.find((t: string[]) => t[0] === 'p');
+            if (pTag && pTag[1]) {
+              return { pubkey: pTag[1], isZap: true };
+            }
+          }
+        } catch {
+          // Ignore nested parse errors
+        }
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Look up profile display name for a pubkey
+   */
+  async function getProfileName(pubkey: string): Promise<string | null> {
+    if (!pubkey) return null;
+
+    // Check cache first (cache for 5 minutes)
+    const cached = profileCache.get(pubkey);
+    if (cached && Date.now() - cached.fetchedAt < 300000) {
+      return cached.name;
+    }
+
+    try {
+      await ndkReady;
+      const ndkInstance = $ndk;
+
+      const user = ndkInstance.getUser({ pubkey });
+      await user.fetchProfile();
+
+      const name = user.profile?.displayName || user.profile?.name || null;
+      if (name) {
+        profileCache.set(pubkey, { name, fetchedAt: Date.now() });
+      }
+      return name;
+    } catch (e) {
+      console.error('[Wallet] Failed to fetch profile for', pubkey.slice(0, 8), e);
+      return null;
+    }
+  }
+
+  /**
+   * Format pubkey as truncated npub for display
+   */
+  function formatPubkeyShort(pubkey: string): string {
+    try {
+      const npub = nip19.npubEncode(pubkey);
+      return npub.slice(0, 8) + '...' + npub.slice(-4);
+    } catch {
+      return pubkey.slice(0, 8) + '...';
+    }
+  }
 
   onMount(() => {
     if ($userPublickey === '') {
       goto('/login');
       return;
     }
+
+    // Ensure pending transactions are loaded from localStorage
+    ensurePendingTransactionsLoaded();
 
     // Fetch user's profile lud16
     fetchProfileLud16();
@@ -138,6 +326,82 @@
     if ($walletConnected && $activeWallet && $activeWallet.kind !== 1) {
       loadTransactionHistory(true);
     }
+
+    // Listen for cross-tab refresh signals
+    const handleStorageChange = (event: StorageEvent) => {
+      if (event.key === 'zapcooking_tx_refresh' && $walletConnected && $activeWallet && $activeWallet.kind !== 1) {
+        console.log('[Wallet] Cross-tab refresh signal received');
+        setTimeout(async () => {
+          await refreshBalance(); // AWAIT this first
+          loadTransactionHistory(true); // THEN load transactions
+        }, 1000);
+      }
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+
+    // Subscribe to Spark SDK events for real-time updates
+    // SDK uses lowercase event names: paymentSucceeded, paymentFailed, synced
+    const unsubscribeSparkEvents = onSparkEvent(async (event) => {
+      console.log('[Wallet] Spark SDK event:', event.type);
+
+      // Refresh balance and payment list on synced and payment events
+      if (event.type === 'paymentSucceeded' || event.type === 'paymentFailed' || event.type === 'synced') {
+        console.log('[Wallet] Refreshing wallet state after SDK event:', event.type);
+        await refreshBalance();
+        loadTransactionHistory(true);
+
+        // Check if our pending invoice was paid
+        if (event.type === 'paymentSucceeded' && generatedInvoice && !invoicePaid) {
+          const payment = event.payment;
+          // Check if this is an incoming payment
+          const isReceived = payment?.paymentType === 'receive' || payment?.paymentType === 'received';
+          console.log('[Wallet] paymentSucceeded - isReceived:', isReceived, 'payment:', payment);
+
+          if (isReceived) {
+            console.log('[Wallet] Invoice paid! Showing success.');
+            invoicePaid = true;
+            stopInvoicePolling();
+            successMessage = `Payment received: ${receiveAmount.toLocaleString()} sats!`;
+
+            setTimeout(() => {
+              showReceiveModal = false;
+              resetReceiveModal();
+            }, 2000);
+          }
+        }
+      }
+    });
+
+    // Background poll every 30 seconds - catches missed events without causing UI flicker
+    // (Removed aggressive 3-second polling that was causing balance display issues)
+    const fallbackPollInterval = setInterval(async () => {
+      if ($walletConnected && $activeWallet?.kind === 4) {
+        // Silent refresh - don't show loading indicator for background polls
+        await refreshBalance();
+      }
+    }, 30000);
+
+    // Track previous count to detect new payments
+    let previousRecentCount = 0;
+
+    // Subscribe to recentSparkPayments for immediate UI updates when events fire
+    const unsubscribeRecentPayments = recentSparkPayments.subscribe((recent) => {
+      console.log('[Wallet] recentSparkPayments changed:', recent.length, 'items, previous:', previousRecentCount);
+      if (recent.length > previousRecentCount && $walletConnected && $activeWallet?.kind === 4) {
+        // New payment received from SDK event - reload immediately
+        console.log('[Wallet] NEW payment from SDK event, reloading history');
+        loadTransactionHistory(true);
+      }
+      previousRecentCount = recent.length;
+    });
+
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+      unsubscribeSparkEvents();
+      unsubscribeRecentPayments();
+      clearInterval(fallbackPollInterval);
+    };
   });
 
   /**
@@ -190,13 +454,31 @@
     loadTransactionHistory(true);
   }
 
-  async function loadTransactionHistory(reset = false) {
-    if (isLoadingHistory) return;
+  // Auto-refresh transaction history when a payment completes (signaled by transactionsNeedRefresh)
+  $: if ($transactionsNeedRefresh > 0 && $walletConnected && $activeWallet && $activeWallet.kind !== 1) {
+    // Small delay to allow the payment to be indexed
+    setTimeout(async () => {
+      await refreshBalance(); // AWAIT this first
+      loadTransactionHistory(true); // THEN load transactions
+    }, 1000);
+  }
 
+  async function loadTransactionHistory(reset = false) {
+    if (isLoadingHistory) {
+      console.log('[Wallet] loadTransactionHistory skipped - already loading');
+      return;
+    }
+
+    console.log('[Wallet] loadTransactionHistory called, reset:', reset);
     isLoadingHistory = true;
     try {
       const offset = reset ? 0 : transactions.length;
       const result = await getPaymentHistory({ limit: TRANSACTIONS_PER_PAGE, offset });
+
+      console.log('[Wallet] getPaymentHistory returned:', result.transactions.length, 'transactions, hasMore:', result.hasMore);
+      if (result.transactions.length > 0) {
+        console.log('[Wallet] First transaction:', result.transactions[0]);
+      }
 
       if (reset) {
         transactions = result.transactions;
@@ -204,10 +486,110 @@
         transactions = [...transactions, ...result.transactions];
       }
       hasMoreTransactions = result.hasMore;
+
+      // Deduplicate: remove pending transactions that now appear in real history
+      // Strategy: Match by amount + type + approximate timestamp
+      // Also auto-remove stale completed pending transactions (older than 10 minutes)
+      // IMPORTANT: Carry over description from pending to real transaction
+      const pending = $pendingTransactions;
+      const now = Math.floor(Date.now() / 1000);
+
+      for (const pendingTx of pending) {
+        if (pendingTx.status === 'completed') {
+          // Check if transaction appeared in history (amount + type + timestamp within 10 minutes)
+          const matchingRealIndex = transactions.findIndex(tx =>
+            tx.amount === pendingTx.amount &&
+            tx.type === 'outgoing' &&
+            Math.abs(tx.timestamp - pendingTx.timestamp) < 600 // within 10 minutes
+          );
+
+          if (matchingRealIndex >= 0) {
+            const matchingReal = transactions[matchingRealIndex];
+            console.log('[Wallet] Removing pending tx, found match in history:', pendingTx.id, '→', matchingReal.id);
+
+            // Carry over the description from pending transaction if it's more informative
+            if (pendingTx.description && (!matchingReal.description || matchingReal.description === 'Sent')) {
+              console.log('[Wallet] Carrying over description:', pendingTx.description);
+              transactions[matchingRealIndex] = {
+                ...matchingReal,
+                description: pendingTx.description
+              };
+              // Also save to local storage for persistence
+              saveTransactionMetadata(matchingReal.id, { description: pendingTx.description });
+            }
+
+            removePendingTransaction(pendingTx.id);
+          } else if (now - pendingTx.timestamp > 600) {
+            // Auto-remove stale completed pending transactions (older than 10 minutes)
+            // These likely succeeded but history hasn't synced yet
+            console.log('[Wallet] Removing stale completed pending tx:', pendingTx.id);
+            removePendingTransaction(pendingTx.id);
+          }
+        } else if (pendingTx.status === 'pending' && now - pendingTx.timestamp > 1800) {
+          // Also remove very old pending transactions (stuck for 30+ minutes)
+          console.log('[Wallet] Removing stuck pending tx:', pendingTx.id);
+          removePendingTransaction(pendingTx.id);
+        }
+      }
+
+      // Apply any saved metadata to transactions
+      transactions = transactions.map(tx => {
+        const savedMeta = getTransactionMetadata(tx.id);
+        if (savedMeta?.description && (!tx.description || tx.description === 'Sent' || tx.description === 'Received')) {
+          return { ...tx, description: savedMeta.description };
+        }
+        return tx;
+      });
+
+      // Enrich transactions with zap info (async, updates UI as profiles load)
+      enrichTransactionsWithZapInfo();
     } catch (e) {
       console.error('Failed to load transaction history:', e);
     } finally {
       isLoadingHistory = false;
+    }
+  }
+
+  /**
+   * Enrich transactions with zap sender/recipient names
+   * Runs asynchronously to not block UI
+   */
+  async function enrichTransactionsWithZapInfo() {
+    for (let i = 0; i < transactions.length; i++) {
+      const tx = transactions[i];
+
+      // Skip if already has a good description (not generic)
+      if (tx.description &&
+          tx.description !== 'Sent' &&
+          tx.description !== 'Received' &&
+          !tx.description.startsWith('lnbc')) {
+        continue;
+      }
+
+      // Check if transaction description contains zap info
+      const zapInfo = parseZapFromDescription(tx.description || '', tx.type === 'incoming');
+
+      if (zapInfo?.isZap && zapInfo.pubkey) {
+        // Try to get profile name
+        const profileName = await getProfileName(zapInfo.pubkey);
+        const displayName = profileName || formatPubkeyShort(zapInfo.pubkey);
+
+        // Update transaction with zap description
+        const zapDescription = tx.type === 'incoming'
+          ? `⚡ Zap from ${displayName}`
+          : `⚡ Zap to ${displayName}`;
+
+        // Update the transaction in place
+        transactions[i] = { ...tx, description: zapDescription };
+        // Trigger Svelte reactivity
+        transactions = transactions;
+
+        // Save to metadata for persistence
+        saveTransactionMetadata(tx.id, {
+          description: zapDescription,
+          recipient: zapInfo.pubkey
+        });
+      }
     }
   }
 
@@ -230,6 +612,245 @@
   function formatBalance(balance: number | null): string {
     if (balance === null) return '---';
     return balance.toLocaleString();
+  }
+
+  function formatAmount(amount: number): string {
+    if (amount >= 1000) {
+      return (amount / 1000).toLocaleString() + 'k';
+    }
+    return amount.toLocaleString();
+  }
+
+  // Copy text to clipboard
+  async function copyToClipboard(text: string) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch (e) {
+      console.error('Failed to copy:', e);
+      return false;
+    }
+  }
+
+  // Reset send modal state
+  function resetSendModal() {
+    sendInput = '';
+    sendAmount = 0;
+    sendComment = '';
+    sendError = '';
+    sendSuccess = '';
+    isSending = false;
+  }
+
+  // Reset receive modal state
+  function resetReceiveModal() {
+    stopInvoicePolling();
+    receiveAmount = 0;
+    customReceiveAmount = '';
+    generatedInvoice = '';
+    generatedPaymentHash = '';
+    invoicePaid = false;
+    receiveError = '';
+    isGeneratingInvoice = false;
+    balanceBeforeInvoice = null;
+    invoiceCreatedAt = 0;
+  }
+
+  // Handle sending payment
+  async function handleSend() {
+    if (!sendInput.trim()) {
+      sendError = 'Please enter an invoice or Lightning address';
+      return;
+    }
+
+    // For Lightning addresses, require amount
+    if (isLightningAddress && sendAmount <= 0) {
+      sendError = 'Please enter an amount for Lightning address';
+      return;
+    }
+
+    isSending = true;
+    sendError = '';
+    sendSuccess = '';
+
+    try {
+      // For Lightning addresses, we need to pass the amount
+      // For invoices, amount is encoded in the invoice
+      const invoice = sendInput.trim();
+
+      // Note: Pending transactions are managed by walletManager.sendPayment
+      const result = await sendPayment(invoice, {
+        amount: isLightningAddress ? sendAmount : undefined,
+        description: isLightningAddress ? `Payment to ${sendInput}` : undefined,
+        comment: isLightningAddress && sendComment ? sendComment : undefined
+      });
+
+      if (result.success) {
+        sendSuccess = 'Payment sent successfully!';
+        await refreshBalance();
+        loadTransactionHistory(true);
+        // Close modal after short delay
+        setTimeout(() => {
+          showSendModal = false;
+          resetSendModal();
+        }, 1500);
+      } else {
+        sendError = result.error || 'Payment failed';
+      }
+    } catch (e) {
+      sendError = e instanceof Error ? e.message : 'Payment failed';
+    } finally {
+      isSending = false;
+    }
+  }
+
+  // Handle generating invoice for receiving
+  async function handleGenerateInvoice(amount?: number) {
+    const amountToUse = amount || parseInt(customReceiveAmount) || 0;
+
+    if (amountToUse <= 0) {
+      receiveError = 'Please enter a valid amount';
+      return;
+    }
+
+    isGeneratingInvoice = true;
+    receiveError = '';
+    generatedInvoice = '';
+    generatedPaymentHash = '';
+    invoicePaid = false;
+    receiveAmount = amountToUse;
+
+    // Store current balance for Spark balance-based payment detection
+    balanceBeforeInvoice = $walletBalance;
+    invoiceCreatedAt = Math.floor(Date.now() / 1000); // Unix timestamp
+    console.log('[Wallet] Balance before invoice:', balanceBeforeInvoice, 'created at:', invoiceCreatedAt);
+
+    try {
+      const result = await createInvoice(amountToUse, 'Payment via zap.cooking');
+      console.log('[Wallet] Invoice created:', result);
+
+      if (!result || !result.invoice) {
+        throw new Error('Failed to generate invoice - no invoice returned');
+      }
+
+      generatedInvoice = result.invoice;
+      generatedPaymentHash = result.paymentHash || '';
+      console.log('[Wallet] Payment hash:', generatedPaymentHash);
+
+      // Start polling for payment
+      // For NWC: uses payment hash lookup
+      // For Spark: uses balance-based detection (SDK events are primary, polling is backup)
+      setTimeout(() => {
+        if (generatedInvoice && !invoicePaid) {
+          startInvoicePolling();
+        }
+      }, 2000);
+    } catch (e) {
+      receiveError = e instanceof Error ? e.message : 'Failed to generate invoice';
+    } finally {
+      isGeneratingInvoice = false;
+    }
+  }
+
+  // Poll for invoice payment status
+  function startInvoicePolling() {
+    stopInvoicePolling(); // Clear any existing interval
+
+    console.log('[Wallet] Starting invoice polling, hash:', generatedPaymentHash, 'wallet kind:', $activeWallet?.kind);
+
+    invoicePollInterval = setInterval(async () => {
+      if (invoicePaid) {
+        console.log('[Wallet] Stopping poll - already paid');
+        stopInvoicePolling();
+        return;
+      }
+
+      try {
+        console.log('[Wallet] Polling invoice status...');
+
+        // For Spark (kind 4): use transaction-based detection
+        // Check for new incoming transactions instead of balance changes
+        if ($activeWallet?.kind === 4) {
+          console.log('[Wallet] Spark payment check - looking for incoming transaction of', receiveAmount, 'sats');
+
+          try {
+            // Get latest transactions and look for a new incoming payment
+            const { transactions: latestTxs } = await getPaymentHistory({ limit: 5, offset: 0 });
+
+            // Look for a recent incoming transaction matching our expected amount
+            const matchingTx = latestTxs.find(tx =>
+              tx.type === 'incoming' &&
+              tx.amount === receiveAmount &&
+              tx.timestamp > (invoiceCreatedAt || 0)
+            );
+
+            if (matchingTx) {
+              console.log('[Wallet] Found matching incoming transaction:', matchingTx);
+              invoicePaid = true;
+              stopInvoicePolling();
+              successMessage = `Payment received: ${receiveAmount.toLocaleString()} sats!`;
+
+              // Refresh balance and history
+              await refreshBalance();
+              loadTransactionHistory(true);
+
+              setTimeout(() => {
+                showReceiveModal = false;
+                resetReceiveModal();
+              }, 2000);
+              return;
+            }
+
+            console.log('[Wallet] No matching transaction found yet, latest:', latestTxs[0]?.id);
+          } catch (e) {
+            console.warn('[Wallet] Transaction check failed:', e);
+          }
+        } else if (generatedPaymentHash) {
+          // For NWC: use payment hash lookup
+          const result = await lookupInvoice(generatedPaymentHash);
+          console.log('[Wallet] NWC poll result:', result);
+          if (result.paid) {
+            console.log('[Wallet] Invoice paid! Showing success.');
+            invoicePaid = true;
+            stopInvoicePolling();
+            successMessage = `Payment received: ${receiveAmount.toLocaleString()} sats!`;
+
+            await refreshBalance();
+            await loadTransactionHistory();
+
+            setTimeout(() => {
+              showReceiveModal = false;
+              resetReceiveModal();
+            }, 2000);
+          }
+        }
+      } catch (e) {
+        console.error('[Wallet] Error polling invoice status:', e);
+      }
+    }, 3000); // Poll every 3 seconds
+  }
+
+  function stopInvoicePolling() {
+    if (invoicePollInterval) {
+      clearInterval(invoicePollInterval);
+      invoicePollInterval = null;
+    }
+  }
+
+  // Get Lightning address for display in receive modal
+  function getReceiveLightningAddress(): string | null {
+    if (!$activeWallet) return null;
+
+    if ($activeWallet.kind === 4) {
+      // Spark wallet - use wallet's registered address
+      return $sparkLightningAddressStore;
+    } else if ($activeWallet.kind === 3) {
+      // NWC wallet - prefer lud16 from connection string, fall back to profile's lud16
+      const nwcLud16 = $activeWallet.data ? getNwcLud16($activeWallet.data) : null;
+      return nwcLud16 || profileLud16;
+    }
+
+    return null;
   }
 
   async function handleConnectNWC() {
@@ -279,8 +900,11 @@
       showMnemonic = true;
       successMessage = 'Breez Spark wallet created! Please save your recovery phrase.';
 
-      // Register in wallet store - await to ensure stores are updated for transaction history
+      // Register in wallet store
       await connectWallet(4, 'spark');
+
+      // Fetch initial balance (will be 0 for new wallet)
+      await refreshBalance();
     } catch (e) {
       errorMessage = e instanceof Error ? e.message : 'Failed to create Breez Spark wallet';
     } finally {
@@ -302,8 +926,12 @@
     try {
       const mnemonic = await restoreWalletFromNostr($userPublickey, BREEZ_API_KEY);
       if (mnemonic) {
-        // Register in wallet store and wait for balance refresh
+        // Register in wallet store
         await connectWallet(4, 'spark');
+
+        // Actively fetch balance and transaction history
+        await refreshBalance();
+        loadTransactionHistory(true);
 
         // Close modal after successful registration
         successMessage = 'Breez Spark wallet restored from Nostr backup!';
@@ -339,8 +967,12 @@
     try {
       const success = await restoreFromMnemonic($userPublickey, mnemonic, BREEZ_API_KEY);
       if (success) {
-        // Register in wallet store and wait for balance refresh
+        // Register in wallet store
         await connectWallet(4, 'spark');
+
+        // Actively fetch balance and transaction history
+        await refreshBalance();
+        loadTransactionHistory(true);
 
         // Close modal after successful registration
         successMessage = 'Breez Spark wallet restored from recovery phrase!';
@@ -422,8 +1054,12 @@
 
       const success = await restoreFromBackup($userPublickey, backup, BREEZ_API_KEY, decryptFn);
       if (success) {
-        // Register in wallet store and wait for balance refresh
+        // Register in wallet store
         await connectWallet(4, 'spark');
+
+        // Actively fetch balance and transaction history
+        await refreshBalance();
+        loadTransactionHistory(true);
 
         // Close modal after successful registration
         successMessage = 'Breez Spark wallet restored from backup file!';
@@ -445,6 +1081,17 @@
 
   async function handleDisconnectWallet(walletId: number) {
     await disconnectWallet(walletId);
+
+    // Clear transaction history immediately
+    transactions = [];
+    hasMoreTransactions = false;
+
+    // If there's a remaining wallet that's now active, refresh its data
+    if ($activeWallet) {
+      await refreshBalance();
+      await loadTransactionHistory(true);
+    }
+
     successMessage = 'Wallet disconnected';
   }
 
@@ -717,6 +1364,26 @@
       isSyncingProfile = false;
     }
   }
+
+  async function handleNwcSyncToProfile() {
+    if (!nwcLud16) return;
+
+    isSyncingProfile = true;
+    errorMessage = '';
+
+    try {
+      await syncLightningAddressToProfile(nwcLud16, $userPublickey, $ndk);
+      successMessage = 'Lightning address synced to your Nostr profile!';
+      showNwcSyncConfirmModal = false;
+
+      // Refresh profile lud16 to update the sync status
+      await fetchProfileLud16();
+    } catch (e) {
+      errorMessage = e instanceof Error ? e.message : 'Failed to sync to profile';
+    } finally {
+      isSyncingProfile = false;
+    }
+  }
 </script>
 
 <svelte:head>
@@ -784,9 +1451,29 @@
           *** <span class="text-lg font-normal text-caption">sats</span>
         {/if}
       </div>
-      <div class="text-sm text-caption">
+      <div class="text-sm text-caption mb-4">
         Active: {$activeWallet.name} ({getWalletKindName($activeWallet.kind)})
       </div>
+
+      <!-- Send/Receive buttons - only for NWC and Spark wallets -->
+      {#if $activeWallet.kind !== 1}
+        <div class="flex gap-3">
+          <button
+            class="flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-medium transition-colors"
+            on:click={() => { showSendModal = true; resetSendModal(); }}
+          >
+            <ArrowUpIcon size={20} weight="bold" />
+            Send
+          </button>
+          <button
+            class="flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-medium transition-colors"
+            on:click={() => { showReceiveModal = true; resetReceiveModal(); }}
+          >
+            <ArrowDownIcon size={20} weight="bold" />
+            Receive
+          </button>
+        </div>
+      {/if}
     </div>
   {/if}
 
@@ -949,82 +1636,91 @@
                       {/if}
                     {/if}
 
-                    <div class="flex flex-wrap gap-2">
-                      {#if !isProfileSynced}
+                    {#if wallet.active}
+                      <div class="flex flex-wrap gap-2">
+                        {#if !isProfileSynced}
+                          <button
+                            class="flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer bg-amber-500 hover:bg-amber-600 text-white"
+                            on:click={() => showSyncConfirmModal = true}
+                          >
+                            <UserCirclePlusIcon size={16} />
+                            Sync to Profile
+                          </button>
+                        {:else}
+                          <button
+                            class="flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer"
+                            style="background-color: var(--color-bg-primary); border: 1px solid var(--color-input-border);"
+                            on:click={() => showSyncConfirmModal = true}
+                          >
+                            <UserCirclePlusIcon size={16} />
+                            Sync to Profile
+                          </button>
+                        {/if}
                         <button
-                          class="flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer bg-amber-500 hover:bg-amber-600 text-white"
-                          on:click={() => showSyncConfirmModal = true}
-                        >
-                          <UserCirclePlusIcon size={16} />
-                          Sync to Profile
-                        </button>
-                      {:else}
-                        <button
-                          class="flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer"
+                          class="flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-red-500 hover:bg-red-500/10 transition-colors cursor-pointer"
                           style="background-color: var(--color-bg-primary); border: 1px solid var(--color-input-border);"
-                          on:click={() => showSyncConfirmModal = true}
+                          on:click={() => showDeleteAddressConfirmModal = true}
                         >
-                          <UserCirclePlusIcon size={16} />
-                          Sync to Profile
+                          <TrashIcon size={16} />
+                          Delete
                         </button>
+                      </div>
+                    {:else}
+                      <p class="text-xs text-caption">Activate this wallet to manage the lightning address.</p>
+                    {/if}
+                  {:else}
+                    <!-- No lightning address -->
+                    {#if wallet.active}
+                      <!-- Show registration form only when wallet is active -->
+                      <div class="p-3 rounded-lg mb-3" style="background-color: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.3);">
+                        <div class="text-sm" style="color: var(--color-text-primary);">
+                          Set up a lightning address to receive payments easily!
+                        </div>
+                      </div>
+                      <div class="flex items-center gap-2 mb-3">
+                        <div class="flex-1 relative">
+                          <input
+                            type="text"
+                            class="w-full p-2 pr-20 rounded-lg text-sm"
+                            style="background-color: var(--color-bg-primary); border: 1px solid var(--color-input-border); color: var(--color-text-primary);"
+                            placeholder="username"
+                            value={newLightningUsername}
+                            on:input={handleUsernameInput}
+                            disabled={isRegisteringAddress}
+                          />
+                          <span class="absolute right-2 top-1/2 -translate-y-1/2 text-sm text-caption">@breez.tips</span>
+                        </div>
+                        {#if isCheckingAvailability}
+                          <div class="w-6 h-6 flex items-center justify-center">
+                            <div class="w-4 h-4 border-2 border-amber-500 border-t-transparent rounded-full animate-spin"></div>
+                          </div>
+                        {:else if isUsernameAvailable === true}
+                          <div class="w-6 h-6 flex items-center justify-center text-green-500">
+                            <CheckIcon size={20} weight="bold" />
+                          </div>
+                        {:else if isUsernameAvailable === false}
+                          <div class="w-6 h-6 flex items-center justify-center text-red-500">
+                            <XIcon size={20} weight="bold" />
+                          </div>
+                        {:else}
+                          <div class="w-6 h-6"></div>
+                        {/if}
+                      </div>
+                      {#if isUsernameAvailable === false}
+                        <p class="text-xs text-red-500 mb-2">This username is already taken</p>
                       {/if}
                       <button
-                        class="flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-red-500 hover:bg-red-500/10 transition-colors cursor-pointer"
+                        class="flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer disabled:opacity-50"
                         style="background-color: var(--color-bg-primary); border: 1px solid var(--color-input-border);"
-                        on:click={() => showDeleteAddressConfirmModal = true}
+                        on:click={handleRegisterLightningAddress}
+                        disabled={!isUsernameAvailable || isRegisteringAddress || newLightningUsername.length < 3}
                       >
-                        <TrashIcon size={16} />
-                        Delete
+                        <LightningIcon size={16} />
+                        {isRegisteringAddress ? 'Registering...' : 'Register Address'}
                       </button>
-                    </div>
-                  {:else}
-                    <!-- No lightning address - show registration form -->
-                    <div class="p-3 rounded-lg mb-3" style="background-color: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.3);">
-                      <div class="text-sm" style="color: var(--color-text-primary);">
-                        Set up a lightning address to receive payments easily!
-                      </div>
-                    </div>
-                    <div class="flex items-center gap-2 mb-3">
-                      <div class="flex-1 relative">
-                        <input
-                          type="text"
-                          class="w-full p-2 pr-20 rounded-lg text-sm"
-                          style="background-color: var(--color-bg-primary); border: 1px solid var(--color-input-border); color: var(--color-text-primary);"
-                          placeholder="username"
-                          value={newLightningUsername}
-                          on:input={handleUsernameInput}
-                          disabled={isRegisteringAddress}
-                        />
-                        <span class="absolute right-2 top-1/2 -translate-y-1/2 text-sm text-caption">@breez.tips</span>
-                      </div>
-                      {#if isCheckingAvailability}
-                        <div class="w-6 h-6 flex items-center justify-center">
-                          <div class="w-4 h-4 border-2 border-amber-500 border-t-transparent rounded-full animate-spin"></div>
-                        </div>
-                      {:else if isUsernameAvailable === true}
-                        <div class="w-6 h-6 flex items-center justify-center text-green-500">
-                          <CheckIcon size={20} weight="bold" />
-                        </div>
-                      {:else if isUsernameAvailable === false}
-                        <div class="w-6 h-6 flex items-center justify-center text-red-500">
-                          <XIcon size={20} weight="bold" />
-                        </div>
-                      {:else}
-                        <div class="w-6 h-6"></div>
-                      {/if}
-                    </div>
-                    {#if isUsernameAvailable === false}
-                      <p class="text-xs text-red-500 mb-2">This username is already taken</p>
+                    {:else}
+                      <p class="text-sm text-caption">No lightning address registered. Activate this wallet to set one up.</p>
                     {/if}
-                    <button
-                      class="flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer disabled:opacity-50"
-                      style="background-color: var(--color-bg-primary); border: 1px solid var(--color-input-border);"
-                      on:click={handleRegisterLightningAddress}
-                      disabled={!isUsernameAvailable || isRegisteringAddress || newLightningUsername.length < 3}
-                    >
-                      <LightningIcon size={16} />
-                      {isRegisteringAddress ? 'Registering...' : 'Register Address'}
-                    </button>
                   {/if}
                 </div>
               </div>
@@ -1061,6 +1757,87 @@
                     Download Backup
                   </button>
                 </div>
+
+                <!-- NWC Lightning Address Section -->
+                {#if wallet.data}
+                  {@const walletNwcLud16 = getNwcLud16(wallet.data)}
+                  {#if walletNwcLud16}
+                  <div class="mt-4 pt-4 border-t" style="border-color: var(--color-input-border);">
+                    <div class="text-xs text-caption mb-3 uppercase tracking-wide flex items-center gap-2">
+                      <LightningIcon size={14} />
+                      Lightning Address
+                    </div>
+
+                    <div class="p-3 rounded-lg mb-3" style="background-color: var(--color-bg-primary); border: 1px solid var(--color-input-border);">
+                      <div class="text-sm text-caption mb-1">From NWC connection:</div>
+                      <div class="font-medium text-primary-color flex items-center gap-2">
+                        {walletNwcLud16}
+                        {#if isLoadingProfileLud16}
+                          <div class="w-4 h-4 border-2 border-amber-500 border-t-transparent rounded-full animate-spin"></div>
+                        {:else if profileLud16 && walletNwcLud16.toLowerCase().trim() === profileLud16.toLowerCase().trim()}
+                          <span class="text-green-500" title="Synced to your Nostr profile">
+                            <CheckCircleIcon size={18} weight="fill" />
+                          </span>
+                        {:else}
+                          <span class="text-amber-500" title="Not synced to your Nostr profile">
+                            <WarningIcon size={18} weight="fill" />
+                          </span>
+                        {/if}
+                      </div>
+                    </div>
+
+                    <!-- Profile sync status -->
+                    {#if !isLoadingProfileLud16}
+                      {@const isNwcSynced = profileLud16 && walletNwcLud16.toLowerCase().trim() === profileLud16.toLowerCase().trim()}
+                      {#if isNwcSynced}
+                        <div class="p-3 rounded-lg mb-3" style="background-color: rgba(34, 197, 94, 0.1); border: 1px solid rgba(34, 197, 94, 0.3);">
+                          <div class="text-sm text-green-600 flex items-center gap-2">
+                            <CheckCircleIcon size={16} weight="fill" />
+                            This address is set in your Nostr profile
+                          </div>
+                        </div>
+                      {:else if profileLud16}
+                        <div class="p-3 rounded-lg mb-3" style="background-color: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.3);">
+                          <div class="text-sm" style="color: var(--color-text-primary);">
+                            <div class="flex items-center gap-2 mb-1">
+                              <WarningIcon size={16} class="text-amber-500" />
+                              <span class="font-medium">Profile uses a different address:</span>
+                            </div>
+                            <div class="text-caption font-mono text-xs ml-6">{profileLud16}</div>
+                          </div>
+                        </div>
+                      {:else}
+                        <div class="p-3 rounded-lg mb-3" style="background-color: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.3);">
+                          <div class="text-sm flex items-center gap-2" style="color: var(--color-text-primary);">
+                            <WarningIcon size={16} class="text-amber-500" />
+                            No lightning address in your Nostr profile yet
+                          </div>
+                        </div>
+                      {/if}
+
+                      {#if !isNwcSynced && wallet.active}
+                        <button
+                          class="flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer bg-amber-500 hover:bg-amber-600 text-white"
+                          on:click={() => showNwcSyncConfirmModal = true}
+                        >
+                          <UserCirclePlusIcon size={16} />
+                          Sync to Profile
+                        </button>
+                      {:else if !isNwcSynced}
+                        <p class="text-xs text-caption">Activate this wallet to sync the lightning address.</p>
+                      {/if}
+                    {/if}
+                  </div>
+                  {:else}
+                    <div class="mt-4 pt-4 border-t" style="border-color: var(--color-input-border);">
+                      <div class="text-xs text-caption mb-3 uppercase tracking-wide flex items-center gap-2">
+                        <LightningIcon size={14} />
+                        Lightning Address
+                      </div>
+                      <p class="text-sm text-caption">No lightning address found in the NWC connection string.</p>
+                    </div>
+                  {/if}
+                {/if}
               </div>
             {/if}
           </div>
@@ -1088,47 +1865,132 @@
           </h2>
         </div>
 
-        {#if isLoadingHistory && transactions.length === 0}
+        {#if isLoadingHistory && transactions.length === 0 && $pendingTransactions.length === 0}
         <div class="p-8 rounded-2xl text-center bg-input border border-input">
           <div class="animate-pulse text-caption">Loading transactions...</div>
         </div>
-      {:else if transactions.length === 0}
+      {:else if transactions.length === 0 && $pendingTransactions.length === 0}
         <div class="p-8 rounded-2xl text-center bg-input border border-input">
           <ClockIcon size={48} class="mx-auto mb-4 text-caption" />
           <p class="text-caption">No transactions yet</p>
         </div>
       {:else}
         <div class="space-y-2">
+          <!-- Pending/completed transactions shown first -->
+          {#each $pendingTransactions as tx (tx.id)}
+            {#if tx.status === 'completed'}
+              <!-- Completed but not yet in history -->
+              <div class="p-4 rounded-xl flex items-center gap-4 bg-input border border-green-500/50">
+                <div class="w-10 h-10 rounded-full flex items-center justify-center bg-green-500/20">
+                  <ArrowUpIcon size={20} class="text-green-500" />
+                </div>
+                <div class="flex-1 min-w-0">
+                  <div class="font-medium truncate text-primary-color">
+                    {tx.description || 'Payment sent'}
+                  </div>
+                  <div class="text-sm text-green-500">
+                    ✓ Payment sent
+                  </div>
+                </div>
+                <div class="text-right">
+                  <div class="font-semibold text-green-500">
+                    {#if $balanceVisible}
+                      -{tx.amount.toLocaleString()} sats
+                    {:else}
+                      -*** sats
+                    {/if}
+                  </div>
+                </div>
+              </div>
+            {:else}
+              <!-- Still pending -->
+              <div class="p-4 rounded-xl flex items-center gap-4 bg-input border border-amber-500/50 animate-pulse">
+                <div class="w-10 h-10 rounded-full flex items-center justify-center bg-amber-500/20">
+                  <ArrowUpIcon size={20} class="text-amber-500" />
+                </div>
+                <div class="flex-1 min-w-0">
+                  <div class="font-medium truncate text-primary-color">
+                    {tx.description || 'Sending...'}
+                  </div>
+                  <div class="text-sm text-amber-500">
+                    Sending payment...
+                  </div>
+                </div>
+                <div class="text-right">
+                  <div class="font-semibold text-amber-500">
+                    {#if $balanceVisible}
+                      -{tx.amount.toLocaleString()} sats
+                    {:else}
+                      -*** sats
+                    {/if}
+                  </div>
+                </div>
+              </div>
+            {/if}
+          {/each}
+
+          <!-- Transactions from SDK (includes pending) -->
           {#each transactions as tx (tx.id)}
-            <div class="p-4 rounded-xl flex items-center gap-4 bg-input border border-input">
-              <div class="w-10 h-10 rounded-full flex items-center justify-center {tx.type === 'incoming' ? 'bg-green-500/20' : 'bg-orange-500/20'}">
-                {#if tx.type === 'incoming'}
-                  <ArrowDownIcon size={20} class="text-green-500" />
-                {:else}
-                  <ArrowUpIcon size={20} class="text-orange-500" />
-                {/if}
-              </div>
-              <div class="flex-1 min-w-0">
-                <div class="font-medium truncate text-primary-color">
-                  {tx.description || (tx.type === 'incoming' ? 'Received' : 'Sent')}
-                </div>
-                <div class="text-sm text-caption">
-                  {formatTransactionDate(tx.timestamp)}
-                  {#if tx.fees && $balanceVisible}
-                    <span class="ml-2">• Fee: {tx.fees} sats</span>
-                  {/if}
-                </div>
-              </div>
-              <div class="text-right">
-                <div class="font-semibold {tx.type === 'incoming' ? 'text-green-500' : 'text-orange-500'}">
-                  {#if $balanceVisible}
-                    {tx.type === 'incoming' ? '+' : '-'}{tx.amount.toLocaleString()} sats
+            {#if tx.status === 'pending'}
+              <!-- Pending transaction from SDK -->
+              <div class="p-4 rounded-xl flex items-center gap-4 bg-input border border-amber-500/50 animate-pulse">
+                <div class="w-10 h-10 rounded-full flex items-center justify-center bg-amber-500/20">
+                  {#if tx.type === 'incoming'}
+                    <ArrowDownIcon size={20} class="text-amber-500" />
                   {:else}
-                    {tx.type === 'incoming' ? '+' : '-'}*** sats
+                    <ArrowUpIcon size={20} class="text-amber-500" />
                   {/if}
                 </div>
+                <div class="flex-1 min-w-0">
+                  <div class="font-medium truncate text-primary-color">
+                    {tx.description || (tx.type === 'incoming' ? 'Receiving...' : 'Sending...')}
+                  </div>
+                  <div class="text-sm text-amber-500">
+                    {tx.type === 'incoming' ? 'Receiving payment...' : 'Sending payment...'}
+                  </div>
+                </div>
+                <div class="text-right">
+                  <div class="font-semibold text-amber-500">
+                    {#if $balanceVisible}
+                      {tx.type === 'incoming' ? '+' : '-'}{tx.amount.toLocaleString()} sats
+                    {:else}
+                      {tx.type === 'incoming' ? '+' : '-'}*** sats
+                    {/if}
+                  </div>
+                </div>
               </div>
-            </div>
+            {:else}
+              <!-- Completed transaction -->
+              <div class="p-4 rounded-xl flex items-center gap-4 bg-input border border-input">
+                <div class="w-10 h-10 rounded-full flex items-center justify-center {tx.type === 'incoming' ? 'bg-green-500/20' : 'bg-orange-500/20'}">
+                  {#if tx.type === 'incoming'}
+                    <ArrowDownIcon size={20} class="text-green-500" />
+                  {:else}
+                    <ArrowUpIcon size={20} class="text-orange-500" />
+                  {/if}
+                </div>
+                <div class="flex-1 min-w-0">
+                  <div class="font-medium truncate text-primary-color">
+                    {tx.description || (tx.type === 'incoming' ? 'Received' : 'Sent')}
+                  </div>
+                  <div class="text-sm text-caption">
+                    {formatTransactionDate(tx.timestamp)}
+                    {#if tx.fees && $balanceVisible}
+                      <span class="ml-2">• Fee: {tx.fees} sats</span>
+                    {/if}
+                  </div>
+                </div>
+                <div class="text-right">
+                  <div class="font-semibold {tx.type === 'incoming' ? 'text-green-500' : 'text-orange-500'}">
+                    {#if $balanceVisible}
+                      {tx.type === 'incoming' ? '+' : '-'}{tx.amount.toLocaleString()} sats
+                    {:else}
+                      {tx.type === 'incoming' ? '+' : '-'}*** sats
+                    {/if}
+                  </div>
+                </div>
+              </div>
+            {/if}
           {/each}
         </div>
 
@@ -1154,16 +2016,24 @@
           <!-- Wallet type selection -->
           <div class="space-y-3">
             <button
-              class="w-full p-4 rounded-xl text-left flex items-center gap-4 transition-colors cursor-pointer hover:opacity-80"
+              class="w-full p-4 rounded-xl text-left flex items-center gap-4 transition-colors"
+              class:cursor-pointer={!hasExistingNwcWallet}
+              class:cursor-not-allowed={hasExistingNwcWallet}
+              class:opacity-50={hasExistingNwcWallet}
               style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);"
-              on:click={() => selectedWalletType = 3}
+              on:click={() => !hasExistingNwcWallet && (selectedWalletType = 3)}
+              disabled={hasExistingNwcWallet}
             >
               <div class="w-10 h-10 rounded-full bg-amber-500/20 flex items-center justify-center">
                 <NwcLogo size={28} />
               </div>
               <div>
                 <div class="font-medium" style="color: var(--color-text-primary)">NWC (Nostr Wallet Connect)</div>
-                <div class="text-sm text-caption">Connect any NWC-compatible wallet</div>
+                {#if hasExistingNwcWallet}
+                  <div class="text-sm text-amber-500">You already have an NWC wallet connected</div>
+                {:else}
+                  <div class="text-sm text-caption">Connect any NWC-compatible wallet</div>
+                {/if}
               </div>
             </button>
 
@@ -1453,7 +2323,7 @@
     </div>
   {/if}
 
-  <!-- Sync Lightning Address to Profile Confirmation Modal -->
+  <!-- Sync Lightning Address to Profile Confirmation Modal (Spark) -->
   {#if showSyncConfirmModal}
     <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
       <div class="rounded-2xl p-6 max-w-sm w-full" style="background-color: var(--color-bg-primary);">
@@ -1474,6 +2344,36 @@
           <button
             class="flex-1 px-4 py-2 rounded-full bg-amber-500 hover:bg-amber-600 text-white font-medium transition-colors cursor-pointer disabled:opacity-50"
             on:click={handleSyncToProfile}
+            disabled={isSyncingProfile}
+          >
+            {isSyncingProfile ? 'Syncing...' : 'Sync'}
+          </button>
+        </div>
+      </div>
+    </div>
+  {/if}
+
+  <!-- Sync NWC Lightning Address to Profile Confirmation Modal -->
+  {#if showNwcSyncConfirmModal}
+    <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div class="rounded-2xl p-6 max-w-sm w-full" style="background-color: var(--color-bg-primary);">
+        <h2 class="text-xl font-bold mb-2" style="color: var(--color-text-primary)">Sync to Profile</h2>
+        <p class="text-caption mb-4">
+          This will update your Nostr profile (kind 0) to include the lightning address from your NWC wallet:
+        </p>
+        <div class="p-3 rounded-lg mb-4 font-mono text-sm" style="background-color: var(--color-input-bg); color: var(--color-text-primary);">
+          {nwcLud16}
+        </div>
+        <p class="text-caption text-sm mb-6">
+          Your profile's <strong>lud16</strong> field will be updated. All other profile fields (name, bio, picture, etc.) will be preserved.
+        </p>
+        <div class="flex gap-3">
+          <Button on:click={() => showNwcSyncConfirmModal = false} disabled={isSyncingProfile} class="flex-1">
+            Cancel
+          </Button>
+          <button
+            class="flex-1 px-4 py-2 rounded-full bg-amber-500 hover:bg-amber-600 text-white font-medium transition-colors cursor-pointer disabled:opacity-50"
+            on:click={handleNwcSyncToProfile}
             disabled={isSyncingProfile}
           >
             {isSyncingProfile ? 'Syncing...' : 'Sync'}
@@ -1512,4 +2412,310 @@
       </div>
     </div>
   {/if}
+
+  <!-- Send Modal -->
+  {#if showSendModal}
+    <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div class="rounded-2xl p-6 max-w-md w-full" style="background-color: var(--color-bg-primary);">
+        <div class="flex items-center justify-between mb-6">
+          <h2 class="text-xl font-bold flex items-center gap-2" style="color: var(--color-text-primary)">
+            <ArrowUpIcon size={24} weight="bold" class="text-amber-500" />
+            Send Payment
+          </h2>
+          <button
+            class="p-2 rounded-full hover:bg-input transition-colors"
+            on:click={() => { showSendModal = false; resetSendModal(); }}
+          >
+            <XIcon size={20} class="text-caption" />
+          </button>
+        </div>
+
+        {#if sendSuccess}
+          <div class="mb-4 p-4 rounded-lg flex items-center gap-2" style="background-color: rgba(34, 197, 94, 0.1); color: #22c55e;">
+            <CheckCircleIcon size={20} />
+            <span>{sendSuccess}</span>
+          </div>
+        {/if}
+
+        {#if sendError}
+          <div class="mb-4 p-4 rounded-lg flex items-center gap-2" style="background-color: rgba(239, 68, 68, 0.1); color: #ef4444;">
+            <WarningIcon size={20} />
+            <span>{sendError}</span>
+          </div>
+        {/if}
+
+        <div class="space-y-4">
+          <div>
+            <label class="block text-sm font-medium mb-2 text-caption">Invoice or Lightning Address</label>
+            <textarea
+              bind:value={sendInput}
+              placeholder="lnbc... or user@example.com"
+              class="w-full p-3 rounded-lg bg-input border border-input text-primary-color placeholder-caption resize-none focus:outline-none focus:ring-2 focus:ring-amber-500"
+              rows="3"
+              disabled={isSending}
+            />
+          </div>
+
+          {#if isLightningAddress}
+            <div>
+              <label class="block text-sm font-medium mb-2 text-caption">Amount (sats)</label>
+              <input
+                type="number"
+                bind:value={sendAmount}
+                placeholder="Enter amount in sats"
+                class="w-full p-3 rounded-lg bg-input border border-input text-primary-color placeholder-caption focus:outline-none focus:ring-2 focus:ring-amber-500"
+                disabled={isSending}
+                min="1"
+              />
+            </div>
+            <div>
+              <label class="block text-sm font-medium mb-2 text-caption">Message (optional)</label>
+              <input
+                type="text"
+                bind:value={sendComment}
+                placeholder="Add a note to your payment"
+                class="w-full p-3 rounded-lg bg-input border border-input text-primary-color placeholder-caption focus:outline-none focus:ring-2 focus:ring-amber-500"
+                disabled={isSending}
+                maxlength="144"
+              />
+            </div>
+          {/if}
+
+          <button
+            class="w-full py-3 px-4 rounded-xl bg-amber-500 hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium transition-colors flex items-center justify-center gap-2"
+            on:click={handleSend}
+            disabled={isSending || !sendInput.trim() || (isLightningAddress && sendAmount <= 0)}
+          >
+            {#if isSending}
+              <span class="animate-spin"><ArrowsClockwiseIcon size={20} /></span>
+              Sending...
+            {:else}
+              <ArrowUpIcon size={20} weight="bold" />
+              Send Payment
+            {/if}
+          </button>
+        </div>
+      </div>
+    </div>
+  {/if}
+
+  <!-- Receive Modal -->
+  {#if showReceiveModal}
+    <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div class="rounded-2xl p-6 max-w-md w-full max-h-[90vh] overflow-y-auto" style="background-color: var(--color-bg-primary);">
+        <div class="flex items-center justify-between mb-6">
+          <h2 class="text-xl font-bold flex items-center gap-2" style="color: var(--color-text-primary)">
+            <ArrowDownIcon size={24} weight="bold" class="text-amber-500" />
+            Receive Payment
+          </h2>
+          <button
+            class="p-2 rounded-full hover:bg-input transition-colors"
+            on:click={() => { showReceiveModal = false; resetReceiveModal(); }}
+          >
+            <XIcon size={20} class="text-caption" />
+          </button>
+        </div>
+
+        {#if receiveError}
+          <div class="mb-4 p-4 rounded-lg flex items-center gap-2" style="background-color: rgba(239, 68, 68, 0.1); color: #ef4444;">
+            <WarningIcon size={20} />
+            <span>{receiveError}</span>
+          </div>
+        {/if}
+
+        {#if !generatedInvoice}
+          <!-- Amount Selection -->
+          <div class="space-y-4">
+            <div>
+              <label class="block text-sm font-medium mb-3 text-caption">Select Amount</label>
+              <div class="grid grid-cols-3 gap-2">
+                {#each RECEIVE_PRESETS as preset}
+                  <button
+                    class="py-3 px-2 rounded-lg border border-input hover:border-amber-500 hover:bg-amber-500/10 text-primary-color font-medium transition-colors"
+                    on:click={() => handleGenerateInvoice(preset)}
+                    disabled={isGeneratingInvoice}
+                  >
+                    {formatAmount(preset)}
+                  </button>
+                {/each}
+              </div>
+            </div>
+
+            <div class="flex items-center gap-3 text-caption text-sm">
+              <div class="flex-1 h-px bg-input"></div>
+              <span>or enter custom amount</span>
+              <div class="flex-1 h-px bg-input"></div>
+            </div>
+
+            <div class="flex gap-2">
+              <input
+                type="number"
+                bind:value={customReceiveAmount}
+                placeholder="Custom amount in sats"
+                class="flex-1 p-3 rounded-lg bg-input border border-input text-primary-color placeholder-caption focus:outline-none focus:ring-2 focus:ring-amber-500"
+                disabled={isGeneratingInvoice}
+                min="1"
+              />
+              <button
+                class="py-3 px-4 rounded-lg bg-amber-500 hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium transition-colors"
+                on:click={() => handleGenerateInvoice()}
+                disabled={isGeneratingInvoice || !customReceiveAmount || parseInt(customReceiveAmount) <= 0}
+              >
+                {#if isGeneratingInvoice}
+                  <span class="animate-spin"><ArrowsClockwiseIcon size={20} /></span>
+                {:else}
+                  Generate
+                {/if}
+              </button>
+            </div>
+
+            <!-- Lightning Address Section -->
+            {#if $activeWallet?.kind === 3}
+              <!-- NWC wallet -->
+              {#if nwcLud16}
+                <div class="mt-6 pt-6 border-t border-input">
+                  <div class="flex items-center gap-3 text-caption text-sm mb-4">
+                    <div class="flex-1 h-px bg-input"></div>
+                    <span>or receive via Lightning Address</span>
+                    <div class="flex-1 h-px bg-input"></div>
+                  </div>
+
+                  <div class="p-4 rounded-lg bg-input flex items-center justify-between gap-3">
+                    <div class="flex items-center gap-2 min-w-0">
+                      <LightningIcon size={20} class="text-amber-500 flex-shrink-0" />
+                      <span class="text-primary-color font-mono text-sm truncate">{nwcLud16}</span>
+                    </div>
+                    <button
+                      class="flex-shrink-0 p-2 rounded-lg hover:bg-primary/10 transition-colors"
+                      on:click={async () => {
+                        const copied = await copyToClipboard(nwcLud16);
+                        if (copied) {
+                          successMessage = 'Lightning address copied!';
+                          setTimeout(() => successMessage = '', 2000);
+                        }
+                      }}
+                      title="Copy Lightning address"
+                    >
+                      <CopyIcon size={18} class="text-caption hover:text-amber-500" />
+                    </button>
+                  </div>
+                </div>
+              {:else}
+                <!-- NWC without lud16 - show disclaimer -->
+                <div class="mt-6 pt-6 border-t border-input">
+                  <div class="p-4 rounded-lg bg-input/50 text-center">
+                    <InfoIcon size={24} class="text-caption mx-auto mb-2" />
+                    <p class="text-sm text-caption">
+                      Your NWC connection doesn't include a Lightning address. Generate an invoice above to receive payments.
+                    </p>
+                  </div>
+                </div>
+              {/if}
+            {:else if $activeWallet?.kind === 4}
+              <!-- Spark wallet -->
+              {#if $sparkLightningAddressStore}
+                <div class="mt-6 pt-6 border-t border-input">
+                  <div class="flex items-center gap-3 text-caption text-sm mb-4">
+                    <div class="flex-1 h-px bg-input"></div>
+                    <span>or receive via Lightning Address</span>
+                    <div class="flex-1 h-px bg-input"></div>
+                  </div>
+
+                  <div class="p-4 rounded-lg bg-input flex items-center justify-between gap-3">
+                    <div class="flex items-center gap-2 min-w-0">
+                      <LightningIcon size={20} class="text-amber-500 flex-shrink-0" />
+                      <span class="text-primary-color font-mono text-sm truncate">{$sparkLightningAddressStore}</span>
+                    </div>
+                    <button
+                      class="flex-shrink-0 p-2 rounded-lg hover:bg-primary/10 transition-colors"
+                      on:click={async () => {
+                        const copied = await copyToClipboard($sparkLightningAddressStore || '');
+                        if (copied) {
+                          successMessage = 'Lightning address copied!';
+                          setTimeout(() => successMessage = '', 2000);
+                        }
+                      }}
+                      title="Copy Lightning address"
+                    >
+                      <CopyIcon size={18} class="text-caption hover:text-amber-500" />
+                    </button>
+                  </div>
+                </div>
+              {:else}
+                <div class="mt-6 pt-6 border-t border-input">
+                  <p class="text-sm text-caption text-center">
+                    Register a Lightning address in your wallet settings to receive payments easily.
+                  </p>
+                </div>
+              {/if}
+            {/if}
+          </div>
+        {:else}
+          <!-- Invoice Generated - Show QR and copy options -->
+          <div class="space-y-4 text-center">
+            {#if invoicePaid}
+              <!-- Payment received! -->
+              <div class="py-8">
+                <div class="w-20 h-20 mx-auto mb-4 rounded-full bg-green-500/20 flex items-center justify-center">
+                  <CheckCircleIcon size={48} class="text-green-500" weight="fill" />
+                </div>
+                <div class="text-xl font-bold text-green-500 mb-2">Payment Received!</div>
+                <div class="text-lg text-primary-color">{formatBalance(receiveAmount)} sats</div>
+              </div>
+            {:else}
+              <div class="text-lg font-medium text-primary-color">
+                Invoice for {formatBalance(receiveAmount)} sats
+              </div>
+
+              <!-- QR Code -->
+              {#if generatedInvoice && generatedInvoice.length > 0}
+                <div class="qr-wrapper self-center p-4 rounded-xl bg-white" style="width: 100%;">
+                  <svg class="w-full"
+                    use:qr={{
+                      data: generatedInvoice,
+                      shape: "circle",
+                      width: 100,
+                      height: 100,
+                    }}
+                  />
+                </div>
+              {/if}
+
+              <div class="p-3 rounded-lg bg-input">
+                <div class="text-xs text-caption mb-2">Invoice</div>
+                <div class="font-mono text-xs text-primary-color break-all max-h-24 overflow-y-auto">
+                  {generatedInvoice}
+                </div>
+              </div>
+            {/if}
+
+            <div class="flex gap-2">
+              {#if !invoicePaid}
+                <button
+                  class="flex-1 py-3 px-4 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-medium transition-colors flex items-center justify-center gap-2"
+                  on:click={async () => {
+                    const copied = await copyToClipboard(generatedInvoice);
+                    if (copied) {
+                      successMessage = 'Invoice copied!';
+                      setTimeout(() => successMessage = '', 2000);
+                    }
+                  }}
+                >
+                  <CopyIcon size={20} />
+                  Copy Invoice
+                </button>
+              {/if}
+              <button
+                class="{invoicePaid ? 'flex-1' : ''} py-3 px-4 rounded-xl border border-input hover:bg-input text-primary-color font-medium transition-colors"
+                on:click={() => { showReceiveModal = false; resetReceiveModal(); }}
+              >
+                {invoicePaid ? 'Close' : 'New Invoice'}
+              </button>
+            </div>
+          </div>
+        {/if}
+      </div>
+    </div>
+  {/if}
 </div>
+

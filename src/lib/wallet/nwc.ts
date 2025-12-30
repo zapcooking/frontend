@@ -26,9 +26,9 @@ let pendingBalanceRequest: Promise<number> | null = null
 
 /**
  * Parse NWC connection URL
- * Format: nostr+walletconnect://pubkey?relay=wss://...&secret=...
+ * Format: nostr+walletconnect://pubkey?relay=wss://...&secret=...&lud16=user@domain.com
  */
-export function parseNwcUrl(url: string): { pubkey: string; relay: string; secret: string } | null {
+export function parseNwcUrl(url: string): { pubkey: string; relay: string; secret: string; lud16?: string } | null {
 	try {
 		// CRITICAL: Trim whitespace, newlines, and any invisible characters
 		// Without this, pasted URLs with trailing newlines cause relay connection timeouts
@@ -50,12 +50,13 @@ export function parseNwcUrl(url: string): { pubkey: string; relay: string; secre
 		const params = new URLSearchParams(queryString)
 		const relay = params.get('relay')?.trim()
 		const secret = params.get('secret')?.trim()
+		const lud16 = params.get('lud16')?.trim() || undefined
 
 		if (!relay || !secret) {
 			return null
 		}
 
-		return { pubkey: pubkey.trim(), relay, secret }
+		return { pubkey: pubkey.trim(), relay, secret, lud16 }
 	} catch (e) {
 		console.error('[NWC] Failed to parse connection URL:', e)
 		return null
@@ -123,13 +124,10 @@ export async function connectNwc(connectionUrl: string): Promise<boolean> {
 	if (!browser) return false
 
 	// Ensure NDK is ready before connecting
-	console.log('[NWC] Waiting for NDK to be ready...')
 	await ndkReady
-	console.log('[NWC] NDK is ready')
 
 	// Already connected to this URL
 	if (currentConnectionUrl === connectionUrl && isNwcConnected() && nwcRelay?.status === 1) {
-		console.log('[NWC] Already connected to this wallet')
 		return true
 	}
 
@@ -465,6 +463,37 @@ export async function createNwcInvoice(
 }
 
 /**
+ * Lookup invoice status via NWC (NIP-47 lookup_invoice)
+ */
+export async function lookupNwcInvoice(
+	paymentHash: string
+): Promise<{ paid: boolean; preimage?: string; settled_at?: number }> {
+	if (!isNwcConnected()) {
+		throw new Error('NWC not connected')
+	}
+
+	try {
+		console.log('[NWC] Looking up invoice:', paymentHash)
+		const result = await executeNip47Request('lookup_invoice', {
+			payment_hash: paymentHash
+		})
+		console.log('[NWC] Lookup result:', result)
+		// Only check settled_at - some wallets return preimage even for unpaid invoices
+		// settled_at must be a positive number (unix timestamp) to indicate payment
+		const paid = typeof result.settled_at === 'number' && result.settled_at > 0
+		console.log('[NWC] Invoice paid:', paid, 'settled_at:', result.settled_at)
+		return {
+			paid,
+			preimage: result.preimage,
+			settled_at: result.settled_at
+		}
+	} catch (e) {
+		console.error('[NWC] Failed to lookup invoice:', e)
+		throw e
+	}
+}
+
+/**
  * Get wallet info via NWC
  */
 export async function getNwcInfo(): Promise<{ alias?: string; methods: string[] }> {
@@ -558,4 +587,149 @@ export function getNwcDisplayName(connectionUrl: string): string {
 
 	// Use first 8 chars of pubkey as identifier
 	return `NWC (${parsed.pubkey.slice(0, 8)}...)`
+}
+
+/**
+ * Get the lud16 Lightning address from the NWC connection URL (if present)
+ */
+export function getNwcLud16(connectionUrl: string): string | null {
+	const parsed = parseNwcUrl(connectionUrl)
+	return parsed?.lud16 || null
+}
+
+/**
+ * Check if a string is a Lightning address (user@domain format)
+ */
+export function isLightningAddress(input: string): boolean {
+	const trimmed = input.trim().toLowerCase()
+	// Lightning address format: user@domain.tld
+	const lnAddressRegex = /^[a-z0-9._-]+@[a-z0-9.-]+\.[a-z]{2,}$/i
+	return lnAddressRegex.test(trimmed)
+}
+
+/**
+ * Resolve a Lightning address to get LNURL-pay callback info
+ */
+async function resolveLightningAddress(
+	address: string
+): Promise<{ callback: string; minSendable: number; maxSendable: number; commentAllowed?: number }> {
+	const [username, domain] = address.trim().toLowerCase().split('@')
+
+	// Fetch the LNURL-pay well-known endpoint
+	const url = `https://${domain}/.well-known/lnurlp/${username}`
+	console.log('[NWC] Resolving Lightning address:', url)
+
+	const response = await fetch(url)
+	if (!response.ok) {
+		throw new Error(`Failed to resolve Lightning address: ${response.status}`)
+	}
+
+	const data = await response.json()
+
+	if (data.status === 'ERROR') {
+		throw new Error(data.reason || 'Lightning address resolution failed')
+	}
+
+	return {
+		callback: data.callback,
+		minSendable: data.minSendable || 1000, // in msats
+		maxSendable: data.maxSendable || 100000000000, // in msats
+		commentAllowed: data.commentAllowed
+	}
+}
+
+/**
+ * Fetch invoice from LNURL-pay callback
+ */
+async function fetchLnurlInvoice(
+	callback: string,
+	amountMsats: number,
+	comment?: string
+): Promise<string> {
+	let url = `${callback}?amount=${amountMsats}`
+	if (comment) {
+		url += `&comment=${encodeURIComponent(comment)}`
+	}
+
+	console.log('[NWC] Fetching invoice from LNURL callback')
+	const response = await fetch(url)
+	if (!response.ok) {
+		throw new Error(`Failed to fetch LNURL invoice: ${response.status}`)
+	}
+
+	const data = await response.json()
+
+	if (data.status === 'ERROR') {
+		throw new Error(data.reason || 'Failed to get invoice from Lightning address')
+	}
+
+	if (!data.pr) {
+		throw new Error('No invoice returned from Lightning address')
+	}
+
+	return data.pr
+}
+
+/**
+ * Pay a Lightning address via NWC
+ * Resolves the address, fetches an invoice, and pays it
+ */
+export async function payNwcLightningAddress(
+	address: string,
+	amountSats: number,
+	comment?: string
+): Promise<{ preimage: string }> {
+	if (!isNwcConnected()) {
+		throw new Error('NWC not connected')
+	}
+
+	if (!amountSats || amountSats <= 0) {
+		throw new Error('Amount is required for Lightning address payments')
+	}
+
+	try {
+		console.log('[NWC] Paying Lightning address:', address, 'amount:', amountSats, 'sats')
+
+		// Resolve the Lightning address
+		const lnurlInfo = await resolveLightningAddress(address)
+
+		// Convert amount to msats and validate
+		const amountMsats = amountSats * 1000
+		if (amountMsats < lnurlInfo.minSendable) {
+			throw new Error(
+				`Amount too small. Minimum: ${Math.ceil(lnurlInfo.minSendable / 1000)} sats`
+			)
+		}
+		if (amountMsats > lnurlInfo.maxSendable) {
+			throw new Error(
+				`Amount too large. Maximum: ${Math.floor(lnurlInfo.maxSendable / 1000)} sats`
+			)
+		}
+
+		// Check if comment is allowed and within limits
+		let finalComment = comment
+		if (comment && lnurlInfo.commentAllowed) {
+			if (comment.length > lnurlInfo.commentAllowed) {
+				finalComment = comment.substring(0, lnurlInfo.commentAllowed)
+				console.warn(
+					'[NWC] Comment truncated to',
+					lnurlInfo.commentAllowed,
+					'characters'
+				)
+			}
+		} else if (comment && !lnurlInfo.commentAllowed) {
+			console.warn('[NWC] Comments not supported by this Lightning address')
+			finalComment = undefined
+		}
+
+		// Fetch invoice from the LNURL callback
+		const invoice = await fetchLnurlInvoice(lnurlInfo.callback, amountMsats, finalComment)
+
+		// Pay the invoice
+		console.log('[NWC] Got invoice, paying...')
+		return await payNwcInvoice(invoice)
+	} catch (e) {
+		console.error('[NWC] Lightning address payment failed:', e)
+		throw e
+	}
 }

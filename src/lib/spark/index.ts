@@ -2,7 +2,7 @@
  * Spark Wallet Module
  *
  * Self-custodial Lightning wallet integration using Breez SDK Spark.
- * Uses the v0.6.3+ API with SdkBuilder pattern.
+ * Rewritten following jumble-spark patterns for reliable event handling.
  */
 
 import { browser } from '$app/environment'
@@ -57,29 +57,70 @@ function validateMnemonic(mnemonic: string): boolean {
 
 // --- Writable Stores for Reactivity ---
 export const breezSdk = writable<any | null>(null)
-export const lightningAddress = writable<string | null>(null)
+
+// Lightning address with localStorage persistence
+const LIGHTNING_ADDRESS_KEY = 'spark_lightning_address'
+function createPersistentLightningAddress() {
+	// Load initial value from localStorage
+	let initial: string | null = null
+	if (browser) {
+		try {
+			const stored = localStorage.getItem(LIGHTNING_ADDRESS_KEY)
+			if (stored) initial = stored
+		} catch (e) {
+			// Ignore localStorage errors
+		}
+	}
+
+	const store = writable<string | null>(initial)
+
+	// Subscribe to persist changes
+	store.subscribe((value) => {
+		if (browser) {
+			try {
+				if (value) {
+					localStorage.setItem(LIGHTNING_ADDRESS_KEY, value)
+				} else {
+					localStorage.removeItem(LIGHTNING_ADDRESS_KEY)
+				}
+			} catch (e) {
+				// Ignore localStorage errors
+			}
+		}
+	})
+
+	return store
+}
+export const lightningAddress = createPersistentLightningAddress()
+
 export const walletBalance = writable<bigint | null>(null)
 export const walletInitialized = writable<boolean>(false)
 export const sparkLoading = writable<boolean>(false)
 
-// --- Internal State ---
+// Store for recently completed payments extracted from SDK events
+// This provides immediate updates before listPayments() returns fresh data
+export const recentSparkPayments = writable<any[]>([])
+
+// --- Internal State (simplified from jumble-spark) ---
 let _sdkInstance: any = null
 let _wasmInitialized = false
 let _currentPubkey: string | null = null
-let _connectionInProgress = false
-let _connectionPromise: Promise<boolean> | null = null
+let _eventListenerId: string | null = null
+
+// --- Event Callback System ---
+type SparkEventCallback = (event: any) => void
+const _eventCallbacks: SparkEventCallback[] = []
 
 /**
- * Event listener class for Spark SDK events
+ * Register a callback for SDK events (like jumble-spark pattern)
+ * @returns Unsubscribe function
  */
-class SparkEventListener {
-	onEvent = (event: any) => {
-		logger.info('[Spark] Event received:', event)
-
-		// Handle different event types
-		if (event.type === 'synced' || event.type === 'payment_received') {
-			// Refresh balance on sync or incoming payment
-			refreshBalanceInternal()
+export function onSparkEvent(callback: SparkEventCallback): () => void {
+	_eventCallbacks.push(callback)
+	return () => {
+		const index = _eventCallbacks.indexOf(callback)
+		if (index > -1) {
+			_eventCallbacks.splice(index, 1)
 		}
 	}
 }
@@ -106,44 +147,69 @@ async function initWasm(): Promise<void> {
 }
 
 /**
- * Refresh balance from the SDK (internal helper)
+ * Set up SDK event listener (following jumble-spark pattern exactly)
+ * Must be called immediately after SDK connect
  */
-async function refreshBalanceInternal(ensureSynced = false): Promise<void> {
+async function setupEventListener(): Promise<void> {
+	if (!_sdkInstance) return
+
+	const listener = {
+		onEvent: (event: any) => {
+			// Log all events for debugging
+			console.log('[Spark] SDK Event:', event.type, event)
+
+			// Handle payment events
+			if (event.type === 'paymentSucceeded' && event.payment) {
+				console.log('[Spark] Payment succeeded:', event.payment)
+				recentSparkPayments.update((payments) => {
+					if (!payments.find((p) => p.id === event.payment.id)) {
+						return [event.payment, ...payments].slice(0, 20)
+					}
+					return payments
+				})
+				// Refresh balance immediately on payment
+				refreshBalanceInternal()
+			}
+
+			// Handle sync events
+			if (event.type === 'synced') {
+				console.log('[Spark] Synced event - refreshing balance')
+				refreshBalanceInternal()
+			}
+
+			// Notify all registered callbacks
+			_eventCallbacks.forEach((callback) => {
+				try {
+					callback(event)
+				} catch (error) {
+					console.error('[Spark] Error in event callback:', error)
+				}
+			})
+		}
+	}
+
+	_eventListenerId = await _sdkInstance.addEventListener(listener)
+	console.log('[Spark] Event listener registered, ID:', _eventListenerId)
+}
+
+/**
+ * Refresh balance from the SDK (simplified - no complex fallbacks)
+ */
+async function refreshBalanceInternal(): Promise<void> {
 	if (!_sdkInstance) return
 
 	try {
-		// First try without sync to get immediate balance
+		// Use ensureSynced: false for quick cached balance
+		// (real-time updates come from events)
 		const info = await _sdkInstance.getInfo({ ensureSynced: false })
-		// Debug: log the full info object to see available properties
-		logger.debug('[Spark] getInfo response:', JSON.stringify(info, (_, v) => typeof v === 'bigint' ? v.toString() : v))
 
 		// Balance - try multiple possible property names from SDK
 		const balanceValue = info.balanceSats ?? info.balanceSat ?? info.balance_sats ?? info.balance ?? 0
 		const balance = BigInt(balanceValue)
 		walletBalance.set(balance)
-		logger.debug('[Spark] Balance updated:', balance.toString(), 'sats')
-
-		// If requested and balance is 0, try synced fetch (with timeout)
-		// This ensures restored wallets show their balance on first load
-		if (ensureSynced && balance === BigInt(0)) {
-			try {
-				const syncedInfo: any = await withTimeout(
-					_sdkInstance.getInfo({ ensureSynced: true }),
-					15000,
-					'Synced balance fetch'
-				)
-				const syncedBalance = BigInt(syncedInfo.balanceSats ?? syncedInfo.balanceSat ?? syncedInfo.balance_sats ?? syncedInfo.balance ?? 0)
-				if (syncedBalance > BigInt(0)) {
-					walletBalance.set(syncedBalance)
-					logger.debug('[Spark] Synced balance updated:', syncedBalance.toString(), 'sats')
-				}
-			} catch (syncError) {
-				// Timeout or error - log but don't fail
-				logger.warn('[Spark] Synced balance fetch failed:', String(syncError))
-			}
-		}
+		console.log('[Spark] Balance updated:', balance.toString(), 'sats')
 	} catch (error) {
-		logger.error('[Spark] Failed to get balance:', String(error))
+		console.error('[Spark] Failed to refresh balance:', error)
 	}
 }
 
@@ -202,6 +268,18 @@ function extractLightningAddressString(addr: unknown): string | null {
 }
 
 /**
+ * Helper to add a timeout to a promise
+ */
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, operation: string): Promise<T> {
+	return Promise.race([
+		promise,
+		new Promise<T>((_, reject) =>
+			setTimeout(() => reject(new Error(`${operation} timed out after ${timeoutMs / 1000}s`)), timeoutMs)
+		)
+	])
+}
+
+/**
  * Fetch lightning address from the SDK (internal helper)
  */
 async function fetchLightningAddress(): Promise<void> {
@@ -221,19 +299,8 @@ async function fetchLightningAddress(): Promise<void> {
 }
 
 /**
- * Helper to add a timeout to a promise
- */
-function withTimeout<T>(promise: Promise<T>, timeoutMs: number, operation: string): Promise<T> {
-	return Promise.race([
-		promise,
-		new Promise<T>((_, reject) =>
-			setTimeout(() => reject(new Error(`${operation} timed out after ${timeoutMs / 1000}s`)), timeoutMs)
-		)
-	])
-}
-
-/**
  * Initializes the Breez SDK and connects the wallet.
+ * Simplified following jumble-spark pattern.
  * @param pubkey The user's Nostr public key (hex string).
  * @param mnemonic The BIP39 mnemonic phrase.
  * @param apiKey The Breez API key.
@@ -252,119 +319,83 @@ export async function initializeSdk(
 		return true
 	}
 
-	// If connection is already in progress, wait for it
-	if (_connectionInProgress && _connectionPromise) {
-		logger.info('[Spark] Connection already in progress, waiting...')
-		return _connectionPromise
-	}
+	try {
+		sparkLoading.set(true)
 
-	// Set connection lock
-	_connectionInProgress = true
-
-	const doConnect = async (): Promise<boolean> => {
-		try {
-			sparkLoading.set(true)
-
-			// Disconnect any existing connection (with error handling for WASM errors)
-			try {
-				await disconnectWallet()
-			} catch (disconnectError) {
-				logger.warn('[Spark] Disconnect error (continuing anyway):', String(disconnectError))
-				// Reset state even if disconnect fails
-				_sdkInstance = null
-				_currentPubkey = null
-			}
+		// Disconnect any existing connection
+		await disconnectWallet()
 
 		// Initialize WASM
 		await initWasm()
 
-		// Import SDK functions (using connect pattern like primal-web-spark)
-		const { defaultConfig, connect } = await import(
-			'@breeztech/breez-sdk-spark/web'
-		)
+		// Import SDK functions
+		const { defaultConfig, connect } = await import('@breeztech/breez-sdk-spark/web')
 
-		// Create config for mainnet
+		// Create config for mainnet (matching jumble-spark exactly)
 		const config = defaultConfig('mainnet')
 		config.apiKey = apiKey
-		// Disable real-time sync to avoid sync loop issues
-		config.realTimeSyncServerUrl = undefined
+		config.privateEnabledDefault = true
+
+		console.log('[Spark] Config:', {
+			network: config.network,
+			syncIntervalSecs: config.syncIntervalSecs,
+			privateEnabledDefault: config.privateEnabledDefault
+		})
+
+		// Clean mnemonic
+		const cleanMnemonic = mnemonic.trim().toLowerCase().replace(/\s+/g, ' ')
 
 		logger.info('[Spark] Connecting to SDK...')
 
-		// Create seed from mnemonic
-		const seed = {
-			type: 'mnemonic' as const,
-			mnemonic: mnemonic
-		}
-
-		// Storage directory for web (uses IndexedDB)
-		const storageDir = `spark-${pubkey.slice(0, 8)}`
-
-		// Connect to SDK with timeout (60 seconds)
-		try {
-			_sdkInstance = await withTimeout(
-				connect({
-					config,
-					seed,
-					storageDir
-				}),
-				60000,
-				'SDK connect'
-			)
-		} catch (connectError) {
-			const errorMsg = connectError instanceof Error ? connectError.message : String(connectError)
-			// Handle common errors with user-friendly messages
-			if (errorMsg.includes('timed out')) {
-				throw new Error('Connection timed out. Please check your network and try again.')
-			}
-			if (errorMsg.includes('Could not establish connection')) {
-				throw new Error('Failed to connect to Spark network. Please refresh the page and try again.')
-			}
-			throw connectError
-		}
+		// Connect to SDK with timeout (60s for initial connection)
+		_sdkInstance = await withTimeout(
+			connect({
+				config,
+				seed: { type: 'mnemonic', mnemonic: cleanMnemonic },
+				storageDir: 'zapcooking-spark'
+			}),
+			60000,
+			'SDK connect'
+		)
 
 		breezSdk.set(_sdkInstance)
 		_currentPubkey = pubkey
 
-		// Add event listener
-		const eventListener = new SparkEventListener()
-		await _sdkInstance.addEventListener(eventListener)
+		// Set up event listener IMMEDIATELY after connect (critical for events to work)
+		await setupEventListener()
 
-		// Get initial balance (don't wait for sync - get immediate cached value)
+		// Initial sync with timeout (15s - if it fails, events will handle updates)
+		console.log('[Spark] Starting initial sync...')
 		try {
-			await withTimeout(refreshBalanceInternal(false), 10000, 'Balance refresh')
-		} catch (balanceError) {
-			logger.warn('[Spark] Initial balance refresh failed, will retry:', String(balanceError))
+			await withTimeout(_sdkInstance.syncWallet({}), 15000, 'Initial sync')
+			console.log('[Spark] Initial sync complete')
+		} catch (syncError) {
+			console.warn('[Spark] Initial sync failed (continuing anyway):', syncError)
 		}
 
+		// Get initial balance
+		await refreshBalanceInternal()
+
+		// Fetch lightning address
 		try {
-			await withTimeout(fetchLightningAddress(), 15000, 'Lightning address fetch')
-		} catch (lnAddrError) {
-			logger.warn('[Spark] Lightning address fetch failed:', String(lnAddrError))
+			await fetchLightningAddress()
+		} catch (e) {
+			logger.debug('[Spark] Lightning address not available')
 		}
 
 		walletInitialized.set(true)
 		logger.info('[Spark] SDK initialized successfully')
 		return true
-		} catch (error) {
-			logger.error('[Spark] Failed to initialize SDK:', String(error))
-			breezSdk.set(null)
-			walletInitialized.set(false)
-			_sdkInstance = null
-			_currentPubkey = null
-			return false
-		} finally {
-			sparkLoading.set(false)
-		}
+	} catch (error) {
+		logger.error('[Spark] Failed to initialize SDK:', String(error))
+		breezSdk.set(null)
+		walletInitialized.set(false)
+		_sdkInstance = null
+		_currentPubkey = null
+		return false
+	} finally {
+		sparkLoading.set(false)
 	}
-
-	// Store promise and execute
-	_connectionPromise = doConnect().finally(() => {
-		_connectionInProgress = false
-		_connectionPromise = null
-	})
-
-	return _connectionPromise
 }
 
 /**
@@ -415,11 +446,23 @@ export async function connectWallet(pubkey: string, apiKey: string): Promise<boo
 }
 
 /**
- * Disconnects the Breez SDK.
+ * Disconnects the Breez SDK (with proper event listener cleanup).
  */
 export async function disconnectWallet(): Promise<void> {
 	try {
 		if (_sdkInstance) {
+			// Remove event listener first (jumble-spark pattern)
+			if (_eventListenerId) {
+				try {
+					await _sdkInstance.removeEventListener(_eventListenerId)
+					console.log('[Spark] Event listener removed')
+				} catch (e) {
+					console.warn('[Spark] Failed to remove event listener:', e)
+				}
+				_eventListenerId = null
+			}
+
+			// Disconnect SDK
 			try {
 				await _sdkInstance.disconnect()
 				logger.info('[Spark] SDK disconnected')
@@ -438,6 +481,7 @@ export async function disconnectWallet(): Promise<void> {
 		walletInitialized.set(false)
 		_sdkInstance = null
 		_currentPubkey = null
+		_eventListenerId = null
 	}
 }
 
@@ -460,9 +504,93 @@ export async function sendPayment(
 	try {
 		sparkLoading.set(true)
 
-		// Prepare the payment request
+		// Parse the input to determine what type it is
+		logger.info('[Spark] Parsing payment input...', { destination: destination.substring(0, 50) + '...' })
+		const parsedInput = await _sdkInstance.parse(destination)
+		logger.info('[Spark] Parsed input type:', parsedInput.type)
+
+		// Handle Lightning addresses via LNURL-Pay flow
+		if (parsedInput.type === 'lightningAddress') {
+			const lightningAddressDetails = parsedInput as any
+			const payRequest = lightningAddressDetails.payRequest
+
+			if (!amountSats) {
+				throw new Error('Amount is required for Lightning address payments')
+			}
+
+			// Debug: Log the payRequest details to understand limits
+			logger.info('[Spark] PayRequest details:', {
+				minSendable: payRequest?.minSendable,
+				maxSendable: payRequest?.maxSendable,
+				amountSats,
+				// Convert to see if there's a mismatch
+				amountMsat: amountSats * 1000,
+				maxSendableSats: payRequest?.maxSendable ? payRequest.maxSendable / 1000 : 'unknown'
+			})
+
+			// Prepare LNURL-Pay
+			logger.info('[Spark] Preparing LNURL-Pay for Lightning address...')
+			const prepareResponse = await _sdkInstance.prepareLnurlPay({
+				payRequest,
+				amountSats
+			})
+
+			// Execute LNURL-Pay
+			logger.info('[Spark] Sending LNURL-Pay...')
+			const lnurlPayRequest: any = {
+				prepareResponse
+			}
+
+			if (comment) {
+				lnurlPayRequest.comment = comment
+			}
+
+			const payment = await _sdkInstance.lnurlPay(lnurlPayRequest)
+
+			logger.info('[Spark] LNURL-Pay sent successfully:', payment)
+
+			// Refresh balance after payment
+			await refreshBalanceInternal()
+
+			return payment
+		}
+
+		// Handle LNURL-Pay (non-address)
+		if (parsedInput.type === 'lnurlPay') {
+			const lnurlPayDetails = parsedInput as any
+			const payRequest = lnurlPayDetails.payRequest
+
+			if (!amountSats) {
+				throw new Error('Amount is required for LNURL payments')
+			}
+
+			logger.info('[Spark] Preparing LNURL-Pay...')
+			const prepareResponse = await _sdkInstance.prepareLnurlPay({
+				payRequest,
+				amountSats
+			})
+
+			logger.info('[Spark] Sending LNURL-Pay...')
+			const lnurlPayRequest: any = {
+				prepareResponse
+			}
+
+			if (comment) {
+				lnurlPayRequest.comment = comment
+			}
+
+			const payment = await _sdkInstance.lnurlPay(lnurlPayRequest)
+
+			logger.info('[Spark] LNURL-Pay sent successfully:', payment)
+
+			await refreshBalanceInternal()
+
+			return payment
+		}
+
+		// Handle regular BOLT11 invoices
 		const prepareRequest: any = {
-			destination
+			paymentRequest: destination
 		}
 
 		if (amountSats) {
@@ -470,17 +598,13 @@ export async function sendPayment(
 		}
 
 		// Prepare the payment (get fees, validate)
-		logger.info('[Spark] Preparing payment...')
+		logger.info('[Spark] Preparing bolt11 payment...')
 		const prepareResponse = await _sdkInstance.prepareSendPayment(prepareRequest)
 
 		// Execute the payment
 		logger.info('[Spark] Sending payment...')
 		const sendRequest: any = {
 			prepareResponse
-		}
-
-		if (comment) {
-			sendRequest.comment = comment
 		}
 
 		const payment = await _sdkInstance.sendPayment(sendRequest)
@@ -532,19 +656,25 @@ export async function receivePayment(
 		sparkLoading.set(true)
 
 		const request: any = {
-			amountSat: amountSats
-		}
-
-		if (description) {
-			request.description = description
+			paymentMethod: {
+				type: 'bolt11Invoice',
+				amountSats: amountSats,
+				description: description || 'Payment via zap.cooking'
+			}
 		}
 
 		const response = await _sdkInstance.receivePayment(request)
 
-		logger.info('[Spark] Invoice created')
+		logger.info('[Spark] Invoice created:', response)
+
+		const invoice = response?.paymentRequest || response?.invoice || response?.bolt11
+		if (!invoice) {
+			throw new Error('Spark SDK did not return an invoice')
+		}
+
 		return {
-			invoice: response.invoice || response.bolt11,
-			paymentHash: response.paymentHash
+			invoice,
+			paymentHash: response?.paymentHash
 		}
 	} catch (error) {
 		logger.error('[Spark] Failed to create invoice:', String(error))
@@ -557,22 +687,14 @@ export async function receivePayment(
 /**
  * Get payment history.
  */
-export async function listPayments(): Promise<any[]> {
+export async function listPayments(offset = 0, limit = 100): Promise<any[]> {
 	if (!_sdkInstance) {
 		throw new Error('Spark SDK is not initialized')
 	}
 
 	try {
-		const response = await _sdkInstance.listPayments({})
-		// Debug: log the response structure
-		logger.debug('[Spark] listPayments response keys:', Object.keys(response || {}).join(', '))
-
-		const payments = response.payments || response || []
-		if (payments.length > 0) {
-			// Log first payment structure to understand the schema
-			logger.debug('[Spark] Sample payment:', JSON.stringify(payments[0], (_, v) => typeof v === 'bigint' ? v.toString() : v))
-		}
-		return payments
+		const response = await _sdkInstance.listPayments({ offset, limit })
+		return response.payments || response || []
 	} catch (error) {
 		logger.error('[Spark] Failed to list payments:', String(error))
 		throw error
@@ -618,9 +740,17 @@ export function getSdkInstance(): any {
 
 /**
  * Manually refresh the balance.
+ * @param sync If true, sync with network first (slower but gets fresh data). Default false for quick cached balance.
  */
-export async function refreshBalance(): Promise<bigint | null> {
-	await refreshBalanceInternal(true)
+export async function refreshBalance(sync = false): Promise<bigint | null> {
+	if (sync && _sdkInstance) {
+		try {
+			await _sdkInstance.syncWallet({})
+		} catch (e) {
+			console.warn('[Spark] Sync before balance refresh failed:', e)
+		}
+	}
+	await refreshBalanceInternal()
 	return get(walletBalance)
 }
 

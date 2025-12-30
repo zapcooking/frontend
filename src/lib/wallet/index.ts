@@ -34,11 +34,23 @@ export {
 	disconnectWallet,
 	refreshBalance,
 	sendPayment,
+	createInvoice,
 	isWalletReady,
 	getLightningAddress,
 	getPaymentHistory,
 	initializeWalletManager,
 	isWeblnAvailable,
 	isValidNwcUrl,
+	pendingTransactions,
+	addPendingTransaction,
+	removePendingTransaction,
+	updatePendingTransactionStatus,
+	clearPendingTransactions,
+	ensurePendingTransactionsLoaded,
+	transactionsNeedRefresh,
+	signalTransactionsRefresh,
 	type Transaction
 } from './walletManager'
+
+// Export NWC functions that may be needed directly
+export { getNwcInfo } from './nwc'

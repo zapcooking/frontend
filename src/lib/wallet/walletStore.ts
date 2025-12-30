@@ -161,6 +161,10 @@ export function removeWallet(id: number): void {
 		return filtered
 	})
 
+	// Always clear balance when removing a wallet (will be refreshed if another wallet becomes active)
+	walletBalance.set(null)
+	walletLastSync.set(null)
+
 	console.log('[WalletStore] Removed wallet:', id)
 }
 
