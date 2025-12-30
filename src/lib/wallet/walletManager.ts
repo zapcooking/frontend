@@ -110,10 +110,7 @@ export async function connectWallet(
 		// Make it active
 		setActiveWallet(wallet.id)
 
-		// Fetch initial balance
 		await refreshBalance()
-
-		console.log('[WalletManager] Connected wallet:', name)
 		return { success: true, wallet }
 	} catch (e) {
 		const error = e instanceof Error ? e.message : 'Connection failed'
@@ -152,10 +149,7 @@ export async function disconnectWallet(walletId?: number): Promise<void> {
 				break
 		}
 
-		// Remove from store
 		removeWallet(wallet.id)
-
-		console.log('[WalletManager] Disconnected wallet:', wallet.name)
 	} catch (e) {
 		console.error('[WalletManager] Disconnect error:', e)
 		// Still remove from store even if disconnect fails
@@ -279,8 +273,6 @@ export async function refreshBalance(sync = false): Promise<number | null> {
 		if (balance !== null) {
 			walletLastSync.set(Date.now())
 		}
-
-		console.log('[WalletManager] Balance refreshed:', balance, 'sats')
 		return balance
 	} catch (e) {
 		console.error('[WalletManager] Failed to refresh balance:', e)
@@ -371,10 +363,7 @@ export async function sendPayment(
 		// Refresh balance after payment
 		await refreshBalance()
 
-		// Signal that transaction history should be refreshed
 		signalTransactionsRefresh()
-
-		console.log('[WalletManager] Payment successful')
 		return { success: true, preimage }
 	} catch (e) {
 		// Remove pending transaction on failure
@@ -544,11 +533,8 @@ function loadPendingFromStorage(): Transaction[] {
 		const stored = localStorage.getItem(PENDING_TX_KEY)
 		if (stored) {
 			const txs = JSON.parse(stored) as Transaction[]
-			// Filter out old pending transactions (older than 5 minutes)
 			const fiveMinutesAgo = Math.floor(Date.now() / 1000) - 300
-			const filtered = txs.filter((tx) => tx.timestamp > fiveMinutesAgo)
-			console.log('[WalletManager] Loaded pending transactions from storage:', filtered.length)
-			return filtered
+			return txs.filter((tx) => tx.timestamp > fiveMinutesAgo)
 		}
 	} catch (e) {
 		console.error('[WalletManager] Failed to load pending transactions:', e)
@@ -560,7 +546,6 @@ function savePendingToStorage(txs: Transaction[]): void {
 	if (typeof window === 'undefined' || typeof localStorage === 'undefined') return
 	try {
 		localStorage.setItem(PENDING_TX_KEY, JSON.stringify(txs))
-		console.log('[WalletManager] Saved pending transactions to storage:', txs.length)
 	} catch (e) {
 		console.error('[WalletManager] Failed to save pending transactions:', e)
 	}
@@ -628,35 +613,18 @@ export function signalTransactionsRefresh(): void {
 	}
 }
 
-/**
- * Add a pending transaction (shown immediately when payment starts)
- */
 export function addPendingTransaction(tx: Omit<Transaction, 'status'>): string {
-	const pendingTx: Transaction = {
-		...tx,
-		status: 'pending'
-	}
+	const pendingTx: Transaction = { ...tx, status: 'pending' }
 	pendingTransactions.update((txs) => [pendingTx, ...txs])
-	console.log('[WalletManager] Added pending transaction:', pendingTx.id)
 	return tx.id
 }
 
-/**
- * Remove a pending transaction (after it completes or fails)
- */
 export function removePendingTransaction(id: string): void {
 	pendingTransactions.update((txs) => txs.filter((tx) => tx.id !== id))
-	console.log('[WalletManager] Removed pending transaction:', id)
 }
 
-/**
- * Update a pending transaction's status
- */
 export function updatePendingTransactionStatus(id: string, status: 'pending' | 'completed' | 'failed'): void {
-	pendingTransactions.update((txs) =>
-		txs.map((tx) => tx.id === id ? { ...tx, status } : tx)
-	)
-	console.log('[WalletManager] Updated pending transaction status:', id, status)
+	pendingTransactions.update((txs) => txs.map((tx) => tx.id === id ? { ...tx, status } : tx))
 }
 
 /**
@@ -706,21 +674,13 @@ export async function getPaymentHistory(options: {
 				}
 
 			case 4: // Spark
-				console.log('[WalletManager] getPaymentHistory: Spark, offset:', offset, 'limit:', limit)
-
-				// Get payments from SDK
 				const sparkPayments = await listSparkPayments(offset, limit)
-				console.log('[WalletManager] listSparkPayments returned:', sparkPayments.length, 'payments')
-
-				// Get recent payments extracted from SDK events (for immediate display)
 				const recentFromEvents = get(recentSparkPayments)
-				console.log('[WalletManager] recentSparkPayments has:', recentFromEvents.length, 'event-based payments')
 
-				// Merge and deduplicate by ID (event payments take priority as they're more recent)
+				// Merge and deduplicate (event payments take priority)
 				const seenIds = new Set<string>()
 				const mergedPayments: any[] = []
 
-				// Add recent event payments first (they're most up-to-date)
 				for (const p of recentFromEvents) {
 					const id = p.id || p.paymentHash || p.payment_hash
 					if (id && !seenIds.has(id)) {
@@ -728,8 +688,6 @@ export async function getPaymentHistory(options: {
 						mergedPayments.push(p)
 					}
 				}
-
-				// Add SDK payments that aren't duplicates
 				for (const p of sparkPayments) {
 					const id = p.id || p.paymentHash || p.payment_hash
 					if (id && !seenIds.has(id)) {
@@ -738,35 +696,18 @@ export async function getPaymentHistory(options: {
 					}
 				}
 
-				console.log('[WalletManager] Merged payments total:', mergedPayments.length)
-
-				// Helper function to map SDK payment to Transaction
 				const mapSparkPayment = (p: any): Transaction => {
-					// Handle different SDK property naming conventions (camelCase, snake_case)
 					const paymentType = p.paymentType || p.payment_type || p.type || ''
 					const isIncoming = paymentType === 'received' || paymentType === 'RECEIVED' ||
 						paymentType === 'receive' || paymentType === 'incoming'
-
-					// Amount - try multiple property names, SDK may use msat or sat
 					const amountMsat = p.amountMsat || p.amount_msat || p.amountMSat || 0
 					const amountSat = p.amountSat || p.amount_sat || p.amount || Math.floor(Number(amountMsat) / 1000)
-
-					// Timestamp - SDK might use seconds or milliseconds
 					let timestamp = p.createdAt || p.created_at || p.timestamp || p.time || 0
-					// If timestamp looks like milliseconds (> year 2100 in seconds), convert to seconds
-					if (timestamp > 4102444800) {
-						timestamp = Math.floor(timestamp / 1000)
-					}
-
-					// Fees
+					if (timestamp > 4102444800) timestamp = Math.floor(timestamp / 1000)
 					const feesMsat = p.feesMsat || p.fees_msat || p.feesMSat || 0
 					const feesSat = p.feesSat || p.fees_sat || p.fees || (feesMsat ? Math.floor(Number(feesMsat) / 1000) : undefined)
-
-					// Status - map from SDK status field
 					const rawStatus = p.status || 'completed'
-					const status = rawStatus === 'pending' ? 'pending'
-						: rawStatus === 'failed' ? 'failed'
-						: 'completed'
+					const status = rawStatus === 'pending' ? 'pending' : rawStatus === 'failed' ? 'failed' : 'completed'
 
 					return {
 						id: p.id || p.paymentHash || p.payment_hash || String(Math.random()),
@@ -779,16 +720,13 @@ export async function getPaymentHistory(options: {
 					}
 				}
 
-				// Sort by timestamp descending, then apply offset/limit
 				mergedPayments.sort((a, b) => {
 					const tsA = a.createdAt || a.created_at || a.timestamp || a.time || 0
 					const tsB = b.createdAt || b.created_at || b.timestamp || b.time || 0
 					return tsB - tsA
 				})
 
-				// Apply pagination to merged results
 				const paginatedPayments = mergedPayments.slice(offset, offset + limit)
-
 				return {
 					transactions: paginatedPayments.map(mapSparkPayment),
 					hasMore: mergedPayments.length > offset + limit || sparkPayments.length >= limit
@@ -804,71 +742,40 @@ export async function getPaymentHistory(options: {
 	}
 }
 
-// Track initialization state
 let isInitialized = false
 let initializationPromise: Promise<void> | null = null
 
-/**
- * Initialize wallet manager (restore saved wallets)
- */
 export async function initializeWalletManager(): Promise<void> {
-	// Already initialized
-	if (isInitialized) {
-		console.log('[WalletManager] Already initialized')
-		return
-	}
-
-	// Initialization in progress
-	if (initializationPromise) {
-		console.log('[WalletManager] Initialization already in progress')
-		return initializationPromise
-	}
+	if (isInitialized) return
+	if (initializationPromise) return initializationPromise
 
 	initializationPromise = (async () => {
-		console.log('[WalletManager] Initializing...')
-
-		// Wait for NDK to be ready before connecting wallets
-		console.log('[WalletManager] Waiting for NDK...')
 		await ndkReady
-		console.log('[WalletManager] NDK ready, proceeding...')
 
 		const savedWallets = get(wallets)
 		const active = savedWallets.find((w) => w.active)
 
 		if (active) {
-			// Try to reconnect to the saved active wallet
 			try {
 				switch (active.kind) {
-					case 1: // WebLN
-						if (isWeblnAvailable()) {
-							await connectWebln()
-						}
+					case 1:
+						if (isWeblnAvailable()) await connectWebln()
 						break
-
-					case 3: // NWC
+					case 3:
 						await connectNwc(active.data)
 						break
-
-					case 4: // Spark
-						// Reconnect Spark wallet if API key is available
+					case 4:
 						const apiKey = import.meta.env.VITE_BREEZ_API_KEY
 						const pubkey = get(userPublickey)
-						if (apiKey && pubkey) {
-							await connectSparkWallet(pubkey, apiKey)
-						}
+						if (apiKey && pubkey) await connectSparkWallet(pubkey, apiKey)
 						break
 				}
-
 				await refreshBalance()
-				console.log('[WalletManager] Restored active wallet:', active.name)
 			} catch (e) {
 				console.warn('[WalletManager] Failed to restore wallet:', e)
-				// Don't remove - user can manually reconnect
 			}
 		}
-
 		isInitialized = true
-		console.log('[WalletManager] Initialized with', savedWallets.length, 'wallets')
 	})()
 
 	try {

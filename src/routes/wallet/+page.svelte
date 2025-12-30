@@ -332,43 +332,29 @@
       loadTransactionHistory(true);
     }
 
-    // Listen for cross-tab refresh signals
     const handleStorageChange = (event: StorageEvent) => {
       if (event.key === 'zapcooking_tx_refresh' && $walletConnected && $activeWallet && $activeWallet.kind !== 1) {
-        console.log('[Wallet] Cross-tab refresh signal received');
         setTimeout(async () => {
-          await refreshBalance(); // AWAIT this first
-          loadTransactionHistory(true); // THEN load transactions
+          await refreshBalance();
+          loadTransactionHistory(true);
         }, 1000);
       }
     };
 
     window.addEventListener('storage', handleStorageChange);
 
-    // Subscribe to Spark SDK events for real-time updates
-    // SDK uses lowercase event names: paymentSucceeded, paymentFailed, synced
     const unsubscribeSparkEvents = onSparkEvent(async (event) => {
-      console.log('[Wallet] Spark SDK event:', event.type);
-
-      // Refresh balance and payment list on synced and payment events
       if (event.type === 'paymentSucceeded' || event.type === 'paymentFailed' || event.type === 'synced') {
-        console.log('[Wallet] Refreshing wallet state after SDK event:', event.type);
         await refreshBalance();
         loadTransactionHistory(true);
 
-        // Check if our pending invoice was paid
         if (event.type === 'paymentSucceeded' && generatedInvoice && !invoicePaid) {
           const payment = event.payment;
-          // Check if this is an incoming payment
           const isReceived = payment?.paymentType === 'receive' || payment?.paymentType === 'received';
-          console.log('[Wallet] paymentSucceeded - isReceived:', isReceived, 'payment:', payment);
-
           if (isReceived) {
-            console.log('[Wallet] Invoice paid! Showing success.');
             invoicePaid = true;
             stopInvoicePolling();
             successMessage = `Payment received: ${receiveAmount.toLocaleString()} sats!`;
-
             setTimeout(() => {
               showReceiveModal = false;
               resetReceiveModal();
@@ -378,24 +364,15 @@
       }
     });
 
-    // Background poll every 30 seconds - catches missed events without causing UI flicker
-    // (Removed aggressive 3-second polling that was causing balance display issues)
     const fallbackPollInterval = setInterval(async () => {
       if ($walletConnected && $activeWallet?.kind === 4) {
-        // Silent refresh - don't show loading indicator for background polls
         await refreshBalance();
       }
     }, 30000);
 
-    // Track previous count to detect new payments
     let previousRecentCount = 0;
-
-    // Subscribe to recentSparkPayments for immediate UI updates when events fire
     const unsubscribeRecentPayments = recentSparkPayments.subscribe((recent) => {
-      console.log('[Wallet] recentSparkPayments changed:', recent.length, 'items, previous:', previousRecentCount);
       if (recent.length > previousRecentCount && $walletConnected && $activeWallet?.kind === 4) {
-        // New payment received from SDK event - reload immediately
-        console.log('[Wallet] NEW payment from SDK event, reloading history');
         loadTransactionHistory(true);
       }
       previousRecentCount = recent.length;
@@ -469,21 +446,11 @@
   }
 
   async function loadTransactionHistory(reset = false) {
-    if (isLoadingHistory) {
-      console.log('[Wallet] loadTransactionHistory skipped - already loading');
-      return;
-    }
-
-    console.log('[Wallet] loadTransactionHistory called, reset:', reset);
+    if (isLoadingHistory) return;
     isLoadingHistory = true;
     try {
       const offset = reset ? 0 : transactions.length;
       const result = await getPaymentHistory({ limit: TRANSACTIONS_PER_PAGE, offset });
-
-      console.log('[Wallet] getPaymentHistory returned:', result.transactions.length, 'transactions, hasMore:', result.hasMore);
-      if (result.transactions.length > 0) {
-        console.log('[Wallet] First transaction:', result.transactions[0]);
-      }
 
       if (reset) {
         transactions = result.transactions;
@@ -495,55 +462,34 @@
       // Deduplicate transactions by ID (NWC relays can return duplicates)
       const seenIds = new Set<string>();
       transactions = transactions.filter(tx => {
-        if (seenIds.has(tx.id)) {
-          console.log('[Wallet] Removing duplicate transaction:', tx.id);
-          return false;
-        }
+        if (seenIds.has(tx.id)) return false;
         seenIds.add(tx.id);
         return true;
       });
 
-      // Deduplicate: remove pending transactions that now appear in real history
-      // Strategy: Match by amount + type + approximate timestamp
-      // Also auto-remove stale completed pending transactions (older than 10 minutes)
-      // IMPORTANT: Carry over description from pending to real transaction
+      // Remove pending transactions that now appear in real history
       const pending = $pendingTransactions;
       const now = Math.floor(Date.now() / 1000);
 
       for (const pendingTx of pending) {
         if (pendingTx.status === 'completed') {
-          // Check if transaction appeared in history (amount + type + timestamp within 10 minutes)
           const matchingRealIndex = transactions.findIndex(tx =>
             tx.amount === pendingTx.amount &&
             tx.type === 'outgoing' &&
-            Math.abs(tx.timestamp - pendingTx.timestamp) < 600 // within 10 minutes
+            Math.abs(tx.timestamp - pendingTx.timestamp) < 600
           );
 
           if (matchingRealIndex >= 0) {
             const matchingReal = transactions[matchingRealIndex];
-            console.log('[Wallet] Removing pending tx, found match in history:', pendingTx.id, '→', matchingReal.id);
-
-            // Carry over the description from pending transaction if it's more informative
             if (pendingTx.description && (!matchingReal.description || matchingReal.description === 'Sent')) {
-              console.log('[Wallet] Carrying over description:', pendingTx.description);
-              transactions[matchingRealIndex] = {
-                ...matchingReal,
-                description: pendingTx.description
-              };
-              // Also save to local storage for persistence
+              transactions[matchingRealIndex] = { ...matchingReal, description: pendingTx.description };
               saveTransactionMetadata(matchingReal.id, { description: pendingTx.description });
             }
-
             removePendingTransaction(pendingTx.id);
           } else if (now - pendingTx.timestamp > 600) {
-            // Auto-remove stale completed pending transactions (older than 10 minutes)
-            // These likely succeeded but history hasn't synced yet
-            console.log('[Wallet] Removing stale completed pending tx:', pendingTx.id);
             removePendingTransaction(pendingTx.id);
           }
         } else if (pendingTx.status === 'pending' && now - pendingTx.timestamp > 1800) {
-          // Also remove very old pending transactions (stuck for 30+ minutes)
-          console.log('[Wallet] Removing stuck pending tx:', pendingTx.id);
           removePendingTransaction(pendingTx.id);
         }
       }
@@ -740,30 +686,19 @@
     invoicePaid = false;
     receiveAmount = amountToUse;
 
-    // Store current balance for Spark balance-based payment detection
     balanceBeforeInvoice = $walletBalance;
-    invoiceCreatedAt = Math.floor(Date.now() / 1000); // Unix timestamp
-    console.log('[Wallet] Balance before invoice:', balanceBeforeInvoice, 'created at:', invoiceCreatedAt);
+    invoiceCreatedAt = Math.floor(Date.now() / 1000);
 
     try {
       const result = await createInvoice(amountToUse, 'Payment via zap.cooking');
-      console.log('[Wallet] Invoice created:', result);
-
       if (!result || !result.invoice) {
         throw new Error('Failed to generate invoice - no invoice returned');
       }
-
       generatedInvoice = result.invoice;
       generatedPaymentHash = result.paymentHash || '';
-      console.log('[Wallet] Payment hash:', generatedPaymentHash);
 
-      // Start polling for payment
-      // For NWC: uses payment hash lookup
-      // For Spark: uses balance-based detection (SDK events are primary, polling is backup)
       setTimeout(() => {
-        if (generatedInvoice && !invoicePaid) {
-          startInvoicePolling();
-        }
+        if (generatedInvoice && !invoicePaid) startInvoicePolling();
       }, 2000);
     } catch (e) {
       receiveError = e instanceof Error ? e.message : 'Failed to generate invoice';
@@ -772,82 +707,52 @@
     }
   }
 
-  // Poll for invoice payment status
   function startInvoicePolling() {
-    stopInvoicePolling(); // Clear any existing interval
-
-    console.log('[Wallet] Starting invoice polling, hash:', generatedPaymentHash, 'wallet kind:', $activeWallet?.kind);
+    stopInvoicePolling();
 
     invoicePollInterval = setInterval(async () => {
       if (invoicePaid) {
-        console.log('[Wallet] Stopping poll - already paid');
         stopInvoicePolling();
         return;
       }
 
       try {
-        console.log('[Wallet] Polling invoice status...');
-
-        // For Spark (kind 4): use transaction-based detection
-        // Check for new incoming transactions instead of balance changes
         if ($activeWallet?.kind === 4) {
-          console.log('[Wallet] Spark payment check - looking for incoming transaction of', receiveAmount, 'sats');
+          const { transactions: latestTxs } = await getPaymentHistory({ limit: 5, offset: 0 });
+          const matchingTx = latestTxs.find(tx =>
+            tx.type === 'incoming' &&
+            tx.amount === receiveAmount &&
+            tx.timestamp > (invoiceCreatedAt || 0)
+          );
 
-          try {
-            // Get latest transactions and look for a new incoming payment
-            const { transactions: latestTxs } = await getPaymentHistory({ limit: 5, offset: 0 });
-
-            // Look for a recent incoming transaction matching our expected amount
-            const matchingTx = latestTxs.find(tx =>
-              tx.type === 'incoming' &&
-              tx.amount === receiveAmount &&
-              tx.timestamp > (invoiceCreatedAt || 0)
-            );
-
-            if (matchingTx) {
-              console.log('[Wallet] Found matching incoming transaction:', matchingTx);
-              invoicePaid = true;
-              stopInvoicePolling();
-              successMessage = `Payment received: ${receiveAmount.toLocaleString()} sats!`;
-
-              // Refresh balance and history
-              await refreshBalance();
-              loadTransactionHistory(true);
-
-              setTimeout(() => {
-                showReceiveModal = false;
-                resetReceiveModal();
-              }, 2000);
-              return;
-            }
-
-            console.log('[Wallet] No matching transaction found yet, latest:', latestTxs[0]?.id);
-          } catch (e) {
-            console.warn('[Wallet] Transaction check failed:', e);
-          }
-        } else if (generatedPaymentHash) {
-          // For NWC: use payment hash lookup
-          const result = await lookupInvoice(generatedPaymentHash);
-          console.log('[Wallet] NWC poll result:', result);
-          if (result.paid) {
-            console.log('[Wallet] Invoice paid! Showing success.');
+          if (matchingTx) {
             invoicePaid = true;
             stopInvoicePolling();
             successMessage = `Payment received: ${receiveAmount.toLocaleString()} sats!`;
-
+            await refreshBalance();
+            loadTransactionHistory(true);
+            setTimeout(() => {
+              showReceiveModal = false;
+              resetReceiveModal();
+            }, 2000);
+            return;
+          }
+        } else if (generatedPaymentHash) {
+          const result = await lookupInvoice(generatedPaymentHash);
+          if (result.paid) {
+            invoicePaid = true;
+            stopInvoicePolling();
+            successMessage = `Payment received: ${receiveAmount.toLocaleString()} sats!`;
             await refreshBalance();
             await loadTransactionHistory();
-
             setTimeout(() => {
               showReceiveModal = false;
               resetReceiveModal();
             }, 2000);
           }
         }
-      } catch (e) {
-        console.error('[Wallet] Error polling invoice status:', e);
-      }
-    }, 3000); // Poll every 3 seconds
+      } catch {}
+    }, 3000);
   }
 
   function stopInvoicePolling() {

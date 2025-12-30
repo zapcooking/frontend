@@ -142,49 +142,25 @@ export async function connectNwc(connectionUrl: string): Promise<boolean> {
 		nwcWalletPubkey = parsed.pubkey
 		currentConnectionUrl = connectionUrl
 
-		// Connect to the NWC relay using NDK
-		// Normalize URL to match NDK's format (adds trailing slash)
 		let relayUrl = parsed.relay
-		if (!relayUrl.endsWith('/')) {
-			relayUrl = relayUrl + '/'
-		}
-		console.log('[NWC] Connecting to relay:', relayUrl)
+		if (!relayUrl.endsWith('/')) relayUrl = relayUrl + '/'
 
 		const { NDKRelay } = await import('@nostr-dev-kit/ndk')
 		const ndkInstance = getNdk()
 
-		// Check if relay already exists in NDK's pool
-		let existingRelay: NDKRelay | undefined
+		// Remove any existing relay with this URL from pool
 		for (const relay of ndkInstance.pool.relays.values()) {
 			if (relay.url === relayUrl) {
-				existingRelay = relay
-				console.log('[NWC] Found existing relay in pool, status:', existingRelay.status)
+				try { relay.disconnect() } catch {}
+				ndkInstance.pool.removeRelay(relayUrl)
+				await new Promise((r) => setTimeout(r, 100))
 				break
 			}
 		}
 
-		// Remove any existing relay with this URL from pool to avoid conflicts
-		if (existingRelay) {
-			console.log('[NWC] Removing existing relay from pool, status:', existingRelay.status)
-			try {
-				existingRelay.disconnect()
-			} catch (e) {
-				// Ignore disconnect errors
-			}
-			ndkInstance.pool.removeRelay(relayUrl)
-			// Wait a moment for cleanup
-			await new Promise((r) => setTimeout(r, 100))
-		}
-
-		// Create new relay WITHOUT adding to pool
-		// This avoids NDK's automatic connection management interfering
-		console.log('[NWC] Creating independent relay connection')
+		// Create independent relay connection (not in pool)
 		nwcRelay = new NDKRelay(relayUrl, undefined, ndkInstance)
-
-		// Connect manually without adding to pool
 		await waitForRelayConnection(nwcRelay, 15000)
-
-		console.log('[NWC] Connected successfully to', relayUrl, 'status:', nwcRelay.status)
 		return true
 	} catch (e) {
 		console.error('[NWC] Connection failed:', e)
@@ -196,76 +172,43 @@ export async function connectNwc(connectionUrl: string): Promise<boolean> {
 	}
 }
 
-/**
- * Wait for relay to connect with timeout
- */
 async function waitForRelayConnection(relay: NDKRelay, timeoutMs: number): Promise<void> {
 	return new Promise<void>((resolve, reject) => {
 		const connectTimeout = setTimeout(() => {
-			console.error('[NWC] Connection timeout. Relay status:', relay.status)
 			reject(new Error('Relay connection timeout'))
 		}, timeoutMs)
 
-		// Already connected
 		if (relay.status === 1) {
-			console.log('[NWC] Relay already connected')
 			clearTimeout(connectTimeout)
 			resolve()
 			return
 		}
 
 		const onConnect = () => {
-			console.log('[NWC] Relay connected event received')
 			clearTimeout(connectTimeout)
 			relay.off('connect', onConnect)
 			relay.off('disconnect', onDisconnect)
 			resolve()
 		}
-
-		const onDisconnect = () => {
-			console.warn('[NWC] Relay disconnected during connect attempt')
-			// Don't reject immediately - relay might reconnect
-		}
+		const onDisconnect = () => {}
 
 		relay.on('connect', onConnect)
 		relay.on('disconnect', onDisconnect)
-
-		// Always initiate connection (relay is not in pool, so it won't auto-connect)
-		console.log('[NWC] Initiating relay connection... (status:', relay.status, ')')
 		relay.connect()
 	})
 }
 
-/**
- * Disconnect NWC wallet
- */
 export async function disconnectNwc(): Promise<void> {
-	// Properly clean up the relay
 	if (nwcRelay) {
 		const ndkInstance = getNdk()
 		const relayUrl = nwcRelay.url
-
-		// Disconnect the relay
-		try {
-			nwcRelay.disconnect()
-		} catch (e) {
-			console.warn('[NWC] Error disconnecting relay:', e)
-		}
-
-		// Remove from NDK's pool to prevent stale references
-		try {
-			ndkInstance.pool.removeRelay(relayUrl)
-			console.log('[NWC] Removed relay from pool:', relayUrl)
-		} catch (e) {
-			console.warn('[NWC] Error removing relay from pool:', e)
-		}
+		try { nwcRelay.disconnect() } catch {}
+		try { ndkInstance.pool.removeRelay(relayUrl) } catch {}
 	}
-
 	nwcRelay = null
 	nwcSecret = null
 	nwcWalletPubkey = null
 	currentConnectionUrl = null
-	console.log('[NWC] Disconnected')
 }
 
 /**
@@ -357,53 +300,26 @@ async function executeNip47Request(method: string, params: Record<string, any> =
 		})
 	})
 
-	// Small delay to ensure subscription is registered with relay
 	await new Promise((r) => setTimeout(r, 100))
-
-	// Publish to the relay via NDK
-	console.log('[NWC] Publishing request:', method, 'to', nwcRelay.url, 'status:', nwcRelay.status)
 	await event.publish(relaySet)
-
-	// Wait for response
 	return responsePromise
 }
 
-/**
- * Get NWC wallet balance
- */
 export async function getNwcBalance(retries = 3): Promise<number> {
-	if (!isNwcConnected()) {
-		throw new Error('NWC not connected')
-	}
-
-	// Return existing request if one is in progress
-	if (pendingBalanceRequest) {
-		console.log('[NWC] Balance request already in progress, waiting...')
-		return pendingBalanceRequest
-	}
+	if (!isNwcConnected()) throw new Error('NWC not connected')
+	if (pendingBalanceRequest) return pendingBalanceRequest
 
 	const fetchBalance = async (): Promise<number> => {
 		let lastError: Error | null = null
-
 		for (let attempt = 1; attempt <= retries; attempt++) {
 			try {
 				const result = await executeNip47Request('get_balance')
-				// Balance is returned in msats, convert to sats
-				const balanceSats = Math.floor((result.balance || 0) / 1000)
-				console.log('[NWC] Balance:', balanceSats, 'sats')
-				return balanceSats
+				return Math.floor((result.balance || 0) / 1000)
 			} catch (e) {
 				lastError = e instanceof Error ? e : new Error(String(e))
-				console.warn(`[NWC] Balance fetch attempt ${attempt}/${retries} failed:`, lastError.message)
-
-				if (attempt < retries) {
-					// Short wait before retry (500ms, 1s)
-					await new Promise((resolve) => setTimeout(resolve, 500 * attempt))
-				}
+				if (attempt < retries) await new Promise((r) => setTimeout(r, 500 * attempt))
 			}
 		}
-
-		console.error('[NWC] Failed to get balance after', retries, 'attempts:', lastError)
 		throw lastError || new Error('Failed to get NWC balance')
 	}
 
@@ -415,102 +331,37 @@ export async function getNwcBalance(retries = 3): Promise<number> {
 	}
 }
 
-/**
- * Pay a Lightning invoice via NWC
- */
 export async function payNwcInvoice(invoice: string): Promise<{ preimage: string }> {
-	if (!isNwcConnected()) {
-		throw new Error('NWC not connected')
-	}
-
-	try {
-		console.log('[NWC] Paying invoice...')
-		const result = await executeNip47Request('pay_invoice', { invoice })
-		console.log('[NWC] Payment successful, preimage:', result.preimage)
-		return { preimage: result.preimage }
-	} catch (e) {
-		console.error('[NWC] Payment failed:', e)
-		throw e
-	}
+	if (!isNwcConnected()) throw new Error('NWC not connected')
+	const result = await executeNip47Request('pay_invoice', { invoice })
+	return { preimage: result.preimage }
 }
 
-/**
- * Create a Lightning invoice via NWC
- */
 export async function createNwcInvoice(
 	amountSats: number,
 	description?: string
 ): Promise<{ invoice: string; paymentHash: string }> {
-	if (!isNwcConnected()) {
-		throw new Error('NWC not connected')
-	}
-
-	try {
-		console.log('[NWC] Creating invoice for', amountSats, 'sats')
-		const result = await executeNip47Request('make_invoice', {
-			amount: amountSats * 1000, // Convert to msats
-			description: description || 'zap.cooking payment'
-		})
-		console.log('[NWC] Invoice created')
-		return {
-			invoice: result.invoice,
-			paymentHash: result.payment_hash
-		}
-	} catch (e) {
-		console.error('[NWC] Failed to create invoice:', e)
-		throw e
-	}
+	if (!isNwcConnected()) throw new Error('NWC not connected')
+	const result = await executeNip47Request('make_invoice', {
+		amount: amountSats * 1000,
+		description: description || 'zap.cooking payment'
+	})
+	return { invoice: result.invoice, paymentHash: result.payment_hash }
 }
 
-/**
- * Lookup invoice status via NWC (NIP-47 lookup_invoice)
- */
 export async function lookupNwcInvoice(
 	paymentHash: string
 ): Promise<{ paid: boolean; preimage?: string; settled_at?: number }> {
-	if (!isNwcConnected()) {
-		throw new Error('NWC not connected')
-	}
-
-	try {
-		console.log('[NWC] Looking up invoice:', paymentHash)
-		const result = await executeNip47Request('lookup_invoice', {
-			payment_hash: paymentHash
-		})
-		console.log('[NWC] Lookup result:', result)
-		// Only check settled_at - some wallets return preimage even for unpaid invoices
-		// settled_at must be a positive number (unix timestamp) to indicate payment
-		const paid = typeof result.settled_at === 'number' && result.settled_at > 0
-		console.log('[NWC] Invoice paid:', paid, 'settled_at:', result.settled_at)
-		return {
-			paid,
-			preimage: result.preimage,
-			settled_at: result.settled_at
-		}
-	} catch (e) {
-		console.error('[NWC] Failed to lookup invoice:', e)
-		throw e
-	}
+	if (!isNwcConnected()) throw new Error('NWC not connected')
+	const result = await executeNip47Request('lookup_invoice', { payment_hash: paymentHash })
+	const paid = typeof result.settled_at === 'number' && result.settled_at > 0
+	return { paid, preimage: result.preimage, settled_at: result.settled_at }
 }
 
-/**
- * Get wallet info via NWC
- */
 export async function getNwcInfo(): Promise<{ alias?: string; methods: string[] }> {
-	if (!isNwcConnected()) {
-		throw new Error('NWC not connected')
-	}
-
-	try {
-		const result = await executeNip47Request('get_info')
-		return {
-			alias: result.alias,
-			methods: result.methods || []
-		}
-	} catch (e) {
-		console.error('[NWC] Failed to get info:', e)
-		throw e
-	}
+	if (!isNwcConnected()) throw new Error('NWC not connected')
+	const result = await executeNip47Request('get_info')
+	return { alias: result.alias, methods: result.methods || [] }
 }
 
 /**
@@ -528,208 +379,100 @@ export interface NwcTransaction {
 	settled_at?: number // unix timestamp
 }
 
-/**
- * List transactions via NWC (NIP-47 list_transactions)
- */
 export async function listNwcTransactions(
-	options: {
-		from?: number // unix timestamp
-		until?: number // unix timestamp
-		limit?: number
-		offset?: number
-		type?: 'incoming' | 'outgoing'
-	} = {}
+	options: { from?: number; until?: number; limit?: number; offset?: number; type?: 'incoming' | 'outgoing' } = {}
 ): Promise<{ transactions: NwcTransaction[]; hasMore: boolean }> {
-	if (!isNwcConnected()) {
-		throw new Error('NWC not connected')
-	}
+	if (!isNwcConnected()) throw new Error('NWC not connected')
 
-	try {
-		const params: Record<string, any> = {}
-		if (options.from) params.from = options.from
-		if (options.until) params.until = options.until
-		if (options.limit) params.limit = options.limit
-		if (options.offset) params.offset = options.offset
-		if (options.type) params.type = options.type
+	const params: Record<string, any> = {}
+	if (options.from) params.from = options.from
+	if (options.until) params.until = options.until
+	if (options.limit) params.limit = options.limit
+	if (options.offset) params.offset = options.offset
+	if (options.type) params.type = options.type
 
-		console.log('[NWC] Listing transactions...')
-		const result = await executeNip47Request('list_transactions', params)
-
-		const transactions: NwcTransaction[] = (result.transactions || []).map((tx: any) => ({
-			type: tx.type,
-			invoice: tx.invoice,
-			description: tx.description,
-			preimage: tx.preimage,
-			payment_hash: tx.payment_hash,
-			amount: tx.amount || 0,
-			fees_paid: tx.fees_paid,
-			created_at: tx.created_at,
-			settled_at: tx.settled_at
-		}))
-
-		console.log('[NWC] Found', transactions.length, 'transactions')
-		return {
-			transactions,
-			hasMore: transactions.length === (options.limit || 10)
-		}
-	} catch (e) {
-		console.error('[NWC] Failed to list transactions:', e)
-		throw e
-	}
+	const result = await executeNip47Request('list_transactions', params)
+	const transactions: NwcTransaction[] = (result.transactions || []).map((tx: any) => ({
+		type: tx.type,
+		invoice: tx.invoice,
+		description: tx.description,
+		preimage: tx.preimage,
+		payment_hash: tx.payment_hash,
+		amount: tx.amount || 0,
+		fees_paid: tx.fees_paid,
+		created_at: tx.created_at,
+		settled_at: tx.settled_at
+	}))
+	return { transactions, hasMore: transactions.length === (options.limit || 10) }
 }
 
-/**
- * Get a display name for the NWC connection
- */
 export function getNwcDisplayName(connectionUrl: string): string {
 	const parsed = parseNwcUrl(connectionUrl)
 	if (!parsed) return 'NWC Wallet'
-
-	// Use first 8 chars of pubkey as identifier
 	return `NWC (${parsed.pubkey.slice(0, 8)}...)`
 }
 
-/**
- * Get the lud16 Lightning address from the NWC connection URL (if present)
- */
 export function getNwcLud16(connectionUrl: string): string | null {
 	const parsed = parseNwcUrl(connectionUrl)
 	return parsed?.lud16 || null
 }
 
-/**
- * Check if a string is a Lightning address (user@domain format)
- */
 export function isLightningAddress(input: string): boolean {
-	const trimmed = input.trim().toLowerCase()
-	// Lightning address format: user@domain.tld
-	const lnAddressRegex = /^[a-z0-9._-]+@[a-z0-9.-]+\.[a-z]{2,}$/i
-	return lnAddressRegex.test(trimmed)
+	return /^[a-z0-9._-]+@[a-z0-9.-]+\.[a-z]{2,}$/i.test(input.trim())
 }
 
-/**
- * Resolve a Lightning address to get LNURL-pay callback info
- */
 async function resolveLightningAddress(
 	address: string
 ): Promise<{ callback: string; minSendable: number; maxSendable: number; commentAllowed?: number }> {
 	const [username, domain] = address.trim().toLowerCase().split('@')
-
-	// Fetch the LNURL-pay well-known endpoint
-	const url = `https://${domain}/.well-known/lnurlp/${username}`
-	console.log('[NWC] Resolving Lightning address:', url)
-
-	const response = await fetch(url)
-	if (!response.ok) {
-		throw new Error(`Failed to resolve Lightning address: ${response.status}`)
-	}
-
+	const response = await fetch(`https://${domain}/.well-known/lnurlp/${username}`)
+	if (!response.ok) throw new Error(`Failed to resolve Lightning address: ${response.status}`)
 	const data = await response.json()
-
-	if (data.status === 'ERROR') {
-		throw new Error(data.reason || 'Lightning address resolution failed')
-	}
-
+	if (data.status === 'ERROR') throw new Error(data.reason || 'Lightning address resolution failed')
 	return {
 		callback: data.callback,
-		minSendable: data.minSendable || 1000, // in msats
-		maxSendable: data.maxSendable || 100000000000, // in msats
+		minSendable: data.minSendable || 1000,
+		maxSendable: data.maxSendable || 100000000000,
 		commentAllowed: data.commentAllowed
 	}
 }
 
-/**
- * Fetch invoice from LNURL-pay callback
- */
-async function fetchLnurlInvoice(
-	callback: string,
-	amountMsats: number,
-	comment?: string
-): Promise<string> {
+async function fetchLnurlInvoice(callback: string, amountMsats: number, comment?: string): Promise<string> {
 	let url = `${callback}?amount=${amountMsats}`
-	if (comment) {
-		url += `&comment=${encodeURIComponent(comment)}`
-	}
-
-	console.log('[NWC] Fetching invoice from LNURL callback')
+	if (comment) url += `&comment=${encodeURIComponent(comment)}`
 	const response = await fetch(url)
-	if (!response.ok) {
-		throw new Error(`Failed to fetch LNURL invoice: ${response.status}`)
-	}
-
+	if (!response.ok) throw new Error(`Failed to fetch LNURL invoice: ${response.status}`)
 	const data = await response.json()
-
-	if (data.status === 'ERROR') {
-		throw new Error(data.reason || 'Failed to get invoice from Lightning address')
-	}
-
-	if (!data.pr) {
-		throw new Error('No invoice returned from Lightning address')
-	}
-
+	if (data.status === 'ERROR') throw new Error(data.reason || 'Failed to get invoice from Lightning address')
+	if (!data.pr) throw new Error('No invoice returned from Lightning address')
 	return data.pr
 }
 
-/**
- * Pay a Lightning address via NWC
- * Resolves the address, fetches an invoice, and pays it
- */
 export async function payNwcLightningAddress(
 	address: string,
 	amountSats: number,
 	comment?: string
 ): Promise<{ preimage: string }> {
-	if (!isNwcConnected()) {
-		throw new Error('NWC not connected')
+	if (!isNwcConnected()) throw new Error('NWC not connected')
+	if (!amountSats || amountSats <= 0) throw new Error('Amount is required for Lightning address payments')
+
+	const lnurlInfo = await resolveLightningAddress(address)
+	const amountMsats = amountSats * 1000
+
+	if (amountMsats < lnurlInfo.minSendable) {
+		throw new Error(`Amount too small. Minimum: ${Math.ceil(lnurlInfo.minSendable / 1000)} sats`)
+	}
+	if (amountMsats > lnurlInfo.maxSendable) {
+		throw new Error(`Amount too large. Maximum: ${Math.floor(lnurlInfo.maxSendable / 1000)} sats`)
 	}
 
-	if (!amountSats || amountSats <= 0) {
-		throw new Error('Amount is required for Lightning address payments')
+	let finalComment = comment
+	if (comment && lnurlInfo.commentAllowed && comment.length > lnurlInfo.commentAllowed) {
+		finalComment = comment.substring(0, lnurlInfo.commentAllowed)
+	} else if (comment && !lnurlInfo.commentAllowed) {
+		finalComment = undefined
 	}
 
-	try {
-		console.log('[NWC] Paying Lightning address:', address, 'amount:', amountSats, 'sats')
-
-		// Resolve the Lightning address
-		const lnurlInfo = await resolveLightningAddress(address)
-
-		// Convert amount to msats and validate
-		const amountMsats = amountSats * 1000
-		if (amountMsats < lnurlInfo.minSendable) {
-			throw new Error(
-				`Amount too small. Minimum: ${Math.ceil(lnurlInfo.minSendable / 1000)} sats`
-			)
-		}
-		if (amountMsats > lnurlInfo.maxSendable) {
-			throw new Error(
-				`Amount too large. Maximum: ${Math.floor(lnurlInfo.maxSendable / 1000)} sats`
-			)
-		}
-
-		// Check if comment is allowed and within limits
-		let finalComment = comment
-		if (comment && lnurlInfo.commentAllowed) {
-			if (comment.length > lnurlInfo.commentAllowed) {
-				finalComment = comment.substring(0, lnurlInfo.commentAllowed)
-				console.warn(
-					'[NWC] Comment truncated to',
-					lnurlInfo.commentAllowed,
-					'characters'
-				)
-			}
-		} else if (comment && !lnurlInfo.commentAllowed) {
-			console.warn('[NWC] Comments not supported by this Lightning address')
-			finalComment = undefined
-		}
-
-		// Fetch invoice from the LNURL callback
-		const invoice = await fetchLnurlInvoice(lnurlInfo.callback, amountMsats, finalComment)
-
-		// Pay the invoice
-		console.log('[NWC] Got invoice, paying...')
-		return await payNwcInvoice(invoice)
-	} catch (e) {
-		console.error('[NWC] Lightning address payment failed:', e)
-		throw e
-	}
+	const invoice = await fetchLnurlInvoice(lnurlInfo.callback, amountMsats, finalComment)
+	return await payNwcInvoice(invoice)
 }

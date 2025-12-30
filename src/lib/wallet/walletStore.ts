@@ -135,14 +135,9 @@ export function addWallet(kind: WalletKind, name: string, data: string): Wallet 
 	}
 
 	wallets.update((current) => {
-		// If this is the first wallet, make it active
-		if (current.length === 0) {
-			newWallet.active = true
-		}
+		if (current.length === 0) newWallet.active = true
 		return [...current, newWallet]
 	})
-
-	console.log('[WalletStore] Added wallet:', newWallet.name, 'kind:', kind)
 	return newWallet
 }
 
@@ -152,38 +147,22 @@ export function addWallet(kind: WalletKind, name: string, data: string): Wallet 
 export function removeWallet(id: number): void {
 	wallets.update((current) => {
 		const filtered = current.filter((w) => w.id !== id)
-
-		// If we removed the active wallet, activate the first remaining one
 		if (!filtered.some((w) => w.active) && filtered.length > 0) {
 			filtered[0].active = true
 		}
-
 		return filtered
 	})
-
-	// Always clear balance when removing a wallet (will be refreshed if another wallet becomes active)
 	walletBalance.set(null)
 	walletLastSync.set(null)
-
-	console.log('[WalletStore] Removed wallet:', id)
 }
 
 /**
  * Set the active wallet
  */
 export function setActiveWallet(id: number): void {
-	wallets.update((current) =>
-		current.map((w) => ({
-			...w,
-			active: w.id === id
-		}))
-	)
-
-	// Reset balance when switching wallets
+	wallets.update((current) => current.map((w) => ({ ...w, active: w.id === id })))
 	walletBalance.set(null)
 	walletLastSync.set(null)
-
-	console.log('[WalletStore] Set active wallet:', id)
 }
 
 /**
@@ -221,7 +200,6 @@ export function clearAllWallets(): void {
 	wallets.set([])
 	walletBalance.set(null)
 	walletLastSync.set(null)
-	console.log('[WalletStore] Cleared all wallets')
 }
 
 /**

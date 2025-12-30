@@ -71,11 +71,11 @@
     >
       <LightningIcon size={16} weight="fill" class="text-amber-500" />
       {#if $walletLoading || $walletBalance === null}
-        <span class="animate-pulse">...</span>
+        <span class="animate-pulse min-w-[3.5rem] text-right">...</span>
       {:else if $balanceVisible}
-        <span>{formatBalance($walletBalance)}</span>
+        <span class="min-w-[3.5rem] text-right">{formatBalance($walletBalance)}</span>
       {:else}
-        <span>***</span>
+        <span class="min-w-[3.5rem] text-right">***</span>
       {/if}
       <span class="text-caption text-xs">sats</span>
       <CaretDownIcon size={12} class="text-caption ml-0.5" />

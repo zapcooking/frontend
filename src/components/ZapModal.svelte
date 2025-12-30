@@ -12,8 +12,10 @@
   import CustomAvatar from './CustomAvatar.svelte';
   import CustomName from './CustomName.svelte';
   import { browser } from '$app/environment';
-  import { onMount } from 'svelte';
+  import { onMount, createEventDispatcher } from 'svelte';
   import { ZapManager } from '$lib/zapManager';
+
+  const dispatch = createEventDispatcher<{ 'zap-complete': { amount: number } }>();
   import { activeWallet, getWalletKindName } from '$lib/wallet';
   import { sendPayment } from '$lib/wallet/walletManager';
 
@@ -50,6 +52,26 @@
   let zapManager: ZapManager;
   let subscription: any = null;
   let hasWebLN = false;
+  let pendingTimeout: ReturnType<typeof setTimeout> | null = null;
+
+  const PENDING_TIMEOUT_MS = 45000; // 45 second timeout for entire zap process
+
+  function clearPendingTimeout() {
+    if (pendingTimeout) {
+      clearTimeout(pendingTimeout);
+      pendingTimeout = null;
+    }
+  }
+
+  function startPendingTimeout() {
+    clearPendingTimeout();
+    pendingTimeout = setTimeout(() => {
+      if (state === "pending") {
+        error = new Error('Zap request timed out. The payment service may be unavailable. Please try again.');
+        state = "error";
+      }
+    }, PENDING_TIMEOUT_MS);
+  }
 
   onMount(async () => {
     try {
@@ -57,6 +79,11 @@
     } catch {
       hasWebLN = false;
     }
+
+    // Cleanup on unmount
+    return () => {
+      clearPendingTimeout();
+    };
   });
 
   // Initialize zap manager only in browser
@@ -79,6 +106,7 @@
     state = "pending";
     error = null;
     useQR = false;
+    startPendingTimeout();
 
     try {
       if (!zapManager) {
@@ -124,8 +152,12 @@
         // Don't fail the payment if subscription fails
       }
 
+      clearPendingTimeout();
       state = "success";
+      // Notify parent that zap completed so it can refresh zap totals
+      setTimeout(() => dispatch('zap-complete', { amount }), 1500);
     } catch (e) {
+      clearPendingTimeout();
       console.error('In-app wallet payment failed:', e);
       error = e as Error;
       state = "error";
@@ -134,72 +166,47 @@
 
   async function submitNow(qr: boolean) {
     useQR = qr;
-    
+
     try {
       state = "pending";
-      
-      // Get the recipient pubkey
-      console.log('ZapModal - event:', event);
-      console.log('ZapModal - event type:', event?.constructor?.name);
-      console.log('ZapModal - event.author:', (event as any)?.author);
-      console.log('ZapModal - event.pubkey:', event?.pubkey);
-      
+      startPendingTimeout();
+
       let recipientPubkey: string;
       let eventId: string | undefined;
-      
+
       if (event instanceof NDKUser) {
         recipientPubkey = event.pubkey;
-        eventId = undefined; // No event ID for user zaps
-        console.log('ZapModal - User zap, pubkey:', recipientPubkey);
+        eventId = undefined;
       } else if (event && event.author) {
         recipientPubkey = event.author?.hexpubkey || event.pubkey;
         eventId = event.id;
-        console.log('ZapModal - Event zap, pubkey:', recipientPubkey, 'eventId:', eventId);
       } else {
-        console.error('ZapModal - Invalid event or user:', { event, author: event?.author, pubkey: event?.pubkey });
         throw new Error('Invalid event or user provided to ZapModal');
       }
-      
-      // Validate recipientPubkey before proceeding
+
       if (!recipientPubkey) {
         throw new Error('No recipient pubkey found');
       }
-      
-      console.log('ZapModal - About to call createZap with:', {
-        recipientPubkey,
-        amount: amount * 1000,
-        message,
-        eventId
-      });
-      
-      // Create zap using our zapManager
+
       const zapResult = await zapManager.createZap(recipientPubkey, amount * 1000, message, eventId);
       
       if (!qr) {
         // WebLN payment
         try {
-          // First, request provider and enable it
           const webln = await requestProvider();
           if (!webln) {
             throw new Error('No WebLN provider found. Please install a Lightning wallet extension like Alby or getalby.com');
           }
-          
-          // Enable the provider
           await webln.enable();
-          
-          // Now attempt the payment
-          const paymentResult = await zapManager.payWithWebLN(zapResult.invoice);
-          console.log('WebLN payment successful:', paymentResult);
-          
-          // Subscribe to zap receipts to confirm payment
+          await zapManager.payWithWebLN(zapResult.invoice);
           subscribeToZapReceipt(zapResult.zapPubkey, zapResult.invoice);
-          
-          // Show success state
+          clearPendingTimeout();
           state = "success";
+          // Notify parent that zap completed so it can refresh zap totals
+          setTimeout(() => dispatch('zap-complete', { amount }), 1500);
         } catch (weblnError) {
-          console.error('WebLN payment failed:', weblnError);
-          
-          // Provide more helpful error messages
+          clearPendingTimeout();
+
           let errorMessage = 'WebLN payment failed';
           if (weblnError instanceof Error) {
             if (weblnError.message.includes('Provider must be enabled')) {
@@ -210,7 +217,7 @@
               errorMessage = `WebLN payment failed: ${weblnError.message}`;
             }
           }
-          
+
           error = new Error(errorMessage);
           state = "error";
         }
@@ -222,11 +229,12 @@
           amount: amount
         });
         paymentsToMakeQR = paymentsToMakeQR;
+        clearPendingTimeout();
         state = "success";
         subscribeToZapReceipt(zapResult.zapPubkey, zapResult.invoice);
       }
     } catch (err) {
-      console.log('error while handling zap', err);
+      clearPendingTimeout();
       state = "error";
       error = err as Error;
     }
@@ -257,30 +265,20 @@
   }
   
   function startContinuousPaymentChecking(pubkey: string, expectedInvoice: string) {
-    // Check for payments every 3 seconds for up to 2 minutes
     const checkInterval = setInterval(async () => {
       try {
-        console.log('Checking for payments for pubkey:', pubkey);
         const zapTotals = await zapManager.getZapTotals(pubkey, event.id);
-        console.log('Zap totals found:', zapTotals);
-        
-        // If we find any zaps, consider it paid
         if (zapTotals.count > 0) {
-          console.log('Payment detected via continuous checking!');
           const status = { pubkey, paid: true };
           paymentStatuses = [...paymentStatuses, status];
           clearInterval(checkInterval);
         }
-      } catch (error) {
-        console.log('Error checking payments:', error);
+      } catch {
+        // Ignore check errors
       }
     }, 3000);
-    
-    // Stop checking after 2 minutes
-    setTimeout(() => {
-      clearInterval(checkInterval);
-      console.log('Stopped continuous payment checking after 2 minutes');
-    }, 120000);
+
+    setTimeout(() => clearInterval(checkInterval), 120000);
   }
 
   let selected_qr = 1;
@@ -289,15 +287,20 @@
   
   // Auto-close modal when payment is completed
   $: if (useQR && paymentsToMakeQR.length > 0 && isPaid(paymentsToMakeQR[selected_qr - 1].recipientPubkey)) {
+    // Notify parent that zap completed so it can refresh zap totals
+    dispatch('zap-complete', { amount: paymentsToMakeQR[selected_qr - 1].amount });
     setTimeout(() => {
       open = false;
     }, 2000); // Close after 2 seconds to let user see the success message
   }
 
-  // Clean up subscription when modal closes
-  $: if (!open && subscription) {
-    subscription.stop();
-    subscription = null;
+  // Clean up when modal closes
+  $: if (!open) {
+    if (subscription) {
+      subscription.stop();
+      subscription = null;
+    }
+    clearPendingTimeout();
   }
 </script>
 
