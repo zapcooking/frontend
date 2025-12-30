@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       '@breeztech/breez-sdk-spark':
-        specifier: 0.4.2
-        version: 0.4.2
+        specifier: 0.6.3
+        version: 0.6.3
       '@capacitor/android':
         specifier: ^8.0.0
         version: 8.0.0(@capacitor/core@8.0.0)
@@ -211,8 +211,8 @@ packages:
     resolution: {integrity: sha512-qSs4ifwzKJSV39ucNjsvc6WVHs6b7S03sOh2OcHF9UHfVPqWWALUsNUVzhSBiItjRZoLHx7nIarVjqKVusUZ1Q==}
     engines: {node: '>=6.9.0'}
 
-  '@breeztech/breez-sdk-spark@0.4.2':
-    resolution: {integrity: sha512-7NHO64tnXbR/ERZh8owPZumgH2YlYZ1HqjNzDMJVpKWpTnMj/PMDN1gbUZNct6GxhvrsPZnZf7yFbANo871COw==}
+  '@breeztech/breez-sdk-spark@0.6.3':
+    resolution: {integrity: sha512-PuGrvsJQ9g2csLe7ZBtzt5RxjeqEX6ZRbrRQZpJEKzQGyUdFc0Kt7IUQJ3MvAPZFjaVabGZE9JvAzNqMjtKBpQ==}
     engines: {node: '>=22'}
 
   '@capacitor/android@8.0.0':
@@ -4243,7 +4243,7 @@ snapshots:
 
   '@babel/helper-validator-identifier@7.28.5': {}
 
-  '@breeztech/breez-sdk-spark@0.4.2':
+  '@breeztech/breez-sdk-spark@0.6.3':
     optionalDependencies:
       better-sqlite3: 12.5.0
 

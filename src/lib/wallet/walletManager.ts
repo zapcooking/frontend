@@ -526,6 +526,7 @@ export interface Transaction {
 	type: 'incoming' | 'outgoing'
 	amount: number // in sats
 	description?: string
+	comment?: string // Zap comment from kind 9734 content field
 	timestamp: number // unix timestamp
 	fees?: number // in sats
 	status?: 'pending' | 'completed' | 'failed'

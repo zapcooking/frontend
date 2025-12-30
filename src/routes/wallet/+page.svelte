@@ -140,6 +140,9 @@
   // Check if an NWC wallet already exists (only one allowed at a time)
   $: hasExistingNwcWallet = $wallets.some(w => w.kind === 3);
 
+  // Check if user has maximum wallets (2)
+  $: hasMaxWallets = $wallets.length >= 2;
+
   // Transaction history state
   let transactions: Transaction[] = [];
   let isLoadingHistory = false;
@@ -222,9 +225,9 @@
 
   /**
    * Parse zap request from invoice description
-   * Returns the relevant pubkey (recipient for outgoing, sender for incoming)
+   * Returns the relevant pubkey (recipient for outgoing, sender for incoming) and comment
    */
-  function parseZapFromDescription(description: string, isIncoming: boolean): { pubkey: string; isZap: boolean } | null {
+  function parseZapFromDescription(description: string, isIncoming: boolean): { pubkey: string; isZap: boolean; comment?: string } | null {
     if (!description) return null;
 
     try {
@@ -233,30 +236,32 @@
 
       // Check if it's a kind 9734 zap request event
       if (parsed.kind === 9734) {
+        const comment = parsed.content || undefined; // Zap comment is in content field
         if (isIncoming) {
           // For incoming zaps, the sender is the event author
-          return { pubkey: parsed.pubkey, isZap: true };
+          return { pubkey: parsed.pubkey, isZap: true, comment };
         } else {
           // For outgoing zaps, the recipient is in the 'p' tag
           const pTag = parsed.tags?.find((t: string[]) => t[0] === 'p');
           if (pTag && pTag[1]) {
-            return { pubkey: pTag[1], isZap: true };
+            return { pubkey: pTag[1], isZap: true, comment };
           }
         }
       }
     } catch {
       // Not JSON, might be a plain description with embedded JSON
-      // Try to find JSON object in the string
-      const jsonMatch = description.match(/\{[^{}]*"kind"\s*:\s*9734[^{}]*\}/);
+      // Try to find JSON object in the string (more permissive regex for nested objects)
+      const jsonMatch = description.match(/\{[^{}]*"kind"\s*:\s*9734[\s\S]*?\}/);
       if (jsonMatch) {
         try {
           const parsed = JSON.parse(jsonMatch[0]);
+          const comment = parsed.content || undefined;
           if (isIncoming) {
-            return { pubkey: parsed.pubkey, isZap: true };
+            return { pubkey: parsed.pubkey, isZap: true, comment };
           } else {
             const pTag = parsed.tags?.find((t: string[]) => t[0] === 'p');
             if (pTag && pTag[1]) {
-              return { pubkey: pTag[1], isZap: true };
+              return { pubkey: pTag[1], isZap: true, comment };
             }
           }
         } catch {
@@ -487,6 +492,17 @@
       }
       hasMoreTransactions = result.hasMore;
 
+      // Deduplicate transactions by ID (NWC relays can return duplicates)
+      const seenIds = new Set<string>();
+      transactions = transactions.filter(tx => {
+        if (seenIds.has(tx.id)) {
+          console.log('[Wallet] Removing duplicate transaction:', tx.id);
+          return false;
+        }
+        seenIds.add(tx.id);
+        return true;
+      });
+
       // Deduplicate: remove pending transactions that now appear in real history
       // Strategy: Match by amount + type + approximate timestamp
       // Also auto-remove stale completed pending transactions (older than 10 minutes)
@@ -558,13 +574,11 @@
     for (let i = 0; i < transactions.length; i++) {
       const tx = transactions[i];
 
-      // Skip if already has a good description (not generic)
-      if (tx.description &&
-          tx.description !== 'Sent' &&
-          tx.description !== 'Received' &&
-          !tx.description.startsWith('lnbc')) {
-        continue;
-      }
+      // Skip if already has a good description (not generic) and no comment needed
+      const needsEnrichment = !tx.description ||
+          tx.description === 'Sent' ||
+          tx.description === 'Received' ||
+          tx.description.startsWith('lnbc');
 
       // Check if transaction description contains zap info
       const zapInfo = parseZapFromDescription(tx.description || '', tx.type === 'incoming');
@@ -574,21 +588,27 @@
         const profileName = await getProfileName(zapInfo.pubkey);
         const displayName = profileName || formatPubkeyShort(zapInfo.pubkey);
 
-        // Update transaction with zap description
+        // Update transaction with zap description and comment
         const zapDescription = tx.type === 'incoming'
           ? `⚡ Zap from ${displayName}`
           : `⚡ Zap to ${displayName}`;
 
-        // Update the transaction in place
-        transactions[i] = { ...tx, description: zapDescription };
+        // Update the transaction in place (always update to capture comment)
+        transactions[i] = {
+          ...tx,
+          description: needsEnrichment ? zapDescription : tx.description,
+          comment: zapInfo.comment
+        };
         // Trigger Svelte reactivity
         transactions = transactions;
 
         // Save to metadata for persistence
-        saveTransactionMetadata(tx.id, {
-          description: zapDescription,
-          recipient: zapInfo.pubkey
-        });
+        if (needsEnrichment) {
+          saveTransactionMetadata(tx.id, {
+            description: zapDescription,
+            recipient: zapInfo.pubkey
+          });
+        }
       }
     }
   }
@@ -1481,10 +1501,12 @@
   <div class="mb-8">
     <div class="flex items-center justify-between mb-4">
       <h2 class="text-lg font-semibold" style="color: var(--color-text-primary)">Connected Wallets</h2>
-      <Button on:click={() => { showAddWallet = true; selectedWalletType = null; }}>
-        <PlusIcon size={16} />
-        Add Wallet
-      </Button>
+      {#if !hasMaxWallets}
+        <Button on:click={() => { showAddWallet = true; selectedWalletType = null; }}>
+          <PlusIcon size={16} />
+          Add Wallet
+        </Button>
+      {/if}
     </div>
 
     {#if $wallets.length === 0}
@@ -1505,6 +1527,12 @@
             class:ring-amber-500={wallet.active}
           >
             <div class="p-4 flex items-center gap-4">
+              <!-- Wallet type icon -->
+              {#if wallet.kind === 4}
+                <SparkLogo size={24} className="text-orange-500 flex-shrink-0" />
+              {:else if wallet.kind === 3}
+                <NwcLogo size={24} className="text-purple-500 flex-shrink-0" />
+              {/if}
               <div class="flex-1 min-w-0">
                 <div class="font-medium" style="color: var(--color-text-primary)">{wallet.name}</div>
                 <div class="text-sm text-caption">
@@ -1973,6 +2001,11 @@
                   <div class="font-medium truncate text-primary-color">
                     {tx.description || (tx.type === 'incoming' ? 'Received' : 'Sent')}
                   </div>
+                  {#if tx.comment}
+                    <div class="text-sm text-primary-color italic truncate">
+                      "{tx.comment}"
+                    </div>
+                  {/if}
                   <div class="text-sm text-caption">
                     {formatTransactionDate(tx.timestamp)}
                     {#if tx.fees && $balanceVisible}
@@ -2508,12 +2541,14 @@
             <ArrowDownIcon size={24} weight="bold" class="text-amber-500" />
             Receive Payment
           </h2>
-          <button
-            class="p-2 rounded-full hover:bg-input transition-colors"
-            on:click={() => { showReceiveModal = false; resetReceiveModal(); }}
-          >
-            <XIcon size={20} class="text-caption" />
-          </button>
+          {#if !invoicePaid}
+            <button
+              class="p-2 rounded-full hover:bg-input transition-colors"
+              on:click={() => { showReceiveModal = false; resetReceiveModal(); }}
+            >
+              <XIcon size={20} class="text-caption" />
+            </button>
+          {/if}
         </div>
 
         {#if receiveError}
@@ -2687,10 +2722,8 @@
                   {generatedInvoice}
                 </div>
               </div>
-            {/if}
 
-            <div class="flex gap-2">
-              {#if !invoicePaid}
+              <div class="flex gap-2">
                 <button
                   class="flex-1 py-3 px-4 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-medium transition-colors flex items-center justify-center gap-2"
                   on:click={async () => {
@@ -2704,14 +2737,14 @@
                   <CopyIcon size={20} />
                   Copy Invoice
                 </button>
-              {/if}
-              <button
-                class="{invoicePaid ? 'flex-1' : ''} py-3 px-4 rounded-xl border border-input hover:bg-input text-primary-color font-medium transition-colors"
-                on:click={() => { showReceiveModal = false; resetReceiveModal(); }}
-              >
-                {invoicePaid ? 'Close' : 'New Invoice'}
-              </button>
-            </div>
+                <button
+                  class="py-3 px-4 rounded-xl border border-input hover:bg-input text-primary-color font-medium transition-colors"
+                  on:click={() => { showReceiveModal = false; resetReceiveModal(); }}
+                >
+                  New Invoice
+                </button>
+              </div>
+            {/if}
           </div>
         {/if}
       </div>

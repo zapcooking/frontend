@@ -164,6 +164,52 @@ Balance shows "..." when:
 - `walletLoading` is true
 - `walletBalance` is null (not connected or fetch failed)
 
+## Transaction History
+
+### Transaction Interface
+```typescript
+interface Transaction {
+  id: string
+  type: 'incoming' | 'outgoing'
+  amount: number // in sats
+  description?: string
+  comment?: string // Zap comment from kind 9734 content field
+  timestamp: number // unix timestamp
+  fees?: number // in sats
+  status?: 'pending' | 'completed' | 'failed'
+}
+```
+
+### Zap Comment Display
+Zap transactions display the sender/recipient name and any comment from the kind 9734 zap request event:
+
+```svelte
+<div class="font-medium">{tx.description}</div>  <!-- "⚡ Zap from Alice" -->
+{#if tx.comment}
+  <div class="text-sm italic">"{tx.comment}"</div>
+{/if}
+```
+
+The `parseZapFromDescription()` function extracts the comment from the zap request's `content` field, and `enrichTransactionsWithZapInfo()` looks up profile names for the pubkeys.
+
+### NWC Transaction Deduplication
+NWC relays can return duplicate transactions with the same `payment_hash`. This causes Svelte's keyed `{#each}` to error. Transactions are deduplicated by ID after loading:
+
+```typescript
+const seenIds = new Set<string>();
+transactions = transactions.filter(tx => {
+  if (seenIds.has(tx.id)) return false;
+  seenIds.add(tx.id);
+  return true;
+});
+```
+
+### Receive Modal UX
+When a payment is received:
+1. Success message with checkmark and amount is displayed
+2. No buttons or X close button shown
+3. Modal auto-closes after 2 seconds
+
 ## Breez Spark Wallet - Complete Guide
 
 The Spark wallet is a self-custodial Lightning wallet built on the Breez SDK. It provides full wallet functionality including payments, receiving, and lightning addresses.
@@ -177,23 +223,36 @@ src/lib/spark/
 └── profileSync.ts     # Nostr profile lud16 sync functionality
 ```
 
-### Single Wallet Restriction
+### Wallet Limits
+
+**Maximum 2 wallets total** (one of each type). The "Add Wallet" button is hidden when the limit is reached.
 
 **Only one Spark wallet can be connected at a time.** This prevents conflicts with the SDK's storage and state management.
 
 ```typescript
-// In wallet page - check if Spark wallet already exists
+// In wallet page - check limits
 $: hasExistingSparkWallet = $wallets.some(w => w.kind === 4);
+$: hasExistingNwcWallet = $wallets.some(w => w.kind === 3);
+$: hasMaxWallets = $wallets.length >= 2;
 
-// Disable the Spark option if one exists
-<button
-  disabled={hasExistingSparkWallet}
-  class:opacity-50={hasExistingSparkWallet}
->
-  {#if hasExistingSparkWallet}
-    <div class="text-amber-500">You already have a Spark wallet connected</div>
-  {/if}
-</button>
+// Hide Add Wallet button when max reached
+{#if !hasMaxWallets}
+  <Button on:click={() => showAddWallet = true}>Add Wallet</Button>
+{/if}
+```
+
+### Wallet List UI
+
+Each connected wallet displays its type icon:
+- **Spark**: Orange Spark logo
+- **NWC**: Purple NWC logo
+
+```svelte
+{#if wallet.kind === 4}
+  <SparkLogo size={24} className="text-orange-500" />
+{:else if wallet.kind === 3}
+  <NwcLogo size={24} className="text-purple-500" />
+{/if}
 ```
 
 ### SDK Connection Pattern - CRITICAL
@@ -646,11 +705,9 @@ When removing a Spark wallet, show backup options before allowing deletion:
 ```
 
 ### SDK Version
-Currently using `@breeztech/breez-sdk-spark@0.4.2` (same as jumble-spark reference implementation).
+Currently using `@breeztech/breez-sdk-spark@0.6.3`.
 
-Stable versions available: 0.4.2, 0.5.x, 0.6.x (latest: 0.6.3)
-
-**Recommendation**: Stay on 0.4.2 until there's a specific reason to upgrade, as this version is proven to work with our event listener pattern.
+Upgraded from 0.4.2 after confirming the event listener pattern works correctly with the newer SDK.
 
 ### WASM Loading
 The Breez SDK requires WASM. Vite config must include:
