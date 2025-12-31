@@ -56,20 +56,22 @@
     commentText = '';
   }
 
-  // Filter top-level comments (no 'e' tags)
-  $: topLevelComments = events.filter((e) => e.getMatchingTags('e').length === 0);
+  // Sort all comments chronologically (oldest first)
+  $: sortedComments = [...events].sort((a, b) => 
+    (a.created_at || 0) - (b.created_at || 0)
+  );
 </script>
 
 <div id="comments-section" class="space-y-6">
   <h2 class="text-2xl font-bold">Comments</h2>
 
-  <!-- Comments List -->
-  <div class="space-y-4">
-    {#if topLevelComments.length === 0}
+  <!-- Comments List - flat with embedded parent quotes -->
+  <div class="comments-list">
+    {#if sortedComments.length === 0}
       <p class="text-caption">No comments yet. Be the first to comment!</p>
     {:else}
-      {#each topLevelComments as comment}
-        <Comment event={comment} replies={events} refresh={refresh} />
+      {#each sortedComments as comment (comment.id)}
+        <Comment event={comment} allReplies={events} refresh={refresh} />
       {/each}
     {/if}
   </div>
@@ -89,3 +91,11 @@
     </Button>
   </div>
 </div>
+
+<style>
+  .comments-list {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+</style>

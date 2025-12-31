@@ -7,6 +7,9 @@ declare global {
     // interface PageData {}
     // interface Platform {}
   }
+
+  const __VERSION__: string;
+  const __BUILD_HASH__: string;
 }
 
 export {};
