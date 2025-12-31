@@ -1,7 +1,7 @@
 import type { PageServerLoad } from './$types';
 import { nip19 } from 'nostr-tools';
 
-// Use Vercel Edge Runtime for native WebSocket support
+// Edge runtime for native WebSocket support (Vercel Edge, Cloudflare Workers)
 export const config = {
 	runtime: 'edge'
 };
