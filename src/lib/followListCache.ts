@@ -113,7 +113,13 @@ async function doLoadFollowList(): Promise<void> {
                 nip05
               });
             }
-          } catch {}
+          } catch (e) {
+            console.debug(
+              '[FollowListCache] Failed to parse profile JSON for pubkey',
+              event.pubkey,
+              e
+            );
+          }
         }
         
         // Update size as we load
