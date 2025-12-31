@@ -587,29 +587,34 @@
             
             <!-- Mention suggestions dropdown -->
             {#if showMentionSuggestions}
-              <div class="mention-dropdown">
+              <div 
+                class="mention-dropdown"
+                style="border-color: var(--color-input-border);"
+              >
                 {#if mentionSuggestions.length > 0}
-                  {#each mentionSuggestions as suggestion, index}
-                    <button
-                      type="button"
-                      on:click={() => insertMention(suggestion)}
-                      on:mousedown|preventDefault={() => insertMention(suggestion)}
-                      class="mention-option"
-                      class:bg-accent-gray={index === selectedMentionIndex}
-                    >
-                      <CustomAvatar pubkey={suggestion.pubkey} size={28} />
-                      <div class="flex flex-col min-w-0">
-                        <span class="font-medium truncate">{suggestion.name}</span>
-                        {#if suggestion.nip05}
-                          <span class="text-xs truncate" style="color: var(--color-caption)">{suggestion.nip05}</span>
-                        {/if}
-                      </div>
-                    </button>
-                  {/each}
+                  <div class="mention-dropdown-content">
+                    {#each mentionSuggestions as suggestion, index}
+                      <button
+                        type="button"
+                        on:click={() => insertMention(suggestion)}
+                        on:mousedown|preventDefault={() => insertMention(suggestion)}
+                        class="mention-option"
+                        class:mention-selected={index === selectedMentionIndex}
+                      >
+                        <CustomAvatar pubkey={suggestion.pubkey} size={24} />
+                        <div class="mention-info">
+                          <span class="mention-name">{suggestion.name}</span>
+                          {#if suggestion.nip05}
+                            <span class="mention-nip05">{suggestion.nip05}</span>
+                          {/if}
+                        </div>
+                      </button>
+                    {/each}
+                  </div>
                 {:else if mentionSearching}
-                  <div class="px-3 py-3 text-sm text-caption text-center">Searching...</div>
+                  <div class="mention-empty">Searching...</div>
                 {:else if mentionQuery.length > 0}
-                  <div class="px-3 py-3 text-sm text-caption text-center">No users found</div>
+                  <div class="mention-empty">No users found</div>
                 {/if}
               </div>
             {/if}
@@ -835,18 +840,43 @@
   }
 
   /* Mention dropdown */
+  /* Mention dropdown - compact and scrollable */
   .mention-dropdown {
     position: absolute;
     z-index: 50;
+    top: 100%;
+    left: 0;
     margin-top: 0.25rem;
-    width: 100%;
-    max-width: 24rem;
+    width: 280px;
+    max-width: calc(100vw - 2rem);
     background: var(--color-input);
-    border-radius: 0.5rem;
-    box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1);
     border: 1px solid var(--color-input-border);
+    border-radius: 0.5rem;
+    box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -1px rgb(0 0 0 / 0.06);
+    overflow: hidden;
+  }
+
+  .mention-dropdown-content {
     max-height: 200px;
     overflow-y: auto;
+    overflow-x: hidden;
+  }
+
+  .mention-dropdown-content::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  .mention-dropdown-content::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .mention-dropdown-content::-webkit-scrollbar-thumb {
+    background: var(--color-input-border);
+    border-radius: 3px;
+  }
+
+  .mention-dropdown-content::-webkit-scrollbar-thumb:hover {
+    background: var(--color-caption);
   }
 
   .mention-option {
@@ -856,12 +886,44 @@
     gap: 0.5rem;
     padding: 0.5rem 0.75rem;
     text-align: left;
-    font-size: 0.875rem;
-    color: var(--color-text-primary);
-    transition: background 0.15s;
+    transition: background-color 0.15s;
+    border: none;
+    background: transparent;
   }
 
-  .mention-option:hover {
+  .mention-option:hover,
+  .mention-selected {
     background: var(--color-accent-gray);
+  }
+
+  .mention-info {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    flex: 1;
+  }
+
+  .mention-name {
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: var(--color-text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .mention-nip05 {
+    font-size: 0.75rem;
+    color: var(--color-caption);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .mention-empty {
+    padding: 0.75rem;
+    text-align: center;
+    font-size: 0.875rem;
+    color: var(--color-caption);
   }
 </style>
