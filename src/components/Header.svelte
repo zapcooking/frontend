@@ -20,6 +20,8 @@
   import CustomAvatar from './CustomAvatar.svelte';
   import { theme } from '$lib/themeStore';
   import NotificationBell from './NotificationBell.svelte';
+  import WalletBalance from './WalletBalance.svelte';
+  import WalletIcon from 'phosphor-svelte/lib/Wallet';
 
   let dropdownActive = false;
   let searchActive = false;
@@ -133,6 +135,13 @@
     </button>
 
 
+    <!-- Wallet Balance - only show when logged in and wallet connected -->
+    {#if $userPublickey}
+      <div class="self-center hidden sm:block">
+        <WalletBalance />
+      </div>
+    {/if}
+
     <!-- Notifications - only show when logged in -->
     {#if $userPublickey}
       <div class="self-center">
@@ -166,6 +175,10 @@
                 <button class="flex gap-2 cursor-pointer hover:text-primary whitespace-nowrap" on:click={() => { dropdownActive = false; goto('/bookmarks'); }}>
                   <BookmarkIcon class="self-center" size={18} />
                   Bookmarks
+                </button>
+                <button class="flex gap-2 cursor-pointer hover:text-primary whitespace-nowrap" on:click={() => { dropdownActive = false; goto('/wallet'); }}>
+                  <WalletIcon class="self-center" size={18} />
+                  Wallet
                 </button>
                 <button class="flex gap-2 cursor-pointer hover:text-primary whitespace-nowrap" on:click={toggleTheme} type="button">
                   {#if isDarkMode}

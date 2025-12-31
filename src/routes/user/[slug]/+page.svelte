@@ -16,7 +16,7 @@
   import CheckIcon from 'phosphor-svelte/lib/Check';
   import UserPlusIcon from 'phosphor-svelte/lib/UserPlus';
   import SpeakerSlashIcon from 'phosphor-svelte/lib/SpeakerSlash';
-  import SpeakerHighIcon from 'phosphor-svelte/lib/SpeakerHigh';
+  import SealCheckIcon from 'phosphor-svelte/lib/SealCheck';
   import { requestProvider } from 'webln';
   import ProfileLists from '../../../components/ProfileLists.svelte';
   import Modal from '../../../components/Modal.svelte';
@@ -54,7 +54,8 @@
   // Follow state
   let isFollowing = false;
   let followLoading = false;
-  let currentFollows: string[] = [];
+  let currentFollowTags: string[][] = []; // Preserve full tag structure ['p', pubkey, relay?, petname?]
+  let currentFollowContent: string = ''; // Preserve relay configuration from content
   
   // Mute state
   let isMuted = false;
@@ -186,7 +187,7 @@
 
   async function checkFollowStatus() {
     if (!$userPublickey || !hexpubkey) return;
-    
+
     try {
       // Fetch the logged-in user's contact list (kind:3)
       const filter: NDKFilter = {
@@ -197,16 +198,19 @@
 
       const contactEvents = await $ndk.fetchEvents(filter);
       const contactList = Array.from(contactEvents)[0];
-      
+
       if (contactList) {
-        // Extract followed pubkeys from 'p' tags
-        currentFollows = contactList.tags
-          .filter(tag => tag[0] === 'p')
-          .map(tag => tag[1]);
-        
-        isFollowing = currentFollows.includes(hexpubkey);
+        // Preserve full tags structure (includes relay hints and petnames)
+        currentFollowTags = contactList.tags.filter(tag => tag[0] === 'p');
+        // Preserve content (contains relay configuration)
+        currentFollowContent = contactList.content || '';
+
+        // Check if we're following this user
+        const followedPubkeys = currentFollowTags.map(tag => tag[1]);
+        isFollowing = followedPubkeys.includes(hexpubkey);
       } else {
-        currentFollows = [];
+        currentFollowTags = [];
+        currentFollowContent = '';
         isFollowing = false;
       }
     } catch (error) {
@@ -216,24 +220,30 @@
 
   async function toggleFollow() {
     if (!$userPublickey || !hexpubkey || followLoading) return;
-    
+
     followLoading = true;
-    
+
     try {
-      const newFollows = isFollowing
-        ? currentFollows.filter(pk => pk !== hexpubkey)
-        : [...currentFollows, hexpubkey];
-      
-      // Create new kind:3 contact list event
+      let newFollowTags: string[][];
+
+      if (isFollowing) {
+        // Unfollow: remove the pubkey while preserving other tags
+        newFollowTags = currentFollowTags.filter(tag => tag[1] !== hexpubkey);
+      } else {
+        // Follow: add new pubkey tag
+        newFollowTags = [...currentFollowTags, ['p', hexpubkey]];
+      }
+
+      // Create new kind:3 contact list event, preserving content (relay config)
       const contactEvent = new NDKEvent($ndk);
       contactEvent.kind = 3;
-      contactEvent.content = '';
-      contactEvent.tags = newFollows.map(pk => ['p', pk]);
-      
+      contactEvent.content = currentFollowContent; // Preserve relay configuration
+      contactEvent.tags = newFollowTags; // Preserve full tag structure
+
       await contactEvent.publish();
-      
+
       // Update local state
-      currentFollows = newFollows;
+      currentFollowTags = newFollowTags;
       isFollowing = !isFollowing;
     } catch (error) {
       console.error('Error toggling follow:', error);
@@ -398,10 +408,12 @@
 
   let qrModal = false;
   let npubCopied = false;
+  let lightningCopied = false;
 
   function qrModalCleanup() {
     qrModal = false;
     npubCopied = false;
+    lightningCopied = false;
   }
 
   async function copyNpub() {
@@ -410,6 +422,16 @@
       npubCopied = true;
       setTimeout(() => {
         npubCopied = false;
+      }, 2000);
+    }
+  }
+
+  async function copyLightningAddress(address: string) {
+    if (address) {
+      await navigator.clipboard.writeText(address);
+      lightningCopied = true;
+      setTimeout(() => {
+        lightningCopied = false;
       }, 2000);
     }
   }
@@ -711,24 +733,74 @@
       <!-- NIP-05 -->
       {#if profile?.nip05}
         <div class="flex items-center gap-2 text-sm">
-          <span class="text-caption font-medium">NIP-05:</span>
-          <span style="color: var(--color-text-primary)">{profile.nip05}</span>
+          <SealCheckIcon size={18} weight="fill" class="text-purple-500 flex-shrink-0" />
+          <span class="break-all" style="color: var(--color-text-primary)">{profile.nip05}</span>
         </div>
       {/if}
 
       <!-- Lightning Address -->
       {#if profile?.lud16 || profile?.lud06}
         <div class="flex items-center gap-2 text-sm">
-          <LightningIcon size={16} class="text-yellow-500" />
-          <span class="text-caption font-medium">Lightning:</span>
-          <span class="break-all" style="color: var(--color-text-primary)">{profile.lud16 || profile.lud06}</span>
+          <LightningIcon size={18} weight="fill" class="text-yellow-500 flex-shrink-0" />
+          <span class="break-all flex-1" style="color: var(--color-text-primary)">{profile.lud16 || profile.lud06}</span>
+          <button
+            on:click={() => copyLightningAddress(profile.lud16 || profile.lud06)}
+            class="text-caption hover:text-primary transition-colors cursor-pointer flex-shrink-0"
+            title="Copy lightning address"
+          >
+            {#if lightningCopied}
+              <CheckIcon size={16} weight="bold" class="text-green-500" />
+            {:else}
+              <CopyIcon size={16} />
+            {/if}
+          </button>
         </div>
+      {/if}
+
+      <!-- Action buttons for other users -->
+      {#if hexpubkey !== $userPublickey}
+        <!-- Zap Button -->
+        {#if profile?.lud16 || profile?.lud06}
+          <button
+            class="w-full flex items-center justify-center gap-2 px-4 py-4 rounded-lg font-medium text-base transition-colors bg-yellow-500 text-black hover:bg-yellow-400"
+            on:click={() => {
+              qrModal = false;
+              zapModal = true;
+            }}
+          >
+            <LightningIcon size={22} weight="fill" />
+            <span>Send Zap</span>
+          </button>
+        {/if}
+
+        <!-- Follow Button -->
+        {#if $userPublickey}
+          <button
+            on:click={toggleFollow}
+            disabled={followLoading}
+            class="w-full flex items-center justify-center gap-2 px-4 py-2 rounded-lg font-medium text-sm transition-colors disabled:opacity-50 {isFollowing
+              ? 'bg-input hover:bg-accent-gray'
+              : 'bg-orange-500 text-white hover:bg-orange-600'}"
+            style="{isFollowing ? 'color: var(--color-text-primary)' : ''}"
+          >
+            {#if followLoading}
+              <span class="animate-pulse">...</span>
+            {:else if isFollowing}
+              <CheckIcon size={18} weight="bold" />
+              <span>Following</span>
+            {:else}
+              <UserPlusIcon size={18} weight="bold" />
+              <span>Follow</span>
+            {/if}
+          </button>
+        {/if}
       {/if}
 
       <!-- Copy Npub Button -->
       <button
         on:click={copyNpub}
         class="w-full flex items-center justify-center gap-2 px-4 py-2 bg-input hover:bg-accent-gray rounded-lg transition-colors text-sm font-medium"
+        style="color: var(--color-text-primary)"
       >
         {#if npubCopied}
           <CheckIcon size={18} weight="bold" />
@@ -739,18 +811,26 @@
         {/if}
       </button>
 
-      <!-- Zap Button -->
-      {#if hexpubkey !== $userPublickey}
-        <Button
-          class="w-full flex items-center justify-center gap-2"
-          on:click={() => {
-            qrModal = false;
-            zapModal = true;
-          }}
+      <!-- Mute Button -->
+      {#if hexpubkey !== $userPublickey && $userPublickey}
+        <button
+          on:click={toggleMute}
+          disabled={muteLoading}
+          class="w-full flex items-center justify-center gap-2 px-4 py-2 rounded-lg font-medium text-sm transition-colors disabled:opacity-50 {isMuted
+            ? 'bg-red-100 text-red-700 hover:bg-red-200'
+            : 'bg-input hover:bg-accent-gray'}"
+          style="{!isMuted ? 'color: var(--color-text-primary)' : ''}"
         >
-          <LightningIcon size={18} weight="fill" />
-          <span>Send Zap</span>
-        </Button>
+          {#if muteLoading}
+            <span class="animate-pulse">...</span>
+          {:else if isMuted}
+            <SpeakerSlashIcon size={18} weight="bold" />
+            <span>Unmute User</span>
+          {:else}
+            <SpeakerSlashIcon size={18} />
+            <span>Mute User</span>
+          {/if}
+        </button>
       {/if}
     </div>
   </div>
@@ -917,33 +997,6 @@
           {/if}
         </button>
       </div>
-      
-      <!-- Spacer to push mute button to the right -->
-      <div class="flex-1"></div>
-      
-      <!-- Mute Button (only for logged-in users viewing other profiles) -->
-      {#if $userPublickey && hexpubkey && hexpubkey !== $userPublickey}
-        <button
-          on:click={toggleMute}
-          disabled={muteLoading}
-          class="flex items-center gap-1.5 px-3 py-1.5 rounded-full font-medium text-xs transition-colors disabled:opacity-50 {isMuted
-            ? 'bg-red-100 text-red-700 hover:bg-red-200'
-            : 'bg-input hover:bg-accent-gray'}"
-          style="{!isMuted ? 'color: var(--color-text-primary)' : ''}"
-          aria-label={isMuted ? 'Unmute user' : 'Mute user'}
-          title={isMuted ? 'Unmute user' : 'Mute user'}
-        >
-          {#if muteLoading}
-            <span class="animate-pulse">...</span>
-          {:else if isMuted}
-            <SpeakerSlashIcon size={14} weight="bold" />
-            <span class="hidden sm:inline">Unmute</span>
-          {:else}
-            <SpeakerHighIcon size={14} weight="bold" />
-            <span class="hidden sm:inline">Mute</span>
-          {/if}
-        </button>
-      {/if}
     </div>
 
     <!-- Tab Content -->

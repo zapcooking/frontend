@@ -12,10 +12,17 @@
   import CustomAvatar from './CustomAvatar.svelte';
   import CustomName from './CustomName.svelte';
   import { browser } from '$app/environment';
-  import { onMount } from 'svelte';
+  import { onMount, createEventDispatcher } from 'svelte';
   import { ZapManager } from '$lib/zapManager';
 
+  const dispatch = createEventDispatcher<{ 'zap-complete': { amount: number } }>();
+  import { activeWallet, getWalletKindName } from '$lib/wallet';
+  import { sendPayment } from '$lib/wallet/walletManager';
+
   let authMethodIsNip07 = $ndk.signer?.constructor.name === "NDKNip07Signer";
+
+  // Check if user has an in-app wallet connected (Spark or NWC)
+  $: hasInAppWallet = $activeWallet && ($activeWallet.kind === 3 || $activeWallet.kind === 4);
 
   const defaultZapSatsAmounts = [
     { amount: 21, emoji: '☕', label: '21' },
@@ -45,6 +52,26 @@
   let zapManager: ZapManager;
   let subscription: any = null;
   let hasWebLN = false;
+  let pendingTimeout: ReturnType<typeof setTimeout> | null = null;
+
+  const PENDING_TIMEOUT_MS = 45000; // 45 second timeout for entire zap process
+
+  function clearPendingTimeout() {
+    if (pendingTimeout) {
+      clearTimeout(pendingTimeout);
+      pendingTimeout = null;
+    }
+  }
+
+  function startPendingTimeout() {
+    clearPendingTimeout();
+    pendingTimeout = setTimeout(() => {
+      if (state === "pending") {
+        error = new Error('Zap request timed out. The payment service may be unavailable. Please try again.');
+        state = "error";
+      }
+    }, PENDING_TIMEOUT_MS);
+  }
 
   onMount(async () => {
     try {
@@ -52,6 +79,11 @@
     } catch {
       hasWebLN = false;
     }
+
+    // Cleanup on unmount
+    return () => {
+      clearPendingTimeout();
+    };
   });
 
   // Initialize zap manager only in browser
@@ -60,81 +92,122 @@
   }
 
   async function submitSmart() {
-    if (hasWebLN) {
+    // If user has an in-app wallet, use it directly
+    if (hasInAppWallet) {
+      await submitWithInAppWallet();
+    } else if (!useQR && hasWebLN) {
       await submitNow(false);
     } else {
       await submitNow(true);
     }
   }
 
-  async function submitNow(qr: boolean) {
-    useQR = qr;
-    
+  async function submitWithInAppWallet() {
+    state = "pending";
+    error = null;
+    useQR = false;
+    startPendingTimeout();
+
     try {
-      state = "pending";
-      
-      // Get the recipient pubkey
-      console.log('ZapModal - event:', event);
-      console.log('ZapModal - event type:', event?.constructor?.name);
-      console.log('ZapModal - event.author:', (event as any)?.author);
-      console.log('ZapModal - event.pubkey:', event?.pubkey);
-      
+      if (!zapManager) {
+        throw new Error('Zap manager not initialized. Please try again.');
+      }
+
+      if (!$activeWallet) {
+        throw new Error('No wallet connected. Please connect a wallet first.');
+      }
+
       let recipientPubkey: string;
       let eventId: string | undefined;
-      
+
       if (event instanceof NDKUser) {
         recipientPubkey = event.pubkey;
-        eventId = undefined; // No event ID for user zaps
-        console.log('ZapModal - User zap, pubkey:', recipientPubkey);
+        eventId = undefined;
       } else if (event && event.author) {
         recipientPubkey = event.author?.hexpubkey || event.pubkey;
         eventId = event.id;
-        console.log('ZapModal - Event zap, pubkey:', recipientPubkey, 'eventId:', eventId);
       } else {
-        console.error('ZapModal - Invalid event or user:', { event, author: event?.author, pubkey: event?.pubkey });
         throw new Error('Invalid event or user provided to ZapModal');
       }
-      
-      // Validate recipientPubkey before proceeding
+
+      // Get the invoice from zapManager
+      const zapResult = await zapManager.createZap(recipientPubkey, amount * 1000, message, eventId);
+
+      // Use the unified wallet manager to send payment (handles both Spark and NWC)
+      // Pass metadata so a pending transaction appears immediately
+      const paymentResult = await sendPayment(zapResult.invoice, {
+        amount,
+        description: message || `Zap to ${recipientPubkey.substring(0, 8)}...`,
+        pubkey: recipientPubkey
+      });
+
+      if (!paymentResult.success) {
+        throw new Error(paymentResult.error || 'Payment failed');
+      }
+
+      // Subscribe to zap receipts to confirm payment (non-blocking)
+      try {
+        subscribeToZapReceipt(zapResult.zapPubkey, zapResult.invoice);
+      } catch (subscribeError) {
+        console.warn('Failed to subscribe to zap receipts:', subscribeError);
+        // Don't fail the payment if subscription fails
+      }
+
+      clearPendingTimeout();
+      state = "success";
+      // Notify parent that zap completed so it can refresh zap totals
+      setTimeout(() => dispatch('zap-complete', { amount }), 1500);
+    } catch (e) {
+      clearPendingTimeout();
+      console.error('In-app wallet payment failed:', e);
+      error = e as Error;
+      state = "error";
+    }
+  }
+
+  async function submitNow(qr: boolean) {
+    useQR = qr;
+
+    try {
+      state = "pending";
+      startPendingTimeout();
+
+      let recipientPubkey: string;
+      let eventId: string | undefined;
+
+      if (event instanceof NDKUser) {
+        recipientPubkey = event.pubkey;
+        eventId = undefined;
+      } else if (event && event.author) {
+        recipientPubkey = event.author?.hexpubkey || event.pubkey;
+        eventId = event.id;
+      } else {
+        throw new Error('Invalid event or user provided to ZapModal');
+      }
+
       if (!recipientPubkey) {
         throw new Error('No recipient pubkey found');
       }
-      
-      console.log('ZapModal - About to call createZap with:', {
-        recipientPubkey,
-        amount: amount * 1000,
-        message,
-        eventId
-      });
-      
-      // Create zap using our zapManager
+
       const zapResult = await zapManager.createZap(recipientPubkey, amount * 1000, message, eventId);
       
       if (!qr) {
         // WebLN payment
         try {
-          // First, request provider and enable it
           const webln = await requestProvider();
           if (!webln) {
             throw new Error('No WebLN provider found. Please install a Lightning wallet extension like Alby or getalby.com');
           }
-          
-          // Enable the provider
           await webln.enable();
-          
-          // Now attempt the payment
-          const paymentResult = await zapManager.payWithWebLN(zapResult.invoice);
-          console.log('WebLN payment successful:', paymentResult);
-          
-          // Subscribe to zap receipts to confirm payment
+          await zapManager.payWithWebLN(zapResult.invoice);
           subscribeToZapReceipt(zapResult.zapPubkey, zapResult.invoice);
-          
-          // Show success state
+          clearPendingTimeout();
           state = "success";
+          // Notify parent that zap completed so it can refresh zap totals
+          setTimeout(() => dispatch('zap-complete', { amount }), 1500);
         } catch (weblnError) {
-          console.error('WebLN payment failed:', weblnError);
-          
-          // Provide more helpful error messages
+          clearPendingTimeout();
+
           let errorMessage = 'WebLN payment failed';
           if (weblnError instanceof Error) {
             if (weblnError.message.includes('Provider must be enabled')) {
@@ -145,7 +218,7 @@
               errorMessage = `WebLN payment failed: ${weblnError.message}`;
             }
           }
-          
+
           error = new Error(errorMessage);
           state = "error";
         }
@@ -157,11 +230,12 @@
           amount: amount
         });
         paymentsToMakeQR = paymentsToMakeQR;
+        clearPendingTimeout();
         state = "success";
         subscribeToZapReceipt(zapResult.zapPubkey, zapResult.invoice);
       }
     } catch (err) {
-      console.log('error while handling zap', err);
+      clearPendingTimeout();
       state = "error";
       error = err as Error;
     }
@@ -192,30 +266,20 @@
   }
   
   function startContinuousPaymentChecking(pubkey: string, expectedInvoice: string) {
-    // Check for payments every 3 seconds for up to 2 minutes
     const checkInterval = setInterval(async () => {
       try {
-        console.log('Checking for payments for pubkey:', pubkey);
         const zapTotals = await zapManager.getZapTotals(pubkey, event.id);
-        console.log('Zap totals found:', zapTotals);
-        
-        // If we find any zaps, consider it paid
         if (zapTotals.count > 0) {
-          console.log('Payment detected via continuous checking!');
           const status = { pubkey, paid: true };
           paymentStatuses = [...paymentStatuses, status];
           clearInterval(checkInterval);
         }
-      } catch (error) {
-        console.log('Error checking payments:', error);
+      } catch {
+        // Ignore check errors
       }
     }, 3000);
-    
-    // Stop checking after 2 minutes
-    setTimeout(() => {
-      clearInterval(checkInterval);
-      console.log('Stopped continuous payment checking after 2 minutes');
-    }, 120000);
+
+    setTimeout(() => clearInterval(checkInterval), 120000);
   }
 
   let selected_qr = 1;
@@ -224,15 +288,20 @@
   
   // Auto-close modal when payment is completed
   $: if (useQR && paymentsToMakeQR.length > 0 && isPaid(paymentsToMakeQR[selected_qr - 1].recipientPubkey)) {
+    // Notify parent that zap completed so it can refresh zap totals
+    dispatch('zap-complete', { amount: paymentsToMakeQR[selected_qr - 1].amount });
     setTimeout(() => {
       open = false;
     }, 2000); // Close after 2 seconds to let user see the success message
   }
 
-  // Clean up subscription when modal closes
-  $: if (!open && subscription) {
-    subscription.stop();
-    subscription = null;
+  // Clean up when modal closes
+  $: if (!open) {
+    if (subscription) {
+      subscription.stop();
+      subscription = null;
+    }
+    clearPendingTimeout();
   }
 </script>
 
@@ -241,14 +310,14 @@
   <div class="flex flex-col gap-3">
   {#if state == "pending"}
     <div class="flex flex-col text-2xl">
-      <img class="w-52 self-center" src="/pan-animated.svg" alt="Loading" />
+      <img class="w-52 self-center dark:hidden" src="/pan-animated.svg" alt="Loading" /><img class="w-52 self-center hidden dark:block" src="/pan-animated-dark.svg" alt="Loading" />
 
-      <span class="self-center">{useQR ? "Fetching Invoice(s)..." : "Waiting for Payment..."}</span>
+      <span class="self-center" style="color: var(--color-text-primary)">{useQR ? "Fetching Invoice(s)..." : "Waiting for Payment..."}</span>
       {#if useQR}
         {#if authMethodIsNip07}
-          <span class="self-center text-center">If you did not recieve a popup from your signer extension, try clicking on it's icon in your browser's extensions menu.</span>
+          <span class="self-center text-center text-base text-caption">If you did not receive a popup from your signer extension, try clicking on its icon in your browser's extensions menu.</span>
         {/if}
-        <span class="self-center text-center">If this takes a while refresh and try again.</span>
+        <span class="self-center text-center text-base text-caption">If this takes a while refresh and try again.</span>
       {/if}
     </div>
   {:else if state == "pre"}
@@ -272,28 +341,74 @@
         <textarea rows="2" class="input" bind:value={message} placeholder="Message (optional)" />
       </div>
       <div class="flex flex-col gap-3">
-        <Button class="w-full py-3 text-lg" on:click={submitSmart}>
-          ⚡ Send {amount.toLocaleString()} sats
-        </Button>
-        <div class="flex justify-between items-center px-1">
-          <button
-            class="text-sm text-caption hover:opacity-80 underline cursor-pointer"
-            on:click={() => submitNow(true)}
-          >
-            Show QR code instead
-          </button>
-          <button
-            class="text-sm text-caption hover:opacity-80 cursor-pointer"
-            on:click={() => open = false}
-          >
-            Cancel
-          </button>
-        </div>
+        {#if hasInAppWallet && $activeWallet}
+          <!-- User has an in-app wallet - use it automatically -->
+          <div class="p-3 bg-input rounded-xl">
+            <div class="flex items-center gap-2">
+              <span class="text-sm text-caption">Paying with:</span>
+              <span class="font-semibold" style="color: var(--color-text-primary)">{$activeWallet.name}</span>
+              <span class="text-xs text-caption">({getWalletKindName($activeWallet.kind)})</span>
+            </div>
+          </div>
+          <Button class="w-full py-3 text-lg" on:click={submitSmart}>
+            ⚡ Send {amount.toLocaleString()} sats
+          </Button>
+        {:else}
+          <!-- No in-app wallet - show WebLN and QR options -->
+          <h3 class="text-lg font-semibold" style="color: var(--color-text-primary)">Payment Method</h3>
+          <div class="flex flex-col gap-2">
+            <!-- WebLN Option -->
+            <label class="flex items-center gap-3 p-3 bg-input rounded-xl cursor-pointer hover:ring-2 hover:ring-primary transition-all duration-200">
+              <input
+                type="radio"
+                name="paymentMethod"
+                value="webln"
+                checked={!useQR}
+                on:change={() => { useQR = false; }}
+                disabled={!hasWebLN}
+                class="w-4 h-4 text-primary focus:ring-primary"
+              />
+              <div class="flex flex-col">
+                <span class="font-semibold" class:text-caption={!hasWebLN} style={hasWebLN ? 'color: var(--color-text-primary)' : ''}>WebLN Extension</span>
+                {#if !hasWebLN}
+                  <span class="text-sm text-red-500">No WebLN provider found (e.g., Alby)</span>
+                {:else}
+                  <span class="text-sm text-caption">Pay directly via browser extension</span>
+                {/if}
+              </div>
+            </label>
+
+            <!-- QR Code Option -->
+            <label class="flex items-center gap-3 p-3 bg-input rounded-xl cursor-pointer hover:ring-2 hover:ring-primary transition-all duration-200">
+              <input
+                type="radio"
+                name="paymentMethod"
+                value="qr"
+                checked={useQR}
+                on:change={() => { useQR = true; }}
+                class="w-4 h-4 text-primary focus:ring-primary"
+              />
+              <div class="flex flex-col">
+                <span class="font-semibold" style="color: var(--color-text-primary)">QR Code</span>
+                <span class="text-sm text-caption">Scan with any Lightning wallet</span>
+              </div>
+            </label>
+          </div>
+          <Button class="w-full py-3 text-lg" on:click={submitSmart}>
+            ⚡ Send {amount.toLocaleString()} sats
+            {#if !useQR}
+              (WebLN)
+            {:else}
+              (QR Code)
+            {/if}
+          </Button>
+        {/if}
       </div>
   {:else if state == "error"}
     <div class="flex flex-col items-center justify-center">
       <XIcon color="red" weight="bold" class="w-36 h-36" />
-      <span class="text-2xl ml-4 text-center">An Error Occurred. <br /> {error && error.toString()}</span>
+      <span class="text-2xl ml-4 text-center" style="color: var(--color-text-primary)">An Error Occurred.</span>
+      <span class="text-base text-caption text-center mt-2">{error && error.toString()}</span>
       <div class="flex gap-2 mt-4">
         <Button on:click={() => open = false}>Close</Button>
         {#if error && (error.toString().includes('WebLN') || error.toString().includes('Lightning') || error.toString().includes('Provider'))}
@@ -317,7 +432,7 @@
             <div class="flex gap-3 items-center">
               <CustomAvatar className="flex-shrink-0" pubkey={paymentsToMakeQR[selected_qr - 1].recipientPubkey} size={56} />
               <div class="flex flex-col gap-1 min-w-0">
-                <div class="break-words">
+                <div class="break-words" style="color: var(--color-text-primary)">
                   Zapping <span class="font-semibold">{amount} sats</span> to
                 </div>
                 <div class="break-all text-sm font-semibold" style="color: var(--color-text-primary)">
@@ -332,11 +447,11 @@
           {#if isPaid(paymentsToMakeQR[selected_qr - 1].recipientPubkey)}
             <div class="flex flex-col items-center justify-center">
               <Checkmark color="#90EE90" weight="fill" class="w-36 h-36" />
-              <span class="text-2xl ml-4">Payment Completed</span>
+              <span class="text-2xl ml-4" style="color: var(--color-text-primary)">Payment Completed</span>
             </div>
           {:else}
-            Scan the QR Code below with a suitable Lightning Wallet to zap.
-            <div class="self-center p-4 rounded-xl qr-wrapper" style="width: 80%;">
+            <p class="text-caption">Scan the QR Code below with a suitable Lightning Wallet to zap.</p>
+            <div class="self-center p-4 rounded-xl bg-white" style="width: 80%;">
               <svg class="w-full"
                 use:qr={{
                   data: paymentsToMakeQR[selected_qr - 1].pr,
@@ -348,10 +463,10 @@
               />
             </div>
             <div class="flex items-center gap-2">
-              <div class="flex-1 break-all text-xs bg-input p-2 rounded" style="border: 1px solid var(--color-input-border)">
+              <div class="flex-1 break-all text-xs bg-input p-2 rounded" style="border: 1px solid var(--color-input-border); color: var(--color-text-primary)">
                 {paymentsToMakeQR[selected_qr - 1].pr}
               </div>
-              <button 
+              <button
                 on:click={(e) => {
                   navigator.clipboard.writeText(paymentsToMakeQR[selected_qr - 1].pr);
                   // Simple feedback
@@ -364,38 +479,35 @@
                     btn.classList.remove('bg-green-500');
                   }, 1500);
                 }}
-                class="bg-blue-500 hover:bg-blue-600 text-white px-3 py-1 rounded text-xs font-medium transition duration-200 flex-shrink-0"
+                class="bg-amber-500 hover:bg-amber-600 text-white px-3 py-1 rounded text-xs font-medium transition duration-200 flex-shrink-0 cursor-pointer"
                 title="Copy Lightning invoice"
               >
                 Copy
               </button>
             </div>
           {/if}
-          <div class="flex gap-3 justify-center">
+          <div class="flex gap-3 justify-center" style="color: var(--color-text-primary)">
             {#if selected_qr > 1}
-              <LeftIcon class="self-center" on:click={() => selected_qr--} />
+              <LeftIcon class="self-center cursor-pointer" on:click={() => selected_qr--} />
             {/if}
             <span class="self-center">{selected_qr}/{paymentsToMakeQR.length}</span>
             {#if selected_qr < paymentsToMakeQR.length}
-              <RightIcon class="self-center" on:click={() => selected_qr++} />
+              <RightIcon class="self-center cursor-pointer" on:click={() => selected_qr++} />
             {/if}
           </div>
           <div class="flex gap-2 justify-center mt-4">
-            <Button 
-              class="!text-black bg-white border border-[#ECECEC] hover:bg-accent-gray"
-              on:click={() => open = false}
-            >
+            <Button on:click={() => open = false}>
               Close
             </Button>
           </div>
       </div>
     {:else}
-      <!-- WebLN Extension Payment Success -->
+      <!-- In-app wallet or WebLN Payment Success -->
       <div class="flex flex-col items-center justify-center">
         <Checkmark color="#90EE90" weight="fill" class="w-36 h-36" />
-        <span class="text-2xl ml-4 text-center">Payment Sent!</span>
+        <span class="text-2xl ml-4 text-center" style="color: var(--color-text-primary)">Payment Sent!</span>
         <span class="text-lg text-caption text-center mt-2">
-          Your zap of {amount} sats has been sent via your Lightning wallet.
+          Your zap of {amount} sats has been sent.
         </span>
         <div class="flex gap-2 mt-4">
           <Button on:click={() => open = false}>Close</Button>
