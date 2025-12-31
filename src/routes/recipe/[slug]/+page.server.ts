@@ -1,6 +1,10 @@
 import type { PageServerLoad } from './$types';
 import { nip19 } from 'nostr-tools';
-import WebSocket from 'ws';
+
+// Use Vercel Edge Runtime for native WebSocket support
+export const config = {
+	runtime: 'edge'
+};
 
 interface RecipeMetadata {
 	title: string;
@@ -17,14 +21,22 @@ const RELAYS = [
 async function fetchFromRelay(relayUrl: string, identifier: string, pubkey: string): Promise<RecipeMetadata | null> {
 	return new Promise((resolve) => {
 		const timeout = setTimeout(() => {
-			ws.close();
+			try { ws.close(); } catch {}
 			resolve(null);
-		}, 3000); // 3 second timeout per relay
+		}, 3000);
 
-		const ws = new WebSocket(relayUrl);
+		let ws: WebSocket;
+		try {
+			ws = new WebSocket(relayUrl);
+		} catch {
+			clearTimeout(timeout);
+			resolve(null);
+			return;
+		}
+
 		const subId = `og-${Date.now()}`;
 
-		ws.on('open', () => {
+		ws.onopen = () => {
 			const req = JSON.stringify([
 				'REQ',
 				subId,
@@ -36,41 +48,40 @@ async function fetchFromRelay(relayUrl: string, identifier: string, pubkey: stri
 				}
 			]);
 			ws.send(req);
-		});
+		};
 
-		ws.on('message', (data: Buffer) => {
+		ws.onmessage = (event) => {
 			try {
-				const msg = JSON.parse(data.toString());
+				const msg = JSON.parse(event.data);
 				if (msg[0] === 'EVENT' && msg[1] === subId && msg[2]) {
-					const event = msg[2];
-					const title = event.tags?.find((t: string[]) => t[0] === 'title')?.[1] ||
-					              event.tags?.find((t: string[]) => t[0] === 'd')?.[1] || 'Recipe';
-					const image = event.tags?.find((t: string[]) => t[0] === 'image')?.[1] || '';
-					const summary = event.tags?.find((t: string[]) => t[0] === 'summary')?.[1] ||
-					               (event.content ? event.content.slice(0, 200) + '...' : '');
+					const evt = msg[2];
+					const title = evt.tags?.find((t: string[]) => t[0] === 'title')?.[1] ||
+					              evt.tags?.find((t: string[]) => t[0] === 'd')?.[1] || 'Recipe';
+					const image = evt.tags?.find((t: string[]) => t[0] === 'image')?.[1] || '';
+					const summary = evt.tags?.find((t: string[]) => t[0] === 'summary')?.[1] ||
+					               (evt.content ? evt.content.slice(0, 200) + '...' : '');
 
 					clearTimeout(timeout);
 					ws.close();
 					resolve({ title, description: summary, image });
 				} else if (msg[0] === 'EOSE' && msg[1] === subId) {
-					// End of stored events - no event found
 					clearTimeout(timeout);
 					ws.close();
 					resolve(null);
 				}
-			} catch (e) {
+			} catch {
 				// Parse error, ignore
 			}
-		});
+		};
 
-		ws.on('error', () => {
+		ws.onerror = () => {
 			clearTimeout(timeout);
 			resolve(null);
-		});
+		};
 
-		ws.on('close', () => {
+		ws.onclose = () => {
 			clearTimeout(timeout);
-		});
+		};
 	});
 }
 
