@@ -20,6 +20,7 @@
   import PencilSimpleIcon from 'phosphor-svelte/lib/PencilSimple';
   import { requestProvider } from 'webln';
   import ProfileEditModal from '../../../components/ProfileEditModal.svelte';
+  import ParsedBio from '../../../components/ParsedBio.svelte';
   import ProfileLists from '../../../components/ProfileLists.svelte';
   import Modal from '../../../components/Modal.svelte';
   import FoodstrFeedOptimized from '../../../components/FoodstrFeedOptimized.svelte';
@@ -958,27 +959,25 @@
           </div>
         </div>
         
-        <!-- Bio with dot separators and read more -->
+        <!-- Bio with parsed links -->
         {#if profile?.about}
           {@const bioText = profile.about.trim()}
-          {@const bioPhrases = bioText.split(/[.,;]\s*/).map(p => p.trim()).filter(p => p && p.length > 0)}
-          {@const formattedBio = bioPhrases.length > 0 ? bioPhrases.join(' · ') : bioText}
-          {@const needsTruncation = formattedBio.length > 150}
-          
+          {@const needsTruncation = bioText.length > 200}
+
           <div class="flex flex-col gap-1">
             <p
               class="text-xs text-caption leading-relaxed transition-all md:line-clamp-none"
-              class:line-clamp-2={!bioExpanded && needsTruncation}
+              class:line-clamp-3={!bioExpanded && needsTruncation}
             >
-              {formattedBio}
+              <ParsedBio text={bioText} />
             </p>
             {#if needsTruncation}
-      <button
+              <button
                 on:click={() => (bioExpanded = !bioExpanded)}
                 class="text-xs text-orange-500 hover:text-orange-600 self-start transition-colors mt-0.5 md:hidden"
-      >
+              >
                 {bioExpanded ? 'Show less' : 'Read more'}
-      </button>
+              </button>
             {/if}
           </div>
         {/if}

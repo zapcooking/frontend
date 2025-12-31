@@ -1,10 +1,10 @@
 <script lang="ts">
-  import { blur, scale } from 'svelte/transition';
-  import CloseIcon from 'phosphor-svelte/lib/XCircle';
+  import Modal from './Modal.svelte';
   import CameraIcon from 'phosphor-svelte/lib/Camera';
   import SpinnerIcon from 'phosphor-svelte/lib/SpinnerGap';
   import CloudArrowUpIcon from 'phosphor-svelte/lib/CloudArrowUp';
   import ClockCounterClockwiseIcon from 'phosphor-svelte/lib/ClockCounterClockwise';
+  import CloseIcon from 'phosphor-svelte/lib/XCircle';
   import Button from './Button.svelte';
   import { ndk, userPublickey } from '$lib/nostr';
   import { NDKEvent } from '@nostr-dev-kit/ndk';
@@ -49,8 +49,13 @@
   let creatingManualBackup = false;
   let backupSectionEl: HTMLElement;
 
-  // Initialize form when modal opens
-  $: if (open && profile) {
+  // Track modal open state to initialize only once per open
+  let wasOpen = false;
+
+  // Initialize form when modal transitions from closed to open
+  function initializeForm() {
+    if (!profile) return;
+
     formData = {
       display_name: profile.displayName || profile.display_name || '',
       name: profile.name || '',
@@ -64,8 +69,15 @@
     error = null;
     backupStatus = 'idle';
     showRestorePanel = false;
-    // Fetch last backup timestamp
     fetchLastBackupTimestamp();
+  }
+
+  // Watch for open state change - only initialize when transitioning from closed to open
+  $: if (open !== wasOpen) {
+    if (open && profile) {
+      initializeForm();
+    }
+    wasOpen = open;
   }
 
   async function fetchLastBackupTimestamp() {
@@ -395,290 +407,273 @@
   }
 </script>
 
-{#if open}
-  <div
-    on:click|self={close}
-    on:keydown={(e) => e.key === 'Escape' && close()}
-    role="presentation"
-    transition:blur={{ duration: 250 }}
-    class="fixed top-0 left-0 z-30 w-full h-full backdrop-brightness-50 backdrop-blur"
-  >
-    <dialog
-      transition:scale={{ duration: 250 }}
-      aria-labelledby="profile-edit-title"
-      aria-modal="true"
-      class="absolute m-0 top-1/2 left-1/2 rounded-3xl w-full md:w-[calc(100vw-4em)] max-w-xl max-h-[90vh] overflow-y-auto -translate-x-1/2 -translate-y-1/2"
-      style="background-color: var(--color-bg-secondary);"
-      open
-    >
-      <div class="flex flex-col">
-        <!-- Banner Upload Area -->
-        <div class="relative h-40 rounded-t-3xl overflow-hidden" style="background-color: var(--color-input-bg);">
-          {#if formData.banner}
-            <img src={formData.banner} alt="Banner" class="w-full h-full object-cover" />
-          {:else}
-            <div class="w-full h-full flex items-center justify-center">
-              <CloudArrowUpIcon size={32} class="text-caption" />
-            </div>
-          {/if}
-          <label class="absolute inset-0 flex items-center justify-center cursor-pointer bg-black/30 hover:bg-black/50 transition-all">
-            {#if uploadingBanner}
-              <SpinnerIcon size={32} class="text-white animate-spin" />
-            {:else}
-              <div class="flex flex-col items-center text-white">
-                <CloudArrowUpIcon size={32} />
-                <span class="text-sm mt-1">Upload Banner</span>
-              </div>
-            {/if}
-            <input
-              type="file"
-              class="sr-only"
-              accept="image/*"
-              on:change={handleBannerUpload}
-              disabled={uploadingBanner}
-            />
-          </label>
-        </div>
-
-        <!-- Avatar Upload Area (overlapping banner) -->
-        <div class="relative -mt-12 ml-6 mb-4">
-          <div class="w-24 h-24 rounded-full overflow-hidden border-4" style="border-color: var(--color-bg-secondary); background-color: var(--color-input-bg);">
-            {#if formData.picture}
-              <img src={formData.picture} alt="Profile" class="w-full h-full object-cover" />
-            {:else}
-              <div class="w-full h-full flex items-center justify-center">
-                <CameraIcon size={32} class="text-caption" />
-              </div>
-            {/if}
-          </div>
-          <label class="absolute inset-0 w-24 h-24 rounded-full flex items-center justify-center cursor-pointer bg-black/30 hover:bg-black/50 transition-all">
-            {#if uploadingPicture}
-              <SpinnerIcon size={24} class="text-white animate-spin" />
-            {:else}
-              <CameraIcon size={24} class="text-white" />
-            {/if}
-            <input
-              type="file"
-              class="sr-only"
-              accept="image/*"
-              on:change={handlePictureUpload}
-              disabled={uploadingPicture}
-            />
-          </label>
-        </div>
-
-        <!-- Form Content -->
-        <div class="px-6 pb-6">
-          <!-- Header -->
-          <div class="flex justify-between items-center mb-6">
-            <h2 id="profile-edit-title" class="text-lg font-semibold" style="color: var(--color-text-primary)">
-              Edit Profile
-            </h2>
-            <button class="cursor-pointer" style="color: var(--color-text-primary)" on:click={close}>
-              <CloseIcon size={24} />
-            </button>
-          </div>
-
-          <!-- Error Message -->
-          {#if error}
-            <div class="mb-4 p-3 rounded-xl bg-red-500/10 text-red-500 text-sm">
-              {error}
-            </div>
-          {/if}
-
-          <!-- Backup Status -->
-          {#if backupStatus === 'backing-up'}
-            <div class="mb-4 p-3 rounded-xl bg-blue-500/10 text-blue-500 text-sm flex items-center gap-2">
-              <SpinnerIcon size={16} class="animate-spin" />
-              Creating backup...
-            </div>
-          {:else if backupStatus === 'backed-up'}
-            <div class="mb-4 p-3 rounded-xl bg-green-500/10 text-green-500 text-sm">
-              Backup created successfully
-            </div>
-          {/if}
-
-          <!-- Form Fields -->
-          <div class="flex flex-col gap-4">
-            <div>
-              <label for="profile-display-name" class="block text-sm font-medium mb-1 text-caption">Display Name</label>
-              <input
-                id="profile-display-name"
-                type="text"
-                class="input w-full"
-                placeholder="Your display name"
-                bind:value={formData.display_name}
-                maxlength="50"
-              />
-            </div>
-
-            <div>
-              <label for="profile-username" class="block text-sm font-medium mb-1 text-caption">Username</label>
-              <input
-                id="profile-username"
-                type="text"
-                class="input w-full"
-                placeholder="username"
-                bind:value={formData.name}
-                maxlength="30"
-              />
-            </div>
-
-            <div>
-              <label for="profile-bio" class="block text-sm font-medium mb-1 text-caption">Bio</label>
-              <textarea
-                id="profile-bio"
-                class="input w-full h-24 resize-none"
-                placeholder="Tell us about yourself..."
-                bind:value={formData.about}
-                maxlength="500"
-              />
-            </div>
-
-            <div>
-              <label for="profile-picture-url" class="block text-sm font-medium mb-1 text-caption">Profile Picture URL</label>
-              <input
-                id="profile-picture-url"
-                type="url"
-                class="input w-full"
-                placeholder="https://..."
-                bind:value={formData.picture}
-              />
-              <p class="text-xs text-caption mt-1">Or click the avatar above to upload</p>
-            </div>
-
-            <div>
-              <label for="profile-banner-url" class="block text-sm font-medium mb-1 text-caption">Banner URL</label>
-              <input
-                id="profile-banner-url"
-                type="url"
-                class="input w-full"
-                placeholder="https://..."
-                bind:value={formData.banner}
-              />
-              <p class="text-xs text-caption mt-1">Or click the banner above to upload</p>
-            </div>
-
-            <div>
-              <label for="profile-nip05" class="block text-sm font-medium mb-1 text-caption">NIP-05 Identifier</label>
-              <input
-                id="profile-nip05"
-                type="text"
-                class="input w-full"
-                placeholder="you@example.com"
-                bind:value={formData.nip05}
-              />
-            </div>
-
-            <div>
-              <label for="profile-website" class="block text-sm font-medium mb-1 text-caption">Website</label>
-              <input
-                id="profile-website"
-                type="url"
-                class="input w-full"
-                placeholder="https://yourwebsite.com"
-                bind:value={formData.website}
-              />
-            </div>
-
-            <div>
-              <label for="profile-lud16" class="block text-sm font-medium mb-1 text-caption">Lightning Address</label>
-              <input
-                id="profile-lud16"
-                type="text"
-                class="input w-full"
-                placeholder="you@getalby.com"
-                bind:value={formData.lud16}
-              />
-            </div>
-          </div>
-
-          <!-- Action Buttons -->
-          <div class="flex gap-3 mt-6">
-            <Button primary={false} on:click={close} disabled={saving}>
-              Cancel
-            </Button>
-            <Button
-              on:click={saveProfile}
-              disabled={saving || uploadingPicture || uploadingBanner}
-              class="flex-1"
-            >
-              {#if saving}
-                <SpinnerIcon size={18} class="animate-spin" />
-                Saving...
-              {:else}
-                Save Profile
-              {/if}
-            </Button>
-          </div>
-
-          <!-- Backup Section -->
-          <div bind:this={backupSectionEl} class="mt-6 pt-4 border-t" style="border-color: var(--color-input-border)">
-            <!-- Backup Info & Actions -->
-            <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
-              <div class="text-sm text-caption">
-                {#if lastBackupTimestamp}
-                  Last backup: {formatDate(lastBackupTimestamp)}
-                {:else}
-                  No backups found
-                {/if}
-              </div>
-              <div class="flex gap-2">
-                <button
-                  on:click={createManualBackup}
-                  disabled={creatingManualBackup || saving}
-                  class="text-sm text-primary hover:opacity-80 transition-opacity disabled:opacity-50 flex items-center gap-1"
-                >
-                  {#if creatingManualBackup}
-                    <SpinnerIcon size={14} class="animate-spin" />
-                    Backing up...
-                  {:else}
-                    <CloudArrowUpIcon size={14} />
-                    Create Backup
-                  {/if}
-                </button>
-                <button
-                  on:click={toggleRestorePanel}
-                  class="text-sm text-caption hover:text-primary transition-colors flex items-center gap-1"
-                >
-                  <ClockCounterClockwiseIcon size={14} />
-                  {showRestorePanel ? 'Hide' : 'Restore'}
-                </button>
-              </div>
-            </div>
-
-            {#if showRestorePanel}
-              <div class="mt-2">
-                {#if loadingBackups}
-                  <div class="flex items-center gap-2 text-caption">
-                    <SpinnerIcon size={16} class="animate-spin" />
-                    Loading backups...
-                  </div>
-                {:else if backupList.length === 0}
-                  <p class="text-sm text-caption italic">No backups found. Backups are created automatically when you save profile changes.</p>
-                {:else}
-                  <div class="flex flex-col gap-2 max-h-48 overflow-y-auto">
-                    {#each backupList as backup}
-                      <div class="flex justify-between items-center p-3 rounded-xl" style="background-color: var(--color-input-bg)">
-                        <span class="text-sm" style="color: var(--color-text-primary)">
-                          {formatDate(backup.timestamp)}
-                        </span>
-                        <button
-                          on:click={() => restoreBackup(backup.eventId)}
-                          disabled={restoringBackup}
-                          class="text-sm text-primary hover:opacity-80 transition-opacity disabled:opacity-50"
-                        >
-                          {restoringBackup ? 'Restoring...' : 'Restore'}
-                        </button>
-                      </div>
-                    {/each}
-                  </div>
-                {/if}
-              </div>
-            {/if}
-          </div>
-        </div>
+<Modal bind:open cleanup={close} noHeader>
+  <!-- Banner Upload Area -->
+  <div class="relative h-40 overflow-hidden -mx-2 md:-mx-8 -mt-6 rounded-b-xl" style="background-color: var(--color-input-bg);">
+    {#if formData.banner}
+      <img src={formData.banner} alt="Banner" class="w-full h-full object-cover" />
+    {:else}
+      <div class="w-full h-full flex items-center justify-center">
+        <CloudArrowUpIcon size={32} class="text-caption" />
       </div>
-    </dialog>
+    {/if}
+    <label class="absolute inset-0 flex items-center justify-center cursor-pointer bg-black/30 hover:bg-black/50 transition-all">
+      {#if uploadingBanner}
+        <SpinnerIcon size={32} class="text-white animate-spin" />
+      {:else}
+        <div class="flex flex-col items-center text-white">
+          <CloudArrowUpIcon size={32} />
+          <span class="text-sm mt-1">Upload Banner</span>
+        </div>
+      {/if}
+      <input
+        type="file"
+        class="sr-only"
+        accept="image/*"
+        on:change={handleBannerUpload}
+        disabled={uploadingBanner}
+      />
+    </label>
   </div>
-{/if}
+
+  <!-- Avatar and Close button row -->
+  <div class="flex justify-between items-center -mt-12 mb-4 relative z-10">
+    <!-- Avatar Upload Area -->
+    <div class="relative w-24 h-24 ml-2">
+    <div class="w-24 h-24 rounded-full overflow-hidden border-4" style="border-color: var(--color-bg-secondary); background-color: var(--color-input-bg);">
+      {#if formData.picture}
+        <img src={formData.picture} alt="Profile" class="w-full h-full object-cover" />
+      {:else}
+        <div class="w-full h-full flex items-center justify-center">
+          <CameraIcon size={32} class="text-caption" />
+        </div>
+      {/if}
+    </div>
+    <label class="absolute inset-0 w-24 h-24 rounded-full flex items-center justify-center cursor-pointer bg-black/30 hover:bg-black/50 transition-all">
+      {#if uploadingPicture}
+        <SpinnerIcon size={24} class="text-white animate-spin" />
+      {:else}
+        <CameraIcon size={24} class="text-white" />
+      {/if}
+      <input
+        type="file"
+        class="sr-only"
+        accept="image/*"
+        on:change={handlePictureUpload}
+        disabled={uploadingPicture}
+      />
+    </label>
+    </div>
+
+    <!-- Close button -->
+    <button class="cursor-pointer" style="color: var(--color-text-primary)" on:click={close}>
+      <CloseIcon size={24} />
+    </button>
+  </div>
+
+  <!-- Error Message -->
+  {#if error}
+    <div class="mb-4 p-3 rounded-xl bg-red-500/10 text-red-500 text-sm">
+      {error}
+    </div>
+  {/if}
+
+  <!-- Backup Status -->
+  {#if backupStatus === 'backing-up'}
+    <div class="mb-4 p-3 rounded-xl bg-blue-500/10 text-blue-500 text-sm flex items-center gap-2">
+      <SpinnerIcon size={16} class="animate-spin" />
+      Creating backup...
+    </div>
+  {:else if backupStatus === 'backed-up'}
+    <div class="mb-4 p-3 rounded-xl bg-green-500/10 text-green-500 text-sm">
+      Backup created successfully
+    </div>
+  {/if}
+
+  <!-- Form Fields -->
+  <div class="flex flex-col gap-4" style="touch-action: auto; user-select: text;">
+    <div>
+      <label for="profile-display-name" class="block text-sm font-medium mb-1 text-caption">Display Name</label>
+      <input
+        id="profile-display-name"
+        type="text"
+        class="input w-full"
+        style="touch-action: auto; user-select: text; -webkit-user-select: text;"
+        placeholder="Your display name"
+        bind:value={formData.display_name}
+        maxlength="50"
+      />
+    </div>
+
+    <div>
+      <label for="profile-username" class="block text-sm font-medium mb-1 text-caption">Username</label>
+      <input
+        id="profile-username"
+        type="text"
+        class="input w-full"
+        style="touch-action: auto; user-select: text; -webkit-user-select: text;"
+        placeholder="username"
+        bind:value={formData.name}
+        maxlength="30"
+      />
+    </div>
+
+    <div>
+      <label for="profile-bio" class="block text-sm font-medium mb-1 text-caption">Bio</label>
+      <textarea
+        id="profile-bio"
+        class="input w-full h-24 resize-none"
+        style="touch-action: auto; user-select: text; -webkit-user-select: text;"
+        placeholder="Tell us about yourself..."
+        bind:value={formData.about}
+      />
+    </div>
+
+    <div>
+      <label for="profile-picture-url" class="block text-sm font-medium mb-1 text-caption">Profile Picture URL</label>
+      <input
+        id="profile-picture-url"
+        type="url"
+        class="input w-full"
+        style="touch-action: auto; user-select: text; -webkit-user-select: text;"
+        placeholder="https://..."
+        bind:value={formData.picture}
+      />
+      <p class="text-xs text-caption mt-1">Or click the avatar above to upload</p>
+    </div>
+
+    <div>
+      <label for="profile-banner-url" class="block text-sm font-medium mb-1 text-caption">Banner URL</label>
+      <input
+        id="profile-banner-url"
+        type="url"
+        class="input w-full"
+        style="touch-action: auto; user-select: text; -webkit-user-select: text;"
+        placeholder="https://..."
+        bind:value={formData.banner}
+      />
+      <p class="text-xs text-caption mt-1">Or click the banner above to upload</p>
+    </div>
+
+    <div>
+      <label for="profile-nip05" class="block text-sm font-medium mb-1 text-caption">NIP-05 Identifier</label>
+      <input
+        id="profile-nip05"
+        type="text"
+        class="input w-full"
+        style="touch-action: auto; user-select: text; -webkit-user-select: text;"
+        placeholder="you@example.com"
+        bind:value={formData.nip05}
+      />
+    </div>
+
+    <div>
+      <label for="profile-website" class="block text-sm font-medium mb-1 text-caption">Website</label>
+      <input
+        id="profile-website"
+        type="url"
+        class="input w-full"
+        style="touch-action: auto; user-select: text; -webkit-user-select: text;"
+        placeholder="https://yourwebsite.com"
+        bind:value={formData.website}
+      />
+    </div>
+
+    <div>
+      <label for="profile-lud16" class="block text-sm font-medium mb-1 text-caption">Lightning Address</label>
+      <input
+        id="profile-lud16"
+        type="text"
+        class="input w-full"
+        style="touch-action: auto; user-select: text; -webkit-user-select: text;"
+        placeholder="you@getalby.com"
+        bind:value={formData.lud16}
+      />
+    </div>
+  </div>
+
+  <!-- Action Buttons -->
+  <div class="flex gap-3 mt-6">
+    <Button primary={false} on:click={close} disabled={saving}>
+      Cancel
+    </Button>
+    <Button
+      on:click={saveProfile}
+      disabled={saving || uploadingPicture || uploadingBanner}
+      class="flex-1"
+    >
+      {#if saving}
+        <SpinnerIcon size={18} class="animate-spin" />
+        Saving...
+      {:else}
+        Save Profile
+      {/if}
+    </Button>
+  </div>
+
+  <!-- Backup Section -->
+  <div bind:this={backupSectionEl} class="mt-6 pt-4 border-t" style="border-color: var(--color-input-border)">
+    <!-- Backup Info & Actions -->
+    <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+      <div class="text-sm text-caption">
+        {#if lastBackupTimestamp}
+          Last backup: {formatDate(lastBackupTimestamp)}
+        {:else}
+          No backups found
+        {/if}
+      </div>
+      <div class="flex gap-2">
+        <button
+          on:click={createManualBackup}
+          disabled={creatingManualBackup || saving}
+          class="text-sm text-primary hover:opacity-80 transition-opacity disabled:opacity-50 flex items-center gap-1"
+        >
+          {#if creatingManualBackup}
+            <SpinnerIcon size={14} class="animate-spin" />
+            Backing up...
+          {:else}
+            <CloudArrowUpIcon size={14} />
+            Create Backup
+          {/if}
+        </button>
+        <button
+          on:click={toggleRestorePanel}
+          class="text-sm text-caption hover:text-primary transition-colors flex items-center gap-1"
+        >
+          <ClockCounterClockwiseIcon size={14} />
+          {showRestorePanel ? 'Hide' : 'Restore'}
+        </button>
+      </div>
+    </div>
+
+    {#if showRestorePanel}
+      <div class="mt-2">
+        {#if loadingBackups}
+          <div class="flex items-center gap-2 text-caption">
+            <SpinnerIcon size={16} class="animate-spin" />
+            Loading backups...
+          </div>
+        {:else if backupList.length === 0}
+          <p class="text-sm text-caption italic">No backups found. Backups are created automatically when you save profile changes.</p>
+        {:else}
+          <div class="flex flex-col gap-2 max-h-48 overflow-y-auto">
+            {#each backupList as backup}
+              <div class="flex justify-between items-center p-3 rounded-xl" style="background-color: var(--color-input-bg)">
+                <span class="text-sm" style="color: var(--color-text-primary)">
+                  {formatDate(backup.timestamp)}
+                </span>
+                <button
+                  on:click={() => restoreBackup(backup.eventId)}
+                  disabled={restoringBackup}
+                  class="text-sm text-primary hover:opacity-80 transition-opacity disabled:opacity-50"
+                >
+                  {restoringBackup ? 'Restoring...' : 'Restore'}
+                </button>
+              </div>
+            {/each}
+          </div>
+        {/if}
+      </div>
+    {/if}
+  </div>
+</Modal>
