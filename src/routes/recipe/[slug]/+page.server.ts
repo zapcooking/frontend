@@ -1,73 +1,97 @@
 import type { PageServerLoad } from './$types';
 import { nip19 } from 'nostr-tools';
 
+// Edge runtime for native WebSocket support (Vercel Edge, Cloudflare Workers)
+export const config = {
+	runtime: 'edge'
+};
+
 interface RecipeMetadata {
 	title: string;
 	description: string;
 	image: string;
 }
 
-async function fetchRecipeFromRelay(identifier: string, pubkey: string): Promise<RecipeMetadata | null> {
-	// Try fetching from Primal's cache API (HTTP-based, works server-side)
-	try {
-		const response = await fetch('https://primal.net/api', {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify([
+const RELAYS = [
+	'wss://relay.primal.net',
+	'wss://relay.damus.io',
+	'wss://nos.lol'
+];
+
+async function fetchFromRelay(relayUrl: string, identifier: string, pubkey: string): Promise<RecipeMetadata | null> {
+	return new Promise((resolve) => {
+		const timeout = setTimeout(() => {
+			try { ws.close(); } catch {}
+			resolve(null);
+		}, 3000);
+
+		let ws: WebSocket;
+		try {
+			ws = new WebSocket(relayUrl);
+		} catch {
+			clearTimeout(timeout);
+			resolve(null);
+			return;
+		}
+
+		const subId = `og-${Date.now()}`;
+
+		ws.onopen = () => {
+			const req = JSON.stringify([
 				'REQ',
-				'og-meta',
+				subId,
 				{
 					kinds: [30023],
 					authors: [pubkey],
 					'#d': [identifier],
 					limit: 1
 				}
-			])
-		});
+			]);
+			ws.send(req);
+		};
 
-		if (response.ok) {
-			const data = await response.json();
-			// Primal returns array of events
-			if (Array.isArray(data)) {
-				const event = data.find((item: any) => item?.kind === 30023);
-				if (event) {
-					const title = event.tags?.find((t: string[]) => t[0] === 'title')?.[1] ||
-					              event.tags?.find((t: string[]) => t[0] === 'd')?.[1] || 'Recipe';
-					const image = event.tags?.find((t: string[]) => t[0] === 'image')?.[1] || '';
-					const summary = event.tags?.find((t: string[]) => t[0] === 'summary')?.[1] ||
-					               (event.content ? event.content.slice(0, 200) + '...' : '');
+		ws.onmessage = (event) => {
+			try {
+				const msg = JSON.parse(event.data);
+				if (msg[0] === 'EVENT' && msg[1] === subId && msg[2]) {
+					const evt = msg[2];
+					const title = evt.tags?.find((t: string[]) => t[0] === 'title')?.[1] ||
+					              evt.tags?.find((t: string[]) => t[0] === 'd')?.[1] || 'Recipe';
+					const image = evt.tags?.find((t: string[]) => t[0] === 'image')?.[1] || '';
+					const summary = evt.tags?.find((t: string[]) => t[0] === 'summary')?.[1] ||
+					               (evt.content ? evt.content.slice(0, 200) + '...' : '');
 
-					return { title, description: summary, image };
+					clearTimeout(timeout);
+					ws.close();
+					resolve({ title, description: summary, image });
+				} else if (msg[0] === 'EOSE' && msg[1] === subId) {
+					clearTimeout(timeout);
+					ws.close();
+					resolve(null);
 				}
+			} catch {
+				// Parse error, ignore
 			}
-		}
-	} catch (e) {
-		console.error('[OG Meta] Primal API error:', e);
-	}
+		};
 
-	// Fallback: Try nostr.band API
-	try {
-		const naddrForApi = nip19.naddrEncode({ identifier, pubkey, kind: 30023 });
-		const response = await fetch(`https://api.nostr.band/v0/event/${naddrForApi}`);
+		ws.onerror = () => {
+			clearTimeout(timeout);
+			resolve(null);
+		};
 
-		if (response.ok) {
-			const data = await response.json();
-			if (data?.event) {
-				const event = data.event;
-				const title = event.tags?.find((t: string[]) => t[0] === 'title')?.[1] ||
-				              event.tags?.find((t: string[]) => t[0] === 'd')?.[1] || 'Recipe';
-				const image = event.tags?.find((t: string[]) => t[0] === 'image')?.[1] || '';
-				const summary = event.tags?.find((t: string[]) => t[0] === 'summary')?.[1] ||
-				               (event.content ? event.content.slice(0, 200) + '...' : '');
+		ws.onclose = () => {
+			clearTimeout(timeout);
+		};
+	});
+}
 
-				return { title, description: summary, image };
-			}
-		}
-	} catch (e) {
-		console.error('[OG Meta] nostr.band API error:', e);
-	}
+async function fetchRecipeMetadata(identifier: string, pubkey: string): Promise<RecipeMetadata | null> {
+	// Try relays in parallel, return first successful result
+	const results = await Promise.all(
+		RELAYS.map(relay => fetchFromRelay(relay, identifier, pubkey))
+	);
 
-	return null;
+	return results.find(r => r !== null) || null;
 }
 
 export const load: PageServerLoad = async ({ params }) => {
@@ -84,7 +108,7 @@ export const load: PageServerLoad = async ({ params }) => {
 		}
 
 		const { identifier, pubkey } = decoded.data;
-		const metadata = await fetchRecipeFromRelay(identifier, pubkey);
+		const metadata = await fetchRecipeMetadata(identifier, pubkey);
 
 		if (metadata) {
 			return {
@@ -96,7 +120,7 @@ export const load: PageServerLoad = async ({ params }) => {
 			};
 		}
 	} catch (e) {
-		console.error('[OG Meta] Error decoding naddr:', e);
+		console.error('[OG Meta] Error:', e);
 	}
 
 	return { ogMeta: null };

@@ -271,7 +271,7 @@
   <!-- Orientation text for signed-out users -->
   {#if $userPublickey === ''}
     <div class="mb-4 pt-1">
-      <p class="text-sm text-caption">A place to share food with friends.</p>
+      <p class="text-sm text-caption">Food. Friends. Freedom.</p>
       <p class="text-xs text-caption mt-0.5">People share meals, recipes, and food ideas here. <a href="/login" class="text-caption hover:opacity-80 underline">Sign in</a> to share your own and follow cooks you like.</p>
     </div>
   {/if}
