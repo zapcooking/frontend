@@ -135,7 +135,7 @@
 
 {#if loading}
   <div class="flex justify-center items-center h-screen">
-    <img class="w-64" src="/pan-animated.svg" alt="Loading" />
+    <img class="w-64 dark:hidden" src="/pan-animated.svg" alt="Loading" /><img class="w-64 hidden dark:block" src="/pan-animated-dark.svg" alt="Loading" />
   </div>
 {:else if error}
   <div class="flex flex-col justify-center items-center h-screen gap-4">
@@ -152,6 +152,6 @@
   <Recipe {event} />
 {:else}
   <div class="flex justify-center items-center h-screen">
-    <img class="w-64" src="/pan-animated.svg" alt="Loading" />
+    <img class="w-64 dark:hidden" src="/pan-animated.svg" alt="Loading" /><img class="w-64 hidden dark:block" src="/pan-animated-dark.svg" alt="Loading" />
   </div>
 {/if}

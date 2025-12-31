@@ -310,7 +310,7 @@
   <div class="flex flex-col gap-3">
   {#if state == "pending"}
     <div class="flex flex-col text-2xl">
-      <img class="w-52 self-center" src="/pan-animated.svg" alt="Loading" />
+      <img class="w-52 self-center dark:hidden" src="/pan-animated.svg" alt="Loading" /><img class="w-52 self-center hidden dark:block" src="/pan-animated-dark.svg" alt="Loading" />
 
       <span class="self-center" style="color: var(--color-text-primary)">{useQR ? "Fetching Invoice(s)..." : "Waiting for Payment..."}</span>
       {#if useQR}
