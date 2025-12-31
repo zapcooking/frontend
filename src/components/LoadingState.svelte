@@ -1,6 +1,6 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
-  
+
   export let type: 'spinner' | 'skeleton' | 'dots' | 'pulse' = 'spinner';
   export let size: 'sm' | 'md' | 'lg' = 'md';
   export let text: string = 'Loading...';
@@ -24,7 +24,7 @@
   $: currentSize = sizeConfig[size];
 </script>
 
-<div 
+<div
   class="loading-state"
   class:full-screen={fullScreen}
   class:py-2={size === 'sm'}
@@ -34,7 +34,8 @@
   <div class="loading-content">
     {#if type === 'spinner'}
       <div class="spinner" style="width: {currentSize.spinner}px; height: {currentSize.spinner}px;">
-        <img src="/pan-animated.svg" alt="Loading" />
+        <img src="/pan-animated.svg" alt="Loading" class="dark:hidden" />
+        <img src="/pan-animated-dark.svg" alt="Loading" class="hidden dark:block" />
       </div>
       {:else if type === 'dots'}
       <div class="dots">
@@ -53,7 +54,7 @@
     {/if}
 
     {#if allowCancel}
-      <button 
+      <button
         class="cancel-button"
         on:click={cancel}
       >
@@ -125,7 +126,7 @@
     .pulse-circle {
       animation: none;
     }
-    
+
     .spinner svg {
       @apply opacity-50;
     }

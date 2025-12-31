@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { browser } from '$app/environment';
   import { page } from '$app/stores';
   import { ndk } from '$lib/nostr';
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
@@ -7,7 +8,7 @@
   import Recipe from '../../../components/Recipe/Recipe.svelte';
   import type { PageData } from './$types';
 
-  export const data: PageData = {} as PageData;
+  export let data: PageData;
 
   let event: NDKEvent | null = null;
   let naddr: string = '';
@@ -15,7 +16,7 @@
   let error: string | null = null;
 
   $: {
-    if ($page.params.slug) {
+    if (browser && $page.params.slug) {
       loadData();
     }
   }
@@ -106,10 +107,15 @@
   $: fullPageTitle = `${pageHeading} - zap.cooking`;
   $: fullMetaTitle = `${metaTitleBase} - zap.cooking`;
 
+  // Use server-loaded metadata for initial SSR, then client data once loaded
   $: og_meta = {
-    title: fullMetaTitle,
-    description: event ? event.content.slice(0, 200) + '...' : 'Click to view on zap.cooking',
-    image: event ? event.tags.find((tag) => tag[0] === 'image')?.[1] || 'https://zap.cooking/social-share.png' : 'https://zap.cooking/social-share.png'
+    title: event ? fullMetaTitle : (data.ogMeta?.title || 'Recipe - zap.cooking'),
+    description: event
+      ? event.content.slice(0, 200) + '...'
+      : (data.ogMeta?.description || 'Click to view on zap.cooking'),
+    image: event
+      ? event.tags.find((tag) => tag[0] === 'image')?.[1] || 'https://zap.cooking/social-share.png'
+      : (data.ogMeta?.image || 'https://zap.cooking/social-share.png')
   };
 </script>
 
@@ -135,7 +141,7 @@
 
 {#if loading}
   <div class="flex justify-center items-center h-screen">
-    <img class="w-64" src="/pan-animated.svg" alt="Loading" />
+    <img class="w-64 dark:hidden" src="/pan-animated.svg" alt="Loading" /><img class="w-64 hidden dark:block" src="/pan-animated-dark.svg" alt="Loading" />
   </div>
 {:else if error}
   <div class="flex flex-col justify-center items-center h-screen gap-4">
@@ -152,6 +158,6 @@
   <Recipe {event} />
 {:else}
   <div class="flex justify-center items-center h-screen">
-    <img class="w-64" src="/pan-animated.svg" alt="Loading" />
+    <img class="w-64 dark:hidden" src="/pan-animated.svg" alt="Loading" /><img class="w-64 hidden dark:block" src="/pan-animated-dark.svg" alt="Loading" />
   </div>
 {/if}

@@ -349,4 +349,16 @@
     {/if}
 
   </div>
+
+  <hr style="border-color: var(--color-input-border);" />
+
+  <div class="flex flex-col gap-5">
+    <h2>⚡ Spark Wallet</h2>
+    <p class="text-sm text-caption">
+      Manage your in-app self-custodial Lightning wallet for zaps.
+    </p>
+    <Button on:click={() => goto('/settings/wallet')}>
+      Manage Spark Wallet
+    </Button>
+  </div>
 </div>

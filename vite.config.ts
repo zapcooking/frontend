@@ -34,12 +34,10 @@ export default defineConfig({
     __VERSION__: JSON.stringify(VERSION)
   },
   optimizeDeps: {
-    include: ['buffer']
-  },
-  resolve: {
-    alias: {
-      buffer: 'buffer'
-    }
+    // Exclude packages from pre-bundling:
+    // - @getalby/sdk: needs browser WebSocket at runtime
+    // - @breeztech/breez-sdk-spark: WASM module needs special handling
+    exclude: ['@getalby/sdk', '@breeztech/breez-sdk-spark']
   },
   build: {
     rollupOptions: {
@@ -56,5 +54,13 @@ export default defineConfig({
     fs: {
       allow: ['..']
     }
+  },
+  ssr: {
+    // External packages that shouldn't be bundled/evaluated during SSR
+    // - @getalby/sdk: needs browser WebSocket
+    // - buffer, bip39: CommonJS packages that use require()
+    // - @breeztech/breez-sdk-spark: WASM module, browser only
+    noExternal: [],
+    external: ['@getalby/sdk', 'buffer', 'bip39', '@breeztech/breez-sdk-spark']
   }
 });
