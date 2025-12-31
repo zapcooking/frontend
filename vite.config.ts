@@ -19,6 +19,17 @@ export default defineConfig({
       buffer: 'buffer'
     }
   },
+  build: {
+    rollupOptions: {
+      external: (id) => {
+        // Externalize Capacitor modules for web builds (they're only available in mobile)
+        if (id.startsWith('@capacitor/')) {
+          return true;
+        }
+        return false;
+      }
+    }
+  },
   server: {
     fs: {
       allow: ['..']

@@ -2,6 +2,7 @@ import type NDK from '@nostr-dev-kit/ndk';
 import { NDKEvent } from '@nostr-dev-kit/ndk';
 import type { TargetType } from '$lib/types/reactions';
 import { addClientTagToEvent } from '$lib/nip89';
+import { getAuthManager } from '$lib/authManager';
 
 export interface PublishReactionOptions {
   ndk: NDK;
@@ -40,6 +41,12 @@ export async function publishReaction(
   }
 
   try {
+    // Ensure NIP-46 signer is ready if using remote signer
+    const authManager = getAuthManager();
+    if (authManager) {
+      await authManager.ensureNip46SignerReady();
+    }
+
     const reactionEvent = new NDKEvent(ndk);
     reactionEvent.kind = 7;
     reactionEvent.content = emoji;
@@ -51,9 +58,15 @@ export async function publishReaction(
     // Add NIP-89 client tag
     addClientTagToEvent(reactionEvent);
 
-    // Sign and publish
+    // Sign and publish with timeout
     await reactionEvent.sign();
-    await reactionEvent.publish();
+    
+    const publishPromise = reactionEvent.publish();
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => reject(new Error('Publishing timeout - signer may not be responding')), 30000);
+    });
+    
+    await Promise.race([publishPromise, timeoutPromise]);
 
     console.log(`Published reaction ${emoji} to ${targetType}:`, reactionEvent.id);
     return reactionEvent;
