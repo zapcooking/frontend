@@ -4,11 +4,15 @@
   import { nip19 } from 'nostr-tools';
   import { format as formatDate } from 'timeago.js';
   import CustomAvatar from './CustomAvatar.svelte';
+  import ZapModal from './ZapModal.svelte';
   import { resolveProfileByPubkey, formatDisplayName } from '$lib/profileResolver';
+  import { formatAmount } from '$lib/utils';
   import { addClientTagToEvent } from '$lib/nip89';
   import HeartIcon from 'phosphor-svelte/lib/Heart';
+  import LightningIcon from 'phosphor-svelte/lib/Lightning';
   import { onMount, onDestroy } from 'svelte';
   import { get } from 'svelte/store';
+  import { decode } from '@gandlaf21/bolt11-decode';
 
   export let event: NDKEvent;
   export let allReplies: NDKEvent[] = []; // All replies for finding parent
@@ -44,6 +48,13 @@
   let likeCount = 0;
   let likesLoading = true;
   let processedLikes = new Set();
+
+  // Zap state
+  let zapModalOpen = false;
+  let totalZapAmount = 0;
+  let hasUserZapped = false;
+  let processedZaps = new Set<string>();
+  let zapSubscription: any = null;
 
   // Find parent comment ID (if replying to another comment)
   function getParentCommentId(): string | null {
@@ -297,7 +308,50 @@
     likeSub.on('eose', () => {
       likesLoading = false;
     });
+
+    // Load zaps
+    loadZaps();
   });
+
+  // Load zaps for this comment
+  function loadZaps() {
+    if (!event?.id || !$ndk) return;
+    
+    totalZapAmount = 0;
+    processedZaps.clear();
+    hasUserZapped = false;
+
+    zapSubscription = $ndk.subscribe({
+      kinds: [9735],
+      '#e': [event.id]
+    });
+
+    zapSubscription.on('event', (zapEvent: NDKEvent) => {
+      if (!zapEvent.sig || processedZaps.has(zapEvent.sig)) return;
+
+      const bolt11 = zapEvent.tags.find((tag) => tag[0] === 'bolt11')?.[1];
+      if (!bolt11) return;
+
+      try {
+        const decoded = decode(bolt11);
+        const amountSection = decoded.sections.find((section: any) => section.name === 'amount');
+
+        if (amountSection && amountSection.value) {
+          const amount = Number(amountSection.value);
+          if (!isNaN(amount) && amount > 0) {
+            totalZapAmount += amount;
+            processedZaps.add(zapEvent.sig);
+
+            if (zapEvent.tags.some((tag) => tag[0] === 'P' && tag[1] === $userPublickey)) {
+              hasUserZapped = true;
+            }
+          }
+        }
+      } catch (error) {
+        console.debug('Error decoding bolt11:', error);
+      }
+    });
+  }
 
   // Like comment
   async function toggleLike() {
@@ -352,7 +406,15 @@
     if (mentionSearchTimeout) {
       clearTimeout(mentionSearchTimeout);
     }
+    if (zapSubscription) {
+      zapSubscription.stop();
+    }
   });
+
+  // Open zap modal
+  function openZapModal() {
+    zapModalOpen = true;
+  }
 
   // Truncate content for parent quote
   function truncateContent(content: string, maxLength: number = 100): string {
@@ -380,66 +442,87 @@
 
   <!-- Main comment row -->
   <div class="comment-row">
-    <!-- Avatar -->
+  <!-- Avatar -->
     <a href="/user/{nip19.npubEncode(event.pubkey)}" class="comment-avatar">
-      <CustomAvatar className="rounded-full" pubkey={event.pubkey} size={40} />
-    </a>
+    <CustomAvatar className="rounded-full" pubkey={event.pubkey} size={40} />
+  </a>
 
-    <!-- Content -->
+  <!-- Content -->
     <div class="comment-content">
-      <!-- Name + Time -->
+    <!-- Name + Time -->
       <div class="comment-header">
         <a href="/user/{nip19.npubEncode(event.pubkey)}" class="comment-author">
-          {#if isLoading}
-            <span class="animate-pulse">Loading...</span>
-          {:else}
-            {displayName}
-          {/if}
-        </a>
+        {#if isLoading}
+          <span class="animate-pulse">Loading...</span>
+        {:else}
+          {displayName}
+        {/if}
+      </a>
         <span class="comment-time">
-          {formatDate(new Date((event.created_at || 0) * 1000))}
-        </span>
-      </div>
+        {formatDate(new Date((event.created_at || 0) * 1000))}
+      </span>
+    </div>
 
-      <!-- Comment Text -->
+    <!-- Comment Text -->
       <p class="comment-body">
-        {event.content}
-      </p>
+      {event.content}
+    </p>
 
-      <!-- Actions -->
+    <!-- Actions -->
       <div class="comment-actions">
-        <!-- Like Button -->
-        <button
-          on:click={toggleLike}
+      <!-- Like Button -->
+      <button
+        on:click={toggleLike}
           class="action-btn"
-          class:text-red-500={liked}
-          disabled={!$userPublickey}
-        >
-          <HeartIcon size={16} weight={liked ? 'fill' : 'regular'} />
-          {#if !likesLoading && likeCount > 0}
-            <span>{likeCount}</span>
-          {/if}
-        </button>
+        class:text-red-500={liked}
+        disabled={!$userPublickey}
+      >
+        <HeartIcon size={16} weight={liked ? 'fill' : 'regular'} />
+        {#if !likesLoading && likeCount > 0}
+          <span>{likeCount}</span>
+        {/if}
+      </button>
 
-        <!-- Reply Button -->
-        <button
-          on:click={() => (showReplyBox = !showReplyBox)}
+        <!-- Zap Button -->
+        {#if $userPublickey}
+          <button
+            on:click={openZapModal}
+            class="action-btn zap-btn"
+            class:text-yellow-500={hasUserZapped}
+          >
+            <LightningIcon size={16} weight={hasUserZapped ? 'fill' : 'regular'} />
+            {#if totalZapAmount > 0}
+              <span>{formatAmount(totalZapAmount / 1000)}</span>
+            {/if}
+          </button>
+        {:else}
+          <span class="action-btn zap-display">
+            <LightningIcon size={16} class={totalZapAmount > 0 ? 'text-yellow-500' : ''} />
+            {#if totalZapAmount > 0}
+              <span>{formatAmount(totalZapAmount / 1000)}</span>
+            {/if}
+          </span>
+        {/if}
+
+      <!-- Reply Button -->
+      <button
+        on:click={() => (showReplyBox = !showReplyBox)}
           class="action-btn action-btn-text"
-        >
-          {showReplyBox ? 'Cancel' : 'Reply'}
-        </button>
-      </div>
+      >
+        {showReplyBox ? 'Cancel' : 'Reply'}
+      </button>
+    </div>
 
-      <!-- Inline Reply Box -->
-      {#if showReplyBox}
+    <!-- Inline Reply Box -->
+    {#if showReplyBox}
         <div class="reply-form">
           <div class="relative">
-            <textarea
+        <textarea
               bind:this={replyTextareaEl}
-              bind:value={replyText}
-              placeholder="Add a reply..."
+          bind:value={replyText}
+          placeholder="Add a reply..."
               class="reply-textarea"
-              rows="3"
+          rows="3"
               on:input={handleReplyInput}
               on:keydown={handleReplyKeydown}
             />
@@ -463,29 +546,34 @@
             {/if}
           </div>
           <div class="reply-buttons">
-            <button
-              on:click={postReply}
-              disabled={!replyText.trim() || postingReply}
+          <button
+            on:click={postReply}
+            disabled={!replyText.trim() || postingReply}
               class="btn-post"
-            >
-              {postingReply ? 'Posting...' : 'Post'}
-            </button>
-            <button
-              on:click={() => {
-                showReplyBox = false;
-                replyText = '';
+          >
+            {postingReply ? 'Posting...' : 'Post'}
+          </button>
+          <button
+            on:click={() => {
+              showReplyBox = false;
+              replyText = '';
                 showMentionSuggestions = false;
-              }}
+            }}
               class="btn-cancel"
-            >
-              Cancel
-            </button>
-          </div>
+          >
+            Cancel
+          </button>
         </div>
-      {/if}
-    </div>
+      </div>
+    {/if}
+      </div>
   </div>
 </div>
+
+<!-- Zap Modal -->
+{#if zapModalOpen}
+  <ZapModal bind:open={zapModalOpen} {event} />
+{/if}
 
 <style>
   /* Comment card - full width, no nesting */
@@ -608,6 +696,17 @@
 
   .action-btn-text {
     font-weight: 500;
+  }
+
+  .zap-btn:hover {
+    color: #eab308; /* yellow-500 */
+  }
+
+  .zap-display {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    color: var(--color-text-secondary);
   }
 
   /* Reply form */
