@@ -137,7 +137,8 @@
       // Pass metadata so a pending transaction appears immediately
       const paymentResult = await sendPayment(zapResult.invoice, {
         amount,
-        description: message || `Zap to ${recipientPubkey.substring(0, 8)}...`
+        description: message || `Zap to ${recipientPubkey.substring(0, 8)}...`,
+        pubkey: recipientPubkey
       });
 
       if (!paymentResult.success) {

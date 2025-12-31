@@ -68,8 +68,58 @@ wallets.subscribe((value) => {
 // Currently active wallet
 export const activeWallet = derived(wallets, ($wallets) => $wallets.find((w) => w.active) || null)
 
+// Cached balance storage key
+const CACHED_BALANCE_KEY = 'zapcooking_cached_balance'
+
+function getCachedBalance(walletId: number): number | null {
+	if (!browser) return null
+	try {
+		const stored = localStorage.getItem(`${CACHED_BALANCE_KEY}_${walletId}`)
+		if (stored) {
+			return parseInt(stored, 10)
+		}
+	} catch {
+		// Ignore storage errors
+	}
+	return null
+}
+
+function setCachedBalance(walletId: number, balance: number): void {
+	if (!browser) return
+	try {
+		localStorage.setItem(`${CACHED_BALANCE_KEY}_${walletId}`, String(balance))
+	} catch {
+		// Ignore storage errors
+	}
+}
+
 // Wallet balance in sats (updated by wallet manager)
 export const walletBalance = writable<number | null>(null)
+
+// Load cached balance for active wallet on startup
+if (browser) {
+	setTimeout(() => {
+		const saved = loadWallets()
+		const active = saved.find((w) => w.active)
+		if (active) {
+			const cached = getCachedBalance(active.id)
+			if (cached !== null) {
+				walletBalance.set(cached)
+			}
+		}
+	}, 0)
+}
+
+// Cache balance when it changes
+walletBalance.subscribe((balance) => {
+	if (browser && balance !== null) {
+		const saved = loadWallets()
+		const active = saved.find((w) => w.active)
+		if (active) {
+			setCachedBalance(active.id, balance)
+		}
+	}
+})
 
 // Whether any wallet is connected and ready
 export const walletConnected = derived(activeWallet, ($active) => $active !== null)

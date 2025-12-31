@@ -317,7 +317,7 @@ export async function initializeSdk(
 				seed: { type: 'mnemonic', mnemonic: cleanMnemonic },
 				storageDir: 'zapcooking-spark'
 			}),
-			60000,
+			20000,
 			'SDK connect'
 		)
 
@@ -1037,20 +1037,39 @@ export async function restoreWalletFromNostr(
 	const encryptionMethod = encryptionTag?.[1] || 'nip44'
 	logger.info('[Spark] Found backup, decrypting with', encryptionMethod, '...')
 
-	// Decrypt the mnemonic using the appropriate method
+	// Helper to add timeout to decrypt operations
+	const withTimeout = <T>(promise: Promise<T>, ms: number, message: string): Promise<T> => {
+		return Promise.race([
+			promise,
+			new Promise<T>((_, reject) =>
+				setTimeout(() => reject(new Error(message)), ms)
+			)
+		])
+	}
+
+	// Decrypt the mnemonic using the appropriate method (with 15s timeout)
 	let mnemonic: string
+	const DECRYPT_TIMEOUT = 15000
 
 	if (encryptionMethod === 'nip04') {
 		if (!nostr.nip04?.decrypt) {
 			throw new Error('This backup was encrypted with NIP-04 but your extension does not support it.')
 		}
-		mnemonic = await nostr.nip04.decrypt(pubkey, latestEvent.content)
+		mnemonic = await withTimeout(
+			nostr.nip04.decrypt(pubkey, latestEvent.content),
+			DECRYPT_TIMEOUT,
+			'Decryption timed out. Please approve the decryption request in your Nostr extension.'
+		)
 	} else {
 		// Default to NIP-44
 		if (!nostr.nip44?.decrypt) {
 			throw new Error('This backup was encrypted with NIP-44 but your extension does not support it.')
 		}
-		mnemonic = await nostr.nip44.decrypt(pubkey, latestEvent.content)
+		mnemonic = await withTimeout(
+			nostr.nip44.decrypt(pubkey, latestEvent.content),
+			DECRYPT_TIMEOUT,
+			'Decryption timed out. Please approve the decryption request in your Nostr extension.'
+		)
 	}
 
 	if (!mnemonic) {

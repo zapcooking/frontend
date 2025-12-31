@@ -290,7 +290,7 @@ export async function refreshBalance(sync = false): Promise<number | null> {
  */
 export async function sendPayment(
 	invoice: string,
-	metadata?: { amount?: number; description?: string; comment?: string }
+	metadata?: { amount?: number; description?: string; comment?: string; pubkey?: string }
 ): Promise<{ success: boolean; preimage?: string; error?: string }> {
 	const wallet = getActiveWallet()
 
@@ -308,7 +308,9 @@ export async function sendPayment(
 			type: 'outgoing',
 			amount: metadata.amount,
 			description: metadata.description || 'Sending payment...',
-			timestamp: Math.floor(Date.now() / 1000)
+			timestamp: Math.floor(Date.now() / 1000),
+			pubkey: metadata.pubkey,
+			walletId: wallet.id
 		})
 	}
 
@@ -519,6 +521,8 @@ export interface Transaction {
 	timestamp: number // unix timestamp
 	fees?: number // in sats
 	status?: 'pending' | 'completed' | 'failed'
+	pubkey?: string // Nostr pubkey for zap sender/recipient
+	walletId?: number // ID of wallet this transaction belongs to
 }
 
 /**

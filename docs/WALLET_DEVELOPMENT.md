@@ -665,7 +665,7 @@ async function restoreWalletFromNostr(pubkey: string, apiKey: string) {
   const encryptionTag = event.tags.find(t => t[0] === 'encryption')
   const encryptionMethod = encryptionTag?.[1] || 'nip44'
 
-  // 3. Decrypt with appropriate method
+  // 3. Decrypt with appropriate method (WITH TIMEOUT - see below)
   let mnemonic: string
   if (encryptionMethod === 'nip04') {
     mnemonic = await nostr.nip04.decrypt(pubkey, event.content)
@@ -680,6 +680,34 @@ async function restoreWalletFromNostr(pubkey: string, apiKey: string) {
   await getLightningAddress()
 }
 ```
+
+#### Decrypt Timeout - CRITICAL
+**The Nostr extension decrypt calls (nip04/nip44) can hang indefinitely** if the user doesn't approve the prompt or the extension has issues. Always wrap decrypt operations with a 15-second timeout:
+
+```typescript
+const DECRYPT_TIMEOUT = 15000
+
+const withTimeout = <T>(promise: Promise<T>, ms: number, message: string): Promise<T> => {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) =>
+      setTimeout(() => reject(new Error(message)), ms)
+    )
+  ])
+}
+
+// Usage
+mnemonic = await withTimeout(
+  nostr.nip44.decrypt(pubkey, encryptedContent),
+  DECRYPT_TIMEOUT,
+  'Decryption timed out. Please approve the decryption request in your Nostr extension.'
+)
+```
+
+This prevents the UI from hanging forever when:
+- User ignores the extension popup
+- Extension crashes or becomes unresponsive
+- Extension doesn't properly handle the decrypt request
 
 #### Pubkey Validation
 When restoring from backup file, verify the backup belongs to the current user:

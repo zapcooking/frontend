@@ -77,6 +77,8 @@
   import UserCirclePlusIcon from 'phosphor-svelte/lib/UserCirclePlus';
   import SparkLogo from '../../components/icons/SparkLogo.svelte';
   import NwcLogo from '../../components/icons/NwcLogo.svelte';
+  import CustomAvatar from '../../components/CustomAvatar.svelte';
+  import CustomName from '../../components/CustomName.svelte';
 
   let showAddWallet = false;
   let selectedWalletType: WalletKind | null = null;
@@ -143,6 +145,11 @@
   // Check if user has maximum wallets (2)
   $: hasMaxWallets = $wallets.length >= 2;
 
+  // Filter pending transactions to only show those for the active wallet
+  $: filteredPendingTransactions = $pendingTransactions.filter(
+    tx => !tx.walletId || tx.walletId === $activeWallet?.id
+  );
+
   // Transaction history state
   let transactions: Transaction[] = [];
   let isLoadingHistory = false;
@@ -163,6 +170,7 @@
   let invoicePollInterval: ReturnType<typeof setInterval> | null = null;
   let invoicePaid = false;
   let balanceBeforeInvoice: number | null = null; // For Spark balance-based detection
+  let showLightningAddressQr: string | null = null; // Lightning address to show QR for
   let isSending = false;
   let isGeneratingInvoice = false;
   let sendError = '';
@@ -184,6 +192,8 @@
   interface TransactionMetadata {
     description?: string;
     recipient?: string; // Lightning address or npub
+    pubkey?: string; // Nostr pubkey for zap sender/recipient
+    comment?: string; // Zap comment
   }
 
   function getTransactionMetadata(txId: string): TransactionMetadata | null {
@@ -481,10 +491,19 @@
 
           if (matchingRealIndex >= 0) {
             const matchingReal = transactions[matchingRealIndex];
-            if (pendingTx.description && (!matchingReal.description || matchingReal.description === 'Sent')) {
-              transactions[matchingRealIndex] = { ...matchingReal, description: pendingTx.description };
-              saveTransactionMetadata(matchingReal.id, { description: pendingTx.description });
-            }
+            // Transfer description, pubkey, and comment from pending to real transaction
+            transactions[matchingRealIndex] = {
+              ...matchingReal,
+              description: pendingTx.description || matchingReal.description,
+              pubkey: pendingTx.pubkey || matchingReal.pubkey,
+              comment: pendingTx.comment || matchingReal.comment
+            };
+            // Save metadata for persistence (keyed by real transaction ID)
+            saveTransactionMetadata(matchingReal.id, {
+              description: pendingTx.description,
+              pubkey: pendingTx.pubkey,
+              comment: pendingTx.comment
+            });
             removePendingTransaction(pendingTx.id);
           } else if (now - pendingTx.timestamp > 600) {
             removePendingTransaction(pendingTx.id);
@@ -494,11 +513,18 @@
         }
       }
 
-      // Apply any saved metadata to transactions
+      // Apply any saved metadata to transactions (description, pubkey, comment)
       transactions = transactions.map(tx => {
         const savedMeta = getTransactionMetadata(tx.id);
-        if (savedMeta?.description && (!tx.description || tx.description === 'Sent' || tx.description === 'Received')) {
-          return { ...tx, description: savedMeta.description };
+        if (savedMeta) {
+          return {
+            ...tx,
+            description: savedMeta.description && (!tx.description || tx.description === 'Sent' || tx.description === 'Received')
+              ? savedMeta.description
+              : tx.description,
+            pubkey: savedMeta.pubkey || tx.pubkey,
+            comment: savedMeta.comment || tx.comment
+          };
         }
         return tx;
       });
@@ -539,22 +565,22 @@
           ? `⚡ Zap from ${displayName}`
           : `⚡ Zap to ${displayName}`;
 
-        // Update the transaction in place (always update to capture comment)
+        // Update the transaction in place (always update to capture comment and pubkey)
         transactions[i] = {
           ...tx,
           description: needsEnrichment ? zapDescription : tx.description,
-          comment: zapInfo.comment
+          comment: zapInfo.comment,
+          pubkey: zapInfo.pubkey
         };
         // Trigger Svelte reactivity
         transactions = transactions;
 
-        // Save to metadata for persistence
-        if (needsEnrichment) {
-          saveTransactionMetadata(tx.id, {
-            description: zapDescription,
-            recipient: zapInfo.pubkey
-          });
-        }
+        // Save to metadata for persistence (always save pubkey and comment)
+        saveTransactionMetadata(tx.id, {
+          description: needsEnrichment ? zapDescription : tx.description,
+          pubkey: zapInfo.pubkey,
+          comment: zapInfo.comment
+        });
       }
     }
   }
@@ -1356,14 +1382,14 @@
             {/if}
           </button>
           <button
-            class="flex items-center gap-1 text-sm text-caption hover:text-primary transition-colors cursor-pointer"
+            class="text-caption hover:text-primary transition-colors cursor-pointer disabled:opacity-50"
             on:click={() => refreshBalance()}
             disabled={$walletLoading}
+            title="Refresh balance"
           >
             <span class:animate-spin={$walletLoading}>
               <ArrowsClockwiseIcon size={16} />
             </span>
-            Refresh
           </button>
         </div>
       </div>
@@ -1526,6 +1552,16 @@
                       <div class="text-sm text-caption mb-1">Your lightning address:</div>
                       <div class="font-medium text-primary-color flex items-center gap-2">
                         {$sparkLightningAddressStore}
+                        <button
+                          class="text-caption hover:text-primary transition-colors cursor-pointer"
+                          title="Copy lightning address"
+                          on:click={async () => {
+                            const copied = await copyToClipboard($sparkLightningAddressStore || '');
+                            if (copied) successMessage = 'Lightning address copied!';
+                          }}
+                        >
+                          <CopyIcon size={16} />
+                        </button>
                         {#if isLoadingProfileLud16}
                           <div class="w-4 h-4 border-2 border-amber-500 border-t-transparent rounded-full animate-spin"></div>
                         {:else if isProfileSynced}
@@ -1705,6 +1741,16 @@
                       <div class="text-sm text-caption mb-1">From NWC connection:</div>
                       <div class="font-medium text-primary-color flex items-center gap-2">
                         {walletNwcLud16}
+                        <button
+                          class="text-caption hover:text-primary transition-colors cursor-pointer"
+                          title="Copy lightning address"
+                          on:click={async () => {
+                            const copied = await copyToClipboard(walletNwcLud16);
+                            if (copied) successMessage = 'Lightning address copied!';
+                          }}
+                        >
+                          <CopyIcon size={16} />
+                        </button>
                         {#if isLoadingProfileLud16}
                           <div class="w-4 h-4 border-2 border-amber-500 border-t-transparent rounded-full animate-spin"></div>
                         {:else if profileLud16 && walletNwcLud16.toLowerCase().trim() === profileLud16.toLowerCase().trim()}
@@ -1796,37 +1842,63 @@
             <ClockIcon size={20} />
             Recent Transactions
           </h2>
+          <button
+            on:click={() => loadTransactionHistory(true)}
+            disabled={isLoadingHistory}
+            class="p-2 rounded-lg hover:bg-input transition-colors disabled:opacity-50"
+            title="Refresh transactions"
+          >
+            <ArrowsClockwiseIcon size={20} class="{isLoadingHistory ? 'animate-spin' : ''} text-caption" />
+          </button>
         </div>
 
-        {#if isLoadingHistory && transactions.length === 0 && $pendingTransactions.length === 0}
+        {#if isLoadingHistory && transactions.length === 0 && filteredPendingTransactions.length === 0}
         <div class="p-8 rounded-2xl text-center bg-input border border-input">
           <div class="animate-pulse text-caption">Loading transactions...</div>
         </div>
-      {:else if transactions.length === 0 && $pendingTransactions.length === 0}
+      {:else if transactions.length === 0 && filteredPendingTransactions.length === 0}
         <div class="p-8 rounded-2xl text-center bg-input border border-input">
           <ClockIcon size={48} class="mx-auto mb-4 text-caption" />
           <p class="text-caption">No transactions yet</p>
         </div>
       {:else}
         <div class="space-y-2">
-          <!-- Pending/completed transactions shown first -->
-          {#each $pendingTransactions as tx (tx.id)}
+          <!-- Pending/completed transactions shown first (filtered to active wallet) -->
+          {#each filteredPendingTransactions as tx (tx.id)}
             {#if tx.status === 'completed'}
-              <!-- Completed but not yet in history -->
-              <div class="p-4 rounded-xl flex items-center gap-4 bg-input border border-green-500/50">
-                <div class="w-10 h-10 rounded-full flex items-center justify-center bg-green-500/20">
-                  <ArrowUpIcon size={20} class="text-green-500" />
-                </div>
+              <!-- Completed but not yet in history (outgoing = orange) -->
+              <div class="p-4 rounded-xl flex items-center gap-4 bg-input border border-orange-500/50">
+                {#if tx.pubkey}
+                  <a href="/user/{nip19.npubEncode(tx.pubkey)}" class="flex-shrink-0">
+                    <CustomAvatar pubkey={tx.pubkey} size={40} />
+                  </a>
+                {:else}
+                  <div class="w-10 h-10 rounded-full flex items-center justify-center bg-orange-500/20">
+                    <ArrowUpIcon size={20} class="text-orange-500" />
+                  </div>
+                {/if}
                 <div class="flex-1 min-w-0">
                   <div class="font-medium truncate text-primary-color">
-                    {tx.description || 'Payment sent'}
+                    {#if tx.pubkey}
+                      <span class="text-orange-500">⚡ to</span>
+                      <a href="/user/{nip19.npubEncode(tx.pubkey)}" class="hover:underline">
+                        <CustomName pubkey={tx.pubkey} />
+                      </a>
+                    {:else}
+                      {tx.description || 'Payment sent'}
+                    {/if}
                   </div>
-                  <div class="text-sm text-green-500">
+                  {#if tx.comment}
+                    <div class="text-sm text-primary-color italic truncate">
+                      "{tx.comment}"
+                    </div>
+                  {/if}
+                  <div class="text-sm text-orange-500">
                     ✓ Payment sent
                   </div>
                 </div>
                 <div class="text-right">
-                  <div class="font-semibold text-green-500">
+                  <div class="font-semibold text-orange-500">
                     {#if $balanceVisible}
                       -{tx.amount.toLocaleString()} sats
                     {:else}
@@ -1838,13 +1910,31 @@
             {:else}
               <!-- Still pending -->
               <div class="p-4 rounded-xl flex items-center gap-4 bg-input border border-amber-500/50 animate-pulse">
-                <div class="w-10 h-10 rounded-full flex items-center justify-center bg-amber-500/20">
-                  <ArrowUpIcon size={20} class="text-amber-500" />
-                </div>
+                {#if tx.pubkey}
+                  <a href="/user/{nip19.npubEncode(tx.pubkey)}" class="flex-shrink-0">
+                    <CustomAvatar pubkey={tx.pubkey} size={40} />
+                  </a>
+                {:else}
+                  <div class="w-10 h-10 rounded-full flex items-center justify-center bg-amber-500/20">
+                    <ArrowUpIcon size={20} class="text-amber-500" />
+                  </div>
+                {/if}
                 <div class="flex-1 min-w-0">
                   <div class="font-medium truncate text-primary-color">
-                    {tx.description || 'Sending...'}
+                    {#if tx.pubkey}
+                      <span class="text-amber-500">⚡ to</span>
+                      <a href="/user/{nip19.npubEncode(tx.pubkey)}" class="hover:underline">
+                        <CustomName pubkey={tx.pubkey} />
+                      </a>
+                    {:else}
+                      {tx.description || 'Sending...'}
+                    {/if}
                   </div>
+                  {#if tx.comment}
+                    <div class="text-sm text-primary-color italic truncate">
+                      "{tx.comment}"
+                    </div>
+                  {/if}
                   <div class="text-sm text-amber-500">
                     Sending payment...
                   </div>
@@ -1867,17 +1957,37 @@
             {#if tx.status === 'pending'}
               <!-- Pending transaction from SDK -->
               <div class="p-4 rounded-xl flex items-center gap-4 bg-input border border-amber-500/50 animate-pulse">
-                <div class="w-10 h-10 rounded-full flex items-center justify-center bg-amber-500/20">
-                  {#if tx.type === 'incoming'}
-                    <ArrowDownIcon size={20} class="text-amber-500" />
-                  {:else}
-                    <ArrowUpIcon size={20} class="text-amber-500" />
-                  {/if}
-                </div>
+                {#if tx.pubkey}
+                  <a href="/user/{nip19.npubEncode(tx.pubkey)}" class="flex-shrink-0">
+                    <CustomAvatar pubkey={tx.pubkey} size={40} />
+                  </a>
+                {:else}
+                  <div class="w-10 h-10 rounded-full flex items-center justify-center bg-amber-500/20">
+                    {#if tx.type === 'incoming'}
+                      <ArrowDownIcon size={20} class="text-amber-500" />
+                    {:else}
+                      <ArrowUpIcon size={20} class="text-amber-500" />
+                    {/if}
+                  </div>
+                {/if}
                 <div class="flex-1 min-w-0">
                   <div class="font-medium truncate text-primary-color">
-                    {tx.description || (tx.type === 'incoming' ? 'Receiving...' : 'Sending...')}
+                    {#if tx.pubkey}
+                      <span class="text-amber-500">
+                        {tx.type === 'incoming' ? '⚡ from' : '⚡ to'}
+                      </span>
+                      <a href="/user/{nip19.npubEncode(tx.pubkey)}" class="hover:underline">
+                        <CustomName pubkey={tx.pubkey} />
+                      </a>
+                    {:else}
+                      {tx.description || (tx.type === 'incoming' ? 'Receiving...' : 'Sending...')}
+                    {/if}
                   </div>
+                  {#if tx.comment}
+                    <div class="text-sm text-primary-color italic truncate">
+                      "{tx.comment}"
+                    </div>
+                  {/if}
                   <div class="text-sm text-amber-500">
                     {tx.type === 'incoming' ? 'Receiving payment...' : 'Sending payment...'}
                   </div>
@@ -1895,16 +2005,31 @@
             {:else}
               <!-- Completed transaction -->
               <div class="p-4 rounded-xl flex items-center gap-4 bg-input border border-input">
-                <div class="w-10 h-10 rounded-full flex items-center justify-center {tx.type === 'incoming' ? 'bg-green-500/20' : 'bg-orange-500/20'}">
-                  {#if tx.type === 'incoming'}
-                    <ArrowDownIcon size={20} class="text-green-500" />
-                  {:else}
-                    <ArrowUpIcon size={20} class="text-orange-500" />
-                  {/if}
-                </div>
+                {#if tx.pubkey}
+                  <a href="/user/{nip19.npubEncode(tx.pubkey)}" class="flex-shrink-0">
+                    <CustomAvatar pubkey={tx.pubkey} size={40} />
+                  </a>
+                {:else}
+                  <div class="w-10 h-10 rounded-full flex items-center justify-center {tx.type === 'incoming' ? 'bg-green-500/20' : 'bg-orange-500/20'}">
+                    {#if tx.type === 'incoming'}
+                      <ArrowDownIcon size={20} class="text-green-500" />
+                    {:else}
+                      <ArrowUpIcon size={20} class="text-orange-500" />
+                    {/if}
+                  </div>
+                {/if}
                 <div class="flex-1 min-w-0">
                   <div class="font-medium truncate text-primary-color">
-                    {tx.description || (tx.type === 'incoming' ? 'Received' : 'Sent')}
+                    {#if tx.pubkey}
+                      <span class="{tx.type === 'incoming' ? 'text-green-500' : 'text-orange-500'}">
+                        {tx.type === 'incoming' ? '⚡ from' : '⚡ to'}
+                      </span>
+                      <a href="/user/{nip19.npubEncode(tx.pubkey)}" class="hover:underline">
+                        <CustomName pubkey={tx.pubkey} />
+                      </a>
+                    {:else}
+                      {tx.description || (tx.type === 'incoming' ? 'Received' : 'Sent')}
+                    {/if}
                   </div>
                   {#if tx.comment}
                     <div class="text-sm text-primary-color italic truncate">
@@ -2513,7 +2638,7 @@
             {#if $activeWallet?.kind === 3}
               <!-- NWC wallet -->
               {#if nwcLud16}
-                <div class="mt-6 pt-6 border-t border-input">
+                <div class="mt-6">
                   <div class="flex items-center gap-3 text-caption text-sm mb-4">
                     <div class="flex-1 h-px bg-input"></div>
                     <span>or receive via Lightning Address</span>
@@ -2525,24 +2650,39 @@
                       <LightningIcon size={20} class="text-amber-500 flex-shrink-0" />
                       <span class="text-primary-color font-mono text-sm truncate">{nwcLud16}</span>
                     </div>
-                    <button
-                      class="flex-shrink-0 p-2 rounded-lg hover:bg-primary/10 transition-colors"
-                      on:click={async () => {
-                        const copied = await copyToClipboard(nwcLud16);
-                        if (copied) {
-                          successMessage = 'Lightning address copied!';
-                          setTimeout(() => successMessage = '', 2000);
-                        }
-                      }}
-                      title="Copy Lightning address"
-                    >
-                      <CopyIcon size={18} class="text-caption hover:text-amber-500" />
-                    </button>
+                    <div class="flex items-center gap-1">
+                      <button
+                        class="flex-shrink-0 p-2 rounded-lg hover:bg-primary/10 transition-colors"
+                        on:click={() => showLightningAddressQr = showLightningAddressQr === nwcLud16 ? null : nwcLud16}
+                        title="Show QR code"
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 256 256" class="text-caption hover:text-amber-500"><path fill="currentColor" d="M104 40H56a16 16 0 0 0-16 16v48a16 16 0 0 0 16 16h48a16 16 0 0 0 16-16V56a16 16 0 0 0-16-16Zm0 64H56V56h48v48Zm0 32H56a16 16 0 0 0-16 16v48a16 16 0 0 0 16 16h48a16 16 0 0 0 16-16v-48a16 16 0 0 0-16-16Zm0 64H56v-48h48v48Zm96-160h-48a16 16 0 0 0-16 16v48a16 16 0 0 0 16 16h48a16 16 0 0 0 16-16V56a16 16 0 0 0-16-16Zm0 64h-48V56h48v48Zm-64 72v-8a8 8 0 0 1 16 0v8a8 8 0 0 1-16 0Zm80-24h-24v-8a8 8 0 0 1 16 0v8h8a8 8 0 0 1 0 16Zm0 48a8 8 0 0 1-8 8h-16v8a8 8 0 0 1-16 0v-16a8 8 0 0 1 8-8h24a8 8 0 0 1 8 8Zm-48 24a8 8 0 0 1-8 8h-8a8 8 0 0 1 0-16h8a8 8 0 0 1 8 8Zm48-48v16a8 8 0 0 1-16 0v-16a8 8 0 0 1 16 0Z"/></svg>
+                      </button>
+                      <button
+                        class="flex-shrink-0 p-2 rounded-lg hover:bg-primary/10 transition-colors"
+                        on:click={async () => {
+                          const copied = await copyToClipboard(nwcLud16);
+                          if (copied) {
+                            successMessage = 'Lightning address copied!';
+                            setTimeout(() => successMessage = '', 2000);
+                          }
+                        }}
+                        title="Copy Lightning address"
+                      >
+                        <CopyIcon size={18} class="text-caption hover:text-amber-500" />
+                      </button>
+                    </div>
                   </div>
+
+                  {#if showLightningAddressQr === nwcLud16}
+                    <div class="mt-4 p-4 rounded-lg bg-white flex justify-center" style="color: #000000;">
+                      <svg use:qr={{ data: nwcLud16, shape: 'circle' }} class="w-48 h-48" />
+                    </div>
+                  {/if}
                 </div>
               {:else}
                 <!-- NWC without lud16 - show disclaimer -->
-                <div class="mt-6 pt-6 border-t border-input">
+                <div class="mt-6">
                   <div class="p-4 rounded-lg bg-input/50 text-center">
                     <InfoIcon size={24} class="text-caption mx-auto mb-2" />
                     <p class="text-sm text-caption">
@@ -2554,7 +2694,7 @@
             {:else if $activeWallet?.kind === 4}
               <!-- Spark wallet -->
               {#if $sparkLightningAddressStore}
-                <div class="mt-6 pt-6 border-t border-input">
+                <div class="mt-6">
                   <div class="flex items-center gap-3 text-caption text-sm mb-4">
                     <div class="flex-1 h-px bg-input"></div>
                     <span>or receive via Lightning Address</span>
@@ -2566,23 +2706,38 @@
                       <LightningIcon size={20} class="text-amber-500 flex-shrink-0" />
                       <span class="text-primary-color font-mono text-sm truncate">{$sparkLightningAddressStore}</span>
                     </div>
-                    <button
-                      class="flex-shrink-0 p-2 rounded-lg hover:bg-primary/10 transition-colors"
-                      on:click={async () => {
-                        const copied = await copyToClipboard($sparkLightningAddressStore || '');
-                        if (copied) {
-                          successMessage = 'Lightning address copied!';
-                          setTimeout(() => successMessage = '', 2000);
-                        }
-                      }}
-                      title="Copy Lightning address"
-                    >
-                      <CopyIcon size={18} class="text-caption hover:text-amber-500" />
-                    </button>
+                    <div class="flex items-center gap-1">
+                      <button
+                        class="flex-shrink-0 p-2 rounded-lg hover:bg-primary/10 transition-colors"
+                        on:click={() => showLightningAddressQr = showLightningAddressQr === $sparkLightningAddressStore ? null : $sparkLightningAddressStore}
+                        title="Show QR code"
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 256 256" class="text-caption hover:text-amber-500"><path fill="currentColor" d="M104 40H56a16 16 0 0 0-16 16v48a16 16 0 0 0 16 16h48a16 16 0 0 0 16-16V56a16 16 0 0 0-16-16Zm0 64H56V56h48v48Zm0 32H56a16 16 0 0 0-16 16v48a16 16 0 0 0 16 16h48a16 16 0 0 0 16-16v-48a16 16 0 0 0-16-16Zm0 64H56v-48h48v48Zm96-160h-48a16 16 0 0 0-16 16v48a16 16 0 0 0 16 16h48a16 16 0 0 0 16-16V56a16 16 0 0 0-16-16Zm0 64h-48V56h48v48Zm-64 72v-8a8 8 0 0 1 16 0v8a8 8 0 0 1-16 0Zm80-24h-24v-8a8 8 0 0 1 16 0v8h8a8 8 0 0 1 0 16Zm0 48a8 8 0 0 1-8 8h-16v8a8 8 0 0 1-16 0v-16a8 8 0 0 1 8-8h24a8 8 0 0 1 8 8Zm-48 24a8 8 0 0 1-8 8h-8a8 8 0 0 1 0-16h8a8 8 0 0 1 8 8Zm48-48v16a8 8 0 0 1-16 0v-16a8 8 0 0 1 16 0Z"/></svg>
+                      </button>
+                      <button
+                        class="flex-shrink-0 p-2 rounded-lg hover:bg-primary/10 transition-colors"
+                        on:click={async () => {
+                          const copied = await copyToClipboard($sparkLightningAddressStore || '');
+                          if (copied) {
+                            successMessage = 'Lightning address copied!';
+                            setTimeout(() => successMessage = '', 2000);
+                          }
+                        }}
+                        title="Copy Lightning address"
+                      >
+                        <CopyIcon size={18} class="text-caption hover:text-amber-500" />
+                      </button>
+                    </div>
                   </div>
+
+                  {#if showLightningAddressQr === $sparkLightningAddressStore}
+                    <div class="mt-4 p-4 rounded-lg bg-white flex justify-center" style="color: #000000;">
+                      <svg use:qr={{ data: $sparkLightningAddressStore, shape: 'circle' }} class="w-48 h-48" />
+                    </div>
+                  {/if}
                 </div>
               {:else}
-                <div class="mt-6 pt-6 border-t border-input">
+                <div class="mt-6">
                   <p class="text-sm text-caption text-center">
                     Register a Lightning address in your wallet settings to receive payments easily.
                   </p>
