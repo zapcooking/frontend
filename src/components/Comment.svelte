@@ -839,7 +839,6 @@
     opacity: 0.8;
   }
 
-  /* Mention dropdown */
   /* Mention dropdown - compact and scrollable */
   .mention-dropdown {
     position: absolute;
