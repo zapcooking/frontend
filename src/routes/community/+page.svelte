@@ -64,16 +64,6 @@
   let mentionSearchTimeout: ReturnType<typeof setTimeout>;
   let mentionSearching = false;
 
-  // Global search state
-  let searchQuery = '';
-  let showSearchResults = false;
-  let searchTab: 'users' | 'notes' = 'users';
-  let searchingUsers = false;
-  let searchingNotes = false;
-  let userSearchResults: { name: string; npub: string; picture?: string; pubkey: string; nip05?: string }[] = [];
-  let noteSearchResults: NDKEvent[] = [];
-  let searchDebounceTimeout: ReturnType<typeof setTimeout>;
-
   // Listen for quote-note events from NoteRepost component
   function handleQuoteNote(e: CustomEvent) {
     quotedNote = e.detail;
@@ -100,9 +90,6 @@
     }
     if (mentionSearchTimeout) {
       clearTimeout(mentionSearchTimeout);
-    }
-    if (searchDebounceTimeout) {
-      clearTimeout(searchDebounceTimeout);
     }
   });
 
@@ -543,145 +530,6 @@
     return mentions;
   }
 
-  // Global search functions
-  function handleSearchInput(event: Event) {
-    const target = event.target as HTMLInputElement;
-    searchQuery = target.value;
-    
-    if (searchDebounceTimeout) clearTimeout(searchDebounceTimeout);
-    
-    if (searchQuery.trim().length === 0) {
-      showSearchResults = false;
-      userSearchResults = [];
-      noteSearchResults = [];
-      return;
-    }
-    
-    showSearchResults = true;
-    
-    searchDebounceTimeout = setTimeout(() => {
-      if (searchQuery.trim().length >= 2) {
-        performSearch(searchQuery.trim());
-      }
-    }, 300);
-  }
-
-  async function performSearch(query: string) {
-    // Search both users and notes in parallel
-    searchUsers(query);
-    searchNotes(query);
-  }
-
-  async function searchUsers(query: string) {
-    if (!$ndk) return;
-    
-    searchingUsers = true;
-    const queryLower = query.toLowerCase();
-    const results: { name: string; npub: string; picture?: string; pubkey: string; nip05?: string }[] = [];
-    
-    // First search local cache
-    for (const profile of mentionProfileCache.values()) {
-      const nameMatch = profile.name.toLowerCase().includes(queryLower);
-      const nip05Match = profile.nip05?.toLowerCase().includes(queryLower);
-      
-      if (nameMatch || nip05Match) {
-        results.push(profile);
-        if (results.length >= 5) break;
-      }
-    }
-    
-    // Then search network
-    try {
-      const searchResults = await $ndk.fetchEvents({
-        kinds: [0],
-        search: query,
-        limit: 30
-      });
-      
-      for (const event of searchResults) {
-        if (results.some(r => r.pubkey === event.pubkey)) continue;
-        
-        try {
-          const profile = JSON.parse(event.content);
-          const name = profile.display_name || profile.name || '';
-          const nip05 = profile.nip05;
-          
-          const nameMatch = name.toLowerCase().includes(queryLower);
-          const nip05Match = nip05?.toLowerCase().includes(queryLower);
-          
-          if (nameMatch || nip05Match) {
-            const profileData = {
-              name: name || nip05?.split('@')[0] || 'Unknown',
-              npub: nip19.npubEncode(event.pubkey),
-              picture: profile.picture,
-              pubkey: event.pubkey,
-              nip05
-            };
-            results.push(profileData);
-            // Cache for future use
-            mentionProfileCache.set(event.pubkey, profileData);
-            if (results.length >= 15) break;
-          }
-        } catch {}
-      }
-    } catch (e) {
-      console.debug('User search failed:', e);
-    }
-    
-    userSearchResults = results;
-    searchingUsers = false;
-  }
-
-  async function searchNotes(query: string) {
-    if (!$ndk) return;
-    
-    searchingNotes = true;
-    
-    try {
-      // Search for notes using NIP-50
-      const searchResults = await $ndk.fetchEvents({
-        kinds: [1],
-        search: query,
-        limit: 30
-      });
-      
-      // Filter and sort by time
-      const results = Array.from(searchResults)
-        .filter(e => e.content && e.content.length > 0)
-        .sort((a, b) => (b.created_at || 0) - (a.created_at || 0))
-        .slice(0, 15);
-      
-      noteSearchResults = results;
-    } catch (e) {
-      console.debug('Note search failed:', e);
-      noteSearchResults = [];
-    }
-    
-    searchingNotes = false;
-  }
-
-  function clearSearch() {
-    searchQuery = '';
-    showSearchResults = false;
-    userSearchResults = [];
-    noteSearchResults = [];
-  }
-
-  function handleSearchKeydown(event: KeyboardEvent) {
-    if (event.key === 'Escape') {
-      clearSearch();
-    }
-  }
-
-  function navigateToUser(pubkey: string) {
-    clearSearch();
-    goto(`/user/${nip19.npubEncode(pubkey)}`);
-  }
-
-  function navigateToNote(eventId: string) {
-    clearSearch();
-    goto(`/${nip19.noteEncode(eventId)}`);
-  }
 </script>
 
 <svelte:head>
@@ -887,142 +735,6 @@
     </div>
   {/if}
 
-  <!-- Search Bar -->
-  <div class="mb-4 relative">
-    <div class="relative">
-      <input
-        type="text"
-        bind:value={searchQuery}
-        on:input={handleSearchInput}
-        on:keydown={handleSearchKeydown}
-        placeholder="Search users or notes..."
-        class="w-full px-4 py-2.5 pl-10 text-sm rounded-xl bg-input focus:ring-2 focus:ring-primary focus:outline-none"
-        style="border: 1px solid var(--color-input-border); color: var(--color-text-primary)"
-      />
-      <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4" style="color: var(--color-caption)" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-      </svg>
-      {#if searchQuery}
-        <button
-          on:click={clearSearch}
-          class="absolute right-3 top-1/2 -translate-y-1/2 p-1 hover:bg-accent-gray rounded-full transition-colors"
-        >
-          <svg class="w-4 h-4" style="color: var(--color-caption)" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-          </svg>
-        </button>
-      {/if}
-    </div>
-
-    <!-- Search Results Dropdown -->
-    {#if showSearchResults}
-      <div 
-        class="absolute z-50 mt-2 w-full bg-input rounded-xl shadow-xl border overflow-hidden"
-        style="border-color: var(--color-input-border); max-height: 400px;"
-      >
-        <!-- Search Tabs -->
-        <div class="flex border-b" style="border-color: var(--color-input-border)">
-          <button
-            on:click={() => searchTab = 'users'}
-            class="flex-1 px-4 py-2.5 text-sm font-medium transition-colors relative"
-            style="color: {searchTab === 'users' ? 'var(--color-text-primary)' : 'var(--color-caption)'}"
-          >
-            Users {#if userSearchResults.length > 0}<span class="text-xs ml-1">({userSearchResults.length})</span>{/if}
-            {#if searchTab === 'users'}
-              <span class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-orange-500 to-amber-500"></span>
-            {/if}
-          </button>
-          <button
-            on:click={() => searchTab = 'notes'}
-            class="flex-1 px-4 py-2.5 text-sm font-medium transition-colors relative"
-            style="color: {searchTab === 'notes' ? 'var(--color-text-primary)' : 'var(--color-caption)'}"
-          >
-            Notes {#if noteSearchResults.length > 0}<span class="text-xs ml-1">({noteSearchResults.length})</span>{/if}
-            {#if searchTab === 'notes'}
-              <span class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-orange-500 to-amber-500"></span>
-            {/if}
-          </button>
-        </div>
-
-        <!-- Results Content -->
-        <div class="overflow-y-auto" style="max-height: 340px;">
-          {#if searchTab === 'users'}
-            {#if searchingUsers}
-              <div class="px-4 py-6 text-center text-caption text-sm">
-                <div class="animate-pulse">Searching users...</div>
-              </div>
-            {:else if userSearchResults.length === 0}
-              <div class="px-4 py-6 text-center text-caption text-sm">
-                {#if searchQuery.length < 2}
-                  Type at least 2 characters to search
-                {:else}
-                  No users found for "{searchQuery}"
-                {/if}
-              </div>
-            {:else}
-              {#each userSearchResults as user}
-                <button
-                  on:click={() => navigateToUser(user.pubkey)}
-                  class="w-full flex items-center gap-3 px-4 py-3 hover:bg-accent-gray transition-colors text-left"
-                >
-                  <CustomAvatar pubkey={user.pubkey} size={40} />
-                  <div class="flex flex-col min-w-0 flex-1">
-                    <span class="font-medium truncate" style="color: var(--color-text-primary)">{user.name}</span>
-                    {#if user.nip05}
-                      <span class="text-xs truncate" style="color: var(--color-caption)">{user.nip05}</span>
-                    {:else}
-                      <span class="text-xs truncate" style="color: var(--color-caption)">{user.npub.slice(0, 20)}...</span>
-                    {/if}
-                  </div>
-                  <svg class="w-4 h-4 flex-shrink-0" style="color: var(--color-caption)" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
-                  </svg>
-                </button>
-              {/each}
-            {/if}
-          {:else}
-            {#if searchingNotes}
-              <div class="px-4 py-6 text-center text-caption text-sm">
-                <div class="animate-pulse">Searching notes...</div>
-              </div>
-            {:else if noteSearchResults.length === 0}
-              <div class="px-4 py-6 text-center text-caption text-sm">
-                {#if searchQuery.length < 2}
-                  Type at least 2 characters to search
-                {:else}
-                  No notes found for "{searchQuery}"
-                {/if}
-              </div>
-            {:else}
-              {#each noteSearchResults as note}
-                <button
-                  on:click={() => navigateToNote(note.id)}
-                  class="w-full px-4 py-3 hover:bg-accent-gray transition-colors text-left border-b"
-                  style="border-color: var(--color-input-border)"
-                >
-                  <div class="flex items-start gap-3">
-                    <CustomAvatar pubkey={note.pubkey} size={32} />
-                    <div class="flex-1 min-w-0">
-                      <div class="flex items-center gap-2 mb-1">
-                        <ProfileLink nostrString={nip19.npubEncode(note.pubkey)} className="text-sm font-medium" />
-                        <span class="text-xs" style="color: var(--color-caption)">
-                          {note.created_at ? new Date(note.created_at * 1000).toLocaleDateString() : ''}
-                        </span>
-                      </div>
-                      <p class="text-sm line-clamp-2" style="color: var(--color-text-secondary)">
-                        {note.content.slice(0, 150)}{note.content.length > 150 ? '...' : ''}
-                      </p>
-                    </div>
-                  </div>
-                </button>
-              {/each}
-            {/if}
-          {/if}
-        </div>
-      </div>
-    {/if}
-  </div>
-
   <!-- Filter Tabs -->
   <div class="mb-4 border-b" style="border-color: var(--color-input-border)">
     <div class="flex gap-1">
@@ -1092,12 +804,4 @@
     }
   }
 
-  /* Line clamp for note previews */
-  .line-clamp-2 {
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    line-clamp: 2;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
-  }
 </style>
