@@ -34,7 +34,8 @@
   <div class="loading-content">
     {#if type === 'spinner'}
       <div class="spinner" style="width: {currentSize.spinner}px; height: {currentSize.spinner}px;">
-        <img src="/pan-animated.svg" alt="Loading" />
+        <img src="/pan-animated.svg" alt="Loading" class="light-only" />
+        <img src="/pan-animated-dark.svg" alt="Loading" class="dark-only" />
       </div>
       {:else if type === 'dots'}
       <div class="dots">
@@ -84,6 +85,14 @@
 
   .spinner svg {
     @apply animate-spin;
+  }
+
+  .spinner .light-only {
+    @apply block dark:hidden;
+  }
+
+  .spinner .dark-only {
+    @apply hidden dark:block;
   }
 
   .dots {
