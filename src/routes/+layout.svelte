@@ -20,10 +20,13 @@
   // Site-wide meta tag defaults
   const siteUrl = 'https://zap.cooking';
   const title = 'Zap Cooking';
-  const ogTitle = 'Zap Cooking - A place to share food with friends';
-  const description = 'A place to share food with friends';
+  const ogTitle = 'Zap Cooking - Food. Friends. Freedom.';
+  const description = 'A place where food culture can live openly and grow naturally. Share recipes, support creators directly, no algorithms or ads.';
   const ogImage = `${siteUrl}/social-share.png`;
   $: canonical = `${siteUrl}${$page.url.pathname === '/' ? '' : $page.url.pathname}`;
+
+  // Skip layout OG tags on pages that set their own (recipe pages)
+  $: hasCustomOgTags = $page.url.pathname.startsWith('/recipe/');
 
   let authManager: any = null;
   let authState: AuthState = {
@@ -74,20 +77,22 @@
 </script>
 
 <svelte:head>
-  <title>{title}</title>
-  <meta name="description" content={description} />
-  <link rel="canonical" href={canonical} />
+  {#if !hasCustomOgTags}
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <link rel="canonical" href={canonical} />
 
-  <meta property="og:title" content={ogTitle} />
-  <meta property="og:description" content={description} />
-  <meta property="og:type" content="website" />
-  <meta property="og:url" content={canonical} />
-  <meta property="og:image" content={ogImage} />
+    <meta property="og:title" content={ogTitle} />
+    <meta property="og:description" content={description} />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content={canonical} />
+    <meta property="og:image" content={ogImage} />
 
-  <meta name="twitter:card" content="summary_large_image" />
-  <meta name="twitter:title" content={ogTitle} />
-  <meta name="twitter:description" content={description} />
-  <meta name="twitter:image" content={ogImage} />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={ogTitle} />
+    <meta name="twitter:description" content={description} />
+    <meta name="twitter:image" content={ogImage} />
+  {/if}
 </svelte:head>
 
 <ErrorBoundary fallback="Something went wrong with the page layout. Please refresh the page.">

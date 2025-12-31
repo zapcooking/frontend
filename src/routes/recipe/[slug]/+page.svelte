@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { browser } from '$app/environment';
   import { page } from '$app/stores';
   import { ndk } from '$lib/nostr';
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
@@ -15,7 +16,7 @@
   let error: string | null = null;
 
   $: {
-    if ($page.params.slug) {
+    if (browser && $page.params.slug) {
       loadData();
     }
   }
