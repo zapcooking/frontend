@@ -357,12 +357,12 @@
 
   // Search users for mention autocomplete
   async function searchMentionUsers(query: string) {
-    if (!mentionFollowListLoaded) {
-      await loadMentionFollowList();
-    }
+    // Don't wait for follow list - search in parallel
+    loadMentionFollowList();
     
     const queryLower = query.toLowerCase();
     const matches: { name: string; npub: string; picture?: string; pubkey: string; nip05?: string }[] = [];
+    const seenPubkeys = new Set<string>();
     
     // Search local cache first (follows) - search by name AND NIP-05
     for (const profile of mentionProfileCache.values()) {
@@ -371,46 +371,45 @@
       
       if (nameMatch || nip05Match) {
         matches.push(profile);
-        if (matches.length >= 8) break;
+        seenPubkeys.add(profile.pubkey);
       }
     }
     
-    // If we have enough local matches, use them
-    if (matches.length >= 3) {
-      mentionSuggestions = matches;
+    // Show local matches immediately
+    if (matches.length > 0) {
+      mentionSuggestions = matches.slice(0, 10);
       selectedMentionIndex = 0;
-      return;
     }
     
-    // Otherwise, search the network for more results
-    if (query.length >= 2 && $ndk) {
+    // Always search the network for more results (even if we have local matches)
+    if (query.length >= 1 && $ndk) {
       mentionSearching = true;
       
       try {
-        // Search for profiles by name using NIP-50 search (if relay supports it)
-        // or fetch recent profiles and filter
+        // Search for profiles by name using NIP-50 search
         const searchResults = await $ndk.fetchEvents({
           kinds: [0],
           search: query,
-          limit: 20
+          limit: 50
         });
         
         for (const event of searchResults) {
           // Skip if already in matches
-          if (matches.some(m => m.pubkey === event.pubkey)) continue;
+          if (seenPubkeys.has(event.pubkey)) continue;
           
           try {
             const profile = JSON.parse(event.content);
             const name = profile.display_name || profile.name || '';
             const nip05 = profile.nip05;
             
-            // Check if matches query
+            // Check if matches query (be more lenient - include all search results)
             const nameMatch = name.toLowerCase().includes(queryLower);
             const nip05Match = nip05?.toLowerCase().includes(queryLower);
+            const usernameMatch = (profile.name || '').toLowerCase().includes(queryLower);
             
-            if (nameMatch || nip05Match) {
+            if (nameMatch || nip05Match || usernameMatch || true) { // Include all NIP-50 results
               const profileData = {
-                name: name || nip05?.split('@')[0] || 'Unknown',
+                name: name || nip05?.split('@')[0] || profile.name || 'Unknown',
                 npub: nip19.npubEncode(event.pubkey),
                 picture: profile.picture,
                 pubkey: event.pubkey,
@@ -418,10 +417,9 @@
               };
               
               matches.push(profileData);
-              // Also cache for future lookups
+              seenPubkeys.add(event.pubkey);
+              // Cache for future lookups
               mentionProfileCache.set(event.pubkey, profileData);
-              
-              if (matches.length >= 8) break;
             }
           } catch {}
         }
@@ -432,7 +430,16 @@
       }
     }
     
-    mentionSuggestions = matches;
+    // Sort: prioritize exact matches, then by name
+    matches.sort((a, b) => {
+      const aExact = a.name.toLowerCase().startsWith(queryLower) || a.nip05?.toLowerCase().startsWith(queryLower);
+      const bExact = b.name.toLowerCase().startsWith(queryLower) || b.nip05?.toLowerCase().startsWith(queryLower);
+      if (aExact && !bExact) return -1;
+      if (!aExact && bExact) return 1;
+      return a.name.localeCompare(b.name);
+    });
+    
+    mentionSuggestions = matches.slice(0, 10);
     selectedMentionIndex = 0;
   }
 
