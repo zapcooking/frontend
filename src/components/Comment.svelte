@@ -37,11 +37,12 @@
   let mentionQuery = '';
   let showMentionSuggestions = false;
   let mentionStartPos = 0;
-  let mentionSuggestions: { name: string; npub: string; picture?: string; pubkey: string }[] = [];
+  let mentionSuggestions: { name: string; npub: string; picture?: string; pubkey: string; nip05?: string }[] = [];
   let selectedMentionIndex = 0;
-  let mentionProfileCache: Map<string, { name: string; npub: string; picture?: string; pubkey: string }> = new Map();
+  let mentionProfileCache: Map<string, { name: string; npub: string; picture?: string; pubkey: string; nip05?: string }> = new Map();
   let mentionFollowListLoaded = false;
   let mentionSearchTimeout: ReturnType<typeof setTimeout>;
+  let mentionSearching = false;
 
   // Like state
   let liked = false;
@@ -92,10 +93,10 @@
       
       if (!contactEvent) return;
       
+      // Load ALL follows
       const followPubkeys = contactEvent.tags
         .filter(t => t[0] === 'p' && t[1])
-        .map(t => t[1])
-        .slice(0, 500);
+        .map(t => t[1]);
       
       if (followPubkeys.length === 0) return;
       
@@ -112,12 +113,13 @@
             try {
               const profile = JSON.parse(event.content);
               const name = profile.display_name || profile.name || '';
-              if (name) {
+              if (name || profile.nip05) {
                 mentionProfileCache.set(event.pubkey, {
-                  name,
+                  name: name || profile.nip05?.split('@')[0] || 'Unknown',
                   npub: nip19.npubEncode(event.pubkey),
                   picture: profile.picture,
-                  pubkey: event.pubkey
+                  pubkey: event.pubkey,
+                  nip05: profile.nip05
                 });
               }
             } catch {}
@@ -140,12 +142,58 @@
     }
     
     const queryLower = query.toLowerCase();
-    const matches: { name: string; npub: string; picture?: string; pubkey: string }[] = [];
+    const matches: { name: string; npub: string; picture?: string; pubkey: string; nip05?: string }[] = [];
     
+    // Search local cache - by name AND NIP-05
     for (const profile of mentionProfileCache.values()) {
-      if (profile.name.toLowerCase().includes(queryLower)) {
+      const nameMatch = profile.name.toLowerCase().includes(queryLower);
+      const nip05Match = profile.nip05?.toLowerCase().includes(queryLower);
+      
+      if (nameMatch || nip05Match) {
         matches.push(profile);
         if (matches.length >= 8) break;
+      }
+    }
+    
+    // Network search if not enough local matches
+    if (matches.length < 3 && query.length >= 2 && $ndk) {
+      mentionSearching = true;
+      try {
+        const searchResults = await $ndk.fetchEvents({
+          kinds: [0],
+          search: query,
+          limit: 20
+        });
+        
+        for (const event of searchResults) {
+          if (matches.some(m => m.pubkey === event.pubkey)) continue;
+          
+          try {
+            const profile = JSON.parse(event.content);
+            const name = profile.display_name || profile.name || '';
+            const nip05 = profile.nip05;
+            
+            const nameMatch = name.toLowerCase().includes(queryLower);
+            const nip05Match = nip05?.toLowerCase().includes(queryLower);
+            
+            if (nameMatch || nip05Match) {
+              const profileData = {
+                name: name || nip05?.split('@')[0] || 'Unknown',
+                npub: nip19.npubEncode(event.pubkey),
+                picture: profile.picture,
+                pubkey: event.pubkey,
+                nip05
+              };
+              matches.push(profileData);
+              mentionProfileCache.set(event.pubkey, profileData);
+              if (matches.length >= 8) break;
+            }
+          } catch {}
+        }
+      } catch (e) {
+        console.debug('Network search failed:', e);
+      } finally {
+        mentionSearching = false;
       }
     }
     
@@ -528,20 +576,31 @@
             />
             
             <!-- Mention suggestions dropdown -->
-            {#if showMentionSuggestions && mentionSuggestions.length > 0}
+            {#if showMentionSuggestions}
               <div class="mention-dropdown">
-                {#each mentionSuggestions as suggestion, index}
-                  <button
-                    type="button"
-                    on:click={() => insertMention(suggestion)}
-                    on:mousedown|preventDefault={() => insertMention(suggestion)}
-                    class="mention-option"
-                    class:bg-accent-gray={index === selectedMentionIndex}
-                  >
-                    <CustomAvatar pubkey={suggestion.pubkey} size={24} />
-                    <span>{suggestion.name}</span>
-                  </button>
-                {/each}
+                {#if mentionSuggestions.length > 0}
+                  {#each mentionSuggestions as suggestion, index}
+                    <button
+                      type="button"
+                      on:click={() => insertMention(suggestion)}
+                      on:mousedown|preventDefault={() => insertMention(suggestion)}
+                      class="mention-option"
+                      class:bg-accent-gray={index === selectedMentionIndex}
+                    >
+                      <CustomAvatar pubkey={suggestion.pubkey} size={28} />
+                      <div class="flex flex-col min-w-0">
+                        <span class="font-medium truncate">{suggestion.name}</span>
+                        {#if suggestion.nip05}
+                          <span class="text-xs truncate" style="color: var(--color-caption)">{suggestion.nip05}</span>
+                        {/if}
+                      </div>
+                    </button>
+                  {/each}
+                {:else if mentionSearching}
+                  <div class="px-3 py-3 text-sm text-caption text-center">Searching...</div>
+                {:else if mentionQuery.length > 0}
+                  <div class="px-3 py-3 text-sm text-caption text-center">No users found</div>
+                {/if}
               </div>
             {/if}
           </div>
