@@ -241,7 +241,7 @@
   <div class="flex flex-col gap-3">
   {#if state == "pending"}
     <div class="flex flex-col text-2xl">
-      <img class="w-52 self-center" src="/pan-animated.svg" alt="Loading" />
+      <img class="pending-pan-icon w-52 self-center" src="/pan-animated.svg" alt="Loading" />
 
       <span class="self-center">{useQR ? "Fetching Invoice(s)..." : "Waiting for Payment..."}</span>
       {#if useQR}
@@ -405,4 +405,36 @@
   {/if}
     </div>
 </Modal>
+
+<style>
+  /* Fix animated pan icon appearance - remove any borders/outlines that appear on mobile */
+  .pending-pan-icon {
+    display: block;
+    border: none !important;
+    outline: none !important;
+    box-shadow: none !important;
+    background: transparent;
+    /* Remove any default browser styling that might add borders */
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    appearance: none;
+    /* Remove any browser default image styling */
+    image-rendering: -webkit-optimize-contrast;
+    image-rendering: crisp-edges;
+  }
+
+  /* Mobile-specific styling to ensure clean appearance in dark mode */
+  @media (max-width: 768px) {
+    .pending-pan-icon {
+      /* Ensure no borders or outlines on mobile */
+      border: none !important;
+      outline: none !important;
+      box-shadow: none !important;
+      /* Remove any touch highlight or selection styling */
+      -webkit-tap-highlight-color: transparent;
+      -webkit-touch-callout: none;
+      user-select: none;
+    }
+  }
+</style>
 

@@ -1692,116 +1692,53 @@ import ClientAttribution from './ClientAttribution.svelte';
                 {@const parentNoteId = getParentNoteId(event)}
                 {#if parentNoteId}
                   {#await resolveReplyContext(parentNoteId)}
-                    <!-- Loading state - simple inline -->
-                    <button class="mb-1.5 flex items-center gap-1 text-xs" style="color: var(--color-caption)">
-                      <svg class="w-3 h-3 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
-                      </svg>
-                      <span>Loading...</span>
-                    </button>
-                  {:then context}
-                    <!-- Simple reply indicator - click to expand thread -->
-                    <button
-                      on:click={() => {
-                        expandedParentNotes[parentNoteId] = !expandedParentNotes[parentNoteId];
-                        expandedParentNotes = { ...expandedParentNotes };
-                        // Fetch full parent note if expanding
-                        if (expandedParentNotes[parentNoteId] && !parentNoteCache[parentNoteId]) {
-                          $ndk.fetchEvent({ kinds: [1], ids: [parentNoteId] }).then(note => {
-                            parentNoteCache[parentNoteId] = note;
-                            parentNoteCache = { ...parentNoteCache };
-                          });
-                        }
-                      }}
-                      class="mb-1.5 flex items-center gap-1 text-xs hover:text-primary transition-colors group"
-                      style="color: var(--color-caption)"
-                    >
-                      <svg class="w-3 h-3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
-                      </svg>
-                      <span>
-                        Replying to
-                        {#if context.error === 'deleted'}
-                          <span class="italic">deleted note</span>
-                        {:else if context.error === 'Failed to load'}
-                          <span>a note</span>
-                        {:else}
-                          <span class="text-blue-600 group-hover:text-blue-700 font-medium">
-                            @{context.authorName.startsWith('npub') ? context.authorName.substring(0, 12) + '...' : context.authorName}
-                          </span>
-                        {/if}
-                      </span>
-                      <svg 
-                        class="w-3 h-3 transition-transform duration-200"
-                        class:rotate-180={expandedParentNotes[parentNoteId]}
-                        fill="none" 
-                        stroke="currentColor" 
-                        viewBox="0 0 24 24"
-                      >
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
-                      </svg>
-                    </button>
-                    
-                    <!-- Expanded thread view with smooth transition -->
-                    <div 
-                      class="overflow-hidden transition-all duration-300 ease-in-out"
-                      class:max-h-0={!expandedParentNotes[parentNoteId]}
-                      class:max-h-96={expandedParentNotes[parentNoteId]}
-                      class:opacity-0={!expandedParentNotes[parentNoteId]}
-                      class:opacity-100={expandedParentNotes[parentNoteId]}
-                      class:mb-3={expandedParentNotes[parentNoteId]}
-                    >
-                      {#if parentNoteCache[parentNoteId]}
-                        {#each [parentNoteCache[parentNoteId]] as parentNote}
-                          <!-- Thread connection line -->
-                          <div class="relative pl-4 border-l-2 ml-1" style="border-color: var(--color-input-border)">
-                            <div class="bg-input rounded-lg p-3 text-sm">
-                              <div class="flex items-center gap-2 mb-2 flex-wrap">
-                                <CustomAvatar pubkey={parentNote.pubkey} size={20} />
-                                <AuthorName event={parentNote} />
-                                <span class="text-caption">·</span>
-                                <span class="text-caption text-xs">{formatTimeAgo(parentNote.created_at || 0)}</span>
-                                <ClientAttribution tags={parentNote.tags} enableEnrichment={false} />
-                              </div>
-                              <div class="whitespace-pre-wrap break-words text-sm leading-relaxed" style="color: var(--color-text-primary)">
-                                <NoteContent content={parentNote.content || ''} />
-                              </div>
-                              <a 
-                                href="/{nip19.noteEncode(parentNoteId)}" 
-                                class="mt-2 inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 text-xs font-medium"
-                                on:click|stopPropagation
-                              >
-                                View full thread
-                                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7l5 5m0 0l-5 5m5-5H6" />
-                                </svg>
-                              </a>
-                            </div>
-                          </div>
-                        {/each}
-                      {:else}
-                        <div class="pl-4 border-l-2 ml-1" style="border-color: var(--color-input-border)">
-                          <div class="bg-input rounded-lg p-3 animate-pulse">
-                            <div class="flex items-center gap-2 mb-2">
-                              <div class="w-5 h-5 bg-accent-gray rounded-full"></div>
-                              <div class="h-3 bg-accent-gray rounded w-24"></div>
-                            </div>
-                            <div class="h-3 bg-accent-gray rounded w-full mb-1"></div>
-                            <div class="h-3 bg-accent-gray rounded w-3/4"></div>
-                          </div>
-                        </div>
-                      {/if}
+                    <!-- Loading state -->
+                    <div class="parent-quote-embed mb-3">
+                      <div class="parent-quote-loading">
+                        <div class="w-4 h-4 bg-accent-gray rounded-full animate-pulse"></div>
+                        <div class="h-3 bg-accent-gray rounded w-20 animate-pulse"></div>
+                      </div>
                     </div>
+                  {:then context}
+                    <!-- Always-visible embedded parent quote -->
+                    <a 
+                      href="/{nip19.noteEncode(parentNoteId)}" 
+                      class="parent-quote-embed mb-3 block hover:opacity-90 transition-opacity"
+                      on:click|stopPropagation
+                    >
+                      <div class="parent-quote-header">
+                        {#if context.authorPubkey}
+                          <CustomAvatar pubkey={context.authorPubkey} size={16} />
+                        {/if}
+                        <span class="parent-quote-author">
+                          {#if context.error === 'deleted'}
+                            <span class="italic">deleted note</span>
+                          {:else if context.error === 'Failed to load'}
+                            a note
+                          {:else}
+                            {context.authorName.startsWith('npub') ? context.authorName.substring(0, 12) + '...' : context.authorName}
+                          {/if}
+                        </span>
+                      </div>
+                      {#if context.notePreview && !context.error}
+                        <p class="parent-quote-content">{context.notePreview}</p>
+                      {/if}
+                      <span class="parent-quote-link">
+                        View full thread →
+                      </span>
+                    </a>
                   {:catch}
                     <!-- Fallback - simple link -->
                     <a
                       href="/{nip19.noteEncode(parentNoteId)}"
-                      class="mb-1.5 flex items-center gap-1 text-xs text-caption hover:text-blue-600 transition-colors"
+                      class="parent-quote-embed mb-3 block"
                     >
-                      <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
-                      </svg>
-                      <span>Replying to a note</span>
+                      <div class="parent-quote-header">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
+                        </svg>
+                        <span class="parent-quote-author">Replying to a note</span>
+                      </div>
                     </a>
                   {/await}
                 {/if}
@@ -2073,6 +2010,53 @@ import ClientAttribution from './ClientAttribution.svelte';
 {/if}
 
 <style>
+  /* Parent quote embed - always visible */
+  .parent-quote-embed {
+    padding: 0.5rem 0.75rem;
+    background: var(--color-input);
+    border-left: 3px solid var(--color-primary, #f97316);
+    border-radius: 0.375rem;
+  }
+
+  .parent-quote-header {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    margin-bottom: 0.25rem;
+  }
+
+  .parent-quote-author {
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: var(--color-text-secondary);
+  }
+
+  .parent-quote-content {
+    font-size: 0.75rem;
+    color: var(--color-text-secondary);
+    line-height: 1.4;
+    margin: 0 0 0.375rem 0;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  .parent-quote-link {
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: var(--color-primary, #3b82f6);
+  }
+
+  .parent-quote-loading {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
   .line-clamp-3 {
     display: -webkit-box;
     -webkit-line-clamp: 3;

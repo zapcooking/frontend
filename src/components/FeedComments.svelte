@@ -1,10 +1,13 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import { ndk, userPublickey } from '$lib/nostr';
   import { NDKEvent } from '@nostr-dev-kit/ndk';
   import Button from './Button.svelte';
   import { addClientTagToEvent } from '$lib/nip89';
   import FeedComment from './FeedComment.svelte';
+  import CustomAvatar from './CustomAvatar.svelte';
+  import { nip19 } from 'nostr-tools';
+  import { get } from 'svelte/store';
 
   export let event: NDKEvent;
   let events: NDKEvent[] = [];
@@ -12,6 +15,182 @@
   let processedEvents = new Set();
   let subscribed = false;
   let showComments = false;
+  let commentTextareaEl: HTMLTextAreaElement;
+
+  // @ mention autocomplete state
+  let mentionQuery = '';
+  let showMentionSuggestions = false;
+  let mentionStartPos = 0;
+  let mentionSuggestions: { name: string; npub: string; picture?: string; pubkey: string }[] = [];
+  let selectedMentionIndex = 0;
+  let mentionProfileCache: Map<string, { name: string; npub: string; picture?: string; pubkey: string }> = new Map();
+  let mentionFollowListLoaded = false;
+  let mentionSearchTimeout: ReturnType<typeof setTimeout>;
+
+  // Load follow list profiles for mention autocomplete
+  async function loadMentionFollowList() {
+    if (mentionFollowListLoaded) return;
+    
+    const pubkey = get(userPublickey);
+    if (!pubkey || !$ndk) return;
+    
+    try {
+      const contactEvent = await $ndk.fetchEvent({
+        kinds: [3],
+        authors: [pubkey],
+        limit: 1
+      });
+      
+      if (!contactEvent) return;
+      
+      const followPubkeys = contactEvent.tags
+        .filter(t => t[0] === 'p' && t[1])
+        .map(t => t[1])
+        .slice(0, 500);
+      
+      if (followPubkeys.length === 0) return;
+      
+      const batchSize = 100;
+      for (let i = 0; i < followPubkeys.length; i += batchSize) {
+        const batch = followPubkeys.slice(i, i + batchSize);
+        try {
+          const events = await $ndk.fetchEvents({
+            kinds: [0],
+            authors: batch
+          });
+          
+          for (const event of events) {
+            try {
+              const profile = JSON.parse(event.content);
+              const name = profile.display_name || profile.name || '';
+              if (name) {
+                mentionProfileCache.set(event.pubkey, {
+                  name,
+                  npub: nip19.npubEncode(event.pubkey),
+                  picture: profile.picture,
+                  pubkey: event.pubkey
+                });
+              }
+            } catch {}
+          }
+        } catch (e) {
+          console.debug('Failed to fetch mention profile batch:', e);
+        }
+      }
+      
+      mentionFollowListLoaded = true;
+    } catch (e) {
+      console.debug('Failed to load mention follow list:', e);
+    }
+  }
+
+  // Search users for mention autocomplete
+  async function searchMentionUsers(query: string) {
+    if (!mentionFollowListLoaded) {
+      await loadMentionFollowList();
+    }
+    
+    const queryLower = query.toLowerCase();
+    const matches: { name: string; npub: string; picture?: string; pubkey: string }[] = [];
+    
+    for (const profile of mentionProfileCache.values()) {
+      if (profile.name.toLowerCase().includes(queryLower)) {
+        matches.push(profile);
+        if (matches.length >= 8) break;
+      }
+    }
+    
+    mentionSuggestions = matches;
+    selectedMentionIndex = 0;
+  }
+
+  // Handle textarea input for @ mentions
+  function handleCommentInput(event: Event) {
+    const textarea = event.target as HTMLTextAreaElement;
+    const cursorPos = textarea.selectionStart;
+    const text = commentText;
+    
+    // Find @ mention before cursor
+    const textBeforeCursor = text.substring(0, cursorPos);
+    const mentionMatch = textBeforeCursor.match(/@(\w*)$/);
+    
+    if (mentionMatch) {
+      mentionStartPos = cursorPos - mentionMatch[0].length;
+      mentionQuery = mentionMatch[1];
+      showMentionSuggestions = true;
+      
+      if (mentionSearchTimeout) clearTimeout(mentionSearchTimeout);
+      mentionSearchTimeout = setTimeout(() => {
+        if (mentionQuery.length > 0) {
+          searchMentionUsers(mentionQuery);
+        } else {
+          mentionSuggestions = Array.from(mentionProfileCache.values()).slice(0, 8);
+          selectedMentionIndex = 0;
+        }
+      }, 150);
+    } else {
+      showMentionSuggestions = false;
+      mentionSuggestions = [];
+    }
+  }
+
+  // Insert mention into textarea
+  function insertMention(user: { name: string; npub: string }) {
+    if (!commentTextareaEl) return;
+    
+    const beforeMention = commentText.substring(0, mentionStartPos);
+    const afterMention = commentText.substring(commentTextareaEl.selectionStart);
+    const mentionText = `@${user.name} `;
+    
+    commentText = beforeMention + mentionText + afterMention;
+    showMentionSuggestions = false;
+    mentionSuggestions = [];
+    
+    setTimeout(() => {
+      const newPos = beforeMention.length + mentionText.length;
+      commentTextareaEl.setSelectionRange(newPos, newPos);
+      commentTextareaEl.focus();
+    }, 0);
+  }
+
+  // Parse @ mentions from content and return pubkeys
+  function parseMentions(text: string): Map<string, string> {
+    const mentions = new Map<string, string>();
+    const mentionRegex = /@(\w+)\s/g;
+    let match;
+    
+    while ((match = mentionRegex.exec(text)) !== null) {
+      const username = match[1];
+      for (const [pubkey, profile] of mentionProfileCache.entries()) {
+        if (profile.name.toLowerCase() === username.toLowerCase()) {
+          mentions.set(`@${username}`, pubkey);
+          break;
+        }
+      }
+    }
+    
+    return mentions;
+  }
+
+  // Handle keyboard navigation in mention suggestions
+  function handleCommentKeydown(event: KeyboardEvent) {
+    if (showMentionSuggestions && mentionSuggestions.length > 0) {
+      if (event.key === 'ArrowDown') {
+        event.preventDefault();
+        selectedMentionIndex = (selectedMentionIndex + 1) % mentionSuggestions.length;
+      } else if (event.key === 'ArrowUp') {
+        event.preventDefault();
+        selectedMentionIndex = selectedMentionIndex === 0 ? mentionSuggestions.length - 1 : selectedMentionIndex - 1;
+      } else if (event.key === 'Enter' || event.key === 'Tab') {
+        event.preventDefault();
+        insertMention(mentionSuggestions[selectedMentionIndex]);
+      } else if (event.key === 'Escape') {
+        showMentionSuggestions = false;
+        mentionSuggestions = [];
+      }
+      return;
+    }
+  }
 
   // Listen for toggle event from NoteTotalComments
   onMount(() => {
@@ -27,6 +206,17 @@
       return () => {
         element.removeEventListener('toggleComments', handleToggleEvent);
       };
+    }
+
+    // Preload mention profiles in background
+    if ($userPublickey) {
+      loadMentionFollowList();
+    }
+  });
+
+  onDestroy(() => {
+    if (mentionSearchTimeout) {
+      clearTimeout(mentionSearchTimeout);
     }
   });
 
@@ -66,11 +256,21 @@
         ['p', event.pubkey]
       ];
       
+      // Parse and add @ mention tags (p tags)
+      const mentions = parseMentions(commentText);
+      for (const pubkey of mentions.values()) {
+        // Avoid duplicate p tags
+        if (!ev.tags.some(t => t[0] === 'p' && t[1] === pubkey)) {
+          ev.tags.push(['p', pubkey]);
+        }
+      }
+      
       // Add NIP-89 client tag
       addClientTagToEvent(ev);
 
       await ev.publish();
       commentText = '';
+      showMentionSuggestions = false;
     } catch {
       // Failed to post comment
     }
@@ -80,54 +280,22 @@
     showComments = !showComments;
   }
 
-  // Filter top-level comments (direct replies to the main event)
-  $: topLevelComments = events.filter((e) => {
-    const eTags = e.getMatchingTags('e');
-    
-    // Check if this is a direct reply to the main event
-    // A comment is a direct reply if:
-    // 1. It has a 'reply' marker pointing to the main event, OR
-    // 2. It has only one e tag pointing to the main event, OR
-    // 3. It has the main event as 'root' and no other 'reply' marker
-    
-    const replyTag = eTags.find(tag => tag[3] === 'reply');
-    const rootTag = eTags.find(tag => tag[3] === 'root');
-    
-    // If there's a specific reply marker, check if it points to main event
-    if (replyTag) {
-      return replyTag[1] === event.id;
-    }
-    
-    // If only one e tag, it's a direct reply
-    if (eTags.length === 1 && eTags[0][1] === event.id) {
-      return true;
-    }
-    
-    // If root is main event and no reply marker, it's a direct reply
-    if (rootTag && rootTag[1] === event.id && !replyTag) {
-      return true;
-    }
-    
-    // Otherwise, check if any e tag (without markers) references main event
-    // This handles older/simpler tagging conventions
-    if (eTags.length > 0 && !replyTag && !rootTag) {
-      return eTags.some(tag => tag[1] === event.id);
-    }
-    
-    return false;
-  });
+  // Sort all comments chronologically (oldest first for thread view)
+  $: sortedComments = [...events].sort((a, b) => 
+    (a.created_at || 0) - (b.created_at || 0)
+  );
 </script>
 
 <div class="inline-comments" data-event-id={event.id}>
   {#if showComments}
     <div class="mt-3 space-y-4 pt-3" style="border-top: 1px solid var(--color-input-border)">
-      <!-- Comments List -->
-      <div class="space-y-4">
-        {#if topLevelComments.length === 0}
+      <!-- Comments List - flat list with embedded parent quotes -->
+      <div class="comments-list">
+        {#if sortedComments.length === 0}
           <p class="text-sm text-caption">No comments yet. Be the first to comment!</p>
         {:else}
-          {#each topLevelComments as comment}
-            <FeedComment event={comment} replies={events} {refresh} mainEventId={event.id} />
+          {#each sortedComments as comment (comment.id)}
+            <FeedComment event={comment} allComments={events} {refresh} mainEventId={event.id} />
           {/each}
         {/if}
       </div>
@@ -135,13 +303,39 @@
       <!-- Add Comment Form -->
       {#if $userPublickey}
         <div class="space-y-2 pt-2" style="border-top: 1px solid var(--color-input-border)">
-          <textarea
-            bind:value={commentText}
-            placeholder="Add a comment..."
-            class="w-full px-3 py-2 text-sm rounded-lg resize-none focus:ring-2 focus:ring-primary focus:border-transparent bg-input"
-            style="border: 1px solid var(--color-input-border); color: var(--color-text-primary)"
-            rows="2"
-          />
+          <div class="relative">
+            <textarea
+              bind:this={commentTextareaEl}
+              bind:value={commentText}
+              placeholder="Add a comment..."
+              class="w-full px-3 py-2 text-sm rounded-lg resize-none focus:ring-2 focus:ring-primary focus:border-transparent bg-input"
+              style="border: 1px solid var(--color-input-border); color: var(--color-text-primary)"
+              rows="2"
+              on:input={handleCommentInput}
+              on:keydown={handleCommentKeydown}
+            />
+            
+            <!-- Mention suggestions dropdown -->
+            {#if showMentionSuggestions && mentionSuggestions.length > 0}
+              <div 
+                class="absolute z-50 mt-1 w-full max-w-md bg-input rounded-lg shadow-lg border overflow-hidden"
+                style="border-color: var(--color-input-border); max-height: 200px; overflow-y: auto;"
+              >
+                {#each mentionSuggestions as suggestion, index}
+                  <button
+                    type="button"
+                    on:click={() => insertMention(suggestion)}
+                    on:mousedown|preventDefault={() => insertMention(suggestion)}
+                    class="w-full flex items-center gap-2 px-3 py-2 hover:bg-accent-gray transition-colors text-left"
+                    class:bg-accent-gray={index === selectedMentionIndex}
+                  >
+                    <CustomAvatar pubkey={suggestion.pubkey} size={24} />
+                    <span class="text-sm" style="color: var(--color-text-primary)">{suggestion.name}</span>
+                  </button>
+                {/each}
+              </div>
+            {/if}
+          </div>
           <div class="flex justify-end">
             <Button on:click={postComment} disabled={!commentText.trim()} class="text-sm px-4 py-2">
               Post Comment
@@ -156,3 +350,12 @@
     </div>
   {/if}
 </div>
+
+<style>
+  /* Comments list - flat layout with spacing */
+  .comments-list {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+</style>

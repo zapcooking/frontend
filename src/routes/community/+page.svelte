@@ -15,6 +15,7 @@
   import { Fetch } from 'hurdak';
   import type { PageData } from './$types';
   import type { NDKEvent as NDKEventType } from '@nostr-dev-kit/ndk';
+  import { get } from 'svelte/store';
 
   export const data: PageData = {} as PageData;
 
@@ -52,6 +53,16 @@
   let imageInputEl: HTMLInputElement;
   let quotedNote: { nevent: string; event: NDKEventType } | null = null;
 
+  // @ mention autocomplete state
+  let mentionQuery = '';
+  let showMentionSuggestions = false;
+  let mentionStartPos = 0;
+  let mentionSuggestions: { name: string; npub: string; picture?: string; pubkey: string }[] = [];
+  let selectedMentionIndex = 0;
+  let mentionProfileCache: Map<string, { name: string; npub: string; picture?: string; pubkey: string }> = new Map();
+  let mentionFollowListLoaded = false;
+  let mentionSearchTimeout: ReturnType<typeof setTimeout>;
+
   // Listen for quote-note events from NoteRepost component
   function handleQuoteNote(e: CustomEvent) {
     quotedNote = e.detail;
@@ -65,11 +76,19 @@
     }
     
     window.addEventListener('quote-note', handleQuoteNote as EventListener);
+    
+    // Preload mention profiles in background
+    if ($userPublickey) {
+      loadMentionFollowList();
+    }
   });
 
   onDestroy(() => {
     if (typeof window !== 'undefined') {
       window.removeEventListener('quote-note', handleQuoteNote as EventListener);
+    }
+    if (mentionSearchTimeout) {
+      clearTimeout(mentionSearchTimeout);
     }
   });
 
@@ -213,10 +232,23 @@
       event.content = postContent;
       event.tags = [['t', 'zapcooking']];
       
+      // Parse and add @ mention tags (p tags)
+      const mentions = parseMentions(postContent);
+      for (const pubkey of mentions.values()) {
+        // Avoid duplicate p tags
+        if (!event.tags.some(t => t[0] === 'p' && t[1] === pubkey)) {
+          event.tags.push(['p', pubkey]);
+        }
+      }
+      
       // Add quote tags if quoting
       if (quotedNote) {
+        const quotedPubkey = quotedNote.event.pubkey;
         event.tags.push(['q', quotedNote.event.id]);
-        event.tags.push(['p', quotedNote.event.pubkey]);
+        // Only add p tag if not already mentioned
+        if (!event.tags.some(t => t[0] === 'p' && t[1] === quotedPubkey)) {
+          event.tags.push(['p', quotedPubkey]);
+        }
       }
       
       // Add NIP-89 client tag
@@ -251,7 +283,153 @@
     }
   }
 
+  // Load follow list profiles for mention autocomplete
+  async function loadMentionFollowList() {
+    if (mentionFollowListLoaded) return;
+    
+    const pubkey = get(userPublickey);
+    if (!pubkey || !$ndk) return;
+    
+    try {
+      const contactEvent = await $ndk.fetchEvent({
+        kinds: [3],
+        authors: [pubkey],
+        limit: 1
+      });
+      
+      if (!contactEvent) return;
+      
+      const followPubkeys = contactEvent.tags
+        .filter(t => t[0] === 'p' && t[1])
+        .map(t => t[1])
+        .slice(0, 500);
+      
+      if (followPubkeys.length === 0) return;
+      
+      const batchSize = 100;
+      for (let i = 0; i < followPubkeys.length; i += batchSize) {
+        const batch = followPubkeys.slice(i, i + batchSize);
+        try {
+          const events = await $ndk.fetchEvents({
+            kinds: [0],
+            authors: batch
+          });
+          
+          for (const event of events) {
+            try {
+              const profile = JSON.parse(event.content);
+              const name = profile.display_name || profile.name || '';
+              if (name) {
+                mentionProfileCache.set(event.pubkey, {
+                  name,
+                  npub: nip19.npubEncode(event.pubkey),
+                  picture: profile.picture,
+                  pubkey: event.pubkey
+                });
+              }
+            } catch {}
+          }
+        } catch (e) {
+          console.debug('Failed to fetch mention profile batch:', e);
+        }
+      }
+      
+      mentionFollowListLoaded = true;
+    } catch (e) {
+      console.debug('Failed to load mention follow list:', e);
+    }
+  }
+
+  // Search users for mention autocomplete
+  async function searchMentionUsers(query: string) {
+    if (!mentionFollowListLoaded) {
+      await loadMentionFollowList();
+    }
+    
+    const queryLower = query.toLowerCase();
+    const matches: { name: string; npub: string; picture?: string; pubkey: string }[] = [];
+    
+    for (const profile of mentionProfileCache.values()) {
+      if (profile.name.toLowerCase().includes(queryLower)) {
+        matches.push(profile);
+        if (matches.length >= 8) break;
+      }
+    }
+    
+    mentionSuggestions = matches;
+    selectedMentionIndex = 0;
+  }
+
+  // Handle textarea input for @ mentions
+  function handleContentInput(event: Event) {
+    const textarea = event.target as HTMLTextAreaElement;
+    const cursorPos = textarea.selectionStart;
+    const text = content;
+    
+    // Find @ mention before cursor
+    const textBeforeCursor = text.substring(0, cursorPos);
+    const mentionMatch = textBeforeCursor.match(/@(\w*)$/);
+    
+    if (mentionMatch) {
+      mentionStartPos = cursorPos - mentionMatch[0].length;
+      mentionQuery = mentionMatch[1];
+      showMentionSuggestions = true;
+      
+      if (mentionSearchTimeout) clearTimeout(mentionSearchTimeout);
+      mentionSearchTimeout = setTimeout(() => {
+        if (mentionQuery.length > 0) {
+          searchMentionUsers(mentionQuery);
+        } else {
+          // Show all cached users if query is empty
+          mentionSuggestions = Array.from(mentionProfileCache.values()).slice(0, 8);
+          selectedMentionIndex = 0;
+        }
+      }, 150);
+    } else {
+      showMentionSuggestions = false;
+      mentionSuggestions = [];
+    }
+  }
+
+  // Insert mention into textarea
+  function insertMention(user: { name: string; npub: string }) {
+    if (!textareaEl) return;
+    
+    const beforeMention = content.substring(0, mentionStartPos);
+    const afterMention = content.substring(textareaEl.selectionStart);
+    const mentionText = `@${user.name} `;
+    
+    content = beforeMention + mentionText + afterMention;
+    showMentionSuggestions = false;
+    mentionSuggestions = [];
+    
+    // Set cursor position after mention
+    setTimeout(() => {
+      const newPos = beforeMention.length + mentionText.length;
+      textareaEl.setSelectionRange(newPos, newPos);
+      textareaEl.focus();
+    }, 0);
+  }
+
+  // Handle keyboard navigation in mention suggestions
   function handleKeydown(event: KeyboardEvent) {
+    if (showMentionSuggestions && mentionSuggestions.length > 0) {
+      if (event.key === 'ArrowDown') {
+        event.preventDefault();
+        selectedMentionIndex = (selectedMentionIndex + 1) % mentionSuggestions.length;
+      } else if (event.key === 'ArrowUp') {
+        event.preventDefault();
+        selectedMentionIndex = selectedMentionIndex === 0 ? mentionSuggestions.length - 1 : selectedMentionIndex - 1;
+      } else if (event.key === 'Enter' || event.key === 'Tab') {
+        event.preventDefault();
+        insertMention(mentionSuggestions[selectedMentionIndex]);
+      } else if (event.key === 'Escape') {
+        showMentionSuggestions = false;
+        mentionSuggestions = [];
+      }
+      return;
+    }
+    
     if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
       event.preventDefault();
       postToFeed();
@@ -260,6 +438,27 @@
       closeComposer();
     }
   }
+
+  // Parse @ mentions from content and return pubkeys
+  function parseMentions(text: string): Map<string, string> {
+    // Map of @username to pubkey
+    const mentions = new Map<string, string>();
+    const mentionRegex = /@(\w+)\s/g;
+    let match;
+    
+    while ((match = mentionRegex.exec(text)) !== null) {
+      const username = match[1];
+      // Find user in cache by name (case-insensitive)
+      for (const [pubkey, profile] of mentionProfileCache.entries()) {
+        if (profile.name.toLowerCase() === username.toLowerCase()) {
+          mentions.set(`@${username}`, pubkey);
+          break;
+        }
+      }
+    }
+    
+    return mentions;
+  }
 </script>
 
 <svelte:head>
@@ -267,7 +466,7 @@
   <meta name="description" content="Community - Share and discover delicious food content from the Nostr network" />
 </svelte:head>
 
-<div class="container mx-auto px-4 max-w-2xl">
+<div class="container mx-auto px-4 max-w-2xl community-page">
   <!-- Orientation text for signed-out users -->
   {#if $userPublickey === ''}
     <div class="mb-4 pt-1">
@@ -298,6 +497,7 @@
           <div class="flex gap-3">
             <CustomAvatar pubkey={$userPublickey} size={36} />
             <div class="flex-1">
+              <div class="relative">
               <textarea
                 bind:this={textareaEl}
                 bind:value={content}
@@ -306,7 +506,30 @@
                 style="color: var(--color-text-primary)"
                 disabled={posting}
                 on:keydown={handleKeydown}
+                  on:input={handleContentInput}
               ></textarea>
+                
+                <!-- Mention suggestions dropdown -->
+                {#if showMentionSuggestions && mentionSuggestions.length > 0}
+                  <div 
+                    class="absolute z-50 mt-1 w-full max-w-md bg-input rounded-lg shadow-lg border overflow-hidden"
+                    style="border-color: var(--color-input-border); max-height: 200px; overflow-y: auto;"
+                  >
+                    {#each mentionSuggestions as suggestion, index}
+                      <button
+                        type="button"
+                        on:click={() => insertMention(suggestion)}
+                        on:mousedown|preventDefault={() => insertMention(suggestion)}
+                        class="w-full flex items-center gap-2 px-3 py-2 hover:bg-accent-gray transition-colors text-left"
+                        class:bg-accent-gray={index === selectedMentionIndex}
+                      >
+                        <CustomAvatar pubkey={suggestion.pubkey} size={24} />
+                        <span class="text-sm" style="color: var(--color-text-primary)">{suggestion.name}</span>
+                      </button>
+                    {/each}
+                  </div>
+                {/if}
+              </div>
               
               {#if error}
                 <p class="text-red-500 text-xs mb-2">{error}</p>
@@ -481,3 +704,17 @@
     <FoodstrFeedOptimized filterMode={activeTab} />
   {/key}
 </div>
+
+<style>
+  /* Bottom padding to prevent fixed mobile nav from covering content */
+  .community-page {
+    padding-bottom: calc(80px + env(safe-area-inset-bottom, 0px));
+  }
+  
+  /* Desktop doesn't need bottom nav spacing */
+  @media (min-width: 768px) {
+    .community-page {
+      padding-bottom: 2rem;
+    }
+  }
+</style>
