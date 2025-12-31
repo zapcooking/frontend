@@ -15,11 +15,13 @@
   let loading = true;
   let error = false;
 
+  // Simple cache to avoid re-fetching
   const metaCache = new Map<string, LinkMeta>();
 
   async function fetchMetadata() {
     if (!url) return;
 
+    // Check cache first
     const cached = metaCache.get(url);
     if (cached) {
       meta = cached;
@@ -31,6 +33,7 @@
     error = false;
 
     try {
+      // Try microlink.io first (more reliable, has free tier)
       let data: any = null;
 
       try {
@@ -50,6 +53,7 @@
         // Microlink failed, try fallback
       }
 
+      // Fallback to jsonlink.io if microlink fails
       if (!data || (!data.title && !data.description && !data.image)) {
         const response = await fetch(`https://jsonlink.io/api/extract?url=${encodeURIComponent(url)}`);
         if (response.ok) {
@@ -72,6 +76,7 @@
           favicon: data.favicon || `https://www.google.com/s2/favicons?domain=${new URL(url).hostname}&sz=32`
         };
 
+        // Cache the result
         if (meta.title || meta.description || meta.image) {
           metaCache.set(url, meta);
         } else {
@@ -97,6 +102,7 @@
     }
   }
 
+  // Extract domain for display
   $: displayDomain = (() => {
     try {
       return new URL(url).hostname.replace('www.', '');
@@ -107,6 +113,7 @@
 </script>
 
 {#if loading}
+  <!-- Loading skeleton -->
   <div class="my-1 border rounded-lg overflow-hidden animate-pulse" style="border-color: var(--color-input-border)">
     <div class="flex">
       <div class="w-24 h-20 bg-accent-gray flex-shrink-0"></div>
@@ -118,6 +125,7 @@
     </div>
   </div>
 {:else if error || !meta || (!meta.title && !meta.description && !meta.image)}
+  <!-- Fallback: just show the URL as a link -->
   <a
     href={url}
     target="_blank"
@@ -127,6 +135,7 @@
     {url}
   </a>
 {:else}
+  <!-- Link preview card -->
   <a
     href={url}
     target="_blank"

@@ -1,7 +1,6 @@
 <script lang="ts">
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
   import { nip19 } from 'nostr-tools';
-  // Removed unused imports for better performance
   import RecipeErrorBoundary from './RecipeErrorBoundary.svelte';
   import RecipeCardSkeleton from './RecipeCardSkeleton.svelte';
 
@@ -44,7 +43,7 @@
   }
 
   // Simple title computation
-  $: title = event?.tags.find((e) => e[0] == 'title')?.[1] || 
+  $: title = event?.tags.find((e) => e[0] == 'title')?.[1] ||
             event?.tags.find((e) => e[0] == 'd')?.[1] || '';
 
   let imageElement: HTMLElement | null = null;

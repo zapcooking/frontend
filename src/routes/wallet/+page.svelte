@@ -40,6 +40,7 @@
     restoreWalletFromNostr,
     loadMnemonic,
     lightningAddress as sparkLightningAddressStore,
+    walletInitialized as sparkWalletInitialized,
     checkLightningAddressAvailable,
     registerLightningAddress,
     deleteLightningAddress,
@@ -1487,8 +1488,8 @@
                   title="Wallet options"
                 >
                   <GearIcon size={18} weight={expandedWalletId === wallet.id ? "fill" : "regular"} />
-                  <!-- Notification dot for Spark wallets without lightning address -->
-                  {#if wallet.kind === 4 && !$sparkLightningAddressStore && expandedWalletId !== wallet.id}
+                  <!-- Notification dot for Spark wallets without lightning address (only show after wallet is initialized) -->
+                  {#if wallet.kind === 4 && $sparkWalletInitialized && !$sparkLightningAddressStore && expandedWalletId !== wallet.id}
                     <span class="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-amber-500 rounded-full border-2" style="border-color: var(--color-input-bg);"></span>
                   {/if}
                   <CaretDownIcon
@@ -1638,9 +1639,17 @@
                       <p class="text-xs text-caption">Activate this wallet to manage the lightning address.</p>
                     {/if}
                   {:else}
-                    <!-- No lightning address -->
-                    {#if wallet.active}
-                      <!-- Show registration form only when wallet is active -->
+                    <!-- No lightning address or still loading -->
+                    {#if !$sparkWalletInitialized}
+                      <!-- Wallet is still initializing -->
+                      <div class="p-3 rounded-lg" style="background-color: var(--color-bg-primary); border: 1px solid var(--color-input-border);">
+                        <div class="flex items-center gap-2 text-sm text-caption">
+                          <div class="w-4 h-4 border-2 border-amber-500 border-t-transparent rounded-full animate-spin"></div>
+                          Loading lightning address...
+                        </div>
+                      </div>
+                    {:else if wallet.active}
+                      <!-- Show registration form only when wallet is active and initialized -->
                       <div class="p-3 rounded-lg mb-3" style="background-color: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.3);">
                         <div class="text-sm" style="color: var(--color-text-primary);">
                           Set up a lightning address to receive payments easily!

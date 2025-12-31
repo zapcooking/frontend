@@ -7,7 +7,7 @@
   import Recipe from '../../../components/Recipe/Recipe.svelte';
   import type { PageData } from './$types';
 
-  export const data: PageData = {} as PageData;
+  export let data: PageData;
 
   let event: NDKEvent | null = null;
   let naddr: string = '';
@@ -106,10 +106,15 @@
   $: fullPageTitle = `${pageHeading} - zap.cooking`;
   $: fullMetaTitle = `${metaTitleBase} - zap.cooking`;
 
+  // Use server-loaded metadata for initial SSR, then client data once loaded
   $: og_meta = {
-    title: fullMetaTitle,
-    description: event ? event.content.slice(0, 200) + '...' : 'Click to view on zap.cooking',
-    image: event ? event.tags.find((tag) => tag[0] === 'image')?.[1] || 'https://zap.cooking/social-share.png' : 'https://zap.cooking/social-share.png'
+    title: event ? fullMetaTitle : (data.ogMeta?.title || 'Recipe - zap.cooking'),
+    description: event
+      ? event.content.slice(0, 200) + '...'
+      : (data.ogMeta?.description || 'Click to view on zap.cooking'),
+    image: event
+      ? event.tags.find((tag) => tag[0] === 'image')?.[1] || 'https://zap.cooking/social-share.png'
+      : (data.ogMeta?.image || 'https://zap.cooking/social-share.png')
   };
 </script>
 

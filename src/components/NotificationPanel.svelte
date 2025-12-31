@@ -86,8 +86,7 @@
       {#each $notifications.slice(0, MAX_PREVIEW) as notification (notification.id)}
         <button
           on:click={() => handleNotificationClick(notification)}
-          class="w-full flex items-start gap-3 px-4 py-3 hover:bg-accent-gray transition-colors cursor-pointer text-left
-            {notification.read ? 'opacity-60' : ''}"
+          class="w-full flex items-start gap-3 px-4 py-3 hover:bg-accent-gray transition-colors cursor-pointer text-left"
         >
           <div class="relative flex-shrink-0">
             <CustomAvatar pubkey={notification.fromPubkey} size={40} />
@@ -104,11 +103,11 @@
               {' '}{getMessage(notification)}
             </p>
             {#if notification.content}
-              <p class="text-sm text-caption truncate mt-0.5">
+              <p class="text-sm truncate mt-0.5" style="color: var(--color-text-secondary)">
                 "{notification.content}"
               </p>
             {/if}
-            <p class="text-xs text-caption mt-1">
+            <p class="text-xs mt-1" style="color: var(--color-text-secondary)">
               {formatTime(notification.createdAt)}
             </p>
           </div>

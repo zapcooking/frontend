@@ -1,6 +1,6 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
-  
+
   export let type: 'spinner' | 'skeleton' | 'dots' | 'pulse' = 'spinner';
   export let size: 'sm' | 'md' | 'lg' = 'md';
   export let text: string = 'Loading...';
@@ -24,7 +24,7 @@
   $: currentSize = sizeConfig[size];
 </script>
 
-<div 
+<div
   class="loading-state"
   class:full-screen={fullScreen}
   class:py-2={size === 'sm'}
@@ -54,7 +54,7 @@
     {/if}
 
     {#if allowCancel}
-      <button 
+      <button
         class="cancel-button"
         on:click={cancel}
       >
@@ -126,7 +126,7 @@
     .pulse-circle {
       animation: none;
     }
-    
+
     .spinner svg {
       @apply opacity-50;
     }
