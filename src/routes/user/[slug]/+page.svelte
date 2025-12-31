@@ -17,7 +17,9 @@
   import UserPlusIcon from 'phosphor-svelte/lib/UserPlus';
   import SpeakerSlashIcon from 'phosphor-svelte/lib/SpeakerSlash';
   import SealCheckIcon from 'phosphor-svelte/lib/SealCheck';
+  import PencilSimpleIcon from 'phosphor-svelte/lib/PencilSimple';
   import { requestProvider } from 'webln';
+  import ProfileEditModal from '../../../components/ProfileEditModal.svelte';
   import ProfileLists from '../../../components/ProfileLists.svelte';
   import Modal from '../../../components/Modal.svelte';
   import FoodstrFeedOptimized from '../../../components/FoodstrFeedOptimized.svelte';
@@ -66,6 +68,9 @@
   let uploadingPicture = false;
   let pictureInputEl: HTMLInputElement;
   let avatarRefreshKey = 0; // Used to force CustomAvatar to remount after picture change
+
+  // Profile edit modal state
+  let profileEditModal = false;
 
   $: {
     if ($page.params.slug) {
@@ -724,6 +729,17 @@
   <ZapModal bind:open={zapModal} event={user} />
 {/if}
 
+<!-- Profile Edit Modal -->
+<ProfileEditModal
+  bind:open={profileEditModal}
+  {profile}
+  onProfileUpdated={() => {
+    // Refresh profile data and update avatar
+    avatarRefreshKey++;
+    loadData(true);
+  }}
+/>
+
 <Modal cleanup={qrModalCleanup} open={qrModal}>
   <h1 slot="title">{profile && profile.name ? profile.name : '...'}'s Profile</h1>
 
@@ -898,7 +914,17 @@
           
           <!-- Action Buttons (inline on mobile) -->
           <div class="flex gap-2 flex-shrink-0">
-            {#if hexpubkey !== $userPublickey}
+            {#if hexpubkey === $userPublickey}
+              <!-- Edit Profile Button (own profile) -->
+              <button
+                on:click={() => (profileEditModal = true)}
+                class="flex items-center gap-1.5 px-3 py-2 rounded-full font-medium text-sm transition-colors bg-input hover:bg-accent-gray"
+                style="color: var(--color-text-primary)"
+              >
+                <PencilSimpleIcon size={16} weight="bold" />
+                <span class="hidden xs:inline">Edit Profile</span>
+              </button>
+            {:else}
               <button
                 class="p-2 hover:bg-accent-gray rounded-lg transition-colors"
                 on:click={() => (zapModal = true)}
@@ -906,7 +932,7 @@
               >
                 <LightningIcon size={24} weight="regular" />
               </button>
-              
+
               <!-- Follow Button -->
               {#if $userPublickey}
                 <button
