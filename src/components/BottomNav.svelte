@@ -21,9 +21,9 @@
     <CompassIcon class="self-center" size={24} />
     Explore
   </a>
-  <a href="https://plebeian.market/community/seth@zap.cooking/zap-cooking-wear-orcd8yg6jd" target="_blank" rel="noopener noreferrer" class="flex flex-col hover:text-primary">
-    <ShoppingBagIcon class="self-center" size={24} />
-    Shop
+  <a href="/wallet" class="flex flex-col hover:text-primary">
+    <LightningIcon class="self-center" size={24} />
+    Wallet
   </a>
 </nav>
 

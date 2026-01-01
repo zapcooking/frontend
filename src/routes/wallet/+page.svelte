@@ -80,6 +80,10 @@
   import NwcLogo from '../../components/icons/NwcLogo.svelte';
   import CustomAvatar from '../../components/CustomAvatar.svelte';
   import CustomName from '../../components/CustomName.svelte';
+  import LifebuoyIcon from 'phosphor-svelte/lib/Lifebuoy';
+  import CloudCheckIcon from 'phosphor-svelte/lib/CloudCheck';
+  import WalletRecoveryHelpModal from '../../components/WalletRecoveryHelpModal.svelte';
+  import CheckRelayBackupsModal from '../../components/CheckRelayBackupsModal.svelte';
 
   let showAddWallet = false;
   let selectedWalletType: WalletKind | null = null;
@@ -118,6 +122,8 @@
   let showSyncConfirmModal = false;
   let showNwcSyncConfirmModal = false;
   let showDeleteAddressConfirmModal = false;
+  let showRecoveryHelpModal = false;
+  let showCheckRelayBackupsModal = false;
   let availabilityCheckTimeout: ReturnType<typeof setTimeout> | null = null;
 
   // User's profile lud16 (from Nostr kind 0)
@@ -1458,7 +1464,7 @@
             class:ring-2={wallet.active}
             class:ring-amber-500={wallet.active}
           >
-            <div class="p-4 flex items-center gap-4">
+            <div class="p-3 sm:p-4 flex items-center gap-2 sm:gap-4">
               <!-- Wallet type icon -->
               {#if wallet.kind === 4}
                 <SparkLogo size={24} className="text-orange-500 flex-shrink-0" />
@@ -1466,16 +1472,16 @@
                 <NwcLogo size={24} className="text-purple-500 flex-shrink-0" />
               {/if}
               <div class="flex-1 min-w-0">
-                <div class="font-medium" style="color: var(--color-text-primary)">{wallet.name}</div>
-                <div class="text-sm text-caption">
+                <div class="font-medium truncate" style="color: var(--color-text-primary)">{wallet.name}</div>
+                <div class="text-sm text-caption hidden sm:block">
                   {getWalletKindName(wallet.kind)}{#if wallet.kind === 3}{@const parsed = parseNwcUrl(wallet.data)}{#if parsed} · {parsed.pubkey.slice(0, 8)}...{/if}{/if}
                 </div>
               </div>
               {#if wallet.active}
-                <span class="text-xs px-2 py-1 rounded-full bg-amber-500 text-white">Active</span>
+                <span class="text-xs px-2 py-1 rounded-full bg-amber-500 text-white flex-shrink-0">Active</span>
               {:else}
                 <button
-                  class="text-sm text-caption hover:text-primary cursor-pointer"
+                  class="text-xs sm:text-sm text-caption hover:text-primary cursor-pointer flex-shrink-0 whitespace-nowrap"
                   on:click={() => handleSetActive(wallet.id)}
                 >
                   Set Active
@@ -1483,7 +1489,7 @@
               {/if}
               {#if wallet.kind === 4 || wallet.kind === 3}
                 <button
-                  class="relative flex items-center gap-1 px-2 py-1 rounded-lg text-caption hover:text-primary hover:bg-black/5 dark:hover:bg-white/5 cursor-pointer transition-all"
+                  class="relative flex items-center gap-0.5 sm:gap-1 p-1.5 sm:px-2 sm:py-1 rounded-lg text-caption hover:text-primary hover:bg-black/5 dark:hover:bg-white/5 cursor-pointer transition-all flex-shrink-0"
                   on:click={() => toggleWalletOptions(wallet.id)}
                   title="Wallet options"
                 >
@@ -1499,18 +1505,12 @@
                   />
                 </button>
               {/if}
-              <button
-                class="text-caption hover:text-red-500 cursor-pointer"
-                on:click={() => walletToDelete = { id: wallet.id, name: wallet.name, kind: wallet.kind, data: wallet.data }}
-              >
-                <TrashIcon size={18} />
-              </button>
             </div>
 
             <!-- Spark wallet backup options -->
             {#if wallet.kind === 4 && expandedWalletId === wallet.id}
               <div class="px-4 pb-4 pt-2 border-t" style="border-color: var(--color-input-border);">
-                <div class="text-xs text-caption mb-3 uppercase tracking-wide">Backup Options</div>
+                <div class="text-xs text-caption mb-3 uppercase tracking-wide">Wallet Options</div>
                 <div class="flex flex-wrap gap-2">
                   <button
                     class="flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer"
@@ -1537,6 +1537,30 @@
                   >
                     <KeyIcon size={16} />
                     Show Recovery Phrase
+                  </button>
+                  <button
+                    class="flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer"
+                    style="background-color: var(--color-bg-primary); border: 1px solid var(--color-input-border);"
+                    on:click={() => showRecoveryHelpModal = true}
+                  >
+                    <LifebuoyIcon size={16} />
+                    Recovery Help
+                  </button>
+                  <button
+                    class="flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer"
+                    style="background-color: var(--color-bg-primary); border: 1px solid var(--color-input-border);"
+                    on:click={() => showCheckRelayBackupsModal = true}
+                  >
+                    <CloudCheckIcon size={16} />
+                    Check Relay Backups
+                  </button>
+                  <button
+                    class="flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer text-red-500 hover:bg-red-500/10"
+                    style="background-color: var(--color-bg-primary); border: 1px solid var(--color-input-border);"
+                    on:click={() => walletToDelete = { id: wallet.id, name: wallet.name, kind: wallet.kind, data: wallet.data }}
+                  >
+                    <TrashIcon size={16} />
+                    Delete Wallet
                   </button>
                 </div>
 
@@ -1733,6 +1757,14 @@
                   >
                     <DownloadSimpleIcon size={16} />
                     Download Backup
+                  </button>
+                  <button
+                    class="flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer text-red-500 hover:bg-red-500/10"
+                    style="background-color: var(--color-bg-primary); border: 1px solid var(--color-input-border);"
+                    on:click={() => walletToDelete = { id: wallet.id, name: wallet.name, kind: wallet.kind, data: wallet.data }}
+                  >
+                    <TrashIcon size={16} />
+                    Delete Wallet
                   </button>
                 </div>
 
@@ -2821,3 +2853,8 @@
   {/if}
 </div>
 
+<!-- Wallet Recovery Help Modal -->
+<WalletRecoveryHelpModal bind:open={showRecoveryHelpModal} />
+
+<!-- Check Relay Backups Modal -->
+<CheckRelayBackupsModal bind:open={showCheckRelayBackupsModal} pubkey={$userPublickey} />
