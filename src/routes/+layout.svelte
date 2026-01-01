@@ -27,7 +27,7 @@
   $: canonical = `${siteUrl}${$page.url.pathname === '/' ? '' : $page.url.pathname}`;
 
   // Skip layout OG tags on pages that set their own (recipe pages)
-  $: hasCustomOgTags = $page.url.pathname.startsWith('/recipe/');
+  $: hasCustomOgTags = $page.url.pathname.startsWith('/recipe/') || $page.url.pathname.startsWith('/r/');
 
   let authManager: any = null;
   let authState: AuthState = {
