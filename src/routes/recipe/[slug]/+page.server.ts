@@ -1,5 +1,13 @@
 import type { PageServerLoad } from './$types';
 import { nip19 } from 'nostr-tools';
+import { redirect } from '@sveltejs/kit';
+
+// Tracking parameters to strip
+const TRACKING_PARAMS = [
+	'fbclid', 'gclid', 'msclkid',
+	'utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content',
+	'ref', 'source'
+];
 
 // Note: Cloudflare Workers run at the edge by default with native WebSocket support.
 // The runtime: 'edge' config is Vercel-specific and not needed for Cloudflare.
@@ -19,6 +27,11 @@ const RELAYS = [
 ];
 
 async function fetchFromRelay(relayUrl: string, identifier: string, pubkey: string): Promise<RecipeMetadata | null> {
+	// Check if WebSocket is available (may not be in Node.js dev environment)
+	if (typeof WebSocket === 'undefined') {
+		return null;
+	}
+
 	return new Promise((resolve) => {
 		let ws: WebSocket | null = null;
 		let resolved = false;
@@ -121,10 +134,27 @@ async function fetchRecipeMetadata(identifier: string, pubkey: string): Promise<
 	return results.find(r => r !== null) || null;
 }
 
-export const load: PageServerLoad = async ({ params }) => {
+export const load: PageServerLoad = async ({ params, url }) => {
 	const slug = params.slug;
 
+	// Strip tracking parameters - redirect to clean URL if present
+	const hasTrackingParams = TRACKING_PARAMS.some(param => url.searchParams.has(param));
+	if (hasTrackingParams) {
+		throw redirect(301, `/recipe/${slug}`);
+	}
+
+	// Always return null in dev - SSR OG tags only work in production (Cloudflare Workers)
+	// This prevents 500 errors in local development where WebSocket may not work properly
+
 	if (!slug?.startsWith('naddr1')) {
+		return { ogMeta: null };
+	}
+
+	// Only attempt WebSocket fetching in production (Cloudflare Workers environment)
+	// In dev, always return null to prevent errors
+	const isProduction = process.env.NODE_ENV === 'production' && typeof WebSocket !== 'undefined';
+	
+	if (!isProduction) {
 		return { ogMeta: null };
 	}
 
@@ -135,7 +165,14 @@ export const load: PageServerLoad = async ({ params }) => {
 		}
 
 		const { identifier, pubkey } = decoded.data;
-		const metadata = await fetchRecipeMetadata(identifier, pubkey);
+		
+		// Add timeout to prevent hanging
+		const metadataPromise = fetchRecipeMetadata(identifier, pubkey);
+		const timeoutPromise = new Promise<null>((resolve) => 
+			setTimeout(() => resolve(null), 5000)
+		);
+		
+		const metadata = await Promise.race([metadataPromise, timeoutPromise]);
 
 		if (metadata) {
 			return {
@@ -147,6 +184,7 @@ export const load: PageServerLoad = async ({ params }) => {
 			};
 		}
 	} catch (e) {
+		// Log error but don't throw - return null to use fallback meta tags
 		console.error('[OG Meta] Error:', e);
 	}
 
