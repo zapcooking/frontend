@@ -172,7 +172,7 @@
         title="{zapper.totalSats} sats"
       >
         <CustomAvatar pubkey={zapper.pubkey} size={18} className="rounded-full" />
-        <span class="text-xs text-caption">{formatAmount(zapper.totalSats)} sats</span>
+        <span class="text-xs text-caption">{formatAmount(zapper.totalSats)}</span>
       </a>
     {/each}
 

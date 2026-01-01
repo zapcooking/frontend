@@ -10,6 +10,7 @@
   import { addClientTagToEvent } from '$lib/nip89';
   import HeartIcon from 'phosphor-svelte/lib/Heart';
   import LightningIcon from 'phosphor-svelte/lib/Lightning';
+  import RichTextNostr from './RichTextNostr.svelte';
   import { onMount, onDestroy } from 'svelte';
   import { get } from 'svelte/store';
   import { decode } from '@gandlaf21/bolt11-decode';
@@ -522,9 +523,9 @@
     </div>
 
     <!-- Comment Text -->
-      <p class="comment-body">
-      {event.content}
-    </p>
+      <div class="comment-body">
+      <RichTextNostr text={event.content} />
+    </div>
 
     <!-- Actions -->
       <div class="comment-actions">

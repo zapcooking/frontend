@@ -9,6 +9,7 @@
   import RedditLogo from 'phosphor-svelte/lib/RedditLogo';
   import TiktokLogo from 'phosphor-svelte/lib/TiktokLogo';
   import PinterestLogo from 'phosphor-svelte/lib/PinterestLogo';
+  import ChatCircleText from 'phosphor-svelte/lib/ChatCircleText';
   import {
     copyToClipboard,
     canUseNativeShare,
@@ -99,6 +100,8 @@
   $: linkedinShareUrl = socialShareUrls.linkedin(url);
   $: redditShareUrl = socialShareUrls.reddit(url, title);
   $: pinterestShareUrl = socialShareUrls.pinterest(url, title, imageUrl);
+  $: blueskyShareUrl = socialShareUrls.bluesky(url, title);
+  $: smsShareUrl = socialShareUrls.sms(url, title);
 </script>
 
 <Modal {open} cleanup={handleClose}>
@@ -147,7 +150,7 @@
         >
           {#if copied}
             <CheckIcon size={20} weight="bold" />
-            <span>✓ Copied</span>
+            <span>Copied</span>
           {:else}
             <CopyIcon size={20} weight="bold" />
             <span>Copy Link</span>
@@ -237,6 +240,30 @@
           title="Share on Pinterest"
         >
           <PinterestLogo size={24} weight="fill" />
+        </a>
+        
+        <!-- Bluesky -->
+        <a
+          href={blueskyShareUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          class="flex items-center justify-center w-12 h-12 rounded-xl bg-[#1185FE] hover:opacity-80 text-white transition duration-200"
+          aria-label="Share on Bluesky"
+          title="Share on Bluesky"
+        >
+          <svg width="24" height="24" viewBox="0 0 600 530" fill="currentColor" aria-hidden="true">
+            <path d="m135.72 44.03c66.496 49.921 138.02 151.14 164.28 205.46 26.262-54.316 97.782-155.54 164.28-205.46 47.98-36.021 125.72-63.892 125.72 24.795 0 17.712-10.155 148.79-16.111 170.07-20.703 73.984-96.144 92.854-163.25 81.433 117.3 19.964 147.14 86.092 82.697 152.22-122.39 125.59-175.91-31.511-189.63-71.766-2.514-7.3797-3.6904-10.832-3.7077-7.8964-0.0174-2.9357-1.1937 0.51669-3.7077 7.8964-13.714 40.255-67.233 197.36-189.63 71.766-64.444-66.128-34.605-132.26 82.697-152.22-67.108 11.421-142.55-7.4491-163.25-81.433-5.9562-21.282-16.111-152.36-16.111-170.07 0-88.687 77.742-60.816 125.72-24.795z"/>
+          </svg>
+        </a>
+        
+        <!-- SMS/Text Message -->
+        <a
+          href={smsShareUrl}
+          class="flex items-center justify-center w-12 h-12 rounded-xl bg-green-600 hover:opacity-80 text-white transition duration-200"
+          aria-label="Share via text message"
+          title="Share via text message"
+        >
+          <ChatCircleText size={24} weight="fill" />
         </a>
       </div>
     </div>

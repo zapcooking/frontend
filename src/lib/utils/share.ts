@@ -163,6 +163,20 @@ export const socialShareUrls = {
   tiktok: (): string => {
     // TikTok doesn't support direct URL sharing, open upload page
     return 'https://www.tiktok.com/upload';
+  },
+
+  bluesky: (url: string, title?: string): string => {
+    const prodUrl = ensureProductionUrl(url);
+    const text = title ? `${title}: ${prodUrl}` : prodUrl;
+    const params = new URLSearchParams({ text });
+    return `https://bsky.app/intent/compose?${params.toString()}`;
+  },
+
+  sms: (url: string, title?: string): string => {
+    const prodUrl = ensureProductionUrl(url);
+    const body = title ? `Check out this recipe: ${title} - ${prodUrl}` : `Check out this recipe: ${prodUrl}`;
+    const params = new URLSearchParams({ body });
+    return `sms:?${params.toString()}`;
   }
 };
 

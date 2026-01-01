@@ -7,6 +7,7 @@
   import { resolveProfileByPubkey, formatDisplayName } from '$lib/profileResolver';
   import CommentLikes from './CommentLikes.svelte';
   import CommentReplies from './CommentReplies.svelte';
+  import RichTextNostr from './RichTextNostr.svelte';
   import { onMount } from 'svelte';
 
   export let event: NDKEvent;
@@ -51,9 +52,9 @@
         {formatDate(new Date((event.created_at || 0) * 1000))}
       </span>
     </div>
-    <p class="comment-body">
-      {event.content}
-    </p>
+    <div class="comment-body">
+      <RichTextNostr text={event.content} />
+    </div>
     
     <!-- Comment Actions -->
     <div class="flex items-center gap-3">
@@ -117,11 +118,8 @@
   /* Comment body text */
   .comment-body {
     font-size: 0.875rem;
-    line-height: 1.625;
     margin-bottom: 0.5rem;
     color: var(--color-text-primary);
-    overflow-wrap: anywhere;
-    word-break: break-word;
   }
 </style>
 
