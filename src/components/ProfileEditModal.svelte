@@ -296,10 +296,11 @@
       if (currentProfile) {
         const currentKeys = Object.keys(currentProfile).filter(k => currentProfile[k]);
         const updatedKeys = Object.keys(updatedProfile).filter(k => updatedProfile[k]);
+        const editedFields = Object.keys(formData);
 
         // Check if we would lose any fields that had values
-        const lostFields = currentKeys.filter(k =>
-          !updatedKeys.includes(k) && !['display_name', 'name', 'about', 'picture', 'banner', 'nip05', 'website', 'lud16'].includes(k)
+        const lostFields = currentKeys.filter(
+          k => !updatedKeys.includes(k) && !editedFields.includes(k)
         );
 
         if (lostFields.length > 0) {
