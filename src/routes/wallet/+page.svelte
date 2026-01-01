@@ -80,6 +80,8 @@
   import NwcLogo from '../../components/icons/NwcLogo.svelte';
   import CustomAvatar from '../../components/CustomAvatar.svelte';
   import CustomName from '../../components/CustomName.svelte';
+  import LifebuoyIcon from 'phosphor-svelte/lib/Lifebuoy';
+  import WalletRecoveryHelpModal from '../../components/WalletRecoveryHelpModal.svelte';
 
   let showAddWallet = false;
   let selectedWalletType: WalletKind | null = null;
@@ -118,6 +120,7 @@
   let showSyncConfirmModal = false;
   let showNwcSyncConfirmModal = false;
   let showDeleteAddressConfirmModal = false;
+  let showRecoveryHelpModal = false;
   let availabilityCheckTimeout: ReturnType<typeof setTimeout> | null = null;
 
   // User's profile lud16 (from Nostr kind 0)
@@ -1481,6 +1484,15 @@
                   Set Active
                 </button>
               {/if}
+              {#if wallet.kind === 4}
+                <button
+                  class="p-2 rounded-lg text-caption hover:text-primary hover:bg-black/5 dark:hover:bg-white/5 cursor-pointer transition-all"
+                  on:click={() => showRecoveryHelpModal = true}
+                  title="Wallet recovery help"
+                >
+                  <LifebuoyIcon size={18} />
+                </button>
+              {/if}
               {#if wallet.kind === 4 || wallet.kind === 3}
                 <button
                   class="relative flex items-center gap-1 px-2 py-1 rounded-lg text-caption hover:text-primary hover:bg-black/5 dark:hover:bg-white/5 cursor-pointer transition-all"
@@ -2821,3 +2833,5 @@
   {/if}
 </div>
 
+<!-- Wallet Recovery Help Modal -->
+<WalletRecoveryHelpModal bind:open={showRecoveryHelpModal} />
