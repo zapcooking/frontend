@@ -2,6 +2,7 @@ import { sveltekit } from '@sveltejs/kit/vite';
 import { defineConfig } from 'vite';
 import { execSync } from 'child_process';
 import { readFileSync } from 'fs';
+import { nodePolyfills } from 'vite-plugin-node-polyfills';
 
 // Get git commit hash for build info
 function getGitCommitHash(): string {
@@ -26,10 +27,18 @@ const BUILD_HASH = getGitCommitHash();
 const VERSION = getVersion();
 
 export default defineConfig({
-  plugins: [sveltekit()],
+  plugins: [
+    nodePolyfills({
+      globals: {
+        Buffer: true,
+        global: true,
+        process: true,
+      },
+    }),
+    sveltekit(),
+  ],
   define: {
     global: 'globalThis',
-    Buffer: ['buffer', 'Buffer'],
     __BUILD_HASH__: JSON.stringify(BUILD_HASH),
     __VERSION__: JSON.stringify(VERSION)
   },
@@ -60,7 +69,8 @@ export default defineConfig({
     // - @getalby/sdk: needs browser WebSocket
     // - buffer, bip39: CommonJS packages that use require()
     // - @breeztech/breez-sdk-spark: WASM module, browser only
+    // - path-browserify: CommonJS polyfill from vite-plugin-node-polyfills
     noExternal: [],
-    external: ['@getalby/sdk', 'buffer', 'bip39', '@breeztech/breez-sdk-spark']
+    external: ['@getalby/sdk', 'buffer', 'bip39', '@breeztech/breez-sdk-spark', 'path-browserify']
   }
 });
