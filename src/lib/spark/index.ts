@@ -1106,6 +1106,106 @@ export async function restoreWalletFromNostr(
 }
 
 /**
+ * Relay backup status result
+ */
+export interface RelayBackupStatus {
+	relay: string
+	hasBackup: boolean
+	timestamp?: number
+	error?: string
+}
+
+/**
+ * Check which relays have a backup of the wallet.
+ * Queries each relay individually to determine backup status.
+ * @param pubkey The user's Nostr public key.
+ * @returns Array of relay backup statuses.
+ */
+export async function checkRelayBackups(pubkey: string): Promise<RelayBackupStatus[]> {
+	if (!browser) return []
+
+	const { ndk, ndkReady, relays } = await import('$lib/nostr')
+	const { standardRelays } = await import('$lib/consts')
+	const { get } = await import('svelte/store')
+	const { NDKRelaySet } = await import('@nostr-dev-kit/ndk')
+
+	await ndkReady
+	const ndkInstance = get(ndk)
+
+	// Use the user's explicitly configured relays (from localStorage or defaults)
+	// This avoids showing random outbox/gossip relays
+	const relaysToCheck: string[] = Array.isArray(relays)
+		? relays.filter((r: unknown): r is string => typeof r === 'string')
+		: standardRelays
+
+	if (relaysToCheck.length === 0) {
+		logger.warn('[Spark] No relays configured')
+		return []
+	}
+
+	logger.info(`[Spark] Checking backup status on ${relaysToCheck.length} relays...`)
+
+	const results: RelayBackupStatus[] = []
+
+	// Query each relay individually in parallel
+	const checkPromises = relaysToCheck.map(async (relayUrl): Promise<RelayBackupStatus> => {
+		try {
+			// Create a filter for the backup event
+			const filter = {
+				kinds: [BACKUP_EVENT_KIND],
+				authors: [pubkey],
+				'#d': [BACKUP_D_TAG]
+			}
+
+			// Create a relay set for this specific relay
+			const relaySet = NDKRelaySet.fromRelayUrls([relayUrl], ndkInstance, true)
+
+			// Fetch from this specific relay with timeout
+			const events = await Promise.race([
+				ndkInstance.fetchEvents(filter, { closeOnEose: true }, relaySet),
+				new Promise<Set<any>>((resolve) => setTimeout(() => resolve(new Set()), 8000))
+			])
+
+			if (events && events.size > 0) {
+				// Get the most recent event
+				let latestEvent: any = null
+				for (const event of events) {
+					if (!latestEvent || event.created_at! > latestEvent.created_at!) {
+						latestEvent = event
+					}
+				}
+
+				return {
+					relay: relayUrl,
+					hasBackup: true,
+					timestamp: latestEvent?.created_at ? latestEvent.created_at * 1000 : undefined
+				}
+			} else {
+				return {
+					relay: relayUrl,
+					hasBackup: false
+				}
+			}
+		} catch (error) {
+			logger.warn(`[Spark] Failed to check backup on ${relayUrl}: ${String(error)}`)
+			return {
+				relay: relayUrl,
+				hasBackup: false,
+				error: 'Connection failed'
+			}
+		}
+	})
+
+	const resultsArray = await Promise.all(checkPromises)
+	results.push(...resultsArray)
+
+	const backupCount = results.filter(r => r.hasBackup).length
+	logger.info(`[Spark] Backup check complete: ${backupCount}/${results.length} relays have backup`)
+
+	return results
+}
+
+/**
  * Check if a lud16 address matches the Spark wallet's lightning address.
  * Useful for determining if the user's profile lud16 is their Spark wallet.
  * @param lud16 The lightning address to check (e.g., from user's Nostr profile)
