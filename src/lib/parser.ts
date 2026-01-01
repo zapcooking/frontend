@@ -1,4 +1,5 @@
 import MarkdownIt from 'markdown-it';
+import DOMPurify from 'dompurify';
 
 const md = new MarkdownIt();
 
@@ -15,11 +16,11 @@ md.renderer.rules.link_open = function(tokens, idx, options, env, self) {
 
 export function parseMarkdown(markdown: string) {
   const parsedMarkdown = md.render(markdown);
-
-  return parsedMarkdown;
+  return DOMPurify.sanitize(parsedMarkdown);
 }
 
 interface MarkdownInformation {
+
   prepTime: string;
   cookTime: string;
   servings: string;

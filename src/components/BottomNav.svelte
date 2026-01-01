@@ -1,8 +1,8 @@
 <script lang="ts">
-  import MagnifyingIcon from 'phosphor-svelte/lib/MagnifyingGlass';
-  import LightningIcon from 'phosphor-svelte/lib/Lightning';
+  import ForkKnifeIcon from 'phosphor-svelte/lib/ForkKnife';
+  import ChatCircleDotsIcon from 'phosphor-svelte/lib/ChatCircleDots';
   import CompassIcon from 'phosphor-svelte/lib/Compass';
-  import UtensilsIcon from 'phosphor-svelte/lib/ForkKnife';
+  import ShoppingBagIcon from 'phosphor-svelte/lib/ShoppingBag';
 </script>
 
 <nav
@@ -10,11 +10,11 @@
   style="color: var(--color-text-primary); border-top: 1px solid var(--color-input-border);"
 >
   <a href="/recent" class="flex flex-col hover:text-primary">
-    <MagnifyingIcon class="self-center" size={24} />
+    <ForkKnifeIcon class="self-center" size={24} />
     Recipes
   </a>
   <a href="/community" class="flex flex-col hover:text-primary">
-    <UtensilsIcon class="self-center" size={24} />
+    <ChatCircleDotsIcon class="self-center" size={24} />
     Community
   </a>
   <a href="/explore" class="flex flex-col hover:text-primary">

@@ -103,7 +103,7 @@
     nSelected.splice(draggedIndex, 1);
 
     // Insert at new position
-    const insertIndex = draggedIndex < index ? index : index;
+    const insertIndex = draggedIndex < index ? index - 1 : index;
     nSelected.splice(insertIndex, 0, draggedItem);
 
     selected.set(nSelected);
@@ -142,6 +142,7 @@
             type="button"
             class="cursor-grab active:cursor-grabbing text-caption hover:text-primary flex-shrink-0"
             title="Drag to reorder"
+            aria-label="Drag to reorder"
           >
             <DotsSixVertical size={20} weight="bold" />
           </button>
@@ -154,6 +155,7 @@
               on:keydown={(e) => handleEditKeydown(e, index)}
               class="grow bg-transparent border-none outline-none p-0"
               style="color: var(--color-text-primary)"
+              aria-label={`Edit ${tag}`}
             />
           {:else}
             <span

@@ -58,15 +58,35 @@
   }
 
   function handleBulletList() {
-    insertMarkdown('\n- ', '', 'list item');
+    if (!textarea) return;
+
+    const start = textarea.selectionStart;
+    const needsNewline = start > 0 && value.charAt(start - 1) !== '\n';
+    const prefix = (needsNewline ? '\n' : '') + '- ';
+
+    insertMarkdown(prefix, '', 'list item');
   }
 
   function handleNumberedList() {
-    insertMarkdown('\n1. ', '', 'list item');
+    if (!textarea) return;
+
+    const start = textarea.selectionStart;
+    const needsNewline = start > 0 && value.charAt(start - 1) !== '\n';
+    const prefix = (needsNewline ? '\n' : '') + '1. ';
+
+    insertMarkdown(prefix, '', 'list item');
   }
 
   function handleQuote() {
-    insertMarkdown('\n> ', '', 'quote');
+    if (!textarea) {
+      return;
+    }
+
+    const start = textarea.selectionStart ?? 0;
+    const previousChar = start > 0 ? value.charAt(start - 1) : '';
+    const before = start === 0 || previousChar === '\n' ? '> ' : '\n> ';
+
+    insertMarkdown(before, '', 'quote');
   }
 
   function handleCode() {

@@ -4,6 +4,7 @@
   import Header from '../components/Header.svelte';
   import { browser } from '$app/environment';
   import { page } from '$app/stores';
+  import { goto } from '$app/navigation';
   import { userPublickey, ndk } from '$lib/nostr';
   import BottomNav from '../components/BottomNav.svelte';
   import Footer from '../components/Footer.svelte';
@@ -39,6 +40,79 @@
   };
   let unsubscribe: (() => void) | null = null;
 
+  // Handle deep links from Capacitor (for NIP-46 pairing)
+  async function handleDeepLink(url: string) {
+    console.log('[DeepLink] Received:', url);
+    
+    if (!authManager) {
+      console.warn('[DeepLink] Auth manager not initialized');
+      return;
+    }
+
+    // Check if we have a pending NIP-46 pairing
+    if (authManager.hasPendingNip46Pairing()) {
+      console.log('[DeepLink] Has pending NIP-46 pairing, restarting listener...');
+      await authManager.restartNip46ListenerIfPending();
+      goto('/login');
+      return;
+    }
+
+    // Handle bunker:// URLs for direct NIP-46 auth
+    if (url.startsWith('bunker://') || url.startsWith('nostrconnect://')) {
+      try {
+        await authManager.authenticateWithNIP46(url);
+        goto('/explore');
+      } catch (e) {
+        console.error('[DeepLink] NIP-46 auth failed:', e);
+        goto('/login');
+      }
+    }
+  }
+
+  // Setup Capacitor deep link listeners
+  async function setupCapacitorListeners() {
+    if (!browser) return;
+    
+    // Only import Capacitor if it's available (mobile build only)
+    // Check for Capacitor presence first to avoid build errors in web builds
+    if (typeof window === 'undefined' || !(window as any).Capacitor) {
+      console.log('[Capacitor] Not available (web environment)');
+      return;
+    }
+
+    try {
+      const { App } = await import('@capacitor/app');
+
+      // Listen for deep links when app is open
+      App.addListener('appUrlOpen', (event) => {
+        console.log('[Capacitor] appUrlOpen:', event.url);
+        handleDeepLink(event.url);
+      });
+
+      // Listen for app state changes (resume)
+      App.addListener('appStateChange', async (state) => {
+        console.log('[Capacitor] appStateChange:', state.isActive ? 'active' : 'inactive');
+        
+        if (state.isActive && authManager?.hasPendingNip46Pairing()) {
+          console.log('[Capacitor] App resumed with pending NIP-46 pairing');
+          await authManager.restartNip46ListenerIfPending();
+        }
+      });
+
+      // Check for launch URL (app opened via deep link)
+      const launchUrl = await App.getLaunchUrl();
+      if (launchUrl?.url) {
+        console.log('[Capacitor] Launch URL:', launchUrl.url);
+        handleDeepLink(launchUrl.url);
+      }
+
+      console.log('[Capacitor] Deep link listeners initialized');
+    } catch (e) {
+      // Capacitor not available (web environment)
+      console.log('[Capacitor] Not available (web environment)');
+    }
+  }
+
   onMount(() => {
     try {
       // Initialize theme first to prevent FOUC
@@ -62,6 +136,9 @@
 
       // Initialize wallet manager to restore saved wallets
       initializeWalletManager();
+
+      // Setup Capacitor deep link listeners
+      setupCapacitorListeners();
 
       console.log('Layout mounted - auth manager initialized');
     } catch (error) {

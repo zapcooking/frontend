@@ -30,26 +30,28 @@
   });
 </script>
 
-<div class="flex gap-3 mb-3">
-  <CustomAvatar
-    className="flex-shrink-0"
-    pubkey={event.pubkey}
-    size={32}
-  />
-  <div class="flex-1 min-w-0">
-    <div class="flex items-center gap-2 mb-1">
-      <span class="font-medium text-sm" style="color: var(--color-text-primary)">
+<div class="comment-row">
+  <div class="comment-avatar">
+    <CustomAvatar
+      className="flex-shrink-0"
+      pubkey={event.pubkey}
+      size={32}
+    />
+  </div>
+  <div class="comment-content">
+    <div class="comment-header">
+      <span class="comment-author">
         {#if isLoading}
           <span class="animate-pulse">Loading...</span>
         {:else}
           {displayName}
         {/if}
       </span>
-      <span class="text-xs text-caption">
+      <span class="comment-time">
         {formatDate(new Date((event.created_at || 0) * 1000))}
       </span>
     </div>
-    <p class="text-sm leading-relaxed mb-2" style="color: var(--color-text-primary)">
+    <p class="comment-body">
       {event.content}
     </p>
     
@@ -60,4 +62,66 @@
     </div>
   </div>
 </div>
+
+<style>
+  /* Comment row - 2 column flex layout */
+  .comment-row {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 0.75rem;
+  }
+  
+  @media (min-width: 640px) {
+    .comment-row {
+      gap: 0.75rem;
+    }
+  }
+  
+  /* Avatar gutter - fixed width, never shrinks */
+  .comment-avatar {
+    flex: 0 0 auto;
+    width: 32px;
+  }
+  
+  /* Content column - takes remaining width, CAN shrink */
+  .comment-content {
+    flex: 1 1 0%;
+    min-width: 0; /* Critical: allows content to shrink below intrinsic width */
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+  
+  /* Name + Time header - wraps naturally on mobile */
+  .comment-header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.125rem 0.5rem;
+    margin-bottom: 0.25rem;
+  }
+  
+  .comment-author {
+    font-weight: 500;
+    font-size: 0.875rem;
+    color: var(--color-text-primary);
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+  
+  .comment-time {
+    font-size: 0.75rem;
+    color: var(--color-text-secondary);
+    white-space: nowrap;
+  }
+  
+  /* Comment body text */
+  .comment-body {
+    font-size: 0.875rem;
+    line-height: 1.625;
+    margin-bottom: 0.5rem;
+    color: var(--color-text-primary);
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+</style>
 

@@ -350,12 +350,6 @@ export class AuthManager {
       // Create a local signer for the NIP-46 client
       const localSigner = new NDKPrivateKeySigner(localPrivateKey);
       
-      console.log('[NIP-46] Creating NIP-46 signer...');
-      
-      // Create the NIP-46 signer
-      // NDKNip46Signer(ndk, remotePubkey, localSigner)
-      this.nip46Signer = new NDKNip46Signer(this.ndk, signerPubkey, localSigner);
-      
       // Add relays to NDK if not already present
       for (const relay of relays) {
         try {
@@ -364,11 +358,31 @@ export class AuthManager {
           console.warn('[NIP-46] Failed to add relay:', relay, e);
         }
       }
+
+      console.log('[NIP-46] Connecting NDK...');
+      await this.ndk.connect();
       
-      // Set the token/secret if provided
-      if (secret) {
-        this.nip46Signer.token = secret;
+      console.log('[NIP-46] Creating NIP-46 signer...');
+      
+      // Create the NIP-46 signer
+      // NDKNip46Signer(ndk, remotePubkey, localSigner)
+      this.nip46Signer = new NDKNip46Signer(this.ndk, signerPubkey, localSigner);
+
+      // Set internal properties that NDKNip46Signer needs
+      try {
+        (this.nip46Signer as any).bunkerPubkey = signerPubkey;
+        (this.nip46Signer as any)._bunkerPubkey = signerPubkey;
+        (this.nip46Signer as any).userPubkey = signerPubkey;
+        (this.nip46Signer as any)._userPubkey = signerPubkey;
+        const remoteUser = this.ndk.getUser({ pubkey: signerPubkey });
+        (this.nip46Signer as any)._remoteUser = remoteUser;
+        console.log('[NIP-46] Set signer internal properties');
+      } catch (e) {
+        console.warn('[NIP-46] Could not set signer properties:', e);
       }
+      
+      // Set the signer on NDK BEFORE blockUntilReady
+      this.ndk.signer = this.nip46Signer;
       
       console.log('[NIP-46] Connecting to bunker (this may take a moment)...');
       
@@ -383,9 +397,6 @@ export class AuthManager {
       await Promise.race([connectionPromise, timeoutPromise]);
       
       console.log('[NIP-46] Connected! Getting user...');
-      
-      // Set the signer on NDK
-      this.ndk.signer = this.nip46Signer;
       
       // Get the user
       const user = await this.nip46Signer.user();
@@ -453,10 +464,7 @@ export class AuthManager {
         localSigner = new NDKPrivateKeySigner(localPrivateKey);
       }
       
-      // Create the NIP-46 signer
-      this.nip46Signer = new NDKNip46Signer(this.ndk, nip46Info.signerPubkey, localSigner);
-      
-      // Add relays
+      // Add relays first
       for (const relay of nip46Info.relays) {
         try {
           this.ndk.addExplicitRelay(relay);
@@ -464,19 +472,41 @@ export class AuthManager {
           console.warn('[NIP-46] Failed to add relay:', relay, e);
         }
       }
+
+      console.log('[NIP-46] Connecting NDK...');
+      await this.ndk.connect();
       
-      // Try to connect with a shorter timeout for reconnection
-      const connectionTimeout = 15000; // 15 seconds for reconnection
-      const connectionPromise = this.nip46Signer.blockUntilReady();
+      // Create the NIP-46 signer
+      this.nip46Signer = new NDKNip46Signer(this.ndk, nip46Info.signerPubkey, localSigner);
+
+      // Set internal properties that NDKNip46Signer needs
+      try {
+        (this.nip46Signer as any).bunkerPubkey = nip46Info.signerPubkey;
+        (this.nip46Signer as any)._bunkerPubkey = nip46Info.signerPubkey;
+        (this.nip46Signer as any).userPubkey = nip46Info.signerPubkey;
+        (this.nip46Signer as any)._userPubkey = nip46Info.signerPubkey;
+        const remoteUser = this.ndk.getUser({ pubkey: nip46Info.signerPubkey });
+        (this.nip46Signer as any)._remoteUser = remoteUser;
+        console.log('[NIP-46] Set signer internal properties on reconnect');
+      } catch (e) {
+        console.warn('[NIP-46] Could not set signer properties:', e);
+      }
       
-      const timeoutPromise = new Promise<never>((_, reject) => {
-        setTimeout(() => reject(new Error('Bunker reconnection timeout')), connectionTimeout);
-      });
-      
-      await Promise.race([connectionPromise, timeoutPromise]);
-      
-      // Set the signer on NDK
+      // Set the signer on NDK BEFORE blockUntilReady
       this.ndk.signer = this.nip46Signer;
+      
+      // Try to establish session with timeout
+      console.log('[NIP-46] Attempting to establish session on reconnect (15s timeout)...');
+      try {
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          setTimeout(() => reject(new Error('Bunker reconnection timeout')), 15000);
+        });
+        await Promise.race([this.nip46Signer.blockUntilReady(), timeoutPromise]);
+        console.log('[NIP-46] Reconnection session established successfully!');
+      } catch (e) {
+        console.warn('[NIP-46] Reconnection session establishment failed or timed out:', e);
+        // Still proceed - might work anyway, or will fail on actual sign attempt
+      }
       
       // Get the user
       const user = await this.nip46Signer.user();
@@ -538,6 +568,348 @@ export class AuthManager {
     });
 
     this.clearStorage();
+  }
+
+  // ============================================================
+  // Universal NIP-46 Pairing (for "Open Amber" flow on mobile)
+  // ============================================================
+
+  // Start universal NIP-46 pairing - generates nostrconnect:// URI
+  async startNip46PairingUniversal(): Promise<{ uri: string; relays: string[] }> {
+    if (!browser) {
+      throw new Error('Browser environment required');
+    }
+
+    console.log('[NIP-46] Starting universal pairing...');
+
+    // Generate ephemeral local keypair
+    const localPrivateKeyBytes = generateSecretKey();
+    const localPrivateKey = Array.from(localPrivateKeyBytes)
+      .map(b => b.toString(16).padStart(2, '0'))
+      .join('');
+    const localPubkey = getPublicKey(localPrivateKeyBytes);
+
+    // Choose relays - use NDK's existing relays or defaults
+    let relays: string[] = [];
+    if (this.ndk.pool && this.ndk.pool.relays && this.ndk.pool.relays.size > 0) {
+      relays = Array.from(this.ndk.pool.relays.keys()) as string[];
+    }
+    if (relays.length === 0) {
+      relays = [
+        'wss://relay.damus.io',
+        'wss://relay.nostr.band',
+        'wss://nos.lol'
+      ];
+    }
+
+    // Store pending pairing info
+    const pendingInfo = {
+      localPrivateKey,
+      localPubkey,
+      relays,
+      startedAt: Date.now()
+    };
+    localStorage.setItem('nostrcooking_nip46_pending', JSON.stringify(pendingInfo));
+
+    // Build nostrconnect:// URI
+    const metadata = JSON.stringify({
+      name: 'Zap Cooking',
+      url: 'https://zap.cooking',
+      description: 'A place to share food with friends'
+    });
+
+    const relayParams = relays.map(r => `relay=${encodeURIComponent(r)}`).join('&');
+    const uri = `nostrconnect://${localPubkey}?${relayParams}&metadata=${encodeURIComponent(metadata)}`;
+
+    console.log('[NIP-46] Generated nostrconnect URI');
+    console.log('[NIP-46] Local pubkey:', localPubkey);
+
+    // Ensure NDK has relays and is connected
+    for (const relay of relays) {
+      try {
+        this.ndk.addExplicitRelay(relay);
+      } catch (e) {
+        console.warn('[NIP-46] Failed to add relay:', relay, e);
+      }
+    }
+
+    await this.ndk.connect();
+
+    return { uri, relays };
+  }
+
+  // Check if there's a pending NIP-46 pairing
+  hasPendingNip46Pairing(): boolean {
+    if (!browser) return false;
+    const pending = localStorage.getItem('nostrcooking_nip46_pending');
+    if (!pending) return false;
+    
+    try {
+      const info = JSON.parse(pending);
+      // Expire after 5 minutes
+      if (Date.now() - info.startedAt > 5 * 60 * 1000) {
+        localStorage.removeItem('nostrcooking_nip46_pending');
+        return false;
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  // Get pending pairing info
+  getPendingNip46Info(): { localPrivateKey: string; localPubkey: string; relays: string[] } | null {
+    if (!browser) return null;
+    const pending = localStorage.getItem('nostrcooking_nip46_pending');
+    if (!pending) return null;
+    
+    try {
+      return JSON.parse(pending);
+    } catch {
+      return null;
+    }
+  }
+
+  // Complete NIP-46 pairing with the signer's pubkey
+  async completeNip46PairingWithSignerPubkey(signerPubkey: string): Promise<void> {
+    console.log('[NIP-46] Completing pairing with signer:', signerPubkey);
+
+    const pendingInfo = this.getPendingNip46Info();
+    if (!pendingInfo) {
+      // Check if user is already authenticated with this signer
+      const currentAuth = this.getState();
+      if (currentAuth.isAuthenticated && currentAuth.authMethod === 'nip46') {
+        const storedNip46 = localStorage.getItem('nostrcooking_nip46');
+        if (storedNip46) {
+          const nip46Info = JSON.parse(storedNip46);
+          if (nip46Info.signerPubkey === signerPubkey) {
+            console.log('[NIP-46] Already authenticated with this signer, ignoring duplicate event');
+            return; // Already paired, just return silently
+          }
+        }
+      }
+      throw new Error('No pending NIP-46 pairing found');
+    }
+
+    this.updateState({ isLoading: true, error: null });
+
+    try {
+      const localSigner = new NDKPrivateKeySigner(pendingInfo.localPrivateKey);
+
+      for (const relay of pendingInfo.relays) {
+        try {
+          this.ndk.addExplicitRelay(relay);
+        } catch (e) {
+          console.warn('[NIP-46] Failed to add relay:', relay, e);
+        }
+      }
+
+      console.log('[NIP-46] Connecting NDK...');
+      await this.ndk.connect();
+
+      console.log('[NIP-46] Creating NIP-46 signer...');
+      this.nip46Signer = new NDKNip46Signer(this.ndk, signerPubkey, localSigner);
+
+      // Set internal properties that NDKNip46Signer needs
+      try {
+        (this.nip46Signer as any).bunkerPubkey = signerPubkey;
+        (this.nip46Signer as any)._bunkerPubkey = signerPubkey;
+        (this.nip46Signer as any).userPubkey = signerPubkey;
+        (this.nip46Signer as any)._userPubkey = signerPubkey;
+        const remoteUser = this.ndk.getUser({ pubkey: signerPubkey });
+        (this.nip46Signer as any)._remoteUser = remoteUser;
+        console.log('[NIP-46] Set signer internal properties');
+      } catch (e) {
+        console.warn('[NIP-46] Could not set signer properties:', e);
+      }
+
+      // Set signer on NDK BEFORE blockUntilReady
+      this.ndk.signer = this.nip46Signer;
+
+      // SAVE AUTH INFO FIRST - before trying blockUntilReady
+      // This ensures the user is "logged in" even if the session doesn't fully establish
+      const user = this.ndk.getUser({ pubkey: signerPubkey });
+      const publicKey = signerPubkey;
+
+      const nip46Info: NIP46ConnectionInfo = {
+        signerPubkey,
+        relays: pendingInfo.relays,
+        connectionString: `bunker://${signerPubkey}?${pendingInfo.relays.map(r => `relay=${encodeURIComponent(r)}`).join('&')}`,
+        localPrivateKey: pendingInfo.localPrivateKey
+      };
+
+      localStorage.setItem('nostrcooking_loggedInPublicKey', publicKey);
+      localStorage.setItem('nostrcooking_authMethod', 'nip46');
+      localStorage.setItem('nostrcooking_nip46', JSON.stringify(nip46Info));
+      localStorage.removeItem('nostrcooking_nip46_pending');
+      
+      console.log('[NIP-46] Auth info saved, authenticated as:', publicKey);
+
+      // Update state FIRST to show user as logged in
+      this.updateState({
+        isAuthenticated: true,
+        user,
+        publicKey,
+        authMethod: 'nip46',
+        isLoading: false,
+        error: null
+      });
+
+      // NOW try to establish session - but don't fail auth if it times out
+      console.log('[NIP-46] Attempting to establish NIP-46 session (15s timeout)...');
+      try {
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          setTimeout(() => reject(new Error('Session establishment timeout')), 15000);
+        });
+        await Promise.race([this.nip46Signer.blockUntilReady(), timeoutPromise]);
+        console.log('[NIP-46] Session established successfully!');
+      } catch (e) {
+        console.warn('[NIP-46] Session establishment timed out, but auth is saved. Signing may still work:', e);
+        // DON'T throw or clear the signer - user is already authenticated
+        // Signing operations will try to reconnect on demand
+      }
+
+    } catch (error) {
+      console.error('[NIP-46] Pairing failed:', error);
+      this.nip46Signer = null;
+      this.ndk.signer = undefined;
+      this.updateState({
+        isAuthenticated: false,
+        user: null,
+        publicKey: '',
+        authMethod: null,
+        isLoading: false,
+        error: error instanceof Error ? error.message : 'Failed to complete pairing'
+      });
+      throw error;
+    }
+  }
+
+  // Restart NIP-46 listener if there's a pending pairing
+  async restartNip46ListenerIfPending(): Promise<void> {
+    if (!this.hasPendingNip46Pairing()) {
+      console.log('[NIP-46] No pending pairing to restart');
+      return;
+    }
+
+    const pendingInfo = this.getPendingNip46Info();
+    if (!pendingInfo) return;
+
+    console.log('[NIP-46] Restarting listener for pending pairing...');
+
+    // Ensure relays are connected
+    for (const relay of pendingInfo.relays) {
+      try {
+        this.ndk.addExplicitRelay(relay);
+      } catch (e) {
+        console.warn('[NIP-46] Failed to add relay:', relay, e);
+      }
+    }
+
+    await this.ndk.connect();
+
+    // Create temporary signer to listen for responses
+    const localSigner = new NDKPrivateKeySigner(pendingInfo.localPrivateKey);
+    const tempSigner = new NDKNip46Signer(this.ndk, pendingInfo.localPubkey, localSigner);
+
+    // Listen for NIP-46 events (kind 24133)
+    const filter = {
+      kinds: [24133],
+      '#p': [pendingInfo.localPubkey],
+      since: Math.floor((Date.now() - 5 * 60 * 1000) / 1000)
+    };
+
+    const sub = this.ndk.subscribe(filter, { closeOnEose: false });
+
+    sub.on('event', async (event: any) => {
+      console.log('[NIP-46] Received event from:', event.pubkey);
+      
+      // The event.pubkey is the signer's pubkey
+      const signerPubkey = event.pubkey;
+      
+      try {
+        await this.completeNip46PairingWithSignerPubkey(signerPubkey);
+        sub.stop();
+      } catch (e) {
+        // Only log as warning if it's not the "already authenticated" case
+        const errorMsg = e instanceof Error ? e.message : String(e);
+        if (errorMsg.includes('No pending NIP-46 pairing found')) {
+          // This is expected if pairing was already completed - just stop listening
+          console.log('[NIP-46] Pairing already completed, stopping listener');
+          sub.stop();
+        } else {
+          console.error('[NIP-46] Failed to complete pairing from event:', e);
+        }
+      }
+    });
+
+    console.log('[NIP-46] Listener started, waiting for signer response...');
+  }
+
+  // Ensure NIP-46 signer is ready (call before signing operations)
+  async ensureNip46SignerReady(): Promise<boolean> {
+    if (!this.nip46Signer) {
+      // Try to reconnect if we have stored info
+      const nip46Info = this.getNIP46Info();
+      if (nip46Info) {
+        try {
+          await this.reconnectNIP46(nip46Info);
+          // After reconnecting, verify it's actually ready
+          if (!this.nip46Signer) {
+            return false;
+          }
+          const signer: NDKNip46Signer = this.nip46Signer;
+          try {
+            // Quick check - try to get user (this will fail if not ready)
+            await signer.user();
+            return true;
+          } catch (e) {
+            console.warn('[NIP-46] Signer reconnected but not ready:', e);
+            // Try blockUntilReady with short timeout
+            try {
+              const timeoutPromise = new Promise<never>((_, reject) => {
+                setTimeout(() => reject(new Error('Ready check timeout')), 5000);
+              });
+              await Promise.race([signer.blockUntilReady(), timeoutPromise]);
+              console.log('[NIP-46] Signer is now ready');
+              return true;
+            } catch (e2) {
+              console.error('[NIP-46] Signer still not ready after reconnect:', e2);
+              return false;
+            }
+          }
+        } catch (e) {
+          console.error('[NIP-46] Failed to reconnect:', e);
+          return false;
+        }
+      }
+      return false;
+    }
+
+    // Signer exists - verify it's actually ready
+    const signer = this.nip46Signer;
+    if (signer === null) {
+      return false;
+    }
+    try {
+      // Quick check - try to get user (this will fail if not ready)
+      await signer.user();
+      return true;
+    } catch (e) {
+      console.warn('[NIP-46] Signer exists but not ready, attempting to establish session...');
+      // Try blockUntilReady with short timeout
+      try {
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          setTimeout(() => reject(new Error('Ready check timeout')), 5000);
+        });
+        await Promise.race([signer.blockUntilReady(), timeoutPromise]);
+        console.log('[NIP-46] Signer is now ready');
+        return true;
+      } catch (e2) {
+        console.error('[NIP-46] Signer not ready:', e2);
+        return false;
+      }
+    }
   }
 
   // Generate new key pair for anonymous posting
@@ -613,6 +985,7 @@ export class AuthManager {
       localStorage.removeItem('nostrcooking_privateKey');
       localStorage.removeItem('nostrcooking_authMethod');
       localStorage.removeItem('nostrcooking_nip46');
+      localStorage.removeItem('nostrcooking_nip46_pending');
     }
   }
 

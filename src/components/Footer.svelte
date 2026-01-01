@@ -3,6 +3,7 @@
   import { theme } from '$lib/themeStore';
   import Modal from './Modal.svelte';
   import { qr } from "@svelte-put/qr/svg";
+  import { VERSION, BUILD_HASH } from '$lib/version';
 
   const currentYear = new Date().getFullYear();
   let supportModalOpen = false;
@@ -55,10 +56,10 @@
           class="text-caption hover:text-primary transition-colors cursor-pointer bg-transparent border-0 p-0"
           type="button"
         >
-          Zap
+          Support
         </button>
         <span>|</span>
-        <a href="/why" class="hover:text-primary transition-colors">Why</a>
+        <a href="/about" class="hover:text-primary transition-colors">About</a>
         <span>|</span>
         <a
           href="https://github.com/zapcooking/frontend/issues/new"
@@ -81,9 +82,18 @@
         </a>
       </div>
 
-      <!-- Copyright -->
+      <!-- Copyright and Version -->
       <p class="footer-copyright text-caption">
-        &copy; {currentYear} zap.cooking
+        &copy; {currentYear} zap.cooking · v{VERSION} · 
+        <a
+          href={`https://github.com/zapcooking/frontend/commit/${BUILD_HASH}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          class="hover:text-primary transition-colors"
+          title="View commit on GitHub"
+        >
+          build {BUILD_HASH}
+        </a>
       </p>
     </div>
   </div>
