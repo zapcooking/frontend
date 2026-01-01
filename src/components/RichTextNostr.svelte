@@ -174,7 +174,7 @@
     }
 
     // Wait for all resolutions (don't block UI, but update when done)
-    Promise.all(resolvePromises).then(() => {
+    Promise.allSettled(resolvePromises).then(() => {
       // Trigger reactivity by reassigning
       parsedTokens = [...parsedTokens];
     });
