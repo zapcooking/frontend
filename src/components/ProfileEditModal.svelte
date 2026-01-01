@@ -12,10 +12,8 @@
   import { profileCacheManager } from '$lib/profileCache';
   import {
     backupProfile,
-    fetchProfileBackup,
     listProfileBackups,
     restoreProfileFromBackup,
-    fetchBackupById,
     type ProfileBackupData
   } from '$lib/profileBackup';
 
@@ -42,9 +40,9 @@
   let uploadingPicture = false;
   let uploadingBanner = false;
   let showRestorePanel = false;
-  let backupList: Array<{ timestamp: number; eventId: string; createdAt: number }> = [];
+  let backupList: Array<{ timestamp: number; eventId: string; createdAt: number; data?: import('$lib/profileBackup').ProfileBackupData }> = [];
   let loadingBackups = false;
-  let restoringBackup = false;
+  let restoringBackupIndex: number | null = null;
   let lastBackupTimestamp: number | null = null;
   let creatingManualBackup = false;
   let backupSectionEl: HTMLElement;
@@ -371,18 +369,13 @@
     }
   }
 
-  async function restoreBackup(eventId: string) {
-    if (restoringBackup) return;
+  async function restoreBackup(backup: import('$lib/profileBackup').ProfileBackupData, index: number) {
+    if (restoringBackupIndex !== null) return;
 
-    restoringBackup = true;
+    restoringBackupIndex = index;
     error = null;
 
     try {
-      const backup = await fetchBackupById($ndk, eventId);
-      if (!backup) {
-        throw new Error('Could not fetch backup');
-      }
-
       const success = await restoreProfileFromBackup($ndk, $userPublickey, backup);
       if (!success) {
         throw new Error('Failed to restore profile');
@@ -398,7 +391,7 @@
     } catch (err: any) {
       error = err.message || 'Failed to restore backup';
     } finally {
-      restoringBackup = false;
+      restoringBackupIndex = null;
     }
   }
 
@@ -657,17 +650,17 @@
           <p class="text-sm text-caption italic">No backups found. Backups are created automatically when you save profile changes.</p>
         {:else}
           <div class="flex flex-col gap-2 max-h-48 overflow-y-auto">
-            {#each backupList as backup}
+            {#each backupList as backup, i}
               <div class="flex justify-between items-center p-3 rounded-xl" style="background-color: var(--color-input-bg)">
                 <span class="text-sm" style="color: var(--color-text-primary)">
                   {formatDate(backup.timestamp)}
                 </span>
                 <button
-                  on:click={() => restoreBackup(backup.eventId)}
-                  disabled={restoringBackup}
+                  on:click={() => backup.data && restoreBackup(backup.data, i)}
+                  disabled={restoringBackupIndex !== null || !backup.data}
                   class="text-sm text-primary hover:opacity-80 transition-opacity disabled:opacity-50"
                 >
-                  {restoringBackup ? 'Restoring...' : 'Restore'}
+                  {restoringBackupIndex === i ? 'Restoring...' : 'Restore'}
                 </button>
               </div>
             {/each}

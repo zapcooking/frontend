@@ -4,7 +4,10 @@
  * Implements encrypted profile backup/restore using NIP-78 (Application-specific Data)
  * with NIP-04 encryption to the user's own pubkey.
  *
- * Uses kind:30078 (addressable event) with d-tag: zapcooking:profile-backup
+ * Uses kind:30078 (addressable event) with rotating d-tags to keep last 3 backups:
+ * - zapcooking:profile-backup:0
+ * - zapcooking:profile-backup:1
+ * - zapcooking:profile-backup:2
  */
 
 import type NDK from '@nostr-dev-kit/ndk';
@@ -15,8 +18,26 @@ import { ndk } from './nostr';
 // NIP-78 event kind for application-specific data
 const APP_DATA_KIND = 30078;
 
-// D-tag identifier for profile backups
-const D_TAG = 'zapcooking:profile-backup';
+// D-tag base identifier for profile backups (rotating slots)
+const D_TAG_BASE = 'zapcooking:profile-backup';
+
+// Legacy d-tag (for backwards compatibility)
+const D_TAG_LEGACY = 'zapcooking:profile-backup';
+
+// Number of backup slots to rotate through
+const MAX_BACKUP_SLOTS = 3;
+
+// Generate d-tag for a specific slot
+function getSlotDTag(slot: number): string {
+  return `${D_TAG_BASE}:${slot}`;
+}
+
+// Get all d-tags to search (includes legacy)
+function getAllDTags(): string[] {
+  const tags = Array.from({ length: MAX_BACKUP_SLOTS }, (_, i) => getSlotDTag(i));
+  tags.push(D_TAG_LEGACY); // Include legacy for backwards compatibility
+  return tags;
+}
 
 // NIP-07 interface for encryption
 interface WindowWithNostr extends Window {
@@ -74,7 +95,61 @@ async function decryptData(encryptedContent: string, authorPubkey: string): Prom
 }
 
 /**
+ * Find the best slot to use for the next backup
+ * Returns the oldest slot, or first empty slot if available
+ */
+async function findNextBackupSlot(
+  ndkInstance: NDK,
+  pubkey: string
+): Promise<number> {
+  const slotTimestamps: Array<{ slot: number; timestamp: number }> = [];
+
+  // Fetch all slots
+  const dTags = Array.from({ length: MAX_BACKUP_SLOTS }, (_, i) => getSlotDTag(i));
+
+  const events = await ndkInstance.fetchEvents({
+    kinds: [APP_DATA_KIND],
+    authors: [pubkey],
+    '#d': dTags
+  });
+
+  // Track which slots have data
+  const usedSlots = new Set<number>();
+
+  for (const event of events) {
+    const dTag = event.tags.find(t => t[0] === 'd')?.[1];
+    if (!dTag) continue;
+
+    // Extract slot number from d-tag
+    const slotMatch = dTag.match(/:(\d+)$/);
+    if (!slotMatch) continue;
+
+    const slot = parseInt(slotMatch[1], 10);
+    usedSlots.add(slot);
+    slotTimestamps.push({
+      slot,
+      timestamp: event.created_at || 0
+    });
+  }
+
+  // If there's an empty slot, use it
+  for (let i = 0; i < MAX_BACKUP_SLOTS; i++) {
+    if (!usedSlots.has(i)) {
+      console.log('[ProfileBackup] Using empty slot:', i);
+      return i;
+    }
+  }
+
+  // All slots used, find the oldest
+  slotTimestamps.sort((a, b) => a.timestamp - b.timestamp);
+  const oldestSlot = slotTimestamps[0]?.slot ?? 0;
+  console.log('[ProfileBackup] Overwriting oldest slot:', oldestSlot);
+  return oldestSlot;
+}
+
+/**
  * Backup current profile to relay storage (encrypted)
+ * Uses rotating slots to keep last 3 backups
  *
  * @param ndkInstance - NDK instance to use
  * @param pubkey - User's public key
@@ -89,6 +164,10 @@ export async function backupProfile(
   console.log('[ProfileBackup] Creating backup for pubkey:', pubkey.slice(0, 8) + '...');
 
   try {
+    // Find the best slot to use
+    const slot = await findNextBackupSlot(ndkInstance, pubkey);
+    const dTag = getSlotDTag(slot);
+
     // Create backup data
     const backupData: ProfileBackupData = {
       version: 1,
@@ -115,7 +194,7 @@ export async function backupProfile(
     event.kind = APP_DATA_KIND;
     event.content = content;
     event.tags = [
-      ['d', D_TAG],
+      ['d', dTag],
       ['encrypted', isEncrypted ? 'true' : 'false']
     ];
 
@@ -123,7 +202,7 @@ export async function backupProfile(
     await event.sign();
     const publishedRelays = await event.publish();
 
-    console.log('[ProfileBackup] Backup published to', publishedRelays.size, 'relays');
+    console.log('[ProfileBackup] Backup published to slot', slot, 'on', publishedRelays.size, 'relays');
 
     // Wait briefly for relay processing
     await new Promise(resolve => setTimeout(resolve, 1000));
@@ -149,11 +228,11 @@ export async function fetchProfileBackup(
   console.log('[ProfileBackup] Fetching backup for pubkey:', pubkey.slice(0, 8) + '...');
 
   try {
-    // Fetch NIP-78 events with our d-tag
+    // Fetch NIP-78 events from all slots (including legacy)
     const events = await ndkInstance.fetchEvents({
       kinds: [APP_DATA_KIND],
       authors: [pubkey],
-      '#d': [D_TAG]
+      '#d': getAllDTags()
     });
 
     if (!events || events.size === 0) {
@@ -197,21 +276,22 @@ export async function fetchProfileBackup(
 export async function listProfileBackups(
   ndkInstance: NDK,
   pubkey: string
-): Promise<Array<{ timestamp: number; eventId: string; createdAt: number }>> {
+): Promise<Array<{ timestamp: number; eventId: string; createdAt: number; data?: ProfileBackupData }>> {
   console.log('[ProfileBackup] Listing backups for pubkey:', pubkey.slice(0, 8) + '...');
 
   try {
+    // Fetch from all backup slots (including legacy)
     const events = await ndkInstance.fetchEvents({
       kinds: [APP_DATA_KIND],
       authors: [pubkey],
-      '#d': [D_TAG]
+      '#d': getAllDTags()
     });
 
     if (!events || events.size === 0) {
       return [];
     }
 
-    const backups: Array<{ timestamp: number; eventId: string; createdAt: number }> = [];
+    const backups: Array<{ timestamp: number; eventId: string; createdAt: number; data?: ProfileBackupData }> = [];
 
     for (const event of events) {
       try {
@@ -236,17 +316,18 @@ export async function listProfileBackups(
         backups.push({
           timestamp: data.timestamp,
           eventId: event.id || '',
-          createdAt: event.created_at || 0
+          createdAt: event.created_at || 0,
+          data: data
         });
       } catch (e) {
         console.warn('[ProfileBackup] Could not parse backup event:', e);
       }
     }
 
-    // Sort by timestamp, newest first
+    // Sort by timestamp, newest first, and limit to max slots
     backups.sort((a, b) => b.timestamp - a.timestamp);
 
-    return backups;
+    return backups.slice(0, MAX_BACKUP_SLOTS);
   } catch (error) {
     console.error('[ProfileBackup] Failed to list backups:', error);
     return [];
