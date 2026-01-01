@@ -1,10 +1,10 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import { nip19 } from 'nostr-tools';
+  import { browser } from '$app/environment';
   import { ndk } from '$lib/nostr';
   import CustomAvatar from './CustomAvatar.svelte';
   import AuthorName from './AuthorName.svelte';
-  import ProfileLink from './ProfileLink.svelte';
   import { formatDistanceToNow } from 'date-fns';
   import { goto } from '$app/navigation';
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
@@ -12,6 +12,7 @@
   import LightningIcon from 'phosphor-svelte/lib/Lightning';
   import { decode } from '@gandlaf21/bolt11-decode';
   import { formatAmount } from '$lib/utils';
+  import NoteContent from './NoteContent.svelte';
 
   export let nostrString: string;
   export let boostAmount: number = 0; // Optional boost amount in sats (passed from parent)
@@ -20,23 +21,144 @@
   let loading = true;
   let error = false;
   let eventId = '';
+  let naddrData: { identifier: string; pubkey: string; kind: number } | null = null;
   let fetchedBoostAmount = 0; // Fetched from zap receipts if not provided
 
-  // Extract event ID from nostr string
+  let subscription: any = null;
+  let fetching = false;
+
+  // Extract event ID from nostr string (nevent) or naddr data
   $: {
+    // Reset state when nostrString changes
+    event = null;
+    eventId = '';
+    naddrData = null;
+    error = false;
+    loading = true;
+    fetching = false;
+    
+    // Clean up previous subscription
+    if (subscription) {
+      subscription.stop();
+      subscription = null;
+    }
+    
     try {
-      if (nostrString.startsWith('nostr:nevent1')) {
-        const decoded = nip19.decode(nostrString.replace('nostr:', ''));
+      const cleanString = nostrString.replace(/^nostr:/, '');
+      if (cleanString.startsWith('nevent1')) {
+        const decoded = nip19.decode(cleanString);
         if (decoded.type === 'nevent') {
           eventId = decoded.data.id;
+          naddrData = null;
         }
+      } else if (cleanString.startsWith('naddr1')) {
+        const decoded = nip19.decode(cleanString);
+        if (decoded.type === 'naddr') {
+          naddrData = {
+            identifier: decoded.data.identifier,
+            pubkey: decoded.data.pubkey,
+            kind: decoded.data.kind || 30023
+          };
+          eventId = '';
+        }
+      } else {
+        loading = false;
+        error = true;
       }
     } catch (err) {
-      console.error('Failed to decode nevent:', err);
+      console.error('Failed to decode nostr string:', err);
       error = true;
       loading = false;
+      eventId = '';
+      naddrData = null;
     }
   }
+
+  // Fetch event when eventId or naddrData changes and we're in browser
+  $: if (browser && $ndk && (eventId || naddrData) && loading && !fetching) {
+    fetchEvent();
+  }
+
+  async function fetchEvent() {
+    if (!$ndk || (!eventId && !naddrData) || fetching || event) return;
+    fetching = true;
+
+    try {
+      let filter: any;
+      
+      if (eventId) {
+        // Fetch by event ID (nevent)
+        filter = { ids: [eventId] };
+      } else if (naddrData) {
+        // Fetch by naddr (recipe/replaceable event)
+        filter = {
+          kinds: [naddrData.kind],
+          '#d': [naddrData.identifier],
+          authors: [naddrData.pubkey]
+        };
+      } else {
+        loading = false;
+        return;
+      }
+
+      subscription = $ndk.subscribe(filter, { closeOnEose: false });
+      let resolved = false;
+
+      subscription.on('event', (receivedEvent: NDKEvent) => {
+        if (!event) {
+          event = receivedEvent;
+          loading = false;
+          fetching = false;
+          fetchBoostAmount();
+        }
+      });
+
+      subscription.on('eose', () => {
+        if (!resolved) {
+          resolved = true;
+          subscription.stop();
+          subscription = null;
+          fetching = false;
+          if (!event) {
+            error = true;
+          }
+          loading = false;
+          // Fetch boost amount after event is loaded
+          if (event) {
+            fetchBoostAmount();
+          }
+        }
+      });
+
+      // Handle timeout - resolve with whatever we have
+      setTimeout(() => {
+        if (!resolved) {
+          resolved = true;
+          fetching = false;
+          if (subscription) {
+            subscription.stop();
+            subscription = null;
+          }
+          if (!event) {
+            error = true;
+          }
+          loading = false;
+        }
+      }, 5000);
+    } catch (err) {
+      console.error('Failed to fetch embedded event:', err);
+      error = true;
+      loading = false;
+      fetching = false;
+    }
+  }
+
+  onDestroy(() => {
+    if (subscription) {
+      subscription.stop();
+      subscription = null;
+    }
+  });
 
   // Extract boost amount from Fountain boost events
   function extractBoostAmountFromEvent(boostEvent: NDKEvent): number {
@@ -115,7 +237,8 @@
 
   // Fetch zaps for this event to get boost amount
   async function fetchBoostAmount() {
-    if (!eventId || !$ndk || boostAmount > 0) return;
+    const idToUse = event?.id || eventId;
+    if (!idToUse || !$ndk || boostAmount > 0) return;
 
     // First check if the embedded event itself contains boost info (Fountain style)
     if (event) {
@@ -129,7 +252,7 @@
     try {
       const zapFilter = {
         kinds: [9735],
-        '#e': [eventId],
+        '#e': [idToUse],
         limit: 50
       };
 
@@ -162,57 +285,6 @@
     }
   }
 
-  // Fetch the embedded event
-  onMount(async () => {
-    if (eventId && $ndk) {
-      try {
-        const filter = {
-          ids: [eventId]
-        };
-
-        const subscription = $ndk.subscribe(filter, { closeOnEose: false });
-        let resolved = false;
-
-        subscription.on('event', (receivedEvent: NDKEvent) => {
-          if (!event) {
-            event = receivedEvent;
-          }
-        });
-
-        subscription.on('eose', () => {
-          if (!resolved) {
-            resolved = true;
-            subscription.stop();
-            if (!event) {
-              error = true;
-            }
-            loading = false;
-            // Fetch boost amount after event is loaded
-            fetchBoostAmount();
-          }
-        });
-
-        // Handle timeout - resolve with whatever we have
-        setTimeout(() => {
-          if (!resolved) {
-            resolved = true;
-            subscription.stop();
-            if (!event) {
-              error = true;
-            }
-            loading = false;
-          }
-        }, 5000);
-      } catch (err) {
-        console.error('Failed to fetch embedded event:', err);
-        error = true;
-        loading = false;
-      }
-    } else {
-      loading = false;
-    }
-  });
-
   // Display amount (prefer passed prop, fallback to fetched)
   $: displayBoostAmount = boostAmount > 0 ? boostAmount : fetchedBoostAmount;
 
@@ -220,9 +292,41 @@
     return formatDistanceToNow(new Date(timestamp * 1000), { addSuffix: true });
   }
 
-  function truncateContent(content: string, maxLength: number = 200): string {
-    if (content.length <= maxLength) return content;
-    return content.substring(0, maxLength) + '...';
+  function getNoteUrl(): string | null {
+    if (!event) return null;
+    
+    // Check if it's a recipe (kind 30023)
+    if (event.kind === 30023) {
+      const dTag = event.tags.find((t) => t[0] === 'd')?.[1];
+      if (dTag && event.author?.hexpubkey) {
+        try {
+          const naddr = nip19.naddrEncode({
+            identifier: dTag,
+            kind: 30023,
+            pubkey: event.author.hexpubkey
+          });
+          return `/recipe/${naddr}`;
+        } catch (e) {
+          console.warn('Failed to encode recipe naddr:', e);
+        }
+      }
+    }
+    
+    // For regular notes, use noteEncode
+    try {
+      const noteId = nip19.noteEncode(event.id);
+      return `/${noteId}`;
+    } catch (e) {
+      console.warn('Failed to encode note ID:', e);
+      return null;
+    }
+  }
+
+  function handleCardClick() {
+    const url = getNoteUrl();
+    if (url) {
+      goto(url);
+    }
   }
 
   function getImageUrls(event: NDKEvent): string[] {
@@ -262,68 +366,6 @@
     }).replace(/\s+/g, ' ').trim(); // Clean up extra spaces
   }
 
-  // Parse content and create clickable links for URLs and nostr references
-  function parseContent(text: string) {
-    // Regex to find URLs and nostr references
-    const urlRegex = /(https?:\/\/[^\s]+)|nostr:(nevent1|note1|npub1|nprofile1)([023456789acdefghjklmnpqrstuvwxyz]+)/g;
-    
-    const parts = [];
-    let lastIndex = 0;
-    let match;
-    let keyCounter = 0;
-
-    while ((match = urlRegex.exec(text)) !== null) {
-      const [fullMatch, url, nostrPrefix, nostrData] = match;
-      const index = match.index;
-
-      // Add text before this match
-      if (index > lastIndex) {
-        parts.push({
-          type: 'text',
-          content: text.substring(lastIndex, index),
-          key: `text-${keyCounter++}`
-        });
-      }
-
-      if (url) {
-        // Add the URL as a clickable link
-        parts.push({
-          type: 'url',
-          content: fullMatch,
-          url: url,
-          key: `url-${keyCounter++}`
-        });
-      } else if (nostrPrefix && nostrData) {
-        // Add the nostr reference as a clickable link
-        parts.push({
-          type: 'nostr',
-          content: fullMatch,
-          prefix: nostrPrefix,
-          data: nostrData,
-          key: `nostr-${keyCounter++}`
-        });
-      }
-
-      lastIndex = index + fullMatch.length;
-    }
-
-    // Add any remaining text
-    if (lastIndex < text.length) {
-      parts.push({
-        type: 'text',
-        content: text.substring(lastIndex),
-        key: `text-${keyCounter++}`
-      });
-    }
-
-    return parts;
-  }
-
-  function handleNostrClick(nostrId: string) {
-    // Navigate to the nostr reference
-    goto(`/${nostrId}`);
-  }
-
   function handleImageError(e: Event) {
     const target = e.target;
     if (target && 'style' in target) {
@@ -356,24 +398,34 @@
     <p class="text-xs mt-1" style="color: var(--color-caption)">{nostrString}</p>
   </div>
 {:else if event}
-  <div class="rounded-lg overflow-hidden transition-colors note-embed-card" style="background-color: var(--color-bg-secondary); border: 1px solid var(--color-input-border)">
-    <div class="flex gap-2 p-2">
+  <button
+    type="button"
+    class="w-full rounded-lg overflow-hidden transition-colors note-embed-card hover:opacity-90 cursor-pointer text-left"
+    style="background-color: var(--color-bg-secondary); border: 1px solid var(--color-input-border)"
+    on:click={handleCardClick}
+    on:keydown={(e) => e.key === 'Enter' && handleCardClick()}
+  >
+    <div class="flex gap-3 p-3">
       <!-- Avatar -->
-      <div class="flex-shrink-0">
+      <a 
+        href="/user/{nip19.npubEncode(event.author.hexpubkey)}" 
+        class="flex-shrink-0"
+        on:click|stopPropagation
+      >
         <CustomAvatar
           className="cursor-pointer"
           pubkey={event.author.hexpubkey}
-          size={32}
+          size={40}
         />
-      </div>
+      </a>
 
       <!-- Content -->
       <div class="flex-1 min-w-0 leading-tight">
         <!-- Header -->
-        <div class="flex items-center space-x-2 flex-wrap text-sm">
+        <div class="flex items-center space-x-2 flex-wrap mb-2">
           <AuthorName {event} />
-          <span style="color: var(--color-caption)">·</span>
-          <span style="color: var(--color-caption)">
+          <span class="text-sm" style="color: var(--color-caption)">·</span>
+          <span class="text-sm" style="color: var(--color-caption)">
             {event.created_at ? formatTimeAgo(event.created_at) : 'Unknown time'}
           </span>
           <ClientAttribution tags={event.tags} enableEnrichment={false} />
@@ -381,7 +433,7 @@
 
         <!-- Boost amount inline -->
         {#if displayBoostAmount > 0}
-          <div class="flex items-center gap-1 text-yellow-500 font-semibold text-sm">
+          <div class="flex items-center gap-1 text-yellow-500 font-semibold text-sm mb-2">
             <LightningIcon size={14} weight="fill" />
             <span>{formatAmount(displayBoostAmount)} sats boost</span>
           </div>
@@ -389,35 +441,8 @@
 
         <!-- Content Preview (only if there's content) -->
         {#if getContentWithoutMedia(event.content).trim()}
-          <div class="text-sm" style="color: var(--color-text-secondary)">
-            {#each parseContent(truncateContent(getContentWithoutMedia(event.content))) as part}
-              {#if part.type === 'text'}
-                {part.content}
-              {:else if part.type === 'url'}
-                <a
-                  href={part.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  class="text-primary hover:opacity-80 hover:underline break-all"
-                >
-                  {part.content}
-                </a>
-              {:else if part.type === 'nostr'}
-                {#if part.prefix === 'nprofile1'}
-                  <ProfileLink nostrString={part.content} />
-                {:else if part.prefix === 'nevent1'}
-                  <!-- Skip nested embeds to avoid infinite recursion -->
-                  <span class="text-primary">{part.content}</span>
-                {:else}
-                  <button
-                    class="text-primary hover:opacity-80 hover:underline cursor-pointer"
-                    on:click={() => handleNostrClick(part.content)}
-                  >
-                    {part.content}
-                  </button>
-                {/if}
-              {/if}
-            {/each}
+          <div class="text-sm leading-relaxed mb-3" style="color: var(--color-text-primary)">
+            <NoteContent content={getContentWithoutMedia(event.content)} showLinkPreviews={false} />
           </div>
         {/if}
 
@@ -443,6 +468,7 @@
                     class="w-full h-full object-cover"
                     preload="metadata"
                     on:error={handleVideoError}
+                    on:click|stopPropagation
                   >
                     <track kind="captions" src="" srclang="en" label="English" />
                     Your browser does not support the video tag.
@@ -457,14 +483,9 @@
             {/if}
           </div>
         {/if}
-
-        <!-- Footer -->
-        <div class="text-xs" style="color: var(--color-caption)">
-          {displayBoostAmount > 0 ? 'Boosted note' : 'Embedded note'}
-        </div>
       </div>
     </div>
-  </div>
+  </button>
 {:else}
   <div class="rounded-lg p-4" style="background-color: var(--color-bg-secondary); border: 1px solid var(--color-input-border)">
     <p class="text-sm" style="color: var(--color-caption)">Note not found</p>
@@ -476,3 +497,4 @@
     background-color: var(--color-input-bg) !important;
   }
 </style>
+

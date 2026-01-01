@@ -14,6 +14,7 @@
   import TotalZaps from './TotalZaps.svelte';
   import TotalLikes from './TotalLikes.svelte';
   import TotalComments from './TotalComments.svelte';
+  import NoteRepost from '../NoteRepost.svelte';
   import Comments from '../Comments.svelte';
   import RecipeReactionPills from './RecipeReactionPills.svelte';
   import TopZappers from './TopZappers.svelte';
@@ -338,21 +339,8 @@ async function getLists(): Promise<NDKEvent[]> {
           <!-- Left: Author Profile -->
           <AuthorProfile pubkey={event.author.pubkey} />
 
-          <!-- Right: Icon-only Zap/Save/Share buttons -->
+          <!-- Right: Save button -->
           <div class="flex gap-2">
-            <button
-              on:click={() => authorCanReceiveZaps && (zapModal = true)}
-              class="w-10 h-10 flex items-center justify-center rounded-full transition duration-200
-                {authorCanReceiveZaps
-                  ? 'bg-yellow-500 hover:bg-yellow-600 text-white cursor-pointer'
-                  : 'bg-gray-300 dark:bg-gray-600 text-gray-500 dark:text-gray-400 cursor-not-allowed'}"
-              aria-label={authorCanReceiveZaps ? "Zap recipe" : "Author has no lightning address"}
-              title={authorCanReceiveZaps ? "Zap this recipe" : "Author has no lightning address"}
-              disabled={!authorCanReceiveZaps}
-            >
-              <LightningIcon size={20} weight="fill" />
-            </button>
-
             <button
               on:click={() => (bookmarkModal = true)}
               class="w-10 h-10 flex items-center justify-center rounded-full bg-primary hover:bg-primary/90 text-white transition duration-200"
@@ -383,28 +371,8 @@ async function getLists(): Promise<NDKEvent[]> {
               />
             </button>
 
-            <!-- Image overlay buttons (hover only on desktop) -->
+            <!-- Image overlay button (hover only on desktop) -->
             <div class="absolute inset-0 transition-all duration-300 pointer-events-none">
-              {#if authorCanReceiveZaps}
-                <button
-                  class="absolute top-4 left-4 bg-yellow-500 text-white font-semibold px-4 py-2 rounded-full shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-200 opacity-0 lg:group-hover:opacity-100 pointer-events-auto flex items-center gap-2"
-                  on:click|stopPropagation={() => (zapModal = true)}
-                  aria-label="Zap recipe"
-                >
-                  <LightningIcon size={18} weight="fill" />
-                  <span>Zap</span>
-                </button>
-              {:else}
-                <button
-                  class="absolute top-4 left-4 bg-gray-400 text-gray-200 font-semibold px-4 py-2 rounded-full shadow-lg opacity-0 lg:group-hover:opacity-100 pointer-events-auto flex items-center gap-2 cursor-not-allowed"
-                  disabled
-                  title="Author has no lightning address"
-                >
-                  <LightningIcon size={18} weight="fill" />
-                  <span>Zap</span>
-                </button>
-              {/if}
-
               <button
                 class="absolute top-4 right-4 bg-primary text-white font-semibold px-4 py-2 rounded-full shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-200 opacity-0 lg:group-hover:opacity-100 pointer-events-auto flex items-center gap-2"
                 on:click|stopPropagation={() => (bookmarkModal = true)}
@@ -437,10 +405,11 @@ async function getLists(): Promise<NDKEvent[]> {
       <div class="flex flex-col gap-1 print:hidden -mt-2">
         <RecipeReactionPills {event} />
         <TopZappers {event} />
-        <div class="flex">
-          <div class="flex gap-6 grow">
+        <div class="flex items-center justify-between">
+          <div class="flex gap-6">
             <TotalLikes {event} />
             <TotalComments {event} />
+            <NoteRepost {event} />
             <button
               class={authorCanReceiveZaps ? "cursor-pointer" : "cursor-not-allowed opacity-50"}
               on:click={() => authorCanReceiveZaps && (zapModal = true)}
@@ -451,6 +420,8 @@ async function getLists(): Promise<NDKEvent[]> {
                 <TotalZaps {event} />
               {/key}
             </button>
+          </div>
+          <div class="flex items-center gap-4">
             <button
               class="cursor-pointer hover:bg-input rounded p-0.5 transition duration-300"
               on:click={() => (shareModal = true)}
@@ -459,15 +430,15 @@ async function getLists(): Promise<NDKEvent[]> {
             >
               <ShareIcon size={24} weight="bold" class="text-caption" />
             </button>
+            <button
+              class="cursor-pointer hover:bg-input rounded p-0.5 transition duration-300"
+              on:click={() => window.print()}
+              aria-label="Print recipe"
+              title="Print recipe"
+            >
+              <PrinterIcon size={24} weight="bold" class="text-caption" />
+            </button>
           </div>
-          <button
-            class="cursor-pointer hover:bg-input rounded p-0.5 transition duration-300"
-            on:click={() => window.print()}
-            aria-label="Print recipe"
-            title="Print recipe"
-          >
-            <PrinterIcon size={24} weight="bold" class="text-caption" />
-          </button>
         </div>
       </div>
       <!-- Recipe Summary -->
@@ -511,21 +482,6 @@ async function getLists(): Promise<NDKEvent[]> {
           {@html parseMarkdown(event.content)}
         {/if}
       </div>
-      <div class="flex flex-col items-center gap-4 bg-input py-6 rounded-3xl print:hidden" style="color: var(--color-text-primary)">
-        <h2>Enjoy this recipe?</h2>
-        <Button
-          on:click={() => authorCanReceiveZaps && (zapModal = true)}
-          disabled={!authorCanReceiveZaps}
-        >
-          {authorCanReceiveZaps ? 'Zap it' : 'No lightning address'}
-        </Button>
-      </div>
-      <!--
-      <div class="flex flex-col gap-4">
-        {firstTag}
-        <h2>More {firstTag[1].split("nostrcooking-")[1]}</h2>
-      </div>
-      -->
       <Comments {event} />
     </div>
 
