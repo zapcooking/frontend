@@ -46,6 +46,7 @@
     deleteLightningAddress,
     onSparkEvent,
     recentSparkPayments,
+    getBestEncryptionMethod,
     type SparkWalletBackup
   } from '$lib/spark';
   import { syncLightningAddressToProfile } from '$lib/spark/profileSync';
@@ -151,6 +152,16 @@
 
   // Check if user has maximum wallets (2)
   $: hasMaxWallets = $wallets.length >= 2;
+
+  // Check if signer extension supports encryption (NIP-44 or NIP-04)
+  // Required for wallet backup functionality
+  let encryptionSupported: boolean = false;
+  let encryptionMethod: 'nip44' | 'nip04' | null = null;
+
+  function checkEncryptionSupport() {
+    encryptionMethod = getBestEncryptionMethod();
+    encryptionSupported = encryptionMethod !== null;
+  }
 
   // Filter pending transactions to only show those for the active wallet
   $: filteredPendingTransactions = $pendingTransactions.filter(
@@ -343,6 +354,9 @@
 
     // Fetch user's profile lud16
     fetchProfileLud16();
+
+    // Check if signer extension supports encryption for backup features
+    checkEncryptionSupport();
 
     // Load transaction history if wallet is already connected (not for WebLN)
     if ($walletConnected && $activeWallet && $activeWallet.kind !== 1) {
@@ -899,11 +913,28 @@
         errorMessage = 'No backup found on Nostr relays.';
       }
     } catch (e) {
-      errorMessage = e instanceof Error ? e.message : 'Failed to restore from Nostr';
+      errorMessage = getSignerErrorMessage(e, 'Failed to restore from Nostr');
     } finally {
       isConnecting = false;
       sparkLoadingMessage = '';
     }
+  }
+
+  // Helper to provide friendlier error messages for known signer extension issues
+  function getSignerErrorMessage(error: unknown, fallback: string): string {
+    const message = error instanceof Error ? error.message : String(error);
+
+    // Base64 decoding errors (encryption format mismatch)
+    if (message.includes('invalid base64') || message.includes('Unknown letter')) {
+      return 'Failed to decrypt backup - the encryption format may not be compatible. Please try restoring from the wallet seed phrase.';
+    }
+
+    // Generic extension errors
+    if (message.includes('does not support')) {
+      return message; // Already a good message from our code
+    }
+
+    return error instanceof Error ? error.message : fallback;
   }
 
   async function handleRestoreFromMnemonic() {
@@ -1028,7 +1059,7 @@
         errorMessage = 'Failed to restore wallet from backup file';
       }
     } catch (e) {
-      errorMessage = e instanceof Error ? e.message : 'Failed to restore from backup file';
+      errorMessage = getSignerErrorMessage(e, 'Failed to restore from backup file');
     } finally {
       isConnecting = false;
       sparkLoadingMessage = '';
@@ -1132,7 +1163,7 @@
         ? 'Backup file downloaded! (encrypted with NIP-04)'
         : 'Backup file downloaded!';
     } catch (e) {
-      errorMessage = e instanceof Error ? e.message : 'Failed to create backup';
+      errorMessage = getSignerErrorMessage(e, 'Failed to create backup');
     } finally {
       isBackingUp = false;
     }
@@ -1146,7 +1177,7 @@
       await backupWalletToNostr($userPublickey);
       successMessage = 'Wallet backed up to Nostr relays!';
     } catch (e) {
-      errorMessage = e instanceof Error ? e.message : 'Failed to backup to Nostr';
+      errorMessage = getSignerErrorMessage(e, 'Failed to backup to Nostr');
     } finally {
       isBackingUp = false;
     }
@@ -1511,21 +1542,49 @@
             {#if wallet.kind === 4 && expandedWalletId === wallet.id}
               <div class="px-4 pb-4 pt-2 border-t" style="border-color: var(--color-input-border);">
                 <div class="text-xs text-caption mb-3 uppercase tracking-wide">Wallet Options</div>
+
+                <!-- Encryption not supported warning -->
+                {#if !encryptionSupported}
+                  <div class="p-3 rounded-lg mb-3 text-sm" style="background-color: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.3);">
+                    <div class="flex items-start gap-2">
+                      <WarningIcon size={18} class="text-amber-500 flex-shrink-0 mt-0.5" />
+                      <div>
+                        <p class="font-medium text-amber-600 mb-1">Encrypted backup unavailable</p>
+                        <p class="text-caption">
+                          Your Nostr signer extension (e.g. nos2x) doesn't support NIP-44 or NIP-04 encryption, which is required for secure wallet backups.
+                          You can still use "Show Recovery Phrase" to manually back up your wallet.
+                        </p>
+                        <p class="text-caption mt-1">
+                          For encrypted backups, try <a href="https://getalby.com" target="_blank" rel="noopener noreferrer" class="text-primary hover:underline">Alby</a> or another extension with encryption support.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                {/if}
+
                 <div class="flex flex-wrap gap-2">
                   <button
-                    class="flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer"
+                    class="flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors"
+                    class:cursor-pointer={encryptionSupported}
+                    class:cursor-not-allowed={!encryptionSupported}
+                    class:opacity-50={!encryptionSupported}
                     style="background-color: var(--color-bg-primary); border: 1px solid var(--color-input-border);"
                     on:click={handleBackupToNostr}
-                    disabled={isBackingUp}
+                    disabled={isBackingUp || !encryptionSupported}
+                    title={!encryptionSupported ? 'Your signer extension does not support encryption' : ''}
                   >
                     <CloudArrowUpIcon size={16} />
                     {isBackingUp ? 'Backing up...' : 'Backup to Nostr'}
                   </button>
                   <button
-                    class="flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer"
+                    class="flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors"
+                    class:cursor-pointer={encryptionSupported}
+                    class:cursor-not-allowed={!encryptionSupported}
+                    class:opacity-50={!encryptionSupported}
                     style="background-color: var(--color-bg-primary); border: 1px solid var(--color-input-border);"
                     on:click={handleDownloadBackup}
-                    disabled={isBackingUp}
+                    disabled={isBackingUp || !encryptionSupported}
+                    title={!encryptionSupported ? 'Your signer extension does not support encryption' : ''}
                   >
                     <DownloadSimpleIcon size={16} />
                     Download Backup
@@ -2353,25 +2412,34 @@
                 <p class="text-sm text-caption mb-3">
                   If you remove this wallet without a backup, you may lose access to your funds permanently.
                 </p>
-                <div class="flex flex-wrap gap-2">
-                  <button
-                    class="flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer bg-amber-500 hover:bg-amber-600 text-white"
-                    on:click={handleBackupToNostr}
-                    disabled={isBackingUp}
-                  >
-                    <CloudArrowUpIcon size={16} />
-                    {isBackingUp ? 'Backing up...' : 'Backup to Nostr'}
-                  </button>
-                  <button
-                    class="flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer"
-                    style="background-color: var(--color-bg-primary); border: 1px solid var(--color-input-border);"
-                    on:click={handleDownloadBackup}
-                    disabled={isBackingUp}
-                  >
-                    <DownloadSimpleIcon size={16} />
-                    Download Backup
-                  </button>
-                </div>
+                {#if encryptionSupported}
+                  <div class="flex flex-wrap gap-2">
+                    <button
+                      class="flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer bg-amber-500 hover:bg-amber-600 text-white"
+                      on:click={handleBackupToNostr}
+                      disabled={isBackingUp}
+                    >
+                      <CloudArrowUpIcon size={16} />
+                      {isBackingUp ? 'Backing up...' : 'Backup to Nostr'}
+                    </button>
+                    <button
+                      class="flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer"
+                      style="background-color: var(--color-bg-primary); border: 1px solid var(--color-input-border);"
+                      on:click={handleDownloadBackup}
+                      disabled={isBackingUp}
+                    >
+                      <DownloadSimpleIcon size={16} />
+                      Download Backup
+                    </button>
+                  </div>
+                {:else}
+                  <p class="text-sm text-amber-700 mb-2">
+                    Encrypted backup is unavailable because your signer extension doesn't support encryption.
+                  </p>
+                  <p class="text-sm text-caption">
+                    Use "Show Recovery Phrase" in wallet options to manually copy your 12-word backup phrase before deleting.
+                  </p>
+                {/if}
               </div>
             </div>
           </div>
