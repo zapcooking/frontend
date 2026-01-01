@@ -1032,9 +1032,19 @@ export async function restoreWalletFromNostr(
 		return null
 	}
 
-	// Determine encryption method from event tags (default to nip44 for older backups)
+	// Determine encryption method from event tags, or detect from ciphertext format
 	const encryptionTag = latestEvent.tags?.find((t: string[]) => t[0] === 'encryption')
-	const encryptionMethod = encryptionTag?.[1] || 'nip44'
+	let encryptionMethod: string
+	if (encryptionTag?.[1]) {
+		// Explicit encryption tag takes priority
+		encryptionMethod = encryptionTag[1]
+	} else if (latestEvent.content.includes('?iv=')) {
+		// NIP-04 format has ?iv= separator in the ciphertext
+		encryptionMethod = 'nip04'
+	} else {
+		// Default to NIP-44 for newer backups without explicit tag
+		encryptionMethod = 'nip44'
+	}
 	logger.info('[Spark] Found backup, decrypting with', encryptionMethod, '...')
 
 	// Helper to add timeout to decrypt operations
