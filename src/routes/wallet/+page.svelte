@@ -1585,8 +1585,6 @@
             <!-- Spark wallet backup options -->
             {#if wallet.kind === 4 && expandedWalletId === wallet.id}
               <div class="px-4 pb-4 pt-2 border-t" style="border-color: var(--color-input-border);">
-                <div class="text-xs text-caption mb-3 uppercase tracking-wide">Wallet Options</div>
-
                 <!-- Encryption not supported warning -->
                 {#if !encryptionSupported}
                   <div class="p-3 rounded-lg mb-3 text-sm" style="background-color: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.3);">
@@ -1601,9 +1599,11 @@
                   </div>
                 {/if}
 
-                <div class="flex flex-wrap gap-2">
+                <!-- Backup & Recovery -->
+                <div class="text-xs text-caption mb-2 uppercase tracking-wide">Backup & Recovery</div>
+                <div class="grid grid-cols-2 gap-2">
                   <button
-                    class="flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors"
+                    class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors"
                     class:cursor-pointer={encryptionSupported}
                     class:cursor-not-allowed={!encryptionSupported}
                     class:opacity-50={!encryptionSupported}
@@ -1616,7 +1616,7 @@
                     {isBackingUp ? 'Backing up...' : 'Backup to Nostr'}
                   </button>
                   <button
-                    class="flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors"
+                    class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors"
                     class:cursor-pointer={encryptionSupported}
                     class:cursor-not-allowed={!encryptionSupported}
                     class:opacity-50={!encryptionSupported}
@@ -1626,18 +1626,18 @@
                     title={!encryptionSupported ? 'Your signer extension does not support encryption' : ''}
                   >
                     <DownloadSimpleIcon size={16} />
-                    Download Backup
+                    Download
                   </button>
                   <button
-                    class="flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer"
+                    class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer"
                     style="background-color: var(--color-bg-primary); border: 1px solid var(--color-input-border);"
                     on:click={handleRevealMnemonic}
                   >
                     <KeyIcon size={16} />
-                    Show Recovery Phrase
+                    Recovery Phrase
                   </button>
                   <button
-                    class="flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer"
+                    class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer"
                     style="background-color: var(--color-bg-primary); border: 1px solid var(--color-input-border);"
                     on:click={() => showRecoveryHelpModal = true}
                   >
@@ -1645,15 +1645,15 @@
                     Recovery Help
                   </button>
                   <button
-                    class="flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer"
+                    class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer"
                     style="background-color: var(--color-bg-primary); border: 1px solid var(--color-input-border);"
                     on:click={() => { checkRelayBackupsWalletType = 'spark'; showCheckRelayBackupsModal = true; }}
                   >
                     <CloudCheckIcon size={16} />
-                    Check Relay Backups
+                    Check Backups
                   </button>
                   <button
-                    class="flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer text-red-500 hover:bg-red-500/10"
+                    class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer text-red-500 hover:bg-red-500/10"
                     style="background-color: var(--color-bg-primary); border: 1px solid var(--color-input-border);"
                     on:click={() => walletToDelete = { id: wallet.id, name: wallet.name, kind: wallet.kind, data: wallet.data }}
                   >
