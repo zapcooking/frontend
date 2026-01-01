@@ -96,13 +96,14 @@
     }
   }
 
+  // Use server-loaded metadata for initial SSR, then client data once loaded
   $: pageHeading = event
     ? event.tags.find((e) => e[0] == 'title')?.[1] || event.tags.find((e) => e[0] == 'd')?.[1] || '...'
-    : '...';
+    : (data.ogMeta?.title?.replace(' - zap.cooking', '') || '...');
 
   $: metaTitleBase = event
     ? event.tags.find((tag) => tag[0] === 'title')?.[1] || event.content.slice(0, 60) + '...'
-    : 'Recipe';
+    : (data.ogMeta?.title?.replace(' - zap.cooking', '') || 'Recipe');
 
   $: fullPageTitle = `${pageHeading} - zap.cooking`;
   $: fullMetaTitle = `${metaTitleBase} - zap.cooking`;
@@ -121,22 +122,18 @@
 
 <svelte:head>
   <title>{fullPageTitle}</title>
-
-  {#key og_meta}
-    <meta name="description" content={og_meta.description} />
-    <meta property="og:url" content={`https://zap.cooking/recipe/${$page.params.slug}`} />
-    <meta property="og:type" content="article" />
+  <meta name="description" content={og_meta.description} />
+  <meta property="og:url" content={`https://zap.cooking/recipe/${$page.params.slug}`} />
+  <meta property="og:type" content="article" />
   <meta property="og:title" content={og_meta.title} />
-    <meta property="og:description" content={og_meta.description} />
-    <meta property="og:image" content={og_meta.image} />
-
-    <meta name="twitter:card" content="summary_large_image" />
-    <meta property="twitter:domain" content="zap.cooking" />
-    <meta property="twitter:url" content={`https://zap.cooking/recipe/${$page.params.slug}`} />
+  <meta property="og:description" content={og_meta.description} />
+  <meta property="og:image" content={og_meta.image} />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta property="twitter:domain" content="zap.cooking" />
+  <meta property="twitter:url" content={`https://zap.cooking/recipe/${$page.params.slug}`} />
   <meta name="twitter:title" content={og_meta.title} />
-    <meta name="twitter:description" content={og_meta.description} />
-    <meta name="twitter:image" content={og_meta.image} />
-  {/key}
+  <meta name="twitter:description" content={og_meta.description} />
+  <meta name="twitter:image" content={og_meta.image} />
 </svelte:head>
 
 {#if loading}

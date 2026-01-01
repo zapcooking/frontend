@@ -7,6 +7,8 @@
     "dev": "vite dev",
     "build": "vite build",
     "preview": "vite preview",
+    "dev:cloudflare": "pnpm build && wrangler pages dev .svelte-kit/cloudflare --compatibility-date=2025-01-01 --compatibility-flags=nodejs_compat",
+    "test:og": "pnpm build && wrangler pages dev .svelte-kit/cloudflare --compatibility-date=2025-01-01 --compatibility-flags=nodejs_compat",
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
     "lint": "prettier --plugin-search-dir . --check . && eslint .",

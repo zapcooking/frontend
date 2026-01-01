@@ -1,10 +1,10 @@
 import type { PageServerLoad } from './$types';
 import { nip19 } from 'nostr-tools';
 
-// Edge runtime for native WebSocket support (Vercel Edge, Cloudflare Workers)
-export const config = {
-	runtime: 'edge'
-};
+// Note: Cloudflare Workers run at the edge by default with native WebSocket support.
+// The runtime: 'edge' config is Vercel-specific and not needed for Cloudflare.
+// If deploying to Vercel, uncomment the config below:
+// export const config = { runtime: 'edge' };
 
 interface RecipeMetadata {
 	title: string;
@@ -20,37 +20,63 @@ const RELAYS = [
 
 async function fetchFromRelay(relayUrl: string, identifier: string, pubkey: string): Promise<RecipeMetadata | null> {
 	return new Promise((resolve) => {
+		let ws: WebSocket | null = null;
+		let resolved = false;
+
+		const cleanup = () => {
+			if (ws && ws.readyState === WebSocket.OPEN) {
+				try {
+					ws.close();
+				} catch {
+					// Ignore close errors
+				}
+			}
+		};
+
+		const safeResolve = (value: RecipeMetadata | null) => {
+			if (!resolved) {
+				resolved = true;
+				cleanup();
+				resolve(value);
+			}
+		};
+
 		const timeout = setTimeout(() => {
-			try { ws.close(); } catch {}
-			resolve(null);
+			safeResolve(null);
 		}, 3000);
 
-		let ws: WebSocket;
 		try {
 			ws = new WebSocket(relayUrl);
-		} catch {
+		} catch (error) {
 			clearTimeout(timeout);
-			resolve(null);
+			safeResolve(null);
 			return;
 		}
 
 		const subId = `og-${Date.now()}`;
 
 		ws.onopen = () => {
-			const req = JSON.stringify([
-				'REQ',
-				subId,
-				{
-					kinds: [30023],
-					authors: [pubkey],
-					'#d': [identifier],
-					limit: 1
-				}
-			]);
-			ws.send(req);
+			if (!ws || resolved) return;
+			try {
+				const req = JSON.stringify([
+					'REQ',
+					subId,
+					{
+						kinds: [30023],
+						authors: [pubkey],
+						'#d': [identifier],
+						limit: 1
+					}
+				]);
+				ws.send(req);
+			} catch (error) {
+				clearTimeout(timeout);
+				safeResolve(null);
+			}
 		};
 
 		ws.onmessage = (event) => {
+			if (!ws || resolved) return;
 			try {
 				const msg = JSON.parse(event.data);
 				if (msg[0] === 'EVENT' && msg[1] === subId && msg[2]) {
@@ -62,12 +88,10 @@ async function fetchFromRelay(relayUrl: string, identifier: string, pubkey: stri
 					               (evt.content ? evt.content.slice(0, 200) + '...' : '');
 
 					clearTimeout(timeout);
-					ws.close();
-					resolve({ title, description: summary, image });
+					safeResolve({ title, description: summary, image });
 				} else if (msg[0] === 'EOSE' && msg[1] === subId) {
 					clearTimeout(timeout);
-					ws.close();
-					resolve(null);
+					safeResolve(null);
 				}
 			} catch {
 				// Parse error, ignore
@@ -76,11 +100,14 @@ async function fetchFromRelay(relayUrl: string, identifier: string, pubkey: stri
 
 		ws.onerror = () => {
 			clearTimeout(timeout);
-			resolve(null);
+			safeResolve(null);
 		};
 
 		ws.onclose = () => {
 			clearTimeout(timeout);
+			if (!resolved) {
+				safeResolve(null);
+			}
 		};
 	});
 }
