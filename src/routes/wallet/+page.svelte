@@ -1549,13 +1549,8 @@
                     <div class="flex items-start gap-2">
                       <WarningIcon size={18} class="text-amber-500 flex-shrink-0 mt-0.5" />
                       <div>
-                        <p class="font-medium text-amber-600 mb-1">Encrypted backup unavailable</p>
                         <p class="text-caption">
-                          Your Nostr signer extension (e.g. nos2x) doesn't support NIP-44 or NIP-04 encryption, which is required for secure wallet backups.
-                          You can still use "Show Recovery Phrase" to manually back up your wallet.
-                        </p>
-                        <p class="text-caption mt-1">
-                          For encrypted backups, try <a href="https://getalby.com" target="_blank" rel="noopener noreferrer" class="text-primary hover:underline">Alby</a> or another extension with encryption support.
+                          Your signer extension doesn't support the required encryption method. You can still use "Show Recovery Phrase" to manually back up your wallet.
                         </p>
                       </div>
                     </div>
