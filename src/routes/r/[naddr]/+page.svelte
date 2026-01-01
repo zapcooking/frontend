@@ -6,7 +6,6 @@
   import { nip19 } from 'nostr-tools';
   import Recipe from '../../../components/Recipe/Recipe.svelte';
   import type { PageData } from './$types';
-  import { buildCanonicalRecipeShareUrl } from '$lib/utils/share';
 
   export let data: PageData;
 
@@ -73,38 +72,45 @@
     }
   }
 
-  // Get recipe title for meta tags
+  // Use server-loaded metadata for initial SSR, then client data once loaded
   $: pageHeading = event
-    ? event.tags.find((e) => e[0] == 'title')?.[1] || event.tags.find((e) => e[0] == 'd')?.[1] || 'Recipe'
-    : 'Recipe';
+    ? event.tags.find((e) => e[0] == 'title')?.[1] || event.tags.find((e) => e[0] == 'd')?.[1] || '...'
+    : (data.ogMeta?.title?.replace(' - zap.cooking', '') || 'Recipe');
+
+  $: metaTitleBase = event
+    ? event.tags.find((tag) => tag[0] === 'title')?.[1] || event.content.slice(0, 60) + '...'
+    : (data.ogMeta?.title?.replace(' - zap.cooking', '') || 'Recipe');
 
   $: fullPageTitle = `${pageHeading} - zap.cooking`;
+  $: fullMetaTitle = `${metaTitleBase} - zap.cooking`;
 
+  // Use server-loaded metadata for initial SSR, then client data once loaded
+  // Ensure we always have fallback values for SSR
+  $: og_title = event 
+    ? fullMetaTitle 
+    : (data?.ogMeta?.title || 'Recipe - zap.cooking');
+  
   $: og_description = event
     ? (event.content?.slice(0, 200) + '...' || 'A delicious recipe on zap.cooking')
-    : 'A delicious recipe on zap.cooking';
+    : (data?.ogMeta?.description || 'A delicious recipe on zap.cooking');
   
   $: og_image = event
     ? (event.tags?.find((tag) => tag[0] === 'image')?.[1] || 'https://zap.cooking/social-share.png')
-    : 'https://zap.cooking/social-share.png';
-
-  // Canonical URL for sharing (use short /r/ format)
-  $: canonicalUrl = naddr ? buildCanonicalRecipeShareUrl(naddr) : '';
+    : (data?.ogMeta?.image || 'https://zap.cooking/social-share.png');
 </script>
 
 <svelte:head>
-  <title>{fullPageTitle}</title>
+  <title>{fullPageTitle || 'Recipe - zap.cooking'}</title>
   <meta name="description" content={og_description} />
-  <link rel="canonical" href={canonicalUrl || `https://zap.cooking/r/${$page.params.naddr}`} />
-  <meta property="og:url" content={canonicalUrl || `https://zap.cooking/r/${$page.params.naddr}`} />
+  <meta property="og:url" content={`https://zap.cooking/r/${$page.params.naddr}`} />
   <meta property="og:type" content="article" />
-  <meta property="og:title" content={fullPageTitle} />
+  <meta property="og:title" content={og_title} />
   <meta property="og:description" content={og_description} />
   <meta property="og:image" content={og_image} />
   <meta name="twitter:card" content="summary_large_image" />
   <meta property="twitter:domain" content="zap.cooking" />
-  <meta property="twitter:url" content={canonicalUrl || `https://zap.cooking/r/${$page.params.naddr}`} />
-  <meta name="twitter:title" content={fullPageTitle} />
+  <meta property="twitter:url" content={`https://zap.cooking/r/${$page.params.naddr}`} />
+  <meta name="twitter:title" content={og_title} />
   <meta name="twitter:description" content={og_description} />
   <meta name="twitter:image" content={og_image} />
 </svelte:head>
@@ -133,4 +139,3 @@
     <img class="w-64 hidden dark:block" src="/pan-animated-dark.svg" alt="Loading" />
   </div>
 {/if}
-
