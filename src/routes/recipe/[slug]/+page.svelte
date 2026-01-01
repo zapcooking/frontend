@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { browser } from '$app/environment';
   import { page } from '$app/stores';
   import { ndk } from '$lib/nostr';
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
@@ -7,7 +8,7 @@
   import Recipe from '../../../components/Recipe/Recipe.svelte';
   import type { PageData } from './$types';
 
-  export const data: PageData = {} as PageData;
+  export let data: PageData;
 
   let event: NDKEvent | null = null;
   let naddr: string = '';
@@ -15,7 +16,7 @@
   let error: string | null = null;
 
   $: {
-    if ($page.params.slug) {
+    if (browser && $page.params.slug) {
       loadData();
     }
   }
@@ -95,47 +96,52 @@
     }
   }
 
+  // Use server-loaded metadata for initial SSR, then client data once loaded
   $: pageHeading = event
     ? event.tags.find((e) => e[0] == 'title')?.[1] || event.tags.find((e) => e[0] == 'd')?.[1] || '...'
-    : '...';
+    : (data.ogMeta?.title?.replace(' - zap.cooking', '') || 'Recipe');
 
   $: metaTitleBase = event
     ? event.tags.find((tag) => tag[0] === 'title')?.[1] || event.content.slice(0, 60) + '...'
-    : 'Recipe';
+    : (data.ogMeta?.title?.replace(' - zap.cooking', '') || 'Recipe');
 
   $: fullPageTitle = `${pageHeading} - zap.cooking`;
   $: fullMetaTitle = `${metaTitleBase} - zap.cooking`;
 
-  $: og_meta = {
-    title: fullMetaTitle,
-    description: event ? event.content.slice(0, 200) + '...' : 'Click to view on zap.cooking',
-    image: event ? event.tags.find((tag) => tag[0] === 'image')?.[1] || 'https://zap.cooking/social-share.png' : 'https://zap.cooking/social-share.png'
-  };
+  // Use server-loaded metadata for initial SSR, then client data once loaded
+  // Ensure we always have fallback values for SSR
+  $: og_title = event 
+    ? fullMetaTitle 
+    : (data?.ogMeta?.title || 'Recipe - zap.cooking');
+  
+  $: og_description = event
+    ? (event.content?.slice(0, 200) + '...' || 'A delicious recipe on zap.cooking')
+    : (data?.ogMeta?.description || 'A delicious recipe on zap.cooking');
+  
+  $: og_image = event
+    ? (event.tags?.find((tag) => tag[0] === 'image')?.[1] || 'https://zap.cooking/social-share.png')
+    : (data?.ogMeta?.image || 'https://zap.cooking/social-share.png');
 </script>
 
 <svelte:head>
-  <title>{fullPageTitle}</title>
-
-  {#key og_meta}
-    <meta name="description" content={og_meta.description} />
-    <meta property="og:url" content={`https://zap.cooking/recipe/${$page.params.slug}`} />
-    <meta property="og:type" content="article" />
-  <meta property="og:title" content={og_meta.title} />
-    <meta property="og:description" content={og_meta.description} />
-    <meta property="og:image" content={og_meta.image} />
-
-    <meta name="twitter:card" content="summary_large_image" />
-    <meta property="twitter:domain" content="zap.cooking" />
-    <meta property="twitter:url" content={`https://zap.cooking/recipe/${$page.params.slug}`} />
-  <meta name="twitter:title" content={og_meta.title} />
-    <meta name="twitter:description" content={og_meta.description} />
-    <meta name="twitter:image" content={og_meta.image} />
-  {/key}
+  <title>{fullPageTitle || 'Recipe - zap.cooking'}</title>
+  <meta name="description" content={og_description} />
+  <meta property="og:url" content={`https://zap.cooking/recipe/${$page.params.slug}`} />
+  <meta property="og:type" content="article" />
+  <meta property="og:title" content={og_title} />
+  <meta property="og:description" content={og_description} />
+  <meta property="og:image" content={og_image} />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta property="twitter:domain" content="zap.cooking" />
+  <meta property="twitter:url" content={`https://zap.cooking/recipe/${$page.params.slug}`} />
+  <meta name="twitter:title" content={og_title} />
+  <meta name="twitter:description" content={og_description} />
+  <meta name="twitter:image" content={og_image} />
 </svelte:head>
 
 {#if loading}
   <div class="flex justify-center items-center h-screen">
-    <img class="w-64" src="/pan-animated.svg" alt="Loading" />
+    <img class="w-64 dark:hidden" src="/pan-animated.svg" alt="Loading" /><img class="w-64 hidden dark:block" src="/pan-animated-dark.svg" alt="Loading" />
   </div>
 {:else if error}
   <div class="flex flex-col justify-center items-center h-screen gap-4">
@@ -152,6 +158,6 @@
   <Recipe {event} />
 {:else}
   <div class="flex justify-center items-center h-screen">
-    <img class="w-64" src="/pan-animated.svg" alt="Loading" />
+    <img class="w-64 dark:hidden" src="/pan-animated.svg" alt="Loading" /><img class="w-64 hidden dark:block" src="/pan-animated-dark.svg" alt="Loading" />
   </div>
 {/if}

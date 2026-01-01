@@ -68,8 +68,58 @@ wallets.subscribe((value) => {
 // Currently active wallet
 export const activeWallet = derived(wallets, ($wallets) => $wallets.find((w) => w.active) || null)
 
+// Cached balance storage key
+const CACHED_BALANCE_KEY = 'zapcooking_cached_balance'
+
+function getCachedBalance(walletId: number): number | null {
+	if (!browser) return null
+	try {
+		const stored = localStorage.getItem(`${CACHED_BALANCE_KEY}_${walletId}`)
+		if (stored) {
+			return parseInt(stored, 10)
+		}
+	} catch {
+		// Ignore storage errors
+	}
+	return null
+}
+
+function setCachedBalance(walletId: number, balance: number): void {
+	if (!browser) return
+	try {
+		localStorage.setItem(`${CACHED_BALANCE_KEY}_${walletId}`, String(balance))
+	} catch {
+		// Ignore storage errors
+	}
+}
+
 // Wallet balance in sats (updated by wallet manager)
 export const walletBalance = writable<number | null>(null)
+
+// Load cached balance for active wallet on startup
+if (browser) {
+	setTimeout(() => {
+		const saved = loadWallets()
+		const active = saved.find((w) => w.active)
+		if (active) {
+			const cached = getCachedBalance(active.id)
+			if (cached !== null) {
+				walletBalance.set(cached)
+			}
+		}
+	}, 0)
+}
+
+// Cache balance when it changes
+walletBalance.subscribe((balance) => {
+	if (browser && balance !== null) {
+		const saved = loadWallets()
+		const active = saved.find((w) => w.active)
+		if (active) {
+			setCachedBalance(active.id, balance)
+		}
+	}
+})
 
 // Whether any wallet is connected and ready
 export const walletConnected = derived(activeWallet, ($active) => $active !== null)
@@ -135,14 +185,9 @@ export function addWallet(kind: WalletKind, name: string, data: string): Wallet 
 	}
 
 	wallets.update((current) => {
-		// If this is the first wallet, make it active
-		if (current.length === 0) {
-			newWallet.active = true
-		}
+		if (current.length === 0) newWallet.active = true
 		return [...current, newWallet]
 	})
-
-	console.log('[WalletStore] Added wallet:', newWallet.name, 'kind:', kind)
 	return newWallet
 }
 
@@ -152,34 +197,22 @@ export function addWallet(kind: WalletKind, name: string, data: string): Wallet 
 export function removeWallet(id: number): void {
 	wallets.update((current) => {
 		const filtered = current.filter((w) => w.id !== id)
-
-		// If we removed the active wallet, activate the first remaining one
 		if (!filtered.some((w) => w.active) && filtered.length > 0) {
 			filtered[0].active = true
 		}
-
 		return filtered
 	})
-
-	console.log('[WalletStore] Removed wallet:', id)
+	walletBalance.set(null)
+	walletLastSync.set(null)
 }
 
 /**
  * Set the active wallet
  */
 export function setActiveWallet(id: number): void {
-	wallets.update((current) =>
-		current.map((w) => ({
-			...w,
-			active: w.id === id
-		}))
-	)
-
-	// Reset balance when switching wallets
+	wallets.update((current) => current.map((w) => ({ ...w, active: w.id === id })))
 	walletBalance.set(null)
 	walletLastSync.set(null)
-
-	console.log('[WalletStore] Set active wallet:', id)
 }
 
 /**
@@ -217,7 +250,6 @@ export function clearAllWallets(): void {
 	wallets.set([])
 	walletBalance.set(null)
 	walletLastSync.set(null)
-	console.log('[WalletStore] Cleared all wallets')
 }
 
 /**
@@ -230,7 +262,7 @@ export function getWalletKindName(kind: WalletKind): string {
 		case 3:
 			return 'NWC'
 		case 4:
-			return 'Spark'
+			return 'Self-custodial'
 		default:
 			return 'Unknown'
 	}

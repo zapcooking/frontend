@@ -1,28 +1,26 @@
 <script lang="ts">
   import { notifications, unreadCount, subscribeToNotifications, unsubscribeFromNotifications } from '$lib/notificationStore';
   import { ndk, userPublickey } from '$lib/nostr';
-  import { onMount, onDestroy } from 'svelte';
+  import { onDestroy } from 'svelte';
   import BellIcon from 'phosphor-svelte/lib/Bell';
   import { clickOutside } from '$lib/clickOutside';
   import NotificationPanel from './NotificationPanel.svelte';
   
   let showPanel = false;
-  
-  onMount(() => {
-    if ($userPublickey) {
-      subscribeToNotifications($ndk, $userPublickey);
-    }
-  });
+  let lastSubscribedPubkey: string | null = null;
   
   onDestroy(() => {
     unsubscribeFromNotifications();
   });
   
-  // Resubscribe when user changes
-  $: if ($userPublickey && $ndk) {
-    // Ensure any existing subscription is cleaned up before creating a new one
-    unsubscribeFromNotifications();
+  // Subscribe when user changes (only re-subscribe if pubkey actually changed)
+  $: if ($userPublickey && $ndk && $userPublickey !== lastSubscribedPubkey) {
+    lastSubscribedPubkey = $userPublickey;
     subscribeToNotifications($ndk, $userPublickey);
+  } else if (!$userPublickey && lastSubscribedPubkey) {
+    // User logged out
+    lastSubscribedPubkey = null;
+    unsubscribeFromNotifications();
   }
 </script>
 

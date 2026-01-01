@@ -9,11 +9,12 @@ export const relays = JSON.parse(
   (browser && localStorage.getItem('nostrcooking_relays')) || JSON.stringify(standardRelays)
 )
 
-const dexieAdapter = new NDKCacheAdapterDexie({ dbName: 'zapcooking-ndk-cache-db' });
-const Ndk: NDK = new NDK({ 
-  outboxRelayUrls: ["wss://purplepag.es", "wss://kitchen.zap.cooking"], 
-  enableOutboxModel: true, 
-  explicitRelayUrls: relays, 
+// Only create Dexie adapter in browser (IndexedDB not available in SSR)
+const dexieAdapter = browser ? new NDKCacheAdapterDexie({ dbName: 'zapcooking-ndk-cache-db' }) : undefined;
+const Ndk: NDK = new NDK({
+  outboxRelayUrls: ["wss://purplepag.es", "wss://kitchen.zap.cooking"],
+  enableOutboxModel: true,
+  explicitRelayUrls: relays,
   cacheAdapter: dexieAdapter,
   autoConnectUserRelays: false
 });

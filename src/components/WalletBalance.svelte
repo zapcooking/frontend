@@ -24,6 +24,8 @@
   import CheckIcon from 'phosphor-svelte/lib/Check';
   import EyeIcon from 'phosphor-svelte/lib/Eye';
   import EyeSlashIcon from 'phosphor-svelte/lib/EyeSlash';
+  import SparkLogo from './icons/SparkLogo.svelte';
+  import NwcLogo from './icons/NwcLogo.svelte';
 
   let dropdownActive = false;
 
@@ -69,11 +71,11 @@
     >
       <LightningIcon size={16} weight="fill" class="text-amber-500" />
       {#if $walletLoading || $walletBalance === null}
-        <span class="animate-pulse">...</span>
+        <span class="animate-pulse min-w-[3.5rem] text-right">...</span>
       {:else if $balanceVisible}
-        <span>{formatBalance($walletBalance)}</span>
+        <span class="min-w-[3.5rem] text-right">{formatBalance($walletBalance)}</span>
       {:else}
-        <span>***</span>
+        <span class="min-w-[3.5rem] text-right">***</span>
       {/if}
       <span class="text-caption text-xs">sats</span>
       <CaretDownIcon size={12} class="text-caption ml-0.5" />
@@ -89,14 +91,22 @@
           class="flex flex-col gap-3 bg-input rounded-2xl drop-shadow px-4 py-4 min-w-[220px] max-w-[280px]"
           style="color: var(--color-text-primary)"
         >
-          <!-- Current wallet info -->
-          <div class="flex items-center gap-2 pb-2 border-b" style="border-color: var(--color-input-border);">
+          <!-- Current wallet info (clickable to open wallet page) -->
+          <button
+            class="flex items-center gap-2 pb-2 border-b w-full text-left hover:opacity-80 transition-opacity cursor-pointer"
+            style="border-color: var(--color-input-border);"
+            on:click={goToWallet}
+          >
             <WalletIcon size={18} class="text-amber-500 flex-shrink-0" />
             <div class="flex-1 min-w-0">
               <div class="font-medium text-sm truncate">{$activeWallet.name}</div>
-              <div class="text-xs text-caption">{getWalletKindName($activeWallet.kind)}</div>
             </div>
-          </div>
+            {#if $activeWallet.kind === 4}
+              <SparkLogo size={16} className="flex-shrink-0" />
+            {:else if $activeWallet.kind === 3}
+              <NwcLogo size={16} className="flex-shrink-0" />
+            {/if}
+          </button>
 
           <!-- Wallet switcher (if multiple wallets) -->
           {#if $wallets.length > 1}
@@ -114,7 +124,11 @@
                     <span class="w-3.5 flex-shrink-0"></span>
                   {/if}
                   <span class="flex-1 text-left truncate">{wallet.name}</span>
-                  <span class="text-xs text-caption flex-shrink-0">{getWalletKindName(wallet.kind)}</span>
+                  {#if wallet.kind === 4}
+                    <SparkLogo size={14} className="flex-shrink-0 opacity-60" />
+                  {:else if wallet.kind === 3}
+                    <NwcLogo size={14} className="flex-shrink-0 opacity-60" />
+                  {/if}
                 </button>
               {/each}
             </div>

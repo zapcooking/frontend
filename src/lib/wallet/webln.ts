@@ -48,21 +48,15 @@ export async function connectWebln(): Promise<boolean> {
 	try {
 		await window.webln.enable()
 		weblnProvider = window.webln
-		console.log('[WebLN] Connected successfully')
 		return true
 	} catch (e) {
-		console.error('[WebLN] Connection failed:', e)
 		weblnProvider = null
 		throw e
 	}
 }
 
-/**
- * Disconnect WebLN (just clears local reference)
- */
 export function disconnectWebln(): void {
 	weblnProvider = null
-	console.log('[WebLN] Disconnected')
 }
 
 /**
@@ -77,22 +71,14 @@ export function isWeblnConnected(): boolean {
  * Note: Not all providers support getBalance()
  */
 export async function getWeblnBalance(): Promise<number | null> {
-	if (!weblnProvider) {
-		throw new Error('WebLN not connected')
-	}
-
+	if (!weblnProvider) throw new Error('WebLN not connected')
 	try {
-		// getBalance is optional in WebLN spec
 		if (typeof weblnProvider.getBalance === 'function') {
 			const response = await weblnProvider.getBalance()
-			console.log('[WebLN] Balance:', response.balance, 'sats')
 			return response.balance
-		} else {
-			console.log('[WebLN] Balance not supported by this provider')
-			return null
 		}
-	} catch (e) {
-		console.warn('[WebLN] Failed to get balance:', e)
+		return null
+	} catch {
 		return null
 	}
 }
@@ -101,19 +87,9 @@ export async function getWeblnBalance(): Promise<number | null> {
  * Pay a Lightning invoice via WebLN
  */
 export async function payWeblnInvoice(invoice: string): Promise<{ preimage: string }> {
-	if (!weblnProvider) {
-		throw new Error('WebLN not connected')
-	}
-
-	try {
-		console.log('[WebLN] Paying invoice...')
-		const response = await weblnProvider.sendPayment(invoice)
-		console.log('[WebLN] Payment successful, preimage:', response.preimage)
-		return { preimage: response.preimage }
-	} catch (e) {
-		console.error('[WebLN] Payment failed:', e)
-		throw e
-	}
+	if (!weblnProvider) throw new Error('WebLN not connected')
+	const response = await weblnProvider.sendPayment(invoice)
+	return { preimage: response.preimage }
 }
 
 /**
@@ -123,50 +99,23 @@ export async function createWeblnInvoice(
 	amountSats: number,
 	description?: string
 ): Promise<{ invoice: string; paymentHash: string }> {
-	if (!weblnProvider) {
-		throw new Error('WebLN not connected')
-	}
-
-	try {
-		console.log('[WebLN] Creating invoice for', amountSats, 'sats')
-		const response = await weblnProvider.makeInvoice({
-			amount: amountSats,
-			defaultMemo: description || 'zap.cooking payment'
-		})
-		console.log('[WebLN] Invoice created')
-		return {
-			invoice: response.paymentRequest,
-			paymentHash: response.paymentHash
-		}
-	} catch (e) {
-		console.error('[WebLN] Failed to create invoice:', e)
-		throw e
-	}
+	if (!weblnProvider) throw new Error('WebLN not connected')
+	const response = await weblnProvider.makeInvoice({
+		amount: amountSats,
+		defaultMemo: description || 'zap.cooking payment'
+	})
+	return { invoice: response.paymentRequest, paymentHash: response.paymentHash }
 }
 
 /**
  * Get WebLN wallet info
  */
 export async function getWeblnInfo(): Promise<{ alias?: string; pubkey?: string }> {
-	if (!weblnProvider) {
-		throw new Error('WebLN not connected')
-	}
-
-	try {
-		const info = await weblnProvider.getInfo()
-		return {
-			alias: info.node?.alias,
-			pubkey: info.node?.pubkey
-		}
-	} catch (e) {
-		console.error('[WebLN] Failed to get info:', e)
-		throw e
-	}
+	if (!weblnProvider) throw new Error('WebLN not connected')
+	const info = await weblnProvider.getInfo()
+	return { alias: info.node?.alias, pubkey: info.node?.pubkey }
 }
 
-/**
- * Get a display name for WebLN wallet
- */
 export async function getWeblnDisplayName(): Promise<string> {
 	try {
 		const info = await getWeblnInfo()

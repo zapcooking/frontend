@@ -4,11 +4,13 @@
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
   import ProfileLink from './ProfileLink.svelte';
   import NoteEmbed from './NoteEmbed.svelte';
+  import LinkPreview from './LinkPreview.svelte';
   import { processContentWithProfiles } from '$lib/contentProcessor';
   import { onMount } from 'svelte';
 
   export let content: string;
   export let className: string = '';
+  export let showLinkPreviews: boolean = true;
   
   // Image extensions to detect
   const IMAGE_EXTENSIONS = /\.(jpg|jpeg|png|gif|webp|svg|bmp|avif)(\?.*)?$/i;
@@ -181,10 +183,19 @@
   }
 </script>
 
-<div class="whitespace-pre-wrap break-words {className}">
-  {#each parsedContent as part}
+<div class="whitespace-pre-wrap break-words note-content {className}">
+  {#each parsedContent as part, i}
     {#if part.type === 'text'}
-      {part.content}
+      {@const prevPart = parsedContent[i - 1]}
+      {@const nextPart = parsedContent[i + 1]}
+      {@const prevIsBlock = prevPart?.type === 'url' || prevPart?.type === 'nostr'}
+      {@const nextIsBlock = nextPart?.type === 'url' || nextPart?.type === 'nostr'}
+      {@const isBetweenBlocks = prevIsBlock && nextIsBlock}
+      {@const isOnlyWhitespace = /^\s*$/.test(part.content)}
+      {#if isBetweenBlocks && isOnlyWhitespace}
+        <!-- Skip whitespace between block elements -->
+      {:else if prevIsBlock || nextIsBlock}
+        {part.content.replace(/\n{2,}/g, '\n').trim()}{:else}{part.content}{/if}
     {:else if part.type === 'hashtag'}
       <button
         class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-orange-50 text-orange-600 hover:bg-orange-500 hover:text-white transition-colors cursor-pointer"
@@ -194,26 +205,28 @@
       </button>
     {:else if part.type === 'url'}
       {#if part.url && isImageUrl(part.url)}
-        <div class="my-2">
-          <img 
-            src={part.url} 
-            alt="" 
+        <div class="my-1">
+          <img
+            src={part.url}
+            alt=""
             class="max-w-full rounded-lg max-h-96 object-contain"
             loading="lazy"
             on:error={handleImageError}
           />
         </div>
       {:else if part.url && isVideoUrl(part.url)}
-        <div class="my-2">
-          <video 
-            src={part.url} 
-            controls 
+        <div class="my-1">
+          <video
+            src={part.url}
+            controls
             class="max-w-full rounded-lg max-h-96"
             preload="metadata"
           >
             <track kind="captions" />
           </video>
         </div>
+      {:else if showLinkPreviews && part.url}
+        <LinkPreview url={part.url} />
       {:else}
         <a
           href={part.url}
@@ -240,3 +253,18 @@
     {/if}
   {/each}
 </div>
+
+<style>
+  /* First block element gets more top margin */
+  .note-content :global(> div:first-of-type),
+  .note-content :global(> a:first-of-type) {
+    margin-top: 0.5rem;
+  }
+
+  /* Reduce space between consecutive block elements */
+  .note-content :global(> div + div),
+  .note-content :global(> a + div),
+  .note-content :global(> div + a) {
+    margin-top: 0.125rem;
+  }
+</style>

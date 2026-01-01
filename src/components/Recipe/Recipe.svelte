@@ -2,12 +2,12 @@
   import { NDKEvent } from '@nostr-dev-kit/ndk';
   import TagLinks from './TagLinks.svelte';
   import { ndk, userPublickey } from '$lib/nostr';
-  import DotsIcon from 'phosphor-svelte/lib/DotsThree';
-  import PencilIcon from 'phosphor-svelte/lib/Pencil';
   import BookmarkIcon from 'phosphor-svelte/lib/BookmarkSimple';
   import PrinterIcon from 'phosphor-svelte/lib/Printer';
   import LightningIcon from 'phosphor-svelte/lib/Lightning';
+  import ShareIcon from 'phosphor-svelte/lib/Share';
   import Button from '../Button.svelte';
+  import ShareModal from '../ShareModal.svelte';
   import { translateOption } from '$lib/state';
   import { translate } from '$lib/translation';
   import { parseMarkdown } from '$lib/parser';
@@ -16,14 +16,16 @@
   import TotalComments from './TotalComments.svelte';
   import Comments from '../Comments.svelte';
   import RecipeReactionPills from './RecipeReactionPills.svelte';
+  import TopZappers from './TopZappers.svelte';
   import ZapModal from '../ZapModal.svelte';
   import { requestProvider } from 'webln';
   import { nip19 } from 'nostr-tools';
   import Modal from '../Modal.svelte';
-  import { clickOutside } from '$lib/clickOutside';
   import AuthorProfile from '../AuthorProfile.svelte';
-  import { fade } from 'svelte/transition';
   import { recipeTags, type recipeTagSimple } from '$lib/consts';
+  import { onMount } from 'svelte';
+  import { resolveProfileByPubkey } from '$lib/profileResolver';
+  import { buildCanonicalRecipeShareUrl } from '$lib/utils/share';
 
   export let event: NDKEvent;
   const naddr = nip19.naddrEncode({
@@ -32,8 +34,39 @@
     kind: 30023
   });
   let zapModal = false;
+  let zapRefreshKey = 0;
+  let shareModal = false;
+
+  // Track if author has a lightning address (can receive zaps)
+  let authorCanReceiveZaps = true; // Default to true while loading
+  let authorLightningCheckComplete = false;
+  
+  // Construct the canonical recipe URL for sharing (uses short /r/ format)
+  $: shareUrl = buildCanonicalRecipeShareUrl(naddr);
+  
+  // Get recipe title and image for sharing
+  $: recipeTitle = event.tags.find((t) => t[0] === 'title')?.[1] || 
+                   event.tags.find((t) => t[0] === 'd')?.[1] || 
+                   'Recipe';
+  $: recipeImage = event.tags.find((t) => t[0] === 'image')?.[1] || '';
+
+  onMount(async () => {
+    // Check if author has a lightning address
+    try {
+      const profile = await resolveProfileByPubkey(event.author.pubkey, $ndk);
+      authorCanReceiveZaps = !!(profile?.lud16);
+    } catch (error) {
+      console.warn('Failed to check author lightning address:', error);
+      authorCanReceiveZaps = false;
+    }
+    authorLightningCheckComplete = true;
+  });
+
+  function handleZapComplete() {
+    // Increment key to force TotalZaps to remount and refetch
+    zapRefreshKey++;
+  }
   let bookmarkModal = false;
-  let dropdownActive = false;
 
   // Image modal state
   let imageModalOpen = false;
@@ -231,7 +264,9 @@ async function getLists(): Promise<NDKEvent[]> {
 
 <svelte:window on:keydown={handleImageModalKeydown} />
 
-<ZapModal bind:open={zapModal} event={event} />
+<ZapModal bind:open={zapModal} event={event} on:zap-complete={handleZapComplete} />
+
+<ShareModal bind:open={shareModal} url={shareUrl} title={recipeTitle} imageUrl={recipeImage} />
 
 <Modal cleanup={cleanUpBookmarksModal} open={bookmarkModal}>
   <h1 slot="title">Save Recipe</h1>
@@ -303,12 +338,17 @@ async function getLists(): Promise<NDKEvent[]> {
           <!-- Left: Author Profile -->
           <AuthorProfile pubkey={event.author.pubkey} />
 
-          <!-- Right: Icon-only Zap/Save buttons -->
+          <!-- Right: Icon-only Zap/Save/Share buttons -->
           <div class="flex gap-2">
             <button
-              on:click={() => (zapModal = true)}
-              class="w-10 h-10 flex items-center justify-center rounded-full bg-yellow-500 hover:bg-yellow-600 text-white transition duration-200"
-              aria-label="Zap recipe"
+              on:click={() => authorCanReceiveZaps && (zapModal = true)}
+              class="w-10 h-10 flex items-center justify-center rounded-full transition duration-200
+                {authorCanReceiveZaps
+                  ? 'bg-yellow-500 hover:bg-yellow-600 text-white cursor-pointer'
+                  : 'bg-gray-300 dark:bg-gray-600 text-gray-500 dark:text-gray-400 cursor-not-allowed'}"
+              aria-label={authorCanReceiveZaps ? "Zap recipe" : "Author has no lightning address"}
+              title={authorCanReceiveZaps ? "Zap this recipe" : "Author has no lightning address"}
+              disabled={!authorCanReceiveZaps}
             >
               <LightningIcon size={20} weight="fill" />
             </button>
@@ -317,6 +357,7 @@ async function getLists(): Promise<NDKEvent[]> {
               on:click={() => (bookmarkModal = true)}
               class="w-10 h-10 flex items-center justify-center rounded-full bg-primary hover:bg-primary/90 text-white transition duration-200"
               aria-label="Save recipe"
+              title="Save recipe"
             >
               <BookmarkIcon size={20} weight="fill" />
             </button>
@@ -344,14 +385,25 @@ async function getLists(): Promise<NDKEvent[]> {
 
             <!-- Image overlay buttons (hover only on desktop) -->
             <div class="absolute inset-0 transition-all duration-300 pointer-events-none">
-              <button
-                class="absolute top-4 left-4 bg-yellow-500 text-white font-semibold px-4 py-2 rounded-full shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-200 opacity-0 lg:group-hover:opacity-100 pointer-events-auto flex items-center gap-2"
-                on:click|stopPropagation={() => (zapModal = true)}
-                aria-label="Zap recipe"
-              >
-                <LightningIcon size={18} weight="fill" />
-                <span>Zap</span>
-              </button>
+              {#if authorCanReceiveZaps}
+                <button
+                  class="absolute top-4 left-4 bg-yellow-500 text-white font-semibold px-4 py-2 rounded-full shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-200 opacity-0 lg:group-hover:opacity-100 pointer-events-auto flex items-center gap-2"
+                  on:click|stopPropagation={() => (zapModal = true)}
+                  aria-label="Zap recipe"
+                >
+                  <LightningIcon size={18} weight="fill" />
+                  <span>Zap</span>
+                </button>
+              {:else}
+                <button
+                  class="absolute top-4 left-4 bg-gray-400 text-gray-200 font-semibold px-4 py-2 rounded-full shadow-lg opacity-0 lg:group-hover:opacity-100 pointer-events-auto flex items-center gap-2 cursor-not-allowed"
+                  disabled
+                  title="Author has no lightning address"
+                >
+                  <LightningIcon size={18} weight="fill" />
+                  <span>Zap</span>
+                </button>
+              {/if}
 
               <button
                 class="absolute top-4 right-4 bg-primary text-white font-semibold px-4 py-2 rounded-full shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-200 opacity-0 lg:group-hover:opacity-100 pointer-events-auto flex items-center gap-2"
@@ -384,42 +436,38 @@ async function getLists(): Promise<NDKEvent[]> {
       <!-- Reactions and actions -->
       <div class="flex flex-col gap-1 print:hidden -mt-2">
         <RecipeReactionPills {event} />
+        <TopZappers {event} />
         <div class="flex">
           <div class="flex gap-6 grow">
             <TotalLikes {event} />
             <TotalComments {event} />
-            <button class="cursor-pointer" on:click={() => (zapModal = true)}>
-              <TotalZaps {event} />
+            <button
+              class={authorCanReceiveZaps ? "cursor-pointer" : "cursor-not-allowed opacity-50"}
+              on:click={() => authorCanReceiveZaps && (zapModal = true)}
+              disabled={!authorCanReceiveZaps}
+              title={authorCanReceiveZaps ? "Zap this recipe" : "Author has no lightning address"}
+            >
+              {#key zapRefreshKey}
+                <TotalZaps {event} />
+              {/key}
+            </button>
+            <button
+              class="cursor-pointer hover:bg-input rounded p-0.5 transition duration-300"
+              on:click={() => (shareModal = true)}
+              aria-label="Share recipe"
+              title="Share recipe"
+            >
+              <ShareIcon size={24} weight="bold" class="text-caption" />
             </button>
           </div>
           <button
             class="cursor-pointer hover:bg-input rounded p-0.5 transition duration-300"
-            on:click={() => (dropdownActive = !dropdownActive)}
+            on:click={() => window.print()}
+            aria-label="Print recipe"
+            title="Print recipe"
           >
-            <DotsIcon size={28} weight="bold" class="text-caption" />
+            <PrinterIcon size={24} weight="bold" class="text-caption" />
           </button>
-        {#if dropdownActive}
-          <div class="relative" tabindex="-1" transition:fade={{ delay: 0, duration: 150 }}>
-            <div
-              role="menu"
-              use:clickOutside
-              on:click_outside={() => (dropdownActive = false)}
-              class="flex flex-col right-0 gap-4 absolute z-20 bg-input rounded-3xl drop-shadow px-5 py-6 my-6"
-              style="color: var(--color-text-primary)"
-            >
-              {#if event.author?.pubkey === $userPublickey}
-                <a class="flex gap-2 cursor-pointer" href="/fork/{naddr}">
-                  <PencilIcon size={24} />
-                  Edit
-                </a>
-              {/if}
-              <button class="flex gap-2 cursor-pointer" on:click={() => window.print()}>
-                <PrinterIcon size={24} />
-                Print
-              </button>
-            </div>
-          </div>
-        {/if}
         </div>
       </div>
       <!-- Recipe Summary -->
@@ -465,7 +513,12 @@ async function getLists(): Promise<NDKEvent[]> {
       </div>
       <div class="flex flex-col items-center gap-4 bg-input py-6 rounded-3xl print:hidden" style="color: var(--color-text-primary)">
         <h2>Enjoy this recipe?</h2>
-        <Button on:click={() => (zapModal = true)}>Zap it</Button>
+        <Button
+          on:click={() => authorCanReceiveZaps && (zapModal = true)}
+          disabled={!authorCanReceiveZaps}
+        >
+          {authorCanReceiveZaps ? 'Zap it' : 'No lightning address'}
+        </Button>
       </div>
       <!--
       <div class="flex flex-col gap-4">

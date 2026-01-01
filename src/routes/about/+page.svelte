@@ -1,5 +1,5 @@
 <svelte:head>
-  <title>Why - zap.cooking</title>
+  <title>About - zap.cooking</title>
   <meta
     name="description"
     content="Learn why Zap Cooking exists and how it uses Nostr to create an open, decentralized platform for sharing recipes."
