@@ -5,10 +5,12 @@
   import WarningIcon from 'phosphor-svelte/lib/Warning';
   import CloudCheckIcon from 'phosphor-svelte/lib/CloudCheck';
   import ArrowClockwiseIcon from 'phosphor-svelte/lib/ArrowClockwise';
-  import { checkRelayBackups, type RelayBackupStatus } from '$lib/spark';
+  import { checkRelayBackups as checkSparkRelayBackups, type RelayBackupStatus } from '$lib/spark';
+  import { checkRelayBackups as checkNwcRelayBackups } from '$lib/wallet/nwcBackup';
 
   export let open = false;
   export let pubkey: string;
+  export let walletType: 'spark' | 'nwc' = 'spark';
 
   let isLoading = false;
   let results: RelayBackupStatus[] = [];
@@ -25,7 +27,8 @@
     results = [];
 
     try {
-      results = await checkRelayBackups(pubkey);
+      const checkFn = walletType === 'nwc' ? checkNwcRelayBackups : checkSparkRelayBackups;
+      results = await checkFn(pubkey);
     } catch (error) {
       errorMessage = error instanceof Error ? error.message : 'Failed to check relay backups';
     } finally {
