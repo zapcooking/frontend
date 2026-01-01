@@ -213,6 +213,8 @@
   $: if (text) {
     parsedTokens = parseText(text);
     resolveReferences(parsedTokens);
+  } else {
+    parsedTokens = [];
   }
 </script>
 
