@@ -28,7 +28,16 @@ src/lib/wallet/
 
 src/lib/spark/
 ├── index.ts           # Breez SDK Spark integration
-└── storage.ts         # Encrypted mnemonic storage
+├── storage.ts         # Encrypted mnemonic storage
+└── profileSync.ts     # Nostr profile lud16 sync functionality
+
+src/components/
+├── CheckRelayBackupsModal.svelte  # Modal showing relay backup status
+├── WalletRecoveryHelpModal.svelte # Modal with recovery information
+└── BottomNav.svelte               # Mobile bottom navigation (includes Wallet)
+
+src/routes/wallet/
+└── +page.svelte       # Main wallet page with all wallet UI
 ```
 
 ## State Management
@@ -254,6 +263,40 @@ Each connected wallet displays its type icon:
   <NwcLogo size={24} className="text-purple-500" />
 {/if}
 ```
+
+#### Mobile Responsive Layout
+The wallet list uses responsive classes for better mobile display:
+- Wallet type label hidden on mobile: `hidden sm:block`
+- Reduced padding on mobile: `p-3 sm:p-4`
+- Smaller gaps on mobile: `gap-2 sm:gap-4`
+- Wallet names truncate: `truncate`
+
+#### Wallet Options Section
+When a wallet row is expanded, it shows a "Wallet Options" section with action buttons.
+
+**Spark Wallet Options:**
+- Backup to Nostr
+- Download Backup
+- Show Recovery Phrase
+- Recovery Help (opens WalletRecoveryHelpModal)
+- Check Relay Backups (opens CheckRelayBackupsModal)
+- Delete Wallet (red, destructive)
+
+**NWC Wallet Options:**
+- Wallet Info
+- Copy Connection
+- Download Backup
+- Delete Wallet (red, destructive)
+
+### Mobile Navigation
+
+The bottom navigation bar (`src/components/BottomNav.svelte`) includes:
+- Recipes (MagnifyingGlass icon)
+- Community (ForkKnife icon)
+- Explore (Compass icon)
+- Wallet (Lightning icon)
+
+The Wallet link goes to `/wallet` for quick access to wallet features on mobile.
 
 ### SDK Connection Pattern - CRITICAL
 The Spark SDK uses the `connect()` pattern. **Event listener setup immediately after connect is critical for real-time payment detection.**
@@ -732,6 +775,56 @@ When removing a Spark wallet, show backup options before allowing deletion:
 {/if}
 ```
 
+### Check Relay Backups
+
+The "Check Relay Backups" feature allows users to see which relays have their wallet backup stored.
+
+#### Component
+`src/components/CheckRelayBackupsModal.svelte` - Modal displaying relay backup status
+
+#### Function
+```typescript
+// src/lib/spark/index.ts
+export interface RelayBackupStatus {
+  relay: string
+  hasBackup: boolean
+  timestamp?: number
+  error?: string
+}
+
+export async function checkRelayBackups(pubkey: string): Promise<RelayBackupStatus[]>
+```
+
+#### How It Works
+1. Gets the list of configured relays from NDK
+2. Queries each relay individually for the backup event (kind 30078, d-tag: 'spark-wallet-backup')
+3. Uses `NDKRelaySet.fromRelayUrls()` to query specific relays
+4. Returns status for each relay: has backup, timestamp, or error
+
+#### UI Display
+- Green checkmark: Relay has the backup (with timestamp)
+- Red X: No backup found on relay
+- Amber warning: Relay not connected or error
+- Summary showing "X of Y relays have backup"
+- Refresh button to re-check
+- Tips when backups are missing
+
+### Wallet Recovery Help Modal
+
+`src/components/WalletRecoveryHelpModal.svelte` - Modal with recovery information for Spark wallets.
+
+#### Content Sections
+1. **Introduction** - Explains wallet uses Breez Spark, recoverable with 12-word seed
+2. **How it Works** - Seed phrase explanation, non-custodial nature
+3. **Compatible Wallets** - Spark ecosystem, Blitz Wallet example
+4. **Recovery Process** - High-level steps
+5. **Security Reminder** - Keep seed safe, never share
+
+#### External Links
+- Breez SDK docs: https://sdk-doc-spark.breez.technology/
+- Blitz Wallet: https://blitzwalletapp.com
+- Blitz Recovery Tool: https://recover.blitz-wallet.com/ (with third-party disclaimer)
+
 ### SDK Version
 Currently using `@breeztech/breez-sdk-spark@0.6.3`.
 
@@ -794,6 +887,15 @@ Before any wallet changes, verify:
 - [ ] Can delete lightning address
 - [ ] Profile sync status shows correctly (green/amber indicator)
 - [ ] "Sync to Profile" updates Nostr kind 0 lud16
+
+### Wallet UI
+- [ ] Wallet Options section shows all buttons for Spark
+- [ ] Wallet Options section shows all buttons for NWC
+- [ ] Delete button is inside expanded section (not in wallet row)
+- [ ] Check Relay Backups modal opens and shows relay status
+- [ ] Recovery Help modal opens with correct content
+- [ ] Mobile: Wallet type label hidden, names truncate
+- [ ] Mobile: Bottom nav shows Wallet with lightning icon
 
 ### General
 - [ ] Switching between wallets shows correct balance
