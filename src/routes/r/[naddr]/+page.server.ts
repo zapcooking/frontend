@@ -143,11 +143,8 @@ export const load: PageServerLoad = async ({ params, url }) => {
 		throw redirect(302, '/recent');
 	}
 
-	// Only attempt WebSocket fetching in production (Cloudflare Workers environment)
-	// In dev, always return null to prevent errors
-	const isProduction = process.env.NODE_ENV === 'production' && typeof WebSocket !== 'undefined';
-	
-	if (!isProduction) {
+	// Skip if WebSocket is not available (e.g., some Node.js environments)
+	if (typeof WebSocket === 'undefined') {
 		return { ogMeta: null, naddr };
 	}
 
