@@ -1134,7 +1134,9 @@ export async function checkRelayBackups(pubkey: string): Promise<RelayBackupStat
 
 	// Use the user's explicitly configured relays (from localStorage or defaults)
 	// This avoids showing random outbox/gossip relays
-	const relaysToCheck: string[] = relays || standardRelays
+	const relaysToCheck: string[] = Array.isArray(relays)
+		? relays.filter((r: unknown): r is string => typeof r === 'string')
+		: standardRelays
 
 	if (relaysToCheck.length === 0) {
 		logger.warn('[Spark] No relays configured')
