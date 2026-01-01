@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite dev",
     "build": "vite build",
-    "build:mobile": "vite build && rm -rf build && cp -r .svelte-kit/cloudflare build",
+    "build:mobile": "SKIP_ENV_VALIDATION=1 ADAPTER=static vite build",
     "preview": "vite preview",
     "dev:cloudflare": "pnpm build && wrangler pages dev .svelte-kit/cloudflare --compatibility-date=2025-01-01 --compatibility-flags=nodejs_compat",
     "test:og": "pnpm build && wrangler pages dev .svelte-kit/cloudflare --compatibility-date=2025-01-01 --compatibility-flags=nodejs_compat",
