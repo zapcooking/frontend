@@ -31,6 +31,7 @@
     type Transaction
   } from '$lib/wallet/walletManager';
   import { parseNwcUrl, getNwcInfo, connectNwc, isNwcConnected, getNwcLud16 } from '$lib/wallet/nwc';
+  import { backupNwcToNostr, restoreNwcFromNostr, hasEncryptionSupport as hasNwcEncryptionSupport } from '$lib/wallet/nwcBackup';
   import {
     createAndConnectWallet as createSparkWallet,
     restoreFromMnemonic,
@@ -125,6 +126,7 @@
   let showDeleteAddressConfirmModal = false;
   let showRecoveryHelpModal = false;
   let showCheckRelayBackupsModal = false;
+  let checkRelayBackupsWalletType: 'spark' | 'nwc' = 'spark';
   let availabilityCheckTimeout: ReturnType<typeof setTimeout> | null = null;
 
   // User's profile lud16 (from Nostr kind 0)
@@ -1183,6 +1185,48 @@
     }
   }
 
+  async function handleNwcBackupToNostr(wallet: { data: string }) {
+    isBackingUp = true;
+    errorMessage = '';
+
+    try {
+      await backupNwcToNostr($userPublickey, wallet.data);
+      successMessage = 'NWC connection backed up to Nostr relays!';
+    } catch (e) {
+      errorMessage = getSignerErrorMessage(e, 'Failed to backup to Nostr');
+    } finally {
+      isBackingUp = false;
+    }
+  }
+
+  async function handleRestoreNwcFromNostr() {
+    isConnecting = true;
+    errorMessage = '';
+
+    try {
+      const connectionString = await restoreNwcFromNostr($userPublickey);
+      if (connectionString) {
+        // Use the restored connection string to connect
+        nwcConnectionString = connectionString;
+        const result = await connectWallet(3, connectionString);
+        if (result.success) {
+          successMessage = 'NWC wallet restored from Nostr backup!';
+          showAddWallet = false;
+          selectedWalletType = null;
+          nwcConnectionString = '';
+        } else {
+          errorMessage = result.error || 'Failed to connect restored NWC wallet';
+        }
+      } else {
+        errorMessage = 'No NWC backup found on Nostr relays.';
+      }
+    } catch (e) {
+      errorMessage = getSignerErrorMessage(e, 'Failed to restore from Nostr');
+    } finally {
+      isConnecting = false;
+    }
+  }
+
   // NWC wallet functions
   async function handleViewNwcInfo(wallet: { data: string }) {
     isLoadingNwcInfo = true;
@@ -1541,8 +1585,6 @@
             <!-- Spark wallet backup options -->
             {#if wallet.kind === 4 && expandedWalletId === wallet.id}
               <div class="px-4 pb-4 pt-2 border-t" style="border-color: var(--color-input-border);">
-                <div class="text-xs text-caption mb-3 uppercase tracking-wide">Wallet Options</div>
-
                 <!-- Encryption not supported warning -->
                 {#if !encryptionSupported}
                   <div class="p-3 rounded-lg mb-3 text-sm" style="background-color: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.3);">
@@ -1557,9 +1599,11 @@
                   </div>
                 {/if}
 
-                <div class="flex flex-wrap gap-2">
+                <!-- Backup & Recovery -->
+                <div class="text-xs text-caption mb-2 uppercase tracking-wide">Backup & Recovery</div>
+                <div class="grid grid-cols-2 gap-2">
                   <button
-                    class="flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors"
+                    class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors"
                     class:cursor-pointer={encryptionSupported}
                     class:cursor-not-allowed={!encryptionSupported}
                     class:opacity-50={!encryptionSupported}
@@ -1572,7 +1616,7 @@
                     {isBackingUp ? 'Backing up...' : 'Backup to Nostr'}
                   </button>
                   <button
-                    class="flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors"
+                    class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors"
                     class:cursor-pointer={encryptionSupported}
                     class:cursor-not-allowed={!encryptionSupported}
                     class:opacity-50={!encryptionSupported}
@@ -1582,18 +1626,18 @@
                     title={!encryptionSupported ? 'Your signer extension does not support encryption' : ''}
                   >
                     <DownloadSimpleIcon size={16} />
-                    Download Backup
+                    Download
                   </button>
                   <button
-                    class="flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer"
+                    class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer"
                     style="background-color: var(--color-bg-primary); border: 1px solid var(--color-input-border);"
                     on:click={handleRevealMnemonic}
                   >
                     <KeyIcon size={16} />
-                    Show Recovery Phrase
+                    Recovery Phrase
                   </button>
                   <button
-                    class="flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer"
+                    class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer"
                     style="background-color: var(--color-bg-primary); border: 1px solid var(--color-input-border);"
                     on:click={() => showRecoveryHelpModal = true}
                   >
@@ -1601,15 +1645,15 @@
                     Recovery Help
                   </button>
                   <button
-                    class="flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer"
+                    class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer"
                     style="background-color: var(--color-bg-primary); border: 1px solid var(--color-input-border);"
-                    on:click={() => showCheckRelayBackupsModal = true}
+                    on:click={() => { checkRelayBackupsWalletType = 'spark'; showCheckRelayBackupsModal = true; }}
                   >
                     <CloudCheckIcon size={16} />
-                    Check Relay Backups
+                    Check Backups
                   </button>
                   <button
-                    class="flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer text-red-500 hover:bg-red-500/10"
+                    class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer text-red-500 hover:bg-red-500/10"
                     style="background-color: var(--color-bg-primary); border: 1px solid var(--color-input-border);"
                     on:click={() => walletToDelete = { id: wallet.id, name: wallet.name, kind: wallet.kind, data: wallet.data }}
                   >
@@ -1785,40 +1829,67 @@
             <!-- NWC wallet options -->
             {#if wallet.kind === 3 && expandedWalletId === wallet.id}
               <div class="px-4 pb-4 pt-2 border-t" style="border-color: var(--color-input-border);">
-                <div class="text-xs text-caption mb-3 uppercase tracking-wide">Wallet Options</div>
-                <div class="flex flex-wrap gap-2">
+                <!-- Connection -->
+                <div class="text-xs text-caption mb-2 uppercase tracking-wide">Connection</div>
+                <div class="grid grid-cols-2 gap-2 mb-4">
                   <button
-                    class="flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer"
+                    class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer"
                     style="background-color: var(--color-bg-primary); border: 1px solid var(--color-input-border);"
                     on:click={() => handleViewNwcInfo(wallet)}
                     disabled={isLoadingNwcInfo}
                   >
                     <InfoIcon size={16} />
-                    {isLoadingNwcInfo ? 'Loading...' : 'Wallet Info'}
+                    <span class="truncate">{isLoadingNwcInfo ? 'Loading...' : 'Wallet Info'}</span>
                   </button>
                   <button
-                    class="flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer"
+                    class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer"
                     style="background-color: var(--color-bg-primary); border: 1px solid var(--color-input-border);"
                     on:click={() => handleCopyNwcConnection(wallet)}
                   >
                     <CopyIcon size={16} />
-                    Copy Connection
+                    <span class="truncate">Copy Connection</span>
+                  </button>
+                </div>
+
+                <!-- Backup & Recovery -->
+                <div class="text-xs text-caption mb-2 uppercase tracking-wide">Backup & Recovery</div>
+                <div class="grid grid-cols-2 gap-2">
+                  <button
+                    class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors"
+                    class:cursor-pointer={encryptionSupported}
+                    class:cursor-not-allowed={!encryptionSupported}
+                    class:opacity-50={!encryptionSupported}
+                    style="background-color: var(--color-bg-primary); border: 1px solid var(--color-input-border);"
+                    on:click={() => handleNwcBackupToNostr(wallet)}
+                    disabled={isBackingUp || !encryptionSupported}
+                    title={!encryptionSupported ? 'Your signer extension does not support encryption' : ''}
+                  >
+                    <CloudArrowUpIcon size={16} />
+                    <span class="truncate">{isBackingUp ? 'Backing up...' : 'Backup to Nostr'}</span>
                   </button>
                   <button
-                    class="flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer"
+                    class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer"
                     style="background-color: var(--color-bg-primary); border: 1px solid var(--color-input-border);"
                     on:click={() => handleDownloadNwcBackup(wallet)}
                   >
                     <DownloadSimpleIcon size={16} />
-                    Download Backup
+                    <span class="truncate">Download</span>
                   </button>
                   <button
-                    class="flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer text-red-500 hover:bg-red-500/10"
+                    class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer"
+                    style="background-color: var(--color-bg-primary); border: 1px solid var(--color-input-border);"
+                    on:click={() => { checkRelayBackupsWalletType = 'nwc'; showCheckRelayBackupsModal = true; }}
+                  >
+                    <CloudCheckIcon size={16} />
+                    <span class="truncate">Check Backups</span>
+                  </button>
+                  <button
+                    class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer text-red-500 hover:bg-red-500/10"
                     style="background-color: var(--color-bg-primary); border: 1px solid var(--color-input-border);"
                     on:click={() => walletToDelete = { id: wallet.id, name: wallet.name, kind: wallet.kind, data: wallet.data }}
                   >
                     <TrashIcon size={16} />
-                    Delete Wallet
+                    <span class="truncate">Delete Wallet</span>
                   </button>
                 </div>
 
@@ -2221,7 +2292,7 @@
           <!-- NWC connection -->
           <div>
             <p class="text-caption mb-4">
-              Paste your NWC connection string below. You can get this from your wallet app.
+              Paste your NWC connection string below, or restore from a previous backup.
             </p>
             <input
               type="text"
@@ -2236,9 +2307,12 @@
               }}
             />
             <div class="flex gap-2">
-              <Button on:click={() => { selectedWalletType = null; nwcConnectionString = ''; }} disabled={isConnecting}>Back</Button>
-              <Button on:click={handleConnectNWC} disabled={isConnecting}>
+              <Button on:click={handleConnectNWC} disabled={isConnecting || !nwcConnectionString} class="flex-1">
                 {isConnecting ? 'Connecting...' : 'Connect NWC'}
+              </Button>
+              <Button on:click={handleRestoreNwcFromNostr} disabled={isConnecting} class="flex-1">
+                <CloudArrowDownIcon size={16} />
+                Restore from Nostr
               </Button>
             </div>
           </div>
@@ -2920,4 +2994,4 @@
 <WalletRecoveryHelpModal bind:open={showRecoveryHelpModal} />
 
 <!-- Check Relay Backups Modal -->
-<CheckRelayBackupsModal bind:open={showCheckRelayBackupsModal} pubkey={$userPublickey} />
+<CheckRelayBackupsModal bind:open={showCheckRelayBackupsModal} pubkey={$userPublickey} walletType={checkRelayBackupsWalletType} />
