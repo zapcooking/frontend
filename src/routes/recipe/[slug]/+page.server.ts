@@ -2,6 +2,11 @@ import type { PageServerLoad } from './$types';
 import { nip19 } from 'nostr-tools';
 import { redirect } from '@sveltejs/kit';
 
+// Disable SSR and prerendering for this route - data is loaded client-side
+// This prevents SvelteKit from trying to fetch __data.json in static builds (Capacitor)
+export const ssr = false;
+export const prerender = false;
+
 // Tracking parameters to strip
 const TRACKING_PARAMS = [
 	'fbclid', 'gclid', 'msclkid',
@@ -142,6 +147,9 @@ export const load: PageServerLoad = async ({ params, url }) => {
 	if (hasTrackingParams) {
 		throw redirect(301, `/recipe/${slug}`);
 	}
+
+	// Note: With ssr = false, this function should only run during build
+	// At runtime in static builds, SvelteKit will use the client-side load function
 
 	if (!slug?.startsWith('naddr1')) {
 		return { ogMeta: null };

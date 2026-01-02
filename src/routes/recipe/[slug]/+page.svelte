@@ -8,7 +8,8 @@
   import Recipe from '../../../components/Recipe/Recipe.svelte';
   import type { PageData } from './$types';
 
-  export let data: PageData;
+  // Make data optional for static builds (Capacitor)
+  export let data: PageData = { ogMeta: null } as PageData;
 
   let event: NDKEvent | null = null;
   let naddr: string = '';

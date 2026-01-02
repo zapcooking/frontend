@@ -9,7 +9,12 @@ const adapter = process.env.ADAPTER === 'static'
       assets: 'build',
       fallback: 'index.html',
       precompress: false,
-      strict: true
+      strict: true,
+      // Don't try to prerender dynamic routes - they'll be handled client-side
+      prerender: {
+        entries: [],
+        handleHttpError: 'warn'
+      }
     })
   : adapterCloudflare();
 

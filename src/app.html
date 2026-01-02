@@ -2,6 +2,49 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
+    
+    <!-- Override fetch BEFORE anything else loads to intercept __data.json requests in static builds -->
+    <script>
+      (function() {
+        // Check if this is a static/Capacitor build (localhost or capacitor protocol)
+        var isStaticBuild = window.location.hostname === 'localhost' || 
+                           window.location.hostname === '127.0.0.1' ||
+                           window.location.protocol === 'file:' ||
+                           window.location.protocol === 'capacitor:';
+        
+        if (!isStaticBuild) return;
+        
+        console.log('[app.html] Setting up early fetch interceptor for static build');
+        
+        var originalFetch = window.fetch;
+        window.fetch = function(input, init) {
+          var url = typeof input === 'string' ? input : (input.url || input.toString());
+          
+          // Intercept __data.json requests
+          if (url.indexOf('__data.json') !== -1) {
+            console.log('[app.html] Intercepting __data.json:', url);
+            
+            // Return mock SvelteKit data response
+            var mockData = {
+              type: 'data',
+              nodes: [
+                null,
+                { type: 'data', data: [{ ogMeta: 1 }, null], uses: {} }
+              ]
+            };
+            
+            return Promise.resolve(new Response(JSON.stringify(mockData), {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' }
+            }));
+          }
+          
+          // For all other requests, use original fetch
+          return originalFetch.apply(window, arguments);
+        };
+      })();
+    </script>
+    
     <link rel="icon" href="%sveltekit.assets%/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     
