@@ -486,7 +486,9 @@
     isLoadingHistory = true;
     try {
       const offset = reset ? 0 : transactions.length;
-      const result = await getPaymentHistory({ limit: TRANSACTIONS_PER_PAGE, offset });
+      // Initial load: 30 days. Load more: all history (daysBack: 0)
+      const daysBack = reset ? 30 : 0;
+      const result = await getPaymentHistory({ limit: TRANSACTIONS_PER_PAGE, offset, daysBack });
 
       if (reset) {
         transactions = result.transactions;
