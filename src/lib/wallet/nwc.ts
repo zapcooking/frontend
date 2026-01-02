@@ -191,21 +191,18 @@ export async function connectNwc(connectionUrl: string): Promise<boolean> {
 
 async function waitForRelayConnection(relay: NDKRelay, timeoutMs: number): Promise<void> {
 	return new Promise<void>((resolve, reject) => {
+		// Check if already connected before setting up listeners
+		if (relay.status === 1) {
+			resolve()
+			return
+		}
+
+		let connectTimeout: ReturnType<typeof setTimeout>
+
 		const cleanup = () => {
 			clearTimeout(connectTimeout)
 			relay.off('connect', onConnect)
 			relay.off('disconnect', onDisconnect)
-		}
-
-		const connectTimeout = setTimeout(() => {
-			cleanup()
-			reject(new Error('Relay connection timeout'))
-		}, timeoutMs)
-
-		if (relay.status === 1) {
-			cleanup()
-			resolve()
-			return
 		}
 
 		const onConnect = () => {
@@ -218,6 +215,11 @@ async function waitForRelayConnection(relay: NDKRelay, timeoutMs: number): Promi
 			cleanup()
 			reject(new Error('Relay disconnected before connection established'))
 		}
+
+		connectTimeout = setTimeout(() => {
+			cleanup()
+			reject(new Error('Relay connection timeout'))
+		}, timeoutMs)
 
 		relay.on('connect', onConnect)
 		relay.on('disconnect', onDisconnect)
