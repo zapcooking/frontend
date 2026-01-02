@@ -30,6 +30,7 @@ import {
 	createNwcInvoice,
 	lookupNwcInvoice,
 	isNwcConnected,
+	isNwcConnectedTo,
 	getNwcDisplayName,
 	getNwcInfo,
 	listNwcTransactions,
@@ -174,9 +175,11 @@ async function ensureWalletConnected(wallet: Wallet): Promise<boolean> {
 				return true
 
 			case 3: // NWC
-				// Always call connectNwc to ensure we're connected to the correct wallet
-				// (connectNwc handles the case where we're already connected to the same wallet)
+				// Check if already connected to the correct wallet to avoid reconnection attempts
 				if (wallet.data) {
+					if (isNwcConnectedTo(wallet.data)) {
+						return true
+					}
 					await connectNwc(wallet.data)
 					return true
 				}
