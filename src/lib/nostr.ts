@@ -77,6 +77,7 @@ if (browser) {
   // Suppress expected WebSocket connection errors from NDK during initial connection
   // These are normal when relays are down and are handled by the connection manager
   const originalError = console.error;
+  const originalLog = console.log;
   let errorSuppressionActive = true;
   
   console.error = (...args: any[]) => {
@@ -90,16 +91,31 @@ if (browser) {
     originalError.apply(console, args);
   };
 
+  // Suppress verbose NDK subscription management logs
+  console.log = (...args: any[]) => {
+    const message = args.join(' ');
+    // Filter out NDK's internal subscription removal logs
+    if (message.includes('removing a subscription') || 
+        message.includes('removing subscription')) {
+      // Silently ignore - these are NDK's internal subscription management logs
+      return;
+    }
+    // Log all other messages normally
+    originalLog.apply(console, args);
+  };
+
   connectWithRetry(Ndk).catch(error => {
     console.error('🚨 Failed to establish NDK connection:', error);
     ndkReadyResolve(); // Resolve anyway so components don't hang
   }).finally(() => {
-    // Restore original console.error after initial connection attempt
+    // Restore original console methods after initial connection attempt
     // Keep suppression active for a short time to handle initial relay connections
     setTimeout(() => {
       errorSuppressionActive = false;
       console.error = originalError;
-    }, 3000); // Restore after 3 seconds to allow initial connections to complete
+      // Keep console.log filter active permanently to suppress subscription logs
+      // console.log remains filtered
+    }, 3000); // Restore console.error after 3 seconds to allow initial connections to complete
   });
 } else {
   // Server-side: resolve immediately (no NDK operations on server)

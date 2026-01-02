@@ -298,6 +298,22 @@
 </svelte:head>
 
 <div class="max-w-2xl mx-auto px-4">
+  <!-- Back to Community Button - Top Left -->
+  {#if !loading}
+    <div class="py-4 mb-2">
+      <button 
+        on:click={() => goto('/community')}
+        class="flex items-center gap-2 px-3 py-2 rounded-lg transition-colors text-sm hover:opacity-80"
+        style="background-color: var(--color-bg-secondary); color: var(--color-text-secondary); border: 1px solid var(--color-input-border)"
+      >
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+        </svg>
+        Back to Community
+      </button>
+    </div>
+  {/if}
+  
   {#if loading}
     <div class="py-12 text-center">
       <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
@@ -313,12 +329,6 @@
           <p class="text-lg font-medium">Note not found</p>
           <p class="text-sm">The referenced note could not be loaded.</p>
         </div>
-        <button 
-          on:click={() => goto('/community')}
-          class="px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors"
-        >
-          Back to Community
-        </button>
       </div>
     </div>
   {:else if event}
@@ -564,17 +574,6 @@
           {/each}
         </div>
       {/if}
-    </div>
-
-    <!-- Back to Community -->
-    <div class="py-6 text-center mt-6" style="border-top: 1px solid var(--color-input-border)">
-      <button 
-        on:click={() => goto('/community')}
-        class="px-4 py-2 rounded-lg transition-colors text-sm"
-        style="background-color: var(--color-bg-secondary); color: var(--color-text-secondary)"
-      >
-        ← Back to Community
-      </button>
     </div>
   {/if}
 </div>

@@ -26,28 +26,36 @@
   let eventId = '';
   let naddrData: { identifier: string; pubkey: string; kind: number } | null = null;
   let fetchedBoostAmount = 0; // Fetched from zap receipts if not provided
+  let boostFetchDone = false; // Prevent multiple boost fetches
 
   let subscription: any = null;
   let fetching = false;
+  let previousNostrString = ''; // Track previous value to detect actual changes
+  let isContentExpanded = true; // Default to expanded for kind 1 notes
+  let contentLines: number = 0; // Track estimated line count
 
-  // Extract event ID from nostr string (nevent) or naddr data
-  $: {
-    // Reset state when nostrString changes
-    event = null;
-    eventId = '';
-    naddrData = null;
-    error = false;
-    loading = true;
-    fetching = false;
-    
+  // Extract event ID from nostr string (nevent) or naddr data - only when nostrString actually changes
+  function parseNostrString(nostrStr: string) {
     // Clean up previous subscription
     if (subscription) {
       subscription.stop();
       subscription = null;
     }
     
+    // Reset state
+    event = null;
+    eventId = '';
+    naddrData = null;
+    error = false;
+    loading = true;
+    fetching = false;
+    fetchedBoostAmount = 0;
+    boostFetchDone = false;
+    isContentExpanded = true; // Default to expanded for kind 1 notes
+    contentLines = 0;
+    
     try {
-      const cleanString = nostrString.replace(/^nostr:/, '');
+      const cleanString = nostrStr.replace(/^nostr:/, '');
       if (cleanString.startsWith('nevent1')) {
         const decoded = nip19.decode(cleanString);
         if (decoded.type === 'nevent') {
@@ -75,6 +83,12 @@
       eventId = '';
       naddrData = null;
     }
+  }
+
+  // Only re-parse when nostrString actually changes
+  $: if (nostrString !== previousNostrString) {
+    previousNostrString = nostrString;
+    parseNostrString(nostrString);
   }
 
   // Fetch event when eventId or naddrData changes and we're in browser
@@ -112,7 +126,7 @@
           event = receivedEvent;
           loading = false;
           fetching = false;
-          fetchBoostAmount();
+          // Don't fetch boost here - wait for eose to avoid double fetch
         }
       });
 
@@ -126,7 +140,7 @@
             error = true;
           }
           loading = false;
-          // Fetch boost amount after event is loaded
+          // Fetch boost amount only once after event is loaded
           if (event) {
             fetchBoostAmount();
           }
@@ -201,12 +215,12 @@
       }
     }
 
-    // Check description tag (Fountain might use this)
+    // Check description tag for structured amount data only (not text patterns)
     const descTag = boostEvent.tags.find((tag) => tag[0] === 'description');
     if (descTag?.[1]) {
       try {
         const descData = JSON.parse(descTag[1]);
-        // Look for amount in parsed description
+        // Look for amount in parsed JSON description only
         if (descData.amount) {
           const amount = parseInt(descData.amount, 10);
           if (!isNaN(amount) && amount > 0) {
@@ -214,32 +228,22 @@
           }
         }
       } catch {
-        // Not JSON, check for sats pattern in description
-        const satsMatch = descTag[1].match(/(\d[\d,]*)\s*sats?/i);
-        if (satsMatch) {
-          const amount = parseInt(satsMatch[1].replace(/,/g, ''), 10);
-          if (!isNaN(amount) && amount > 0) {
-            return amount;
-          }
-        }
+        // Not JSON - don't try to extract from text content
+        // to avoid duplicating amounts already shown in note content
       }
     }
 
-    // Check content for sats amount (Fountain format: "X sats" or "boosted X sats")
-    const content = boostEvent.content || '';
-    const satsMatch = content.match(/(\d[\d,]*)\s*sats?/i);
-    if (satsMatch) {
-      const amount = parseInt(satsMatch[1].replace(/,/g, ''), 10);
-      if (!isNaN(amount) && amount > 0) {
-        return amount;
-      }
-    }
-
+    // Don't extract from content text - it causes duplication when
+    // the note content itself mentions sats amounts
     return 0;
   }
 
   // Fetch zaps for this event to get boost amount
   async function fetchBoostAmount() {
+    // Prevent duplicate fetches
+    if (boostFetchDone) return;
+    boostFetchDone = true;
+    
     const idToUse = event?.id || eventId;
     if (!idToUse || !$ndk || boostAmount > 0) return;
 
@@ -387,6 +391,21 @@
       (target as any).style.display = 'none';
     }
   }
+
+  // Estimate line count for content (rough approximation)
+  function estimateLineCount(content: string, containerWidth: number = 400): number {
+    if (!content) return 0;
+    // Rough estimation: ~50-70 characters per line depending on font size
+    // Using 60 as average for text-sm (14px font)
+    const charsPerLine = 60;
+    const lines = Math.ceil(content.length / charsPerLine);
+    return lines;
+  }
+
+  // Toggle expanded state
+  function toggleExpanded() {
+    isContentExpanded = !isContentExpanded;
+  }
 </script>
 
 {#if loading}
@@ -449,8 +468,27 @@
 
         <!-- Content Preview (only if there's content and not too deeply nested) -->
         {#if getContentWithoutMedia(event.content).trim() && depth < MAX_EMBED_DEPTH}
+          {@const cleanContent = getContentWithoutMedia(event.content).trim()}
+          {@const isKind1 = event.kind === 1}
+          {@const estimatedLines = isKind1 ? estimateLineCount(cleanContent) : 0}
+          {@const needsReadMore = isKind1 && estimatedLines > 6}
+          {@const shouldClamp = needsReadMore && !isContentExpanded}
+          
           <div class="text-sm leading-relaxed mb-3" style="color: var(--color-text-primary)">
-            <NoteContent content={getContentWithoutMedia(event.content)} showLinkPreviews={false} embedDepth={depth + 1} />
+            <div
+              class="overflow-hidden transition-all duration-200"
+              class:line-clamp-6={shouldClamp}
+            >
+              <NoteContent content={cleanContent} showLinkPreviews={false} embedDepth={depth + 1} />
+            </div>
+            {#if needsReadMore}
+              <button
+                on:click|stopPropagation={toggleExpanded}
+                class="text-caption hover:opacity-80 text-xs mt-1 transition-colors"
+              >
+                {isContentExpanded ? 'Show less' : 'Read more'}
+              </button>
+            {/if}
           </div>
         {:else if getContentWithoutMedia(event.content).trim()}
           <div class="text-sm leading-relaxed mb-3 text-caption italic">
@@ -507,6 +545,14 @@
 <style>
   .note-embed-card:hover {
     background-color: var(--color-input-bg) !important;
+  }
+
+  .line-clamp-6 {
+    display: -webkit-box;
+    -webkit-line-clamp: 6;
+    line-clamp: 6;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
   }
 </style>
 
