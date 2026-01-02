@@ -24,6 +24,9 @@ let nwcWalletPubkey: string | null = null
 let currentConnectionUrl: string | null = null
 let pendingBalanceRequest: Promise<number> | null = null
 
+// Connection mutex to prevent concurrent connection attempts (Safari iOS fix)
+let connectionInProgress: Promise<boolean> | null = null
+
 /**
  * Parse NWC connection URL
  * Format: nostr+walletconnect://pubkey?relay=wss://...&secret=...&lud16=user@domain.com
@@ -126,71 +129,97 @@ export async function connectNwc(connectionUrl: string): Promise<boolean> {
 	// Ensure NDK is ready before connecting
 	await ndkReady
 
-	// Already connected to this URL
-	if (currentConnectionUrl === connectionUrl && isNwcConnected() && nwcRelay?.status === 1) {
+	// Already connected to this URL (INLINED to avoid TDZ - isNwcConnectedTo is defined later)
+	if (currentConnectionUrl === connectionUrl && nwcSecret !== null && nwcWalletPubkey !== null && nwcRelay?.status === 1) {
 		return true
 	}
 
-	try {
-		const parsed = parseNwcUrl(connectionUrl)
-		if (!parsed) {
-			throw new Error('Invalid NWC connection URL')
-		}
+	// If a connection is already in progress, wait for it
+	// This prevents "WebSocket is closed before connection established" on Safari iOS
+	if (connectionInProgress) {
+		console.log('[NWC] Connection already in progress, waiting...')
+		return connectionInProgress
+	}
 
-		// Store connection details
-		nwcSecret = parsed.secret
-		nwcWalletPubkey = parsed.pubkey
-		currentConnectionUrl = connectionUrl
-
-		let relayUrl = parsed.relay
-		if (!relayUrl.endsWith('/')) relayUrl = relayUrl + '/'
-
-		const { NDKRelay } = await import('@nostr-dev-kit/ndk')
-		const ndkInstance = getNdk()
-
-		// Remove any existing relay with this URL from pool
-		for (const relay of ndkInstance.pool.relays.values()) {
-			if (relay.url === relayUrl) {
-				try { relay.disconnect() } catch {}
-				ndkInstance.pool.removeRelay(relayUrl)
-				await new Promise((r) => setTimeout(r, 100))
-				break
+	// Start the connection with mutex
+	connectionInProgress = (async () => {
+		try {
+			const parsed = parseNwcUrl(connectionUrl)
+			if (!parsed) {
+				throw new Error('Invalid NWC connection URL')
 			}
-		}
 
-		// Create independent relay connection (not in pool)
-		nwcRelay = new NDKRelay(relayUrl, undefined, ndkInstance)
-		await waitForRelayConnection(nwcRelay, 15000)
-		return true
-	} catch (e) {
-		console.error('[NWC] Connection failed:', e)
-		nwcRelay = null
-		nwcSecret = null
-		nwcWalletPubkey = null
-		currentConnectionUrl = null
-		throw e
-	}
+			// Store connection details
+			nwcSecret = parsed.secret
+			nwcWalletPubkey = parsed.pubkey
+			currentConnectionUrl = connectionUrl
+
+			let relayUrl = parsed.relay
+			if (!relayUrl.endsWith('/')) relayUrl = relayUrl + '/'
+
+			const { NDKRelay } = await import('@nostr-dev-kit/ndk')
+			const ndkInstance = getNdk()
+
+			// Remove any existing relay with this URL from pool
+			for (const relay of ndkInstance.pool.relays.values()) {
+				if (relay.url === relayUrl) {
+					try { relay.disconnect() } catch {}
+					ndkInstance.pool.removeRelay(relayUrl)
+					await new Promise((r) => setTimeout(r, 100))
+					break
+				}
+			}
+
+			// Create independent relay connection (not in pool)
+			nwcRelay = new NDKRelay(relayUrl, undefined, ndkInstance)
+			await waitForRelayConnection(nwcRelay, 15000)
+			return true
+		} catch (e) {
+			console.error('[NWC] Connection failed:', e)
+			nwcRelay = null
+			nwcSecret = null
+			nwcWalletPubkey = null
+			currentConnectionUrl = null
+			throw e
+		} finally {
+			connectionInProgress = null
+		}
+	})()
+
+	return connectionInProgress
 }
 
 async function waitForRelayConnection(relay: NDKRelay, timeoutMs: number): Promise<void> {
 	return new Promise<void>((resolve, reject) => {
-		const connectTimeout = setTimeout(() => {
-			reject(new Error('Relay connection timeout'))
-		}, timeoutMs)
-
+		// Check if already connected before setting up listeners
 		if (relay.status === 1) {
-			clearTimeout(connectTimeout)
 			resolve()
 			return
 		}
 
-		const onConnect = () => {
+		let connectTimeout: ReturnType<typeof setTimeout>
+
+		const cleanup = () => {
 			clearTimeout(connectTimeout)
 			relay.off('connect', onConnect)
 			relay.off('disconnect', onDisconnect)
+		}
+
+		const onConnect = () => {
+			cleanup()
 			resolve()
 		}
-		const onDisconnect = () => {}
+
+		const onDisconnect = () => {
+			// Safari iOS can disconnect before connection is established
+			cleanup()
+			reject(new Error('Relay disconnected before connection established'))
+		}
+
+		connectTimeout = setTimeout(() => {
+			cleanup()
+			reject(new Error('Relay connection timeout'))
+		}, timeoutMs)
 
 		relay.on('connect', onConnect)
 		relay.on('disconnect', onDisconnect)
@@ -215,7 +244,15 @@ export async function disconnectNwc(): Promise<void> {
  * Check if NWC is connected
  */
 export function isNwcConnected(): boolean {
-	return nwcSecret !== null && nwcWalletPubkey !== null
+	return nwcSecret !== null && nwcWalletPubkey !== null && nwcRelay?.status === 1
+}
+
+/**
+ * Check if NWC is connected to a specific wallet URL
+ * NOTE: Inlined to avoid TDZ bundler errors - do not call isNwcConnected() here
+ */
+export function isNwcConnectedTo(connectionUrl: string): boolean {
+	return currentConnectionUrl === connectionUrl && nwcSecret !== null && nwcWalletPubkey !== null && nwcRelay?.status === 1
 }
 
 /**
