@@ -486,7 +486,9 @@
     isLoadingHistory = true;
     try {
       const offset = reset ? 0 : transactions.length;
-      const result = await getPaymentHistory({ limit: TRANSACTIONS_PER_PAGE, offset });
+      // Initial load: 30 days. Load more: all history (daysBack: 0)
+      const daysBack = reset ? 30 : 0;
+      const result = await getPaymentHistory({ limit: TRANSACTIONS_PER_PAGE, offset, daysBack });
 
       if (reset) {
         transactions = result.transactions;
@@ -1208,10 +1210,12 @@
 
     try {
       const connectionString = await restoreNwcFromNostr($userPublickey);
+
       if (connectionString) {
         // Use the restored connection string to connect
         nwcConnectionString = connectionString;
         const result = await connectWallet(3, connectionString);
+
         if (result.success) {
           successMessage = 'NWC wallet restored from Nostr backup!';
           showAddWallet = false;
@@ -1224,6 +1228,7 @@
         errorMessage = 'No NWC backup found on Nostr relays.';
       }
     } catch (e) {
+      console.error('[NWC] Restore error:', e);
       errorMessage = getSignerErrorMessage(e, 'Failed to restore from Nostr');
     } finally {
       isConnecting = false;
@@ -1526,8 +1531,8 @@
     </div>
 
     {#if $wallets.length === 0}
-      <div class="p-8 rounded-2xl text-center" style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);">
-        <WalletIcon size={48} class="mx-auto mb-4 text-caption" />
+      <div class="p-8 rounded-2xl text-center flex flex-col items-center" style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);">
+        <WalletIcon size={48} class="mb-4 text-caption" />
         <p class="text-caption mb-4">No wallets connected yet</p>
         <Button on:click={() => { showAddWallet = true; selectedWalletType = null; }}>
           Connect Your First Wallet
