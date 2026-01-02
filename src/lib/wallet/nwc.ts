@@ -247,9 +247,10 @@ export function isNwcConnected(): boolean {
 
 /**
  * Check if NWC is connected to a specific wallet URL
+ * NOTE: Inlined to avoid TDZ bundler errors - do not call isNwcConnected() here
  */
 export function isNwcConnectedTo(connectionUrl: string): boolean {
-	return currentConnectionUrl === connectionUrl && isNwcConnected()
+	return currentConnectionUrl === connectionUrl && nwcSecret !== null && nwcWalletPubkey !== null && nwcRelay?.status === 1
 }
 
 /**
