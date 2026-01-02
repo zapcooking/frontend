@@ -903,6 +903,47 @@ Before any wallet changes, verify:
 - [ ] Wallet deletion works with confirmation
 - [ ] Restore order: Nostr Backup → Backup File → Recovery Phrase
 
+## Known Issues (Under Investigation)
+
+### Spark Wallet - Stale Transaction History (Intermittent)
+**Status**: Unresolved - low priority
+**Symptom**: Breez/Spark wallet occasionally shows stale transaction data in history.
+**Location**: Transaction merging in `walletManager.ts:680-737`
+**Notes**: Could be IndexedDB caching, `recentSparkPayments` store, or dedup/ordering issue.
+
+### NWC Wallet - Restore from Nostr Not Working
+**Status**: Under investigation
+**Symptom**: NWC restore from Nostr relays doesn't connect properly.
+**Debug**: Console logging added to `nwcBackup.ts` restore flow.
+
+---
+
+## TDZ (Temporal Dead Zone) Prevention - CRITICAL
+
+JavaScript bundlers convert `export function foo()` to `const foo = () => {}` which are NOT hoisted. Functions must be defined BEFORE they are called in file order.
+
+**Pattern to Avoid**:
+```typescript
+// BAD - causes "Cannot access uninitialized variable" error
+export async function connectNwc() {
+  if (isNwcConnectedTo(url)) { ... }  // Called before defined!
+}
+export function isNwcConnectedTo() { ... }  // Defined after use
+```
+
+**Safe Pattern**:
+```typescript
+// GOOD - inline the check
+export async function connectNwc() {
+  // Inline check instead of calling function defined later
+  if (currentUrl === url && secret !== null && relay?.status === 1) { ... }
+}
+```
+
+This affected the Safari iOS NWC fixes in `nwc.ts`.
+
+---
+
 ## Common Issues
 
 ### "Relay connection timeout"

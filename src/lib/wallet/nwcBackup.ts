@@ -127,7 +127,12 @@ export async function backupNwcToNostr(pubkey: string, nwcConnectionString: stri
 export async function restoreNwcFromNostr(pubkey: string): Promise<string | null> {
 	if (!browser) return null
 
+	console.log('[NWC Restore] Starting restore for pubkey:', pubkey.slice(0, 8) + '...')
+
 	const nostr = getNostrExtension()
+	console.log('[NWC Restore] Nostr extension found:', !!nostr)
+	console.log('[NWC Restore] NIP-44 decrypt available:', !!nostr.nip44?.decrypt)
+	console.log('[NWC Restore] NIP-04 decrypt available:', !!nostr.nip04?.decrypt)
 
 	// Check that we have at least one decryption method available
 	if (!nostr.nip44?.decrypt && !nostr.nip04?.decrypt) {
@@ -138,10 +143,10 @@ export async function restoreNwcFromNostr(pubkey: string): Promise<string | null
 	const { ndk, ndkReady } = await import('$lib/nostr')
 	const { get } = await import('svelte/store')
 
+	console.log('[NWC Restore] Waiting for NDK ready...')
 	await ndkReady
 	const ndkInstance = get(ndk)
-
-	console.log('[NWC Backup] Searching for Nostr backup...')
+	console.log('[NWC Restore] NDK ready, connected relays:', ndkInstance.pool?.relays?.size || 0)
 
 	// Query for the backup event
 	const filter = {
@@ -149,12 +154,15 @@ export async function restoreNwcFromNostr(pubkey: string): Promise<string | null
 		authors: [pubkey],
 		'#d': [NWC_BACKUP_D_TAG]
 	}
+	console.log('[NWC Restore] Fetching with filter:', JSON.stringify(filter))
 
 	// Fetch with timeout
+	const fetchStart = Date.now()
 	const events = await ndkInstance.fetchEvents(filter, { closeOnEose: true })
+	console.log('[NWC Restore] Fetch completed in', Date.now() - fetchStart, 'ms, found', events?.size || 0, 'events')
 
 	if (!events || events.size === 0) {
-		console.log('[NWC Backup] No backup found on Nostr relays')
+		console.log('[NWC Restore] No backup found on Nostr relays')
 		return null
 	}
 
@@ -166,8 +174,15 @@ export async function restoreNwcFromNostr(pubkey: string): Promise<string | null
 		}
 	}
 
+	console.log('[NWC Restore] Latest event:', {
+		id: latestEvent?.id?.slice(0, 8),
+		created_at: latestEvent?.created_at,
+		contentLength: latestEvent?.content?.length,
+		tags: latestEvent?.tags
+	})
+
 	if (!latestEvent || !latestEvent.content) {
-		console.warn('[NWC Backup] Backup event found but has no content')
+		console.warn('[NWC Restore] Backup event found but has no content')
 		return null
 	}
 
@@ -181,7 +196,7 @@ export async function restoreNwcFromNostr(pubkey: string): Promise<string | null
 	} else {
 		encryptionMethod = 'nip44'
 	}
-	console.log('[NWC Backup] Found backup, decrypting with', encryptionMethod, '...')
+	console.log('[NWC Restore] Encryption method:', encryptionMethod)
 
 	// Helper to add timeout to decrypt operations
 	const withTimeout = <T>(promise: Promise<T>, ms: number, message: string): Promise<T> => {
@@ -194,6 +209,9 @@ export async function restoreNwcFromNostr(pubkey: string): Promise<string | null
 	// Decrypt the connection string
 	let connectionString: string
 	const DECRYPT_TIMEOUT = 15000
+
+	console.log('[NWC Restore] Starting decryption with', encryptionMethod, '...')
+	const decryptStart = Date.now()
 
 	if (encryptionMethod === 'nip04') {
 		if (!nostr.nip04?.decrypt) {
@@ -215,16 +233,23 @@ export async function restoreNwcFromNostr(pubkey: string): Promise<string | null
 		)
 	}
 
+	console.log('[NWC Restore] Decryption completed in', Date.now() - decryptStart, 'ms')
+	console.log('[NWC Restore] Decrypted string length:', connectionString?.length)
+
 	if (!connectionString) {
 		throw new Error('Failed to decrypt backup. Make sure you are using the same Nostr key.')
 	}
 
 	// Validate it looks like an NWC connection string
-	if (!connectionString.includes('nostr+walletconnect') && !connectionString.includes('nostrwalletconnect')) {
+	const isValidNwc = connectionString.includes('nostr+walletconnect') || connectionString.includes('nostrwalletconnect')
+	console.log('[NWC Restore] Is valid NWC URL:', isValidNwc)
+
+	if (!isValidNwc) {
+		console.error('[NWC Restore] Invalid content preview:', connectionString.slice(0, 50))
 		throw new Error('Decrypted data does not appear to be a valid NWC connection string.')
 	}
 
-	console.log('[NWC Backup] Successfully restored NWC connection from Nostr backup')
+	console.log('[NWC Restore] Successfully restored NWC connection from Nostr backup')
 	return connectionString
 }
 

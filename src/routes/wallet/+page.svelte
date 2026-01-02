@@ -1205,25 +1205,35 @@
   async function handleRestoreNwcFromNostr() {
     isConnecting = true;
     errorMessage = '';
+    console.log('[Wallet Page] Starting NWC restore from Nostr...');
 
     try {
       const connectionString = await restoreNwcFromNostr($userPublickey);
+      console.log('[Wallet Page] restoreNwcFromNostr returned:', connectionString ? 'connection string (' + connectionString.length + ' chars)' : 'null');
+
       if (connectionString) {
         // Use the restored connection string to connect
         nwcConnectionString = connectionString;
+        console.log('[Wallet Page] Calling connectWallet(3, connectionString)...');
         const result = await connectWallet(3, connectionString);
+        console.log('[Wallet Page] connectWallet result:', result);
+
         if (result.success) {
           successMessage = 'NWC wallet restored from Nostr backup!';
           showAddWallet = false;
           selectedWalletType = null;
           nwcConnectionString = '';
+          console.log('[Wallet Page] NWC restore complete, wallet connected');
         } else {
           errorMessage = result.error || 'Failed to connect restored NWC wallet';
+          console.error('[Wallet Page] connectWallet failed:', result.error);
         }
       } else {
         errorMessage = 'No NWC backup found on Nostr relays.';
+        console.log('[Wallet Page] No backup found');
       }
     } catch (e) {
+      console.error('[Wallet Page] NWC restore error:', e);
       errorMessage = getSignerErrorMessage(e, 'Failed to restore from Nostr');
     } finally {
       isConnecting = false;
