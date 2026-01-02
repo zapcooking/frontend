@@ -552,7 +552,8 @@ export async function listPayments(offset = 0, limit = 100, daysBack = 30): Prom
 		const request: { offset: number; limit: number; fromTimestamp?: number } = { offset, limit }
 
 		// Add time filter to avoid loading stale/old transaction data
-		if (daysBack > 0) {
+		// TODO: Re-enable once we verify SDK supports fromTimestamp correctly
+		if (daysBack > 0 && false) { // DISABLED - was causing empty results
 			request.fromTimestamp = Math.floor(Date.now() / 1000) - (daysBack * 24 * 60 * 60)
 		}
 

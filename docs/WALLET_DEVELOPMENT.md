@@ -905,25 +905,26 @@ Before any wallet changes, verify:
 
 ## Known Issues
 
-### Spark Wallet - Stale Transaction History (FIXED)
-**Status**: Fixed
-**Symptom**: Breez/Spark wallet occasionally showed stale/old transaction data in history on initial load.
-**Root Cause**: The SDK's `listPayments()` was returning all historical transactions from IndexedDB storage without a time filter, causing old cached data to appear.
-**Fix**: Added `fromTimestamp` filter to `listPayments()` in `spark/index.ts`:
-- Initial load uses `daysBack: 30` (last 30 days only)
-- "Load More" uses `daysBack: 0` (fetches all history)
-- New `daysBack` parameter added to `getPaymentHistory()` in `walletManager.ts`
+### Spark Wallet - Stale Transaction History (Intermittent)
+**Status**: Under investigation - deferred to future build
+**Symptom**: Breez/Spark wallet occasionally shows stale/old transaction data in history on initial load.
+**Potential Cause**: The SDK's `listPayments()` returns all historical transactions from IndexedDB storage.
+
+**Attempted Fix (disabled)**: Added `fromTimestamp` filter to limit history to recent transactions.
+- The SDK supports `fromTimestamp` in `ListPaymentsRequest`
+- However, enabling this caused transactions to not appear until sync completed (~1 minute delay)
+- Filter code exists but is disabled pending further investigation
+
+**Future Work**:
+1. Investigate SDK sync timing - transactions take 1+ minute to appear after restore
+2. Consider client-side filtering after fetch instead of SDK-level filter
+3. Add loading states to better communicate sync progress to users
 
 ```typescript
-// spark/index.ts - listPayments now accepts daysBack parameter
-export async function listPayments(offset = 0, limit = 100, daysBack = 30): Promise<any[]> {
-  const request: { offset: number; limit: number; fromTimestamp?: number } = { offset, limit }
-  if (daysBack > 0) {
-    request.fromTimestamp = Math.floor(Date.now() / 1000) - (daysBack * 24 * 60 * 60)
-  }
-  const response = await _sdkInstance.listPayments(request)
-  return response.payments || response || []
-}
+// spark/index.ts - fromTimestamp filter (currently DISABLED)
+// SDK supports: fromTimestamp, toTimestamp, typeFilter, statusFilter
+const request = { offset, limit, fromTimestamp: thirtyDaysAgo }
+await _sdkInstance.listPayments(request)
 ```
 
 ### NWC Wallet - Restore from Nostr (FIXED)
