@@ -539,15 +539,28 @@ export async function receivePayment(
 
 /**
  * Get payment history.
+ * @param offset Pagination offset
+ * @param limit Maximum number of payments to return
+ * @param daysBack Number of days to look back (default: 30). Set to 0 for all history.
  */
-export async function listPayments(offset = 0, limit = 100): Promise<any[]> {
+export async function listPayments(offset = 0, limit = 100, daysBack = 30): Promise<any[]> {
 	if (!_sdkInstance) {
 		throw new Error('Spark SDK is not initialized')
 	}
 
 	try {
-		const response = await _sdkInstance.listPayments({ offset, limit })
-		return response.payments || response || []
+		const request: { offset: number; limit: number; fromTimestamp?: number } = { offset, limit }
+
+		// Add time filter to avoid loading stale/old transaction data
+		if (daysBack > 0) {
+			request.fromTimestamp = Math.floor(Date.now() / 1000) - (daysBack * 24 * 60 * 60)
+		}
+
+		logger.info('[Spark] Fetching payments:', { offset, limit, daysBack, fromTimestamp: request.fromTimestamp })
+		const response = await _sdkInstance.listPayments(request)
+		const payments = response.payments || response || []
+		logger.info('[Spark] Fetched', payments.length, 'payments')
+		return payments
 	} catch (error) {
 		logger.error('[Spark] Failed to list payments:', String(error))
 		throw error
