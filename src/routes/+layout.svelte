@@ -73,31 +73,61 @@
   async function setupCapacitorListeners() {
     if (!browser) return;
     
-    // Only import Capacitor if it's available (mobile build only)
-    // Check for Capacitor presence first to avoid build errors in web builds
-    if (typeof window === 'undefined' || !(window as any).Capacitor) {
-      console.log('[Capacitor] Not available (web environment)');
-      return;
-    }
+    console.log('[Capacitor] Setting up listeners...');
 
     try {
+      // Import Capacitor core to check if we're in a native environment
+      const { Capacitor } = await import('@capacitor/core');
+      
+      if (!Capacitor.isNativePlatform()) {
+        console.log('[Capacitor] Not a native platform, skipping listener setup');
+        return;
+      }
+
+      console.log('[Capacitor] Native platform detected:', Capacitor.getPlatform());
+
       const { App } = await import('@capacitor/app');
 
       // Listen for deep links when app is open
-      App.addListener('appUrlOpen', (event) => {
+      await App.addListener('appUrlOpen', (event) => {
         console.log('[Capacitor] appUrlOpen:', event.url);
         handleDeepLink(event.url);
       });
+      console.log('[Capacitor] appUrlOpen listener registered');
 
       // Listen for app state changes (resume)
-      App.addListener('appStateChange', async (state) => {
+      await App.addListener('appStateChange', async (state) => {
         console.log('[Capacitor] appStateChange:', state.isActive ? 'active' : 'inactive');
         
-        if (state.isActive && authManager?.hasPendingNip46Pairing()) {
-          console.log('[Capacitor] App resumed with pending NIP-46 pairing');
-          await authManager.restartNip46ListenerIfPending();
+        if (state.isActive) {
+          console.log('[Capacitor] App became active, checking for pending NIP-46 pairing...');
+          if (authManager?.hasPendingNip46Pairing()) {
+            console.log('[Capacitor] Found pending NIP-46 pairing, restarting listener');
+            try {
+              await authManager.restartNip46ListenerIfPending();
+            } catch (e) {
+              console.error('[Capacitor] Error restarting NIP-46 listener:', e);
+            }
+          } else {
+            console.log('[Capacitor] No pending NIP-46 pairing found');
+          }
         }
       });
+      console.log('[Capacitor] appStateChange listener registered');
+
+      // Also listen for resume event as backup
+      await App.addListener('resume', async () => {
+        console.log('[Capacitor] resume event received');
+        if (authManager?.hasPendingNip46Pairing()) {
+          console.log('[Capacitor] Resume with pending NIP-46 pairing, restarting listener');
+          try {
+            await authManager.restartNip46ListenerIfPending();
+          } catch (e) {
+            console.error('[Capacitor] Error restarting NIP-46 listener on resume:', e);
+          }
+        }
+      });
+      console.log('[Capacitor] resume listener registered');
 
       // Check for launch URL (app opened via deep link)
       const launchUrl = await App.getLaunchUrl();
@@ -106,10 +136,10 @@
         handleDeepLink(launchUrl.url);
       }
 
-      console.log('[Capacitor] Deep link listeners initialized');
+      console.log('[Capacitor] All listeners initialized successfully');
     } catch (e) {
-      // Capacitor not available (web environment)
-      console.log('[Capacitor] Not available (web environment)');
+      // Capacitor not available (web environment) or error during setup
+      console.log('[Capacitor] Setup error or not available:', e);
     }
   }
 

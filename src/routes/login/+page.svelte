@@ -89,6 +89,18 @@
             goto('/explore');
           }
         });
+        
+        // Check for pending NIP-46 pairing on mount
+        // This handles the case where user returns from signer app
+        // and the Capacitor appStateChange listener didn't fire
+        if (authManager.hasPendingNip46Pairing()) {
+          console.log('[Login] Found pending NIP-46 pairing, restarting listener...');
+          nip46UniversalModal = true;
+          nip46PairingStatus = 'Waiting for approval…';
+          authManager.restartNip46ListenerIfPending().catch((e: Error) => {
+            console.error('[Login] Failed to restart NIP-46 listener:', e);
+          });
+        }
       }
     } catch (error) {
       console.error('Failed to initialize auth manager in login page:', error);
@@ -476,6 +488,17 @@
     }
   }
 
+  :global(.qr-container) {
+    text-align: center !important;
+  }
+
+  :global(.qr-container canvas),
+  :global(.qr-container svg),
+  :global(.qr-container img) {
+    display: inline-block !important;
+    vertical-align: middle !important;
+  }
+
 </style>
 
 <!-- Private Key Modal -->
@@ -601,9 +624,9 @@
     
     {#if nip46PairingUri}
       <div class="flex flex-col items-center gap-4">
-        <!-- QR Code -->
-        <div class="bg-white p-4 rounded-lg">
-          <QRCode value={nip46PairingUri} size={200} />
+        <!-- QR Code - Centered with proper padding -->
+        <div class="bg-white p-3 rounded-lg qr-container" style="width: 280px; height: 280px; text-align: center; line-height: 256px;">
+          <QRCode value={nip46PairingUri} size={256} />
         </div>
         
         <!-- Status -->

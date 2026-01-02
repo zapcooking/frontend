@@ -635,7 +635,49 @@ export class AuthManager {
 
     await this.ndk.connect();
 
+    // Start listening for NIP-46 responses immediately
+    // This handles the case where user approves and returns before app is backgrounded
+    console.log('[NIP-46] Starting to listen for signer responses...');
+    this.startNip46ResponseListener(localPubkey);
+
     return { uri, relays };
+  }
+
+  // Start listening for NIP-46 responses (used by both initial pairing and resume)
+  private startNip46ResponseListener(localPubkey: string): void {
+    // Listen for NIP-46 events (kind 24133) addressed to our local pubkey
+    const filter = {
+      kinds: [24133],
+      '#p': [localPubkey],
+      since: Math.floor((Date.now() - 5 * 60 * 1000) / 1000)
+    };
+
+    console.log('[NIP-46] Subscribing to events for:', localPubkey);
+    const sub = this.ndk.subscribe(filter, { closeOnEose: false });
+
+    sub.on('event', async (event: any) => {
+      console.log('[NIP-46] Received NIP-46 event from:', event.pubkey);
+      
+      // The event.pubkey is the signer's pubkey
+      const signerPubkey = event.pubkey;
+      
+      try {
+        await this.completeNip46PairingWithSignerPubkey(signerPubkey);
+        console.log('[NIP-46] Pairing completed successfully, stopping listener');
+        sub.stop();
+      } catch (e) {
+        const errorMsg = e instanceof Error ? e.message : String(e);
+        if (errorMsg.includes('No pending NIP-46 pairing found')) {
+          // Already completed, stop listening
+          console.log('[NIP-46] Pairing already completed, stopping listener');
+          sub.stop();
+        } else {
+          console.error('[NIP-46] Failed to complete pairing from event:', e);
+        }
+      }
+    });
+
+    console.log('[NIP-46] Response listener started');
   }
 
   // Check if there's a pending NIP-46 pairing
@@ -808,42 +850,10 @@ export class AuthManager {
 
     await this.ndk.connect();
 
-    // Create temporary signer to listen for responses
-    const localSigner = new NDKPrivateKeySigner(pendingInfo.localPrivateKey);
-    const tempSigner = new NDKNip46Signer(this.ndk, pendingInfo.localPubkey, localSigner);
-
-    // Listen for NIP-46 events (kind 24133)
-    const filter = {
-      kinds: [24133],
-      '#p': [pendingInfo.localPubkey],
-      since: Math.floor((Date.now() - 5 * 60 * 1000) / 1000)
-    };
-
-    const sub = this.ndk.subscribe(filter, { closeOnEose: false });
-
-    sub.on('event', async (event: any) => {
-      console.log('[NIP-46] Received event from:', event.pubkey);
-      
-      // The event.pubkey is the signer's pubkey
-      const signerPubkey = event.pubkey;
-      
-      try {
-        await this.completeNip46PairingWithSignerPubkey(signerPubkey);
-        sub.stop();
-      } catch (e) {
-        // Only log as warning if it's not the "already authenticated" case
-        const errorMsg = e instanceof Error ? e.message : String(e);
-        if (errorMsg.includes('No pending NIP-46 pairing found')) {
-          // This is expected if pairing was already completed - just stop listening
-          console.log('[NIP-46] Pairing already completed, stopping listener');
-          sub.stop();
-        } else {
-          console.error('[NIP-46] Failed to complete pairing from event:', e);
-        }
-      }
-    });
-
-    console.log('[NIP-46] Listener started, waiting for signer response...');
+    // Start listening for NIP-46 responses using shared listener method
+    this.startNip46ResponseListener(pendingInfo.localPubkey);
+    
+    console.log('[NIP-46] Listener restarted, waiting for signer response...');
   }
 
   // Ensure NIP-46 signer is ready (call before signing operations)
