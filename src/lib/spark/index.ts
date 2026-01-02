@@ -326,18 +326,22 @@ export async function initializeSdk(
 
 		await setupEventListener()
 
-		try {
-			await withTimeout(_sdkInstance.syncWallet({}), 15000, 'Initial sync')
-		} catch {}
-
+		// Get cached balance immediately (without waiting for sync)
 		await refreshBalanceInternal()
 
-		try {
-			await fetchLightningAddress()
-		} catch {}
-
+		// Mark as initialized - UI can show now!
 		walletInitialized.set(true)
-		logger.info('[Spark] SDK initialized successfully')
+		logger.info('[Spark] SDK initialized, starting background sync...')
+
+		// Background sync - don't await, let it run async
+		// Event listener will refresh balance when 'synced' event fires
+		_sdkInstance.syncWallet({}).catch(() => {
+			logger.warn('[Spark] Background sync failed, will retry on next action')
+		})
+
+		// Fetch lightning address in background - don't await
+		fetchLightningAddress().catch(() => {})
+
 		return true
 	} catch (error) {
 		logger.error('[Spark] Failed to initialize SDK:', String(error))
@@ -1213,6 +1217,57 @@ export async function checkRelayBackups(pubkey: string): Promise<RelayBackupStat
 	logger.info(`[Spark] Backup check complete: ${backupCount}/${results.length} relays have backup`)
 
 	return results
+}
+
+/**
+ * Delete Spark wallet backup from Nostr relays.
+ * Publishes an empty replaceable event to overwrite the backup (more reliable than NIP-09).
+ * @param pubkey The user's Nostr public key (hex string).
+ */
+export async function deleteBackupFromNostr(pubkey: string): Promise<void> {
+	if (!browser) throw new Error('Backup deletion can only be performed in browser')
+
+	const nostr = getNostrExtension()
+
+	const { ndk, ndkReady } = await import('$lib/nostr')
+	const { NDKEvent } = await import('@nostr-dev-kit/ndk')
+	const { get } = await import('svelte/store')
+
+	await ndkReady
+	const ndkInstance = get(ndk)
+
+	logger.info('[Spark] Deleting backup by publishing empty replacement...')
+
+	// Create an empty replaceable event with the same d-tag to overwrite the backup
+	// This is more reliable than NIP-09 deletion since relays must replace the old event
+	const emptyBackupEvent = {
+		kind: BACKUP_EVENT_KIND,
+		created_at: Math.floor(Date.now() / 1000),
+		tags: [
+			['d', BACKUP_D_TAG],
+			['deleted', 'true']
+		],
+		content: '' // Empty content - no backup data
+	}
+
+	// Sign with extension
+	logger.info('[Spark] Signing empty backup event...')
+	const signedEvent = await nostr.signEvent(emptyBackupEvent)
+
+	// Publish to overwrite the backup
+	const ndkEvent = new NDKEvent(ndkInstance)
+	ndkEvent.kind = signedEvent.kind
+	ndkEvent.content = signedEvent.content
+	ndkEvent.tags = signedEvent.tags
+	ndkEvent.created_at = signedEvent.created_at
+	ndkEvent.pubkey = signedEvent.pubkey
+	ndkEvent.id = signedEvent.id
+	ndkEvent.sig = signedEvent.sig
+
+	logger.info('[Spark] Publishing empty backup to overwrite existing...')
+	await ndkEvent.publish()
+
+	logger.info('[Spark] Backup deleted (replaced with empty event)')
 }
 
 /**

@@ -31,7 +31,7 @@
     type Transaction
   } from '$lib/wallet/walletManager';
   import { parseNwcUrl, getNwcInfo, connectNwc, isNwcConnected, getNwcLud16 } from '$lib/wallet/nwc';
-  import { backupNwcToNostr, restoreNwcFromNostr, hasEncryptionSupport as hasNwcEncryptionSupport } from '$lib/wallet/nwcBackup';
+  import { backupNwcToNostr, restoreNwcFromNostr, hasEncryptionSupport as hasNwcEncryptionSupport, deleteBackupFromNostr as deleteNwcBackupFromNostr } from '$lib/wallet/nwcBackup';
   import {
     createAndConnectWallet as createSparkWallet,
     restoreFromMnemonic,
@@ -48,6 +48,7 @@
     onSparkEvent,
     recentSparkPayments,
     getBestEncryptionMethod,
+    deleteBackupFromNostr as deleteSparkBackupFromNostr,
     type SparkWalletBackup
   } from '$lib/spark';
   import { syncLightningAddressToProfile } from '$lib/spark/profileSync';
@@ -104,6 +105,8 @@
 
   // Delete confirmation state
   let walletToDelete: { id: number; name: string; kind: number; data: string } | null = null;
+  let deleteRelayBackups = false; // Checkbox state for also deleting relay backups
+  let isDeletingWallet = false;
 
   // Wallet options (shared between Spark and NWC)
   let expandedWalletId: number | null = null;
@@ -2469,95 +2472,92 @@
   {#if walletToDelete}
     <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
       <div class="rounded-2xl p-6 max-w-md w-full" style="background-color: var(--color-bg-primary);">
-        <h2 class="text-xl font-bold mb-2" style="color: var(--color-text-primary)">Remove Wallet</h2>
+        <h2 class="text-xl font-bold mb-4" style="color: var(--color-text-primary)">Remove Wallet</h2>
 
-        {#if walletToDelete.kind === 4}
-          <!-- Spark wallet - show backup reminder -->
-          <div class="p-4 rounded-xl mb-4" style="background-color: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.3);">
-            <div class="flex items-start gap-3">
-              <WarningIcon size={24} class="text-amber-500 flex-shrink-0 mt-0.5" />
-              <div>
-                <p class="font-medium text-amber-600 mb-2">Back up your wallet first!</p>
-                <p class="text-sm text-caption mb-3">
-                  If you remove this wallet without a backup, you may lose access to your funds permanently.
-                </p>
-                {#if encryptionSupported}
-                  <div class="flex flex-wrap gap-2">
-                    <button
-                      class="flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer bg-amber-500 hover:bg-amber-600 text-white"
-                      on:click={handleBackupToNostr}
-                      disabled={isBackingUp}
-                    >
-                      <CloudArrowUpIcon size={16} />
-                      {isBackingUp ? 'Backing up...' : 'Backup to Nostr'}
-                    </button>
-                    <button
-                      class="flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer"
-                      style="background-color: var(--color-bg-primary); border: 1px solid var(--color-input-border);"
-                      on:click={handleDownloadBackup}
-                      disabled={isBackingUp}
-                    >
-                      <DownloadSimpleIcon size={16} />
-                      Download Backup
-                    </button>
-                  </div>
-                {:else}
-                  <p class="text-sm text-amber-700 mb-2">
-                    Encrypted backup is unavailable because your signer extension doesn't support encryption.
-                  </p>
-                  <p class="text-sm text-caption">
-                    Use "Show Recovery Phrase" in wallet options to manually copy your 12-word backup phrase before deleting.
-                  </p>
-                {/if}
-              </div>
+        <p class="text-caption mb-4">
+          Are you sure you want to remove <strong class="text-primary-color">{walletToDelete.name}</strong>?
+        </p>
+
+        {#if walletToDelete.kind === 4 || walletToDelete.kind === 3}
+          <!-- Backup options section -->
+          <div class="p-4 rounded-xl mb-4" style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);">
+            <div class="flex items-center gap-2 mb-3">
+              <WarningIcon size={18} class="text-amber-500" />
+              <span class="text-sm font-medium text-amber-500">Save a backup first</span>
             </div>
-          </div>
-          <p class="text-caption mb-4 text-sm">
-            Are you sure you want to remove <strong class="text-primary-color">{walletToDelete.name}</strong>?
-          </p>
-        {:else if walletToDelete.kind === 3}
-          <!-- NWC wallet - show backup reminder (download only) -->
-          <div class="p-4 rounded-xl mb-4" style="background-color: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.3);">
-            <div class="flex items-start gap-3">
-              <WarningIcon size={24} class="text-amber-500 flex-shrink-0 mt-0.5" />
-              <div>
-                <p class="font-medium text-amber-600 mb-2">Save your connection string!</p>
-                <p class="text-sm text-caption mb-3">
-                  Download your NWC connection details so you can reconnect this wallet later.
-                </p>
+
+            <div class="grid gap-2" class:grid-cols-2={encryptionSupported} class:grid-cols-1={!encryptionSupported}>
+              <button
+                class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer bg-amber-500 hover:bg-amber-600 text-black"
+                on:click={() => walletToDelete.kind === 4 ? handleDownloadBackup() : handleDownloadNwcBackup(walletToDelete)}
+                disabled={isBackingUp}
+              >
+                <DownloadSimpleIcon size={16} />
+                Download
+              </button>
+              {#if encryptionSupported}
                 <button
-                  class="flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer bg-amber-500 hover:bg-amber-600 text-white"
-                  on:click={() => handleDownloadNwcBackup(walletToDelete)}
+                  class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer bg-black hover:bg-gray-800 text-white"
+                  on:click={() => walletToDelete.kind === 4 ? handleBackupToNostr() : handleNwcBackupToNostr(walletToDelete)}
+                  disabled={isBackingUp}
                 >
-                  <DownloadSimpleIcon size={16} />
-                  Download Backup
+                  <CloudArrowUpIcon size={16} />
+                  {isBackingUp ? 'Saving...' : 'Backup to Nostr'}
                 </button>
-              </div>
+              {/if}
             </div>
           </div>
-          <p class="text-caption mb-4 text-sm">
-            Are you sure you want to remove <strong class="text-primary-color">{walletToDelete.name}</strong>?
-          </p>
+
+          <!-- Delete relay backup toggle button -->
+          <button
+            class="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer mb-4"
+            class:bg-red-500={deleteRelayBackups}
+            class:hover:bg-red-600={deleteRelayBackups}
+            class:text-white={deleteRelayBackups}
+            style={deleteRelayBackups ? '' : 'background-color: var(--color-input-bg); border: 1px solid var(--color-input-border); color: var(--color-text-caption);'}
+            on:click={() => deleteRelayBackups = !deleteRelayBackups}
+          >
+            <TrashIcon size={14} />
+            {deleteRelayBackups ? 'Will delete relay backup' : 'Delete relay backup'}
+          </button>
         {:else}
-          <p class="text-caption mb-6">
-            Are you sure you want to remove <strong class="text-primary-color">{walletToDelete.name}</strong>? You can reconnect it later.
-          </p>
+          <p class="text-caption text-sm mb-4">You can reconnect it later.</p>
         {/if}
 
         <div class="flex gap-3">
-          <Button on:click={() => walletToDelete = null} class="flex-1">
+          <Button on:click={() => { walletToDelete = null; deleteRelayBackups = false; }} disabled={isDeletingWallet} class="flex-1">
             Cancel
           </Button>
           <button
-            class="flex-1 px-4 py-2 rounded-full bg-red-500 hover:bg-red-600 text-white font-medium transition-colors cursor-pointer"
+            class="flex-1 px-4 py-2 rounded-full bg-red-500 hover:bg-red-600 text-white font-medium transition-colors cursor-pointer disabled:opacity-50"
+            disabled={isDeletingWallet}
             on:click={async () => {
               if (walletToDelete) {
-                await handleDisconnectWallet(walletToDelete.id);
-                walletToDelete = null;
+                isDeletingWallet = true;
+                try {
+                  // Delete relay backups if checkbox is checked
+                  if (deleteRelayBackups && $userPublickey) {
+                    try {
+                      if (walletToDelete.kind === 4) {
+                        await deleteSparkBackupFromNostr($userPublickey);
+                      } else if (walletToDelete.kind === 3) {
+                        await deleteNwcBackupFromNostr($userPublickey);
+                      }
+                    } catch (e) {
+                      console.error('Failed to delete relay backups:', e);
+                      // Continue with wallet removal even if backup deletion fails
+                    }
+                  }
+                  await handleDisconnectWallet(walletToDelete.id);
+                  walletToDelete = null;
+                  deleteRelayBackups = false;
+                } finally {
+                  isDeletingWallet = false;
+                }
               }
             }}
           >
-            Remove Anyway
+            {isDeletingWallet ? 'Removing...' : 'Remove'}
           </button>
         </div>
       </div>
