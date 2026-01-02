@@ -21,6 +21,7 @@ const profileCache = writable<ProfileCache>({});
 // Cache configuration
 const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
 const MAX_CACHE_SIZE = 1000; // Maximum number of profiles to cache
+const PROFILE_FETCH_TIMEOUT = 5000; // 5 seconds timeout for profile fetches
 
 // Cache management
 export class ProfileCacheManager {
@@ -117,9 +118,15 @@ export class ProfileCacheManager {
       // Use ndk.getUser() to properly bind user to NDK instance
       const user = ndk.getUser({ pubkey });
       
-        await user.fetchProfile();
+      // Add timeout to prevent hanging
+      const fetchPromise = user.fetchProfile();
+      const timeoutPromise = new Promise<void>((resolve) => 
+        setTimeout(() => resolve(), PROFILE_FETCH_TIMEOUT)
+      );
+      
+      await Promise.race([fetchPromise, timeoutPromise]);
         
-        // Cache the result
+      // Cache the result (even if profile is null, cache will have the user)
         const entry: ProfileCacheEntry = {
           user,
           profile: user.profile,

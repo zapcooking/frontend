@@ -17,10 +17,12 @@ Zap Cooking is now available on Android! Experience the full Nostr-native recipe
 
 ### 🔧 Technical Improvements
 
+- **Custom App Icon**: Updated app icon for better brand recognition
 - Optimized WebSocket connections for mobile networks
 - Network security configuration for secure relay connections
 - Responsive UI designed for mobile screens
 - Efficient caching for offline recipe viewing
+- Improved wallet backup and recovery functionality
 
 ### 📱 Mobile-Specific Features
 
@@ -31,10 +33,14 @@ Zap Cooking is now available on Android! Experience the full Nostr-native recipe
 
 ### 🐛 Fixes & Improvements
 
+- **Wallet UI Improvements**: Enhanced wallet interface with better user experience
+- **Faster Wallet Loading**: Optimized wallet initialization for quicker access
+- **Improved Delete Modal**: Better confirmation dialogs for wallet operations
 - Embedded notes now display correctly in comments
 - Improved social sharing options (Bluesky, SMS)
 - Better handling of Nostr references in content
 - Performance optimizations for mobile devices
+- Custom app icon support
 
 ---
 

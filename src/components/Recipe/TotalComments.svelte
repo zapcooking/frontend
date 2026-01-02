@@ -2,32 +2,39 @@
   import { ndk, userPublickey } from '$lib/nostr';
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
   import CommentIcon from 'phosphor-svelte/lib/ChatTeardropText';
+  import { onMount, onDestroy } from 'svelte';
 
   export let event: NDKEvent;
   let loading = true;
   let totalCommentAmount: number = 0;
+  let subscription: any = null;
 
-{
-  (async () => {
-    const sub = $ndk.subscribe(
+  onMount(() => {
+    subscription = $ndk.subscribe(
       {
         kinds: [1],
         '#a': [
           `${event.kind}:${event.author.hexpubkey}:${event.tags.find((e) => e[0] == 'd')?.[1]}`
         ]
       },
+      { closeOnEose: true }
     );
 
-    sub.on('event', (event) => {
+    subscription.on('event', () => {
       loading = false;
       totalCommentAmount++;
     });
 
-    sub.on('eose', () => {
+    subscription.on('eose', () => {
       loading = false;
     });
-  })();
-}
+  });
+
+  onDestroy(() => {
+    if (subscription) {
+      subscription.stop();
+    }
+  });
 </script>
 
 <button

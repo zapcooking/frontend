@@ -22,6 +22,7 @@
   let errorMessage = '';
   let successMessage = '';
   let replyTextareaEl: HTMLTextAreaElement;
+  let replySubscription: any = null;
 
   // @ mention autocomplete state
   let mentionQuery = '';
@@ -205,16 +206,26 @@
     replies = [];
     replyCount = 0;
     
+    // Close previous subscription if exists
+    if (replySubscription) {
+      replySubscription.stop();
+    }
+    
     try {
       // Use subscribe collection for more reliable reply loading
-      const replyEvents = $ndk.subscribe({
+      replySubscription = $ndk.subscribe({
         kinds: [1],
         '#e': [parentComment.id] // Replies that reference this comment
-      });
-      replyEvents.on("event", (ev) => {
+      }, { closeOnEose: true });
+      
+      replySubscription.on("event", (ev) => {
         loading = false;
         replies.push(ev);
         replies = replies;
+      });
+      
+      replySubscription.on("eose", () => {
+        loading = false;
       });
     } catch (error) {
       console.error('Error loading replies:', error);
@@ -290,6 +301,9 @@
   onDestroy(() => {
     if (mentionSearchTimeout) {
       clearTimeout(mentionSearchTimeout);
+    }
+    if (replySubscription) {
+      replySubscription.stop();
     }
   });
 </script>

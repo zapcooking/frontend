@@ -4,24 +4,26 @@
   import Button from './Button.svelte';
   import { addClientTagToEvent } from '$lib/nip89';
   import Comment from './Comment.svelte';
+  import { onDestroy } from 'svelte';
 
   export let event: NDKEvent;
   let events = [];
   let commentText = '';
   let processedEvents = new Set();
   let subscribed = false;
+  let commentSubscription: any = null;
 
   // Create subscription once when ndk is ready
   $: if ($ndk && !subscribed) {
     subscribed = true;
     const filterTag = `${event.kind}:${event.author.pubkey}:${event.tags.find((e) => e[0] == 'd')?.[1]}`;
 
-    const sub = $ndk.subscribe({
+    commentSubscription = $ndk.subscribe({
       kinds: [1],
       '#a': [filterTag]
     }, { closeOnEose: false });
 
-    sub.on('event', (e) => {
+    commentSubscription.on('event', (e) => {
       console.log('Comments: Received event:', e.id);
       // Prevent adding the same event multiple times
       if (processedEvents.has(e.id)) return;
@@ -31,10 +33,16 @@
       events = events;
     });
 
-    sub.on('eose', () => {
+    commentSubscription.on('eose', () => {
       console.log('Comments: EOSE - total events:', events.length);
     });
   }
+
+  onDestroy(() => {
+    if (commentSubscription) {
+      commentSubscription.stop();
+    }
+  });
 
   // Dummy refresh function for Comment component - not needed since subscription stays open
   function refresh() {

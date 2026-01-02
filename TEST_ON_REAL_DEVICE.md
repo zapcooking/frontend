@@ -107,3 +107,4 @@ Try enabling these additional options in Developer Options:
 - The app will be installed on your device like any other app
 - To uninstall: Long-press app icon → Uninstall (or Settings → Apps)
 
+

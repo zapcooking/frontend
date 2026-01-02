@@ -75,6 +75,9 @@ export function decodeNostrProfile(nostrString: string): string | null {
   }
 }
 
+// Profile fetch timeout
+const PROFILE_FETCH_TIMEOUT = 5000; // 5 seconds
+
 // Fetch profile data from relays
 async function fetchProfileFromRelays(pubkey: string, ndkInstance: NDK): Promise<ProfileData | null> {
   try {
@@ -93,11 +96,18 @@ async function fetchProfileFromRelays(pubkey: string, ndkInstance: NDK): Promise
     
     // Force a fresh fetch by clearing any cached profile first
     user.profile = undefined;
-    await user.fetchProfile();
+    
+    // Add timeout to prevent hanging
+    const fetchPromise = user.fetchProfile();
+    const timeoutPromise = new Promise<null>((resolve) => 
+      setTimeout(() => resolve(null), PROFILE_FETCH_TIMEOUT)
+    );
+    
+    await Promise.race([fetchPromise, timeoutPromise]);
     
     const profile = user.profile;
     if (!profile) {
-      console.log('fetchProfileFromRelays: No profile found for pubkey:', pubkey);
+      // Don't log this - it's common for profiles not to be found quickly
       return null;
     }
 

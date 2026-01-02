@@ -11,6 +11,7 @@
   export let content: string;
   export let className: string = '';
   export let showLinkPreviews: boolean = true;
+  export let embedDepth: number = 0; // Track nesting depth to prevent infinite recursion
   
   // Image extensions to detect
   const IMAGE_EXTENSIONS = /\.(jpg|jpeg|png|gif|webp|svg|bmp|avif)(\?.*)?$/i;
@@ -241,7 +242,7 @@
       {#if part.prefix === 'nprofile1' || part.prefix === 'npub1'}
         <ProfileLink nostrString={part.content} />
       {:else if part.prefix === 'nevent1'}
-        <NoteEmbed nostrString={part.content} />
+        <NoteEmbed nostrString={part.content} depth={embedDepth} />
       {:else}
         <button
           class="text-blue-500 hover:text-blue-700 hover:underline cursor-pointer"

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount, onDestroy } from 'svelte';
   import { ndk, userPublickey } from '$lib/nostr';
   import { NDKEvent } from '@nostr-dev-kit/ndk';
   import HeartIcon from 'phosphor-svelte/lib/Heart';
@@ -8,16 +9,17 @@
   let loading = true;
   let totalLikeAmount: number = 0;
   let liked = false;
+  let subscription: any = null;
 
   let processedEvents = new Set();
   
-  (async () => {
-    const sub = $ndk.subscribe({
+  onMount(() => {
+    subscription = $ndk.subscribe({
       kinds: [7],
       '#e': [event.id] // For comment likes, use the comment event ID
-    });
+    }, { closeOnEose: true });
 
-    sub.on('event', (e) => {
+    subscription.on('event', (e) => {
       // Prevent counting the same event multiple times
       if (processedEvents.has(e.id)) return;
       processedEvents.add(e.id);
@@ -27,10 +29,16 @@
       loading = false;
     });
 
-    sub.on('eose', () => {
+    subscription.on('eose', () => {
       loading = false;
     });
-  })();
+  });
+
+  onDestroy(() => {
+    if (subscription) {
+      subscription.stop();
+    }
+  });
 
   async function likeComment() {
     if (liked) return;

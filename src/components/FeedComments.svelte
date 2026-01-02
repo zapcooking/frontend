@@ -16,6 +16,7 @@
   let subscribed = false;
   let showComments = false;
   let commentTextareaEl: HTMLTextAreaElement;
+  let feedCommentSubscription: any = null;
 
   // @ mention autocomplete state
   let mentionQuery = '';
@@ -276,25 +277,28 @@
     if (mentionSearchTimeout) {
       clearTimeout(mentionSearchTimeout);
     }
+    if (feedCommentSubscription) {
+      feedCommentSubscription.stop();
+    }
   });
 
   // Create subscription once when ndk is ready
   $: if ($ndk && !subscribed && showComments) {
     subscribed = true;
 
-    const sub = $ndk.subscribe({
+    feedCommentSubscription = $ndk.subscribe({
       kinds: [1],
       '#e': [event.id]
     }, { closeOnEose: false });
 
-    sub.on('event', (e) => {
+    feedCommentSubscription.on('event', (e) => {
       if (processedEvents.has(e.id)) return;
       processedEvents.add(e.id);
       events.push(e);
       events = events;
     });
 
-    sub.on('eose', () => {});
+    feedCommentSubscription.on('eose', () => {});
   }
 
   // Dummy refresh function for FeedComment component - not needed since subscription stays open

@@ -17,6 +17,7 @@ interface RecipeMetadata {
 const recipeCache = new Map<string, RecipeMetadata>();
 
 const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+const FETCH_TIMEOUT = 5000; // 5 seconds timeout for fetches
 
 /**
  * Resolve a profile by pubkey or npub string
@@ -105,12 +106,16 @@ export async function resolveRecipe(
 
     const { identifier, pubkey, kind } = decoded.data;
 
-    // Fetch event
-    const event = await ndkInstance.fetchEvent({
+    // Fetch event with timeout
+    const fetchPromise = ndkInstance.fetchEvent({
       kinds: [kind || 30023],
       '#d': [identifier],
       authors: [pubkey]
     });
+    const timeoutPromise = new Promise<null>((resolve) => 
+      setTimeout(() => resolve(null), FETCH_TIMEOUT)
+    );
+    const event = await Promise.race([fetchPromise, timeoutPromise]);
 
     if (!event) {
       return null;
@@ -166,8 +171,13 @@ export async function resolveNote(
       eventId = noteId;
     }
 
-    // Fetch event
-    const event = await ndkInstance.fetchEvent(eventId);
+    // Fetch event with timeout
+    const fetchPromise = ndkInstance.fetchEvent(eventId);
+    const timeoutPromise = new Promise<null>((resolve) => 
+      setTimeout(() => resolve(null), FETCH_TIMEOUT)
+    );
+    const event = await Promise.race([fetchPromise, timeoutPromise]);
+    
     if (!event) {
       return null;
     }

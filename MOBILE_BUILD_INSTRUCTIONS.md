@@ -132,3 +132,4 @@ To verify your setup:
 3. Verify Capacitor config: `cat capacitor.config.ts`
 4. Check adapter in use: Look at `svelte.config.js`
 
+

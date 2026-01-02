@@ -16,6 +16,9 @@
 
   export let nostrString: string;
   export let boostAmount: number = 0; // Optional boost amount in sats (passed from parent)
+  export let depth: number = 0; // Prevent infinite recursion with nested embeds
+  
+  const MAX_EMBED_DEPTH = 2; // Maximum nesting depth for embedded content
 
   let event: NDKEvent | null = null;
   let loading = true;
@@ -256,7 +259,12 @@
         limit: 50
       };
 
-      const zapEvents = await $ndk.fetchEvents(zapFilter);
+      // Add timeout to prevent hanging
+      const fetchPromise = $ndk.fetchEvents(zapFilter);
+      const timeoutPromise = new Promise<Set<any>>((resolve) => 
+        setTimeout(() => resolve(new Set()), 5000)
+      );
+      const zapEvents = await Promise.race([fetchPromise, timeoutPromise]);
       let totalAmount = 0;
 
       for (const zapEvent of zapEvents) {
@@ -439,10 +447,14 @@
           </div>
         {/if}
 
-        <!-- Content Preview (only if there's content) -->
-        {#if getContentWithoutMedia(event.content).trim()}
+        <!-- Content Preview (only if there's content and not too deeply nested) -->
+        {#if getContentWithoutMedia(event.content).trim() && depth < MAX_EMBED_DEPTH}
           <div class="text-sm leading-relaxed mb-3" style="color: var(--color-text-primary)">
-            <NoteContent content={getContentWithoutMedia(event.content)} showLinkPreviews={false} />
+            <NoteContent content={getContentWithoutMedia(event.content)} showLinkPreviews={false} embedDepth={depth + 1} />
+          </div>
+        {:else if getContentWithoutMedia(event.content).trim()}
+          <div class="text-sm leading-relaxed mb-3 text-caption italic">
+            [Embedded content - click to view]
           </div>
         {/if}
 

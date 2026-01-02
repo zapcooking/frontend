@@ -233,11 +233,11 @@
       <ProfileLink nostrString={token.raw || `nostr:${token.content}`} />
     {:else if token.type === 'naddr'}
       <div class="my-2">
-        <NoteEmbed nostrString={token.raw || token.content} />
+        <NoteEmbed nostrString={token.raw || token.content} depth={0} />
       </div>
     {:else if token.type === 'nevent'}
       <div class="my-2">
-        <NoteEmbed nostrString={token.raw || token.content} />
+        <NoteEmbed nostrString={token.raw || token.content} depth={0} />
       </div>
     {:else if token.type === 'note'}
       {@const note = resolvedNotes.get(token.content)}

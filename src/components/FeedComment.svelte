@@ -38,6 +38,7 @@
   let likeCount = 0;
   let likesLoading = true;
   let processedLikes = new Set();
+  let likeSubscription: any = null;
 
   // Zap state
   let zapModalOpen = false;
@@ -123,19 +124,23 @@
       // First check in allComments
       parentComment = allComments.find(c => c.id === parentId) || null;
       
-      // If not found locally, fetch it
+      // If not found locally, fetch it with timeout
       if (!parentComment && $ndk) {
         try {
-          parentComment = await $ndk.fetchEvent({
+          const fetchPromise = $ndk.fetchEvent({
             kinds: [1],
             ids: [parentId]
           });
+          const timeoutPromise = new Promise<null>((resolve) => 
+            setTimeout(() => resolve(null), 5000)
+          );
+          parentComment = await Promise.race([fetchPromise, timeoutPromise]);
         } catch (e) {
           console.debug('Failed to fetch parent comment:', e);
         }
       }
       
-      // Load parent author name
+      // Load parent author name (resolveProfileByPubkey already has timeout)
       if (parentComment?.pubkey) {
         try {
           const profile = await resolveProfileByPubkey(parentComment.pubkey, $ndk);
@@ -150,12 +155,12 @@
     }
 
     // Load likes
-    const likeSub = $ndk.subscribe({
+    likeSubscription = $ndk.subscribe({
       kinds: [7],
       '#e': [event.id]
     });
 
-    likeSub.on('event', (e) => {
+    likeSubscription.on('event', (e) => {
       if (processedLikes.has(e.id)) return;
       processedLikes.add(e.id);
       if (e.pubkey === $userPublickey) liked = true;
@@ -163,7 +168,7 @@
       likesLoading = false;
     });
 
-    likeSub.on('eose', () => {
+    likeSubscription.on('eose', () => {
       likesLoading = false;
     });
 
@@ -172,6 +177,9 @@
   });
 
   onDestroy(() => {
+    if (likeSubscription) {
+      likeSubscription.stop();
+    }
     if (zapSubscription) {
       zapSubscription.stop();
     }

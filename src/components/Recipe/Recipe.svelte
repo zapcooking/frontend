@@ -106,7 +106,7 @@ async function getLists(): Promise<NDKEvent[]> {
       return;
     }
     
-    const sub = $ndk.subscribe(filters);
+    const sub = $ndk.subscribe(filters, { closeOnEose: true });
 
     sub.on('event', (event: NDKEvent) => {
       listsArr.push(event);

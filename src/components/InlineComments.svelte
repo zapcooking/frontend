@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import { ndk, userPublickey } from '$lib/nostr';
   import { NDKEvent } from '@nostr-dev-kit/ndk';
   import CustomAvatar from './CustomAvatar.svelte';
@@ -20,6 +20,7 @@
   let commentCount = 0;
   let errorMessage = '';
   let successMessage = '';
+  let commentSubscription: any = null;
 
   // Load comments for this event
   async function loadComments() {
@@ -29,16 +30,26 @@
     comments = [];
     commentCount = 0;
     
+    // Close previous subscription if exists
+    if (commentSubscription) {
+      commentSubscription.stop();
+    }
+    
     try {
       // Use subscribe collection for more reliable comment loading
-      const commentEvents = $ndk.subscribe({
+      commentSubscription = $ndk.subscribe({
         kinds: [1],
         '#e': [event.id] // Comments that reference this event
-      });
-      commentEvents.on("event", (ev) => {
+      }, { closeOnEose: true });
+      
+      commentSubscription.on("event", (ev) => {
         loading = false;
         comments.push(ev);
         comments = comments;
+      });
+      
+      commentSubscription.on("eose", () => {
+        loading = false;
       });
 
     } catch (error) {
@@ -46,6 +57,12 @@
       loading = false;
     }
   }
+
+  onDestroy(() => {
+    if (commentSubscription) {
+      commentSubscription.stop();
+    }
+  });
 
   // Post a new comment
   async function postComment() {
