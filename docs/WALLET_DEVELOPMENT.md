@@ -911,10 +911,12 @@ Before any wallet changes, verify:
 **Location**: Transaction merging in `walletManager.ts:680-737`
 **Notes**: Could be IndexedDB caching, `recentSparkPayments` store, or dedup/ordering issue.
 
-### NWC Wallet - Restore from Nostr Not Working
-**Status**: Under investigation
-**Symptom**: NWC restore from Nostr relays doesn't connect properly.
-**Debug**: Console logging added to `nwcBackup.ts` restore flow.
+### NWC Wallet - Restore from Nostr (FIXED)
+**Status**: Fixed in `nwc-safari-fix` branch
+**Root Cause**: Multiple TDZ (Temporal Dead Zone) errors in `nwc.ts`:
+1. `isNwcConnectedTo()` called before defined in `connectNwc()`
+2. `cleanup()` referencing `onConnect`/`onDisconnect` before defined in `waitForRelayConnection()`
+**Fix**: Inlined checks and reordered variable declarations to avoid TDZ.
 
 ---
 

@@ -1536,8 +1536,8 @@
     </div>
 
     {#if $wallets.length === 0}
-      <div class="p-8 rounded-2xl text-center" style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);">
-        <WalletIcon size={48} class="mx-auto mb-4 text-caption" />
+      <div class="p-8 rounded-2xl text-center flex flex-col items-center" style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);">
+        <WalletIcon size={48} class="mb-4 text-caption" />
         <p class="text-caption mb-4">No wallets connected yet</p>
         <Button on:click={() => { showAddWallet = true; selectedWalletType = null; }}>
           Connect Your First Wallet
