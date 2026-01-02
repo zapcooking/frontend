@@ -351,3 +351,54 @@ export async function checkRelayBackups(pubkey: string): Promise<RelayBackupStat
 
 	return results
 }
+
+/**
+ * Delete NWC wallet backup from Nostr relays.
+ * Publishes an empty replaceable event to overwrite the backup (more reliable than NIP-09).
+ * @param pubkey The user's Nostr public key.
+ */
+export async function deleteBackupFromNostr(pubkey: string): Promise<void> {
+	if (!browser) throw new Error('Backup deletion can only be performed in browser')
+
+	const nostr = getNostrExtension()
+
+	const { ndk, ndkReady } = await import('$lib/nostr')
+	const { NDKEvent } = await import('@nostr-dev-kit/ndk')
+	const { get } = await import('svelte/store')
+
+	await ndkReady
+	const ndkInstance = get(ndk)
+
+	console.log('[NWC Backup] Deleting backup by publishing empty replacement...')
+
+	// Create an empty replaceable event with the same d-tag to overwrite the backup
+	// This is more reliable than NIP-09 deletion since relays must replace the old event
+	const emptyBackupEvent = {
+		kind: NWC_BACKUP_EVENT_KIND,
+		created_at: Math.floor(Date.now() / 1000),
+		tags: [
+			['d', NWC_BACKUP_D_TAG],
+			['deleted', 'true']
+		],
+		content: '' // Empty content - no backup data
+	}
+
+	// Sign with extension
+	console.log('[NWC Backup] Signing empty backup event...')
+	const signedEvent = await nostr.signEvent(emptyBackupEvent)
+
+	// Publish to overwrite the backup
+	const ndkEvent = new NDKEvent(ndkInstance)
+	ndkEvent.kind = signedEvent.kind
+	ndkEvent.content = signedEvent.content
+	ndkEvent.tags = signedEvent.tags
+	ndkEvent.created_at = signedEvent.created_at
+	ndkEvent.pubkey = signedEvent.pubkey
+	ndkEvent.id = signedEvent.id
+	ndkEvent.sig = signedEvent.sig
+
+	console.log('[NWC Backup] Publishing empty backup to overwrite existing...')
+	await ndkEvent.publish()
+
+	console.log('[NWC Backup] Backup deleted (replaced with empty event)')
+}
