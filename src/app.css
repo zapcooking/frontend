@@ -2,10 +2,12 @@
 @plugin "@tailwindcss/forms";
 @plugin "@tailwindcss/typography";
 
-/* Prevent horizontal overflow on mobile */
+/* Prevent horizontal overflow on mobile and optimize touch scrolling */
 html, body {
   overflow-x: hidden;
   max-width: 100vw;
+  touch-action: pan-y pinch-zoom; /* Allow vertical scrolling and pinch zoom, prevent horizontal on body */
+  -webkit-overflow-scrolling: touch;
 }
 
 /* Safe area insets for Android/iOS edge-to-edge displays */
@@ -160,5 +162,29 @@ html.dark .image-placeholder::before {
   background-color: #ffffff !important;
   color: #000000 !important;
   fill: #000000 !important;
+}
+
+/* Utility class to hide scrollbars while maintaining scroll functionality */
+.scrollbar-hide {
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* IE/Edge */
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none; /* Chrome/Safari/Opera */
+}
+
+/* Touch-action utilities for horizontal carousels */
+.touch-pan-x {
+  touch-action: pan-x !important;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+}
+
+/* Prevent images from being draggable */
+.no-drag {
+  -webkit-user-drag: none;
+  user-drag: none;
+  -webkit-touch-callout: none;
 }
 

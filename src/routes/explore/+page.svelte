@@ -155,7 +155,7 @@
             {/each}
           </div>
         {:else if collections.length > 0}
-          <div class="flex gap-4 overflow-x-auto pb-2 -mx-4 px-4 scrollbar-hide">
+          <div class="flex gap-4 overflow-x-auto pb-2 -mx-4 px-4 scrollbar-hide touch-pan-x">
             {#each collections as collection}
               <CollectionCard
                 title={collection.title}
@@ -184,7 +184,7 @@
             {/each}
           </div>
         {:else if popularCooks.length > 0}
-          <div class="flex gap-4 overflow-x-auto pb-2 -mx-4 px-4 scrollbar-hide">
+          <div class="flex gap-4 overflow-x-auto pb-2 -mx-4 px-4 scrollbar-hide touch-pan-x">
             {#each popularCooks as cook}
               <ProfileAvatar pubkey={cook.pubkey} showZapIndicator={false} />
             {/each}
@@ -205,7 +205,7 @@
             {/each}
           </div>
         {:else if discoverRecipes.length > 0}
-          <div class="flex gap-4 overflow-x-auto pb-2 -mx-4 px-4 scrollbar-hide">
+          <div class="flex gap-4 overflow-x-auto pb-2 -mx-4 px-4 scrollbar-hide touch-pan-x">
             {#each discoverRecipes.filter(r => r && r.author?.pubkey) as recipe (recipe.id || recipe.created_at)}
               <TrendingRecipeCard event={recipe} />
             {/each}

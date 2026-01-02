@@ -1502,6 +1502,48 @@ import ClientAttribution from './ClientAttribution.svelte';
     }
   }
 
+  // Track touch start position to detect swipe direction
+  let touchStartX = 0;
+  let touchStartY = 0;
+  let touchStartTime = 0;
+
+  function handleCarouselTouchStart(e: TouchEvent) {
+    touchStartX = e.touches[0].clientX;
+    touchStartY = e.touches[0].clientY;
+    touchStartTime = Date.now();
+  }
+
+  function handleCarouselTouchMove(e: TouchEvent) {
+    if (!touchStartX || !touchStartY || e.touches.length === 0) return;
+    
+    const touchX = e.touches[0].clientX;
+    const touchY = e.touches[0].clientY;
+    const deltaX = Math.abs(touchX - touchStartX);
+    const deltaY = Math.abs(touchY - touchStartY);
+    
+    // Lower threshold for early detection - if vertical movement is detected early, bail out immediately
+    // This prevents the carousel from "grabbing" vertical scroll gestures
+    if (deltaY > 8 && deltaY > deltaX * 1.5) {
+      // Clear vertical intent detected - reset and let parent handle scroll
+      touchStartX = 0;
+      touchStartY = 0;
+      return;
+    }
+    
+    // Only prevent default for clear horizontal gestures to allow carousel scrolling
+    // Don't prevent default for vertical or ambiguous gestures - let them pass through
+    if (deltaX > 10 && deltaX > deltaY * 2) {
+      // Clear horizontal intent - allow carousel to scroll
+      e.preventDefault();
+    }
+  }
+
+  function handleCarouselTouchEnd() {
+    touchStartX = 0;
+    touchStartY = 0;
+    touchStartTime = 0;
+  }
+
   function nextSlide(eventId: string, totalSlides: number) {
     carouselStates[eventId] = ((carouselStates[eventId] || 0) + 1) % totalSlides;
     carouselStates = { ...carouselStates };
@@ -1782,23 +1824,30 @@ import ClientAttribution from './ClientAttribution.svelte';
                   <div class="relative rounded-none sm:rounded-lg border-0 sm:border bg-input" style="border-color: var(--color-input-border)">
                     <!-- Swipeable carousel container -->
                     <div 
-                      class="carousel-container flex overflow-x-auto h-48 sm:h-64"
+                      class="carousel-container flex overflow-x-auto snap-x snap-mandatory"
+                      style="touch-action: pan-x; overscroll-behavior-x: contain; -webkit-overflow-scrolling: touch; background-color: #1f2937;"
                       data-carousel-id={event.id}
                       on:scroll={(e) => handleCarouselScroll(e, event.id)}
+                      on:touchstart={handleCarouselTouchStart}
+                      on:touchmove={handleCarouselTouchMove}
+                      on:touchend={handleCarouselTouchEnd}
                     >
                       {#each mediaUrls as imageUrl, index}
-                        <div class="carousel-slide flex-shrink-0 w-full h-full">
+                        <div class="carousel-slide flex-shrink-0 w-full snap-center flex items-center justify-center" style="background-color: #1f2937; min-height: 200px;">
                           {#if isImageUrl(imageUrl)}
                             <button
-                              class="w-full h-full"
+                              class="w-full flex items-center justify-center"
+                              style="touch-action: pan-x; -webkit-tap-highlight-color: transparent; background-color: #1f2937;"
                               on:click={() => openImageModal(imageUrl, mediaUrls, index)}
                             >
                               <img
                                 src={getOptimizedImageUrl(imageUrl)}
                                 alt="Preview"
-                                class="w-full h-full object-cover cursor-pointer hover:opacity-95 transition-opacity"
+                                class="carousel-image cursor-pointer hover:opacity-95 transition-opacity select-none"
+                                style="-webkit-user-drag: none; user-drag: none; -webkit-touch-callout: none; pointer-events: auto;"
                                 loading="lazy"
                                 decoding="async"
+                                draggable="false"
                                 on:error={handleMediaError}
                               />
                             </button>
@@ -1806,8 +1855,10 @@ import ClientAttribution from './ClientAttribution.svelte';
                             <video 
                               src={imageUrl} 
                               controls 
-                              class="w-full h-full object-cover"
+                              class="carousel-image select-none"
+                              style="touch-action: pan-x; -webkit-touch-callout: none; background-color: #1f2937;"
                               preload="metadata"
+                              draggable="false"
                               on:error={handleMediaError}
                             >
                               <track kind="captions" src="" srclang="en" label="English" />
@@ -2010,6 +2061,48 @@ import ClientAttribution from './ClientAttribution.svelte';
 {/if}
 
 <style>
+  /* Carousel touch behavior - prevent vertical scroll interference */
+  .carousel-container {
+    scrollbar-width: none; /* Firefox */
+    -ms-overflow-style: none; /* IE/Edge */
+    touch-action: pan-x !important; /* Only allow horizontal panning, override any inherited touch-action */
+    will-change: scroll-position; /* Optimize scrolling performance */
+    scroll-snap-type: x mandatory;
+  }
+  
+  .carousel-container::-webkit-scrollbar {
+    display: none; /* Chrome/Safari/Opera */
+  }
+  
+  .carousel-slide {
+    touch-action: pan-x !important; /* Ensure slides also only allow horizontal panning */
+    scroll-snap-align: center;
+    scroll-snap-stop: always;
+  }
+  
+  .carousel-slide img,
+  .carousel-slide video,
+  .carousel-slide button {
+    -webkit-touch-callout: none; /* Disable iOS callout */
+    -webkit-user-select: none; /* Prevent text selection */
+    user-select: none;
+    -webkit-user-drag: none; /* Prevent dragging */
+    user-drag: none;
+  }
+  
+  /* Ensure images don't interfere with vertical scrolling */
+  .carousel-slide button {
+    touch-action: pan-x !important;
+  }
+
+  /* Dynamic height carousel images - adapt to aspect ratio */
+  .carousel-image {
+    width: 100%;
+    height: auto;
+    max-height: 70vh;
+    object-fit: contain;
+  }
+
   /* Parent quote embed - always visible */
   .parent-quote-embed {
     padding: 0.5rem 0.75rem;
