@@ -239,7 +239,12 @@
               <div class="absolute inset-0 bg-black/20 flex items-center justify-center">
                 <PlayIcon size={24} class="text-white" weight="fill" />
               </div>
-              <video src={media} class="w-full h-full object-cover" />
+              <video
+                src={media}
+                class="w-full h-full object-cover"
+                aria-label={`Additional media video ${actualIndex + 1}`}
+                title={`Additional media video ${actualIndex + 1}`}
+              />
             {:else}
               <img src={media} alt="Media {actualIndex}" class="w-full h-full object-cover" />
             {/if}
