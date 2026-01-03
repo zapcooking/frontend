@@ -787,8 +787,8 @@
                   <!-- Image upload button -->
                   <label
                     class="cursor-pointer p-1.5 rounded-full hover:bg-accent-gray transition-colors"
-                    class:opacity-50={posting || uploadingImage}
-                    class:cursor-not-allowed={posting || uploadingImage}
+                    class:opacity-50={posting || uploadingImage || uploadingVideo}
+                    class:cursor-not-allowed={posting || uploadingImage || uploadingVideo}
                     aria-disabled={posting || uploadingImage}
                     title="Upload image"
                   >
