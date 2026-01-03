@@ -9,7 +9,7 @@
   import AddIcon from 'phosphor-svelte/lib/Plus';
   import SignOutIcon from 'phosphor-svelte/lib/SignOut';
   import SearchIcon from 'phosphor-svelte/lib/MagnifyingGlass';
-  import BookmarkIcon from 'phosphor-svelte/lib/Bookmark';
+  import CookbookIcon from 'phosphor-svelte/lib/BookOpen';
   import FloppyDiskIcon from 'phosphor-svelte/lib/FloppyDisk';
   import SunIcon from 'phosphor-svelte/lib/Sun';
   import MoonIcon from 'phosphor-svelte/lib/Moon';
@@ -173,9 +173,9 @@
                   <UserIcon class="self-center" size={18} />
                   Profile
                 </button>
-                <button class="flex gap-2 cursor-pointer hover:text-primary whitespace-nowrap" on:click={() => { dropdownActive = false; goto('/bookmarks'); }}>
-                  <BookmarkIcon class="self-center" size={18} />
-                  Bookmarks
+                <button class="flex gap-2 cursor-pointer hover:text-primary whitespace-nowrap" on:click={() => { dropdownActive = false; goto('/cookbook'); }}>
+                  <CookbookIcon class="self-center" size={18} />
+                  Cookbook
                 </button>
                 <button class="flex gap-2 cursor-pointer hover:text-primary whitespace-nowrap" on:click={() => { dropdownActive = false; goto(`/user/${nip19.npubEncode($userPublickey)}?tab=drafts`); }}>
                   <FloppyDiskIcon class="self-center" size={18} />

@@ -21,7 +21,6 @@
   import { requestProvider } from 'webln';
   import ProfileEditModal from '../../../components/ProfileEditModal.svelte';
   import ParsedBio from '../../../components/ParsedBio.svelte';
-  import ProfileLists from '../../../components/ProfileLists.svelte';
   import ProfileDrafts from '../../../components/ProfileDrafts.svelte';
   import Modal from '../../../components/Modal.svelte';
   import FoodstrFeedOptimized from '../../../components/FoodstrFeedOptimized.svelte';
@@ -41,8 +40,8 @@
   let loaded = false;
   let zapModal = false;
   
-  // Tab state: 'recipes' | 'posts' | 'lists' | 'drafts'
-  let activeTab: 'recipes' | 'posts' | 'lists' | 'drafts' = 'recipes';
+  // Tab state: 'recipes' | 'posts' | 'drafts'
+  let activeTab: 'recipes' | 'posts' | 'drafts' = 'recipes';
   
   // Infinite scroll state for recipes
   let hasMoreRecipes = true;
@@ -85,7 +84,7 @@
   // Handle ?tab= query parameter for direct tab navigation
   $: {
     const tabParam = $page.url.searchParams.get('tab');
-    const allowedTabs = new Set(['recipes', 'posts', 'lists', 'drafts']);
+    const allowedTabs = new Set(['recipes', 'posts', 'drafts']);
 
     if (tabParam && allowedTabs.has(tabParam)) {
       // Only allow "drafts" tab for the profile owner
@@ -96,6 +95,10 @@
       } else {
         activeTab = tabParam as any;
       }
+    }
+    // Redirect old 'lists' tab to cookbook
+    if (tabParam === 'lists') {
+      goto('/cookbook');
     }
   }
 
@@ -1031,16 +1034,6 @@
             <span class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-orange-500 to-amber-500"></span>
           {/if}
         </button>
-        <button
-          on:click={() => (activeTab = 'lists')}
-          class="px-4 py-2 text-sm font-medium transition-colors relative"
-          style="color: {activeTab === 'lists' ? 'var(--color-text-primary)' : 'var(--color-text-secondary)'}"
-        >
-          Lists
-          {#if activeTab === 'lists'}
-            <span class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-orange-500 to-amber-500"></span>
-          {/if}
-        </button>
         {#if $userPublickey && $userPublickey === hexpubkey}
           <button
             on:click={() => (activeTab = 'drafts')}
@@ -1079,8 +1072,6 @@
           <!-- FoodstrFeedOptimized handles its own loading state -->
         </div>
       </div>
-    {:else if activeTab === 'lists'}
-      <ProfileLists {hexpubkey} />
     {:else if activeTab === 'drafts'}
       {#if $userPublickey === hexpubkey}
         <ProfileDrafts />
