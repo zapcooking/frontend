@@ -135,14 +135,20 @@
 <svelte:head>
   <title>{fullPageTitle || 'Recipe - zap.cooking'}</title>
   <meta name="description" content={og_description} />
-  <meta property="og:url" content={`https://zap.cooking/r/${$page.params.naddr}`} />
+  
+  <!-- Open Graph / Facebook -->
   <meta property="og:type" content="article" />
+  <meta property="og:url" content={`https://zap.cooking/r/${$page.params.naddr}`} />
   <meta property="og:title" content={og_title} />
   <meta property="og:description" content={og_description} />
   <meta property="og:image" content={og_image} />
+  <meta property="og:image:secure_url" content={og_image} />
+  <meta property="og:image:type" content="image/jpeg" />
+  <meta property="og:site_name" content="Zap Cooking" />
+  
+  <!-- Twitter -->
   <meta name="twitter:card" content="summary_large_image" />
-  <meta property="twitter:domain" content="zap.cooking" />
-  <meta property="twitter:url" content={`https://zap.cooking/r/${$page.params.naddr}`} />
+  <meta name="twitter:url" content={`https://zap.cooking/r/${$page.params.naddr}`} />
   <meta name="twitter:title" content={og_title} />
   <meta name="twitter:description" content={og_description} />
   <meta name="twitter:image" content={og_image} />
