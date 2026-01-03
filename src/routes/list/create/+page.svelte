@@ -7,6 +7,7 @@
   import ImagesComboBox from '../../../components/ImagesComboBox.svelte';
   import { writable, type Writable } from 'svelte/store';
   import { onMount } from 'svelte';
+  import { RECIPE_TAG_PREFIX_NEW } from '$lib/consts';
 
   let title = '';
   let images: Writable<string[]> = writable([]);
@@ -26,7 +27,7 @@
       event.kind = 30001;
       event.tags.push(['d', title.toLowerCase().replaceAll(' ', '-')]);
       event.tags.push(['title', title]);
-      event.tags.push(['t', 'nostrcooking']);
+      event.tags.push(['t', RECIPE_TAG_PREFIX_NEW]);
       if (summary !== '') {
         event.tags.push(['summary', summary]);
       }

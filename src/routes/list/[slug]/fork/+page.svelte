@@ -10,6 +10,7 @@
   import ListComboBox from '../../../../components/ListComboBox.svelte';
   import Button from '../../../../components/Button.svelte';
   import ImagesComboBox from '../../../../components/ImagesComboBox.svelte';
+  import { RECIPE_TAG_PREFIX_NEW, RECIPE_TAGS } from '$lib/consts';
 
   $: {
     if ($page.params.slug) {
@@ -121,7 +122,7 @@
       const nevent = new NDKEvent($ndk);
       nevent.kind = 30001;
       if (!event.tags.find((t) => t[0] == 'd' && t[1] == 'nostrcooking-bookmarks')) {
-        nevent.tags.push(['t', 'nostrcooking']);
+        nevent.tags.push(['t', RECIPE_TAG_PREFIX_NEW]);
         nevent.tags.push(['d', title.toLowerCase().replaceAll(' ', '-')]);
       } else {
         nevent.tags.push(['d', 'nostrcooking-bookmarks']);

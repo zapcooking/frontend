@@ -23,7 +23,7 @@
   import { nip19 } from 'nostr-tools';
   import Modal from '../Modal.svelte';
   import AuthorProfile from '../AuthorProfile.svelte';
-  import { recipeTags, type recipeTagSimple } from '$lib/consts';
+  import { recipeTags, type recipeTagSimple, RECIPE_TAGS, RECIPE_TAG_PREFIX_NEW } from '$lib/consts';
   import { onMount } from 'svelte';
   import { resolveProfileByPubkey } from '$lib/profileResolver';
   import { buildCanonicalRecipeShareUrl } from '$lib/utils/share';
@@ -92,7 +92,7 @@ async function getLists(): Promise<NDKEvent[]> {
         authors: [$userPublickey],
         limit: 256,
         kinds: [30001],
-        '#t': ['nostrcooking']
+        '#t': RECIPE_TAGS
       },
       {
         '#d': ['nostrcooking-bookmarks'],
@@ -134,7 +134,7 @@ async function getLists(): Promise<NDKEvent[]> {
       let newEvents = currentList.getMatchingTags('a');
       const nevent = new NDKEvent($ndk);
       nevent.kind = 30001;
-      if (toggleListArr[i] !== 'nostrcooking-bookmarks') nevent.tags.push(['t', 'nostrcooking']);
+      if (toggleListArr[i] !== 'nostrcooking-bookmarks') nevent.tags.push(['t', RECIPE_TAG_PREFIX_NEW]);
       nevent.tags.push(['d', toggleListArr[i]]);
       nevent.tags.push(['title', currentList.getMatchingTags('title')[0][1]]);
       const summary = currentList.getMatchingTags('summary');

@@ -27,6 +27,12 @@ export const DEFAULT_PROFILE_IMAGE = 'https://zap.cooking/default-pfp.jpg';
 export const CLIENT_TAG_IDENTIFIER = 'zap.cooking';
 export const CLIENT_DISPLAY_NAME = 'Zap Cooking';
 
+// Recipe tag prefixes
+// New recipes use 'zapcooking', old recipes use 'nostrcooking' for backward compatibility
+export const RECIPE_TAG_PREFIX_NEW = 'zapcooking';
+export const RECIPE_TAG_PREFIX_LEGACY = 'nostrcooking';
+export const RECIPE_TAGS = [RECIPE_TAG_PREFIX_NEW, RECIPE_TAG_PREFIX_LEGACY]; // For filtering (supports both)
+
 export const recipeTags: recipeTagSimple[] = [
   { title: 'Alcohol', emoji: '🍸' },
   { title: 'Almond' },

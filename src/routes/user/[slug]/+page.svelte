@@ -22,12 +22,15 @@
   import ProfileEditModal from '../../../components/ProfileEditModal.svelte';
   import ParsedBio from '../../../components/ParsedBio.svelte';
   import ProfileLists from '../../../components/ProfileLists.svelte';
+  import ProfileDrafts from '../../../components/ProfileDrafts.svelte';
   import Modal from '../../../components/Modal.svelte';
   import FoodstrFeedOptimized from '../../../components/FoodstrFeedOptimized.svelte';
+  import FloppyDiskIcon from 'phosphor-svelte/lib/FloppyDisk';
   import type { PageData } from './$types';
   import { onMount, onDestroy } from 'svelte';
   import { Fetch } from 'hurdak';
   import { profileCacheManager } from '$lib/profileCache';
+  import { RECIPE_TAGS } from '$lib/consts';
 
   export const data: PageData = {} as PageData;
 
@@ -38,8 +41,8 @@
   let loaded = false;
   let zapModal = false;
   
-  // Tab state: 'recipes' | 'posts' | 'lists'
-  let activeTab: 'recipes' | 'posts' | 'lists' = 'recipes';
+  // Tab state: 'recipes' | 'posts' | 'lists' | 'drafts'
+  let activeTab: 'recipes' | 'posts' | 'lists' | 'drafts' = 'recipes';
   
   // Infinite scroll state for recipes
   let hasMoreRecipes = true;
@@ -76,6 +79,23 @@
   $: {
     if ($page.params.slug) {
       loadData();
+    }
+  }
+
+  // Handle ?tab= query parameter for direct tab navigation
+  $: {
+    const tabParam = $page.url.searchParams.get('tab');
+    const allowedTabs = new Set(['recipes', 'posts', 'lists', 'drafts']);
+
+    if (tabParam && allowedTabs.has(tabParam)) {
+      // Only allow "drafts" tab for the profile owner
+      if (tabParam === 'drafts') {
+        if ($userPublickey && $userPublickey === hexpubkey) {
+          activeTab = 'drafts';
+        }
+      } else {
+        activeTab = tabParam as any;
+      }
     }
   }
 
@@ -150,7 +170,7 @@
           authors: [hexpubkey],
           limit: 20,
           kinds: [30023],
-          '#t': ['nostrcooking']
+          '#t': RECIPE_TAGS
         };
 
         let subscription = $ndk.subscribe(filter);
@@ -336,7 +356,7 @@
         authors: [hexpubkey],
         limit: 20,
         kinds: [30023],
-        '#t': ['nostrcooking'],
+        '#t': RECIPE_TAGS,
         until: oldestRecipeTime - 1
       };
 
@@ -1021,6 +1041,19 @@
             <span class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-orange-500 to-amber-500"></span>
           {/if}
         </button>
+        {#if $userPublickey && $userPublickey === hexpubkey}
+          <button
+            on:click={() => (activeTab = 'drafts')}
+            class="px-4 py-2 text-sm font-medium transition-colors relative flex items-center gap-1"
+            style="color: {activeTab === 'drafts' ? 'var(--color-text-primary)' : 'var(--color-text-secondary)'}"
+          >
+            <FloppyDiskIcon size={16} />
+            Drafts
+            {#if activeTab === 'drafts'}
+              <span class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-orange-500 to-amber-500"></span>
+            {/if}
+          </button>
+        {/if}
       </div>
     </div>
 
@@ -1046,8 +1079,22 @@
           <!-- FoodstrFeedOptimized handles its own loading state -->
         </div>
       </div>
-    {:else}
+    {:else if activeTab === 'lists'}
       <ProfileLists {hexpubkey} />
+    {:else if activeTab === 'drafts'}
+      {#if $userPublickey === hexpubkey}
+        <ProfileDrafts />
+      {:else}
+        <!-- Non-owners cannot view drafts; fall back to recipes content -->
+        <Feed {events} {loaded} isProfileView={true} isOwnProfile={$userPublickey === hexpubkey} />
+        {#if hasMoreRecipes}
+          <div bind:this={recipeSentinel} class="py-4 text-center">
+            {#if loadingMoreRecipes}
+              <div class="text-gray-500 text-sm">Loading more recipes...</div>
+            {/if}
+          </div>
+        {/if}
+      {/if}
     {/if}
   </div>
 </div>
