@@ -58,6 +58,8 @@
             <div 
               class="w-full h-32 rounded-lg bg-cover bg-center"
               style="background-image: url('{draft.images[0]}')"
+              role="img"
+              aria-label={`Preview image for ${draft.title || 'Untitled Draft'}`}
             />
           {:else}
             <div 
