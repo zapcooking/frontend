@@ -187,12 +187,11 @@
     } catch (err) {
       console.error('error while publishing', err);
       resultMessage = 'Error: Something went wrong, Error: ' + String(err);
-      disablePublishButton = false;
     } finally {
       if (resultMessage == 'Processing...') {
         resultMessage = ' ';
-        disablePublishButton = false;
       }
+      disablePublishButton = false;
     }
   }
 </script>
