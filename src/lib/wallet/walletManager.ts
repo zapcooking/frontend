@@ -30,6 +30,7 @@ import {
 	createNwcInvoice,
 	lookupNwcInvoice,
 	isNwcConnected,
+	isNwcConnectedTo,
 	getNwcDisplayName,
 	getNwcInfo,
 	listNwcTransactions,
@@ -174,9 +175,11 @@ async function ensureWalletConnected(wallet: Wallet): Promise<boolean> {
 				return true
 
 			case 3: // NWC
-				// Always call connectNwc to ensure we're connected to the correct wallet
-				// (connectNwc handles the case where we're already connected to the same wallet)
+				// Check if already connected to the correct wallet to avoid reconnection attempts
 				if (wallet.data) {
+					if (isNwcConnectedTo(wallet.data)) {
+						return true
+					}
 					await connectNwc(wallet.data)
 					return true
 				}
@@ -640,10 +643,14 @@ export function clearPendingTransactions(): void {
 
 /**
  * Get payment history from the active wallet
+ * @param options.limit Maximum number of transactions to return
+ * @param options.offset Pagination offset
+ * @param options.daysBack For Spark: limit history to N days (default: 30, 0 = all history)
  */
 export async function getPaymentHistory(options: {
 	limit?: number
 	offset?: number
+	daysBack?: number
 } = {}): Promise<{ transactions: Transaction[]; hasMore: boolean }> {
 	const wallet = getActiveWallet()
 
@@ -660,6 +667,7 @@ export async function getPaymentHistory(options: {
 
 	const limit = options.limit || 10
 	const offset = options.offset || 0
+	const daysBack = options.daysBack ?? 30 // Default 30 days for Spark
 
 	try {
 		switch (wallet.kind) {
@@ -678,7 +686,7 @@ export async function getPaymentHistory(options: {
 				}
 
 			case 4: // Spark
-				const sparkPayments = await listSparkPayments(offset, limit)
+				const sparkPayments = await listSparkPayments(offset, limit, daysBack)
 				const recentFromEvents = get(recentSparkPayments)
 
 				// Merge and deduplicate (event payments take priority)

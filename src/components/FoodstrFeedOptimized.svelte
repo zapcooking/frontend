@@ -1524,7 +1524,7 @@ import ClientAttribution from './ClientAttribution.svelte';
     // Lower threshold for early detection - if vertical movement is detected early, bail out immediately
     // This prevents the carousel from "grabbing" vertical scroll gestures
     if (deltaY > 8 && deltaY > deltaX * 1.5) {
-      // Clear clear vertical intent detected - reset and let parent handle scroll
+      // Clear vertical intent detected - reset and let parent handle scroll
       touchStartX = 0;
       touchStartY = 0;
       return;

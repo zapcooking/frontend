@@ -903,6 +903,65 @@ Before any wallet changes, verify:
 - [ ] Wallet deletion works with confirmation
 - [ ] Restore order: Nostr Backup → Backup File → Recovery Phrase
 
+## Known Issues
+
+### Spark Wallet - Stale Transaction History (Intermittent)
+**Status**: Under investigation - deferred to future build
+**Symptom**: Breez/Spark wallet occasionally shows stale/old transaction data in history on initial load.
+**Potential Cause**: The SDK's `listPayments()` returns all historical transactions from IndexedDB storage.
+
+**Attempted Fix (disabled)**: Added `fromTimestamp` filter to limit history to recent transactions.
+- The SDK supports `fromTimestamp` in `ListPaymentsRequest`
+- However, enabling this caused transactions to not appear until sync completed (~1 minute delay)
+- Filter code exists but is disabled pending further investigation
+
+**Future Work**:
+1. Investigate SDK sync timing - transactions take 1+ minute to appear after restore
+2. Consider client-side filtering after fetch instead of SDK-level filter
+3. Add loading states to better communicate sync progress to users
+
+```typescript
+// spark/index.ts - fromTimestamp filter (currently DISABLED)
+// SDK supports: fromTimestamp, toTimestamp, typeFilter, statusFilter
+const request = { offset, limit, fromTimestamp: thirtyDaysAgo }
+await _sdkInstance.listPayments(request)
+```
+
+### NWC Wallet - Restore from Nostr (FIXED)
+**Status**: Fixed in `nwc-safari-fix` branch
+**Root Cause**: Multiple TDZ (Temporal Dead Zone) errors in `nwc.ts`:
+1. `isNwcConnectedTo()` called before defined in `connectNwc()`
+2. `cleanup()` referencing `onConnect`/`onDisconnect` before defined in `waitForRelayConnection()`
+**Fix**: Inlined checks and reordered variable declarations to avoid TDZ.
+
+---
+
+## TDZ (Temporal Dead Zone) Prevention - CRITICAL
+
+JavaScript bundlers convert `export function foo()` to `const foo = () => {}` which are NOT hoisted. Functions must be defined BEFORE they are called in file order.
+
+**Pattern to Avoid**:
+```typescript
+// BAD - causes "Cannot access uninitialized variable" error
+export async function connectNwc() {
+  if (isNwcConnectedTo(url)) { ... }  // Called before defined!
+}
+export function isNwcConnectedTo() { ... }  // Defined after use
+```
+
+**Safe Pattern**:
+```typescript
+// GOOD - inline the check
+export async function connectNwc() {
+  // Inline check instead of calling function defined later
+  if (currentUrl === url && secret !== null && relay?.status === 1) { ... }
+}
+```
+
+This affected the Safari iOS NWC fixes in `nwc.ts`.
+
+---
+
 ## Common Issues
 
 ### "Relay connection timeout"
