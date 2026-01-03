@@ -19,7 +19,7 @@
 
   // Check if URL is a video
   function isVideo(url: string): boolean {
-    return /\.(mp4|webm|mov|avi)$/i.test(url) || url.includes('video');
+    return /\.(mp4|webm|mov|avi)$/i.test(url);
   }
 
   // Upload to nostr.build
