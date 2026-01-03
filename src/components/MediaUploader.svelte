@@ -241,12 +241,12 @@
               </div>
               <video src={media} class="w-full h-full object-cover" />
             {:else}
-              <img src={media} alt="Media {actualIndex + 1}" class="w-full h-full object-cover" />
+              <img src={media} alt="Media {actualIndex}" class="w-full h-full object-cover" />
             {/if}
             
             <!-- Number badge -->
             <div class="absolute bottom-1 left-1 bg-black/60 text-white text-xs font-bold w-5 h-5 rounded flex items-center justify-center">
-              {actualIndex + 1}
+              {actualIndex}
             </div>
             
             <!-- Remove button -->
