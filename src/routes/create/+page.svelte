@@ -65,6 +65,16 @@
       additionalMarkdown = draft.additionalMarkdown;
       draftSaveMessage = 'Draft loaded';
       setTimeout(() => { draftSaveMessage = ''; }, 2000);
+    } else {
+      // Draft not found: clear current draft state and URL param, and show an error message.
+      currentDraftId = null;
+      draftSaveMessage = 'Draft not found';
+      if (browser) {
+        const url = new URL(window.location.href);
+        url.searchParams.delete('draft');
+        window.history.replaceState({}, '', url.toString());
+      }
+      setTimeout(() => { draftSaveMessage = ''; }, 2000);
     }
   }
 
