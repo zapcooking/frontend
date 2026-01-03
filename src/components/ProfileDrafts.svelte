@@ -107,6 +107,7 @@
               on:click={() => handleDeleteDraft(draft.id, draft.title)}
               class="p-2 rounded-lg hover:bg-red-500/10 text-red-500 transition-colors cursor-pointer"
               title="Delete draft"
+              aria-label={`Delete draft ${draft.title || 'Untitled Draft'}`}
             >
               <TrashIcon size={20} />
             </button>
