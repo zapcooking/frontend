@@ -273,29 +273,22 @@
     <MediaUploader uploadedImages={images} />
   </div>
 
-  <div class="flex justify-between items-center">
-    <div class="text-sm text-caption">
-      {#if !canPublish}
-        Fill in title, tags, ingredients, directions, and add an image to share
-      {/if}
-      {#if draftSaveMessage}
-        <span class="text-green-500 ml-2">{draftSaveMessage}</span>
-      {/if}
-    </div>
-    <div class="flex items-center gap-2">
-      <span class={resultMessage.includes('Error') ? 'text-red-500' : resultMessage.includes('Success') ? 'text-green-500' : ''}>
-        {resultMessage}
-      </span>
-      <button 
-        type="button" 
-        on:click={handleSaveDraft}
-        class="flex items-center gap-2 px-4 py-2 rounded-lg bg-input hover:bg-accent-gray transition-colors cursor-pointer"
-        title="Save as draft"
-      >
-        <FloppyDiskIcon size={18} />
-        <span>Save Draft</span>
-      </button>
-      <Button disabled={disablePublishButton || !canPublish} type="submit">Share Recipe</Button>
-    </div>
+  <div class="flex justify-end items-center gap-2">
+    {#if draftSaveMessage}
+      <span class="text-sm text-green-500">{draftSaveMessage}</span>
+    {/if}
+    <span class={resultMessage.includes('Error') ? 'text-red-500' : resultMessage.includes('Success') ? 'text-green-500' : ''}>
+      {resultMessage}
+    </span>
+    <button 
+      type="button" 
+      on:click={handleSaveDraft}
+      class="flex items-center gap-2 px-4 py-2 rounded-lg bg-input hover:bg-accent-gray transition-colors cursor-pointer"
+      title="Save as draft"
+    >
+      <FloppyDiskIcon size={18} />
+      <span>Save Draft</span>
+    </button>
+    <Button disabled={disablePublishButton || !canPublish} type="submit">Share Recipe</Button>
   </div>
 </form>
