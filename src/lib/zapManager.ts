@@ -1,7 +1,6 @@
 import { NDKEvent, NDKPrivateKeySigner, NDKUser } from '@nostr-dev-kit/ndk';
 import NDK from '@nostr-dev-kit/ndk';
 import { bech32 } from 'bech32';
-import { requestProvider } from 'webln';
 import { resolveProfileByPubkey } from './profileResolver';
 import { AuthManager, getAuthManager } from './authManager';
 import { generateSecretKey } from 'nostr-tools';
@@ -34,36 +33,14 @@ export interface LNURLPayRequest {
 export interface LNURLPayResponse {
   pr: string;
   routes: any[];
+  verify?: string;
 }
 
 export class ZapManager {
   private ndk: NDK;
-  private webln: any = null;
-  private weblnAvailable = false;
 
   constructor(ndk: NDK) {
     this.ndk = ndk;
-    // Only initialize WebLN in browser environment
-    if (typeof window !== 'undefined') {
-      this.initializeWebLN().catch(error => {
-        console.log('WebLN not available:', error.message);
-      });
-    }
-  }
-
-  private async initializeWebLN() {
-    try {
-      if (typeof window !== 'undefined' && (window as any).webln) {
-        this.webln = (window as any).webln;
-        this.weblnAvailable = true;
-      } else if (typeof window !== 'undefined') {
-        this.webln = await requestProvider();
-        this.weblnAvailable = true;
-      }
-    } catch (error) {
-      console.log('WebLN not available:', error);
-      this.weblnAvailable = false;
-    }
   }
 
   /**
@@ -268,10 +245,14 @@ export class ZapManager {
       }
 
       console.log('Invoice generated successfully:', data.pr.substring(0, 50) + '...');
+      if (data.verify) {
+        console.log('Verify URL available:', data.verify);
+      }
 
       return {
         pr: data.pr,
-        routes: data.routes || []
+        routes: data.routes || [],
+        verify: data.verify
       };
     } catch (error) {
       console.error('Error in callback request:', error);
@@ -292,7 +273,7 @@ export class ZapManager {
     amount: number,
     comment?: string,
     eventId?: string
-  ): Promise<{ invoice: string; zapRequest: NDKEvent; zapPubkey: string }> {
+  ): Promise<{ invoice: string; verify?: string; zapRequest: NDKEvent; zapPubkey: string }> {
     // Check if user is authenticated (required for zap requests)
     if (!this.ndk.signer) {
       throw new Error('User must be authenticated to create zap requests. Please log in first.');
@@ -403,42 +384,10 @@ export class ZapManager {
 
     return {
       invoice: invoiceResponse.pr,
+      verify: invoiceResponse.verify,
       zapRequest,
       zapPubkey: zapPubkey // Return the pubkey used for the zap request
     };
-  }
-
-  /**
-   * Pay with WebLN if available
-   */
-  async payWithWebLN(invoice: string): Promise<{ preimage: string }> {
-    console.log('Attempting WebLN payment...');
-    console.log('WebLN available:', this.weblnAvailable);
-    console.log('WebLN instance:', !!this.webln);
-    
-    if (!this.weblnAvailable || !this.webln) {
-      throw new Error('WebLN not available');
-    }
-
-    console.log('WebLN enabled:', this.webln.enabled);
-    if (this.webln.enabled === false) {
-      throw new Error('WebLN is not enabled. Please enable it in your Lightning wallet.');
-    }
-
-    try {
-      console.log('Sending payment with WebLN...');
-      const result = await this.webln.sendPayment(invoice);
-      console.log('WebLN payment result:', result);
-      
-      if (!result || !result.preimage) {
-        throw new Error('Payment failed: no preimage returned');
-      }
-
-      return { preimage: result.preimage };
-    } catch (error) {
-      console.error('WebLN payment error:', error);
-      throw new Error(`WebLN payment failed: ${error}`);
-    }
   }
 
   /**
@@ -488,9 +437,13 @@ export class ZapManager {
     onReceipt?: (receipt: NDKEvent) => void,
     timeoutMs: number = 30000 // 30 second timeout
   ) {
+    // Only get events from the last minute to avoid processing old receipts
+    const since = Math.floor(Date.now() / 1000) - 60;
+
     const filter: any = {
       kinds: [9735],
-      '#p': [pubkey]
+      '#p': [pubkey],
+      since
     };
 
     if (eventId) {
@@ -513,47 +466,18 @@ export class ZapManager {
     }, timeoutMs);
     
     subscription.on('event', async (receipt: NDKEvent) => {
-      console.log('Received zap receipt event:', receipt);
-      console.log('Receipt tags:', receipt.tags);
-      console.log('Receipt created_at:', receipt.created_at);
-      console.log('Current timestamp:', Math.floor(Date.now() / 1000));
-      
-      // More lenient validation - just check if it's a zap receipt
-      if (receipt.kind === 9735) {
-        // Additional validation: check if this receipt is recent (within last 5 minutes)
-        const now = Math.floor(Date.now() / 1000);
-        const receiptTime = receipt.created_at;
-        const timeDiff = now - receiptTime;
-        
-        console.log('Receipt time difference:', timeDiff, 'seconds');
-        
-        // Only accept receipts that are very recent (within 5 minutes)
-        // This helps filter out old receipts that might be echoed back
-        if (timeDiff < 300) { // 5 minutes
-          // Additional validation: check if this receipt has payment-related tags
-          // A real zap receipt should have bolt11 or other payment tags
-          const hasBolt11 = receipt.tags.some(tag => tag[0] === 'bolt11');
-          const hasDescription = receipt.tags.some(tag => tag[0] === 'description');
-          const hasPreimage = receipt.tags.some(tag => tag[0] === 'preimage');
-          
-          console.log('Receipt validation:', { hasBolt11, hasDescription, hasPreimage });
-          
-          // A real zap receipt should have at least one payment-related tag
-          if (hasBolt11 || hasDescription || hasPreimage) {
-            console.log('Valid zap receipt received (recent with payment tags)');
-            clearTimeout(timeout);
-            subscription.stop();
-            if (onReceipt) {
-              onReceipt(receipt);
-            }
-          } else {
-            console.log('Received zap receipt lacks payment tags, ignoring');
-          }
-        } else {
-          console.log('Received zap receipt is too old, ignoring (age:', timeDiff, 'seconds)');
+      // With the 'since' filter, we should only receive recent events
+      if (receipt.kind !== 9735) return;
+
+      // Check if this receipt has payment-related tags
+      const hasBolt11 = receipt.tags.some(tag => tag[0] === 'bolt11');
+      const hasDescription = receipt.tags.some(tag => tag[0] === 'description');
+
+      if (hasBolt11 || hasDescription) {
+        console.log('Zap receipt received, forwarding to callback for invoice matching');
+        if (onReceipt) {
+          onReceipt(receipt);
         }
-      } else {
-        console.log('Invalid zap receipt - wrong kind:', receipt.kind);
       }
     });
 
@@ -630,17 +554,4 @@ export class ZapManager {
     }
   }
 
-  /**
-   * Check if WebLN is available
-   */
-  isWebLNAvailable(): boolean {
-    return this.weblnAvailable;
-  }
-
-  /**
-   * Get WebLN instance
-   */
-  getWebLN(): any {
-    return this.webln;
-  }
 }
