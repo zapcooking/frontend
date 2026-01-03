@@ -92,11 +92,44 @@ async function fetchFromRelay(relayUrl: string, identifier: string, pubkey: stri
 					const title = evt.tags?.find((t: string[]) => t[0] === 'title')?.[1] ||
 					              evt.tags?.find((t: string[]) => t[0] === 'd')?.[1] || 'Recipe';
 					const image = evt.tags?.find((t: string[]) => t[0] === 'image')?.[1] || '';
-					const summary = evt.tags?.find((t: string[]) => t[0] === 'summary')?.[1] ||
-					               (evt.content ? evt.content.slice(0, 200) + '...' : '');
+					
+					// Extract description: prefer summary tag, then clean content
+					let description = evt.tags?.find((t: string[]) => t[0] === 'summary')?.[1];
+					if (!description && evt.content) {
+						// Clean markdown and get first meaningful text
+						let text = evt.content
+							.replace(/^#+\s+/gm, '') // Remove markdown headers
+							.replace(/\[([^\]]+)\]\([^\)]+\)/g, '$1') // Convert links to text
+							.replace(/!\[([^\]]*)\]\([^\)]+\)/g, '') // Remove images
+							.replace(/\*\*([^\*]+)\*\*/g, '$1') // Remove bold
+							.replace(/\*([^\*]+)\*/g, '$1') // Remove italic
+							.replace(/`([^`]+)`/g, '$1') // Remove code
+							.replace(/\n+/g, ' ') // Replace newlines with spaces
+							.trim();
+						
+						// Get first 200 characters, but try to end at a sentence
+						if (text.length > 200) {
+							const truncated = text.slice(0, 200);
+							const lastPeriod = truncated.lastIndexOf('.');
+							const lastExclamation = truncated.lastIndexOf('!');
+							const lastQuestion = truncated.lastIndexOf('?');
+							const lastSentence = Math.max(lastPeriod, lastExclamation, lastQuestion);
+							if (lastSentence > 100) {
+								description = text.slice(0, lastSentence + 1);
+							} else {
+								description = truncated + '...';
+							}
+						} else {
+							description = text;
+						}
+					}
+					
+					if (!description) {
+						description = `A delicious recipe shared on zap.cooking`;
+					}
 
 					clearTimeout(timeout);
-					safeResolve({ title, description: summary, image });
+					safeResolve({ title, description, image });
 				} else if (msg[0] === 'EOSE' && msg[1] === subId) {
 					clearTimeout(timeout);
 					safeResolve(null);
@@ -145,13 +178,28 @@ export const load: PageServerLoad = async ({ params, url }) => {
 
 	// Skip if WebSocket is not available (e.g., some Node.js environments)
 	if (typeof WebSocket === 'undefined') {
-		return { ogMeta: null, naddr };
+		return {
+			ogMeta: {
+				title: 'Recipe - zap.cooking',
+				description: 'A recipe shared on zap.cooking - Food. Friends. Freedom.',
+				image: 'https://zap.cooking/social-share.png'
+			},
+			naddr
+		};
 	}
 
 	try {
 		const decoded = nip19.decode(naddr);
 		if (decoded.type !== 'naddr') {
-			return { ogMeta: null, naddr };
+			// Invalid naddr format, return fallback
+			return {
+				ogMeta: {
+					title: 'Recipe - zap.cooking',
+					description: 'A recipe shared on zap.cooking - Food. Friends. Freedom.',
+					image: 'https://zap.cooking/social-share.png'
+				},
+				naddr
+			};
 		}
 
 		const { identifier, pubkey } = decoded.data;
@@ -168,16 +216,34 @@ export const load: PageServerLoad = async ({ params, url }) => {
 			return {
 				ogMeta: {
 					title: `${metadata.title} - zap.cooking`,
-					description: metadata.description || 'A delicious recipe on zap.cooking',
+					description: metadata.description || 'A delicious recipe shared on zap.cooking',
 					image: metadata.image || 'https://zap.cooking/social-share.png'
 				},
 				naddr
 			};
 		}
+		
+		// Even if metadata fetch failed, provide basic fallback
+		return {
+			ogMeta: {
+				title: 'Recipe - zap.cooking',
+				description: 'A recipe shared on zap.cooking - Food. Friends. Freedom.',
+				image: 'https://zap.cooking/social-share.png'
+			},
+			naddr
+		};
 	} catch (e) {
-		// Log error but don't throw - return null to use fallback meta tags
+		// Log error but don't throw - return fallback meta tags
 		console.error('[OG Meta] Error:', e);
 	}
 
-	return { ogMeta: null, naddr };
+	// Final fallback - at least provide something useful
+	return { 
+		ogMeta: {
+			title: 'Recipe - zap.cooking',
+			description: 'A recipe shared on zap.cooking - Food. Friends. Freedom.',
+			image: 'https://zap.cooking/social-share.png'
+		},
+		naddr 
+	};
 };

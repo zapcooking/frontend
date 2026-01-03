@@ -90,9 +90,42 @@
     ? fullMetaTitle 
     : (data?.ogMeta?.title || 'Recipe - zap.cooking');
   
+  // Better description extraction from event content
   $: og_description = event
-    ? (event.content?.slice(0, 200) + '...' || 'A delicious recipe on zap.cooking')
-    : (data?.ogMeta?.description || 'A delicious recipe on zap.cooking');
+    ? (() => {
+        // Try summary tag first
+        const summary = event.tags?.find((tag) => tag[0] === 'summary')?.[1];
+        if (summary) return summary;
+        
+        // Clean and extract from content
+        if (event.content) {
+          let text = event.content
+            .replace(/^#+\s+/gm, '') // Remove markdown headers
+            .replace(/\[([^\]]+)\]\([^\)]+\)/g, '$1') // Convert links to text
+            .replace(/!\[([^\]]*)\]\([^\)]+\)/g, '') // Remove images
+            .replace(/\*\*([^\*]+)\*\*/g, '$1') // Remove bold
+            .replace(/\*([^\*]+)\*/g, '$1') // Remove italic
+            .replace(/`([^`]+)`/g, '$1') // Remove code
+            .replace(/\n+/g, ' ') // Replace newlines with spaces
+            .trim();
+          
+          if (text.length > 200) {
+            const truncated = text.slice(0, 200);
+            const lastPeriod = truncated.lastIndexOf('.');
+            const lastExclamation = truncated.lastIndexOf('!');
+            const lastQuestion = truncated.lastIndexOf('?');
+            const lastSentence = Math.max(lastPeriod, lastExclamation, lastQuestion);
+            if (lastSentence > 100) {
+              return text.slice(0, lastSentence + 1);
+            } else {
+              return truncated + '...';
+            }
+          }
+          return text || 'A delicious recipe shared on zap.cooking';
+        }
+        return 'A delicious recipe shared on zap.cooking';
+      })()
+    : (data?.ogMeta?.description || 'A recipe shared on zap.cooking - Food. Friends. Freedom.');
   
   $: og_image = event
     ? (event.tags?.find((tag) => tag[0] === 'image')?.[1] || 'https://zap.cooking/social-share.png')
