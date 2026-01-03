@@ -1081,8 +1081,20 @@
       </div>
     {:else if activeTab === 'lists'}
       <ProfileLists {hexpubkey} />
-    {:else if activeTab === 'drafts' && $userPublickey === hexpubkey}
-      <ProfileDrafts />
+    {:else if activeTab === 'drafts'}
+      {#if $userPublickey === hexpubkey}
+        <ProfileDrafts />
+      {:else}
+        <!-- Non-owners cannot view drafts; fall back to recipes content -->
+        <Feed {events} {loaded} isProfileView={true} isOwnProfile={$userPublickey === hexpubkey} />
+        {#if hasMoreRecipes}
+          <div bind:this={recipeSentinel} class="py-4 text-center">
+            {#if loadingMoreRecipes}
+              <div class="text-gray-500 text-sm">Loading more recipes...</div>
+            {/if}
+          </div>
+        {/if}
+      {/if}
     {/if}
   </div>
 </div>
