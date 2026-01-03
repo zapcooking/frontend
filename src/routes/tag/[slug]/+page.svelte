@@ -4,7 +4,7 @@
   import type { NDKEvent, NDKFilter } from '@nostr-dev-kit/ndk';
   import Feed from '../../../components/Feed.svelte';
   import { validateMarkdownTemplate } from '$lib/parser';
-  import { recipeTags } from '$lib/consts';
+  import { recipeTags, RECIPE_TAG_PREFIX_NEW, RECIPE_TAG_PREFIX_LEGACY } from '$lib/consts';
   import { goto } from '$app/navigation';
   import type { PageData } from './$types';
 
@@ -28,10 +28,12 @@
 async function loadData() {
     loaded = false;
     events = [];
+    const tagSlug = $page.params.slug?.toLowerCase().replaceAll(' ', '-') || 'unknown';
+    // Support both legacy and new tag formats for backward compatibility
     let filter: NDKFilter = {
       limit: 256,
       kinds: [30023],
-      '#t': [`nostrcooking-${$page.params.slug?.toLowerCase().replaceAll(' ', '-') || 'unknown'}`]
+      '#t': [`${RECIPE_TAG_PREFIX_LEGACY}-${tagSlug}`, `${RECIPE_TAG_PREFIX_NEW}-${tagSlug}`]
     };
     
     const subscription = $ndk.subscribe(filter);

@@ -12,9 +12,10 @@
   import { writable, type Writable } from 'svelte/store';
   import { nip19, type AddressPointer } from 'nostr-tools';
   import { goto } from '$app/navigation';
-  import ImagesComboBox from '../../../components/ImagesComboBox.svelte';
+  import MediaUploader from '../../../components/MediaUploader.svelte';
   import Button from '../../../components/Button.svelte';
   import MarkdownEditor from '../../../components/MarkdownEditor.svelte';
+  import { RECIPE_TAG_PREFIX_NEW, RECIPE_TAG_PREFIX_LEGACY } from '$lib/consts';
 
   let currentSlug = '';
 
@@ -93,14 +94,20 @@
           images.set([]); // Clear images if none found
         }
         selectedTags.set([]);
+        // Support both legacy (nostrcooking-) and new (zapcooking-) tags when loading
         let tagTags = event.tags.filter(
           (e) =>
             e[0] == 't' &&
-            e[1].startsWith('nostrcooking-') &&
-            e[1].slice(13) !== event.tags.find((a) => a[0] == 'd')?.[1]
+            (e[1].startsWith(`${RECIPE_TAG_PREFIX_LEGACY}-`) || e[1].startsWith(`${RECIPE_TAG_PREFIX_NEW}-`)) &&
+            e[1] !== `${RECIPE_TAG_PREFIX_LEGACY}-${event.tags.find((a) => a[0] == 'd')?.[1]}` &&
+            e[1] !== `${RECIPE_TAG_PREFIX_NEW}-${event.tags.find((a) => a[0] == 'd')?.[1]}`
         );
         tagTags.forEach((t) => {
-          addTag(t[1].slice(13));
+          // Extract tag name by removing either prefix
+          const tagName = t[1].startsWith(`${RECIPE_TAG_PREFIX_NEW}-`) 
+            ? t[1].slice(RECIPE_TAG_PREFIX_NEW.length + 1)
+            : t[1].slice(RECIPE_TAG_PREFIX_LEGACY.length + 1);
+          addTag(tagName);
         });
         if (va.chefNotes) chefsnotes = va.chefNotes;
         if (va.directions) {
@@ -179,7 +186,7 @@
         tempEvent.pubkey = $userPublickey;
         tempEvent.tags.push(['d', title.toLowerCase().replaceAll(' ', '-')]);
         tempEvent.tags.push(['title', title]);
-        tempEvent.tags.push(['t', 'nostrcooking']);
+        tempEvent.tags.push(['t', RECIPE_TAG_PREFIX_NEW]);
         if (summary !== '') {
           tempEvent.tags.push(['summary', summary]);
         }
@@ -192,7 +199,7 @@
           if (t.title) {
             tempEvent.tags.push([
               't',
-              `nostrcooking-${t.title.toLowerCase().replaceAll(' ', '-')}`
+              `${RECIPE_TAG_PREFIX_NEW}-${t.title.toLowerCase().replaceAll(' ', '-')}`
             ]);
           }
         });
@@ -231,8 +238,8 @@
         event.content = md;
         event.tags.push(['d', identifier]);
         event.tags.push(['title', title]);
-        event.tags.push(['t', 'nostrcooking']);
-        event.tags.push(['t', `nostrcooking-${title.toLowerCase().replaceAll(' ', '-')}`]);
+        event.tags.push(['t', RECIPE_TAG_PREFIX_NEW]);
+        event.tags.push(['t', `${RECIPE_TAG_PREFIX_NEW}-${title.toLowerCase().replaceAll(' ', '-')}`]);
         if (summary !== '') {
           event.tags.push(['summary', summary]);
         }
@@ -243,12 +250,11 @@
         }
         $selectedTags.forEach((t) => {
           if (t.title) {
-            event.tags.push(['t', `nostrcooking-${t.title.toLowerCase().replaceAll(' ', '-')}`]);
+            event.tags.push(['t', `${RECIPE_TAG_PREFIX_NEW}-${t.title.toLowerCase().replaceAll(' ', '-')}`]);
           }
         });
         console.log('event to publish:', event);
         let relays = await event.publish();
-        resultMessage = 'Success!';
         relays.forEach((relay) => {
           relay.once('published', () => {
             console.log('published to', relay);
@@ -262,17 +268,25 @@
           pubkey: event.pubkey,
           kind: 30023
         });
+        resultMessage = 'Success! Redirecting to your recipe...';
+        
+        // Clear the preview to show the user it worked
+        previewEvent = undefined;
+        
+        // Redirect to the recipe page
         setTimeout(() => {
           goto(`/recipe/${naddr}`);
-        }, 2500);
+        }, 1500);
+        return; // Don't reset disablePublishButton - keep it disabled until redirect
       }
     } catch (err) {
       console.error('error while publishing', err);
       resultMessage = 'Error: Something went wrong, Error: ' + String(err);
-    } finally {
       disablePublishButton = false;
+    } finally {
       if (resultMessage == 'Processing...') {
         resultMessage = ' ';
+        disablePublishButton = false;
       }
     }
   }
@@ -340,9 +354,9 @@
     <StringComboBox placeholder={'Bake for 30 min'} selected={directionsArray} showIndex={false} />
   </div>
   <div>
-    <h3>Cover Image*</h3>
-    <span class="text-caption">Appears on the recipe card</span>
-    <ImagesComboBox uploadedImages={images} />
+    <h3>Photos & Videos*</h3>
+    <span class="text-caption">First image will be your cover photo</span>
+    <MediaUploader uploadedImages={images} />
   </div>
   <div class="flex justify-end">
     <div>

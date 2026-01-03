@@ -7,6 +7,7 @@
   import type { PageData } from './$types';
   import TagsSearchAutocomplete from '../../components/TagsSearchAutocomplete.svelte';
   import { goto } from '$app/navigation';
+  import { RECIPE_TAGS } from '$lib/consts';
 
   export const data: PageData = {} as PageData;
 
@@ -42,7 +43,7 @@
         return;
       }
       
-      let filter: NDKFilter = { limit: 256, kinds: [30023], '#t': ['nostrcooking'] };
+      let filter: NDKFilter = { limit: 256, kinds: [30023], '#t': RECIPE_TAGS };
       const subscription = $ndk.subscribe(filter);
 
       subscription.on('event', (event: NDKEvent) => {

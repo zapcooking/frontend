@@ -5,6 +5,7 @@ import { validateMarkdownTemplate } from './parser';
 import { profileCacheManager } from './profileCache';
 import { logger } from './logger';
 import { markOnce } from './perf/explorePerf';
+import { RECIPE_TAGS, RECIPE_TAG_PREFIX_NEW, RECIPE_TAG_PREFIX_LEGACY } from './consts';
 
 export type Collection = {
   id: string;
@@ -192,11 +193,11 @@ async function fetchPopularCooksFresh(limit: number): Promise<PopularCook[]> {
       return [];
     }
 
-    // Fetch recent recipes to find active authors
+    // Fetch recent recipes to find active authors (support both legacy and new tags)
     const filter: NDKFilter = {
       limit: 150, // Reduced from 200 for faster response
       kinds: [30023],
-      '#t': ['nostrcooking']
+      '#t': RECIPE_TAGS
     };
 
     const authorCounts = new Map<string, number>();
@@ -318,10 +319,12 @@ export async function fetchCollectionImage(tag: string): Promise<string | undefi
       return undefined;
     }
 
+    const tagSlug = tag.toLowerCase().replaceAll(' ', '-');
+    // Support both legacy and new tag formats for backward compatibility
     const filter: NDKFilter = {
       limit: 5, // Get a few recipes to find one with an image
       kinds: [30023],
-      '#t': [`nostrcooking-${tag.toLowerCase().replaceAll(' ', '-')}`]
+      '#t': [`${RECIPE_TAG_PREFIX_LEGACY}-${tagSlug}`, `${RECIPE_TAG_PREFIX_NEW}-${tagSlug}`]
     };
 
     let imageUrl: string | undefined = undefined;
@@ -463,11 +466,11 @@ export async function fetchTrendingRecipes(limit: number = 12): Promise<NDKEvent
       return [];
     }
 
-    // Fetch a larger set of recent recipes
+    // Fetch a larger set of recent recipes (support both legacy and new tags)
     const filter: NDKFilter = {
       limit: 100, // Fetch more to find the most popular ones
       kinds: [30023],
-      '#t': ['nostrcooking'],
+      '#t': RECIPE_TAGS,
       since: Math.floor(Date.now() / 1000) - (30 * 24 * 60 * 60) // Last 30 days
     };
 
@@ -670,11 +673,11 @@ export async function fetchDiscoverRecipes(
     const threeMonthsAgo = Math.floor(Date.now() / 1000) - (DISCOVER_CONFIG.MAX_AGE_DAYS * 24 * 60 * 60);
     logger.debug(`Fetching recipes since: ${new Date(threeMonthsAgo * 1000).toISOString()}`, 'fetchDiscoverRecipes');
 
-    // Fetch recipes from the last 6 months
+    // Fetch recipes from the last 6 months (support both legacy and new tags)
     const filter: NDKFilter = {
       limit: 200, // Fetch a larger pool for better sampling
       kinds: [30023],
-      '#t': ['nostrcooking'],
+      '#t': RECIPE_TAGS,
       since: threeMonthsAgo
     };
 

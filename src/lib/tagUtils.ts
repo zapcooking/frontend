@@ -1,4 +1,4 @@
-import { recipeTags, type recipeTagSimple, TAG_ALIASES } from './consts';
+import { recipeTags, type recipeTagSimple, TAG_ALIASES, RECIPE_TAGS, RECIPE_TAG_PREFIX_NEW, RECIPE_TAG_PREFIX_LEGACY } from './consts';
 import { ndk } from './nostr';
 import { get } from 'svelte/store';
 import type { NDKFilter } from '@nostr-dev-kit/ndk';
@@ -56,11 +56,11 @@ export async function computePopularTags(limit: number = 8): Promise<TagWithCoun
       return getTagsWithCounts(defaultPopular);
     }
 
-    // Fetch recent recipes to count tag usage
+    // Fetch recent recipes to count tag usage (support both legacy and new tags)
     const filter: NDKFilter = {
       limit: 1000, // Get a good sample
       kinds: [30023],
-      '#t': ['nostrcooking']
+      '#t': RECIPE_TAGS
     };
 
     const tagCounts = new Map<string, number>();
@@ -79,14 +79,21 @@ export async function computePopularTags(limit: number = 8): Promise<TagWithCoun
           markOnce('t3_explore_first_live_event_received');
         }
         eventCount++;
-        // Extract tags from the event
+        // Extract tags from the event (support both legacy and new prefixes)
         const tags = event.tags.filter((t) => 
-          Array.isArray(t) && t[0] === 't' && t[1]?.startsWith('nostrcooking-')
+          Array.isArray(t) && t[0] === 't' && (
+            t[1]?.startsWith(`${RECIPE_TAG_PREFIX_LEGACY}-`) || 
+            t[1]?.startsWith(`${RECIPE_TAG_PREFIX_NEW}-`)
+          )
         );
 
         tags.forEach((tag) => {
           if (Array.isArray(tag) && tag[1]) {
-            const tagName = tag[1].replace('nostrcooking-', '').replace(/-/g, ' ');
+            // Remove either prefix
+            const tagName = tag[1]
+              .replace(`${RECIPE_TAG_PREFIX_NEW}-`, '')
+              .replace(`${RECIPE_TAG_PREFIX_LEGACY}-`, '')
+              .replace(/-/g, ' ');
             // Convert back to title case for matching
             const normalizedTag = normalizeTag(
               tagName.split(' ').map(word => 
