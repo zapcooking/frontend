@@ -949,13 +949,15 @@
                 <span class="hidden xs:inline">Edit Profile</span>
               </button>
             {:else}
-              <button
-                class="p-2 hover:bg-accent-gray rounded-lg transition-colors"
-                on:click={() => (zapModal = true)}
-                aria-label="Zap user"
-              >
-                <LightningIcon size={24} weight="regular" />
-              </button>
+              {#if profile?.lud16 || profile?.lud06}
+                <button
+                  class="p-2 bg-yellow-500 hover:bg-yellow-400 rounded-full transition-colors"
+                  on:click={() => (zapModal = true)}
+                  aria-label="Zap user"
+                >
+                  <LightningIcon size={20} weight="fill" class="text-white" />
+                </button>
+              {/if}
 
               <!-- Follow Button -->
               {#if $userPublickey}
