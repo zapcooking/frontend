@@ -85,8 +85,17 @@
   // Handle ?tab= query parameter for direct tab navigation
   $: {
     const tabParam = $page.url.searchParams.get('tab');
-    if (tabParam === 'drafts' && $userPublickey && $userPublickey === hexpubkey) {
-      activeTab = 'drafts';
+    const allowedTabs = new Set(['recipes', 'posts', 'lists', 'drafts']);
+
+    if (tabParam && allowedTabs.has(tabParam)) {
+      // Only allow "drafts" tab for the profile owner
+      if (tabParam === 'drafts') {
+        if ($userPublickey && $userPublickey === hexpubkey) {
+          activeTab = 'drafts';
+        }
+      } else {
+        activeTab = tabParam as any;
+      }
     }
   }
 
