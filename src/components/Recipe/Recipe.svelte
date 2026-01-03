@@ -8,6 +8,7 @@
   import ShareIcon from 'phosphor-svelte/lib/Share';
   import Button from '../Button.svelte';
   import ShareModal from '../ShareModal.svelte';
+  import SaveButton from '../SaveButton.svelte';
   import { translateOption } from '$lib/state';
   import { translate } from '$lib/translation';
   import { parseMarkdown } from '$lib/parser';
@@ -23,7 +24,7 @@
   import { nip19 } from 'nostr-tools';
   import Modal from '../Modal.svelte';
   import AuthorProfile from '../AuthorProfile.svelte';
-  import { recipeTags, type recipeTagSimple } from '$lib/consts';
+  import { recipeTags, type recipeTagSimple, RECIPE_TAGS, RECIPE_TAG_PREFIX_NEW } from '$lib/consts';
   import { onMount } from 'svelte';
   import { resolveProfileByPubkey } from '$lib/profileResolver';
   import { buildCanonicalRecipeShareUrl } from '$lib/utils/share';
@@ -67,7 +68,6 @@
     // Increment key to force TotalZaps to remount and refetch
     zapRefreshKey++;
   }
-  let bookmarkModal = false;
 
   // Image modal state
   let imageModalOpen = false;
@@ -79,110 +79,6 @@
   let touchStartX = 0;
   let touchEndX = 0;
 
-let listsArr: NDKEvent[] = [];
-async function getLists(): Promise<NDKEvent[]> {
-  return new Promise((resolve) => {
-    if (!$userPublickey) {
-      resolve([]);
-      return;
-    }
-    
-    const filters = [
-      {
-        authors: [$userPublickey],
-        limit: 256,
-        kinds: [30001],
-        '#t': ['nostrcooking']
-      },
-      {
-        '#d': ['nostrcooking-bookmarks'],
-        authors: [$userPublickey],
-        kinds: [30001]
-      }
-    ];
-    
-    if (filters.length === 0) {
-      resolve([]);
-      return;
-    }
-    
-    const sub = $ndk.subscribe(filters, { closeOnEose: true });
-
-    sub.on('event', (event: NDKEvent) => {
-      listsArr.push(event);
-    });
-
-    sub.on('eose', () => {
-      listsArr.sort((a, b) => {
-        if (a.replaceableDTag() == 'nostrcooking-bookmarks') return -1;
-        if (b.replaceableDTag() == 'nostrcooking-bookmarks') return 1;
-        return a.replaceableDTag().localeCompare(b.replaceableDTag());
-      });
-      resolve(listsArr);
-    });
-  });
-}
-
-  // If a list's d id is found here, then modifyLists will make the inverse change to what's there currently.
-  let toggleLists: Set<string> = new Set();
-  let eventsToPublish: NDKEvent[] = [];
-  async function modifyLists() {
-    const toggleListArr = Array.from(toggleLists);
-    for (let i = 0; i < toggleListArr.length; i++) {
-      const currentList = listsArr.find((e) => e.replaceableDTag() === toggleListArr[i]);
-      if (!currentList) break;
-      let newEvents = currentList.getMatchingTags('a');
-      const nevent = new NDKEvent($ndk);
-      nevent.kind = 30001;
-      if (toggleListArr[i] !== 'nostrcooking-bookmarks') nevent.tags.push(['t', 'nostrcooking']);
-      nevent.tags.push(['d', toggleListArr[i]]);
-      nevent.tags.push(['title', currentList.getMatchingTags('title')[0][1]]);
-      const summary = currentList.getMatchingTags('summary');
-      if (summary.length > 0) {
-        nevent.tags.push(['summary', summary[0][1]]);
-      }
-      const image = currentList.getMatchingTags('image');
-      if (image.length > 0) {
-        nevent.tags.push(['image', image[0][1]]);
-      }
-      if (
-        newEvents.find(
-          (t) => t[1] === `${event.kind}:${event.author.pubkey}:${event.replaceableDTag()}`
-        )
-      ) {
-        newEvents.forEach((e) => {
-          if (e[1] === `${event.kind}:${event.author.pubkey}:${event.replaceableDTag()}`) return;
-          nevent.tags.push(['a', e[1]]);
-        });
-      } else {
-        nevent.tags.push(['a', `${event.kind}:${event.author.pubkey}:${event.replaceableDTag()}`]);
-        newEvents.forEach((e) => {
-          nevent.tags.push(['a', e[1]]);
-        });
-      }
-      eventsToPublish.push(nevent);
-    }
-
-    // Add NIP-89 client tag to all events before publishing
-    const { addClientTagToEvent } = await import('$lib/nip89');
-    for (let i = 0; i < eventsToPublish.length; i++) {
-      addClientTagToEvent(eventsToPublish[i]);
-      await eventsToPublish[i].publish();
-    }
-    // clear for next time
-    cleanUpBookmarksModal();
-  }
-
-  function cleanUpBookmarksModal() {
-    listsArr = [];
-    toggleLists.clear();
-    eventsToPublish = [];
-    bookmarkModal = false;
-  }
-  function toggleList(id: string) {
-    if (toggleLists.has(id)) toggleLists.delete(id);
-    else toggleLists.add(id);
-  }
 
   // Image modal functions
   function openImageModal(imageUrl: string, allImages: string[], index: number) {
@@ -269,59 +165,6 @@ async function getLists(): Promise<NDKEvent[]> {
 
 <ShareModal bind:open={shareModal} url={shareUrl} title={recipeTitle} imageUrl={recipeImage} />
 
-<Modal cleanup={cleanUpBookmarksModal} open={bookmarkModal}>
-  <h1 slot="title">Save Recipe</h1>
-  <div class="print:hidden">
-    {#if $userPublickey}
-      {#await getLists()}
-        Loading your Lists...
-      {:then lists}
-        <div class="flex flex-col gap-2">
-          {#each lists as list, index}
-            <div class="flex gap-3 w-full">
-              <input
-                class="self-center"
-                type="checkbox"
-                on:change={() => toggleList(list.replaceableDTag())}
-                checked={list
-                  .getMatchingTags('a')
-                  .find(
-                    (t) =>
-                      t[1] === `${event.kind}:${event.author.pubkey}:${event.replaceableDTag()}`
-                  )
-                  ? true
-                  : false}
-              />
-              <p class="font-semibold">{list.getMatchingTags('title')[0][1]}</p>
-            </div>
-            {#if index === 0}
-              <hr />
-            {/if}
-          {/each}
-        </div>
-      {:catch error}
-        An error occurred {error.messsage}
-      {/await}
-    {:else}
-      <a class="underline" href="/login">You must login to add to your bookmarks.</a>
-    {/if}
-  </div>
-  <div class="flex">
-    <a href="/list/create" target="_blank" class="flex items-center gap-1.5 text-sm grow self-center hover:opacity-80 transition-opacity">
-      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 256 256">
-        <path d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm0,192a88,88,0,1,1,88-88A88.1,88.1,0,0,1,128,216Zm48-88a8,8,0,0,1-8,8H136v32a8,8,0,0,1-16,0V136H88a8,8,0,0,1,0-16h32V88a8,8,0,0,1,16,0v32h32A8,8,0,0,1,176,128Z"></path>
-      </svg>
-      Create a New List
-    </a>
-    <Button
-      class="flex"
-      on:click={async () => {
-        await modifyLists();
-        bookmarkModal = false;
-      }}>Save</Button
-    >
-  </div>
-</Modal>
 
 <article class="max-w-[760px] mx-auto">
   {#if event}
@@ -341,14 +184,7 @@ async function getLists(): Promise<NDKEvent[]> {
 
           <!-- Right: Save button -->
           <div class="flex gap-2">
-            <button
-              on:click={() => (bookmarkModal = true)}
-              class="w-10 h-10 flex items-center justify-center rounded-full bg-primary hover:bg-primary/90 text-white transition duration-200"
-              aria-label="Save recipe"
-              title="Save recipe"
-            >
-              <BookmarkIcon size={20} weight="fill" />
-            </button>
+            <SaveButton {event} size="md" variant="primary" />
           </div>
         </div>
       </div>
@@ -373,14 +209,9 @@ async function getLists(): Promise<NDKEvent[]> {
 
             <!-- Image overlay button (hover only on desktop) -->
             <div class="absolute inset-0 transition-all duration-300 pointer-events-none">
-              <button
-                class="absolute top-4 right-4 bg-primary text-white font-semibold px-4 py-2 rounded-full shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-200 opacity-0 lg:group-hover:opacity-100 pointer-events-auto flex items-center gap-2"
-                on:click|stopPropagation={() => (bookmarkModal = true)}
-                aria-label="Save recipe to list"
-              >
-                <BookmarkIcon size={18} weight="fill" />
-                <span>Save</span>
-              </button>
+              <div class="absolute top-4 right-4 opacity-0 lg:group-hover:opacity-100 pointer-events-auto">
+                <SaveButton {event} size="md" variant="primary" showText={true} />
+              </div>
             </div>
           </div>
         {:else}

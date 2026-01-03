@@ -6,17 +6,18 @@
   import { createMarkdown, validateMarkdownTemplate } from '$lib/parser';
   import { NDKEvent } from '@nostr-dev-kit/ndk';
   import type { recipeTagSimple } from '$lib/consts';
-  import FeedItem from '../../components/RecipeCard.svelte';
   import { browser } from '$app/environment';
   import { goto } from '$app/navigation';
+  import { page } from '$app/stores';
   import { nip19 } from 'nostr-tools';
-  import ImagesComboBox from '../../components/ImagesComboBox.svelte';
+  import MediaUploader from '../../components/MediaUploader.svelte';
   import { addClientTagToEvent } from '$lib/nip89';
   import Button from '../../components/Button.svelte';
   import MarkdownEditor from '../../components/MarkdownEditor.svelte';
   import { onMount } from 'svelte';
-
-  let previewEvent: NDKEvent | undefined = undefined;
+  import { RECIPE_TAG_PREFIX_NEW } from '$lib/consts';
+  import { saveDraft, getDraft, deleteDraft } from '$lib/draftStore';
+  import FloppyDiskIcon from 'phosphor-svelte/lib/FloppyDisk';
 
   let title = '';
   let images: Writable<string[]> = writable([]);
@@ -34,10 +35,76 @@
 
   let resultMessage = ' ';
   let disablePublishButton = false;
+  let currentDraftId: string | null = null;
+  let draftSaveMessage = '';
 
   onMount(() => {
     if ($userPublickey == '') goto('/login');
+    
+    // Check for draft ID in URL
+    const draftId = $page.url.searchParams.get('draft');
+    if (draftId) {
+      loadDraftById(draftId);
+    }
   });
+
+  function loadDraftById(draftId: string) {
+    const draft = getDraft(draftId);
+    if (draft) {
+      currentDraftId = draftId;
+      title = draft.title;
+      images.set(draft.images);
+      selectedTags.set(draft.tags);
+      summary = draft.summary;
+      chefsnotes = draft.chefsnotes;
+      preptime = draft.preptime;
+      cooktime = draft.cooktime;
+      servings = draft.servings;
+      ingredientsArray.set(draft.ingredients);
+      directionsArray.set(draft.directions);
+      additionalMarkdown = draft.additionalMarkdown;
+      draftSaveMessage = 'Draft loaded';
+      setTimeout(() => { draftSaveMessage = ''; }, 2000);
+    } else {
+      // Draft not found: clear current draft state and URL param, and show an error message.
+      currentDraftId = null;
+      draftSaveMessage = 'Draft not found';
+      if (browser) {
+        const url = new URL(window.location.href);
+        url.searchParams.delete('draft');
+        window.history.replaceState({}, '', url.toString());
+      }
+      setTimeout(() => { draftSaveMessage = ''; }, 2000);
+    }
+  }
+
+  function handleSaveDraft() {
+    const draftData = {
+      title,
+      images: $images,
+      tags: $selectedTags,
+      summary,
+      chefsnotes,
+      preptime,
+      cooktime,
+      servings,
+      ingredients: $ingredientsArray,
+      directions: $directionsArray,
+      additionalMarkdown
+    };
+    
+    currentDraftId = saveDraft(draftData, currentDraftId || undefined);
+    draftSaveMessage = 'Draft saved!';
+    
+    // Update URL to include draft ID (without navigation)
+    if (browser) {
+      const url = new URL(window.location.href);
+      url.searchParams.set('draft', currentDraftId);
+      window.history.replaceState({}, '', url.toString());
+    }
+    
+    setTimeout(() => { draftSaveMessage = ''; }, 2000);
+  }
 
   function formatStringArrays() {
     ingredients = '';
@@ -52,49 +119,8 @@
     });
   }
 
-  async function loadPreview() {
-    formatStringArrays();
-    if (browser) {
-      const md = createMarkdown(
-        chefsnotes,
-        preptime,
-        cooktime,
-        servings,
-        ingredients,
-        directions,
-        additionalMarkdown
-      );
-      const va = validateMarkdownTemplate(md);
-      if (typeof va == 'string') {
-        resultMessage = `Error: ${va}`;
-      } else if ($images.length == 0) {
-        resultMessage = `Error: No Image Uploaded`;
-      } else if (va) {
-        previewEvent = new NDKEvent($ndk);
-        previewEvent.kind = 30023;
-        previewEvent.content = md;
-        previewEvent.tags.push(['d', title.toLowerCase().replaceAll(' ', '-')]);
-        previewEvent.tags.push(['title', title]);
-        previewEvent.tags.push(['t', 'nostrcooking']);
-        if (summary !== '') {
-          previewEvent.tags.push(['summary', summary]);
-        }
-        if ($images.length > 0) {
-          for (let i = 0; i < $images.length; i++) {
-            previewEvent.tags.push(['image', $images[i]]);
-          }
-        }
-        $selectedTags.forEach((t) => {
-          if (t.title) {
-            previewEvent?.tags.push([
-              't',
-              `nostrcooking-${t.title.toLowerCase().replaceAll(' ', '-')}`
-            ]);
-          }
-        });
-      }
-    }
-  }
+  // Check if all required fields are filled (for enabling publish button)
+  $: canPublish = $images.length > 0 && title && $selectedTags.length > 0 && $directionsArray.length > 0 && $ingredientsArray.length > 0;
 
   async function publishRecipe() {
     formatStringArrays();
@@ -120,8 +146,8 @@
         event.content = md;
         event.tags.push(['d', title.toLowerCase().replaceAll(' ', '-')]);
         event.tags.push(['title', title]);
-        event.tags.push(['t', 'nostrcooking']);
-        event.tags.push(['t', `nostrcooking-${title.toLowerCase().replaceAll(' ', '-')}`]);
+        event.tags.push(['t', RECIPE_TAG_PREFIX_NEW]);
+        event.tags.push(['t', `${RECIPE_TAG_PREFIX_NEW}-${title.toLowerCase().replaceAll(' ', '-')}`]);
         if (summary !== '') {
           event.tags.push(['summary', summary]);
         }
@@ -132,7 +158,7 @@
         }
         $selectedTags.forEach((t) => {
           if (t.title) {
-            event.tags.push(['t', `nostrcooking-${t.title.toLowerCase().replaceAll(' ', '-')}`]);
+            event.tags.push(['t', `${RECIPE_TAG_PREFIX_NEW}-${t.title.toLowerCase().replaceAll(' ', '-')}`]);
           }
         });
         
@@ -149,24 +175,33 @@
             console.log('publish failed to', relay, err);
           });
         });
-        resultMessage = 'Success!';
         const naddr = nip19.naddrEncode({
           identifier: title.toLowerCase().replaceAll(' ', '-'),
           pubkey: event.author.hexpubkey,
           kind: 30023
         });
+        resultMessage = 'Success! Redirecting to your recipe...';
+        
+        // Delete the draft since it's now published
+        if (currentDraftId) {
+          deleteDraft(currentDraftId);
+          currentDraftId = null;
+        }
+        
+        // Redirect to the recipe page
         setTimeout(() => {
           goto(`/recipe/${naddr}`);
-        }, 2500);
+        }, 1500);
+        return; // Don't reset disablePublishButton - keep it disabled until redirect
       }
     } catch (err) {
       console.error('error while publishing', err);
       resultMessage = 'Error: Something went wrong, Error: ' + String(err);
     } finally {
-      disablePublishButton = false;
       if (resultMessage == 'Processing...') {
         resultMessage = ' ';
       }
+      disablePublishButton = false;
     }
   }
 </script>
@@ -176,7 +211,16 @@
 </svelte:head>
 
 <form on:submit|preventDefault={publishRecipe} class="flex flex-col max-w-[760px] mx-auto gap-6">
-  <h1>Create Recipe</h1>
+  <div class="flex justify-between items-center">
+    <h1>Create Recipe</h1>
+  </div>
+  
+  {#if currentDraftId}
+    <div class="text-sm text-caption">
+      Editing draft • <button type="button" class="underline hover:text-primary cursor-pointer" on:click={() => goto('/create')}>Start fresh</button>
+    </div>
+  {/if}
+
   <div class="flex flex-col gap-2">
     <h3>Title*</h3>
     <span class="text-caption">Remember to make your title unique!</span>
@@ -185,14 +229,14 @@
 
   <div class="flex flex-col gap-2">
     <h3>Tags*</h3>
-    <span class="text-caption">Remember to make your title unique!</span>
+    <span class="text-caption">Select tags that describe your recipe</span>
     <TagsComboBox {selectedTags} />
   </div>
 
   <div class="flex flex-col gap-2">
     <h3>Brief Summary</h3>
     <textarea
-      placeholder="Some brief description of the dish (can be the same as chef’s notes)"
+      placeholder="Some brief description of the dish (can be the same as chef's notes)"
       bind:value={summary}
       rows="6"
       class="input"
@@ -232,29 +276,28 @@
     <h3>Directions*</h3>
     <StringComboBox placeholder={'Bake for 30 min'} selected={directionsArray} showIndex={false} />
   </div>
-  <div>
-    <h3>Cover Image*</h3>
-    <span class="text-caption">Appears on the recipe card</span>
-    <ImagesComboBox uploadedImages={images} />
+  <div class="flex flex-col gap-2">
+    <h3>Photos & Videos*</h3>
+    <span class="text-caption">First image will be your cover photo</span>
+    <MediaUploader uploadedImages={images} />
   </div>
-  <div class="flex justify-end">
-    <div>
+
+  <div class="flex justify-end items-center gap-2">
+    {#if draftSaveMessage}
+      <span class="text-sm text-green-500">{draftSaveMessage}</span>
+    {/if}
+    <span class={resultMessage.includes('Error') ? 'text-red-500' : resultMessage.includes('Success') ? 'text-green-500' : ''}>
       {resultMessage}
-      <button />
-      <Button disabled={disablePublishButton} type="submit">Publish</Button>
-    </div>
+    </span>
+    <button 
+      type="button" 
+      on:click={handleSaveDraft}
+      class="flex items-center gap-2 px-4 py-2 rounded-lg bg-input hover:bg-accent-gray transition-colors cursor-pointer"
+      title="Save as draft"
+    >
+      <FloppyDiskIcon size={18} />
+      <span>Save Draft</span>
+    </button>
+    <Button disabled={disablePublishButton || !canPublish} type="submit">Share Recipe</Button>
   </div>
-  {#if $images.length > 0 && title && $selectedTags.length > 0 && $directionsArray.length > 0 && $ingredientsArray.length > 0}
-    <div class="flex flex-col gap-2">
-      <h2>Card Preview</h2>
-      <div>
-        <Button on:click={loadPreview}>Load Preview</Button>
-      </div>
-      <div class="">
-        {#if previewEvent}
-          <FeedItem event={previewEvent} />
-        {/if}
-      </div>
-    </div>
-  {/if}
 </form>

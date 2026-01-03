@@ -115,9 +115,42 @@
     ? fullMetaTitle 
     : (data?.ogMeta?.title || 'Recipe - zap.cooking');
   
+  // Better description extraction from event content
   $: og_description = event
-    ? (event.content?.slice(0, 200) + '...' || 'A delicious recipe on zap.cooking')
-    : (data?.ogMeta?.description || 'A delicious recipe on zap.cooking');
+    ? (() => {
+        // Try summary tag first
+        const summary = event.tags?.find((tag) => tag[0] === 'summary')?.[1];
+        if (summary) return summary;
+        
+        // Clean and extract from content
+        if (event.content) {
+          let text = event.content
+            .replace(/^#+\s+/gm, '') // Remove markdown headers
+            .replace(/\[([^\]]+)\]\([^\)]+\)/g, '$1') // Convert links to text
+            .replace(/!\[([^\]]*)\]\([^\)]+\)/g, '') // Remove images
+            .replace(/\*\*([^\*]+)\*\*/g, '$1') // Remove bold
+            .replace(/\*([^\*]+)\*/g, '$1') // Remove italic
+            .replace(/`([^`]+)`/g, '$1') // Remove code
+            .replace(/\n+/g, ' ') // Replace newlines with spaces
+            .trim();
+          
+          if (text.length > 200) {
+            const truncated = text.slice(0, 200);
+            const lastPeriod = truncated.lastIndexOf('.');
+            const lastExclamation = truncated.lastIndexOf('!');
+            const lastQuestion = truncated.lastIndexOf('?');
+            const lastSentence = Math.max(lastPeriod, lastExclamation, lastQuestion);
+            if (lastSentence > 100) {
+              return text.slice(0, lastSentence + 1);
+            } else {
+              return truncated + '...';
+            }
+          }
+          return text || 'A delicious recipe shared on zap.cooking';
+        }
+        return 'A delicious recipe shared on zap.cooking';
+      })()
+    : (data?.ogMeta?.description || 'A recipe shared on zap.cooking - Food. Friends. Freedom.');
   
   $: og_image = event
     ? (event.tags?.find((tag) => tag[0] === 'image')?.[1] || 'https://zap.cooking/social-share.png')
@@ -127,14 +160,20 @@
 <svelte:head>
   <title>{fullPageTitle || 'Recipe - zap.cooking'}</title>
   <meta name="description" content={og_description} />
-  <meta property="og:url" content={`https://zap.cooking/recipe/${$page.params.slug}`} />
+  
+  <!-- Open Graph / Facebook -->
   <meta property="og:type" content="article" />
+  <meta property="og:url" content={`https://zap.cooking/recipe/${$page.params.slug}`} />
   <meta property="og:title" content={og_title} />
   <meta property="og:description" content={og_description} />
   <meta property="og:image" content={og_image} />
+  <meta property="og:image:secure_url" content={og_image} />
+  <meta property="og:image:type" content="image/jpeg" />
+  <meta property="og:site_name" content="Zap Cooking" />
+  
+  <!-- Twitter -->
   <meta name="twitter:card" content="summary_large_image" />
-  <meta property="twitter:domain" content="zap.cooking" />
-  <meta property="twitter:url" content={`https://zap.cooking/recipe/${$page.params.slug}`} />
+  <meta name="twitter:url" content={`https://zap.cooking/recipe/${$page.params.slug}`} />
   <meta name="twitter:title" content={og_title} />
   <meta name="twitter:description" content={og_description} />
   <meta name="twitter:image" content={og_image} />

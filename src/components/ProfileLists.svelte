@@ -4,6 +4,7 @@
   import type { NDKEvent, NDKFilter, NDKSubscription } from '@nostr-dev-kit/ndk';
   import Feed from './Feed.svelte';
   import { onDestroy } from 'svelte';
+  import { RECIPE_TAGS } from '$lib/consts';
 
   export let hexpubkey: string | undefined = undefined;
   let events: NDKEvent[] = [];
@@ -35,7 +36,7 @@
         authors: [hexpubkey],
         limit: 256,
         kinds: [30001],
-        '#t': ['nostrcooking']
+        '#t': RECIPE_TAGS
       };
 
       subscription = $ndk.subscribe(filter);

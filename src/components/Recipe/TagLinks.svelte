@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { recipeTags, type recipeTagSimple } from '$lib/consts';
+  import { recipeTags, type recipeTagSimple, RECIPE_TAG_PREFIX_NEW, RECIPE_TAG_PREFIX_LEGACY } from '$lib/consts';
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
 
   export let event: NDKEvent;
@@ -9,21 +9,34 @@
   let tags: recipeTagSimple[] = [];
 
   event.tags.forEach((t) => {
-    if (
-      t[0] == 't' &&
-      t[1].startsWith('nostrcooking-') &&
-      nameTagFound == false &&
-      t[1].slice(13) == event.tags.find((a) => a[0] == 'd')?.[1]
-    ) {
-      nameTagFound = true;
-    } else if (t[0] == 't' && t[1].startsWith('nostrcooking-')) {
-      let coupleRecipeTagInfo = recipeTags.find(
-        (e) => e.title.toLowerCase().replaceAll(' ', '-') == t[1].slice(13)
-      );
-      if (coupleRecipeTagInfo) {
-        tags.push(coupleRecipeTagInfo);
-      } else {
-        tags.push({ title: t[1].slice(13).replaceAll('-', ' ') });
+    if (t[0] == 't' && t[1]) {
+      const dTag = event.tags.find((a) => a[0] == 'd')?.[1];
+      const isLegacyPrefix = t[1].startsWith(`${RECIPE_TAG_PREFIX_LEGACY}-`);
+      const isNewPrefix = t[1].startsWith(`${RECIPE_TAG_PREFIX_NEW}-`);
+      
+      if ((isLegacyPrefix || isNewPrefix) && nameTagFound == false) {
+        // Extract tag name by removing either prefix
+        const tagName = isNewPrefix 
+          ? t[1].slice(RECIPE_TAG_PREFIX_NEW.length + 1)
+          : t[1].slice(RECIPE_TAG_PREFIX_LEGACY.length + 1);
+        
+        if (tagName == dTag) {
+          nameTagFound = true;
+        }
+      } else if (isLegacyPrefix || isNewPrefix) {
+        // Extract tag name by removing either prefix
+        const tagName = isNewPrefix 
+          ? t[1].slice(RECIPE_TAG_PREFIX_NEW.length + 1)
+          : t[1].slice(RECIPE_TAG_PREFIX_LEGACY.length + 1);
+        
+        let coupleRecipeTagInfo = recipeTags.find(
+          (e) => e.title.toLowerCase().replaceAll(' ', '-') == tagName
+        );
+        if (coupleRecipeTagInfo) {
+          tags.push(coupleRecipeTagInfo);
+        } else {
+          tags.push({ title: tagName.replaceAll('-', ' ') });
+        }
       }
     }
   });
