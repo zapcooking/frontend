@@ -4,6 +4,7 @@
   import { NDKEvent } from '@nostr-dev-kit/ndk';
   import PencilSimpleIcon from 'phosphor-svelte/lib/PencilSimple';
   import ImageIcon from 'phosphor-svelte/lib/Image';
+  import VideoIcon from 'phosphor-svelte/lib/Video';
   import CustomAvatar from '../../components/CustomAvatar.svelte';
   import ProfileLink from '../../components/ProfileLink.svelte';
   import { nip19 } from 'nostr-tools';
@@ -49,8 +50,11 @@
   let error = '';
   let textareaEl: HTMLTextAreaElement;
   let uploadedImages: string[] = [];
+  let uploadedVideos: string[] = [];
   let uploadingImage = false;
+  let uploadingVideo = false;
   let imageInputEl: HTMLInputElement;
+  let videoInputEl: HTMLInputElement;
   let quotedNote: { nevent: string; event: NDKEventType } | null = null;
 
   // @ mention autocomplete state
@@ -106,6 +110,7 @@
       content = '';
       error = '';
       uploadedImages = [];
+      uploadedVideos = [];
       quotedNote = null;
     }
   }
@@ -188,12 +193,62 @@
     }
   }
 
+  async function handleVideoUpload(event: Event) {
+    const target = event.target as HTMLInputElement;
+    if (!target.files || target.files.length === 0) return;
+    
+    uploadingVideo = true;
+    error = '';
+    
+    try {
+      const file = target.files[0];
+      
+      // Validate file type
+      if (!file.type.startsWith('video/')) {
+        error = 'Please upload a video file';
+        uploadingVideo = false;
+        return;
+      }
+      
+      // Validate file size (max 200MB for videos)
+      if (file.size > 200 * 1024 * 1024) {
+        error = 'Video must be less than 200MB';
+        uploadingVideo = false;
+        return;
+      }
+      
+      const body = new FormData();
+      body.append('file[]', file);
+      
+      const result = await uploadToNostrBuild(body);
+      
+      if (result && result.data && result.data[0]?.url) {
+        uploadedVideos = [...uploadedVideos, result.data[0].url];
+      } else {
+        error = 'Failed to upload video';
+      }
+    } catch (err) {
+      console.error('Error uploading video:', err);
+      error = 'Failed to upload video. Please try again.';
+    } finally {
+      uploadingVideo = false;
+      // Reset input so same file can be selected again
+      if (videoInputEl) {
+        videoInputEl.value = '';
+      }
+    }
+  }
+
   function removeImage(index: number) {
     uploadedImages = uploadedImages.filter((_, i) => i !== index);
   }
 
+  function removeVideo(index: number) {
+    uploadedVideos = uploadedVideos.filter((_, i) => i !== index);
+  }
+
   async function postToFeed() {
-    if (!content.trim() && !quotedNote && uploadedImages.length === 0) {
+    if (!content.trim() && !quotedNote && uploadedImages.length === 0 && uploadedVideos.length === 0) {
       error = 'Please enter some content';
       return;
     }
@@ -217,12 +272,22 @@
       const event = new NDKEvent($ndk);
       event.kind = 1;
       
-      // Build content with text and image URLs
+      // Build content with text, image URLs, and video URLs
       let postContent = content.trim();
+      const mediaUrls: string[] = [];
+      
       if (uploadedImages.length > 0) {
-        // Add image URLs to content (one per line for better display)
-        const imageUrls = uploadedImages.join('\n');
-        postContent = postContent ? `${postContent}\n\n${imageUrls}` : imageUrls;
+        mediaUrls.push(...uploadedImages);
+      }
+      
+      if (uploadedVideos.length > 0) {
+        mediaUrls.push(...uploadedVideos);
+      }
+      
+      if (mediaUrls.length > 0) {
+        // Add media URLs to content (one per line for better display)
+        const mediaUrlsText = mediaUrls.join('\n');
+        postContent = postContent ? `${postContent}\n\n${mediaUrlsText}` : mediaUrlsText;
       }
       
       // Add quoted note reference if quoting
@@ -267,6 +332,7 @@
         success = true;
         content = '';
         uploadedImages = [];
+        uploadedVideos = [];
         quotedNote = null;
         
         setTimeout(() => {
@@ -688,6 +754,34 @@
                 </div>
               {/if}
               
+              <!-- Video previews -->
+              {#if uploadedVideos.length > 0}
+                <div class="mb-2 flex flex-wrap gap-2">
+                  {#each uploadedVideos as videoUrl, index}
+                    <div class="relative group">
+                      <video
+                        src={videoUrl}
+                        class="w-32 h-20 object-cover rounded-lg"
+                        style="border: 1px solid var(--color-input-border)"
+                        preload="metadata"
+                        muted
+                      />
+                      <button
+                        type="button"
+                        on:click={() => removeVideo(index)}
+                        class="absolute -top-2 -right-2 bg-red-500 hover:bg-red-600 text-white rounded-full p-1 shadow-lg transition-all opacity-90 hover:opacity-100"
+                        disabled={posting}
+                        aria-label="Remove video"
+                      >
+                        <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      </button>
+                    </div>
+                  {/each}
+                </div>
+              {/if}
+              
               <div class="flex items-center justify-between pt-2 border-t" style="border-color: var(--color-input-border)">
                 <div class="flex items-center gap-3">
                   <!-- Image upload button -->
@@ -696,6 +790,7 @@
                     class:opacity-50={posting || uploadingImage}
                     class:cursor-not-allowed={posting || uploadingImage}
                     aria-disabled={posting || uploadingImage}
+                    title="Upload image"
                   >
                     <ImageIcon size={18} class="text-caption" />
                     <input
@@ -708,8 +803,29 @@
                     />
                   </label>
                   
+                  <!-- Video upload button -->
+                  <label
+                    class="cursor-pointer p-1.5 rounded-full hover:bg-accent-gray transition-colors"
+                    class:opacity-50={posting || uploadingVideo}
+                    class:cursor-not-allowed={posting || uploadingVideo}
+                    aria-disabled={posting || uploadingVideo}
+                    title="Upload video"
+                  >
+                    <VideoIcon size={18} class="text-caption" />
+                    <input
+                      bind:this={videoInputEl}
+                      type="file"
+                      accept="video/*"
+                      class="sr-only"
+                      on:change={handleVideoUpload}
+                      disabled={posting || uploadingVideo}
+                    />
+                  </label>
+                  
                   {#if uploadingImage}
-                    <span class="text-xs text-caption">Uploading...</span>
+                    <span class="text-xs text-caption">Uploading image...</span>
+                  {:else if uploadingVideo}
+                    <span class="text-xs text-caption">Uploading video...</span>
                   {/if}
                 </div>
 
@@ -723,7 +839,7 @@
                   </button>
                   <button
                     on:click={postToFeed}
-                    disabled={posting || uploadingImage || (!content.trim() && uploadedImages.length === 0 && !quotedNote)}
+                    disabled={posting || uploadingImage || uploadingVideo || (!content.trim() && uploadedImages.length === 0 && uploadedVideos.length === 0 && !quotedNote)}
                     class="px-4 py-1.5 text-xs font-medium text-white bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 rounded-full disabled:opacity-50 disabled:cursor-not-allowed transition-all"
                   >
                     {posting ? 'Posting...' : 'Post'}
