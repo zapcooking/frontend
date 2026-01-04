@@ -81,12 +81,15 @@
   import UserCirclePlusIcon from 'phosphor-svelte/lib/UserCirclePlus';
   import SparkLogo from '../../components/icons/SparkLogo.svelte';
   import NwcLogo from '../../components/icons/NwcLogo.svelte';
+  import BitcoinConnectLogo from '../../components/icons/BitcoinConnectLogo.svelte';
   import CustomAvatar from '../../components/CustomAvatar.svelte';
   import CustomName from '../../components/CustomName.svelte';
   import LifebuoyIcon from 'phosphor-svelte/lib/Lifebuoy';
   import CloudCheckIcon from 'phosphor-svelte/lib/CloudCheck';
   import WalletRecoveryHelpModal from '../../components/WalletRecoveryHelpModal.svelte';
   import CheckRelayBackupsModal from '../../components/CheckRelayBackupsModal.svelte';
+  import { bitcoinConnectEnabled, enableBitcoinConnect, disableBitcoinConnect } from '$lib/wallet/bitcoinConnect';
+  import { lightningService } from '$lib/lightningService';
 
   let showAddWallet = false;
   let selectedWalletType: WalletKind | null = null;
@@ -127,6 +130,7 @@
   let showSyncConfirmModal = false;
   let showNwcSyncConfirmModal = false;
   let showDeleteAddressConfirmModal = false;
+  let showRemoveBitcoinConnectModal = false;
   let showRecoveryHelpModal = false;
   let showCheckRelayBackupsModal = false;
   let checkRelayBackupsWalletType: 'spark' | 'nwc' = 'spark';
@@ -863,6 +867,29 @@
     }
   }
 
+  async function handleConnectBitcoinConnect() {
+    // Initialize Bitcoin Connect and open connection modal
+    try {
+      await lightningService.init();
+      // Import and request provider - this opens the BC modal
+      const { requestProvider } = await import('@getalby/bitcoin-connect');
+      const provider = await requestProvider();
+      if (provider) {
+        enableBitcoinConnect();
+        showAddWallet = false;
+        successMessage = 'External wallet connected via Bitcoin Connect!';
+      }
+    } catch (e) {
+      // User cancelled or connection failed
+      console.warn('[Wallet] Bitcoin Connect cancelled or failed:', e);
+    }
+  }
+
+  function handleDisableBitcoinConnect() {
+    disableBitcoinConnect();
+    successMessage = 'Bitcoin Connect disabled.';
+  }
+
   async function handleCreateSparkWallet() {
     if (!BREEZ_API_KEY) {
       errorMessage = 'Breez API key not configured. Please contact support.';
@@ -1539,11 +1566,26 @@
 
     {#if $wallets.length === 0}
       <div class="p-8 rounded-2xl text-center flex flex-col items-center" style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);">
-        <WalletIcon size={48} class="mb-4 text-caption" />
-        <p class="text-caption mb-4">No wallets connected yet</p>
-        <Button on:click={() => { showAddWallet = true; selectedWalletType = null; }}>
-          Connect Your First Wallet
-        </Button>
+        {#if $bitcoinConnectEnabled}
+          <div class="w-16 h-16 rounded-full bg-gradient-to-br from-orange-500 to-amber-500 flex items-center justify-center mb-4">
+            <BitcoinConnectLogo size={32} className="text-white" />
+          </div>
+          <p class="font-medium mb-1" style="color: var(--color-text-primary)">External wallet connected</p>
+          <p class="text-sm text-caption mb-4">Payments will use Bitcoin Connect</p>
+          <button
+            class="px-5 py-2.5 rounded-full font-semibold text-sm text-caption hover:text-red-500 transition-colors cursor-pointer"
+            style="background-color: var(--color-bg-primary); border: 1px solid var(--color-input-border);"
+            on:click={() => showRemoveBitcoinConnectModal = true}
+          >
+            Remove External Wallet
+          </button>
+        {:else}
+          <WalletIcon size={48} class="mb-4 text-caption" />
+          <p class="text-caption mb-4">No wallets connected yet</p>
+          <Button on:click={() => { showAddWallet = true; selectedWalletType = null; }}>
+            Connect Your First Wallet
+          </Button>
+        {/if}
       </div>
     {:else}
       <div class="space-y-3">
@@ -2254,7 +2296,7 @@
   {#if showAddWallet}
     <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
       <div class="rounded-2xl p-6 max-w-md w-full max-h-[90vh] overflow-y-auto" style="background-color: var(--color-bg-primary);">
-        <h2 class="text-xl font-bold mb-4" style="color: var(--color-text-primary)">Add Wallet</h2>
+        <h2 class="text-xl font-bold mb-4" style="color: var(--color-text-primary)">Add Embedded Wallet</h2>
 
         {#if !selectedWalletType}
           <!-- Wallet type selection -->
@@ -2302,6 +2344,33 @@
                 {/if}
               </div>
             </button>
+
+            <!-- Bitcoin Connect option - only show if no embedded wallets exist -->
+            {#if $wallets.length === 0}
+              <div class="flex items-center gap-3 my-4">
+                <div class="flex-1 border-t" style="border-color: var(--color-input-border);"></div>
+                <span class="text-sm text-caption">or choose a wallet to connect</span>
+                <div class="flex-1 border-t" style="border-color: var(--color-input-border);"></div>
+              </div>
+
+              <button
+                class="w-full py-3 px-4 rounded-xl font-semibold text-white bg-gradient-to-r from-orange-500 to-amber-500 transition-colors flex items-center justify-center gap-2"
+                class:hover:from-orange-600={!$bitcoinConnectEnabled}
+                class:hover:to-amber-600={!$bitcoinConnectEnabled}
+                class:cursor-pointer={!$bitcoinConnectEnabled}
+                class:opacity-50={$bitcoinConnectEnabled}
+                class:cursor-not-allowed={$bitcoinConnectEnabled}
+                on:click={handleConnectBitcoinConnect}
+                disabled={$bitcoinConnectEnabled}
+              >
+                <BitcoinConnectLogo size={20} />
+                {#if $bitcoinConnectEnabled}
+                  External Wallet Connected
+                {:else}
+                  Connect Wallet
+                {/if}
+              </button>
+            {/if}
           </div>
         {:else if selectedWalletType === 3}
           <!-- NWC connection -->
@@ -2630,6 +2699,29 @@
             disabled={isSyncingProfile}
           >
             {isSyncingProfile ? 'Syncing...' : 'Sync'}
+          </button>
+        </div>
+      </div>
+    </div>
+  {/if}
+
+  <!-- Remove Bitcoin Connect Confirmation Modal -->
+  {#if showRemoveBitcoinConnectModal}
+    <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div class="rounded-2xl p-6 max-w-sm w-full" style="background-color: var(--color-bg-primary);">
+        <h2 class="text-xl font-bold mb-2" style="color: var(--color-text-primary)">Remove External Wallet</h2>
+        <p class="text-caption mb-6">
+          Are you sure you want to disconnect your external wallet? You can reconnect it at any time from the wallet settings.
+        </p>
+        <div class="flex gap-3">
+          <Button on:click={() => showRemoveBitcoinConnectModal = false} class="flex-1">
+            Cancel
+          </Button>
+          <button
+            class="flex-1 px-4 py-2 rounded-full bg-red-500 hover:bg-red-600 text-white font-medium transition-colors cursor-pointer"
+            on:click={() => { handleDisableBitcoinConnect(); showRemoveBitcoinConnectModal = false; }}
+          >
+            Remove
           </button>
         </div>
       </div>
