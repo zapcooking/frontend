@@ -75,10 +75,11 @@
   // Profile edit modal state
   let profileEditModal = false;
 
-  $: {
-    if ($page.params.slug) {
-      loadData();
-    }
+  // Track slug changes and reload data when navigating between profiles
+  let currentSlug: string | undefined;
+  $: if ($page.params.slug && $page.params.slug !== currentSlug) {
+    currentSlug = $page.params.slug;
+    loadData();
   }
 
   // Handle ?tab= query parameter for direct tab navigation
@@ -253,20 +254,50 @@
     followLoading = true;
 
     try {
+      // IMPORTANT: Always fetch the latest follow list before modifying
+      // This prevents accidentally publishing an empty list if local state is stale
+      const filter: NDKFilter = {
+        authors: [$userPublickey],
+        kinds: [3],
+        limit: 1
+      };
+
+      const contactEvents = await $ndk.fetchEvents(filter);
+      const existingContactList = Array.from(contactEvents)[0];
+
+      let freshFollowTags: string[][] = [];
+      let freshFollowContent: string = '';
+
+      if (existingContactList) {
+        freshFollowTags = existingContactList.tags.filter(tag => tag[0] === 'p');
+        freshFollowContent = existingContactList.content || '';
+      }
+
+      // Update local cache with fresh data
+      currentFollowTags = freshFollowTags;
+      currentFollowContent = freshFollowContent;
+
       let newFollowTags: string[][];
 
       if (isFollowing) {
         // Unfollow: remove the pubkey while preserving other tags
-        newFollowTags = currentFollowTags.filter(tag => tag[1] !== hexpubkey);
+        newFollowTags = freshFollowTags.filter(tag => tag[1] !== hexpubkey);
       } else {
         // Follow: add new pubkey tag
-        newFollowTags = [...currentFollowTags, ['p', hexpubkey]];
+        newFollowTags = [...freshFollowTags, ['p', hexpubkey]];
+      }
+
+      // SAFEGUARD: Prevent publishing an empty follow list when unfollowing
+      // (unless user genuinely has only 1 follow and is unfollowing them)
+      if (isFollowing && newFollowTags.length === 0 && freshFollowTags.length > 1) {
+        console.error('Safety check failed: Would publish empty follow list but user has multiple follows. Aborting.');
+        throw new Error('Failed to update follow list. Please try again.');
       }
 
       // Create new kind:3 contact list event, preserving content (relay config)
       const contactEvent = new NDKEvent($ndk);
       contactEvent.kind = 3;
-      contactEvent.content = currentFollowContent; // Preserve relay configuration
+      contactEvent.content = freshFollowContent; // Preserve relay configuration
       contactEvent.tags = newFollowTags; // Preserve full tag structure
 
       await contactEvent.publish();
@@ -876,186 +907,176 @@
   </div>
 </Modal>
 
-<div class="flex flex-col gap-6 overflow-hidden">
+<div class="max-w-4xl mx-auto">
   <!-- Profile Header -->
-  <div class="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-4">
-    <div class="flex gap-4 flex-1 min-w-0">
-      <!-- Hidden file input for profile picture upload -->
-      {#if $userPublickey && hexpubkey === $userPublickey}
-        <input
-          bind:this={pictureInputEl}
-          type="file"
-          accept="image/*"
-          class="sr-only"
-          on:change={handlePictureUpload}
-          disabled={uploadingPicture}
-        />
-      {/if}
-      
-      <button 
-        class="hover:opacity-80 transition-opacity flex-shrink-0 relative" 
-        on:click={() => {
-          console.log('[Profile Upload] Avatar button clicked');
-          if ($userPublickey && hexpubkey === $userPublickey) {
-            triggerPictureUpload();
-          } else {
-            qrModal = true;
-          }
-        }}
-        disabled={uploadingPicture}
-        title={$userPublickey && hexpubkey === $userPublickey ? 'Change profile picture' : 'View profile details'}
-      >
-        {#key `${hexpubkey}-${avatarRefreshKey}`}
-        <div class="relative">
-          <CustomAvatar
-            className="cursor-pointer {uploadingPicture ? 'opacity-50' : ''}"
-            pubkey={hexpubkey || ''}
-            size={100}
-            imageUrl={$userPublickey === hexpubkey ? $userProfilePictureOverride : null}
-          />
-          {#if uploadingPicture}
-            <div class="absolute inset-0 flex items-center justify-center bg-black/50 rounded-full">
-              <span class="text-white text-xs">Uploading...</span>
-            </div>
-          {:else if $userPublickey && hexpubkey === $userPublickey}
-            <div class="absolute bottom-0 right-0 w-8 h-8 bg-primary rounded-full flex items-center justify-center border-2 border-white shadow-lg">
-              <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+  <div class="flex items-start gap-5 pb-5">
+    <!-- Avatar (left side, top-aligned) -->
+    <button
+      class="hover:opacity-80 transition-opacity flex-shrink-0"
+      on:click={() => (qrModal = true)}
+      title="View profile details"
+    >
+      {#key `${hexpubkey}-${avatarRefreshKey}`}
+      <CustomAvatar
+        className="cursor-pointer"
+        pubkey={hexpubkey || ''}
+        size={80}
+        imageUrl={$userPublickey === hexpubkey ? $userProfilePictureOverride : null}
+      />
+      {/key}
+    </button>
+
+    <!-- Profile Info (right side) -->
+    <div class="flex-1 min-w-0 flex flex-col gap-2">
+      <!-- Name Row with Action Buttons on Right -->
+      <div class="flex items-start justify-between gap-3">
+        <button class="hover:opacity-80 transition-opacity" on:click={() => (qrModal = true)}>
+          <h1 class="text-xl font-bold truncate"><CustomName pubkey={hexpubkey || ''} /></h1>
+        </button>
+
+        <!-- Action Buttons (right-aligned) -->
+        <div class="flex items-center gap-2 flex-shrink-0">
+          {#if hexpubkey === $userPublickey}
+            <button
+              on:click={() => (profileEditModal = true)}
+              class="p-2 rounded-full transition-colors bg-input hover:bg-accent-gray"
+              style="color: var(--color-text-primary)"
+              aria-label="Edit profile"
+            >
+              <PencilSimpleIcon size={20} weight="bold" />
+            </button>
+          {:else}
+            {#if profile?.lud16 || profile?.lud06}
+              <button
+                class="p-2 bg-yellow-500 hover:bg-yellow-400 rounded-full transition-colors"
+                on:click={() => (zapModal = true)}
+                aria-label="Zap user"
+              >
+                <LightningIcon size={20} weight="fill" class="text-white" />
+              </button>
+            {/if}
+
+            {#if $userPublickey}
+              <button
+                on:click={toggleFollow}
+                disabled={followLoading}
+                class="p-2 rounded-full transition-colors disabled:opacity-50 {isFollowing
+                  ? 'bg-input hover:bg-accent-gray'
+                  : 'bg-orange-500 hover:bg-orange-600'}"
+                style="{isFollowing ? 'color: var(--color-text-primary)' : ''}"
+                aria-label={isFollowing ? 'Unfollow' : 'Follow'}
+              >
+                {#if followLoading}
+                  <span class="animate-pulse text-sm">...</span>
+                {:else if isFollowing}
+                  <CheckIcon size={20} weight="bold" />
+                {:else}
+                  <UserPlusIcon size={20} weight="bold" class="text-white" />
+                {/if}
+              </button>
+            {/if}
+
+            <button
+              on:click={() => (qrModal = true)}
+              class="p-2 rounded-full bg-input hover:bg-accent-gray transition-colors"
+              style="color: var(--color-text-primary)"
+              aria-label="More options"
+            >
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h.01M12 12h.01M19 12h.01M6 12a1 1 0 11-2 0 1 1 0 012 0zm7 0a1 1 0 11-2 0 1 1 0 012 0zm7 0a1 1 0 11-2 0 1 1 0 012 0z" />
               </svg>
-            </div>
+            </button>
           {/if}
         </div>
-        {/key}
-      </button>
-      
-      <div class="flex flex-col gap-2 flex-1 min-w-0">
-        <!-- Name and action buttons row on mobile -->
-        <div class="flex items-start justify-between gap-2">
-          <button class="text-left hover:opacity-80 transition-opacity min-w-0 flex-1" on:click={() => (qrModal = true)}>
-            <h1 class="text-2xl font-bold truncate"><CustomName pubkey={hexpubkey || ''} /></h1>
-          </button>
-          
-          <!-- Action Buttons (inline on mobile) -->
-          <div class="flex gap-2 flex-shrink-0">
-            {#if hexpubkey === $userPublickey}
-              <!-- Edit Profile Button (own profile) -->
-              <button
-                on:click={() => (profileEditModal = true)}
-                class="flex items-center gap-1.5 px-3 py-2 rounded-full font-medium text-sm transition-colors bg-input hover:bg-accent-gray"
-                style="color: var(--color-text-primary)"
-              >
-                <PencilSimpleIcon size={16} weight="bold" />
-                <span class="hidden xs:inline">Edit Profile</span>
-              </button>
-            {:else}
-              {#if profile?.lud16 || profile?.lud06}
-                <button
-                  class="p-2 bg-yellow-500 hover:bg-yellow-400 rounded-full transition-colors"
-                  on:click={() => (zapModal = true)}
-                  aria-label="Zap user"
-                >
-                  <LightningIcon size={20} weight="fill" class="text-white" />
-                </button>
-              {/if}
-
-              <!-- Follow Button -->
-              {#if $userPublickey}
-                <button
-                  on:click={toggleFollow}
-                  disabled={followLoading}
-                  class="flex items-center gap-1.5 px-3 py-2 rounded-full font-medium text-sm transition-colors disabled:opacity-50 {isFollowing
-                    ? 'bg-input hover:bg-accent-gray'
-                    : 'bg-orange-500 text-white hover:bg-orange-600'}"
-                  style="{isFollowing ? 'color: var(--color-text-primary)' : ''}"
-                >
-                  {#if followLoading}
-                    <span class="animate-pulse">...</span>
-                  {:else if isFollowing}
-                    <CheckIcon size={16} weight="bold" />
-                    <span class="hidden xs:inline">Following</span>
-                  {:else}
-                    <UserPlusIcon size={18} weight="bold" />
-                    <span class="hidden xs:inline">Follow</span>
-                  {/if}
-                </button>
-              {/if}
-            {/if}
-          </div>
-        </div>
-        
-        <!-- Bio with parsed links -->
-        {#if profile?.about}
-          {@const bioText = profile.about.trim()}
-          {@const needsTruncation = bioText.length > 200}
-
-          <div class="flex flex-col gap-1">
-            <p
-              class="text-xs text-caption leading-relaxed transition-all md:line-clamp-none"
-              class:line-clamp-3={!bioExpanded && needsTruncation}
-            >
-              <ParsedBio text={bioText} />
-            </p>
-            {#if needsTruncation}
-              <button
-                on:click={() => (bioExpanded = !bioExpanded)}
-                class="text-xs text-orange-500 hover:text-orange-600 self-start transition-colors mt-0.5 md:hidden"
-              >
-                {bioExpanded ? 'Show less' : 'Read more'}
-              </button>
-            {/if}
-          </div>
-        {/if}
       </div>
+
+      <!-- Bio -->
+      {#if profile?.about}
+        {@const bioText = profile.about.trim()}
+        {@const needsTruncation = bioText.length > 200}
+
+        <div class="max-w-2xl">
+          <p
+            class="text-sm text-caption leading-relaxed"
+            class:line-clamp-2={!bioExpanded && needsTruncation}
+          >
+            <ParsedBio text={bioText} />
+          </p>
+          {#if needsTruncation}
+            <button
+              on:click={() => (bioExpanded = !bioExpanded)}
+              class="text-xs text-orange-500 hover:text-orange-600 transition-colors mt-1"
+            >
+              {bioExpanded ? 'Show less' : 'Read more'}
+            </button>
+          {/if}
+        </div>
+      {/if}
     </div>
   </div>
 
-  <hr />
+  <!-- Tabs -->
+  <div class="border-b mb-4" style="border-color: var(--color-input-border)">
+    <div class="flex gap-1">
+      <button
+        on:click={() => (activeTab = 'recipes')}
+        class="px-4 py-2 text-sm font-medium transition-colors relative"
+        style="color: {activeTab === 'recipes' ? 'var(--color-text-primary)' : 'var(--color-text-secondary)'}"
+      >
+        Recipes
+        {#if activeTab === 'recipes'}
+          <span class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-orange-500 to-amber-500"></span>
+        {/if}
+      </button>
+      <button
+        on:click={() => (activeTab = 'posts')}
+        class="px-4 py-2 text-sm font-medium transition-colors relative"
+        style="color: {activeTab === 'posts' ? 'var(--color-text-primary)' : 'var(--color-text-secondary)'}"
+      >
+        Posts
+        {#if activeTab === 'posts'}
+          <span class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-orange-500 to-amber-500"></span>
+        {/if}
+      </button>
+      {#if $userPublickey && $userPublickey === hexpubkey}
+        <button
+          on:click={() => (activeTab = 'drafts')}
+          class="px-4 py-2 text-sm font-medium transition-colors relative flex items-center gap-1"
+          style="color: {activeTab === 'drafts' ? 'var(--color-text-primary)' : 'var(--color-text-secondary)'}"
+        >
+          <FloppyDiskIcon size={16} />
+          Drafts
+          {#if activeTab === 'drafts'}
+            <span class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-orange-500 to-amber-500"></span>
+          {/if}
+        </button>
+      {/if}
+    </div>
+  </div>
 
-  <div class="flex flex-col gap-4">
-    <!-- Tabs: Recipes | Posts | Lists | Mute -->
-    <div class="flex items-center border-b" style="border-color: var(--color-input-border)">
-      <div class="flex gap-1">
-        <button
-          on:click={() => (activeTab = 'recipes')}
-          class="px-4 py-2 text-sm font-medium transition-colors relative"
-          style="color: {activeTab === 'recipes' ? 'var(--color-text-primary)' : 'var(--color-text-secondary)'}"
-        >
-          Recipes
-          {#if activeTab === 'recipes'}
-            <span class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-orange-500 to-amber-500"></span>
-          {/if}
-        </button>
-        <button
-          on:click={() => (activeTab = 'posts')}
-          class="px-4 py-2 text-sm font-medium transition-colors relative"
-          style="color: {activeTab === 'posts' ? 'var(--color-text-primary)' : 'var(--color-text-secondary)'}"
-        >
-          Posts
-          {#if activeTab === 'posts'}
-            <span class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-orange-500 to-amber-500"></span>
-          {/if}
-        </button>
-        {#if $userPublickey && $userPublickey === hexpubkey}
-          <button
-            on:click={() => (activeTab = 'drafts')}
-            class="px-4 py-2 text-sm font-medium transition-colors relative flex items-center gap-1"
-            style="color: {activeTab === 'drafts' ? 'var(--color-text-primary)' : 'var(--color-text-secondary)'}"
-          >
-            <FloppyDiskIcon size={16} />
-            Drafts
-            {#if activeTab === 'drafts'}
-              <span class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-orange-500 to-amber-500"></span>
-            {/if}
-          </button>
+  <!-- Tab Content -->
+  {#if activeTab === 'recipes'}
+    <Feed {events} {loaded} isProfileView={true} isOwnProfile={$userPublickey === hexpubkey} />
+    {#if hasMoreRecipes}
+      <div bind:this={recipeSentinel} class="py-4 text-center">
+        {#if loadingMoreRecipes}
+          <div class="text-gray-500 text-sm">Loading more recipes...</div>
         {/if}
       </div>
+    {/if}
+  {:else if activeTab === 'posts'}
+    <div class="max-w-2xl">
+      <FoodstrFeedOptimized
+        bind:this={foodstrFeedComponent}
+        authorPubkey={hexpubkey}
+      />
+      <div bind:this={postsSentinel} class="py-4 text-center"></div>
     </div>
-
-    <!-- Tab Content -->
-    {#if activeTab === 'recipes'}
-        <Feed {events} {loaded} isProfileView={true} isOwnProfile={$userPublickey === hexpubkey} />
-      <!-- Infinite scroll sentinel for recipes -->
+  {:else if activeTab === 'drafts'}
+    {#if $userPublickey === hexpubkey}
+      <ProfileDrafts />
+    {:else}
+      <Feed {events} {loaded} isProfileView={true} isOwnProfile={$userPublickey === hexpubkey} />
       {#if hasMoreRecipes}
         <div bind:this={recipeSentinel} class="py-4 text-center">
           {#if loadingMoreRecipes}
@@ -1063,33 +1084,8 @@
           {/if}
         </div>
       {/if}
-    {:else if activeTab === 'posts'}
-      <div class="max-w-2xl">
-        <FoodstrFeedOptimized 
-          bind:this={foodstrFeedComponent}
-          authorPubkey={hexpubkey}
-        />
-        <!-- Infinite scroll sentinel for posts -->
-        <div bind:this={postsSentinel} class="py-4 text-center">
-          <!-- FoodstrFeedOptimized handles its own loading state -->
-        </div>
-      </div>
-    {:else if activeTab === 'drafts'}
-      {#if $userPublickey === hexpubkey}
-        <ProfileDrafts />
-      {:else}
-        <!-- Non-owners cannot view drafts; fall back to recipes content -->
-        <Feed {events} {loaded} isProfileView={true} isOwnProfile={$userPublickey === hexpubkey} />
-        {#if hasMoreRecipes}
-          <div bind:this={recipeSentinel} class="py-4 text-center">
-            {#if loadingMoreRecipes}
-              <div class="text-gray-500 text-sm">Loading more recipes...</div>
-            {/if}
-          </div>
-        {/if}
-      {/if}
     {/if}
-  </div>
+  {/if}
 </div>
 
 <style>
