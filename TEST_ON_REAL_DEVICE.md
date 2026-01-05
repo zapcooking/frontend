@@ -108,3 +108,4 @@ Try enabling these additional options in Developer Options:
 - To uninstall: Long-press app icon → Uninstall (or Settings → Apps)
 
 
+

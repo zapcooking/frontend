@@ -8,18 +8,17 @@ const config: CapacitorConfig = {
     androidScheme: 'https'
   },
   android: {
-    // Enable edge-to-edge display
     backgroundColor: '#111827',
     allowMixedContent: false
   },
+  ios: {
+    backgroundColor: '#ffffff',
+    contentInset: 'automatic'
+  },
   plugins: {
     SplashScreen: {
-      launchShowDuration: 2000,
       launchAutoHide: true,
-      backgroundColor: "#1a1a1a",
-      showSpinner: false,
-      splashFullScreen: true,
-      splashImmersive: true
+      launchShowDuration: 2000
     }
   }
 };

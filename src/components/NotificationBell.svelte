@@ -13,12 +13,17 @@
     unsubscribeFromNotifications();
   });
   
+  // Helper to validate pubkey is a valid 64-char hex string
+  function isValidPubkey(pubkey: string | null | undefined): pubkey is string {
+    return !!pubkey && pubkey.length === 64 && /^[a-f0-9]+$/i.test(pubkey);
+  }
+
   // Subscribe when user changes (only re-subscribe if pubkey actually changed)
-  $: if ($userPublickey && $ndk && $userPublickey !== lastSubscribedPubkey) {
+  $: if (isValidPubkey($userPublickey) && $ndk && $userPublickey !== lastSubscribedPubkey) {
     lastSubscribedPubkey = $userPublickey;
     subscribeToNotifications($ndk, $userPublickey);
-  } else if (!$userPublickey && lastSubscribedPubkey) {
-    // User logged out
+  } else if (!isValidPubkey($userPublickey) && lastSubscribedPubkey) {
+    // User logged out or invalid pubkey
     lastSubscribedPubkey = null;
     unsubscribeFromNotifications();
   }

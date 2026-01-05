@@ -23,6 +23,9 @@ importers:
       '@capacitor/core':
         specifier: ^8.0.0
         version: 8.0.0
+      '@capacitor/ios':
+        specifier: ^8.0.0
+        version: 8.0.0(@capacitor/core@8.0.0)
       '@capacitor/splash-screen':
         specifier: ^8.0.0
         version: 8.0.0(@capacitor/core@8.0.0)
@@ -254,6 +257,11 @@ packages:
 
   '@capacitor/core@8.0.0':
     resolution: {integrity: sha512-250HTVd/W/KdMygoqaedisvNbHbpbQTN2Hy/8ZYGm1nAqE0Fx7sGss4l0nDg33STxEdDhtVRoL2fIaaiukKseA==}
+
+  '@capacitor/ios@8.0.0':
+    resolution: {integrity: sha512-gwSn6X4uHYNHlM8zZmVmM1zjEhexxbHpPSSnH1DZkp8o3zdK/RmH8tmDma+3zPZrhhTSrMC7sT24dKTOvV8www==}
+    peerDependencies:
+      '@capacitor/core': ^8.0.0
 
   '@capacitor/splash-screen@8.0.0':
     resolution: {integrity: sha512-zkFdUSd6C6gd3s3bIEgtO3DVjfwpaX5mmWU9er8xYTg47zr2toEkGtfyE6CPhhErG09fl4rCqrK5DfnGrXLh9w==}
@@ -4728,6 +4736,10 @@ snapshots:
   '@capacitor/core@8.0.0':
     dependencies:
       tslib: 2.8.1
+
+  '@capacitor/ios@8.0.0(@capacitor/core@8.0.0)':
+    dependencies:
+      '@capacitor/core': 8.0.0
 
   '@capacitor/splash-screen@8.0.0(@capacitor/core@8.0.0)':
     dependencies:

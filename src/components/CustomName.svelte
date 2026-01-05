@@ -2,16 +2,20 @@
   import { createEventDispatcher, onMount } from 'svelte';
   import { profileCacheManager } from '$lib/profileCache';
   import type { NDKUser } from '@nostr-dev-kit/ndk';
+  import MembershipBadge from './MembershipBadge.svelte';
+  import { membershipStore } from '$lib/membershipStore';
   
   export let pubkey: string;
   export let className: string = '';
   export let showNpub: boolean = false;
+  export let showBadge: boolean = true;
   
   const dispatch = createEventDispatcher();
   
   let user: NDKUser | null = null;
   let displayName: string = '';
   let loading = true;
+  let userTier: 'open' | 'cook' | 'pro' = 'open';
   
   // Generate a display name based on pubkey as fallback
   function generateDisplayName(pubkey: string): string {
@@ -37,6 +41,9 @@
   
   onMount(async () => {
     if (!pubkey) return;
+    
+    // Check membership tier
+    userTier = membershipStore.getActiveTier(pubkey);
     
     try {
       // First try to get from cache
@@ -64,11 +71,18 @@
     }
   });
   
+  // Subscribe to membership changes
+  membershipStore.subscribe(() => {
+    if (pubkey) {
+      userTier = membershipStore.getActiveTier(pubkey);
+    }
+  });
+  
   $: npub = formatNpub(pubkey);
 </script>
 
 <span 
-  class="name {className}"
+  class="name inline-flex items-center gap-1.5 {className}"
   on:click={() => dispatch('click')}
   role="button"
   tabindex="0"
@@ -79,8 +93,19 @@
     }
   }}
 >
-  {displayName}
-  {#if showNpub}
+  <span>
+    {#if loading}
+      <span class="animate-pulse">Loading...</span>
+    {:else if showNpub}
+      {npub}
+    {:else}
+      {displayName}
+    {/if}
+  </span>
+  {#if showBadge && !loading}
+    <MembershipBadge tier={userTier} size="sm" />
+  {/if}
+  {#if showNpub && !loading}
     <span class="npub">({npub})</span>
   {/if}
 </span>

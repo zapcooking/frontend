@@ -137,3 +137,4 @@ When the error occurs, check Logcat for:
 The "Pixel Launcher isn't responding" is usually just Android's way of saying the app crashed - the real error will be in Logcat.
 
 
+
