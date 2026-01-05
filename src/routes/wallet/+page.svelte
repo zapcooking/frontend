@@ -182,6 +182,11 @@
     encryptionSupported = encryptionMethod !== null;
   }
 
+  // Re-check encryption support when NDK signer changes (reactive)
+  $: if ($ndk?.signer) {
+    checkEncryptionSupport();
+  }
+
   // Filter pending transactions to only show those for the active wallet
   $: filteredPendingTransactions = $pendingTransactions.filter(
     tx => !tx.walletId || tx.walletId === $activeWallet?.id
@@ -378,7 +383,10 @@
     fetchProfileLud16();
 
     // Check if signer extension supports encryption for backup features
-    checkEncryptionSupport();
+    // Wait for NDK to be ready (signer may not be set immediately)
+    ndkReady.then(() => {
+      checkEncryptionSupport();
+    });
 
     // Load transaction history if wallet is already connected (not for WebLN)
     if ($walletConnected && $activeWallet && $activeWallet.kind !== 1) {
