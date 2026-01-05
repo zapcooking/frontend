@@ -14,6 +14,12 @@ import type NDK from '@nostr-dev-kit/ndk';
 import { NDKEvent } from '@nostr-dev-kit/ndk';
 import { get } from 'svelte/store';
 import { ndk } from './nostr';
+import {
+  hasEncryptionSupport,
+  encrypt,
+  decrypt,
+  type EncryptionMethod
+} from './encryptionService';
 
 // NIP-78 event kind for application-specific data
 const APP_DATA_KIND = 30078;
@@ -39,20 +45,6 @@ function getAllDTags(): string[] {
   return tags;
 }
 
-// NIP-07 interface for encryption
-interface WindowWithNostr extends Window {
-  nostr?: {
-    getPublicKey(): Promise<string>;
-    signEvent(event: any): Promise<any>;
-    nip04?: {
-      encrypt(pubkey: string, plaintext: string): Promise<string>;
-      decrypt(pubkey: string, ciphertext: string): Promise<string>;
-    };
-  };
-}
-
-declare const window: WindowWithNostr;
-
 /**
  * Profile backup data structure
  */
@@ -64,33 +56,35 @@ export interface ProfileBackupData {
 }
 
 /**
- * Check if NIP-04 encryption is available
+ * Check if encryption is available (for backwards compatibility)
+ * @deprecated Use hasEncryptionSupport() from encryptionService instead
  */
 export function hasNip04Support(): boolean {
-  return typeof window !== 'undefined' && !!window.nostr?.nip04;
+  return hasEncryptionSupport();
 }
 
 /**
- * Encrypt data using NIP-04 (encrypt to own pubkey)
+ * Encrypt data using the unified encryption service (encrypt to own pubkey)
  */
-async function encryptData(data: ProfileBackupData, userPubkey: string): Promise<string> {
-  if (!hasNip04Support()) {
-    throw new Error('NIP-04 encryption not available. Please use a browser extension that supports NIP-04.');
+async function encryptData(data: ProfileBackupData, userPubkey: string): Promise<{ content: string; method: EncryptionMethod }> {
+  if (!hasEncryptionSupport()) {
+    throw new Error('No encryption method available. Please ensure you are logged in with a signer.');
   }
 
   const jsonString = JSON.stringify(data);
-  return await window.nostr!.nip04!.encrypt(userPubkey, jsonString);
+  const result = await encrypt(userPubkey, jsonString, 'nip04'); // Profile backups use NIP-04 for compatibility
+  return { content: result.ciphertext, method: result.method };
 }
 
 /**
- * Decrypt data using NIP-04
+ * Decrypt data using the unified encryption service
  */
-async function decryptData(encryptedContent: string, authorPubkey: string): Promise<ProfileBackupData> {
-  if (!hasNip04Support()) {
-    throw new Error('NIP-04 decryption not available. Please use a browser extension that supports NIP-04.');
+async function decryptData(encryptedContent: string, authorPubkey: string, method: EncryptionMethod = 'nip04'): Promise<ProfileBackupData> {
+  if (!hasEncryptionSupport()) {
+    throw new Error('No decryption method available. Please ensure you are logged in with a signer.');
   }
 
-  const decrypted = await window.nostr!.nip04!.decrypt(authorPubkey, encryptedContent);
+  const decrypted = await decrypt(authorPubkey, encryptedContent, method);
   return JSON.parse(decrypted) as ProfileBackupData;
 }
 
@@ -178,14 +172,17 @@ export async function backupProfile(
     // Encrypt the backup data
     let content: string;
     let isEncrypted = false;
+    let encryptionMethod: EncryptionMethod = null;
 
-    if (hasNip04Support()) {
-      content = await encryptData(backupData, pubkey);
+    if (hasEncryptionSupport()) {
+      const result = await encryptData(backupData, pubkey);
+      content = result.content;
+      encryptionMethod = result.method;
       isEncrypted = true;
-      console.log('[ProfileBackup] Data encrypted successfully');
+      console.log('[ProfileBackup] Data encrypted successfully with', encryptionMethod);
     } else {
       // Fallback: store unencrypted (not recommended but allows backup)
-      console.warn('[ProfileBackup] NIP-04 not available, storing unencrypted');
+      console.warn('[ProfileBackup] Encryption not available, storing unencrypted');
       content = JSON.stringify(backupData);
     }
 
@@ -195,7 +192,8 @@ export async function backupProfile(
     event.content = content;
     event.tags = [
       ['d', dTag],
-      ['encrypted', isEncrypted ? 'true' : 'false']
+      ['encrypted', isEncrypted ? 'true' : 'false'],
+      ...(encryptionMethod ? [['encryption', encryptionMethod]] : [])
     ];
 
     // Sign and publish
@@ -252,11 +250,16 @@ export async function fetchProfileBackup(
     const isEncrypted = encryptedTag?.[1] === 'true';
 
     if (isEncrypted) {
-      if (!hasNip04Support()) {
-        console.warn('[ProfileBackup] Backup is encrypted but NIP-04 not available');
+      if (!hasEncryptionSupport()) {
+        console.warn('[ProfileBackup] Backup is encrypted but decryption not available');
         return null;
       }
-      return await decryptData(latestEvent.content, latestEvent.pubkey);
+      // Get encryption method from tags, default to nip04 for legacy backups
+      const encMethodTag = latestEvent.tags.find(t => t[0] === 'encryption');
+      const method: EncryptionMethod = (encMethodTag?.[1] === 'nip44' || encMethodTag?.[1] === 'nip04')
+        ? encMethodTag[1] as EncryptionMethod
+        : 'nip04'; // Default to nip04 for older backups
+      return await decryptData(latestEvent.content, latestEvent.pubkey, method);
     } else {
       return JSON.parse(latestEvent.content) as ProfileBackupData;
     }
@@ -299,8 +302,13 @@ export async function listProfileBackups(
         const isEncrypted = encryptedTag?.[1] === 'true';
 
         let data: ProfileBackupData;
-        if (isEncrypted && hasNip04Support()) {
-          data = await decryptData(event.content, event.pubkey);
+        if (isEncrypted && hasEncryptionSupport()) {
+          // Get encryption method from tags, default to nip04 for legacy backups
+          const encMethodTag = event.tags.find(t => t[0] === 'encryption');
+          const method: EncryptionMethod = (encMethodTag?.[1] === 'nip44' || encMethodTag?.[1] === 'nip04')
+            ? encMethodTag[1] as EncryptionMethod
+            : 'nip04';
+          data = await decryptData(event.content, event.pubkey, method);
         } else if (!isEncrypted) {
           data = JSON.parse(event.content) as ProfileBackupData;
         } else {
@@ -391,10 +399,15 @@ export async function fetchBackupById(
     const isEncrypted = encryptedTag?.[1] === 'true';
 
     if (isEncrypted) {
-      if (!hasNip04Support()) {
+      if (!hasEncryptionSupport()) {
         return null;
       }
-      return await decryptData(event.content, event.pubkey);
+      // Get encryption method from tags, default to nip04 for legacy backups
+      const encMethodTag = event.tags.find(t => t[0] === 'encryption');
+      const method: EncryptionMethod = (encMethodTag?.[1] === 'nip44' || encMethodTag?.[1] === 'nip04')
+        ? encMethodTag[1] as EncryptionMethod
+        : 'nip04';
+      return await decryptData(event.content, event.pubkey, method);
     } else {
       return JSON.parse(event.content) as ProfileBackupData;
     }

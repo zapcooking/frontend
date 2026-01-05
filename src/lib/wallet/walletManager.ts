@@ -320,6 +320,12 @@ export async function sendPayment(
 	try {
 		walletLoading.set(true)
 
+		// Ensure the wallet is connected before trying to pay
+		const connected = await ensureWalletConnected(wallet)
+		if (!connected) {
+			throw new Error('Wallet not connected. Please try again.')
+		}
+
 		let preimage: string
 
 		switch (wallet.kind) {

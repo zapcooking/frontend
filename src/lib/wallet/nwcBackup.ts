@@ -3,53 +3,45 @@
  *
  * Backs up NWC connection strings to Nostr using NIP-78 (kind 30078)
  * with NIP-44 encryption (falls back to NIP-04).
+ *
+ * Supports both NIP-07 (browser extensions) and NIP-46 (remote signers like Amber).
  */
 
 import { browser } from '$app/environment'
+import {
+	hasEncryptionSupport as _hasEncryptionSupport,
+	getBestEncryptionMethod,
+	encrypt,
+	decrypt,
+	detectEncryptionMethod,
+	type EncryptionMethod
+} from '$lib/encryptionService'
 
 const NWC_BACKUP_EVENT_KIND = 30078
 const NWC_BACKUP_D_TAG = 'zapcooking-nwc-backup'
 
-/**
- * Get the Nostr extension from window
- */
-function getNostrExtension(): any {
-	if (!browser) throw new Error('Nostr extension only available in browser')
-	const nostr = (window as any).nostr
-	if (!nostr) {
-		throw new Error('No Nostr extension found. Please install Alby or another NIP-07 extension.')
-	}
-	return nostr
-}
+// Re-export from encryption service for backwards compatibility
+export const hasEncryptionSupport = _hasEncryptionSupport
 
 /**
- * Check if NIP-44 encryption is available
+ * @deprecated Use hasEncryptionSupport() from encryptionService instead
  */
 export function hasNip44Support(): boolean {
-	if (!browser) return false
-	const nostr = (window as any).nostr
-	return !!(nostr?.nip44?.encrypt && nostr?.nip44?.decrypt)
+	return getBestEncryptionMethod() === 'nip44'
 }
 
 /**
- * Check if NIP-04 encryption is available
+ * @deprecated Use hasEncryptionSupport() from encryptionService instead
  */
 export function hasNip04Support(): boolean {
-	if (!browser) return false
-	const nostr = (window as any).nostr
-	return !!(nostr?.nip04?.encrypt && nostr?.nip04?.decrypt)
-}
-
-/**
- * Check if any encryption method is available
- */
-export function hasEncryptionSupport(): boolean {
-	return hasNip44Support() || hasNip04Support()
+	const method = getBestEncryptionMethod()
+	return method === 'nip04' || method === 'nip44'
 }
 
 /**
  * Backup NWC connection string to Nostr relays.
  * Uses NIP-78 (kind 30078) replaceable events with NIP-44/NIP-04 encryption.
+ * Works with both NIP-07 extensions and NIP-46 remote signers.
  * @param pubkey The user's Nostr public key.
  * @param nwcConnectionString The NWC connection string to backup.
  */
@@ -60,41 +52,20 @@ export async function backupNwcToNostr(pubkey: string, nwcConnectionString: stri
 		throw new Error('No NWC connection string provided')
 	}
 
-	const nostr = getNostrExtension()
-
-	// Determine encryption method - prefer NIP-44, fall back to NIP-04
-	let encryptedContent: string
-	let encryptionMethod: 'nip44' | 'nip04'
-
-	if (nostr.nip44?.encrypt) {
-		console.log('[NWC Backup] Encrypting with NIP-44...')
-		encryptedContent = await nostr.nip44.encrypt(pubkey, nwcConnectionString)
-		encryptionMethod = 'nip44'
-	} else if (nostr.nip04?.encrypt) {
-		console.log('[NWC Backup] NIP-44 not available, falling back to NIP-04...')
-		encryptedContent = await nostr.nip04.encrypt(pubkey, nwcConnectionString)
-		encryptionMethod = 'nip04'
-	} else {
-		throw new Error('Your Nostr extension does not support encryption. Please use a different extension like Alby.')
+	// Check encryption support
+	if (!hasEncryptionSupport()) {
+		throw new Error('No encryption method available. Please ensure you are logged in with a signer.')
 	}
+
+	// Encrypt using the unified encryption service
+	console.log('[NWC Backup] Encrypting connection string...')
+	const { ciphertext: encryptedContent, method: encryptionMethod } = await encrypt(
+		pubkey,
+		nwcConnectionString
+	)
+	console.log('[NWC Backup] Encrypted with', encryptionMethod)
 
 	// Create the backup event (kind 30078 - NIP-78 application-specific data)
-	const eventTemplate = {
-		kind: NWC_BACKUP_EVENT_KIND,
-		created_at: Math.floor(Date.now() / 1000),
-		tags: [
-			['d', NWC_BACKUP_D_TAG],
-			['client', 'zap.cooking'],
-			['encryption', encryptionMethod]
-		],
-		content: encryptedContent
-	}
-
-	// Sign with extension
-	console.log('[NWC Backup] Signing backup event...')
-	const signedEvent = await nostr.signEvent(eventTemplate)
-
-	// Publish using NDK
 	const { ndk, ndkReady } = await import('$lib/nostr')
 	const { NDKEvent } = await import('@nostr-dev-kit/ndk')
 	const { get } = await import('svelte/store')
@@ -102,20 +73,24 @@ export async function backupNwcToNostr(pubkey: string, nwcConnectionString: stri
 	await ndkReady
 	const ndkInstance = get(ndk)
 
+	// Create and sign using NDK (works with any signer type)
 	const ndkEvent = new NDKEvent(ndkInstance)
-	ndkEvent.kind = signedEvent.kind
-	ndkEvent.content = signedEvent.content
-	ndkEvent.tags = signedEvent.tags
-	ndkEvent.created_at = signedEvent.created_at
-	ndkEvent.pubkey = signedEvent.pubkey
-	ndkEvent.id = signedEvent.id
-	ndkEvent.sig = signedEvent.sig
+	ndkEvent.kind = NWC_BACKUP_EVENT_KIND
+	ndkEvent.content = encryptedContent
+	ndkEvent.tags = [
+		['d', NWC_BACKUP_D_TAG],
+		['client', 'zap.cooking'],
+		['encryption', encryptionMethod || 'nip44']
+	]
+
+	console.log('[NWC Backup] Signing backup event...')
+	await ndkEvent.sign()
 
 	console.log('[NWC Backup] Publishing backup to Nostr relays...')
 	await ndkEvent.publish()
 
 	console.log('[NWC Backup] NWC connection backed up to Nostr successfully')
-	return signedEvent
+	return ndkEvent.rawEvent()
 }
 
 /**
@@ -127,21 +102,21 @@ export async function backupNwcToNostr(pubkey: string, nwcConnectionString: stri
 export async function restoreNwcFromNostr(pubkey: string): Promise<string | null> {
 	if (!browser) return null
 
-	const nostr = getNostrExtension()
+	console.log('[NWC Restore] Starting restore for pubkey:', pubkey.slice(0, 8) + '...')
 
-	// Check that we have at least one decryption method available
-	if (!nostr.nip44?.decrypt && !nostr.nip04?.decrypt) {
-		throw new Error('Your Nostr extension does not support decryption. Please use a different extension.')
+	// Check that we have decryption support
+	if (!hasEncryptionSupport()) {
+		throw new Error('No decryption method available. Please ensure you are logged in with a signer.')
 	}
 
 	// Fetch backup event from relays using NDK
 	const { ndk, ndkReady } = await import('$lib/nostr')
 	const { get } = await import('svelte/store')
 
+	console.log('[NWC Restore] Waiting for NDK ready...')
 	await ndkReady
 	const ndkInstance = get(ndk)
-
-	console.log('[NWC Backup] Searching for Nostr backup...')
+	console.log('[NWC Restore] NDK ready, connected relays:', ndkInstance.pool?.relays?.size || 0)
 
 	// Query for the backup event
 	const filter = {
@@ -149,12 +124,15 @@ export async function restoreNwcFromNostr(pubkey: string): Promise<string | null
 		authors: [pubkey],
 		'#d': [NWC_BACKUP_D_TAG]
 	}
+	console.log('[NWC Restore] Fetching with filter:', JSON.stringify(filter))
 
 	// Fetch with timeout
+	const fetchStart = Date.now()
 	const events = await ndkInstance.fetchEvents(filter, { closeOnEose: true })
+	console.log('[NWC Restore] Fetch completed in', Date.now() - fetchStart, 'ms, found', events?.size || 0, 'events')
 
 	if (!events || events.size === 0) {
-		console.log('[NWC Backup] No backup found on Nostr relays')
+		console.log('[NWC Restore] No backup found on Nostr relays')
 		return null
 	}
 
@@ -166,22 +144,27 @@ export async function restoreNwcFromNostr(pubkey: string): Promise<string | null
 		}
 	}
 
+	console.log('[NWC Restore] Latest event:', {
+		id: latestEvent?.id?.slice(0, 8),
+		created_at: latestEvent?.created_at,
+		contentLength: latestEvent?.content?.length,
+		tags: latestEvent?.tags
+	})
+
 	if (!latestEvent || !latestEvent.content) {
-		console.warn('[NWC Backup] Backup event found but has no content')
+		console.warn('[NWC Restore] Backup event found but has no content')
 		return null
 	}
 
 	// Determine encryption method from event tags, or detect from ciphertext format
 	const encryptionTag = latestEvent.tags?.find((t: string[]) => t[0] === 'encryption')
-	let encryptionMethod: string
-	if (encryptionTag?.[1]) {
-		encryptionMethod = encryptionTag[1]
-	} else if (latestEvent.content.includes('?iv=')) {
-		encryptionMethod = 'nip04'
+	let encryptionMethod: EncryptionMethod
+	if (encryptionTag?.[1] === 'nip04' || encryptionTag?.[1] === 'nip44') {
+		encryptionMethod = encryptionTag[1] as EncryptionMethod
 	} else {
-		encryptionMethod = 'nip44'
+		encryptionMethod = detectEncryptionMethod(latestEvent.content)
 	}
-	console.log('[NWC Backup] Found backup, decrypting with', encryptionMethod, '...')
+	console.log('[NWC Restore] Encryption method:', encryptionMethod)
 
 	// Helper to add timeout to decrypt operations
 	const withTimeout = <T>(promise: Promise<T>, ms: number, message: string): Promise<T> => {
@@ -191,40 +174,35 @@ export async function restoreNwcFromNostr(pubkey: string): Promise<string | null
 		])
 	}
 
-	// Decrypt the connection string
-	let connectionString: string
+	// Decrypt the connection string using unified encryption service
 	const DECRYPT_TIMEOUT = 15000
 
-	if (encryptionMethod === 'nip04') {
-		if (!nostr.nip04?.decrypt) {
-			throw new Error('This backup was encrypted with NIP-04 but your extension does not support it.')
-		}
-		connectionString = await withTimeout(
-			nostr.nip04.decrypt(pubkey, latestEvent.content),
-			DECRYPT_TIMEOUT,
-			'Decryption timed out. Please approve the decryption request in your Nostr extension.'
-		)
-	} else {
-		if (!nostr.nip44?.decrypt) {
-			throw new Error('This backup was encrypted with NIP-44 but your extension does not support it.')
-		}
-		connectionString = await withTimeout(
-			nostr.nip44.decrypt(pubkey, latestEvent.content),
-			DECRYPT_TIMEOUT,
-			'Decryption timed out. Please approve the decryption request in your Nostr extension.'
-		)
-	}
+	console.log('[NWC Restore] Starting decryption with', encryptionMethod, '...')
+	const decryptStart = Date.now()
+
+	const connectionString = await withTimeout(
+		decrypt(pubkey, latestEvent.content, encryptionMethod),
+		DECRYPT_TIMEOUT,
+		'Decryption timed out. Please approve the request in your signer app.'
+	)
+
+	console.log('[NWC Restore] Decryption completed in', Date.now() - decryptStart, 'ms')
+	console.log('[NWC Restore] Decrypted string length:', connectionString?.length)
 
 	if (!connectionString) {
 		throw new Error('Failed to decrypt backup. Make sure you are using the same Nostr key.')
 	}
 
 	// Validate it looks like an NWC connection string
-	if (!connectionString.includes('nostr+walletconnect') && !connectionString.includes('nostrwalletconnect')) {
+	const isValidNwc = connectionString.includes('nostr+walletconnect') || connectionString.includes('nostrwalletconnect')
+	console.log('[NWC Restore] Is valid NWC URL:', isValidNwc)
+
+	if (!isValidNwc) {
+		console.error('[NWC Restore] Invalid content preview:', connectionString.slice(0, 50))
 		throw new Error('Decrypted data does not appear to be a valid NWC connection string.')
 	}
 
-	console.log('[NWC Backup] Successfully restored NWC connection from Nostr backup')
+	console.log('[NWC Restore] Successfully restored NWC connection from Nostr backup')
 	return connectionString
 }
 
@@ -360,8 +338,6 @@ export async function checkRelayBackups(pubkey: string): Promise<RelayBackupStat
 export async function deleteBackupFromNostr(pubkey: string): Promise<void> {
 	if (!browser) throw new Error('Backup deletion can only be performed in browser')
 
-	const nostr = getNostrExtension()
-
 	const { ndk, ndkReady } = await import('$lib/nostr')
 	const { NDKEvent } = await import('@nostr-dev-kit/ndk')
 	const { get } = await import('svelte/store')
@@ -373,29 +349,17 @@ export async function deleteBackupFromNostr(pubkey: string): Promise<void> {
 
 	// Create an empty replaceable event with the same d-tag to overwrite the backup
 	// This is more reliable than NIP-09 deletion since relays must replace the old event
-	const emptyBackupEvent = {
-		kind: NWC_BACKUP_EVENT_KIND,
-		created_at: Math.floor(Date.now() / 1000),
-		tags: [
-			['d', NWC_BACKUP_D_TAG],
-			['deleted', 'true']
-		],
-		content: '' // Empty content - no backup data
-	}
-
-	// Sign with extension
-	console.log('[NWC Backup] Signing empty backup event...')
-	const signedEvent = await nostr.signEvent(emptyBackupEvent)
-
-	// Publish to overwrite the backup
 	const ndkEvent = new NDKEvent(ndkInstance)
-	ndkEvent.kind = signedEvent.kind
-	ndkEvent.content = signedEvent.content
-	ndkEvent.tags = signedEvent.tags
-	ndkEvent.created_at = signedEvent.created_at
-	ndkEvent.pubkey = signedEvent.pubkey
-	ndkEvent.id = signedEvent.id
-	ndkEvent.sig = signedEvent.sig
+	ndkEvent.kind = NWC_BACKUP_EVENT_KIND
+	ndkEvent.content = '' // Empty content - no backup data
+	ndkEvent.tags = [
+		['d', NWC_BACKUP_D_TAG],
+		['deleted', 'true']
+	]
+
+	// Sign using NDK (works with any signer type)
+	console.log('[NWC Backup] Signing empty backup event...')
+	await ndkEvent.sign()
 
 	console.log('[NWC Backup] Publishing empty backup to overwrite existing...')
 	await ndkEvent.publish()

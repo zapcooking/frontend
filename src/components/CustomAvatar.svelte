@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { createEventDispatcher, onMount } from 'svelte';
+  import { createEventDispatcher } from 'svelte';
   import { profileCacheManager } from '$lib/profileCache';
   import type { NDKUser } from '@nostr-dev-kit/ndk';
   
@@ -163,17 +163,23 @@
     return [...new Set(candidates)];
   }
 
-  onMount(async () => {
-    if (!pubkey) return;
-    
+  let lastPubkey: string = '';
+
+  // Check both 'image' and 'picture' fields (Nostr supports both)
+  function getProfileImage(profile: any): string | null {
+    return profile?.image || profile?.picture || null;
+  }
+
+  async function loadAvatar(pk: string, overrideUrl: string | null = null) {
+    if (!pk) return;
+
+    loading = true;
+    imageError = false;
+
     try {
-      // Check both 'image' and 'picture' fields (Nostr supports both)
-      const getProfileImage = (profile: any) => profile?.image || profile?.picture;
-      
       // If imageUrl prop is provided, use it directly (skip cache)
-      if (imageUrl) {
-        console.debug('[avatar] using provided imageUrl', pubkey.slice(0, 8), imageUrl);
-        imageCandidates = buildImageCandidates(imageUrl);
+      if (overrideUrl) {
+        imageCandidates = buildImageCandidates(overrideUrl);
         if (imageCandidates.length > 0) {
           currentCandidateIndex = 0;
           profilePicture = imageCandidates[0];
@@ -181,13 +187,12 @@
         loading = false;
         return;
       }
-      
+
       // First try to get from cache
-      user = profileCacheManager.getCachedProfile(pubkey);
-      
+      user = profileCacheManager.getCachedProfile(pk);
+
       if (user && getProfileImage(user.profile)) {
-        imageCandidates = buildImageCandidates(getProfileImage(user.profile));
-        console.debug('[avatar] candidates', pubkey.slice(0, 8), imageCandidates);
+        imageCandidates = buildImageCandidates(getProfileImage(user.profile)!);
         if (imageCandidates.length > 0) {
           currentCandidateIndex = 0;
           profilePicture = imageCandidates[0];
@@ -195,27 +200,35 @@
         loading = false;
         return;
       }
-      
+
       // If not in cache or no image, fetch from relays (waits for NDK ready)
-      user = await profileCacheManager.getProfile(pubkey);
-      
+      user = await profileCacheManager.getProfile(pk);
+
       if (getProfileImage(user?.profile)) {
-        imageCandidates = buildImageCandidates(getProfileImage(user?.profile));
+        imageCandidates = buildImageCandidates(getProfileImage(user?.profile)!);
         if (imageCandidates.length > 0) {
           currentCandidateIndex = 0;
           profilePicture = imageCandidates[0];
         }
+      } else {
+        profilePicture = null;
       }
     } catch (error) {
       console.warn('Failed to fetch profile for avatar:', error);
+      profilePicture = null;
     } finally {
       loading = false;
     }
-  });
+  }
 
-  // Reactive statement to update picture when imageUrl prop changes
-  $: if (imageUrl) {
-    console.debug('[avatar] imageUrl prop changed', pubkey?.slice(0, 8), imageUrl);
+  // React to pubkey changes
+  $: if (pubkey && pubkey !== lastPubkey) {
+    lastPubkey = pubkey;
+    loadAvatar(pubkey, imageUrl);
+  }
+
+  // React to imageUrl prop changes
+  $: if (imageUrl && pubkey) {
     const newCandidates = buildImageCandidates(imageUrl);
     if (newCandidates.length > 0) {
       imageCandidates = newCandidates;

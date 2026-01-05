@@ -27,13 +27,13 @@
 <div class="relative" use:clickOutside on:click_outside={() => showPanel = false}>
   <button
     on:click={() => showPanel = !showPanel}
-    class="relative p-2 rounded-full hover:bg-accent-gray transition-colors cursor-pointer"
+    class="relative w-9 h-9 flex items-center justify-center rounded-full hover:bg-accent-gray transition-colors cursor-pointer"
     aria-label="Notifications"
   >
-    <BellIcon size={24} weight={$unreadCount > 0 ? 'fill' : 'regular'} />
+    <BellIcon size={20} weight={$unreadCount > 0 ? 'fill' : 'regular'} />
 
     {#if $unreadCount > 0}
-      <span class="absolute top-0 right-0 w-2.5 h-2.5 bg-red-500 rounded-full"></span>
+      <span class="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full"></span>
     {/if}
   </button>
 

@@ -412,7 +412,7 @@
     <!-- Dropdown trigger for desktop -->
     <button
       on:click|stopPropagation={openDropdown}
-      class="hidden sm:flex items-center justify-center w-6 h-6 -ml-1 rounded-r-full transition-colors hover:bg-black/10 dark:hover:bg-white/10"
+      class="hidden sm:flex items-center justify-center w-6 h-6 ml-1 rounded-full transition-colors hover:bg-black/10 dark:hover:bg-white/10"
       aria-label="Choose list"
     >
       <CaretDownIcon size={14} weight="bold" />

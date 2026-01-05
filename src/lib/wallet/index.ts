@@ -54,3 +54,11 @@ export {
 
 // Export NWC functions that may be needed directly
 export { getNwcInfo } from './nwc'
+
+// Export Bitcoin Connect external wallet state
+export {
+	bitcoinConnectEnabled,
+	enableBitcoinConnect,
+	disableBitcoinConnect,
+	isBitcoinConnectEnabled
+} from './bitcoinConnect'

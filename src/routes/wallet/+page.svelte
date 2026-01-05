@@ -2,6 +2,7 @@
   import { goto } from '$app/navigation';
   import { onMount } from 'svelte';
   import { userPublickey } from '$lib/nostr';
+  import { getAuthManager } from '$lib/authManager';
   import Button from '../../components/Button.svelte';
   import {
     wallets,
@@ -51,6 +52,13 @@
     deleteBackupFromNostr as deleteSparkBackupFromNostr,
     type SparkWalletBackup
   } from '$lib/spark';
+  import {
+    hasEncryptionSupport,
+    encrypt as encryptionServiceEncrypt,
+    decrypt as encryptionServiceDecrypt,
+    detectEncryptionMethod,
+    type EncryptionMethod
+  } from '$lib/encryptionService';
   import { syncLightningAddressToProfile } from '$lib/spark/profileSync';
   import { qr } from '@svelte-put/qr/svg';
   import { ndk, ndkReady } from '$lib/nostr';
@@ -81,12 +89,18 @@
   import UserCirclePlusIcon from 'phosphor-svelte/lib/UserCirclePlus';
   import SparkLogo from '../../components/icons/SparkLogo.svelte';
   import NwcLogo from '../../components/icons/NwcLogo.svelte';
+  import BitcoinConnectLogo from '../../components/icons/BitcoinConnectLogo.svelte';
   import CustomAvatar from '../../components/CustomAvatar.svelte';
   import CustomName from '../../components/CustomName.svelte';
   import LifebuoyIcon from 'phosphor-svelte/lib/Lifebuoy';
   import CloudCheckIcon from 'phosphor-svelte/lib/CloudCheck';
   import WalletRecoveryHelpModal from '../../components/WalletRecoveryHelpModal.svelte';
   import CheckRelayBackupsModal from '../../components/CheckRelayBackupsModal.svelte';
+  import { bitcoinConnectEnabled, enableBitcoinConnect, disableBitcoinConnect } from '$lib/wallet/bitcoinConnect';
+  import { lightningService } from '$lib/lightningService';
+  import { displayCurrency } from '$lib/currencyStore';
+  import CurrencySelector from '../../components/CurrencySelector.svelte';
+  import FiatBalance from '../../components/FiatBalance.svelte';
 
   let showAddWallet = false;
   let selectedWalletType: WalletKind | null = null;
@@ -127,6 +141,7 @@
   let showSyncConfirmModal = false;
   let showNwcSyncConfirmModal = false;
   let showDeleteAddressConfirmModal = false;
+  let showRemoveBitcoinConnectModal = false;
   let showRecoveryHelpModal = false;
   let showCheckRelayBackupsModal = false;
   let checkRelayBackupsWalletType: 'spark' | 'nwc' = 'spark';
@@ -162,10 +177,20 @@
   // Required for wallet backup functionality
   let encryptionSupported: boolean = false;
   let encryptionMethod: 'nip44' | 'nip04' | null = null;
+  let isNip46User: boolean = false;
 
   function checkEncryptionSupport() {
     encryptionMethod = getBestEncryptionMethod();
     encryptionSupported = encryptionMethod !== null;
+
+    // Check if user is logged in via NIP-46 (remote signer)
+    const authManager = getAuthManager();
+    isNip46User = authManager?.getState()?.authMethod === 'nip46';
+  }
+
+  // Re-check encryption support when NDK signer changes (reactive)
+  $: if ($ndk?.signer) {
+    checkEncryptionSupport();
   }
 
   // Filter pending transactions to only show those for the active wallet
@@ -354,6 +379,9 @@
       return;
     }
 
+    // Initialize currency preference
+    displayCurrency.initialize();
+
     // Ensure pending transactions are loaded from localStorage
     ensurePendingTransactionsLoaded();
 
@@ -361,7 +389,10 @@
     fetchProfileLud16();
 
     // Check if signer extension supports encryption for backup features
-    checkEncryptionSupport();
+    // Wait for NDK to be ready (signer may not be set immediately)
+    ndkReady.then(() => {
+      checkEncryptionSupport();
+    });
 
     // Load transaction history if wallet is already connected (not for WebLN)
     if ($walletConnected && $activeWallet && $activeWallet.kind !== 1) {
@@ -863,6 +894,29 @@
     }
   }
 
+  async function handleConnectBitcoinConnect() {
+    // Initialize Bitcoin Connect and open connection modal
+    try {
+      await lightningService.init();
+      // Import and request provider - this opens the BC modal
+      const { requestProvider } = await import('@getalby/bitcoin-connect');
+      const provider = await requestProvider();
+      if (provider) {
+        enableBitcoinConnect();
+        showAddWallet = false;
+        successMessage = 'External wallet connected via Bitcoin Connect!';
+      }
+    } catch (e) {
+      // User cancelled or connection failed
+      console.warn('[Wallet] Bitcoin Connect cancelled or failed:', e);
+    }
+  }
+
+  function handleDisableBitcoinConnect() {
+    disableBitcoinConnect();
+    successMessage = 'Bitcoin Connect disabled.';
+  }
+
   async function handleCreateSparkWallet() {
     if (!BREEZ_API_KEY) {
       errorMessage = 'Breez API key not configured. Please contact support.';
@@ -930,6 +984,16 @@
   // Helper to provide friendlier error messages for known signer extension issues
   function getSignerErrorMessage(error: unknown, fallback: string): string {
     const message = error instanceof Error ? error.message : String(error);
+
+    // NIP-46 remote signer permission errors - encryption not allowed
+    if (message.includes('kind 24133') || message.includes('not allowed') || message.includes('blocked')) {
+      return 'Your remote signer has not granted encryption permissions. Use "Recovery Phrase" to backup your wallet manually.';
+    }
+
+    // NIP-46 ephemeral event expired - connection timing issue
+    if (message.includes('ephemeral event expired')) {
+      return 'Connection to your remote signer timed out. Please try again or check that your signer app is open.';
+    }
 
     // Base64 decoding errors (encryption format mismatch)
     if (message.includes('invalid base64') || message.includes('Unknown letter')) {
@@ -1007,41 +1071,30 @@
 
       sparkLoadingMessage = 'Decrypting wallet backup...';
 
-      // Decrypt using the encryption method - detect from backup format
+      // Decrypt using the unified encryption service
       const decryptFn = async (ciphertext: string, senderPubkey: string): Promise<string> => {
-        const nostr = (window as any).nostr;
-        if (!nostr) {
-          throw new Error('No Nostr extension found. Please install Alby or another NIP-07 extension.');
+        // Check encryption support
+        if (!hasEncryptionSupport()) {
+          throw new Error('No decryption method available. Please ensure you are logged in with a signer.');
         }
 
         // Determine encryption method (compatible with Yakihonne/Primal/Jumble backups)
         // Priority: 1) explicit encryption field, 2) detect from format, 3) assume based on version
-        let useNip44 = false;
-        if (backup.encryption) {
+        let method: EncryptionMethod;
+        if (backup.encryption === 'nip44' || backup.encryption === 'nip04') {
           // Explicit encryption field (v2 backups from zap.cooking, Primal)
-          useNip44 = backup.encryption === 'nip44';
-        } else if (ciphertext.includes('?iv=')) {
-          // NIP-04 format has ?iv= separator
-          useNip44 = false;
+          method = backup.encryption;
         } else {
-          // Default: v2 = NIP-44, v1 = NIP-04
-          useNip44 = backup.version === 2;
+          // Detect from ciphertext format or default based on version
+          method = detectEncryptionMethod(ciphertext);
+          // Override for v1 backups that don't have explicit field
+          if (backup.version === 1 && !ciphertext.includes('?iv=')) {
+            method = 'nip04';
+          }
         }
 
-        if (useNip44) {
-          if (!nostr.nip44?.decrypt) {
-            throw new Error('This backup was encrypted with NIP-44 but your extension does not support it.');
-          }
-          const decrypted = await nostr.nip44.decrypt(senderPubkey, ciphertext);
-          if (decrypted) return decrypted;
-        } else {
-          // NIP-04
-          if (!nostr.nip04?.decrypt) {
-            throw new Error('This backup was encrypted with NIP-04 but your extension does not support it.');
-          }
-          const decrypted = await nostr.nip04.decrypt(senderPubkey, ciphertext);
-          if (decrypted) return decrypted;
-        }
+        const decrypted = await encryptionServiceDecrypt(senderPubkey, ciphertext, method);
+        if (decrypted) return decrypted;
 
         throw new Error('Decryption failed. Make sure you are using the same Nostr key that created this backup.');
       };
@@ -1130,30 +1183,20 @@
     errorMessage = '';
 
     try {
-      const nostr = (window as any).nostr;
-      if (!nostr) {
-        throw new Error('No Nostr extension found. Please install Alby or another NIP-07 extension.');
+      // Check encryption support
+      if (!hasEncryptionSupport()) {
+        throw new Error('No encryption method available. Please ensure you are logged in with a signer.');
       }
 
-      // Determine encryption method - prefer NIP-44, fall back to NIP-04
-      let encryptionMethod: 'nip44' | 'nip04';
-      let encryptFn: (plaintext: string, recipientPubkey: string) => Promise<string>;
+      // Use the encryption service - it will pick the best method
+      let usedMethod: EncryptionMethod = null;
+      const encryptFn = async (plaintext: string, recipientPubkey: string): Promise<string> => {
+        const result = await encryptionServiceEncrypt(recipientPubkey, plaintext);
+        usedMethod = result.method;
+        return result.ciphertext;
+      };
 
-      if (nostr.nip44?.encrypt) {
-        encryptionMethod = 'nip44';
-        encryptFn = async (plaintext: string, recipientPubkey: string): Promise<string> => {
-          return await nostr.nip44.encrypt(recipientPubkey, plaintext);
-        };
-      } else if (nostr.nip04?.encrypt) {
-        encryptionMethod = 'nip04';
-        encryptFn = async (plaintext: string, recipientPubkey: string): Promise<string> => {
-          return await nostr.nip04.encrypt(recipientPubkey, plaintext);
-        };
-      } else {
-        throw new Error('Your Nostr extension does not support encryption. Please use a different extension like Alby.');
-      }
-
-      const backup = await createBackup($userPublickey, encryptFn, encryptionMethod);
+      const backup = await createBackup($userPublickey, encryptFn, getBestEncryptionMethod() || 'nip44');
 
       // Download as JSON file
       const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
@@ -1166,7 +1209,7 @@
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
 
-      successMessage = encryptionMethod === 'nip04'
+      successMessage = usedMethod === 'nip04'
         ? 'Backup file downloaded! (encrypted with NIP-04)'
         : 'Backup file downloaded!';
     } catch (e) {
@@ -1207,28 +1250,35 @@
   async function handleRestoreNwcFromNostr() {
     isConnecting = true;
     errorMessage = '';
+    console.log('[Wallet Page] Starting NWC restore from Nostr...');
 
     try {
       const connectionString = await restoreNwcFromNostr($userPublickey);
+      console.log('[Wallet Page] restoreNwcFromNostr returned:', connectionString ? 'connection string (' + connectionString.length + ' chars)' : 'null');
 
       if (connectionString) {
         // Use the restored connection string to connect
         nwcConnectionString = connectionString;
+        console.log('[Wallet Page] Calling connectWallet(3, connectionString)...');
         const result = await connectWallet(3, connectionString);
+        console.log('[Wallet Page] connectWallet result:', result);
 
         if (result.success) {
           successMessage = 'NWC wallet restored from Nostr backup!';
           showAddWallet = false;
           selectedWalletType = null;
           nwcConnectionString = '';
+          console.log('[Wallet Page] NWC restore complete, wallet connected');
         } else {
           errorMessage = result.error || 'Failed to connect restored NWC wallet';
+          console.error('[Wallet Page] connectWallet failed:', result.error);
         }
       } else {
         errorMessage = 'No NWC backup found on Nostr relays.';
+        console.log('[Wallet Page] No backup found');
       }
     } catch (e) {
-      console.error('[NWC] Restore error:', e);
+      console.error('[Wallet Page] NWC restore error:', e);
       errorMessage = getSignerErrorMessage(e, 'Failed to restore from Nostr');
     } finally {
       isConnecting = false;
@@ -1434,20 +1484,22 @@
 <div class="max-w-2xl mx-auto py-8 px-4">
   <h1 class="text-2xl font-bold mb-6" style="color: var(--color-text-primary)">Wallet</h1>
 
-  <!-- Error/Success Messages -->
+  <!-- Error/Success Messages - Fixed at top, above all modals -->
   {#if errorMessage}
-    <div class="mb-4 p-4 rounded-lg flex items-center gap-2" style="background-color: rgba(239, 68, 68, 0.1); color: #ef4444;">
-      <WarningIcon size={20} />
-      <span>{errorMessage}</span>
-      <button class="ml-auto text-sm underline" on:click={() => errorMessage = ''}>Dismiss</button>
+    <div class="fixed top-4 left-4 right-4 max-w-2xl mx-auto p-4 rounded-lg flex items-center gap-3 shadow-xl border z-[100]"
+         style="background-color: var(--color-bg-primary); border-color: #ef4444; color: #ef4444;">
+      <WarningIcon size={20} class="flex-shrink-0" />
+      <span class="flex-1 text-sm">{errorMessage}</span>
+      <button class="text-sm underline flex-shrink-0 hover:opacity-80" on:click={() => errorMessage = ''}>Dismiss</button>
     </div>
   {/if}
 
   {#if successMessage}
-    <div class="mb-4 p-4 rounded-lg flex items-center gap-2" style="background-color: rgba(34, 197, 94, 0.1); color: #22c55e;">
-      <CheckCircleIcon size={20} />
-      <span>{successMessage}</span>
-      <button class="ml-auto text-sm underline" on:click={() => successMessage = ''}>Dismiss</button>
+    <div class="fixed top-4 left-4 right-4 max-w-2xl mx-auto p-4 rounded-lg flex items-center gap-3 shadow-xl border z-[100]"
+         style="background-color: var(--color-bg-primary); border-color: #22c55e; color: #22c55e;">
+      <CheckCircleIcon size={20} class="flex-shrink-0" />
+      <span class="flex-1 text-sm">{successMessage}</span>
+      <button class="text-sm underline flex-shrink-0 hover:opacity-80" on:click={() => successMessage = ''}>Dismiss</button>
     </div>
   {/if}
 
@@ -1483,14 +1535,20 @@
           </button>
         </div>
       </div>
-      <div class="text-4xl font-bold mb-2 text-primary-color flex items-center gap-3">
-        {#if $walletLoading || $walletBalance === null}
-          <span class="animate-pulse">...</span>
-        {:else if $balanceVisible}
-          {formatBalance($walletBalance)} <span class="text-lg font-normal text-caption">sats</span>
-        {:else}
-          *** <span class="text-lg font-normal text-caption">sats</span>
-        {/if}
+      <div class="flex items-start justify-between mb-2">
+        <div>
+          <div class="text-4xl font-bold text-primary-color flex items-center gap-3">
+            {#if $walletLoading || $walletBalance === null}
+              <span class="animate-pulse">...</span>
+            {:else if $balanceVisible}
+              {formatBalance($walletBalance)} <span class="text-lg font-normal text-caption">sats</span>
+            {:else}
+              *** <span class="text-lg font-normal text-caption">sats</span>
+            {/if}
+          </div>
+          <FiatBalance satoshis={$walletBalance} visible={$balanceVisible} />
+        </div>
+        <CurrencySelector compact />
       </div>
       <div class="text-sm text-caption mb-4">
         Active: {$activeWallet.name} ({getWalletKindName($activeWallet.kind)})
@@ -1532,11 +1590,26 @@
 
     {#if $wallets.length === 0}
       <div class="p-8 rounded-2xl text-center flex flex-col items-center" style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);">
-        <WalletIcon size={48} class="mb-4 text-caption" />
-        <p class="text-caption mb-4">No wallets connected yet</p>
-        <Button on:click={() => { showAddWallet = true; selectedWalletType = null; }}>
-          Connect Your First Wallet
-        </Button>
+        {#if $bitcoinConnectEnabled}
+          <div class="w-16 h-16 rounded-full bg-gradient-to-br from-orange-500 to-amber-500 flex items-center justify-center mb-4">
+            <BitcoinConnectLogo size={32} className="text-white" />
+          </div>
+          <p class="font-medium mb-1" style="color: var(--color-text-primary)">External wallet connected</p>
+          <p class="text-sm text-caption mb-4">Payments will use Bitcoin Connect</p>
+          <button
+            class="px-5 py-2.5 rounded-full font-semibold text-sm text-caption hover:text-red-500 transition-colors cursor-pointer"
+            style="background-color: var(--color-bg-primary); border: 1px solid var(--color-input-border);"
+            on:click={() => showRemoveBitcoinConnectModal = true}
+          >
+            Remove External Wallet
+          </button>
+        {:else}
+          <WalletIcon size={48} class="mb-4 text-caption" />
+          <p class="text-caption mb-4">No wallets connected yet</p>
+          <Button on:click={() => { showAddWallet = true; selectedWalletType = null; }}>
+            Connect Your First Wallet
+          </Button>
+        {/if}
       </div>
     {:else}
       <div class="space-y-3">
@@ -1593,14 +1666,26 @@
             <!-- Spark wallet backup options -->
             {#if wallet.kind === 4 && expandedWalletId === wallet.id}
               <div class="px-4 pb-4 pt-2 border-t" style="border-color: var(--color-input-border);">
-                <!-- Encryption not supported warning -->
-                {#if !encryptionSupported}
+                <!-- NIP-46 remote signer warning -->
+                {#if isNip46User}
                   <div class="p-3 rounded-lg mb-3 text-sm" style="background-color: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.3);">
                     <div class="flex items-start gap-2">
                       <WarningIcon size={18} class="text-amber-500 flex-shrink-0 mt-0.5" />
                       <div>
                         <p class="text-caption">
-                          Your signer extension doesn't support the required encryption method. You can still use "Show Recovery Phrase" to manually back up your wallet.
+                          <strong>Nostr backup not available</strong> for remote signers. Use "Recovery Phrase" to back up your wallet manually.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                {:else if !encryptionSupported}
+                  <!-- Encryption not supported warning (for other signer types) -->
+                  <div class="p-3 rounded-lg mb-3 text-sm" style="background-color: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.3);">
+                    <div class="flex items-start gap-2">
+                      <WarningIcon size={18} class="text-amber-500 flex-shrink-0 mt-0.5" />
+                      <div>
+                        <p class="text-caption">
+                          Your signer extension doesn't support the required encryption method. You can still use "Recovery Phrase" to manually back up your wallet.
                         </p>
                       </div>
                     </div>
@@ -1612,26 +1697,26 @@
                 <div class="grid grid-cols-2 gap-2">
                   <button
                     class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors"
-                    class:cursor-pointer={encryptionSupported}
-                    class:cursor-not-allowed={!encryptionSupported}
-                    class:opacity-50={!encryptionSupported}
+                    class:cursor-pointer={encryptionSupported && !isNip46User}
+                    class:cursor-not-allowed={!encryptionSupported || isNip46User}
+                    class:opacity-50={!encryptionSupported || isNip46User}
                     style="background-color: var(--color-bg-primary); border: 1px solid var(--color-input-border);"
                     on:click={handleBackupToNostr}
-                    disabled={isBackingUp || !encryptionSupported}
-                    title={!encryptionSupported ? 'Your signer extension does not support encryption' : ''}
+                    disabled={isBackingUp || !encryptionSupported || isNip46User}
+                    title={isNip46User ? 'Nostr backup not available for remote signers' : (!encryptionSupported ? 'Your signer does not support encryption' : '')}
                   >
                     <CloudArrowUpIcon size={16} />
                     {isBackingUp ? 'Backing up...' : 'Backup to Nostr'}
                   </button>
                   <button
                     class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors"
-                    class:cursor-pointer={encryptionSupported}
-                    class:cursor-not-allowed={!encryptionSupported}
-                    class:opacity-50={!encryptionSupported}
+                    class:cursor-pointer={encryptionSupported && !isNip46User}
+                    class:cursor-not-allowed={!encryptionSupported || isNip46User}
+                    class:opacity-50={!encryptionSupported || isNip46User}
                     style="background-color: var(--color-bg-primary); border: 1px solid var(--color-input-border);"
                     on:click={handleDownloadBackup}
-                    disabled={isBackingUp || !encryptionSupported}
-                    title={!encryptionSupported ? 'Your signer extension does not support encryption' : ''}
+                    disabled={isBackingUp || !encryptionSupported || isNip46User}
+                    title={isNip46User ? 'Encrypted download not available for remote signers' : (!encryptionSupported ? 'Your signer does not support encryption' : '')}
                   >
                     <DownloadSimpleIcon size={16} />
                     Download
@@ -1859,18 +1944,32 @@
                   </button>
                 </div>
 
+                <!-- NIP-46 warning for NWC wallets -->
+                {#if isNip46User}
+                  <div class="p-3 rounded-lg mb-3 text-sm" style="background-color: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.3);">
+                    <div class="flex items-start gap-2">
+                      <WarningIcon size={18} class="text-amber-500 flex-shrink-0 mt-0.5" />
+                      <div>
+                        <p class="text-caption">
+                          <strong>Nostr backup not available</strong> for remote signers. Use "Download" to save your connection locally.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                {/if}
+
                 <!-- Backup & Recovery -->
                 <div class="text-xs text-caption mb-2 uppercase tracking-wide">Backup & Recovery</div>
                 <div class="grid grid-cols-2 gap-2">
                   <button
                     class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors"
-                    class:cursor-pointer={encryptionSupported}
-                    class:cursor-not-allowed={!encryptionSupported}
-                    class:opacity-50={!encryptionSupported}
+                    class:cursor-pointer={encryptionSupported && !isNip46User}
+                    class:cursor-not-allowed={!encryptionSupported || isNip46User}
+                    class:opacity-50={!encryptionSupported || isNip46User}
                     style="background-color: var(--color-bg-primary); border: 1px solid var(--color-input-border);"
                     on:click={() => handleNwcBackupToNostr(wallet)}
-                    disabled={isBackingUp || !encryptionSupported}
-                    title={!encryptionSupported ? 'Your signer extension does not support encryption' : ''}
+                    disabled={isBackingUp || !encryptionSupported || isNip46User}
+                    title={isNip46User ? 'Nostr backup not available for remote signers' : (!encryptionSupported ? 'Your signer does not support encryption' : '')}
                   >
                     <CloudArrowUpIcon size={16} />
                     <span class="truncate">{isBackingUp ? 'Backing up...' : 'Backup to Nostr'}</span>
@@ -2247,7 +2346,7 @@
   {#if showAddWallet}
     <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
       <div class="rounded-2xl p-6 max-w-md w-full max-h-[90vh] overflow-y-auto" style="background-color: var(--color-bg-primary);">
-        <h2 class="text-xl font-bold mb-4" style="color: var(--color-text-primary)">Add Wallet</h2>
+        <h2 class="text-xl font-bold mb-4" style="color: var(--color-text-primary)">Add Embedded Wallet</h2>
 
         {#if !selectedWalletType}
           <!-- Wallet type selection -->
@@ -2295,6 +2394,33 @@
                 {/if}
               </div>
             </button>
+
+            <!-- Bitcoin Connect option - only show if no embedded wallets exist -->
+            {#if $wallets.length === 0}
+              <div class="flex items-center gap-3 my-4">
+                <div class="flex-1 border-t" style="border-color: var(--color-input-border);"></div>
+                <span class="text-sm text-caption">or choose a wallet to connect</span>
+                <div class="flex-1 border-t" style="border-color: var(--color-input-border);"></div>
+              </div>
+
+              <button
+                class="w-full py-3 px-4 rounded-xl font-semibold text-white bg-gradient-to-r from-orange-500 to-amber-500 transition-colors flex items-center justify-center gap-2"
+                class:hover:from-orange-600={!$bitcoinConnectEnabled}
+                class:hover:to-amber-600={!$bitcoinConnectEnabled}
+                class:cursor-pointer={!$bitcoinConnectEnabled}
+                class:opacity-50={$bitcoinConnectEnabled}
+                class:cursor-not-allowed={$bitcoinConnectEnabled}
+                on:click={handleConnectBitcoinConnect}
+                disabled={$bitcoinConnectEnabled}
+              >
+                <BitcoinConnectLogo size={20} />
+                {#if $bitcoinConnectEnabled}
+                  External Wallet Connected
+                {:else}
+                  Connect Wallet
+                {/if}
+              </button>
+            {/if}
           </div>
         {:else if selectedWalletType === 3}
           <!-- NWC connection -->
@@ -2318,11 +2444,19 @@
               <Button on:click={handleConnectNWC} disabled={isConnecting || !nwcConnectionString} class="flex-1">
                 {isConnecting ? 'Connecting...' : 'Connect NWC'}
               </Button>
-              <Button on:click={handleRestoreNwcFromNostr} disabled={isConnecting} class="flex-1">
+              <Button
+                on:click={handleRestoreNwcFromNostr}
+                disabled={isConnecting || isNip46User}
+                class="flex-1"
+                title={isNip46User ? 'Not available for remote signers' : ''}
+              >
                 <CloudArrowDownIcon size={16} />
                 Restore from Nostr
               </Button>
             </div>
+            {#if isNip46User}
+              <p class="text-xs text-amber-500 mt-2">Nostr restore not available for remote signers. Paste your connection string above.</p>
+            {/if}
           </div>
         {:else if selectedWalletType === 4}
           <!-- Spark wallet options -->
@@ -2346,12 +2480,25 @@
                   </Button>
                   <div class="border-t pt-3 mt-3" style="border-color: var(--color-input-border);">
                     <p class="text-sm text-caption mb-2">Restore existing wallet:</p>
+                    {#if isNip46User}
+                      <p class="text-xs text-amber-500 mb-2">Encrypted backup options not available for remote signers.</p>
+                    {/if}
                     <div class="space-y-2">
-                      <Button on:click={handleRestoreFromNostr} disabled={isConnecting} class="w-full">
+                      <Button
+                        on:click={handleRestoreFromNostr}
+                        disabled={isConnecting || isNip46User}
+                        class="w-full"
+                        title={isNip46User ? 'Not available for remote signers' : ''}
+                      >
                         <CloudArrowDownIcon size={16} />
                         Restore from Nostr Backup
                       </Button>
-                      <Button on:click={() => fileInput?.click()} disabled={isConnecting} class="w-full">
+                      <Button
+                        on:click={() => fileInput?.click()}
+                        disabled={isConnecting || isNip46User}
+                        class="w-full"
+                        title={isNip46User ? 'Not available for remote signers' : ''}
+                      >
                         Restore from Backup File
                       </Button>
                       <input
@@ -2415,9 +2562,9 @@
     </div>
   {/if}
 
-  <!-- Reveal Mnemonic Modal -->
+  <!-- Reveal Mnemonic Modal - higher z-index to appear above other modals -->
   {#if revealedMnemonic}
-    <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+    <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-4">
       <div class="rounded-2xl p-6 max-w-md w-full" style="background-color: var(--color-bg-primary);">
         <h2 class="text-xl font-bold mb-4" style="color: var(--color-text-primary)">Recovery Phrase</h2>
         <div class="mb-4 p-4 rounded-lg" style="background-color: rgba(239, 68, 68, 0.1); color: #ef4444;">
@@ -2491,16 +2638,31 @@
               <span class="text-sm font-medium text-amber-500">Save a backup first</span>
             </div>
 
-            <div class="grid gap-2" class:grid-cols-2={encryptionSupported} class:grid-cols-1={!encryptionSupported}>
-              <button
-                class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer bg-amber-500 hover:bg-amber-600 text-black"
-                on:click={() => walletToDelete.kind === 4 ? handleDownloadBackup() : handleDownloadNwcBackup(walletToDelete)}
-                disabled={isBackingUp}
-              >
-                <DownloadSimpleIcon size={16} />
-                Download
-              </button>
-              {#if encryptionSupported}
+            {#if isNip46User}
+              <p class="text-xs text-amber-500 mb-2">Encrypted backup not available for remote signers.</p>
+            {/if}
+            <div class="grid gap-2" class:grid-cols-2={encryptionSupported && !isNip46User} class:grid-cols-1={!encryptionSupported || isNip46User}>
+              {#if walletToDelete.kind === 4}
+                <!-- Spark wallet: show Recovery Phrase button instead of Download for NIP-46 -->
+                <button
+                  class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer bg-amber-500 hover:bg-amber-600 text-black"
+                  on:click={handleRevealMnemonic}
+                >
+                  <KeyIcon size={16} />
+                  Recovery Phrase
+                </button>
+              {:else}
+                <!-- NWC wallet: Download works without encryption -->
+                <button
+                  class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer bg-amber-500 hover:bg-amber-600 text-black"
+                  on:click={() => handleDownloadNwcBackup(walletToDelete)}
+                  disabled={isBackingUp}
+                >
+                  <DownloadSimpleIcon size={16} />
+                  Download
+                </button>
+              {/if}
+              {#if encryptionSupported && !isNip46User}
                 <button
                   class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer bg-black hover:bg-gray-800 text-white"
                   on:click={() => walletToDelete.kind === 4 ? handleBackupToNostr() : handleNwcBackupToNostr(walletToDelete)}
@@ -2623,6 +2785,29 @@
             disabled={isSyncingProfile}
           >
             {isSyncingProfile ? 'Syncing...' : 'Sync'}
+          </button>
+        </div>
+      </div>
+    </div>
+  {/if}
+
+  <!-- Remove Bitcoin Connect Confirmation Modal -->
+  {#if showRemoveBitcoinConnectModal}
+    <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div class="rounded-2xl p-6 max-w-sm w-full" style="background-color: var(--color-bg-primary);">
+        <h2 class="text-xl font-bold mb-2" style="color: var(--color-text-primary)">Remove External Wallet</h2>
+        <p class="text-caption mb-6">
+          Are you sure you want to disconnect your external wallet? You can reconnect it at any time from the wallet settings.
+        </p>
+        <div class="flex gap-3">
+          <Button on:click={() => showRemoveBitcoinConnectModal = false} class="flex-1">
+            Cancel
+          </Button>
+          <button
+            class="flex-1 px-4 py-2 rounded-full bg-red-500 hover:bg-red-600 text-white font-medium transition-colors cursor-pointer"
+            on:click={() => { handleDisableBitcoinConnect(); showRemoveBitcoinConnectModal = false; }}
+          >
+            Remove
           </button>
         </div>
       </div>
