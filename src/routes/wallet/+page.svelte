@@ -90,6 +90,9 @@
   import CheckRelayBackupsModal from '../../components/CheckRelayBackupsModal.svelte';
   import { bitcoinConnectEnabled, enableBitcoinConnect, disableBitcoinConnect } from '$lib/wallet/bitcoinConnect';
   import { lightningService } from '$lib/lightningService';
+  import { displayCurrency } from '$lib/currencyStore';
+  import CurrencySelector from '../../components/CurrencySelector.svelte';
+  import FiatBalance from '../../components/FiatBalance.svelte';
 
   let showAddWallet = false;
   let selectedWalletType: WalletKind | null = null;
@@ -357,6 +360,9 @@
       goto('/login');
       return;
     }
+
+    // Initialize currency preference
+    displayCurrency.initialize();
 
     // Ensure pending transactions are loaded from localStorage
     ensurePendingTransactionsLoaded();
@@ -1517,14 +1523,20 @@
           </button>
         </div>
       </div>
-      <div class="text-4xl font-bold mb-2 text-primary-color flex items-center gap-3">
-        {#if $walletLoading || $walletBalance === null}
-          <span class="animate-pulse">...</span>
-        {:else if $balanceVisible}
-          {formatBalance($walletBalance)} <span class="text-lg font-normal text-caption">sats</span>
-        {:else}
-          *** <span class="text-lg font-normal text-caption">sats</span>
-        {/if}
+      <div class="flex items-start justify-between mb-2">
+        <div>
+          <div class="text-4xl font-bold text-primary-color flex items-center gap-3">
+            {#if $walletLoading || $walletBalance === null}
+              <span class="animate-pulse">...</span>
+            {:else if $balanceVisible}
+              {formatBalance($walletBalance)} <span class="text-lg font-normal text-caption">sats</span>
+            {:else}
+              *** <span class="text-lg font-normal text-caption">sats</span>
+            {/if}
+          </div>
+          <FiatBalance satoshis={$walletBalance} visible={$balanceVisible} />
+        </div>
+        <CurrencySelector compact />
       </div>
       <div class="text-sm text-caption mb-4">
         Active: {$activeWallet.name} ({getWalletKindName($activeWallet.kind)})

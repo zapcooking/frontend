@@ -13,6 +13,7 @@
   import Accordion from '../../components/Accordion.svelte';
   import { nip19 } from 'nostr-tools';
   import { theme, type Theme } from '$lib/themeStore';
+  import { displayCurrency, SUPPORTED_CURRENCIES, type CurrencyCode } from '$lib/currencyStore';
   import { getAuthManager, type NIP46ConnectionInfo } from '$lib/authManager';
   import { userPublickey, ndk, ndkReady } from '$lib/nostr';
   import { wallets } from '$lib/wallet/walletStore';
@@ -196,6 +197,20 @@
   function handleThemeChange(newTheme: Theme) {
     selectedTheme = newTheme;
     theme.setTheme(newTheme);
+  }
+
+  // Currency state
+  let selectedCurrency: CurrencyCode = 'USD';
+
+  if (browser) {
+    displayCurrency.subscribe(value => {
+      selectedCurrency = value;
+    });
+  }
+
+  function handleCurrencyChange(newCurrency: CurrencyCode) {
+    selectedCurrency = newCurrency;
+    displayCurrency.setCurrency(newCurrency);
   }
 
   function getEncodedPrivateKey(): string {
@@ -612,6 +627,38 @@
         <Button on:click={() => goto('/wallet')}>
           Manage Wallets
         </Button>
+      </div>
+    </Accordion>
+
+    <!-- Currency Section -->
+    <Accordion title="Currency" open={false}>
+      <div class="flex flex-col gap-4">
+        <div>
+          <p class="text-sm font-medium mb-3" style="color: var(--color-text-primary)">Display Currency</p>
+          <p class="text-xs text-caption mb-3">
+            Choose a currency to display alongside your sats balance in the wallet.
+          </p>
+        </div>
+
+        <div class="flex flex-wrap gap-2">
+          {#each SUPPORTED_CURRENCIES as currency}
+            <button
+              type="button"
+              class="px-3 py-1.5 rounded-full text-sm font-medium transition-colors
+                {selectedCurrency === currency.code
+                  ? 'bg-primary text-white'
+                  : 'bg-secondary hover:bg-accent-gray'}"
+              style="{selectedCurrency !== currency.code ? 'color: var(--color-text-primary)' : ''}"
+              on:click={() => handleCurrencyChange(currency.code)}
+            >
+              {currency.code}
+            </button>
+          {/each}
+        </div>
+
+        <p class="text-xs text-caption">
+          Your balance will show sats as the primary amount with the selected currency shown below.
+        </p>
       </div>
     </Accordion>
   </div>

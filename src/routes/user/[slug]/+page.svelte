@@ -908,23 +908,41 @@
 </Modal>
 
 <div class="max-w-4xl mx-auto">
+  <!-- Profile Banner -->
+  <div class="relative -mx-4 sm:-mx-6 lg:-mx-8 mb-4">
+    <div class="h-32 sm:h-40 overflow-hidden rounded-2xl" style="background: {profile?.banner ? 'transparent' : 'linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary-hover) 100%)'}">
+      {#if profile?.banner}
+        <img
+          src={profile.banner}
+          alt="Profile banner"
+          class="w-full h-full object-cover"
+        />
+      {/if}
+    </div>
+
+    <!-- Avatar overlapping banner -->
+    <div class="absolute -bottom-10 left-4 sm:left-6 lg:left-8">
+      <button
+        class="hover:opacity-90 transition-opacity flex-shrink-0 rounded-full ring-4 ring-[var(--color-bg-primary)]"
+        on:click={() => (qrModal = true)}
+        title="View profile details"
+      >
+        {#key `${hexpubkey}-${avatarRefreshKey}`}
+        <CustomAvatar
+          className="cursor-pointer"
+          pubkey={hexpubkey || ''}
+          size={80}
+          imageUrl={$userPublickey === hexpubkey ? $userProfilePictureOverride : null}
+        />
+        {/key}
+      </button>
+    </div>
+  </div>
+
   <!-- Profile Header -->
-  <div class="flex items-start gap-5 pb-5">
-    <!-- Avatar (left side, top-aligned) -->
-    <button
-      class="hover:opacity-80 transition-opacity flex-shrink-0"
-      on:click={() => (qrModal = true)}
-      title="View profile details"
-    >
-      {#key `${hexpubkey}-${avatarRefreshKey}`}
-      <CustomAvatar
-        className="cursor-pointer"
-        pubkey={hexpubkey || ''}
-        size={80}
-        imageUrl={$userPublickey === hexpubkey ? $userProfilePictureOverride : null}
-      />
-      {/key}
-    </button>
+  <div class="flex items-start gap-5 pb-5 pt-8">
+    <!-- Spacer for avatar -->
+    <div class="w-20 flex-shrink-0"></div>
 
     <!-- Profile Info (right side) -->
     <div class="flex-1 min-w-0 flex flex-col gap-2">
