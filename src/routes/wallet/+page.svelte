@@ -2562,9 +2562,9 @@
     </div>
   {/if}
 
-  <!-- Reveal Mnemonic Modal -->
+  <!-- Reveal Mnemonic Modal - higher z-index to appear above other modals -->
   {#if revealedMnemonic}
-    <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+    <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-4">
       <div class="rounded-2xl p-6 max-w-md w-full" style="background-color: var(--color-bg-primary);">
         <h2 class="text-xl font-bold mb-4" style="color: var(--color-text-primary)">Recovery Phrase</h2>
         <div class="mb-4 p-4 rounded-lg" style="background-color: rgba(239, 68, 68, 0.1); color: #ef4444;">
