@@ -979,6 +979,16 @@
   function getSignerErrorMessage(error: unknown, fallback: string): string {
     const message = error instanceof Error ? error.message : String(error);
 
+    // NIP-46 (Amber) permission errors - encryption not allowed
+    if (message.includes('kind 24133') || message.includes('not allowed') || message.includes('blocked')) {
+      return 'Your remote signer (Amber) has not granted encryption permissions. Please log out and re-login via "Connect External Signer" to request these permissions, or use "Recovery Phrase" to backup manually.';
+    }
+
+    // NIP-46 ephemeral event expired - connection timing issue
+    if (message.includes('ephemeral event expired')) {
+      return 'Connection to your remote signer timed out. Please try again or check that your signer app is open.';
+    }
+
     // Base64 decoding errors (encryption format mismatch)
     if (message.includes('invalid base64') || message.includes('Unknown letter')) {
       return 'Failed to decrypt backup - the encryption format may not be compatible. Please try restoring from the wallet seed phrase.';
