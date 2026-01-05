@@ -12,24 +12,28 @@
  * Example in .env file: STRIPE_SECRET_KEY=sk_test_...
  * 
  * NOTE: This file is server-only and uses SvelteKit's $env system.
+ * Using dynamic/private so build doesn't fail when key isn't set.
  */
 
 import Stripe from 'stripe';
-import { STRIPE_SECRET_KEY } from '$env/static/private';
+import { env } from '$env/dynamic/private';
 
 // Initialize Stripe with secret key from environment variable
-// This will throw an error if STRIPE_SECRET_KEY is not set
+// This will throw an error at runtime if STRIPE_SECRET_KEY is not set
 const getStripeInstance = (): Stripe => {
-  if (!STRIPE_SECRET_KEY) {
+  const stripeKey = env.STRIPE_SECRET_KEY;
+  
+  if (!stripeKey) {
     throw new Error(
       'STRIPE_SECRET_KEY environment variable is not set. ' +
-      'Please set it in your .env file (e.g., STRIPE_SECRET_KEY=sk_test_...)'
+      'Please set it in your .env file (e.g., STRIPE_SECRET_KEY=sk_test_...) ' +
+      'or in your hosting provider\'s environment variables.'
     );
   }
   
   // Initialize Stripe with the secret key from environment variable
   // Using API version 2024-12-18.acacia (latest stable)
-  return new Stripe(STRIPE_SECRET_KEY, {
+  return new Stripe(stripeKey, {
     apiVersion: '2024-12-18.acacia',
     typescript: true,
   });
