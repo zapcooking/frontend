@@ -1484,9 +1484,9 @@
 <div class="max-w-2xl mx-auto py-8 px-4">
   <h1 class="text-2xl font-bold mb-6" style="color: var(--color-text-primary)">Wallet</h1>
 
-  <!-- Error/Success Messages - Fixed at top for visibility -->
+  <!-- Error/Success Messages - Fixed at top, above all modals -->
   {#if errorMessage}
-    <div class="fixed top-4 left-4 right-4 max-w-2xl mx-auto p-4 rounded-lg flex items-center gap-3 shadow-lg border z-50"
+    <div class="fixed top-4 left-4 right-4 max-w-2xl mx-auto p-4 rounded-lg flex items-center gap-3 shadow-xl border z-[100]"
          style="background-color: var(--color-bg-primary); border-color: #ef4444; color: #ef4444;">
       <WarningIcon size={20} class="flex-shrink-0" />
       <span class="flex-1 text-sm">{errorMessage}</span>
@@ -1495,7 +1495,7 @@
   {/if}
 
   {#if successMessage}
-    <div class="fixed top-4 left-4 right-4 max-w-2xl mx-auto p-4 rounded-lg flex items-center gap-3 shadow-lg border z-50"
+    <div class="fixed top-4 left-4 right-4 max-w-2xl mx-auto p-4 rounded-lg flex items-center gap-3 shadow-xl border z-[100]"
          style="background-color: var(--color-bg-primary); border-color: #22c55e; color: #22c55e;">
       <CheckCircleIcon size={20} class="flex-shrink-0" />
       <span class="flex-1 text-sm">{successMessage}</span>
@@ -2444,11 +2444,19 @@
               <Button on:click={handleConnectNWC} disabled={isConnecting || !nwcConnectionString} class="flex-1">
                 {isConnecting ? 'Connecting...' : 'Connect NWC'}
               </Button>
-              <Button on:click={handleRestoreNwcFromNostr} disabled={isConnecting} class="flex-1">
+              <Button
+                on:click={handleRestoreNwcFromNostr}
+                disabled={isConnecting || isNip46User}
+                class="flex-1"
+                title={isNip46User ? 'Not available for remote signers' : ''}
+              >
                 <CloudArrowDownIcon size={16} />
                 Restore from Nostr
               </Button>
             </div>
+            {#if isNip46User}
+              <p class="text-xs text-amber-500 mt-2">Nostr restore not available for remote signers. Paste your connection string above.</p>
+            {/if}
           </div>
         {:else if selectedWalletType === 4}
           <!-- Spark wallet options -->
@@ -2472,12 +2480,25 @@
                   </Button>
                   <div class="border-t pt-3 mt-3" style="border-color: var(--color-input-border);">
                     <p class="text-sm text-caption mb-2">Restore existing wallet:</p>
+                    {#if isNip46User}
+                      <p class="text-xs text-amber-500 mb-2">Encrypted backup options not available for remote signers.</p>
+                    {/if}
                     <div class="space-y-2">
-                      <Button on:click={handleRestoreFromNostr} disabled={isConnecting} class="w-full">
+                      <Button
+                        on:click={handleRestoreFromNostr}
+                        disabled={isConnecting || isNip46User}
+                        class="w-full"
+                        title={isNip46User ? 'Not available for remote signers' : ''}
+                      >
                         <CloudArrowDownIcon size={16} />
                         Restore from Nostr Backup
                       </Button>
-                      <Button on:click={() => fileInput?.click()} disabled={isConnecting} class="w-full">
+                      <Button
+                        on:click={() => fileInput?.click()}
+                        disabled={isConnecting || isNip46User}
+                        class="w-full"
+                        title={isNip46User ? 'Not available for remote signers' : ''}
+                      >
                         Restore from Backup File
                       </Button>
                       <input
@@ -2617,16 +2638,31 @@
               <span class="text-sm font-medium text-amber-500">Save a backup first</span>
             </div>
 
-            <div class="grid gap-2" class:grid-cols-2={encryptionSupported} class:grid-cols-1={!encryptionSupported}>
-              <button
-                class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer bg-amber-500 hover:bg-amber-600 text-black"
-                on:click={() => walletToDelete.kind === 4 ? handleDownloadBackup() : handleDownloadNwcBackup(walletToDelete)}
-                disabled={isBackingUp}
-              >
-                <DownloadSimpleIcon size={16} />
-                Download
-              </button>
-              {#if encryptionSupported}
+            {#if isNip46User}
+              <p class="text-xs text-amber-500 mb-2">Encrypted backup not available for remote signers.</p>
+            {/if}
+            <div class="grid gap-2" class:grid-cols-2={encryptionSupported && !isNip46User} class:grid-cols-1={!encryptionSupported || isNip46User}>
+              {#if walletToDelete.kind === 4}
+                <!-- Spark wallet: show Recovery Phrase button instead of Download for NIP-46 -->
+                <button
+                  class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer bg-amber-500 hover:bg-amber-600 text-black"
+                  on:click={handleRevealMnemonic}
+                >
+                  <KeyIcon size={16} />
+                  Recovery Phrase
+                </button>
+              {:else}
+                <!-- NWC wallet: Download works without encryption -->
+                <button
+                  class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer bg-amber-500 hover:bg-amber-600 text-black"
+                  on:click={() => handleDownloadNwcBackup(walletToDelete)}
+                  disabled={isBackingUp}
+                >
+                  <DownloadSimpleIcon size={16} />
+                  Download
+                </button>
+              {/if}
+              {#if encryptionSupported && !isNip46User}
                 <button
                   class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer bg-black hover:bg-gray-800 text-white"
                   on:click={() => walletToDelete.kind === 4 ? handleBackupToNostr() : handleNwcBackupToNostr(walletToDelete)}
