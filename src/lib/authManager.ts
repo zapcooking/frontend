@@ -619,7 +619,12 @@ export class AuthManager {
     });
 
     const relayParams = relays.map(r => `relay=${encodeURIComponent(r)}`).join('&');
-    const uri = `nostrconnect://${localPubkey}?${relayParams}&metadata=${encodeURIComponent(metadata)}`;
+
+    // Request encryption permissions for wallet backup/restore
+    // Format per NIP-46: comma-separated list of method[:params]
+    const perms = 'sign_event,nip04_encrypt,nip04_decrypt,nip44_encrypt,nip44_decrypt';
+
+    const uri = `nostrconnect://${localPubkey}?${relayParams}&metadata=${encodeURIComponent(metadata)}&perms=${encodeURIComponent(perms)}`;
 
     console.log('[NIP-46] Generated nostrconnect URI');
     console.log('[NIP-46] Local pubkey:', localPubkey);
