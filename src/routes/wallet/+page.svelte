@@ -2,6 +2,7 @@
   import { goto } from '$app/navigation';
   import { onMount } from 'svelte';
   import { userPublickey } from '$lib/nostr';
+  import { getAuthManager } from '$lib/authManager';
   import Button from '../../components/Button.svelte';
   import {
     wallets,
@@ -176,10 +177,15 @@
   // Required for wallet backup functionality
   let encryptionSupported: boolean = false;
   let encryptionMethod: 'nip44' | 'nip04' | null = null;
+  let isNip46User: boolean = false;
 
   function checkEncryptionSupport() {
     encryptionMethod = getBestEncryptionMethod();
     encryptionSupported = encryptionMethod !== null;
+
+    // Check if user is logged in via NIP-46 (remote signer)
+    const authManager = getAuthManager();
+    isNip46User = authManager?.getState()?.authMethod === 'nip46';
   }
 
   // Re-check encryption support when NDK signer changes (reactive)
@@ -979,9 +985,9 @@
   function getSignerErrorMessage(error: unknown, fallback: string): string {
     const message = error instanceof Error ? error.message : String(error);
 
-    // NIP-46 (Amber) permission errors - encryption not allowed
+    // NIP-46 remote signer permission errors - encryption not allowed
     if (message.includes('kind 24133') || message.includes('not allowed') || message.includes('blocked')) {
-      return 'Your remote signer (Amber) has not granted encryption permissions. Please log out and re-login via "Connect External Signer" to request these permissions, or use "Recovery Phrase" to backup manually.';
+      return 'Your remote signer has not granted encryption permissions. Use "Recovery Phrase" to backup your wallet manually.';
     }
 
     // NIP-46 ephemeral event expired - connection timing issue
@@ -1478,20 +1484,22 @@
 <div class="max-w-2xl mx-auto py-8 px-4">
   <h1 class="text-2xl font-bold mb-6" style="color: var(--color-text-primary)">Wallet</h1>
 
-  <!-- Error/Success Messages -->
+  <!-- Error/Success Messages - Fixed at top for visibility -->
   {#if errorMessage}
-    <div class="mb-4 p-4 rounded-lg flex items-center gap-2" style="background-color: rgba(239, 68, 68, 0.1); color: #ef4444;">
-      <WarningIcon size={20} />
-      <span>{errorMessage}</span>
-      <button class="ml-auto text-sm underline" on:click={() => errorMessage = ''}>Dismiss</button>
+    <div class="fixed top-4 left-4 right-4 max-w-2xl mx-auto p-4 rounded-lg flex items-center gap-3 shadow-lg border z-50"
+         style="background-color: var(--color-bg-primary); border-color: #ef4444; color: #ef4444;">
+      <WarningIcon size={20} class="flex-shrink-0" />
+      <span class="flex-1 text-sm">{errorMessage}</span>
+      <button class="text-sm underline flex-shrink-0 hover:opacity-80" on:click={() => errorMessage = ''}>Dismiss</button>
     </div>
   {/if}
 
   {#if successMessage}
-    <div class="mb-4 p-4 rounded-lg flex items-center gap-2" style="background-color: rgba(34, 197, 94, 0.1); color: #22c55e;">
-      <CheckCircleIcon size={20} />
-      <span>{successMessage}</span>
-      <button class="ml-auto text-sm underline" on:click={() => successMessage = ''}>Dismiss</button>
+    <div class="fixed top-4 left-4 right-4 max-w-2xl mx-auto p-4 rounded-lg flex items-center gap-3 shadow-lg border z-50"
+         style="background-color: var(--color-bg-primary); border-color: #22c55e; color: #22c55e;">
+      <CheckCircleIcon size={20} class="flex-shrink-0" />
+      <span class="flex-1 text-sm">{successMessage}</span>
+      <button class="text-sm underline flex-shrink-0 hover:opacity-80" on:click={() => successMessage = ''}>Dismiss</button>
     </div>
   {/if}
 
@@ -1658,14 +1666,26 @@
             <!-- Spark wallet backup options -->
             {#if wallet.kind === 4 && expandedWalletId === wallet.id}
               <div class="px-4 pb-4 pt-2 border-t" style="border-color: var(--color-input-border);">
-                <!-- Encryption not supported warning -->
-                {#if !encryptionSupported}
+                <!-- NIP-46 remote signer warning -->
+                {#if isNip46User}
                   <div class="p-3 rounded-lg mb-3 text-sm" style="background-color: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.3);">
                     <div class="flex items-start gap-2">
                       <WarningIcon size={18} class="text-amber-500 flex-shrink-0 mt-0.5" />
                       <div>
                         <p class="text-caption">
-                          Your signer extension doesn't support the required encryption method. You can still use "Show Recovery Phrase" to manually back up your wallet.
+                          <strong>Nostr backup not available</strong> for remote signers. Use "Recovery Phrase" to back up your wallet manually.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                {:else if !encryptionSupported}
+                  <!-- Encryption not supported warning (for other signer types) -->
+                  <div class="p-3 rounded-lg mb-3 text-sm" style="background-color: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.3);">
+                    <div class="flex items-start gap-2">
+                      <WarningIcon size={18} class="text-amber-500 flex-shrink-0 mt-0.5" />
+                      <div>
+                        <p class="text-caption">
+                          Your signer extension doesn't support the required encryption method. You can still use "Recovery Phrase" to manually back up your wallet.
                         </p>
                       </div>
                     </div>
@@ -1677,26 +1697,26 @@
                 <div class="grid grid-cols-2 gap-2">
                   <button
                     class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors"
-                    class:cursor-pointer={encryptionSupported}
-                    class:cursor-not-allowed={!encryptionSupported}
-                    class:opacity-50={!encryptionSupported}
+                    class:cursor-pointer={encryptionSupported && !isNip46User}
+                    class:cursor-not-allowed={!encryptionSupported || isNip46User}
+                    class:opacity-50={!encryptionSupported || isNip46User}
                     style="background-color: var(--color-bg-primary); border: 1px solid var(--color-input-border);"
                     on:click={handleBackupToNostr}
-                    disabled={isBackingUp || !encryptionSupported}
-                    title={!encryptionSupported ? 'Your signer extension does not support encryption' : ''}
+                    disabled={isBackingUp || !encryptionSupported || isNip46User}
+                    title={isNip46User ? 'Nostr backup not available for remote signers' : (!encryptionSupported ? 'Your signer does not support encryption' : '')}
                   >
                     <CloudArrowUpIcon size={16} />
                     {isBackingUp ? 'Backing up...' : 'Backup to Nostr'}
                   </button>
                   <button
                     class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors"
-                    class:cursor-pointer={encryptionSupported}
-                    class:cursor-not-allowed={!encryptionSupported}
-                    class:opacity-50={!encryptionSupported}
+                    class:cursor-pointer={encryptionSupported && !isNip46User}
+                    class:cursor-not-allowed={!encryptionSupported || isNip46User}
+                    class:opacity-50={!encryptionSupported || isNip46User}
                     style="background-color: var(--color-bg-primary); border: 1px solid var(--color-input-border);"
                     on:click={handleDownloadBackup}
-                    disabled={isBackingUp || !encryptionSupported}
-                    title={!encryptionSupported ? 'Your signer extension does not support encryption' : ''}
+                    disabled={isBackingUp || !encryptionSupported || isNip46User}
+                    title={isNip46User ? 'Encrypted download not available for remote signers' : (!encryptionSupported ? 'Your signer does not support encryption' : '')}
                   >
                     <DownloadSimpleIcon size={16} />
                     Download
@@ -1924,18 +1944,32 @@
                   </button>
                 </div>
 
+                <!-- NIP-46 warning for NWC wallets -->
+                {#if isNip46User}
+                  <div class="p-3 rounded-lg mb-3 text-sm" style="background-color: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.3);">
+                    <div class="flex items-start gap-2">
+                      <WarningIcon size={18} class="text-amber-500 flex-shrink-0 mt-0.5" />
+                      <div>
+                        <p class="text-caption">
+                          <strong>Nostr backup not available</strong> for remote signers. Use "Download" to save your connection locally.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                {/if}
+
                 <!-- Backup & Recovery -->
                 <div class="text-xs text-caption mb-2 uppercase tracking-wide">Backup & Recovery</div>
                 <div class="grid grid-cols-2 gap-2">
                   <button
                     class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors"
-                    class:cursor-pointer={encryptionSupported}
-                    class:cursor-not-allowed={!encryptionSupported}
-                    class:opacity-50={!encryptionSupported}
+                    class:cursor-pointer={encryptionSupported && !isNip46User}
+                    class:cursor-not-allowed={!encryptionSupported || isNip46User}
+                    class:opacity-50={!encryptionSupported || isNip46User}
                     style="background-color: var(--color-bg-primary); border: 1px solid var(--color-input-border);"
                     on:click={() => handleNwcBackupToNostr(wallet)}
-                    disabled={isBackingUp || !encryptionSupported}
-                    title={!encryptionSupported ? 'Your signer extension does not support encryption' : ''}
+                    disabled={isBackingUp || !encryptionSupported || isNip46User}
+                    title={isNip46User ? 'Nostr backup not available for remote signers' : (!encryptionSupported ? 'Your signer does not support encryption' : '')}
                   >
                     <CloudArrowUpIcon size={16} />
                     <span class="truncate">{isBackingUp ? 'Backing up...' : 'Backup to Nostr'}</span>
