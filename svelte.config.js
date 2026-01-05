@@ -33,6 +33,10 @@ const config = {
     if (warning.code?.startsWith('a11y-')) {
       return;
     }
+    // Suppress unused CSS selector warnings (common with dynamic classes and Tailwind)
+    if (warning.code === 'css-unused-selector') {
+      return;
+    }
     handler(warning);
   },
 
