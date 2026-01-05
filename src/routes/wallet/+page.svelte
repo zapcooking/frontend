@@ -51,6 +51,13 @@
     deleteBackupFromNostr as deleteSparkBackupFromNostr,
     type SparkWalletBackup
   } from '$lib/spark';
+  import {
+    hasEncryptionSupport,
+    encrypt as encryptionServiceEncrypt,
+    decrypt as encryptionServiceDecrypt,
+    detectEncryptionMethod,
+    type EncryptionMethod
+  } from '$lib/encryptionService';
   import { syncLightningAddressToProfile } from '$lib/spark/profileSync';
   import { qr } from '@svelte-put/qr/svg';
   import { ndk, ndkReady } from '$lib/nostr';
@@ -1040,41 +1047,30 @@
 
       sparkLoadingMessage = 'Decrypting wallet backup...';
 
-      // Decrypt using the encryption method - detect from backup format
+      // Decrypt using the unified encryption service
       const decryptFn = async (ciphertext: string, senderPubkey: string): Promise<string> => {
-        const nostr = (window as any).nostr;
-        if (!nostr) {
-          throw new Error('No Nostr extension found. Please install Alby or another NIP-07 extension.');
+        // Check encryption support
+        if (!hasEncryptionSupport()) {
+          throw new Error('No decryption method available. Please ensure you are logged in with a signer.');
         }
 
         // Determine encryption method (compatible with Yakihonne/Primal/Jumble backups)
         // Priority: 1) explicit encryption field, 2) detect from format, 3) assume based on version
-        let useNip44 = false;
-        if (backup.encryption) {
+        let method: EncryptionMethod;
+        if (backup.encryption === 'nip44' || backup.encryption === 'nip04') {
           // Explicit encryption field (v2 backups from zap.cooking, Primal)
-          useNip44 = backup.encryption === 'nip44';
-        } else if (ciphertext.includes('?iv=')) {
-          // NIP-04 format has ?iv= separator
-          useNip44 = false;
+          method = backup.encryption;
         } else {
-          // Default: v2 = NIP-44, v1 = NIP-04
-          useNip44 = backup.version === 2;
+          // Detect from ciphertext format or default based on version
+          method = detectEncryptionMethod(ciphertext);
+          // Override for v1 backups that don't have explicit field
+          if (backup.version === 1 && !ciphertext.includes('?iv=')) {
+            method = 'nip04';
+          }
         }
 
-        if (useNip44) {
-          if (!nostr.nip44?.decrypt) {
-            throw new Error('This backup was encrypted with NIP-44 but your extension does not support it.');
-          }
-          const decrypted = await nostr.nip44.decrypt(senderPubkey, ciphertext);
-          if (decrypted) return decrypted;
-        } else {
-          // NIP-04
-          if (!nostr.nip04?.decrypt) {
-            throw new Error('This backup was encrypted with NIP-04 but your extension does not support it.');
-          }
-          const decrypted = await nostr.nip04.decrypt(senderPubkey, ciphertext);
-          if (decrypted) return decrypted;
-        }
+        const decrypted = await encryptionServiceDecrypt(senderPubkey, ciphertext, method);
+        if (decrypted) return decrypted;
 
         throw new Error('Decryption failed. Make sure you are using the same Nostr key that created this backup.');
       };
@@ -1163,30 +1159,20 @@
     errorMessage = '';
 
     try {
-      const nostr = (window as any).nostr;
-      if (!nostr) {
-        throw new Error('No Nostr extension found. Please install Alby or another NIP-07 extension.');
+      // Check encryption support
+      if (!hasEncryptionSupport()) {
+        throw new Error('No encryption method available. Please ensure you are logged in with a signer.');
       }
 
-      // Determine encryption method - prefer NIP-44, fall back to NIP-04
-      let encryptionMethod: 'nip44' | 'nip04';
-      let encryptFn: (plaintext: string, recipientPubkey: string) => Promise<string>;
+      // Use the encryption service - it will pick the best method
+      let usedMethod: EncryptionMethod = null;
+      const encryptFn = async (plaintext: string, recipientPubkey: string): Promise<string> => {
+        const result = await encryptionServiceEncrypt(recipientPubkey, plaintext);
+        usedMethod = result.method;
+        return result.ciphertext;
+      };
 
-      if (nostr.nip44?.encrypt) {
-        encryptionMethod = 'nip44';
-        encryptFn = async (plaintext: string, recipientPubkey: string): Promise<string> => {
-          return await nostr.nip44.encrypt(recipientPubkey, plaintext);
-        };
-      } else if (nostr.nip04?.encrypt) {
-        encryptionMethod = 'nip04';
-        encryptFn = async (plaintext: string, recipientPubkey: string): Promise<string> => {
-          return await nostr.nip04.encrypt(recipientPubkey, plaintext);
-        };
-      } else {
-        throw new Error('Your Nostr extension does not support encryption. Please use a different extension like Alby.');
-      }
-
-      const backup = await createBackup($userPublickey, encryptFn, encryptionMethod);
+      const backup = await createBackup($userPublickey, encryptFn, getBestEncryptionMethod() || 'nip44');
 
       // Download as JSON file
       const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
@@ -1199,7 +1185,7 @@
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
 
-      successMessage = encryptionMethod === 'nip04'
+      successMessage = usedMethod === 'nip04'
         ? 'Backup file downloaded! (encrypted with NIP-04)'
         : 'Backup file downloaded!';
     } catch (e) {

@@ -15,6 +15,14 @@ import {
 	clearAllSparkWallets
 } from './storage'
 import { logger } from '$lib/logger'
+import {
+	hasEncryptionSupport as _hasEncryptionSupport,
+	getBestEncryptionMethod as _getBestEncryptionMethod,
+	encrypt,
+	decrypt,
+	detectEncryptionMethod,
+	type EncryptionMethod
+} from '$lib/encryptionService'
 
 /**
  * Dynamically import bip39 with Buffer polyfill
@@ -882,43 +890,23 @@ export async function createBackup(
 const BACKUP_EVENT_KIND = 30078 // NIP-78 application-specific data
 const BACKUP_D_TAG = 'spark-wallet-backup'
 
-/**
- * Get Nostr extension from browser window
- */
-function getNostrExtension(): any {
-	if (!browser) return null
-	const nostr = (window as any).nostr
-	if (!nostr) {
-		throw new Error('No Nostr extension found. Please install Alby or another NIP-07 extension.')
-	}
-	return nostr
-}
+// Re-export encryption functions for backwards compatibility
+export const hasEncryptionSupport = _hasEncryptionSupport
+export const getBestEncryptionMethod = _getBestEncryptionMethod
 
 /**
- * Check if NIP-44 encryption is available
+ * @deprecated Use hasEncryptionSupport() from encryptionService instead
  */
 export function hasNip44Support(): boolean {
-	if (!browser) return false
-	const nostr = (window as any).nostr
-	return !!(nostr?.nip44?.encrypt && nostr?.nip44?.decrypt)
+	return _getBestEncryptionMethod() === 'nip44'
 }
 
 /**
- * Check if NIP-04 encryption is available
+ * @deprecated Use hasEncryptionSupport() from encryptionService instead
  */
 export function hasNip04Support(): boolean {
-	if (!browser) return false
-	const nostr = (window as any).nostr
-	return !!(nostr?.nip04?.encrypt && nostr?.nip04?.decrypt)
-}
-
-/**
- * Get the best available encryption method
- */
-export function getBestEncryptionMethod(): 'nip44' | 'nip04' | null {
-	if (hasNip44Support()) return 'nip44'
-	if (hasNip04Support()) return 'nip04'
-	return null
+	const method = _getBestEncryptionMethod()
+	return method === 'nip04' || method === 'nip44'
 }
 
 /**
@@ -934,42 +922,20 @@ export async function backupWalletToNostr(pubkey: string): Promise<any> {
 		throw new Error('No wallet found to backup')
 	}
 
-	const nostr = getNostrExtension()
-
-	// Determine encryption method - prefer NIP-44, fall back to NIP-04
-	let encryptedMnemonic: string
-	let encryptionMethod: 'nip44' | 'nip04'
-
-	if (nostr.nip44?.encrypt) {
-		logger.info('[Spark] Encrypting mnemonic with NIP-44...')
-		encryptedMnemonic = await nostr.nip44.encrypt(pubkey, mnemonic)
-		encryptionMethod = 'nip44'
-	} else if (nostr.nip04?.encrypt) {
-		logger.info('[Spark] NIP-44 not available, falling back to NIP-04...')
-		encryptedMnemonic = await nostr.nip04.encrypt(pubkey, mnemonic)
-		encryptionMethod = 'nip04'
-	} else {
-		throw new Error('Your Nostr extension does not support encryption. Please use a different extension like Alby.')
+	// Check encryption support
+	if (!hasEncryptionSupport()) {
+		throw new Error('No encryption method available. Please ensure you are logged in with a signer.')
 	}
+
+	// Encrypt using the unified encryption service
+	logger.info('[Spark] Encrypting mnemonic...')
+	const { ciphertext: encryptedMnemonic, method: encryptionMethod } = await encrypt(
+		pubkey,
+		mnemonic
+	)
+	logger.info('[Spark] Encrypted with', encryptionMethod)
 
 	// Create the backup event (kind 30078 - NIP-78 application-specific data)
-	// Include encryption method in tags for restore
-	const eventTemplate = {
-		kind: BACKUP_EVENT_KIND,
-		created_at: Math.floor(Date.now() / 1000),
-		tags: [
-			['d', BACKUP_D_TAG],
-			['client', 'zap.cooking'],
-			['encryption', encryptionMethod]
-		],
-		content: encryptedMnemonic
-	}
-
-	// Sign with extension
-	logger.info('[Spark] Signing backup event...')
-	const signedEvent = await nostr.signEvent(eventTemplate)
-
-	// Publish using NDK
 	const { ndk, ndkReady } = await import('$lib/nostr')
 	const { NDKEvent } = await import('@nostr-dev-kit/ndk')
 	const { get } = await import('svelte/store')
@@ -977,20 +943,24 @@ export async function backupWalletToNostr(pubkey: string): Promise<any> {
 	await ndkReady
 	const ndkInstance = get(ndk)
 
+	// Create and sign using NDK (works with any signer type)
 	const ndkEvent = new NDKEvent(ndkInstance)
-	ndkEvent.kind = signedEvent.kind
-	ndkEvent.content = signedEvent.content
-	ndkEvent.tags = signedEvent.tags
-	ndkEvent.created_at = signedEvent.created_at
-	ndkEvent.pubkey = signedEvent.pubkey
-	ndkEvent.id = signedEvent.id
-	ndkEvent.sig = signedEvent.sig
+	ndkEvent.kind = BACKUP_EVENT_KIND
+	ndkEvent.content = encryptedMnemonic
+	ndkEvent.tags = [
+		['d', BACKUP_D_TAG],
+		['client', 'zap.cooking'],
+		['encryption', encryptionMethod || 'nip44']
+	]
+
+	logger.info('[Spark] Signing backup event...')
+	await ndkEvent.sign()
 
 	logger.info('[Spark] Publishing backup to Nostr relays...')
 	await ndkEvent.publish()
 
 	logger.info('[Spark] Wallet backed up to Nostr successfully')
-	return signedEvent
+	return ndkEvent.rawEvent()
 }
 
 /**
@@ -1006,11 +976,9 @@ export async function restoreWalletFromNostr(
 ): Promise<string | null> {
 	if (!browser) return null
 
-	const nostr = getNostrExtension()
-
-	// Check that we have at least one decryption method available
-	if (!nostr.nip44?.decrypt && !nostr.nip04?.decrypt) {
-		throw new Error('Your Nostr extension does not support decryption. Please use a different extension.')
+	// Check that we have decryption support
+	if (!hasEncryptionSupport()) {
+		throw new Error('No decryption method available. Please ensure you are logged in with a signer.')
 	}
 
 	// Fetch backup event from relays using NDK
@@ -1052,16 +1020,11 @@ export async function restoreWalletFromNostr(
 
 	// Determine encryption method from event tags, or detect from ciphertext format
 	const encryptionTag = latestEvent.tags?.find((t: string[]) => t[0] === 'encryption')
-	let encryptionMethod: string
-	if (encryptionTag?.[1]) {
-		// Explicit encryption tag takes priority
-		encryptionMethod = encryptionTag[1]
-	} else if (latestEvent.content.includes('?iv=')) {
-		// NIP-04 format has ?iv= separator in the ciphertext
-		encryptionMethod = 'nip04'
+	let encryptionMethod: EncryptionMethod
+	if (encryptionTag?.[1] === 'nip04' || encryptionTag?.[1] === 'nip44') {
+		encryptionMethod = encryptionTag[1] as EncryptionMethod
 	} else {
-		// Default to NIP-44 for newer backups without explicit tag
-		encryptionMethod = 'nip44'
+		encryptionMethod = detectEncryptionMethod(latestEvent.content)
 	}
 	logger.info('[Spark] Found backup, decrypting with', encryptionMethod, '...')
 
@@ -1075,30 +1038,14 @@ export async function restoreWalletFromNostr(
 		])
 	}
 
-	// Decrypt the mnemonic using the appropriate method (with 15s timeout)
-	let mnemonic: string
+	// Decrypt the mnemonic using the unified encryption service (with 15s timeout)
 	const DECRYPT_TIMEOUT = 15000
 
-	if (encryptionMethod === 'nip04') {
-		if (!nostr.nip04?.decrypt) {
-			throw new Error('This backup was encrypted with NIP-04 but your extension does not support it.')
-		}
-		mnemonic = await withTimeout(
-			nostr.nip04.decrypt(pubkey, latestEvent.content),
-			DECRYPT_TIMEOUT,
-			'Decryption timed out. Please approve the decryption request in your Nostr extension.'
-		)
-	} else {
-		// Default to NIP-44
-		if (!nostr.nip44?.decrypt) {
-			throw new Error('This backup was encrypted with NIP-44 but your extension does not support it.')
-		}
-		mnemonic = await withTimeout(
-			nostr.nip44.decrypt(pubkey, latestEvent.content),
-			DECRYPT_TIMEOUT,
-			'Decryption timed out. Please approve the decryption request in your Nostr extension.'
-		)
-	}
+	const mnemonic = await withTimeout(
+		decrypt(pubkey, latestEvent.content, encryptionMethod),
+		DECRYPT_TIMEOUT,
+		'Decryption timed out. Please approve the request in your signer app.'
+	)
 
 	if (!mnemonic) {
 		throw new Error('Failed to decrypt backup. Make sure you are using the same Nostr key.')
@@ -1241,8 +1188,6 @@ export async function checkRelayBackups(pubkey: string): Promise<RelayBackupStat
 export async function deleteBackupFromNostr(pubkey: string): Promise<void> {
 	if (!browser) throw new Error('Backup deletion can only be performed in browser')
 
-	const nostr = getNostrExtension()
-
 	const { ndk, ndkReady } = await import('$lib/nostr')
 	const { NDKEvent } = await import('@nostr-dev-kit/ndk')
 	const { get } = await import('svelte/store')
@@ -1254,29 +1199,17 @@ export async function deleteBackupFromNostr(pubkey: string): Promise<void> {
 
 	// Create an empty replaceable event with the same d-tag to overwrite the backup
 	// This is more reliable than NIP-09 deletion since relays must replace the old event
-	const emptyBackupEvent = {
-		kind: BACKUP_EVENT_KIND,
-		created_at: Math.floor(Date.now() / 1000),
-		tags: [
-			['d', BACKUP_D_TAG],
-			['deleted', 'true']
-		],
-		content: '' // Empty content - no backup data
-	}
-
-	// Sign with extension
-	logger.info('[Spark] Signing empty backup event...')
-	const signedEvent = await nostr.signEvent(emptyBackupEvent)
-
-	// Publish to overwrite the backup
 	const ndkEvent = new NDKEvent(ndkInstance)
-	ndkEvent.kind = signedEvent.kind
-	ndkEvent.content = signedEvent.content
-	ndkEvent.tags = signedEvent.tags
-	ndkEvent.created_at = signedEvent.created_at
-	ndkEvent.pubkey = signedEvent.pubkey
-	ndkEvent.id = signedEvent.id
-	ndkEvent.sig = signedEvent.sig
+	ndkEvent.kind = BACKUP_EVENT_KIND
+	ndkEvent.content = '' // Empty content - no backup data
+	ndkEvent.tags = [
+		['d', BACKUP_D_TAG],
+		['deleted', 'true']
+	]
+
+	// Sign using NDK (works with any signer type)
+	logger.info('[Spark] Signing empty backup event...')
+	await ndkEvent.sign()
 
 	logger.info('[Spark] Publishing empty backup to overwrite existing...')
 	await ndkEvent.publish()
