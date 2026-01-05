@@ -22,7 +22,7 @@
  */
 
 import { json, type RequestHandler } from '@sveltejs/kit';
-import { createCheckoutSession } from '$lib/stripeService';
+import { createCheckoutSession } from '$lib/stripeService.server';
 
 export const POST: RequestHandler = async ({ request }) => {
   try {
