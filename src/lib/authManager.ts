@@ -612,19 +612,12 @@ export class AuthManager {
     localStorage.setItem('nostrcooking_nip46_pending', JSON.stringify(pendingInfo));
 
     // Build nostrconnect:// URI
-    const metadata = JSON.stringify({
-      name: 'Zap Cooking',
-      url: 'https://zap.cooking',
-      description: 'A place to share food with friends'
-    });
+    // Use simple param format (name, url) instead of metadata JSON for better signer compatibility
+    // Limit to 2 relays and remove trailing slashes to avoid issues with some signers
+    const cleanRelays = relays.slice(0, 2).map(r => r.replace(/\/$/, ''));
+    const relayParams = cleanRelays.map(r => `relay=${encodeURIComponent(r)}`).join('&');
 
-    const relayParams = relays.map(r => `relay=${encodeURIComponent(r)}`).join('&');
-
-    // Request encryption permissions for wallet backup/restore
-    // Format per NIP-46: comma-separated list of method[:params]
-    const perms = 'sign_event,nip04_encrypt,nip04_decrypt,nip44_encrypt,nip44_decrypt';
-
-    const uri = `nostrconnect://${localPubkey}?${relayParams}&metadata=${encodeURIComponent(metadata)}&perms=${encodeURIComponent(perms)}`;
+    const uri = `nostrconnect://${localPubkey}?${relayParams}&name=${encodeURIComponent('Zap Cooking')}&url=${encodeURIComponent('https://zap.cooking')}`;
 
     console.log('[NIP-46] Generated nostrconnect URI');
     console.log('[NIP-46] Local pubkey:', localPubkey);
