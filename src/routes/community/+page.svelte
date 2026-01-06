@@ -1,5 +1,6 @@
 <script lang="ts">
   import FoodstrFeedOptimized from '../../components/FoodstrFeedOptimized.svelte';
+  import PullToRefresh from '../../components/PullToRefresh.svelte';
   import { ndk, userPublickey } from '$lib/nostr';
   import { NDKEvent } from '@nostr-dev-kit/ndk';
   import PencilSimpleIcon from 'phosphor-svelte/lib/PencilSimple';
@@ -17,6 +18,17 @@
   import type { PageData } from './$types';
   import type { NDKEvent as NDKEventType } from '@nostr-dev-kit/ndk';
   import { get } from 'svelte/store';
+
+  // Pull-to-refresh refs
+  let pullToRefreshEl: PullToRefresh;
+  let feedComponent: FoodstrFeedOptimized;
+
+  async function handleRefresh() {
+    if (feedComponent) {
+      await feedComponent.refresh();
+    }
+    pullToRefreshEl?.complete();
+  }
 
   export const data: PageData = {} as PageData;
 
@@ -603,6 +615,7 @@
   <meta name="description" content="Community - Share and discover delicious food content from the Nostr network" />
 </svelte:head>
 
+<PullToRefresh bind:this={pullToRefreshEl} on:refresh={handleRefresh}>
 <div class="container mx-auto px-4 max-w-2xl community-page">
   <!-- Orientation text for signed-out users -->
   {#if $userPublickey === ''}
@@ -905,9 +918,10 @@
   {/if}
   
   {#key feedKey}
-    <FoodstrFeedOptimized filterMode={activeTab} />
+    <FoodstrFeedOptimized bind:this={feedComponent} filterMode={activeTab} />
   {/key}
 </div>
+</PullToRefresh>
 
 <style>
   /* Bottom padding to prevent fixed mobile nav from covering content */

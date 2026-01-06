@@ -182,8 +182,10 @@ html.dark .image-placeholder::before {
 }
 
 /* Touch-action utilities for horizontal carousels */
+/* Allow both vertical (page scroll) and horizontal (carousel) scrolling */
+/* Browser detects gesture direction from initial touch movement */
 .touch-pan-x {
-  touch-action: pan-x !important;
+  touch-action: pan-y pan-x !important;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior-x: contain;
 }

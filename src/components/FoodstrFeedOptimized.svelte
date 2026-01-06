@@ -43,6 +43,25 @@ import ClientAttribution from './ClientAttribution.svelte';
   export let hideAuthorName: boolean = false;
   export let filterMode: 'global' | 'following' | 'replies' = 'global';
 
+  // Exposed refresh function for pull-to-refresh
+  export async function refresh(): Promise<void> {
+    if (loading || isRefreshing) return;
+    
+    isRefreshing = true;
+    try {
+      // Clear existing data for fresh load
+      seenEventIds.clear();
+      events = [];
+      visibleNotes = new Set();
+      followedPubkeysForRealtime = [];
+      
+      // Reload without cache
+      await loadFoodstrFeed(false);
+    } finally {
+      isRefreshing = false;
+    }
+  }
+
   // ═══════════════════════════════════════════════════════════════
   // CONSTANTS - Compiled once at module level
   // ═══════════════════════════════════════════════════════════════
@@ -1560,48 +1579,6 @@ import ClientAttribution from './ClientAttribution.svelte';
     }
   }
 
-  // Track touch start position to detect swipe direction
-  let touchStartX = 0;
-  let touchStartY = 0;
-  let touchStartTime = 0;
-
-  function handleCarouselTouchStart(e: TouchEvent) {
-    touchStartX = e.touches[0].clientX;
-    touchStartY = e.touches[0].clientY;
-    touchStartTime = Date.now();
-  }
-
-  function handleCarouselTouchMove(e: TouchEvent) {
-    if (!touchStartX || !touchStartY || e.touches.length === 0) return;
-    
-    const touchX = e.touches[0].clientX;
-    const touchY = e.touches[0].clientY;
-    const deltaX = Math.abs(touchX - touchStartX);
-    const deltaY = Math.abs(touchY - touchStartY);
-    
-    // Lower threshold for early detection - if vertical movement is detected early, bail out immediately
-    // This prevents the carousel from "grabbing" vertical scroll gestures
-    if (deltaY > 8 && deltaY > deltaX * 1.5) {
-      // Clear vertical intent detected - reset and let parent handle scroll
-      touchStartX = 0;
-      touchStartY = 0;
-      return;
-    }
-    
-    // Only prevent default for clear horizontal gestures to allow carousel scrolling
-    // Don't prevent default for vertical or ambiguous gestures - let them pass through
-    if (deltaX > 10 && deltaX > deltaY * 2) {
-      // Clear horizontal intent - allow carousel to scroll
-      e.preventDefault();
-    }
-  }
-
-  function handleCarouselTouchEnd() {
-    touchStartX = 0;
-    touchStartY = 0;
-    touchStartTime = 0;
-  }
-
   function nextSlide(eventId: string, totalSlides: number) {
     carouselStates[eventId] = ((carouselStates[eventId] || 0) + 1) % totalSlides;
     carouselStates = { ...carouselStates };
@@ -1883,19 +1860,16 @@ import ClientAttribution from './ClientAttribution.svelte';
                     <!-- Swipeable carousel container -->
                     <div 
                       class="carousel-container flex overflow-x-auto snap-x snap-mandatory"
-                      style="touch-action: pan-x; overscroll-behavior-x: contain; -webkit-overflow-scrolling: touch; background-color: #1f2937;"
+                      style="touch-action: pan-y pan-x; overscroll-behavior-x: contain; -webkit-overflow-scrolling: touch; background-color: #1f2937;"
                       data-carousel-id={event.id}
                       on:scroll={(e) => handleCarouselScroll(e, event.id)}
-                      on:touchstart={handleCarouselTouchStart}
-                      on:touchmove={handleCarouselTouchMove}
-                      on:touchend={handleCarouselTouchEnd}
                     >
                       {#each mediaUrls as imageUrl, index}
                         <div class="carousel-slide flex-shrink-0 w-full snap-center flex items-center justify-center" style="background-color: #1f2937; min-height: 200px;">
                           {#if isImageUrl(imageUrl)}
                             <button
                               class="w-full flex items-center justify-center"
-                              style="touch-action: pan-x; -webkit-tap-highlight-color: transparent; background-color: #1f2937;"
+                              style="touch-action: pan-y pan-x; -webkit-tap-highlight-color: transparent; background-color: #1f2937;"
                               on:click={() => openImageModal(imageUrl, mediaUrls, index)}
                             >
                               <img
@@ -1914,7 +1888,7 @@ import ClientAttribution from './ClientAttribution.svelte';
                               src={imageUrl} 
                               controls 
                               class="carousel-image select-none"
-                              style="touch-action: pan-x; -webkit-touch-callout: none; background-color: #1f2937;"
+                              style="touch-action: pan-y pan-x; -webkit-touch-callout: none; background-color: #1f2937;"
                               preload="metadata"
                               draggable="false"
                               on:error={handleMediaError}
@@ -2119,11 +2093,11 @@ import ClientAttribution from './ClientAttribution.svelte';
 {/if}
 
 <style>
-  /* Carousel touch behavior - prevent vertical scroll interference */
+  /* Carousel touch behavior - allow both vertical (feed) and horizontal (carousel) scrolling */
   .carousel-container {
     scrollbar-width: none; /* Firefox */
     -ms-overflow-style: none; /* IE/Edge */
-    touch-action: pan-x !important; /* Only allow horizontal panning, override any inherited touch-action */
+    touch-action: pan-y pan-x !important; /* Allow both vertical feed scroll and horizontal carousel swipe */
     will-change: scroll-position; /* Optimize scrolling performance */
     scroll-snap-type: x mandatory;
   }
@@ -2133,7 +2107,7 @@ import ClientAttribution from './ClientAttribution.svelte';
   }
   
   .carousel-slide {
-    touch-action: pan-x !important; /* Ensure slides also only allow horizontal panning */
+    touch-action: pan-y pan-x !important; /* Allow both scroll directions - browser detects gesture direction */
     scroll-snap-align: center;
     scroll-snap-stop: always;
   }
@@ -2148,9 +2122,9 @@ import ClientAttribution from './ClientAttribution.svelte';
     user-drag: none;
   }
   
-  /* Ensure images don't interfere with vertical scrolling */
+  /* Allow vertical scrolling to pass through to feed */
   .carousel-slide button {
-    touch-action: pan-x !important;
+    touch-action: pan-y pan-x !important;
   }
 
   /* Dynamic height carousel images - adapt to aspect ratio */
