@@ -126,7 +126,9 @@ export async function encrypt(
 }
 
 /**
- * Decrypt data using the specified method
+ * Decrypt data using the specified method, with fallback to alternative method.
+ * Prioritizes window.nostr for NIP-07 extensions (more reliable across signers),
+ * then falls back to NDK signer methods.
  */
 export async function decrypt(
 	senderPubkey: string,
@@ -141,29 +143,49 @@ export async function decrypt(
 		throw new Error('Encryption method not specified');
 	}
 
-	const ndkInstance = get(ndk);
-	const signer = ndkInstance.signer;
+	// Try primary method first, then fallback to alternative
+	const methods: EncryptionMethod[] = method === 'nip44' ? ['nip44', 'nip04'] : ['nip04', 'nip44'];
+	let lastError: Error | null = null;
 
-	if (signer) {
-		const sender = new NDKUser({ pubkey: senderPubkey });
+	for (const tryMethod of methods) {
+		try {
+			// First try window.nostr (NIP-07) - this is the original working method
+			const nostr = (window as any).nostr;
+			if (tryMethod === 'nip44' && nostr?.nip44?.decrypt) {
+				console.log('[Encryption] Trying window.nostr.nip44.decrypt...');
+				const result = await nostr.nip44.decrypt(senderPubkey, ciphertext);
+				if (result) return result;
+			}
+			if (tryMethod === 'nip04' && nostr?.nip04?.decrypt) {
+				console.log('[Encryption] Trying window.nostr.nip04.decrypt...');
+				const result = await nostr.nip04.decrypt(senderPubkey, ciphertext);
+				if (result) return result;
+			}
 
-		if (method === 'nip44' && typeof signer.nip44Decrypt === 'function') {
-			return await signer.nip44Decrypt(sender, ciphertext);
-		} else if (method === 'nip04' && typeof signer.nip04Decrypt === 'function') {
-			return await signer.nip04Decrypt(sender, ciphertext);
+			// Fallback to NDK signer (for NIP-46 remote signers, etc.)
+			const ndkInstance = get(ndk);
+			const signer = ndkInstance.signer;
+			if (signer) {
+				const sender = new NDKUser({ pubkey: senderPubkey });
+
+				if (tryMethod === 'nip44' && typeof signer.nip44Decrypt === 'function') {
+					console.log('[Encryption] Trying NDK signer.nip44Decrypt...');
+					const result = await signer.nip44Decrypt(sender, ciphertext);
+					if (result) return result;
+				} else if (tryMethod === 'nip04' && typeof signer.nip04Decrypt === 'function') {
+					console.log('[Encryption] Trying NDK signer.nip04Decrypt...');
+					const result = await signer.nip04Decrypt(sender, ciphertext);
+					if (result) return result;
+				}
+			}
+		} catch (e) {
+			console.warn(`[Encryption] ${tryMethod} decryption failed, trying next method...`, e);
+			lastError = e instanceof Error ? e : new Error(String(e));
+			// Continue to next method
 		}
 	}
 
-	// Fallback to window.nostr
-	const nostr = (window as any).nostr;
-	if (method === 'nip44' && nostr?.nip44?.decrypt) {
-		return await nostr.nip44.decrypt(senderPubkey, ciphertext);
-	}
-	if (method === 'nip04' && nostr?.nip04?.decrypt) {
-		return await nostr.nip04.decrypt(senderPubkey, ciphertext);
-	}
-
-	throw new Error(`Cannot decrypt: ${method} method not supported by your signer`);
+	throw lastError || new Error(`Cannot decrypt: no supported decryption method available`);
 }
 
 /**
