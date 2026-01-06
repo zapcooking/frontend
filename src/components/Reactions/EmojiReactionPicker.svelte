@@ -1,8 +1,9 @@
 <script lang="ts">
-  import { createEventDispatcher, onMount } from 'svelte';
+  import { createEventDispatcher, onMount, onDestroy } from 'svelte';
   import { QUICK_EMOJIS } from '$lib/types/reactions';
   import { fade } from 'svelte/transition';
   import PlusIcon from 'phosphor-svelte/lib/Plus';
+  import { browser } from '$app/environment';
 
   export let anchorEl: HTMLElement | null = null;
   export let userReactions: Set<string> = new Set();
@@ -14,11 +15,54 @@
   }>();
 
   let pickerStyle = '';
+  let pickerEl: HTMLElement;
+  let rafId: number;
 
-  onMount(() => {
+  function updatePosition() {
     if (anchorEl) {
       const rect = anchorEl.getBoundingClientRect();
-      pickerStyle = `left: ${rect.left}px; top: ${rect.bottom + 8}px;`;
+      const pickerWidth = 280;
+      const pickerHeight = pickerEl?.offsetHeight || 280;
+      const viewportHeight = window.innerHeight;
+      const viewportWidth = window.innerWidth;
+      
+      // Check if there's room below the button, otherwise position above
+      const spaceBelow = viewportHeight - rect.bottom - 8;
+      const showAbove = spaceBelow < pickerHeight && rect.top > pickerHeight;
+      
+      // Ensure picker doesn't go off-screen horizontally
+      let left = rect.left;
+      if (left + pickerWidth > viewportWidth - 8) {
+        left = viewportWidth - pickerWidth - 8;
+      }
+      if (left < 8) {
+        left = 8;
+      }
+      
+      if (showAbove) {
+        pickerStyle = `left: ${left}px; bottom: ${viewportHeight - rect.top + 8}px; top: auto;`;
+      } else {
+        pickerStyle = `left: ${left}px; top: ${rect.bottom + 8}px; bottom: auto;`;
+      }
+    }
+    
+    // Continue updating position via RAF to track during transforms/animations
+    rafId = requestAnimationFrame(updatePosition);
+  }
+
+  onMount(() => {
+    if (browser) {
+      // Start the RAF loop to continuously track the anchor position
+      updatePosition();
+    }
+  });
+
+  onDestroy(() => {
+    if (browser) {
+      // Clean up RAF
+      if (rafId) {
+        cancelAnimationFrame(rafId);
+      }
     }
   });
 
@@ -35,18 +79,36 @@
       dispatch('close');
     }
   }
+
+  // Portal action to move element to body
+  function portal(node: HTMLElement) {
+    document.body.appendChild(node);
+    
+    return {
+      destroy() {
+        if (node.parentNode) {
+          node.parentNode.removeChild(node);
+        }
+      }
+    };
+  }
 </script>
 
-<!-- Fixed backdrop -->
-<div
-  class="fixed inset-0 z-[1000]"
-  on:click={handleBackdropClick}
-  on:keydown={(e) => e.key === 'Escape' && dispatch('close')}
-  transition:fade={{ duration: 100 }}
->
-  <!-- Picker positioned absolutely -->
+<!-- Portal wrapper - renders at body level to escape transform context -->
+<div use:portal>
+  <!-- Fixed backdrop -->
   <div
-    class="absolute bg-input border rounded-xl p-3 shadow-lg z-[1001]"
+    class="fixed inset-0 z-[1000]"
+    on:click={handleBackdropClick}
+    on:keydown={(e) => e.key === 'Escape' && dispatch('close')}
+    transition:fade={{ duration: 100 }}
+  >
+  </div>
+  
+  <!-- Picker positioned fixed to follow scroll - separate from backdrop for proper stacking -->
+  <div
+    bind:this={pickerEl}
+    class="fixed bg-input border rounded-xl p-3 shadow-lg z-[1001] pointer-events-auto"
     style="{pickerStyle} min-width: 280px; border-color: var(--color-input-border);"
   >
     <!-- 4-column grid -->
