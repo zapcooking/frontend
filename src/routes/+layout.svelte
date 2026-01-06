@@ -58,7 +58,8 @@
     }
 
     // Handle bunker:// URLs for direct NIP-46 auth
-    if (url.startsWith('bunker://') || url.startsWith('nostrconnect://')) {
+    // Note: nostrconnect:// is NOT handled here - it's for signers to scan, not direct input
+    if (url.startsWith('bunker://')) {
       try {
         await authManager.authenticateWithNIP46(url);
         goto('/explore');

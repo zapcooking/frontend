@@ -577,7 +577,7 @@
       <textarea
         id="bunker-input"
         bind:value={bunkerConnectionString}
-        placeholder="bunker://pubkey?relay=wss://relay.example.com&#10;or&#10;nostrconnect://pubkey?relay=wss://relay.example.com&#10;or&#10;npub1... wss://relay.example.com"
+        placeholder="bunker://pubkey?relay=wss://relay.example.com&#10;or&#10;npub1... wss://relay.example.com"
         rows="3"
         class="input block w-full sm:text-sm p-3 font-mono text-xs"
         disabled={bunkerConnecting}
