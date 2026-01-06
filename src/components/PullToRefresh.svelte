@@ -15,6 +15,7 @@
   let pullDistance = 0;
   let startY = 0;
   let currentY = 0;
+  let refreshTimeout: ReturnType<typeof setTimeout> | null = null;
 
   // DOM refs
   let containerEl: HTMLElement;
@@ -82,11 +83,24 @@
     isRefreshing = true;
     pullDistance = 60; // Hold at spinner position
     
+    // Safety timeout - auto-complete after 15 seconds to prevent stuck spinner
+    refreshTimeout = setTimeout(() => {
+      if (isRefreshing) {
+        console.warn('[PullToRefresh] Safety timeout triggered after 15s');
+        complete();
+      }
+    }, 15000);
+    
     dispatch('refresh');
   }
 
   // Called by parent when refresh is complete
   export function complete() {
+    // Clear safety timeout
+    if (refreshTimeout) {
+      clearTimeout(refreshTimeout);
+      refreshTimeout = null;
+    }
     isRefreshing = false;
     resetPull();
   }
@@ -113,6 +127,11 @@
   onDestroy(() => {
     if (!browser) return;
     containerEl?.removeEventListener('touchmove', handleTouchMove as any);
+    // Clean up any pending timeout
+    if (refreshTimeout) {
+      clearTimeout(refreshTimeout);
+      refreshTimeout = null;
+    }
   });
 </script>
 

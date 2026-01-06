@@ -57,6 +57,26 @@ export async function backupNwcToNostr(pubkey: string, nwcConnectionString: stri
 		throw new Error('No encryption method available. Please ensure you are logged in with a signer.')
 	}
 
+	// Create the backup event (kind 30078 - NIP-78 application-specific data)
+	const { ndk, ndkReady } = await import('$lib/nostr')
+	const { NDKEvent } = await import('@nostr-dev-kit/ndk')
+	const { get } = await import('svelte/store')
+	const { createAuthManager } = await import('$lib/authManager')
+
+	await ndkReady
+	const ndkInstance = get(ndk)
+
+	// For NIP-46 signers, ensure the signer is ready before attempting encryption
+	if (ndkInstance.signer?.constructor?.name === 'NDKNip46Signer') {
+		console.log('[NWC Backup] Ensuring NIP-46 signer is ready...')
+		const authManager = createAuthManager(ndkInstance)
+		const isReady = await authManager.ensureNip46SignerReady()
+		if (!isReady) {
+			throw new Error('NIP-46 signer is not ready. Please ensure your remote signer app is open and connected.')
+		}
+		console.log('[NWC Backup] NIP-46 signer is ready')
+	}
+
 	// Encrypt using the unified encryption service
 	console.log('[NWC Backup] Encrypting connection string...')
 	const { ciphertext: encryptedContent, method: encryptionMethod } = await encrypt(
@@ -64,14 +84,6 @@ export async function backupNwcToNostr(pubkey: string, nwcConnectionString: stri
 		nwcConnectionString
 	)
 	console.log('[NWC Backup] Encrypted with', encryptionMethod)
-
-	// Create the backup event (kind 30078 - NIP-78 application-specific data)
-	const { ndk, ndkReady } = await import('$lib/nostr')
-	const { NDKEvent } = await import('@nostr-dev-kit/ndk')
-	const { get } = await import('svelte/store')
-
-	await ndkReady
-	const ndkInstance = get(ndk)
 
 	// Create and sign using NDK (works with any signer type)
 	const ndkEvent = new NDKEvent(ndkInstance)

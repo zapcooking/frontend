@@ -45,7 +45,14 @@ import ClientAttribution from './ClientAttribution.svelte';
 
   // Exposed refresh function for pull-to-refresh
   export async function refresh(): Promise<void> {
-    if (loading || isRefreshing) return;
+    // If already refreshing, wait for it to complete
+    if (isRefreshing) return;
+    
+    // If still loading, just wait for the load to complete
+    // (don't show double refresh indicators)
+    if (loading) {
+      return;
+    }
     
     isRefreshing = true;
     try {
@@ -57,8 +64,13 @@ import ClientAttribution from './ClientAttribution.svelte';
       
       // Reload without cache
       await loadFoodstrFeed(false);
+    } catch (err) {
+      console.error('[Feed] Refresh error:', err);
+      error = true;
     } finally {
       isRefreshing = false;
+      // Ensure loading is also false after refresh completes
+      loading = false;
     }
   }
 
@@ -770,7 +782,11 @@ import ClientAttribution from './ClientAttribution.svelte';
           await cacheEvents();
         }
         
-        startRealtimeSubscription();
+        try {
+          startRealtimeSubscription();
+        } catch {
+          // Subscription setup failed - non-critical, events already loaded
+        }
         return;
       }
       
@@ -840,7 +856,11 @@ import ClientAttribution from './ClientAttribution.svelte';
           // Non-critical - individual contexts will be fetched as needed
         });
         
-        startRealtimeSubscription();
+        try {
+          startRealtimeSubscription();
+        } catch {
+          // Subscription setup failed - non-critical, events already loaded
+        }
         return;
       }
       
@@ -1671,16 +1691,7 @@ import ClientAttribution from './ClientAttribution.svelte';
 <FeedErrorBoundary>
   <div class="max-w-2xl mx-auto">
   
-  {#if isRefreshing}
-    <div class="mb-4">
-      <LoadingState 
-        type="spinner" 
-        size="sm" 
-        text="Refreshing feed..." 
-        showText={true}
-      />
-    </div>
-  {/if}
+  <!-- Note: Refresh indicator is handled by PullToRefresh component on the page -->
 
   {#if filterMode === 'following' || filterMode === 'replies' || authorPubkey}
     <div class="flex items-center justify-end gap-2 px-2 sm:px-0 mb-4">

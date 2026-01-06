@@ -24,10 +24,14 @@
   let feedComponent: FoodstrFeedOptimized;
 
   async function handleRefresh() {
-    if (feedComponent) {
-      await feedComponent.refresh();
+    try {
+      if (feedComponent) {
+        await feedComponent.refresh();
+      }
+    } finally {
+      // Always complete the pull-to-refresh, even if refresh throws
+      pullToRefreshEl?.complete();
     }
-    pullToRefreshEl?.complete();
   }
 
   export const data: PageData = {} as PageData;

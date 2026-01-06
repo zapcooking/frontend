@@ -2607,14 +2607,26 @@
 
             <div class="grid gap-2" class:grid-cols-2={encryptionSupported} class:grid-cols-1={!encryptionSupported}>
               {#if walletToDelete.kind === 4}
-                <!-- Spark wallet: show Recovery Phrase button instead of Download for NIP-46 -->
-                <button
-                  class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer bg-amber-500 hover:bg-amber-600 text-black"
-                  on:click={handleRevealMnemonic}
-                >
-                  <KeyIcon size={16} />
-                  Recovery Phrase
-                </button>
+                <!-- Spark wallet: Download JSON backup (encrypted) -->
+                {#if encryptionSupported}
+                  <button
+                    class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer bg-amber-500 hover:bg-amber-600 text-black"
+                    on:click={handleDownloadBackup}
+                    disabled={isBackingUp}
+                  >
+                    <DownloadSimpleIcon size={16} />
+                    Download JSON
+                  </button>
+                {:else}
+                  <!-- Fallback to Recovery Phrase if encryption not supported -->
+                  <button
+                    class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer bg-amber-500 hover:bg-amber-600 text-black"
+                    on:click={handleRevealMnemonic}
+                  >
+                    <KeyIcon size={16} />
+                    Recovery Phrase
+                  </button>
+                {/if}
               {:else}
                 <!-- NWC wallet: Download works without encryption -->
                 <button

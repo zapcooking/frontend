@@ -927,6 +927,26 @@ export async function backupWalletToNostr(pubkey: string): Promise<any> {
 		throw new Error('No encryption method available. Please ensure you are logged in with a signer.')
 	}
 
+	// Create the backup event (kind 30078 - NIP-78 application-specific data)
+	const { ndk, ndkReady } = await import('$lib/nostr')
+	const { NDKEvent } = await import('@nostr-dev-kit/ndk')
+	const { get } = await import('svelte/store')
+	const { createAuthManager } = await import('$lib/authManager')
+
+	await ndkReady
+	const ndkInstance = get(ndk)
+
+	// For NIP-46 signers, ensure the signer is ready before attempting encryption
+	if (ndkInstance.signer?.constructor?.name === 'NDKNip46Signer') {
+		logger.info('[Spark] Ensuring NIP-46 signer is ready...')
+		const authManager = createAuthManager(ndkInstance)
+		const isReady = await authManager.ensureNip46SignerReady()
+		if (!isReady) {
+			throw new Error('NIP-46 signer is not ready. Please ensure your remote signer app is open and connected.')
+		}
+		logger.info('[Spark] NIP-46 signer is ready')
+	}
+
 	// Encrypt using the unified encryption service
 	logger.info('[Spark] Encrypting mnemonic...')
 	const { ciphertext: encryptedMnemonic, method: encryptionMethod } = await encrypt(
@@ -934,14 +954,6 @@ export async function backupWalletToNostr(pubkey: string): Promise<any> {
 		mnemonic
 	)
 	logger.info('[Spark] Encrypted with', encryptionMethod)
-
-	// Create the backup event (kind 30078 - NIP-78 application-specific data)
-	const { ndk, ndkReady } = await import('$lib/nostr')
-	const { NDKEvent } = await import('@nostr-dev-kit/ndk')
-	const { get } = await import('svelte/store')
-
-	await ndkReady
-	const ndkInstance = get(ndk)
 
 	// Create and sign using NDK (works with any signer type)
 	const ndkEvent = new NDKEvent(ndkInstance)

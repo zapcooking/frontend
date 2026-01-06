@@ -19,14 +19,32 @@ export type EncryptionMethod = 'nip44' | 'nip04' | null;
 
 /**
  * Check if encryption is supported (synchronous, for UI state)
+ * For NIP-46 signers, we can't check synchronously, so we return true
+ * and let the actual encryption call handle the error gracefully
  */
 export function hasEncryptionSupport(): boolean {
 	if (!browser) return false;
 
 	const ndkInstance = get(ndk);
+	const signer = ndkInstance.signer;
 
-	// NDK signers always support encryption via their interface
-	if (ndkInstance.signer) return true;
+	// Check if signer has encryption methods
+	if (signer) {
+		// Direct encryption methods available
+		if (typeof signer.nip44Encrypt === 'function' || typeof signer.nip04Encrypt === 'function') {
+			return true;
+		}
+		
+		// For NIP-46 signers, encryption support depends on remote signer permissions
+		// We can't check this synchronously, so we return true and let encrypt() handle it
+		// This allows the UI to show the button, and the actual call will provide a clear error
+		if (signer.constructor?.name === 'NDKNip46Signer') {
+			return true; // Assume supported, encrypt() will handle errors
+		}
+		
+		// For other signer types, if they exist but don't have encryption methods, return false
+		return false;
+	}
 
 	// Fallback check for window.nostr (NIP-07 without NDK signer)
 	const nostr = (window as any).nostr;
@@ -98,17 +116,49 @@ export async function encrypt(
 		const recipient = new NDKUser({ pubkey: recipientPubkey });
 		const method = preferredMethod || 'nip44';
 
-		let ciphertext: string;
-		if (method === 'nip44' && typeof signer.nip44Encrypt === 'function') {
-			ciphertext = await signer.nip44Encrypt(recipient, plaintext);
-		} else if (typeof signer.nip04Encrypt === 'function') {
-			ciphertext = await signer.nip04Encrypt(recipient, plaintext);
-			return { ciphertext, method: 'nip04' };
-		} else {
-			throw new Error('Signer does not support encryption');
+		// Debug: Log available methods on signer
+		if (signer.constructor?.name === 'NDKNip46Signer') {
+			console.log('[Encryption] NIP-46 signer detected, checking for encryption methods...');
+			console.log('[Encryption] Signer methods:', Object.getOwnPropertyNames(Object.getPrototypeOf(signer)));
+			console.log('[Encryption] Has nip44Encrypt:', typeof signer.nip44Encrypt);
+			console.log('[Encryption] Has nip04Encrypt:', typeof signer.nip04Encrypt);
 		}
 
-		return { ciphertext, method };
+		let ciphertext: string;
+		
+		// Check for encryption methods on signer
+		if (method === 'nip44' && typeof signer.nip44Encrypt === 'function') {
+			try {
+				ciphertext = await signer.nip44Encrypt(recipient, plaintext);
+				return { ciphertext, method: 'nip44' };
+			} catch (e) {
+				console.error('[Encryption] nip44Encrypt failed:', e);
+				// Try NIP-04 as fallback
+				if (typeof signer.nip04Encrypt === 'function') {
+					ciphertext = await signer.nip04Encrypt(recipient, plaintext);
+					return { ciphertext, method: 'nip04' };
+				}
+				throw e;
+			}
+		} else if (typeof signer.nip04Encrypt === 'function') {
+			try {
+				ciphertext = await signer.nip04Encrypt(recipient, plaintext);
+				return { ciphertext, method: 'nip04' };
+			} catch (e) {
+				console.error('[Encryption] nip04Encrypt failed:', e);
+				throw e;
+			}
+		}
+		
+		// For NIP-46 signers, if methods don't exist, provide helpful error
+		if (signer.constructor?.name === 'NDKNip46Signer') {
+			const errorMsg = 'Your remote signer does not support encryption or has not granted encryption permissions. ' +
+				'Please check your remote signer app (e.g., Amber) settings and ensure encryption permissions are enabled. ' +
+				'You may need to reconnect and grant encryption permissions.';
+			throw new Error(errorMsg);
+		}
+		
+		throw new Error('Signer does not support encryption. Please ensure you are logged in with a signer that supports encryption (NIP-44 or NIP-04).');
 	}
 
 	// Fallback to window.nostr
