@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "nostr": {
+      "command": "npx",
+      "args": ["-y", "@nostrbook/mcp@latest"]
+    }
+  }
+}
+

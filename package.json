@@ -29,6 +29,8 @@
     "@capacitor/splash-screen": "^8.0.0",
     "@fortawesome/free-solid-svg-icons": "^6.5.1",
     "@gandlaf21/bolt11-decode": "^3.0.6",
+    "@getalby/bitcoin-connect": "^3.11.5",
+    "@getalby/lightning-tools": "^6.0.0",
     "@getalby/sdk": "^7.0.0",
     "@noble/ciphers": "^2.1.1",
     "@noble/hashes": "^2.0.1",

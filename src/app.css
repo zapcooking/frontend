@@ -45,6 +45,13 @@ html, body {
   --color-bg-secondary: #f9fafb;
   --color-skeleton-base: #e5e7eb;
   --color-skeleton-highlight: #f3f4f6;
+
+  /* Bitcoin Connect theming */
+  --bc-color-brand: #EC4700;
+  --bc-color-brand-dark: #FF5722;
+  --bc-brand-mix: 100%;
+  --bc-color-brand-button-text: #ffffff;
+  --bc-color-brand-button-text-dark: #ffffff;
 }
 
 html.dark {

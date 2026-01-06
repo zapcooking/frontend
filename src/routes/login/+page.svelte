@@ -12,6 +12,13 @@
   import { createAuthManager, type AuthState } from '$lib/authManager';
   import { onMount, onDestroy } from 'svelte';
   import { DEFAULT_PROFILE_IMAGE } from '$lib/consts';
+  import { theme } from '$lib/themeStore';
+
+  // Dark mode detection for logo
+  $: resolvedTheme = $theme === 'system'
+    ? (browser && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+    : $theme;
+  $: isDarkMode = resolvedTheme === 'dark';
 
   let authManager: any = null;
   let authState: AuthState = {
@@ -930,7 +937,11 @@
     <section class="glass-card rounded-2xl p-6 md:p-8 w-full mx-auto text-center" style="max-width: 420px;" aria-label="Authentication options">
       <!-- Logo and Title -->
       <div class="mb-5">
-        <img src="/favicon.svg" class="w-14 md:w-16 mb-2 mx-auto" alt="Frying Pan with Lightning Bolt" />
+        <img
+          src={isDarkMode ? '/zap_cooking_logo_white.svg' : '/zap_cooking_logo_black.svg'}
+          class="h-10 md:h-12 mb-2 mx-auto"
+          alt="Zap Cooking"
+        />
         <h1 class="text-xl md:text-2xl font-bold mb-1" style="color: var(--color-text-primary)">
           Welcome to <span class="text-orange-500">Zap Cooking</span>
         </h1>

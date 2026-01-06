@@ -114,10 +114,10 @@
     />
   </div>
   <span class="hidden lg:max-xl:flex lg:max-xl:grow"></span>
-  <div class="flex gap-1.5 sm:gap-3 self-center flex-none print:hidden">
+  <div class="flex items-center gap-1.5 sm:gap-3 self-center flex-none print:hidden">
     <!-- Search icon (mobile/tablet only when search bar hidden) -->
-    <div class="block sm:max-lg:hidden xl:hidden self-center">
-      <button 
+    <div class="block sm:max-lg:hidden xl:hidden">
+      <button
         on:click={() => searchActive = true}
         class="w-9 h-9 flex items-center justify-center text-caption hover:opacity-80 hover:bg-accent-gray rounded-full transition-colors cursor-pointer"
         aria-label="Search"
@@ -138,24 +138,22 @@
 
     <!-- Wallet Balance - only show when logged in and wallet connected -->
     {#if $userPublickey}
-      <div class="self-center hidden sm:block">
+      <div class="hidden sm:block">
         <WalletBalance />
       </div>
     {/if}
 
     <!-- Notifications - only show when logged in -->
     {#if $userPublickey}
-      <div class="self-center">
-        <NotificationBell />
-      </div>
+      <NotificationBell />
     {/if}
-    
+
     <!-- Sign in / User menu -->
-    <div class="self-center print:hidden flex-shrink-0">
+    <div class="print:hidden flex-shrink-0">
       {#if $userPublickey !== ''}
         <div class="relative" use:clickOutside on:click_outside={() => (dropdownActive = false)}>
-          <button class="flex self-center scale-[0.85] sm:scale-100 origin-right cursor-pointer" on:click={() => (dropdownActive = !dropdownActive)}>
-            <CustomAvatar pubkey={$userPublickey} size={48} imageUrl={$userProfilePictureOverride} />
+          <button class="flex cursor-pointer" on:click={() => (dropdownActive = !dropdownActive)}>
+            <CustomAvatar pubkey={$userPublickey} size={36} imageUrl={$userProfilePictureOverride} />
           </button>
           {#if dropdownActive}
             <div class="absolute right-0 top-full mt-2 z-20" transition:fade={{ delay: 0, duration: 150 }}>

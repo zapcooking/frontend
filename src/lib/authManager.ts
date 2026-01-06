@@ -612,14 +612,11 @@ export class AuthManager {
     localStorage.setItem('nostrcooking_nip46_pending', JSON.stringify(pendingInfo));
 
     // Build nostrconnect:// URI
-    const metadata = JSON.stringify({
-      name: 'Zap Cooking',
-      url: 'https://zap.cooking',
-      description: 'A place to share food with friends'
-    });
+    // Use simple param format matching Primal's working format for maximum signer compatibility
+    // Use single relay and avoid spaces in name
+    const primaryRelay = 'wss://relay.damus.io';
 
-    const relayParams = relays.map(r => `relay=${encodeURIComponent(r)}`).join('&');
-    const uri = `nostrconnect://${localPubkey}?${relayParams}&metadata=${encodeURIComponent(metadata)}`;
+    const uri = `nostrconnect://${localPubkey}?relay=${encodeURIComponent(primaryRelay)}&name=ZapCooking&url=${encodeURIComponent('https://zap.cooking')}`;
 
     console.log('[NIP-46] Generated nostrconnect URI');
     console.log('[NIP-46] Local pubkey:', localPubkey);

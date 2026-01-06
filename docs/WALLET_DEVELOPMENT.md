@@ -4,9 +4,19 @@ This document outlines the multi-wallet system architecture to ensure future cha
 
 ## Architecture Overview
 
-The wallet system supports two wallet types:
+The wallet system supports two **embedded wallet** types and one **external wallet** option:
+
+### Embedded Wallets (Full Features)
 - **NWC (kind: 3)** - Nostr Wallet Connect protocol
 - **Spark (kind: 4)** - Self-custodial Breez SDK wallet
+
+Embedded wallets provide: balance display, transaction history, send/receive, lightning addresses, and wallet widget in the header.
+
+### External Wallet (Bitcoin Connect)
+- **Bitcoin Connect** - External wallet connection via `@getalby/bitcoin-connect`
+- Lightweight option for users who don't want to configure an embedded wallet
+- Supports: Alby extension, NWC, LNbits, and other WebLN providers
+- Provides: payment capability only (no balance, no history, no header widget)
 
 ### Removed: WebLN (kind: 1)
 WebLN browser extension support was removed to simplify the wallet options. WebLN had compatibility issues:
@@ -14,7 +24,7 @@ WebLN browser extension support was removed to simplify the wallet options. WebL
 - No transaction history support
 - Inconsistent behavior across different extensions
 
-The code infrastructure for WebLN still exists in `webln.ts` but is not exposed in the UI. This simplifies the user experience by focusing on the two most reliable options.
+The code infrastructure for WebLN still exists in `webln.ts` but is not exposed in the UI.
 
 ## Key Files
 
@@ -24,17 +34,23 @@ src/lib/wallet/
 ├── walletStore.ts     # Svelte stores for wallet state
 ├── walletManager.ts   # Unified wallet operations
 ├── nwc.ts             # NWC implementation (NIP-47)
-└── webln.ts           # WebLN implementation
+├── bitcoinConnect.ts  # Bitcoin Connect external wallet state
+└── webln.ts           # WebLN implementation (legacy, not exposed in UI)
 
 src/lib/spark/
 ├── index.ts           # Breez SDK Spark integration
 ├── storage.ts         # Encrypted mnemonic storage
 └── profileSync.ts     # Nostr profile lud16 sync functionality
 
+src/lib/
+└── lightningService.ts  # Bitcoin Connect payment modal integration
+
 src/components/
 ├── CheckRelayBackupsModal.svelte  # Modal showing relay backup status
 ├── WalletRecoveryHelpModal.svelte # Modal with recovery information
-└── BottomNav.svelte               # Mobile bottom navigation (includes Wallet)
+├── BottomNav.svelte               # Mobile bottom navigation (includes Wallet)
+└── icons/
+    └── BitcoinConnectLogo.svelte  # Bitcoin Connect logo icon
 
 src/routes/wallet/
 └── +page.svelte       # Main wallet page with all wallet UI
@@ -66,6 +82,99 @@ Each wallet module maintains its own connection state:
 - `_wasmInitialized` - WASM module loaded
 - `_currentPubkey` - User's pubkey
 
+**Bitcoin Connect (`bitcoinConnect.ts`)**:
+- `bitcoinConnectEnabled` - Svelte store (boolean, persisted to localStorage)
+
+## Bitcoin Connect (External Wallet)
+
+Bitcoin Connect provides a lightweight external wallet option for users who don't want to set up an embedded wallet (NWC or Spark).
+
+### Key Differences from Embedded Wallets
+
+| Feature | Embedded Wallets | Bitcoin Connect |
+|---------|------------------|-----------------|
+| Balance display | Yes | No |
+| Transaction history | Yes | No |
+| Header widget | Yes | No |
+| Lightning address | Yes (Spark) | No |
+| Payment capability | Yes | Yes |
+| Wallet page UI | Full wallet management | Simple on/off toggle |
+
+### State Management
+
+Bitcoin Connect uses a simple boolean store persisted to localStorage:
+
+```typescript
+// src/lib/wallet/bitcoinConnect.ts
+const STORAGE_KEY = 'zapcooking_bitcoin_connect_enabled'
+
+export const bitcoinConnectEnabled = writable<boolean>(false)
+
+export function enableBitcoinConnect(): void {
+  bitcoinConnectEnabled.set(true)
+}
+
+export function disableBitcoinConnect(): void {
+  bitcoinConnectEnabled.set(false)
+  // Also disconnect any active BC session
+  import('@getalby/bitcoin-connect').then(({ disconnect }) => {
+    disconnect()
+  })
+}
+```
+
+### UI Flow
+
+The Bitcoin Connect option appears in the "Add Wallet" modal **only when no embedded wallets exist**:
+
+```
+Add Embedded Wallet
+├── NWC (Nostr Wallet Connect)
+├── Breez Spark (Self-Custodial)
+│
+├── ─── or choose a wallet to connect ───
+│
+└── [Connect Wallet] (Bitcoin Connect button)
+```
+
+Once connected:
+- Wallet page shows "External wallet connected" with Bitcoin Connect logo
+- "Remove External Wallet" button with confirmation modal
+- Users can still add embedded wallets via the "Add Wallet" button
+
+### Payment Flow
+
+When a user initiates a zap or payment:
+
+1. **If embedded wallet exists**: Uses `sendPayment()` from walletManager
+2. **If no embedded wallet**: Falls back to Bitcoin Connect via `lightningService.launchPayment()`
+
+The `lightningService.ts` handles the Bitcoin Connect modal:
+
+```typescript
+// src/lib/lightningService.ts
+export const lightningService = {
+  async init() {
+    const { init } = await import('@getalby/bitcoin-connect')
+    init({ appName: 'zap.cooking', showBalance: true })
+  },
+
+  async launchPayment(invoice: string, options?: { amount?: number }) {
+    const { launchPaymentModal } = await import('@getalby/bitcoin-connect')
+    const result = await launchPaymentModal({ invoice, ...options })
+    return result
+  }
+}
+```
+
+### Connection Persistence
+
+Bitcoin Connect handles its own connection persistence:
+- `persistConnection: true` - Connection survives page refreshes
+- `autoConnect: true` - Automatically reconnects on page load
+
+The `bitcoinConnectEnabled` store tracks whether the user has opted into using Bitcoin Connect, separate from the actual connection state.
+
 ## Critical Flow: Wallet Switching
 
 When switching between wallets, **module state may be lost**. The `ensureWalletConnected()` function handles reconnection:
@@ -95,6 +204,7 @@ async function ensureWalletConnected(wallet: Wallet): Promise<boolean> {
 This is called automatically in:
 - `refreshBalance()`
 - `getPaymentHistory()`
+- `sendPayment()` - **Critical fix**: Ensures wallet is reconnected before attempting payment
 
 ## NWC Connection Flow
 
@@ -897,11 +1007,22 @@ Before any wallet changes, verify:
 - [ ] Mobile: Wallet type label hidden, names truncate
 - [ ] Mobile: Bottom nav shows Wallet with lightning icon
 
+### Bitcoin Connect
+- [ ] Bitcoin Connect option appears in modal when no wallets exist
+- [ ] Clicking "Connect Wallet" opens Bitcoin Connect modal
+- [ ] After connecting, wallet page shows "External wallet connected" with BC logo
+- [ ] "Remove External Wallet" shows confirmation modal
+- [ ] Confirming removal disables Bitcoin Connect
+- [ ] Zaps work via Bitcoin Connect when no embedded wallet exists
+- [ ] Bitcoin Connect button disabled when already connected
+- [ ] Can add embedded wallet while Bitcoin Connect is enabled
+
 ### General
 - [ ] Switching between wallets shows correct balance
 - [ ] Page refresh restores active wallet and shows balance
 - [ ] Wallet deletion works with confirmation
 - [ ] Restore order: Nostr Backup → Backup File → Recovery Phrase
+- [ ] **Payment with embedded wallet works after page refresh** (ensureWalletConnected fix)
 
 ## Known Issues
 

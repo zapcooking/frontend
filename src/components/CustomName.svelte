@@ -1,88 +1,85 @@
 <script lang="ts">
-  import { createEventDispatcher, onMount } from 'svelte';
+  import { createEventDispatcher } from 'svelte';
   import { profileCacheManager } from '$lib/profileCache';
   import type { NDKUser } from '@nostr-dev-kit/ndk';
-  import MembershipBadge from './MembershipBadge.svelte';
-  import { membershipStore } from '$lib/membershipStore';
-  
+
   export let pubkey: string;
   export let className: string = '';
   export let showNpub: boolean = false;
-  export let showBadge: boolean = true;
-  
+
   const dispatch = createEventDispatcher();
-  
+
   let user: NDKUser | null = null;
   let displayName: string = '';
   let loading = true;
-  let userTier: 'open' | 'cook' | 'pro' = 'open';
-  
+  let lastPubkey: string = '';
+
   // Generate a display name based on pubkey as fallback
-  function generateDisplayName(pubkey: string): string {
+  function generateDisplayName(pk: string): string {
+    if (!pk) return '';
     // Create a readable name based on pubkey hash
-    const hash = pubkey.split('').reduce((a, b) => {
+    const hash = pk.split('').reduce((a, b) => {
       a = ((a << 5) - a) + b.charCodeAt(0);
       return a & a;
     }, 0);
-    
+
     const adjectives = ['Cool', 'Smart', 'Creative', 'Bright', 'Swift', 'Bold', 'Sharp', 'Quick'];
     const nouns = ['Chef', 'Cook', 'Baker', 'Foodie', 'Gourmet', 'Epicure', 'Culinary', 'Kitchen'];
-    
+
     const adjective = adjectives[Math.abs(hash) % adjectives.length];
     const noun = nouns[Math.abs(hash >> 8) % nouns.length];
-    
+
     return `${adjective} ${noun}`;
   }
-  
-  function formatNpub(pubkey: string): string {
+
+  function formatNpub(pk: string): string {
+    if (!pk) return '';
     // Format pubkey as npub (simplified version)
-    return `npub1${pubkey.substring(0, 8)}...${pubkey.substring(pubkey.length - 8)}`;
+    return `npub1${pk.substring(0, 8)}...${pk.substring(pk.length - 8)}`;
   }
-  
-  onMount(async () => {
-    if (!pubkey) return;
-    
-    // Check membership tier
-    userTier = membershipStore.getActiveTier(pubkey);
-    
+
+  async function loadName(pk: string) {
+    if (!pk) return;
+
+    loading = true;
+
     try {
       // First try to get from cache
-      user = profileCacheManager.getCachedProfile(pubkey);
-      
+      user = profileCacheManager.getCachedProfile(pk);
+
       if (user && user.profile) {
-        displayName = user.profile.displayName || user.profile.name || generateDisplayName(pubkey);
+        displayName = user.profile.displayName || user.profile.name || generateDisplayName(pk);
         loading = false;
         return;
       }
-      
+
       // If not in cache, fetch from relays (waits for NDK ready)
-      user = await profileCacheManager.getProfile(pubkey);
-      
+      user = await profileCacheManager.getProfile(pk);
+
       if (user?.profile) {
-        displayName = user.profile.displayName || user.profile.name || generateDisplayName(pubkey);
+        displayName = user.profile.displayName || user.profile.name || generateDisplayName(pk);
       } else {
-        displayName = generateDisplayName(pubkey);
+        displayName = generateDisplayName(pk);
       }
     } catch (error) {
       console.warn('Failed to fetch profile for name:', error);
-      displayName = generateDisplayName(pubkey);
+      displayName = generateDisplayName(pk);
     } finally {
       loading = false;
     }
-  });
-  
-  // Subscribe to membership changes
-  membershipStore.subscribe(() => {
-    if (pubkey) {
-      userTier = membershipStore.getActiveTier(pubkey);
-    }
-  });
-  
+  }
+
+  // React to pubkey changes
+  $: if (pubkey && pubkey !== lastPubkey) {
+    lastPubkey = pubkey;
+    loadName(pubkey);
+  }
+
   $: npub = formatNpub(pubkey);
 </script>
 
 <span 
-  class="name inline-flex items-center gap-1.5 {className}"
+  class="name {className}"
   on:click={() => dispatch('click')}
   role="button"
   tabindex="0"
@@ -93,19 +90,8 @@
     }
   }}
 >
-  <span>
-    {#if loading}
-      <span class="animate-pulse">Loading...</span>
-    {:else if showNpub}
-      {npub}
-    {:else}
-      {displayName}
-    {/if}
-  </span>
-  {#if showBadge && !loading}
-    <MembershipBadge tier={userTier} size="sm" />
-  {/if}
-  {#if showNpub && !loading}
+  {displayName}
+  {#if showNpub}
     <span class="npub">({npub})</span>
   {/if}
 </span>
