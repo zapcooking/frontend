@@ -17,6 +17,7 @@
   import { getAuthManager, type NIP46ConnectionInfo } from '$lib/authManager';
   import { userPublickey, ndk, ndkReady, switchRelays, ndkSwitching, getCurrentRelays, type RelayMode } from '$lib/nostr';
   import { wallets } from '$lib/wallet/walletStore';
+  import { bitcoinConnectEnabled } from '$lib/wallet/bitcoinConnect';
   import { getConnectionManager } from '$lib/connectionManager';
   import { onMount } from 'svelte';
   import { get } from 'svelte/store';
@@ -467,6 +468,89 @@
       </div>
     </Accordion>
 
+    <!-- Wallet Section -->
+    <Accordion title="Wallet" open={false}>
+      <div class="flex flex-col gap-4">
+        <p class="text-xs text-caption">
+          Manage your Lightning wallet for zaps.
+        </p>
+
+        {#if connectedWallets.length > 0}
+          <div class="flex flex-col gap-2">
+            {#each connectedWallets as wallet}
+              <div class="flex items-center gap-3 bg-secondary p-3 rounded-lg">
+                <div class="p-2 bg-amber-500/20 rounded-full">
+                  <WalletIcon size={18} class="text-amber-500" weight="fill" />
+                </div>
+                <div class="flex-1">
+                  <p class="font-medium text-sm" style="color: var(--color-text-primary)">
+                    {wallet.name}
+                  </p>
+                  <p class="text-xs text-caption">{getWalletTypeName(wallet.kind)}</p>
+                </div>
+                {#if wallet.active}
+                  <span class="text-xs px-2 py-1 rounded-full bg-green-500/20 text-green-600 dark:text-green-400">Active</span>
+                {/if}
+              </div>
+            {/each}
+          </div>
+        {:else if $bitcoinConnectEnabled}
+          <div class="flex items-center gap-3 bg-secondary p-3 rounded-lg">
+            <div class="p-2 bg-purple-500/20 rounded-full">
+              <WalletIcon size={18} class="text-purple-500" weight="fill" />
+            </div>
+            <div class="flex-1">
+              <p class="font-medium text-sm" style="color: var(--color-text-primary)">
+                External Wallet
+              </p>
+              <p class="text-xs text-caption">Bitcoin Connect</p>
+            </div>
+            <span class="text-xs px-2 py-1 rounded-full bg-green-500/20 text-green-600 dark:text-green-400">Connected</span>
+          </div>
+        {:else}
+          <div class="bg-secondary p-4 rounded-lg text-center">
+            <p class="text-sm text-caption">No wallets connected</p>
+          </div>
+        {/if}
+
+        <Button on:click={() => goto('/wallet')}>
+          Manage Wallets
+        </Button>
+      </div>
+    </Accordion>
+
+    <!-- Currency Section -->
+    <Accordion title="Currency" open={false}>
+      <div class="flex flex-col gap-4">
+        <div>
+          <p class="text-sm font-medium mb-3" style="color: var(--color-text-primary)">Display Currency</p>
+          <p class="text-xs text-caption mb-3">
+            Choose a currency to display alongside your sats balance in the wallet.
+          </p>
+        </div>
+
+        <div class="flex flex-wrap gap-2">
+          {#each SUPPORTED_CURRENCIES as currency}
+            <button
+              type="button"
+              class="px-3 py-1.5 rounded-full text-sm font-medium transition-colors
+                {selectedCurrency === currency.code
+                  ? 'bg-primary text-white'
+                  : 'bg-secondary hover:bg-accent-gray'}"
+              style="{selectedCurrency !== currency.code ? 'color: var(--color-text-primary)' : ''}"
+              on:click={() => handleCurrencyChange(currency.code)}
+            >
+              {currency.code}
+            </button>
+          {/each}
+        </div>
+
+        <p class="text-xs text-caption">
+          Your balance will show sats as the primary amount with the selected currency shown below.
+        </p>
+      </div>
+    </Accordion>
+
     <!-- Security Section -->
     <Accordion title="Security" open={false}>
       <div class="flex flex-col gap-5">
@@ -603,76 +687,6 @@
             </button>
           </div>
         {/if}
-      </div>
-    </Accordion>
-
-    <!-- Wallet Section -->
-    <Accordion title="Wallet" open={false}>
-      <div class="flex flex-col gap-4">
-        <p class="text-xs text-caption">
-          Manage your Lightning wallet for zaps.
-        </p>
-
-        {#if connectedWallets.length > 0}
-          <div class="flex flex-col gap-2">
-            {#each connectedWallets as wallet}
-              <div class="flex items-center gap-3 bg-secondary p-3 rounded-lg">
-                <div class="p-2 bg-amber-500/20 rounded-full">
-                  <WalletIcon size={18} class="text-amber-500" weight="fill" />
-                </div>
-                <div class="flex-1">
-                  <p class="font-medium text-sm" style="color: var(--color-text-primary)">
-                    {wallet.name}
-                  </p>
-                  <p class="text-xs text-caption">{getWalletTypeName(wallet.kind)}</p>
-                </div>
-                {#if wallet.active}
-                  <span class="text-xs px-2 py-1 rounded-full bg-green-500/20 text-green-600 dark:text-green-400">Active</span>
-                {/if}
-              </div>
-            {/each}
-          </div>
-        {:else}
-          <div class="bg-secondary p-4 rounded-lg text-center">
-            <p class="text-sm text-caption">No wallets connected</p>
-          </div>
-        {/if}
-
-        <Button on:click={() => goto('/wallet')}>
-          Manage Wallets
-        </Button>
-      </div>
-    </Accordion>
-
-    <!-- Currency Section -->
-    <Accordion title="Currency" open={false}>
-      <div class="flex flex-col gap-4">
-        <div>
-          <p class="text-sm font-medium mb-3" style="color: var(--color-text-primary)">Display Currency</p>
-          <p class="text-xs text-caption mb-3">
-            Choose a currency to display alongside your sats balance in the wallet.
-          </p>
-        </div>
-
-        <div class="flex flex-wrap gap-2">
-          {#each SUPPORTED_CURRENCIES as currency}
-            <button
-              type="button"
-              class="px-3 py-1.5 rounded-full text-sm font-medium transition-colors
-                {selectedCurrency === currency.code
-                  ? 'bg-primary text-white'
-                  : 'bg-secondary hover:bg-accent-gray'}"
-              style="{selectedCurrency !== currency.code ? 'color: var(--color-text-primary)' : ''}"
-              on:click={() => handleCurrencyChange(currency.code)}
-            >
-              {currency.code}
-            </button>
-          {/each}
-        </div>
-
-        <p class="text-xs text-caption">
-          Your balance will show sats as the primary amount with the selected currency shown below.
-        </p>
       </div>
     </Accordion>
   </div>
