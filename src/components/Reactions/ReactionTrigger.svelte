@@ -113,9 +113,10 @@
   />
 {/if}
 
-<!-- Full picker modal -->
+<!-- Full picker - anchored to button -->
 <FullEmojiPicker
   open={$store.showFullPicker}
+  anchorEl={buttonEl}
   on:select={(e) => handleReaction(e.detail.emoji)}
   on:close={() => store.update(s => ({ ...s, showFullPicker: false }))}
 />
