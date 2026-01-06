@@ -28,6 +28,7 @@ import ClientAttribution from './ClientAttribution.svelte';
     fetchFollowingEvents, 
     getFollowedPubkeys,
     prewarmOutboxCache,
+    prefetchRelayLists,
     type OutboxFetchResult 
   } from '$lib/followOutbox';
   
@@ -723,16 +724,21 @@ import ClientAttribution from './ClientAttribution.svelte';
         }
         
         // Use outbox model for optimized fetching
+        // Add '#t' filter to fetch ONLY food-tagged posts from relays (not all posts)
         const result: OutboxFetchResult = await fetchFollowingEvents($ndk, $userPublickey, {
           since,
           kinds: [1],
-          limit: 100,
-          timeoutMs: 8000
+          limit: 50,  // Reduced since we're getting targeted results
+          timeoutMs: 5000,
+          maxRelays: 10,  // Top 10 relays by coverage
+          additionalFilter: {
+            '#t': FOOD_HASHTAGS  // Server-side food filtering!
+          }
         });
         
         console.log('[Feed] Raw events from outbox:', result.events.length);
         
-        console.log(`[Feed] Outbox fetch: ${result.events.length} events from ${result.queriedRelays.length} relays in ${result.timing.totalMs}ms`);
+        console.log(`[Feed] Outbox fetch (food-filtered): ${result.events.length} events from ${result.queriedRelays.length} relays in ${result.timing.totalMs}ms`);
         
         if (result.failedRelays.length > 0) {
           console.warn(`[Feed] Failed relays:`, result.failedRelays);
@@ -800,17 +806,21 @@ import ClientAttribution from './ClientAttribution.svelte';
           return;
         }
         
-        // Use outbox model - same fetch, different filtering
+        // Use outbox model - same fetch with food hashtag filter
         const result: OutboxFetchResult = await fetchFollowingEvents($ndk, $userPublickey, {
           since,
           kinds: [1],
-          limit: 100,
-          timeoutMs: 8000
+          limit: 50,  // Reduced since we're getting targeted results
+          timeoutMs: 5000,
+          maxRelays: 10,  // Top 10 relays by coverage
+          additionalFilter: {
+            '#t': FOOD_HASHTAGS  // Server-side food filtering!
+          }
         });
         
         console.log('[Feed] Raw events from outbox:', result.events.length);
         
-        console.log(`[Feed] Outbox fetch (replies): ${result.events.length} events from ${result.queriedRelays.length} relays in ${result.timing.totalMs}ms`);
+        console.log(`[Feed] Outbox fetch (food-filtered replies): ${result.events.length} events from ${result.queriedRelays.length} relays in ${result.timing.totalMs}ms`);
         
         // Cache followed pubkeys for real-time subscription
         followedPubkeysForRealtime = await getFollowedPubkeys($ndk, $userPublickey);
@@ -855,6 +865,11 @@ import ClientAttribution from './ClientAttribution.svelte';
         prefetchReplyContexts($ndk, events.slice(0, 20)).catch(() => {
           // Non-critical - individual contexts will be fetched as needed
         });
+        
+        // Prefetch relay lists for all visible authors (non-blocking)
+        // This improves outbox model performance for subsequent fetches
+        const authorPubkeys = [...new Set(events.slice(0, 50).map(e => e.pubkey))];
+        prefetchRelayLists(authorPubkeys);
         
         try {
           startRealtimeSubscription();
@@ -1187,13 +1202,17 @@ import ClientAttribution from './ClientAttribution.svelte';
           return;
         }
         
-        // Use outbox model for Following/Replies mode
+        // Use outbox model for Following/Replies mode with food filter
         const result = await fetchFollowingEvents($ndk, $userPublickey, {
           since: 0, // Get all history
           until: oldestEvent.created_at - 1,
           kinds: [1],
           limit: 20,
-          timeoutMs: 8000
+          timeoutMs: 5000,
+          maxRelays: 10,
+          additionalFilter: {
+            '#t': FOOD_HASHTAGS  // Server-side food filtering!
+          }
         });
         
         olderEvents = result.events;

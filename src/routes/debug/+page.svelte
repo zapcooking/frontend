@@ -4,6 +4,7 @@
   import { standardRelays } from '$lib/consts';
   import { NDKRelaySet } from '@nostr-dev-kit/ndk';
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
+  import RelayHealthDebug from '$components/RelayHealthDebug.svelte';
   
   let debugInfo = 'Loading...';
   let isConnected = false;
@@ -265,6 +266,12 @@
         </div>
       {/if}
     {/if}
+  </div>
+  
+  <!-- Relay Health Monitor -->
+  <div class="mt-8">
+    <h2 class="font-semibold mb-4">Relay Health Tracking</h2>
+    <RelayHealthDebug />
   </div>
   
   <div class="mt-6">

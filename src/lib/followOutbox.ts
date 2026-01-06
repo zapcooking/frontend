@@ -6,10 +6,22 @@
  * - Global timeout that actually stops everything
  * - Early termination after enough events
  * - Aggressive relay blocklist
+ * - Integration with RelayListCache for NIP-65 caching
  */
 
 import type { NDK, NDKEvent, NDKFilter } from '@nostr-dev-kit/ndk';
 import { NDKRelaySet } from '@nostr-dev-kit/ndk';
+import { relayListCache, type RelayList } from './relayListCache';
+import { relaySelector, recordQuerySuccess, recordQueryFailure } from './relaySelector';
+import { QueryBatcher, type QueryResult, type QueryMetrics, deduplicateEvents } from './queryBatcher';
+import { 
+  relayHealthTracker,
+  recordRelaySuccess, 
+  recordRelayFailure, 
+  recordRelayTimeout,
+  filterHealthyRelays,
+  logRelayHealth 
+} from './relayHealthTracker';
 
 // ═══════════════════════════════════════════════════════════════
 // TYPES
@@ -74,7 +86,7 @@ const CONFIG = {
   GLOBAL_TIMEOUT_MS: 5000,         // 5 second cap
   
   // Limits
-  MAX_RELAYS_TO_QUERY: 20,          // Keep all 20
+  MAX_RELAYS_TO_QUERY: 10,          // Reduced from 20 - top 10 by coverage is enough
   MAX_AUTHORS_PER_RELAY: 50,
   MIN_AUTHORS_PER_RELAY: 3,         // Skip relays with < 3 authors
   MAX_RELAYS_PER_USER: 2,
@@ -106,6 +118,8 @@ const CONFIG = {
     'wss://relay.momostr.pink',
     'wss://offchain.pub',
     'wss://nostr-pub.wellorder.net',
+    'wss://nostr.bitcoiner.social',
+    'wss://relay.orangepill.dev',
   ])
 };
 
@@ -250,35 +264,26 @@ export async function getFollowedPubkeys(
 }
 
 // ═══════════════════════════════════════════════════════════════
-// NIP-65 RELAY LISTS
+// NIP-65 RELAY LISTS (using RelayListCache)
 // ═══════════════════════════════════════════════════════════════
 
-function parseRelayListEvent(event: NDKEvent): UserRelayConfig {
-  const writeRelays: string[] = [];
-  const readRelays: string[] = [];
+/**
+ * Convert RelayList to UserRelayConfig format for backward compatibility
+ */
+function relayListToUserConfig(pubkey: string, relayList: RelayList): UserRelayConfig {
+  // Filter out blocked relays
+  let writeRelays = relayList.write.filter(r => !CONFIG.BLOCKED_RELAYS.has(r));
+  let readRelays = relayList.read.filter(r => !CONFIG.BLOCKED_RELAYS.has(r));
   
-  for (const tag of event.tags) {
-    if (tag[0] !== 'r' || !tag[1]) continue;
-    if (!isValidRelayUrl(tag[1])) continue;
-    
-    const relay = normalizeRelayUrl(tag[1]);
-    if (CONFIG.BLOCKED_RELAYS.has(relay)) continue;
-    
-    const marker = tag[2]?.toLowerCase();
-    
-    if (!marker || marker === 'write') {
-      writeRelays.push(relay);
-    }
-    if (!marker || marker === 'read') {
-      readRelays.push(relay);
-    }
-  }
+  // Filter out unhealthy relays (dead with no recovery due)
+  writeRelays = filterHealthyRelays(writeRelays);
+  readRelays = filterHealthyRelays(readRelays);
   
   return {
-    pubkey: event.pubkey,
+    pubkey,
     writeRelays,
     readRelays,
-    lastUpdated: Date.now()
+    lastUpdated: relayList.updatedAt || Date.now()
   };
 }
 
@@ -287,54 +292,37 @@ export async function fetchRelayLists(
   pubkeys: string[],
   forceRefresh = false
 ): Promise<Map<string, UserRelayConfig>> {
-  const now = Date.now();
   const results = new Map<string, UserRelayConfig>();
-  const needsFetch: string[] = [];
   
-  // Try loading from localStorage first if memory cache is empty
-  if (!forceRefresh && userRelayCache.size === 0) {
-    const stored = loadRelayConfigsFromStorage();
-    if (stored) {
-      console.log(`[Outbox] Loaded ${stored.size} relay configs from storage`);
-      for (const [k, v] of stored) {
-        userRelayCache.set(k, v);
-      }
+  if (pubkeys.length === 0) return results;
+  
+  // If force refresh, invalidate cache entries first
+  if (forceRefresh) {
+    for (const pubkey of pubkeys) {
+      relayListCache.invalidate(pubkey);
     }
   }
   
-  for (const pubkey of pubkeys) {
-    const cached = userRelayCache.get(pubkey);
-    if (!forceRefresh && cached && now - cached.lastUpdated < CONFIG.RELAY_CONFIG_CACHE_MS) {
-      results.set(pubkey, cached);
-    } else {
-      needsFetch.push(pubkey);
-    }
-  }
-  
-  if (needsFetch.length === 0) return results;
-  
-  console.log(`[Outbox] Fetching relay lists for ${needsFetch.length} users`);
+  console.log(`[Outbox] Fetching relay lists for ${pubkeys.length} users via cache`);
   
   try {
-    const allRelayEvents: NDKEvent[] = [];
+    // Use the centralized relay list cache
+    const relayLists = await relayListCache.getMany(pubkeys);
     
-    for (let i = 0; i < needsFetch.length; i += CONFIG.RELAY_LIST_BATCH_SIZE) {
-      const batch = needsFetch.slice(i, i + CONFIG.RELAY_LIST_BATCH_SIZE);
-      const events = await ndk.fetchEvents({ kinds: [10002], authors: batch });
-      allRelayEvents.push(...events);
-    }
-    
-    console.log(`[Outbox] Got ${allRelayEvents.length} relay list events`);
-    
-    for (const event of allRelayEvents) {
-      const config = parseRelayListEvent(event);
+    for (const [pubkey, relayList] of relayLists) {
+      const config = relayListToUserConfig(pubkey, relayList);
+      
+      // Only include if has write relays
       if (config.writeRelays.length > 0) {
-        userRelayCache.set(event.pubkey, config);
-        results.set(event.pubkey, config);
+        results.set(pubkey, config);
+        // Also update local cache for backward compatibility
+        userRelayCache.set(pubkey, config);
       }
     }
     
-    for (const pubkey of needsFetch) {
+    // Cache empty results for pubkeys without relay lists
+    const now = Date.now();
+    for (const pubkey of pubkeys) {
       if (!results.has(pubkey)) {
         userRelayCache.set(pubkey, {
           pubkey,
@@ -345,10 +333,7 @@ export async function fetchRelayLists(
       }
     }
     
-    // Save to localStorage after fetching new configs
-    if (userRelayCache.size > 0) {
-      saveRelayConfigsToStorage(userRelayCache);
-    }
+    console.log(`[Outbox] Got relay configs for ${results.size}/${pubkeys.length} users`);
   } catch (err) {
     console.warn('[Outbox] Failed to fetch relay lists:', err);
   }
@@ -458,7 +443,9 @@ async function fetchWithTimeout(
   relay: string,
   filter: NDKFilter,
   timeoutMs: number
-): Promise<{ events: NDKEvent[]; success: boolean }> {
+): Promise<{ events: NDKEvent[]; success: boolean; latencyMs: number }> {
+  const startTime = Date.now();
+  
   try {
     const relaySet = NDKRelaySet.fromRelayUrls([relay], ndk, true);
     
@@ -474,14 +461,30 @@ async function fetchWithTimeout(
     try {
       const events = await Promise.race([fetchPromise, timeoutPromise]);
       clearTimeout(timeoutId!);
-      return { events: Array.from(events), success: true };
+      
+      const latencyMs = Date.now() - startTime;
+      
+      // Record success with relay selector and health tracker
+      recordQuerySuccess(relay, latencyMs);
+      recordRelaySuccess(relay, latencyMs);
+      
+      return { events: Array.from(events), success: true, latencyMs };
     } catch (err) {
       clearTimeout(timeoutId!);
+      
+      // Record failure with relay selector and health tracker
+      recordQueryFailure(relay);
+      recordRelayTimeout(relay);  // Likely a timeout
+      
       // If we got a timeout, the fetch is still running but we ignore it
-      return { events: [], success: false };
+      return { events: [], success: false, latencyMs: Date.now() - startTime };
     }
   } catch {
-    return { events: [], success: false };
+    // Record failure with relay selector and health tracker
+    recordQueryFailure(relay);
+    recordRelayFailure(relay);
+    
+    return { events: [], success: false, latencyMs: Date.now() - startTime };
   }
 }
 
@@ -508,6 +511,12 @@ export async function fetchFollowingEvents(
     minAuthorsPerRelay = CONFIG.MIN_AUTHORS_PER_RELAY,
     targetEventCount = CONFIG.TARGET_EVENT_COUNT
   } = options;
+  
+  // Log relay health summary
+  const healthSummary = relayHealthTracker.getSummary();
+  if (healthSummary.dead > 0) {
+    console.log(`[Outbox] Relay health: ${healthSummary.healthy} healthy, ${healthSummary.degraded} degraded, ${healthSummary.dead} dead (auto-filtering dead relays)`);
+  }
   
   // Get follow list
   const follows = await fetchFollowList(ndk, userPubkey);
@@ -635,6 +644,9 @@ export function clearOutboxCaches(): void {
   followListPubkey = null;
   followListTimestamp = 0;
   
+  // Clear the centralized relay list cache
+  relayListCache.clear().catch(() => {});
+  
   // Also clear localStorage cache
   try {
     if (typeof localStorage !== 'undefined') {
@@ -663,6 +675,344 @@ export async function prewarmOutboxCache(
 ): Promise<void> {
   const follows = await fetchFollowList(ndk, userPubkey);
   if (follows.length > 0) {
-    await fetchRelayLists(ndk, follows.map(f => f.pubkey));
+    // Use prefetch for non-blocking warm-up
+    relayListCache.prefetch(follows.map(f => f.pubkey));
   }
+}
+
+/**
+ * Prefetch relay lists for a list of pubkeys (fire-and-forget)
+ * Useful when loading feeds to avoid blocking on relay list lookups
+ */
+export function prefetchRelayLists(pubkeys: string[]): void {
+  relayListCache.prefetch(pubkeys);
+}
+
+/**
+ * Build a smart query plan using the relay selector
+ * 
+ * This uses historical performance data to select the best relays,
+ * prioritizing:
+ * - High success rate
+ * - Low latency
+ * - Already-connected relays
+ * - Optimal coverage across authors
+ */
+export async function buildSmartQueryPlan(
+  pubkeys: string[],
+  options: {
+    maxRelays?: number;
+    maxRelaysPerAuthor?: number;
+    minAuthorsPerRelay?: number;
+  } = {}
+): Promise<{ 
+  plan: OutboxQueryPlan[]; 
+  skippedRelays: string[];
+  coverage: number;
+}> {
+  const {
+    maxRelays = CONFIG.MAX_RELAYS_TO_QUERY,
+    maxRelaysPerAuthor = CONFIG.MAX_RELAYS_PER_USER,
+    minAuthorsPerRelay = CONFIG.MIN_AUTHORS_PER_RELAY
+  } = options;
+  
+  // Use the relay selector's optimized query planning
+  const { queries, coverage, skippedAuthors } = await relaySelector.buildQueryPlan(pubkeys, {
+    maxRelaysTotal: maxRelays,
+    maxRelaysPerAuthor,
+    minAuthorsPerRelay
+  });
+  
+  // Convert to OutboxQueryPlan format
+  const plan: OutboxQueryPlan[] = queries.map((q, index) => ({
+    relay: q.relay,
+    authors: q.authors,
+    priority: queries.length - index // Higher priority for earlier queries
+  }));
+  
+  // Collect relays that weren't selected
+  const selectedRelays = new Set(queries.map(q => q.relay));
+  const allPossibleRelays = await getAllRelaysForPubkeys(pubkeys);
+  const skippedRelays = allPossibleRelays.filter(r => !selectedRelays.has(r));
+  
+  console.log(`[Outbox] Smart plan: ${plan.length} relays, ${((1 - skippedAuthors.length / pubkeys.length) * 100).toFixed(1)}% coverage`);
+  
+  return { plan, skippedRelays, coverage };
+}
+
+/**
+ * Helper to get all possible relays for a set of pubkeys
+ */
+async function getAllRelaysForPubkeys(pubkeys: string[]): Promise<string[]> {
+  const relayLists = await relayListCache.getMany(pubkeys);
+  const allRelays = new Set<string>();
+  
+  for (const relayList of relayLists.values()) {
+    for (const relay of relayList.write) {
+      allRelays.add(relay);
+    }
+  }
+  
+  return [...allRelays];
+}
+
+/**
+ * Get relay selector stats for debugging
+ */
+export function getRelaySelectorStats() {
+  return relaySelector.getAllStats();
+}
+
+/**
+ * Clear relay selector stats
+ */
+export async function clearRelaySelectorStats(): Promise<void> {
+  await relaySelector.clearStats();
+}
+
+// ═══════════════════════════════════════════════════════════════
+// BATCHED QUERY FUNCTIONS (using QueryBatcher)
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Fetch events from multiple authors using optimized query batching
+ * 
+ * This groups authors by shared relays to minimize total connections.
+ * 
+ * Example:
+ * - 50 authors × 2 relays each = 100 naive queries
+ * - Batched: ~15-20 queries covering all authors
+ * - Savings: 80%+ reduction in connections
+ */
+export async function fetchEventsBatched(
+  ndk: NDK,
+  pubkeys: string[],
+  options: {
+    kinds?: number[];
+    since?: number;
+    until?: number;
+    limit?: number;
+    timeoutMs?: number;
+    maxRelays?: number;
+    onProgress?: (progress: { completed: number; total: number; events: number }) => void;
+  } = {}
+): Promise<{
+  events: NDKEvent[];
+  metrics: QueryMetrics;
+}> {
+  const {
+    kinds = [1],
+    since,
+    until,
+    limit = 20,
+    timeoutMs = CONFIG.PER_RELAY_TIMEOUT_MS,
+    maxRelays = CONFIG.MAX_RELAYS_TO_QUERY,
+    onProgress
+  } = options;
+  
+  if (pubkeys.length === 0) {
+    return {
+      events: [],
+      metrics: {
+        naiveQueryCount: 0,
+        actualQueryCount: 0,
+        connectionsSaved: 0,
+        savingsPercent: 0,
+        totalAuthors: 0,
+        authorsCovered: 0,
+        coveragePercent: 100,
+        totalTimeMs: 0,
+        planningTimeMs: 0,
+        executionTimeMs: 0,
+        avgLatencyMs: 0,
+        eventsFound: 0,
+        uniqueEvents: 0,
+        duplicatesFiltered: 0,
+        relaysQueried: [],
+        relaysSucceeded: [],
+        relaysFailed: [],
+        relaysTimedOut: []
+      }
+    };
+  }
+  
+  const batcher = new QueryBatcher(ndk);
+  
+  // Build base filter
+  const baseFilter: Omit<NDKFilter, 'authors'> = { kinds, limit };
+  if (since) (baseFilter as any).since = since;
+  if (until) (baseFilter as any).until = until;
+  
+  // Execute batched query
+  const result = await batcher.batchQuery(pubkeys, baseFilter, {
+    maxTotalRelays: maxRelays,
+    maxRelaysPerAuthor: 2,
+    minCoverage: 1,
+    timeoutMs,
+    globalTimeoutMs: CONFIG.GLOBAL_TIMEOUT_MS,
+    maxConcurrent: CONFIG.CONCURRENT_BATCHES,
+    onProgress: onProgress ? (p) => {
+      onProgress({
+        completed: p.completedQueries,
+        total: p.totalQueries,
+        events: p.eventsFound
+      });
+    } : undefined
+  });
+  
+  return {
+    events: result.events,
+    metrics: result.metrics
+  };
+}
+
+/**
+ * Fetch events with streaming - results appear in UI as they arrive
+ * 
+ * This is the fastest way to show content to users - doesn't wait for all relays.
+ * 
+ * Example usage:
+ * ```
+ * fetchEventsStreaming(ndk, pubkeys, {
+ *   kinds: [1],
+ *   onEvents: (newEvents, relay) => {
+ *     // Merge and update UI immediately
+ *     displayedEvents = dedupeAndMerge(displayedEvents, newEvents);
+ *   },
+ *   onComplete: (metrics) => {
+ *     console.log(`Done: ${metrics.uniqueEvents} events`);
+ *   }
+ * });
+ * ```
+ */
+export function fetchEventsStreaming(
+  ndk: NDK,
+  pubkeys: string[],
+  options: {
+    kinds?: number[];
+    since?: number;
+    until?: number;
+    limit?: number;
+    timeoutMs?: number;
+    globalTimeoutMs?: number;
+    maxRelays?: number;
+    onEvents: (events: NDKEvent[], relay: string, isComplete: boolean) => void;
+    onComplete?: (metrics: QueryMetrics) => void;
+  }
+): void {
+  const {
+    kinds = [1],
+    since,
+    until,
+    limit = 20,
+    timeoutMs = CONFIG.PER_RELAY_TIMEOUT_MS,
+    globalTimeoutMs = CONFIG.GLOBAL_TIMEOUT_MS,
+    maxRelays = CONFIG.MAX_RELAYS_TO_QUERY,
+    onEvents,
+    onComplete
+  } = options;
+  
+  if (pubkeys.length === 0) {
+    onEvents([], '', true);
+    if (onComplete) {
+      onComplete({
+        naiveQueryCount: 0,
+        actualQueryCount: 0,
+        connectionsSaved: 0,
+        savingsPercent: 0,
+        totalAuthors: 0,
+        authorsCovered: 0,
+        coveragePercent: 100,
+        totalTimeMs: 0,
+        planningTimeMs: 0,
+        executionTimeMs: 0,
+        avgLatencyMs: 0,
+        eventsFound: 0,
+        uniqueEvents: 0,
+        duplicatesFiltered: 0,
+        relaysQueried: [],
+        relaysSucceeded: [],
+        relaysFailed: [],
+        relaysTimedOut: []
+      });
+    }
+    return;
+  }
+  
+  const batcher = new QueryBatcher(ndk);
+  
+  // Build base filter
+  const baseFilter: Omit<NDKFilter, 'authors'> = { kinds, limit };
+  if (since) (baseFilter as any).since = since;
+  if (until) (baseFilter as any).until = until;
+  
+  // Fire streaming query (non-blocking)
+  batcher.batchQueryStreaming(pubkeys, baseFilter, {
+    maxTotalRelays: maxRelays,
+    maxRelaysPerAuthor: 2,
+    minCoverage: 1,
+    timeoutMs,
+    globalTimeoutMs,
+    onEvents,
+    onComplete
+  });
+}
+
+/**
+ * Fetch following feed using query batching (alternative to fetchFollowingEvents)
+ * 
+ * Use this for potentially better performance with large follow lists.
+ */
+export async function fetchFollowingEventsBatched(
+  ndk: NDK,
+  userPubkey: string,
+  options: Omit<OutboxFetchOptions, 'maxAuthorsPerRelay' | 'minAuthorsPerRelay'> = {}
+): Promise<OutboxFetchResult> {
+  const startTime = Date.now();
+  
+  // Get follow list
+  const follows = await fetchFollowList(ndk, userPubkey);
+  if (follows.length === 0) {
+    return {
+      events: [],
+      queriedRelays: [],
+      skippedRelays: [],
+      failedRelays: [],
+      timing: { relayListFetchMs: 0, eventFetchMs: 0, totalMs: Date.now() - startTime },
+      stoppedEarly: false
+    };
+  }
+  
+  const pubkeys = follows.map(f => f.pubkey);
+  
+  // Use batched fetch
+  const { events, metrics } = await fetchEventsBatched(ndk, pubkeys, {
+    kinds: options.kinds || [1],
+    since: options.since,
+    until: options.until,
+    limit: options.limit || 15,
+    timeoutMs: options.timeoutMs,
+    maxRelays: options.maxRelays
+  });
+  
+  const totalMs = Date.now() - startTime;
+  
+  console.log(
+    `[Outbox Batched] ${metrics.actualQueryCount} queries ` +
+    `(saved ${metrics.connectionsSaved}, ${metrics.savingsPercent}% reduction), ` +
+    `${events.length} events in ${totalMs}ms`
+  );
+  
+  return {
+    events,
+    queriedRelays: metrics.relaysQueried,
+    skippedRelays: [], // batching handles this internally
+    failedRelays: [...metrics.relaysFailed, ...metrics.relaysTimedOut],
+    timing: {
+      relayListFetchMs: metrics.planningTimeMs,
+      eventFetchMs: metrics.executionTimeMs,
+      totalMs
+    },
+    stoppedEarly: false
+  };
 }
