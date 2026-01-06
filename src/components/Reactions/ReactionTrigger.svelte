@@ -1,9 +1,10 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import { ndk, userPublickey } from '$lib/nostr';
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
   import type { TargetType } from '$lib/types/reactions';
   import { publishReaction, canPublishReaction } from '$lib/reactions/publishReaction';
-  import { getReactionStore } from '$lib/stores/reactionStore';
+  import { getEngagementStore, fetchEngagement } from '$lib/engagementCache';
   import EmojiReactionPicker from './EmojiReactionPicker.svelte';
   import FullEmojiPicker from './FullEmojiPicker.svelte';
   import HeartIcon from 'phosphor-svelte/lib/Heart';
@@ -12,9 +13,14 @@
   export let targetType: TargetType;
   export let compact = false;
 
-  const store = getReactionStore(event.id);
+  const store = getEngagementStore(event.id);
   let buttonEl: HTMLButtonElement;
-  let processedIds = new Set<string>();
+  let showPicker = false;
+  let showFullPicker = false;
+
+  onMount(() => {
+    fetchEngagement($ndk, event.id, $userPublickey);
+  });
 
   $: hasUserReacted = $store.reactions.userReactions.size > 0;
   $: userEmoji = hasUserReacted ? Array.from($store.reactions.userReactions)[0] : null;
@@ -24,32 +30,38 @@
       window.location.href = '/login';
       return;
     }
-    store.update(s => ({ ...s, showPicker: !s.showPicker }));
+    showPicker = !showPicker;
   }
 
   async function handleReaction(emoji: string) {
-    store.update(s => ({ ...s, showPicker: false, showFullPicker: false }));
+    showPicker = false;
+    showFullPicker = false;
 
     if (!canPublishReaction($ndk, $userPublickey)) {
       window.location.href = '/login';
       return;
     }
 
-    const currentReactions = $store.reactions;
-    const wasReacted = currentReactions.userReactions.has(emoji);
+    const wasReacted = $store.reactions.userReactions.has(emoji);
 
     if (!wasReacted) {
       // Optimistic update
-      currentReactions.userReactions.add(emoji);
-      const existingGroup = currentReactions.groups.find((g) => g.emoji === emoji);
-      if (existingGroup) {
-        existingGroup.count++;
-        existingGroup.userReacted = true;
-      } else {
-        currentReactions.groups = [{ emoji, count: 1, userReacted: true }, ...currentReactions.groups];
-      }
-      currentReactions.totalCount++;
-      store.update(s => ({ ...s, reactions: currentReactions }));
+      store.update(s => {
+        const updated = { ...s };
+        updated.reactions.userReactions.add(emoji);
+        updated.reactions.count++;
+        updated.reactions.userReacted = true;
+        
+        const existingGroup = updated.reactions.groups.find(g => g.emoji === emoji);
+        if (existingGroup) {
+          existingGroup.count++;
+          existingGroup.userReacted = true;
+        } else {
+          updated.reactions.groups = [{ emoji, count: 1, userReacted: true }, ...updated.reactions.groups];
+        }
+        
+        return updated;
+      });
 
       const result = await publishReaction({
         ndk: $ndk,
@@ -58,21 +70,25 @@
         targetType
       });
 
-      if (result?.id) {
-        processedIds.add(result.id);
-      } else {
+      if (!result?.id) {
         // Revert on failure
-        currentReactions.userReactions.delete(emoji);
-        const group = currentReactions.groups.find((g) => g.emoji === emoji);
-        if (group) {
-          group.count--;
-          group.userReacted = false;
-          if (group.count === 0) {
-            currentReactions.groups = currentReactions.groups.filter((g) => g.emoji !== emoji);
+        store.update(s => {
+          const updated = { ...s };
+          updated.reactions.userReactions.delete(emoji);
+          updated.reactions.count--;
+          
+          const group = updated.reactions.groups.find(g => g.emoji === emoji);
+          if (group) {
+            group.count--;
+            group.userReacted = false;
+            if (group.count === 0) {
+              updated.reactions.groups = updated.reactions.groups.filter(g => g.emoji !== emoji);
+            }
           }
-        }
-        currentReactions.totalCount--;
-        store.update(s => ({ ...s, reactions: currentReactions }));
+          
+          updated.reactions.userReacted = updated.reactions.userReactions.size > 0;
+          return updated;
+        });
       }
     }
   }
@@ -96,27 +112,28 @@
     />
   {/if}
   <span class="text-caption {compact ? 'text-sm' : ''}">
-    {#if $store.loading}...{:else}{$store.reactions.totalCount}{/if}
+    {#if $store.loading}–{:else}{$store.reactions.count}{/if}
   </span>
 </button>
 
 <!-- Quick picker -->
-{#if $store.showPicker}
+{#if showPicker}
   <EmojiReactionPicker
     anchorEl={buttonEl}
     userReactions={$store.reactions.userReactions}
     on:select={(e) => handleReaction(e.detail.emoji)}
     on:openFullPicker={() => {
-      store.update(s => ({ ...s, showPicker: false, showFullPicker: true }));
+      showPicker = false;
+      showFullPicker = true;
     }}
-    on:close={() => store.update(s => ({ ...s, showPicker: false }))}
+    on:close={() => showPicker = false}
   />
 {/if}
 
 <!-- Full picker - anchored to button -->
 <FullEmojiPicker
-  open={$store.showFullPicker}
+  open={showFullPicker}
   anchorEl={buttonEl}
   on:select={(e) => handleReaction(e.detail.emoji)}
-  on:close={() => store.update(s => ({ ...s, showFullPicker: false }))}
+  on:close={() => showFullPicker = false}
 />

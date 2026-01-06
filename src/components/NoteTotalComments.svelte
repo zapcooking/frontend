@@ -1,46 +1,17 @@
 <script lang="ts">
-  import { onMount, onDestroy } from 'svelte';
-  import { ndk } from '$lib/nostr';
-  import type { NDKEvent, NDKSubscription } from '@nostr-dev-kit/ndk';
+  import { onMount } from 'svelte';
+  import { ndk, userPublickey } from '$lib/nostr';
+  import type { NDKEvent } from '@nostr-dev-kit/ndk';
   import CommentIcon from 'phosphor-svelte/lib/ChatTeardropText';
+  import { getEngagementStore, fetchEngagement } from '$lib/engagementCache';
 
   export let event: NDKEvent;
-  let loading = true;
-  let totalCommentAmount: number = 0;
-  let subscription: NDKSubscription | null = null;
-  let processedIds = new Set<string>();
-
-  function loadComments() {
-    if (!event?.id) {
-      loading = false;
-      return;
-    }
-
-    subscription = $ndk.subscribe({
-      kinds: [1],
-      '#e': [event.id]
-    });
-
-    subscription.on('event', (e: NDKEvent) => {
-      if (e.id && !processedIds.has(e.id)) {
-        processedIds.add(e.id);
-        totalCommentAmount++;
-      }
-    });
-
-    subscription.on('eose', () => {
-      loading = false;
-    });
-  }
+  
+  const store = getEngagementStore(event.id);
 
   onMount(() => {
-    loadComments();
-  });
-
-  onDestroy(() => {
-    if (subscription) {
-      subscription.stop();
-    }
+    // Fetch engagement data (will use cache if available)
+    fetchEngagement($ndk, event.id, $userPublickey);
   });
 </script>
 
@@ -58,5 +29,5 @@
   title="View comments"
 >
   <CommentIcon size={24} class="text-caption" />
-  {#if loading}...{:else}{totalCommentAmount}{/if}
+  {#if $store.loading}–{:else}{$store.comments.count}{/if}
 </button>

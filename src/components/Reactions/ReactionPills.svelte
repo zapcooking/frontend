@@ -1,68 +1,19 @@
 <script lang="ts">
-  import { onMount, onDestroy } from 'svelte';
+  import { onMount } from 'svelte';
   import { ndk, userPublickey } from '$lib/nostr';
-  import type { NDKEvent, NDKSubscription } from '@nostr-dev-kit/ndk';
+  import type { NDKEvent } from '@nostr-dev-kit/ndk';
   import type { TargetType } from '$lib/types/reactions';
-  import { aggregateReactions } from '$lib/reactionAggregator';
   import { publishReaction, canPublishReaction } from '$lib/reactions/publishReaction';
-  import { getReactionStore } from '$lib/stores/reactionStore';
+  import { getEngagementStore, fetchEngagement } from '$lib/engagementCache';
 
   export let event: NDKEvent;
   export let targetType: TargetType;
 
-  const store = getReactionStore(event.id);
+  const store = getEngagementStore(event.id);
 
-  let subscription: NDKSubscription | null = null;
-  let reactionEvents: NDKEvent[] = [];
-  let processedIds = new Set<string>();
-
-  function getFilter() {
-    if (targetType === 'recipe') {
-      const dTag = event.tags.find((t) => t[0] === 'd')?.[1];
-      const pubkey = event.author?.hexpubkey || event.pubkey;
-      return {
-        kinds: [7],
-        '#a': [`${event.kind}:${pubkey}:${dTag}`]
-      };
-    } else {
-      return {
-        kinds: [7],
-        '#e': [event.id]
-      };
-    }
-  }
-
-  function processEvents() {
-    const reactions = aggregateReactions(reactionEvents, $userPublickey);
-    store.update(s => ({ ...s, reactions, loading: false }));
-  }
-
-  async function loadReactions() {
-    if (!event?.id) return;
-
-    store.update(s => ({ ...s, loading: true }));
-    reactionEvents = [];
-    processedIds.clear();
-
-    try {
-      const filter = getFilter();
-      subscription = $ndk.subscribe(filter);
-
-      subscription.on('event', (e: NDKEvent) => {
-        if (!e.id || processedIds.has(e.id)) return;
-        processedIds.add(e.id);
-        reactionEvents = [...reactionEvents, e];
-        processEvents();
-      });
-
-      subscription.on('eose', () => {
-        store.update(s => ({ ...s, loading: false }));
-      });
-    } catch (error) {
-      console.error('Error loading reactions:', error);
-      store.update(s => ({ ...s, loading: false }));
-    }
-  }
+  onMount(() => {
+    fetchEngagement($ndk, event.id, $userPublickey);
+  });
 
   async function handlePillClick(emoji: string) {
     if (!canPublishReaction($ndk, $userPublickey)) {
@@ -70,21 +21,26 @@
       return;
     }
 
-    const currentReactions = $store.reactions;
-    const wasReacted = currentReactions.userReactions.has(emoji);
+    const wasReacted = $store.reactions.userReactions.has(emoji);
 
     if (!wasReacted) {
       // Optimistic update
-      currentReactions.userReactions.add(emoji);
-      const existingGroup = currentReactions.groups.find((g) => g.emoji === emoji);
-      if (existingGroup) {
-        existingGroup.count++;
-        existingGroup.userReacted = true;
-      } else {
-        currentReactions.groups = [{ emoji, count: 1, userReacted: true }, ...currentReactions.groups];
-      }
-      currentReactions.totalCount++;
-      store.update(s => ({ ...s, reactions: currentReactions }));
+      store.update(s => {
+        const updated = { ...s };
+        updated.reactions.userReactions.add(emoji);
+        updated.reactions.count++;
+        updated.reactions.userReacted = true;
+        
+        const existingGroup = updated.reactions.groups.find(g => g.emoji === emoji);
+        if (existingGroup) {
+          existingGroup.count++;
+          existingGroup.userReacted = true;
+        } else {
+          updated.reactions.groups = [{ emoji, count: 1, userReacted: true }, ...updated.reactions.groups];
+        }
+        
+        return updated;
+      });
 
       const result = await publishReaction({
         ndk: $ndk,
@@ -93,34 +49,28 @@
         targetType
       });
 
-      if (result?.id) {
-        processedIds.add(result.id);
-      } else {
+      if (!result?.id) {
         // Revert on failure
-        currentReactions.userReactions.delete(emoji);
-        const group = currentReactions.groups.find((g) => g.emoji === emoji);
-        if (group) {
-          group.count--;
-          group.userReacted = false;
-          if (group.count === 0) {
-            currentReactions.groups = currentReactions.groups.filter((g) => g.emoji !== emoji);
+        store.update(s => {
+          const updated = { ...s };
+          updated.reactions.userReactions.delete(emoji);
+          updated.reactions.count--;
+          
+          const group = updated.reactions.groups.find(g => g.emoji === emoji);
+          if (group) {
+            group.count--;
+            group.userReacted = false;
+            if (group.count === 0) {
+              updated.reactions.groups = updated.reactions.groups.filter(g => g.emoji !== emoji);
+            }
           }
-        }
-        currentReactions.totalCount--;
-        store.update(s => ({ ...s, reactions: currentReactions }));
+          
+          updated.reactions.userReacted = updated.reactions.userReactions.size > 0;
+          return updated;
+        });
       }
     }
   }
-
-  onMount(() => {
-    loadReactions();
-  });
-
-  onDestroy(() => {
-    if (subscription) {
-      subscription.stop();
-    }
-  });
 
   const maxVisible = 6;
   $: visibleGroups = $store.reactions.groups.slice(0, maxVisible);

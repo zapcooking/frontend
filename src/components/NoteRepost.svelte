@@ -1,59 +1,26 @@
 <script lang="ts">
-  import { onMount, onDestroy } from 'svelte';
+  import { onMount } from 'svelte';
   import { ndk, userPublickey } from '$lib/nostr';
-  import { NDKEvent, type NDKSubscription } from '@nostr-dev-kit/ndk';
+  import { NDKEvent } from '@nostr-dev-kit/ndk';
   import { nip19 } from 'nostr-tools';
   import { addClientTagToEvent } from '$lib/nip89';
   import ArrowsClockwise from 'phosphor-svelte/lib/ArrowsClockwise';
   import { clickOutside } from '$lib/clickOutside';
+  import { getEngagementStore, fetchEngagement } from '$lib/engagementCache';
 
   export let event: NDKEvent;
-  let loading = true;
-  let totalReposts: number = 0;
-  let reposted = false;
+  
+  const store = getEngagementStore(event.id);
   let showMenu = false;
 
-  let processedEvents = new Set<string>();
-  let subscription: NDKSubscription | null = null;
-  
-  function loadReposts() {
-    if (!event?.id) {
-      loading = false;
-      return;
-    }
-
-    subscription = $ndk.subscribe({
-      kinds: [6],
-      '#e': [event.id]
-    });
-
-    subscription.on('event', (e: NDKEvent) => {
-      if (e.id && !processedEvents.has(e.id)) {
-        processedEvents.add(e.id);
-        if (e.pubkey === $userPublickey) reposted = true;
-        totalReposts++;
-      }
-    });
-
-    subscription.on('eose', () => {
-      loading = false;
-    });
-  }
-
   onMount(() => {
-    loadReposts();
-  });
-
-  onDestroy(() => {
-    if (subscription) {
-      subscription.stop();
-    }
+    fetchEngagement($ndk, event.id, $userPublickey);
   });
 
   async function repost() {
     showMenu = false;
     
-    if (reposted) {
+    if ($store.reposts.userReposted) {
       console.log('Already reposted');
       return;
     }
@@ -67,6 +34,12 @@
 
     try {
       console.log('Creating repost for:', event.id);
+
+      // Optimistic update
+      store.update(s => ({
+        ...s,
+        reposts: { count: s.reposts.count + 1, userReposted: true }
+      }));
 
       // Create kind 6 repost event
       repostEvent = new NDKEvent($ndk);
@@ -83,24 +56,16 @@
       await repostEvent.sign();
       console.log('Repost event signed:', repostEvent.id);
 
-      if (repostEvent.id) {
-        processedEvents.add(repostEvent.id);
-      }
-
-      // Optimistic update
-      reposted = true;
-      totalReposts++;
-
       await repostEvent.publish();
       console.log('Successfully reposted');
 
     } catch (error) {
       console.error('Error reposting:', error);
-      reposted = false;
-      totalReposts--;
-      if (repostEvent?.id) {
-        processedEvents.delete(repostEvent.id);
-      }
+      // Revert optimistic update
+      store.update(s => ({
+        ...s,
+        reposts: { count: s.reposts.count - 1, userReposted: false }
+      }));
     }
   }
 
@@ -130,14 +95,14 @@
     on:click={() => showMenu = !showMenu}
     class="flex gap-1.5 hover:bg-input rounded px-0.5 transition duration-300 cursor-pointer"
     class:opacity-50={!$userPublickey}
-    title={!$userPublickey ? 'Login to repost' : reposted ? 'You reposted this' : 'Repost'}
+    title={!$userPublickey ? 'Login to repost' : $store.reposts.userReposted ? 'You reposted this' : 'Repost'}
   >
     <ArrowsClockwise
       size={24}
-      weight={reposted ? 'fill' : 'regular'}
-      class={reposted ? 'text-green-500' : 'text-caption'}
+      weight={$store.reposts.userReposted ? 'fill' : 'regular'}
+      class={$store.reposts.userReposted ? 'text-green-500' : 'text-caption'}
     />
-    {#if loading}...{:else}{totalReposts}{/if}
+    {#if $store.loading}–{:else}{$store.reposts.count}{/if}
   </button>
 
   {#if showMenu}
@@ -164,4 +129,3 @@
     </div>
   {/if}
 </div>
-
