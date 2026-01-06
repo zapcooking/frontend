@@ -4,7 +4,7 @@
   import { standardRelays } from '$lib/consts';
   import { NDKRelaySet } from '@nostr-dev-kit/ndk';
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
-  import RelayHealthDebug from '$components/RelayHealthDebug.svelte';
+  import RelayHealthDebug from '../../components/RelayHealthDebug.svelte';
   
   let debugInfo = 'Loading...';
   let isConnected = false;

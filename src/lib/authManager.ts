@@ -521,17 +521,37 @@ export class AuthManager {
         // Still proceed - might work anyway, or will fail on actual sign attempt
       }
       
-      // Use stored userPubkey if available, otherwise get from signer
-      let userPubkey = nip46Info.userPubkey;
-      if (!userPubkey) {
-        // Legacy stored data without userPubkey - fetch it
-        const user = await this.nip46Signer.user();
-        userPubkey = user.hexpubkey;
+      // ALWAYS fetch the actual user pubkey from the signer to ensure it's correct
+      // The stored userPubkey might be incorrect (e.g., if it was stored as signer pubkey)
+      // Per NIP-46: client MUST call get_public_key to learn user-pubkey
+      let userPubkey = nip46Info.userPubkey; // Use as fallback
+      try {
+        console.log('[NIP-46] Fetching actual user pubkey via get_public_key...');
+        const userFromSigner = await this.nip46Signer.user();
+        const actualUserPubkey = userFromSigner.hexpubkey;
+        console.log('[NIP-46] Signer pubkey:', nip46Info.signerPubkey);
+        console.log('[NIP-46] Stored user pubkey:', userPubkey);
+        console.log('[NIP-46] Actual user pubkey (from get_public_key):', actualUserPubkey);
+        
+        // Use the actual user pubkey from the signer
+        userPubkey = actualUserPubkey;
+        
+        // If stored userPubkey differs from actual, log a warning
+        if (nip46Info.userPubkey && nip46Info.userPubkey !== actualUserPubkey) {
+          console.warn('[NIP-46] Stored user pubkey differs from actual user pubkey! Updating stored value.');
+          // Update the stored value
+          nip46Info.userPubkey = actualUserPubkey;
+          localStorage.setItem('nostrcooking_nip46', JSON.stringify(nip46Info));
+          localStorage.setItem('nostrcooking_loggedInPublicKey', actualUserPubkey);
+        }
+      } catch (e) {
+        console.warn('[NIP-46] Could not get user pubkey from signer, using stored value:', e);
+        // Fall back to stored value if we can't fetch it
       }
       
       const user = this.ndk.getUser({ pubkey: userPubkey });
       
-      console.log('[NIP-46] Reconnected as:', userPubkey);
+      console.log('[NIP-46] Reconnected as user:', userPubkey);
 
       this.updateState({
         isAuthenticated: true,
@@ -707,8 +727,17 @@ export class AuthManager {
     console.log('[NIP-46] Subscribing to events for:', localPubkey);
     const sub = this.ndk.subscribe(filter, { closeOnEose: false });
 
+    // Track if we're already processing a pairing to prevent duplicates
+    let isProcessingPairing = false;
+
     sub.on('event', async (event: any) => {
       console.log('[NIP-46] Received NIP-46 event from:', event.pubkey);
+      
+      // Prevent duplicate processing
+      if (isProcessingPairing) {
+        console.log('[NIP-46] Already processing a pairing, ignoring duplicate event');
+        return;
+      }
       
       // The event.pubkey is the signer's pubkey
       const signerPubkey = event.pubkey;
@@ -721,20 +750,26 @@ export class AuthManager {
       }
       
       // Decrypt and validate the response per NIP-46 spec
+      let response: any = null;
       try {
         const decrypted = this.decryptNip44(event.content, signerPubkey, pendingInfo.localPrivateKey);
-        const response = JSON.parse(decrypted);
+        response = JSON.parse(decrypted);
         
-        console.log('[NIP-46] Decrypted response:', { id: response.id, hasResult: !!response.result, hasError: !!response.error });
+        console.log('[NIP-46] Decrypted response:', { id: response.id, method: response.method, hasResult: !!response.result, hasError: !!response.error });
         
-        // Per NIP-46: client MUST validate the secret returned by connect response
-        if (response.result !== pendingInfo.secret && response.result !== 'ack') {
-          // Some signers return 'ack' instead of the secret, which is allowed per spec
-          // But if it's neither, this could be a spoofing attempt
-          console.warn('[NIP-46] Secret mismatch - expected:', pendingInfo.secret, 'got:', response.result);
-          // Still proceed but log warning - some signers may not implement secret correctly
-        } else {
-          console.log('[NIP-46] Secret validated successfully');
+        // Only validate secret for "connect" method responses
+        // Other methods (get_public_key, sign_event, etc.) won't have the secret in result
+        if (response.method === 'connect' || (!response.method && response.result)) {
+          // Per NIP-46: client MUST validate the secret returned by connect response
+          if (response.result === pendingInfo.secret || response.result === 'ack') {
+            // Some signers return 'ack' instead of the secret, which is allowed per spec
+            console.log('[NIP-46] Secret validated successfully');
+          } else if (response.result !== undefined) {
+            // Only warn if result is present but doesn't match (might be a different response type)
+            console.warn('[NIP-46] Secret mismatch - expected:', pendingInfo.secret, 'got:', response.result);
+            // Still proceed but log warning - some signers may not implement secret correctly
+          }
+          // If response.result is undefined and method is not 'connect', it's likely a different method response
         }
         
         if (response.error) {
@@ -747,7 +782,15 @@ export class AuthManager {
         console.warn('[NIP-46] Could not validate response (will still attempt connection):', e);
       }
       
+      // Only attempt pairing if this looks like a connect response or if we can't determine the method
+      // Skip if it's clearly a different method response (like get_public_key, sign_event, etc.)
+      if (response && response.method && response.method !== 'connect') {
+        console.log('[NIP-46] Response is for method:', response.method, '- not a connect response, skipping pairing');
+        return;
+      }
+      
       try {
+        isProcessingPairing = true;
         await this.completeNip46PairingWithSignerPubkey(signerPubkey);
         console.log('[NIP-46] Pairing completed successfully, stopping listener');
         sub.stop();
@@ -760,6 +803,8 @@ export class AuthManager {
         } else {
           console.error('[NIP-46] Failed to complete pairing from event:', e);
         }
+      } finally {
+        isProcessingPairing = false;
       }
     });
 
@@ -802,20 +847,25 @@ export class AuthManager {
   async completeNip46PairingWithSignerPubkey(signerPubkey: string): Promise<void> {
     console.log('[NIP-46] Completing pairing with signer:', signerPubkey);
 
-    const pendingInfo = this.getPendingNip46Info();
-    if (!pendingInfo) {
-      // Check if user is already authenticated with this signer
-      const currentAuth = this.getState();
-      if (currentAuth.isAuthenticated && currentAuth.authMethod === 'nip46') {
-        const storedNip46 = localStorage.getItem('nostrcooking_nip46');
-        if (storedNip46) {
+    // Check if already authenticated with this signer first (before checking pending)
+    const currentAuth = this.getState();
+    if (currentAuth.isAuthenticated && currentAuth.authMethod === 'nip46') {
+      const storedNip46 = localStorage.getItem('nostrcooking_nip46');
+      if (storedNip46) {
+        try {
           const nip46Info = JSON.parse(storedNip46);
           if (nip46Info.signerPubkey === signerPubkey) {
             console.log('[NIP-46] Already authenticated with this signer, ignoring duplicate event');
             return; // Already paired, just return silently
           }
+        } catch (e) {
+          // Invalid stored data, continue with pairing
         }
       }
+    }
+
+    const pendingInfo = this.getPendingNip46Info();
+    if (!pendingInfo) {
       throw new Error('No pending NIP-46 pairing found');
     }
 
@@ -852,23 +902,27 @@ export class AuthManager {
         console.log('[NIP-46] Session established successfully!');
         sessionEstablished = true;
       } catch (e) {
-        console.warn('[NIP-46] Session establishment timed out, will use signer pubkey as fallback:', e);
+        console.warn('[NIP-46] Session establishment timed out, will still try to get user pubkey:', e);
       }
 
       // Per NIP-46: client MUST call get_public_key to learn user-pubkey
       // The signer pubkey may differ from the actual user pubkey
+      // ALWAYS try to get the user pubkey, even if session establishment timed out
+      // The signer might still be able to respond to get_public_key requests
       let userPubkey = signerPubkey; // Fallback to signer pubkey
-      if (sessionEstablished) {
-        try {
-          const user = await this.nip46Signer.user();
-          userPubkey = user.hexpubkey;
-          console.log('[NIP-46] Got user pubkey via get_public_key:', userPubkey);
-          if (signerPubkey !== userPubkey) {
-            console.log('[NIP-46] Note: signer pubkey differs from user pubkey (this is valid per spec)');
-          }
-        } catch (e) {
-          console.warn('[NIP-46] Could not get user pubkey, using signer pubkey:', e);
+      try {
+        console.log('[NIP-46] Calling get_public_key to get actual user pubkey...');
+        const user = await this.nip46Signer.user();
+        userPubkey = user.hexpubkey;
+        console.log('[NIP-46] Got user pubkey via get_public_key:', userPubkey);
+        console.log('[NIP-46] Signer pubkey:', signerPubkey);
+        if (signerPubkey !== userPubkey) {
+          console.log('[NIP-46] Note: signer pubkey differs from user pubkey (this is valid per spec)');
         }
+      } catch (e) {
+        console.warn('[NIP-46] Could not get user pubkey via get_public_key, using signer pubkey as fallback:', e);
+        // Only use signer pubkey as fallback if we truly can't get the user pubkey
+        // This should be rare, as get_public_key should work even if blockUntilReady() timed out
       }
       
       const user = this.ndk.getUser({ pubkey: userPubkey });
