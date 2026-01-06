@@ -34,6 +34,9 @@ import ClientAttribution from './ClientAttribution.svelte';
   
   // Reply context prefetching for better UX
   import { prefetchReplyContexts } from '$lib/replyContext';
+  
+  // IndexedDB event store for cache rehydration (instant paint)
+  import { getEventStore, cacheFeedEvents } from '$lib/eventStore';
 
   // ═══════════════════════════════════════════════════════════════
   // PROPS
@@ -194,6 +197,7 @@ import ClientAttribution from './ClientAttribution.svelte';
   const CACHE_KEY = 'foodstr_feed_cache';
   const BATCH_DEBOUNCE_MS = 300;
   const SUBSCRIPTION_TIMEOUT_MS = 4000;
+  const ONE_DAY_SECONDS = 24 * 60 * 60;
   const SEVEN_DAYS_SECONDS = 7 * 24 * 60 * 60;
 
   // Relay pools by purpose - optimized based on speed test results
@@ -288,6 +292,40 @@ import ClientAttribution from './ClientAttribution.svelte';
 
   function sevenDaysAgo(): number {
     return Math.floor(Date.now() / 1000) - SEVEN_DAYS_SECONDS;
+  }
+
+  /**
+   * Calculate optimal time window for queries
+   * - Initial load: 24 hours (fast initial paint)
+   * - Pagination: adaptive window based on oldest event
+   * - Realtime: since last event
+   */
+  function calculateTimeWindow(mode: 'initial' | 'pagination' | 'realtime'): {
+    since: number;
+    until?: number;
+  } {
+    const now = Math.floor(Date.now() / 1000);
+    
+    switch (mode) {
+      case 'initial':
+        // Initial load: last 24 hours (reduced from 7 days for faster load)
+        return { since: now - ONE_DAY_SECONDS };
+      
+      case 'pagination':
+        // Pagination: smaller window based on oldest event
+        const oldestTime = events[events.length - 1]?.created_at || now;
+        return {
+          since: Math.max(oldestTime - ONE_DAY_SECONDS, now - SEVEN_DAYS_SECONDS), // Max 7 days back
+          until: oldestTime - 1
+        };
+      
+      case 'realtime':
+        // Real-time: since last event (or last hour if no events)
+        return { since: lastEventTime > 0 ? lastEventTime + 1 : now - 3600 };
+      
+      default:
+        return { since: now - ONE_DAY_SECONDS };
+    }
   }
 
   function formatTimeAgo(timestamp: number): string {
@@ -487,6 +525,11 @@ import ClientAttribution from './ClientAttribution.svelte';
     if (typeof window === 'undefined' || events.length === 0) return;
     
     try {
+      // Store in IndexedDB for better performance and capacity
+      const eventStore = getEventStore();
+      await eventStore.storeEvents(events.slice(0, 100), 10 * 60 * 1000); // 10 min TTL
+      
+      // Also keep compressed cache for quick state restore (legacy support)
       const cacheData = {
         events: events.slice(0, 100).map(e => ({
           id: e.id,
@@ -616,12 +659,12 @@ import ClientAttribution from './ClientAttribution.svelte';
   }
 
   // Fetch recent notes and filter client-side for notes without hashtags
-  async function fetchNotesWithoutHashtags(since: number): Promise<NDKEvent[]> {
+  async function fetchNotesWithoutHashtags(sinceTimestamp: number): Promise<NDKEvent[]> {
     
     const filter = {
       kinds: [1],
       limit: 300, // Increased limit for better discovery
-      since
+      since: sinceTimestamp
     };
     
     try {
@@ -689,7 +732,58 @@ import ClientAttribution from './ClientAttribution.svelte';
 
   async function loadFoodstrFeed(useCache = true) {
     try {
-      // Try cache first
+      // Step 1: Try IndexedDB cache rehydration for instant paint
+      if (useCache) {
+        const eventStore = getEventStore();
+        const timeWindow = calculateTimeWindow('initial');
+        
+        // Build filter for cache lookup
+        const cacheFilter: any = {
+          kinds: [1],
+          since: timeWindow.since,
+          limit: 50
+        };
+        
+        // Add mode-specific filters
+        if (filterMode !== 'global' && followedPubkeysForRealtime.length > 0) {
+          cacheFilter.authors = followedPubkeysForRealtime;
+        }
+        if (filterMode === 'global' || followedPubkeysForRealtime.length === 0) {
+          cacheFilter.hashtags = FOOD_HASHTAGS;
+        }
+        
+        const cachedEvents = await eventStore.loadEvents(cacheFilter);
+        
+        if (cachedEvents.length > 0) {
+          // Filter cached events the same way we filter fresh events
+          const validCached = cachedEvents.filter((event) => {
+            if (filterMode === 'following' && isReply(event)) return false;
+            return shouldIncludeEvent(event);
+          });
+          
+          if (validCached.length > 0) {
+            console.log(`[Feed] Cache hit: ${validCached.length} events (instant paint)`);
+            validCached.forEach(e => seenEventIds.add(e.id));
+            events = validCached;
+            lastEventTime = Math.max(...events.map(e => e.created_at || 0));
+            loading = false;
+            error = false;
+            
+            // Fetch fresh data in background
+            setTimeout(() => fetchFreshData(), 100);
+            
+            // Start real-time subscription
+            try {
+              startRealtimeSubscription();
+            } catch {
+              // Non-critical
+            }
+            return;
+          }
+        }
+      }
+      
+      // Fallback: Try compressed cache (legacy)
       if (useCache && await loadCachedEvents()) {
         loading = false;
         error = false;
@@ -710,7 +804,7 @@ import ClientAttribution from './ClientAttribution.svelte';
         // Connection warning - continue anyway
       }
 
-      const since = sevenDaysAgo();
+      const timeWindow = calculateTimeWindow('initial');
       
       // Handle different filter modes
       if (filterMode === 'following') {
@@ -726,7 +820,7 @@ import ClientAttribution from './ClientAttribution.svelte';
         // Use outbox model for optimized fetching
         // Add '#t' filter to fetch ONLY food-tagged posts from relays (not all posts)
         const result: OutboxFetchResult = await fetchFollowingEvents($ndk, $userPublickey, {
-          since,
+          since: timeWindow.since,
           kinds: [1],
           limit: 50,  // Reduced since we're getting targeted results
           timeoutMs: 5000,
@@ -808,7 +902,7 @@ import ClientAttribution from './ClientAttribution.svelte';
         
         // Use outbox model - same fetch with food hashtag filter
         const result: OutboxFetchResult = await fetchFollowingEvents($ndk, $userPublickey, {
-          since,
+          since: timeWindow.since,
           kinds: [1],
           limit: 50,  // Reduced since we're getting targeted results
           timeoutMs: 5000,
@@ -885,7 +979,7 @@ import ClientAttribution from './ClientAttribution.svelte';
         kinds: [1],
         '#t': FOOD_HASHTAGS,
         limit: 50,
-        since
+        since: timeWindow.since
       };
       
       if (authorPubkey) {
@@ -903,7 +997,7 @@ import ClientAttribution from './ClientAttribution.svelte';
       // Add client-side filtering for notes without hashtags (only for community feed)
       // This discovers notes without food hashtags that contain food words
       if (!authorPubkey) {
-        fetchPromises.push(fetchNotesWithoutHashtags(since));
+        fetchPromises.push(fetchNotesWithoutHashtags(timeWindow.since));
       }
 
       const results = await Promise.allSettled(fetchPromises);
@@ -996,7 +1090,8 @@ import ClientAttribution from './ClientAttribution.svelte';
     // Clean up any existing subscriptions
     stopSubscriptions();
     
-    const since = lastEventTime > 0 ? lastEventTime + 1 : Math.floor(Date.now() / 1000);
+    const timeWindow = calculateTimeWindow('realtime');
+    const since = timeWindow.since;
     
     // Handle different filter modes for real-time subscriptions
     if (filterMode === 'following' || filterMode === 'replies') {
@@ -1092,21 +1187,38 @@ import ClientAttribution from './ClientAttribution.svelte';
     batchTimeout = setTimeout(processBatch, BATCH_DEBOUNCE_MS);
   }
 
+  // RAF throttling flag for smooth UI updates
+  let rafScheduled = false;
+
   async function processBatch() {
     if (pendingEvents.length === 0) return;
     
     const batch = [...pendingEvents];
     pendingEvents = [];
     
-    // Sort and merge with existing events
-    const sortedBatch = batch.sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
-    events = [...sortedBatch, ...events].sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
-    
-    // Update last event time
-    const maxTime = Math.max(...batch.map(e => e.created_at || 0));
-    if (maxTime > lastEventTime) lastEventTime = maxTime;
-    
-    await cacheEvents();
+    // Throttle UI updates using requestAnimationFrame for smoother performance
+    if (!rafScheduled) {
+      rafScheduled = true;
+      requestAnimationFrame(() => {
+        // Sort and merge with existing events
+        const sortedBatch = batch.sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
+        events = [...sortedBatch, ...events].sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
+        
+        // Update last event time
+        const maxTime = Math.max(...batch.map(e => e.created_at || 0));
+        if (maxTime > lastEventTime) lastEventTime = maxTime;
+        
+        rafScheduled = false;
+        
+        // Cache in background (don't block UI)
+        cacheEvents().catch(() => {
+          // Cache write failed - non-critical
+        });
+      });
+    } else {
+      // If RAF already scheduled, re-queue events for next batch
+      pendingEvents.push(...batch);
+    }
   }
 
   // ═══════════════════════════════════════════════════════════════
@@ -1118,11 +1230,12 @@ import ClientAttribution from './ClientAttribution.svelte';
       // Only refresh for global mode (Following/Replies use real-time subscriptions)
       if (filterMode !== 'global') return;
       
+      const timeWindow = calculateTimeWindow('initial');
       const filter: any = {
         kinds: [1],
         '#t': FOOD_HASHTAGS,
         limit: 50,
-        since: sevenDaysAgo()
+        since: timeWindow.since
       };
       
       if (authorPubkey) {
@@ -1193,6 +1306,8 @@ import ClientAttribution from './ClientAttribution.svelte';
         return;
       }
       
+      // Use adaptive timeboxing for pagination
+      const paginationWindow = calculateTimeWindow('pagination');
       let olderEvents: NDKEvent[] = [];
       
       // Handle different filter modes
@@ -1204,8 +1319,8 @@ import ClientAttribution from './ClientAttribution.svelte';
         
         // Use outbox model for Following/Replies mode with food filter
         const result = await fetchFollowingEvents($ndk, $userPublickey, {
-          since: 0, // Get all history
-          until: oldestEvent.created_at - 1,
+          since: paginationWindow.since,
+          until: paginationWindow.until,
           kinds: [1],
           limit: 20,
           timeoutMs: 5000,
@@ -1217,11 +1332,12 @@ import ClientAttribution from './ClientAttribution.svelte';
         
         olderEvents = result.events;
       } else {
-        // Global mode - use hashtag filter
+        // Global mode - use hashtag filter with timeboxing
         const filter: any = {
           kinds: [1],
           '#t': FOOD_HASHTAGS,
-          until: oldestEvent.created_at - 1,
+          since: paginationWindow.since,
+          until: paginationWindow.until,
           limit: 20
         };
         
