@@ -15,7 +15,10 @@
   let subscription: NDKSubscription | null = null;
 
   async function loadZaps() {
-    if (!event?.id) return;
+    if (!event?.id) {
+      loading = false;
+      return;
+    }
     
     loading = true;
     totalZapAmount = 0;
@@ -36,9 +39,12 @@
         processZapEvent(zapEvent);
       });
 
+      subscription.on('eose', () => {
+        loading = false;
+      });
+
     } catch (error) {
       console.error('Error loading zaps:', error);
-    } finally {
       loading = false;
     }
   }

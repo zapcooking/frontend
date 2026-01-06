@@ -1,31 +1,47 @@
 <script lang="ts">
+  import { onMount, onDestroy } from 'svelte';
   import { ndk } from '$lib/nostr';
-  import type { NDKEvent } from '@nostr-dev-kit/ndk';
+  import type { NDKEvent, NDKSubscription } from '@nostr-dev-kit/ndk';
   import CommentIcon from 'phosphor-svelte/lib/ChatTeardropText';
 
   export let event: NDKEvent;
   let loading = true;
   let totalCommentAmount: number = 0;
+  let subscription: NDKSubscription | null = null;
+  let processedIds = new Set<string>();
 
-{
-  (async () => {
-    const sub = $ndk.subscribe(
-      {
-        kinds: [1],
-        '#e': [event.id] // For regular notes, use the event ID instead of 'd' tag
-      },
-    );
-
-    sub.on('event', (event) => {
+  function loadComments() {
+    if (!event?.id) {
       loading = false;
-      totalCommentAmount++;
+      return;
+    }
+
+    subscription = $ndk.subscribe({
+      kinds: [1],
+      '#e': [event.id]
     });
 
-    sub.on('eose', () => {
+    subscription.on('event', (e: NDKEvent) => {
+      if (e.id && !processedIds.has(e.id)) {
+        processedIds.add(e.id);
+        totalCommentAmount++;
+      }
+    });
+
+    subscription.on('eose', () => {
       loading = false;
     });
-  })();
-}
+  }
+
+  onMount(() => {
+    loadComments();
+  });
+
+  onDestroy(() => {
+    if (subscription) {
+      subscription.stop();
+    }
+  });
 </script>
 
 <button

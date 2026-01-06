@@ -1,6 +1,7 @@
 <script lang="ts">
+  import { onMount, onDestroy } from 'svelte';
   import { ndk, userPublickey } from '$lib/nostr';
-  import { NDKEvent } from '@nostr-dev-kit/ndk';
+  import { NDKEvent, type NDKSubscription } from '@nostr-dev-kit/ndk';
   import { nip19 } from 'nostr-tools';
   import { addClientTagToEvent } from '$lib/nip89';
   import ArrowsClockwise from 'phosphor-svelte/lib/ArrowsClockwise';
@@ -12,28 +13,42 @@
   let reposted = false;
   let showMenu = false;
 
-  let processedEvents = new Set();
+  let processedEvents = new Set<string>();
+  let subscription: NDKSubscription | null = null;
   
-  // Subscribe to reposts (kind 6)
-  (async () => {
-    const sub = $ndk.subscribe({
+  function loadReposts() {
+    if (!event?.id) {
+      loading = false;
+      return;
+    }
+
+    subscription = $ndk.subscribe({
       kinds: [6],
       '#e': [event.id]
     });
 
-    sub.on('event', (e: NDKEvent) => {
-      loading = false;
-      if (processedEvents.has(e.id)) return;
-      processedEvents.add(e.id);
-      
-      if (e.pubkey === $userPublickey) reposted = true;
-      totalReposts++;
+    subscription.on('event', (e: NDKEvent) => {
+      if (e.id && !processedEvents.has(e.id)) {
+        processedEvents.add(e.id);
+        if (e.pubkey === $userPublickey) reposted = true;
+        totalReposts++;
+      }
     });
 
-    sub.on('eose', () => {
+    subscription.on('eose', () => {
       loading = false;
     });
-  })();
+  }
+
+  onMount(() => {
+    loadReposts();
+  });
+
+  onDestroy(() => {
+    if (subscription) {
+      subscription.stop();
+    }
+  });
 
   async function repost() {
     showMenu = false;
