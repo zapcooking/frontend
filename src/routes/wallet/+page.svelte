@@ -987,7 +987,7 @@
 
     // NIP-46 remote signer permission errors - encryption not allowed
     if (message.includes('kind 24133') || message.includes('not allowed') || message.includes('blocked')) {
-      return 'Your remote signer has not granted encryption permissions. Use "Recovery Phrase" to backup your wallet manually.';
+      return 'Your signer has not granted encryption permissions. Please grant encryption permissions in your signer app to enable backup.';
     }
 
     // NIP-46 ephemeral event expired - connection timing issue
@@ -1666,19 +1666,8 @@
             <!-- Spark wallet backup options -->
             {#if wallet.kind === 4 && expandedWalletId === wallet.id}
               <div class="px-4 pb-4 pt-2 border-t" style="border-color: var(--color-input-border);">
-                <!-- NIP-46 remote signer warning -->
-                {#if isNip46User}
-                  <div class="p-3 rounded-lg mb-3 text-sm" style="background-color: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.3);">
-                    <div class="flex items-start gap-2">
-                      <WarningIcon size={18} class="text-amber-500 flex-shrink-0 mt-0.5" />
-                      <div>
-                        <p class="text-caption">
-                          <strong>Nostr backup not available</strong> for remote signers. Use "Recovery Phrase" to back up your wallet manually.
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                {:else if !encryptionSupported}
+                <!-- Encryption not supported warning -->
+                {#if !encryptionSupported}
                   <!-- Encryption not supported warning (for other signer types) -->
                   <div class="p-3 rounded-lg mb-3 text-sm" style="background-color: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.3);">
                     <div class="flex items-start gap-2">
@@ -1697,26 +1686,26 @@
                 <div class="grid grid-cols-2 gap-2">
                   <button
                     class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors"
-                    class:cursor-pointer={encryptionSupported && !isNip46User}
-                    class:cursor-not-allowed={!encryptionSupported || isNip46User}
-                    class:opacity-50={!encryptionSupported || isNip46User}
+                    class:cursor-pointer={encryptionSupported}
+                    class:cursor-not-allowed={!encryptionSupported}
+                    class:opacity-50={!encryptionSupported}
                     style="background-color: var(--color-bg-primary); border: 1px solid var(--color-input-border);"
                     on:click={handleBackupToNostr}
-                    disabled={isBackingUp || !encryptionSupported || isNip46User}
-                    title={isNip46User ? 'Nostr backup not available for remote signers' : (!encryptionSupported ? 'Your signer does not support encryption' : '')}
+                    disabled={isBackingUp || !encryptionSupported}
+                    title={!encryptionSupported ? 'Your signer does not support encryption' : ''}
                   >
                     <CloudArrowUpIcon size={16} />
                     {isBackingUp ? 'Backing up...' : 'Backup to Nostr'}
                   </button>
                   <button
                     class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors"
-                    class:cursor-pointer={encryptionSupported && !isNip46User}
-                    class:cursor-not-allowed={!encryptionSupported || isNip46User}
-                    class:opacity-50={!encryptionSupported || isNip46User}
+                    class:cursor-pointer={encryptionSupported}
+                    class:cursor-not-allowed={!encryptionSupported}
+                    class:opacity-50={!encryptionSupported}
                     style="background-color: var(--color-bg-primary); border: 1px solid var(--color-input-border);"
                     on:click={handleDownloadBackup}
-                    disabled={isBackingUp || !encryptionSupported || isNip46User}
-                    title={isNip46User ? 'Encrypted download not available for remote signers' : (!encryptionSupported ? 'Your signer does not support encryption' : '')}
+                    disabled={isBackingUp || !encryptionSupported}
+                    title={!encryptionSupported ? 'Your signer does not support encryption' : ''}
                   >
                     <DownloadSimpleIcon size={16} />
                     Download
@@ -1944,32 +1933,19 @@
                   </button>
                 </div>
 
-                <!-- NIP-46 warning for NWC wallets -->
-                {#if isNip46User}
-                  <div class="p-3 rounded-lg mb-3 text-sm" style="background-color: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.3);">
-                    <div class="flex items-start gap-2">
-                      <WarningIcon size={18} class="text-amber-500 flex-shrink-0 mt-0.5" />
-                      <div>
-                        <p class="text-caption">
-                          <strong>Nostr backup not available</strong> for remote signers. Use "Download" to save your connection locally.
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                {/if}
 
                 <!-- Backup & Recovery -->
                 <div class="text-xs text-caption mb-2 uppercase tracking-wide">Backup & Recovery</div>
                 <div class="grid grid-cols-2 gap-2">
                   <button
                     class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors"
-                    class:cursor-pointer={encryptionSupported && !isNip46User}
-                    class:cursor-not-allowed={!encryptionSupported || isNip46User}
-                    class:opacity-50={!encryptionSupported || isNip46User}
+                    class:cursor-pointer={encryptionSupported}
+                    class:cursor-not-allowed={!encryptionSupported}
+                    class:opacity-50={!encryptionSupported}
                     style="background-color: var(--color-bg-primary); border: 1px solid var(--color-input-border);"
                     on:click={() => handleNwcBackupToNostr(wallet)}
-                    disabled={isBackingUp || !encryptionSupported || isNip46User}
-                    title={isNip46User ? 'Nostr backup not available for remote signers' : (!encryptionSupported ? 'Your signer does not support encryption' : '')}
+                    disabled={isBackingUp || !encryptionSupported}
+                    title={!encryptionSupported ? 'Your signer does not support encryption' : ''}
                   >
                     <CloudArrowUpIcon size={16} />
                     <span class="truncate">{isBackingUp ? 'Backing up...' : 'Backup to Nostr'}</span>
@@ -2446,17 +2422,13 @@
               </Button>
               <Button
                 on:click={handleRestoreNwcFromNostr}
-                disabled={isConnecting || isNip46User}
+                disabled={isConnecting}
                 class="flex-1"
-                title={isNip46User ? 'Not available for remote signers' : ''}
               >
                 <CloudArrowDownIcon size={16} />
                 Restore from Nostr
               </Button>
             </div>
-            {#if isNip46User}
-              <p class="text-xs text-amber-500 mt-2">Nostr restore not available for remote signers. Paste your connection string above.</p>
-            {/if}
           </div>
         {:else if selectedWalletType === 4}
           <!-- Spark wallet options -->
@@ -2480,24 +2452,19 @@
                   </Button>
                   <div class="border-t pt-3 mt-3" style="border-color: var(--color-input-border);">
                     <p class="text-sm text-caption mb-2">Restore existing wallet:</p>
-                    {#if isNip46User}
-                      <p class="text-xs text-amber-500 mb-2">Encrypted backup options not available for remote signers.</p>
-                    {/if}
                     <div class="space-y-2">
                       <Button
                         on:click={handleRestoreFromNostr}
-                        disabled={isConnecting || isNip46User}
+                        disabled={isConnecting}
                         class="w-full"
-                        title={isNip46User ? 'Not available for remote signers' : ''}
                       >
                         <CloudArrowDownIcon size={16} />
                         Restore from Nostr Backup
                       </Button>
                       <Button
                         on:click={() => fileInput?.click()}
-                        disabled={isConnecting || isNip46User}
+                        disabled={isConnecting}
                         class="w-full"
-                        title={isNip46User ? 'Not available for remote signers' : ''}
                       >
                         Restore from Backup File
                       </Button>
@@ -2638,10 +2605,7 @@
               <span class="text-sm font-medium text-amber-500">Save a backup first</span>
             </div>
 
-            {#if isNip46User}
-              <p class="text-xs text-amber-500 mb-2">Encrypted backup not available for remote signers.</p>
-            {/if}
-            <div class="grid gap-2" class:grid-cols-2={encryptionSupported && !isNip46User} class:grid-cols-1={!encryptionSupported || isNip46User}>
+            <div class="grid gap-2" class:grid-cols-2={encryptionSupported} class:grid-cols-1={!encryptionSupported}>
               {#if walletToDelete.kind === 4}
                 <!-- Spark wallet: show Recovery Phrase button instead of Download for NIP-46 -->
                 <button
@@ -2662,7 +2626,7 @@
                   Download
                 </button>
               {/if}
-              {#if encryptionSupported && !isNip46User}
+              {#if encryptionSupported}
                 <button
                   class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer bg-black hover:bg-gray-800 text-white"
                   on:click={() => walletToDelete.kind === 4 ? handleBackupToNostr() : handleNwcBackupToNostr(walletToDelete)}

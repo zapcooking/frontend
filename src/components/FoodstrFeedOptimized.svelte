@@ -714,10 +714,7 @@ import ClientAttribution from './ClientAttribution.svelte';
         const beforeFilter = result.events.length;
         const validEvents = result.events.filter((event) => {
           // Exclude replies - only show top-level notes in Following
-          const isReplyEvent = event.tags.some(tag => 
-            Array.isArray(tag) && tag[0] === 'e' && tag[3] === 'reply'
-          );
-          if (isReplyEvent) return false;
+          if (isReply(event)) return false;
           
           // Check muted users
           if ($userPublickey) {
@@ -738,10 +735,7 @@ import ClientAttribution from './ClientAttribution.svelte';
         
         // Show what's being filtered out (sample)
         const rejected = result.events.filter(e => {
-          const isReplyEvent = e.tags.some(tag => 
-            Array.isArray(tag) && tag[0] === 'e'
-          );
-          return isReplyEvent || !shouldIncludeEvent(e);
+          return isReply(e) || !shouldIncludeEvent(e);
         }).slice(0, 5);
         console.log('[Feed] Sample rejected:', rejected.map(e => ({
           content: e.content?.slice(0, 100),
@@ -887,6 +881,11 @@ import ClientAttribution from './ClientAttribution.svelte';
           if (authorKey && mutedUsers.includes(authorKey)) return false;
         }
         
+        // Global feed: exclude replies (only show top-level notes)
+        if (!authorPubkey && isReply(event)) {
+          return false;
+        }
+        
         // Apply food filter based on context
         if (authorPubkey) {
           // Profile view: respect the toggle
@@ -970,11 +969,8 @@ import ClientAttribution from './ClientAttribution.svelte';
         
         sub.on('event', (event: NDKEvent) => {
           // For Following mode, exclude replies
-          if (filterMode === 'following') {
-            const isReplyEvent = event.tags.some(tag => 
-              Array.isArray(tag) && tag[0] === 'e'
-            );
-            if (isReplyEvent) return;
+          if (filterMode === 'following' && isReply(event)) {
+            return;
           }
           
           if (shouldIncludeEvent(event)) {
@@ -1005,6 +1001,11 @@ import ClientAttribution from './ClientAttribution.svelte';
       closeOnEose: false
     });
     hashtagSub.on('event', (event: NDKEvent) => {
+      // Global feed: exclude replies (only show top-level notes)
+      if (!authorPubkey && isReply(event)) {
+        return;
+      }
+      
       // For Global feed, exclude posts from followed users
       if (!authorPubkey && followedPubkeysForRealtime.length > 0) {
         const authorKey = event.author?.hexpubkey || event.pubkey;
@@ -1060,6 +1061,9 @@ import ClientAttribution from './ClientAttribution.svelte';
 
   async function fetchFreshData() {
     try {
+      // Only refresh for global mode (Following/Replies use real-time subscriptions)
+      if (filterMode !== 'global') return;
+      
       const filter: any = {
         kinds: [1],
         '#t': FOOD_HASHTAGS,
@@ -1082,6 +1086,11 @@ import ClientAttribution from './ClientAttribution.svelte';
       const validNew = freshEvents.filter(e => {
         if (seenEventIds.has(e.id)) return false;
         
+        // Global feed: exclude replies
+        if (!authorPubkey && isReply(e)) {
+          return false;
+        }
+        
         // Check muted users
         if ($userPublickey) {
           const mutedUsers = getMutedUsers();
@@ -1089,20 +1098,14 @@ import ClientAttribution from './ClientAttribution.svelte';
           if (authorKey && mutedUsers.includes(authorKey)) return false;
         }
         
-        // Apply food filter based on context
-        if (authorPubkey) {
-          // Profile view: respect the toggle
-          if (foodFilterEnabled && !shouldIncludeEvent(e)) return false;
-        } else {
-          // Global feed: always apply food filter
-          if (!shouldIncludeEvent(e)) return false;
-          
-          // Exclude followed users from Global feed
-          if (followedSet.size > 0) {
-            const authorKey = e.author?.hexpubkey || e.pubkey;
-            if (authorKey && followedSet.has(authorKey)) {
-              return false;
-            }
+        // Apply food filter
+        if (!shouldIncludeEvent(e)) return false;
+        
+        // Exclude followed users from Global feed
+        if (followedSet.size > 0) {
+          const authorKey = e.author?.hexpubkey || e.pubkey;
+          if (authorKey && followedSet.has(authorKey)) {
+            return false;
           }
         }
         
@@ -1136,21 +1139,43 @@ import ClientAttribution from './ClientAttribution.svelte';
         return;
       }
       
-      const filter: any = {
-        kinds: [1],
-        '#t': FOOD_HASHTAGS,
-        until: oldestEvent.created_at - 1,
-        limit: 20
-      };
+      let olderEvents: NDKEvent[] = [];
       
-      if (authorPubkey) {
-        filter.authors = [authorPubkey];
-      }
+      // Handle different filter modes
+      if (filterMode === 'following' || filterMode === 'replies') {
+        if (!$userPublickey) {
+          hasMore = false;
+          return;
+        }
+        
+        // Use outbox model for Following/Replies mode
+        const result = await fetchFollowingEvents($ndk, $userPublickey, {
+          since: 0, // Get all history
+          until: oldestEvent.created_at - 1,
+          kinds: [1],
+          limit: 20,
+          timeoutMs: 8000
+        });
+        
+        olderEvents = result.events;
+      } else {
+        // Global mode - use hashtag filter
+        const filter: any = {
+          kinds: [1],
+          '#t': FOOD_HASHTAGS,
+          until: oldestEvent.created_at - 1,
+          limit: 20
+        };
+        
+        if (authorPubkey) {
+          filter.authors = [authorPubkey];
+        }
 
-      const olderEvents = await fetchFromRelays(
-        filter, 
-        [...RELAY_POOLS.recipes, ...RELAY_POOLS.fallback]
-      );
+        olderEvents = await fetchFromRelays(
+          filter, 
+          [...RELAY_POOLS.recipes, ...RELAY_POOLS.fallback]
+        );
+      }
       
       // For Global feed, exclude posts from followed users
       const followedSet = new Set(followedPubkeysForRealtime);
@@ -1165,6 +1190,15 @@ import ClientAttribution from './ClientAttribution.svelte';
           if (authorKey && mutedUsers.includes(authorKey)) return false;
         }
         
+        // Filter replies based on mode
+        if (filterMode === 'following' && isReply(e)) {
+          return false; // Following mode: exclude replies
+        }
+        
+        if (!authorPubkey && filterMode === 'global' && isReply(e)) {
+          return false; // Global mode: exclude replies
+        }
+        
         // Apply food filter based on context
         if (authorPubkey) {
           // Profile view: respect the toggle
@@ -1174,7 +1208,7 @@ import ClientAttribution from './ClientAttribution.svelte';
           if (!shouldIncludeEvent(e)) return false;
           
           // Exclude followed users from Global feed
-          if (followedSet.size > 0) {
+          if (followedSet.size > 0 && filterMode === 'global') {
             const authorKey = e.author?.hexpubkey || e.pubkey;
             if (authorKey && followedSet.has(authorKey)) {
               return false;
@@ -1289,9 +1323,33 @@ import ClientAttribution from './ClientAttribution.svelte';
   }
   
   function isReply(event: NDKEvent): boolean {
-    // Check if this event has any e tags (indicating it's a reply)
-    const eTags = event.tags.filter(tag => Array.isArray(tag) && tag[0] === 'e');
-    return eTags.length > 0;
+    if (event.kind !== 1) return false;
+    
+    const eTags = event.tags.filter(tag => 
+      Array.isArray(tag) && tag[0] === 'e' && tag[1]
+    );
+    
+    if (eTags.length === 0) return false; // No e tags = top-level
+    
+    // Check if any e tag indicates a reply (not just a mention)
+    return eTags.some(tag => {
+      const marker = tag[3]?.toLowerCase();
+      
+      // Explicit reply marker
+      if (marker === 'reply') return true;
+      
+      // Root marker (indicates thread participation)
+      if (marker === 'root') return true;
+      
+      // Old-style: e tag without marker (assumed to be reply)
+      if (!marker) return true;
+      
+      // Mention marker - NOT a reply
+      if (marker === 'mention') return false;
+      
+      // Unknown marker - treat as reply to be safe
+      return true;
+    });
   }
   
   // Resolve reply context (parent note author and preview)
