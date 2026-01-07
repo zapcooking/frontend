@@ -1,4 +1,4 @@
-import type { NDKEvent, NDKSubscriptionOptions } from '@nostr-dev-kit/ndk';
+import type { NDKEvent } from '@nostr-dev-kit/ndk';
 
 /**
  * Creates a subscription filter for fetching comments based on the event kind.
@@ -23,7 +23,8 @@ export function createCommentFilter(event: NDKEvent): {
   if (event.kind === 30023) {
     const dTag = event.tags.find((t) => t[0] === 'd')?.[1];
     if (dTag) {
-      // Use author.pubkey or pubkey depending on what's available
+      // Handle different ways pubkey may be accessed on NDKEvent objects
+      // event.author.pubkey, event.author.hexpubkey, or event.pubkey depending on how the event was created
       const pubkey = event.author?.pubkey || event.author?.hexpubkey || event.pubkey;
       const addressTag = `${event.kind}:${pubkey}:${dTag}`;
       return {
