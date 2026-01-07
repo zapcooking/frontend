@@ -35,14 +35,14 @@ export const tierPricing: Record<Exclude<Tier, 'open'>, TierPricing> = {
   cook: {
     name: 'Cook+',
     description: 'For supporters and active members',
-    annual: { sats: 45000, usd: 50 },
-    twoYear: { sats: 77000, usd: 85 }
+    annual: { sats: 44100, usd: 49 },
+    twoYear: { sats: 75460, usd: 83.30 }
   },
   pro: {
     name: 'Pro Kitchen',
     description: 'For serious creators and founders',
-    annual: { sats: 140000, usd: 150 },
-    twoYear: { sats: 235000, usd: 250 }
+    annual: { sats: 80100, usd: 89 },
+    twoYear: { sats: 137160, usd: 152.40 }
   }
 };
 
@@ -271,7 +271,7 @@ function generateFakeLightningInvoice(): string {
   const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
   let invoice = 'lnbc';
   // Add amount indicator
-  invoice += '450000n'; // 45000 sats
+    invoice += '441000n'; // 44100 sats
   // Add timestamp
   invoice += '1p';
   // Add random data
@@ -289,7 +289,7 @@ export async function createStrikeInvoice(): Promise<MockInvoice> {
   return {
     id: `inv_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
     lnInvoice: generateFakeLightningInvoice(),
-    amountSats: 45000,
+    amountSats: 44100,
     expiresAt: Date.now() + 15 * 60 * 1000 // 15 minutes
   };
 }

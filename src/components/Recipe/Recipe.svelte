@@ -11,7 +11,7 @@
   import SaveButton from '../SaveButton.svelte';
   import { translateOption } from '$lib/state';
   import { translate } from '$lib/translation';
-  import { parseMarkdown } from '$lib/parser';
+  import { parseMarkdown, extractAndGroupDirections } from '$lib/parser';
   import TotalZaps from './TotalZaps.svelte';
   import TotalLikes from './TotalLikes.svelte';
   import TotalComments from './TotalComments.svelte';
@@ -28,6 +28,7 @@
   import { onMount } from 'svelte';
   import { resolveProfileByPubkey } from '$lib/profileResolver';
   import { buildCanonicalRecipeShareUrl } from '$lib/utils/share';
+  import DirectionsPhases from './DirectionsPhases.svelte';
 
   export let event: NDKEvent;
   const naddr = nip19.naddrEncode({
@@ -157,6 +158,38 @@
   $: uniqueImages = event.tags
     .filter((e) => e[0] === 'image')
     .filter((img, index, arr) => arr.findIndex((t) => t[1] === img[1]) === index);
+
+  // Extract and group directions
+  $: directionsData = extractAndGroupDirections(event.content);
+  $: directionsPhases = directionsData.directions;
+  $: markdownWithoutDirections = directionsData.markdownWithoutDirections;
+  
+  // Split markdown into parts: before Directions and after Directions
+  $: {
+    const content = event.content;
+    const directionsIndex = content.indexOf('## Directions');
+    if (directionsIndex === -1) {
+      markdownBeforeDirections = content;
+      markdownAfterDirections = '';
+    } else {
+      // Find the end of Directions section (next ## heading or end of content)
+      const afterDirections = content.slice(directionsIndex);
+      // Look for next section heading (## followed by space and non-#)
+      const nextSectionMatch = afterDirections.match(/\n## [A-Za-z]/);
+      if (nextSectionMatch && nextSectionMatch.index !== undefined) {
+        const nextSectionIndex = directionsIndex + nextSectionMatch.index;
+        markdownBeforeDirections = content.slice(0, directionsIndex);
+        markdownAfterDirections = content.slice(nextSectionIndex);
+      } else {
+        // Directions is the last section
+        markdownBeforeDirections = content.slice(0, directionsIndex);
+        markdownAfterDirections = '';
+      }
+    }
+  }
+  
+  let markdownBeforeDirections = '';
+  let markdownAfterDirections = '';
 </script>
 
 <svelte:window on:keydown={handleImageModalKeydown} />
@@ -278,41 +311,83 @@
           {event.tags.find((e) => e[0] === 'summary')?.[1]}
         </p>
       {/if}
-      <div class="prose">
-        {#if $translateOption.lang}
-          {#await translate($translateOption, parseMarkdown(event.content))}
-            ...
-          {:then result}
-            <!-- TODO: clean this up -->
-            {#if result !== ''}
-              {#if result.from.language.iso === $translateOption.lang}
-                {@html parseMarkdown(event.content)}
-              {:else}
-                <hr />
-                <p class="font-medium">
-                  Warning: The contents below are translated from <code
-                    >{result.from.language.iso}</code
-                  >
-                  to
-                  <code>{$translateOption.lang}</code>
-                  <a class="block" href="/settings">open translation setttings</a>
-                </p>
-                <hr />
-                <!-- TODO: FIX SCRIPT INJECTION -->
-                {@html result.text}
+      
+      <!-- Content before Directions -->
+      {#if markdownBeforeDirections}
+        <div class="prose">
+          {#if $translateOption.lang}
+            {#await translate($translateOption, parseMarkdown(markdownBeforeDirections))}
+              ...
+            {:then result}
+              {#if result !== ''}
+                {#if result.from.language.iso === $translateOption.lang}
+                  {@html parseMarkdown(markdownBeforeDirections)}
+                {:else}
+                  <hr />
+                  <p class="font-medium">
+                    Warning: The contents below are translated from <code
+                      >{result.from.language.iso}</code
+                    >
+                    to
+                    <code>{$translateOption.lang}</code>
+                    <a class="block" href="/settings">open translation setttings</a>
+                  </p>
+                  <hr />
+                  {@html result.text}
+                {/if}
               {/if}
-            {/if}
-          {:catch err}
-            <p class="font-medium">
-              Error loading translation. Error Message: <code>{err}</code>
-
-              <a class="block" href="/settings">open translation setttings</a>
-            </p>
-          {/await}
-        {:else}
-          {@html parseMarkdown(event.content)}
-        {/if}
-      </div>
+            {:catch err}
+              <p class="font-medium">
+                Error loading translation. Error Message: <code>{err}</code>
+                <a class="block" href="/settings">open translation setttings</a>
+              </p>
+            {/await}
+          {:else}
+            {@html parseMarkdown(markdownBeforeDirections)}
+          {/if}
+        </div>
+      {/if}
+      
+      <!-- Collapsible Directions -->
+      {#if directionsPhases.length > 0}
+        <DirectionsPhases phases={directionsPhases} />
+      {/if}
+      
+      <!-- Content after Directions -->
+      {#if markdownAfterDirections}
+        <div class="prose">
+          {#if $translateOption.lang}
+            {#await translate($translateOption, parseMarkdown(markdownAfterDirections))}
+              ...
+            {:then result}
+              {#if result !== ''}
+                {#if result.from.language.iso === $translateOption.lang}
+                  {@html parseMarkdown(markdownAfterDirections)}
+                {:else}
+                  <hr />
+                  <p class="font-medium">
+                    Warning: The contents below are translated from <code
+                      >{result.from.language.iso}</code
+                    >
+                    to
+                    <code>{$translateOption.lang}</code>
+                    <a class="block" href="/settings">open translation setttings</a>
+                  </p>
+                  <hr />
+                  {@html result.text}
+                {/if}
+              {/if}
+            {:catch err}
+              <p class="font-medium">
+                Error loading translation. Error Message: <code>{err}</code>
+                <a class="block" href="/settings">open translation setttings</a>
+              </p>
+            {/await}
+          {:else}
+            {@html parseMarkdown(markdownAfterDirections)}
+          {/if}
+        </div>
+      {/if}
       <Comments {event} />
     </div>
 

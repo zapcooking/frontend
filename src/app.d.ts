@@ -5,7 +5,12 @@ declare global {
     // interface Error {}
     // interface Locals {}
     // interface PageData {}
-    // interface Platform {}
+    interface Platform {
+      env?: {
+        RELAY_API_SECRET: string;
+        // Add other Cloudflare env vars here
+      };
+    }
   }
 
   const __VERSION__: string;

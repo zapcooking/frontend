@@ -57,12 +57,12 @@ export async function createCheckoutSession(params: {
   // Pricing configuration (in cents for Stripe)
   const pricing = {
     cook: {
-      annual: 5000, // $50.00
-      '2year': 8500, // $85.00
+      annual: 4900, // $49.00
+      '2year': 8330, // $83.30
     },
     pro: {
-      annual: 15000, // $150.00
-      '2year': 25000, // $250.00
+      annual: 8900, // $89.00
+      '2year': 15240, // $152.40
     },
   };
   
