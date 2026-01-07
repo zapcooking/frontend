@@ -33,6 +33,8 @@ export function createCommentFilter(event: NDKEvent): {
       };
     } else {
       // Fallback if no d tag - filter by event ID
+      // Uses both kind 1 and 1111 for backwards compatibility with older events
+      // that may not have properly structured longform metadata
       return {
         kinds: [1, 1111],
         '#e': [event.id]
