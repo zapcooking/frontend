@@ -487,8 +487,8 @@
       if (rootETag) {
         const rootEventObj = {
           kind: 1,
-          pubkey: rootETag[1], // This might not be accurate, but it's the best we have
-          id: rootETag[1],
+          pubkey: event.pubkey, // Use the parent comment's pubkey as fallback
+          id: rootETag[1], // Root event ID from the e tag
           tags: []
         };
         ev.tags = buildNip22CommentTags(rootEventObj, parentEventObj);
