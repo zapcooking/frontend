@@ -255,8 +255,8 @@
       
       if (isRecipeReply) {
         // NIP-22 structure for nested comments
-        // Get root scope from parent comment
-        const rootATag = parentComment.getMatchingTags('A')[0] || parentComment.getMatchingTags('a')[0];
+        // Get root scope from parent comment (uppercase tags only - do not fall back to lowercase)
+        const rootATag = parentComment.getMatchingTags('A')[0];
         const rootKTag = parentComment.getMatchingTags('K')[0];
         const rootPTag = parentComment.getMatchingTags('P')[0];
         
