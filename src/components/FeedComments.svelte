@@ -286,10 +286,30 @@
   $: if ($ndk && !subscribed && showComments) {
     subscribed = true;
 
-    feedCommentSubscription = $ndk.subscribe({
-      kinds: [1],
-      '#e': [event.id]
-    }, { closeOnEose: false });
+    // For longform (kind 30023), use NIP-22 #A filter
+    // For kind 1, use NIP-10 #e filter
+    if (event.kind === 30023) {
+      const dTag = event.tags.find((t) => t[0] === 'd')?.[1];
+      if (dTag) {
+        const addressTag = `${event.kind}:${event.pubkey}:${dTag}`;
+        feedCommentSubscription = $ndk.subscribe({
+          kinds: [1111],
+          '#A': [addressTag]  // NIP-22: filter by root address
+        }, { closeOnEose: false });
+      } else {
+        // Fallback if no d tag
+        feedCommentSubscription = $ndk.subscribe({
+          kinds: [1, 1111],
+          '#e': [event.id]
+        }, { closeOnEose: false });
+      }
+    } else {
+      // NIP-10 for kind 1 notes
+      feedCommentSubscription = $ndk.subscribe({
+        kinds: [1],
+        '#e': [event.id]
+      }, { closeOnEose: false });
+    }
 
     feedCommentSubscription.on('event', (e) => {
       if (processedEvents.has(e.id)) return;
@@ -311,12 +331,46 @@
 
     try {
       const ev = new NDKEvent($ndk);
-      ev.kind = 1;
+      
+      // Check if replying to a recipe (kind 30023)
+      // Recipe replies should be kind 1111, not kind 1
+      const isRecipe = event.kind === 30023;
+      ev.kind = isRecipe ? 1111 : 1;
+      
       ev.content = commentText;
-      ev.tags = [
-        ['e', event.id, '', 'reply'],
-        ['p', event.pubkey]
-      ];
+      
+      if (isRecipe) {
+        // NIP-22 structure for longform comments
+        const dTag = event.tags.find((t) => t[0] === 'd')?.[1];
+        if (dTag) {
+          const addressTag = `${event.kind}:${event.pubkey}:${dTag}`;
+          const relayHint = event.tags.find((t) => t[0] === 'relay')?.[1] || '';
+          
+          ev.tags = [
+            // Root scope (uppercase)
+            ['A', addressTag, relayHint, event.pubkey],
+            ['K', String(event.kind)],
+            ['P', event.pubkey],
+            // Parent scope (lowercase) - same as root for top-level comment
+            ['a', addressTag, relayHint, event.pubkey],
+            ['e', event.id, relayHint, event.pubkey],
+            ['k', String(event.kind)],
+            ['p', event.pubkey]
+          ];
+        } else {
+          // Fallback if no d tag
+          ev.tags = [
+            ['e', event.id, '', event.pubkey],
+            ['p', event.pubkey]
+          ];
+        }
+      } else {
+        // NIP-10 structure for kind 1 replies
+        ev.tags = [
+          ['e', event.id, '', 'root'],
+          ['p', event.pubkey]
+        ];
+      }
       
       // Parse and add @ mention tags (p tags)
       const mentions = parseMentions(commentText);

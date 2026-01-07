@@ -36,11 +36,30 @@
     }
     
     try {
-      // Use subscribe collection for more reliable comment loading
-      commentSubscription = $ndk.subscribe({
-        kinds: [1],
-        '#e': [event.id] // Comments that reference this event
-      }, { closeOnEose: true });
+      // For longform (kind 30023), use NIP-22 #A filter
+      // For kind 1, use NIP-10 #e filter
+      if (event.kind === 30023) {
+        const dTag = event.tags.find((t) => t[0] === 'd')?.[1];
+        if (dTag) {
+          const addressTag = `${event.kind}:${event.pubkey}:${dTag}`;
+          commentSubscription = $ndk.subscribe({
+            kinds: [1111],
+            '#A': [addressTag]  // NIP-22: filter by root address
+          }, { closeOnEose: true });
+        } else {
+          // Fallback if no d tag
+          commentSubscription = $ndk.subscribe({
+            kinds: [1, 1111],
+            '#e': [event.id]
+          }, { closeOnEose: true });
+        }
+      } else {
+        // NIP-10 for kind 1 notes
+        commentSubscription = $ndk.subscribe({
+          kinds: [1],
+          '#e': [event.id]
+        }, { closeOnEose: true });
+      }
       
       commentSubscription.on("event", (ev) => {
         loading = false;
@@ -98,12 +117,46 @@
     
     try {
       const commentEvent = new NDKEvent($ndk);
-      commentEvent.kind = 1;
+      
+      // Check if replying to a recipe (kind 30023)
+      // Recipe replies should be kind 1111, not kind 1
+      const isRecipe = event.kind === 30023;
+      commentEvent.kind = isRecipe ? 1111 : 1;
+      
       commentEvent.content = commentText.trim();
-      commentEvent.tags = [
-        ['e', event.id, '', 'reply'], // Reference the original event
-        ['p', event.pubkey] // Reference the original author
-      ];
+      
+      if (isRecipe) {
+        // NIP-22 structure for longform comments
+        const dTag = event.tags.find((t) => t[0] === 'd')?.[1];
+        if (dTag) {
+          const addressTag = `${event.kind}:${event.pubkey}:${dTag}`;
+          const relayHint = event.tags.find((t) => t[0] === 'relay')?.[1] || '';
+          
+          commentEvent.tags = [
+            // Root scope (uppercase)
+            ['A', addressTag, relayHint, event.pubkey],
+            ['K', String(event.kind)],
+            ['P', event.pubkey],
+            // Parent scope (lowercase) - same as root for top-level comment
+            ['a', addressTag, relayHint, event.pubkey],
+            ['e', event.id, relayHint, event.pubkey],
+            ['k', String(event.kind)],
+            ['p', event.pubkey]
+          ];
+        } else {
+          // Fallback if no d tag
+          commentEvent.tags = [
+            ['e', event.id, '', event.pubkey],
+            ['p', event.pubkey]
+          ];
+        }
+      } else {
+        // NIP-10 structure for kind 1 replies
+        commentEvent.tags = [
+          ['e', event.id, '', 'root'],
+          ['p', event.pubkey]
+        ];
+      }
       
       // Add NIP-89 client tag
       addClientTagToEvent(commentEvent);
@@ -142,12 +195,42 @@
           
           // Try creating a new event and publishing it
           const newCommentEvent = new NDKEvent($ndk);
-          newCommentEvent.kind = 1;
+          const isRecipe = event.kind === 30023;
+          newCommentEvent.kind = isRecipe ? 1111 : 1;
           newCommentEvent.content = commentText.trim();
-          newCommentEvent.tags = [
-            ['e', event.id, '', 'reply'],
-            ['p', event.pubkey]
-          ];
+          
+          if (isRecipe) {
+            // NIP-22 structure for longform comments
+            const dTag = event.tags.find((t) => t[0] === 'd')?.[1];
+            if (dTag) {
+              const addressTag = `${event.kind}:${event.pubkey}:${dTag}`;
+              const relayHint = event.tags.find((t) => t[0] === 'relay')?.[1] || '';
+              
+              newCommentEvent.tags = [
+                // Root scope (uppercase)
+                ['A', addressTag, relayHint, event.pubkey],
+                ['K', String(event.kind)],
+                ['P', event.pubkey],
+                // Parent scope (lowercase) - same as root for top-level comment
+                ['a', addressTag, relayHint, event.pubkey],
+                ['e', event.id, relayHint, event.pubkey],
+                ['k', String(event.kind)],
+                ['p', event.pubkey]
+              ];
+            } else {
+              // Fallback if no d tag
+              newCommentEvent.tags = [
+                ['e', event.id, '', event.pubkey],
+                ['p', event.pubkey]
+              ];
+            }
+          } else {
+            // NIP-10 structure for kind 1 replies
+            newCommentEvent.tags = [
+              ['e', event.id, '', 'root'],
+              ['p', event.pubkey]
+            ];
+          }
           
           // Add NIP-89 client tag
           addClientTagToEvent(newCommentEvent);
