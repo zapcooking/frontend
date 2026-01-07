@@ -13,7 +13,6 @@
  */
 
 import { json, type RequestHandler } from '@sveltejs/kit';
-import Stripe from 'stripe';
 import { env } from '$env/dynamic/private';
 
 export const POST: RequestHandler = async ({ request, platform }) => {
@@ -46,6 +45,8 @@ export const POST: RequestHandler = async ({ request, platform }) => {
       );
     }
     
+    // Dynamic import to avoid Cloudflare Workers build issues
+    const Stripe = (await import('stripe')).default;
     const stripe = new Stripe(stripeKey, {
       apiVersion: '2024-12-18.acacia',
       typescript: true,

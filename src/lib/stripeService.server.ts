@@ -15,12 +15,12 @@
  * Using dynamic/private so build doesn't fail when key isn't set.
  */
 
-import Stripe from 'stripe';
 import { env } from '$env/dynamic/private';
 
 // Initialize Stripe with secret key from environment variable
 // This will throw an error at runtime if STRIPE_SECRET_KEY is not set
-const getStripeInstance = (): Stripe => {
+// Using dynamic import to avoid Cloudflare Workers build issues
+const getStripeInstance = async () => {
   const stripeKey = env.STRIPE_SECRET_KEY;
   
   if (!stripeKey) {
@@ -30,6 +30,9 @@ const getStripeInstance = (): Stripe => {
       'or in your hosting provider\'s environment variables.'
     );
   }
+  
+  // Dynamic import to avoid Cloudflare Workers build issues
+  const Stripe = (await import('stripe')).default;
   
   // Initialize Stripe with the secret key from environment variable
   // Using API version 2024-12-18.acacia (latest stable)
@@ -52,7 +55,7 @@ export async function createCheckoutSession(params: {
   cancelUrl: string;
   customerEmail?: string;
 }): Promise<{ sessionId: string; url: string }> {
-  const stripe = getStripeInstance();
+  const stripe = await getStripeInstance();
   
   // Pricing configuration (in cents for Stripe)
   const pricing = {
