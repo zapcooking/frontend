@@ -128,7 +128,7 @@
       if (!parentComment && $ndk) {
         try {
           const fetchPromise = $ndk.fetchEvent({
-            kinds: [1],
+            kinds: [1, 1111],
             ids: [parentId]
           });
           const timeoutPromise = new Promise<null>((resolve) => 
@@ -213,13 +213,58 @@
     postingReply = true;
     try {
       const ev = new NDKEvent($ndk);
-      ev.kind = 1;
+      
+      // Check if this is a reply to a recipe comment (kind 1111)
+      // If the parent comment is kind 1111, use kind 1111 for nested reply
+      const isRecipeReply = event.kind === 1111;
+      ev.kind = isRecipeReply ? 1111 : 1;
       ev.content = replyText.trim();
-      ev.tags = [
-        ['e', mainEventId, '', 'root'],
-        ['e', event.id, '', 'reply'],
-        ['p', event.pubkey]
-      ];
+      
+      if (isRecipeReply) {
+        // NIP-22 structure for nested comments
+        // Get root scope from parent comment
+        const rootATag = event.getMatchingTags('A')[0] || event.getMatchingTags('a')[0];
+        const rootKTag = event.getMatchingTags('K')[0];
+        const rootPTag = event.getMatchingTags('P')[0];
+        
+        if (rootATag && rootKTag && rootPTag) {
+          const relayHint = rootATag[2] || '';
+          ev.tags = [
+            // Root scope (uppercase) - same as parent
+            ['A', rootATag[1], relayHint, rootPTag[1]],
+            ['K', rootKTag[1]],
+            ['P', rootPTag[1]],
+            // Parent scope (lowercase) - points to the comment being replied to
+            ['a', rootATag[1], relayHint, rootPTag[1]],  // Keep root address
+            ['e', event.id, relayHint, event.pubkey],    // Parent comment ID
+            ['k', '1111'],                                 // Parent is a comment
+            ['p', event.pubkey]                            // Parent comment author
+          ];
+        } else {
+          // Fallback if parent doesn't have proper NIP-22 structure
+          const fallbackATag = event.getMatchingTags('a')[0];
+          if (fallbackATag) {
+            ev.tags = [
+              ['a', fallbackATag[1]],
+              ['e', event.id, '', event.pubkey],
+              ['p', event.pubkey]
+            ];
+          } else {
+            ev.tags = [
+              ['e', event.id, '', event.pubkey],
+              ['p', event.pubkey]
+            ];
+          }
+        }
+      } else {
+        // NIP-10 structure for kind 1 replies
+        ev.tags = [
+          ['e', mainEventId, '', 'root'],
+          ['e', event.id, '', 'reply'],
+          ['p', event.pubkey]
+        ];
+      }
+      
       addClientTagToEvent(ev);
       await ev.publish();
       replyText = '';

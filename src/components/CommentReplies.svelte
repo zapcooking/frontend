@@ -214,7 +214,7 @@
     try {
       // Use subscribe collection for more reliable reply loading
       replySubscription = $ndk.subscribe({
-        kinds: [1],
+        kinds: [1, 1111],
         '#e': [parentComment.id] // Replies that reference this comment
       }, { closeOnEose: true });
       
@@ -243,13 +243,59 @@
     
     try {
       const replyEvent = new NDKEvent($ndk);
-      replyEvent.kind = 1;
+      
+      // Check if this is a reply to a recipe comment
+      // If the parent comment is kind 1111 or has an 'a' tag referencing kind 30023, use kind 1111
+      const aTag = parentComment.getMatchingTags('a')[0];
+      const ATag = parentComment.getMatchingTags('A')[0];
+      const isRecipeReply = parentComment.kind === 1111 || (aTag && aTag[1]?.startsWith('30023:')) || (ATag && ATag[1]?.startsWith('30023:'));
+      replyEvent.kind = isRecipeReply ? 1111 : 1;
+      
       replyEvent.content = replyText.trim();
-      replyEvent.tags = [
-        ['e', parentComment.id, '', 'reply'], // Reference the parent comment
-        ['p', parentComment.pubkey], // Reference the parent comment author
-        ...parentComment.getMatchingTags('e') // Include any other event references from parent
-      ];
+      
+      if (isRecipeReply) {
+        // NIP-22 structure for nested comments
+        // Get root scope from parent comment
+        const rootATag = parentComment.getMatchingTags('A')[0] || parentComment.getMatchingTags('a')[0];
+        const rootKTag = parentComment.getMatchingTags('K')[0];
+        const rootPTag = parentComment.getMatchingTags('P')[0];
+        
+        if (rootATag && rootKTag && rootPTag) {
+          const relayHint = rootATag[2] || '';
+          replyEvent.tags = [
+            // Root scope (uppercase) - same as parent
+            ['A', rootATag[1], relayHint, rootPTag[1]],
+            ['K', rootKTag[1]],
+            ['P', rootPTag[1]],
+            // Parent scope (lowercase) - points to the comment being replied to
+            ['a', rootATag[1], relayHint, rootPTag[1]],  // Keep root address
+            ['e', parentComment.id, relayHint, parentComment.pubkey],    // Parent comment ID
+            ['k', '1111'],                                 // Parent is a comment
+            ['p', parentComment.pubkey]                            // Parent comment author
+          ];
+        } else {
+          // Fallback if parent doesn't have proper NIP-22 structure
+          const fallbackATag = aTag || ATag;
+          if (fallbackATag) {
+            replyEvent.tags = [
+              ['a', fallbackATag[1]],
+              ['e', parentComment.id, '', parentComment.pubkey],
+              ['p', parentComment.pubkey]
+            ];
+          } else {
+            replyEvent.tags = [
+              ['e', parentComment.id, '', parentComment.pubkey],
+              ['p', parentComment.pubkey]
+            ];
+          }
+        }
+      } else {
+        // NIP-10 structure for kind 1 replies
+        replyEvent.tags = [
+          ['e', parentComment.id, '', 'reply'],
+          ['p', parentComment.pubkey]
+        ];
+      }
       
       // Parse and add @ mention tags (p tags)
       const mentions = parseMentions(replyText.trim());

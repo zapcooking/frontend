@@ -68,7 +68,7 @@
         
         seenIds.add(parentId);
         
-        const parentNote = await $ndk.fetchEvent({ kinds: [1], ids: [parentId] });
+        const parentNote = await $ndk.fetchEvent({ kinds: [1, 1111], ids: [parentId] });
         if (!parentNote) break;
         
         parents.unshift(parentNote); // Add to beginning for chronological order
@@ -91,6 +91,36 @@
     replies = [];
     processedReplies.clear();
     
+    // For longform (kind 30023), use NIP-22 #A filter
+    // For kind 1, use NIP-10 #e filter
+    if (event && event.kind === 30023) {
+      const dTag = event.tags.find((t) => t[0] === 'd')?.[1];
+      if (dTag) {
+        const addressTag = `${event.kind}:${event.pubkey}:${dTag}`;
+        const sub = $ndk.subscribe({
+          kinds: [1111],
+          '#A': [addressTag]  // NIP-22: filter by root address
+        }, { closeOnEose: false });
+
+        sub.on('event', (e: NDKEvent) => {
+          if (processedReplies.has(e.id)) return;
+          processedReplies.add(e.id);
+          replies = [...replies, e].sort((a, b) => (a.created_at || 0) - (b.created_at || 0));
+        });
+
+        sub.on('eose', () => {
+          loadingReplies = false;
+        });
+        
+        // Timeout
+        setTimeout(() => {
+          loadingReplies = false;
+        }, 5000);
+        return;
+      }
+    }
+    
+    // Fallback to NIP-10 for kind 1 notes
     const sub = $ndk.subscribe({
       kinds: [1],
       '#e': [eventId]
@@ -223,12 +253,46 @@
 
     try {
       const ev = new (await import('@nostr-dev-kit/ndk')).NDKEvent($ndk);
-      ev.kind = 1;
+      
+      // Check if replying to a recipe (kind 30023)
+      // Recipe replies should be kind 1111, not kind 1
+      const isRecipe = event.kind === 30023;
+      ev.kind = isRecipe ? 1111 : 1;
+      
       ev.content = commentText;
-      ev.tags = [
-        ['e', event.id, '', 'reply'],
-        ['p', event.pubkey]
-      ];
+      
+      if (isRecipe) {
+        // NIP-22 structure for longform comments
+        const dTag = event.tags.find((t) => t[0] === 'd')?.[1];
+        if (dTag) {
+          const addressTag = `${event.kind}:${event.pubkey}:${dTag}`;
+          const relayHint = event.tags.find((t) => t[0] === 'relay')?.[1] || '';
+          
+          ev.tags = [
+            // Root scope (uppercase)
+            ['A', addressTag, relayHint, event.pubkey],
+            ['K', String(event.kind)],
+            ['P', event.pubkey],
+            // Parent scope (lowercase) - same as root for top-level comment
+            ['a', addressTag, relayHint, event.pubkey],
+            ['e', event.id, relayHint, event.pubkey],
+            ['k', String(event.kind)],
+            ['p', event.pubkey]
+          ];
+        } else {
+          // Fallback if no d tag
+          ev.tags = [
+            ['e', event.id, '', event.pubkey],
+            ['p', event.pubkey]
+          ];
+        }
+      } else {
+        // NIP-10 structure for kind 1 replies
+        ev.tags = [
+          ['e', event.id, '', 'root'],
+          ['p', event.pubkey]
+        ];
+      }
       
       // Add NIP-89 client tag
       addClientTagToEvent(ev);
@@ -243,8 +307,31 @@
   // Filter to get only direct replies (not nested)
   $: directReplies = replies.filter((r) => {
     if (!event) return false;
-    const eTags = r.getMatchingTags('e');
     
+    // For NIP-22 comments (kind 1111)
+    if (r.kind === 1111) {
+      const aTags = r.getMatchingTags('a');
+      const eTags = r.getMatchingTags('e');
+      const kTags = r.getMatchingTags('k');
+      
+      // Check if this comment's 'a' tag matches the root article address
+      const dTag = event.tags.find((t) => t[0] === 'd')?.[1];
+      if (dTag) {
+        const rootAddress = `${event.kind}:${event.pubkey}:${dTag}`;
+        const matchesRoot = aTags.some(tag => tag[1] === rootAddress);
+        
+        // Check if parent 'e' tag points to root event (top-level comment)
+        // and 'k' tag shows parent is the root kind (30023)
+        const isTopLevel = eTags.some(tag => tag[1] === event.id) && 
+                           kTags.some(tag => tag[1] === String(event.kind));
+        
+        return matchesRoot && isTopLevel;
+      }
+      return false;
+    }
+    
+    // For NIP-10 replies (kind 1)
+    const eTags = r.getMatchingTags('e');
     const replyTag = eTags.find(tag => tag[3] === 'reply');
     const rootTag = eTags.find(tag => tag[3] === 'root');
     
@@ -274,6 +361,17 @@
   // Get nested replies for a comment
   function getNestedReplies(parentId: string): NDKEvent[] {
     return replies.filter((r) => {
+      // For NIP-22 comments (kind 1111)
+      if (r.kind === 1111) {
+        const eTags = r.getMatchingTags('e');
+        const kTags = r.getMatchingTags('k');
+        // Check if parent 'e' tag points to the parent comment
+        // and 'k' tag shows parent is a comment (1111)
+        return eTags.some(tag => tag[1] === parentId) && 
+               kTags.some(tag => tag[1] === '1111');
+      }
+      
+      // For NIP-10 replies (kind 1)
       const eTags = r.getMatchingTags('e');
       const replyTag = eTags.find(tag => tag[3] === 'reply');
       
