@@ -43,7 +43,6 @@
     }
 
     commentSubscription.on('event', (e) => {
-      console.log('Comments: Received event:', e.id);
       // Prevent adding the same event multiple times
       if (processedEvents.has(e.id)) return;
       processedEvents.add(e.id);
@@ -53,7 +52,6 @@
     });
 
     commentSubscription.on('eose', () => {
-      console.log('Comments: EOSE - total events:', events.length);
     });
   }
 
@@ -69,11 +67,7 @@
   }
 
   async function postComment() {
-    console.log('postComment called, commentText:', commentText);
-    console.log('NDK signer available:', !!$ndk?.signer);
-    
     if (!commentText.trim()) {
-      console.log('Comment text is empty, returning early');
       return;
     }
     
@@ -81,22 +75,6 @@
       console.error('No signer available - user must be logged in');
       alert('Please log in to post comments');
       return;
-    }
-    
-    console.log('Creating comment event...');
-    console.log('Signer type:', $ndk.signer?.constructor?.name);
-    
-    // Check if NIP-07 extension is available
-    if (typeof window !== 'undefined' && window.nostr) {
-      console.log('NIP-07 extension found:', typeof window.nostr);
-      try {
-        const pubkey = await window.nostr.getPublicKey();
-        console.log('Extension pubkey:', pubkey);
-      } catch (e) {
-        console.warn('Could not get pubkey from extension:', e);
-      }
-    } else {
-      console.warn('NIP-07 extension not found (window.nostr is not available)');
     }
     
     const ev = new NDKEvent($ndk);
@@ -147,33 +125,15 @@
         ev.created_at = Math.floor(Date.now() / 1000);
       }
       
-      console.log('Signing event...');
-      console.log('Event before sign:', {
-        kind: ev.kind,
-        content: ev.content,
-        tags: ev.tags,
-        pubkey: ev.pubkey,
-        created_at: ev.created_at
-      });
-      
       // Sign the event - NIP-07 extension should prompt user
       // Don't timeout signing - let the extension handle it naturally
       // Users may need time to approve in their extension
-      console.log('Calling ev.sign() - extension should prompt for approval...');
       await ev.sign();
-      
-      console.log('Event signed successfully, ID:', ev.id);
-      console.log('Event after sign:', {
-        id: ev.id,
-        sig: ev.sig ? ev.sig.substring(0, 20) + '...' : 'none',
-        pubkey: ev.pubkey
-      });
       
       if (!ev.id) {
         throw new Error('Event was not signed - no ID generated');
       }
       
-      console.log('Publishing event...');
       // Publish the event with a reasonable timeout
       await Promise.race([
         ev.publish(),
@@ -182,22 +142,17 @@
         )
       ]);
       
-      console.log('Event published successfully');
-      
       // Immediately add to local events array so it appears right away
       if (!processedEvents.has(ev.id)) {
         processedEvents.add(ev.id);
         events.push(ev);
         events = events; // Trigger reactivity
-        console.log('Added event to local array, total events:', events.length);
       }
       
       // Clear the comment text
       commentText = '';
-      console.log('Comment posted successfully!');
     } catch (error) {
       console.error('Error posting comment:', error);
-      console.error('Error stack:', error instanceof Error ? error.stack : 'No stack trace');
       const errorMsg = error instanceof Error ? error.message : String(error);
       alert('Error posting comment: ' + errorMsg);
     }
@@ -235,7 +190,6 @@
     />
     <Button 
       on:click={(e) => {
-        console.log('Button clicked!');
         e.preventDefault?.();
         postComment();
       }} 
