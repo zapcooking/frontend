@@ -3,6 +3,7 @@
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
   import CommentIcon from 'phosphor-svelte/lib/ChatTeardropText';
   import { onMount, onDestroy } from 'svelte';
+  import { createCommentFilter } from '$lib/commentFilters';
 
   export let event: NDKEvent;
   let loading = true;
@@ -10,38 +11,8 @@
   let subscription: any = null;
 
   onMount(() => {
-    // For longform (kind 30023), use NIP-22 #A filter
-    // For kind 1, use NIP-10 #e filter
-    if (event.kind === 30023) {
-      const dTag = event.tags.find((e) => e[0] == 'd')?.[1];
-      if (dTag) {
-        const addressTag = `${event.kind}:${event.author.hexpubkey}:${dTag}`;
-        subscription = $ndk.subscribe(
-          {
-            kinds: [1111],
-            '#A': [addressTag]  // NIP-22: filter by root address
-          },
-          { closeOnEose: true }
-        );
-      } else {
-        subscription = $ndk.subscribe(
-          {
-            kinds: [1, 1111],
-            '#e': [event.id]
-          },
-          { closeOnEose: true }
-        );
-      }
-    } else {
-      // NIP-10 for kind 1 notes
-      subscription = $ndk.subscribe(
-        {
-          kinds: [1],
-          '#e': [event.id]
-        },
-        { closeOnEose: true }
-      );
-    }
+    const filter = createCommentFilter(event);
+    subscription = $ndk.subscribe(filter, { closeOnEose: true });
 
     subscription.on('event', () => {
       loading = false;

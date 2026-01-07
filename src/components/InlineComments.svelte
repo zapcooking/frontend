@@ -9,6 +9,7 @@
   import { format as formatDate } from 'timeago.js';
   import Button from './Button.svelte';
   import CommentWithActions from './CommentWithActions.svelte';
+  import { createCommentFilter } from '$lib/commentFilters';
 
   export let event: NDKEvent;
   
@@ -36,30 +37,8 @@
     }
     
     try {
-      // For longform (kind 30023), use NIP-22 #A filter
-      // For kind 1, use NIP-10 #e filter
-      if (event.kind === 30023) {
-        const dTag = event.tags.find((t) => t[0] === 'd')?.[1];
-        if (dTag) {
-          const addressTag = `${event.kind}:${event.pubkey}:${dTag}`;
-          commentSubscription = $ndk.subscribe({
-            kinds: [1111],
-            '#A': [addressTag]  // NIP-22: filter by root address
-          }, { closeOnEose: true });
-        } else {
-          // Fallback if no d tag
-          commentSubscription = $ndk.subscribe({
-            kinds: [1, 1111],
-            '#e': [event.id]
-          }, { closeOnEose: true });
-        }
-      } else {
-        // NIP-10 for kind 1 notes
-        commentSubscription = $ndk.subscribe({
-          kinds: [1],
-          '#e': [event.id]
-        }, { closeOnEose: true });
-      }
+      const filter = createCommentFilter(event);
+      commentSubscription = $ndk.subscribe(filter, { closeOnEose: true });
       
       commentSubscription.on("event", (ev) => {
         loading = false;

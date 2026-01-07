@@ -18,6 +18,7 @@
   import ClientAttribution from '../../components/ClientAttribution.svelte';
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
   import type { PageData } from './$types';
+  import { createCommentFilter } from '$lib/commentFilters';
 
   export const data: PageData = {} as PageData;
 
@@ -91,40 +92,10 @@
     replies = [];
     processedReplies.clear();
     
-    // For longform (kind 30023), use NIP-22 #A filter
-    // For kind 1, use NIP-10 #e filter
-    if (event && event.kind === 30023) {
-      const dTag = event.tags.find((t) => t[0] === 'd')?.[1];
-      if (dTag) {
-        const addressTag = `${event.kind}:${event.pubkey}:${dTag}`;
-        const sub = $ndk.subscribe({
-          kinds: [1111],
-          '#A': [addressTag]  // NIP-22: filter by root address
-        }, { closeOnEose: false });
-
-        sub.on('event', (e: NDKEvent) => {
-          if (processedReplies.has(e.id)) return;
-          processedReplies.add(e.id);
-          replies = [...replies, e].sort((a, b) => (a.created_at || 0) - (b.created_at || 0));
-        });
-
-        sub.on('eose', () => {
-          loadingReplies = false;
-        });
-        
-        // Timeout
-        setTimeout(() => {
-          loadingReplies = false;
-        }, 5000);
-        return;
-      }
-    }
+    if (!event) return;
     
-    // Fallback to NIP-10 for kind 1 notes
-    const sub = $ndk.subscribe({
-      kinds: [1],
-      '#e': [eventId]
-    }, { closeOnEose: false });
+    const filter = createCommentFilter(event);
+    const sub = $ndk.subscribe(filter, { closeOnEose: false });
 
     sub.on('event', (e: NDKEvent) => {
       if (processedReplies.has(e.id)) return;
