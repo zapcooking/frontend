@@ -11,8 +11,9 @@
   import SaveButton from '../SaveButton.svelte';
   import { translateOption } from '$lib/state';
   import { translate } from '$lib/translation';
-  import { parseMarkdown, extractAndGroupDirections } from '$lib/parser';
+  import { parseMarkdown, extractAndGroupDirections, extractRecipeDetails } from '$lib/parser';
   import TotalZaps from './TotalZaps.svelte';
+  import OverviewCard from './OverviewCard.svelte';
   import TotalLikes from './TotalLikes.svelte';
   import TotalComments from './TotalComments.svelte';
   import NoteRepost from '../NoteRepost.svelte';
@@ -164,12 +165,18 @@
   $: directionsPhases = directionsData.directions;
   $: markdownWithoutDirections = directionsData.markdownWithoutDirections;
   
+  // Extract recipe details for Quick Overview
+  $: recipeDetails = extractRecipeDetails(event.content);
+  
   // Split markdown into parts: before Directions and after Directions
+  // Also remove the Details section since it's now shown in the OverviewCard
   $: {
     const content = event.content;
     const directionsIndex = content.indexOf('## Directions');
+    let beforeDirections = '';
+    
     if (directionsIndex === -1) {
-      markdownBeforeDirections = content;
+      beforeDirections = content;
       markdownAfterDirections = '';
     } else {
       // Find the end of Directions section (next ## heading or end of content)
@@ -178,13 +185,22 @@
       const nextSectionMatch = afterDirections.match(/\n## [A-Za-z]/);
       if (nextSectionMatch && nextSectionMatch.index !== undefined) {
         const nextSectionIndex = directionsIndex + nextSectionMatch.index;
-        markdownBeforeDirections = content.slice(0, directionsIndex);
+        beforeDirections = content.slice(0, directionsIndex);
         markdownAfterDirections = content.slice(nextSectionIndex);
       } else {
         // Directions is the last section
-        markdownBeforeDirections = content.slice(0, directionsIndex);
+        beforeDirections = content.slice(0, directionsIndex);
         markdownAfterDirections = '';
       }
+    }
+    
+    // Remove the Details section from the rendered markdown (it's shown in OverviewCard)
+    // Match "## Details" followed by content until next "##" heading or end
+    const detailsSectionRegex = /## Details\s*\n[\s\S]*?(?=\n## |$)/i;
+    if (detailsSectionRegex.test(beforeDirections)) {
+      markdownBeforeDirections = beforeDirections.replace(detailsSectionRegex, '').trim();
+    } else {
+      markdownBeforeDirections = beforeDirections;
     }
   }
   
@@ -223,8 +239,8 @@
       </div>
       {#each uniqueImages as image, i}
         {#if i === 0}
-          <!-- First image with hover overlay + click to open modal -->
-          <div class="relative group rounded-3xl overflow-hidden">
+          <!-- First image - clickable to open modal -->
+          <div class="rounded-3xl overflow-hidden">
             <button
               on:click={() => openImageModal(
                 image[1],
@@ -239,13 +255,6 @@
                 alt="Recipe image {i + 1}"
               />
             </button>
-
-            <!-- Image overlay button (hover only on desktop) -->
-            <div class="absolute inset-0 transition-all duration-300 pointer-events-none">
-              <div class="absolute top-4 right-4 opacity-0 lg:group-hover:opacity-100 pointer-events-auto">
-                <SaveButton {event} size="md" variant="primary" showText={true} />
-              </div>
-            </div>
           </div>
         {:else}
           <!-- Other images - clickable to open modal -->
@@ -305,6 +314,44 @@
           </div>
         </div>
       </div>
+      
+      <!-- Quick Overview Card -->
+      <OverviewCard
+        prepTime={recipeDetails.prepTime}
+        cookTime={recipeDetails.cookTime}
+        servings={recipeDetails.servings}
+        scrollToDetails={() => {
+          // Try to find Details section and scroll to it
+          const detailsSection = markdownBeforeDirections.match(/## Details/i);
+          if (detailsSection) {
+            // Find the element in the rendered markdown (after prose processing)
+            setTimeout(() => {
+              const headings = document.querySelectorAll('article .prose h2');
+              for (const heading of headings) {
+                const text = heading.textContent?.trim().toLowerCase();
+                if (text === 'details') {
+                  heading.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                  break;
+                }
+              }
+            }, 100);
+          }
+        }}
+        scrollToIngredients={() => {
+          // Try to find Ingredients section and scroll to it
+          setTimeout(() => {
+            const headings = document.querySelectorAll('article .prose h2');
+            for (const heading of headings) {
+              const text = heading.textContent?.trim().toLowerCase();
+              if (text === 'ingredients') {
+                heading.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                break;
+              }
+            }
+          }, 100);
+        }}
+      />
+      
       <!-- Recipe Summary -->
       {#if event.tags.find((e) => e[0] === 'summary')?.[1]}
         <p class="text-lg text-caption leading-relaxed">

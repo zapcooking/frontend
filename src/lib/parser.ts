@@ -355,3 +355,66 @@ export function extractAndGroupDirections(markdown: string): {
     markdownWithoutDirections
   };
 }
+
+/**
+ * Extracts recipe details (prep time, cook time, servings) from markdown
+ * Returns null values if not found
+ */
+export interface RecipeDetails {
+  prepTime: string | null;
+  cookTime: string | null;
+  servings: string | null;
+}
+
+export function extractRecipeDetails(markdown: string): RecipeDetails {
+  const details: RecipeDetails = {
+    prepTime: null,
+    cookTime: null,
+    servings: null
+  };
+
+  // Try using validateMarkdownTemplate first (handles strict format)
+  const validated = validateMarkdownTemplate(markdown);
+  if (typeof validated !== 'string' && validated.information) {
+    details.prepTime = validated.information.prepTime || null;
+    details.cookTime = validated.information.cookTime || null;
+    details.servings = validated.information.servings || null;
+    
+    // If we got any details, return early
+    if (details.prepTime || details.cookTime || details.servings) {
+      return details;
+    }
+  }
+
+  // Fallback: Try flexible extraction from Details section
+  const detailsMatch = markdown.match(/## Details\s*\n([\s\S]*?)(?=\n## |$)/i);
+  if (detailsMatch) {
+    const detailsContent = detailsMatch[1].trim();
+    const lines = detailsContent.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+    
+    for (const line of lines) {
+      // Match patterns like "- ⏲️ Prep time: ..." or "- Prep time: ..."
+      const prepMatch = line.match(/[-•]\s*(?:⏲️|⏱️)?\s*Prep\s+time:?\s*(.+)/i);
+      if (prepMatch) {
+        details.prepTime = prepMatch[1].trim();
+        continue;
+      }
+      
+      // Match patterns like "- 🍳 Cook time: ..." or "- Cook time: ..."
+      const cookMatch = line.match(/[-•]\s*(?:🍳|🔥|⏰)?\s*Cook\s+time:?\s*(.+)/i);
+      if (cookMatch) {
+        details.cookTime = cookMatch[1].trim();
+        continue;
+      }
+      
+      // Match patterns like "- 🍽️ Servings: ..." or "- Servings: ..."
+      const servingsMatch = line.match(/[-•]\s*(?:🍽️|👥|🥘)?\s*Servings:?\s*(.+)/i);
+      if (servingsMatch) {
+        details.servings = servingsMatch[1].trim();
+        continue;
+      }
+    }
+  }
+
+  return details;
+}
