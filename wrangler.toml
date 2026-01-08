@@ -1,9 +1,11 @@
+# Cloudflare Workers configuration for zap.cooking
+
 name = "zapcooking-frontend"
-# wrangler.toml
-
-[vars]
-PUBLIC_MEMBERSHIP_ENABLED = "false"
-
 compatibility_date = "2025-01-01"
-compatibility_flags = ["nodejs_compat"]
+compatibility_flags = ["assets_navigation_prefers_asset_serving", "nodejs_compat"]
 
+# Cron trigger for membership expiration notifications
+# Runs daily at 10:00 UTC
+[[triggers.crons]]
+cron = "0 10 * * *"
+route = "/api/cron/check-expiring-memberships"
