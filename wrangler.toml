@@ -1,11 +1,14 @@
-# Cloudflare Workers configuration for zap.cooking
-
+# Cloudflare Pages configuration for zap.cooking
+# 
+# NOTE: This file is kept for reference but cron triggers for Pages
+# should be configured in the Cloudflare Dashboard:
+# Pages → Your Project → Settings → Functions → Cron Triggers
+#
+# Cron trigger configuration:
+# - Route: /api/cron/check-expiring-memberships
+# - Cron Expression: 0 10 * * *  (daily at 10:00 UTC)
+#
+# For Pages deployments, use wrangler.jsonc which is the correct config file.
 name = "zapcooking-frontend"
 compatibility_date = "2025-01-01"
 compatibility_flags = ["assets_navigation_prefers_asset_serving", "nodejs_compat"]
-
-# Cron trigger for membership expiration notifications
-# Runs daily at 10:00 UTC
-[[triggers.crons]]
-cron = "0 10 * * *"
-route = "/api/cron/check-expiring-memberships"
