@@ -5,7 +5,7 @@
  */
 
 import NDK, { NDKEvent, NDKPrivateKeySigner } from '@nostr-dev-kit/ndk';
-import { nip44, nip04 } from 'nostr-tools';
+import { nip04 } from 'nostr-tools';
 
 export interface ExpiringMember {
   pubkey: string;
