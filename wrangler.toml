@@ -1,4 +1,9 @@
 name = "zapcooking-frontend"
+# wrangler.toml
+
+[vars]
+PUBLIC_MEMBERSHIP_ENABLED = "false"
+
 compatibility_date = "2025-01-01"
 compatibility_flags = ["nodejs_compat"]
 
