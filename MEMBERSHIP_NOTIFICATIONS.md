@@ -71,7 +71,7 @@ curl -H "Authorization: Bearer your_cron_secret" \
 1. **Daily Check**: The cron job runs daily at 10:00 UTC
 2. **Find Expiring Members**: Checks members API for memberships expiring within 7 days
 3. **Send DMs**: For each expiring membership, sends a Nostr DM (kind 4) with:
-   - Encrypted message using NIP-44
+   - Encrypted message using NIP-04
    - Reminder about expiration date
    - Renewal link to zap.cooking/membership
    - List of membership benefits
