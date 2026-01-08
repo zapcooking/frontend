@@ -81,7 +81,6 @@ export async function sendMembershipExpirationDM(
 
     // Get recipient user
     const recipient = ndk.getUser({ pubkey: recipientPubkey });
-    await recipient.fetchProfile();
 
     // Format the message
     const endDate = new Date(subscriptionEnd);
