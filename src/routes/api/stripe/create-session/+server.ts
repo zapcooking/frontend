@@ -23,8 +23,15 @@
 
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { createCheckoutSession } from '$lib/stripeService.server';
+import { env } from '$env/dynamic/private';
 
-export const POST: RequestHandler = async ({ request }) => {
+export const POST: RequestHandler = async ({ request, platform }) => {
+  // Membership feature flag guard - return 403 when disabled
+  const MEMBERSHIP_ENABLED = platform?.env?.MEMBERSHIP_ENABLED || env.MEMBERSHIP_ENABLED;
+  if (MEMBERSHIP_ENABLED !== 'true') {
+    return json({ error: 'Forbidden' }, { status: 403 });
+  }
+
   try {
     const body = await request.json();
     

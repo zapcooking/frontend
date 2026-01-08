@@ -3,6 +3,12 @@ import { env } from '$env/dynamic/private';
 import type { RequestHandler } from './$types';
 
 export const GET: RequestHandler = async ({ platform }) => {
+  // Membership feature flag guard - return 403 when disabled
+  const MEMBERSHIP_ENABLED = platform?.env?.MEMBERSHIP_ENABLED || env.MEMBERSHIP_ENABLED;
+  if (MEMBERSHIP_ENABLED !== 'true') {
+    return json({ error: 'Forbidden' }, { status: 403 });
+  }
+
   // Cloudflare uses platform.env, local dev uses $env
   const API_SECRET = platform?.env?.RELAY_API_SECRET || env.RELAY_API_SECRET;
   
