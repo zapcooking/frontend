@@ -25,8 +25,8 @@ export const GET: RequestHandler = async ({ url, request, platform }) => {
   const CRON_SECRET = platform?.env?.CRON_SECRET || env.CRON_SECRET;
   const authHeader = request.headers.get('authorization');
   
-  // Only require auth if CRON_SECRET is explicitly set
-  if (CRON_SECRET) {
+  // Only require auth if CRON_SECRET is explicitly set and non-empty
+  if (CRON_SECRET && CRON_SECRET.trim().length > 0) {
     if (!authHeader) {
       return json(
         { error: 'Authorization required. Include: Authorization: Bearer <CRON_SECRET>' },
