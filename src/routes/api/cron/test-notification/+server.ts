@@ -25,8 +25,8 @@ export const GET: RequestHandler = async ({ url, request, platform }) => {
   const CRON_SECRET = platform?.env?.CRON_SECRET || env.CRON_SECRET;
   const authHeader = request.headers.get('authorization');
   
-  // Only require auth in production, or if CRON_SECRET is explicitly set
-  if (CRON_SECRET || env.NODE_ENV === 'production') {
+  // Only require auth if CRON_SECRET is explicitly set
+  if (CRON_SECRET) {
     if (!authHeader) {
       return json(
         { error: 'Authorization required. Include: Authorization: Bearer <CRON_SECRET>' },
