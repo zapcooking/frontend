@@ -34,8 +34,8 @@
   <div class="loading-content">
     {#if type === 'spinner'}
       <div class="spinner" style="width: {currentSize.spinner}px; height: {currentSize.spinner}px;">
-        <img src="/pan-animated.svg" alt="Loading" class="dark:hidden" />
-        <img src="/pan-animated-dark.svg" alt="Loading" class="hidden dark:block" />
+        <img src="/pan-animated-light.svg" alt="Loading" class="w-full dark:hidden" />
+        <img src="/pan-animated-dark.svg" alt="Loading" class="w-full hidden dark:block" />
       </div>
       {:else if type === 'dots'}
       <div class="dots">

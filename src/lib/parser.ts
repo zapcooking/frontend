@@ -34,6 +34,85 @@ interface MarkdownTemplate {
   additionalMarkdown?: string;
 }
 
+/**
+ * Lenient parser for editing - extracts content without strict validation
+ * Used when loading recipes for editing to avoid losing data due to format issues
+ */
+export function parseMarkdownForEditing(markdown: string): MarkdownTemplate {
+  const template: MarkdownTemplate = {
+    ingredients: [],
+    directions: []
+  };
+
+  template.information = {
+    prepTime: '',
+    cookTime: '',
+    servings: ''
+  };
+
+  // Extract Chef's notes
+  const chefNotesMatch = markdown.match(/## Chef's notes\s*\n([\s\S]*?)(?=\n## |$)/i);
+  if (chefNotesMatch) {
+    template.chefNotes = chefNotesMatch[1].trim();
+  }
+
+  // Extract Details
+  const detailsMatch = markdown.match(/## Details\s*\n([\s\S]*?)(?=\n## |$)/i);
+  if (detailsMatch) {
+    const detailsContent = detailsMatch[1];
+    const prepMatch = detailsContent.match(/⏲️ Prep time[:\s]+([^\n]+)/i);
+    const cookMatch = detailsContent.match(/🍳 Cook time[:\s]+([^\n]+)/i);
+    const servingsMatch = detailsContent.match(/🍽️ Servings[:\s]+([^\n]+)/i);
+    if (prepMatch) template.information.prepTime = prepMatch[1].trim();
+    if (cookMatch) template.information.cookTime = cookMatch[1].trim();
+    if (servingsMatch) template.information.servings = servingsMatch[1].trim();
+  }
+
+  // Extract Ingredients - be lenient with format
+  const ingredientsMatch = markdown.match(/## Ingredients\s*\n([\s\S]*?)(?=\n## |$)/i);
+  if (ingredientsMatch) {
+    const lines = ingredientsMatch[1].split('\n');
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (trimmed.startsWith('- ')) {
+        template.ingredients.push(trimmed.substring(2).trim());
+      } else if (trimmed.startsWith('* ')) {
+        template.ingredients.push(trimmed.substring(2).trim());
+      } else if (trimmed && !trimmed.startsWith('#')) {
+        // Include non-empty lines that aren't headers
+        template.ingredients.push(trimmed);
+      }
+    }
+  }
+
+  // Extract Directions - be lenient with format
+  const directionsMatch = markdown.match(/## Directions\s*\n([\s\S]*?)(?=\n## |$)/i);
+  if (directionsMatch) {
+    const lines = directionsMatch[1].split('\n');
+    for (const line of lines) {
+      const trimmed = line.trim();
+      // Match numbered steps (1. 2. etc)
+      const numberedMatch = trimmed.match(/^(\d+)\.\s*(.+)$/);
+      if (numberedMatch) {
+        template.directions.push(numberedMatch[2].trim());
+      } else if (trimmed.startsWith('- ')) {
+        template.directions.push(trimmed.substring(2).trim());
+      } else if (trimmed && !trimmed.startsWith('#') && trimmed.length > 10) {
+        // Include substantial non-empty lines
+        template.directions.push(trimmed);
+      }
+    }
+  }
+
+  // Extract Additional Resources
+  const additionalMatch = markdown.match(/## Additional Resources\s*\n([\s\S]*?)(?=\n## |$)/i);
+  if (additionalMatch) {
+    template.additionalMarkdown = additionalMatch[1].trim();
+  }
+
+  return template;
+}
+
 export function validateMarkdownTemplate(markdown: string): MarkdownTemplate | string {
   const template: MarkdownTemplate = {
     ingredients: [],

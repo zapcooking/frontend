@@ -75,8 +75,17 @@
     }
   }
 
-  function handleBackdropClick(e: MouseEvent) {
+  function handleBackdropClick(e: MouseEvent | TouchEvent) {
     if (e.target === e.currentTarget) {
+      e.preventDefault();
+      dispatch('close');
+    }
+  }
+
+  function handleBackdropTouch(e: TouchEvent) {
+    // Handle touch events for mobile - only close if touching the backdrop itself
+    if (e.target === e.currentTarget) {
+      e.preventDefault();
       dispatch('close');
     }
   }
@@ -88,12 +97,15 @@
   // Portal action to move element to body
   function portal(node: HTMLElement) {
     document.body.appendChild(node);
-    
+
     return {
       destroy() {
-        if (node.parentNode) {
-          node.parentNode.removeChild(node);
-        }
+        // Use requestAnimationFrame to ensure cleanup happens after any pending transitions
+        requestAnimationFrame(() => {
+          if (node.parentNode) {
+            node.parentNode.removeChild(node);
+          }
+        });
       }
     };
   }
@@ -101,10 +113,13 @@
 
 {#if open && pickerLoaded}
   <div use:portal>
-    <!-- Fixed backdrop -->
+    <!-- Fixed backdrop with subtle darkening for visibility -->
     <div
-      class="fixed inset-0 z-[1000]"
+      class="fixed inset-0 z-[1000] bg-black/10"
+      role="button"
+      tabindex="-1"
       on:click={handleBackdropClick}
+      on:touchstart={handleBackdropTouch}
       on:keydown={(e) => e.key === 'Escape' && dispatch('close')}
       transition:fade={{ duration: 100 }}
     >

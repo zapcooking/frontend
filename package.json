@@ -23,7 +23,7 @@
     "node": "22.x"
   },
   "dependencies": {
-    "@breeztech/breez-sdk-spark": "0.6.4-rc3",
+    "@breeztech/breez-sdk-spark": "0.6.6",
     "@capacitor/android": "^8.0.0",
     "@capacitor/app": "^8.0.0",
     "@capacitor/cli": "^8.0.0",

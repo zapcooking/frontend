@@ -17,6 +17,7 @@
   import BookmarkIcon from 'phosphor-svelte/lib/BookmarkSimple';
   import PinIcon from 'phosphor-svelte/lib/PushPin';
   import { DEFAULT_LIST_ID, DEFAULT_LIST_TITLE, cookbookStore, getCookbookCoverImage, type CookbookList } from '$lib/stores/cookbookStore';
+  import PanLoader from '../../../components/PanLoader.svelte';
   import { writable, type Writable, get } from 'svelte/store';
   import { RECIPE_TAG_PREFIX_NEW } from '$lib/consts';
   import ImageIcon from 'phosphor-svelte/lib/Image';
@@ -739,8 +740,7 @@
 
 {#if !loaded}
   <div class="flex justify-center items-center h-screen">
-    <img class="w-64 dark:hidden" src="/pan-animated.svg" alt="Loading" />
-    <img class="w-64 hidden dark:block" src="/pan-animated-dark.svg" alt="Loading" />
+    <PanLoader />
   </div>
 {:else if event}
   <div class="flex flex-col gap-6">
