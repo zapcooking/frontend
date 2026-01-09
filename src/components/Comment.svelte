@@ -486,9 +486,12 @@
       // In this case, we need to find the root event ID from the parent's tags
       const rootETag = event.getMatchingTags('e').find(t => t[3] === 'root');
       if (rootETag) {
+        // Derive the root author's pubkey from the parent's p-tags when possible
+        const rootPTags = event.getMatchingTags('p');
+        const rootPubkey = rootPTags && rootPTags.length > 0 ? rootPTags[0][1] : event.pubkey;
         const rootEventObj = {
           kind: 1,
-          pubkey: event.pubkey, // Use the parent comment's pubkey as fallback
+          pubkey: rootPubkey, // Use root author's pubkey when available, otherwise fall back to parent
           id: rootETag[1], // Root event ID from the e tag
           tags: []
         };
