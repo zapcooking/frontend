@@ -1748,7 +1748,10 @@ import ClientAttribution from './ClientAttribution.svelte';
   // Zap modal
   function openZapModal(event: NDKEvent) {
     selectedEvent = event;
-    zapModal = true;
+    // Use setTimeout to allow component to mount before opening
+    setTimeout(() => {
+      zapModal = true;
+    }, 0);
   }
 
   // Image modal
@@ -2111,7 +2114,7 @@ import ClientAttribution from './ClientAttribution.svelte';
 
                     <button
                       class="flex items-center hover:bg-amber-50 rounded-full p-1.5 transition-colors cursor-pointer"
-                      on:click={() => openZapModal(event)}
+                      on:click|stopPropagation={() => openZapModal(event)}
                     >
                       <NoteTotalZaps {event} />
                     </button>
@@ -2173,7 +2176,7 @@ import ClientAttribution from './ClientAttribution.svelte';
   </div>
 </FeedErrorBoundary>
 
-{#if zapModal && selectedEvent}
+{#if selectedEvent}
   <ZapModal
     bind:open={zapModal}
     event={selectedEvent}
