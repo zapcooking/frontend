@@ -186,3 +186,107 @@ export function getTagByName(name: string): recipeTagSimple | undefined {
   );
 }
 
+/**
+ * Generate NIP-22 compliant tags for commenting on longform content (kind 30023)
+ * Returns an array of tags following the NIP-22 structure with both root and parent scope.
+ * 
+ * @param event - The longform event (kind 30023) being commented on
+ * @param parentEvent - Optional parent comment if this is a nested reply
+ * @returns Array of tag tuples ready to be assigned to an NDKEvent
+ */
+export function buildNip22CommentTags(
+  event: { kind: number; pubkey: string; id: string; tags: string[][] },
+  parentEvent?: { id: string; pubkey: string; tags: string[][] }
+): string[][] {
+  // Only apply NIP-22 structure for longform content (kind 30023)
+  if (event.kind !== 30023) {
+    // For non-longform content, use standard NIP-10 structure
+    if (parentEvent) {
+      // Reply to a comment
+      return [
+        ['e', event.id, '', 'root'],
+        ['e', parentEvent.id, '', 'reply'],
+        ['p', parentEvent.pubkey]
+      ];
+    } else {
+      // Direct reply to the event
+      return [
+        ['e', event.id, '', 'root'],
+        ['p', event.pubkey]
+      ];
+    }
+  }
+
+  // NIP-22 structure for longform comments
+  const dTag = event.tags.find((t) => t[0] === 'd')?.[1];
+  
+  if (!dTag) {
+    // Fallback if no d tag - use simple structure
+    if (parentEvent) {
+      return [
+        ['e', event.id, '', event.pubkey],
+        ['e', parentEvent.id, '', parentEvent.pubkey],
+        ['p', event.pubkey],
+        ['p', parentEvent.pubkey]
+      ];
+    } else {
+      return [
+        ['e', event.id, '', event.pubkey],
+        ['p', event.pubkey]
+      ];
+    }
+  }
+
+  const addressTag = `${event.kind}:${event.pubkey}:${dTag}`;
+  const relayHint = event.tags.find((t) => t[0] === 'relay')?.[1] || '';
+
+  if (parentEvent) {
+    // Nested reply to a comment - preserve root scope, update parent scope
+    // Try to get root scope from parent comment (if it exists)
+    const parentATag = parentEvent.tags.find((t) => t[0] === 'A' || t[0] === 'a');
+    const parentKTag = parentEvent.tags.find((t) => t[0] === 'K');
+    const parentPTag = parentEvent.tags.find((t) => t[0] === 'P');
+
+    if (parentATag && parentKTag && parentPTag) {
+      // Parent has proper NIP-22 structure, inherit root scope
+      return [
+        // Root scope (uppercase) - inherited from parent
+        ['A', parentATag[1], relayHint, parentPTag[1]],
+        ['K', parentKTag[1]],
+        ['P', parentPTag[1]],
+        // Parent scope (lowercase) - points to the comment being replied to
+        ['a', parentATag[1], relayHint, parentPTag[1]],
+        ['e', parentEvent.id, relayHint, parentEvent.pubkey],
+        ['k', '1111'], // Parent is a comment
+        ['p', parentEvent.pubkey]
+      ];
+    } else {
+      // Parent doesn't have proper structure, build from scratch
+      return [
+        // Root scope (uppercase)
+        ['A', addressTag, relayHint, event.pubkey],
+        ['K', String(event.kind)],
+        ['P', event.pubkey],
+        // Parent scope (lowercase) - points to the comment being replied to
+        ['a', addressTag, relayHint, event.pubkey],
+        ['e', parentEvent.id, relayHint, parentEvent.pubkey],
+        ['k', '1111'], // Parent is a comment
+        ['p', parentEvent.pubkey]
+      ];
+    }
+  } else {
+    // Top-level comment - root and parent scope are the same
+    return [
+      // Root scope (uppercase)
+      ['A', addressTag, relayHint, event.pubkey],
+      ['K', String(event.kind)],
+      ['P', event.pubkey],
+      // Parent scope (lowercase) - same as root for top-level comment
+      ['a', addressTag, relayHint, event.pubkey],
+      ['e', event.id, relayHint, event.pubkey],
+      ['k', String(event.kind)],
+      ['p', event.pubkey]
+    ];
+  }
+}
+
