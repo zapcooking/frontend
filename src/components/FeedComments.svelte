@@ -9,6 +9,7 @@
   import CustomAvatar from './CustomAvatar.svelte';
   import { nip19 } from 'nostr-tools';
   import { get } from 'svelte/store';
+  import { createCommentFilter } from '$lib/commentFilters';
 
   export let event: NDKEvent;
   let events: NDKEvent[] = [];
@@ -287,30 +288,8 @@
   $: if ($ndk && !subscribed && showComments) {
     subscribed = true;
 
-    // For longform (kind 30023), use NIP-22 #A filter
-    // For kind 1, use NIP-10 #e filter
-    if (event.kind === 30023) {
-      const dTag = event.tags.find((t) => t[0] === 'd')?.[1];
-      if (dTag) {
-        const addressTag = `${event.kind}:${event.pubkey}:${dTag}`;
-        feedCommentSubscription = $ndk.subscribe({
-          kinds: [1111],
-          '#A': [addressTag]  // NIP-22: filter by root address
-        }, { closeOnEose: false });
-      } else {
-        // Fallback if no d tag
-        feedCommentSubscription = $ndk.subscribe({
-          kinds: [1, 1111],
-          '#e': [event.id]
-        }, { closeOnEose: false });
-      }
-    } else {
-      // NIP-10 for kind 1 notes
-      feedCommentSubscription = $ndk.subscribe({
-        kinds: [1],
-        '#e': [event.id]
-      }, { closeOnEose: false });
-    }
+    const filter = createCommentFilter(event);
+    feedCommentSubscription = $ndk.subscribe(filter, { closeOnEose: false });
 
     feedCommentSubscription.on('event', (e) => {
       if (processedEvents.has(e.id)) return;
