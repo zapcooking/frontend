@@ -268,8 +268,12 @@
         const rootATag = parentComment.getMatchingTags('A')[0] || parentComment.getMatchingTags('a')[0];
         
         if (rootATag) {
-          // Parse the address tag to extract root event info
-          const [kind, pubkey, dTag] = rootATag[1].split(':');
+          // Parse the address tag to extract root event info.
+          // Format is kind:pubkey:d, where d may itself contain colons.
+          const addressParts = rootATag[1].split(':');
+          const kind = addressParts[0];
+          const pubkey = addressParts[1];
+          const dTag = addressParts.slice(2).join(':');
           const rootEventObj = {
             kind: parseInt(kind),
             pubkey: pubkey,
