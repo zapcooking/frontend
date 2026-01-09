@@ -210,6 +210,7 @@
 <!-- Full picker modal -->
 <FullEmojiPicker
   open={showFullPicker}
+  anchorEl={buttonEl}
   on:select={(e) => handleReaction(e.detail.emoji)}
   on:close={() => (showFullPicker = false)}
 />

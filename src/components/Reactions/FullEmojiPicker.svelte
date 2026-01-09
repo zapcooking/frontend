@@ -15,7 +15,6 @@
   let pickerLoaded = false;
   let containerEl: HTMLElement;
   let pickerStyle = '';
-  let rafId: number;
 
   onMount(async () => {
     if (browser) {
@@ -26,17 +25,17 @@
   });
 
   function updatePosition() {
-    if (anchorEl && open) {
+    if (anchorEl && containerEl) {
       const rect = anchorEl.getBoundingClientRect();
       const pickerWidth = 352; // emoji-picker-element default width
-      const pickerHeight = containerEl?.offsetHeight || 400;
+      const pickerHeight = containerEl.offsetHeight || 400;
       const viewportHeight = window.innerHeight;
       const viewportWidth = window.innerWidth;
-      
+
       // Check if there's room below the button, otherwise position above
       const spaceBelow = viewportHeight - rect.bottom - 8;
       const showAbove = spaceBelow < pickerHeight && rect.top > pickerHeight;
-      
+
       // Ensure picker doesn't go off-screen horizontally
       let left = rect.left;
       if (left + pickerWidth > viewportWidth - 8) {
@@ -45,28 +44,19 @@
       if (left < 8) {
         left = 8;
       }
-      
+
       if (showAbove) {
         pickerStyle = `left: ${left}px; bottom: ${viewportHeight - rect.top + 8}px; top: auto;`;
       } else {
         pickerStyle = `left: ${left}px; top: ${rect.bottom + 8}px; bottom: auto;`;
       }
     }
-    
-    if (open) {
-      rafId = requestAnimationFrame(updatePosition);
-    }
   }
 
-  $: if (open && browser) {
+  // Update position when picker opens and elements are ready
+  $: if (open && browser && anchorEl && containerEl) {
     updatePosition();
   }
-
-  onDestroy(() => {
-    if (browser && rafId) {
-      cancelAnimationFrame(rafId);
-    }
-  });
 
   function handleEmojiClick(event: any) {
     const emoji = event.detail?.unicode;
@@ -90,8 +80,17 @@
     }
   }
 
-  $: if (pickerElement && pickerLoaded) {
-    pickerElement.addEventListener('emoji-click', handleEmojiClick);
+  // Set up emoji click listener once when picker is loaded
+  $: if (pickerElement && pickerLoaded && open) {
+    const handleClick = (event: any) => {
+      const emoji = event.detail?.unicode;
+      if (emoji) {
+        dispatch('select', { emoji });
+      }
+    };
+    pickerElement.addEventListener('emoji-click', handleClick);
+
+    // Cleanup function is handled by portal destroy
   }
 
   // Portal action to move element to body
@@ -111,7 +110,7 @@
   }
 </script>
 
-{#if open && pickerLoaded}
+{#if open}
   <div use:portal>
     <!-- Fixed backdrop with subtle darkening for visibility -->
     <div
@@ -124,15 +123,17 @@
       transition:fade={{ duration: 100 }}
     >
     </div>
-    
+
     <!-- Picker positioned to anchor -->
-    <div
-      bind:this={containerEl}
-      class="fixed z-[1001] rounded-2xl shadow-xl overflow-hidden pointer-events-auto"
-      style="{pickerStyle} border: 1px solid var(--color-input-border);"
-    >
-      <emoji-picker bind:this={pickerElement}></emoji-picker>
-    </div>
+    {#if pickerLoaded}
+      <div
+        bind:this={containerEl}
+        class="fixed z-[1001] rounded-2xl shadow-xl overflow-hidden pointer-events-auto"
+        style="{pickerStyle} border: 1px solid var(--color-input-border);"
+      >
+        <emoji-picker bind:this={pickerElement}></emoji-picker>
+      </div>
+    {/if}
   </div>
 {/if}
 
