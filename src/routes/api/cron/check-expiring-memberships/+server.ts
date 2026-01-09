@@ -35,14 +35,6 @@ export const GET: RequestHandler = async ({ request, platform }) => {
     }
   }
 
-  // Check if membership notifications are enabled
-  const MEMBERSHIP_ENABLED = platform?.env?.MEMBERSHIP_ENABLED || env.MEMBERSHIP_ENABLED;
-  if (MEMBERSHIP_ENABLED !== 'true') {
-    return json(
-      { error: 'Membership notifications disabled' },
-      { status: 403 }
-    );
-  }
 
   try {
     // Get required environment variables

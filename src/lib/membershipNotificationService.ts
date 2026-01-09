@@ -1,10 +1,10 @@
 /**
- * Membership Notification Service
- * 
- * Sends Nostr DMs to users when their membership is about to expire.
- */
+* Membership Notification Service
+*
+* Sends Nostr DMs to users when their membership is about to expire.
+*/
 
-import NDK, { NDKEvent, NDKPrivateKeySigner } from '@nostr-dev-kit/ndk';
+import NDK, { NDKEvent, NDKPrivateKeySigner, NDKRelaySet } from '@nostr-dev-kit/ndk';
 import { nip04 } from 'nostr-tools';
 
 export interface ExpiringMember {
@@ -14,9 +14,19 @@ export interface ExpiringMember {
   payment_id: string;
 }
 
+// Reliable relays for DM delivery
+const DM_RELAYS = [
+  'wss://relay.damus.io',
+  'wss://nos.lol',
+  'wss://relay.nostr.band',
+  'wss://nostr.wine',
+  'wss://relay.snort.social',
+  'wss://purplepag.es'
+];
+
 /**
- * Check for memberships expiring within the specified days
- */
+* Check for memberships expiring within the specified days
+*/
 export async function getExpiringMemberships(
   apiSecret: string,
   daysAhead: number = 7
@@ -39,14 +49,10 @@ export async function getExpiringMemberships(
 
     const expiringMembers = data.members
       ?.filter((m: any) => {
-        // Only check active members
         if (m.status !== 'active') return false;
-        
-        // Check if subscription_end exists and is within the expiration window
         if (!m.subscription_end) return false;
         
         const endDate = new Date(m.subscription_end);
-        // Expires within the window AND hasn't expired yet
         return endDate >= now && endDate <= expirationDate;
       })
       .map((m: any) => ({
@@ -64,8 +70,31 @@ export async function getExpiringMemberships(
 }
 
 /**
- * Send a Nostr DM (kind 4) using NIP-04 encryption (for better client compatibility)
- */
+* Wait for at least one relay to be connected
+*/
+async function waitForRelayConnection(ndk: NDK, timeoutMs: number = 5000): Promise<boolean> {
+  const startTime = Date.now();
+  
+  while (Date.now() - startTime < timeoutMs) {
+    const connectedRelays = Array.from(ndk.pool.relays.values()).filter(
+      (relay) => relay.status === 1 // NDKRelayStatus.CONNECTED
+    );
+    
+    if (connectedRelays.length > 0) {
+      console.log(`[Membership Notification] Connected to ${connectedRelays.length} relays`);
+      return true;
+    }
+    
+    // Wait 100ms before checking again
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+  
+  return false;
+}
+
+/**
+* Send a Nostr DM (kind 4) using NIP-04 encryption
+*/
 export async function sendMembershipExpirationDM(
   ndk: NDK,
   recipientPubkey: string,
@@ -74,13 +103,15 @@ export async function sendMembershipExpirationDM(
   senderPrivateKey: string
 ): Promise<boolean> {
   try {
-    // Create a signer from the private key
-    // The private key should be for a service account that sends membership notifications
     const signer = new NDKPrivateKeySigner(senderPrivateKey);
     ndk.signer = signer;
 
-    // Get recipient user
-    const recipient = ndk.getUser({ pubkey: recipientPubkey });
+    // Wait for relay connections
+    const connected = await waitForRelayConnection(ndk, 5000);
+    if (!connected) {
+      console.error('[Membership Notification] No relays connected after timeout');
+      // Continue anyway - publish might still work
+    }
 
     // Format the message
     const endDate = new Date(subscriptionEnd);
@@ -88,10 +119,10 @@ export async function sendMembershipExpirationDM(
       (endDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24)
     );
     
-    const formattedDate = endDate.toLocaleDateString('en-US', { 
-      month: 'long', 
-      day: 'numeric', 
-      year: 'numeric' 
+    const formattedDate = endDate.toLocaleDateString('en-US', {
+      month: 'long',
+      day: 'numeric',
+      year: 'numeric'
     });
     
     const message = `⚡ Your Zap Cooking membership is due for renewal in ${daysUntilExpiry} day${daysUntilExpiry !== 1 ? 's' : ''}
@@ -100,12 +131,7 @@ Renew to continue your Zap Cooking membership without interruption.
 🔗 Renew here: https://zap.cooking/membership
 We're glad you're cooking with us 🍳`;
 
-    // Get sender pubkey
-    const senderUser = await signer.user();
-    const senderPubkeyHex = senderUser.hexpubkey;
-    
-    // Use NIP-04 for better compatibility (more widely supported than NIP-44)
-    // NIP-04 format: encrypt(privkey: string, pubkey: string, plaintext: string) -> string
+    // Encrypt with NIP-04
     const encryptedContent = await nip04.encrypt(
       senderPrivateKey,
       recipientPubkey,
@@ -116,17 +142,52 @@ We're glad you're cooking with us 🍳`;
     const dmEvent = new NDKEvent(ndk);
     dmEvent.kind = 4;
     dmEvent.content = encryptedContent;
-    dmEvent.tags = [['p', recipientPubkey]]; // Recipient tag
+    dmEvent.tags = [['p', recipientPubkey]];
     dmEvent.created_at = Math.floor(Date.now() / 1000);
     
-    // Explicitly sign the event
     await dmEvent.sign(signer);
 
-    // Publish the event
-    await dmEvent.publish();
+    // Try to publish to connected relays
+    // Use a try-catch for each relay to be more resilient
+    const connectedRelays = Array.from(ndk.pool.relays.values()).filter(
+      (relay) => relay.status === 1
+    );
+    
+    console.log(`[Membership Notification] Attempting to publish to ${connectedRelays.length} connected relays`);
+    
+    let publishedToAtLeastOne = false;
+    const publishPromises = connectedRelays.map(async (relay) => {
+      try {
+        await relay.publish(dmEvent);
+        console.log(`[Membership Notification] Published to ${relay.url}`);
+        publishedToAtLeastOne = true;
+        return true;
+      } catch (err) {
+        console.log(`[Membership Notification] Failed to publish to ${relay.url}:`, err);
+        return false;
+      }
+    });
+    
+    await Promise.allSettled(publishPromises);
+    
+    if (!publishedToAtLeastOne) {
+      // Fallback: try the default publish method
+      console.log('[Membership Notification] Trying default publish method...');
+      try {
+        await dmEvent.publish();
+        publishedToAtLeastOne = true;
+      } catch (err) {
+        console.error('[Membership Notification] Default publish also failed:', err);
+      }
+    }
 
-    console.log(`[Membership Notification] Sent expiration DM to ${recipientPubkey.substring(0, 16)}...`);
-    return true;
+    if (publishedToAtLeastOne) {
+      console.log(`[Membership Notification] Sent expiration DM to ${recipientPubkey.substring(0, 16)}...`);
+      return true;
+    } else {
+      console.error('[Membership Notification] Failed to publish to any relay');
+      return false;
+    }
   } catch (error) {
     console.error('[Membership Notification] Error sending DM:', error);
     return false;
@@ -134,8 +195,8 @@ We're glad you're cooking with us 🍳`;
 }
 
 /**
- * Process all expiring memberships and send notifications
- */
+* Process all expiring memberships and send notifications
+*/
 export async function processExpiringMemberships(
   ndk: NDK,
   apiSecret: string,
@@ -151,7 +212,6 @@ export async function processExpiringMemberships(
     let failed = 0;
     const errors: string[] = [];
 
-    // Process each expiring member
     for (const member of expiringMembers) {
       try {
         const success = await sendMembershipExpirationDM(
@@ -169,7 +229,6 @@ export async function processExpiringMemberships(
           errors.push(`Failed to send DM to ${member.pubkey.substring(0, 16)}...`);
         }
         
-        // Add a small delay between messages to avoid rate limiting
         await new Promise(resolve => setTimeout(resolve, 500));
       } catch (error: any) {
         failed++;
@@ -183,4 +242,3 @@ export async function processExpiringMemberships(
     throw error;
   }
 }
-
