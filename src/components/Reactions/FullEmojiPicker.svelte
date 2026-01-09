@@ -73,11 +73,8 @@
   }
 
   function handleBackdropTouch(e: TouchEvent) {
-    // Handle touch events for mobile - only close if touching the backdrop itself
-    if (e.target === e.currentTarget) {
-      e.preventDefault();
-      dispatch('close');
-    }
+    // Delegate to the main backdrop handler to avoid duplicated logic
+    handleBackdropClick(e);
   }
 
   // Set up emoji click listener once when picker is loaded
