@@ -27,7 +27,7 @@ const GENESIS_PRICE_CENTS = 21000; // $210.00
 export const POST: RequestHandler = async ({ request, platform }) => {
   // Membership feature flag guard - return 403 when disabled
   const MEMBERSHIP_ENABLED = platform?.env?.MEMBERSHIP_ENABLED || env.MEMBERSHIP_ENABLED;
-  if (MEMBERSHIP_ENABLED !== 'true') {
+  if (MEMBERSHIP_ENABLED?.toLowerCase() !== 'true') {
     return json({ error: 'Forbidden' }, { status: 403 });
   }
 
