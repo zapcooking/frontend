@@ -8,6 +8,7 @@
   import { resolveProfileByPubkey, formatDisplayName } from '$lib/profileResolver';
   import { formatAmount } from '$lib/utils';
   import { addClientTagToEvent } from '$lib/nip89';
+  import { buildNip22CommentTags } from '$lib/tagUtils';
   import HeartIcon from 'phosphor-svelte/lib/Heart';
   import LightningIcon from 'phosphor-svelte/lib/Lightning';
   import RichTextNostr from './RichTextNostr.svelte';
@@ -450,48 +451,54 @@
     
     ev.content = replyText.trim();
     
+    // Reconstruct a minimal event object for the parent comment
+    const parentEventObj = {
+      id: event.id,
+      pubkey: event.pubkey,
+      kind: event.kind,
+      tags: event.tags
+    };
+    
+    // For recipe replies, we need to get the root event info from the parent's tags
     if (isRecipeReply) {
-      // NIP-22 structure for nested comments
-      // Get root scope from parent comment
+      // Get root event info from parent comment's tags
       const rootATag = event.getMatchingTags('A')[0] || event.getMatchingTags('a')[0];
-      const rootKTag = event.getMatchingTags('K')[0];
-      const rootPTag = event.getMatchingTags('P')[0];
       
-      if (rootATag && rootKTag && rootPTag) {
-        const relayHint = rootATag[2] || '';
-        ev.tags = [
-          // Root scope (uppercase) - same as parent
-          ['A', rootATag[1], relayHint, rootPTag[1]],
-          ['K', rootKTag[1]],
-          ['P', rootPTag[1]],
-          // Parent scope (lowercase) - points to the comment being replied to
-          ['a', rootATag[1], relayHint, rootPTag[1]],  // Keep root address
-          ['e', event.id, relayHint, event.pubkey],    // Parent comment ID
-          ['k', '1111'],                                 // Parent is a comment
-          ['p', event.pubkey]                            // Parent comment author
-        ];
+      if (rootATag) {
+        // Parse the address tag to extract root event info
+        const [kind, pubkey, dTag] = rootATag[1].split(':');
+        const rootEventObj = {
+          kind: parseInt(kind),
+          pubkey: pubkey,
+          id: '', // We don't need the actual event ID for tag generation
+          tags: [['d', dTag], ['relay', rootATag[2] || '']]
+        };
+        
+        // Use the utility with both root and parent event
+        ev.tags = buildNip22CommentTags(rootEventObj, parentEventObj);
       } else {
-        // Fallback if parent doesn't have proper NIP-22 structure
-        const fallbackATag = aTag || ATag;
-        if (fallbackATag) {
-          ev.tags = [
-            ['a', fallbackATag[1]],
-            ['e', event.id, '', event.pubkey],
-            ['p', event.pubkey]
-          ];
-        } else {
-          ev.tags = [
-            ['e', event.id, '', event.pubkey],
-            ['p', event.pubkey]
-          ];
-        }
+        // Fallback: treat parent as if it's the root
+        ev.tags = buildNip22CommentTags(parentEventObj, parentEventObj);
       }
     } else {
-      // NIP-10 structure for kind 1 replies
-      ev.tags = [
-        ['e', event.id, '', 'reply'],
-        ['p', event.pubkey]
-      ];
+      // For non-recipe replies, we still need to construct a root event object
+      // In this case, we need to find the root event ID from the parent's tags
+      const rootETag = event.getMatchingTags('e').find(t => t[3] === 'root');
+      if (rootETag) {
+        const rootEventObj = {
+          kind: 1,
+          pubkey: event.pubkey, // Use the parent comment's pubkey as fallback
+          id: rootETag[1], // Root event ID from the e tag
+          tags: []
+        };
+        ev.tags = buildNip22CommentTags(rootEventObj, parentEventObj);
+      } else {
+        // Use the simplified version for replies
+        ev.tags = [
+          ['e', event.id, '', 'reply'],
+          ['p', event.pubkey]
+        ];
+      }
     }
     
     // Parse and add @ mention tags (p tags)

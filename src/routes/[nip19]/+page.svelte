@@ -15,6 +15,7 @@
   import ZapModal from '../../components/ZapModal.svelte';
   import Button from '../../components/Button.svelte';
   import { addClientTagToEvent } from '$lib/nip89';
+  import { buildNip22CommentTags } from '$lib/tagUtils';
   import ClientAttribution from '../../components/ClientAttribution.svelte';
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
   import type { PageData } from './$types';
@@ -261,38 +262,13 @@
       
       ev.content = commentText;
       
-      if (isRecipe) {
-        // NIP-22 structure for longform comments
-        const dTag = event.tags.find((t) => t[0] === 'd')?.[1];
-        if (dTag) {
-          const addressTag = `${event.kind}:${event.pubkey}:${dTag}`;
-          const relayHint = event.tags.find((t) => t[0] === 'relay')?.[1] || '';
-          
-          ev.tags = [
-            // Root scope (uppercase)
-            ['A', addressTag, relayHint, event.pubkey],
-            ['K', String(event.kind)],
-            ['P', event.pubkey],
-            // Parent scope (lowercase) - same as root for top-level comment
-            ['a', addressTag, relayHint, event.pubkey],
-            ['e', event.id, relayHint, event.pubkey],
-            ['k', String(event.kind)],
-            ['p', event.pubkey]
-          ];
-        } else {
-          // Fallback if no d tag
-          ev.tags = [
-            ['e', event.id, '', event.pubkey],
-            ['p', event.pubkey]
-          ];
-        }
-      } else {
-        // NIP-10 structure for kind 1 replies
-        ev.tags = [
-          ['e', event.id, '', 'root'],
-          ['p', event.pubkey]
-        ];
-      }
+      // Use shared utility to build NIP-22 or NIP-10 tags
+      ev.tags = buildNip22CommentTags({
+        kind: event.kind,
+        pubkey: event.pubkey,
+        id: event.id,
+        tags: event.tags
+      });
       
       // Add NIP-89 client tag
       addClientTagToEvent(ev);

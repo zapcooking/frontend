@@ -8,6 +8,7 @@
   import { format as formatDate } from 'timeago.js';
   import Button from './Button.svelte';
   import { addClientTagToEvent } from '$lib/nip89';
+  import { buildNip22CommentTags } from '$lib/tagUtils';
   import CommentLikes from './CommentLikes.svelte';
   import { get } from 'svelte/store';
 
@@ -253,44 +254,37 @@
       
       replyEvent.content = replyText.trim();
       
+      // Reconstruct a minimal event object for the parent comment
+      const parentEventObj = {
+        id: parentComment.id,
+        pubkey: parentComment.pubkey,
+        kind: parentComment.kind,
+        tags: parentComment.tags
+      };
+      
+      // For recipe replies, we need to get the root event info from the parent's tags
       if (isRecipeReply) {
-        // NIP-22 structure for nested comments
-        // Get root scope from parent comment
+        // Get root event info from parent comment's tags
         const rootATag = parentComment.getMatchingTags('A')[0] || parentComment.getMatchingTags('a')[0];
-        const rootKTag = parentComment.getMatchingTags('K')[0];
-        const rootPTag = parentComment.getMatchingTags('P')[0];
         
-        if (rootATag && rootKTag && rootPTag) {
-          const relayHint = rootATag[2] || '';
-          replyEvent.tags = [
-            // Root scope (uppercase) - same as parent
-            ['A', rootATag[1], relayHint, rootPTag[1]],
-            ['K', rootKTag[1]],
-            ['P', rootPTag[1]],
-            // Parent scope (lowercase) - points to the comment being replied to
-            ['a', rootATag[1], relayHint, rootPTag[1]],  // Keep root address
-            ['e', parentComment.id, relayHint, parentComment.pubkey],    // Parent comment ID
-            ['k', '1111'],                                 // Parent is a comment
-            ['p', parentComment.pubkey]                            // Parent comment author
-          ];
+        if (rootATag) {
+          // Parse the address tag to extract root event info
+          const [kind, pubkey, dTag] = rootATag[1].split(':');
+          const rootEventObj = {
+            kind: parseInt(kind),
+            pubkey: pubkey,
+            id: '', // We don't need the actual event ID for tag generation
+            tags: [['d', dTag], ['relay', rootATag[2] || '']]
+          };
+          
+          // Use the utility with both root and parent event
+          replyEvent.tags = buildNip22CommentTags(rootEventObj, parentEventObj);
         } else {
-          // Fallback if parent doesn't have proper NIP-22 structure
-          const fallbackATag = aTag || ATag;
-          if (fallbackATag) {
-            replyEvent.tags = [
-              ['a', fallbackATag[1]],
-              ['e', parentComment.id, '', parentComment.pubkey],
-              ['p', parentComment.pubkey]
-            ];
-          } else {
-            replyEvent.tags = [
-              ['e', parentComment.id, '', parentComment.pubkey],
-              ['p', parentComment.pubkey]
-            ];
-          }
+          // Fallback: treat parent as if it's the root
+          replyEvent.tags = buildNip22CommentTags(parentEventObj, parentEventObj);
         }
       } else {
-        // NIP-10 structure for kind 1 replies
+        // For non-recipe replies, use simplified tag structure
         replyEvent.tags = [
           ['e', parentComment.id, '', 'reply'],
           ['p', parentComment.pubkey]
