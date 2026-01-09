@@ -252,9 +252,14 @@
         }
       } else {
         // For non-recipe replies, construct tags for standard note replies
+        // Try to derive the root event's pubkey from the parent event's tags.
+        // Prefer any 'p'/'P' tag, which typically references the root author.
+        const rootPubkeyFromTags =
+          event.tags.find((t) => (t[0] === 'p' || t[0] === 'P') && t[1])?.[1];
+
         const rootEventObj = {
           kind: 1,
-          pubkey: event.pubkey,
+          pubkey: rootPubkeyFromTags || event.pubkey,
           id: mainEventId,
           tags: []
         };
