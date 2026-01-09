@@ -236,7 +236,8 @@
         
         if (rootATag) {
           // Parse the address tag to extract root event info
-          const [kind, pubkey, dTag] = rootATag[1].split(':');
+          const [kind, pubkey, ...dTagParts] = rootATag[1].split(':');
+          const dTag = dTagParts.join(':');
           const rootEventObj = {
             kind: parseInt(kind),
             pubkey: pubkey,
