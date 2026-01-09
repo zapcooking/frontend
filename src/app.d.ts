@@ -8,6 +8,9 @@ declare global {
     interface Platform {
       env?: {
         RELAY_API_SECRET: string;
+        NOTIFICATION_PRIVATE_KEY?: string;
+        CRON_SECRET?: string;
+        MEMBERSHIP_ENABLED?: string;
         // Add other Cloudflare env vars here
       };
     }

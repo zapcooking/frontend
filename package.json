@@ -10,6 +10,8 @@
     "preview": "vite preview",
     "dev:cloudflare": "pnpm build && wrangler pages dev .svelte-kit/cloudflare --compatibility-date=2025-01-01 --compatibility-flags=nodejs_compat",
     "test:og": "pnpm build && wrangler pages dev .svelte-kit/cloudflare --compatibility-date=2025-01-01 --compatibility-flags=nodejs_compat",
+    "test:notification": "curl \"http://localhost:5174/api/cron/test-notification?npub=npub1aeh2zw4elewy5682lxc6xnlqzjnxksq303gwu2npfaxd49vmde6qcq4nwx\"",
+    "test:notification:cloudflare": "curl -H \"Authorization: Bearer $CRON_SECRET\" \"https://zap.cooking/api/cron/test-notification?npub=npub15u3cqhx6vuj3rywg0ph5mfv009lxja6cyvqn2jagaydukq6zmjwqex05rq\"",
     "deploy": "wrangler pages deploy .svelte-kit/cloudflare --project-name=zapcooking-frontend",
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
