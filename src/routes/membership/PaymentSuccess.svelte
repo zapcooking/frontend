@@ -8,15 +8,19 @@
   import ChefHatIcon from 'phosphor-svelte/lib/CookingPot';
   import SealCheckIcon from 'phosphor-svelte/lib/SealCheck';
   import { paymentStore } from './paymentStore';
-  import { userPublickey } from '$lib/nostr';
+  import { userPublickey, ndk } from '$lib/nostr';
+  import { updateProfileWithNip05 } from '$lib/nip05Service';
   import Nip05ClaimModal from '../../components/Nip05ClaimModal.svelte';
 
   $: membershipDetails = $paymentStore.membershipDetails;
   $: selectedTier = $paymentStore.selectedTier;
   $: showNip05Offer = selectedTier === 'cook' || selectedTier === 'pro';
   $: nip05Tier = (selectedTier === 'cook' || selectedTier === 'pro') ? selectedTier as 'cook' | 'pro' : 'cook';
+  $: hasAutoAssignedNip05 = membershipDetails?.nip05;
   
   let showNip05Modal = false;
+  let nip05UpdateStatus: 'pending' | 'updating' | 'success' | 'error' = 'pending';
+  let nip05Error: string | null = null;
 
   function handleClose() {
     paymentStore.close();
@@ -35,15 +39,39 @@
   function handleNip05Claimed(event: CustomEvent) {
     showNip05Modal = false;
     // NIP-05 is automatically added to profile by the modal
+    nip05UpdateStatus = 'success';
   }
 
   function handleNip05Skipped() {
     showNip05Modal = false;
   }
 
+  async function autoUpdateProfileNip05(nip05Address: string) {
+    if (!$userPublickey || !$ndk) return;
+    
+    nip05UpdateStatus = 'updating';
+    try {
+      const success = await updateProfileWithNip05($ndk, $userPublickey, nip05Address);
+      if (success) {
+        nip05UpdateStatus = 'success';
+        console.log('[PaymentSuccess] Profile updated with NIP-05:', nip05Address);
+      } else {
+        nip05UpdateStatus = 'error';
+        nip05Error = 'Could not update profile automatically. You can add it manually in settings.';
+      }
+    } catch (err) {
+      console.error('[PaymentSuccess] Failed to update profile with NIP-05:', err);
+      nip05UpdateStatus = 'error';
+      nip05Error = 'Could not update profile automatically. You can add it manually in settings.';
+    }
+  }
+
   onMount(() => {
-    // Auto-open NIP-05 claim modal for Cook+ and Pro Kitchen after a short delay
-    if (showNip05Offer && $userPublickey) {
+    // If we have an auto-assigned NIP-05, update the profile automatically
+    if (hasAutoAssignedNip05 && membershipDetails?.nip05 && $userPublickey) {
+      autoUpdateProfileNip05(membershipDetails.nip05);
+    } else if (showNip05Offer && $userPublickey && !hasAutoAssignedNip05) {
+      // Only show claim modal if no NIP-05 was auto-assigned
       setTimeout(() => {
         showNip05Modal = true;
       }, 1500);
@@ -113,6 +141,17 @@
         <span class="text-green-500 mt-1">✓</span>
         <span>Your profile now displays your membership badge</span>
       </li>
+      {#if hasAutoAssignedNip05}
+        <li class="flex items-start gap-3">
+          <span class="text-green-500 mt-1">✓</span>
+          <span>Your verified <strong>@zap.cooking</strong> identity is active</span>
+        </li>
+      {:else if showNip05Offer}
+        <li class="flex items-start gap-3">
+          <span class="text-green-500 mt-1">✓</span>
+          <span>Claim your verified <strong>@zap.cooking</strong> NIP-05 identity</span>
+        </li>
+      {/if}
       <li class="flex items-start gap-3">
         <span class="text-green-500 mt-1">✓</span>
         <span>Access all premium features and early releases</span>
@@ -121,17 +160,42 @@
         <span class="text-green-500 mt-1">✓</span>
         <span>Check your email for a confirmation receipt</span>
       </li>
-      {#if showNip05Offer}
-        <li class="flex items-start gap-3">
-          <span class="text-green-500 mt-1">✓</span>
-          <span>Claim your verified <strong>@zap.cooking</strong> NIP-05 identity</span>
-        </li>
-      {/if}
     </ul>
   </div>
 
-  <!-- NIP-05 Claim Prompt -->
-  {#if showNip05Offer && !showNip05Modal}
+  <!-- NIP-05 Auto-Assigned Badge -->
+  {#if hasAutoAssignedNip05 && membershipDetails?.nip05}
+    <div class="bg-green-50 dark:bg-green-900/20 border-2 border-green-200 dark:border-green-800 rounded-xl p-4 mb-6">
+      <div class="flex items-start gap-3">
+        <div class="w-10 h-10 rounded-full bg-green-500 flex items-center justify-center flex-shrink-0">
+          <CheckCircleIcon size={20} weight="fill" class="text-white" />
+        </div>
+        <div class="flex-1">
+          <h4 class="font-semibold text-gray-900 dark:text-white mb-1">
+            Verified Identity Assigned
+          </h4>
+          <p class="text-lg font-bold text-green-600 dark:text-green-400 mb-2">
+            {membershipDetails.nip05}
+          </p>
+          {#if nip05UpdateStatus === 'updating'}
+            <p class="text-sm text-yellow-600 dark:text-yellow-400">Updating your profile...</p>
+          {:else if nip05UpdateStatus === 'success'}
+            <p class="text-sm text-green-600 dark:text-green-400">✓ Your profile has been updated</p>
+          {:else if nip05UpdateStatus === 'error'}
+            <p class="text-sm text-red-600 dark:text-red-400">{nip05Error}</p>
+          {/if}
+          <button
+            type="button"
+            on:click={() => showNip05Modal = true}
+            class="mt-2 px-3 py-1.5 bg-transparent border border-green-500 text-green-600 dark:text-green-400 rounded-lg font-medium text-sm transition-colors hover:bg-green-50 dark:hover:bg-green-900/30"
+          >
+            Change Username
+          </button>
+        </div>
+      </div>
+    </div>
+  {:else if showNip05Offer && !showNip05Modal}
+    <!-- NIP-05 Claim Prompt (fallback if no auto-assignment) -->
     <div class="bg-blue-50 dark:bg-blue-900/20 border-2 border-blue-200 dark:border-blue-800 rounded-xl p-4 mb-6">
       <div class="flex items-start gap-3">
         <SealCheckIcon size={24} weight="fill" class="text-blue-500 flex-shrink-0 mt-0.5" />
@@ -185,6 +249,7 @@
     bind:open={showNip05Modal}
     pubkey={$userPublickey}
     tier={nip05Tier}
+    currentNip05={membershipDetails?.nip05 || null}
     on:claimed={handleNip05Claimed}
     on:skipped={handleNip05Skipped}
   />

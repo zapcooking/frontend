@@ -40,7 +40,8 @@ self.addEventListener('fetch', (event) => {
     return;
   }
   
-  // For all other requests, use the default behavior
-  event.respondWith(fetch(event.request));
+  // For all other requests, let the browser handle them natively
+  // Don't intercept - this avoids fetch errors and unhandled promise rejections
+  // The browser will handle the requests normally without service worker interference
 });
 

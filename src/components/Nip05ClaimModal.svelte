@@ -10,8 +10,11 @@
   export let open: boolean = false;
   export let pubkey: string;
   export let tier: 'cook' | 'pro';
+  export let currentNip05: string | null = null; // If user already has a NIP-05
 
   const dispatch = createEventDispatcher();
+
+  $: isChangingUsername = !!currentNip05;
 
   let username = '';
   let isChecking = false;
@@ -163,10 +166,15 @@
               <SealCheckIcon size={32} weight="fill" class="text-orange-500" />
             </div>
             <h2 class="text-2xl font-bold !text-black mb-2">
-              Claim Your NIP-05 Identity
+              {isChangingUsername ? 'Change Your Username' : 'Claim Your NIP-05 Identity'}
             </h2>
             <p class="text-gray-600 dark:text-gray-400">
-              Get a verified <strong>@zap.cooking</strong> identifier with your {tier === 'cook' ? 'Cook+' : 'Pro Kitchen'} membership
+              {#if isChangingUsername}
+                Current: <strong class="text-orange-500">{currentNip05}</strong><br/>
+                Choose a new username for your verified identity
+              {:else}
+                Get a verified <strong>@zap.cooking</strong> identifier with your {tier === 'cook' ? 'Cook+' : 'Pro Kitchen'} membership
+              {/if}
             </p>
           </div>
 
@@ -236,10 +244,10 @@
                       <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" fill="none"></circle>
                       <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                     </svg>
-                    Claiming...
+                    {isChangingUsername ? 'Updating...' : 'Claiming...'}
                   </span>
                 {:else}
-                  Claim @zap.cooking
+                  {isChangingUsername ? 'Update Username' : 'Claim @zap.cooking'}
                 {/if}
               </button>
             </div>
@@ -251,7 +259,7 @@
               <CheckCircleIcon size={32} weight="fill" class="text-green-500" />
             </div>
             <h2 class="text-2xl font-bold !text-black mb-2">
-              NIP-05 Claimed!
+              {isChangingUsername ? 'Username Updated!' : 'NIP-05 Claimed!'}
             </h2>
             <p class="text-lg text-gray-600 dark:text-gray-400 mb-6">
               Your identity <strong class="text-orange-600">{claimedNip05}</strong> is now verified

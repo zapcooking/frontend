@@ -230,7 +230,7 @@ export async function refreshBalance(sync = false): Promise<number | null> {
 		// Ensure the wallet is connected before trying to get balance
 		const connected = await ensureWalletConnected(wallet)
 		if (!connected) {
-			console.warn('[WalletManager] Wallet not connected, cannot refresh balance')
+			// Silently return - wallet not connected is expected during initialization
 			walletBalance.set(null)
 			return null
 		}

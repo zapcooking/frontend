@@ -27,6 +27,8 @@ export interface PaymentState {
     tier: string;
     expiresAt: string;
     method: string;
+    nip05?: string;
+    nip05Username?: string;
   } | null;
 }
 
@@ -162,7 +164,11 @@ function createPaymentStore() {
     },
 
     // Complete payment (called after successful payment)
-    completePayment: async (method: PaymentMethod, userPubkey: string | null) => {
+    completePayment: async (
+      method: PaymentMethod, 
+      userPubkey: string | null,
+      nip05Info?: { nip05?: string; nip05Username?: string }
+    ) => {
       update(state => {
         const tier = state.selectedTier;
         const period = state.selectedPeriod;
@@ -195,7 +201,9 @@ function createPaymentStore() {
               month: 'long', 
               day: 'numeric' 
             }),
-            method: method === 'bitcoin' ? 'Lightning Network' : 'Credit Card'
+            method: method === 'bitcoin' ? 'Lightning Network' : 'Credit Card',
+            nip05: nip05Info?.nip05,
+            nip05Username: nip05Info?.nip05Username
           }
         };
       });

@@ -119,6 +119,14 @@
     if (isSoldOut) return;
     showFoundersList = !showFoundersList;
   }
+
+  function goToCookPlusCheckout() {
+    goto('/membership/cook-plus-checkout');
+  }
+
+  function goToProKitchenCheckout() {
+    goto('/membership/pro-kitchen-checkout');
+  }
 </script>
 
 <svelte:head>
@@ -281,8 +289,8 @@
           <li>Member badge</li>
           <li>Vote on features</li>
         </ul>
-        <button class="tier-button">Join Cook+</button>
-  </div>
+        <button class="tier-button" on:click={goToCookPlusCheckout}>Join Cook+</button>
+      </div>
 
       <div class="tier-card pro-kitchen">
         <div class="popular-badge">Most Popular</div>
@@ -296,7 +304,7 @@
           <li>AI recipe tools</li>
           <li>Priority support</li>
         </ul>
-        <button class="tier-button primary">Join Pro Kitchen</button>
+        <button class="tier-button primary" on:click={goToProKitchenCheckout}>Join Pro Kitchen</button>
       </div>
     </div>
   </section>

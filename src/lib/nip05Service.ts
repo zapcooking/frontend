@@ -15,60 +15,116 @@ export interface Nip05Claim {
   claimedAt: number;
 }
 
+export interface Nip05ClaimResult {
+  success: boolean;
+  nip05?: string;
+  username?: string;
+  error?: string;
+}
+
 /**
  * Check if a username is available
- * TODO: Replace with real API call
  */
 export async function checkUsernameAvailable(username: string): Promise<boolean> {
   if (!browser) return false;
   
+  const trimmed = username.trim().toLowerCase();
+  
   // Validate username format (alphanumeric + underscore, 3-20 chars)
-  if (!/^[a-z0-9_]{3,20}$/i.test(username)) {
+  if (!/^[a-z0-9_]{3,20}$/.test(trimmed)) {
     return false;
   }
   
-  // TODO: Call backend API to check availability
-  // For now, mock: assume available if meets format requirements
-  await new Promise(resolve => setTimeout(resolve, 300)); // Simulate API delay
-  
-  return true;
+  try {
+    const response = await fetch(`/api/nip05/check-availability?username=${encodeURIComponent(trimmed)}`);
+    
+    if (!response.ok) {
+      console.error('[NIP-05] Check availability error:', response.status);
+      return false;
+    }
+    
+    const data = await response.json();
+    return data.available === true;
+  } catch (error) {
+    console.error('[NIP-05] Error checking username availability:', error);
+    return false;
+  }
 }
 
 /**
  * Claim a NIP-05 identifier for a user
- * TODO: Replace with real API call
  */
 export async function claimNip05(
   username: string,
   pubkey: string,
   tier: 'cook' | 'pro'
-): Promise<{ success: boolean; nip05?: string; error?: string }> {
+): Promise<Nip05ClaimResult> {
   if (!browser) {
     return { success: false, error: 'Browser environment required' };
   }
   
+  const trimmed = username.trim().toLowerCase();
+  
   // Validate username
-  if (!/^[a-z0-9_]{3,20}$/i.test(username)) {
+  if (!/^[a-z0-9_]{3,20}$/.test(trimmed)) {
     return { success: false, error: 'Username must be 3-20 characters (letters, numbers, underscore only)' };
   }
   
-  // TODO: Call backend API to claim NIP-05
-  // POST /api/nip05/claim { username, pubkey, tier }
-  // Backend should:
-  // 1. Verify user has active membership
-  // 2. Check username availability
-  // 3. Create NIP-05 mapping
-  // 4. Return success
+  try {
+    const response = await fetch('/api/nip05/claim', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        username: trimmed,
+        pubkey,
+        tier
+      })
+    });
+    
+    const data = await response.json();
+    
+    if (!response.ok || !data.success) {
+      return {
+        success: false,
+        error: data.error || 'Failed to claim NIP-05'
+      };
+    }
+    
+    return {
+      success: true,
+      nip05: data.nip05,
+      username: data.username
+    };
+  } catch (error: any) {
+    console.error('[NIP-05] Error claiming NIP-05:', error);
+    return {
+      success: false,
+      error: error.message || 'Failed to claim NIP-05'
+    };
+  }
+}
+
+/**
+ * Generate a suggested username from a pubkey or profile name
+ */
+export function generateSuggestedUsername(pubkey: string, displayName?: string): string {
+  // If display name exists, try to use it
+  if (displayName) {
+    // Clean the display name: remove spaces, special chars, make lowercase
+    const cleaned = displayName
+      .toLowerCase()
+      .replace(/[^a-z0-9_]/g, '')
+      .substring(0, 20);
+    
+    if (cleaned.length >= 3) {
+      return cleaned;
+    }
+  }
   
-  // Mock implementation
-  await new Promise(resolve => setTimeout(resolve, 500));
-  
-  const nip05 = `${username.toLowerCase()}@zap.cooking`;
-  
-  return {
-    success: true,
-    nip05
-  };
+  // Fall back to using first 8 chars of pubkey
+  return pubkey.substring(0, 8).toLowerCase();
 }
 
 /**

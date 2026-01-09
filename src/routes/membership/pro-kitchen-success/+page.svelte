@@ -8,7 +8,7 @@
   import Nip05ClaimModal from '../../../components/Nip05ClaimModal.svelte';
 
   let loading = true;
-  let founderNumber: number | null = null;
+  let subscriptionEnd: string | null = null;
   let error: string | null = null;
   let paymentMethod: string | null = null;
   
@@ -22,17 +22,17 @@
   onMount(async () => {
     if (!browser) return;
     
+    const paymentMethodParam = $page.url.searchParams.get('payment_method');
     const sessionId = $page.url.searchParams.get('session_id');
-    paymentMethod = $page.url.searchParams.get('payment_method');
     const nip05Param = $page.url.searchParams.get('nip05');
     const nip05UsernameParam = $page.url.searchParams.get('nip05_username');
-    const founderParam = $page.url.searchParams.get('founder_number');
-    
-    // If coming from Lightning payment, data might be in URL
+
+    paymentMethod = paymentMethodParam || 'stripe';
+
+    // If coming from Lightning payment, NIP-05 info might be in URL
     if (paymentMethod === 'lightning') {
       nip05 = nip05Param;
       nip05Username = nip05UsernameParam;
-      founderNumber = founderParam ? parseInt(founderParam, 10) : null;
       loading = false;
       
       // Auto-update profile with NIP-05 if available
@@ -41,8 +41,8 @@
       }
       return;
     }
-    
-    // Stripe flow - need session_id
+
+    // Otherwise, verify Stripe payment
     if (!sessionId) {
       error = 'No session ID provided';
       loading = false;
@@ -56,8 +56,7 @@
     }
 
     try {
-      // Verify payment and register member
-      const response = await fetch('/api/genesis/complete-payment', {
+      const response = await fetch('/api/membership/complete-payment', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -75,16 +74,15 @@
         try {
           const data = JSON.parse(responseText);
           errorMessage = data.error || errorMessage;
-          console.error('[Genesis Success] Error response:', data);
+          console.error('[Pro Kitchen Success] Error response:', data);
         } catch (parseError) {
-          console.error('[Genesis Success] Error response (text):', responseText);
-          errorMessage = `Server error: ${response.status} ${response.statusText}`;
+          console.error('[Pro Kitchen Success] Error response (text):', responseText);
         }
         throw new Error(errorMessage);
       }
 
       const data = JSON.parse(responseText);
-      founderNumber = data.founderNumber;
+      subscriptionEnd = data.subscriptionEnd;
       nip05 = data.nip05;
       nip05Username = data.nip05Username;
       loading = false;
@@ -108,13 +106,13 @@
       const success = await updateProfileWithNip05($ndk, $userPublickey, nip05Address);
       if (success) {
         nip05UpdateStatus = 'success';
-        console.log('[Genesis Success] Profile updated with NIP-05:', nip05Address);
+        console.log('[Pro Kitchen Success] Profile updated with NIP-05:', nip05Address);
       } else {
         nip05UpdateStatus = 'error';
         nip05Error = 'Could not update profile automatically. You can add it manually in settings.';
       }
     } catch (err) {
-      console.error('[Genesis Success] Failed to update profile with NIP-05:', err);
+      console.error('[Pro Kitchen Success] Failed to update profile with NIP-05:', err);
       nip05UpdateStatus = 'error';
       nip05Error = 'Could not update profile automatically. You can add it manually in settings.';
     }
@@ -122,6 +120,15 @@
 
   function goToMembership() {
     goto('/membership');
+  }
+
+  function formatDate(dateString: string): string {
+    const date = new Date(dateString);
+    return date.toLocaleDateString('en-US', { 
+      year: 'numeric', 
+      month: 'long', 
+      day: 'numeric' 
+    });
   }
 
   function handleNip05Claimed(event: CustomEvent) {
@@ -136,7 +143,7 @@
 </script>
 
 <svelte:head>
-  <title>Welcome, Genesis Founder! - zap.cooking</title>
+  <title>Welcome to Pro Kitchen! - zap.cooking</title>
 </svelte:head>
 
 <div class="success-page">
@@ -154,18 +161,21 @@
           Back to Membership
         </button>
       </div>
-    {:else if founderNumber}
+    {:else}
       <div class="success-state">
         <div class="success-icon">🎉</div>
-        <h1>Welcome, Genesis Founder #{founderNumber}!</h1>
+        <h1>Welcome to Pro Kitchen!</h1>
         <p class="success-message">
-          Your lifetime membership is now active. Thank you for being one of the first 21 founders!
+          Your Pro Kitchen membership is now active.
         </p>
         
-        <div class="founder-badge">
-          <div class="badge-number">#{founderNumber}</div>
-          <div class="badge-text">Genesis Founder</div>
-        </div>
+        {#if subscriptionEnd}
+          <div class="subscription-info">
+            <p class="subscription-date">
+              Your membership is active until <strong>{formatDate(subscriptionEnd)}</strong>
+            </p>
+          </div>
+        {/if}
 
         <!-- NIP-05 Verification Badge Section -->
         {#if nip05}
@@ -210,12 +220,13 @@
         <div class="success-benefits">
           <h2>Your membership includes:</h2>
           <ul>
-            <li>✓ Lifetime Pro Kitchen access</li>
+            <li>✓ Everything in Cook+</li>
             <li>✓ Verified @zap.cooking NIP-05 identity</li>
-            <li>✓ Genesis Founder badge</li>
-            <li>✓ Access to members.zap.cooking and pro.zap.cooking relays</li>
-            <li>✓ Your name permanently displayed as a Genesis Founder</li>
-            <li>✓ All future Pro Kitchen features</li>
+            <li>✓ Creator analytics</li>
+            <li>✓ Access to pro.zap.cooking relay</li>
+            <li>✓ Gated recipes (coming soon)</li>
+            <li>✓ AI recipe tools</li>
+            <li>✓ Priority support</li>
           </ul>
         </div>
 
@@ -307,28 +318,28 @@
     margin-bottom: 2rem;
   }
 
-  .founder-badge {
-    background: linear-gradient(135deg, var(--color-primary) 0%, #ff6b00 100%);
-    border-radius: 16px;
-    padding: 2rem;
-    margin: 2rem auto;
-    max-width: 300px;
-    box-shadow: 0 8px 32px rgba(236, 71, 0, 0.3);
+  .subscription-info {
+    background: rgba(236, 71, 0, 0.1);
+    border-radius: 8px;
+    padding: 1rem;
+    margin-bottom: 2rem;
   }
 
-  .badge-number {
-    font-size: 4rem;
-    font-weight: 900;
-    color: white;
-    margin-bottom: 0.5rem;
+  .subscription-date {
+    margin: 0;
+    color: #1f2937;
+    font-size: 1rem;
+    font-weight: 500;
+    line-height: 1.5;
   }
 
-  .badge-text {
-    font-size: 1.5rem;
+  html.dark .subscription-date {
+    color: #f3f4f6;
+  }
+
+  .subscription-date strong {
+    color: var(--color-primary);
     font-weight: 700;
-    color: white;
-    text-transform: uppercase;
-    letter-spacing: 2px;
   }
 
   .success-benefits {
@@ -385,10 +396,6 @@
     box-shadow: 0 6px 20px rgba(236, 71, 0, 0.4);
   }
 
-  html.dark .success-benefits {
-    background: rgba(31, 41, 55, 0.7);
-  }
-
   /* NIP-05 Badge Section */
   .nip05-badge-section {
     background: linear-gradient(135deg, rgba(34, 197, 94, 0.15) 0%, rgba(16, 185, 129, 0.15) 100%);
@@ -409,7 +416,7 @@
     margin-bottom: 1rem;
   }
 
-  .nip05-badge .badge-icon {
+  .badge-icon {
     width: 28px;
     height: 28px;
     background: linear-gradient(135deg, #22c55e, #10b981);
@@ -422,13 +429,13 @@
     font-size: 1rem;
   }
 
-  .nip05-badge .badge-content {
+  .badge-content {
     display: flex;
     flex-direction: column;
     align-items: flex-start;
   }
 
-  .nip05-badge .badge-label {
+  .badge-label {
     font-size: 0.75rem;
     color: #22c55e;
     font-weight: 600;
@@ -436,7 +443,7 @@
     letter-spacing: 0.5px;
   }
 
-  .nip05-badge .badge-value {
+  .badge-value {
     font-size: 1.1rem;
     font-weight: 700;
     color: #f3f4f6;
@@ -477,7 +484,7 @@
     border-color: #22c55e;
   }
 
-  /* NIP-05 Claim Section (when no auto-claim happened) */
+  /* NIP-05 Claim Section */
   .nip05-claim-section {
     background: rgba(59, 130, 246, 0.1);
     border: 2px solid rgba(59, 130, 246, 0.3);
@@ -515,4 +522,3 @@
     box-shadow: 0 6px 20px rgba(59, 130, 246, 0.4);
   }
 </style>
-

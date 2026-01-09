@@ -156,10 +156,69 @@ export const POST: RequestHandler = async ({ request, platform }) => {
       throw new Error(errorData.error || `Failed to add member: ${addMemberRes.status}`);
     }
     
+    // Auto-claim NIP-05 for the Genesis Founder
+    let nip05: string | null = null;
+    let nip05Username: string | null = null;
+    
+    try {
+      // Generate username from pubkey (first 8 chars)
+      const suggestedUsername = pubkey.substring(0, 8).toLowerCase();
+      
+      console.log('[Genesis Lightning] Auto-claiming NIP-05:', suggestedUsername);
+      
+      const nip05Res = await fetch('https://members.zap.cooking/api/nip05/claim', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${API_SECRET}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          username: suggestedUsername,
+          pubkey,
+          tier: 'pro'
+        })
+      });
+      
+      if (nip05Res.ok) {
+        nip05Username = suggestedUsername;
+        nip05 = `${suggestedUsername}@zap.cooking`;
+        console.log('[Genesis Lightning] NIP-05 claimed:', nip05);
+      } else {
+        // If default username fails, try with timestamp suffix
+        const fallbackUsername = `${pubkey.substring(0, 6)}${Date.now().toString(36).slice(-2)}`.toLowerCase();
+        
+        const fallbackRes = await fetch('https://members.zap.cooking/api/nip05/claim', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${API_SECRET}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            username: fallbackUsername,
+            pubkey,
+            tier: 'pro'
+          })
+        });
+        
+        if (fallbackRes.ok) {
+          nip05Username = fallbackUsername;
+          nip05 = `${fallbackUsername}@zap.cooking`;
+          console.log('[Genesis Lightning] NIP-05 claimed (fallback):', nip05);
+        } else {
+          console.warn('[Genesis Lightning] Could not auto-claim NIP-05');
+        }
+      }
+    } catch (nip05Error) {
+      // NIP-05 claim is optional - don't fail the payment verification
+      console.warn('[Genesis Lightning] NIP-05 auto-claim error:', nip05Error);
+    }
+    
     return json({
       verified: true,
       founderNumber,
-      message: 'Genesis Founder membership activated via Lightning'
+      message: 'Genesis Founder membership activated via Lightning',
+      nip05,
+      nip05Username
     });
     
   } catch (error: any) {

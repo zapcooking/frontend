@@ -14,32 +14,34 @@
   let lightningInvoice: string | null = null;
   let paymentHash: string | null = null;
 
-  // Genesis pricing: $210 = ~210,000 sats
-  const GENESIS_PRICE_USD = 210;
-  const GENESIS_PRICE_SATS = 210000;
-
   $: isLoggedIn = $userPublickey && $userPublickey.length > 0;
+  
+  // Pro Kitchen pricing: $89/year = ~89,000 sats
+  const PRO_KITCHEN_PRICE_USD = 89;
+  const PRO_KITCHEN_PRICE_SATS = 89000;
 
   onMount(() => {
     if (!browser) return;
     
     // Redirect to login if not logged in
     if (!isLoggedIn) {
-      goto('/login?redirect=/membership/genesis-checkout');
+      goto('/login?redirect=/membership/pro-kitchen-checkout');
     }
 
-    // Check for payment success
+    // Check for payment success (Stripe)
     const paymentStatus = $page.url.searchParams.get('payment');
     const sessionId = $page.url.searchParams.get('session_id');
     
     if (paymentStatus === 'success' && sessionId) {
-      // Redirect to success page
-      goto(`/membership/genesis-success?session_id=${sessionId}`);
+      goto(`/membership/pro-kitchen-success?payment_method=stripe&session_id=${sessionId}`);
     }
   });
 
   async function proceedToCheckout() {
-    if (!browser || !isLoggedIn) return;
+    if (!browser || !isLoggedIn) {
+      error = 'Please log in to continue';
+      return;
+    }
     
     if (paymentMethod === 'stripe') {
       await proceedWithStripe();
@@ -54,15 +56,18 @@
 
     try {
       const baseUrl = window.location.origin;
-      const successUrl = `${baseUrl}/membership/genesis-checkout?payment=success&session_id={CHECKOUT_SESSION_ID}`;
-      const cancelUrl = `${baseUrl}/membership/genesis-checkout?payment=canceled`;
+      const successUrl = `${baseUrl}/membership/pro-kitchen-checkout?payment=success&session_id={CHECKOUT_SESSION_ID}`;
+      const cancelUrl = `${baseUrl}/membership/pro-kitchen-checkout?payment=canceled`;
 
-      const response = await fetch('/api/stripe/create-genesis-session', {
+      console.log('[Pro Kitchen Checkout] Creating Stripe session...');
+      const response = await fetch('/api/stripe/create-session', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
+          tier: 'pro',
+          period: 'annual',
           successUrl,
           cancelUrl,
           customerEmail: undefined,
@@ -70,20 +75,33 @@
       });
 
       if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.error || 'Failed to create checkout session');
+        let errorMessage = 'Failed to create checkout session';
+        try {
+          const data = await response.json();
+          errorMessage = data.error || errorMessage;
+          if (data.hint) {
+            errorMessage += ` (${data.hint})`;
+          }
+        } catch (parseError) {
+          const text = await response.text();
+          errorMessage = `Server error: ${response.status} ${response.statusText}`;
+          console.error('[Pro Kitchen Checkout] Error response:', text);
+        }
+        throw new Error(errorMessage);
       }
 
-      const { url } = await response.json();
+      const data = await response.json();
+      console.log('[Pro Kitchen Checkout] Session created, redirecting to Stripe...');
       
-      if (url) {
-        window.location.href = url;
-      } else {
-        throw new Error('No checkout URL returned');
+      if (!data.url) {
+        throw new Error('No checkout URL returned from server');
       }
+
+      window.location.href = data.url;
+      
     } catch (err) {
-      console.error('Checkout error:', err);
-      error = err instanceof Error ? err.message : 'Failed to start checkout';
+      console.error('[Pro Kitchen Checkout] Error:', err);
+      error = err instanceof Error ? err.message : 'Failed to start checkout. Please try again.';
       loading = false;
     }
   }
@@ -100,15 +118,17 @@
     paymentHash = null;
 
     try {
-      console.log('[Genesis Checkout] Creating Lightning invoice...');
-      const response = await fetch('/api/genesis/create-lightning-invoice', {
+      console.log('[Pro Kitchen Checkout] Creating Lightning invoice...');
+      const response = await fetch('/api/membership/create-lightning-invoice', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
           pubkey: $userPublickey,
-          amountSats: GENESIS_PRICE_SATS,
+          tier: 'pro',
+          period: 'annual',
+          amountSats: PRO_KITCHEN_PRICE_SATS,
         }),
       });
 
@@ -124,7 +144,7 @@
       }
 
       const data = await response.json();
-      console.log('[Genesis Checkout] Lightning invoice created');
+      console.log('[Pro Kitchen Checkout] Lightning invoice created');
       
       lightningInvoice = data.invoice;
       paymentHash = data.paymentHash;
@@ -133,18 +153,18 @@
         invoice: data.invoice,
         verify: undefined,
         onPaid: async (response) => {
-          console.log('[Genesis Checkout] Lightning payment completed, verifying...');
+          console.log('[Pro Kitchen Checkout] Lightning payment completed, verifying...');
           await verifyLightningPayment(response.preimage || '');
         },
         onCancelled: () => {
-          console.log('[Genesis Checkout] Lightning payment cancelled');
+          console.log('[Pro Kitchen Checkout] Lightning payment cancelled');
           loading = false;
           error = 'Payment cancelled';
         }
       });
 
     } catch (err) {
-      console.error('[Genesis Checkout] Error:', err);
+      console.error('[Pro Kitchen Checkout] Error:', err);
       error = err instanceof Error ? err.message : 'Failed to create Lightning invoice. Please try again.';
       loading = false;
     }
@@ -158,8 +178,8 @@
     }
 
     try {
-      console.log('[Genesis Checkout] Verifying Lightning payment...');
-      const response = await fetch('/api/genesis/verify-lightning-payment', {
+      console.log('[Pro Kitchen Checkout] Verifying Lightning payment...');
+      const response = await fetch('/api/membership/verify-lightning-payment', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -168,6 +188,8 @@
           paymentHash,
           invoice: lightningInvoice,
           pubkey: $userPublickey,
+          tier: 'pro',
+          period: 'annual',
           preimage,
         }),
       });
@@ -185,11 +207,11 @@
 
       const data = await response.json();
       
-      if (data.verified) {
+      if (data.success) {
         // Build success URL with NIP-05 info if available
         const params = new URLSearchParams({
           payment_method: 'lightning',
-          founder_number: data.founderNumber?.toString() || ''
+          tier: 'pro'
         });
         if (data.nip05) {
           params.set('nip05', data.nip05);
@@ -197,13 +219,13 @@
         if (data.nip05Username) {
           params.set('nip05_username', data.nip05Username);
         }
-        goto(`/membership/genesis-success?${params.toString()}`);
+        goto(`/membership/pro-kitchen-success?${params.toString()}`);
       } else {
         throw new Error('Payment verification failed');
       }
 
     } catch (err) {
-      console.error('[Genesis Checkout] Verification error:', err);
+      console.error('[Pro Kitchen Checkout] Verification error:', err);
       error = err instanceof Error ? err.message : 'Failed to verify payment. Please contact support.';
       loading = false;
     }
@@ -211,12 +233,12 @@
 </script>
 
 <svelte:head>
-  <title>Genesis Founder Checkout - zap.cooking</title>
+  <title>Pro Kitchen Membership Checkout - zap.cooking</title>
 </svelte:head>
 
 <div class="checkout-page">
   <div class="checkout-container">
-    <h1>Become a Genesis Founder</h1>
+    <h1>Join Pro Kitchen</h1>
     
     {#if error}
       <div class="error-message">
@@ -226,22 +248,24 @@
 
     <div class="checkout-card">
       <div class="checkout-header">
-        <h2>Genesis Founder Membership</h2>
+        <div class="popular-badge">Most Popular</div>
+        <h2>Pro Kitchen Membership</h2>
         <div class="checkout-price">
-          <span class="price">$210</span>
-          <span class="period">lifetime</span>
+          <span class="price">$89</span>
+          <span class="period">/year</span>
         </div>
       </div>
 
       <div class="checkout-benefits">
         <h3>What you get:</h3>
         <ul>
-          <li>✓ Lifetime Pro Kitchen membership (never expires)</li>
+          <li>✓ Everything in Cook+</li>
           <li>✓ Verified @zap.cooking NIP-05 identity</li>
-          <li>✓ Genesis Founder badge (#1-21)</li>
-          <li>✓ Access to both members.zap.cooking and pro.zap.cooking relays</li>
-          <li>✓ Name permanently displayed as a Genesis Founder</li>
-          <li>✓ All future Pro Kitchen features included</li>
+          <li>✓ Creator analytics</li>
+          <li>✓ Access to pro.zap.cooking relay</li>
+          <li>✓ Gated recipes (coming soon)</li>
+          <li>✓ AI recipe tools</li>
+          <li>✓ Priority support</li>
         </ul>
       </div>
 
@@ -279,7 +303,7 @@
                 <span class="payment-icon">⚡</span>
                 <span class="payment-name">Bitcoin Lightning</span>
               </div>
-              <span class="payment-provider">{GENESIS_PRICE_SATS.toLocaleString()} sats (~${GENESIS_PRICE_USD})</span>
+              <span class="payment-provider">{PRO_KITCHEN_PRICE_SATS.toLocaleString()} sats (~${PRO_KITCHEN_PRICE_USD})</span>
             </div>
           </label>
         </div>
@@ -369,13 +393,28 @@
     margin-bottom: 2rem;
     padding-bottom: 2rem;
     border-bottom: 1px solid rgba(236, 71, 0, 0.2);
+    position: relative;
+  }
+
+  .popular-badge {
+    position: absolute;
+    top: -12px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: linear-gradient(135deg, var(--color-primary), #ff6b00);
+    color: white;
+    padding: 0.25rem 1rem;
+    border-radius: 20px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
   }
 
   .checkout-header h2 {
     font-size: 1.75rem;
     font-weight: 700;
     color: #f3f4f6;
-    margin: 0 0 1rem 0;
+    margin: 1rem 0 1rem 0;
   }
 
   .checkout-price {
@@ -422,39 +461,6 @@
 
   .checkout-benefits li:last-child {
     border-bottom: none;
-  }
-
-  .checkout-button {
-    width: 100%;
-    padding: 1.25rem 2rem;
-    background: linear-gradient(135deg, var(--color-primary) 0%, #ff6b00 100%);
-    color: white;
-    border: none;
-    border-radius: 12px;
-    font-size: 1.25rem;
-    font-weight: 700;
-    cursor: pointer;
-    transition: all 0.3s ease;
-    box-shadow: 0 4px 12px rgba(236, 71, 0, 0.3);
-    margin-bottom: 1rem;
-  }
-
-  .checkout-button:hover:not(:disabled) {
-    transform: translateY(-2px);
-    box-shadow: 0 6px 20px rgba(236, 71, 0, 0.4);
-    background: linear-gradient(135deg, #ff5722 0%, #ff8c42 100%);
-  }
-
-  .checkout-button:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-
-  .checkout-note {
-    text-align: center;
-    color: #9ca3af;
-    font-size: 0.9rem;
-    margin: 0;
   }
 
   /* Payment Method Selection */
@@ -541,6 +547,39 @@
     cursor: not-allowed;
   }
 
+  .checkout-button {
+    width: 100%;
+    padding: 1.25rem 2rem;
+    background: linear-gradient(135deg, var(--color-primary) 0%, #ff6b00 100%);
+    color: white;
+    border: none;
+    border-radius: 12px;
+    font-size: 1.25rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    box-shadow: 0 4px 12px rgba(236, 71, 0, 0.3);
+    margin-bottom: 1rem;
+  }
+
+  .checkout-button:hover:not(:disabled) {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(236, 71, 0, 0.4);
+    background: linear-gradient(135deg, #ff5722 0%, #ff8c42 100%);
+  }
+
+  .checkout-button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .checkout-note {
+    text-align: center;
+    color: #9ca3af;
+    font-size: 0.9rem;
+    margin: 0;
+  }
+
   html.dark .checkout-card {
     background: rgba(31, 41, 55, 0.7);
   }
@@ -558,4 +597,3 @@
     background: rgba(255, 87, 34, 0.15);
   }
 </style>
-

@@ -208,7 +208,18 @@
       const data = await response.json();
       
       if (data.success) {
-        goto(`/membership/cook-plus-success?payment_method=lightning&tier=cook`);
+        // Build success URL with NIP-05 info if available
+        const params = new URLSearchParams({
+          payment_method: 'lightning',
+          tier: 'cook'
+        });
+        if (data.nip05) {
+          params.set('nip05', data.nip05);
+        }
+        if (data.nip05Username) {
+          params.set('nip05_username', data.nip05Username);
+        }
+        goto(`/membership/cook-plus-success?${params.toString()}`);
       } else {
         throw new Error('Payment verification failed');
       }

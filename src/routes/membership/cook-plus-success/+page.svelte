@@ -3,26 +3,43 @@
   import { browser } from '$app/environment';
   import { goto } from '$app/navigation';
   import { page } from '$app/stores';
-  import { userPublickey } from '$lib/nostr';
+  import { userPublickey, ndk } from '$lib/nostr';
+  import { updateProfileWithNip05 } from '$lib/nip05Service';
+  import Nip05ClaimModal from '../../../components/Nip05ClaimModal.svelte';
 
   let loading = true;
   let subscriptionEnd: string | null = null;
   let error: string | null = null;
   let paymentMethod: string | null = null;
+  
+  // NIP-05 state
+  let nip05: string | null = null;
+  let nip05Username: string | null = null;
+  let showNip05Modal = false;
+  let nip05UpdateStatus: 'pending' | 'updating' | 'success' | 'error' = 'pending';
+  let nip05Error: string | null = null;
 
   onMount(async () => {
     if (!browser) return;
     
     const paymentMethodParam = $page.url.searchParams.get('payment_method');
     const sessionId = $page.url.searchParams.get('session_id');
+    const nip05Param = $page.url.searchParams.get('nip05');
+    const nip05UsernameParam = $page.url.searchParams.get('nip05_username');
 
     paymentMethod = paymentMethodParam || 'stripe';
 
-    // If coming from Lightning payment, subscription info might be in URL or we need to verify
+    // If coming from Lightning payment, NIP-05 info might be in URL
     if (paymentMethod === 'lightning') {
       // For Lightning, membership should already be activated
-      // Just show success
+      nip05 = nip05Param;
+      nip05Username = nip05UsernameParam;
       loading = false;
+      
+      // Auto-update profile with NIP-05 if available
+      if (nip05 && $userPublickey) {
+        autoUpdateProfileNip05(nip05);
+      }
       return;
     }
 
@@ -67,13 +84,40 @@
 
       const data = JSON.parse(responseText);
       subscriptionEnd = data.subscriptionEnd;
+      nip05 = data.nip05;
+      nip05Username = data.nip05Username;
       loading = false;
+      
+      // Auto-update profile with NIP-05 if available
+      if (nip05 && $userPublickey) {
+        autoUpdateProfileNip05(nip05);
+      }
     } catch (err) {
       console.error('Payment completion error:', err);
       error = err instanceof Error ? err.message : 'Failed to complete payment';
       loading = false;
     }
   });
+
+  async function autoUpdateProfileNip05(nip05Address: string) {
+    if (!$userPublickey || !$ndk) return;
+    
+    nip05UpdateStatus = 'updating';
+    try {
+      const success = await updateProfileWithNip05($ndk, $userPublickey, nip05Address);
+      if (success) {
+        nip05UpdateStatus = 'success';
+        console.log('[Cook+ Success] Profile updated with NIP-05:', nip05Address);
+      } else {
+        nip05UpdateStatus = 'error';
+        nip05Error = 'Could not update profile automatically. You can add it manually in settings.';
+      }
+    } catch (err) {
+      console.error('[Cook+ Success] Failed to update profile with NIP-05:', err);
+      nip05UpdateStatus = 'error';
+      nip05Error = 'Could not update profile automatically. You can add it manually in settings.';
+    }
+  }
 
   function goToMembership() {
     goto('/membership');
@@ -86,6 +130,16 @@
       month: 'long', 
       day: 'numeric' 
     });
+  }
+
+  function handleNip05Claimed(event: CustomEvent) {
+    showNip05Modal = false;
+    nip05 = event.detail.nip05;
+    nip05UpdateStatus = 'success';
+  }
+
+  function handleNip05Skipped() {
+    showNip05Modal = false;
   }
 </script>
 
@@ -124,10 +178,51 @@
           </div>
         {/if}
 
+        <!-- NIP-05 Verification Badge Section -->
+        {#if nip05}
+          <div class="nip05-badge-section">
+            <div class="nip05-badge">
+              <div class="badge-icon">✓</div>
+              <div class="badge-content">
+                <span class="badge-label">Verified Identity</span>
+                <span class="badge-value">{nip05}</span>
+              </div>
+            </div>
+            {#if nip05UpdateStatus === 'updating'}
+              <p class="nip05-status updating">Updating your profile...</p>
+            {:else if nip05UpdateStatus === 'success'}
+              <p class="nip05-status success">✓ Your profile has been updated with your verified identity</p>
+            {:else if nip05UpdateStatus === 'error'}
+              <p class="nip05-status error">{nip05Error}</p>
+            {/if}
+            <button 
+              type="button"
+              class="change-username-button"
+              on:click={() => showNip05Modal = true}
+            >
+              Change Username
+            </button>
+          </div>
+        {:else}
+          <div class="nip05-claim-section">
+            <p class="nip05-claim-text">
+              Claim your verified <strong>@zap.cooking</strong> identity
+            </p>
+            <button 
+              type="button"
+              class="claim-nip05-button"
+              on:click={() => showNip05Modal = true}
+            >
+              Claim NIP-05 Identity
+            </button>
+          </div>
+        {/if}
+
         <div class="success-benefits">
           <h2>Your membership includes:</h2>
           <ul>
             <li>✓ Custom Lightning address (you@zap.cooking)</li>
+            <li>✓ Verified NIP-05 identity</li>
             <li>✓ Access to members.zap.cooking relay</li>
             <li>✓ Recipe collections</li>
             <li>✓ Member badge</li>
@@ -139,6 +234,18 @@
           Continue to Membership
         </button>
       </div>
+    {/if}
+
+    <!-- NIP-05 Claim Modal -->
+    {#if $userPublickey}
+      <Nip05ClaimModal
+        bind:open={showNip05Modal}
+        pubkey={$userPublickey}
+        tier="cook"
+        currentNip05={nip05}
+        on:claimed={handleNip05Claimed}
+        on:skipped={handleNip05Skipped}
+      />
     {/if}
   </div>
 </div>
@@ -287,6 +394,132 @@
   .back-button:hover {
     transform: translateY(-2px);
     box-shadow: 0 6px 20px rgba(236, 71, 0, 0.4);
+  }
+
+  /* NIP-05 Badge Section */
+  .nip05-badge-section {
+    background: linear-gradient(135deg, rgba(34, 197, 94, 0.15) 0%, rgba(16, 185, 129, 0.15) 100%);
+    border: 2px solid rgba(34, 197, 94, 0.4);
+    border-radius: 16px;
+    padding: 1.5rem;
+    margin: 1.5rem 0;
+    text-align: center;
+  }
+
+  .nip05-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.75rem;
+    background: rgba(34, 197, 94, 0.2);
+    border-radius: 50px;
+    padding: 0.75rem 1.5rem;
+    margin-bottom: 1rem;
+  }
+
+  .badge-icon {
+    width: 28px;
+    height: 28px;
+    background: linear-gradient(135deg, #22c55e, #10b981);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-weight: bold;
+    font-size: 1rem;
+  }
+
+  .badge-content {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .badge-label {
+    font-size: 0.75rem;
+    color: #22c55e;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  .badge-value {
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: #f3f4f6;
+  }
+
+  .nip05-status {
+    font-size: 0.9rem;
+    margin: 0.5rem 0;
+  }
+
+  .nip05-status.updating {
+    color: #fbbf24;
+  }
+
+  .nip05-status.success {
+    color: #22c55e;
+  }
+
+  .nip05-status.error {
+    color: #ef4444;
+  }
+
+  .change-username-button {
+    margin-top: 0.5rem;
+    padding: 0.5rem 1rem;
+    background: transparent;
+    border: 1px solid rgba(34, 197, 94, 0.5);
+    border-radius: 8px;
+    color: #22c55e;
+    font-size: 0.875rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+  }
+
+  .change-username-button:hover {
+    background: rgba(34, 197, 94, 0.1);
+    border-color: #22c55e;
+  }
+
+  /* NIP-05 Claim Section (when no auto-claim happened) */
+  .nip05-claim-section {
+    background: rgba(59, 130, 246, 0.1);
+    border: 2px solid rgba(59, 130, 246, 0.3);
+    border-radius: 16px;
+    padding: 1.5rem;
+    margin: 1.5rem 0;
+    text-align: center;
+  }
+
+  .nip05-claim-text {
+    color: #d1d5db;
+    margin: 0 0 1rem 0;
+    font-size: 1rem;
+  }
+
+  .nip05-claim-text strong {
+    color: #60a5fa;
+  }
+
+  .claim-nip05-button {
+    padding: 0.75rem 1.5rem;
+    background: linear-gradient(135deg, #3b82f6, #2563eb);
+    border: none;
+    border-radius: 10px;
+    color: white;
+    font-size: 1rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+  }
+
+  .claim-nip05-button:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(59, 130, 246, 0.4);
   }
 
 </style>
