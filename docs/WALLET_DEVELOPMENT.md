@@ -43,6 +43,7 @@ src/lib/spark/
 └── profileSync.ts     # Nostr profile lud16 sync functionality
 
 src/lib/
+├── encryptionService.ts # Unified NIP-44/NIP-04 encryption (signer-agnostic)
 └── lightningService.ts  # Bitcoin Connect payment modal integration
 
 src/components/
@@ -784,22 +785,79 @@ if (backup.encryption) {
 }
 ```
 
-#### NIP-44 vs NIP-04 Fallback
-Some browser extensions (e.g., keys.band) don't support NIP-44. We detect and fall back:
+#### Unified Encryption Service
+
+All encryption/decryption operations use the unified `encryptionService.ts` which provides signer-agnostic encryption that works with:
+- NIP-07 (browser extensions like Alby, nos2x)
+- NIP-46 (remote signers like Amber)
+- Private key signers
+
 ```typescript
-export function hasNip44Support(): boolean {
-  const nostr = window.nostr
-  return !!(nostr?.nip44?.encrypt && nostr?.nip44?.decrypt)
+// src/lib/encryptionService.ts
+import { encrypt, decrypt, hasEncryptionSupport, getEncryptionMethod } from '$lib/encryptionService'
+
+// Check if encryption is available
+if (!hasEncryptionSupport()) {
+  throw new Error('No encryption method available')
 }
 
-export function hasNip04Support(): boolean {
+// Encrypt (uses best available method)
+const { ciphertext, method } = await encrypt(recipientPubkey, plaintext)
+
+// Decrypt (with automatic fallback)
+const plaintext = await decrypt(senderPubkey, ciphertext, method)
+```
+
+#### Decrypt Priority Order - CRITICAL
+
+The decrypt function prioritizes `window.nostr` over NDK signer for cross-signer compatibility:
+
+```typescript
+// Order of attempts in decrypt():
+// 1. window.nostr.nip44.decrypt (NIP-07 direct)
+// 2. window.nostr.nip04.decrypt (NIP-07 fallback)
+// 3. ndk.signer.nip44Decrypt (NDK signer)
+// 4. ndk.signer.nip04Decrypt (NDK signer fallback)
+```
+
+**Why this order matters:** Backups created on one signer (e.g., Chrome/Alby) may fail to decrypt when restored with a different signer (e.g., iOS Safari) if NDK signer is tried first. The `window.nostr` interface provides more consistent behavior across different NIP-07 implementations.
+
+#### Automatic Method Fallback
+
+If decryption fails with the primary method (NIP-44), the service automatically tries the alternative method (NIP-04):
+
+```typescript
+// In decrypt():
+const methods: EncryptionMethod[] = method === 'nip44'
+  ? ['nip44', 'nip04']
+  : ['nip04', 'nip44']
+
+for (const tryMethod of methods) {
+  try {
+    // Try window.nostr first, then NDK signer
+    // Return on success
+  } catch (e) {
+    // Log and try next method
+  }
+}
+```
+
+#### NIP-44 vs NIP-04 Detection
+Some browser extensions (e.g., keys.band) don't support NIP-44. The service detects support:
+```typescript
+export function hasEncryptionSupport(): boolean {
+  // NDK signers always support encryption
+  if (ndkInstance.signer) return true
+
+  // Fallback to window.nostr check
   const nostr = window.nostr
-  return !!(nostr?.nip04?.encrypt && nostr?.nip04?.decrypt)
+  return !!(nostr?.nip44?.encrypt || nostr?.nip04?.encrypt)
 }
 
 export function getBestEncryptionMethod(): 'nip44' | 'nip04' | null {
-  if (hasNip44Support()) return 'nip44'
-  if (hasNip04Support()) return 'nip04'
+  if (ndkInstance.signer) return 'nip44'  // NDK signers prefer NIP-44
+  if (nostr?.nip44?.encrypt) return 'nip44'
+  if (nostr?.nip04?.encrypt) return 'nip04'
   return null
 }
 ```
@@ -818,13 +876,8 @@ async function restoreWalletFromNostr(pubkey: string, apiKey: string) {
   const encryptionTag = event.tags.find(t => t[0] === 'encryption')
   const encryptionMethod = encryptionTag?.[1] || 'nip44'
 
-  // 3. Decrypt with appropriate method (WITH TIMEOUT - see below)
-  let mnemonic: string
-  if (encryptionMethod === 'nip04') {
-    mnemonic = await nostr.nip04.decrypt(pubkey, event.content)
-  } else {
-    mnemonic = await nostr.nip44.decrypt(pubkey, event.content)
-  }
+  // 3. Decrypt using unified service (handles fallback automatically)
+  const mnemonic = await decrypt(pubkey, event.content, encryptionMethod)
 
   // 4. Initialize SDK
   await initializeSdk(pubkey, mnemonic, apiKey)
@@ -835,7 +888,7 @@ async function restoreWalletFromNostr(pubkey: string, apiKey: string) {
 ```
 
 #### Decrypt Timeout - CRITICAL
-**The Nostr extension decrypt calls (nip04/nip44) can hang indefinitely** if the user doesn't approve the prompt or the extension has issues. Always wrap decrypt operations with a 15-second timeout:
+**Decrypt operations can hang indefinitely** if the user doesn't approve the prompt or the signer has issues. Always wrap with a 15-second timeout:
 
 ```typescript
 const DECRYPT_TIMEOUT = 15000
@@ -851,9 +904,9 @@ const withTimeout = <T>(promise: Promise<T>, ms: number, message: string): Promi
 
 // Usage
 mnemonic = await withTimeout(
-  nostr.nip44.decrypt(pubkey, encryptedContent),
+  decrypt(pubkey, encryptedContent, encryptionMethod),
   DECRYPT_TIMEOUT,
-  'Decryption timed out. Please approve the decryption request in your Nostr extension.'
+  'Decryption timed out. Please approve the request in your signer app.'
 )
 ```
 
@@ -981,6 +1034,7 @@ Before any wallet changes, verify:
 - [ ] Restore from backup file works (NIP-44 decryption)
 - [ ] Restore from backup file works (NIP-04 / v1 format)
 - [ ] Restore from Nostr backup works
+- [ ] **Cross-signer restore works** (backup on Chrome/Alby, restore on iOS Safari/different signer)
 - [ ] Balance displays immediately (not hanging)
 - [ ] **Incoming payment detected in real-time** (check console for `[Spark] SDK Event: paymentSucceeded`)
 - [ ] Balance updates automatically after receiving payment

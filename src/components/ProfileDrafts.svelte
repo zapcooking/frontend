@@ -3,6 +3,7 @@
   import { goto } from '$app/navigation';
   import { loadDrafts, deleteDraft, formatDraftDate, draftsStore, type RecipeDraft } from '$lib/draftStore';
   import Button from './Button.svelte';
+  import PanLoader from './PanLoader.svelte';
   import TrashIcon from 'phosphor-svelte/lib/Trash';
   import PencilSimpleIcon from 'phosphor-svelte/lib/PencilSimple';
   import PlusIcon from 'phosphor-svelte/lib/Plus';
@@ -33,8 +34,7 @@
 <div class="flex flex-col gap-4">
   {#if !loaded}
     <div class="flex justify-center py-8">
-      <img class="w-32 dark:hidden" src="/pan-animated.svg" alt="Loading" />
-      <img class="w-32 hidden dark:block" src="/pan-animated-dark.svg" alt="Loading" />
+      <PanLoader size="sm" />
     </div>
   {:else if drafts.length === 0}
     <div class="flex flex-col items-center justify-center py-12 gap-4">

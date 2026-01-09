@@ -2,6 +2,7 @@
   import { NDKEvent, NDKUser } from "@nostr-dev-kit/ndk";
   import { ndk } from "$lib/nostr";
   import Modal from './Modal.svelte';
+  import PanLoader from './PanLoader.svelte';
   import Button from './Button.svelte';
   import Checkmark from "phosphor-svelte/lib/CheckFat"
   import XIcon from "phosphor-svelte/lib/X"
@@ -214,8 +215,8 @@
   <div class="flex flex-col gap-3">
   {#if state == "pending"}
     <!-- Only shows for in-app wallet payments -->
-    <div class="flex flex-col text-2xl">
-      <img class="pending-pan-icon w-52 self-center" src="/pan-animated.svg" alt="Loading" />
+    <div class="flex flex-col text-2xl items-center">
+      <PanLoader size="md" />
       <span class="self-center" style="color: var(--color-text-primary)">Sending Payment...</span>
     </div>
   {:else if state == "pre"}

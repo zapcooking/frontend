@@ -2,6 +2,9 @@
 @plugin "@tailwindcss/forms";
 @plugin "@tailwindcss/typography";
 
+/* Enable class-based dark mode (matches html.dark selector) */
+@custom-variant dark (&:where(.dark, .dark *));
+
 /* Prevent horizontal overflow on mobile and optimize touch scrolling */
 html, body {
   overflow-x: hidden;

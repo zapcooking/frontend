@@ -5,6 +5,7 @@
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
   import { nip19 } from 'nostr-tools';
   import Recipe from '../../../components/Recipe/Recipe.svelte';
+  import PanLoader from '../../../components/PanLoader.svelte';
   import type { PageData } from './$types';
 
   export let data: PageData;
@@ -156,8 +157,7 @@
 
 {#if loading}
   <div class="flex justify-center items-center h-screen">
-    <img class="w-64 dark:hidden" src="/pan-animated.svg" alt="Loading" />
-    <img class="w-64 hidden dark:block" src="/pan-animated-dark.svg" alt="Loading" />
+    <PanLoader />
   </div>
 {:else if error}
   <div class="flex flex-col justify-center items-center h-screen gap-4">
@@ -170,11 +170,18 @@
       Try Again
     </button>
   </div>
+{:else if event && (event.tags.some(t => t[0] === 'deleted') || !event.content || event.content.trim() === '')}
+  <div class="flex flex-col justify-center items-center h-screen gap-4">
+    <h1 class="text-2xl font-bold" style="color: var(--color-text-primary);">Recipe Deleted</h1>
+    <p class="text-caption">This recipe has been deleted by its author.</p>
+    <a href="/" class="px-4 py-2 bg-primary text-white rounded-full hover:opacity-80">
+      Browse Recipes
+    </a>
+  </div>
 {:else if event}
   <Recipe {event} />
 {:else}
   <div class="flex justify-center items-center h-screen">
-    <img class="w-64 dark:hidden" src="/pan-animated.svg" alt="Loading" />
-    <img class="w-64 hidden dark:block" src="/pan-animated-dark.svg" alt="Loading" />
+    <PanLoader />
   </div>
 {/if}

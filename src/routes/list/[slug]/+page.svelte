@@ -8,6 +8,7 @@
   import Feed from '../../../components/Feed.svelte';
   import { formatDate } from '$lib/utils';
   import AuthorProfile from '../../../components/AuthorProfile.svelte';
+  import PanLoader from '../../../components/PanLoader.svelte';
   import type { PageData } from './$types';
 
   export const data: PageData = {} as PageData;
@@ -136,6 +137,6 @@
   <Feed {events} />
   {:else}
   <div class="flex justify-center items-center h-screen">
-    <img class="w-64 dark:hidden" src="/pan-animated.svg" alt="Loading" /><img class="w-64 hidden dark:block" src="/pan-animated-dark.svg" alt="Loading" />
+    <PanLoader />
   </div>
 {/if}

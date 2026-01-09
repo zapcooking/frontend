@@ -8,6 +8,7 @@
   import ListComboBox from '../../../components/ListComboBox.svelte';
   import Button from '../../../components/Button.svelte';
   import ImagesComboBox from '../../../components/ImagesComboBox.svelte';
+  import PanLoader from '../../../components/PanLoader.svelte';
 
   let title = '';
   let image = '';
@@ -180,7 +181,7 @@
 
 {#if loaded == false}
   <div class="flex justify-center items-center h-screen">
-    <img class="w-64 dark:hidden" src="/pan-animated.svg" alt="Loading" /><img class="w-64 hidden dark:block" src="/pan-animated-dark.svg" alt="Loading" />
+    <PanLoader />
   </div>
 {:else}
   <form on:submit|preventDefault={createList} class="flex flex-col gap-6 max-w-[760px] mx-auto">

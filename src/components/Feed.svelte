@@ -13,8 +13,22 @@
   export let isProfileView = false; // true if this is a profile page
 
   // Simple filtering - same as original Feed.svelte
+  // Also filter out deleted recipes (empty content or deleted tag)
   if (!lists) {
-    events = events.filter((e) => typeof validateMarkdownTemplate(e.content) !== 'string');
+    events = events.filter((e) => {
+      // Filter out deleted recipes
+      if (!e.content || e.content.trim() === '') return false;
+      if (e.tags.some(t => t[0] === 'deleted')) return false;
+      // Validate markdown structure
+      return typeof validateMarkdownTemplate(e.content) !== 'string';
+    });
+  } else {
+    // For lists, still filter deleted items
+    events = events.filter((e) => {
+      if (!e.content || e.content.trim() === '') return false;
+      if (e.tags.some(t => t[0] === 'deleted')) return false;
+      return true;
+    });
   }
 </script>
 

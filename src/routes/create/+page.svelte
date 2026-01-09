@@ -40,7 +40,7 @@
 
   onMount(() => {
     if ($userPublickey == '') goto('/login');
-    
+
     // Check for draft ID in URL
     const draftId = $page.url.searchParams.get('draft');
     if (draftId) {
