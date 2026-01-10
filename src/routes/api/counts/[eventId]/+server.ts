@@ -222,7 +222,8 @@ async function fetchEngagementCounts(eventId: string): Promise<CountData> {
 export const GET: RequestHandler = async ({ params, url, platform }) => {
   const { eventId } = params;
 
-  if (!eventId || eventId.length < 32) {
+  const isValidNostrEventId = typeof eventId === 'string' && /^[a-f0-9]{64}$/i.test(eventId);
+  if (!isValidNostrEventId) {
     return json({ error: 'Invalid event ID' }, { status: 400 });
   }
 
