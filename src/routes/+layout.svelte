@@ -14,6 +14,8 @@
   import OfflineIndicator from '../components/OfflineIndicator.svelte';
   import { theme } from '$lib/themeStore';
   import { initializeWalletManager } from '$lib/wallet';
+  // Import sync service to initialize offline sync functionality
+  import '$lib/syncService';
 
   // Accept props from SvelteKit to prevent warnings
   export let data: LayoutData = {} as LayoutData;

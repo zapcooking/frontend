@@ -2,9 +2,10 @@
   import { goto } from '$app/navigation';
   import { onMount, onDestroy } from 'svelte';
   import { userPublickey } from '$lib/nostr';
-  import { cookbookStore, cookbookLists, cookbookLoading, getCookbookCoverImage, type CookbookList } from '$lib/stores/cookbookStore';
+  import { cookbookStore, cookbookLists, cookbookLoading, cookbookSyncStatus, cookbookPendingOps, getCookbookCoverImage, type CookbookList } from '$lib/stores/cookbookStore';
   import { ndk } from '$lib/nostr';
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
+  import { isOnline } from '$lib/connectionMonitor';
   import PlusIcon from 'phosphor-svelte/lib/Plus';
   import BookmarkIcon from 'phosphor-svelte/lib/BookmarkSimple';
   import PinIcon from 'phosphor-svelte/lib/PushPin';
@@ -12,11 +13,120 @@
   import PencilSimpleIcon from 'phosphor-svelte/lib/PencilSimple';
   import ShareIcon from 'phosphor-svelte/lib/Share';
   import ImageIcon from 'phosphor-svelte/lib/Image';
+  import CloudSlashIcon from 'phosphor-svelte/lib/CloudSlash';
+  import CloudArrowUpIcon from 'phosphor-svelte/lib/CloudArrowUp';
+  import ArrowsClockwiseIcon from 'phosphor-svelte/lib/ArrowsClockwise';
+  import CheckCircleIcon from 'phosphor-svelte/lib/CheckCircle';
+  import CircleNotchIcon from 'phosphor-svelte/lib/CircleNotch';
+  import { offlineStorage } from '$lib/offlineStorage';
   import Modal from '../../components/Modal.svelte';
   import Button from '../../components/Button.svelte';
   import ImagesComboBox from '../../components/ImagesComboBox.svelte';
   import { writable, type Writable, get } from 'svelte/store';
   import { clickOutside } from '$lib/clickOutside';
+
+  // Handle manual sync
+  function handleSyncNow() {
+    cookbookStore.syncNow();
+  }
+
+  // Sync status state
+  type SyncState = 'synced' | 'syncing' | 'offline' | 'pending';
+  let syncState: SyncState = 'synced';
+  let cachedRecipeCount = 0;
+
+  // Update sync state based on stores
+  $: {
+    if (!$isOnline) {
+      syncState = 'offline';
+    } else if ($cookbookSyncStatus === 'syncing') {
+      syncState = 'syncing';
+    } else if ($cookbookSyncStatus === 'pending') {
+      syncState = 'pending';
+    } else {
+      syncState = 'synced';
+    }
+  }
+
+  // Load cached recipe count
+  async function updateCachedRecipeCount() {
+    try {
+      const stats = await offlineStorage.getRecipeCacheStats();
+      cachedRecipeCount = stats.count;
+    } catch (e) {
+      console.warn('Failed to get recipe cache stats:', e);
+    }
+  }
+
+  // Sync all recipes state
+  let isSyncingRecipes = false;
+  let syncProgress = { current: 0, total: 0 };
+
+  // Sync all recipes in all cookbooks for offline use
+  async function syncAllRecipes() {
+    if (isSyncingRecipes || !$isOnline) return;
+
+    isSyncingRecipes = true;
+    syncProgress = { current: 0, total: 0 };
+
+    try {
+      // Gather all unique recipe a-tags from all cookbooks
+      const allRecipeATags = new Set<string>();
+      for (const list of $cookbookLists) {
+        for (const recipeATag of list.recipes) {
+          allRecipeATags.add(recipeATag);
+        }
+      }
+
+      syncProgress.total = allRecipeATags.size;
+      console.log(`[Cookbook] Syncing ${syncProgress.total} recipes for offline use`);
+
+      // Check which recipes are already cached
+      const existingRecipes = await offlineStorage.getAllRecipes();
+      const cachedIds = new Set(existingRecipes.map(r => r.id));
+
+      // Fetch and cache each recipe that isn't already cached
+      for (const aTag of allRecipeATags) {
+        syncProgress.current++;
+        
+        // Skip if already cached
+        if (cachedIds.has(aTag)) {
+          console.log(`[Cookbook] Recipe already cached: ${aTag}`);
+          continue;
+        }
+
+        // Parse the a-tag
+        const parts = aTag.split(':');
+        if (parts.length !== 3) continue;
+
+        const [kind, pubkey, identifier] = parts;
+
+        try {
+          const recipeEvent = await $ndk.fetchEvent({
+            kinds: [Number(kind)],
+            '#d': [identifier],
+            authors: [pubkey]
+          });
+
+          if (recipeEvent) {
+            await offlineStorage.saveRecipeFromEvent(recipeEvent);
+            console.log(`[Cookbook] Cached recipe: ${identifier}`);
+          }
+        } catch (err) {
+          console.warn(`[Cookbook] Failed to fetch recipe ${identifier}:`, err);
+        }
+      }
+
+      // Update the cached count
+      await updateCachedRecipeCount();
+      console.log(`[Cookbook] Sync complete! ${cachedRecipeCount} recipes now cached.`);
+    } catch (err) {
+      console.error('[Cookbook] Sync all recipes failed:', err);
+    } finally {
+      isSyncingRecipes = false;
+      syncProgress = { current: 0, total: 0 };
+    }
+  }
 
   let createModalOpen = false;
   let editModalOpen = false;
@@ -67,11 +177,16 @@
     
     // Load cover images
     await loadCoverImages();
+    
+    // Load cached recipe count for sync indicator
+    await updateCachedRecipeCount();
   });
 
   // Reload cover images when lists change
   $: if ($cookbookLists.length > 0) {
     loadCoverImages();
+    // Also update cached recipe count
+    updateCachedRecipeCount();
   }
 
   onDestroy(() => {
@@ -584,10 +699,44 @@
 </Modal>
 
 <div class="flex flex-col gap-6">
+  <!-- Offline/Sync Status Banner -->
+  {#if !$isOnline}
+    <div class="flex items-center gap-3 px-4 py-3 rounded-xl bg-amber-500/10 border border-amber-500/30">
+      <CloudSlashIcon size={20} class="text-amber-500 flex-shrink-0" />
+      <div class="flex-1">
+        <p class="text-sm font-medium" style="color: var(--color-text-primary)">You're offline</p>
+        <p class="text-xs text-caption">Your cookbooks are saved locally. Changes will sync when you're back online.</p>
+      </div>
+    </div>
+  {:else if $cookbookSyncStatus === 'syncing'}
+    <div class="flex items-center gap-3 px-4 py-3 rounded-xl bg-blue-500/10 border border-blue-500/30">
+      <ArrowsClockwiseIcon size={20} class="text-blue-500 flex-shrink-0 animate-spin" />
+      <div class="flex-1">
+        <p class="text-sm font-medium" style="color: var(--color-text-primary)">Syncing changes...</p>
+        <p class="text-xs text-caption">Your cookbooks are being updated.</p>
+      </div>
+    </div>
+  {:else if $cookbookSyncStatus === 'pending' && $cookbookPendingOps > 0}
+    <div class="flex items-center gap-3 px-4 py-3 rounded-xl bg-amber-500/10 border border-amber-500/30">
+      <CloudArrowUpIcon size={20} class="text-amber-500 flex-shrink-0" />
+      <div class="flex-1">
+        <p class="text-sm font-medium" style="color: var(--color-text-primary)">{$cookbookPendingOps} pending {$cookbookPendingOps === 1 ? 'change' : 'changes'}</p>
+        <p class="text-xs text-caption">Some changes haven't synced yet.</p>
+      </div>
+      <button
+        on:click={handleSyncNow}
+        class="px-3 py-1.5 text-xs font-semibold rounded-lg bg-amber-500 hover:bg-amber-600 text-white transition-colors"
+      >
+        Sync Now
+      </button>
+    </div>
+  {/if}
+
   <!-- Header -->
-  <div class="flex items-center justify-between">
+  <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+    <!-- Left: Title and Icon -->
     <div class="flex items-center gap-3">
-      <div class="w-12 h-12 rounded-full bg-gradient-to-br from-orange-500 to-amber-500 flex items-center justify-center">
+      <div class="w-12 h-12 rounded-full bg-gradient-to-br from-orange-500 to-amber-500 flex items-center justify-center flex-shrink-0">
         <BookmarkIcon size={24} weight="fill" class="text-white" />
       </div>
       <div>
@@ -596,14 +745,72 @@
       </div>
     </div>
     
-    <button
-      on:click={openCreateModal}
-      class="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white rounded-full font-medium transition-all text-sm"
-      aria-label="Create new collection"
-    >
-      <PlusIcon size={18} weight="bold" />
-      <span class="hidden sm:inline">New Collection</span>
-    </button>
+    <!-- Right: Status Pill + Sync Button + New Collection -->
+    <div class="flex items-center gap-2 flex-wrap">
+      <!-- Status Pill -->
+      {#if isSyncingRecipes}
+        <div class="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm bg-blue-500/10 border border-blue-500/30">
+          <CircleNotchIcon size={16} weight="bold" class="text-blue-500 animate-spin" />
+          <span class="text-blue-600 dark:text-blue-400 font-medium">Syncing</span>
+          <span class="text-blue-400 dark:text-blue-500">•</span>
+          <span class="text-blue-600 dark:text-blue-400">{syncProgress.current}/{syncProgress.total}</span>
+        </div>
+      {:else if syncState === 'synced'}
+        <div class="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm bg-green-500/10 border border-green-500/30">
+          <CheckCircleIcon size={16} weight="fill" class="text-green-500" />
+          <span class="text-green-600 dark:text-green-400 font-medium">Offline Ready</span>
+          <span class="text-green-400 dark:text-green-500">•</span>
+          <span class="text-green-600 dark:text-green-400">{cachedRecipeCount} recipes</span>
+        </div>
+      {:else if syncState === 'syncing'}
+        <div class="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm bg-blue-500/10 border border-blue-500/30">
+          <CircleNotchIcon size={16} weight="bold" class="text-blue-500 animate-spin" />
+          <span class="text-blue-600 dark:text-blue-400 font-medium">Syncing</span>
+          <span class="text-blue-400 dark:text-blue-500">•</span>
+          <span class="text-blue-600 dark:text-blue-400">{cachedRecipeCount} recipes</span>
+        </div>
+      {:else if syncState === 'offline'}
+        <div class="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm bg-gray-500/10 border border-gray-500/30">
+          <CloudSlashIcon size={16} weight="fill" class="text-gray-400" />
+          <span class="text-gray-500 dark:text-gray-400 font-medium">Offline Mode</span>
+          <span class="text-gray-400 dark:text-gray-500">•</span>
+          <span class="text-gray-500 dark:text-gray-400">{cachedRecipeCount} recipes</span>
+        </div>
+      {:else if syncState === 'pending'}
+        <button
+          on:click={handleSyncNow}
+          class="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm bg-amber-500/10 border border-amber-500/30 hover:bg-amber-500/20 transition-colors cursor-pointer"
+        >
+          <CloudArrowUpIcon size={16} weight="fill" class="text-amber-500" />
+          <span class="text-amber-600 dark:text-amber-400 font-medium">{$cookbookPendingOps} Pending</span>
+          <span class="text-amber-400 dark:text-amber-500">•</span>
+          <span class="text-amber-600 dark:text-amber-400">Tap to sync</span>
+        </button>
+      {/if}
+      
+      <!-- Sync All Button -->
+      {#if $isOnline && !isSyncingRecipes}
+        <button
+          on:click={syncAllRecipes}
+          class="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-full transition-colors hover:bg-gray-100 dark:hover:bg-gray-800"
+          style="color: var(--color-text-secondary); border: 1px solid var(--color-input-border);"
+          title="Sync all recipes for offline use"
+        >
+          <ArrowsClockwiseIcon size={16} weight="bold" />
+          <span>Sync All</span>
+        </button>
+      {/if}
+      
+      <!-- New Collection Button -->
+      <button
+        on:click={openCreateModal}
+        class="flex items-center gap-2 px-4 py-1.5 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white rounded-full font-medium transition-all text-sm"
+        aria-label="Create new collection"
+      >
+        <PlusIcon size={18} weight="bold" />
+        <span class="hidden sm:inline">New Collection</span>
+      </button>
+    </div>
   </div>
 
   <!-- Loading State -->
@@ -673,6 +880,13 @@
                 <PinIcon size={20} weight="fill" class="text-white drop-shadow-lg" />
                 <span class="text-white/90 text-xs font-medium drop-shadow">Quick Saves</span>
               </div>
+              <!-- Pending sync badge -->
+              {#if list.pendingSync}
+                <div class="flex items-center gap-1 px-2 py-1 rounded-full bg-amber-500/90 text-white text-xs font-medium shadow-lg">
+                  <CloudArrowUpIcon size={12} />
+                  <span>Pending</span>
+                </div>
+              {/if}
             </div>
 
             <div>
@@ -721,7 +935,15 @@
           <!-- Content -->
           <div class="relative h-full flex flex-col justify-between p-4">
             <div class="flex justify-between items-start">
-              <span></span>
+              <!-- Pending sync badge -->
+              {#if list.pendingSync}
+                <div class="flex items-center gap-1 px-2 py-1 rounded-full bg-amber-500/90 text-white text-xs font-medium shadow-lg">
+                  <CloudArrowUpIcon size={12} />
+                  <span>Pending</span>
+                </div>
+              {:else}
+                <span></span>
+              {/if}
               
               <!-- Quick Actions Overlay (Desktop Hover) -->
               {#if hoveredListId === list.id && list.recipeCount > 0}
