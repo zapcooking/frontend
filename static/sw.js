@@ -1,5 +1,70 @@
-// Service Worker to intercept __data.json requests in static builds
-// This handles requests that Capacitor's native layer can't serve
+// Service Worker to intercept __data.json requests and cache app assets for offline support
+// This handles requests that Capacitor's native layer can't serve and enables offline functionality
+
+const CACHE_NAME = 'zapcooking-v1';
+const APP_ORIGIN = self.location.origin;
+
+// Assets that should be cached (app code, styles, fonts, etc.)
+const ASSET_PATTERNS = [
+  /\/_app\//,           // SvelteKit app code
+  /\.js$/,              // JavaScript files
+  /\.css$/,             // CSS files
+  /\.woff2?$/,          // Web fonts
+  /\.ttf$/,             // TrueType fonts
+  /\.png$/,             // Images
+  /\.jpg$/,             // Images
+  /\.jpeg$/,            // Images
+  /\.svg$/,             // SVG images
+  /\.webp$/,            // WebP images
+  /\.ico$/,             // Favicons
+  /\/static\//,         // Static assets
+];
+
+// URLs that should NOT be cached (API calls, external resources)
+const EXCLUDE_PATTERNS = [
+  /\/api\//,            // API endpoints
+  /wss?:\/\//,          // WebSocket connections
+  /https?:\/\/.*\.lightspark\.com/,  // External APIs
+  /https?:\/\/.*\.breez\.technology/, // External APIs
+  /https?:\/\/.*nostr\./,            // External Nostr relays
+  /\.br$/,              // Brotli compressed files (let browser handle)
+  /\.gz$/,              // Gzip compressed files (let browser handle)
+];
+
+function shouldCache(request) {
+  // Don't cache non-GET requests
+  if (request.method && request.method !== 'GET') {
+    return false;
+  }
+  
+  const urlString = request.url || (typeof request === 'string' ? request : request.toString());
+  
+  // Only cache same-origin requests
+  try {
+    const urlObj = new URL(urlString);
+    if (urlObj.origin !== APP_ORIGIN) {
+      return false;
+    }
+  } catch (e) {
+    return false;
+  }
+  
+  // Check exclusion patterns first
+  for (const pattern of EXCLUDE_PATTERNS) {
+    if (pattern.test(urlString)) {
+      return false;
+    }
+  }
+  
+  // Check if it matches asset patterns
+  for (const pattern of ASSET_PATTERNS) {
+    if (pattern.test(urlString)) {
+      return true;
+    }
+  }
+  
+  return false;
+}
 
 self.addEventListener('install', (event) => {
   console.log('[SW] Installing service worker');
@@ -8,7 +73,20 @@ self.addEventListener('install', (event) => {
 
 self.addEventListener('activate', (event) => {
   console.log('[SW] Activating service worker');
-  event.waitUntil(clients.claim());
+  event.waitUntil(
+    caches.keys().then((cacheNames) => {
+      return Promise.all(
+        cacheNames.map((cacheName) => {
+          if (cacheName !== CACHE_NAME) {
+            console.log('[SW] Deleting old cache:', cacheName);
+            return caches.delete(cacheName);
+          }
+        })
+      );
+    }).then(() => {
+      return clients.claim();
+    })
+  );
 });
 
 self.addEventListener('fetch', (event) => {
@@ -40,8 +118,47 @@ self.addEventListener('fetch', (event) => {
     return;
   }
   
-  // For all other requests, let the browser handle them natively
+  // Cache app assets (JS modules, CSS, fonts, etc.)
+  if (shouldCache(event.request)) {
+    event.respondWith(
+      caches.open(CACHE_NAME).then((cache) => {
+        return cache.match(event.request).then((cachedResponse) => {
+          if (cachedResponse) {
+            // Serve from cache if available
+            return cachedResponse;
+          }
+          
+          // Try to fetch from network and cache it
+          return fetch(event.request)
+            .then((networkResponse) => {
+              // Only cache successful responses
+              if (networkResponse.status === 200) {
+                // Clone the response because it's a stream
+                const responseClone = networkResponse.clone();
+                cache.put(event.request, responseClone);
+              }
+              return networkResponse;
+            })
+            .catch((error) => {
+              // Network failed and not in cache - return an error response
+              // For JavaScript modules, this will cause the dynamic import to fail,
+              // which is correct behavior when offline and module not cached
+              console.warn('[SW] Failed to fetch and not in cache:', url, error);
+              
+              // Return a 404 response which will cause the fetch to fail
+              // This is the correct behavior - the module isn't available offline
+              return new Response(null, {
+                status: 404,
+                statusText: 'Not Found'
+              });
+            });
+        });
+      })
+    );
+    return;
+  }
+  
+  // For all other requests (API calls, external resources), let the browser handle them
   // Don't intercept - this avoids fetch errors and unhandled promise rejections
-  // The browser will handle the requests normally without service worker interference
 });
 

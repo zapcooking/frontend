@@ -2,19 +2,27 @@ import type { HandleClientError } from '@sveltejs/kit';
 
 console.log('[hooks.client.ts] Loading hooks - hostname:', typeof window !== 'undefined' ? window.location.hostname : 'SSR');
 
-// Register Service Worker to intercept __data.json requests in static builds
-// Service Workers can intercept requests before they reach Capacitor's native layer
+// Register Service Worker to intercept __data.json requests and cache app assets for offline support
+// Service Workers can intercept requests and cache assets for offline functionality
 if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
-  const isStaticBuild = window.location.hostname === 'localhost' || 
-                       window.location.hostname === '127.0.0.1' ||
-                       window.location.protocol === 'file:' ||
-                       window.location.protocol === 'capacitor:';
-  
-  if (isStaticBuild) {
-    navigator.serviceWorker.register('/sw.js')
-      .then(reg => console.log('[hooks.client.ts] Service Worker registered:', reg.scope))
-      .catch(err => console.error('[hooks.client.ts] Service Worker registration failed:', err));
-  }
+  // Register service worker for all builds (static and web) to enable offline asset caching
+  navigator.serviceWorker.register('/sw.js')
+    .then(reg => {
+      console.log('[hooks.client.ts] Service Worker registered:', reg.scope);
+      
+      // Check for updates periodically (every hour)
+      setInterval(() => {
+        reg.update();
+      }, 60 * 60 * 1000);
+      
+      // Check for updates when the page becomes visible again
+      document.addEventListener('visibilitychange', () => {
+        if (!document.hidden) {
+          reg.update();
+        }
+      });
+    })
+    .catch(err => console.error('[hooks.client.ts] Service Worker registration failed:', err));
 }
 
 // Intercept fetch requests for __data.json files that don't exist in static builds
