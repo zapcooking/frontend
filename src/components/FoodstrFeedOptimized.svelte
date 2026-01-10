@@ -248,7 +248,6 @@ import ClientAttribution from './ClientAttribution.svelte';
   
   // UI state
   let carouselStates: { [eventId: string]: number } = {};
-  let expandedPosts: { [eventId: string]: boolean } = {};
   let copiedNoteId = '';
   let expandedParentNotes: { [eventId: string]: boolean } = {}; // Track expanded parent notes
   let parentNoteCache: { [eventId: string]: NDKEvent | null } = {}; // Cache full parent notes
@@ -1684,11 +1683,6 @@ import ClientAttribution from './ClientAttribution.svelte';
     setTimeout(() => copiedNoteId = '', 2000);
   }
 
-  function toggleExpanded(eventId: string) {
-    expandedPosts[eventId] = !expandedPosts[eventId];
-    expandedPosts = { ...expandedPosts };
-  }
-
   // Carousel navigation
   function getCurrentSlide(eventId: string): number {
     return carouselStates[eventId] || 0;
@@ -1984,20 +1978,7 @@ import ClientAttribution from './ClientAttribution.svelte';
               {#if getContentWithoutMedia(event.content)}
                 {@const cleanContent = getContentWithoutMedia(event.content)}
                 <div class="text-sm leading-relaxed mb-3" style="color: var(--color-text-primary)">
-                  <div
-                    class="overflow-hidden transition-all duration-200"
-                    class:line-clamp-3={!expandedPosts[event.id]}
-                  >
-                    <NoteContent content={cleanContent} />
-                  </div>
-                  {#if cleanContent.length > 100}
-                    <button
-                      on:click={() => toggleExpanded(event.id)}
-                      class="text-caption hover:opacity-80 text-xs mt-1 transition-colors"
-                    >
-                      {expandedPosts[event.id] ? 'Show less' : 'Read more'}
-                    </button>
-                  {/if}
+                  <NoteContent content={cleanContent} />
                 </div>
               {/if}
 
@@ -2331,14 +2312,6 @@ import ClientAttribution from './ClientAttribution.svelte';
     gap: 0.5rem;
   }
 
-  .line-clamp-3 {
-    display: -webkit-box;
-    -webkit-line-clamp: 3;
-    line-clamp: 3;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
-  }
-  
   /* Swipeable carousel styles */
   .carousel-container {
     scroll-snap-type: x mandatory;

@@ -16,10 +16,11 @@
   import Button from '../../components/Button.svelte';
   import { addClientTagToEvent } from '$lib/nip89';
   import { buildNip22CommentTags } from '$lib/tagUtils';
-  import ClientAttribution from '../../components/ClientAttribution.svelte';
-  import type { NDKEvent } from '@nostr-dev-kit/ndk';
-  import type { PageData } from './$types';
-  import { createCommentFilter } from '$lib/commentFilters';
+import ClientAttribution from '../../components/ClientAttribution.svelte';
+import ThreadCommentActions from '../../components/ThreadCommentActions.svelte';
+import type { NDKEvent } from '@nostr-dev-kit/ndk';
+import type { PageData } from './$types';
+import { createCommentFilter } from '$lib/commentFilters';
 
   export const data: PageData = {} as PageData;
 
@@ -410,31 +411,38 @@
             <div class="absolute left-5 top-12 bottom-0 w-0.5" style="background-color: var(--color-input-border)"></div>
             
             <article class="py-3">
-              <a 
-                href="/{nip19.noteEncode(parentNote.id)}"
-                class="flex space-x-3 group -mx-2 px-2 py-2 rounded-lg transition-colors parent-thread-link"
-              >
+              <div class="flex space-x-3 -mx-2 px-2 py-2 rounded-lg">
                 <div class="flex-shrink-0 z-10">
-                  <CustomAvatar
-                    pubkey={parentNote.author?.hexpubkey || parentNote.pubkey}
-                    size={40}
-                  />
+                  <a href="/user/{nip19.npubEncode(parentNote.author?.hexpubkey || parentNote.pubkey)}">
+                    <CustomAvatar
+                      pubkey={parentNote.author?.hexpubkey || parentNote.pubkey}
+                      size={40}
+                    />
+                  </a>
                 </div>
                 <div class="flex-1 min-w-0">
                   <div class="flex items-center space-x-2 mb-1">
-                    <span class="font-semibold text-sm group-hover:text-primary" style="color: var(--color-text-primary)">
+                    <a href="/user/{nip19.npubEncode(parentNote.author?.hexpubkey || parentNote.pubkey)}" class="font-semibold text-sm hover:text-primary" style="color: var(--color-text-primary)">
                       <CustomName pubkey={parentNote.author?.hexpubkey || parentNote.pubkey} />
-                    </span>
+                    </a>
                     <span class="text-sm" style="color: var(--color-caption)">·</span>
                     <span class="text-sm" style="color: var(--color-caption)">
                       {parentNote.created_at ? formatTimeAgo(parentNote.created_at) : ''}
                     </span>
                   </div>
-                  <div class="text-sm leading-relaxed line-clamp-3" style="color: var(--color-text-secondary)">
+                  <a 
+                    href="/{nip19.noteEncode(parentNote.id)}"
+                    class="block text-sm leading-relaxed hover:opacity-80" 
+                    style="color: var(--color-text-secondary)"
+                  >
                     <NoteContent content={parentNote.content} />
+                  </a>
+                  <!-- Parent note actions -->
+                  <div class="mt-2">
+                    <ThreadCommentActions event={parentNote} compact={true} />
                   </div>
                 </div>
-              </a>
+              </div>
             </article>
           </div>
         {/each}
@@ -560,16 +568,9 @@
                     <div class="text-sm leading-relaxed" style="color: var(--color-text-secondary)">
                       <NoteContent content={reply.content} />
                     </div>
-                    <div class="flex items-center gap-4 mt-2 text-xs" style="color: var(--color-caption)">
-                      <a 
-                        href="/{nip19.noteEncode(reply.id)}"
-                        class="hover:text-primary transition-colors flex items-center gap-1"
-                      >
-                        <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-                        </svg>
-                        View thread
-                      </a>
+                    <!-- Reply actions -->
+                    <div class="mt-2">
+                      <ThreadCommentActions event={reply} compact={false} />
                     </div>
                   </div>
                 </div>
@@ -588,16 +589,20 @@
                       </a>
                       <div class="flex-1 min-w-0">
                         <div class="flex items-center space-x-2 mb-0.5">
-                          <span class="font-medium text-xs" style="color: var(--color-text-primary)">
+                          <a href="/user/{nip19.npubEncode(nestedReply.author?.hexpubkey || nestedReply.pubkey)}" class="font-medium text-xs hover:underline" style="color: var(--color-text-primary)">
                             <CustomName pubkey={nestedReply.author?.hexpubkey || nestedReply.pubkey} />
-                          </span>
+                          </a>
                           <span class="text-xs" style="color: var(--color-caption)">·</span>
                           <span class="text-xs" style="color: var(--color-caption)">
                             {nestedReply.created_at ? formatTimeAgo(nestedReply.created_at) : ''}
                           </span>
                         </div>
-                        <div class="text-xs leading-relaxed line-clamp-2" style="color: var(--color-text-secondary)">
+                        <div class="text-xs leading-relaxed" style="color: var(--color-text-secondary)">
                           <NoteContent content={nestedReply.content} />
+                        </div>
+                        <!-- Nested reply actions -->
+                        <div class="mt-1.5">
+                          <ThreadCommentActions event={nestedReply} compact={true} />
                         </div>
                       </div>
                     </div>
@@ -632,7 +637,5 @@
 {/if}
 
 <style>
-  .parent-thread-link:hover {
-    background-color: var(--color-bg-secondary);
-  }
+  /* Thread page styles */
 </style>
