@@ -33,6 +33,7 @@
 
   export let open = false;
   export let event: NDKEvent | NDKUser;
+
   let amount: number = 21;
   let message: string = '';
 
