@@ -8,7 +8,39 @@
 
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
-import { nip19 } from 'nostr-tools';
+
+// Simple bech32 decoder for npub (avoids nostr-tools import issues on Cloudflare)
+function decodeNpub(npub: string): string | null {
+  try {
+    const ALPHABET = 'qpzry9x8gf2tvdw0s3jn54khce6mua7l';
+    const data = npub.slice(5); // Remove 'npub1' prefix
+    
+    const values: number[] = [];
+    for (const char of data) {
+      const idx = ALPHABET.indexOf(char.toLowerCase());
+      if (idx === -1) return null;
+      values.push(idx);
+    }
+    
+    // Convert from 5-bit to 8-bit
+    let acc = 0;
+    let bits = 0;
+    const result: number[] = [];
+    
+    for (const value of values.slice(0, -6)) { // Exclude checksum
+      acc = (acc << 5) | value;
+      bits += 5;
+      while (bits >= 8) {
+        bits -= 8;
+        result.push((acc >> bits) & 0xff);
+      }
+    }
+    
+    return result.map(b => b.toString(16).padStart(2, '0')).join('');
+  } catch (e) {
+    return null;
+  }
+}
 
 export const GET: RequestHandler = async ({ url, platform }) => {
   const MEMBERSHIP_ENABLED = platform?.env?.MEMBERSHIP_ENABLED || env.MEMBERSHIP_ENABLED;
@@ -22,16 +54,20 @@ export const GET: RequestHandler = async ({ url, platform }) => {
     return json({ error: 'pubkey required' }, { status: 400 });
   }
 
+  const originalInput = pubkey;
+
   // Convert npub to hex if needed
   if (pubkey.startsWith('npub1')) {
-    try {
-      const decoded = nip19.decode(pubkey);
-      if (decoded.type === 'npub') {
-        pubkey = decoded.data as string;
-      }
-    } catch (e) {
-      return json({ error: 'Invalid npub format' }, { status: 400 });
+    const decoded = decodeNpub(pubkey);
+    if (!decoded || decoded.length !== 64) {
+      return json({ 
+        error: 'Invalid npub format', 
+        input: originalInput,
+        decoded: decoded,
+        hint: 'Please provide the 64-character hex pubkey instead'
+      }, { status: 400 });
     }
+    pubkey = decoded;
   }
 
   const API_SECRET = platform?.env?.RELAY_API_SECRET || env.RELAY_API_SECRET;
