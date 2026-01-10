@@ -749,9 +749,6 @@ class OfflineStorageManager {
 }
 
 // Export singleton instance
-<<<<<<< HEAD
-=======
 // The constructor is safe to call during SSR - it checks for browser environment
 // and will not attempt to access IndexedDB on the server
->>>>>>> 0b1c1a9 (Fix SSR build failure: Make OfflineStorageManager constructor safe for server-side rendering)
 export const offlineStorage = new OfflineStorageManager();
