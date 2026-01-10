@@ -41,6 +41,7 @@ const preloadState: PreloadState = {
 // Batch queue for efficient API calls
 let batchQueue: string[] = [];
 let batchTimeout: ReturnType<typeof setTimeout> | null = null;
+let isProcessingStopped = false;
 
 // Store for preloader status (for debugging/UI)
 export const preloaderStatus = writable({
@@ -61,7 +62,7 @@ function updateStatus() {
  * Process the batch queue - fetch counts for queued items
  */
 async function processBatchQueue() {
-  if (batchQueue.length === 0) return;
+  if (isProcessingStopped || batchQueue.length === 0) return;
   
   const itemsToProcess = batchQueue.splice(0, BATCH_SIZE);
   
@@ -117,8 +118,8 @@ async function processBatchQueue() {
   
   updateStatus();
   
-  // Process more if queue has items
-  if (batchQueue.length > 0) {
+  // Process more if queue has items and processing hasn't been stopped
+  if (!isProcessingStopped && batchQueue.length > 0) {
     batchTimeout = setTimeout(processBatchQueue, BATCH_DELAY);
   }
 }
@@ -267,6 +268,9 @@ export function createBackgroundEngagementLoader(
  * Reset preloader state (e.g., when changing feeds)
  */
 export function resetPreloader(): void {
+  // Stop any in-flight batch processing
+  isProcessingStopped = true;
+  
   preloadState.farAhead.clear();
   preloadState.near.clear();
   preloadState.loading.clear();
@@ -276,6 +280,10 @@ export function resetPreloader(): void {
     clearTimeout(batchTimeout);
     batchTimeout = null;
   }
+  
+  // Re-enable processing for future operations
+  isProcessingStopped = false;
+  
   updateStatus();
 }
 
