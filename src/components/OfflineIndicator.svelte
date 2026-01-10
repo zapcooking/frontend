@@ -41,7 +41,11 @@
   }
 
   onDestroy(() => {
-    if (hideTimeout) clearTimeout(hideTimeout);
+    if (hideTimeout) {
+      clearTimeout(hideTimeout);
+      hideTimeout = null;
+    }
+    showIndicator = false;
   });
 </script>
 
