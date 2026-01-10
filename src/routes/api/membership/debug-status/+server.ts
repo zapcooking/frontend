@@ -2,10 +2,13 @@
  * Debug Membership Status (temporary endpoint for debugging)
  * 
  * GET /api/membership/debug-status?pubkey=xxx
+ * 
+ * Accepts either hex pubkey or npub format
  */
 
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
+import { nip19 } from 'nostr-tools';
 
 export const GET: RequestHandler = async ({ url, platform }) => {
   const MEMBERSHIP_ENABLED = platform?.env?.MEMBERSHIP_ENABLED || env.MEMBERSHIP_ENABLED;
@@ -13,10 +16,22 @@ export const GET: RequestHandler = async ({ url, platform }) => {
     return json({ error: 'Forbidden' }, { status: 403 });
   }
 
-  const pubkey = url.searchParams.get('pubkey');
+  let pubkey = url.searchParams.get('pubkey');
   
   if (!pubkey) {
     return json({ error: 'pubkey required' }, { status: 400 });
+  }
+
+  // Convert npub to hex if needed
+  if (pubkey.startsWith('npub1')) {
+    try {
+      const decoded = nip19.decode(pubkey);
+      if (decoded.type === 'npub') {
+        pubkey = decoded.data as string;
+      }
+    } catch (e) {
+      return json({ error: 'Invalid npub format' }, { status: 400 });
+    }
   }
 
   const API_SECRET = platform?.env?.RELAY_API_SECRET || env.RELAY_API_SECRET;
