@@ -113,10 +113,24 @@ export const POST: RequestHandler = async ({ request, platform }) => {
     
     const memberData = await memberCheckRes.json();
     
+    console.log('[NIP-05] Member data:', {
+      pubkey: pubkey.substring(0, 16) + '...',
+      subscription_end: memberData.subscription_end,
+      payment_id: memberData.payment_id,
+      tier: memberData.tier
+    });
+    
     // Check if membership is active (not expired)
-    if (memberData.subscription_end) {
+    // Genesis founders (payment_id starts with 'genesis_') have lifetime access
+    const isGenesisFounder = memberData.payment_id?.startsWith('genesis_');
+    
+    if (memberData.subscription_end && !isGenesisFounder) {
       const expiryDate = new Date(memberData.subscription_end);
       if (expiryDate < new Date()) {
+        console.log('[NIP-05] Membership expired:', {
+          expiryDate: expiryDate.toISOString(),
+          now: new Date().toISOString()
+        });
         return json({
           success: false,
           error: 'Membership has expired. Please renew to claim NIP-05'
