@@ -154,13 +154,37 @@
       sig: template.sig
     };
 
-    return Fetch.fetchJson(url, {
-      body,
-      method: 'POST',
-      headers: {
-        Authorization: `Nostr ${btoa(JSON.stringify(authEvent))}`
+    try {
+      const response = await fetch(url, {
+        body,
+        method: 'POST',
+        headers: {
+          Authorization: `Nostr ${btoa(JSON.stringify(authEvent))}`
+        }
+      });
+
+      // Check if response is ok
+      if (!response.ok) {
+        const errorText = await response.text();
+        let errorData;
+        try {
+          errorData = JSON.parse(errorText);
+        } catch {
+          errorData = { message: errorText || `HTTP ${response.status}: ${response.statusText}` };
+        }
+        throw new Error(errorData.message || errorData.error || `Upload failed with status ${response.status}`);
       }
-    });
+
+      const result = await response.json();
+      return result;
+    } catch (err: any) {
+      // If it's already an Error with a message, re-throw it
+      if (err instanceof Error) {
+        throw err;
+      }
+      // Otherwise wrap it
+      throw new Error(err?.message || 'Failed to upload file');
+    }
   }
 
   async function handleImageUpload(event: Event) {
@@ -226,12 +250,56 @@
         return;
       }
       
+      // Validate file size - minimum 1KB (very small files are likely invalid)
+      const minSize = 1024; // 1KB
+      if (file.size < minSize) {
+        error = `Video file is too small (${file.size} bytes). File appears to be invalid.`;
+        uploadingVideo = false;
+        return;
+      }
+      
       // Validate file size (max 200MB for videos)
       if (file.size > 200 * 1024 * 1024) {
         error = 'Video must be less than 200MB';
         uploadingVideo = false;
         return;
       }
+      
+      // Get video metadata to check duration and bitrate
+      let videoDuration = 0;
+      try {
+        const videoUrl = URL.createObjectURL(file);
+        const video = document.createElement('video');
+        video.preload = 'metadata';
+        await new Promise((resolve, reject) => {
+          video.onloadedmetadata = () => {
+            videoDuration = video.duration;
+            URL.revokeObjectURL(videoUrl);
+            resolve(null);
+          };
+          video.onerror = () => {
+            URL.revokeObjectURL(videoUrl);
+            reject(new Error('Could not read video metadata'));
+          };
+          video.src = videoUrl;
+        });
+        
+        // Calculate approximate bitrate (bits per second)
+        if (videoDuration > 0) {
+          const bitrate = (file.size * 8) / videoDuration; // bits per second
+          const bitrateMbps = bitrate / (1024 * 1024);
+          console.log(`Video metadata - duration: ${videoDuration.toFixed(1)}s, bitrate: ${bitrateMbps.toFixed(2)} Mbps, size: ${(file.size / 1024 / 1024).toFixed(2)}MB`);
+          
+          // Warn if bitrate is suspiciously low (< 0.1 Mbps) - might indicate compression issues
+          if (bitrateMbps < 0.1 && videoDuration > 5) {
+            console.warn(`Video has very low bitrate (${bitrateMbps.toFixed(3)} Mbps), might cause upload issues`);
+          }
+        }
+      } catch (metaError) {
+        console.warn('Could not read video metadata:', metaError);
+      }
+      
+      console.log(`Uploading video: ${file.name}, size: ${(file.size / 1024 / 1024).toFixed(2)}MB, type: ${file.type}, duration: ${videoDuration > 0 ? videoDuration.toFixed(1) + 's' : 'unknown'}`);
       
       const body = new FormData();
       body.append('file[]', file);
@@ -241,11 +309,16 @@
       if (result && result.data && result.data[0]?.url) {
         uploadedVideos = [...uploadedVideos, result.data[0].url];
       } else {
-        error = 'Failed to upload video';
+        // Extract error message from response if available
+        const errorMsg = result?.message || result?.error || 'Unknown error';
+        console.error('Upload failed - response:', result);
+        error = `Failed to upload video${errorMsg !== 'Unknown error' ? `: ${errorMsg}` : ''}`;
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error uploading video:', err);
-      error = 'Failed to upload video. Please try again.';
+      // Extract error message from the error object
+      const errorMsg = err?.message || err?.response?.message || err?.response?.error || 'Unknown error';
+      error = `Failed to upload video${errorMsg !== 'Unknown error' ? `: ${errorMsg}` : '. Please try again.'}`;
     } finally {
       uploadingVideo = false;
       // Reset input so same file can be selected again
