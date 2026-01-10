@@ -139,17 +139,14 @@ class OfflineStorageManager {
         const oldVersion = (event as IDBVersionChangeEvent).oldVersion;
         console.log(`[OfflineStorage] Upgrading database from v${oldVersion} to v${DB_VERSION}`);
 
-        // Create cookbooks store
-        if (!db.objectStoreNames.contains(COOKBOOKS_STORE)) {
+        // Version 1: Initial schema with cookbooks and sync queue
+        if (oldVersion < 1) {
           console.log('[OfflineStorage] Creating cookbooks store');
           const cookbookStore = db.createObjectStore(COOKBOOKS_STORE, { keyPath: 'id' });
           cookbookStore.createIndex('pubkey', 'pubkey', { unique: false });
           cookbookStore.createIndex('lastSynced', 'lastSynced', { unique: false });
           cookbookStore.createIndex('pendingChanges', 'pendingChanges', { unique: false });
-        }
 
-        // Create sync queue store
-        if (!db.objectStoreNames.contains(SYNC_QUEUE_STORE)) {
           console.log('[OfflineStorage] Creating syncQueue store');
           const syncStore = db.createObjectStore(SYNC_QUEUE_STORE, { keyPath: 'id' });
           syncStore.createIndex('createdAt', 'createdAt', { unique: false });
@@ -157,8 +154,8 @@ class OfflineStorageManager {
           syncStore.createIndex('type', 'type', { unique: false });
         }
 
-        // Create recipes store (added in v2)
-        if (!db.objectStoreNames.contains(RECIPES_STORE)) {
+        // Version 2: Add recipes store for recipe caching
+        if (oldVersion < 2) {
           console.log('[OfflineStorage] Creating recipes store');
           const recipesStore = db.createObjectStore(RECIPES_STORE, { keyPath: 'id' });
           recipesStore.createIndex('authorPubkey', 'authorPubkey', { unique: false });
