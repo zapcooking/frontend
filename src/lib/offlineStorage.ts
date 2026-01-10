@@ -97,18 +97,17 @@ class OfflineStorageManager {
   private dbReadyResolve!: () => void;
 
   constructor() {
-    if (browser) {
-      this.dbReady = new Promise((resolve) => {
-        this.dbReadyResolve = resolve;
-      });
+    this.dbReady = new Promise((resolve) => {
+      this.dbReadyResolve = resolve;
+    });
+
+    // Only initialize on client side (browser environment)
+    if (browser && typeof window !== 'undefined') {
       this.initDatabase();
     } else {
-      // On the server, IndexedDB is not available. Reject dbReady so that any
-      // attempt to use offline storage in SSR fails fast instead of operating
-      // with a null database instance.
-      this.dbReady = Promise.reject(
-        new Error('Offline storage is not available on the server (IndexedDB is a browser-only API).')
-      );
+      // Resolve immediately on server (SSR) - methods will check if db exists
+      // and return early, so rejecting here would break SSR builds
+      this.dbReadyResolve();
     }
   }
 
@@ -116,10 +115,22 @@ class OfflineStorageManager {
    * Initialize IndexedDB database
    */
   private async initDatabase(): Promise<void> {
-    if (!browser) return;
+    // Double-check we're in a browser environment
+    if (!browser || typeof window === 'undefined') {
+      return;
+    }
+
+    // Safely access indexedDB (only available in browser)
+    // Use globalThis to avoid ReferenceError in SSR
+    const idb = (globalThis as any).indexedDB;
+    if (!idb) {
+      console.warn('[OfflineStorage] IndexedDB not available');
+      this.dbReadyResolve();
+      return;
+    }
 
     return new Promise((resolve, reject) => {
-      const request = indexedDB.open(DB_NAME, DB_VERSION);
+      const request = idb.open(DB_NAME, DB_VERSION);
 
       request.onerror = () => {
         console.error('[OfflineStorage] Failed to open database:', request.error);
