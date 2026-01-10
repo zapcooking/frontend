@@ -60,7 +60,8 @@
     subscription.on('eose', () => {
       eoseReceived = true;
       loading = false;
-      // Subscription count is authoritative after EOSE
+      // Subscription count is authoritative after EOSE, even if 0
+      // This ensures accuracy over potentially stale fast count
       totalCommentAmount = eventCount;
     });
   });
