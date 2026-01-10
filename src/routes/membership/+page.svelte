@@ -34,8 +34,11 @@
   const GENESIS_PRICE_USD = 210;
   const GENESIS_PRICE_SATS = 210000;
   
+  // Track actual founders count from server (before profile filtering)
+  const actualFoundersCount = data.founders?.length || 0;
+  
   $: foundersCount = founders.length;
-  $: spotsTaken = foundersCount;
+  $: spotsTaken = actualFoundersCount; // Use actual count, not filtered count
   $: spotsRemaining = TOTAL_GENESIS_SPOTS - spotsTaken;
   $: isSoldOut = spotsRemaining === 0;
   $: isLoggedIn = $userPublickey && $userPublickey.length > 0;
@@ -78,16 +81,18 @@
     
     await Promise.all(profilePromises);
     
-    // Filter out founders without valid profiles and re-number
-    founders = founders
-      .filter(founder => hasValidProfile(founder.user, founder.pubkey))
-      .map((founder, index) => ({
-        ...founder,
-        number: index + 1
-      }));
-    
+    // Keep all founders but mark which ones have valid profiles
+    // Don't filter or re-number - keep original founder numbers from payment_id
     founders = [...founders]; // Trigger reactivity
     loading = false;
+  }
+  
+  // Helper to check if founder should be displayed with profile or placeholder
+  function getFounderDisplayName(founder: Founder): string {
+    if (founder.user?.profile?.displayName) return founder.user.profile.displayName;
+    if (founder.user?.profile?.name) return founder.user.profile.name;
+    // Show truncated pubkey as fallback
+    return `${founder.pubkey.substring(0, 8)}...`;
   }
 
   onMount(() => {
