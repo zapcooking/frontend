@@ -20,16 +20,23 @@ export const load: PageServerLoad = async ({ fetch, platform }) => {
     const data = await res.json();
 
     const founders = data.members
-      .filter((m: any) => m.payment_id?.startsWith('founder'))
-      .sort((a: any, b: any) => 
-        new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
-      )
-      .map((m: any, index: number) => ({
-        number: index + 1,
-        pubkey: m.pubkey,
-        tier: m.tier,
-        joined: m.created_at
-      }));
+      .filter((m: any) => m.payment_id?.startsWith('genesis_'))
+      .sort((a: any, b: any) => {
+        // Sort by founder number extracted from payment_id (genesis_1, genesis_2, etc.)
+        const numA = parseInt(a.payment_id?.replace('genesis_', '') || '999');
+        const numB = parseInt(b.payment_id?.replace('genesis_', '') || '999');
+        return numA - numB;
+      })
+      .map((m: any, index: number) => {
+        // Extract founder number from payment_id
+        const founderNum = m.payment_id?.replace('genesis_', '') || (index + 1).toString();
+        return {
+          number: parseInt(founderNum),
+          pubkey: m.pubkey,
+          tier: m.tier,
+          joined: m.created_at
+        };
+      });
 
     return { founders };
 
