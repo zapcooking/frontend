@@ -2,7 +2,7 @@
   import { goto } from '$app/navigation';
   import { page } from '$app/stores';
   import { ndk, userPublickey } from '$lib/nostr';
-  import type { NDKEvent, NDKUserProfile } from '@nostr-dev-kit/ndk';
+  import type { NDKUserProfile } from '@nostr-dev-kit/ndk';
   import { nip19 } from 'nostr-tools';
   import { onMount } from 'svelte';
   import Feed from '../../../components/Feed.svelte';
@@ -16,16 +16,22 @@
   import ShareIcon from 'phosphor-svelte/lib/Share';
   import BookmarkIcon from 'phosphor-svelte/lib/BookmarkSimple';
   import PinIcon from 'phosphor-svelte/lib/PushPin';
+  import CloudSlashIcon from 'phosphor-svelte/lib/CloudSlash';
   import { DEFAULT_LIST_ID, DEFAULT_LIST_TITLE, cookbookStore, getCookbookCoverImage, type CookbookList } from '$lib/stores/cookbookStore';
   import PanLoader from '../../../components/PanLoader.svelte';
   import { writable, type Writable, get } from 'svelte/store';
   import { RECIPE_TAG_PREFIX_NEW } from '$lib/consts';
   import ImageIcon from 'phosphor-svelte/lib/Image';
+  import { isOnline } from '$lib/connectionMonitor';
+  import { offlineStorage, type CachedRecipe } from '$lib/offlineStorage';
+  import { NDKEvent } from '@nostr-dev-kit/ndk';
 
   let loaded = false;
   let event: NDKEvent | null = null;
   let events: NDKEvent[] = [];
   let isOwner = false;
+  let offlineMode = false; // True when we have cached cookbook but can't load recipes
+  let cachedRecipeCount = 0; // Number of recipes in the cached cookbook
   
   // Edit modal state
   let editModalOpen = false;
@@ -59,6 +65,8 @@
     events = [];
     event = null;
     coverImage = undefined;
+    offlineMode = false;
+    cachedRecipeCount = 0;
 
     try {
       if ($page.params.naddr?.startsWith('naddr1')) {
@@ -78,6 +86,7 @@
           // Use the event from the store (which should have the latest cover tag)
           event = localList.event;
           isOwner = $userPublickey === event.author.pubkey;
+          cachedRecipeCount = localList.recipeCount;
           
           // Verify the event has the cover tag from the store (sync them if needed)
           const coverTagInEvent = event.tags.find(t => t[0] === 'cover')?.[1];
@@ -87,29 +96,106 @@
             event.tags.push(['cover', localList.coverRecipeId]);
           }
           
-          // Load cover image
-          coverImage = await getCookbookCoverImage(localList, $ndk);
+          // Load cover image (may use cached version)
+          try {
+            coverImage = await getCookbookCoverImage(localList, $ndk);
+          } catch (e) {
+            console.warn('Failed to load cover image:', e);
+          }
           
           // Load recipes in the list
           const recipeTags = event.tags.filter(t => t[0] === 'a');
+          const recipeATags = recipeTags.map(t => t[1]);
           
+          // Check if we're offline - try to load from cache
+          if (!$isOnline) {
+            console.log('[Cookbook] Offline - loading recipes from cache');
+            console.log('[Cookbook] Looking for a-tags:', recipeATags);
+            const cachedRecipes = await offlineStorage.getRecipes(recipeATags);
+            console.log('[Cookbook] Found cached recipes:', cachedRecipes.length);
+            
+            if (cachedRecipes.length > 0) {
+              // Convert cached recipes back to NDKEvent-like objects for the Feed component
+              events = cachedRecipes.map(cached => {
+                const fakeEvent = new NDKEvent($ndk);
+                fakeEvent.kind = cached.eventKind;
+                fakeEvent.pubkey = cached.authorPubkey;
+                fakeEvent.created_at = cached.createdAt;
+                fakeEvent.content = cached.content;
+                fakeEvent.tags = cached.eventTags;
+                // Generate a stable ID from the a-tag for keyed each blocks
+                fakeEvent.id = cached.id; // Use a-tag as ID (e.g., "30023:pubkey:slug")
+                return fakeEvent;
+              });
+              console.log(`[Cookbook] Loaded ${events.length} recipes from cache`);
+              
+              // If we have some but not all, still show what we have
+              if (cachedRecipes.length < cachedRecipeCount) {
+                console.log(`[Cookbook] Missing ${cachedRecipeCount - cachedRecipes.length} recipes in cache`);
+              }
+            } else {
+              // No cached recipes available
+              console.log('[Cookbook] No cached recipes found, showing offline message');
+              offlineMode = true;
+            }
+            loaded = true;
+            return;
+          }
+          
+          // Online - fetch from Nostr and cache
           for (const tag of recipeTags) {
             const parts = tag[1].split(':');
             if (parts.length !== 3) continue;
             
             const [kind, pubkey, identifier] = parts;
             
-            const recipeEvent = await $ndk.fetchEvent({
-              kinds: [Number(kind)],
-              '#d': [identifier],
-              authors: [pubkey]
-            });
-            
-            if (recipeEvent) {
-              events = [...events, recipeEvent];
+            try {
+              const recipeEvent = await $ndk.fetchEvent({
+                kinds: [Number(kind)],
+                '#d': [identifier],
+                authors: [pubkey]
+              });
+              
+              if (recipeEvent) {
+                events = [...events, recipeEvent];
+                // Cache the recipe for offline use
+                const dTag = recipeEvent.tags?.find((t: string[]) => t[0] === 'd')?.[1] || '';
+                const aTag = `${recipeEvent.kind}:${recipeEvent.pubkey}:${dTag}`;
+                console.log('[Cookbook] Caching recipe:', aTag);
+                await offlineStorage.saveRecipeFromEvent(recipeEvent);
+              }
+            } catch (fetchError) {
+              console.warn('Failed to fetch recipe:', identifier, fetchError);
+            }
+          }
+          
+          // If we couldn't load any recipes but expected some, try cache as fallback
+          if (events.length === 0 && cachedRecipeCount > 0) {
+            const cachedRecipes = await offlineStorage.getRecipes(recipeATags);
+            if (cachedRecipes.length > 0) {
+              events = cachedRecipes.map(cached => {
+                const fakeEvent = new NDKEvent($ndk);
+                fakeEvent.kind = cached.eventKind;
+                fakeEvent.pubkey = cached.authorPubkey;
+                fakeEvent.created_at = cached.createdAt;
+                fakeEvent.content = cached.content;
+                fakeEvent.tags = cached.eventTags;
+                fakeEvent.id = cached.id; // Use a-tag as ID for keyed each blocks
+                return fakeEvent;
+              });
+            } else {
+              offlineMode = true;
             }
           }
         } else {
+          // Not in local store - need to fetch from relays
+          // Check if we're offline first
+          if (!$isOnline) {
+            offlineMode = true;
+            loaded = true;
+            return;
+          }
+          
           // Fetch from relays
           const e = await $ndk.fetchEvent({
             '#d': [decoded.identifier],
@@ -175,14 +261,20 @@
               
               const [kind, pubkey, identifier] = parts;
               
-              const recipeEvent = await $ndk.fetchEvent({
-                kinds: [Number(kind)],
-                '#d': [identifier],
-                authors: [pubkey]
-              });
-              
-              if (recipeEvent) {
-                events = [...events, recipeEvent];
+              try {
+                const recipeEvent = await $ndk.fetchEvent({
+                  kinds: [Number(kind)],
+                  '#d': [identifier],
+                  authors: [pubkey]
+                });
+                
+                if (recipeEvent) {
+                  events = [...events, recipeEvent];
+                  // Cache the recipe for offline use
+                  await offlineStorage.saveRecipeFromEvent(recipeEvent);
+                }
+              } catch (fetchError) {
+                console.warn('Failed to fetch recipe:', identifier, fetchError);
               }
             }
           }
@@ -776,7 +868,7 @@
               </div>
               <h1 class="text-2xl sm:text-3xl font-bold text-white">{listTitle}</h1>
               <p class="text-white/80 text-sm mt-1">
-                {events.length} {events.length === 1 ? 'recipe' : 'recipes'}
+                {offlineMode ? cachedRecipeCount : events.length} {(offlineMode ? cachedRecipeCount : events.length) === 1 ? 'recipe' : 'recipes'}
               </p>
             </div>
           </div>
@@ -803,7 +895,7 @@
             <h1 class="text-2xl font-bold" style="color: var(--color-text-primary)">{listTitle}</h1>
           </div>
           <p class="text-caption text-sm">
-            {events.length} {events.length === 1 ? 'recipe' : 'recipes'}
+            {offlineMode ? cachedRecipeCount : events.length} {(offlineMode ? cachedRecipeCount : events.length) === 1 ? 'recipe' : 'recipes'}
           </p>
         </div>
       </div>
@@ -814,8 +906,8 @@
       <p class="text-caption leading-relaxed {listImage ? '' : '-mt-2'}">{listSummary}</p>
     {/if}
 
-    <!-- Action buttons -->
-    {#if isOwner}
+    <!-- Action buttons (hidden when offline since they require network) -->
+    {#if isOwner && !offlineMode}
       <div class="flex flex-wrap gap-2 {listImage ? '-mt-2' : ''}">
         {#if events.length > 0}
           <button
@@ -865,7 +957,24 @@
     {/if}
 
     <!-- Recipes Feed -->
-    {#if events.length > 0}
+    {#if offlineMode}
+      <!-- Offline Mode - Show cached cookbook info but can't load recipes -->
+      <div class="flex flex-col items-center justify-center py-12 px-4">
+        <div class="w-16 h-16 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center mb-4">
+          <CloudSlashIcon size={32} class="text-amber-600 dark:text-amber-400" />
+        </div>
+        <h3 class="text-lg font-medium mb-2" style="color: var(--color-text-primary)">
+          You're offline
+        </h3>
+        <p class="text-caption text-center max-w-sm mb-4">
+          This cookbook has {cachedRecipeCount} {cachedRecipeCount === 1 ? 'recipe' : 'recipes'} saved, 
+          but recipe details require an internet connection to view.
+        </p>
+        <p class="text-caption text-center text-sm">
+          Connect to the internet to see your recipes.
+        </p>
+      </div>
+    {:else if events.length > 0}
       <Feed {events} {loaded} />
     {:else}
       <div class="flex flex-col items-center justify-center py-12 px-4">
@@ -894,12 +1003,24 @@
   </div>
 {:else}
   <div class="flex flex-col items-center justify-center py-16 px-4">
-    <h2 class="text-xl font-semibold mb-2" style="color: var(--color-text-primary)">
-      Collection Not Found
-    </h2>
-    <p class="text-caption text-center max-w-md mb-4">
-      This collection may have been deleted or the link is invalid.
-    </p>
+    {#if offlineMode && !$isOnline}
+      <div class="w-16 h-16 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center mb-4">
+        <CloudSlashIcon size={32} class="text-amber-600 dark:text-amber-400" />
+      </div>
+      <h2 class="text-xl font-semibold mb-2" style="color: var(--color-text-primary)">
+        Collection Not Cached
+      </h2>
+      <p class="text-caption text-center max-w-md mb-4">
+        This collection isn't available offline. Connect to the internet to view it.
+      </p>
+    {:else}
+      <h2 class="text-xl font-semibold mb-2" style="color: var(--color-text-primary)">
+        Collection Not Found
+      </h2>
+      <p class="text-caption text-center max-w-md mb-4">
+        This collection may have been deleted or the link is invalid.
+      </p>
+    {/if}
     <a
       href="/cookbook"
       class="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white rounded-full font-medium transition-all"

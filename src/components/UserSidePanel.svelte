@@ -1,0 +1,298 @@
+<script lang="ts">
+  import { fly } from 'svelte/transition';
+  import { goto } from '$app/navigation';
+  import { nip19 } from 'nostr-tools';
+  import { onMount, onDestroy } from 'svelte';
+  import { browser } from '$app/environment';
+  
+  // Icons
+  import XIcon from 'phosphor-svelte/lib/X';
+  import UserIcon from 'phosphor-svelte/lib/User';
+  import CookbookIcon from 'phosphor-svelte/lib/BookOpen';
+  import FloppyDiskIcon from 'phosphor-svelte/lib/FloppyDisk';
+  import WalletIcon from 'phosphor-svelte/lib/Wallet';
+  import SunIcon from 'phosphor-svelte/lib/Sun';
+  import MoonIcon from 'phosphor-svelte/lib/Moon';
+  import GearIcon from 'phosphor-svelte/lib/Gear';
+  import SignOutIcon from 'phosphor-svelte/lib/SignOut';
+  
+  // Components and stores
+  import CustomAvatar from './CustomAvatar.svelte';
+  import { theme } from '$lib/themeStore';
+  import { userPublickey, userProfilePictureOverride } from '$lib/nostr';
+  import { getAuthManager } from '$lib/authManager';
+
+  export let open = false;
+  
+  // Touch handling for swipe-to-close
+  let touchStartX = 0;
+  let touchCurrentX = 0;
+  let isSwiping = false;
+  
+  // Theme state
+  $: resolvedTheme = $theme === 'system' ? theme.getResolvedTheme() : $theme;
+  $: isDarkMode = resolvedTheme === 'dark';
+  
+  // Get display name (truncated npub)
+  $: displayName = $userPublickey 
+    ? nip19.npubEncode($userPublickey).slice(0, 12) + '...' 
+    : '';
+
+  function close() {
+    open = false;
+  }
+
+  function handleBackdropClick(e: MouseEvent) {
+    if (e.target === e.currentTarget) {
+      close();
+    }
+  }
+
+  function handleKeydown(e: KeyboardEvent) {
+    if (e.key === 'Escape') {
+      close();
+    }
+  }
+
+  function navigate(path: string) {
+    close();
+    goto(path);
+  }
+
+  function toggleTheme(e: Event) {
+    e.preventDefault();
+    e.stopPropagation();
+    theme.setTheme(isDarkMode ? 'light' : 'dark');
+  }
+
+  async function logout() {
+    const authManager = getAuthManager();
+    if (authManager) {
+      await authManager.logout();
+    }
+    
+    userPublickey.set('');
+    
+    if (browser) {
+      localStorage.removeItem('nostrcooking_loggedInPublicKey');
+      localStorage.removeItem('nostrcooking_privateKey');
+    }
+    
+    close();
+    setTimeout(() => (window.location.href = ''), 1);
+  }
+
+  // Touch handlers for swipe-to-close
+  function handleTouchStart(e: TouchEvent) {
+    touchStartX = e.touches[0].clientX;
+    touchCurrentX = touchStartX;
+    isSwiping = true;
+  }
+
+  function handleTouchMove(e: TouchEvent) {
+    if (!isSwiping) return;
+    touchCurrentX = e.touches[0].clientX;
+  }
+
+  function handleTouchEnd() {
+    if (!isSwiping) return;
+    
+    const swipeDistance = touchCurrentX - touchStartX;
+    // Close if swiped right more than 100px
+    if (swipeDistance > 100) {
+      close();
+    }
+    
+    isSwiping = false;
+    touchStartX = 0;
+    touchCurrentX = 0;
+  }
+
+  // Prevent body scroll when panel is open
+  $: if (browser) {
+    if (open) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+  }
+
+  onDestroy(() => {
+    if (browser) {
+      document.body.style.overflow = '';
+    }
+  });
+</script>
+
+<svelte:window on:keydown={handleKeydown} />
+
+{#if open}
+  <!-- Backdrop overlay -->
+  <div
+    class="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm"
+    on:click={handleBackdropClick}
+    on:keydown={handleKeydown}
+    role="presentation"
+    transition:fly={{ duration: 300, opacity: 0 }}
+  >
+    <!-- Side panel -->
+    <aside
+      class="fixed top-0 right-0 h-full w-full sm:w-80 flex flex-col shadow-2xl"
+      style="background-color: var(--color-bg-secondary);"
+      transition:fly={{ x: 320, duration: 300, easing: (t) => t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2 }}
+      on:touchstart={handleTouchStart}
+      on:touchmove={handleTouchMove}
+      on:touchend={handleTouchEnd}
+      role="dialog"
+      aria-modal="true"
+      aria-label="User menu"
+    >
+      <!-- Header section with user info -->
+      <div class="flex-shrink-0 p-6 border-b" style="border-color: var(--color-input-border);">
+        <div class="flex items-start justify-between">
+          <div class="flex items-center gap-4">
+            <CustomAvatar pubkey={$userPublickey} size={48} imageUrl={$userProfilePictureOverride} />
+            <div class="flex flex-col">
+              <span class="font-semibold text-base" style="color: var(--color-text-primary);">
+                {displayName}
+              </span>
+              <span class="text-sm" style="color: var(--color-caption);">
+                View profile
+              </span>
+            </div>
+          </div>
+          <button
+            on:click={close}
+            class="p-2 rounded-full hover:bg-opacity-10 hover:bg-gray-500 transition-colors cursor-pointer"
+            style="color: var(--color-text-primary);"
+            aria-label="Close menu"
+          >
+            <XIcon size={24} weight="bold" />
+          </button>
+        </div>
+      </div>
+
+      <!-- Main navigation section - scrollable -->
+      <nav class="flex-1 overflow-y-auto p-4">
+        <ul class="flex flex-col gap-1">
+          <li>
+            <button
+              on:click={() => navigate(`/user/${nip19.npubEncode($userPublickey)}`)}
+              class="w-full flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-opacity-50 transition-colors cursor-pointer"
+              style="color: var(--color-text-primary);"
+            >
+              <UserIcon size={22} />
+              <span class="font-medium">Profile</span>
+            </button>
+          </li>
+          <li>
+            <button
+              on:click={() => navigate('/cookbook')}
+              class="w-full flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-opacity-50 transition-colors cursor-pointer"
+              style="color: var(--color-text-primary);"
+            >
+              <CookbookIcon size={22} />
+              <span class="font-medium">Cookbook</span>
+            </button>
+          </li>
+          <li>
+            <button
+              on:click={() => navigate(`/user/${nip19.npubEncode($userPublickey)}?tab=drafts`)}
+              class="w-full flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-opacity-50 transition-colors cursor-pointer"
+              style="color: var(--color-text-primary);"
+            >
+              <FloppyDiskIcon size={22} />
+              <span class="font-medium">Drafts</span>
+            </button>
+          </li>
+          <li>
+            <button
+              on:click={() => navigate('/wallet')}
+              class="w-full flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-opacity-50 transition-colors cursor-pointer"
+              style="color: var(--color-text-primary);"
+            >
+              <WalletIcon size={22} />
+              <span class="font-medium">Wallet</span>
+            </button>
+          </li>
+        </ul>
+
+        <!-- Theme toggle section -->
+        <div class="mt-6 pt-6 border-t" style="border-color: var(--color-input-border);">
+          <button
+            on:click={toggleTheme}
+            class="w-full flex items-center justify-between px-4 py-3 rounded-xl hover:bg-opacity-50 transition-colors cursor-pointer"
+            style="color: var(--color-text-primary);"
+          >
+            <div class="flex items-center gap-4">
+              {#if isDarkMode}
+                <SunIcon size={22} />
+                <span class="font-medium">Light Mode</span>
+              {:else}
+                <MoonIcon size={22} />
+                <span class="font-medium">Dark Mode</span>
+              {/if}
+            </div>
+            <!-- Toggle switch visual -->
+            <div 
+              class="w-12 h-7 rounded-full p-1 transition-colors duration-200"
+              style="background-color: {isDarkMode ? 'var(--color-primary)' : 'var(--color-accent-gray)'};"
+            >
+              <div 
+                class="w-5 h-5 rounded-full bg-white shadow-md transition-transform duration-200"
+                style="transform: translateX({isDarkMode ? '20px' : '0px'});"
+              ></div>
+            </div>
+          </button>
+        </div>
+      </nav>
+
+      <!-- Footer section -->
+      <div class="flex-shrink-0 p-4 border-t" style="border-color: var(--color-input-border);">
+        <ul class="flex flex-col gap-1">
+          <li>
+            <button
+              on:click={() => navigate('/settings')}
+              class="w-full flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-opacity-50 transition-colors cursor-pointer"
+              style="color: var(--color-text-primary);"
+            >
+              <GearIcon size={22} />
+              <span class="font-medium">Settings</span>
+            </button>
+          </li>
+          <li>
+            <button
+              on:click={logout}
+              class="w-full flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-opacity-50 transition-colors cursor-pointer text-danger"
+            >
+              <SignOutIcon size={22} />
+              <span class="font-medium">Log out</span>
+            </button>
+          </li>
+        </ul>
+      </div>
+    </aside>
+  </div>
+{/if}
+
+<style>
+  /* Ensure touch targets are at least 44px for accessibility */
+  button {
+    min-height: 44px;
+  }
+  
+  li button {
+    min-height: 48px;
+  }
+  
+  /* Hover state background for menu items */
+  nav button:hover,
+  .flex-shrink-0 button:hover:not(.text-danger) {
+    background-color: var(--color-input-bg);
+  }
+  
+  /* Danger button hover */
+  .text-danger:hover {
+    background-color: rgba(220, 38, 38, 0.1);
+  }
+</style>

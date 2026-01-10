@@ -1,30 +1,19 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
-  import Button from './Button.svelte';
-  // import { Avatar } from '@nostr-dev-kit/ndk-svelte-components';
   import { userPublickey, userProfilePictureOverride } from '$lib/nostr';
   import SVGNostrCookingWithText from '../assets/nostr.cooking-withtext.svg';
-  import UserIcon from 'phosphor-svelte/lib/User';
-  import GearIcon from 'phosphor-svelte/lib/Gear';
   import AddIcon from 'phosphor-svelte/lib/Plus';
-  import SignOutIcon from 'phosphor-svelte/lib/SignOut';
   import SearchIcon from 'phosphor-svelte/lib/MagnifyingGlass';
-  import CookbookIcon from 'phosphor-svelte/lib/BookOpen';
-  import FloppyDiskIcon from 'phosphor-svelte/lib/FloppyDisk';
-  import SunIcon from 'phosphor-svelte/lib/Sun';
-  import MoonIcon from 'phosphor-svelte/lib/Moon';
-  import { nip19 } from 'nostr-tools';
   import { clickOutside } from '$lib/clickOutside';
-  import { fade, blur } from 'svelte/transition';
+  import { blur } from 'svelte/transition';
   import TagsSearchAutocomplete from './TagsSearchAutocomplete.svelte';
-  import { getAuthManager } from '$lib/authManager';
   import CustomAvatar from './CustomAvatar.svelte';
   import { theme } from '$lib/themeStore';
   import NotificationBell from './NotificationBell.svelte';
   import WalletBalance from './WalletBalance.svelte';
-  import WalletIcon from 'phosphor-svelte/lib/Wallet';
+  import UserSidePanel from './UserSidePanel.svelte';
 
-  let dropdownActive = false;
+  let sidePanelOpen = false;
   let searchActive = false;
   let isLoading = true;
 
@@ -44,24 +33,6 @@
     }
   }
 
-  async function logout() {
-    const authManager = getAuthManager();
-    if (authManager) {
-      await authManager.logout();
-    }
-    
-    // Clear the userPublickey store
-    userPublickey.set('');
-    
-    // Clear any additional localStorage items
-    if (typeof window !== 'undefined') {
-      localStorage.removeItem('nostrcooking_loggedInPublicKey');
-      localStorage.removeItem('nostrcooking_privateKey');
-    }
-    
-    setTimeout(() => (window.location.href = ''), 1);
-  }
-
   // Simple loading state management
   $: if ($userPublickey !== undefined) {
     isLoading = false;
@@ -70,16 +41,6 @@
   // Reactive resolved theme for logo switching
   $: resolvedTheme = $theme === 'system' ? theme.getResolvedTheme() : $theme;
   $: isDarkMode = resolvedTheme === 'dark';
-
-  function toggleTheme(e: Event) {
-    // Prevent any default behavior or navigation
-    e.preventDefault();
-    e.stopPropagation();
-    // Toggle between light and dark (not system)
-    theme.setTheme(isDarkMode ? 'light' : 'dark');
-    // Close dropdown after toggling
-    dropdownActive = false;
-  }
 </script>
 
 {#if searchActive}
@@ -151,59 +112,14 @@
     <!-- Sign in / User menu -->
     <div class="print:hidden flex-shrink-0">
       {#if $userPublickey !== ''}
-        <div class="relative" use:clickOutside on:click_outside={() => (dropdownActive = false)}>
-          <button class="flex cursor-pointer" on:click={() => (dropdownActive = !dropdownActive)}>
-            <CustomAvatar pubkey={$userPublickey} size={36} imageUrl={$userProfilePictureOverride} />
-          </button>
-          {#if dropdownActive}
-            <div class="absolute right-0 top-full mt-2 z-20" transition:fade={{ delay: 0, duration: 150 }}>
-              <div
-                role="menu"
-                tabindex="-1"
-                on:keydown={(e) => e.key === 'Escape' && (dropdownActive = false)}
-                class="flex flex-col gap-4 bg-input rounded-3xl drop-shadow px-5 py-6 min-w-[160px]"
-                style="color: var(--color-text-primary)"
-              >
-                <button
-                  class="flex gap-2 cursor-pointer hover:text-primary whitespace-nowrap"
-                  on:click={() => { dropdownActive = false; goto(`/user/${nip19.npubEncode($userPublickey)}`); }}
-                >
-                  <UserIcon class="self-center" size={18} />
-                  Profile
-                </button>
-                <button class="flex gap-2 cursor-pointer hover:text-primary whitespace-nowrap" on:click={() => { dropdownActive = false; goto('/cookbook'); }}>
-                  <CookbookIcon class="self-center" size={18} />
-                  Cookbook
-                </button>
-                <button class="flex gap-2 cursor-pointer hover:text-primary whitespace-nowrap" on:click={() => { dropdownActive = false; goto(`/user/${nip19.npubEncode($userPublickey)}?tab=drafts`); }}>
-                  <FloppyDiskIcon class="self-center" size={18} />
-                  Drafts
-                </button>
-                <button class="flex gap-2 cursor-pointer hover:text-primary whitespace-nowrap" on:click={() => { dropdownActive = false; goto('/wallet'); }}>
-                  <WalletIcon class="self-center" size={18} />
-                  Wallet
-                </button>
-                <button class="flex gap-2 cursor-pointer hover:text-primary whitespace-nowrap" on:click={toggleTheme} type="button">
-                  {#if isDarkMode}
-                    <SunIcon class="self-center" size={18} />
-                    Light Mode
-                  {:else}
-                    <MoonIcon class="self-center" size={18} />
-                    Dark Mode
-                  {/if}
-                </button>
-                <button class="flex gap-2 cursor-pointer hover:text-primary whitespace-nowrap" on:click={() => { dropdownActive = false; goto('/settings'); }}>
-                  <GearIcon class="self-center" size={18} />
-                  Settings
-                </button>
-                <button class="flex gap-2 cursor-pointer hover:text-primary whitespace-nowrap" on:click={logout}>
-                  <SignOutIcon class="self-center" size={18} />
-                  Log out
-                </button>
-              </div>
-            </div>
-          {/if}
-        </div>
+        <button 
+          class="flex cursor-pointer rounded-full transition-transform duration-200 hover:scale-105 active:scale-95" 
+          on:click={() => (sidePanelOpen = true)}
+          aria-label="Open user menu"
+        >
+          <CustomAvatar pubkey={$userPublickey} size={36} imageUrl={$userProfilePictureOverride} />
+        </button>
+        <UserSidePanel bind:open={sidePanelOpen} />
       {:else}
         <a href="/login" class="px-4 py-2 rounded-full border font-medium transition duration-300 text-sm signin-button" style="color: var(--color-text-primary); border-color: var(--color-input-border);">Sign in</a>
       {/if}
