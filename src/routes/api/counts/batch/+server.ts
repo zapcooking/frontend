@@ -1,5 +1,6 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
+import { isValidEventId } from '$lib/utils/nostrRefs';
 
 // In-memory cache with TTL
 const countCache = new Map<string, { data: CountData; timestamp: number }>();
@@ -218,7 +219,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
   }
 
   // Validate event IDs
-  const validIds = eventIds.filter(id => typeof id === 'string' && id.length >= 32);
+  const validIds = eventIds.filter(isValidEventId);
   if (validIds.length === 0) {
     return json({ error: 'No valid event IDs provided' }, { status: 400 });
   }

@@ -11,6 +11,7 @@
   let totalCommentAmount: number = 0;
   let subscription: any = null;
   let countFetched = false;
+  let eoseReceived = false;
 
   onMount(async () => {
     // FAST PATH: Try NIP-45 COUNT query first
@@ -46,19 +47,22 @@
     let eventCount = 0;
     subscription.on('event', () => {
       eventCount++;
-      // Only update if we didn't get a fast count, or if subscription count is higher
-      if (!countFetched || eventCount > totalCommentAmount) {
+      // Only update if:
+      // - We didn't get a fast count, OR
+      // - EOSE has been received (subscription is authoritative), OR
+      // - Subscription count is higher than fast count
+      if (!countFetched || eoseReceived || eventCount > totalCommentAmount) {
         totalCommentAmount = eventCount;
       }
       loading = false;
     });
 
     subscription.on('eose', () => {
+      eoseReceived = true;
       loading = false;
-      // Subscription count is authoritative after EOSE
-      if (eventCount > 0) {
-        totalCommentAmount = eventCount;
-      }
+      // Subscription count is authoritative after EOSE, even if 0
+      // This ensures accuracy over potentially stale fast count
+      totalCommentAmount = eventCount;
     });
   });
 
