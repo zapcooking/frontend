@@ -97,13 +97,39 @@ class OfflineStorageManager {
   private dbReadyResolve!: () => void;
 
   constructor() {
+    // Always initialize the promise first
     this.dbReady = new Promise((resolve) => {
       this.dbReadyResolve = resolve;
     });
 
-    // Only initialize on client side (browser environment)
-    if (browser && typeof window !== 'undefined') {
-      this.initDatabase();
+    // Check if we're in a browser environment
+    // Use explicit checks that won't throw during SSR
+    // During SSR, browser will be false, so we can short-circuit early
+    const isBrowser = (() => {
+      try {
+        // If browser is explicitly false (SSR), we're definitely not in a browser
+        if (typeof browser !== 'undefined' && !browser) {
+          return false;
+        }
+        
+        // Otherwise, check for browser APIs
+        // Must have window and indexedDB to proceed
+        return typeof window !== 'undefined' &&
+               typeof globalThis !== 'undefined' &&
+               'indexedDB' in globalThis;
+      } catch {
+        // If any check throws, we're not in a browser (safe for SSR)
+        return false;
+      }
+    })();
+    
+    if (isBrowser) {
+      // Initialize database in browser
+      this.initDatabase().catch((error) => {
+        // If init fails, still resolve so SSR doesn't break
+        console.warn('[OfflineStorage] Failed to initialize:', error);
+        this.dbReadyResolve();
+      });
     } else {
       // Resolve immediately on server (SSR) - methods will check if db exists
       // and return early, so rejecting here would break SSR builds
@@ -723,4 +749,9 @@ class OfflineStorageManager {
 }
 
 // Export singleton instance
+<<<<<<< HEAD
+=======
+// The constructor is safe to call during SSR - it checks for browser environment
+// and will not attempt to access IndexedDB on the server
+>>>>>>> 0b1c1a9 (Fix SSR build failure: Make OfflineStorageManager constructor safe for server-side rendering)
 export const offlineStorage = new OfflineStorageManager();
