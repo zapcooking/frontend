@@ -27,6 +27,12 @@ const COUNT_RELAYS = [
   'wss://relay.damus.io'
 ];
 
+// Validate that eventId is exactly 64 hex characters
+const EVENT_ID_PATTERN = /^[a-f0-9]{64}$/i;
+function isValidEventId(id: unknown): id is string {
+  return typeof id === 'string' && EVENT_ID_PATTERN.test(id);
+}
+
 /**
  * Send a NIP-45 COUNT query to a relay
  */
@@ -218,7 +224,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
   }
 
   // Validate event IDs
-  const validIds = eventIds.filter(id => typeof id === 'string' && id.length >= 32);
+  const validIds = eventIds.filter(isValidEventId);
   if (validIds.length === 0) {
     return json({ error: 'No valid event IDs provided' }, { status: 400 });
   }
@@ -324,7 +330,7 @@ export const GET: RequestHandler = async ({ url, platform }) => {
     return json({ error: 'ids query parameter is required' }, { status: 400 });
   }
 
-  const eventIds = idsParam.split(',').filter(id => id.length >= 32);
+  const eventIds = idsParam.split(',').filter(isValidEventId);
   
   if (eventIds.length === 0) {
     return json({ error: 'No valid event IDs provided' }, { status: 400 });
