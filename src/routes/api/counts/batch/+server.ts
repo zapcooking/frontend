@@ -324,7 +324,10 @@ export const GET: RequestHandler = async ({ url, platform }) => {
     return json({ error: 'ids query parameter is required' }, { status: 400 });
   }
 
-  const eventIds = idsParam.split(',').filter(id => id.length >= 32);
+  const eventIds = idsParam
+    .split(',')
+    .map((id) => id.trim())
+    .filter((id) => id.length >= 32);
   
   if (eventIds.length === 0) {
     return json({ error: 'No valid event IDs provided' }, { status: 400 });
