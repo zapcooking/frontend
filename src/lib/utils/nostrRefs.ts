@@ -20,6 +20,14 @@ const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
 const FETCH_TIMEOUT = 5000; // 5 seconds timeout for fetches
 
 /**
+ * Validate that eventId is exactly 64 hex characters (Nostr event ID format)
+ */
+const EVENT_ID_PATTERN = /^[a-f0-9]{64}$/i;
+export function isValidEventId(id: unknown): id is string {
+  return typeof id === 'string' && EVENT_ID_PATTERN.test(id);
+}
+
+/**
  * Resolve a profile by pubkey or npub string
  */
 export async function resolveProfile(

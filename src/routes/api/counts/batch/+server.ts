@@ -1,5 +1,6 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
+import { isValidEventId } from '$lib/utils/nostrRefs';
 
 // In-memory cache with TTL
 const countCache = new Map<string, { data: CountData; timestamp: number }>();
@@ -26,12 +27,6 @@ const COUNT_RELAYS = [
   'wss://nostr.wine',
   'wss://relay.damus.io'
 ];
-
-// Validate that eventId is exactly 64 hex characters
-const EVENT_ID_PATTERN = /^[a-f0-9]{64}$/i;
-function isValidEventId(id: unknown): id is string {
-  return typeof id === 'string' && EVENT_ID_PATTERN.test(id);
-}
 
 /**
  * Send a NIP-45 COUNT query to a relay
