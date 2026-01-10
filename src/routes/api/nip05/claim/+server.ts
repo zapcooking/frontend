@@ -113,29 +113,62 @@ export const POST: RequestHandler = async ({ request, platform }) => {
     
     const memberData = await memberCheckRes.json();
     
+    // Genesis founders (payment_id starts with 'genesis_') have lifetime access
+    const isGenesisFounder = memberData.payment_id?.startsWith('genesis_');
+    const now = new Date();
+    
     console.log('[NIP-05] Member data:', {
       pubkey: pubkey.substring(0, 16) + '...',
       subscription_end: memberData.subscription_end,
+      subscription_end_type: typeof memberData.subscription_end,
       payment_id: memberData.payment_id,
-      tier: memberData.tier
+      tier: memberData.tier,
+      isGenesisFounder
     });
     
     // Check if membership is active (not expired)
-    // Genesis founders (payment_id starts with 'genesis_') have lifetime access
-    const isGenesisFounder = memberData.payment_id?.startsWith('genesis_');
-    
+    // Skip expiry check for Genesis founders (lifetime access)
     if (memberData.subscription_end && !isGenesisFounder) {
-      const expiryDate = new Date(memberData.subscription_end);
-      if (expiryDate < new Date()) {
-        console.log('[NIP-05] Membership expired:', {
+      let expiryDate: Date;
+      try {
+        expiryDate = new Date(memberData.subscription_end);
+        
+        // Validate the date was parsed correctly
+        if (isNaN(expiryDate.getTime())) {
+          console.error('[NIP-05] Invalid subscription_end date format:', memberData.subscription_end);
+          return json({
+            success: false,
+            error: 'Invalid membership data format'
+          }, { status: 500 });
+        }
+        
+        const isExpired = expiryDate < now;
+        
+        console.log('[NIP-05] Expiry check:', {
           expiryDate: expiryDate.toISOString(),
-          now: new Date().toISOString()
+          now: now.toISOString(),
+          isExpired,
+          subscription_end_raw: memberData.subscription_end
         });
+        
+        if (isExpired) {
+          return json({
+            success: false,
+            error: 'Membership has expired. Please renew to claim NIP-05'
+          }, { status: 403 });
+        }
+      } catch (e) {
+        console.error('[NIP-05] Error parsing subscription_end:', e);
         return json({
           success: false,
-          error: 'Membership has expired. Please renew to claim NIP-05'
-        }, { status: 403 });
+          error: 'Error checking membership status'
+        }, { status: 500 });
       }
+    } else if (!memberData.subscription_end && !isGenesisFounder) {
+      // No subscription_end for non-genesis member might be an issue
+      console.warn('[NIP-05] No subscription_end for non-genesis member:', {
+        payment_id: memberData.payment_id
+      });
     }
     
     console.log('[NIP-05] Claiming NIP-05 for member:', {
