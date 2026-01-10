@@ -1,7 +1,7 @@
 // Service Worker to intercept __data.json requests and cache app assets for offline support
 // This handles requests that Capacitor's native layer can't serve and enables offline functionality
 
-const CACHE_NAME = 'zapcooking-v1';
+const CACHE_NAME = 'zapcooking-v2';
 const APP_ORIGIN = self.location.origin;
 
 // Assets that should be cached (app code, styles, fonts, etc.)
@@ -120,39 +120,62 @@ self.addEventListener('fetch', (event) => {
   
   // Cache app assets (JS modules, CSS, fonts, etc.)
   if (shouldCache(event.request)) {
+    // Use network-first strategy for app code to ensure users get latest updates
+    // Especially important for Safari which aggressively caches
+    const isAppCode = url.includes('/_app/') || url.includes('.js');
+    
     event.respondWith(
       caches.open(CACHE_NAME).then((cache) => {
-        return cache.match(event.request).then((cachedResponse) => {
-          if (cachedResponse) {
-            // Serve from cache if available
-            return cachedResponse;
-          }
-          
-          // Try to fetch from network and cache it
+        if (isAppCode) {
+          // Network-first for app code - always try network first
           return fetch(event.request)
             .then((networkResponse) => {
               // Only cache successful responses
               if (networkResponse.status === 200) {
-                // Clone the response because it's a stream
                 const responseClone = networkResponse.clone();
                 cache.put(event.request, responseClone);
               }
               return networkResponse;
             })
             .catch((error) => {
-              // Network failed and not in cache - return an error response
-              // For JavaScript modules, this will cause the dynamic import to fail,
-              // which is correct behavior when offline and module not cached
-              console.warn('[SW] Failed to fetch and not in cache:', url, error);
-              
-              // Return a 404 response which will cause the fetch to fail
-              // This is the correct behavior - the module isn't available offline
-              return new Response(null, {
-                status: 404,
-                statusText: 'Not Found'
+              // Network failed - try cache as fallback
+              console.warn('[SW] Network failed, trying cache:', url, error);
+              return cache.match(event.request).then((cachedResponse) => {
+                if (cachedResponse) {
+                  return cachedResponse;
+                }
+                // No cache either - return error
+                return new Response(null, {
+                  status: 404,
+                  statusText: 'Not Found'
+                });
               });
             });
-        });
+        } else {
+          // Cache-first for static assets (images, fonts, etc.)
+          return cache.match(event.request).then((cachedResponse) => {
+            if (cachedResponse) {
+              return cachedResponse;
+            }
+            
+            // Try to fetch from network and cache it
+            return fetch(event.request)
+              .then((networkResponse) => {
+                if (networkResponse.status === 200) {
+                  const responseClone = networkResponse.clone();
+                  cache.put(event.request, responseClone);
+                }
+                return networkResponse;
+              })
+              .catch((error) => {
+                console.warn('[SW] Failed to fetch and not in cache:', url, error);
+                return new Response(null, {
+                  status: 404,
+                  statusText: 'Not Found'
+                });
+              });
+          });
+        }
       })
     );
     return;
