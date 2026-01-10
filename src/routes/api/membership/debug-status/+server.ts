@@ -40,6 +40,9 @@ export const GET: RequestHandler = async ({ url, platform }) => {
   }
 
   try {
+    // Show the hex pubkey being used
+    const hexPubkeyUsed = pubkey;
+    
     const memberRes = await fetch(`https://members.zap.cooking/api/members/${pubkey}`, {
       headers: {
         'Authorization': `Bearer ${API_SECRET}`,
@@ -47,15 +50,25 @@ export const GET: RequestHandler = async ({ url, platform }) => {
       }
     });
 
+    const responseText = await memberRes.text();
+    
     if (!memberRes.ok) {
       return json({ 
         found: false, 
-        status: memberRes.status,
+        hexPubkeyUsed: hexPubkeyUsed.substring(0, 16) + '...',
+        fullHexPubkey: hexPubkeyUsed, // Show full pubkey for debugging
+        apiStatus: memberRes.status,
+        apiResponse: responseText,
         message: 'Member not found or API error'
       });
     }
 
-    const memberData = await memberRes.json();
+    let memberData;
+    try {
+      memberData = JSON.parse(responseText);
+    } catch (e) {
+      return json({ error: 'Invalid JSON from API', response: responseText }, { status: 500 });
+    }
     
     const isGenesisFounder = memberData.payment_id?.startsWith('genesis_');
     const subscriptionEnd = memberData.subscription_end ? new Date(memberData.subscription_end) : null;
@@ -63,7 +76,7 @@ export const GET: RequestHandler = async ({ url, platform }) => {
 
     return json({
       found: true,
-      pubkey: pubkey.substring(0, 16) + '...',
+      hexPubkeyUsed: hexPubkeyUsed.substring(0, 16) + '...',
       payment_id: memberData.payment_id,
       tier: memberData.tier,
       subscription_end: memberData.subscription_end,
