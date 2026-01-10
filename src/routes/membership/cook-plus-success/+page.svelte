@@ -333,7 +333,7 @@
     line-height: 1.5;
   }
 
-  html.dark .subscription-date {
+  :global(html.dark) .subscription-date {
     color: #f3f4f6;
   }
 
