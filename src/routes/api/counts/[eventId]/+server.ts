@@ -23,6 +23,12 @@ const COUNT_RELAYS = [
   'wss://relay.primal.net'
 ];
 
+// Validate that eventId is exactly 64 hex characters
+const EVENT_ID_PATTERN = /^[a-f0-9]{64}$/i;
+function isValidEventId(id: unknown): id is string {
+  return typeof id === 'string' && EVENT_ID_PATTERN.test(id);
+}
+
 /**
  * Send a NIP-45 COUNT query to a relay (server-side)
  */
@@ -222,7 +228,7 @@ async function fetchEngagementCounts(eventId: string): Promise<CountData> {
 export const GET: RequestHandler = async ({ params, url, platform }) => {
   const { eventId } = params;
 
-  if (!eventId || eventId.length < 32) {
+  if (!isValidEventId(eventId)) {
     return json({ error: 'Invalid event ID' }, { status: 400 });
   }
 
