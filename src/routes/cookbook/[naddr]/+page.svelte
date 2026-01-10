@@ -86,7 +86,12 @@
           // Use the event from the store (which should have the latest cover tag)
           event = localList.event;
           isOwner = $userPublickey === event.author.pubkey;
-          cachedRecipeCount = localList.recipeCount;
+          // Prefer the actual number of cached recipes (if available) over the stored count
+          if (Array.isArray((localList as any).recipes)) {
+            cachedRecipeCount = (localList as any).recipes.length;
+          } else {
+            cachedRecipeCount = localList.recipeCount ?? 0;
+          }
           
           // Verify the event has the cover tag from the store (sync them if needed)
           const coverTagInEvent = event.tags.find(t => t[0] === 'cover')?.[1];
