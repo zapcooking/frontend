@@ -223,7 +223,8 @@ async function fetchEngagementCounts(eventId: string): Promise<CountData> {
 export const GET: RequestHandler = async ({ params, url, platform }) => {
   const { eventId } = params;
 
-  if (!isValidEventId(eventId)) {
+  const isValidNostrEventId = typeof eventId === 'string' && /^[a-f0-9]{64}$/i.test(eventId);
+  if (!isValidNostrEventId) {
     return json({ error: 'Invalid event ID' }, { status: 400 });
   }
 
@@ -262,8 +263,9 @@ export const GET: RequestHandler = async ({ params, url, platform }) => {
           }
         });
       }
-    } catch {
-      // KV error, continue to fetch
+    } catch (err) {
+      // KV read error, continue to fetch from relays
+      console.error('[CountCache] KV read error:', err);
     }
   }
 
@@ -280,8 +282,9 @@ export const GET: RequestHandler = async ({ params, url, platform }) => {
         await kvCache.put(cacheKey, JSON.stringify(counts), {
           expirationTtl: 300 // 5 minutes in KV
         });
-      } catch {
+      } catch (err) {
         // KV write error, non-fatal
+        console.error('[CountCache] KV write error:', err);
       }
     }
 

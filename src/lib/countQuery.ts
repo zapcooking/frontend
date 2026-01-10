@@ -55,10 +55,40 @@ const USE_SERVER_API = true; // Toggle server API usage
 const API_TIMEOUT = 2000; // 2 seconds for API calls
 
 /**
+ * Deterministically stringify a value by sorting object keys.
+ * This ensures that semantically equivalent filters produce the same cache key
+ * even if their object key insertion order differs.
+ */
+function stableStringify(value: unknown): string {
+  function normalize(val: unknown): unknown {
+    if (val === null || typeof val !== 'object') {
+      return val;
+    }
+
+    if (Array.isArray(val)) {
+      // Preserve array order; just normalize elements.
+      return val.map((item) => normalize(item));
+    }
+
+    const obj = val as Record<string, unknown>;
+    const sortedKeys = Object.keys(obj).sort();
+    const normalizedObj: Record<string, unknown> = {};
+
+    for (const key of sortedKeys) {
+      normalizedObj[key] = normalize(obj[key]);
+    }
+
+    return normalizedObj;
+  }
+
+  return JSON.stringify(normalize(value));
+}
+
+/**
  * Generate a cache key from a filter
  */
 function getCacheKey(filter: CountFilter): string {
-  return JSON.stringify(filter);
+  return stableStringify(filter);
 }
 
 // Track failed relay connections to avoid retrying too often
