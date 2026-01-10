@@ -30,7 +30,11 @@ export interface EngagementData {
 }
 
 interface CachedEngagement {
-  reactions: { count: number; groups: Array<{ emoji: string; count: number }> };
+  reactions: { 
+    count: number; 
+    groups: Array<{ emoji: string; count: number; userReacted?: boolean }>; 
+    userReactions?: string[]; // Array of emojis user reacted with
+  };
   comments: number;
   reposts: number;
   zaps: { amount: number; count: number };
@@ -43,7 +47,7 @@ const activeSubscriptions = new Map<string, NDKSubscription[]>();
 const processedEventIds = new Map<string, Set<string>>();
 
 const CACHE_KEY_PREFIX = 'engagement_';
-const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+const CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours - persist across page reloads
 
 function getDefaultEngagement(): EngagementData {
   return {
@@ -91,7 +95,12 @@ function saveToCache(eventId: string, engagement: EngagementData): void {
     const data: CachedEngagement = {
       reactions: {
         count: engagement.reactions.count,
-        groups: engagement.reactions.groups.map(g => ({ emoji: g.emoji, count: g.count }))
+        groups: engagement.reactions.groups.map(g => ({ 
+          emoji: g.emoji, 
+          count: g.count,
+          userReacted: g.userReacted 
+        })),
+        userReactions: Array.from(engagement.reactions.userReactions) // Store as array for JSON
       },
       comments: engagement.comments.count,
       reposts: engagement.reposts.count,
@@ -111,7 +120,7 @@ export function getEngagementStore(eventId: string): Writable<EngagementData> {
     const store = writable<EngagementData>(getDefaultEngagement());
     engagementStores.set(eventId, store);
     
-    // Try to load from cache immediately
+    // Try to load from cache immediately - instant load from prior session
     const cached = loadFromCache(eventId);
     if (cached) {
       store.update(s => ({
@@ -119,12 +128,20 @@ export function getEngagementStore(eventId: string): Writable<EngagementData> {
         reactions: {
           ...s.reactions,
           count: cached.reactions.count,
-          groups: cached.reactions.groups.map(g => ({ ...g, userReacted: false }))
+          groups: cached.reactions.groups.map(g => ({ 
+            emoji: g.emoji, 
+            count: g.count, 
+            userReacted: g.userReacted || false 
+          })),
+          userReactions: cached.reactions.userReactions 
+            ? new Set(cached.reactions.userReactions) 
+            : new Set(),
+          userReacted: cached.reactions.userReactions ? cached.reactions.userReactions.length > 0 : false
         },
         comments: { count: cached.comments },
         reposts: { count: cached.reposts, userReposted: false },
         zaps: { totalAmount: cached.zaps.amount, count: cached.zaps.count, userZapped: false },
-        loading: false, // Show cached data immediately
+        loading: false, // Show cached data immediately - no loading state
         lastFetched: cached.timestamp
       }));
     }
@@ -145,40 +162,59 @@ export async function fetchEngagement(
   const store = getEngagementStore(eventId);
   const currentData = get(store);
   
-  // If we have fresh data, don't refetch
-  if (currentData.lastFetched && Date.now() - currentData.lastFetched < CACHE_TTL) {
-    store.update(s => ({ ...s, loading: false }));
+  // If we have very fresh data (< 30 seconds) and we already got EOSE, skip refetch
+  // This prevents redundant fetches while still allowing updates from subscriptions
+  const isVeryFresh = currentData.lastFetched && Date.now() - currentData.lastFetched < 30 * 1000;
+  const hasCompletedLoad = !currentData.loading && currentData.lastFetched > 0;
+  if (isVeryFresh && hasCompletedLoad) {
+    // Data is fresh and already loaded - subscription will handle updates
     return;
   }
   
-  // FAST PATH: Try NIP-45 COUNT queries first (non-blocking)
-  // This provides instant counts without fetching full events
-  getEngagementCounts(eventId, { timeout: 2000 }).then(counts => {
+  // Set loading state if not already set
+  if (!currentData.loading) {
+    store.update(s => ({ ...s, loading: true }));
+  }
+  
+  // FAST PATH: Try server API first (has batching), then NIP-45 COUNT as fallback
+  // Server API is much faster for multiple events
+  getEngagementCounts(eventId, { timeout: 2000, skipApi: false }).then(counts => {
     if (counts) {
       store.update(s => {
-        // Only update if we got counts and don't have full data yet
+        // Always update counts if we got them from NIP-45 (they're authoritative)
         const updated = { ...s };
-        if (counts.reactions !== null && updated.reactions.count === 0) {
+        let hasAnyCounts = false;
+        
+        if (counts.reactions !== null) {
           updated.reactions.count = counts.reactions;
+          hasAnyCounts = true;
         }
-        if (counts.comments !== null && updated.comments.count === 0) {
+        if (counts.comments !== null) {
           updated.comments.count = counts.comments;
+          hasAnyCounts = true;
         }
-        if (counts.reposts !== null && updated.reposts.count === 0) {
+        if (counts.reposts !== null) {
           updated.reposts.count = counts.reposts;
+          hasAnyCounts = true;
         }
-        if (counts.zaps !== null && updated.zaps.count === 0) {
+        if (counts.zaps !== null) {
           updated.zaps.count = counts.zaps;
+          hasAnyCounts = true;
         }
-        // Mark as loaded if we got at least some counts
-        if (counts.reactions !== null || counts.comments !== null) {
+        
+        // Mark as loaded if we got counts (even if 0 - that's valid data)
+        if (hasAnyCounts) {
           updated.loading = false;
+          updated.lastFetched = Date.now();
+          // Save to cache immediately with fresh counts
+          saveToCache(eventId, updated);
         }
         return updated;
       });
     }
-  }).catch(() => {
-    // NIP-45 failed silently, full fetch will handle it
+  }).catch((err) => {
+    // NIP-45 failed - log for debugging but continue with subscription
+    console.debug('[Engagement] NIP-45 COUNT failed for', eventId, err);
   });
 
   // FULL PATH: Also start full event subscription for accurate data + user state
@@ -249,13 +285,19 @@ export async function fetchEngagement(
       }
     });
     
-    // Timeout fallback
+    // Timeout fallback - mark as loaded after timeout even if EOSE didn't arrive
+    // This ensures UI doesn't stay in loading state forever
     setTimeout(() => {
       if (!eoseReceived) {
         eoseReceived = true;
-        store.update(s => ({ ...s, loading: false, lastFetched: Date.now() }));
+        store.update(s => {
+          const updated = { ...s, loading: false, lastFetched: Date.now() };
+          // Save whatever we have so far to cache
+          saveToCache(eventId, updated);
+          return updated;
+        });
       }
-    }, 8000);
+    }, 5000); // Reduced timeout - 5 seconds should be enough for most relays
     
     activeSubscriptions.set(eventId, subscriptions);
     
@@ -359,10 +401,15 @@ export async function batchFetchEngagement(
   if (!eventIds.length || !ndk) return;
   
   // Filter to only fetch events we don't have fresh data for
+  // Use shorter TTL (5 min) for batch refresh to ensure counts are current
+  const REFRESH_TTL = 5 * 60 * 1000; // 5 minutes - refresh if older than this
   const toFetch = eventIds.filter(id => {
     const store = getEngagementStore(id);
     const data = get(store);
-    return !data.lastFetched || Date.now() - data.lastFetched > CACHE_TTL;
+    // Refresh if no data, or if data is stale (> 5 min), or if loading failed
+    return !data.lastFetched || 
+           Date.now() - data.lastFetched > REFRESH_TTL || 
+           (data.loading && Date.now() - data.lastFetched > 60000); // Stuck loading > 1 min
   });
   
   if (!toFetch.length) return;

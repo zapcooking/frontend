@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
+  import { get } from 'svelte/store';
   import { ndk, userPublickey } from '$lib/nostr';
   import { formatDistanceToNow } from 'date-fns';
   import CustomAvatar from './CustomAvatar.svelte';
@@ -37,6 +38,9 @@ import ClientAttribution from './ClientAttribution.svelte';
   
   // IndexedDB event store for cache rehydration (instant paint)
   import { getEventStore, cacheFeedEvents } from '$lib/eventStore';
+  
+  // Batched engagement fetching for reactions/subscriptions
+  import { batchFetchEngagement, getEngagementStore } from '$lib/engagementCache';
 
   // ═══════════════════════════════════════════════════════════════
   // PROPS
@@ -273,7 +277,7 @@ import ClientAttribution from './ClientAttribution.svelte';
           observer.disconnect();
         }
       },
-      { rootMargin: '200px' } // Load engagement 200px before visible
+      { rootMargin: '800px' } // Load engagement 800px before visible - much earlier preloading
     );
     
     observer.observe(node);
@@ -283,6 +287,51 @@ import ClientAttribution from './ClientAttribution.svelte';
         observer.disconnect();
       }
     };
+  }
+
+  // Infinite scroll - automatically load more when user scrolls near bottom
+  let loadMoreSentinel: HTMLElement;
+  let loadMoreObserver: IntersectionObserver | null = null;
+
+  function setupInfiniteScroll() {
+    if (!loadMoreSentinel) return;
+    
+    // Clean up existing observer if any
+    if (loadMoreObserver) {
+      loadMoreObserver.disconnect();
+      loadMoreObserver = null;
+    }
+
+    loadMoreObserver = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && hasMore && !loadingMore && !loading) {
+          loadMore();
+        }
+      },
+      { rootMargin: '400px' } // Trigger 400px before bottom for smooth loading
+    );
+
+    loadMoreObserver.observe(loadMoreSentinel);
+  }
+
+  function cleanupInfiniteScroll() {
+    if (loadMoreObserver) {
+      loadMoreObserver.disconnect();
+      loadMoreObserver = null;
+    }
+  }
+
+  // Setup infinite scroll when sentinel element is available and feed is ready
+  $: if (loadMoreSentinel && hasMore && !loading && events.length > 0) {
+    // Use setTimeout to ensure DOM is ready
+    setTimeout(() => {
+      setupInfiniteScroll();
+    }, 0);
+  }
+
+  // Cleanup when hasMore becomes false
+  $: if (!hasMore && loadMoreObserver) {
+    cleanupInfiniteScroll();
   }
 
   // ═══════════════════════════════════════════════════════════════
@@ -1806,8 +1855,87 @@ import ClientAttribution from './ClientAttribution.svelte';
   });
 
   onDestroy(async () => {
+    if (engagementBatchTimeout) {
+      clearTimeout(engagementBatchTimeout);
+    }
+    if (engagementPreloadTimeout) {
+      clearTimeout(engagementPreloadTimeout);
+    }
+    cleanupInfiniteScroll();
     await cleanup();
   });
+  
+  // Batched engagement fetching - preload ALL events immediately, then update on visibility
+  let engagementBatchTimeout: ReturnType<typeof setTimeout> | null = null;
+  let lastBatchedIds = new Set<string>();
+  let engagementPreloadTimeout: ReturnType<typeof setTimeout> | null = null;
+  
+  // IMMEDIATE PRELOAD: When events are loaded, preload engagement for ALL events right away
+  $: if (typeof window !== 'undefined' && $ndk && $userPublickey && events.length > 0 && !loading) {
+    // Clear any pending preload
+    if (engagementPreloadTimeout) {
+      clearTimeout(engagementPreloadTimeout);
+    }
+    
+    // Preload engagement for all events immediately (not just visible ones)
+    engagementPreloadTimeout = setTimeout(async () => {
+      const allEventIds = events
+        .map(e => e.id)
+        .filter(Boolean) as string[];
+      
+      // Filter to only fetch events that aren't already fresh
+      // Cached data loads instantly via getEngagementStore, so only preload if missing/stale
+      const toPreload = allEventIds.filter(id => {
+        const store = getEngagementStore(id);
+        const data = get(store);
+        // Only preload if we don't have fresh cached data (cache is 24h, but check if less than 5 min = very fresh)
+        return !(data.loading === false && data.lastFetched && Date.now() - data.lastFetched < 5 * 60 * 1000);
+      }).filter(id => !lastBatchedIds.has(id));
+      
+      if (toPreload.length > 0) {
+        try {
+          // Preload in batches of 20 for better performance
+          for (let i = 0; i < toPreload.length; i += 20) {
+            const batch = toPreload.slice(i, i + 20);
+            await batchFetchEngagement($ndk, batch, $userPublickey);
+            batch.forEach(id => lastBatchedIds.add(id));
+            // Small delay between batches to avoid overwhelming
+            if (i + 20 < toPreload.length) {
+              await new Promise(resolve => setTimeout(resolve, 50));
+            }
+          }
+        } catch (err) {
+          console.error('[Feed] Engagement preload error:', err);
+        }
+      }
+    }, 200); // Small delay to let cached data load first
+  }
+  
+  // VISIBILITY UPDATE: When items become visible, ensure they're fresh
+  $: if (typeof window !== 'undefined' && $ndk && $userPublickey && visibleNotes.size > 0 && events.length > 0) {
+    // Debounce batch fetching to avoid too many calls
+    if (engagementBatchTimeout) {
+      clearTimeout(engagementBatchTimeout);
+    }
+    
+    engagementBatchTimeout = setTimeout(async () => {
+      // Extract event IDs that are visible and haven't been batched yet
+      const eventIds = events
+        .filter(e => e.id && visibleNotes.has(e.id) && !lastBatchedIds.has(e.id))
+        .map(e => e.id)
+        .filter(Boolean) as string[];
+      
+      if (eventIds.length > 0) {
+        try {
+          await batchFetchEngagement($ndk, eventIds, $userPublickey);
+          // Track what we've batched
+          eventIds.forEach(id => lastBatchedIds.add(id));
+        } catch (err) {
+          console.error('[Feed] Batch engagement fetch error:', err);
+        }
+      }
+    }, 100); // 100ms debounce
+  }
   
   // Reactive statement to handle filter mode changes
   $: if (typeof window !== 'undefined' && filterMode !== lastFilterMode && !loading) {
@@ -1816,6 +1944,7 @@ import ClientAttribution from './ClientAttribution.svelte';
     events = [];
     followedPubkeysForRealtime = []; // Reset for new subscription
     visibleNotes = new Set(); // Reset lazy loading state
+    lastBatchedIds.clear(); // Reset batching state
     loadFoodstrFeed(false);
   }
 </script>
@@ -2132,8 +2261,12 @@ import ClientAttribution from './ClientAttribution.svelte';
         </article>
       {/each}
 
+      <!-- Infinite scroll sentinel - triggers automatic loading -->
       {#if hasMore}
-        <div class="py-4 text-center">
+        <div 
+          bind:this={loadMoreSentinel}
+          class="py-4 text-center"
+        >
           {#if loadingMore}
             <LoadingState 
               type="spinner" 
@@ -2142,6 +2275,7 @@ import ClientAttribution from './ClientAttribution.svelte';
               showText={true}
             />
           {:else}
+            <!-- Show button as fallback, but infinite scroll will auto-trigger -->
             <button
               on:click={loadMore}
               class="px-4 py-2 bg-input rounded-lg hover:bg-accent-gray transition-colors"

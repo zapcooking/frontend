@@ -20,11 +20,11 @@ interface BatchResponse {
   errors: string[];
 }
 
-// Relays to query for counts
+// Relays to query for counts - prioritize fastest, most reliable
 const COUNT_RELAYS = [
-  'wss://relay.nostr.band',
-  'wss://nostr.wine',
-  'wss://relay.damus.io'
+  'wss://relay.damus.io',      // 394ms - fast and reliable  
+  'wss://relay.nostr.band',    // 514ms - slower but reliable
+  'wss://nos.lol'              // 342ms - fastest (if it supports NIP-45)
 ];
 
 /**
@@ -169,9 +169,9 @@ async function fetchCountViaFullEvents(
 }
 
 async function getCountFromRelays(filter: Record<string, unknown>): Promise<number | null> {
-  // Try NIP-45 COUNT first
+  // Try NIP-45 COUNT first - use only 2 fastest relays to limit fan-out
   const results = await Promise.all(
-    COUNT_RELAYS.slice(0, 2).map(relay => sendCountQuery(relay, filter))
+    COUNT_RELAYS.slice(0, 2).map(relay => sendCountQuery(relay, filter, 2500))
   );
   
   const nip45Result = results.find(r => r !== null);

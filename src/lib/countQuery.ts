@@ -43,16 +43,17 @@ const COUNT_CACHE_TTL = 60 * 1000; // 1 minute cache for counts
 const nip45SupportedRelays = new Set<string>();
 const nip45UnsupportedRelays = new Set<string>();
 
-// Relays known to support NIP-45 COUNT
+// Relays known to support NIP-45 COUNT - prioritize fastest/most reliable
 const KNOWN_NIP45_RELAYS = [
-  'wss://relay.nostr.band',
-  'wss://nostr.wine',
-  'wss://relay.damus.io'
+  'wss://relay.damus.io',      // 394ms - fast and reliable
+  'wss://nos.lol',              // 342ms - fastest
+  'wss://relay.nostr.band'      // 514ms - slower but reliable
+  // Note: nostr.wine (305ms) removed as it's in blocked relays list
 ];
 
 // Server API configuration
 const USE_SERVER_API = true; // Toggle server API usage
-const API_TIMEOUT = 2000; // 2 seconds for API calls
+const API_TIMEOUT = 3000; // 3 seconds for API calls (increased for batch endpoint)
 
 /**
  * Deterministically stringify a value by sorting object keys.
@@ -240,8 +241,10 @@ export async function fetchCount(
 ): Promise<CountResult | null> {
   if (!browser) return null;
 
+  // Use only 2 best relays for COUNT queries (reduces fan-out significantly)
+  // Server API handles batching, so client-side COUNT queries should be minimal
   const { 
-    relays = [...KNOWN_NIP45_RELAYS, ...standardRelays.slice(0, 3)],
+    relays = KNOWN_NIP45_RELAYS.slice(0, 2), // Only 2 relays instead of 6
     timeout = 3000,
     useCache = true
   } = options;
@@ -262,9 +265,9 @@ export async function fetchCount(
     return aSupported - bSupported;
   });
 
-  // Race relays for fastest response
+  // Race only 2 relays for fastest response (reduced from 3 to limit fan-out)
   const results = await Promise.all(
-    sortedRelays.slice(0, 3).map(relay => sendCountQuery(relay, filter, timeout))
+    sortedRelays.slice(0, 2).map(relay => sendCountQuery(relay, filter, timeout))
   );
 
   const successResult = results.find(r => r !== null);
@@ -367,7 +370,8 @@ export async function batchFetchFromServerAPI(
 
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT * 2);
+    // Longer timeout for batch endpoint since it handles multiple events
+    const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 seconds for batch
 
     const response = await fetch('/api/counts/batch', {
       method: 'POST',
@@ -513,8 +517,9 @@ async function getCountWithFallback(
   filter: CountFilter,
   options: { relays?: string[]; timeout?: number } = {}
 ): Promise<CountResult> {
+  // Use only 2 best relays for COUNT queries (reduces fan-out)
   const { 
-    relays = [...KNOWN_NIP45_RELAYS, ...standardRelays.slice(0, 2)],
+    relays = KNOWN_NIP45_RELAYS.slice(0, 2), // Only 2 relays
     timeout = 3000 
   } = options;
 

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { get } from 'svelte/store';
   import { ndk, userPublickey } from '$lib/nostr';
   import { NDKEvent } from '@nostr-dev-kit/ndk';
   import { nip19 } from 'nostr-tools';
@@ -14,6 +15,8 @@
   let showMenu = false;
 
   onMount(() => {
+    // Always fetch engagement data - fetchEngagement will check cache freshness
+    // Batch fetch may be in progress, but individual fetch ensures counts load
     fetchEngagement($ndk, event.id, $userPublickey);
   });
 

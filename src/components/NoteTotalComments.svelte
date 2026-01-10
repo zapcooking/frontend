@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { get } from 'svelte/store';
   import { ndk, userPublickey } from '$lib/nostr';
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
   import CommentIcon from 'phosphor-svelte/lib/ChatTeardropText';
@@ -10,7 +11,8 @@
   const store = getEngagementStore(event.id);
 
   onMount(() => {
-    // Fetch engagement data (will use cache if available)
+    // Always fetch engagement data - fetchEngagement will check cache freshness
+    // Batch fetch may be in progress, but individual fetch ensures counts load
     fetchEngagement($ndk, event.id, $userPublickey);
   });
 </script>

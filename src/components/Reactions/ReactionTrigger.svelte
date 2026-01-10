@@ -19,7 +19,14 @@
   let showFullPicker = false;
 
   onMount(() => {
-    fetchEngagement($ndk, event.id, $userPublickey);
+    // Only fetch if we don't have fresh data or it's not already loading
+    // This allows feed components to batch fetch without duplication
+    const data = $store;
+    if (!data.lastFetched || Date.now() - data.lastFetched > 5 * 60 * 1000) {
+      if (!data.loading) {
+        fetchEngagement($ndk, event.id, $userPublickey);
+      }
+    }
   });
 
   $: hasUserReacted = $store.reactions.userReactions.size > 0;
