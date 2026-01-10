@@ -93,19 +93,22 @@ export interface CachedRecipe {
  */
 class OfflineStorageManager {
   private db: IDBDatabase | null = null;
-  private dbReady: Promise<void>;
+  private dbReady!: Promise<void>;
   private dbReadyResolve!: () => void;
 
   constructor() {
-    this.dbReady = new Promise((resolve) => {
-      this.dbReadyResolve = resolve;
-    });
-
     if (browser) {
+      this.dbReady = new Promise((resolve) => {
+        this.dbReadyResolve = resolve;
+      });
       this.initDatabase();
     } else {
-      // Resolve immediately on server
-      this.dbReadyResolve();
+      // On the server, IndexedDB is not available. Reject dbReady so that any
+      // attempt to use offline storage in SSR fails fast instead of operating
+      // with a null database instance.
+      this.dbReady = Promise.reject(
+        new Error('Offline storage is not available on the server (IndexedDB is a browser-only API).')
+      );
     }
   }
 
