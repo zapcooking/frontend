@@ -74,19 +74,35 @@ async function connectWithRetry(ndk: NDK, maxRetries = 3) {
 
 // Connect when in browser environment (non-blocking)
 if (browser) {
-  // Suppress expected WebSocket connection errors from NDK during initial connection
-  // These are normal when relays are down and are handled by the connection manager
+  // Suppress expected WebSocket connection errors from NDK
+  // These are normal when relays are down and are handled gracefully by NDK
   const originalError = console.error;
   const originalLog = console.log;
-  let errorSuppressionActive = true;
   
+  // Permanently suppress WebSocket connection failures - they're expected when relays are down
+  // This includes errors from outbox model discovering unreachable relays
   console.error = (...args: any[]) => {
     const message = args.join(' ');
-    // Suppress expected WebSocket connection failures during initial connection
-    if (errorSuppressionActive && message.includes('WebSocket connection to') && message.includes('failed')) {
-      // Silently ignore - connection manager handles these gracefully
+    
+    // Suppress WebSocket connection failures (expected when relays are down)
+    if (message.includes('WebSocket connection to') && message.includes('failed')) {
       return;
     }
+    
+    // Suppress "WebSocket is closed before the connection is established" errors
+    if (message.includes('WebSocket is closed before the connection is established')) {
+      return;
+    }
+    
+    // Suppress generic WebSocket errors from NDK
+    if (message.includes('WebSocket') && (
+      message.includes('closed') || 
+      message.includes('error') ||
+      message.includes('ECONNREFUSED')
+    )) {
+      return;
+    }
+    
     // Log all other errors normally
     originalError.apply(console, args);
   };
@@ -97,7 +113,6 @@ if (browser) {
     // Filter out NDK's internal subscription removal logs
     if (message.includes('removing a subscription') || 
         message.includes('removing subscription')) {
-      // Silently ignore - these are NDK's internal subscription management logs
       return;
     }
     // Log all other messages normally
@@ -107,15 +122,6 @@ if (browser) {
   connectWithRetry(Ndk).catch(error => {
     console.error('🚨 Failed to establish NDK connection:', error);
     ndkReadyResolve(); // Resolve anyway so components don't hang
-  }).finally(() => {
-    // Restore original console methods after initial connection attempt
-    // Keep suppression active for a short time to handle initial relay connections
-    setTimeout(() => {
-      errorSuppressionActive = false;
-      console.error = originalError;
-      // Keep console.log filter active permanently to suppress subscription logs
-      // console.log remains filtered
-    }, 3000); // Restore console.error after 3 seconds to allow initial connections to complete
   });
 } else {
   // Server-side: resolve immediately (no NDK operations on server)

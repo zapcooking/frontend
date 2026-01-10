@@ -273,7 +273,7 @@ import ClientAttribution from './ClientAttribution.svelte';
           observer.disconnect();
         }
       },
-      { rootMargin: '100px' }
+      { rootMargin: '200px' } // Load engagement 200px before visible
     );
     
     observer.observe(node);

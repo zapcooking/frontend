@@ -5,6 +5,7 @@
   import type { TargetType, AggregatedReactions } from '$lib/types/reactions';
   import { aggregateReactions } from '$lib/reactionAggregator';
   import { publishReaction, canPublishReaction } from '$lib/reactions/publishReaction';
+  import { fetchCount } from '$lib/countQuery';
   import EmojiReactionPicker from './EmojiReactionPicker.svelte';
   import FullEmojiPicker from './FullEmojiPicker.svelte';
   import HeartIcon from 'phosphor-svelte/lib/Heart';
@@ -15,6 +16,7 @@
   export let compact = false;
 
   let loading = true;
+  let fastCountLoaded = false;
   let reactions: AggregatedReactions = {
     groups: [],
     totalCount: 0,
@@ -53,7 +55,30 @@
     loading = true;
     reactionEvents = [];
     processedIds.clear();
+    fastCountLoaded = false;
 
+    // FAST PATH: Try NIP-45 COUNT query first for instant total
+    try {
+      const filter = getFilter();
+      const countResult = await fetchCount(
+        { kinds: filter.kinds, ...('#a' in filter ? { '#a': filter['#a'] } : { '#e': filter['#e'] }) },
+        { timeout: 2000 }
+      );
+      
+      if (countResult && countResult.count > 0) {
+        // Show fast count immediately (just total, no breakdown)
+        reactions = {
+          ...reactions,
+          totalCount: countResult.count
+        };
+        loading = false;
+        fastCountLoaded = true;
+      }
+    } catch {
+      // Fast count failed, subscription will provide data
+    }
+
+    // FULL PATH: Subscribe for detailed breakdown + user reactions
     try {
       const filter = getFilter();
       subscription = $ndk.subscribe(filter);
