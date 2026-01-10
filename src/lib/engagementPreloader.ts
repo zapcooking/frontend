@@ -268,18 +268,21 @@ export function createBackgroundEngagementLoader(
  * Reset preloader state (e.g., when changing feeds)
  */
 export function resetPreloader(): void {
-  // Stop any in-flight batch processing
+  // Stop any in-flight batch processing first
   isProcessingStopped = true;
   
+  // Clear the timeout to prevent it from firing
+  if (batchTimeout) {
+    clearTimeout(batchTimeout);
+    batchTimeout = null;
+  }
+  
+  // Now safe to clear state and re-enable
   preloadState.farAhead.clear();
   preloadState.near.clear();
   preloadState.loading.clear();
   preloadState.loaded.clear();
   batchQueue = [];
-  if (batchTimeout) {
-    clearTimeout(batchTimeout);
-    batchTimeout = null;
-  }
   
   // Re-enable processing for future operations
   isProcessingStopped = false;
