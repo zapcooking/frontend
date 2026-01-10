@@ -16,6 +16,9 @@ const COOKBOOKS_STORE = 'cookbooks';
 const SYNC_QUEUE_STORE = 'syncQueue';
 const RECIPES_STORE = 'recipes';
 
+// Sync configuration
+const MAX_RETRIES = 10;
+
 /**
  * Serializable cookbook data (without NDKEvent which has non-cloneable methods)
  */
@@ -457,7 +460,7 @@ class OfflineStorageManager {
   /**
    * Clear all failed operations (retry count > max)
    */
-  async clearFailedOperations(maxRetries: number = 10): Promise<number> {
+  async clearFailedOperations(maxRetries: number = MAX_RETRIES): Promise<number> {
     const operations = await this.getPendingOperations();
     const failed = operations.filter(op => op.retryCount >= maxRetries);
     
@@ -473,7 +476,7 @@ class OfflineStorageManager {
    */
   async getQueueStatus(): Promise<{ pending: number; failed: number }> {
     const operations = await this.getPendingOperations();
-    const failed = operations.filter(op => op.retryCount >= 10).length;
+    const failed = operations.filter(op => op.retryCount >= MAX_RETRIES).length;
     
     return {
       pending: operations.length - failed,
