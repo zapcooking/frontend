@@ -97,9 +97,12 @@ export const POST: RequestHandler = async ({ request, platform }) => {
     
     const membersData = await membersRes.json();
     console.log('[Genesis Payment] Members count:', membersData.members?.length || 0);
-    const founders = membersData.members.filter((m: any) => 
-      m.payment_id?.startsWith('genesis_')
-    );
+    
+    // Count all Genesis Founders (both 'genesis_' and 'founder' prefixes)
+    const founders = membersData.members.filter((m: any) => {
+      const pid = m.payment_id?.toLowerCase() || '';
+      return pid.startsWith('genesis_') || pid.startsWith('founder');
+    });
     console.log('[Genesis Payment] Existing founders count:', founders.length);
     
     const founderNumber = founders.length + 1;
