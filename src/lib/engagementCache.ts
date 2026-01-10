@@ -3,6 +3,7 @@ import type { NDKEvent, NDKSubscription } from '@nostr-dev-kit/ndk';
 import type NDK from '@nostr-dev-kit/ndk';
 import { decode } from '@gandlaf21/bolt11-decode';
 import { browser } from '$app/environment';
+import { getEngagementCounts, batchFetchFromServerAPI } from './countQuery';
 
 // Types for engagement data
 export interface EngagementData {
@@ -133,6 +134,7 @@ export function getEngagementStore(eventId: string): Writable<EngagementData> {
 }
 
 // Fetch engagement data from network
+// Uses NIP-45 COUNT queries first for speed, then falls back to full event fetch
 export async function fetchEngagement(
   ndk: NDK,
   eventId: string,
@@ -149,6 +151,37 @@ export async function fetchEngagement(
     return;
   }
   
+  // FAST PATH: Try NIP-45 COUNT queries first (non-blocking)
+  // This provides instant counts without fetching full events
+  getEngagementCounts(eventId, { timeout: 2000 }).then(counts => {
+    if (counts) {
+      store.update(s => {
+        // Only update if we got counts and don't have full data yet
+        const updated = { ...s };
+        if (counts.reactions !== null && updated.reactions.count === 0) {
+          updated.reactions.count = counts.reactions;
+        }
+        if (counts.comments !== null && updated.comments.count === 0) {
+          updated.comments.count = counts.comments;
+        }
+        if (counts.reposts !== null && updated.reposts.count === 0) {
+          updated.reposts.count = counts.reposts;
+        }
+        if (counts.zaps !== null && updated.zaps.count === 0) {
+          updated.zaps.count = counts.zaps;
+        }
+        // Mark as loaded if we got at least some counts
+        if (counts.reactions !== null || counts.comments !== null) {
+          updated.loading = false;
+        }
+        return updated;
+      });
+    }
+  }).catch(() => {
+    // NIP-45 failed silently, full fetch will handle it
+  });
+
+  // FULL PATH: Also start full event subscription for accurate data + user state
   // Initialize processed event tracking
   if (!processedEventIds.has(eventId)) {
     processedEventIds.set(eventId, new Set());
@@ -317,6 +350,7 @@ export function cleanupEngagement(eventId: string): void {
 }
 
 // Batch fetch for multiple events (more efficient)
+// Uses server API batch endpoint first, then falls back to NDK subscriptions
 export async function batchFetchEngagement(
   ndk: NDK,
   eventIds: string[],
@@ -332,7 +366,35 @@ export async function batchFetchEngagement(
   });
   
   if (!toFetch.length) return;
+
+  // FAST PATH: Try server batch API first
+  try {
+    const apiCounts = await batchFetchFromServerAPI(toFetch);
+    
+    if (apiCounts.size > 0) {
+      for (const [eventId, counts] of apiCounts) {
+        const store = getEngagementStore(eventId);
+        store.update(s => {
+          const updated = { ...s };
+          if (counts.reactions !== null) updated.reactions.count = counts.reactions;
+          if (counts.comments !== null) updated.comments.count = counts.comments;
+          if (counts.reposts !== null) updated.reposts.count = counts.reposts;
+          if (counts.zaps !== null) updated.zaps.count = counts.zaps;
+          updated.loading = false;
+          updated.lastFetched = Date.now();
+          saveToCache(eventId, updated);
+          return updated;
+        });
+      }
+      
+      // If API returned all counts, we're done for the fast path
+      // Still run NDK subscription for user-specific data (userReacted, etc.)
+    }
+  } catch {
+    // API failed, continue with NDK subscription
+  }
   
+  // FULL PATH: NDK subscription for accurate counts + user state
   // Initialize all stores
   toFetch.forEach(id => {
     if (!processedEventIds.has(id)) {
