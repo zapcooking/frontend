@@ -19,19 +19,43 @@ export const load: PageServerLoad = async ({ fetch, platform }) => {
 
     const data = await res.json();
 
+    // Helper to extract founder number from payment_id
+    const extractFounderNumber = (paymentId: string): number => {
+      // Handle both 'genesis_X' and 'founder_X' formats
+      const match = paymentId?.match(/(?:genesis_|founder_?)(\d+)/i);
+      return match ? parseInt(match[1]) : 999;
+    };
+
+    // Filter for Genesis Founders (both 'genesis_' and 'founder' prefixes)
     const founders = data.members
-      .filter((m: any) => m.payment_id?.startsWith('genesis_'))
+      .filter((m: any) => {
+        const pid = m.payment_id?.toLowerCase() || '';
+        return pid.startsWith('genesis_') || pid.startsWith('founder');
+      })
+      // Remove duplicates by pubkey (keep the one with lowest founder number)
+      .reduce((acc: any[], m: any) => {
+        const existing = acc.find(f => f.pubkey === m.pubkey);
+        if (!existing) {
+          acc.push(m);
+        } else {
+          // Keep the one with lower founder number
+          const existingNum = extractFounderNumber(existing.payment_id);
+          const newNum = extractFounderNumber(m.payment_id);
+          if (newNum < existingNum) {
+            const idx = acc.indexOf(existing);
+            acc[idx] = m;
+          }
+        }
+        return acc;
+      }, [])
       .sort((a: any, b: any) => {
-        // Sort by founder number extracted from payment_id (genesis_1, genesis_2, etc.)
-        const numA = parseInt(a.payment_id?.replace('genesis_', '') || '999');
-        const numB = parseInt(b.payment_id?.replace('genesis_', '') || '999');
-        return numA - numB;
+        // Sort by founder number
+        return extractFounderNumber(a.payment_id) - extractFounderNumber(b.payment_id);
       })
       .map((m: any, index: number) => {
-        // Extract founder number from payment_id
-        const founderNum = m.payment_id?.replace('genesis_', '') || (index + 1).toString();
+        // Use sequential numbering (1, 2, 3...) based on sorted order
         return {
-          number: parseInt(founderNum),
+          number: index + 1,
           pubkey: m.pubkey,
           tier: m.tier,
           joined: m.created_at
