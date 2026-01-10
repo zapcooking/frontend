@@ -258,9 +258,10 @@
         return;
       }
       
-      // Validate file size (max 200MB for videos)
-      if (file.size > 200 * 1024 * 1024) {
-        error = 'Video must be less than 200MB';
+      // Validate file size (max 20MB for videos - nostr.build API limit)
+      const maxSize = 20 * 1024 * 1024; // 20MB
+      if (file.size > maxSize) {
+        error = `Video must be less than 20MB (current size: ${(file.size / 1024 / 1024).toFixed(2)}MB). Please compress your video or use a shorter recording.`;
         uploadingVideo = false;
         return;
       }
