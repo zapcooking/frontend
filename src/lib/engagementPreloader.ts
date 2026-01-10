@@ -233,23 +233,27 @@ export function createBackgroundEngagementLoader(
   
   async function loadLoop() {
     while (isRunning) {
-      const visibleIds = getVisibleEventIds();
-      
-      // Get IDs that need full subscription but haven't started yet
-      const needsSubscription = visibleIds.filter(id => 
-        !preloadState.loaded.has(id) && 
-        !preloadState.loading.has(id)
-      );
-      
-      if (needsSubscription.length > 0) {
-        // Start subscriptions for visible items
-        for (const eventId of needsSubscription.slice(0, 5)) {
-          startFullSubscription(ndk, eventId, userPublickey);
+      try {
+        const visibleIds = getVisibleEventIds();
+        
+        // Get IDs that need full subscription but haven't started yet
+        const needsSubscription = visibleIds.filter(id => 
+          !preloadState.loaded.has(id) && 
+          !preloadState.loading.has(id)
+        );
+        
+        if (needsSubscription.length > 0) {
+          // Start subscriptions for visible items
+          for (const eventId of needsSubscription.slice(0, 5)) {
+            startFullSubscription(ndk, eventId, userPublickey);
+          }
         }
+      } catch (error) {
+        console.error('Error in background engagement load loop', error);
+      } finally {
+        // Wait before next check
+        await new Promise(resolve => setTimeout(resolve, 500));
       }
-      
-      // Wait before next check
-      await new Promise(resolve => setTimeout(resolve, 500));
     }
   }
   
