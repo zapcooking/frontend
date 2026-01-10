@@ -113,8 +113,8 @@ if (browser) {
     setTimeout(() => {
       errorSuppressionActive = false;
       console.error = originalError;
-      // Keep console.log filter active permanently to suppress subscription logs
-      // console.log remains filtered
+      // Note: console.log filtering remains active permanently to suppress NDK subscription logs
+      
     }, 3000); // Restore console.error after 3 seconds to allow initial connections to complete
   });
 } else {
