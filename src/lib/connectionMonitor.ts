@@ -137,7 +137,7 @@ async function heartbeatCheck(): Promise<boolean> {
     
     // Use a simple HEAD request to a reliable endpoint
     // We use the app's own domain to avoid CORS issues
-    const response = await fetch('/favicon.ico', {
+    const response = await fetch(`/favicon.ico?heartbeat=${Date.now()}`, {
       method: 'HEAD',
       cache: 'no-store',
       signal: controller.signal
