@@ -1,6 +1,5 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { isValidEventId } from '$lib/utils/nostrRefs';
 
 // In-memory cache with TTL (for edge/serverless)
 // In production, consider using Cloudflare KV or Redis
