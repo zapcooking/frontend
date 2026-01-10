@@ -997,6 +997,8 @@ function createCookbookStore() {
 
       // Remove from offline storage
       await offlineStorage.deleteCookbook(listId, pubkey);
+      // Clean up any queued sync operations related to this cookbook
+      await offlineStorage.deleteCookbookOperations(listId, pubkey);
 
       if (isCurrentlyOnline()) {
         try {
