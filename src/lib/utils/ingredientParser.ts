@@ -193,43 +193,6 @@ export function parseIngredientsFromRecipe(content: string): ParsedIngredient[] 
   return rawIngredients.map(parseIngredient);
 }
 
-/**
- * Check if an ingredient might be a duplicate of an existing item
- * Uses fuzzy matching on the name
- */
-export function findDuplicateIngredient(
-  newIngredient: ParsedIngredient,
-  existingNames: string[]
-): string | null {
-  const normalizedNew = normalizeIngredientName(newIngredient.name);
-  
-  for (const existing of existingNames) {
-    const normalizedExisting = normalizeIngredientName(existing);
-    
-    // Exact match
-    if (normalizedNew === normalizedExisting) {
-      return existing;
-    }
-    
-    // One contains the other (e.g., "butter" vs "unsalted butter")
-    if (normalizedNew.includes(normalizedExisting) || normalizedExisting.includes(normalizedNew)) {
-      return existing;
-    }
-  }
-  
-  return null;
-}
-
-/**
- * Normalize ingredient name for comparison
- */
-function normalizeIngredientName(name: string): string {
-  return name
-    .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, '')  // Remove special characters
-    .replace(/\s+/g, ' ')          // Normalize whitespace
-    .trim();
-}
 
 /**
  * Convert unicode fractions to decimal-friendly format
