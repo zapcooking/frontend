@@ -121,9 +121,6 @@ export async function fetchGroceryLists(): Promise<GroceryListEvent[]> {
   // Wait for NDK to be ready
   await ndkReady;
 
-  // Get user's read relays for fetching
-  const readRelays = await getInboxRelays(pubkey);
-  
   // Build filter for grocery list events
   // Note: We can't filter by #client tag as relays don't support multi-letter tag filtering
   // We'll filter locally after fetching
@@ -361,7 +358,7 @@ export async function saveGroceryList(list: GroceryList): Promise<NDKEvent | nul
     await event.sign();
     
     console.log('[GroceryService] Publishing grocery list to relays...');
-    await event.publish();
+    await event.publish(writeRelays);
     
     console.log('[GroceryService] Grocery list saved successfully');
     return event;
@@ -471,6 +468,13 @@ export function createGroceryItem(
     recipeId,
     addedAt: Math.floor(Date.now() / 1000)
   };
+}
+
+/**
+ * Build a recipe address (a-tag format) from event data
+ */
+export function buildRecipeAddress(pubkey: string, dTag: string): string {
+  return `30023:${pubkey}:${dTag}`;
 }
 
 /**
