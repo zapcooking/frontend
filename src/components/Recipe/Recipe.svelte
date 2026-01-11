@@ -9,6 +9,7 @@
   import DotsThreeVerticalIcon from 'phosphor-svelte/lib/DotsThreeVertical';
   import PencilSimpleIcon from 'phosphor-svelte/lib/PencilSimple';
   import TrashIcon from 'phosphor-svelte/lib/Trash';
+  import ShoppingCartIcon from 'phosphor-svelte/lib/ShoppingCart';
   import Button from '../Button.svelte';
   import ShareModal from '../ShareModal.svelte';
   import SaveButton from '../SaveButton.svelte';
@@ -36,6 +37,7 @@
   import { resolveProfileByPubkey } from '$lib/profileResolver';
   import { buildCanonicalRecipeShareUrl } from '$lib/utils/share';
   import DirectionsPhases from './DirectionsPhases.svelte';
+  import AddToListModal from '../grocery/AddToListModal.svelte';
 
   export let event: NDKEvent;
   const naddr = nip19.naddrEncode({
@@ -46,6 +48,7 @@
   let zapModal = false;
   let zapRefreshKey = 0;
   let shareModal = false;
+  let groceryModal = false;
   let menuOpen = false;
   let deleteConfirmOpen = false;
   let isDeleting = false;
@@ -339,6 +342,9 @@
 
 <ShareModal bind:open={shareModal} url={shareUrl} title={recipeTitle} imageUrl={recipeImage} />
 
+<!-- Add to Grocery List Modal -->
+<AddToListModal bind:open={groceryModal} recipeEvent={event} />
+
 <!-- Delete Confirmation Modal -->
 <Modal bind:open={deleteConfirmOpen}>
   <div class="flex flex-col gap-4 p-2">
@@ -476,6 +482,16 @@
                   <ShareIcon size={18} />
                   Share
                 </button>
+                {#if $userPublickey}
+                  <button
+                    class="w-full flex items-center gap-3 px-4 py-2.5 text-left text-sm hover:bg-accent-gray transition-colors"
+                    style="color: var(--color-text-primary);"
+                    on:click={() => { groceryModal = true; menuOpen = false; }}
+                  >
+                    <ShoppingCartIcon size={18} />
+                    Add to Grocery List
+                  </button>
+                {/if}
                 <button
                   class="w-full flex items-center gap-3 px-4 py-2.5 text-left text-sm hover:bg-accent-gray transition-colors"
                   style="color: var(--color-text-primary);"

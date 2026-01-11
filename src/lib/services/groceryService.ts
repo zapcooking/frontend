@@ -477,6 +477,13 @@ export function createGroceryItem(
 }
 
 /**
+ * Build a recipe address (a-tag format) from event data
+ */
+export function buildRecipeAddress(pubkey: string, dTag: string): string {
+  return `30023:${pubkey}:${dTag}`;
+}
+
+/**
  * Infer category from item name (basic heuristics)
  */
 export function inferCategory(name: string): GroceryCategory {
