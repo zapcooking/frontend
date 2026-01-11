@@ -70,38 +70,38 @@ function createGroceryStore() {
   /**
    * Schedule a debounced save for a list
    */
-  function scheduleSave(list: GroceryList): void {
+  function scheduleSave(listId: string): void {
     // Clear existing timer for this list
-    const existingTimer = saveTimers.get(list.id);
+    const existingTimer = saveTimers.get(listId);
     if (existingTimer) {
       clearTimeout(existingTimer);
     }
 
     // Schedule new save
     const timer = setTimeout(async () => {
-      saveTimers.delete(list.id);
-      await performSave(list);
+      saveTimers.delete(listId);
+      await performSave(listId);
     }, SAVE_DEBOUNCE_MS);
 
-    saveTimers.set(list.id, timer);
+    saveTimers.set(listId, timer);
   }
 
   /**
    * Actually perform the save to Nostr
    */
-  async function performSave(list: GroceryList): Promise<void> {
+  async function performSave(listId: string): Promise<void> {
     // Don't save if already saving this list
-    if (pendingSaves.has(list.id)) {
+    if (pendingSaves.has(listId)) {
       return;
     }
 
-    pendingSaves.add(list.id);
+    pendingSaves.add(listId);
     update(s => ({ ...s, saving: true }));
 
     try {
       // Get latest version of the list from store
       const currentState = get({ subscribe });
-      const currentList = currentState.lists.find(l => l.id === list.id);
+      const currentList = currentState.lists.find(l => l.id === listId);
       
       if (currentList) {
         await saveGroceryList(currentList);
@@ -110,7 +110,7 @@ function createGroceryStore() {
           lastSaved: Date.now(),
           error: null
         }));
-        console.log('[GroceryStore] List saved:', list.id);
+        console.log('[GroceryStore] List saved:', listId);
       }
     } catch (error) {
       console.error('[GroceryStore] Failed to save list:', error);
@@ -119,7 +119,7 @@ function createGroceryStore() {
         error: error instanceof Error ? error.message : 'Failed to save list'
       }));
     } finally {
-      pendingSaves.delete(list.id);
+      pendingSaves.delete(listId);
       
       // Only set saving to false if no more pending saves
       if (pendingSaves.size === 0) {
@@ -141,7 +141,7 @@ function createGroceryStore() {
       
       const list = currentState.lists.find(l => l.id === listId);
       if (list) {
-        await performSave(list);
+        await performSave(listId);
       }
     }
   }
@@ -251,7 +251,7 @@ function createGroceryStore() {
           };
           
           // Schedule debounced save
-          scheduleSave(updatedList);
+          scheduleSave(updatedList.id);
           
           return updatedList;
         });
@@ -313,7 +313,7 @@ function createGroceryStore() {
           };
           
           // Schedule debounced save
-          scheduleSave(updatedList);
+          scheduleSave(updatedList.id);
           
           return updatedList;
         });
@@ -348,7 +348,7 @@ function createGroceryStore() {
           };
           
           // Schedule debounced save
-          scheduleSave(updatedList);
+          scheduleSave(updatedList.id);
           
           return updatedList;
         });
@@ -377,7 +377,7 @@ function createGroceryStore() {
           };
           
           // Schedule debounced save
-          scheduleSave(updatedList);
+          scheduleSave(updatedList.id);
           
           return updatedList;
         });
@@ -401,7 +401,7 @@ function createGroceryStore() {
           };
           
           // Schedule debounced save
-          scheduleSave(updatedList);
+          scheduleSave(updatedList.id);
           
           return updatedList;
         });
@@ -425,7 +425,7 @@ function createGroceryStore() {
           };
           
           // Schedule debounced save
-          scheduleSave(updatedList);
+          scheduleSave(updatedList.id);
           
           return updatedList;
         });
@@ -454,7 +454,7 @@ function createGroceryStore() {
           };
           
           // Schedule debounced save
-          scheduleSave(updatedList);
+          scheduleSave(updatedList.id);
           
           return updatedList;
         });
@@ -478,7 +478,7 @@ function createGroceryStore() {
           };
           
           // Schedule debounced save
-          scheduleSave(updatedList);
+          scheduleSave(updatedList.id);
           
           return updatedList;
         });
