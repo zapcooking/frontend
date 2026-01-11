@@ -15,7 +15,7 @@
 import { browser } from '$app/environment';
 import { get } from 'svelte/store';
 import { ndk, userPublickey, ndkReady } from '$lib/nostr';
-import { NDKEvent, type NDKFilter } from '@nostr-dev-kit/ndk';
+import { NDKEvent, NDKRelaySet, type NDKFilter } from '@nostr-dev-kit/ndk';
 import { encrypt, decrypt, detectEncryptionMethod, type EncryptionMethod } from '$lib/encryptionService';
 import { getOutboxRelays, getInboxRelays } from '$lib/relayListCache';
 import { CLIENT_TAG_IDENTIFIER } from '$lib/consts';
@@ -357,8 +357,18 @@ export async function saveGroceryList(list: GroceryList): Promise<NDKEvent | nul
     // Sign and publish
     await event.sign();
     
-    console.log('[GroceryService] Publishing grocery list to relays...');
-    await event.publish(writeRelays);
+    // Get user's write relays for publishing
+    const writeRelays = await getOutboxRelays(pubkey);
+    
+    console.log('[GroceryService] Publishing grocery list to relays...', writeRelays.length > 0 ? `(${writeRelays.length} outbox relays)` : '(default relays)');
+    
+    // Publish to user's outbox relays if available, otherwise use default relay set
+    if (writeRelays.length > 0) {
+      const relaySet = NDKRelaySet.fromRelayUrls(writeRelays, ndkInstance);
+      await event.publish(relaySet);
+    } else {
+      await event.publish();
+    }
     
     console.log('[GroceryService] Grocery list saved successfully');
     return event;
@@ -420,8 +430,18 @@ export async function deleteGroceryList(
     // Sign and publish
     await deleteEvent.sign();
     
-    console.log('[GroceryService] Publishing deletion event...');
-    await deleteEvent.publish();
+    // Get user's write relays for publishing
+    const writeRelays = await getOutboxRelays(pubkey);
+    
+    console.log('[GroceryService] Publishing deletion event...', writeRelays.length > 0 ? `(${writeRelays.length} outbox relays)` : '(default relays)');
+    
+    // Publish to user's outbox relays if available, otherwise use default relay set
+    if (writeRelays.length > 0) {
+      const relaySet = NDKRelaySet.fromRelayUrls(writeRelays, ndkInstance);
+      await deleteEvent.publish(relaySet);
+    } else {
+      await deleteEvent.publish();
+    }
     
     console.log('[GroceryService] Grocery list deleted successfully');
     return deleteEvent;
