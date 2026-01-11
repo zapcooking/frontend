@@ -121,9 +121,6 @@ export async function fetchGroceryLists(): Promise<GroceryListEvent[]> {
   // Wait for NDK to be ready
   await ndkReady;
 
-  // Get user's read relays for fetching
-  const readRelays = await getInboxRelays(pubkey);
-  
   // Build filter for grocery list events
   // Note: We can't filter by #client tag as relays don't support multi-letter tag filtering
   // We'll filter locally after fetching
