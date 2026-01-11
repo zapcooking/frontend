@@ -360,9 +360,6 @@ export async function saveGroceryList(list: GroceryList): Promise<NDKEvent | nul
     // Sign and publish
     await event.sign();
     
-    // Get user's write relays for publishing
-    const writeRelays = await getOutboxRelays(pubkey);
-    
     console.log('[GroceryService] Publishing grocery list to relays...');
     await event.publish();
     
