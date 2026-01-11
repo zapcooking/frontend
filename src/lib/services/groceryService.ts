@@ -17,7 +17,7 @@ import { get } from 'svelte/store';
 import { ndk, userPublickey, ndkReady } from '$lib/nostr';
 import { NDKEvent, type NDKFilter } from '@nostr-dev-kit/ndk';
 import { encrypt, decrypt, detectEncryptionMethod, type EncryptionMethod } from '$lib/encryptionService';
-import { getOutboxRelays, getInboxRelays } from '$lib/relayListCache';
+import { getOutboxRelays } from '$lib/relayListCache';
 import { CLIENT_TAG_IDENTIFIER } from '$lib/consts';
 
 // ═══════════════════════════════════════════════════════════════
@@ -121,9 +121,6 @@ export async function fetchGroceryLists(): Promise<GroceryListEvent[]> {
   // Wait for NDK to be ready
   await ndkReady;
 
-  // Get user's read relays for fetching
-  const readRelays = await getInboxRelays(pubkey);
-  
   // Build filter for grocery list events
   // Note: We can't filter by #client tag as relays don't support multi-letter tag filtering
   // We'll filter locally after fetching
