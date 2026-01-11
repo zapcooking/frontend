@@ -111,8 +111,8 @@ export async function encrypt(
 	const ndkInstance = get(ndk);
 	const signer = ndkInstance.signer;
 
+	// First, try NDK signer if it has encryption methods
 	if (signer) {
-		// Use NDK signer (works for NIP-07, NIP-46, and private key)
 		const recipient = new NDKUser({ pubkey: recipientPubkey });
 		const method = preferredMethod || 'nip44';
 
@@ -133,12 +133,12 @@ export async function encrypt(
 				return { ciphertext, method: 'nip44' };
 			} catch (e) {
 				console.error('[Encryption] nip44Encrypt failed:', e);
-				// Try NIP-04 as fallback
+				// Try NIP-04 as fallback on signer
 				if (typeof signer.nip04Encrypt === 'function') {
 					ciphertext = await signer.nip04Encrypt(recipient, plaintext);
 					return { ciphertext, method: 'nip04' };
 				}
-				throw e;
+				// Don't throw yet - fall through to window.nostr
 			}
 		} else if (typeof signer.nip04Encrypt === 'function') {
 			try {
@@ -146,11 +146,12 @@ export async function encrypt(
 				return { ciphertext, method: 'nip04' };
 			} catch (e) {
 				console.error('[Encryption] nip04Encrypt failed:', e);
-				throw e;
+				// Don't throw yet - fall through to window.nostr
 			}
 		}
 		
-		// For NIP-46 signers, if methods don't exist, provide helpful error
+		// For NIP-46 signers specifically, if methods don't exist, provide helpful error
+		// (NIP-46 doesn't use window.nostr, so no fallback available)
 		if (signer.constructor?.name === 'NDKNip46Signer') {
 			const errorMsg = 'Your remote signer does not support encryption or has not granted encryption permissions. ' +
 				'Please check your remote signer app (e.g., Amber) settings and ensure encryption permissions are enabled. ' +
@@ -158,10 +159,10 @@ export async function encrypt(
 			throw new Error(errorMsg);
 		}
 		
-		throw new Error('Signer does not support encryption. Please ensure you are logged in with a signer that supports encryption (NIP-44 or NIP-04).');
+		// For other signers (NIP-07), fall through to try window.nostr
 	}
 
-	// Fallback to window.nostr
+	// Try window.nostr (NIP-07 extensions expose encryption here)
 	const nostr = (window as any).nostr;
 	if (nostr?.nip44?.encrypt && (!preferredMethod || preferredMethod === 'nip44')) {
 		const ciphertext = await nostr.nip44.encrypt(recipientPubkey, plaintext);
@@ -172,7 +173,7 @@ export async function encrypt(
 		return { ciphertext, method: 'nip04' };
 	}
 
-	throw new Error('No encryption method available. Please ensure you are logged in with a signer.');
+	throw new Error('No encryption method available. Please ensure you are logged in with a signer that supports encryption.');
 }
 
 /**
