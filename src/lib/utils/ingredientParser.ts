@@ -87,7 +87,7 @@ export function extractIngredientsFromRecipe(content: string): string[] {
       const trimmed = line.trim();
       
       // Skip empty lines and subheadings
-      if (!trimmed || trimmed.startsWith('#') || trimmed.startsWith('**') && trimmed.endsWith('**')) {
+      if (!trimmed || trimmed.startsWith('#') || (trimmed.startsWith('**') && trimmed.endsWith('**'))) {
         continue;
       }
       
