@@ -361,7 +361,7 @@ export async function saveGroceryList(list: GroceryList): Promise<NDKEvent | nul
     const writeRelays = await getOutboxRelays(pubkey);
     
     console.log('[GroceryService] Publishing grocery list to relays...');
-    await event.publish();
+    await event.publish(writeRelays);
     
     console.log('[GroceryService] Grocery list saved successfully');
     return event;
