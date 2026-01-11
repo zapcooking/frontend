@@ -13,7 +13,6 @@
   import CaretUpIcon from 'phosphor-svelte/lib/CaretUp';
   import { groceryStore, groceryLists, groceryInitialized } from '$lib/stores/groceryStore';
   import { parseIngredientsFromRecipe, type ParsedIngredient } from '$lib/utils/ingredientParser';
-  import { createGroceryItem, type GroceryList } from '$lib/services/groceryService';
   import { userPublickey } from '$lib/nostr';
 
   export let open = false;
