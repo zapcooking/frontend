@@ -18,8 +18,8 @@
     { value: 'other', label: 'Other', emoji: '📦' }
   ];
 
-  // Auto-infer category when name changes
-  $: if (itemName) {
+  // Auto-infer category when name changes, but only while using the default category
+  $: if (itemName && itemCategory === 'other') {
     itemCategory = inferCategory(itemName);
   }
 
