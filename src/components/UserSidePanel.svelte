@@ -9,6 +9,7 @@
   import XIcon from 'phosphor-svelte/lib/X';
   import UserIcon from 'phosphor-svelte/lib/User';
   import CookbookIcon from 'phosphor-svelte/lib/BookOpen';
+  import ShoppingCartIcon from 'phosphor-svelte/lib/ShoppingCart';
   import FloppyDiskIcon from 'phosphor-svelte/lib/FloppyDisk';
   import WalletIcon from 'phosphor-svelte/lib/Wallet';
   import SunIcon from 'phosphor-svelte/lib/Sun';
@@ -193,6 +194,16 @@
             >
               <CookbookIcon size={22} />
               <span class="font-medium">Cookbook</span>
+            </button>
+          </li>
+          <li>
+            <button
+              on:click={() => navigate('/grocery')}
+              class="w-full flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-opacity-50 transition-colors cursor-pointer"
+              style="color: var(--color-text-primary);"
+            >
+              <ShoppingCartIcon size={22} />
+              <span class="font-medium">Grocery Lists</span>
             </button>
           </li>
           <li>
