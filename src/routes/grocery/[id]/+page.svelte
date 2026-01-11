@@ -253,6 +253,7 @@
             on:click={clearCheckedItems}
             class="text-sm font-medium transition-colors hover:opacity-80"
             style="color: var(--color-primary)"
+            aria-label="Clear checked items"
           >
             Clear checked
           </button>
