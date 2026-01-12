@@ -1786,7 +1786,8 @@ import ClientAttribution from './ClientAttribution.svelte';
         
         // CRITICAL: Skip NDK cache to prevent events from other relays leaking in
         // Use longer timeout for private relays
-        olderEvents = await fetchFromRelays(memberFilter, memberRelays, PRIVATE_RELAY_TIMEOUT_MS, true);
+        // Use temporary relay set since members relay may not be in default pool
+        olderEvents = await fetchFromRelays(memberFilter, memberRelays, PRIVATE_RELAY_TIMEOUT_MS, true, true);
       } else if (filterMode === 'garden') {
         // Garden mode - fetch from garden relay only (all content, not just food-tagged)
         const gardenFilter: any = {
