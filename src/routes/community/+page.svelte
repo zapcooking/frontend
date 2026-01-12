@@ -1,7 +1,7 @@
 <script lang="ts">
   import FoodstrFeedOptimized from '../../components/FoodstrFeedOptimized.svelte';
   import PullToRefresh from '../../components/PullToRefresh.svelte';
-  import { ndk, userPublickey } from '$lib/nostr';
+  import { ndk, userPublickey, normalizeRelayUrl, ensureNdkConnected, getConnectedRelays } from '$lib/nostr';
   import { NDKEvent } from '@nostr-dev-kit/ndk';
   import PencilSimpleIcon from 'phosphor-svelte/lib/PencilSimple';
   import ImageIcon from 'phosphor-svelte/lib/Image';
@@ -463,17 +463,25 @@
       let publishPromise: Promise<boolean>;
       if (activeTab === 'garden') {
         // For garden mode, publish ONLY to the garden relay using NDKRelaySet
+        // Garden relay is in the default pool, so use existing connection (false = no temporary connections)
+        await ensureNdkConnected();
         const { NDKRelaySet } = await import('@nostr-dev-kit/ndk');
-        const gardenRelayUrl = 'wss://garden.zap.cooking';
+        const gardenRelayUrl = normalizeRelayUrl('wss://garden.zap.cooking');
         
-        // Create a relay set with ONLY the garden relay
-        const gardenRelaySet = NDKRelaySet.fromRelayUrls([gardenRelayUrl], $ndk, true);
+        // Check if garden relay is connected
+        const connectedRelays = getConnectedRelays().map(normalizeRelayUrl);
+        if (!connectedRelays.includes(gardenRelayUrl)) {
+          throw new Error('Garden relay is not connected. Please wait a moment and try again.');
+        }
+        
+        // Create a relay set with ONLY the garden relay (use false - it's in the default pool)
+        const gardenRelaySet = NDKRelaySet.fromRelayUrls([gardenRelayUrl], $ndk, false);
         
         // Publish to the relay set - this ensures ONLY garden relay receives the event
         publishPromise = event.publish(gardenRelaySet).then((publishedRelays) => {
           // Verify garden relay received the event
           const gardenRelayPublished = Array.from(publishedRelays).some(
-            relay => relay.url === gardenRelayUrl || relay.url === gardenRelayUrl + '/'
+            relay => normalizeRelayUrl(relay.url) === gardenRelayUrl
           );
           if (!gardenRelayPublished) {
             throw new Error('Failed to publish to garden relay');
