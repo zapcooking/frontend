@@ -239,7 +239,7 @@ import ClientAttribution from './ClientAttribution.svelte';
     profiles: ['wss://purplepag.es'],             // Profile metadata (356ms, specialized for kind:0)
     members: ['wss://members.zap.cooking'],      // Private member relay
     pro: ['wss://pro.zap.cooking'],               // Pro member relay
-    garden: ['wss://garden.zap.cooking']          // Garden relay (no trailing slash!)
+    garden: ['wss://garden.zap.cooking']          // Garden relay
   };
 
   /**
