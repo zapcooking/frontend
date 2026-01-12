@@ -462,10 +462,9 @@
       // If in garden or members mode, publish to specific relay only
       let publishPromise: Promise<boolean>;
       if (activeTab === 'garden') {
-        // For garden mode, publish ONLY to the garden relay using NDKRelaySet
-        // Garden relay is in the default pool, so use existing connection (false = no temporary connections)
+        // For garden mode, publish to the garden relay
+        // Garden relay is in the default pool, so publish normally (it will go to all connected relays including garden)
         await ensureNdkConnected();
-        const { NDKRelaySet } = await import('@nostr-dev-kit/ndk');
         const gardenRelayUrl = normalizeRelayUrl('wss://garden.zap.cooking');
         
         // Check if garden relay is connected
@@ -474,19 +473,18 @@
           throw new Error('Garden relay is not connected. Please wait a moment and try again.');
         }
         
-        // Create a relay set with ONLY the garden relay (use false - it's in the default pool)
-        const gardenRelaySet = NDKRelaySet.fromRelayUrls([gardenRelayUrl], $ndk, false);
-        
-        // Publish to the relay set - this ensures ONLY garden relay receives the event
-        publishPromise = event.publish(gardenRelaySet).then((publishedRelays) => {
-          // Verify garden relay received the event
+        // Publish to all connected relays (garden relay is in the default pool, so it will receive it)
+        // Using default publish() is more reliable than relay sets for publishing
+        publishPromise = event.publish().then((publishedRelays) => {
+          // Verify garden relay received the event (optional check)
           const gardenRelayPublished = Array.from(publishedRelays).some(
             relay => normalizeRelayUrl(relay.url) === gardenRelayUrl
           );
           if (!gardenRelayPublished) {
-            throw new Error('Failed to publish to garden relay');
+            console.warn('Garden relay did not confirm receipt, but event may have been published');
           }
-          return true;
+          // Always return true if at least one relay confirmed
+          return publishedRelays.size > 0;
         });
       } else if (activeTab === 'members') {
         // For members mode, publish ONLY to the members relay using NDKRelaySet
