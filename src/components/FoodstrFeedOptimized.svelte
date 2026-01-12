@@ -2440,7 +2440,7 @@ import ClientAttribution from './ClientAttribution.svelte';
   }
   
   // Reactive statement to handle filter mode changes
-  // Note: Filter mode changes are handled by the reactive statement above (line 2121)
+  // Note: Filter mode changes are handled by the reactive statement above (around line 2257)
   // This ensures garden mode properly refreshes and only shows garden relay content
 </script>
 
