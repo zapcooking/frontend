@@ -431,14 +431,24 @@ export function getCurrentRelayMode(): RelayMode {
 
 // Connect when in browser environment (non-blocking)
 if (browser) {
-  // Suppress expected WebSocket connection errors from NDK during initial connection
+  // Suppress expected WebSocket connection errors from NDK
+  // Garden relay uses "soft connections" - failures are non-critical
   const originalError = console.error;
   const originalLog = console.log;
   let errorSuppressionActive = true;
   
+  // Garden relay URL for soft connection error suppression
+  const GARDEN_RELAY_URL = 'garden.zap.cooking';
+  
   console.error = (...args: unknown[]) => {
     const message = args.join(' ');
-    // Suppress expected WebSocket connection failures during initial connection
+    
+    // Always suppress garden relay WebSocket errors (soft connection - failures are OK)
+    if (message.includes('WebSocket connection to') && message.includes(GARDEN_RELAY_URL)) {
+      return; // Silently ignore garden relay connection errors
+    }
+    
+    // Suppress expected WebSocket connection failures during initial connection period
     if (errorSuppressionActive && message.includes('WebSocket connection to') && message.includes('failed')) {
       return;
     }
@@ -463,7 +473,16 @@ if (browser) {
   }).finally(() => {
     setTimeout(() => {
       errorSuppressionActive = false;
-      console.error = originalError;
+      // Keep garden relay error suppression active permanently (soft connections)
+      // Only restore console.error for non-garden errors
+      console.error = (...args: unknown[]) => {
+        const message = args.join(' ');
+        // Always suppress garden relay errors (soft connection)
+        if (message.includes('WebSocket connection to') && message.includes(GARDEN_RELAY_URL)) {
+          return;
+        }
+        originalError.apply(console, args);
+      };
     }, 3000);
   });
 } else {
