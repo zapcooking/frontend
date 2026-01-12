@@ -37,26 +37,46 @@
   export const data: PageData = {} as PageData;
 
   // Tab state - use local state for immediate reactivity
-  type FilterMode = 'global' | 'following' | 'replies';
+  type FilterMode = 'global' | 'following' | 'replies' | 'members' | 'garden';
   
   // Local state for immediate UI updates
   let activeTab: FilterMode = 'following';
+  
+  // Check if user has active membership (for Members tab)
+  let hasActiveMembership = false;
+  let checkingMembership = false;
   
   // Tab initialization is now in the onMount with quote listener
   
   // Key to force component recreation
   let feedKey = 0;
   
-  function setTab(tab: FilterMode) {
+  async function setTab(tab: FilterMode) {
     if (tab === activeTab) return;
     
     activeTab = tab;
-    feedKey++;
+    feedKey++; // This forces component recreation with new filterMode
     
     // Update URL for bookmarking/sharing
     const url = new URL($page.url);
     url.searchParams.set('tab', tab);
     goto(url.pathname + url.search, { noScroll: true, replaceState: true });
+    
+    // If switching to garden tab, ensure we refresh to show only garden relay content
+    // The reactive statement in FoodstrFeedOptimized will handle the refresh
+    // But we can also trigger it explicitly for extra safety
+    if (tab === 'garden') {
+      // Wait a bit for component to recreate, then force refresh
+      setTimeout(async () => {
+        if (feedComponent) {
+          try {
+            await feedComponent.refresh();
+          } catch (err) {
+            console.error('Failed to refresh garden feed:', err);
+          }
+        }
+      }, 150);
+    }
   }
 
   let isComposerOpen = false;
@@ -90,10 +110,38 @@
     openComposer();
   }
 
+  // Check membership status
+  async function checkMembership() {
+    if (!$userPublickey || checkingMembership) return;
+    
+    checkingMembership = true;
+    try {
+      const res = await fetch('/api/membership/check-status', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pubkey: $userPublickey })
+      });
+      
+      if (res.ok) {
+        const data = await res.json();
+        hasActiveMembership = data.isActive === true;
+      }
+    } catch (err) {
+      console.error('Failed to check membership:', err);
+    } finally {
+      checkingMembership = false;
+    }
+  }
+
   onMount(() => {
     const tab = $page.url.searchParams.get('tab');
-    if (tab === 'following' || tab === 'replies' || tab === 'global') {
+    if (tab === 'following' || tab === 'replies' || tab === 'global' || tab === 'members' || tab === 'garden') {
       activeTab = tab;
+    }
+    
+    // Check membership status if user is logged in
+    if ($userPublickey) {
+      checkMembership();
     }
     
     window.addEventListener('quote-note', handleQuoteNote as EventListener);
@@ -411,7 +459,50 @@
       addClientTagToEvent(event);
 
       // Publish with timeout
-      const publishPromise = event.publish();
+      // If in garden or members mode, publish to specific relay only
+      let publishPromise: Promise<boolean>;
+      if (activeTab === 'garden') {
+        // For garden mode, publish ONLY to the garden relay using NDKRelaySet
+        const { NDKRelaySet } = await import('@nostr-dev-kit/ndk');
+        const gardenRelayUrl = 'wss://garden.zap.cooking';
+        
+        // Create a relay set with ONLY the garden relay
+        const gardenRelaySet = NDKRelaySet.fromRelayUrls([gardenRelayUrl], $ndk, true);
+        
+        // Publish to the relay set - this ensures ONLY garden relay receives the event
+        publishPromise = event.publish(gardenRelaySet).then((publishedRelays) => {
+          // Verify garden relay received the event
+          const gardenRelayPublished = Array.from(publishedRelays).some(
+            relay => relay.url === gardenRelayUrl || relay.url === gardenRelayUrl + '/'
+          );
+          if (!gardenRelayPublished) {
+            throw new Error('Failed to publish to garden relay');
+          }
+          return true;
+        });
+      } else if (activeTab === 'members') {
+        // For members mode, publish ONLY to the members relay using NDKRelaySet
+        const { NDKRelaySet } = await import('@nostr-dev-kit/ndk');
+        const membersRelayUrl = 'wss://members.zap.cooking';
+        
+        // Create a relay set with ONLY the members relay
+        const membersRelaySet = NDKRelaySet.fromRelayUrls([membersRelayUrl], $ndk, true);
+        
+        // Publish to the relay set - this ensures ONLY members relay receives the event
+        publishPromise = event.publish(membersRelaySet).then((publishedRelays) => {
+          // Verify members relay received the event
+          const membersRelayPublished = Array.from(publishedRelays).some(
+            relay => relay.url === membersRelayUrl || relay.url === membersRelayUrl + '/'
+          );
+          if (!membersRelayPublished) {
+            throw new Error('Failed to publish to members relay');
+          }
+          return true;
+        });
+      } else {
+        publishPromise = event.publish().then(() => true);
+      }
+      
       const timeoutPromise = new Promise<never>((_, reject) => {
         setTimeout(() => reject(new Error('Publishing timeout - signer may not be responding')), 30000);
       });
@@ -873,6 +964,21 @@
                 </div>
               {/if}
               
+              <!-- Relay indicator for members/garden tabs -->
+              {#if activeTab === 'members'}
+                <div class="mb-2 px-3 py-1.5 rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800">
+                  <p class="text-xs font-medium text-blue-700 dark:text-blue-300">
+                    📡 Posting to: <span class="font-semibold">members.zap.cooking</span>
+                  </p>
+                </div>
+              {:else if activeTab === 'garden'}
+                <div class="mb-2 px-3 py-1.5 rounded-lg bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800">
+                  <p class="text-xs font-medium text-green-700 dark:text-green-300">
+                    🌱 Posting to: <span class="font-semibold">garden.zap.cooking</span>
+                  </p>
+                </div>
+              {/if}
+              
               <div class="flex items-center justify-between pt-2 border-t" style="border-color: var(--color-input-border)">
                 <div class="flex items-center gap-3">
                   <!-- Image upload button -->
@@ -983,6 +1089,31 @@
           <span class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-orange-500 to-amber-500"></span>
         {/if}
       </button>
+
+      <!-- Members tab hidden for now - keeping functionality intact -->
+      <!-- {#if hasActiveMembership}
+        <button
+          on:click={() => setTab('members')}
+          class="px-4 py-2 text-sm font-medium transition-colors relative"
+          style="color: {activeTab === 'members' ? 'var(--color-text-primary)' : 'var(--color-text-secondary)'}"
+        >
+          Members
+          {#if activeTab === 'members'}
+            <span class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-orange-500 to-amber-500"></span>
+          {/if}
+        </button>
+      {/if} -->
+
+      <button
+        on:click={() => setTab('garden')}
+        class="px-4 py-2 text-sm font-medium transition-colors relative"
+        style="color: {activeTab === 'garden' ? 'var(--color-text-primary)' : 'var(--color-text-secondary)'}"
+      >
+        The Garden
+        {#if activeTab === 'garden'}
+          <span class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-orange-500 to-amber-500"></span>
+        {/if}
+      </button>
     </div>
   </div>
 
@@ -994,6 +1125,16 @@
       </p>
     </div>
   {/if}
+  
+  <!-- Members tab and membership prompt hidden for now -->
+  <!-- Show membership prompt for Members tab if not a member -->
+  <!-- {#if activeTab === 'members' && $userPublickey && !hasActiveMembership && !checkingMembership}
+    <div class="mb-4 p-4 bg-accent-gray rounded-lg" style="border: 1px solid var(--color-input-border)">
+      <p class="text-sm" style="color: var(--color-text-primary)">
+        <a href="/membership" class="font-medium underline hover:opacity-80">Become a member</a> to access exclusive content from the private member community.
+      </p>
+    </div>
+  {/if} -->
   
   {#key feedKey}
     <FoodstrFeedOptimized bind:this={feedComponent} filterMode={activeTab} />
