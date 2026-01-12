@@ -242,6 +242,22 @@ import ClientAttribution from './ClientAttribution.svelte';
     garden: ['wss://garden.zap.cooking']          // Garden relay (no trailing slash!)
   };
 
+  /**
+   * Validates that a relay pool exists and has at least one relay configured.
+   * Logs an error to the console if validation fails.
+   * @param poolName - The name of the relay pool to validate (must be a key of RELAY_POOLS).
+   *                   Validation checks both that the pool exists and contains at least one relay URL.
+   * @returns true if the pool exists and is non-empty, false otherwise
+   */
+  function validateRelayPool(poolName: keyof typeof RELAY_POOLS): boolean {
+    const pool = RELAY_POOLS[poolName];
+    if (!pool || pool.length === 0) {
+      console.error(`[Feed] ${poolName} relay pool is not configured or empty`);
+      return false;
+    }
+    return true;
+  }
+
   // ═══════════════════════════════════════════════════════════════
   // STATE
   // ═══════════════════════════════════════════════════════════════
@@ -1154,6 +1170,14 @@ import ClientAttribution from './ClientAttribution.svelte';
           return;
         }
         
+        // Validate members relay pool is configured
+        if (!validateRelayPool('members')) {
+          loading = false;
+          error = true;
+          events = [];
+          return;
+        }
+        
         // Use only members relay (not pro relay) - normalize URL
         const memberRelays: string[] = [normalizeRelayUrl(RELAY_POOLS.members[0])];
         const memberRelayUrl = memberRelays[0];
@@ -1233,6 +1257,13 @@ import ClientAttribution from './ClientAttribution.svelte';
         // Clear any existing events to ensure no contamination from other feeds
         events = [];
         seenEventIds.clear();
+        
+        // Validate garden relay pool is configured
+        if (!validateRelayPool('garden')) {
+          loading = false;
+          error = true;
+          return;
+        }
         
         // Garden relay should be in the default pool
         const gardenRelayUrl = normalizeRelayUrl(RELAY_POOLS.garden[0]);
@@ -1477,6 +1508,11 @@ import ClientAttribution from './ClientAttribution.svelte';
       // Check membership status for real-time subscription
       const membershipStatus = await checkMembershipStatus($userPublickey);
       if (!membershipStatus.hasActiveMembership) return;
+      
+      // Validate members relay pool is configured
+      if (!validateRelayPool('members')) {
+        return;
+      }
       
       // Use only members relay (not pro relay) - normalize URL
       const memberRelays: string[] = [normalizeRelayUrl(RELAY_POOLS.members[0])];
@@ -1769,6 +1805,12 @@ import ClientAttribution from './ClientAttribution.svelte';
         // Check membership status
         const membershipStatus = await checkMembershipStatus($userPublickey);
         if (!membershipStatus.hasActiveMembership) {
+          hasMore = false;
+          return;
+        }
+        
+        // Validate members relay pool is configured
+        if (!validateRelayPool('members')) {
           hasMore = false;
           return;
         }
