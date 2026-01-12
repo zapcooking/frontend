@@ -1526,9 +1526,21 @@ import ClientAttribution from './ClientAttribution.svelte';
       // Garden relay is in default pool - no temporary connections needed
       try {
         const normalizedGardenRelays = RELAY_POOLS.garden.map(normalizeRelayUrl);
+        
+        // Ensure the garden relay is actually connected in the NDK relay pool
+        const connectedRelays = getConnectedRelays().map(normalizeRelayUrl);
+        const activeGardenRelays = normalizedGardenRelays.filter((url) =>
+          connectedRelays.includes(url)
+        );
+        
+        if (activeGardenRelays.length === 0) {
+          console.warn('[Feed] Garden realtime subscription skipped: garden relay not connected. Connected relays:', connectedRelays);
+          return;
+        }
+        
         const { NDKRelaySet } = await import('@nostr-dev-kit/ndk');
         // Use false - garden relay is in default pool, use existing connections
-        const relaySet = NDKRelaySet.fromRelayUrls(normalizedGardenRelays, $ndk, false);
+        const relaySet = NDKRelaySet.fromRelayUrls(activeGardenRelays, $ndk, false);
         
         const sub = $ndk.subscribe(gardenFilter, { 
           closeOnEose: false,
