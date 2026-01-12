@@ -464,6 +464,7 @@ if (browser) {
     setTimeout(() => {
       errorSuppressionActive = false;
       console.error = originalError;
+      console.log = originalLog;
     }, 3000);
   });
 } else {
