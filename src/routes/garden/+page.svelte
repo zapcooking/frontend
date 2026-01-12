@@ -17,6 +17,9 @@
   let memberCount = 0;
   
   const GARDEN_RELAY = 'wss://garden.zap.cooking';
+  
+  // Seth's pubkey - always the root of the invite tree
+  const SETH_PUBKEY = 'a723805cda67251191c8786f4da58f797e6977582301354ba8e91bcb0342dc9c';
 
   // Count total members in tree
   function countMembers(nodes: TreeNodeData[]): number {
@@ -324,25 +327,23 @@
       let treeData = parseListNode(treeContainer);
       console.log('[Garden] Parsed tree data (before post-processing):', JSON.stringify(treeData, null, 2));
       
-      // Post-process: Ensure the logged-in user is marked as root if they exist in the tree
-      const currentUserPubkey = get(userPublickey);
-      console.log('[Garden] Current user pubkey:', currentUserPubkey);
-      
-      if (currentUserPubkey && treeData.length > 0) {
-        // Find the user's node in the tree (could be at any level)
-        function findAndMarkRoot(nodes: TreeNodeData[]): boolean {
+      // Post-process: Always mark Seth as the root
+      if (treeData.length > 0) {
+        const sethPubkeyLower = SETH_PUBKEY.toLowerCase();
+        
+        // Find Seth's node in the tree (could be at any level)
+        function findAndMarkSethAsRoot(nodes: TreeNodeData[]): boolean {
           for (const node of nodes) {
             const nodePubkeyLower = node.pubkey.toLowerCase();
-            const userPubkeyLower = currentUserPubkey.toLowerCase();
             
-            if (nodePubkeyLower === userPubkeyLower) {
-              console.log('[Garden] ✅ Found user in tree! Marking as root:', nodePubkeyLower.substring(0, 16));
+            if (nodePubkeyLower === sethPubkeyLower) {
+              console.log('[Garden] ✅ Found Seth in tree! Marking as root:', nodePubkeyLower.substring(0, 16));
               node.isRoot = true;
               
               // Unmark any other root nodes
               function unmarkOtherRoots(nodes: TreeNodeData[]) {
                 for (const n of nodes) {
-                  if (n.pubkey.toLowerCase() !== userPubkeyLower) {
+                  if (n.pubkey.toLowerCase() !== sethPubkeyLower) {
                     if (n.isRoot) {
                       console.log('[Garden] Unmarking root from:', n.pubkey.substring(0, 16));
                     }
@@ -357,7 +358,7 @@
               return true;
             }
             if (node.children.length > 0) {
-              if (findAndMarkRoot(node.children)) {
+              if (findAndMarkSethAsRoot(node.children)) {
                 return true;
               }
             }
@@ -365,18 +366,12 @@
           return false;
         }
         
-        const userFound = findAndMarkRoot(treeData);
-        if (!userFound) {
-          console.warn('[Garden] ⚠️ Logged-in user not found in tree!');
+        const sethFound = findAndMarkSethAsRoot(treeData);
+        if (!sethFound) {
+          console.warn('[Garden] ⚠️ Seth not found in tree!');
           console.log('[Garden] Available pubkeys in tree:', treeData.map(n => n.pubkey.substring(0, 16)));
         } else {
-          console.log('[Garden] ✅ Successfully marked user as root');
-        }
-      } else {
-        if (!currentUserPubkey) {
-          console.log('[Garden] No user logged in');
-        } else {
-          console.log('[Garden] No tree data to process');
+          console.log('[Garden] ✅ Successfully marked Seth as root');
         }
       }
       
