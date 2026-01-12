@@ -242,6 +242,20 @@ import ClientAttribution from './ClientAttribution.svelte';
     garden: ['wss://garden.zap.cooking']          // Garden relay (no trailing slash!)
   };
 
+  /**
+   * Validates that a relay pool exists and has at least one relay configured
+   * @param poolName - Name of the relay pool to validate
+   * @returns true if pool is valid, false otherwise
+   */
+  function validateRelayPool(poolName: keyof typeof RELAY_POOLS): boolean {
+    const pool = RELAY_POOLS[poolName];
+    if (!pool || pool.length === 0) {
+      console.error(`[Feed] ${poolName} relay pool is not configured or empty`);
+      return false;
+    }
+    return true;
+  }
+
   // ═══════════════════════════════════════════════════════════════
   // STATE
   // ═══════════════════════════════════════════════════════════════
@@ -1155,11 +1169,10 @@ import ClientAttribution from './ClientAttribution.svelte';
         }
         
         // Validate members relay pool is configured
-        if (!RELAY_POOLS.members || RELAY_POOLS.members.length === 0) {
+        if (!validateRelayPool('members')) {
           loading = false;
           error = true;
           events = [];
-          console.error('[Feed] Members relay pool is not configured or empty');
           return;
         }
         
@@ -1244,10 +1257,9 @@ import ClientAttribution from './ClientAttribution.svelte';
         seenEventIds.clear();
         
         // Validate garden relay pool is configured
-        if (!RELAY_POOLS.garden || RELAY_POOLS.garden.length === 0) {
+        if (!validateRelayPool('garden')) {
           loading = false;
           error = true;
-          console.error('[Feed] Garden relay pool is not configured or empty');
           return;
         }
         
@@ -1496,8 +1508,7 @@ import ClientAttribution from './ClientAttribution.svelte';
       if (!membershipStatus.hasActiveMembership) return;
       
       // Validate members relay pool is configured
-      if (!RELAY_POOLS.members || RELAY_POOLS.members.length === 0) {
-        console.error('[Feed] Members relay pool is not configured or empty');
+      if (!validateRelayPool('members')) {
         return;
       }
       
@@ -1797,8 +1808,7 @@ import ClientAttribution from './ClientAttribution.svelte';
         }
         
         // Validate members relay pool is configured
-        if (!RELAY_POOLS.members || RELAY_POOLS.members.length === 0) {
-          console.error('[Feed] Members relay pool is not configured or empty');
+        if (!validateRelayPool('members')) {
           hasMore = false;
           return;
         }
