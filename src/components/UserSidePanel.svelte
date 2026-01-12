@@ -12,6 +12,7 @@
   import ShoppingCartIcon from 'phosphor-svelte/lib/ShoppingCart';
   import FloppyDiskIcon from 'phosphor-svelte/lib/FloppyDisk';
   import WalletIcon from 'phosphor-svelte/lib/Wallet';
+  import PlantIcon from 'phosphor-svelte/lib/Plant';
   import SunIcon from 'phosphor-svelte/lib/Sun';
   import MoonIcon from 'phosphor-svelte/lib/Moon';
   import GearIcon from 'phosphor-svelte/lib/Gear';
@@ -224,6 +225,16 @@
             >
               <WalletIcon size={22} />
               <span class="font-medium">Wallet</span>
+            </button>
+          </li>
+          <li>
+            <button
+              on:click={() => navigate('/garden')}
+              class="w-full flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-opacity-50 transition-colors cursor-pointer"
+              style="color: var(--color-text-primary);"
+            >
+              <PlantIcon size={22} />
+              <span class="font-medium">The Garden</span>
             </button>
           </li>
         </ul>

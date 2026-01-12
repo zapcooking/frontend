@@ -4,10 +4,11 @@
   import CompassIcon from 'phosphor-svelte/lib/Compass';
   import ShoppingBagIcon from 'phosphor-svelte/lib/ShoppingBag';
   import LightningIcon from 'phosphor-svelte/lib/Lightning';
+  import PlantIcon from 'phosphor-svelte/lib/Plant';
 </script>
 
 <nav
-  class="lg:hidden pt-2 bg-input w-full fixed bottom-0 left-0 grid grid-cols-4 grid-rows-1 text-center print:hidden bottom-nav-safe"
+  class="lg:hidden pt-2 bg-input w-full fixed bottom-0 left-0 grid grid-cols-5 grid-rows-1 text-center print:hidden bottom-nav-safe"
   style="color: var(--color-text-primary); border-top: 1px solid var(--color-input-border);"
 >
   <a href="/recent" class="flex flex-col hover:text-primary">
@@ -21,6 +22,10 @@
   <a href="/explore" class="flex flex-col hover:text-primary">
     <CompassIcon class="self-center" size={24} />
     Explore
+  </a>
+  <a href="/garden" class="flex flex-col hover:text-primary">
+    <PlantIcon class="self-center" size={24} />
+    Garden
   </a>
   <a href="/wallet" class="flex flex-col hover:text-primary">
     <LightningIcon class="self-center" size={24} />
