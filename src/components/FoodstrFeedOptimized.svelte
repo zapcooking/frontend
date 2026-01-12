@@ -1761,8 +1761,8 @@ import ClientAttribution from './ClientAttribution.svelte';
           return;
         }
         
-        // Use only members relay (not pro relay)
-        const memberRelays: string[] = [RELAY_POOLS.members[0]]; // Only members.zap.cooking
+        // Use only members relay (not pro relay) - normalize URL for consistency
+        const memberRelays: string[] = [normalizeRelayUrl(RELAY_POOLS.members[0])]; // Only members.zap.cooking
         
         // Fetch older events from member relay (all content, not just food-tagged)
         const memberFilter: any = {
