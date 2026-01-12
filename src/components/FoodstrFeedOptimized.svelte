@@ -45,12 +45,19 @@ import ClientAttribution from './ClientAttribution.svelte';
 
   // Membership checking for member feed
   async function checkMembershipStatus(pubkey: string): Promise<{ hasActiveMembership: boolean; tier?: string }> {
+    // Create AbortController with 5 second timeout
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    
     try {
       const res = await fetch('/api/membership/check-status', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pubkey })
+        body: JSON.stringify({ pubkey }),
+        signal: controller.signal
       });
+      
+      clearTimeout(timeoutId);
       
       if (!res.ok) {
         return { hasActiveMembership: false };
@@ -61,7 +68,12 @@ import ClientAttribution from './ClientAttribution.svelte';
         hasActiveMembership: data.isActive === true,
         tier: data.member?.tier
       };
-    } catch {
+    } catch (err) {
+      clearTimeout(timeoutId);
+      // Log timeout errors for debugging
+      if (err instanceof Error && err.name === 'AbortError') {
+        console.warn('[Feed] Membership check timed out after 5 seconds');
+      }
       return { hasActiveMembership: false };
     }
   }
