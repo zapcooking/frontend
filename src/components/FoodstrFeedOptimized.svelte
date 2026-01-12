@@ -1,10 +1,11 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import { get } from 'svelte/store';
-  import { ndk, userPublickey } from '$lib/nostr';
+  import { ndk, userPublickey, ensureNdkConnected, normalizeRelayUrl, getConnectedRelays, getCurrentRelayGeneration, onRelaySwitchStopSubscriptions } from '$lib/nostr';
   import { formatDistanceToNow } from 'date-fns';
   import CustomAvatar from './CustomAvatar.svelte';
   import type { NDKEvent, NDKSubscription } from '@nostr-dev-kit/ndk';
+  import { NDKSubscriptionCacheUsage } from '@nostr-dev-kit/ndk';
   import NoteTotalLikes from './NoteTotalLikes.svelte';
   import NoteReactionPills from './NoteReactionPills.svelte';
   import NoteTotalComments from './NoteTotalComments.svelte';
@@ -42,6 +43,29 @@ import ClientAttribution from './ClientAttribution.svelte';
   // Batched engagement fetching for reactions/subscriptions
   import { batchFetchEngagement, getEngagementStore } from '$lib/engagementCache';
 
+  // Membership checking for member feed
+  async function checkMembershipStatus(pubkey: string): Promise<{ hasActiveMembership: boolean; tier?: string }> {
+    try {
+      const res = await fetch('/api/membership/check-status', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pubkey })
+      });
+      
+      if (!res.ok) {
+        return { hasActiveMembership: false };
+      }
+      
+      const data = await res.json();
+      return {
+        hasActiveMembership: data.isActive === true,
+        tier: data.member?.tier
+      };
+    } catch {
+      return { hasActiveMembership: false };
+    }
+  }
+
   // ═══════════════════════════════════════════════════════════════
   // PROPS
   // ═══════════════════════════════════════════════════════════════
@@ -49,7 +73,7 @@ import ClientAttribution from './ClientAttribution.svelte';
   export let authorPubkey: string | undefined = undefined;
   export let hideAvatar: boolean = false;
   export let hideAuthorName: boolean = false;
-  export let filterMode: 'global' | 'following' | 'replies' = 'global';
+  export let filterMode: 'global' | 'following' | 'replies' | 'members' | 'garden' = 'global';
 
   // Exposed refresh function for pull-to-refresh
   export async function refresh(): Promise<void> {
@@ -201,16 +225,21 @@ import ClientAttribution from './ClientAttribution.svelte';
   const CACHE_KEY = 'foodstr_feed_cache';
   const BATCH_DEBOUNCE_MS = 300;
   const SUBSCRIPTION_TIMEOUT_MS = 4000;
+  const PRIVATE_RELAY_TIMEOUT_MS = 15000; // Longer timeout for garden/members relays (15 seconds)
   const ONE_DAY_SECONDS = 24 * 60 * 60;
   const SEVEN_DAYS_SECONDS = 7 * 24 * 60 * 60;
 
   // Relay pools by purpose - optimized based on speed test results
   // Speed test: nostr.wine (305ms) > nos.lol (342ms) > purplepag.es (356ms) > relay.damus.io (394ms) > kitchen.zap.cooking (510ms) > relay.nostr.band (514ms)
+  // NOTE: All URLs are normalized (no trailing slashes) to prevent duplicate connections
   const RELAY_POOLS = {
     recipes: ['wss://kitchen.zap.cooking'],      // Curated recipe content (510ms, but worth it for relevance)
     fallback: ['wss://nos.lol', 'wss://relay.damus.io'],  // Fast general relays (nos.lol 342ms, relay.damus.io 394ms)
     discovery: ['wss://nostr.wine', 'wss://relay.primal.net', 'wss://purplepag.es'],  // Additional relays for discovery
-    profiles: ['wss://purplepag.es']             // Profile metadata (356ms, specialized for kind:0)
+    profiles: ['wss://purplepag.es'],             // Profile metadata (356ms, specialized for kind:0)
+    members: ['wss://members.zap.cooking'],      // Private member relay
+    pro: ['wss://pro.zap.cooking'],               // Pro member relay
+    garden: ['wss://garden.zap.cooking']          // Garden relay (no trailing slash!)
   };
 
   // ═══════════════════════════════════════════════════════════════
@@ -231,7 +260,7 @@ import ClientAttribution from './ClientAttribution.svelte';
   let lastEventTime: number = 0;
   
   // Track filter mode for reactive updates
-  let lastFilterMode: 'global' | 'following' | 'replies' = 'global';
+  let lastFilterMode: 'global' | 'following' | 'replies' | 'members' | 'garden' = 'global';
   
   // Followed pubkeys for real-time subscriptions (populated by outbox module)
   let followedPubkeysForRealtime: string[] = [];
@@ -643,24 +672,44 @@ import ClientAttribution from './ClientAttribution.svelte';
   // RELAY FETCHING
   // ═══════════════════════════════════════════════════════════════
 
+  /**
+   * Fetch events from relays.
+   * 
+   * @param filter - NDK filter for the query
+   * @param relayUrls - Relay URLs to fetch from
+   * @param timeoutMs - Timeout in milliseconds
+   * @param skipCache - Skip NDK cache (important for garden/members feeds)
+   * @param useTemporaryRelaySet - If true, creates temporary relay connections (use for private/discovery relays not in default pool)
+   */
   async function fetchFromRelays(
     filter: any, 
     relayUrls: string[], 
-    timeoutMs: number = SUBSCRIPTION_TIMEOUT_MS
+    timeoutMs: number = SUBSCRIPTION_TIMEOUT_MS,
+    skipCache: boolean = false,
+    useTemporaryRelaySet: boolean = false
   ): Promise<NDKEvent[]> {
     try {
-      // Use fetchEvents with relay set for targeted querying
-      // This ensures we query the specific relays the user posted to
-      // Note: WebSocket connection errors from NDK are expected when relays are down
-      // and are handled gracefully by the connection manager's circuit breaker
-      const { NDKRelaySet } = await import('@nostr-dev-kit/ndk');
-      const relaySet = NDKRelaySet.fromRelayUrls(relayUrls, $ndk, true);
+      // Ensure NDK is connected before fetching
+      await ensureNdkConnected();
       
       const timeoutPromise = new Promise<NDKEvent[]>((_, reject) => 
         setTimeout(() => reject(new Error('Timeout')), timeoutMs)
       );
       
-      const eventsPromise = $ndk.fetchEvents(filter, undefined, relaySet);
+      // Build fetch options - skip cache if requested (important for garden/members feeds)
+      const fetchOpts = skipCache 
+        ? { cacheUsage: NDKSubscriptionCacheUsage.ONLY_RELAY }
+        : undefined;
+      
+      const { NDKRelaySet } = await import('@nostr-dev-kit/ndk');
+      const normalizedUrls = relayUrls.map(normalizeRelayUrl);
+      
+      // Create relay set - third parameter controls temporary connections:
+      // true = create temporary connections if relay not in pool (for private/discovery relays)
+      // false = only use relays already connected in pool (no WebSocket errors)
+      const relaySet = NDKRelaySet.fromRelayUrls(normalizedUrls, $ndk, useTemporaryRelaySet);
+      
+      const eventsPromise = $ndk.fetchEvents(filter, fetchOpts, relaySet);
       
       // Race between fetchEvents and timeout
       const events = await Promise.race([eventsPromise, timeoutPromise]);
@@ -676,8 +725,10 @@ import ClientAttribution from './ClientAttribution.svelte';
         const seenIds = new Set<string>();
         let resolved = false;
         
+        // Skip cache in fallback subscription too if requested
         const sub = $ndk.subscribe(filter, { 
-          closeOnEose: true
+          closeOnEose: true,
+          ...(skipCache && { cacheUsage: NDKSubscriptionCacheUsage.ONLY_RELAY })
         });
         
         sub.on('event', (event: NDKEvent) => {
@@ -707,6 +758,7 @@ import ClientAttribution from './ClientAttribution.svelte';
   }
 
   // Fetch recent notes and filter client-side for notes without hashtags
+  // This is a discovery function that benefits from temporary relay connections
   async function fetchNotesWithoutHashtags(sinceTimestamp: number): Promise<NDKEvent[]> {
     
     const filter = {
@@ -716,13 +768,17 @@ import ClientAttribution from './ClientAttribution.svelte';
     };
     
     try {
+      // Ensure NDK is connected before fetching
+      await ensureNdkConnected();
+      
       const { NDKRelaySet } = await import('@nostr-dev-kit/ndk');
       // Query from multiple relay pools in parallel for maximum discovery
-      const allRelays = [...RELAY_POOLS.fallback, ...RELAY_POOLS.discovery];
+      // Use temporary relay set for discovery (this is the only place we need it)
+      const allRelays = [...RELAY_POOLS.fallback, ...RELAY_POOLS.discovery].map(normalizeRelayUrl);
       const relaySet = NDKRelaySet.fromRelayUrls(
         allRelays, 
         $ndk, 
-        true
+        true  // Create temporary connections for discovery
       );
       
       const timeoutPromise = new Promise<NDKEvent[]>((_, reject) => 
@@ -778,8 +834,40 @@ import ClientAttribution from './ClientAttribution.svelte';
   // MAIN LOAD FUNCTION
   // ═══════════════════════════════════════════════════════════════
 
+  // Track if a load is in progress to prevent race conditions
+  let loadInProgress = false;
+  
+  /**
+   * Check if results are stale (relay generation changed during async operation).
+   * If stale, results should be discarded to avoid mixing data from different relay sets.
+   */
+  function isStaleResult(capturedGeneration: number): boolean {
+    const currentGen = getCurrentRelayGeneration();
+    if (currentGen !== capturedGeneration) {
+      console.log(`[Feed] Stale result detected: captured gen=${capturedGeneration}, current gen=${currentGen}`);
+      return true;
+    }
+    return false;
+  }
+  
   async function loadFoodstrFeed(useCache = true) {
+    // Capture relay generation at start - used to detect stale results
+    const loadGeneration = getCurrentRelayGeneration();
+    
+    // Prevent concurrent loads that can cause race conditions with seenEventIds
+    if (loadInProgress) {
+      console.log('[Feed] Load already in progress, skipping duplicate call');
+      return;
+    }
+    loadInProgress = true;
+    
     try {
+      // For garden/members mode, never use cache to ensure only target relay content
+      if (filterMode === 'garden' || filterMode === 'members') {
+        useCache = false;
+        console.log(`[Feed] ${filterMode} mode: Cache disabled to ensure only ${filterMode} relay content`);
+      }
+      
       // Step 1: Try IndexedDB cache rehydration for instant paint
       if (useCache) {
         const eventStore = getEventStore();
@@ -801,6 +889,12 @@ import ClientAttribution from './ClientAttribution.svelte';
         }
         
         const cachedEvents = await eventStore.loadEvents(cacheFilter);
+        
+        // Check for stale results after async operation
+        if (isStaleResult(loadGeneration)) {
+          console.log('[Feed] Discarding stale cache results');
+          return;
+        }
         
         if (cachedEvents.length > 0) {
           // Filter cached events the same way we filter fresh events
@@ -831,8 +925,19 @@ import ClientAttribution from './ClientAttribution.svelte';
         }
       }
       
-      // Fallback: Try compressed cache (legacy)
-      if (useCache && await loadCachedEvents()) {
+      // Check for stale results before proceeding
+      if (isStaleResult(loadGeneration)) {
+        console.log('[Feed] Discarding stale results (before relay fetch)');
+        return;
+      }
+      
+      // Fallback: Try compressed cache (legacy) - skip for garden/members mode
+      if (useCache && filterMode !== 'garden' && filterMode !== 'members' && await loadCachedEvents()) {
+        // Check for stale results after async operation
+        if (isStaleResult(loadGeneration)) {
+          console.log('[Feed] Discarding stale compressed cache results');
+          return;
+        }
         loading = false;
         error = false;
         setTimeout(() => fetchFreshData(), 100);
@@ -846,10 +951,13 @@ import ClientAttribution from './ClientAttribution.svelte';
       
       if (!$ndk) throw new Error('NDK not initialized');
       
-      try {
-        await $ndk.connect();
-      } catch {
-        // Connection warning - continue anyway
+      // Wait for NDK to be connected (don't call connect() directly - it causes WebSocket errors)
+      await ensureNdkConnected();
+      
+      // Check for stale results after waiting for connection
+      if (isStaleResult(loadGeneration)) {
+        console.log('[Feed] Discarding stale results (after connection wait)');
+        return;
       }
 
       const timeWindow = calculateTimeWindow('initial');
@@ -920,6 +1028,12 @@ import ClientAttribution from './ClientAttribution.svelte';
           content: e.content?.slice(0, 100),
           tags: e.tags.filter(t => t[0] === 't').map(t => t[1])
         })));
+        
+        // Check for stale results before applying events
+        if (isStaleResult(loadGeneration)) {
+          console.log('[Feed] Discarding stale following results');
+          return;
+        }
         
         events = dedupeAndSort(validEvents);
         loading = false;
@@ -1021,6 +1135,173 @@ import ClientAttribution from './ClientAttribution.svelte';
         return;
       }
       
+      if (filterMode === 'members') {
+        // Members feed: show content from private member relays
+        if (!$userPublickey) {
+          loading = false;
+          error = false;
+          events = [];
+          return;
+        }
+        
+        // Check if user has active membership
+        const membershipStatus = await checkMembershipStatus($userPublickey);
+        if (!membershipStatus.hasActiveMembership) {
+          loading = false;
+          error = false;
+          events = [];
+          console.warn('[Feed] User does not have active membership');
+          return;
+        }
+        
+        // Use only members relay (not pro relay) - normalize URL
+        const memberRelays: string[] = [normalizeRelayUrl(RELAY_POOLS.members[0])];
+        const memberRelayUrl = memberRelays[0];
+        
+        // Ensure NDK is connected first
+        await ensureNdkConnected();
+        console.log('[Feed] Fetching member feed from relay:', memberRelayUrl);
+        
+        // Fetch from member relay - show ALL content (not just food-tagged)
+        // Members feed should show everything from the members relay
+        // NOTE: Members relay is private, so we use temporary relay set
+        const memberFilter: any = {
+          kinds: [1],
+          since: timeWindow.since,
+          limit: 50
+        };
+        
+        // CRITICAL: Skip NDK cache to prevent events from other relays leaking in
+        // Use longer timeout for private relays which may be slower to connect
+        // Use temporary relay set since members relay may not be in default pool
+        const memberEvents = await fetchFromRelays(memberFilter, memberRelays, PRIVATE_RELAY_TIMEOUT_MS, true, true);
+        
+        console.log(`[Feed] Member feed: ${memberEvents.length} events`);
+        
+        // Filter events for members feed
+        // Note: Members feed shows ALL content from members relay (not just food-related)
+        const validMemberEvents = memberEvents.filter((event) => {
+          // Exclude replies - only show top-level notes in Members feed
+          if (isReply(event)) {
+            console.log('[Feed] Members: Filtered out reply event:', event.id);
+            return false;
+          }
+          
+          // Check muted users
+          if ($userPublickey) {
+            const mutedUsers = getMutedUsers();
+            const authorKey = event.author?.hexpubkey || event.pubkey;
+            if (authorKey && mutedUsers.includes(authorKey)) {
+              console.log('[Feed] Members: Filtered out muted user event:', event.id);
+              return false;
+            }
+          }
+          
+          // For members feed, show ALL content (don't apply food filter)
+          // The relay filter already ensures we only get members relay content
+          return true;
+        });
+        
+        console.log(`[Feed] Members feed: ${validMemberEvents.length} valid events after filtering (from ${memberEvents.length} total)`);
+        
+        // Check for stale results before applying events
+        if (isStaleResult(loadGeneration)) {
+          console.log('[Feed] Discarding stale members results');
+          return;
+        }
+        
+        events = dedupeAndSort(validMemberEvents);
+        loading = false;
+        error = false;
+        
+        if (events.length > 0) {
+          lastEventTime = Math.max(...events.map(e => e.created_at || 0));
+          await cacheEvents();
+        }
+        
+        try {
+          startRealtimeSubscription();
+        } catch {
+          // Subscription setup failed - non-critical, events already loaded
+        }
+        return;
+      }
+      
+      if (filterMode === 'garden') {
+        // Garden feed: show content from garden relay ONLY
+        // IMPORTANT: This must only fetch from garden.zap.cooking, no other relays
+        // Clear any existing events to ensure no contamination from other feeds
+        events = [];
+        seenEventIds.clear();
+        
+        // Garden relay should be in the default pool
+        const gardenRelayUrl = normalizeRelayUrl(RELAY_POOLS.garden[0]);
+        console.log('[Feed] Using garden relay:', gardenRelayUrl);
+        
+        await ensureNdkConnected();
+        
+        // Check if garden relay is actually connected
+        const connectedRelays = getConnectedRelays();
+        const isGardenConnected = connectedRelays.some(r => 
+          normalizeRelayUrl(r) === gardenRelayUrl
+        );
+        
+        if (!isGardenConnected) {
+          console.warn(`[Feed] Garden relay not connected. Connected relays:`, connectedRelays);
+          // Garden relay isn't connected - show message to user
+          loading = false;
+          error = false;
+          events = [];
+          return;
+        }
+        
+        console.log('[Feed] Garden relay is connected, fetching...');
+        
+        // Fetch from garden relay - show ALL content (not just food-tagged)
+        // Garden feed should show everything from the garden relay
+        // Use 7-day window for garden (it has less content than main relays)
+        const now = Math.floor(Date.now() / 1000);
+        const gardenFilter: any = {
+          kinds: [1],
+          since: now - SEVEN_DAYS_SECONDS,  // 7 days for garden relay
+          limit: 100  // Higher limit for 7-day window
+        };
+
+        // CRITICAL: Skip NDK cache to prevent events from other relays leaking in
+        // Garden relay is in default pool, so no temporary connections needed
+        const gardenEvents = await fetchFromRelays(gardenFilter, RELAY_POOLS.garden, PRIVATE_RELAY_TIMEOUT_MS, true, false);
+        
+        console.log(`[Feed] Garden feed: ${gardenEvents.length} events from garden relay`);
+        
+        // Check for stale results before applying events
+        if (isStaleResult(loadGeneration)) {
+          console.log('[Feed] Discarding stale garden results');
+          return;
+        }
+        
+        // NO FILTERING for garden feed - show ALL content as-is
+        // The garden relay is curated, so we trust all content from it
+        events = dedupeAndSort(gardenEvents);
+        console.log(`[Feed] Garden: Final events array length: ${events.length}`);
+        loading = false;
+        error = false;
+        
+        if (events.length > 0) {
+          lastEventTime = Math.max(...events.map(e => e.created_at || 0));
+          await cacheEvents();
+          console.log(`[Feed] Garden: Events cached, ready to display`);
+        } else {
+          console.warn(`[Feed] Garden: No events fetched from relay (relay may be empty)`);
+        }
+        
+        try {
+          startRealtimeSubscription();
+        } catch {
+          // Subscription setup failed - non-critical, events already loaded
+        }
+        return;
+      }
+      
       // Global mode (default) - existing logic
       // Build filters
       const hashtagFilter: any = {
@@ -1101,6 +1382,13 @@ import ClientAttribution from './ClientAttribution.svelte';
         
         return true;
       });
+      
+      // Check for stale results before applying events
+      if (isStaleResult(loadGeneration)) {
+        console.log('[Feed] Discarding stale global results');
+        return;
+      }
+      
       events = dedupeAndSort(validEvents);
       
       // Always set loading to false, even if no events
@@ -1127,6 +1415,8 @@ import ClientAttribution from './ClientAttribution.svelte';
       loading = false;
       error = true;
       events = [];
+    } finally {
+      loadInProgress = false;
     }
   }
 
@@ -1181,6 +1471,95 @@ import ClientAttribution from './ClientAttribution.svelte';
       return;
     }
     
+    if (filterMode === 'members') {
+      if (!$userPublickey) return;
+      
+      // Check membership status for real-time subscription
+      const membershipStatus = await checkMembershipStatus($userPublickey);
+      if (!membershipStatus.hasActiveMembership) return;
+      
+      // Use only members relay (not pro relay) - normalize URL
+      const memberRelays: string[] = [normalizeRelayUrl(RELAY_POOLS.members[0])];
+      
+      // Subscribe to member relay - show ALL content (not just food-tagged)
+      const memberFilter: any = {
+        kinds: [1],
+        since
+      };
+      
+      // Create subscription to member relays using NDKRelaySet
+      // IMPORTANT: Skip NDK cache entirely to prevent events from other relays leaking in
+      // NOTE: Members relay requires temporary connection since it's a private relay
+      try {
+        const { NDKRelaySet } = await import('@nostr-dev-kit/ndk');
+        const relaySet = NDKRelaySet.fromRelayUrls(memberRelays, $ndk, true);
+        
+        const sub = $ndk.subscribe(memberFilter, { 
+          closeOnEose: false,
+          cacheUsage: NDKSubscriptionCacheUsage.ONLY_RELAY 
+        }, relaySet);
+        
+        sub.on('event', (event: NDKEvent) => {
+          // Exclude replies
+          if (isReply(event)) return;
+          
+          // For members feed, show ALL content (no food filter)
+          handleRealtimeEvent(event);
+        });
+        
+        activeSubscriptions.push(sub);
+      } catch (err) {
+        console.warn(`[Feed] Failed to subscribe to member relays:`, err);
+      }
+      
+      return;
+    }
+    
+    if (filterMode === 'garden') {
+      // Subscribe to garden relay - show ALL content (not just food-tagged)
+      const gardenFilter: any = {
+        kinds: [1],
+        since
+      };
+      
+      // IMPORTANT: Skip NDK cache entirely to prevent events from other relays leaking in
+      // Garden relay is in default pool - no temporary connections needed
+      try {
+        const normalizedGardenRelays = RELAY_POOLS.garden.map(normalizeRelayUrl);
+        
+        // Ensure the garden relay is actually connected in the NDK relay pool
+        const connectedRelays = getConnectedRelays().map(normalizeRelayUrl);
+        const activeGardenRelays = normalizedGardenRelays.filter((url) =>
+          connectedRelays.includes(url)
+        );
+        
+        if (activeGardenRelays.length === 0) {
+          console.warn('[Feed] Garden realtime subscription skipped: garden relay not connected. Connected relays:', connectedRelays);
+          return;
+        }
+        
+        const { NDKRelaySet } = await import('@nostr-dev-kit/ndk');
+        // Use false - garden relay is in default pool, use existing connections
+        const relaySet = NDKRelaySet.fromRelayUrls(activeGardenRelays, $ndk, false);
+        
+        const sub = $ndk.subscribe(gardenFilter, { 
+          closeOnEose: false,
+          cacheUsage: NDKSubscriptionCacheUsage.ONLY_RELAY 
+        }, relaySet);
+        
+        sub.on('event', (event: NDKEvent) => {
+          // NO FILTERING for garden feed - show ALL content as-is
+          handleRealtimeEvent(event);
+        });
+        
+        activeSubscriptions.push(sub);
+      } catch (err) {
+        console.warn(`[Feed] Failed to subscribe to garden relay:`, err);
+      }
+      
+      return;
+    }
+    
     // Global mode - default subscription
     // Single subscription for hashtag-tagged content
     const hashtagFilter: any = {
@@ -1220,8 +1599,10 @@ import ClientAttribution from './ClientAttribution.svelte';
     // Skip if already seen
     if (seenEventIds.has(event.id)) return;
     
-    // Validate content
-    if (!shouldIncludeEvent(event)) return;
+    // Validate content - skip food filter for garden/members feeds
+    if (filterMode !== 'garden' && filterMode !== 'members') {
+      if (!shouldIncludeEvent(event)) return;
+    }
     
     // Mark as seen and queue for batch processing
     seenEventIds.add(event.id);
@@ -1379,6 +1760,46 @@ import ClientAttribution from './ClientAttribution.svelte';
         });
         
         olderEvents = result.events;
+      } else if (filterMode === 'members') {
+        if (!$userPublickey) {
+          hasMore = false;
+          return;
+        }
+        
+        // Check membership status
+        const membershipStatus = await checkMembershipStatus($userPublickey);
+        if (!membershipStatus.hasActiveMembership) {
+          hasMore = false;
+          return;
+        }
+        
+        // Use only members relay (not pro relay) - normalize URL for consistency
+        const memberRelays: string[] = [normalizeRelayUrl(RELAY_POOLS.members[0])]; // Only members.zap.cooking
+        
+        // Fetch older events from member relay (all content, not just food-tagged)
+        const memberFilter: any = {
+          kinds: [1],
+          since: paginationWindow.since,
+          until: paginationWindow.until,
+          limit: 20
+        };
+        
+        // CRITICAL: Skip NDK cache to prevent events from other relays leaking in
+        // Use longer timeout for private relays
+        // Use temporary relay set since members relay may not be in default pool
+        olderEvents = await fetchFromRelays(memberFilter, memberRelays, PRIVATE_RELAY_TIMEOUT_MS, true, true);
+      } else if (filterMode === 'garden') {
+        // Garden mode - fetch from garden relay only (all content, not just food-tagged)
+        const gardenFilter: any = {
+          kinds: [1],
+          since: paginationWindow.since,
+          until: paginationWindow.until,
+          limit: 20
+        };
+
+        // CRITICAL: Skip NDK cache to prevent events from other relays leaking in
+        // Garden relay is in default pool - no temporary connections needed
+        olderEvents = await fetchFromRelays(gardenFilter, RELAY_POOLS.garden, PRIVATE_RELAY_TIMEOUT_MS, true, false);
       } else {
         // Global mode - use hashtag filter with timeboxing
         const filter: any = {
@@ -1405,7 +1826,12 @@ import ClientAttribution from './ClientAttribution.svelte';
       const validOlder = olderEvents.filter(e => {
         if (seenEventIds.has(e.id)) return false;
         
-        // Check muted users
+        // Garden mode: NO FILTERING - show ALL content from garden relay
+        if (filterMode === 'garden') {
+          return true;
+        }
+        
+        // Check muted users (not for garden)
         if ($userPublickey) {
           const mutedUsers = getMutedUsers();
           const authorKey = e.author?.hexpubkey || e.pubkey;
@@ -1417,11 +1843,15 @@ import ClientAttribution from './ClientAttribution.svelte';
           return false; // Following mode: exclude replies
         }
         
+        if (filterMode === 'members' && isReply(e)) {
+          return false; // Members mode: exclude replies
+        }
+        
         if (!authorPubkey && filterMode === 'global' && isReply(e)) {
           return false; // Global mode: exclude replies
         }
         
-        // Apply food filter based on context
+        // Apply food filter based on context (not for garden)
         if (authorPubkey) {
           // Profile view: respect the toggle
           if (foodFilterEnabled && !shouldIncludeEvent(e)) return false;
@@ -1835,11 +2265,77 @@ import ClientAttribution from './ClientAttribution.svelte';
   // LIFECYCLE
   // ═══════════════════════════════════════════════════════════════
 
+  // Reactive statement: Handle filter mode changes
+  // Especially important for garden mode to ensure only garden relay content
+  $: if (typeof window !== 'undefined' && filterMode !== lastFilterMode) {
+    const previousMode = lastFilterMode;
+    lastFilterMode = filterMode;
+    
+    // If switching to garden or members mode, force a complete refresh to ensure only target relay content
+    if (filterMode === 'garden' || filterMode === 'members') {
+      // Clear all existing state to prevent showing content from other relays
+      seenEventIds.clear();
+      events = []; // Clear events immediately
+      visibleNotes = new Set();
+      followedPubkeysForRealtime = [];
+      
+      // Stop all subscriptions immediately
+      stopSubscriptions();
+      
+      // Force reload without cache to ensure fresh data from target relay only
+      loadFoodstrFeed(false).catch((err) => {
+        console.error(`[Feed] Failed to load ${filterMode} feed:`, err);
+        error = true;
+        loading = false;
+      });
+    } else if (previousMode === 'garden' || previousMode === 'members') {
+      // When leaving garden mode, clear state to prevent garden content showing in other feeds
+      seenEventIds.clear();
+      events = [];
+      visibleNotes = new Set();
+      
+      // Stop subscriptions and reload
+      stopSubscriptions();
+      loadFoodstrFeed(false).catch((err) => {
+        console.error('[Feed] Failed to load feed after garden mode:', err);
+        error = true;
+        loading = false;
+      });
+    }
+  }
+
+  // Unregister function for relay switch callback
+  let unregisterRelaySwitchCallback: (() => void) | null = null;
+  
   onMount(async () => {
     lastFilterMode = filterMode;
     
+    // Register callback to stop subscriptions when relays are switched
+    // This prevents stale subscriptions from the old relay set
+    unregisterRelaySwitchCallback = onRelaySwitchStopSubscriptions(() => {
+      console.log('[Feed] Relay switch detected - stopping subscriptions');
+      stopSubscriptions();
+      // Clear events to prevent showing stale data during switch
+      events = [];
+      seenEventIds.clear();
+      loading = true;
+    });
+    
+    // For garden/members mode, clear events immediately to prevent showing cached content
+    // NOTE: Don't call loadFoodstrFeed here - the reactive statement above handles it
+    // to avoid race conditions where both run concurrently
+    if (filterMode === 'garden' || filterMode === 'members') {
+      events = [];
+      seenEventIds.clear();
+      visibleNotes = new Set();
+      // The reactive statement will detect filterMode !== lastFilterMode and load the feed
+      // Don't double-load here to avoid race condition with seenEventIds
+      return;
+    }
+    
     // Prewarm outbox cache in background (non-blocking)
     // This fetches relay configs for all follows, making subsequent loads faster
+    // Note: garden/members mode already returned early above, so no need to check here
     if ($userPublickey) {
       prewarmOutboxCache($ndk, $userPublickey).catch(() => {
         // Ignore prewarm errors - it's just an optimization
@@ -1855,6 +2351,12 @@ import ClientAttribution from './ClientAttribution.svelte';
   });
 
   onDestroy(async () => {
+    // Unregister relay switch callback
+    if (unregisterRelaySwitchCallback) {
+      unregisterRelaySwitchCallback();
+      unregisterRelaySwitchCallback = null;
+    }
+    
     if (engagementBatchTimeout) {
       clearTimeout(engagementBatchTimeout);
     }
@@ -1938,15 +2440,8 @@ import ClientAttribution from './ClientAttribution.svelte';
   }
   
   // Reactive statement to handle filter mode changes
-  $: if (typeof window !== 'undefined' && filterMode !== lastFilterMode && !loading) {
-    lastFilterMode = filterMode;
-    seenEventIds.clear();
-    events = [];
-    followedPubkeysForRealtime = []; // Reset for new subscription
-    visibleNotes = new Set(); // Reset lazy loading state
-    lastBatchedIds.clear(); // Reset batching state
-    loadFoodstrFeed(false);
-  }
+  // Note: Filter mode changes are handled by the reactive statement above (around line 2257)
+  // This ensures garden mode properly refreshes and only shows garden relay content
 </script>
 
 <FeedErrorBoundary>

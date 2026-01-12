@@ -1,0 +1,76 @@
+/**
+ * Built-in relay sets for different use cases.
+ * These are SSR-safe - no browser APIs used.
+ */
+
+export interface RelaySet {
+  id: string;
+  name: string;
+  description: string;
+  relays: string[];
+}
+
+/**
+ * Built-in relay sets
+ */
+export const RELAY_SETS: Record<string, RelaySet> = {
+  default: {
+    id: 'default',
+    name: 'Default',
+    description: 'Standard relay configuration for general use',
+    relays: [
+      'wss://kitchen.zap.cooking',
+      'wss://garden.zap.cooking',
+      'wss://nos.lol',
+      'wss://relay.damus.io'
+    ]
+  },
+  garden: {
+    id: 'garden',
+    name: 'Garden',
+    description: 'Focused on Zap.Cooking garden relay',
+    relays: [
+      'wss://garden.zap.cooking',
+      'wss://nos.lol'
+    ]
+  },
+  discovery: {
+    id: 'discovery',
+    name: 'Discovery',
+    description: 'Optimized for discovering new content and profiles',
+    relays: [
+      'wss://nostr.wine',
+      'wss://relay.primal.net',
+      'wss://purplepag.es'
+    ]
+  },
+  profiles: {
+    id: 'profiles',
+    name: 'Profiles',
+    description: 'Focused on profile resolution',
+    relays: [
+      'wss://purplepag.es'
+    ]
+  }
+};
+
+/**
+ * Get a relay set by ID
+ */
+export function getRelaySet(id: string): RelaySet | undefined {
+  return RELAY_SETS[id];
+}
+
+/**
+ * Get all available relay set IDs
+ */
+export function getRelaySetIds(): string[] {
+  return Object.keys(RELAY_SETS);
+}
+
+/**
+ * Get all relay sets as an array
+ */
+export function getAllRelaySets(): RelaySet[] {
+  return Object.values(RELAY_SETS);
+}

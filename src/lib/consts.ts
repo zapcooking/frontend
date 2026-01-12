@@ -1,6 +1,7 @@
 export const standardRelays = [
   'wss://relay.damus.io',      // Fastest
   'wss://kitchen.zap.cooking', // Your relay
+  'wss://garden.zap.cooking',  // Garden relay (always connected)
   'wss://nos.lol',
   'wss://purplepag.es',
   'wss://relay.primal.net',

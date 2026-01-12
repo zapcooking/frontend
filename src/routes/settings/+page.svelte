@@ -15,7 +15,7 @@
   import { theme, type Theme } from '$lib/themeStore';
   import { displayCurrency, SUPPORTED_CURRENCIES, type CurrencyCode } from '$lib/currencyStore';
   import { getAuthManager, type NIP46ConnectionInfo } from '$lib/authManager';
-  import { userPublickey, ndk, ndkReady } from '$lib/nostr';
+  import { userPublickey, ndk, ndkReady, switchRelays, ndkSwitching, getCurrentRelays, type RelayMode } from '$lib/nostr';
   import { wallets } from '$lib/wallet/walletStore';
   import { getConnectionManager } from '$lib/connectionManager';
   import { onMount } from 'svelte';
@@ -25,6 +25,7 @@
   let relays: string[] = [];
   let newRelay = '';
   let connectedRelays: string[] = [];
+  let savingRelays = false;
 
   // NIP-65 announced relays
   interface NIP65Relays {
@@ -49,14 +50,26 @@
     }
   }
 
-  function saveRelays() {
+  async function saveRelays() {
     addRelay();
-    if (relays !== standardRelays) {
-      localStorage.setItem('nostrcooking_relays', JSON.stringify(relays));
+    if (relays.length === 0) {
+      return;
     }
-    setTimeout(() => {
-      window.location.href = '/settings';
-    }, 1);
+    
+    savingRelays = true;
+    try {
+      // Use 'default' mode when switching relays from settings
+      await switchRelays('default', relays);
+      // Update connected relays after switch
+      updateConnectedRelays();
+    } catch (error) {
+      console.error('Failed to switch relays:', error);
+      if (browser) {
+        alert('Failed to switch relays. Please check your relay URLs and try again.');
+      }
+    } finally {
+      savingRelays = false;
+    }
   }
 
   // Check relay connection status
@@ -126,12 +139,7 @@
   let privateKeyRevealed = false;
 
   if (browser) {
-    const a = localStorage.getItem('nostrcooking_relays');
-    if (a) {
-      relays = JSON.parse(a);
-    } else {
-      relays = standardRelays;
-    }
+    relays = getCurrentRelays();
     sk = localStorage.getItem('nostrcooking_privateKey');
     pk = localStorage.getItem('nostrcooking_loggedInPublicKey');
     authMethod = localStorage.getItem('nostrcooking_authMethod');
@@ -447,7 +455,13 @@
           </div>
 
           <div class="mt-4">
-            <Button on:click={saveRelays}>Save Changes</Button>
+            <Button on:click={saveRelays} disabled={savingRelays || $ndkSwitching}>
+              {#if savingRelays || $ndkSwitching}
+                Switching relays...
+              {:else}
+                Save Changes
+              {/if}
+            </Button>
           </div>
         </div>
       </div>
