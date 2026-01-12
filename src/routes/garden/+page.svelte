@@ -463,17 +463,6 @@
     </div>
   </section>
 
-  <!-- Invite Tree Section -->
-  <section class="flex flex-col gap-4">
-    <h2 class="text-2xl font-bold flex items-center gap-2" style="color: var(--color-text-primary)">
-      <span>🌳</span>
-      <span>Invite Tree</span>
-    </h2>
-    <div class="rounded-xl shadow-sm p-5 md:p-6 transition-all duration-300 overflow-x-auto" style="border: 1px solid var(--color-input-border); background-color: var(--color-bg-secondary)">
-      <InviteTree {treeData} {loading} />
-    </div>
-  </section>
-
   <!-- How to Join Section -->
   <section class="rounded-xl shadow-sm p-5 md:p-6 transition-all duration-300" style="border: 1px solid var(--color-input-border); background-color: var(--color-bg-secondary)">
     <h2 class="text-2xl font-bold mb-4 flex items-center gap-2" style="color: var(--color-text-primary)">
@@ -496,6 +485,17 @@
       <p class="text-sm italic">
         Each member can invite others, helping The Garden grow organically. This ensures a community of engaged food enthusiasts who share a passion for cooking and culinary exploration.
       </p>
+    </div>
+  </section>
+
+  <!-- Invite Tree Section -->
+  <section class="flex flex-col gap-4">
+    <h2 class="text-2xl font-bold flex items-center gap-2" style="color: var(--color-text-primary)">
+      <span>🌳</span>
+      <span>Invite Tree</span>
+    </h2>
+    <div class="rounded-xl shadow-sm p-5 md:p-6 transition-all duration-300 overflow-x-auto" style="border: 1px solid var(--color-input-border); background-color: var(--color-bg-secondary)">
+      <InviteTree {treeData} {loading} />
     </div>
   </section>
 

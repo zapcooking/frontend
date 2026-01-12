@@ -22,6 +22,12 @@ export interface ConnectionMetrics {
 }
 
 export class ConnectionManager {
+  /** Reference to the NDK instance this manager is bound to */
+  public readonly ndkRef: NDK;
+  
+  /** Flag to indicate this manager has been destroyed and should not process events */
+  private destroyed = false;
+  
   private relayHealth = new Map<string, RelayHealth>();
   private heartbeatIntervals = new Map<string, NodeJS.Timeout>();
   private connectionMetrics: ConnectionMetrics = {
@@ -37,7 +43,8 @@ export class ConnectionManager {
   private readonly HEARTBEAT_INTERVAL = 30000; // 30 seconds
   private readonly MAX_RESPONSE_TIME = 5000; // 5 seconds for degraded status
 
-  constructor(private ndk: NDK) {
+  constructor(ndk: NDK) {
+    this.ndkRef = ndk;
     this.initializeRelayHealth();
     this.setupEventListeners();
   }
@@ -45,8 +52,8 @@ export class ConnectionManager {
   private initializeRelayHealth() {
     // Initialize health tracking for all configured relays
     const relayUrls = [
-      ...this.ndk.explicitRelayUrls || [],
-      ...this.ndk.outboxRelayUrls || []
+      ...this.ndkRef.explicitRelayUrls || [],
+      ...this.ndkRef.outboxRelayUrls || []
     ];
 
     console.log('🔧 Initializing relay health for URLs:', relayUrls);
@@ -89,69 +96,87 @@ export class ConnectionManager {
    * Does NOT block relay usage - relays are usable immediately on WebSocket connect.
    */
   private runBackgroundHealthChecks() {
+    if (this.destroyed) return;
+    
     console.log('🔍 Starting background relay health checks...');
     
     // Run health checks async - don't await
     Promise.allSettled(
       Array.from(this.relayHealth.keys()).map(async (url) => {
-      try {
-        const startTime = Date.now();
-        const testFilter = { kinds: [1], limit: 1 };
+        // Bail if destroyed during iteration
+        if (this.destroyed) return;
         
-        const timeoutPromise = new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('Health check timeout')), 5000)
-        );
+        try {
+          const startTime = Date.now();
+          const testFilter = { kinds: [1], limit: 1 };
+          
+          const timeoutPromise = new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('Health check timeout')), 5000)
+          );
 
-        const relay_set = NDKRelaySet.fromRelayUrls([url], this.ndk, true);
-        
-        await Promise.race([
-          this.ndk.fetchEvents(testFilter, undefined, relay_set),
-          timeoutPromise
-        ]);
-        
-        const responseTime = Date.now() - startTime;
-        const health = this.relayHealth.get(url);
-        
-        if (health) {
-          health.lastSeen = Date.now();
-          health.responseTime = responseTime;
+          const relay_set = NDKRelaySet.fromRelayUrls([url], this.ndkRef, true);
+          
+          // Bail if destroyed before fetch
+          if (this.destroyed) return;
+          
+          await Promise.race([
+            this.ndkRef.fetchEvents(testFilter, undefined, relay_set),
+            timeoutPromise
+          ]);
+          
+          // Bail if destroyed after fetch
+          if (this.destroyed) return;
+          
+          const responseTime = Date.now() - startTime;
+          const health = this.relayHealth.get(url);
+          
+          if (health) {
+            health.lastSeen = Date.now();
+            health.responseTime = responseTime;
             // Don't override 'connected' status - WebSocket connect already set it
             if (health.status === 'disconnected') {
               health.status = 'connected';
             }
-          health.failures = 0;
-        }
-        
-        } catch (error: any) {
+            health.failures = 0;
+          }
+          
+        } catch (error: unknown) {
+          // Bail if destroyed
+          if (this.destroyed) return;
+          
           // Health check failed - but don't mark relay as disconnected
           // if WebSocket is still connected. Just note the failure for scoring.
-        const health = this.relayHealth.get(url);
+          const health = this.relayHealth.get(url);
           if (health && health.status === 'disconnected') {
-          health.failures++;
+            health.failures++;
           }
         }
       })
     ).then(() => {
+      if (this.destroyed) return;
       const connectedCount = this.getConnectedRelays().length;
       console.log(`🔍 Background health checks complete: ${connectedCount} relays connected`);
     });
   }
 
   private setupEventListeners() {
-    this.ndk.pool.on('relay:connect', (relay) => {
+    this.ndkRef.pool.on('relay:connect', (relay) => {
       this.handleRelayConnect(relay);
     });
     
-    this.ndk.pool.on('relay:disconnect', (relay) => {
+    this.ndkRef.pool.on('relay:disconnect', (relay) => {
       this.handleRelayDisconnect(relay);
     });
 
-    this.ndk.pool.on('relay:notice', (relay, notice) => {
+    this.ndkRef.pool.on('relay:notice', (relay, notice) => {
       this.handleRelayNotice(relay, notice);
     });
   }
 
-  private handleRelayConnect(relay: any) {
+  private handleRelayConnect(relay: { url: string }) {
+    // Bail if destroyed - prevents zombie reconnects
+    if (this.destroyed) return;
+    
     const url = relay.url;
     const startTime = Date.now();
     
@@ -175,7 +200,10 @@ export class ConnectionManager {
     this.startHeartbeat(relay);
   }
 
-  private handleRelayDisconnect(relay: any) {
+  private handleRelayDisconnect(relay: { url: string }) {
+    // Bail if destroyed - prevents zombie reconnects
+    if (this.destroyed) return;
+    
     const url = relay.url;
     
     const health = this.relayHealth.get(url);
@@ -202,9 +230,12 @@ export class ConnectionManager {
       } else {
         // Attempt reconnection for minor failures
         setTimeout(() => {
+          // Bail if destroyed during timeout
+          if (this.destroyed) return;
+          
           if (health.circuitBreaker.state !== 'open') {
             console.log(`🔄 Attempting reconnection to ${url}`);
-            const relayInstance = this.ndk.pool.relays.get(url);
+            const relayInstance = this.ndkRef.pool.relays.get(url);
             if (relayInstance) {
               relayInstance.connect();
             } else {
@@ -221,7 +252,10 @@ export class ConnectionManager {
     this.stopHeartbeat(url);
   }
 
-  private handleRelayNotice(relay: any, notice: string) {
+  private handleRelayNotice(relay: { url: string }, notice: string) {
+    // Bail if destroyed
+    if (this.destroyed) return;
+    
     const url = relay.url;
     console.log(`📢 Notice from ${url}: ${notice}`);
     
@@ -235,7 +269,7 @@ export class ConnectionManager {
     }
   }
 
-  private startHeartbeat(relay: any) {
+  private startHeartbeat(relay: { url: string }) {
     const url = relay.url;
     
     // Clear existing heartbeat if any
@@ -244,12 +278,18 @@ export class ConnectionManager {
     // Simplified heartbeat: just check if relay is still in pool and update lastSeen
     // Avoids creating new subscriptions which can cause "No filters to merge" errors
     const interval = setInterval(() => {
+      // Bail if destroyed - prevents zombie heartbeats
+      if (this.destroyed) {
+        this.stopHeartbeat(url);
+        return;
+      }
+      
       try {
         const health = this.relayHealth.get(url);
         if (!health) return;
         
         // Check if relay is still connected via the pool
-        const relayInstance = this.ndk.pool.relays.get(url);
+        const relayInstance = this.ndkRef.pool.relays.get(url);
         const isConnected = relayInstance?.connectivity?.status === 1; // 1 = OPEN
         
         if (isConnected) {
@@ -259,9 +299,11 @@ export class ConnectionManager {
             health.status = 'connected';
           }
         } else {
-          // WebSocket closed - handle disconnect
+          // WebSocket closed - just update status and stop heartbeat
+          // Let the real relay:disconnect event handle failures/reconnect
           if (health.status === 'connected' || health.status === 'degraded') {
-            this.handleRelayDisconnect({ url });
+            health.status = 'disconnected';
+            this.stopHeartbeat(url);
           }
         }
       } catch (error) {
@@ -304,7 +346,7 @@ export class ConnectionManager {
     console.log(`🔗 Connecting to relays (health checks running in background)...`);
     
     try {
-      await this.ndk.connect();
+      await this.ndkRef.connect();
       console.log('✅ NDK.connect() completed');
       
       // Wait for at least one relay WebSocket to be connected (fast - typically <500ms)
@@ -338,6 +380,13 @@ export class ConnectionManager {
       
       // Poll frequently for fast response
       const checkInterval = setInterval(() => {
+        // Bail if destroyed
+        if (this.destroyed) {
+          clearInterval(checkInterval);
+          resolve();
+          return;
+        }
+        
         const connected = this.getConnectedRelays();
         const poolRelays = this.getPoolConnectedRelays();
         
@@ -366,7 +415,7 @@ export class ConnectionManager {
   private getPoolConnectedRelays(): string[] {
     const connected: string[] = [];
     try {
-      for (const [url, relay] of this.ndk.pool.relays) {
+      for (const [url, relay] of this.ndkRef.pool.relays) {
         // Check if relay WebSocket is open
         if (relay.connectivity?.status === 1) { // 1 = OPEN
           connected.push(url);
@@ -437,16 +486,37 @@ export class ConnectionManager {
     }
   }
 
+  /**
+   * Check if this manager has been destroyed
+   */
+  isDestroyed(): boolean {
+    return this.destroyed;
+  }
+
   // Cleanup method
   destroy(): void {
+    // Mark as destroyed first to prevent any new operations
+    this.destroyed = true;
+    
+    console.log('🧹 Destroying ConnectionManager...');
+    
     // Clear all heartbeats
-    this.heartbeatIntervals.forEach((interval, url) => {
+    this.heartbeatIntervals.forEach((interval) => {
       clearInterval(interval);
     });
     this.heartbeatIntervals.clear();
     
     // Clear health tracking
     this.relayHealth.clear();
+    
+    // Reset metrics
+    this.connectionMetrics = {
+      totalConnections: 0,
+      successfulConnections: 0,
+      failedConnections: 0,
+      averageResponseTime: 0,
+      circuitBreakerTrips: 0
+    };
   }
 }
 
@@ -454,12 +524,36 @@ export class ConnectionManager {
 let connectionManager: ConnectionManager | null = null;
 
 export function createConnectionManager(ndk: NDK): ConnectionManager {
+  // If existing manager is for a different NDK instance, destroy it
+  if (connectionManager && connectionManager.ndkRef !== ndk) {
+    console.log('🔄 NDK instance changed, destroying old ConnectionManager');
+    connectionManager.destroy();
+    connectionManager = null;
+  }
+  
+  // Create new manager if needed
   if (!connectionManager) {
     connectionManager = new ConnectionManager(ndk);
   }
+  
   return connectionManager;
 }
 
 export function getConnectionManager(): ConnectionManager | null {
   return connectionManager;
 }
+
+/**
+ * Reset the connection manager singleton.
+ * Call this before switching to a new NDK instance.
+ * Cleans up heartbeats and health tracking from the old instance.
+ */
+export function resetConnectionManagerSingleton(): void {
+  if (connectionManager) {
+    connectionManager.destroy();
+    connectionManager = null;
+  }
+}
+
+// Backward compatibility alias
+export const resetConnectionManager = resetConnectionManagerSingleton;
