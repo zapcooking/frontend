@@ -1154,6 +1154,15 @@ import ClientAttribution from './ClientAttribution.svelte';
           return;
         }
         
+        // Validate members relay pool is configured
+        if (!RELAY_POOLS.members || RELAY_POOLS.members.length === 0) {
+          loading = false;
+          error = true;
+          events = [];
+          console.error('[Feed] Members relay pool is not configured or empty');
+          return;
+        }
+        
         // Use only members relay (not pro relay) - normalize URL
         const memberRelays: string[] = [normalizeRelayUrl(RELAY_POOLS.members[0])];
         const memberRelayUrl = memberRelays[0];
@@ -1233,6 +1242,14 @@ import ClientAttribution from './ClientAttribution.svelte';
         // Clear any existing events to ensure no contamination from other feeds
         events = [];
         seenEventIds.clear();
+        
+        // Validate garden relay pool is configured
+        if (!RELAY_POOLS.garden || RELAY_POOLS.garden.length === 0) {
+          loading = false;
+          error = true;
+          console.error('[Feed] Garden relay pool is not configured or empty');
+          return;
+        }
         
         // Garden relay should be in the default pool
         const gardenRelayUrl = normalizeRelayUrl(RELAY_POOLS.garden[0]);
@@ -1477,6 +1494,12 @@ import ClientAttribution from './ClientAttribution.svelte';
       // Check membership status for real-time subscription
       const membershipStatus = await checkMembershipStatus($userPublickey);
       if (!membershipStatus.hasActiveMembership) return;
+      
+      // Validate members relay pool is configured
+      if (!RELAY_POOLS.members || RELAY_POOLS.members.length === 0) {
+        console.error('[Feed] Members relay pool is not configured or empty');
+        return;
+      }
       
       // Use only members relay (not pro relay) - normalize URL
       const memberRelays: string[] = [normalizeRelayUrl(RELAY_POOLS.members[0])];
@@ -1769,6 +1792,13 @@ import ClientAttribution from './ClientAttribution.svelte';
         // Check membership status
         const membershipStatus = await checkMembershipStatus($userPublickey);
         if (!membershipStatus.hasActiveMembership) {
+          hasMore = false;
+          return;
+        }
+        
+        // Validate members relay pool is configured
+        if (!RELAY_POOLS.members || RELAY_POOLS.members.length === 0) {
+          console.error('[Feed] Members relay pool is not configured or empty');
           hasMore = false;
           return;
         }
