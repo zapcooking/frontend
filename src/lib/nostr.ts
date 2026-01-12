@@ -238,8 +238,8 @@ let currentNdk: NDK = createNdk('default', initialRelays);
 let currentRelayMode: RelayMode = 'default';
 
 // NDK ready state - resolves when NDK is connected
-let ndkReadyResolve: () => void = () => {};
-let ndkReadyReject: (error: Error) => void = () => {};
+let ndkReadyResolve!: () => void;
+let ndkReadyReject!: (error: Error) => void;
 export const ndkReady: Promise<void> = new Promise((resolve, reject) => {
   ndkReadyResolve = resolve;
   ndkReadyReject = reject;
