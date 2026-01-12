@@ -245,8 +245,9 @@ import ClientAttribution from './ClientAttribution.svelte';
   /**
    * Validates that a relay pool exists and has at least one relay configured.
    * Logs an error to the console if validation fails.
-   * @param poolName - Name of the relay pool to validate
-   * @returns true if pool is valid, false otherwise
+   * @param poolName - The name of the relay pool to validate (must be a key of RELAY_POOLS).
+   *                   Validation checks both that the pool exists and contains at least one relay URL.
+   * @returns true if the pool exists and is non-empty, false otherwise
    */
   function validateRelayPool(poolName: keyof typeof RELAY_POOLS): boolean {
     const pool = RELAY_POOLS[poolName];
