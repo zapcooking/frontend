@@ -1525,6 +1525,9 @@ import ClientAttribution from './ClientAttribution.svelte';
       // IMPORTANT: Skip NDK cache entirely to prevent events from other relays leaking in
       // Garden relay is in default pool - no temporary connections needed
       try {
+        // Ensure NDK is connected before creating subscription
+        await ensureNdkConnected();
+        
         const normalizedGardenRelays = RELAY_POOLS.garden.map(normalizeRelayUrl);
         
         // Ensure the garden relay is actually connected in the NDK relay pool
