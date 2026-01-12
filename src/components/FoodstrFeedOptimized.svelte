@@ -1269,7 +1269,7 @@ import ClientAttribution from './ClientAttribution.svelte';
 
         // CRITICAL: Skip NDK cache to prevent events from other relays leaking in
         // Garden relay is in default pool, so no temporary connections needed
-        const gardenEvents = await fetchFromRelays(gardenFilter, RELAY_POOLS.garden, PRIVATE_RELAY_TIMEOUT_MS, true, false);
+        const gardenEvents = await fetchFromRelays(gardenFilter, [gardenRelayUrl], PRIVATE_RELAY_TIMEOUT_MS, true, false);
         
         console.log(`[Feed] Garden feed: ${gardenEvents.length} events from garden relay`);
         
@@ -1790,6 +1790,7 @@ import ClientAttribution from './ClientAttribution.svelte';
         olderEvents = await fetchFromRelays(memberFilter, memberRelays, PRIVATE_RELAY_TIMEOUT_MS, true, true);
       } else if (filterMode === 'garden') {
         // Garden mode - fetch from garden relay only (all content, not just food-tagged)
+        const gardenRelayUrl = normalizeRelayUrl(RELAY_POOLS.garden[0]);
         const gardenFilter: any = {
           kinds: [1],
           since: paginationWindow.since,
@@ -1799,7 +1800,7 @@ import ClientAttribution from './ClientAttribution.svelte';
 
         // CRITICAL: Skip NDK cache to prevent events from other relays leaking in
         // Garden relay is in default pool - no temporary connections needed
-        olderEvents = await fetchFromRelays(gardenFilter, RELAY_POOLS.garden, PRIVATE_RELAY_TIMEOUT_MS, true, false);
+        olderEvents = await fetchFromRelays(gardenFilter, [gardenRelayUrl], PRIVATE_RELAY_TIMEOUT_MS, true, false);
       } else {
         // Global mode - use hashtag filter with timeboxing
         const filter: any = {
