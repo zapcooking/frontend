@@ -1526,9 +1526,21 @@ import ClientAttribution from './ClientAttribution.svelte';
       // Garden relay is in default pool - no temporary connections needed
       try {
         const normalizedGardenRelays = RELAY_POOLS.garden.map(normalizeRelayUrl);
+        
+        // Ensure the garden relay is actually connected in the NDK relay pool
+        const connectedRelays = getConnectedRelays().map(normalizeRelayUrl);
+        const activeGardenRelays = normalizedGardenRelays.filter((url) =>
+          connectedRelays.includes(url)
+        );
+        
+        if (activeGardenRelays.length === 0) {
+          console.warn('[Feed] Garden realtime subscription skipped: garden relay not connected. Connected relays:', connectedRelays);
+          return;
+        }
+        
         const { NDKRelaySet } = await import('@nostr-dev-kit/ndk');
         // Use false - garden relay is in default pool, use existing connections
-        const relaySet = NDKRelaySet.fromRelayUrls(normalizedGardenRelays, $ndk, false);
+        const relaySet = NDKRelaySet.fromRelayUrls(activeGardenRelays, $ndk, false);
         
         const sub = $ndk.subscribe(gardenFilter, { 
           closeOnEose: false,
@@ -1761,7 +1773,7 @@ import ClientAttribution from './ClientAttribution.svelte';
           return;
         }
         
-        // Use only members relay (not pro relay) - normalize URL
+        // Use only members relay (not pro relay) - normalize URL for consistency
         const memberRelays: string[] = [normalizeRelayUrl(RELAY_POOLS.members[0])]; // Only members.zap.cooking
         
         // Fetch older events from member relay (all content, not just food-tagged)
@@ -1774,7 +1786,8 @@ import ClientAttribution from './ClientAttribution.svelte';
         
         // CRITICAL: Skip NDK cache to prevent events from other relays leaking in
         // Use longer timeout for private relays
-        olderEvents = await fetchFromRelays(memberFilter, memberRelays, PRIVATE_RELAY_TIMEOUT_MS, true);
+        // Use temporary relay set since members relay may not be in default pool
+        olderEvents = await fetchFromRelays(memberFilter, memberRelays, PRIVATE_RELAY_TIMEOUT_MS, true, true);
       } else if (filterMode === 'garden') {
         // Garden mode - fetch from garden relay only (all content, not just food-tagged)
         const gardenRelayUrl = normalizeRelayUrl(RELAY_POOLS.garden[0]);
@@ -2428,7 +2441,7 @@ import ClientAttribution from './ClientAttribution.svelte';
   }
   
   // Reactive statement to handle filter mode changes
-  // Note: Filter mode changes are handled by the reactive statement above (line 2121)
+  // Note: Filter mode changes are handled by the reactive statement above (around line 2257)
   // This ensures garden mode properly refreshes and only shows garden relay content
 </script>
 

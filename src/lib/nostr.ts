@@ -238,8 +238,8 @@ let currentNdk: NDK = createNdk('default', initialRelays);
 let currentRelayMode: RelayMode = 'default';
 
 // NDK ready state - resolves when NDK is connected
-let ndkReadyResolve: () => void = () => {};
-let ndkReadyReject: (error: Error) => void = () => {};
+let ndkReadyResolve!: () => void;
+let ndkReadyReject!: (error: Error) => void;
 export const ndkReady: Promise<void> = new Promise((resolve, reject) => {
   ndkReadyResolve = resolve;
   ndkReadyReject = reject;
@@ -403,9 +403,16 @@ export async function switchRelaySetId(id: string): Promise<void> {
   localStorage.setItem(RELAY_SET_STORAGE_KEY, id);
   
   // Determine mode from relay set ID
-  const mode: RelayMode = (id === 'garden' || id === 'members' || id === 'discovery') 
-    ? id as RelayMode 
-    : 'default';
+  let mode: RelayMode;
+  if (id === 'garden' || id === 'members' || id === 'discovery') {
+    mode = id as RelayMode;
+  } else if (id === 'default' || id === 'profiles') {
+    // These relay sets intentionally use the standard/default mode
+    mode = 'default';
+  } else {
+    console.error(`Unsupported relay mode for relay set ID: ${id}`);
+    throw new Error(`Unsupported relay mode for relay set ID: ${id}`);
+  }
   
   // Switch to the relay set's relays with appropriate mode
   await switchRelays(mode, relaySet.relays);

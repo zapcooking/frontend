@@ -64,6 +64,9 @@
       updateConnectedRelays();
     } catch (error) {
       console.error('Failed to switch relays:', error);
+      if (browser) {
+        alert('Failed to switch relays. Please check your relay URLs and try again.');
+      }
     } finally {
       savingRelays = false;
     }
