@@ -1,12 +1,12 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import { browser } from '$app/environment';
   import InviteTree from '../../components/InviteTree.svelte';
   import type { PageData } from './$types';
   import { fallbackTreeData } from '$lib/gardenData';
   import type { TreeNodeData } from '$lib/gardenData';
   import { nip19 } from 'nostr-tools';
-  import { ndk, ndkReady, userPublickey } from '$lib/nostr';
+  import { ndk, ndkReady, userPublickey, initializeGardenRelayMonitoring, destroyGardenRelayMonitoring } from '$lib/nostr';
   import { get } from 'svelte/store';
   import { NDKRelaySet, NDKEvent } from '@nostr-dev-kit/ndk';
 
@@ -42,6 +42,12 @@
       
       // Wait for NDK to be ready
       await ndkReady;
+      
+      // Initialize Garden relay monitoring for this page
+      const ndkInstance = get(ndk);
+      if (ndkInstance) {
+        initializeGardenRelayMonitoring(ndkInstance);
+      }
       
       // Use HTML parsing as primary method since it has the correct hierarchical structure
       // The relay query returns flat data without hierarchy
