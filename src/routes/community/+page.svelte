@@ -459,32 +459,32 @@
       addClientTagToEvent(event);
 
       // Publish with timeout
-      // If in garden or members mode, publish to specific relay only
+      // If in garden or members mode, publish to specific relay ONLY
+      // For global/following/replies, publish to regular relays
       let publishPromise: Promise<boolean>;
       if (activeTab === 'garden') {
-        // For garden mode, publish to the garden relay
-        // Garden relay is in the default pool, so publish normally (it will go to all connected relays including garden)
-        await ensureNdkConnected();
-        const gardenRelayUrl = normalizeRelayUrl('wss://garden.zap.cooking');
+        // For garden mode, publish ONLY to the garden relay using NDKRelaySet
+        // This ensures the post only goes to garden.zap.cooking
+        const { NDKRelaySet } = await import('@nostr-dev-kit/ndk');
+        const gardenRelayUrl = 'wss://garden.zap.cooking';
         
-        // Check if garden relay is connected
-        const connectedRelays = getConnectedRelays().map(normalizeRelayUrl);
-        if (!connectedRelays.includes(gardenRelayUrl)) {
-          throw new Error('Garden relay is not connected. Please wait a moment and try again.');
-        }
+        console.log('[Garden] Publishing to garden relay only:', gardenRelayUrl);
         
-        // Publish to all connected relays (garden relay is in the default pool, so it will receive it)
-        // Using default publish() is more reliable than relay sets for publishing
-        publishPromise = event.publish().then((publishedRelays) => {
-          // Verify garden relay received the event (optional check)
+        // Create a relay set with ONLY the garden relay
+        // Use true for third param to allow temporary connection if not in pool
+        const gardenRelaySet = NDKRelaySet.fromRelayUrls([gardenRelayUrl], $ndk, true);
+        
+        // Publish to the relay set - this ensures ONLY garden relay receives the event
+        publishPromise = event.publish(gardenRelaySet).then((publishedRelays) => {
+          console.log('[Garden] Publish result:', publishedRelays.size, 'relays confirmed');
+          // Verify garden relay received the event
           const gardenRelayPublished = Array.from(publishedRelays).some(
-            relay => normalizeRelayUrl(relay.url) === gardenRelayUrl
+            relay => normalizeRelayUrl(relay.url) === normalizeRelayUrl(gardenRelayUrl)
           );
           if (!gardenRelayPublished) {
-            console.warn('Garden relay did not confirm receipt, but event may have been published');
+            throw new Error('Failed to publish to garden relay. Please try again.');
           }
-          // Always return true if at least one relay confirmed
-          return publishedRelays.size > 0;
+          return true;
         });
       } else if (activeTab === 'members') {
         // For members mode, publish ONLY to the members relay using NDKRelaySet
