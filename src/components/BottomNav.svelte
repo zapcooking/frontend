@@ -2,7 +2,6 @@
   import ForkKnifeIcon from 'phosphor-svelte/lib/ForkKnife';
   import ChatCircleDotsIcon from 'phosphor-svelte/lib/ChatCircleDots';
   import CompassIcon from 'phosphor-svelte/lib/Compass';
-  import ShoppingBagIcon from 'phosphor-svelte/lib/ShoppingBag';
   import LightningIcon from 'phosphor-svelte/lib/Lightning';
 </script>
 
