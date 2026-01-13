@@ -148,13 +148,25 @@
     }
   }
 
-  onMount(() => {
+  onMount(async () => {
     try {
       // Detect platform first (iOS, Android, or web)
       detectPlatform();
       
       // Initialize theme first to prevent FOUC
       theme.initialize();
+
+      // Request notification permissions on app launch (first time only)
+      // This is for general app notifications (zaps, replies, etc.)
+      // Timer notifications have their own permission flow
+      if (browser) {
+        try {
+          const { requestPermissionsOnAppLaunch } = await import('$lib/native/notifications');
+          await requestPermissionsOnAppLaunch();
+        } catch (error) {
+          console.error('[Layout] Error requesting notification permissions:', error);
+        }
+      }
 
       // Initialize auth manager
       authManager = createAuthManager($ndk);

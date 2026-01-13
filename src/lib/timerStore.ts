@@ -15,8 +15,10 @@
 
 import { writable, get } from 'svelte/store';
 import { browser } from '$app/environment';
+// Note: Notification imports are intentionally left in place but unused
+// to keep timers as simple in-app timers with no permission prompts
 import {
-  ensureNotifPerms,
+  ensureNotificationPermission,
   scheduleTimerNotification,
   cancelTimerNotification,
   checkNotificationPermissions,
@@ -204,13 +206,12 @@ export async function loadTimers(): Promise<void> {
   if (!browser) return;
 
   try {
-    const [timers, nextId, permission] = await Promise.all([
+    const [timers, nextId] = await Promise.all([
       loadTimersFromDb(),
       loadNextId(),
-      checkNotificationPermissions(),
     ]);
 
-    const now = Date.now();
+  const now = Date.now();
     
     // Process timers: mark expired running timers as done
     const processedTimers = timers.map(timer => {
@@ -223,7 +224,8 @@ export async function loadTimers(): Promise<void> {
     set({
       timers: processedTimers,
       nextId: Math.max(nextId, ...processedTimers.map(t => t.id + 1), 1),
-      notificationPermission: permission,
+      // Keep notificationPermission field for backwards compatibility, but don't check permissions
+      notificationPermission: 'prompt',
     });
 
     // Save any state changes (expired timers marked as done)
@@ -243,10 +245,6 @@ export async function loadTimers(): Promise<void> {
 export async function startTimer(label: string, durationMs: number): Promise<TimerItem | null> {
   if (!browser || durationMs <= 0) return null;
 
-  // Request notification permissions on first timer start
-  const hasPermission = await ensureNotifPerms();
-  const permission = await checkNotificationPermissions();
-
   const state = get({ subscribe });
   const id = state.nextId;
   const now = Date.now();
@@ -261,22 +259,14 @@ export async function startTimer(label: string, durationMs: number): Promise<Tim
     createdAt: now,
   };
 
-  // Schedule notification if we have permission
-  if (hasPermission) {
-    await scheduleTimerNotification({
-      id,
-      title: '⏰ Timer Done!',
-      body: `${newTimer.label} is ready!`,
-      fireAt: new Date(endsAt),
-    });
-  }
+  // Note: Notification scheduling code is intentionally disabled
+  // to keep timers as simple in-app timers with no permission prompts
 
   update(s => {
     const newState = {
       ...s,
       timers: [...s.timers, newTimer],
       nextId: s.nextId + 1,
-      notificationPermission: permission,
     };
     persistState(newState);
     return newState;
@@ -298,8 +288,8 @@ export async function pauseTimer(id: number): Promise<void> {
   const now = Date.now();
   const remainingMs = Math.max(0, timer.endsAt - now);
 
-  // Cancel the scheduled notification
-  await cancelTimerNotification(id);
+  // Note: Notification cancellation code is intentionally disabled
+  // since we're not scheduling notifications
 
   update(s => {
     const newState = {
@@ -329,16 +319,8 @@ export async function resumeTimer(id: number): Promise<void> {
   const now = Date.now();
   const endsAt = now + timer.pausedRemainingMs;
 
-  // Schedule new notification
-  const hasPermission = state.notificationPermission === 'granted';
-  if (hasPermission) {
-    await scheduleTimerNotification({
-      id,
-      title: '⏰ Timer Done!',
-      body: `${timer.label} is ready!`,
-      fireAt: new Date(endsAt),
-    });
-  }
+  // Note: Notification scheduling code is intentionally disabled
+  // to keep timers as simple in-app timers with no permission prompts
 
   update(s => {
     const newState = {
@@ -360,8 +342,8 @@ export async function resumeTimer(id: number): Promise<void> {
  * Cancel/delete a timer
  */
 export async function cancelTimer(id: number): Promise<void> {
-  // Cancel the scheduled notification
-  await cancelTimerNotification(id);
+  // Note: Notification cancellation code is intentionally disabled
+  // since we're not scheduling notifications
 
   update(s => {
     const newState = {

@@ -1,4 +1,5 @@
 import { writable, derived, get } from 'svelte/store';
+import { browser } from '$app/environment';
 import type { NDK, NDKEvent, NDKSubscription } from '@nostr-dev-kit/ndk';
 
 export interface Notification {
@@ -119,13 +120,23 @@ export function subscribeToNotifications(ndk: NDK, userPubkey: string) {
     { kinds: [6], '#p': [userPubkey], since }
   ], { closeOnEose: false });
   
-  activeSubscription.on('event', (event: NDKEvent) => {
+  activeSubscription.on('event', async (event: NDKEvent) => {
     // Ignore my own events
     if (event.pubkey === userPubkey) return;
     
     const notification = parseNotification(event, userPubkey);
     if (notification) {
+      // Add to store
       notifications.add(notification);
+      
+      // Send local notification if app is backgrounded and permissions are granted
+      if (browser) {
+        try {
+          await sendLocalNotificationForNostrEvent(notification);
+        } catch (error) {
+          console.error('[Notifications] Error sending local notification:', error);
+        }
+      }
     }
   });
   
@@ -270,6 +281,85 @@ function parseNotification(event: NDKEvent, userPubkey: string): Notification | 
       
     default:
       return null;
+  }
+}
+
+/**
+ * Send a local notification for a Nostr event (zap, reply, etc.)
+ * Only sends if app is backgrounded and permissions are granted
+ */
+async function sendLocalNotificationForNostrEvent(notification: Notification): Promise<void> {
+  if (!browser) return;
+  
+  // Check if app is in foreground - if so, don't send notification (user is already seeing it)
+  let isAppActive = true;
+  try {
+    const { Capacitor } = await import('@capacitor/core');
+    if (Capacitor.isNativePlatform()) {
+      const { App } = await import('@capacitor/app');
+      const state = await App.getState();
+      isAppActive = state.isActive;
+    } else {
+      // On web, assume active if document is visible
+      isAppActive = !document.hidden;
+    }
+  } catch (error) {
+    // If we can't check app state, assume active (safer)
+    isAppActive = !document.hidden;
+  }
+  
+  // Only send notification if app is backgrounded
+  if (isAppActive) {
+    return;
+  }
+  
+  // Check permissions
+  try {
+    const { checkNotificationPermissions, sendImmediateNotification } = await import('$lib/native/notifications');
+    const permission = await checkNotificationPermissions();
+    
+    if (permission !== 'granted') {
+      return;
+    }
+    
+    // Format notification message based on type
+    let title = 'Zap Cooking';
+    let body = '';
+    
+    switch (notification.type) {
+      case 'zap':
+        body = `⚡ You received ${notification.amount?.toLocaleString() || 'a'} zap${notification.amount ? ' sats' : ''}`;
+        break;
+      case 'comment':
+        body = '💬 Someone replied to your post';
+        if (notification.content) {
+          body += `: ${notification.content.slice(0, 50)}${notification.content.length > 50 ? '...' : ''}`;
+        }
+        break;
+      case 'mention':
+        body = '📣 Someone mentioned you';
+        if (notification.content) {
+          body += `: ${notification.content.slice(0, 50)}${notification.content.length > 50 ? '...' : ''}`;
+        }
+        break;
+      case 'reaction':
+        body = `❤️ Someone reacted ${notification.emoji || '❤️'}`;
+        break;
+      case 'repost':
+        body = '🔁 Someone reposted your note';
+        break;
+      default:
+        body = '🔔 You have a new notification';
+    }
+    
+    // Send the notification
+    await sendImmediateNotification(title, body, {
+      notificationId: notification.id,
+      type: notification.type,
+      eventId: notification.eventId,
+    });
+  } catch (error) {
+    console.error('[Notifications] Error sending local notification for Nostr event:', error);
   }
 }
 

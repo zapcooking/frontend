@@ -1,15 +1,9 @@
 <!--
-  Timer Page - Multi-timer support with local notifications
+  Timer Page - Multi-timer support
   
   This page allows users to:
   - Create multiple named cooking timers
-  - See live countdown while app is in foreground
-  - Receive iOS notifications when timers complete (even when backgrounded)
-  
-  IMPORTANT: We use local notifications for background alerts because JavaScript
-  timers (setInterval/setTimeout) do NOT run reliably when the app is backgrounded.
-  iOS suspends JS execution to save battery. Local notifications are scheduled with
-  the OS and fire reliably regardless of app state.
+  - See live countdown while app is open
 -->
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
@@ -32,7 +26,6 @@
   import PauseIcon from 'phosphor-svelte/lib/Pause';
   import TrashIcon from 'phosphor-svelte/lib/Trash';
   import CheckCircleIcon from 'phosphor-svelte/lib/CheckCircle';
-  import BellSlashIcon from 'phosphor-svelte/lib/BellSlash';
 
   // Form state
   let label = '';
@@ -42,7 +35,6 @@
 
   // Timer state from store
   let timers: TimerItem[] = [];
-  let notificationPermission: 'granted' | 'denied' | 'prompt' = 'prompt';
 
   // For live countdown updates
   let tickInterval: ReturnType<typeof setInterval> | null = null;
@@ -51,7 +43,6 @@
   // Subscribe to store
   const unsubscribe = timerStore.subscribe(state => {
     timers = state.timers;
-    notificationPermission = state.notificationPermission;
   });
 
   onMount(async () => {
@@ -146,18 +137,6 @@
 
 <div class="max-w-lg mx-auto">
   <h1 class="text-2xl font-bold mb-6">Cooking Timer</h1>
-
-  <!-- Notification Permission Warning -->
-  {#if notificationPermission === 'denied'}
-    <div class="mb-4 p-3 bg-amber-100 dark:bg-amber-900/30 border border-amber-300 dark:border-amber-700 rounded-lg flex items-start gap-2">
-      <BellSlashIcon size={20} class="text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
-      <p class="text-sm text-amber-800 dark:text-amber-200">
-        Notifications are off. Timers will only alert while the app is open.
-        <br />
-        <span class="text-xs opacity-75">Enable in Settings → Notifications to get alerts when backgrounded.</span>
-      </p>
-    </div>
-  {/if}
 
   <!-- Create Timer Form -->
   <div class="bg-surface border border-border rounded-xl p-4 mb-6">
