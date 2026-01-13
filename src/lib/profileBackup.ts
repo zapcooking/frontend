@@ -68,7 +68,7 @@ export function hasNip04Support(): boolean {
  */
 async function encryptData(data: ProfileBackupData, userPubkey: string): Promise<{ content: string; method: EncryptionMethod }> {
   if (!hasEncryptionSupport()) {
-    throw new Error('No encryption method available. Please ensure you are logged in with a signer.');
+    throw new Error('No encryption method available. Encryption is supported when logged in with a private key (nsec), NIP-07 extension, or NIP-46 remote signer with encryption permissions.');
   }
 
   const jsonString = JSON.stringify(data);

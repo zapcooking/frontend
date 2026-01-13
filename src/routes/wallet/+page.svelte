@@ -101,6 +101,10 @@
   import { displayCurrency } from '$lib/currencyStore';
   import CurrencySelector from '../../components/CurrencySelector.svelte';
   import FiatBalance from '../../components/FiatBalance.svelte';
+  import PullToRefresh from '../../components/PullToRefresh.svelte';
+
+  // Pull-to-refresh refs
+  let pullToRefreshEl: PullToRefresh;
 
   let showAddWallet = false;
   let selectedWalletType: WalletKind | null = null;
@@ -510,6 +514,26 @@
       await refreshBalance(); // AWAIT this first
       loadTransactionHistory(true); // THEN load transactions
     }, 1000);
+  }
+
+  // Pull-to-refresh handler
+  async function handleRefresh() {
+    try {
+      // Refresh balance first
+      if ($walletConnected && $activeWallet) {
+        await refreshBalance();
+        
+        // Then refresh transaction history if applicable (not for WebLN)
+        if ($activeWallet.kind !== 1) {
+          await loadTransactionHistory(true);
+        }
+      }
+    } catch (error) {
+      console.error('[Wallet] Pull-to-refresh error:', error);
+    } finally {
+      // Always complete the pull-to-refresh, even if refresh throws
+      pullToRefreshEl?.complete();
+    }
   }
 
   async function loadTransactionHistory(reset = false) {
@@ -1185,7 +1209,7 @@
     try {
       // Check encryption support
       if (!hasEncryptionSupport()) {
-        throw new Error('No encryption method available. Please ensure you are logged in with a signer.');
+        throw new Error('No encryption method available. Encryption is supported when logged in with a private key (nsec), NIP-07 extension, or NIP-46 remote signer with encryption permissions.');
       }
 
       // Use the encryption service - it will pick the best method
@@ -1481,6 +1505,7 @@
   <title>Wallet - zap.cooking</title>
 </svelte:head>
 
+<PullToRefresh bind:this={pullToRefreshEl} on:refresh={handleRefresh}>
 <div class="max-w-2xl mx-auto py-8 px-4">
   <h1 class="text-2xl font-bold mb-6" style="color: var(--color-text-primary)">Wallet</h1>
 
@@ -3155,6 +3180,7 @@
     </div>
   {/if}
 </div>
+</PullToRefresh>
 
 <!-- Wallet Recovery Help Modal -->
 <WalletRecoveryHelpModal bind:open={showRecoveryHelpModal} />

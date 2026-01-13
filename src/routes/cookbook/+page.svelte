@@ -24,6 +24,20 @@
   import ImagesComboBox from '../../components/ImagesComboBox.svelte';
   import { writable, type Writable, get } from 'svelte/store';
   import { clickOutside } from '$lib/clickOutside';
+  import PullToRefresh from '../../components/PullToRefresh.svelte';
+
+  // Pull-to-refresh ref
+  let pullToRefreshEl: PullToRefresh;
+
+  async function handleRefresh() {
+    try {
+      await cookbookStore.load();
+      await loadCoverImages();
+      await updateCachedRecipeCount();
+    } finally {
+      pullToRefreshEl?.complete();
+    }
+  }
 
   // Handle manual sync
   function handleSyncNow() {
@@ -698,6 +712,7 @@
   {/if}
 </Modal>
 
+<PullToRefresh bind:this={pullToRefreshEl} on:refresh={handleRefresh}>
 <div class="flex flex-col gap-6">
   <!-- Offline/Sync Status Banner -->
   {#if !$isOnline}
@@ -999,6 +1014,7 @@
     </div>
   {/if}
 </div>
+</PullToRefresh>
 
 <style>
   .collection-card {

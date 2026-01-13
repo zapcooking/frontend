@@ -924,7 +924,7 @@ export async function backupWalletToNostr(pubkey: string): Promise<any> {
 
 	// Check encryption support
 	if (!hasEncryptionSupport()) {
-		throw new Error('No encryption method available. Please ensure you are logged in with a signer.')
+		throw new Error('No encryption method available. Encryption is supported when logged in with a private key (nsec), NIP-07 extension, or NIP-46 remote signer with encryption permissions.')
 	}
 
 	// Create the backup event (kind 30078 - NIP-78 application-specific data)

@@ -283,7 +283,17 @@ async function decryptGroceryEvent(
       encryptionMethod: method
     };
   } catch (error) {
-    console.error('[GroceryService] Failed to decrypt/parse grocery list:', error);
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    const errorStack = error instanceof Error ? error.stack : undefined;
+    console.error('[GroceryService] Failed to decrypt/parse grocery list:', {
+      message: errorMsg,
+      stack: errorStack,
+      error,
+      listId,
+      dTag,
+      hasContent: !!event.content,
+      contentLength: event.content?.length || 0
+    });
     return null;
   }
 }

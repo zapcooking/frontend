@@ -68,6 +68,34 @@ if (typeof window !== 'undefined') {
     // For all other requests (or web __data.json), use original fetch
     return originalFetch(input, init);
   };
+
+  // Global handler for unhandled promise rejections to prevent page reloads
+  // This catches errors that might occur during relay switching or async operations
+  window.addEventListener('unhandledrejection', (event) => {
+    // Log the error but prevent it from causing a page reload
+    console.error('[hooks.client.ts] Unhandled promise rejection caught:', event.reason);
+    
+    // Check if it's a known non-critical error that we can safely ignore
+    const reason = event.reason;
+    if (reason instanceof Error) {
+      // Ignore network errors, timeout errors, and relay connection errors
+      // These are expected during relay switching and shouldn't cause reloads
+      if (
+        reason.message.includes('Timeout') ||
+        reason.message.includes('Network') ||
+        reason.message.includes('WebSocket') ||
+        reason.message.includes('Failed to fetch') ||
+        reason.message.includes('relay')
+      ) {
+        console.warn('[hooks.client.ts] Ignoring non-critical error during relay operations:', reason.message);
+        event.preventDefault(); // Prevent the error from propagating
+        return;
+      }
+    }
+    
+    // For other errors, log them but don't prevent default behavior
+    // The ErrorBoundary will handle displaying them to the user
+  });
 }
 
 export const handleError: HandleClientError = ({ error, event }) => {

@@ -13,8 +13,20 @@
   import ShoppingCartIcon from 'phosphor-svelte/lib/ShoppingCart';
   import PanLoader from '../../components/PanLoader.svelte';
   import GroceryListCard from '../../components/grocery/GroceryListCard.svelte';
+  import PullToRefresh from '../../components/PullToRefresh.svelte';
+
+  // Pull-to-refresh ref
+  let pullToRefreshEl: PullToRefresh;
 
   let isCreating = false;
+
+  async function handleRefresh() {
+    try {
+      await groceryStore.load();
+    } finally {
+      pullToRefreshEl?.complete();
+    }
+  }
 
   onMount(async () => {
     if (!$userPublickey) {
@@ -57,6 +69,7 @@
   <meta name="description" content="Your private grocery lists on zap.cooking" />
 </svelte:head>
 
+<PullToRefresh bind:this={pullToRefreshEl} on:refresh={handleRefresh}>
 <div class="flex flex-col gap-6">
   <!-- Header -->
   <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -124,3 +137,4 @@
     </div>
   {/if}
 </div>
+</PullToRefresh>

@@ -969,10 +969,22 @@ import ClientAttribution from './ClientAttribution.svelte';
       events = [];
       seenEventIds.clear();
       
-      if (!$ndk) throw new Error('NDK not initialized');
+      if (!$ndk) {
+        console.error('[Feed] NDK not initialized');
+        loading = false;
+        error = true;
+        return;
+      }
       
       // Wait for NDK to be connected (don't call connect() directly - it causes WebSocket errors)
-      await ensureNdkConnected();
+      try {
+        await ensureNdkConnected();
+      } catch (err) {
+        console.error('[Feed] Failed to ensure NDK connection:', err);
+        loading = false;
+        error = true;
+        return;
+      }
       
       // Check for stale results after waiting for connection
       if (isStaleResult(loadGeneration)) {
@@ -2377,40 +2389,59 @@ import ClientAttribution from './ClientAttribution.svelte';
   // Especially important for garden mode to ensure only garden relay content
   // Skip initial trigger (when lastFilterMode is still 'global' on first mount)
   let isInitialized = false;
-  $: if (typeof window !== 'undefined' && filterMode !== lastFilterMode && isInitialized) {
-    const previousMode = lastFilterMode;
-    lastFilterMode = filterMode;
-    
-    // If switching to garden or members mode, force a complete refresh to ensure only target relay content
-    if (filterMode === 'garden' || filterMode === 'members') {
-      // Stop all subscriptions immediately
-      stopSubscriptions();
-      
-      // DON'T clear events here - loadFoodstrFeed handles clearing internally
-      // Clearing here would wipe out cached data that loadFoodstrFeed loads
-      // Just clear auxiliary state
-      visibleNotes = new Set();
-      followedPubkeysForRealtime = [];
-      
-      // Force reload without cache to ensure fresh data from target relay only
-      loadFoodstrFeed(false).catch((err) => {
-        console.error(`[Feed] Failed to load ${filterMode} feed:`, err);
+  let filterModeChangeInProgress = false;
+  $: if (typeof window !== 'undefined' && filterMode !== lastFilterMode && isInitialized && !filterModeChangeInProgress) {
+    (async () => {
+      try {
+        filterModeChangeInProgress = true;
+        const previousMode = lastFilterMode;
+        lastFilterMode = filterMode;
+        
+        // If switching to garden or members mode, force a complete refresh to ensure only target relay content
+        if (filterMode === 'garden' || filterMode === 'members') {
+          // Stop all subscriptions immediately
+          stopSubscriptions();
+          
+          // DON'T clear events here - loadFoodstrFeed handles clearing internally
+          // Clearing here would wipe out cached data that loadFoodstrFeed loads
+          // Just clear auxiliary state
+          visibleNotes = new Set();
+          followedPubkeysForRealtime = [];
+          
+          // Force reload without cache to ensure fresh data from target relay only
+          try {
+            await loadFoodstrFeed(false);
+          } catch (err) {
+            console.error(`[Feed] Failed to load ${filterMode} feed:`, err);
+            error = true;
+            loading = false;
+            // Don't throw - errors are handled gracefully
+          }
+        } else if (previousMode === 'garden' || previousMode === 'members') {
+          // When leaving garden mode, clear state to prevent garden content showing in other feeds
+          stopSubscriptions();
+          
+          // DON'T clear events here - let loadFoodstrFeed handle it
+          visibleNotes = new Set();
+          
+          try {
+            await loadFoodstrFeed(false);
+          } catch (err) {
+            console.error('[Feed] Failed to load feed after garden mode:', err);
+            error = true;
+            loading = false;
+            // Don't throw - errors are handled gracefully
+          }
+        }
+      } catch (err) {
+        // Catch any unexpected errors in the reactive statement itself
+        console.error('[Feed] Unexpected error during filter mode change:', err);
         error = true;
         loading = false;
-      });
-    } else if (previousMode === 'garden' || previousMode === 'members') {
-      // When leaving garden mode, clear state to prevent garden content showing in other feeds
-      stopSubscriptions();
-      
-      // DON'T clear events here - let loadFoodstrFeed handle it
-      visibleNotes = new Set();
-      
-      loadFoodstrFeed(false).catch((err) => {
-        console.error('[Feed] Failed to load feed after garden mode:', err);
-        error = true;
-        loading = false;
-      });
-    }
+      } finally {
+        filterModeChangeInProgress = false;
+      }
+    })();
   }
 
   // Unregister function for relay switch callback

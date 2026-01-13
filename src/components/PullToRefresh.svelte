@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount, onDestroy, createEventDispatcher } from 'svelte';
   import { browser } from '$app/environment';
+  import { isIOS } from '$lib/platform';
 
   // Configuration
   export let threshold: number = 80; // Pull distance to trigger refresh
@@ -16,14 +17,26 @@
   let startY = 0;
   let currentY = 0;
   let refreshTimeout: ReturnType<typeof setTimeout> | null = null;
+  
+  // Store event handlers for cleanup
+  let documentTouchMoveHandler: ((e: TouchEvent) => void) | null = null;
 
   // DOM refs
   let containerEl: HTMLElement;
 
   // Check if we're at the top of the scroll
+  // Improved for iOS Capacitor compatibility
   function isAtTop(): boolean {
-    // Check window scroll position
-    if (window.scrollY > 0) return false;
+    // Check multiple scroll positions for better compatibility
+    // iOS WebView may use documentElement or body instead of window
+    const scrollY = window.scrollY || window.pageYOffset || 0;
+    const docScrollTop = document.documentElement.scrollTop || 0;
+    const bodyScrollTop = document.body.scrollTop || 0;
+    
+    // If any of these indicate we're scrolled, we're not at top
+    if (scrollY > 0 || docScrollTop > 0 || bodyScrollTop > 0) {
+      return false;
+    }
     
     // Also check if any scrollable parent has scrolled
     let el: HTMLElement | null = containerEl;
@@ -31,6 +44,7 @@
       if (el.scrollTop > 0) return false;
       el = el.parentElement;
     }
+    
     return true;
   }
 
@@ -49,14 +63,23 @@
     currentY = e.touches[0].clientY;
     const delta = currentY - startY;
 
+    // Check if we're still at top (re-check on each move for iOS)
+    const stillAtTop = isAtTop();
+
     // Only track downward pulls when at top
-    if (delta > 0 && isAtTop()) {
+    if (delta > 0 && stillAtTop) {
       // Apply resistance curve for natural feel
-      pullDistance = Math.min(maxPull, delta * 0.5);
+      // Use slightly less resistance on iOS for better feel
+      const resistance = isIOS() ? 0.6 : 0.5;
+      pullDistance = Math.min(maxPull, delta * resistance);
       
       // Prevent page bounce on iOS when pulling
       if (pullDistance > 10) {
         e.preventDefault();
+        // Also prevent default on the event's target for iOS
+        if (isIOS() && e.cancelable) {
+          e.stopPropagation();
+        }
       }
     } else {
       // Reset if scrolling up or not at top
@@ -120,13 +143,38 @@
   onMount(() => {
     if (!browser) return;
     
-    // Add passive: false to allow preventDefault on touchmove
-    containerEl?.addEventListener('touchmove', handleTouchMove as any, { passive: false });
+    // For iOS Capacitor, we need to attach listeners more aggressively
+    // Add listeners to both container and window/document for better iOS support
+    documentTouchMoveHandler = (e: TouchEvent) => {
+      // Only handle if we're pulling
+      if (isPulling) {
+        handleTouchMove(e);
+      }
+    };
+    
+    // Use capture phase on iOS for better event handling
+    const options = { passive: false, capture: isIOS() };
+    
+    containerEl?.addEventListener('touchmove', handleTouchMove as any, options);
+    
+    // Also listen on document for iOS WebView edge cases
+    if (isIOS() && documentTouchMoveHandler) {
+      document.addEventListener('touchmove', documentTouchMoveHandler, options);
+    }
   });
 
   onDestroy(() => {
     if (!browser) return;
+    
     containerEl?.removeEventListener('touchmove', handleTouchMove as any);
+    
+    // Clean up document listener for iOS
+    if (isIOS() && documentTouchMoveHandler) {
+      const options = { passive: false, capture: true };
+      document.removeEventListener('touchmove', documentTouchMoveHandler, options);
+      documentTouchMoveHandler = null;
+    }
+    
     // Clean up any pending timeout
     if (refreshTimeout) {
       clearTimeout(refreshTimeout);
@@ -185,7 +233,12 @@
   .pull-to-refresh-container {
     position: relative;
     min-height: 100%;
+    /* Allow vertical scrolling but prevent horizontal and zoom */
     touch-action: pan-y;
+    /* Improve scrolling on iOS */
+    -webkit-overflow-scrolling: touch;
+    /* Prevent iOS bounce when at top */
+    overscroll-behavior-y: contain;
   }
 
   .pull-indicator {

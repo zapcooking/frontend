@@ -5,10 +5,30 @@
   import { nip19 } from 'nostr-tools';
   import CustomAvatar from '../../components/CustomAvatar.svelte';
   import CustomName from '../../components/CustomName.svelte';
-  import { userPublickey } from '$lib/nostr';
+  import { userPublickey, ndk } from '$lib/nostr';
   import { onMount } from 'svelte';
+  import PullToRefresh from '../../components/PullToRefresh.svelte';
+  import { subscribeToNotifications } from '$lib/notificationStore';
+  import { get } from 'svelte/store';
+  
+  // Pull-to-refresh ref
+  let pullToRefreshEl: PullToRefresh;
   
   type TabType = 'all' | 'zaps' | 'replies' | 'mentions';
+  
+  async function handleRefresh() {
+    try {
+      // Re-subscribe to notifications to fetch fresh data
+      if ($userPublickey) {
+        const ndkInstance = get(ndk);
+        if (ndkInstance) {
+          subscribeToNotifications(ndkInstance, $userPublickey);
+        }
+      }
+    } finally {
+      pullToRefreshEl?.complete();
+    }
+  }
   
   let activeTab: TabType = 'all';
   
@@ -87,6 +107,7 @@
   <title>Notifications | Zap Cooking</title>
 </svelte:head>
 
+<PullToRefresh bind:this={pullToRefreshEl} on:refresh={handleRefresh}>
 <div class="max-w-2xl mx-auto px-4 py-8">
   <div class="flex items-center justify-between mb-6">
     <h1 class="text-2xl font-bold">Notifications</h1>
@@ -162,4 +183,5 @@
     </div>
   {/if}
 </div>
+</PullToRefresh>
 

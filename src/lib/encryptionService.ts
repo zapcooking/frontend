@@ -14,8 +14,37 @@ import { get } from 'svelte/store';
 import { ndk } from '$lib/nostr';
 import { NDKUser } from '@nostr-dev-kit/ndk';
 import { browser } from '$app/environment';
+import * as nip44 from 'nostr-tools/nip44';
+import * as nip04 from 'nostr-tools/nip04';
+import { nip19 } from 'nostr-tools';
 
 export type EncryptionMethod = 'nip44' | 'nip04' | null;
+
+/**
+ * Get private key from localStorage if available
+ */
+function getPrivateKey(): string | null {
+	if (!browser) return null;
+	const stored = localStorage.getItem('nostrcooking_privateKey');
+	if (!stored) return null;
+	
+	// Handle nsec1 format - decode to hex
+	if (stored.startsWith('nsec1')) {
+		try {
+			const decoded = nip19.decode(stored);
+			if (decoded.type !== 'nsec') return null;
+			const bytes = decoded.data as Uint8Array;
+			return Array.from(bytes)
+				.map(b => b.toString(16).padStart(2, '0'))
+				.join('');
+		} catch {
+			return null;
+		}
+	}
+	
+	// Already hex format
+	return stored;
+}
 
 /**
  * Check if encryption is supported (synchronous, for UI state)
@@ -35,6 +64,11 @@ export function hasEncryptionSupport(): boolean {
 			return true;
 		}
 		
+		// For private key signers, we can use nostr-tools directly
+		if (signer.constructor?.name === 'NDKPrivateKeySigner') {
+			return !!getPrivateKey(); // We have a private key, so encryption is supported
+		}
+		
 		// For NIP-46 signers, encryption support depends on remote signer permissions
 		// We can't check this synchronously, so we return true and let encrypt() handle it
 		// This allows the UI to show the button, and the actual call will provide a clear error
@@ -44,6 +78,11 @@ export function hasEncryptionSupport(): boolean {
 		
 		// For other signer types, if they exist but don't have encryption methods, return false
 		return false;
+	}
+
+	// Check if we have a private key stored (for direct encryption)
+	if (getPrivateKey()) {
+		return true;
 	}
 
 	// Fallback check for window.nostr (NIP-07 without NDK signer)
@@ -65,6 +104,16 @@ export async function getEncryptionMethod(): Promise<EncryptionMethod> {
 		// NDK signers support both methods, prefer NIP-44
 		if (typeof signer.nip44Encrypt === 'function') return 'nip44';
 		if (typeof signer.nip04Encrypt === 'function') return 'nip04';
+		
+		// For private key signers, we can use nostr-tools directly
+		if (signer.constructor?.name === 'NDKPrivateKeySigner' && getPrivateKey()) {
+			return 'nip44'; // Prefer NIP-44 for private key signers
+		}
+	}
+
+	// Check if we have a private key stored (for direct encryption)
+	if (getPrivateKey()) {
+		return 'nip44';
 	}
 
 	// Fallback to window.nostr check (NIP-07 without NDK signer set)
@@ -85,6 +134,15 @@ export function getBestEncryptionMethod(): EncryptionMethod {
 
 	// NDK signers support both, prefer NIP-44
 	if (ndkInstance.signer) {
+		// For private key signers, we can use nostr-tools directly
+		if (ndkInstance.signer.constructor?.name === 'NDKPrivateKeySigner' && getPrivateKey()) {
+			return 'nip44';
+		}
+		return 'nip44';
+	}
+
+	// Check if we have a private key stored (for direct encryption)
+	if (getPrivateKey()) {
 		return 'nip44';
 	}
 
@@ -150,6 +208,43 @@ export async function encrypt(
 			}
 		}
 		
+		// For private key signers, use nostr-tools directly
+		if (signer.constructor?.name === 'NDKPrivateKeySigner') {
+			const privateKey = getPrivateKey();
+			if (!privateKey) {
+				throw new Error('Private key not found. Please log in again with your private key.');
+			}
+			
+			const method = preferredMethod || 'nip44';
+			try {
+				if (method === 'nip44') {
+					// Convert hex private key to Uint8Array for NIP-44
+					const privateKeyBytes = new Uint8Array(
+						privateKey.match(/.{1,2}/g)!.map(byte => parseInt(byte, 16))
+					);
+					const conversationKey = nip44.v2.utils.getConversationKey(privateKeyBytes, recipientPubkey);
+					const ciphertext = nip44.v2.encrypt(plaintext, conversationKey);
+					return { ciphertext, method: 'nip44' };
+				} else {
+					const ciphertext = await nip04.encrypt(privateKey, recipientPubkey, plaintext);
+					return { ciphertext, method: 'nip04' };
+				}
+			} catch (e) {
+				console.error('[Encryption] Direct encryption failed:', e);
+				// Try fallback method
+				if (method === 'nip44') {
+					try {
+						const ciphertext = await nip04.encrypt(privateKey, recipientPubkey, plaintext);
+						return { ciphertext, method: 'nip04' };
+					} catch (e2) {
+						throw new Error('Encryption failed. Please ensure your private key is valid.');
+					}
+				} else {
+					throw new Error('Encryption failed. Please ensure your private key is valid.');
+				}
+			}
+		}
+		
 		// For NIP-46 signers specifically, if methods don't exist, provide helpful error
 		// (NIP-46 doesn't use window.nostr, so no fallback available)
 		if (signer.constructor?.name === 'NDKNip46Signer') {
@@ -160,6 +255,29 @@ export async function encrypt(
 		}
 		
 		// For other signers (NIP-07), fall through to try window.nostr
+	}
+
+	// Try direct encryption with private key if available (for cases where signer isn't set but key is stored)
+	const privateKey = getPrivateKey();
+	if (privateKey) {
+		const method = preferredMethod || 'nip44';
+		try {
+			if (method === 'nip44') {
+				// Convert hex private key to Uint8Array for NIP-44
+				const privateKeyBytes = new Uint8Array(
+					privateKey.match(/.{1,2}/g)!.map(byte => parseInt(byte, 16))
+				);
+				const conversationKey = nip44.v2.utils.getConversationKey(privateKeyBytes, recipientPubkey);
+				const ciphertext = nip44.v2.encrypt(plaintext, conversationKey);
+				return { ciphertext, method: 'nip44' };
+			} else {
+				const ciphertext = await nip04.encrypt(privateKey, recipientPubkey, plaintext);
+				return { ciphertext, method: 'nip04' };
+			}
+		} catch (e) {
+			console.error('[Encryption] Direct encryption with stored key failed:', e);
+			// Continue to try window.nostr
+		}
 	}
 
 	// Try window.nostr (NIP-07 extensions expose encryption here)
@@ -173,7 +291,7 @@ export async function encrypt(
 		return { ciphertext, method: 'nip04' };
 	}
 
-	throw new Error('No encryption method available. Please ensure you are logged in with a signer that supports encryption.');
+	throw new Error('No encryption method available. Encryption is supported when logged in with a private key (nsec), NIP-07 extension, or NIP-46 remote signer with encryption permissions.');
 }
 
 /**
@@ -211,6 +329,36 @@ export async function decrypt(
 				console.log('[Encryption] Trying window.nostr.nip04.decrypt...');
 				const result = await nostr.nip04.decrypt(senderPubkey, ciphertext);
 				if (result) return result;
+			}
+
+			// Try direct decryption with private key if available
+			const privateKey = getPrivateKey();
+			if (privateKey) {
+				try {
+					if (tryMethod === 'nip44') {
+						console.log('[Encryption] Trying direct nip44 decryption with private key...');
+						// Convert hex private key to Uint8Array for NIP-44
+						const privateKeyBytes = new Uint8Array(
+							privateKey.match(/.{1,2}/g)!.map(byte => parseInt(byte, 16))
+						);
+						const conversationKey = nip44.v2.utils.getConversationKey(privateKeyBytes, senderPubkey);
+						const result = nip44.v2.decrypt(ciphertext, conversationKey);
+						if (result) return result;
+					} else if (tryMethod === 'nip04') {
+						console.log('[Encryption] Trying direct nip04 decryption with private key...');
+						const result = await nip04.decrypt(privateKey, senderPubkey, ciphertext);
+						if (result) return result;
+					}
+				} catch (e) {
+					const errorMsg = e instanceof Error ? e.message : String(e);
+					const errorStack = e instanceof Error ? e.stack : undefined;
+					console.warn(`[Encryption] Direct ${tryMethod} decryption failed:`, {
+						message: errorMsg,
+						stack: errorStack,
+						error: e
+					});
+					// Continue to try NDK signer
+				}
 			}
 
 			// Fallback to NDK signer (for NIP-46 remote signers, etc.)

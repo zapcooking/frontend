@@ -4,12 +4,24 @@
   import { loadDrafts, deleteDraft, formatDraftDate, draftsStore, type RecipeDraft } from '$lib/draftStore';
   import Button from './Button.svelte';
   import PanLoader from './PanLoader.svelte';
+  import PullToRefresh from './PullToRefresh.svelte';
   import TrashIcon from 'phosphor-svelte/lib/Trash';
   import PencilSimpleIcon from 'phosphor-svelte/lib/PencilSimple';
   import PlusIcon from 'phosphor-svelte/lib/Plus';
 
+  // Pull-to-refresh ref
+  let pullToRefreshEl: PullToRefresh;
+
   let drafts: RecipeDraft[] = [];
   let loaded = false;
+  
+  async function handleRefresh() {
+    try {
+      drafts = loadDrafts();
+    } finally {
+      pullToRefreshEl?.complete();
+    }
+  }
 
   onMount(() => {
     drafts = loadDrafts();
@@ -31,6 +43,7 @@
   }
 </script>
 
+<PullToRefresh bind:this={pullToRefreshEl} on:refresh={handleRefresh}>
 <div class="flex flex-col gap-4">
   {#if !loaded}
     <div class="flex justify-center py-8">
@@ -117,4 +130,5 @@
     </div>
   {/if}
 </div>
+</PullToRefresh>
 

@@ -217,7 +217,7 @@
   <!-- Active Timers -->
   {#if runningTimers.length > 0}
     <div class="mb-6">
-      <h2 class="text-sm font-medium text-secondary mb-3">Active Timers</h2>
+      <h2 class="text-sm font-medium mb-3" style="color: #000000;">Active Timers</h2>
       <div class="space-y-3">
         {#each runningTimers as timer (timer.id)}
           {@const remaining = getRemainingTime(timer)}
@@ -231,8 +231,8 @@
             
             <div class="relative flex items-center justify-between">
               <div class="flex-1 min-w-0">
-                <h3 class="font-medium text-primary truncate">{timer.label}</h3>
-                <p class="text-3xl font-mono font-bold text-primary tabular-nums">
+                <h3 class="font-medium truncate" style="color: #000000;">{timer.label}</h3>
+                <p class="text-3xl font-mono font-bold tabular-nums" style="color: #000000;">
                   {getDisplayTime(timer, tick)}
                 </p>
                 {#if timer.status === 'paused'}
