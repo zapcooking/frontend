@@ -827,8 +827,8 @@
                 bind:this={textareaEl}
                 bind:value={content}
                 placeholder="What are you eating, cooking, or loving?"
-                class="w-full min-h-[80px] p-2 text-sm border-0 focus:outline-none focus:ring-0 resize-none bg-transparent"
-                style="color: var(--color-text-primary)"
+                class="w-full min-h-[80px] p-2 border-0 focus:outline-none focus:ring-0 resize-none bg-transparent"
+                style="color: var(--color-text-primary); font-size: 16px;"
                 disabled={posting}
                 on:keydown={handleKeydown}
                   on:input={handleContentInput}
