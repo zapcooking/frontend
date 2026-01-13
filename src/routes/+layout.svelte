@@ -16,6 +16,8 @@
   import { initializeWalletManager } from '$lib/wallet';
   // Import sync service to initialize offline sync functionality
   import '$lib/syncService';
+  // Import platform detection to initialize early
+  import { detectPlatform } from '$lib/platform';
 
   // Accept props from SvelteKit to prevent warnings
   export let data: LayoutData = {} as LayoutData;
@@ -148,6 +150,9 @@
 
   onMount(() => {
     try {
+      // Detect platform first (iOS, Android, or web)
+      detectPlatform();
+      
       // Initialize theme first to prevent FOUC
       theme.initialize();
 

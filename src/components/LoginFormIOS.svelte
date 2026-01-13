@@ -1,20 +1,24 @@
 <script lang="ts">
-  import Button from '../../components/Button.svelte';
+  /**
+   * iOS-specific login form.
+   * 
+   * This component is used on iOS native app where NIP-07 (browser extensions)
+   * and NIP-46 (remote signers) are not supported due to platform restrictions.
+   * 
+   * Available auth methods:
+   * - Private key (nsec) import
+   * - Seed phrase import
+   * - Generate new keys
+   */
+  import Button from './Button.svelte';
+  import Modal from './Modal.svelte';
   import { ndk, userPublickey } from '$lib/nostr';
   import { browser } from '$app/environment';
   import { goto } from '$app/navigation';
-  import Modal from '../../components/Modal.svelte';
-  import type { PageData } from './$types';
-  import QRCode from 'svelte-qrcode';
-
-  export const data: PageData = {} as PageData;
   import { nip19 } from 'nostr-tools';
   import { createAuthManager, type AuthState } from '$lib/authManager';
   import { onMount, onDestroy } from 'svelte';
-  import { DEFAULT_PROFILE_IMAGE } from '$lib/consts';
   import { theme } from '$lib/themeStore';
-  import { platformIsIOS } from '$lib/platform';
-  import LoginFormIOS from '../../components/LoginFormIOS.svelte';
 
   // Dark mode detection for logo
   $: resolvedTheme = $theme === 'system'
@@ -50,30 +54,13 @@
   let seedModal = false;
   let generateModal = false;
   let showPrivateKey = false;
-  let bunkerModal = false;
-  let nip46UniversalModal = false;
-  
-  // Bunker form states
-  let bunkerConnectionString = '';
-  let bunkerError = '';
-  let bunkerConnecting = false;
-  
-  // Universal NIP-46 pairing states
-  let nip46PairingUri = '';
-  let nip46PairingStatus = 'Waiting for approval…';
-  let nip46PairingError = '';
-  
-  // Check if running on Android via Capacitor
-  $: isAndroid = browser && typeof window !== 'undefined' && (window as any).Capacitor?.getPlatform?.() === 'android';
   
   // File input reference
   let fileInput: HTMLInputElement;
 
-  // Animation states
-  let isHovered = false;
-  
-  // UX state for extension detection warning
-  let showMissingSignerNotice = false;
+  // For manual URL entry
+  let showPictureUrlInput = false;
+  let pictureUrlInput = '';
 
   onMount(() => {
     try {
@@ -98,25 +85,9 @@
             goto('/explore');
           }
         });
-        
-        // Check for pending NIP-46 pairing on mount
-        // This handles the case where user returns from signer app
-        // and the Capacitor appStateChange listener didn't fire
-        if (authManager.hasPendingNip46Pairing()) {
-          console.log('[Login] Found pending NIP-46 pairing, restarting listener...');
-          nip46UniversalModal = true;
-          nip46PairingStatus = 'Waiting for approval…';
-          authManager.restartNip46ListenerIfPending().catch((e: Error) => {
-            console.error('[Login] Failed to restart NIP-46 listener:', e);
-          });
-        }
       }
     } catch (error) {
-      console.error('Failed to initialize auth manager in login page:', error);
-      // Set authManager to a safe default to prevent template errors
-      authManager = {
-        isNIP07Available: () => false
-      };
+      console.error('Failed to initialize auth manager in iOS login:', error);
     }
   });
 
@@ -125,25 +96,6 @@
       unsubscribe();
     }
   });
-
-  async function loginWithNIP07() {
-    if (!authManager) return;
-    
-    // Check if extension is available before trying
-    if (!authManager.isNIP07Available()) {
-      showMissingSignerNotice = true;
-      return;
-    }
-    
-    // Hide notice on successful attempt
-    showMissingSignerNotice = false;
-    
-    try {
-      await authManager.authenticateWithNIP07();
-    } catch (error) {
-      console.error('NIP-07 login failed:', error);
-    }
-  }
 
   async function loginWithPrivateKey() {
     if (!authManager) return;
@@ -181,29 +133,6 @@
     }
   }
 
-  async function loginWithBunker() {
-    if (!authManager) return;
-    try {
-      bunkerError = '';
-      bunkerConnecting = true;
-      
-      if (!bunkerConnectionString.trim()) {
-        bunkerError = 'Please enter a bunker connection string';
-        bunkerConnecting = false;
-        return;
-      }
-      
-      await authManager.authenticateWithNIP46(bunkerConnectionString.trim());
-      bunkerModal = false;
-      bunkerConnectionString = '';
-    } catch (error: any) {
-      bunkerError = error?.message || authState.error || 'Failed to connect to bunker';
-      console.error('Bunker login failed:', error);
-    } finally {
-      bunkerConnecting = false;
-    }
-  }
-
   function generateNewKeys() {
     if (!authManager) return;
     generatedKeys = authManager.generateKeyPair();
@@ -238,17 +167,14 @@
         
         const profileContent: any = {};
         
-        // Add name if provided
         if (profileName) {
           profileContent.name = profileName;
         }
         
-        // Add bio if provided
         if (profileBio) {
           profileContent.about = profileBio;
         }
         
-        // Add profile picture if uploaded
         if (profilePicture) {
           profileContent.picture = profilePicture;
         }
@@ -279,43 +205,15 @@
     }
   }
 
-  async function startUniversalPairing() {
-    if (!authManager) return;
-    
-    try {
-      nip46PairingError = '';
-      nip46PairingStatus = 'Generating connection...';
-      nip46UniversalModal = true;
-      
-      const result = await authManager.startNip46PairingUniversal();
-      nip46PairingUri = result.uri;
-      nip46PairingStatus = 'Waiting for approval…';
-      
-      // On Android, open the URI with _system target
-      if (isAndroid) {
-        window.open(result.uri, '_system');
-      }
-    } catch (error) {
-      console.error('[NIP-46] Failed to start universal pairing:', error);
-      nip46PairingError = error instanceof Error ? error.message : 'Failed to start pairing';
-      nip46PairingStatus = '';
-    }
-  }
-
   function modalCleanup() {
     nsecModal = false;
     seedModal = false;
     generateModal = false;
-    bunkerModal = false;
-    nip46UniversalModal = false;
     showPrivateKey = false;
     nsecInput = '';
     seedInput = '';
     nsecError = '';
     seedError = '';
-    bunkerConnectionString = '';
-    bunkerError = '';
-    bunkerConnecting = false;
     generatedKeys = null;
     newAccountUsername = '';
     newAccountBio = '';
@@ -324,14 +222,7 @@
     pictureUploadError = '';
     showPictureUrlInput = false;
     pictureUrlInput = '';
-    nip46PairingUri = '';
-    nip46PairingStatus = 'Waiting for approval…';
-    nip46PairingError = '';
   }
-
-  // For manual URL entry
-  let showPictureUrlInput = false;
-  let pictureUrlInput = '';
 
   function applyPictureUrl() {
     const url = pictureUrlInput.trim();
@@ -371,7 +262,7 @@
     pictureUploadError = '';
     let uploadedUrl = '';
 
-    // Use nostr.build with NIP-98 auth (same as ImageUploader component)
+    // Use nostr.build with NIP-98 auth
     try {
       console.log('[Upload] Uploading to nostr.build with NIP-98 auth...');
       
@@ -384,9 +275,6 @@
       
       // Create a signer from the private key hex
       const signer = new NDKPrivateKeySigner(privateKeyHex);
-      
-      
-      
       
       // Create NIP-98 auth event
       const uploadUrl = 'https://nostr.build/api/v2/upload/files';
@@ -457,10 +345,6 @@
   }
 </script>
 
-<svelte:head>
-  <title>Welcome to ZapCooking - Join the Recipe Revolution - zap.cooking</title>
-</svelte:head>
-
 <style>
   :global(.lightning-bg) {
     background-color: var(--color-bg-primary);
@@ -470,20 +354,10 @@
     animation: lightningPulse 2s ease-in-out infinite;
   }
 
-  :global(.electric-glow) {
-    box-shadow: 0 0 20px rgba(247, 147, 26, 0.2), 0 0 40px rgba(247, 147, 26, 0.1);
-  }
-
   :global(.glass-card) {
     background-color: var(--color-bg-secondary);
     border: 1px solid var(--color-input-border);
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
-  }
-
-  :global(.lightning-border) {
-    position: relative;
-    border: 2px solid #f7931a;
-    border-radius: 16px;
   }
 
   @keyframes lightningPulse {
@@ -496,24 +370,8 @@
       transform: scale(1.05);
     }
   }
-
-  :global(.qr-container) {
-    text-align: center !important;
-  }
-
-  :global(.qr-container canvas),
-  :global(.qr-container svg),
-  :global(.qr-container img) {
-    display: inline-block !important;
-    vertical-align: middle !important;
-  }
-
 </style>
 
-<!-- iOS uses a simplified login form without NIP-07 and NIP-46 -->
-{#if $platformIsIOS}
-  <LoginFormIOS />
-{:else}
 <!-- Private Key Modal -->
 <Modal bind:open={nsecModal} on:close={modalCleanup}>
   <svelte:fragment slot="title">🔑 Log in with Private Key</svelte:fragment>
@@ -561,114 +419,6 @@
         {authState.isLoading ? '⚡ Restoring...' : '⚡ Restore'}
       </Button>
       <Button on:click={modalCleanup} primary={false} disabled={authState.isLoading}>Cancel</Button>
-    </div>
-  </div>
-</Modal>
-
-<!-- Bunker (NIP-46) Modal -->
-<Modal bind:open={bunkerModal} on:close={modalCleanup}>
-  <svelte:fragment slot="title">🔐 Connect External Signer</svelte:fragment>
-  <div class="flex flex-col gap-4">
-    <div class="bg-input border rounded-lg p-3" style="border-color: var(--color-input-border)">
-      <p class="text-sm text-caption">
-        Use a remote signer so your private key never touches this device. 
-        This is the most secure way to sign in.
-      </p>
-    </div>
-    
-    <div>
-      <label for="bunker-input" class="block text-sm font-medium mb-1.5" style="color: var(--color-text-primary)">
-        NIP-46 Connection String
-      </label>
-      <textarea
-        id="bunker-input"
-        bind:value={bunkerConnectionString}
-        placeholder="bunker://pubkey?relay=wss://relay.example.com&#10;or&#10;npub1... wss://relay.example.com"
-        rows="3"
-        class="input block w-full sm:text-sm p-3 font-mono text-xs"
-        disabled={bunkerConnecting}
-      ></textarea>
-      <p class="text-xs text-caption mt-1.5">
-        Paste your NIP-46 connection string from Amber or another remote signer.
-      </p>
-    </div>
-    
-    {#if bunkerError}
-      <div class="bg-input border rounded-lg p-2.5" style="border-color: var(--color-danger, #ef4444)">
-        <p class="text-sm" style="color: var(--color-danger, #ef4444)">{bunkerError}</p>
-      </div>
-    {/if}
-    
-    {#if bunkerConnecting}
-      <div class="bg-input border rounded-lg p-3" style="border-color: var(--color-primary, #f97316)">
-        <div class="flex items-center gap-2">
-          <div class="animate-spin h-4 w-4 border-2 border-orange-500 border-t-transparent rounded-full"></div>
-          <p class="text-sm" style="color: var(--color-text-primary)">Connecting to bunker... This may take a moment.</p>
-        </div>
-        <p class="text-xs text-caption mt-1">Check your signer app to approve the connection request.</p>
-      </div>
-    {/if}
-    
-    <div class="flex gap-2">
-      <Button on:click={loginWithBunker} primary={true} disabled={bunkerConnecting || !bunkerConnectionString.trim()}>
-        {bunkerConnecting ? '⏳ Connecting...' : '🔐 Connect'}
-      </Button>
-      <Button on:click={modalCleanup} primary={false} disabled={bunkerConnecting}>Cancel</Button>
-    </div>
-  </div>
-</Modal>
-
-<!-- Universal NIP-46 Pairing Modal -->
-<Modal bind:open={nip46UniversalModal} on:close={modalCleanup}>
-  <svelte:fragment slot="title">🔐 Connect External Signer</svelte:fragment>
-  <div class="flex flex-col gap-4">
-    <div class="bg-input border rounded-lg p-3" style="border-color: var(--color-input-border)">
-      <p class="text-sm text-caption">
-        Use a remote signer so your private key never touches this device. 
-        This is the most secure way to sign in.
-      </p>
-    </div>
-    
-    {#if nip46PairingError}
-      <div class="bg-input border rounded-lg p-2.5" style="border-color: var(--color-danger, #ef4444)">
-        <p class="text-sm" style="color: var(--color-danger, #ef4444)">{nip46PairingError}</p>
-      </div>
-    {/if}
-    
-    {#if nip46PairingUri}
-      <div class="flex flex-col items-center gap-4">
-        <!-- QR Code - Centered with proper padding -->
-        <div class="bg-white p-3 rounded-lg qr-container" style="width: 280px; height: 280px; text-align: center; line-height: 256px;">
-          <QRCode value={nip46PairingUri} size={256} />
-        </div>
-        
-        <!-- Status -->
-        <div class="text-center">
-          <p class="text-sm font-medium mb-1" style="color: var(--color-text-primary)">{nip46PairingStatus}</p>
-          <p class="text-xs text-caption">Approve the connection in your signer app (Amber)</p>
-        </div>
-        
-        <!-- Action Buttons -->
-        <div class="flex flex-col gap-2 w-full">
-          {#if isAndroid}
-            <Button on:click={() => window.open(nip46PairingUri, '_system')} primary={true} class="w-full">
-              📱 Open Signer
-            </Button>
-          {/if}
-          <Button on:click={() => copyToClipboard(nip46PairingUri)} primary={false} class="w-full">
-            📋 Copy Link
-          </Button>
-        </div>
-      </div>
-    {:else if nip46PairingStatus}
-      <div class="flex items-center justify-center gap-2 py-8">
-        <div class="animate-spin h-5 w-5 border-2 border-orange-500 border-t-transparent rounded-full"></div>
-        <p class="text-sm" style="color: var(--color-text-primary)">{nip46PairingStatus}</p>
-      </div>
-    {/if}
-    
-    <div class="flex gap-2">
-      <Button on:click={modalCleanup} primary={false} disabled={false}>Cancel</Button>
     </div>
   </div>
 </Modal>
@@ -958,48 +708,28 @@
 
       <!-- Authentication Options -->
       <div class="space-y-2.5 mb-3">
-        <!-- NIP-07 Extension Login - Primary CTA -->
-        <div>
-          <button
-            on:click={loginWithNIP07}
-            on:mouseenter={() => isHovered = true}
-            on:mouseleave={() => isHovered = false}
-            disabled={authState.isLoading}
-            aria-label="Sign in to Zap Cooking using your Nostr browser extension"
-            class="w-full bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white font-semibold h-[52px] md:h-12 px-6 rounded-xl transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
-          >
-            <div class="flex items-center justify-center gap-2">
-              <span class="text-lg">⚡</span>
-              <span class="text-[15px]">
-                {authState.isLoading ? 'Connecting...' : 'Sign in with Browser Signer'}
-              </span>
-            </div>
-          </button>
-          <!-- Extension helper - show neutral info initially, warning only after click -->
-          {#if !showMissingSignerNotice && authManager?.isNIP07Available() === false}
-            <p class="text-[11px] text-caption mt-1.5 leading-relaxed">
-              Works with <a href="https://getalby.com" target="_blank" rel="noopener noreferrer" class="underline hover:opacity-80">Alby</a> or <a href="https://github.com/fiatjaf/nos2x" target="_blank" rel="noopener noreferrer" class="underline hover:opacity-80">nos2x</a>.
-            </p>
-          {/if}
-          <!-- Missing signer notice - shown only after user clicks and no extension detected -->
-          {#if showMissingSignerNotice}
-            <div class="bg-input border rounded-lg p-2.5 mt-1.5" style="border-color: var(--color-input-border)">
-              <p class="text-[11px] text-caption leading-relaxed">
-                No browser signer detected. Install <a href="https://getalby.com" target="_blank" rel="noopener noreferrer" class="underline hover:opacity-80">Alby</a> or <a href="https://github.com/fiatjaf/nos2x" target="_blank" rel="noopener noreferrer" class="underline hover:opacity-80">nos2x</a>, or use an external signer like Amber.
-              </p>
-            </div>
-          {/if}
-        </div>
-
-        <!-- Generate New Account - Secondary CTA -->
+        <!-- Create Account - Primary CTA for iOS -->
         <button
           on:click={() => (generateModal = true)}
           disabled={authState.isLoading}
           aria-label="Create a new Zap Cooking account"
+          class="w-full bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white font-semibold h-[52px] md:h-12 px-6 rounded-xl transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
+        >
+          <div class="flex items-center justify-center gap-2">
+            <span class="text-lg">⚡</span>
+            <span class="text-[15px]">Create Account</span>
+          </div>
+        </button>
+
+        <!-- Import Existing Key - Secondary -->
+        <button
+          on:click={() => (nsecModal = true)}
+          disabled={authState.isLoading}
+          aria-label="Sign in with your Nostr private key"
           class="w-full bg-input hover:opacity-90 font-medium h-11 px-6 rounded-xl transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed border"
           style="color: var(--color-text-primary); border-color: var(--color-input-border)"
         >
-          <span class="text-sm">🔑 Create Account</span>
+          <span class="text-sm">🔑 Import Private Key</span>
         </button>
       </div>
 
@@ -1010,28 +740,18 @@
         </div>
       {/if}
 
-      <!-- Advanced options -->
-      <div class="py-3 space-y-2">
-        <div class="flex items-center justify-center gap-3 text-[11px]">
-          <button
-            on:click={startUniversalPairing}
-            disabled={authState.isLoading}
-            class="text-caption hover:opacity-80 hover:underline transition-colors disabled:opacity-50"
-          >
-            🔐 Connect External Signer
-          </button>
-          <span class="text-caption">|</span>
-          <button
-            on:click={() => (nsecModal = true)}
-            disabled={authState.isLoading}
-            class="text-caption hover:opacity-80 hover:underline transition-colors disabled:opacity-50"
-          >
-            Import key
-          </button>
-        </div>
+      <!-- Additional options -->
+      <div class="py-3">
+        <button
+          on:click={() => (seedModal = true)}
+          disabled={authState.isLoading}
+          class="text-[11px] text-caption hover:opacity-80 hover:underline transition-colors disabled:opacity-50"
+        >
+          🌱 Restore from seed phrase
+        </button>
       </div>
 
-      <!-- Value Propositions - Quieter styling -->
+      <!-- Value Propositions -->
       <section class="grid grid-cols-2 gap-x-3 gap-y-1.5 text-[11px] text-caption pt-3 border-t" style="border-color: var(--color-input-border)" aria-label="Zap Cooking features">
         <div class="flex items-center gap-1">
           <span class="text-orange-400 text-xs">⚡</span>
@@ -1050,7 +770,6 @@
           <span>Cross-Platform Access</span>
         </div>
       </section>
-      </section>
+    </section>
   </div>
 </main>
-{/if}

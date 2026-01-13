@@ -119,6 +119,19 @@ function setStatus(newStatus: ConnectionStatus) {
 }
 
 /**
+ * Check if running in Capacitor (native app)
+ */
+function isCapacitor(): boolean {
+  if (!browser) return false;
+  try {
+    const capacitor = (window as any).Capacitor;
+    return capacitor?.isNativePlatform?.() === true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Perform a heartbeat check to verify actual connectivity
  * Uses a small fetch to a reliable endpoint
  */
@@ -130,6 +143,15 @@ async function heartbeatCheck(): Promise<boolean> {
     return false;
   }
   
+  // For Capacitor apps, navigator.onLine is generally reliable
+  // Skip the fetch-based heartbeat check to avoid false negatives
+  // Capacitor's navigator.onLine accurately reflects network state
+  if (isCapacitor()) {
+    console.log('[ConnectionMonitor] Capacitor detected, trusting navigator.onLine');
+    return navigator.onLine;
+  }
+  
+  // For web builds, use local favicon check
   try {
     // Try to fetch a small resource with timeout
     const controller = new AbortController();
@@ -147,6 +169,7 @@ async function heartbeatCheck(): Promise<boolean> {
     return response.ok;
   } catch (error) {
     // Network error or timeout
+    console.log('[ConnectionMonitor] Heartbeat check failed:', error);
     return false;
   }
 }

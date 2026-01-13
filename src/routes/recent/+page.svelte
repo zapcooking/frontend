@@ -1,8 +1,9 @@
 <script lang="ts">
   import { ndk, userPublickey } from '$lib/nostr';
-  import type { NDKEvent, NDKFilter } from '@nostr-dev-kit/ndk';
-  import { onMount } from 'svelte';
+  import type { NDKEvent, NDKFilter, NDKSubscription } from '@nostr-dev-kit/ndk';
+  import { onMount, onDestroy } from 'svelte';
   import Feed from '../../components/Feed.svelte';
+  import PullToRefresh from '../../components/PullToRefresh.svelte';
   import { validateMarkdownTemplate } from '$lib/parser';
   import type { PageData } from './$types';
   import TagsSearchAutocomplete from '../../components/TagsSearchAutocomplete.svelte';
@@ -10,6 +11,10 @@
   import { RECIPE_TAGS } from '$lib/consts';
 
   export const data: PageData = {} as PageData;
+
+  // Pull-to-refresh refs
+  let pullToRefreshEl: PullToRefresh;
+  let subscription: NDKSubscription | null = null;
 
   type TabType = 'recent' | 'all';
   let activeTab: TabType = 'recent';
@@ -35,7 +40,7 @@
     }
   }
 
-  onMount(() => {
+  function loadRecipes() {
     try {
       if (!$ndk) {
         console.warn('NDK not available, skipping subscription');
@@ -43,8 +48,18 @@
         return;
       }
       
+      // Stop existing subscription if any
+      if (subscription) {
+        subscription.stop();
+        subscription = null;
+      }
+      
+      // Reset state
+      events = [];
+      loaded = false;
+      
       let filter: NDKFilter = { limit: 256, kinds: [30023], '#t': RECIPE_TAGS };
-      const subscription = $ndk.subscribe(filter);
+      subscription = $ndk.subscribe(filter);
 
       subscription.on('event', (event: NDKEvent) => {
         if (validateMarkdownTemplate(event.content) !== null) {
@@ -60,6 +75,28 @@
     } catch (error) {
       console.error(error);
       loaded = true;
+    }
+  }
+
+  async function handleRefresh() {
+    try {
+      loadRecipes();
+      // Wait a bit for events to start coming in
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    } finally {
+      // Always complete the pull-to-refresh
+      pullToRefreshEl?.complete();
+    }
+  }
+
+  onMount(() => {
+    loadRecipes();
+  });
+
+  onDestroy(() => {
+    if (subscription) {
+      subscription.stop();
+      subscription = null;
     }
   });
 </script>
@@ -81,6 +118,7 @@
   <meta property="twitter:image" content="https://zap.cooking/social-share.png" />
 </svelte:head>
 
+<PullToRefresh bind:this={pullToRefreshEl} on:refresh={handleRefresh}>
 <div class="flex flex-col gap-4 max-w-full md:max-w-none">
   <!-- Header with toggle -->
   <div class="flex flex-col gap-3">
@@ -138,3 +176,4 @@
     <Feed events={displayEvents} hideHide={true} {loaded} />
   </div>
 </div>
+</PullToRefresh>

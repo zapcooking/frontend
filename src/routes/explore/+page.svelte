@@ -9,6 +9,7 @@
   import CollectionCard from '../../components/CollectionCard.svelte';
   import ProfileAvatar from '../../components/ProfileAvatar.svelte';
   import TrendingRecipeCard from '../../components/TrendingRecipeCard.svelte';
+  import PullToRefresh from '../../components/PullToRefresh.svelte';
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
   import { nip19 } from 'nostr-tools';
   import { init, markOnce } from '$lib/perf/explorePerf';
@@ -17,6 +18,9 @@
 
   // Accept SvelteKit props to prevent warnings
   export let data: PageData;
+
+  // Pull-to-refresh refs
+  let pullToRefreshEl: PullToRefresh;
 
   // t0_explore_nav_start: Earliest point for the Explore route
   init();
@@ -50,9 +54,15 @@
   }
 
 
-  onMount(async () => {
+  async function loadExploreData() {
     // t1_explore_shell_rendered: When Explore UI shell is mounted
     markOnce('t1_explore_shell_rendered');
+
+    // Reset loading states
+    loadingCollections = true;
+    loadingCooks = true;
+    loadingDiscover = true;
+    loadingPopular = true;
 
     // Load collections immediately (static data, no network)
     collections = await fetchCollectionsWithImages();
@@ -73,6 +83,7 @@
     // Load popular tags (non-blocking)
     computePopularTags(12).then((tags) => {
       popularTags = tags;
+      popularTagCounts.clear();
       popularTags.forEach((tag) => {
         if (tag.count !== undefined) {
           popularTagCounts.set(tag.title, tag.count);
@@ -80,6 +91,21 @@
       });
       loadingPopular = false;
     });
+  }
+
+  async function handleRefresh() {
+    try {
+      await loadExploreData();
+      // Wait a bit for data to load
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    } finally {
+      // Always complete the pull-to-refresh
+      pullToRefreshEl?.complete();
+    }
+  }
+
+  onMount(async () => {
+    await loadExploreData();
   });
 
 
@@ -131,6 +157,7 @@
   <meta property="twitter:image" content="https://zap.cooking/logo_with_text.png" />
 </svelte:head>
 
+<PullToRefresh bind:this={pullToRefreshEl} on:refresh={handleRefresh}>
 <div class="flex flex-col">
   <!-- Orientation text for signed-out users -->
   {#if $userPublickey === ''}
@@ -297,6 +324,7 @@
       </div>
     </div>
 </div>
+</PullToRefresh>
 
 <style>
   /* Hide scrollbar but keep functionality */
