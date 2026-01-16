@@ -83,6 +83,9 @@ importers:
       dompurify:
         specifier: ^3.0.6
         version: 3.3.1
+      dotenv:
+        specifier: ^17.2.3
+        version: 17.2.3
       emoji-picker-element:
         specifier: ^1.28.1
         version: 1.28.1
@@ -104,6 +107,9 @@ importers:
       nostr-tools:
         specifier: ^2.13.0
         version: 2.16.2(typescript@5.6.3)
+      openai:
+        specifier: ^6.16.0
+        version: 6.16.0(ws@8.18.3(bufferutil@4.0.8)(utf-8-validate@5.0.10))
       phosphor-svelte:
         specifier: ^1.4.2
         version: 1.4.2(svelte@4.2.20)
@@ -2190,6 +2196,10 @@ packages:
     resolution: {integrity: sha512-QM8q3zDe58hqUqjraQOmzZ1LIH9SWQJTlEKCH4kJ2oQvLZk7RbQXvtDM2XEq3fwkV9CCvvH4LA0AV+ogFsBM2Q==}
     engines: {node: '>=8'}
 
+  dotenv@17.2.3:
+    resolution: {integrity: sha512-JVUnt+DUIzu87TABbhPmNfVdBDt18BLOWjMUFJMSi/Qqg7NTYtabbvSNJGOJ7afbRuv9D/lngizHtP7QyLQ+9w==}
+    engines: {node: '>=12'}
+
   dunder-proto@1.0.1:
     resolution: {integrity: sha512-KIN/nDJBQRcXw0MLVhZE9iQHmG68qAVIBg9CqmUYjmQIhgij9U5MFvrqkUL5FbtyyzZuOeOt0zdeRe4UY7ct+A==}
     engines: {node: '>= 0.4'}
@@ -3426,6 +3436,18 @@ packages:
   open@8.4.2:
     resolution: {integrity: sha512-7x81NCL719oNbsq/3mh+hVrAWmFuEYUqrq/Iw3kUzH8ReypT9QQ0BLoJS7/G9k6N81XjW4qHWtjWwe/9eLy1EQ==}
     engines: {node: '>=12'}
+
+  openai@6.16.0:
+    resolution: {integrity: sha512-fZ1uBqjFUjXzbGc35fFtYKEOxd20kd9fDpFeqWtsOZWiubY8CZ1NAlXHW3iathaFvqmNtCWMIsosCuyeI7Joxg==}
+    hasBin: true
+    peerDependencies:
+      ws: ^8.18.0
+      zod: ^3.25 || ^4.0
+    peerDependenciesMeta:
+      ws:
+        optional: true
+      zod:
+        optional: true
 
   optionator@0.9.4:
     resolution: {integrity: sha512-6IpQ7mKUxRcZNLIObR0hz7lxsapSSIYNZJwXPGeF0mTVqGKFIXj1DQcMoT22S3ROcLyY/rz0PWaWZ9ayWmad9g==}
@@ -6794,6 +6816,8 @@ snapshots:
     dependencies:
       is-obj: 2.0.0
 
+  dotenv@17.2.3: {}
+
   dunder-proto@1.0.1:
     dependencies:
       call-bind-apply-helpers: 1.0.2
@@ -8152,6 +8176,10 @@ snapshots:
       define-lazy-prop: 2.0.0
       is-docker: 2.2.1
       is-wsl: 2.2.0
+
+  openai@6.16.0(ws@8.18.3(bufferutil@4.0.8)(utf-8-validate@5.0.10)):
+    optionalDependencies:
+      ws: 8.18.3(bufferutil@4.0.8)(utf-8-validate@5.0.10)
 
   optionator@0.9.4:
     dependencies:
