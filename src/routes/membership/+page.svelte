@@ -210,7 +210,7 @@
           <ul>
             <li>✓ Lifetime Pro Kitchen membership (never expires)</li>
             <li>✓ Genesis Founder badge (#{spotsTaken + 1}-21)</li>
-            <li>✓ Access to both members.zap.cooking and pro.zap.cooking relays</li>
+            <li>✓ Access to both pantry.zap.cooking and pro.zap.cooking relays</li>
             <li>✓ Name permanently displayed as a Genesis Founder</li>
             <li>✓ All future Pro Kitchen features included</li>
           </ul>
@@ -289,7 +289,7 @@
         <div class="price">$49<span>/year</span></div>
         <ul>
           <li>Custom Lightning address (you@zap.cooking)</li>
-          <li>Access to members.zap.cooking relay</li>
+          <li>Access to pantry.zap.cooking relay</li>
           <li>Recipe collections</li>
           <li>Member badge</li>
           <li>Vote on features</li>

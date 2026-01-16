@@ -120,7 +120,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
     });
     
     // Add member to relay API
-    const addMemberRes = await fetch('https://members.zap.cooking/api/members', {
+    const addMemberRes = await fetch('https://pantry.zap.cooking/api/members', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${API_SECRET}`,
@@ -161,7 +161,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
       
       console.log('[Membership Payment] Auto-claiming NIP-05:', suggestedUsername);
       
-      const nip05Res = await fetch('https://members.zap.cooking/api/nip05/claim', {
+      const nip05Res = await fetch('https://pantry.zap.cooking/api/nip05/claim', {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${API_SECRET}`,
@@ -182,7 +182,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
         // If default username fails, try with timestamp suffix
         const fallbackUsername = `${pubkey.substring(0, 6)}${Date.now().toString(36).slice(-2)}`.toLowerCase();
         
-        const fallbackRes = await fetch('https://members.zap.cooking/api/nip05/claim', {
+        const fallbackRes = await fetch('https://pantry.zap.cooking/api/nip05/claim', {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${API_SECRET}`,

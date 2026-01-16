@@ -223,7 +223,7 @@
           <ul>
             <li>✓ Custom Lightning address (you@zap.cooking)</li>
             <li>✓ Verified NIP-05 identity</li>
-            <li>✓ Access to members.zap.cooking relay</li>
+            <li>✓ Access to pantry.zap.cooking relay</li>
             <li>✓ Recipe collections</li>
             <li>✓ Member badge</li>
             <li>✓ Vote on features</li>

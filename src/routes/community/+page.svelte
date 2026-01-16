@@ -31,7 +31,7 @@
   // Local state for immediate UI updates
   let activeTab: FilterMode = 'following';
 
-  // Check if user has active membership (for Members tab)
+  // Check if user has active membership (for Pantry tab)
   let hasActiveMembership = false;
   let checkingMembership = false;
 
@@ -160,7 +160,7 @@
             ? 'var(--color-text-primary)'
             : 'var(--color-text-secondary)'}"
         >
-          Notes & Replies
+          Replies
           {#if activeTab === 'replies'}
             <span
               class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-orange-500 to-amber-500"
@@ -168,19 +168,20 @@
           {/if}
         </button>
 
-        <!-- Members tab hidden for now - keeping functionality intact -->
-        <!-- {#if hasActiveMembership}
         <button
           on:click={() => setTab('members')}
           class="px-4 py-2 text-sm font-medium transition-colors relative"
-          style="color: {activeTab === 'members' ? 'var(--color-text-primary)' : 'var(--color-text-secondary)'}"
+          style="color: {activeTab === 'members'
+            ? 'var(--color-text-primary)'
+            : 'var(--color-text-secondary)'}"
         >
-          Members
+          Pantry
           {#if activeTab === 'members'}
-            <span class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-orange-500 to-amber-500"></span>
+            <span
+              class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-orange-500 to-amber-500"
+            ></span>
           {/if}
         </button>
-      {/if} -->
 
         <button
           on:click={() => setTab('garden')}
@@ -189,7 +190,7 @@
             ? 'var(--color-text-primary)'
             : 'var(--color-text-secondary)'}"
         >
-          The Garden
+          Garden
           {#if activeTab === 'garden'}
             <span
               class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-orange-500 to-amber-500"
@@ -214,15 +215,17 @@
       </div>
     {/if}
 
-    <!-- Members tab and membership prompt hidden for now -->
-    <!-- Show membership prompt for Members tab if not a member -->
-    <!-- {#if activeTab === 'members' && $userPublickey && !hasActiveMembership && !checkingMembership}
-    <div class="mb-4 p-4 bg-accent-gray rounded-lg" style="border: 1px solid var(--color-input-border)">
-      <p class="text-sm" style="color: var(--color-text-primary)">
-        <a href="/membership" class="font-medium underline hover:opacity-80">Become a member</a> to access exclusive content from the private member community.
-      </p>
-    </div>
-  {/if} -->
+    <!-- Show membership prompt for Pantry tab if not a member -->
+    {#if activeTab === 'members' && $userPublickey && !hasActiveMembership && !checkingMembership}
+      <div
+        class="mb-4 p-4 bg-accent-gray rounded-lg"
+        style="border: 1px solid var(--color-input-border)"
+      >
+        <p class="text-sm" style="color: var(--color-text-primary)">
+          <a href="/membership" class="font-medium underline hover:opacity-80">Become a member</a> to access exclusive content from The Pantry.
+        </p>
+      </div>
+    {/if}
 
     {#key feedKey}
       <FoodstrFeedOptimized bind:this={feedComponent} filterMode={activeTab} />

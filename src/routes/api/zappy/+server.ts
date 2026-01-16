@@ -100,7 +100,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
       const API_SECRET = platform?.env?.RELAY_API_SECRET || env.RELAY_API_SECRET;
       if (API_SECRET) {
         try {
-          const membersRes = await fetch('https://members.zap.cooking/api/members', {
+          const membersRes = await fetch('https://pantry.zap.cooking/api/members', {
             headers: { 'Authorization': `Bearer ${API_SECRET}` }
           });
           

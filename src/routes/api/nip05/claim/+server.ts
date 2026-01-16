@@ -95,7 +95,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
     }
     
     // First verify the user has an active membership
-    const memberCheckRes = await fetch(`https://members.zap.cooking/api/members/${pubkey}`, {
+    const memberCheckRes = await fetch(`https://pantry.zap.cooking/api/members/${pubkey}`, {
       method: 'GET',
       headers: {
         'Authorization': `Bearer ${API_SECRET}`,
@@ -178,7 +178,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
     });
     
     // Claim NIP-05 with members API
-    const claimRes = await fetch('https://members.zap.cooking/api/nip05/claim', {
+    const claimRes = await fetch('https://pantry.zap.cooking/api/nip05/claim', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${API_SECRET}`,

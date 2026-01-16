@@ -63,7 +63,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
     }
     
     // Fetch all members
-    const membersRes = await fetch('https://members.zap.cooking/api/members', {
+    const membersRes = await fetch('https://pantry.zap.cooking/api/members', {
       headers: {
         'Authorization': `Bearer ${API_SECRET}`
       }

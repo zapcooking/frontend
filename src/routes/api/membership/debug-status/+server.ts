@@ -79,7 +79,7 @@ export const GET: RequestHandler = async ({ url, platform }) => {
     // Show the hex pubkey being used
     const hexPubkeyUsed = pubkey;
     
-    const memberRes = await fetch(`https://members.zap.cooking/api/members/${pubkey}`, {
+    const memberRes = await fetch(`https://pantry.zap.cooking/api/members/${pubkey}`, {
       headers: {
         'Authorization': `Bearer ${API_SECRET}`,
         'Content-Type': 'application/json'
