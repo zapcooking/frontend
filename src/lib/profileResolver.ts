@@ -82,20 +82,19 @@ const PROFILE_FETCH_TIMEOUT = 5000; // 5 seconds
 async function fetchProfileFromRelays(pubkey: string, ndkInstance: NDK): Promise<ProfileData | null> {
   try {
     if (!ndkInstance) {
-      console.warn('NDK not available for profile fetch');
       return null;
     }
 
     if (!pubkey) {
-      console.warn('No pubkey provided for profile fetch');
       return null;
     }
 
-    // Get user profile using NDK
+    // Use NDK's built-in fetchProfile method
+    // It handles relay selection via outbox model when enabled
     const user = ndkInstance.getUser({ hexpubkey: pubkey });
     
-    // Force a fresh fetch by clearing any cached profile first
-    user.profile = undefined;
+    // Don't clear cached profile - let NDK use its cache
+    // This prevents unnecessary network requests
     
     // Add timeout to prevent hanging
     const fetchPromise = user.fetchProfile();
@@ -107,7 +106,6 @@ async function fetchProfileFromRelays(pubkey: string, ndkInstance: NDK): Promise
     
     const profile = user.profile;
     if (!profile) {
-      // Don't log this - it's common for profiles not to be found quickly
       return null;
     }
 
@@ -124,7 +122,7 @@ async function fetchProfileFromRelays(pubkey: string, ndkInstance: NDK): Promise
 
     return profileData;
   } catch (error) {
-    console.warn(`Failed to fetch profile for ${pubkey}:`, error);
+    // Silently fail - profile fetch errors are common and non-critical
     return null;
   }
 }

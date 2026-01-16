@@ -140,19 +140,20 @@ interface NdkConfig {
 function getNdkConfigForMode(mode: RelayMode, relayUrls: string[]): NdkConfig {
   switch (mode) {
     case 'garden':
-      // Garden mode: NO outbox model - only connect to garden relay
+      // Garden mode: Enable outbox model for profile resolution, but feed uses explicit relays only
+      // The outbox model won't affect feed queries since we use explicit relay sets
       return {
         explicitRelayUrls: relayUrls,
-        enableOutboxModel: false,
-        outboxRelayUrls: []
+        enableOutboxModel: true,
+        outboxRelayUrls: DEFAULT_OUTBOX_RELAY_URLS
       };
     
     case 'members':
-      // Members mode: NO outbox model - only connect to members relay
+      // Members mode: Enable outbox model for profile resolution, but feed uses explicit relays only
       return {
         explicitRelayUrls: relayUrls,
-        enableOutboxModel: false,
-        outboxRelayUrls: []
+        enableOutboxModel: true,
+        outboxRelayUrls: DEFAULT_OUTBOX_RELAY_URLS
       };
     
     case 'discovery':

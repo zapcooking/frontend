@@ -8,27 +8,50 @@
   export let event: NDKEvent;
   export let className: string = 'font-semibold text-sm';
 
-  let pubkey: string = '';
-  let displayName: string = '';
+  let displayName: string = '@Anonymous';
   let isLoading: boolean = true;
+  let mounted = false;
 
-  // Get pubkey from event
-  $: {
-    pubkey = event.author?.hexpubkey || '';
-    if (pubkey) {
-      loadProfile();
-    }
-  }
+  // Get pubkey from event  
+  $: pubkey = event?.pubkey || event?.author?.hexpubkey || '';
+
+  // Load profile on mount only (not reactively)
+  onMount(() => {
+    mounted = true;
+    loadProfile();
+  });
 
   async function loadProfile() {
-    if (!pubkey || !$ndk) return;
+    if (!pubkey) {
+      displayName = '@Anonymous';
+      isLoading = false;
+      return;
+    }
     
     try {
-      isLoading = true;
-      const profile = await resolveProfileByPubkey(pubkey, $ndk);
-      displayName = formatDisplayName(profile);
-    } catch (error) {
-      console.error('AuthorName: Failed to load profile:', error);
+      // Get NDK instance
+      let ndkInstance: any;
+      const unsub = ndk.subscribe(v => { ndkInstance = v; });
+      unsub();
+      
+      if (!ndkInstance) {
+        displayName = '@Anonymous';
+        isLoading = false;
+        return;
+      }
+      
+      // Simple profile fetch with timeout
+      const profile = await Promise.race([
+        resolveProfileByPubkey(pubkey, ndkInstance),
+        new Promise<null>(r => setTimeout(() => r(null), 3000))
+      ]);
+      
+      if (profile) {
+        displayName = formatDisplayName(profile) || '@Anonymous';
+      } else {
+        displayName = '@Anonymous';
+      }
+    } catch {
       displayName = '@Anonymous';
     } finally {
       isLoading = false;

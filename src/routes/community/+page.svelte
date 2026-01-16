@@ -1,7 +1,7 @@
 <script lang="ts">
   import FoodstrFeedOptimized from '../../components/FoodstrFeedOptimized.svelte';
   import PullToRefresh from '../../components/PullToRefresh.svelte';
-  import { ndk, userPublickey, normalizeRelayUrl, ensureNdkConnected, getConnectedRelays } from '$lib/nostr';
+  import { ndk, userPublickey, normalizeRelayUrl } from '$lib/nostr';
   import { NDKEvent } from '@nostr-dev-kit/ndk';
   import PencilSimpleIcon from 'phosphor-svelte/lib/PencilSimple';
   import ImageIcon from 'phosphor-svelte/lib/Image';
@@ -61,22 +61,6 @@
     const url = new URL($page.url);
     url.searchParams.set('tab', tab);
     goto(url.pathname + url.search, { noScroll: true, replaceState: true });
-    
-    // If switching to garden tab, ensure we refresh to show only garden relay content
-    // The reactive statement in FoodstrFeedOptimized will handle the refresh
-    // But we can also trigger it explicitly for extra safety
-    if (tab === 'garden') {
-      // Wait a bit for component to recreate, then force refresh
-      setTimeout(async () => {
-        if (feedComponent) {
-          try {
-            await feedComponent.refresh();
-          } catch (err) {
-            console.error('Failed to refresh garden feed:', err);
-          }
-        }
-      }, 150);
-    }
   }
 
   let isComposerOpen = false;

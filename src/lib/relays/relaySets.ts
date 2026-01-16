@@ -34,6 +34,14 @@ export const RELAY_SETS: Record<string, RelaySet> = {
       'wss://nos.lol'
     ]
   },
+  members: {
+    id: 'members',
+    name: 'Members',
+    description: 'Private members relay for Zap.Cooking members',
+    relays: [
+      'wss://members.zap.cooking'
+    ]
+  },
   discovery: {
     id: 'discovery',
     name: 'Discovery',
