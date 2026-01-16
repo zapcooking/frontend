@@ -38,12 +38,19 @@
   import { buildCanonicalRecipeShareUrl } from '$lib/utils/share';
   import DirectionsPhases from './DirectionsPhases.svelte';
   import AddToListModal from '../grocery/AddToListModal.svelte';
+  import GatedRecipePayment from '../GatedRecipePayment.svelte';
+  import { checkIfGated } from '$lib/nip108/client';
+  import type { GatedRecipeMetadata } from '$lib/nip108/types';
 
   export let event: NDKEvent;
-  const naddr = nip19.naddrEncode({
+  export let isPremium = false;
+  export let naddr: string = '';
+  
+  // Compute naddr if not provided
+  $: computedNaddr = naddr || nip19.naddrEncode({
     identifier: event.replaceableDTag(),
     pubkey: event.pubkey,
-    kind: 30023
+    kind: event.kind || 30023
   });
   let zapModal = false;
   let zapRefreshKey = 0;
@@ -56,12 +63,17 @@
   // Check if current user owns this recipe
   $: isOwner = $userPublickey && $userPublickey === event.author.pubkey;
 
+  // Gated recipe state
+  let gatedMetadata: GatedRecipeMetadata | null = null;
+  let unlockedRecipe: NDKEvent | null = null;
+  let checkingGated = true;
+
   // Track if author has a lightning address (can receive zaps)
   let authorCanReceiveZaps = true; // Default to true while loading
   let authorLightningCheckComplete = false;
 
   // Construct the canonical recipe URL for sharing (uses short /r/ format)
-  $: shareUrl = buildCanonicalRecipeShareUrl(naddr);
+  $: shareUrl = buildCanonicalRecipeShareUrl(computedNaddr);
   
   // Get recipe title and image for sharing
   $: recipeTitle = event.tags.find((t) => t[0] === 'title')?.[1] || 
@@ -79,7 +91,26 @@
       authorCanReceiveZaps = false;
     }
     authorLightningCheckComplete = true;
+
+    // Check if recipe is gated
+    try {
+      checkingGated = true;
+      const metadata = await checkIfGated(event, $ndk);
+      if (metadata) {
+        gatedMetadata = metadata;
+      }
+    } catch (error) {
+      console.warn('Failed to check if recipe is gated:', error);
+    } finally {
+      checkingGated = false;
+    }
   });
+
+  function handleUnlocked(recipe: NDKEvent) {
+    unlockedRecipe = recipe;
+    // Replace the event with unlocked recipe
+    event = recipe;
+  }
 
   function handleZapComplete() {
     // Increment key to force TotalZaps to remount and refetch
@@ -368,7 +399,18 @@
 </Modal>
 
 <article class="max-w-[760px] mx-auto">
-  {#if event}
+  {#if checkingGated}
+    <div class="flex items-center justify-center p-8">
+      <div class="text-caption">Loading recipe...</div>
+    </div>
+  {:else if gatedMetadata && !unlockedRecipe}
+    <!-- Show gated payment UI -->
+    <GatedRecipePayment
+      {gatedMetadata}
+      gatedNoteId={gatedMetadata.gatedNoteId}
+      onUnlocked={handleUnlocked}
+    />
+  {:else if event}
     <div class="flex flex-col gap-6">
       <div class="flex flex-col gap-4">
         <h1>

@@ -7,6 +7,7 @@
   import Recipe from '../../../components/Recipe/Recipe.svelte';
   import PanLoader from '../../../components/PanLoader.svelte';
   import type { PageData } from './$types';
+  import { GATED_RECIPE_KIND } from '$lib/consts';
 
   export let data: PageData;
 
@@ -36,17 +37,21 @@
           throw new Error('Invalid naddr format');
         }
         const b = a.data;
+        
+        // Support both regular recipes (30023) and premium recipes (35000)
+        const recipeKind = b.kind === GATED_RECIPE_KIND ? GATED_RECIPE_KIND : 30023;
+        
         naddr = nip19.naddrEncode({
           identifier: b.identifier,
           pubkey: b.pubkey,
-          kind: 30023
+          kind: recipeKind
         });
         
         // Add timeout protection for recipe loading
         const fetchPromise = $ndk.fetchEvent({
           '#d': [b.identifier],
           authors: [b.pubkey],
-          kinds: [30023]
+          kinds: [recipeKind as number]
         });
         const timeoutPromise = new Promise((_, reject) => 
           setTimeout(() => reject(new Error('Recipe loading timeout - relays may be unreachable')), 10000)

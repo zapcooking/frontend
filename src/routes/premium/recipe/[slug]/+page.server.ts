@@ -3,21 +3,12 @@ import { nip19 } from 'nostr-tools';
 import { redirect } from '@sveltejs/kit';
 import { GATED_RECIPE_KIND } from '$lib/consts';
 
-// Enable SSR for OG tags (social media crawlers need server-rendered meta tags)
-// Note: Client-side data loading still works for interactive features
-export const prerender = false;
-
 // Tracking parameters to strip
 const TRACKING_PARAMS = [
 	'fbclid', 'gclid', 'msclkid',
 	'utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content',
 	'ref', 'source'
 ];
-
-// Note: Cloudflare Workers run at the edge by default with native WebSocket support.
-// The runtime: 'edge' config is Vercel-specific and not needed for Cloudflare.
-// If deploying to Vercel, uncomment the config below:
-// export const config = { runtime: 'edge' };
 
 interface RecipeMetadata {
 	title: string;
@@ -31,8 +22,7 @@ const RELAYS = [
 	'wss://nos.lol'
 ];
 
-async function fetchFromRelay(relayUrl: string, identifier: string, pubkey: string, kind: number = 30023): Promise<RecipeMetadata | null> {
-	// Check if WebSocket is available (may not be in Node.js dev environment)
+async function fetchFromRelay(relayUrl: string, identifier: string, pubkey: string, kind: number = GATED_RECIPE_KIND): Promise<RecipeMetadata | null> {
 	if (typeof WebSocket === 'undefined') {
 		return null;
 	}
@@ -71,7 +61,7 @@ async function fetchFromRelay(relayUrl: string, identifier: string, pubkey: stri
 			return;
 		}
 
-		const subId = `og-${Date.now()}`;
+		const subId = `og-premium-${Date.now()}`;
 
 		ws.onopen = () => {
 			if (!ws || resolved) return;
@@ -100,42 +90,12 @@ async function fetchFromRelay(relayUrl: string, identifier: string, pubkey: stri
 				if (msg[0] === 'EVENT' && msg[1] === subId && msg[2]) {
 					const evt = msg[2];
 					const title = evt.tags?.find((t: string[]) => t[0] === 'title')?.[1] ||
-					              evt.tags?.find((t: string[]) => t[0] === 'd')?.[1] || 'Recipe';
+					              evt.tags?.find((t: string[]) => t[0] === 'd')?.[1] || 'Premium Recipe';
 					const image = evt.tags?.find((t: string[]) => t[0] === 'image')?.[1] || '';
 					
-					// Extract description: prefer summary tag, then clean content
 					let description = evt.tags?.find((t: string[]) => t[0] === 'summary')?.[1];
-					if (!description && evt.content) {
-						// Clean markdown and get first meaningful text
-						let text = evt.content
-							.replace(/^#+\s+/gm, '') // Remove markdown headers
-							.replace(/\[([^\]]+)\]\([^\)]+\)/g, '$1') // Convert links to text
-							.replace(/!\[([^\]]*)\]\([^\)]+\)/g, '') // Remove images
-							.replace(/\*\*([^\*]+)\*\*/g, '$1') // Remove bold
-							.replace(/\*([^\*]+)\*/g, '$1') // Remove italic
-							.replace(/`([^`]+)`/g, '$1') // Remove code
-							.replace(/\n+/g, ' ') // Replace newlines with spaces
-							.trim();
-						
-						// Get first 200 characters, but try to end at a sentence
-						if (text.length > 200) {
-							const truncated = text.slice(0, 200);
-							const lastPeriod = truncated.lastIndexOf('.');
-							const lastExclamation = truncated.lastIndexOf('!');
-							const lastQuestion = truncated.lastIndexOf('?');
-							const lastSentence = Math.max(lastPeriod, lastExclamation, lastQuestion);
-							if (lastSentence > 100) {
-								description = text.slice(0, lastSentence + 1);
-							} else {
-								description = truncated + '...';
-							}
-						} else {
-							description = text;
-						}
-					}
-					
 					if (!description) {
-						description = `A delicious recipe shared on zap.cooking`;
+						description = 'A premium Lightning-gated recipe on zap.cooking. Unlock with sats!';
 					}
 
 					clearTimeout(timeout);
@@ -163,8 +123,7 @@ async function fetchFromRelay(relayUrl: string, identifier: string, pubkey: stri
 	});
 }
 
-async function fetchRecipeMetadata(identifier: string, pubkey: string, kind: number = 30023): Promise<RecipeMetadata | null> {
-	// Try relays in parallel, return first successful result
+async function fetchRecipeMetadata(identifier: string, pubkey: string, kind: number): Promise<RecipeMetadata | null> {
 	const results = await Promise.all(
 		RELAYS.map(relay => fetchFromRelay(relay, identifier, pubkey, kind))
 	);
@@ -175,29 +134,27 @@ async function fetchRecipeMetadata(identifier: string, pubkey: string, kind: num
 export const load: PageServerLoad = async ({ params, url }) => {
 	const slug = params.slug;
 
-	// Strip tracking parameters - redirect to clean URL if present
+	// Strip tracking parameters
 	const hasTrackingParams = TRACKING_PARAMS.some(param => url.searchParams.has(param));
 	if (hasTrackingParams) {
-		throw redirect(301, `/recipe/${slug}`);
+		throw redirect(301, `/premium/recipe/${slug}`);
 	}
 
 	if (!slug?.startsWith('naddr1')) {
-		// Not an naddr, return fallback
 		return {
 			ogMeta: {
-				title: 'Recipe - zap.cooking',
-				description: 'A recipe shared on zap.cooking - Food. Friends. Freedom.',
+				title: 'Premium Recipe - zap.cooking',
+				description: 'A premium Lightning-gated recipe on zap.cooking',
 				image: 'https://zap.cooking/social-share.png'
 			}
 		};
 	}
 
-	// Skip if WebSocket is not available (e.g., some Node.js environments)
 	if (typeof WebSocket === 'undefined') {
 		return {
 			ogMeta: {
-				title: 'Recipe - zap.cooking',
-				description: 'A recipe shared on zap.cooking - Food. Friends. Freedom.',
+				title: 'Premium Recipe - zap.cooking',
+				description: 'A premium Lightning-gated recipe on zap.cooking',
 				image: 'https://zap.cooking/social-share.png'
 			}
 		};
@@ -206,22 +163,18 @@ export const load: PageServerLoad = async ({ params, url }) => {
 	try {
 		const decoded = nip19.decode(slug);
 		if (decoded.type !== 'naddr') {
-			// Invalid naddr format, return fallback
 			return {
 				ogMeta: {
-					title: 'Recipe - zap.cooking',
-					description: 'A recipe shared on zap.cooking - Food. Friends. Freedom.',
+					title: 'Premium Recipe - zap.cooking',
+					description: 'A premium Lightning-gated recipe on zap.cooking',
 					image: 'https://zap.cooking/social-share.png'
 				}
 			};
 		}
 
 		const { identifier, pubkey, kind } = decoded.data;
-		
-		// Support both regular recipes (30023) and premium recipes (35000)
 		const recipeKind = kind === GATED_RECIPE_KIND ? GATED_RECIPE_KIND : 30023;
 		
-		// Add timeout to prevent hanging
 		const metadataPromise = fetchRecipeMetadata(identifier, pubkey, recipeKind);
 		const timeoutPromise = new Promise<null>((resolve) => 
 			setTimeout(() => resolve(null), 5000)
@@ -232,31 +185,28 @@ export const load: PageServerLoad = async ({ params, url }) => {
 		if (metadata) {
 			return {
 				ogMeta: {
-					title: `${metadata.title} - zap.cooking`,
-					description: metadata.description || 'A delicious recipe shared on zap.cooking',
+					title: `${metadata.title} - Premium Recipe - zap.cooking`,
+					description: metadata.description || 'A premium Lightning-gated recipe on zap.cooking',
 					image: metadata.image || 'https://zap.cooking/social-share.png'
 				}
 			};
 		}
 		
-		// Even if metadata fetch failed, provide basic fallback
 		return {
 			ogMeta: {
-				title: 'Recipe - zap.cooking',
-				description: 'A recipe shared on zap.cooking - Food. Friends. Freedom.',
+				title: 'Premium Recipe - zap.cooking',
+				description: 'A premium Lightning-gated recipe on zap.cooking',
 				image: 'https://zap.cooking/social-share.png'
 			}
 		};
 	} catch (e) {
-		// Log error but don't throw - return fallback meta tags
-		console.error('[OG Meta] Error:', e);
+		console.error('[Premium OG Meta] Error:', e);
 	}
 
-	// Final fallback - at least provide something useful
 	return {
 		ogMeta: {
-			title: 'Recipe - zap.cooking',
-			description: 'A recipe shared on zap.cooking - Food. Friends. Freedom.',
+			title: 'Premium Recipe - zap.cooking',
+			description: 'A premium Lightning-gated recipe on zap.cooking',
 			image: 'https://zap.cooking/social-share.png'
 		}
 	};

@@ -290,12 +290,13 @@
             console.log('publish failed to', relay, err);
           });
         });
+        resultMessage = 'Success! Redirecting to your recipe...';
+        
         const naddr = nip19.naddrEncode({
           identifier: title.toLowerCase().replaceAll(' ', '-'),
           pubkey: event.author.hexpubkey,
           kind: 30023
         });
-        resultMessage = 'Success! Redirecting to your recipe...';
 
         // Delete the draft since it's now published
         if (currentDraftId) {
