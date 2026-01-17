@@ -144,7 +144,7 @@
   }
 
   function handleDragMove(e: MouseEvent | TouchEvent) {
-    if (!isDragging) return;
+    if (!isDragging || !widgetEl) return;
     e.preventDefault();
 
     const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
@@ -154,16 +154,20 @@
     let newY = clientY - dragStartY;
 
     // Keep widget within viewport bounds
-    if (browser && widgetEl) {
-      const rect = widgetEl.getBoundingClientRect();
-      const maxX = window.innerWidth - rect.width;
-      const maxY = window.innerHeight - rect.height;
+    if (browser) {
+      const maxX = window.innerWidth - widgetEl.offsetWidth;
+      const maxY = window.innerHeight - widgetEl.offsetHeight;
       newX = Math.max(0, Math.min(newX, maxX));
       newY = Math.max(0, Math.min(newY, maxY));
     }
 
     posX = newX;
     posY = newY;
+
+    // Apply position directly during drag for smooth movement
+    widgetEl.style.left = `${newX}px`;
+    widgetEl.style.top = `${newY}px`;
+    widgetEl.style.right = 'auto';
   }
 
   function handleDragEnd() {
@@ -271,44 +275,42 @@
   <div
     class="timer-widget {isMobile ? 'mobile' : 'desktop'}"
     class:dragging={isDragging}
-    class:minimized={isMinimized && isMobile}
-    style={widgetStyle}
+    class:minimized={isMinimized}
+    style={!isMinimized || isMobile ? widgetStyle : ''}
     bind:this={widgetEl}
   >
     <!-- Header -->
     <div
       class="widget-header"
-      on:mousedown={!isMobile ? handleDragStart : undefined}
-      on:touchstart={!isMobile ? handleDragStart : undefined}
+      on:mousedown={!isMobile && !isMinimized ? handleDragStart : undefined}
+      on:touchstart={!isMobile && !isMinimized ? handleDragStart : undefined}
       role="button"
       tabindex="0"
-      aria-label={isMobile ? 'Timer controls' : 'Drag to move'}
+      aria-label={isMobile ? 'Timer controls' : (isMinimized ? 'Timer docked' : 'Drag to move')}
     >
-      {#if !isMobile}
+      {#if !isMobile && !isMinimized}
         <div class="drag-handle">
           <DotsSixVerticalIcon size={16} />
         </div>
       {/if}
       <span class="widget-title">Timers</span>
-      {#if isMobile && activeTimers.length > 0 && isMinimized}
+      {#if activeTimers.length > 0 && isMinimized}
         <span class="minimized-time">
           {getDisplayTime(activeTimers[0], tick)}
         </span>
       {/if}
       <div class="header-actions">
-        {#if isMobile}
-          <button
-            on:click|stopPropagation={() => isMinimized = !isMinimized}
-            class="minimize-btn"
-            aria-label={isMinimized ? 'Expand' : 'Minimize'}
-          >
-            {#if isMinimized}
-              <CaretUpIcon size={18} />
-            {:else}
-              <CaretDownIcon size={18} />
-            {/if}
-          </button>
-        {/if}
+        <button
+          on:click|stopPropagation={() => isMinimized = !isMinimized}
+          class="minimize-btn"
+          aria-label={isMinimized ? 'Expand' : 'Minimize'}
+        >
+          {#if isMinimized}
+            <CaretUpIcon size={18} />
+          {:else}
+            <CaretDownIcon size={18} />
+          {/if}
+        </button>
         <button
           on:click|stopPropagation={toggleSound}
           class="sound-btn {soundEnabled ? 'sound-on' : 'sound-off'}"
@@ -326,8 +328,8 @@
       </div>
     </div>
 
-    <!-- Content (hidden when minimized on mobile) -->
-    {#if !isMinimized || !isMobile}
+    <!-- Content (hidden when minimized) -->
+    {#if !isMinimized}
     <!-- Quick add -->
     <div class="quick-add">
       <input
@@ -825,6 +827,24 @@
   .timer-widget.mobile.minimized {
     max-height: none;
     overflow: hidden;
+  }
+
+  /* Desktop minimized - docked to bottom */
+  .timer-widget.desktop.minimized {
+    top: auto;
+    bottom: 16px;
+    left: 50%;
+    transform: translateX(-50%);
+    right: auto;
+    width: auto;
+    min-width: 300px;
+    max-height: none;
+    overflow: hidden;
+    border-radius: 12px;
+  }
+
+  .timer-widget.desktop.minimized .widget-header {
+    cursor: default;
   }
 
   .timer-widget.mobile .widget-header {
