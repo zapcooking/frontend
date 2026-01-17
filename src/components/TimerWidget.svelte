@@ -1,8 +1,8 @@
 <!--
-  TimerWidget - Floating timer panel that overlays page content
+  TimerWidget - Floating draggable timer panel that overlays page content
 
   Shows active timers in a compact floating panel so users can
-  see timers while viewing recipes.
+  see timers while viewing recipes. Can be dragged anywhere on screen.
 -->
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
@@ -26,6 +26,7 @@
   import XIcon from 'phosphor-svelte/lib/X';
   import BellIcon from 'phosphor-svelte/lib/Bell';
   import BellSlashIcon from 'phosphor-svelte/lib/BellSlash';
+  import DotsSixVerticalIcon from 'phosphor-svelte/lib/DotsSixVertical';
 
   export let open = false;
 
@@ -40,6 +41,14 @@
   let soundEnabled = true;
   let audioContext: AudioContext | null = null;
 
+  // Drag state
+  let isDragging = false;
+  let dragStartX = 0;
+  let dragStartY = 0;
+  let posX = 0;
+  let posY = 0;
+  let widgetEl: HTMLDivElement;
+
   // For live countdown updates
   let tickInterval: ReturnType<typeof setInterval> | null = null;
   let tick = 0;
@@ -53,6 +62,13 @@
     if (browser) {
       await loadTimers();
       startTicking();
+      // Load saved position
+      const savedPos = localStorage.getItem('timerWidgetPosition');
+      if (savedPos) {
+        const { x, y } = JSON.parse(savedPos);
+        posX = x;
+        posY = y;
+      }
     }
   });
 
@@ -73,6 +89,59 @@
     if (tickInterval) {
       clearInterval(tickInterval);
       tickInterval = null;
+    }
+  }
+
+  // Drag handlers
+  function handleDragStart(e: MouseEvent | TouchEvent) {
+    isDragging = true;
+    const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
+    const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
+    dragStartX = clientX - posX;
+    dragStartY = clientY - posY;
+
+    if ('touches' in e) {
+      document.addEventListener('touchmove', handleDragMove, { passive: false });
+      document.addEventListener('touchend', handleDragEnd);
+    } else {
+      document.addEventListener('mousemove', handleDragMove);
+      document.addEventListener('mouseup', handleDragEnd);
+    }
+  }
+
+  function handleDragMove(e: MouseEvent | TouchEvent) {
+    if (!isDragging) return;
+    e.preventDefault();
+
+    const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
+    const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
+
+    let newX = clientX - dragStartX;
+    let newY = clientY - dragStartY;
+
+    // Keep widget within viewport bounds
+    if (browser && widgetEl) {
+      const rect = widgetEl.getBoundingClientRect();
+      const maxX = window.innerWidth - rect.width;
+      const maxY = window.innerHeight - rect.height;
+      newX = Math.max(0, Math.min(newX, maxX));
+      newY = Math.max(0, Math.min(newY, maxY));
+    }
+
+    posX = newX;
+    posY = newY;
+  }
+
+  function handleDragEnd() {
+    isDragging = false;
+    document.removeEventListener('mousemove', handleDragMove);
+    document.removeEventListener('mouseup', handleDragEnd);
+    document.removeEventListener('touchmove', handleDragMove);
+    document.removeEventListener('touchend', handleDragEnd);
+
+    // Save position
+    if (browser) {
+      localStorage.setItem('timerWidgetPosition', JSON.stringify({ x: posX, y: posY }));
     }
   }
 
@@ -154,16 +223,36 @@
 
   $: activeTimers = timers.filter(t => t.status === 'running' || t.status === 'paused');
   $: completedTimers = timers.filter(t => t.status === 'done');
+
+  // Compute style for position
+  $: widgetStyle = posX || posY
+    ? `left: ${posX}px; top: ${posY}px; right: auto;`
+    : '';
 </script>
 
 {#if open}
-  <div class="timer-widget">
-    <!-- Header -->
-    <div class="widget-header">
+  <div
+    class="timer-widget"
+    class:dragging={isDragging}
+    style={widgetStyle}
+    bind:this={widgetEl}
+  >
+    <!-- Drag handle + Header -->
+    <div
+      class="widget-header"
+      on:mousedown={handleDragStart}
+      on:touchstart={handleDragStart}
+      role="button"
+      tabindex="0"
+      aria-label="Drag to move"
+    >
+      <div class="drag-handle">
+        <DotsSixVerticalIcon size={16} />
+      </div>
       <span class="widget-title">Timers</span>
       <div class="header-actions">
         <button
-          on:click={toggleSound}
+          on:click|stopPropagation={toggleSound}
           class="sound-btn {soundEnabled ? 'sound-on' : 'sound-off'}"
           aria-label={soundEnabled ? 'Mute' : 'Unmute'}
         >
@@ -173,7 +262,7 @@
             <BellSlashIcon size={16} />
           {/if}
         </button>
-        <button on:click={() => open = false} class="close-btn" aria-label="Close">
+        <button on:click|stopPropagation={() => open = false} class="close-btn" aria-label="Close">
           <XIcon size={18} />
         </button>
       </div>
@@ -274,7 +363,7 @@
     position: fixed;
     top: 60px;
     right: 16px;
-    width: 280px;
+    width: 340px;
     max-height: calc(100vh - 80px);
     overflow-y: auto;
     background: var(--color-input-bg);
@@ -283,18 +372,39 @@
     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
     z-index: 50;
     padding: 12px;
+    transition: box-shadow 0.2s;
+  }
+
+  .timer-widget.dragging {
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25);
+    cursor: grabbing;
+    user-select: none;
   }
 
   .widget-header {
     display: flex;
-    justify-content: space-between;
     align-items: center;
     margin-bottom: 12px;
+    cursor: grab;
+    user-select: none;
+  }
+
+  .widget-header:active {
+    cursor: grabbing;
+  }
+
+  .drag-handle {
+    color: var(--color-text-caption);
+    opacity: 0.5;
+    margin-right: 4px;
+    display: flex;
+    align-items: center;
   }
 
   .widget-title {
     font-weight: 600;
     color: var(--color-text-primary);
+    flex: 1;
   }
 
   .header-actions {
@@ -327,39 +437,41 @@
 
   .quick-add {
     display: flex;
-    gap: 6px;
+    gap: 8px;
     align-items: center;
     margin-bottom: 12px;
   }
 
   .quick-label {
     flex: 1;
-    padding: 6px 8px;
+    min-width: 0;
+    padding: 8px 10px;
     border: 1px solid var(--color-input-border);
     border-radius: 6px;
     background: var(--color-input-bg);
     color: var(--color-text-primary);
-    font-size: 13px;
+    font-size: 14px;
   }
 
   .quick-minutes {
-    width: 50px;
-    padding: 6px 8px;
+    width: 60px;
+    padding: 8px 10px;
     border: 1px solid var(--color-input-border);
     border-radius: 6px;
     background: var(--color-input-bg);
     color: var(--color-text-primary);
-    font-size: 13px;
+    font-size: 14px;
     text-align: center;
   }
 
   .min-label {
     color: var(--color-text-caption);
-    font-size: 12px;
+    font-size: 13px;
+    flex-shrink: 0;
   }
 
   .add-btn {
-    padding: 6px;
+    padding: 8px;
     border-radius: 6px;
     background: var(--color-primary);
     border: none;
@@ -368,6 +480,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
+    flex-shrink: 0;
   }
 
   .add-btn:hover {
@@ -402,7 +515,7 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 8px 10px;
+    padding: 10px 12px;
   }
 
   .timer-info {
@@ -417,7 +530,7 @@
   }
 
   .timer-time {
-    font-size: 20px;
+    font-size: 24px;
     font-weight: 700;
     font-family: ui-monospace, monospace;
     font-variant-numeric: tabular-nums;
@@ -430,11 +543,11 @@
 
   .timer-actions {
     display: flex;
-    gap: 4px;
+    gap: 6px;
   }
 
   .action-btn {
-    padding: 6px;
+    padding: 8px;
     border-radius: 6px;
     background: var(--color-input-bg);
     border: 1px solid var(--color-input-border);
@@ -461,15 +574,15 @@
 
   .empty-state {
     text-align: center;
-    padding: 16px;
+    padding: 20px;
     color: var(--color-text-caption);
-    font-size: 13px;
+    font-size: 14px;
   }
 
   .completed-section {
     border-top: 1px solid var(--color-input-border);
-    padding-top: 8px;
-    margin-bottom: 8px;
+    padding-top: 10px;
+    margin-bottom: 10px;
   }
 
   .completed-label {
@@ -483,26 +596,26 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 4px 0;
+    padding: 6px 0;
     font-size: 13px;
     color: var(--color-text-caption);
   }
 
   .presets {
     display: flex;
-    gap: 6px;
+    gap: 8px;
     border-top: 1px solid var(--color-input-border);
-    padding-top: 10px;
+    padding-top: 12px;
   }
 
   .preset-btn {
     flex: 1;
-    padding: 6px 4px;
+    padding: 8px 6px;
     border: 1px solid var(--color-input-border);
     border-radius: 6px;
     background: transparent;
     color: var(--color-text-primary);
-    font-size: 12px;
+    font-size: 13px;
     cursor: pointer;
     transition: all 0.2s;
   }
@@ -517,6 +630,7 @@
       right: 8px;
       left: 8px;
       width: auto;
+      max-width: none;
     }
   }
 </style>
