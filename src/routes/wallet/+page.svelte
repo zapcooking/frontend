@@ -2540,7 +2540,7 @@
   <!-- Mnemonic Display Modal (after wallet creation) -->
   {#if showMnemonic && sparkMnemonic}
     <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div class="rounded-2xl p-6 max-w-md w-full" style="background-color: var(--color-bg-primary);">
+      <div class="rounded-2xl p-6 max-w-md w-full max-h-[90vh] overflow-y-auto" style="background-color: var(--color-bg-primary);">
         <h2 class="text-xl font-bold mb-4" style="color: var(--color-text-primary)">Save Your Recovery Phrase</h2>
         <div class="mb-4 p-4 rounded-lg" style="background-color: rgba(239, 68, 68, 0.1); color: #ef4444;">
           <WarningIcon size={20} class="inline mr-2" />
@@ -2557,7 +2557,7 @@
   <!-- Reveal Mnemonic Modal - higher z-index to appear above other modals -->
   {#if revealedMnemonic}
     <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-4">
-      <div class="rounded-2xl p-6 max-w-md w-full" style="background-color: var(--color-bg-primary);">
+      <div class="rounded-2xl p-6 max-w-md w-full max-h-[90vh] overflow-y-auto" style="background-color: var(--color-bg-primary);">
         <h2 class="text-xl font-bold mb-4" style="color: var(--color-text-primary)">Recovery Phrase</h2>
         <div class="mb-4 p-4 rounded-lg" style="background-color: rgba(239, 68, 68, 0.1); color: #ef4444;">
           <WarningIcon size={20} class="inline mr-2" />
@@ -2574,7 +2574,7 @@
   <!-- NWC Wallet Info Modal -->
   {#if nwcWalletInfo}
     <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div class="rounded-2xl p-6 max-w-md w-full" style="background-color: var(--color-bg-primary);">
+      <div class="rounded-2xl p-6 max-w-md w-full max-h-[90vh] overflow-y-auto" style="background-color: var(--color-bg-primary);">
         <h2 class="text-xl font-bold mb-4" style="color: var(--color-text-primary)">Wallet Info</h2>
 
         <div class="space-y-4">
@@ -2615,7 +2615,7 @@
   <!-- Delete Wallet Confirmation Modal -->
   {#if walletToDelete}
     <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div class="rounded-2xl p-6 max-w-md w-full" style="background-color: var(--color-bg-primary);">
+      <div class="rounded-2xl p-6 max-w-md w-full max-h-[90vh] overflow-y-auto" style="background-color: var(--color-bg-primary);">
         <h2 class="text-xl font-bold mb-4" style="color: var(--color-text-primary)">Remove Wallet</h2>
 
         <p class="text-caption mb-4">
@@ -2735,7 +2735,7 @@
   <!-- Sync Lightning Address to Profile Confirmation Modal (Spark) -->
   {#if showSyncConfirmModal}
     <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div class="rounded-2xl p-6 max-w-sm w-full" style="background-color: var(--color-bg-primary);">
+      <div class="rounded-2xl p-6 max-w-sm w-full max-h-[90vh] overflow-y-auto" style="background-color: var(--color-bg-primary);">
         <h2 class="text-xl font-bold mb-2" style="color: var(--color-text-primary)">Sync to Profile</h2>
         <p class="text-caption mb-4">
           This will update your Nostr profile (kind 0) to include your lightning address:
@@ -2765,7 +2765,7 @@
   <!-- Sync NWC Lightning Address to Profile Confirmation Modal -->
   {#if showNwcSyncConfirmModal}
     <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div class="rounded-2xl p-6 max-w-sm w-full" style="background-color: var(--color-bg-primary);">
+      <div class="rounded-2xl p-6 max-w-sm w-full max-h-[90vh] overflow-y-auto" style="background-color: var(--color-bg-primary);">
         <h2 class="text-xl font-bold mb-2" style="color: var(--color-text-primary)">Sync to Profile</h2>
         <p class="text-caption mb-4">
           This will update your Nostr profile (kind 0) to include the lightning address from your NWC wallet:
@@ -2795,7 +2795,7 @@
   <!-- Remove Bitcoin Connect Confirmation Modal -->
   {#if showRemoveBitcoinConnectModal}
     <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div class="rounded-2xl p-6 max-w-sm w-full" style="background-color: var(--color-bg-primary);">
+      <div class="rounded-2xl p-6 max-w-sm w-full max-h-[90vh] overflow-y-auto" style="background-color: var(--color-bg-primary);">
         <h2 class="text-xl font-bold mb-2" style="color: var(--color-text-primary)">Remove External Wallet</h2>
         <p class="text-caption mb-6">
           Are you sure you want to disconnect your external wallet? You can reconnect it at any time from the wallet settings.
@@ -2818,7 +2818,7 @@
   <!-- Delete Lightning Address Confirmation Modal -->
   {#if showDeleteAddressConfirmModal}
     <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div class="rounded-2xl p-6 max-w-sm w-full" style="background-color: var(--color-bg-primary);">
+      <div class="rounded-2xl p-6 max-w-sm w-full max-h-[90vh] overflow-y-auto" style="background-color: var(--color-bg-primary);">
         <h2 class="text-xl font-bold mb-2" style="color: var(--color-text-primary)">Delete Lightning Address</h2>
         <p class="text-caption mb-4">
           Are you sure you want to delete your lightning address?
@@ -2848,7 +2848,7 @@
   <!-- Send Modal -->
   {#if showSendModal}
     <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div class="rounded-2xl p-6 max-w-md w-full" style="background-color: var(--color-bg-primary);">
+      <div class="rounded-2xl p-6 max-w-md w-full max-h-[90vh] overflow-y-auto" style="background-color: var(--color-bg-primary);">
         <div class="flex items-center justify-between mb-6">
           <h2 class="text-xl font-bold flex items-center gap-2" style="color: var(--color-text-primary)">
             <ArrowUpIcon size={24} weight="bold" class="text-amber-500" />
