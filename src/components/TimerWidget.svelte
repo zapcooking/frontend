@@ -23,6 +23,7 @@
     timerSettings,
     loadTimerSettings,
     updateTimerSetting,
+    saveTimerSettings,
   } from '$lib/timerSettings';
   import PlayIcon from 'phosphor-svelte/lib/Play';
   import PauseIcon from 'phosphor-svelte/lib/Pause';
@@ -69,29 +70,80 @@
     timers = state.timers;
   });
 
-  // Subscribe to settings store
+  // Subscribe to settings store - only for sound, position handled separately
   const unsubscribeSettings = timerSettings.subscribe(settings => {
     soundEnabled = settings.soundEnabled;
-    if (settings.positionX !== null && settings.positionY !== null) {
-      posX = settings.positionX;
-      posY = settings.positionY;
-    }
   });
 
   onMount(async () => {
     if (browser) {
       await loadTimers();
-      await loadTimerSettings();
-      startTicking();
+      const settings = await loadTimerSettings();
 
-      // Detect mobile
-      isMobile = window.innerWidth < 640;
+      // Detect mobile/tablet (use mobile layout when bottom nav is visible)
+      isMobile = window.innerWidth < 1024;
+
+      // Load position from settings once on mount, clamped to viewport
+      if (settings.positionX !== null && settings.positionY !== null) {
+        // Clamp to viewport bounds (use reasonable defaults for widget size if not yet rendered)
+        const widgetWidth = 380;
+        const widgetHeight = 400;
+        const maxX = window.innerWidth - widgetWidth;
+        const maxY = window.innerHeight - widgetHeight;
+
+        posX = Math.max(0, Math.min(settings.positionX, maxX));
+        posY = Math.max(0, Math.min(settings.positionY, maxY));
+      }
+
+      startTicking();
       window.addEventListener('resize', handleResize);
     }
   });
 
   function handleResize() {
-    isMobile = window.innerWidth < 640;
+    const wasMobile = isMobile;
+    isMobile = window.innerWidth < 1024;
+
+    // Handle transition between mobile and desktop
+    if (wasMobile !== isMobile && widgetEl) {
+      // Clear all inline styles when switching modes so CSS can take over
+      widgetEl.style.left = '';
+      widgetEl.style.top = '';
+      widgetEl.style.right = '';
+      widgetEl.style.transform = '';
+
+      // Switching to desktop - if we have a saved position and not minimized, apply it
+      if (!isMobile && !isMinimized && posX !== null && posY !== null) {
+        // Clamp to new viewport bounds
+        const maxX = window.innerWidth - widgetEl.offsetWidth;
+        const maxY = window.innerHeight - widgetEl.offsetHeight;
+        posX = Math.max(0, Math.min(posX, maxX));
+        posY = Math.max(0, Math.min(posY, maxY));
+
+        widgetEl.style.left = `${posX}px`;
+        widgetEl.style.top = `${posY}px`;
+        widgetEl.style.right = 'auto';
+      }
+    } else if (!isMobile && !isMinimized && posX !== null && posY !== null && widgetEl) {
+      // Desktop resize without mode change - ensure position stays in bounds
+      const maxX = window.innerWidth - widgetEl.offsetWidth;
+      const maxY = window.innerHeight - widgetEl.offsetHeight;
+
+      let needsUpdate = false;
+      if (posX > maxX) {
+        posX = Math.max(0, maxX);
+        needsUpdate = true;
+      }
+      if (posY > maxY) {
+        posY = Math.max(0, maxY);
+        needsUpdate = true;
+      }
+
+      if (needsUpdate) {
+        widgetEl.style.left = `${posX}px`;
+        widgetEl.style.top = `${posY}px`;
+      }
+    }
   }
 
   onDestroy(() => {
@@ -179,8 +231,11 @@
 
     // Save position to settings (syncs to relay if logged in)
     if (browser && posX !== null && posY !== null) {
-      updateTimerSetting('positionX', posX);
-      updateTimerSetting('positionY', posY);
+      saveTimerSettings({
+        soundEnabled,
+        positionX: posX,
+        positionY: posY,
+      });
     }
   }
 
@@ -258,6 +313,29 @@
     updateTimerSetting('soundEnabled', newValue);
   }
 
+  function toggleMinimize() {
+    const wasMinimized = isMinimized;
+    isMinimized = !isMinimized;
+
+    if (widgetEl) {
+      if (isMinimized) {
+        // Minimizing: clear inline styles so CSS can dock to bottom
+        widgetEl.style.left = '';
+        widgetEl.style.top = '';
+        widgetEl.style.right = '';
+        widgetEl.style.transform = '';
+      } else {
+        // Un-minimizing: restore position
+        widgetEl.style.transform = '';
+        if (posX !== null && posY !== null && !isMobile) {
+          widgetEl.style.left = `${posX}px`;
+          widgetEl.style.top = `${posY}px`;
+          widgetEl.style.right = 'auto';
+        }
+      }
+    }
+  }
+
   function getDisplayTime(timer: TimerItem, _tick: number): string {
     return formatTime(getRemainingTime(timer));
   }
@@ -265,10 +343,19 @@
   $: activeTimers = timers.filter(t => t.status === 'running' || t.status === 'paused');
   $: completedTimers = timers.filter(t => t.status === 'done');
 
-  // Compute style for position (only apply on desktop if position has been set)
-  $: widgetStyle = !isMobile && posX !== null && posY !== null
-    ? `left: ${posX}px; top: ${posY}px; right: auto;`
-    : '';
+  // Apply position via DOM when values change (not during drag - drag handles its own updates)
+  $: if (browser && widgetEl && !isDragging && !isMinimized && !isMobile) {
+    if (posX !== null && posY !== null) {
+      widgetEl.style.left = `${posX}px`;
+      widgetEl.style.top = `${posY}px`;
+      widgetEl.style.right = 'auto';
+    } else {
+      // No saved position - clear any inline styles so CSS defaults apply
+      widgetEl.style.left = '';
+      widgetEl.style.top = '';
+      widgetEl.style.right = '';
+    }
+  }
 </script>
 
 {#if open}
@@ -276,7 +363,6 @@
     class="timer-widget {isMobile ? 'mobile' : 'desktop'}"
     class:dragging={isDragging}
     class:minimized={isMinimized}
-    style={!isMinimized || isMobile ? widgetStyle : ''}
     bind:this={widgetEl}
   >
     <!-- Header -->
@@ -301,7 +387,7 @@
       {/if}
       <div class="header-actions">
         <button
-          on:click|stopPropagation={() => isMinimized = !isMinimized}
+          on:click|stopPropagation={toggleMinimize}
           class="minimize-btn"
           aria-label={isMinimized ? 'Expand' : 'Minimize'}
         >
@@ -723,20 +809,20 @@
   }
 
   .time-presets {
-    display: flex;
-    flex-direction: row;
-    flex-wrap: wrap;
-    gap: 6px;
+    display: flex !important;
+    flex-direction: row !important;
+    flex-wrap: wrap !important;
+    gap: 6px !important;
     margin-bottom: 12px;
     border-top: 1px solid var(--color-input-border);
     padding-top: 12px;
   }
 
   .time-preset-btn {
-    flex: 1 1 auto;
-    min-width: 45px;
-    padding: 8px 4px;
-    border: 1px solid var(--color-input-border);
+    flex: 1 1 auto !important;
+    min-width: 45px !important;
+    padding: 8px 4px !important;
+    border: 1px solid var(--color-input-border) !important;
     border-radius: 6px;
     background: transparent;
     color: var(--color-text-primary);
@@ -829,18 +915,25 @@
     overflow: hidden;
   }
 
-  /* Desktop minimized - docked to bottom */
+  /* Desktop minimized - docked to bottom (use !important to override inline drag styles) */
   .timer-widget.desktop.minimized {
-    top: auto;
-    bottom: 16px;
-    left: 50%;
-    transform: translateX(-50%);
-    right: auto;
+    top: auto !important;
+    bottom: calc(56px + env(safe-area-inset-bottom, 0px) + 8px) !important;
+    left: 50% !important;
+    transform: translateX(-50%) !important;
+    right: auto !important;
     width: auto;
     min-width: 300px;
     max-height: none;
     overflow: hidden;
     border-radius: 12px;
+  }
+
+  /* On larger screens without bottom nav, position closer to bottom */
+  @media (min-width: 1024px) {
+    .timer-widget.desktop.minimized {
+      bottom: 16px !important;
+    }
   }
 
   .timer-widget.desktop.minimized .widget-header {
