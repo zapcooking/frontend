@@ -16,8 +16,12 @@
   import MarkdownEditor from '../../components/MarkdownEditor.svelte';
   import { onMount } from 'svelte';
   import { RECIPE_TAG_PREFIX_NEW } from '$lib/consts';
-  import { saveDraft, getDraft, deleteDraft } from '$lib/draftStore';
+  import { saveDraft, getDraft, deleteDraft, getDraftWithSyncState, draftSyncState, initializeDraftStore } from '$lib/draftStore';
   import FloppyDiskIcon from 'phosphor-svelte/lib/FloppyDisk';
+  import CloudCheckIcon from 'phosphor-svelte/lib/CloudCheck';
+  import CloudArrowUpIcon from 'phosphor-svelte/lib/CloudArrowUp';
+  import SpinnerIcon from 'phosphor-svelte/lib/CircleNotch';
+  import WarningIcon from 'phosphor-svelte/lib/Warning';
 
   let title = '';
   let images: Writable<string[]> = writable([]);
@@ -37,9 +41,14 @@
   let disablePublishButton = false;
   let currentDraftId: string | null = null;
   let draftSaveMessage = '';
+  let currentDraftSyncStatus: 'local' | 'syncing' | 'synced' | 'error' | undefined = undefined;
+  let isSavingDraft = false;
 
   onMount(() => {
     if ($userPublickey == '') goto('/login');
+
+    // Initialize draft store
+    initializeDraftStore();
 
     // Check for draft ID in URL
     const draftId = $page.url.searchParams.get('draft');
@@ -49,9 +58,10 @@
   });
 
   function loadDraftById(draftId: string) {
-    const draft = getDraft(draftId);
+    const draft = getDraftWithSyncState(draftId);
     if (draft) {
       currentDraftId = draftId;
+      currentDraftSyncStatus = draft.syncStatus;
       title = draft.title;
       images.set(draft.images);
       selectedTags.set(draft.tags);
@@ -78,7 +88,12 @@
     }
   }
 
-  function handleSaveDraft() {
+  async function handleSaveDraft() {
+    if (isSavingDraft) return;
+
+    isSavingDraft = true;
+    draftSaveMessage = '';
+
     const draftData = {
       title,
       images: $images,
@@ -92,18 +107,45 @@
       directions: $directionsArray,
       additionalMarkdown
     };
-    
-    currentDraftId = saveDraft(draftData, currentDraftId || undefined);
-    draftSaveMessage = 'Draft saved!';
-    
+
+    // Save with immediate sync when sync is available
+    const syncAvailable = $draftSyncState.syncAvailable;
+    const { draftId, syncPromise } = saveDraft(draftData, currentDraftId || undefined, syncAvailable);
+    currentDraftId = draftId;
+
     // Update URL to include draft ID (without navigation)
     if (browser) {
       const url = new URL(window.location.href);
       url.searchParams.set('draft', currentDraftId);
       window.history.replaceState({}, '', url.toString());
     }
-    
-    setTimeout(() => { draftSaveMessage = ''; }, 2000);
+
+    if (syncPromise) {
+      // Show syncing state
+      currentDraftSyncStatus = 'syncing';
+      draftSaveMessage = 'Syncing to relays...';
+
+      try {
+        const success = await syncPromise;
+        if (success) {
+          currentDraftSyncStatus = 'synced';
+          draftSaveMessage = 'Saved & synced to relays!';
+        } else {
+          currentDraftSyncStatus = 'error';
+          draftSaveMessage = 'Saved locally (sync failed)';
+        }
+      } catch (e) {
+        currentDraftSyncStatus = 'error';
+        draftSaveMessage = 'Saved locally (sync failed)';
+      }
+    } else {
+      // No sync available, just local save
+      currentDraftSyncStatus = 'local';
+      draftSaveMessage = 'Saved locally';
+    }
+
+    isSavingDraft = false;
+    setTimeout(() => { draftSaveMessage = ''; }, 3000);
   }
 
   function formatStringArrays() {
@@ -161,10 +203,10 @@
             event.tags.push(['t', `${RECIPE_TAG_PREFIX_NEW}-${t.title.toLowerCase().replaceAll(' ', '-')}`]);
           }
         });
-        
+
         // Add NIP-89 client tag
         addClientTagToEvent(event);
-        
+
         console.log('event to publish:', event);
         let relays = await event.publish();
         relays.forEach((relay) => {
@@ -181,13 +223,13 @@
           kind: 30023
         });
         resultMessage = 'Success! Redirecting to your recipe...';
-        
+
         // Delete the draft since it's now published
         if (currentDraftId) {
           deleteDraft(currentDraftId);
           currentDraftId = null;
         }
-        
+
         // Redirect to the recipe page
         setTimeout(() => {
           goto(`/recipe/${naddr}`);
@@ -214,10 +256,25 @@
   <div class="flex justify-between items-center">
     <h1>Create Recipe</h1>
   </div>
-  
+
   {#if currentDraftId}
-    <div class="text-sm text-caption">
-      Editing draft • <button type="button" class="underline hover:text-primary cursor-pointer" on:click={() => goto('/create')}>Start fresh</button>
+    <div class="text-sm text-caption flex items-center gap-2">
+      <span>Editing draft</span>
+      {#if $draftSyncState.syncAvailable}
+        {#if currentDraftSyncStatus === 'synced'}
+          <span class="flex items-center gap-1 text-green-500" title="Synced to cloud">
+            <CloudCheckIcon size={14} />
+            <span>Synced</span>
+          </span>
+        {:else}
+          <span class="flex items-center gap-1 text-caption" title="Saved locally, will sync">
+            <CloudArrowUpIcon size={14} />
+            <span>Local</span>
+          </span>
+        {/if}
+      {/if}
+      <span>•</span>
+      <button type="button" class="underline hover:text-primary cursor-pointer" on:click={() => goto('/create')}>Start fresh</button>
     </div>
   {/if}
 
@@ -284,19 +341,36 @@
 
   <div class="flex justify-end items-center gap-2">
     {#if draftSaveMessage}
-      <span class="text-sm text-green-500">{draftSaveMessage}</span>
+      <span class="text-sm {currentDraftSyncStatus === 'synced' ? 'text-green-500' : currentDraftSyncStatus === 'error' ? 'text-yellow-500' : currentDraftSyncStatus === 'syncing' ? 'text-blue-500' : 'text-caption'}">
+        {draftSaveMessage}
+      </span>
     {/if}
     <span class={resultMessage.includes('Error') ? 'text-red-500' : resultMessage.includes('Success') ? 'text-green-500' : ''}>
       {resultMessage}
     </span>
-    <button 
-      type="button" 
+    <button
+      type="button"
       on:click={handleSaveDraft}
-      class="flex items-center gap-2 px-4 py-2 rounded-lg bg-input hover:bg-accent-gray transition-colors cursor-pointer"
-      title="Save as draft"
+      disabled={isSavingDraft}
+      class="flex items-center gap-2 px-4 py-2 rounded-lg bg-input hover:bg-accent-gray transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+      title={$draftSyncState.syncAvailable ? "Save draft to local & sync to relays" : "Save draft locally (login with encryption to sync)"}
     >
-      <FloppyDiskIcon size={18} />
-      <span>Save Draft</span>
+      {#if isSavingDraft}
+        <SpinnerIcon size={18} class="animate-spin" />
+        <span>Saving...</span>
+      {:else if currentDraftSyncStatus === 'synced'}
+        <CloudCheckIcon size={18} class="text-green-500" />
+        <span>Save Draft</span>
+      {:else if currentDraftSyncStatus === 'error'}
+        <WarningIcon size={18} class="text-yellow-500" />
+        <span>Save Draft</span>
+      {:else if $draftSyncState.syncAvailable}
+        <CloudArrowUpIcon size={18} />
+        <span>Save Draft</span>
+      {:else}
+        <FloppyDiskIcon size={18} />
+        <span>Save Draft</span>
+      {/if}
     </button>
     <Button disabled={disablePublishButton || !canPublish} type="submit">Share Recipe</Button>
   </div>
