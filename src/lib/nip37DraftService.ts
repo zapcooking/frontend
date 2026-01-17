@@ -16,7 +16,7 @@
 import { browser } from '$app/environment';
 import { get } from 'svelte/store';
 import { NDKEvent, NDKRelaySet, type NDKFilter } from '@nostr-dev-kit/ndk';
-import { ndk, getNdkInstance, userPublickey, ndkReady } from '$lib/nostr';
+import { getNdkInstance, userPublickey, ndkReady } from '$lib/nostr';
 import { encrypt, decrypt, hasEncryptionSupport, detectEncryptionMethod } from '$lib/encryptionService';
 import { getOutboxRelays } from '$lib/relayListCache';
 import type { RecipeDraft } from '$lib/draftStore';
