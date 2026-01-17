@@ -1,7 +1,9 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
   import { onMount } from 'svelte';
+  import { browser } from '$app/environment';
   import { userPublickey } from '$lib/nostr';
+  import { portal } from '../../components/Modal.svelte';
   import { getAuthManager } from '$lib/authManager';
   import Button from '../../components/Button.svelte';
   import {
@@ -134,6 +136,9 @@
   // NWC wallet info
   let nwcWalletInfo: { alias?: string; methods: string[]; relay: string; pubkey: string } | null = null;
   let isLoadingNwcInfo = false;
+
+  // Portal target for modals (renders at body level to fix positioning)
+  $: portalTarget = browser ? document.body : null;
 
   // Lightning address state
   let newLightningUsername = '';
@@ -522,7 +527,7 @@
       // Refresh balance first
       if ($walletConnected && $activeWallet) {
         await refreshBalance();
-        
+
         // Then refresh transaction history if applicable (not for WebLN)
         if ($activeWallet.kind !== 1) {
           await loadTransactionHistory(true);
@@ -2572,42 +2577,44 @@
   {/if}
 
   <!-- NWC Wallet Info Modal -->
-  {#if nwcWalletInfo}
-    <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div class="rounded-2xl p-6 max-w-md w-full max-h-[90vh] overflow-y-auto" style="background-color: var(--color-bg-primary);">
-        <h2 class="text-xl font-bold mb-4" style="color: var(--color-text-primary)">Wallet Info</h2>
+  {#if nwcWalletInfo && portalTarget}
+    <div use:portal={portalTarget}>
+      <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+        <div class="rounded-2xl p-6 max-w-md w-full max-h-[90vh] overflow-y-auto" style="background-color: var(--color-bg-primary);">
+          <h2 class="text-xl font-bold mb-4" style="color: var(--color-text-primary)">Wallet Info</h2>
 
-        <div class="space-y-4">
-          {#if nwcWalletInfo.alias}
+          <div class="space-y-4">
+            {#if nwcWalletInfo.alias}
+              <div>
+                <div class="text-xs text-caption uppercase tracking-wide mb-1">Wallet Name</div>
+                <div class="font-medium" style="color: var(--color-text-primary)">{nwcWalletInfo.alias}</div>
+              </div>
+            {/if}
+
             <div>
-              <div class="text-xs text-caption uppercase tracking-wide mb-1">Wallet Name</div>
-              <div class="font-medium" style="color: var(--color-text-primary)">{nwcWalletInfo.alias}</div>
+              <div class="text-xs text-caption uppercase tracking-wide mb-1">Relay</div>
+              <div class="text-sm font-mono break-all" style="color: var(--color-text-primary)">{nwcWalletInfo.relay}</div>
             </div>
-          {/if}
 
-          <div>
-            <div class="text-xs text-caption uppercase tracking-wide mb-1">Relay</div>
-            <div class="text-sm font-mono break-all" style="color: var(--color-text-primary)">{nwcWalletInfo.relay}</div>
-          </div>
+            <div>
+              <div class="text-xs text-caption uppercase tracking-wide mb-1">Wallet Pubkey</div>
+              <div class="text-sm font-mono break-all" style="color: var(--color-text-primary)">{nwcWalletInfo.pubkey}</div>
+            </div>
 
-          <div>
-            <div class="text-xs text-caption uppercase tracking-wide mb-1">Wallet Pubkey</div>
-            <div class="text-sm font-mono break-all" style="color: var(--color-text-primary)">{nwcWalletInfo.pubkey}</div>
-          </div>
-
-          <div>
-            <div class="text-xs text-caption uppercase tracking-wide mb-1">Supported Methods</div>
-            <div class="flex flex-wrap gap-1 mt-1">
-              {#each nwcWalletInfo.methods as method}
-                <span class="text-xs px-2 py-1 rounded-full" style="background-color: var(--color-input-bg); color: var(--color-text-primary);">
-                  {method}
-                </span>
-              {/each}
+            <div>
+              <div class="text-xs text-caption uppercase tracking-wide mb-1">Supported Methods</div>
+              <div class="flex flex-wrap gap-1 mt-1">
+                {#each nwcWalletInfo.methods as method}
+                  <span class="text-xs px-2 py-1 rounded-full" style="background-color: var(--color-input-bg); color: var(--color-text-primary);">
+                    {method}
+                  </span>
+                {/each}
+              </div>
             </div>
           </div>
+
+          <Button on:click={closeNwcInfoModal} class="w-full mt-6">Close</Button>
         </div>
-
-        <Button on:click={closeNwcInfoModal} class="w-full mt-6">Close</Button>
       </div>
     </div>
   {/if}
