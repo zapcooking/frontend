@@ -18,7 +18,12 @@
   import { userPublickey, ndk, ndkReady, switchRelays, ndkSwitching, getCurrentRelays, type RelayMode } from '$lib/nostr';
   import { wallets } from '$lib/wallet/walletStore';
   import { bitcoinConnectEnabled } from '$lib/wallet/bitcoinConnect';
+  import { weblnConnected, weblnWalletName } from '$lib/wallet/webln';
   import { getConnectionManager } from '$lib/connectionManager';
+  import SparkLogo from '../../components/icons/SparkLogo.svelte';
+  import NwcLogo from '../../components/icons/NwcLogo.svelte';
+  import WeblnLogo from '../../components/icons/WeblnLogo.svelte';
+  import BitcoinConnectLogo from '../../components/icons/BitcoinConnectLogo.svelte';
   import { onMount } from 'svelte';
   import { get } from 'svelte/store';
 
@@ -56,7 +61,7 @@
     if (relays.length === 0) {
       return;
     }
-    
+
     savingRelays = true;
     try {
       // Use 'default' mode when switching relays from settings
@@ -475,40 +480,67 @@
           Manage your Lightning wallet for zaps.
         </p>
 
+        <!-- WebLN External Wallet (takes priority) -->
+        {#if $weblnConnected}
+          <div class="flex items-center gap-4 p-4 rounded-xl" style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);">
+            <WeblnLogo size={40} />
+            <div class="flex-1">
+              <p class="font-medium" style="color: var(--color-text-primary)">
+                {$weblnWalletName || 'Browser Wallet'}
+              </p>
+              <p class="text-sm text-caption">WebLN</p>
+            </div>
+            <span class="text-xs px-2 py-1 rounded-full bg-green-500/20 text-green-600 dark:text-green-400">Active</span>
+          </div>
+        {/if}
+
+        <!-- Embedded wallets -->
         {#if connectedWallets.length > 0}
           <div class="flex flex-col gap-2">
             {#each connectedWallets as wallet}
-              <div class="flex items-center gap-3 bg-secondary p-3 rounded-lg">
-                <div class="p-2 bg-amber-500/20 rounded-full">
-                  <WalletIcon size={18} class="text-amber-500" weight="fill" />
-                </div>
+              <div class="flex items-center gap-4 p-4 rounded-xl" style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);">
+                {#if wallet.kind === 4}
+                  <div class="w-10 h-10 rounded-full bg-orange-500/20 flex items-center justify-center">
+                    <SparkLogo size={24} className="text-orange-500" />
+                  </div>
+                {:else if wallet.kind === 3}
+                  <div class="w-10 h-10 rounded-full bg-purple-500/20 flex items-center justify-center">
+                    <NwcLogo size={28} />
+                  </div>
+                {:else}
+                  <div class="w-10 h-10 rounded-full bg-amber-500/20 flex items-center justify-center">
+                    <WalletIcon size={24} class="text-amber-500" weight="fill" />
+                  </div>
+                {/if}
                 <div class="flex-1">
-                  <p class="font-medium text-sm" style="color: var(--color-text-primary)">
+                  <p class="font-medium" style="color: var(--color-text-primary)">
                     {wallet.name}
                   </p>
-                  <p class="text-xs text-caption">{getWalletTypeName(wallet.kind)}</p>
+                  <p class="text-sm text-caption">{getWalletTypeName(wallet.kind)}</p>
                 </div>
-                {#if wallet.active}
+                {#if wallet.active && !$weblnConnected}
                   <span class="text-xs px-2 py-1 rounded-full bg-green-500/20 text-green-600 dark:text-green-400">Active</span>
+                {:else if $weblnConnected}
+                  <span class="text-xs px-2 py-1 rounded-full bg-gray-500/20 text-gray-500">Paused</span>
                 {/if}
               </div>
             {/each}
           </div>
-        {:else if $bitcoinConnectEnabled}
-          <div class="flex items-center gap-3 bg-secondary p-3 rounded-lg">
-            <div class="p-2 bg-purple-500/20 rounded-full">
-              <WalletIcon size={18} class="text-purple-500" weight="fill" />
+        {:else if $bitcoinConnectEnabled && !$weblnConnected}
+          <div class="flex items-center gap-4 p-4 rounded-xl" style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);">
+            <div class="w-10 h-10 rounded-full bg-orange-500 flex items-center justify-center">
+              <BitcoinConnectLogo size={20} className="text-white" />
             </div>
             <div class="flex-1">
-              <p class="font-medium text-sm" style="color: var(--color-text-primary)">
+              <p class="font-medium" style="color: var(--color-text-primary)">
                 External Wallet
               </p>
-              <p class="text-xs text-caption">Bitcoin Connect</p>
+              <p class="text-sm text-caption">Bitcoin Connect</p>
             </div>
             <span class="text-xs px-2 py-1 rounded-full bg-green-500/20 text-green-600 dark:text-green-400">Connected</span>
           </div>
-        {:else}
-          <div class="bg-secondary p-4 rounded-lg text-center">
+        {:else if !$weblnConnected}
+          <div class="p-4 rounded-xl text-center" style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);">
             <p class="text-sm text-caption">No wallets connected</p>
           </div>
         {/if}

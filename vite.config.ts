@@ -32,10 +32,12 @@ export default defineConfig({
       globals: {
         Buffer: true,
         global: true,
-        process: true,
+        process: true
       },
+      // Exclude path polyfill - it causes SSR issues with CommonJS module.exports
+      exclude: ['path']
     }),
-    sveltekit(),
+    sveltekit()
   ],
   define: {
     global: 'globalThis',
