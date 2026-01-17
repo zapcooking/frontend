@@ -19,6 +19,11 @@
     getRemainingTime,
     type TimerItem,
   } from '$lib/timerStore';
+  import {
+    timerSettings,
+    loadTimerSettings,
+    updateTimerSetting,
+  } from '$lib/timerSettings';
   import PlayIcon from 'phosphor-svelte/lib/Play';
   import PauseIcon from 'phosphor-svelte/lib/Pause';
   import TrashIcon from 'phosphor-svelte/lib/Trash';
@@ -37,7 +42,7 @@
   let quickMinutes = 5;
   let quickLabel = '';
 
-  // Sound state
+  // Sound state (from settings store)
   let soundEnabled = true;
   let audioContext: AudioContext | null = null;
 
@@ -45,35 +50,39 @@
   let isDragging = false;
   let dragStartX = 0;
   let dragStartY = 0;
-  let posX = 0;
-  let posY = 0;
+  let posX: number | null = null;
+  let posY: number | null = null;
   let widgetEl: HTMLDivElement;
 
   // For live countdown updates
   let tickInterval: ReturnType<typeof setInterval> | null = null;
   let tick = 0;
 
-  // Subscribe to store
+  // Subscribe to timer store
   const unsubscribe = timerStore.subscribe(state => {
     timers = state.timers;
+  });
+
+  // Subscribe to settings store
+  const unsubscribeSettings = timerSettings.subscribe(settings => {
+    soundEnabled = settings.soundEnabled;
+    if (settings.positionX !== null && settings.positionY !== null) {
+      posX = settings.positionX;
+      posY = settings.positionY;
+    }
   });
 
   onMount(async () => {
     if (browser) {
       await loadTimers();
+      await loadTimerSettings();
       startTicking();
-      // Load saved position
-      const savedPos = localStorage.getItem('timerWidgetPosition');
-      if (savedPos) {
-        const { x, y } = JSON.parse(savedPos);
-        posX = x;
-        posY = y;
-      }
     }
   });
 
   onDestroy(() => {
     unsubscribe();
+    unsubscribeSettings();
     stopTicking();
   });
 
@@ -97,6 +106,14 @@
     isDragging = true;
     const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
     const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
+
+    // Initialize position from current element position if not set
+    if (posX === null || posY === null) {
+      const rect = widgetEl.getBoundingClientRect();
+      posX = rect.left;
+      posY = rect.top;
+    }
+
     dragStartX = clientX - posX;
     dragStartY = clientY - posY;
 
@@ -139,9 +156,10 @@
     document.removeEventListener('touchmove', handleDragMove);
     document.removeEventListener('touchend', handleDragEnd);
 
-    // Save position
-    if (browser) {
-      localStorage.setItem('timerWidgetPosition', JSON.stringify({ x: posX, y: posY }));
+    // Save position to settings (syncs to relay if logged in)
+    if (browser && posX !== null && posY !== null) {
+      updateTimerSetting('positionX', posX);
+      updateTimerSetting('positionY', posY);
     }
   }
 
@@ -214,7 +232,9 @@
 
   function toggleSound() {
     initAudio();
-    soundEnabled = !soundEnabled;
+    const newValue = !soundEnabled;
+    soundEnabled = newValue;
+    updateTimerSetting('soundEnabled', newValue);
   }
 
   function getDisplayTime(timer: TimerItem, _tick: number): string {
@@ -224,8 +244,8 @@
   $: activeTimers = timers.filter(t => t.status === 'running' || t.status === 'paused');
   $: completedTimers = timers.filter(t => t.status === 'done');
 
-  // Compute style for position
-  $: widgetStyle = posX || posY
+  // Compute style for position (only apply if position has been set)
+  $: widgetStyle = posX !== null && posY !== null
     ? `left: ${posX}px; top: ${posY}px; right: auto;`
     : '';
 </script>
@@ -301,23 +321,23 @@
           <div class="timer-item">
             <div class="timer-progress" style="width: {progress}%"></div>
             <div class="timer-content">
-              <div class="timer-info">
-                <span class="timer-label">{timer.label}</span>
-                <span class="timer-time {timer.status === 'paused' ? 'paused' : ''}">
+              <span class="timer-label">{timer.label}</span>
+              <div class="timer-main-row">
+                <span class="timer-time-large {timer.status === 'paused' ? 'paused' : ''}">
                   {getDisplayTime(timer, tick)}
                 </span>
-              </div>
-              <div class="timer-actions">
-                <button on:click={() => handlePauseResume(timer)} class="action-btn">
-                  {#if timer.status === 'running'}
-                    <PauseIcon size={16} />
-                  {:else}
-                    <PlayIcon size={16} />
-                  {/if}
-                </button>
-                <button on:click={() => handleDelete(timer)} class="action-btn delete">
-                  <TrashIcon size={16} />
-                </button>
+                <div class="timer-actions">
+                  <button on:click={() => handlePauseResume(timer)} class="action-btn">
+                    {#if timer.status === 'running'}
+                      <PauseIcon size={20} />
+                    {:else}
+                      <PlayIcon size={20} />
+                    {/if}
+                  </button>
+                  <button on:click={() => handleDelete(timer)} class="action-btn delete">
+                    <TrashIcon size={20} />
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -344,16 +364,63 @@
       </div>
     {/if}
 
-    <!-- Presets -->
-    <div class="presets">
-      {#each [1, 3, 5, 10, 15] as mins}
+    <!-- Quick time presets -->
+    <div class="time-presets">
+      {#each [1, 3, 5, 10, 15, 30] as mins}
         <button
           on:click={() => startTimer(`${mins} min`, mins * 60 * 1000)}
-          class="preset-btn"
+          class="time-preset-btn"
         >
           {mins}m
         </button>
       {/each}
+    </div>
+
+    <!-- Fun Cooking Presets -->
+    <div class="presets-section">
+      <span class="presets-label">Cooking Presets</span>
+      <div class="preset-grid">
+        <button on:click={() => startTimer('Poached Egg', 4 * 60 * 1000)} class="preset-btn egg">
+          <span class="preset-emoji">🥚</span>
+          <span class="preset-name">Poached</span>
+          <span class="preset-time">4 min</span>
+        </button>
+        <button on:click={() => startTimer('Soft Boiled Egg', 6 * 60 * 1000)} class="preset-btn egg">
+          <span class="preset-emoji">🥚</span>
+          <span class="preset-name">Soft Boiled</span>
+          <span class="preset-time">6 min</span>
+        </button>
+        <button on:click={() => startTimer('Hard Boiled Egg', 12 * 60 * 1000)} class="preset-btn egg">
+          <span class="preset-emoji">🥚</span>
+          <span class="preset-name">Hard Boiled</span>
+          <span class="preset-time">12 min</span>
+        </button>
+        <button on:click={() => startTimer('Pasta Al Dente', 8 * 60 * 1000)} class="preset-btn pasta">
+          <span class="preset-emoji">🍝</span>
+          <span class="preset-name">Pasta</span>
+          <span class="preset-time">8 min</span>
+        </button>
+        <button on:click={() => startTimer('Rice', 18 * 60 * 1000)} class="preset-btn grain">
+          <span class="preset-emoji">🍚</span>
+          <span class="preset-name">Rice</span>
+          <span class="preset-time">18 min</span>
+        </button>
+        <button on:click={() => startTimer('Steak Rest', 5 * 60 * 1000)} class="preset-btn meat">
+          <span class="preset-emoji">🥩</span>
+          <span class="preset-name">Steak Rest</span>
+          <span class="preset-time">5 min</span>
+        </button>
+        <button on:click={() => startTimer('Veggies Steam', 7 * 60 * 1000)} class="preset-btn veg">
+          <span class="preset-emoji">🥦</span>
+          <span class="preset-name">Steam Veg</span>
+          <span class="preset-time">7 min</span>
+        </button>
+        <button on:click={() => startTimer('Tea Steep', 3 * 60 * 1000)} class="preset-btn drink">
+          <span class="preset-emoji">🍵</span>
+          <span class="preset-name">Tea</span>
+          <span class="preset-time">3 min</span>
+        </button>
+      </div>
     </div>
   </div>
 {/if}
@@ -363,7 +430,7 @@
     position: fixed;
     top: 60px;
     right: 16px;
-    width: 340px;
+    width: 380px;
     max-height: calc(100vh - 80px);
     overflow-y: auto;
     background: var(--color-input-bg);
@@ -513,31 +580,32 @@
   .timer-content {
     position: relative;
     display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 10px 12px;
-  }
-
-  .timer-info {
-    display: flex;
     flex-direction: column;
-    gap: 2px;
+    padding: 12px 14px;
   }
 
   .timer-label {
-    font-size: 12px;
+    font-size: 13px;
     color: var(--color-text-caption);
+    margin-bottom: 4px;
   }
 
-  .timer-time {
-    font-size: 24px;
+  .timer-main-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .timer-time-large {
+    font-size: 42px;
     font-weight: 700;
     font-family: ui-monospace, monospace;
     font-variant-numeric: tabular-nums;
     color: var(--color-text-primary);
+    line-height: 1;
   }
 
-  .timer-time.paused {
+  .timer-time-large.paused {
     color: #f59e0b;
   }
 
@@ -601,27 +669,87 @@
     color: var(--color-text-caption);
   }
 
-  .presets {
+  .time-presets {
     display: flex;
-    gap: 8px;
+    gap: 6px;
+    margin-bottom: 12px;
     border-top: 1px solid var(--color-input-border);
     padding-top: 12px;
   }
 
-  .preset-btn {
+  .time-preset-btn {
     flex: 1;
-    padding: 8px 6px;
+    padding: 8px 4px;
     border: 1px solid var(--color-input-border);
     border-radius: 6px;
     background: transparent;
     color: var(--color-text-primary);
     font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .time-preset-btn:hover {
+    background: var(--color-input-border);
+  }
+
+  .presets-section {
+    border-top: 1px solid var(--color-input-border);
+    padding-top: 12px;
+  }
+
+  .presets-label {
+    font-size: 11px;
+    color: var(--color-text-caption);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    display: block;
+    margin-bottom: 8px;
+  }
+
+  .preset-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 6px;
+  }
+
+  .preset-btn {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 8px 4px;
+    border: 1px solid var(--color-input-border);
+    border-radius: 8px;
+    background: transparent;
+    color: var(--color-text-primary);
     cursor: pointer;
     transition: all 0.2s;
   }
 
   .preset-btn:hover {
     background: var(--color-input-border);
+    transform: scale(1.02);
+  }
+
+  .preset-emoji {
+    font-size: 20px;
+    line-height: 1;
+    margin-bottom: 2px;
+  }
+
+  .preset-name {
+    font-size: 10px;
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
+  }
+
+  .preset-time {
+    font-size: 9px;
+    color: var(--color-text-caption);
   }
 
   /* Mobile adjustments */
