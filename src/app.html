@@ -1,53 +1,63 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    
+
     <!-- Override fetch BEFORE anything else loads to intercept __data.json requests in static builds -->
     <script>
-      (function() {
+      (function () {
         // Check if this is a static/Capacitor build (localhost or capacitor protocol)
-        var isStaticBuild = window.location.hostname === 'localhost' || 
-                           window.location.hostname === '127.0.0.1' ||
-                           window.location.protocol === 'file:' ||
-                           window.location.protocol === 'capacitor:';
-        
+        var isStaticBuild =
+          window.location.hostname === 'localhost' ||
+          window.location.hostname === '127.0.0.1' ||
+          window.location.protocol === 'file:' ||
+          window.location.protocol === 'capacitor:';
+
         if (!isStaticBuild) return;
-        
+
         console.log('[app.html] Setting up early fetch interceptor for static build');
-        
+
         var originalFetch = window.fetch;
-        window.fetch = function(input, init) {
-          var url = typeof input === 'string' ? input : (input.url || input.toString());
-          
+        window.fetch = function (input, init) {
+          var url = typeof input === 'string' ? input : input.url || input.toString();
+
           // Intercept __data.json requests
           if (url.indexOf('__data.json') !== -1) {
             console.log('[app.html] Intercepting __data.json:', url);
-            
+
             // Return mock SvelteKit data response
             var mockData = {
               type: 'data',
-              nodes: [
-                null,
-                { type: 'data', data: [{ ogMeta: 1 }, null], uses: {} }
-              ]
+              nodes: [null, { type: 'data', data: [{ ogMeta: 1 }, null], uses: {} }]
             };
-            
-            return Promise.resolve(new Response(JSON.stringify(mockData), {
-              status: 200,
-              headers: { 'Content-Type': 'application/json' }
-            }));
+
+            return Promise.resolve(
+              new Response(JSON.stringify(mockData), {
+                status: 200,
+                headers: { 'Content-Type': 'application/json' }
+              })
+            );
           }
-          
+
           // For all other requests, use original fetch
           return originalFetch.apply(window, arguments);
         };
       })();
     </script>
-    
+
     <link rel="icon" href="%sveltekit.assets%/favicon.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-    
+    <!-- Digital font for timer display -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700&display=swap"
+      rel="stylesheet"
+    />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+    />
+
     <!-- Static Meta Tags (dynamic OG tags set in layout/pages) -->
     <meta name="keywords" content="recipes, cooking, food, nostr, community" />
     <meta name="author" content="zap.cooking" />
@@ -61,23 +71,23 @@
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="Zap Cooking" />
-    
+
     <!-- Structured Data -->
     <script type="application/ld+json">
-    {
-      "@context": "https://schema.org",
-      "@type": "WebSite",
-      "name": "Zap Cooking",
-      "description": "A place where food culture can live openly and grow naturally. Share recipes, support creators directly, no algorithms or ads.",
-      "url": "https://zap.cooking",
-      "potentialAction": {
-        "@type": "SearchAction",
-        "target": "https://zap.cooking/search?q={search_term_string}",
-        "query-input": "required name=search_term_string"
+      {
+        "@context": "https://schema.org",
+        "@type": "WebSite",
+        "name": "Zap Cooking",
+        "description": "A place where food culture can live openly and grow naturally. Share recipes, support creators directly, no algorithms or ads.",
+        "url": "https://zap.cooking",
+        "potentialAction": {
+          "@type": "SearchAction",
+          "target": "https://zap.cooking/search?q={search_term_string}",
+          "query-input": "required name=search_term_string"
+        }
       }
-    }
     </script>
-    
+
     %sveltekit.head%
   </head>
   <body data-sveltekit-preload-data="hover">
