@@ -415,11 +415,16 @@ function generateDraftId(): string {
 
 /**
  * Save a new draft or update an existing one
+ * @param draft - The draft data to save
+ * @param existingId - Optional ID of existing draft to update
+ * @param syncImmediately - If true, syncs to relays immediately instead of debouncing
+ * @returns Object with draftId and optional syncPromise
  */
 export function saveDraft(
   draft: Omit<RecipeDraft, 'id' | 'createdAt' | 'updatedAt'>,
-  existingId?: string
-): string {
+  existingId?: string,
+  syncImmediately: boolean = false
+): { draftId: string; syncPromise?: Promise<boolean> } {
   const state = get(stateStore);
   let drafts = [...state.drafts];
   const now = Date.now();
@@ -434,7 +439,7 @@ export function saveDraft(
         ...drafts[index],
         ...draft,
         updatedAt: now,
-        syncStatus: 'local'
+        syncStatus: state.syncAvailable ? 'syncing' : 'local'
       };
       draftId = existingId;
     } else {
@@ -445,7 +450,7 @@ export function saveDraft(
         id: draftId,
         createdAt: now,
         updatedAt: now,
-        syncStatus: 'local'
+        syncStatus: state.syncAvailable ? 'syncing' : 'local'
       };
       drafts.unshift(newDraft);
     }
@@ -457,7 +462,7 @@ export function saveDraft(
       id: draftId,
       createdAt: now,
       updatedAt: now,
-      syncStatus: 'local'
+      syncStatus: state.syncAvailable ? 'syncing' : 'local'
     };
     drafts.unshift(newDraft);
   }
@@ -474,15 +479,41 @@ export function saveDraft(
     drafts
   }));
 
-  // Queue for remote sync (debounced)
+  // Handle remote sync
+  let syncPromise: Promise<boolean> | undefined;
+
   if (state.syncAvailable) {
     const savedDraft = drafts.find((d) => d.id === draftId);
     if (savedDraft) {
-      publishDraftDebounced(savedDraft);
+      if (syncImmediately) {
+        // Sync immediately and return promise
+        syncPromise = publishDraft(savedDraft).then((success) => {
+          // Update sync status based on result
+          stateStore.update((s) => {
+            const updatedDrafts = s.drafts.map((d) => {
+              if (d.id === draftId) {
+                return {
+                  ...d,
+                  syncStatus: success ? ('synced' as const) : ('error' as const),
+                  lastSyncedAt: success ? Date.now() : d.lastSyncedAt,
+                  syncError: success ? undefined : 'Failed to sync to relays'
+                };
+              }
+              return d;
+            });
+            saveLocalDrafts(updatedDrafts);
+            return { ...s, drafts: updatedDrafts };
+          });
+          return success;
+        });
+      } else {
+        // Queue for debounced sync
+        publishDraftDebounced(savedDraft);
+      }
     }
   }
 
-  return draftId;
+  return { draftId, syncPromise };
 }
 
 /**

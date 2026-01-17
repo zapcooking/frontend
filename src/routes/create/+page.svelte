@@ -20,6 +20,8 @@
   import FloppyDiskIcon from 'phosphor-svelte/lib/FloppyDisk';
   import CloudCheckIcon from 'phosphor-svelte/lib/CloudCheck';
   import CloudArrowUpIcon from 'phosphor-svelte/lib/CloudArrowUp';
+  import SpinnerIcon from 'phosphor-svelte/lib/CircleNotch';
+  import WarningIcon from 'phosphor-svelte/lib/Warning';
 
   let title = '';
   let images: Writable<string[]> = writable([]);
@@ -39,7 +41,8 @@
   let disablePublishButton = false;
   let currentDraftId: string | null = null;
   let draftSaveMessage = '';
-  let currentDraftSyncStatus: string | undefined = undefined;
+  let currentDraftSyncStatus: 'local' | 'syncing' | 'synced' | 'error' | undefined = undefined;
+  let isSavingDraft = false;
 
   onMount(() => {
     if ($userPublickey == '') goto('/login');
@@ -85,7 +88,12 @@
     }
   }
 
-  function handleSaveDraft() {
+  async function handleSaveDraft() {
+    if (isSavingDraft) return;
+
+    isSavingDraft = true;
+    draftSaveMessage = '';
+
     const draftData = {
       title,
       images: $images,
@@ -100,9 +108,10 @@
       additionalMarkdown
     };
 
-    currentDraftId = saveDraft(draftData, currentDraftId || undefined);
-    currentDraftSyncStatus = 'local'; // Will be synced in background if sync available
-    draftSaveMessage = 'Draft saved!';
+    // Save with immediate sync when sync is available
+    const syncAvailable = $draftSyncState.syncAvailable;
+    const { draftId, syncPromise } = saveDraft(draftData, currentDraftId || undefined, syncAvailable);
+    currentDraftId = draftId;
 
     // Update URL to include draft ID (without navigation)
     if (browser) {
@@ -111,7 +120,32 @@
       window.history.replaceState({}, '', url.toString());
     }
 
-    setTimeout(() => { draftSaveMessage = ''; }, 2000);
+    if (syncPromise) {
+      // Show syncing state
+      currentDraftSyncStatus = 'syncing';
+      draftSaveMessage = 'Syncing to relays...';
+
+      try {
+        const success = await syncPromise;
+        if (success) {
+          currentDraftSyncStatus = 'synced';
+          draftSaveMessage = 'Saved & synced to relays!';
+        } else {
+          currentDraftSyncStatus = 'error';
+          draftSaveMessage = 'Saved locally (sync failed)';
+        }
+      } catch (e) {
+        currentDraftSyncStatus = 'error';
+        draftSaveMessage = 'Saved locally (sync failed)';
+      }
+    } else {
+      // No sync available, just local save
+      currentDraftSyncStatus = 'local';
+      draftSaveMessage = 'Saved locally';
+    }
+
+    isSavingDraft = false;
+    setTimeout(() => { draftSaveMessage = ''; }, 3000);
   }
 
   function formatStringArrays() {
@@ -307,7 +341,9 @@
 
   <div class="flex justify-end items-center gap-2">
     {#if draftSaveMessage}
-      <span class="text-sm text-green-500">{draftSaveMessage}</span>
+      <span class="text-sm {currentDraftSyncStatus === 'synced' ? 'text-green-500' : currentDraftSyncStatus === 'error' ? 'text-yellow-500' : currentDraftSyncStatus === 'syncing' ? 'text-blue-500' : 'text-caption'}">
+        {draftSaveMessage}
+      </span>
     {/if}
     <span class={resultMessage.includes('Error') ? 'text-red-500' : resultMessage.includes('Success') ? 'text-green-500' : ''}>
       {resultMessage}
@@ -315,11 +351,26 @@
     <button
       type="button"
       on:click={handleSaveDraft}
-      class="flex items-center gap-2 px-4 py-2 rounded-lg bg-input hover:bg-accent-gray transition-colors cursor-pointer"
-      title="Save as draft"
+      disabled={isSavingDraft}
+      class="flex items-center gap-2 px-4 py-2 rounded-lg bg-input hover:bg-accent-gray transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+      title={$draftSyncState.syncAvailable ? "Save draft to local & sync to relays" : "Save draft locally (login with encryption to sync)"}
     >
-      <FloppyDiskIcon size={18} />
-      <span>Save Draft</span>
+      {#if isSavingDraft}
+        <SpinnerIcon size={18} class="animate-spin" />
+        <span>Saving...</span>
+      {:else if currentDraftSyncStatus === 'synced'}
+        <CloudCheckIcon size={18} class="text-green-500" />
+        <span>Save Draft</span>
+      {:else if currentDraftSyncStatus === 'error'}
+        <WarningIcon size={18} class="text-yellow-500" />
+        <span>Save Draft</span>
+      {:else if $draftSyncState.syncAvailable}
+        <CloudArrowUpIcon size={18} />
+        <span>Save Draft</span>
+      {:else}
+        <FloppyDiskIcon size={18} />
+        <span>Save Draft</span>
+      {/if}
     </button>
     <Button disabled={disablePublishButton || !canPublish} type="submit">Share Recipe</Button>
   </div>
