@@ -4,6 +4,7 @@
   import SVGNostrCookingWithText from '../assets/nostr.cooking-withtext.svg';
   import AddIcon from 'phosphor-svelte/lib/Plus';
   import SearchIcon from 'phosphor-svelte/lib/MagnifyingGlass';
+  import TimerIcon from 'phosphor-svelte/lib/Timer';
   import { clickOutside } from '$lib/clickOutside';
   import { blur } from 'svelte/transition';
   import TagsSearchAutocomplete from './TagsSearchAutocomplete.svelte';
@@ -12,10 +13,17 @@
   import NotificationBell from './NotificationBell.svelte';
   import WalletBalance from './WalletBalance.svelte';
   import UserSidePanel from './UserSidePanel.svelte';
+  import { timerStore } from '$lib/timerStore';
+  import TimerWidget from './TimerWidget.svelte';
 
   let sidePanelOpen = false;
   let searchActive = false;
   let isLoading = true;
+  let timerWidgetOpen = false;
+
+  // Count active timers (running or paused)
+  $: activeTimers = $timerStore.timers.filter(t => t.status === 'running' || t.status === 'paused');
+  $: hasActiveTimers = activeTimers.length > 0;
 
   // Debug: log when profile picture override changes
   $: if ($userProfilePictureOverride) {
@@ -52,7 +60,7 @@
             autofocus={true}
         />
     </div>
-  </div>  
+  </div>
 {/if}
 
 <!-- Mobile-first layout -->
@@ -86,9 +94,23 @@
         <SearchIcon size={20} weight="bold" />
       </button>
     </div>
-    
+
+    <!-- Timer toggle -->
+    <button
+      on:click={() => timerWidgetOpen = !timerWidgetOpen}
+      class="w-9 h-9 flex items-center justify-center rounded-full transition-colors cursor-pointer relative {timerWidgetOpen ? 'bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400' : 'text-caption hover:opacity-80 hover:bg-accent-gray'}"
+      aria-label={timerWidgetOpen ? 'Hide timer' : 'Show timer'}
+    >
+      <TimerIcon size={20} weight={hasActiveTimers ? 'fill' : 'bold'} />
+      {#if hasActiveTimers}
+        <span class="absolute -top-0.5 -right-0.5 w-4 h-4 bg-amber-500 text-white text-xs font-bold rounded-full flex items-center justify-center">
+          {activeTimers.length}
+        </span>
+      {/if}
+    </button>
+
     <!-- Create - Primary CTA (compact on mobile) -->
-    <button 
+    <button
       on:click={() => goto('/create')}
       class="flex items-center justify-center gap-1.5 w-9 h-9 sm:w-auto sm:h-auto sm:gap-2 sm:px-4 sm:py-2 text-white rounded-full bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 font-semibold transition duration-300 cursor-pointer text-sm"
     >
@@ -112,8 +134,8 @@
     <!-- Sign in / User menu -->
     <div class="print:hidden flex-shrink-0">
       {#if $userPublickey !== ''}
-        <button 
-          class="flex cursor-pointer rounded-full transition-transform duration-200 hover:scale-105 active:scale-95" 
+        <button
+          class="flex cursor-pointer rounded-full transition-transform duration-200 hover:scale-105 active:scale-95"
           on:click={() => (sidePanelOpen = true)}
           aria-label="Open user menu"
         >
@@ -127,6 +149,8 @@
   </div>
 </div>
 
+<!-- Timer Widget -->
+<TimerWidget bind:open={timerWidgetOpen} />
 
 <style>
   .signin-button:hover {

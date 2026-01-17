@@ -41,8 +41,6 @@
   // Sound state
   let soundEnabled = true;
   let audioContext: AudioContext | null = null;
-  let isRinging = false;
-  let ringInterval: ReturnType<typeof setInterval> | null = null;
 
   // Initialize audio context on user interaction
   function initAudio() {
@@ -51,15 +49,15 @@
     }
   }
 
-  // Play a single bell tone
+  // Play a single bell tone (classic kitchen timer ding)
   function playBellTone() {
     if (!audioContext || !soundEnabled) return;
 
     const now = audioContext.currentTime;
 
-    // Create oscillators for bell harmonics
-    const fundamentalFreq = 800;
-    const harmonics = [1, 2.4, 3, 4.5]; // Bell-like harmonics
+    // Higher pitch for kitchen timer - classic "ding" sound
+    const fundamentalFreq = 2200;
+    const harmonics = [1, 2.0, 3.0]; // Simpler harmonics for cleaner ding
 
     harmonics.forEach((harmonic, i) => {
       const osc = audioContext!.createOscillator();
@@ -68,49 +66,30 @@
       osc.type = 'sine';
       osc.frequency.value = fundamentalFreq * harmonic;
 
-      // Louder fundamental, quieter harmonics
-      const volume = 0.3 / (i + 1);
+      // Quick attack, fast decay for a "ding"
+      const volume = 0.4 / (i + 1);
       gain.gain.setValueAtTime(volume, now);
-      gain.gain.exponentialRampToValueAtTime(0.001, now + 1.5);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.6);
 
       osc.connect(gain);
       gain.connect(audioContext!.destination);
 
       osc.start(now);
-      osc.stop(now + 1.5);
+      osc.stop(now + 0.6);
     });
   }
 
-  // Start ringing (repeating bell)
-  function startRinging() {
-    if (isRinging || !soundEnabled) return;
-    isRinging = true;
+  // Play the bell once (no repeat)
+  function playTimerDing() {
+    if (!soundEnabled) return;
     initAudio();
     playBellTone();
-    // Ring every 2 seconds
-    ringInterval = setInterval(() => {
-      if (soundEnabled && isRinging) {
-        playBellTone();
-      }
-    }, 2000);
-  }
-
-  // Stop ringing
-  function stopRinging() {
-    isRinging = false;
-    if (ringInterval) {
-      clearInterval(ringInterval);
-      ringInterval = null;
-    }
   }
 
   // Toggle sound
   function toggleSound() {
     initAudio();
     soundEnabled = !soundEnabled;
-    if (!soundEnabled) {
-      stopRinging();
-    }
   }
 
   // For live countdown updates
@@ -132,7 +111,6 @@
   onDestroy(() => {
     unsubscribe();
     stopTicking();
-    stopRinging();
   });
 
   function startTicking() {
@@ -158,7 +136,7 @@
         markTimerDone(timer.id);
         // Play bell sound when timer completes
         if (soundEnabled) {
-          startRinging();
+          playTimerDing();
         }
       }
     });
@@ -196,15 +174,10 @@
 
   async function handleDelete(timer: TimerItem) {
     await cancelTimer(timer.id);
-    // Stop ringing if deleting a completed timer
-    if (timer.status === 'done') {
-      stopRinging();
-    }
   }
 
   function handleClearCompleted() {
     clearCompletedTimers();
-    stopRinging();
   }
 
   // Reactive: get remaining time for each timer (updates with tick)
