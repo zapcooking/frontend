@@ -722,6 +722,8 @@
 
   .time-presets {
     display: flex;
+    flex-direction: row;
+    flex-wrap: wrap;
     gap: 6px;
     margin-bottom: 12px;
     border-top: 1px solid var(--color-input-border);
@@ -729,7 +731,8 @@
   }
 
   .time-preset-btn {
-    flex: 1;
+    flex: 1 1 auto;
+    min-width: 45px;
     padding: 8px 4px;
     border: 1px solid var(--color-input-border);
     border-radius: 6px;
@@ -739,6 +742,7 @@
     font-weight: 500;
     cursor: pointer;
     transition: all 0.2s;
+    text-align: center;
   }
 
   .time-preset-btn:hover {
@@ -762,20 +766,22 @@
   .preset-grid {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
-    gap: 6px;
+    gap: 8px;
   }
 
   .preset-btn {
     display: flex;
     flex-direction: column;
     align-items: center;
-    padding: 8px 4px;
+    justify-content: center;
+    padding: 10px 6px;
     border: 1px solid var(--color-input-border);
     border-radius: 8px;
     background: transparent;
     color: var(--color-text-primary);
     cursor: pointer;
     transition: all 0.2s;
+    min-height: 70px;
   }
 
   .preset-btn:hover {
@@ -784,18 +790,19 @@
   }
 
   .preset-emoji {
-    font-size: 20px;
+    font-size: 24px;
     line-height: 1;
-    margin-bottom: 2px;
+    margin-bottom: 4px;
   }
 
   .preset-name {
-    font-size: 10px;
+    font-size: 11px;
     font-weight: 500;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
     max-width: 100%;
+    text-align: center;
   }
 
   .preset-time {
@@ -806,14 +813,13 @@
   /* Mobile styles - bottom-locked widget */
   .timer-widget.mobile {
     top: auto;
-    bottom: 70px; /* Above bottom nav */
+    bottom: calc(56px + env(safe-area-inset-bottom, 0px)); /* Sit directly on bottom nav */
     left: 0;
     right: 0;
     width: 100%;
     max-width: 100%;
     border-radius: 16px 16px 0 0;
     max-height: 70vh;
-    padding-bottom: env(safe-area-inset-bottom, 0px);
   }
 
   .timer-widget.mobile.minimized {
@@ -827,6 +833,15 @@
 
   .timer-widget.mobile .timer-time-large {
     font-size: 52px;
+  }
+
+  .timer-widget.mobile .preset-grid {
+    grid-template-columns: repeat(4, 1fr);
+  }
+
+  .timer-widget.mobile .time-presets {
+    display: flex;
+    flex-wrap: nowrap;
   }
 
   .minimize-btn {
