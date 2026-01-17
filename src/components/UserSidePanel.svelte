@@ -4,7 +4,7 @@
   import { nip19 } from 'nostr-tools';
   import { onMount, onDestroy } from 'svelte';
   import { browser } from '$app/environment';
-  
+
   // Icons
   import XIcon from 'phosphor-svelte/lib/X';
   import UserIcon from 'phosphor-svelte/lib/User';
@@ -18,28 +18,67 @@
   import MoonIcon from 'phosphor-svelte/lib/Moon';
   import GearIcon from 'phosphor-svelte/lib/Gear';
   import SignOutIcon from 'phosphor-svelte/lib/SignOut';
-  
+
   // Components and stores
   import CustomAvatar from './CustomAvatar.svelte';
   import { theme } from '$lib/themeStore';
   import { userPublickey, userProfilePictureOverride } from '$lib/nostr';
   import { getAuthManager } from '$lib/authManager';
+  import { profileCacheManager } from '$lib/profileCache';
 
   export let open = false;
-  
+
   // Touch handling for swipe-to-close
   let touchStartX = 0;
   let touchCurrentX = 0;
   let isSwiping = false;
-  
+
+  // Profile display name
+  let displayName = '';
+  let lastPubkey = '';
+
   // Theme state
   $: resolvedTheme = $theme === 'system' ? theme.getResolvedTheme() : $theme;
   $: isDarkMode = resolvedTheme === 'dark';
-  
-  // Get display name (truncated npub)
-  $: displayName = $userPublickey 
-    ? nip19.npubEncode($userPublickey).slice(0, 12) + '...' 
-    : '';
+
+  // Load profile when pubkey changes
+  $: if ($userPublickey && $userPublickey !== lastPubkey) {
+    lastPubkey = $userPublickey;
+    loadDisplayName($userPublickey);
+  }
+
+  async function loadDisplayName(pubkey: string) {
+    if (!pubkey) {
+      displayName = '';
+      return;
+    }
+
+    // Start with truncated npub as fallback
+    displayName = nip19.npubEncode(pubkey).slice(0, 12) + '...';
+
+    try {
+      // Try cache first
+      const cachedUser = profileCacheManager.getCachedProfile(pubkey);
+      if (cachedUser?.profile) {
+        const name = cachedUser.profile.displayName || cachedUser.profile.name;
+        if (name) {
+          displayName = name;
+          return;
+        }
+      }
+
+      // Fetch from relays
+      const user = await profileCacheManager.getProfile(pubkey);
+      if (user?.profile) {
+        const name = user.profile.displayName || user.profile.name;
+        if (name) {
+          displayName = name;
+        }
+      }
+    } catch (e) {
+      console.warn('[UserSidePanel] Failed to load display name:', e);
+    }
+  }
 
   function close() {
     open = false;
@@ -73,14 +112,14 @@
     if (authManager) {
       await authManager.logout();
     }
-    
+
     userPublickey.set('');
-    
+
     if (browser) {
       localStorage.removeItem('nostrcooking_loggedInPublicKey');
       localStorage.removeItem('nostrcooking_privateKey');
     }
-    
+
     close();
     setTimeout(() => (window.location.href = ''), 1);
   }
@@ -99,13 +138,13 @@
 
   function handleTouchEnd() {
     if (!isSwiping) return;
-    
+
     const swipeDistance = touchCurrentX - touchStartX;
     // Close if swiped right more than 100px
     if (swipeDistance > 100) {
       close();
     }
-    
+
     isSwiping = false;
     touchStartX = 0;
     touchCurrentX = 0;
@@ -267,11 +306,11 @@
               {/if}
             </div>
             <!-- Toggle switch visual -->
-            <div 
+            <div
               class="w-12 h-7 rounded-full p-1 transition-colors duration-200"
               style="background-color: {isDarkMode ? 'var(--color-primary)' : 'var(--color-accent-gray)'};"
             >
-              <div 
+              <div
                 class="w-5 h-5 rounded-full bg-white shadow-md transition-transform duration-200"
                 style="transform: translateX({isDarkMode ? '20px' : '0px'});"
               ></div>
@@ -313,17 +352,17 @@
   button {
     min-height: 44px;
   }
-  
+
   li button {
     min-height: 48px;
   }
-  
+
   /* Hover state background for menu items */
   nav button:hover,
   .flex-shrink-0 button:hover:not(.text-danger) {
     background-color: var(--color-input-bg);
   }
-  
+
   /* Danger button hover */
   .text-danger:hover {
     background-color: rgba(220, 38, 38, 0.1);
