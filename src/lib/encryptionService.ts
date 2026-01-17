@@ -56,36 +56,47 @@ export function hasEncryptionSupport(): boolean {
 
   const ndkInstance = get(ndk);
   const signer = ndkInstance.signer;
+  const signerName = signer?.constructor?.name;
 
-  // Check if signer has encryption methods
+  // Check by signer type
   if (signer) {
-    // Direct encryption methods available
-    if (typeof signer.nip44Encrypt === 'function' || typeof signer.nip04Encrypt === 'function') {
-      return true;
+    // NIP-07 signers use window.nostr for encryption
+    if (signerName === 'NDKNip07Signer') {
+      const nostr = (window as any).nostr;
+      return !!(nostr?.nip44?.encrypt || nostr?.nip04?.encrypt);
     }
 
     // For private key signers, we can use nostr-tools directly
-    if (signer.constructor?.name === 'NDKPrivateKeySigner') {
-      return !!getPrivateKey(); // We have a private key, so encryption is supported
+    if (signerName === 'NDKPrivateKeySigner') {
+      return !!getPrivateKey();
     }
 
     // For NIP-46 signers, encryption support depends on remote signer permissions
     // We can't check this synchronously, so we return true and let encrypt() handle it
-    // This allows the UI to show the button, and the actual call will provide a clear error
-    if (signer.constructor?.name === 'NDKNip46Signer') {
-      return true; // Assume supported, encrypt() will handle errors
+    if (signerName === 'NDKNip46Signer') {
+      return true;
     }
 
-    // For other signer types, if they exist but don't have encryption methods, return false
+    // Direct encryption methods available on signer
+    if (typeof signer.nip44Encrypt === 'function' || typeof signer.nip04Encrypt === 'function') {
+      return true;
+    }
+
+    // Unknown signer type - check window.nostr as fallback
+    const nostr = (window as any).nostr;
+    if (nostr?.nip44?.encrypt || nostr?.nip04?.encrypt) {
+      return true;
+    }
+
     return false;
   }
 
-  // Check if we have a private key stored (for direct encryption)
+  // No signer - check if we have a private key stored
   if (getPrivateKey()) {
     return true;
   }
 
-  // Fallback check for window.nostr (NIP-07 without NDK signer)
+  // Fallback check for window.nostr (NIP-07 without NDK signer set)
   const nostr = (window as any).nostr;
   return !!(nostr?.nip44?.encrypt || nostr?.nip04?.encrypt);
 }
