@@ -4,7 +4,7 @@ This document outlines the multi-wallet system architecture to ensure future cha
 
 ## Architecture Overview
 
-The wallet system supports two **embedded wallet** types and one **external wallet** option:
+The wallet system supports two **embedded wallet** types and two **external wallet** options:
 
 ### Embedded Wallets (Full Features)
 - **NWC (kind: 3)** - Nostr Wallet Connect protocol
@@ -12,19 +12,20 @@ The wallet system supports two **embedded wallet** types and one **external wall
 
 Embedded wallets provide: balance display, transaction history, send/receive, lightning addresses, and wallet widget in the header.
 
-### External Wallet (Bitcoin Connect)
+### External Wallets
+
+#### WebLN (Browser Extension)
+- **WebLN** - Direct connection to browser's Lightning wallet extension (e.g., Alby)
+- Available when `window.webln` exists in the browser
+- Uses flag-based state (`weblnConnected` store) similar to Bitcoin Connect
+- Provides: payment capability, limited balance support (provider-dependent)
+- When connected, disables embedded wallet options until disconnected
+
+#### Bitcoin Connect
 - **Bitcoin Connect** - External wallet connection via `@getalby/bitcoin-connect`
 - Lightweight option for users who don't want to configure an embedded wallet
 - Supports: Alby extension, NWC, LNbits, and other WebLN providers
 - Provides: payment capability only (no balance, no history, no header widget)
-
-### Removed: WebLN (kind: 1)
-WebLN browser extension support was removed to simplify the wallet options. WebLN had compatibility issues:
-- Unable to display balance (not supported by most providers)
-- No transaction history support
-- Inconsistent behavior across different extensions
-
-The code infrastructure for WebLN still exists in `webln.ts` but is not exposed in the UI.
 
 ## Key Files
 
@@ -35,7 +36,7 @@ src/lib/wallet/
 ├── walletManager.ts   # Unified wallet operations
 ├── nwc.ts             # NWC implementation (NIP-47)
 ├── bitcoinConnect.ts  # Bitcoin Connect external wallet state
-└── webln.ts           # WebLN implementation (legacy, not exposed in UI)
+└── webln.ts           # WebLN browser extension support (stores, connection management)
 
 src/lib/spark/
 ├── index.ts           # Breez SDK Spark integration
@@ -51,7 +52,8 @@ src/components/
 ├── WalletRecoveryHelpModal.svelte # Modal with recovery information
 ├── BottomNav.svelte               # Mobile bottom navigation (includes Wallet)
 └── icons/
-    └── BitcoinConnectLogo.svelte  # Bitcoin Connect logo icon
+    ├── BitcoinConnectLogo.svelte  # Bitcoin Connect logo icon
+    └── WeblnLogo.svelte           # WebLN logo icon (orange lightning bolt)
 
 src/routes/wallet/
 └── +page.svelte       # Main wallet page with all wallet UI
@@ -83,8 +85,99 @@ Each wallet module maintains its own connection state:
 - `_wasmInitialized` - WASM module loaded
 - `_currentPubkey` - User's pubkey
 
+**WebLN (`webln.ts`)**:
+- `weblnConnected` - Svelte store (boolean, persisted to localStorage)
+- `weblnWalletName` - Svelte store (string, provider name for display)
+- `weblnProvider` - window.webln reference
+
 **Bitcoin Connect (`bitcoinConnect.ts`)**:
 - `bitcoinConnectEnabled` - Svelte store (boolean, persisted to localStorage)
+
+## WebLN (External Browser Wallet)
+
+WebLN provides direct integration with browser Lightning wallet extensions like Alby.
+
+### Key Differences from Embedded Wallets
+
+| Feature | Embedded Wallets | WebLN |
+|---------|------------------|-------|
+| Balance display | Yes | Limited (provider-dependent) |
+| Transaction history | Yes | No |
+| Header widget | Yes | No |
+| Lightning address | Yes (Spark) | No |
+| Payment capability | Yes | Yes |
+| Wallet page UI | Full management | External wallet display |
+
+### State Management
+
+WebLN uses flag-based state similar to Bitcoin Connect:
+
+```typescript
+// src/lib/wallet/webln.ts
+const STORAGE_KEY = 'zapcooking_webln_connected'
+const NAME_STORAGE_KEY = 'zapcooking_webln_wallet_name'
+
+export const weblnConnected = writable<boolean>(false)
+export const weblnWalletName = writable<string>('')
+
+export function enableWebln(walletName: string = ''): void {
+  weblnConnected.set(true)
+  weblnWalletName.set(walletName)
+  // Persisted to localStorage via subscription
+}
+
+export function disableWebln(): void {
+  weblnConnected.set(false)
+  weblnWalletName.set('')
+  localStorage.removeItem(STORAGE_KEY)
+  localStorage.removeItem(NAME_STORAGE_KEY)
+}
+
+export function reconnectWeblnIfEnabled(): void {
+  // Called on app init to restore connection state
+  const saved = localStorage.getItem(STORAGE_KEY)
+  if (saved === 'true') {
+    weblnConnected.set(true)
+    weblnWalletName.set(localStorage.getItem(NAME_STORAGE_KEY) || '')
+  }
+}
+```
+
+### UI Flow
+
+WebLN appears in the "Add Wallet" modal under "Browser / External Wallets" section **only when `window.webln` exists**:
+
+```
+Add Embedded Wallet
+├── NWC (Nostr Wallet Connect)      [disabled if WebLN connected]
+├── Breez Spark (Self-Custodial)    [disabled if WebLN connected]
+│
+├── ─── Browser / External Wallets ───
+│
+├── [WebLN Icon] Browser Wallet (WebLN)
+└── [Connect Wallet] (Bitcoin Connect button)
+```
+
+Once connected:
+- Wallet page shows WebLN in Connected Wallets section with WebLN icon
+- "Disconnect" button to disable WebLN
+- Embedded wallet options are disabled until WebLN is disconnected
+
+### Interaction with Embedded Wallets
+
+When WebLN is connected:
+- NWC and Spark options in Add Wallet modal are disabled
+- Message shown: "Disconnect browser wallet to add embedded wallets"
+- WebLN takes precedence for payments
+
+### Migration from Legacy WebLN (kind 1)
+
+On app load, if a kind 1 wallet exists in the wallets array, it is migrated:
+1. Set `weblnConnected = true`
+2. Store the wallet name
+3. Remove the kind 1 wallet from the wallets array
+
+This ensures backward compatibility with existing WebLN wallet configurations.
 
 ## Bitcoin Connect (External Wallet)
 
@@ -1060,6 +1153,16 @@ Before any wallet changes, verify:
 - [ ] Recovery Help modal opens with correct content
 - [ ] Mobile: Wallet type label hidden, names truncate
 - [ ] Mobile: Bottom nav shows Wallet with lightning icon
+
+### WebLN
+- [ ] WebLN option appears in Add Wallet modal when browser has `window.webln`
+- [ ] WebLN option hidden when browser lacks WebLN support
+- [ ] Connecting WebLN shows success and displays in Connected Wallets
+- [ ] WebLN connected state persists across page refreshes
+- [ ] When WebLN connected, embedded wallet options (NWC, Spark) are disabled
+- [ ] Disconnect button removes WebLN and re-enables embedded wallet options
+- [ ] Legacy kind 1 wallets are migrated to new WebLN flag system
+- [ ] Payments work via WebLN when connected
 
 ### Bitcoin Connect
 - [ ] Bitcoin Connect option appears in modal when no wallets exist

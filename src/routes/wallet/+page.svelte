@@ -16,6 +16,7 @@
     getWalletKindName,
     setActiveWallet,
     toggleBalanceVisibility,
+    removeWallet,
     type WalletKind
   } from '$lib/wallet';
   import {
@@ -99,6 +100,8 @@
   import WalletRecoveryHelpModal from '../../components/WalletRecoveryHelpModal.svelte';
   import CheckRelayBackupsModal from '../../components/CheckRelayBackupsModal.svelte';
   import { bitcoinConnectEnabled, enableBitcoinConnect, disableBitcoinConnect } from '$lib/wallet/bitcoinConnect';
+  import { weblnConnected, weblnWalletName, isWeblnAvailable, enableWebln, disableWebln, reconnectWeblnIfEnabled, getWeblnBalance } from '$lib/wallet/webln';
+  import WeblnLogo from '../../components/icons/WeblnLogo.svelte';
   import { lightningService } from '$lib/lightningService';
   import { displayCurrency } from '$lib/currencyStore';
   import CurrencySelector from '../../components/CurrencySelector.svelte';
@@ -136,6 +139,10 @@
   // NWC wallet info
   let nwcWalletInfo: { alias?: string; methods: string[]; relay: string; pubkey: string } | null = null;
   let isLoadingNwcInfo = false;
+
+  // WebLN balance state
+  let weblnBalance: number | null = null;
+  let weblnBalanceLoading = false;
 
   // Portal target for modals (renders at body level to fix positioning)
   $: portalTarget = browser ? document.body : null;
@@ -393,6 +400,23 @@
 
     // Ensure pending transactions are loaded from localStorage
     ensurePendingTransactionsLoaded();
+
+    // Migrate existing WebLN wallets (kind 1) to the new external wallet system
+    // Remove any kind 1 wallets from the wallets array - they're now handled separately
+    const existingWeblnWallets = $wallets.filter(w => w.kind === 1);
+    if (existingWeblnWallets.length > 0) {
+      for (const weblnWallet of existingWeblnWallets) {
+        removeWallet(weblnWallet.id);
+      }
+    }
+
+    // Reconnect WebLN if it was previously connected (state is in localStorage)
+    reconnectWeblnIfEnabled().then((weblnReconnected) => {
+      if (weblnReconnected) {
+        // Fetch WebLN balance after reconnection
+        refreshWeblnBalance();
+      }
+    });
 
     // Fetch user's profile lud16
     fetchProfileLud16();
@@ -939,6 +963,47 @@
       // User cancelled or connection failed
       console.warn('[Wallet] Bitcoin Connect cancelled or failed:', e);
     }
+  }
+
+  async function refreshWeblnBalance() {
+    if (!$weblnConnected) return;
+    weblnBalanceLoading = true;
+    try {
+      const balance = await getWeblnBalance();
+      weblnBalance = balance;
+    } catch {
+      weblnBalance = null;
+    } finally {
+      weblnBalanceLoading = false;
+    }
+  }
+
+  async function handleConnectWebln() {
+    // Connect to browser's WebLN provider
+    isConnecting = true;
+    errorMessage = '';
+    try {
+      const result = await enableWebln();
+      if (result.success) {
+        showAddWallet = false;
+        successMessage = `Connected to ${result.walletName}!`;
+        // Refresh balance from WebLN
+        await refreshWeblnBalance();
+      } else {
+        errorMessage = result.error || 'Failed to connect WebLN wallet';
+      }
+    } catch (e) {
+      errorMessage = e instanceof Error ? e.message : 'Failed to connect WebLN wallet';
+      console.warn('[Wallet] WebLN connection failed:', e);
+    } finally {
+      isConnecting = false;
+    }
+  }
+
+  async function handleDisconnectWebln() {
+    disableWebln();
+    weblnBalance = null;
+    successMessage = 'Browser wallet disconnected';
   }
 
   function handleDisableBitcoinConnect() {
@@ -1533,8 +1598,65 @@
     </div>
   {/if}
 
+  <!-- WebLN Balance Overview -->
+  {#if $weblnConnected}
+    <div class="mb-8 p-6 rounded-2xl bg-input border border-input">
+      <div class="flex items-center justify-between mb-4">
+        <div class="flex items-center gap-2">
+          <WeblnLogo size={24} />
+          <span class="font-medium text-primary-color">Balance</span>
+        </div>
+        <div class="flex items-center gap-3">
+          <button
+            class="flex items-center gap-1 text-sm text-caption hover:text-primary transition-colors cursor-pointer"
+            on:click={toggleBalanceVisibility}
+            title={$balanceVisible ? 'Hide balance' : 'Show balance'}
+          >
+            {#if $balanceVisible}
+              <EyeSlashIcon size={16} />
+            {:else}
+              <EyeIcon size={16} />
+            {/if}
+          </button>
+          <button
+            class="text-caption hover:text-primary transition-colors cursor-pointer disabled:opacity-50"
+            on:click={refreshWeblnBalance}
+            disabled={weblnBalanceLoading}
+            title="Refresh balance"
+          >
+            <span class:animate-spin={weblnBalanceLoading}>
+              <ArrowsClockwiseIcon size={16} />
+            </span>
+          </button>
+        </div>
+      </div>
+      <div class="flex items-start justify-between mb-2">
+        <div>
+          <div class="text-4xl font-bold text-primary-color flex items-center gap-3">
+            {#if weblnBalanceLoading}
+              <span class="animate-pulse">...</span>
+            {:else if weblnBalance === null}
+              <span class="text-2xl text-caption">Balance not available</span>
+            {:else if $balanceVisible}
+              {formatBalance(weblnBalance)} <span class="text-lg font-normal text-caption">sats</span>
+            {:else}
+              *** <span class="text-lg font-normal text-caption">sats</span>
+            {/if}
+          </div>
+          {#if weblnBalance !== null}
+            <FiatBalance satoshis={weblnBalance} visible={$balanceVisible} />
+          {/if}
+        </div>
+        <CurrencySelector compact />
+      </div>
+      <div class="text-sm text-caption">
+        Active: {$weblnWalletName || 'Browser Wallet'} (WebLN)
+      </div>
+    </div>
+  {/if}
+
   <!-- Balance Overview -->
-  {#if $walletConnected && $activeWallet}
+  {#if $walletConnected && $activeWallet && !$weblnConnected}
     <div class="mb-8 p-6 rounded-2xl bg-input border border-input">
       <div class="flex items-center justify-between mb-4">
         <div class="flex items-center gap-2">
@@ -1610,7 +1732,7 @@
   <div class="mb-8">
     <div class="flex items-center justify-between mb-4">
       <h2 class="text-lg font-semibold" style="color: var(--color-text-primary)">Connected Wallets</h2>
-      {#if !hasMaxWallets}
+      {#if !hasMaxWallets && !$weblnConnected && !$bitcoinConnectEnabled}
         <Button on:click={() => { showAddWallet = true; selectedWalletType = null; }}>
           <PlusIcon size={16} />
           Add Wallet
@@ -1618,7 +1740,25 @@
       {/if}
     </div>
 
-    {#if $wallets.length === 0}
+    <!-- WebLN External Wallet Display -->
+    {#if $weblnConnected}
+      <div class="p-8 rounded-2xl text-center flex flex-col items-center mb-3" style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);">
+        <div class="w-16 h-16 rounded-full bg-gradient-to-br from-orange-500 to-amber-500 flex items-center justify-center mb-4">
+          <WeblnLogo size={32} className="text-white" />
+        </div>
+        <p class="font-medium mb-1" style="color: var(--color-text-primary)">{$weblnWalletName || 'Browser Wallet'}</p>
+        <p class="text-sm text-caption mb-4">Browser wallet connected via WebLN</p>
+        <button
+          class="px-5 py-2.5 rounded-full font-semibold text-sm text-caption hover:text-red-500 transition-colors cursor-pointer"
+          style="background-color: var(--color-bg-primary); border: 1px solid var(--color-input-border);"
+          on:click={handleDisconnectWebln}
+        >
+          Disconnect Browser Wallet
+        </button>
+      </div>
+    {/if}
+
+    {#if $wallets.length === 0 && !$weblnConnected}
       <div class="p-8 rounded-2xl text-center flex flex-col items-center" style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);">
         {#if $bitcoinConnectEnabled}
           <div class="w-16 h-16 rounded-full bg-gradient-to-br from-orange-500 to-amber-500 flex items-center justify-center mb-4">
@@ -1641,14 +1781,32 @@
           </Button>
         {/if}
       </div>
-    {:else}
+    {:else if $wallets.length > 0}
+      <!-- WebLN active indicator when embedded wallets exist -->
+      {#if $weblnConnected}
+        <div class="p-3 rounded-xl mb-3 flex items-center gap-3" style="background-color: rgba(249, 115, 22, 0.1); border: 1px solid rgba(249, 115, 22, 0.3);">
+          <WeblnLogo size={20} />
+          <div class="flex-1">
+            <span class="text-sm font-medium" style="color: var(--color-text-primary)">Browser wallet active</span>
+            <span class="text-sm text-caption"> — embedded wallets below are paused</span>
+          </div>
+          <button
+            class="text-xs px-2 py-1 rounded-full text-caption hover:text-red-500 transition-colors cursor-pointer"
+            style="background-color: var(--color-bg-primary); border: 1px solid var(--color-input-border);"
+            on:click={handleDisconnectWebln}
+          >
+            Disconnect
+          </button>
+        </div>
+      {/if}
       <div class="space-y-3">
-        {#each $wallets as wallet}
+        {#each $wallets.filter(w => w.kind !== 1) as wallet}
+          {@const isEffectivelyActive = wallet.active && !$weblnConnected}
           <div
             class="rounded-xl overflow-hidden"
             style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);"
-            class:ring-2={wallet.active}
-            class:ring-amber-500={wallet.active}
+            class:ring-2={isEffectivelyActive}
+            class:ring-amber-500={isEffectivelyActive}
           >
             <div class="p-3 sm:p-4 flex items-center gap-2 sm:gap-4">
               <!-- Wallet type icon -->
@@ -1663,8 +1821,10 @@
                   {getWalletKindName(wallet.kind)}{#if wallet.kind === 3}{@const parsed = parseNwcUrl(wallet.data)}{#if parsed} · {parsed.pubkey.slice(0, 8)}...{/if}{/if}
                 </div>
               </div>
-              {#if wallet.active}
+              {#if isEffectivelyActive}
                 <span class="text-xs px-2 py-1 rounded-full bg-amber-500 text-white flex-shrink-0">Active</span>
+              {:else if $weblnConnected}
+                <span class="text-xs px-2 py-1 rounded-full text-caption flex-shrink-0" style="background-color: var(--color-input-bg);">Inactive</span>
               {:else}
                 <button
                   class="text-xs sm:text-sm text-caption hover:text-primary cursor-pointer flex-shrink-0 whitespace-nowrap"
@@ -1770,7 +1930,7 @@
                     on:click={() => walletToDelete = { id: wallet.id, name: wallet.name, kind: wallet.kind, data: wallet.data }}
                   >
                     <TrashIcon size={16} />
-                    Delete Wallet
+                    Remove Wallet
                   </button>
                 </div>
 
@@ -2002,7 +2162,7 @@
                     on:click={() => walletToDelete = { id: wallet.id, name: wallet.name, kind: wallet.kind, data: wallet.data }}
                   >
                     <TrashIcon size={16} />
-                    <span class="truncate">Delete Wallet</span>
+                    <span class="truncate">Remove Wallet</span>
                   </button>
                 </div>
 
@@ -2349,82 +2509,130 @@
   {/if}
 
   <!-- Add Wallet Modal -->
-  {#if showAddWallet}
-    <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+  {#if showAddWallet && portalTarget}
+    <div use:portal={portalTarget}>
+      <div class="fixed inset-0 bg-black/50 flex z-50 p-4" style="display: flex; align-items: center; justify-content: center;">
       <div class="rounded-2xl p-6 max-w-md w-full max-h-[90vh] overflow-y-auto" style="background-color: var(--color-bg-primary);">
-        <h2 class="text-xl font-bold mb-4" style="color: var(--color-text-primary)">Add Embedded Wallet</h2>
+        <h2 class="text-xl font-bold mb-4" style="color: var(--color-text-primary)">Add Wallet</h2>
 
         {#if !selectedWalletType}
           <!-- Wallet type selection -->
           <div class="space-y-3">
-            <button
-              class="w-full p-4 rounded-xl text-left flex items-center gap-4 transition-colors"
-              class:cursor-pointer={!hasExistingNwcWallet}
-              class:cursor-not-allowed={hasExistingNwcWallet}
-              class:opacity-50={hasExistingNwcWallet}
-              style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);"
-              on:click={() => !hasExistingNwcWallet && (selectedWalletType = 3)}
-              disabled={hasExistingNwcWallet}
-            >
-              <div class="w-10 h-10 rounded-full bg-amber-500/20 flex items-center justify-center">
-                <NwcLogo size={28} />
-              </div>
-              <div>
-                <div class="font-medium" style="color: var(--color-text-primary)">NWC (Nostr Wallet Connect)</div>
-                {#if hasExistingNwcWallet}
-                  <div class="text-sm text-amber-500">You already have an NWC wallet connected</div>
-                {:else}
-                  <div class="text-sm text-caption">Connect any NWC-compatible wallet</div>
-                {/if}
-              </div>
-            </button>
+            <!-- Embedded wallet options - disabled when external wallet (WebLN) is connected -->
+            <div class="mb-2">
+              <span class="text-xs text-caption uppercase tracking-wide">Embedded Wallets</span>
+            </div>
 
-            <button
-              class="w-full p-4 rounded-xl text-left flex items-center gap-4 transition-colors"
-              class:cursor-pointer={!hasExistingSparkWallet}
-              class:cursor-not-allowed={hasExistingSparkWallet}
-              class:opacity-50={hasExistingSparkWallet}
-              style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);"
-              on:click={() => !hasExistingSparkWallet && (selectedWalletType = 4)}
-              disabled={hasExistingSparkWallet}
-            >
-              <div class="w-10 h-10 rounded-full bg-orange-500/20 flex items-center justify-center">
-                <SparkLogo size={24} className="text-orange-500" />
+            {#if $weblnConnected}
+              <div class="p-4 rounded-xl text-center" style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);">
+                <p class="text-sm text-caption">Disconnect your browser wallet to add embedded wallets</p>
               </div>
-              <div>
-                <div class="font-medium" style="color: var(--color-text-primary)">Breez Spark (Self-Custodial)</div>
-                {#if hasExistingSparkWallet}
-                  <div class="text-sm text-amber-500">You already have a Spark wallet connected</div>
-                {:else}
-                  <div class="text-sm text-caption">Create or restore a built-in Lightning wallet</div>
-                {/if}
-              </div>
-            </button>
-
-            <!-- Bitcoin Connect option - only show if no embedded wallets exist -->
-            {#if $wallets.length === 0}
-              <div class="flex items-center gap-3 my-4">
-                <div class="flex-1 border-t" style="border-color: var(--color-input-border);"></div>
-                <span class="text-sm text-caption">or choose a wallet to connect</span>
-                <div class="flex-1 border-t" style="border-color: var(--color-input-border);"></div>
-              </div>
+            {:else}
+              <button
+                class="w-full p-4 rounded-xl text-left flex items-center gap-4 transition-colors"
+                class:cursor-pointer={!hasExistingNwcWallet}
+                class:cursor-not-allowed={hasExistingNwcWallet}
+                class:opacity-50={hasExistingNwcWallet}
+                style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);"
+                on:click={() => !hasExistingNwcWallet && (selectedWalletType = 3)}
+                disabled={hasExistingNwcWallet}
+              >
+                <div class="w-10 h-10 rounded-full bg-amber-500/20 flex items-center justify-center">
+                  <NwcLogo size={28} />
+                </div>
+                <div>
+                  <div class="font-medium" style="color: var(--color-text-primary)">NWC (Nostr Wallet Connect)</div>
+                  {#if hasExistingNwcWallet}
+                    <div class="text-sm text-amber-500">You already have an NWC wallet connected</div>
+                  {:else}
+                    <div class="text-sm text-caption">Connect any NWC-compatible wallet</div>
+                  {/if}
+                </div>
+              </button>
 
               <button
-                class="w-full py-3 px-4 rounded-xl font-semibold text-white bg-gradient-to-r from-orange-500 to-amber-500 transition-colors flex items-center justify-center gap-2"
-                class:hover:from-orange-600={!$bitcoinConnectEnabled}
-                class:hover:to-amber-600={!$bitcoinConnectEnabled}
-                class:cursor-pointer={!$bitcoinConnectEnabled}
-                class:opacity-50={$bitcoinConnectEnabled}
-                class:cursor-not-allowed={$bitcoinConnectEnabled}
-                on:click={handleConnectBitcoinConnect}
-                disabled={$bitcoinConnectEnabled}
+                class="w-full p-4 rounded-xl text-left flex items-center gap-4 transition-colors"
+                class:cursor-pointer={!hasExistingSparkWallet}
+                class:cursor-not-allowed={hasExistingSparkWallet}
+                class:opacity-50={hasExistingSparkWallet}
+                style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);"
+                on:click={() => !hasExistingSparkWallet && (selectedWalletType = 4)}
+                disabled={hasExistingSparkWallet}
               >
-                <BitcoinConnectLogo size={20} />
-                {#if $bitcoinConnectEnabled}
-                  External Wallet Connected
-                {:else}
-                  Connect Wallet
-                {/if}
+                <div class="w-10 h-10 rounded-full bg-orange-500/20 flex items-center justify-center">
+                  <SparkLogo size={24} className="text-orange-500" />
+                </div>
+                <div>
+                  <div class="font-medium" style="color: var(--color-text-primary)">Breez Spark (Self-Custodial)</div>
+                  {#if hasExistingSparkWallet}
+                    <div class="text-sm text-amber-500">You already have a Spark wallet connected</div>
+                  {:else}
+                    <div class="text-sm text-caption">Create or restore a built-in Lightning wallet</div>
+                  {/if}
+                </div>
+              </button>
+            {/if}
+
+            <!-- External wallet options (WebLN, Bitcoin Connect) - only when no embedded wallets -->
+            <div class="flex items-center gap-3 my-4">
+              <div class="flex-1 border-t" style="border-color: var(--color-input-border);"></div>
+              <span class="text-xs text-caption uppercase tracking-wide">Browser / External Wallets</span>
+              <div class="flex-1 border-t" style="border-color: var(--color-input-border);"></div>
+            </div>
+
+            {#if $wallets.length > 0}
+              <div class="p-4 rounded-xl text-center" style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);">
+                <p class="text-sm text-caption">Backup and remove all embedded wallets if you want to connect a browser/external wallet</p>
+              </div>
+            {:else}
+              <!-- WebLN option - only show if browser has WebLN provider -->
+              {#if isWeblnAvailable()}
+                <button
+                  class="w-full p-4 rounded-xl text-left flex items-center gap-4 transition-colors"
+                  class:cursor-pointer={!$weblnConnected}
+                  class:cursor-not-allowed={$weblnConnected}
+                  class:opacity-50={$weblnConnected}
+                  style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);"
+                  on:click={handleConnectWebln}
+                  disabled={$weblnConnected}
+                >
+                  <div class="w-10 h-10 rounded-full overflow-hidden flex items-center justify-center">
+                    <WeblnLogo size={40} />
+                  </div>
+                  <div>
+                    <div class="font-medium" style="color: var(--color-text-primary)">Browser Wallet (WebLN)</div>
+                    {#if $weblnConnected}
+                      <div class="text-sm text-amber-500">Already connected: {$weblnWalletName}</div>
+                    {:else}
+                      <div class="text-sm text-caption">Use your Lightning wallet extension</div>
+                    {/if}
+                  </div>
+                </button>
+              {/if}
+
+              <!-- Bitcoin Connect option -->
+              <button
+                class="w-full p-4 rounded-xl text-left flex items-center gap-4 transition-colors"
+                class:cursor-pointer={!$bitcoinConnectEnabled && !$weblnConnected}
+                class:cursor-not-allowed={$bitcoinConnectEnabled || $weblnConnected}
+                class:opacity-50={$bitcoinConnectEnabled || $weblnConnected}
+                style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);"
+                on:click={handleConnectBitcoinConnect}
+                disabled={$bitcoinConnectEnabled || $weblnConnected}
+              >
+                <div class="w-10 h-10 rounded-full bg-orange-500 flex items-center justify-center">
+                  <BitcoinConnectLogo size={20} className="text-white" />
+                </div>
+                <div>
+                  <div class="font-medium" style="color: var(--color-text-primary)">Bitcoin Connect</div>
+                  {#if $bitcoinConnectEnabled}
+                    <div class="text-sm text-amber-500">External wallet connected</div>
+                  {:else if $weblnConnected}
+                    <div class="text-sm text-caption">Disconnect WebLN to use Bitcoin Connect</div>
+                  {:else}
+                    <div class="text-sm text-caption">Connect any Bitcoin Connect wallet</div>
+                  {/if}
+                </div>
               </button>
             {/if}
           </div>
@@ -2539,12 +2747,14 @@
           Cancel
         </button>
       </div>
+      </div>
     </div>
   {/if}
 
   <!-- Mnemonic Display Modal (after wallet creation) -->
-  {#if showMnemonic && sparkMnemonic}
-    <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+  {#if showMnemonic && sparkMnemonic && portalTarget}
+    <div use:portal={portalTarget}>
+      <div class="fixed inset-0 bg-black/50 flex z-50 p-4" style="display: flex; align-items: center; justify-content: center;">
       <div class="rounded-2xl p-6 max-w-md w-full max-h-[90vh] overflow-y-auto" style="background-color: var(--color-bg-primary);">
         <h2 class="text-xl font-bold mb-4" style="color: var(--color-text-primary)">Save Your Recovery Phrase</h2>
         <div class="mb-4 p-4 rounded-lg" style="background-color: rgba(239, 68, 68, 0.1); color: #ef4444;">
@@ -2556,12 +2766,14 @@
         </div>
         <Button on:click={closeMnemonicModal} class="w-full">I've Saved My Recovery Phrase</Button>
       </div>
+      </div>
     </div>
   {/if}
 
   <!-- Reveal Mnemonic Modal - higher z-index to appear above other modals -->
-  {#if revealedMnemonic}
-    <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-4">
+  {#if revealedMnemonic && portalTarget}
+    <div use:portal={portalTarget}>
+      <div class="fixed inset-0 bg-black/50 flex z-[60] p-4" style="display: flex; align-items: center; justify-content: center;">
       <div class="rounded-2xl p-6 max-w-md w-full max-h-[90vh] overflow-y-auto" style="background-color: var(--color-bg-primary);">
         <h2 class="text-xl font-bold mb-4" style="color: var(--color-text-primary)">Recovery Phrase</h2>
         <div class="mb-4 p-4 rounded-lg" style="background-color: rgba(239, 68, 68, 0.1); color: #ef4444;">
@@ -2573,13 +2785,14 @@
         </div>
         <Button on:click={closeRevealMnemonicModal} class="w-full">Close</Button>
       </div>
+      </div>
     </div>
   {/if}
 
   <!-- NWC Wallet Info Modal -->
   {#if nwcWalletInfo && portalTarget}
     <div use:portal={portalTarget}>
-      <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div class="fixed inset-0 bg-black/50 flex z-50 p-4" style="display: flex; align-items: center; justify-content: center;">
         <div class="rounded-2xl p-6 max-w-md w-full max-h-[90vh] overflow-y-auto" style="background-color: var(--color-bg-primary);">
           <h2 class="text-xl font-bold mb-4" style="color: var(--color-text-primary)">Wallet Info</h2>
 
@@ -2619,242 +2832,253 @@
     </div>
   {/if}
 
-  <!-- Delete Wallet Confirmation Modal -->
-  {#if walletToDelete}
-    <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div class="rounded-2xl p-6 max-w-md w-full max-h-[90vh] overflow-y-auto" style="background-color: var(--color-bg-primary);">
-        <h2 class="text-xl font-bold mb-4" style="color: var(--color-text-primary)">Remove Wallet</h2>
+  <!-- Remove Wallet Confirmation Modal -->
+  {#if walletToDelete && portalTarget}
+    <div use:portal={portalTarget}>
+      <div class="fixed inset-0 bg-black/50 flex z-50 p-4" style="display: flex; align-items: center; justify-content: center;">
+        <div class="rounded-2xl p-6 max-w-md w-full max-h-[90vh] overflow-y-auto" style="background-color: var(--color-bg-primary);">
+          <h2 class="text-xl font-bold mb-4" style="color: var(--color-text-primary)">Remove Wallet</h2>
 
-        <p class="text-caption mb-4">
-          Are you sure you want to remove <strong class="text-primary-color">{walletToDelete.name}</strong>?
-        </p>
+          <p class="text-caption mb-4">
+            Are you sure you want to remove <strong class="text-primary-color">{walletToDelete.name}</strong>?
+          </p>
 
-        {#if walletToDelete.kind === 4 || walletToDelete.kind === 3}
-          <!-- Backup options section -->
-          <div class="p-4 rounded-xl mb-4" style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);">
-            <div class="flex items-center gap-2 mb-3">
-              <WarningIcon size={18} class="text-amber-500" />
-              <span class="text-sm font-medium text-amber-500">Save a backup first</span>
-            </div>
+          {#if walletToDelete.kind === 4 || walletToDelete.kind === 3}
+            <!-- Backup options section -->
+            <div class="p-4 rounded-xl mb-4" style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);">
+              <div class="flex items-center gap-2 mb-3">
+                <WarningIcon size={18} class="text-amber-500" />
+                <span class="text-sm font-medium text-amber-500">Save a backup first</span>
+              </div>
 
-            <div class="grid gap-2" class:grid-cols-2={encryptionSupported} class:grid-cols-1={!encryptionSupported}>
-              {#if walletToDelete.kind === 4}
-                <!-- Spark wallet: Download JSON backup (encrypted) -->
-                {#if encryptionSupported}
+              <div class="grid gap-2" class:grid-cols-2={encryptionSupported} class:grid-cols-1={!encryptionSupported}>
+                {#if walletToDelete.kind === 4}
+                  <!-- Spark wallet: Download JSON backup (encrypted) -->
+                  {#if encryptionSupported}
+                    <button
+                      class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer bg-amber-500 hover:bg-amber-600 text-black"
+                      on:click={handleDownloadBackup}
+                      disabled={isBackingUp}
+                    >
+                      <DownloadSimpleIcon size={16} />
+                      Download JSON
+                    </button>
+                  {:else}
+                    <!-- Fallback to Recovery Phrase if encryption not supported -->
+                    <button
+                      class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer bg-amber-500 hover:bg-amber-600 text-black"
+                      on:click={handleRevealMnemonic}
+                    >
+                      <KeyIcon size={16} />
+                      Recovery Phrase
+                    </button>
+                  {/if}
+                {:else}
+                  <!-- NWC wallet: Download works without encryption -->
                   <button
                     class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer bg-amber-500 hover:bg-amber-600 text-black"
-                    on:click={handleDownloadBackup}
+                    on:click={() => handleDownloadNwcBackup(walletToDelete)}
                     disabled={isBackingUp}
                   >
                     <DownloadSimpleIcon size={16} />
-                    Download JSON
-                  </button>
-                {:else}
-                  <!-- Fallback to Recovery Phrase if encryption not supported -->
-                  <button
-                    class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer bg-amber-500 hover:bg-amber-600 text-black"
-                    on:click={handleRevealMnemonic}
-                  >
-                    <KeyIcon size={16} />
-                    Recovery Phrase
+                    Download
                   </button>
                 {/if}
-              {:else}
-                <!-- NWC wallet: Download works without encryption -->
-                <button
-                  class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer bg-amber-500 hover:bg-amber-600 text-black"
-                  on:click={() => handleDownloadNwcBackup(walletToDelete)}
-                  disabled={isBackingUp}
-                >
-                  <DownloadSimpleIcon size={16} />
-                  Download
-                </button>
-              {/if}
-              {#if encryptionSupported}
-                <button
-                  class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer bg-black hover:bg-gray-800 text-white"
-                  on:click={() => walletToDelete.kind === 4 ? handleBackupToNostr() : handleNwcBackupToNostr(walletToDelete)}
-                  disabled={isBackingUp}
-                >
-                  <CloudArrowUpIcon size={16} />
-                  {isBackingUp ? 'Saving...' : 'Backup to Nostr'}
-                </button>
-              {/if}
+                {#if encryptionSupported}
+                  <button
+                    class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer bg-black hover:bg-gray-800 text-white"
+                    on:click={() => walletToDelete.kind === 4 ? handleBackupToNostr() : handleNwcBackupToNostr(walletToDelete)}
+                    disabled={isBackingUp}
+                  >
+                    <CloudArrowUpIcon size={16} />
+                    {isBackingUp ? 'Saving...' : 'Backup to Nostr'}
+                  </button>
+                {/if}
+              </div>
             </div>
-          </div>
 
-          <!-- Delete relay backup toggle button -->
-          <button
-            class="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer mb-4"
-            class:bg-red-500={deleteRelayBackups}
-            class:hover:bg-red-600={deleteRelayBackups}
-            class:text-white={deleteRelayBackups}
-            style={deleteRelayBackups ? '' : 'background-color: var(--color-input-bg); border: 1px solid var(--color-input-border); color: var(--color-text-caption);'}
-            on:click={() => deleteRelayBackups = !deleteRelayBackups}
-          >
-            <TrashIcon size={14} />
-            {deleteRelayBackups ? 'Will delete relay backup' : 'Delete relay backup'}
-          </button>
-        {:else}
-          <p class="text-caption text-sm mb-4">You can reconnect it later.</p>
-        {/if}
+            <!-- Delete relay backup toggle button -->
+            <button
+              class="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer mb-4"
+              class:bg-red-500={deleteRelayBackups}
+              class:hover:bg-red-600={deleteRelayBackups}
+              class:text-white={deleteRelayBackups}
+              style={deleteRelayBackups ? '' : 'background-color: var(--color-input-bg); border: 1px solid var(--color-input-border); color: var(--color-text-caption);'}
+              on:click={() => deleteRelayBackups = !deleteRelayBackups}
+            >
+              <TrashIcon size={14} />
+              {deleteRelayBackups ? 'Will delete relay backup' : 'Delete relay backup'}
+            </button>
+          {:else}
+            <p class="text-caption text-sm mb-4">You can reconnect it later.</p>
+          {/if}
 
-        <div class="flex gap-3">
-          <Button on:click={() => { walletToDelete = null; deleteRelayBackups = false; }} disabled={isDeletingWallet} class="flex-1">
-            Cancel
-          </Button>
-          <button
-            class="flex-1 px-4 py-2 rounded-full bg-red-500 hover:bg-red-600 text-white font-medium transition-colors cursor-pointer disabled:opacity-50"
-            disabled={isDeletingWallet}
-            on:click={async () => {
-              if (walletToDelete) {
-                isDeletingWallet = true;
-                try {
-                  // Delete relay backups if checkbox is checked
-                  if (deleteRelayBackups && $userPublickey) {
-                    try {
-                      if (walletToDelete.kind === 4) {
-                        await deleteSparkBackupFromNostr($userPublickey);
-                      } else if (walletToDelete.kind === 3) {
-                        await deleteNwcBackupFromNostr($userPublickey);
+          <div class="flex gap-3">
+            <Button on:click={() => { walletToDelete = null; deleteRelayBackups = false; }} disabled={isDeletingWallet} class="flex-1">
+              Cancel
+            </Button>
+            <button
+              class="flex-1 px-4 py-2 rounded-full bg-red-500 hover:bg-red-600 text-white font-medium transition-colors cursor-pointer disabled:opacity-50"
+              disabled={isDeletingWallet}
+              on:click={async () => {
+                if (walletToDelete) {
+                  isDeletingWallet = true;
+                  try {
+                    // Delete relay backups if checkbox is checked
+                    if (deleteRelayBackups && $userPublickey) {
+                      try {
+                        if (walletToDelete.kind === 4) {
+                          await deleteSparkBackupFromNostr($userPublickey);
+                        } else if (walletToDelete.kind === 3) {
+                          await deleteNwcBackupFromNostr($userPublickey);
+                        }
+                      } catch (e) {
+                        console.error('Failed to delete relay backups:', e);
+                        // Continue with wallet removal even if backup deletion fails
                       }
-                    } catch (e) {
-                      console.error('Failed to delete relay backups:', e);
-                      // Continue with wallet removal even if backup deletion fails
                     }
+                    await handleDisconnectWallet(walletToDelete.id);
+                    walletToDelete = null;
+                    deleteRelayBackups = false;
+                  } finally {
+                    isDeletingWallet = false;
                   }
-                  await handleDisconnectWallet(walletToDelete.id);
-                  walletToDelete = null;
-                  deleteRelayBackups = false;
-                } finally {
-                  isDeletingWallet = false;
                 }
-              }
-            }}
-          >
-            {isDeletingWallet ? 'Removing...' : 'Remove'}
-          </button>
+              }}
+            >
+              {isDeletingWallet ? 'Removing...' : 'Remove'}
+            </button>
+          </div>
         </div>
       </div>
     </div>
   {/if}
 
   <!-- Sync Lightning Address to Profile Confirmation Modal (Spark) -->
-  {#if showSyncConfirmModal}
-    <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div class="rounded-2xl p-6 max-w-sm w-full max-h-[90vh] overflow-y-auto" style="background-color: var(--color-bg-primary);">
-        <h2 class="text-xl font-bold mb-2" style="color: var(--color-text-primary)">Sync to Profile</h2>
-        <p class="text-caption mb-4">
-          This will update your Nostr profile (kind 0) to include your lightning address:
-        </p>
-        <div class="p-3 rounded-lg mb-4 font-mono text-sm" style="background-color: var(--color-input-bg); color: var(--color-text-primary);">
-          {$sparkLightningAddressStore}
-        </div>
-        <p class="text-caption text-sm mb-6">
-          Your profile's <strong>lud16</strong> field will be updated. All other profile fields (name, bio, picture, etc.) will be preserved.
-        </p>
-        <div class="flex gap-3">
-          <Button on:click={() => showSyncConfirmModal = false} disabled={isSyncingProfile} class="flex-1">
-            Cancel
-          </Button>
-          <button
-            class="flex-1 px-4 py-2 rounded-full bg-amber-500 hover:bg-amber-600 text-white font-medium transition-colors cursor-pointer disabled:opacity-50"
-            on:click={handleSyncToProfile}
-            disabled={isSyncingProfile}
-          >
-            {isSyncingProfile ? 'Syncing...' : 'Sync'}
-          </button>
+  {#if showSyncConfirmModal && portalTarget}
+    <div use:portal={portalTarget}>
+      <div class="fixed inset-0 bg-black/50 flex z-50 p-4" style="display: flex; align-items: center; justify-content: center;">
+        <div class="rounded-2xl p-6 max-w-sm w-full max-h-[90vh] overflow-y-auto" style="background-color: var(--color-bg-primary);">
+          <h2 class="text-xl font-bold mb-2" style="color: var(--color-text-primary)">Sync to Profile</h2>
+          <p class="text-caption mb-4">
+            This will update your Nostr profile (kind 0) to include your lightning address:
+          </p>
+          <div class="p-3 rounded-lg mb-4 font-mono text-sm" style="background-color: var(--color-input-bg); color: var(--color-text-primary);">
+            {$sparkLightningAddressStore}
+          </div>
+          <p class="text-caption text-sm mb-6">
+            Your profile's <strong>lud16</strong> field will be updated. All other profile fields (name, bio, picture, etc.) will be preserved.
+          </p>
+          <div class="flex gap-3">
+            <Button on:click={() => showSyncConfirmModal = false} disabled={isSyncingProfile} class="flex-1">
+              Cancel
+            </Button>
+            <button
+              class="flex-1 px-4 py-2 rounded-full bg-amber-500 hover:bg-amber-600 text-white font-medium transition-colors cursor-pointer disabled:opacity-50"
+              on:click={handleSyncToProfile}
+              disabled={isSyncingProfile}
+            >
+              {isSyncingProfile ? 'Syncing...' : 'Sync'}
+            </button>
+          </div>
         </div>
       </div>
     </div>
   {/if}
 
   <!-- Sync NWC Lightning Address to Profile Confirmation Modal -->
-  {#if showNwcSyncConfirmModal}
-    <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div class="rounded-2xl p-6 max-w-sm w-full max-h-[90vh] overflow-y-auto" style="background-color: var(--color-bg-primary);">
-        <h2 class="text-xl font-bold mb-2" style="color: var(--color-text-primary)">Sync to Profile</h2>
-        <p class="text-caption mb-4">
-          This will update your Nostr profile (kind 0) to include the lightning address from your NWC wallet:
-        </p>
-        <div class="p-3 rounded-lg mb-4 font-mono text-sm" style="background-color: var(--color-input-bg); color: var(--color-text-primary);">
-          {nwcLud16}
-        </div>
-        <p class="text-caption text-sm mb-6">
-          Your profile's <strong>lud16</strong> field will be updated. All other profile fields (name, bio, picture, etc.) will be preserved.
-        </p>
-        <div class="flex gap-3">
-          <Button on:click={() => showNwcSyncConfirmModal = false} disabled={isSyncingProfile} class="flex-1">
-            Cancel
-          </Button>
-          <button
-            class="flex-1 px-4 py-2 rounded-full bg-amber-500 hover:bg-amber-600 text-white font-medium transition-colors cursor-pointer disabled:opacity-50"
-            on:click={handleNwcSyncToProfile}
-            disabled={isSyncingProfile}
-          >
-            {isSyncingProfile ? 'Syncing...' : 'Sync'}
-          </button>
+  {#if showNwcSyncConfirmModal && portalTarget}
+    <div use:portal={portalTarget}>
+      <div class="fixed inset-0 bg-black/50 flex z-50 p-4" style="display: flex; align-items: center; justify-content: center;">
+        <div class="rounded-2xl p-6 max-w-sm w-full max-h-[90vh] overflow-y-auto" style="background-color: var(--color-bg-primary);">
+          <h2 class="text-xl font-bold mb-2" style="color: var(--color-text-primary)">Sync to Profile</h2>
+          <p class="text-caption mb-4">
+            This will update your Nostr profile (kind 0) to include the lightning address from your NWC wallet:
+          </p>
+          <div class="p-3 rounded-lg mb-4 font-mono text-sm" style="background-color: var(--color-input-bg); color: var(--color-text-primary);">
+            {nwcLud16}
+          </div>
+          <p class="text-caption text-sm mb-6">
+            Your profile's <strong>lud16</strong> field will be updated. All other profile fields (name, bio, picture, etc.) will be preserved.
+          </p>
+          <div class="flex gap-3">
+            <Button on:click={() => showNwcSyncConfirmModal = false} disabled={isSyncingProfile} class="flex-1">
+              Cancel
+            </Button>
+            <button
+              class="flex-1 px-4 py-2 rounded-full bg-amber-500 hover:bg-amber-600 text-white font-medium transition-colors cursor-pointer disabled:opacity-50"
+              on:click={handleNwcSyncToProfile}
+              disabled={isSyncingProfile}
+            >
+              {isSyncingProfile ? 'Syncing...' : 'Sync'}
+            </button>
+          </div>
         </div>
       </div>
     </div>
   {/if}
 
   <!-- Remove Bitcoin Connect Confirmation Modal -->
-  {#if showRemoveBitcoinConnectModal}
-    <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div class="rounded-2xl p-6 max-w-sm w-full max-h-[90vh] overflow-y-auto" style="background-color: var(--color-bg-primary);">
-        <h2 class="text-xl font-bold mb-2" style="color: var(--color-text-primary)">Remove External Wallet</h2>
-        <p class="text-caption mb-6">
-          Are you sure you want to disconnect your external wallet? You can reconnect it at any time from the wallet settings.
-        </p>
-        <div class="flex gap-3">
-          <Button on:click={() => showRemoveBitcoinConnectModal = false} class="flex-1">
-            Cancel
-          </Button>
-          <button
-            class="flex-1 px-4 py-2 rounded-full bg-red-500 hover:bg-red-600 text-white font-medium transition-colors cursor-pointer"
-            on:click={() => { handleDisableBitcoinConnect(); showRemoveBitcoinConnectModal = false; }}
-          >
-            Remove
-          </button>
+  {#if showRemoveBitcoinConnectModal && portalTarget}
+    <div use:portal={portalTarget}>
+      <div class="fixed inset-0 bg-black/50 flex z-50 p-4" style="display: flex; align-items: center; justify-content: center;">
+        <div class="rounded-2xl p-6 max-w-sm w-full max-h-[90vh] overflow-y-auto" style="background-color: var(--color-bg-primary);">
+          <h2 class="text-xl font-bold mb-2" style="color: var(--color-text-primary)">Remove External Wallet</h2>
+          <p class="text-caption mb-6">
+            Are you sure you want to disconnect your external wallet? You can reconnect it at any time from the wallet settings.
+          </p>
+          <div class="flex gap-3">
+            <Button on:click={() => showRemoveBitcoinConnectModal = false} class="flex-1">
+              Cancel
+            </Button>
+            <button
+              class="flex-1 px-4 py-2 rounded-full bg-red-500 hover:bg-red-600 text-white font-medium transition-colors cursor-pointer"
+              on:click={() => { handleDisableBitcoinConnect(); showRemoveBitcoinConnectModal = false; }}
+            >
+              Remove
+            </button>
+          </div>
         </div>
       </div>
     </div>
   {/if}
 
   <!-- Delete Lightning Address Confirmation Modal -->
-  {#if showDeleteAddressConfirmModal}
-    <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div class="rounded-2xl p-6 max-w-sm w-full max-h-[90vh] overflow-y-auto" style="background-color: var(--color-bg-primary);">
-        <h2 class="text-xl font-bold mb-2" style="color: var(--color-text-primary)">Delete Lightning Address</h2>
-        <p class="text-caption mb-4">
-          Are you sure you want to delete your lightning address?
-        </p>
-        <div class="p-3 rounded-lg mb-4 font-mono text-sm" style="background-color: var(--color-input-bg); color: var(--color-text-primary);">
-          {$sparkLightningAddressStore}
-        </div>
-        <p class="text-caption text-sm mb-6">
-          This will remove the address from your Breez Spark wallet. Payments sent to this address will no longer reach you. Your Nostr profile will not be changed.
-        </p>
-        <div class="flex gap-3">
-          <Button on:click={() => showDeleteAddressConfirmModal = false} disabled={isDeletingAddress} class="flex-1">
-            Cancel
-          </Button>
-          <button
-            class="flex-1 px-4 py-2 rounded-full bg-red-500 hover:bg-red-600 text-white font-medium transition-colors cursor-pointer disabled:opacity-50"
-            on:click={handleDeleteLightningAddress}
-            disabled={isDeletingAddress}
-          >
-            {isDeletingAddress ? 'Deleting...' : 'Delete'}
-          </button>
+  {#if showDeleteAddressConfirmModal && portalTarget}
+    <div use:portal={portalTarget}>
+      <div class="fixed inset-0 bg-black/50 flex z-50 p-4" style="display: flex; align-items: center; justify-content: center;">
+        <div class="rounded-2xl p-6 max-w-sm w-full max-h-[90vh] overflow-y-auto" style="background-color: var(--color-bg-primary);">
+          <h2 class="text-xl font-bold mb-2" style="color: var(--color-text-primary)">Delete Lightning Address</h2>
+          <p class="text-caption mb-4">
+            Are you sure you want to delete your lightning address?
+          </p>
+          <div class="p-3 rounded-lg mb-4 font-mono text-sm" style="background-color: var(--color-input-bg); color: var(--color-text-primary);">
+            {$sparkLightningAddressStore}
+          </div>
+          <p class="text-caption text-sm mb-6">
+            This will remove the address from your Breez Spark wallet. Payments sent to this address will no longer reach you. Your Nostr profile will not be changed.
+          </p>
+          <div class="flex gap-3">
+            <Button on:click={() => showDeleteAddressConfirmModal = false} disabled={isDeletingAddress} class="flex-1">
+              Cancel
+            </Button>
+            <button
+              class="flex-1 px-4 py-2 rounded-full bg-red-500 hover:bg-red-600 text-white font-medium transition-colors cursor-pointer disabled:opacity-50"
+              on:click={handleDeleteLightningAddress}
+              disabled={isDeletingAddress}
+            >
+              {isDeletingAddress ? 'Deleting...' : 'Delete'}
+            </button>
+          </div>
         </div>
       </div>
     </div>
   {/if}
 
   <!-- Send Modal -->
-  {#if showSendModal}
-    <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+  {#if showSendModal && portalTarget}
+    <div use:portal={portalTarget}>
+      <div class="fixed inset-0 bg-black/50 flex z-50 p-4" style="display: flex; align-items: center; justify-content: center;">
       <div class="rounded-2xl p-6 max-w-md w-full max-h-[90vh] overflow-y-auto" style="background-color: var(--color-bg-primary);">
         <div class="flex items-center justify-between mb-6">
           <h2 class="text-xl font-bold flex items-center gap-2" style="color: var(--color-text-primary)">
@@ -2935,12 +3159,14 @@
           </button>
         </div>
       </div>
+      </div>
     </div>
   {/if}
 
   <!-- Receive Modal -->
-  {#if showReceiveModal}
-    <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+  {#if showReceiveModal && portalTarget}
+    <div use:portal={portalTarget}>
+      <div class="fixed inset-0 bg-black/50 flex z-50 p-4" style="display: flex; align-items: center; justify-content: center;">
       <div class="rounded-2xl p-6 max-w-md w-full max-h-[90vh] overflow-y-auto" style="background-color: var(--color-bg-primary);">
         <div class="flex items-center justify-between mb-6">
           <h2 class="text-xl font-bold flex items-center gap-2" style="color: var(--color-text-primary)">
@@ -3183,6 +3409,7 @@
             {/if}
           </div>
         {/if}
+      </div>
       </div>
     </div>
   {/if}
