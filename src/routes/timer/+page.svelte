@@ -26,6 +26,8 @@
   import PauseIcon from 'phosphor-svelte/lib/Pause';
   import TrashIcon from 'phosphor-svelte/lib/Trash';
   import CheckCircleIcon from 'phosphor-svelte/lib/CheckCircle';
+  import BellIcon from 'phosphor-svelte/lib/Bell';
+  import BellSlashIcon from 'phosphor-svelte/lib/BellSlash';
 
   // Form state
   let label = '';
@@ -35,6 +37,81 @@
 
   // Timer state from store
   let timers: TimerItem[] = [];
+
+  // Sound state
+  let soundEnabled = true;
+  let audioContext: AudioContext | null = null;
+  let isRinging = false;
+  let ringInterval: ReturnType<typeof setInterval> | null = null;
+
+  // Initialize audio context on user interaction
+  function initAudio() {
+    if (!audioContext && browser) {
+      audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+    }
+  }
+
+  // Play a single bell tone
+  function playBellTone() {
+    if (!audioContext || !soundEnabled) return;
+
+    const now = audioContext.currentTime;
+
+    // Create oscillators for bell harmonics
+    const fundamentalFreq = 800;
+    const harmonics = [1, 2.4, 3, 4.5]; // Bell-like harmonics
+
+    harmonics.forEach((harmonic, i) => {
+      const osc = audioContext!.createOscillator();
+      const gain = audioContext!.createGain();
+
+      osc.type = 'sine';
+      osc.frequency.value = fundamentalFreq * harmonic;
+
+      // Louder fundamental, quieter harmonics
+      const volume = 0.3 / (i + 1);
+      gain.gain.setValueAtTime(volume, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 1.5);
+
+      osc.connect(gain);
+      gain.connect(audioContext!.destination);
+
+      osc.start(now);
+      osc.stop(now + 1.5);
+    });
+  }
+
+  // Start ringing (repeating bell)
+  function startRinging() {
+    if (isRinging || !soundEnabled) return;
+    isRinging = true;
+    initAudio();
+    playBellTone();
+    // Ring every 2 seconds
+    ringInterval = setInterval(() => {
+      if (soundEnabled && isRinging) {
+        playBellTone();
+      }
+    }, 2000);
+  }
+
+  // Stop ringing
+  function stopRinging() {
+    isRinging = false;
+    if (ringInterval) {
+      clearInterval(ringInterval);
+      ringInterval = null;
+    }
+  }
+
+  // Toggle sound
+  function toggleSound() {
+    initAudio();
+    soundEnabled = !soundEnabled;
+    if (!soundEnabled) {
+      stopRinging();
+    }
+  }
 
   // For live countdown updates
   let tickInterval: ReturnType<typeof setInterval> | null = null;
@@ -55,6 +132,7 @@
   onDestroy(() => {
     unsubscribe();
     stopTicking();
+    stopRinging();
   });
 
   function startTicking() {
@@ -78,6 +156,10 @@
     timers.forEach(timer => {
       if (timer.status === 'running' && now >= timer.endsAt) {
         markTimerDone(timer.id);
+        // Play bell sound when timer completes
+        if (soundEnabled) {
+          startRinging();
+        }
       }
     });
   }
@@ -114,10 +196,15 @@
 
   async function handleDelete(timer: TimerItem) {
     await cancelTimer(timer.id);
+    // Stop ringing if deleting a completed timer
+    if (timer.status === 'done') {
+      stopRinging();
+    }
   }
 
   function handleClearCompleted() {
     clearCompletedTimers();
+    stopRinging();
   }
 
   // Reactive: get remaining time for each timer (updates with tick)
@@ -136,7 +223,21 @@
 </svelte:head>
 
 <div class="max-w-lg mx-auto">
-  <h1 class="text-2xl font-bold mb-6">Cooking Timer</h1>
+  <div class="flex items-center justify-between mb-6">
+    <h1 class="text-2xl font-bold">Cooking Timer</h1>
+    <button
+      on:click={toggleSound}
+      class="sound-toggle p-2 rounded-full transition-colors {soundEnabled ? 'bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400' : 'bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-500'}"
+      aria-label={soundEnabled ? 'Mute sound' : 'Enable sound'}
+      title={soundEnabled ? 'Sound on - click to mute' : 'Sound off - click to enable'}
+    >
+      {#if soundEnabled}
+        <BellIcon size={24} weight="fill" />
+      {:else}
+        <BellSlashIcon size={24} />
+      {/if}
+    </button>
+  </div>
 
   <!-- Create Timer Form -->
   <div class="bg-surface border border-border rounded-xl p-4 mb-6">
