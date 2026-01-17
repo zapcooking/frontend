@@ -32,8 +32,14 @@
   import BellIcon from 'phosphor-svelte/lib/Bell';
   import BellSlashIcon from 'phosphor-svelte/lib/BellSlash';
   import DotsSixVerticalIcon from 'phosphor-svelte/lib/DotsSixVertical';
+  import CaretUpIcon from 'phosphor-svelte/lib/CaretUp';
+  import CaretDownIcon from 'phosphor-svelte/lib/CaretDown';
 
   export let open = false;
+
+  // Mobile detection and minimize state
+  let isMobile = false;
+  let isMinimized = false;
 
   // Timer state from store
   let timers: TimerItem[] = [];
@@ -77,13 +83,24 @@
       await loadTimers();
       await loadTimerSettings();
       startTicking();
+
+      // Detect mobile
+      isMobile = window.innerWidth < 640;
+      window.addEventListener('resize', handleResize);
     }
   });
+
+  function handleResize() {
+    isMobile = window.innerWidth < 640;
+  }
 
   onDestroy(() => {
     unsubscribe();
     unsubscribeSettings();
     stopTicking();
+    if (browser) {
+      window.removeEventListener('resize', handleResize);
+    }
   });
 
   function startTicking() {
@@ -244,33 +261,54 @@
   $: activeTimers = timers.filter(t => t.status === 'running' || t.status === 'paused');
   $: completedTimers = timers.filter(t => t.status === 'done');
 
-  // Compute style for position (only apply if position has been set)
-  $: widgetStyle = posX !== null && posY !== null
+  // Compute style for position (only apply on desktop if position has been set)
+  $: widgetStyle = !isMobile && posX !== null && posY !== null
     ? `left: ${posX}px; top: ${posY}px; right: auto;`
     : '';
 </script>
 
 {#if open}
   <div
-    class="timer-widget"
+    class="timer-widget {isMobile ? 'mobile' : 'desktop'}"
     class:dragging={isDragging}
+    class:minimized={isMinimized && isMobile}
     style={widgetStyle}
     bind:this={widgetEl}
   >
-    <!-- Drag handle + Header -->
+    <!-- Header -->
     <div
       class="widget-header"
-      on:mousedown={handleDragStart}
-      on:touchstart={handleDragStart}
+      on:mousedown={!isMobile ? handleDragStart : undefined}
+      on:touchstart={!isMobile ? handleDragStart : undefined}
       role="button"
       tabindex="0"
-      aria-label="Drag to move"
+      aria-label={isMobile ? 'Timer controls' : 'Drag to move'}
     >
-      <div class="drag-handle">
-        <DotsSixVerticalIcon size={16} />
-      </div>
+      {#if !isMobile}
+        <div class="drag-handle">
+          <DotsSixVerticalIcon size={16} />
+        </div>
+      {/if}
       <span class="widget-title">Timers</span>
+      {#if isMobile && activeTimers.length > 0 && isMinimized}
+        <span class="minimized-time">
+          {getDisplayTime(activeTimers[0], tick)}
+        </span>
+      {/if}
       <div class="header-actions">
+        {#if isMobile}
+          <button
+            on:click|stopPropagation={() => isMinimized = !isMinimized}
+            class="minimize-btn"
+            aria-label={isMinimized ? 'Expand' : 'Minimize'}
+          >
+            {#if isMinimized}
+              <CaretUpIcon size={18} />
+            {:else}
+              <CaretDownIcon size={18} />
+            {/if}
+          </button>
+        {/if}
         <button
           on:click|stopPropagation={toggleSound}
           class="sound-btn {soundEnabled ? 'sound-on' : 'sound-off'}"
@@ -288,6 +326,8 @@
       </div>
     </div>
 
+    <!-- Content (hidden when minimized on mobile) -->
+    {#if !isMinimized || !isMobile}
     <!-- Quick add -->
     <div class="quick-add">
       <input
@@ -422,6 +462,7 @@
         </button>
       </div>
     </div>
+    {/if}
   </div>
 {/if}
 
@@ -597,16 +638,26 @@
   }
 
   .timer-time-large {
-    font-size: 42px;
+    font-size: 48px;
     font-weight: 700;
-    font-family: ui-monospace, monospace;
+    font-family: 'Orbitron', ui-monospace, monospace;
     font-variant-numeric: tabular-nums;
     color: var(--color-text-primary);
     line-height: 1;
+    letter-spacing: 2px;
   }
 
   .timer-time-large.paused {
     color: #f59e0b;
+  }
+
+  .minimized-time {
+    font-size: 20px;
+    font-weight: 700;
+    font-family: 'Orbitron', ui-monospace, monospace;
+    color: var(--color-text-primary);
+    margin-left: auto;
+    margin-right: 8px;
   }
 
   .timer-actions {
@@ -752,13 +803,43 @@
     color: var(--color-text-caption);
   }
 
-  /* Mobile adjustments */
-  @media (max-width: 640px) {
-    .timer-widget {
-      right: 8px;
-      left: 8px;
-      width: auto;
-      max-width: none;
-    }
+  /* Mobile styles - bottom-locked widget */
+  .timer-widget.mobile {
+    top: auto;
+    bottom: 70px; /* Above bottom nav */
+    left: 0;
+    right: 0;
+    width: 100%;
+    max-width: 100%;
+    border-radius: 16px 16px 0 0;
+    max-height: 70vh;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  .timer-widget.mobile.minimized {
+    max-height: none;
+    overflow: hidden;
+  }
+
+  .timer-widget.mobile .widget-header {
+    cursor: default;
+  }
+
+  .timer-widget.mobile .timer-time-large {
+    font-size: 52px;
+  }
+
+  .minimize-btn {
+    padding: 4px;
+    border-radius: 6px;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    color: var(--color-text-caption);
+    transition: all 0.2s;
+  }
+
+  .minimize-btn:hover {
+    background: var(--color-input-border);
   }
 </style>
