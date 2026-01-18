@@ -1,4 +1,11 @@
-import { recipeTags, type recipeTagSimple, TAG_ALIASES, RECIPE_TAGS, RECIPE_TAG_PREFIX_NEW, RECIPE_TAG_PREFIX_LEGACY } from './consts';
+import {
+  recipeTags,
+  type recipeTagSimple,
+  TAG_ALIASES,
+  RECIPE_TAGS,
+  RECIPE_TAG_PREFIX_NEW,
+  RECIPE_TAG_PREFIX_LEGACY
+} from './consts';
 import { ndk } from './nostr';
 import { get } from 'svelte/store';
 import type { NDKFilter } from '@nostr-dev-kit/ndk';
@@ -25,7 +32,7 @@ export function filterTags(query: string, tags: recipeTagSimple[] = recipeTags):
   }
 
   const normalizedQuery = query.toLowerCase().trim();
-  
+
   return tags.filter((tag) => {
     const normalizedTitle = normalizeTag(tag.title).toLowerCase();
     return normalizedTitle.includes(normalizedQuery);
@@ -46,7 +53,14 @@ export type TagWithCount = recipeTagSimple & {
 export async function computePopularTags(limit: number = 8): Promise<TagWithCount[]> {
   // Default popular tags as fallback
   const defaultPopular: string[] = [
-    'Easy', 'Quick', 'Breakfast', 'Italian', 'Mexican', 'Chicken', 'Dessert', 'Asian'
+    'Easy',
+    'Quick',
+    'Breakfast',
+    'Italian',
+    'Mexican',
+    'Chicken',
+    'Dessert',
+    'Asian'
   ];
 
   try {
@@ -80,11 +94,12 @@ export async function computePopularTags(limit: number = 8): Promise<TagWithCoun
         }
         eventCount++;
         // Extract tags from the event (support both legacy and new prefixes)
-        const tags = event.tags.filter((t) => 
-          Array.isArray(t) && t[0] === 't' && (
-            t[1]?.startsWith(`${RECIPE_TAG_PREFIX_LEGACY}-`) || 
-            t[1]?.startsWith(`${RECIPE_TAG_PREFIX_NEW}-`)
-          )
+        const tags = event.tags.filter(
+          (t) =>
+            Array.isArray(t) &&
+            t[0] === 't' &&
+            (t[1]?.startsWith(`${RECIPE_TAG_PREFIX_LEGACY}-`) ||
+              t[1]?.startsWith(`${RECIPE_TAG_PREFIX_NEW}-`))
         );
 
         tags.forEach((tag) => {
@@ -96,11 +111,12 @@ export async function computePopularTags(limit: number = 8): Promise<TagWithCoun
               .replace(/-/g, ' ');
             // Convert back to title case for matching
             const normalizedTag = normalizeTag(
-              tagName.split(' ').map(word => 
-                word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
-              ).join(' ')
+              tagName
+                .split(' ')
+                .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+                .join(' ')
             );
-            
+
             if (normalizedTag) {
               tagCounts.set(normalizedTag, (tagCounts.get(normalizedTag) || 0) + 1);
             }
@@ -141,8 +157,8 @@ function getPopularTagsFromCounts(
   // Get tag objects with counts
   const result: TagWithCount[] = [];
   for (const { tag, count } of sorted) {
-    const tagObj = recipeTags.find((t) => 
-      normalizeTag(t.title).toLowerCase() === normalizeTag(tag).toLowerCase()
+    const tagObj = recipeTags.find(
+      (t) => normalizeTag(t.title).toLowerCase() === normalizeTag(tag).toLowerCase()
     );
     if (tagObj) {
       result.push({ ...tagObj, count });
@@ -181,15 +197,13 @@ function getTagsWithCounts(tagNames: string[]): TagWithCount[] {
  */
 export function getTagByName(name: string): recipeTagSimple | undefined {
   const normalized = normalizeTag(name);
-  return recipeTags.find((t) => 
-    normalizeTag(t.title).toLowerCase() === normalized.toLowerCase()
-  );
+  return recipeTags.find((t) => normalizeTag(t.title).toLowerCase() === normalized.toLowerCase());
 }
 
 /**
  * Generate NIP-22 compliant tags for commenting on longform content (kind 30023)
  * Returns an array of tags following the NIP-22 structure with both root and parent scope.
- * 
+ *
  * @param event - The longform event (kind 30023) being commented on
  * @param parentEvent - Optional parent comment if this is a nested reply
  * @returns Array of tag tuples ready to be assigned to an NDKEvent
@@ -219,7 +233,7 @@ export function buildNip22CommentTags(
 
   // NIP-22 structure for longform comments
   const dTag = event.tags.find((t) => t[0] === 'd')?.[1];
-  
+
   if (!dTag) {
     // Fallback if no d tag - use simple structure
     if (parentEvent) {
@@ -240,6 +254,45 @@ export function buildNip22CommentTags(
   const addressTag = `${event.kind}:${event.pubkey}:${dTag}`;
   const relayHint = event.tags.find((t) => t[0] === 'relay')?.[1] || '';
 
+  function getRootEventIdFromTags(tags?: string[][]): string | undefined {
+    if (!tags) return undefined;
+    for (const tag of tags) {
+      if (tag[0] !== 'e' || !tag[1]) continue;
+      const marker = tag[3] || (tag[2] === 'root' ? tag[2] : undefined);
+      if (marker === 'root') {
+        return tag[1];
+      }
+    }
+    return undefined;
+  }
+
+  function appendUniqueTag(tags: string[][], tag: string[]) {
+    const exists = tags.some(
+      (existing) =>
+        existing.length === tag.length && existing.every((value, index) => value === tag[index])
+    );
+    if (!exists) {
+      tags.push(tag);
+    }
+  }
+
+  function addNip10ReplyTags(tags: string[][]) {
+    const rootId = event.id || getRootEventIdFromTags(parentEvent?.tags);
+    if (rootId) {
+      appendUniqueTag(tags, ['e', rootId, relayHint, 'root']);
+    }
+    if (parentEvent?.id) {
+      appendUniqueTag(tags, ['e', parentEvent.id, relayHint, 'reply']);
+    }
+
+    if (event.pubkey) {
+      appendUniqueTag(tags, ['p', event.pubkey]);
+    }
+    if (parentEvent?.pubkey && parentEvent.pubkey !== event.pubkey) {
+      appendUniqueTag(tags, ['p', parentEvent.pubkey]);
+    }
+  }
+
   if (parentEvent) {
     // Nested reply to a comment - preserve root scope, update parent scope
     // Try to get root scope from parent comment (if it exists)
@@ -249,7 +302,7 @@ export function buildNip22CommentTags(
 
     if (parentATag && parentKTag && parentPTag) {
       // Parent has proper NIP-22 structure, inherit root scope
-      return [
+      const tags = [
         // Root scope (uppercase) - inherited from parent
         ['A', parentATag[1], relayHint, parentPTag[1]],
         ['K', parentKTag[1]],
@@ -260,9 +313,11 @@ export function buildNip22CommentTags(
         ['k', '1111'], // Parent is a comment
         ['p', parentEvent.pubkey]
       ];
+      addNip10ReplyTags(tags);
+      return tags;
     } else {
       // Parent doesn't have proper structure, build from scratch
-      return [
+      const tags = [
         // Root scope (uppercase)
         ['A', addressTag, relayHint, event.pubkey],
         ['K', String(event.kind)],
@@ -273,10 +328,12 @@ export function buildNip22CommentTags(
         ['k', '1111'], // Parent is a comment
         ['p', parentEvent.pubkey]
       ];
+      addNip10ReplyTags(tags);
+      return tags;
     }
   } else {
     // Top-level comment - root and parent scope are the same
-    return [
+    const tags = [
       // Root scope (uppercase)
       ['A', addressTag, relayHint, event.pubkey],
       ['K', String(event.kind)],
@@ -287,6 +344,7 @@ export function buildNip22CommentTags(
       ['k', String(event.kind)],
       ['p', event.pubkey]
     ];
+    addNip10ReplyTags(tags);
+    return tags;
   }
 }
-
