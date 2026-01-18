@@ -780,7 +780,6 @@
       commentText = htmlToPlainText(commentComposerEl);
       lastRenderedComment = commentText;
     }
-
     if (!$ndk?.signer) {
       console.error('No signer available - user must be logged in');
       alert('Please log in to post comments');
@@ -809,7 +808,6 @@
         ev.tags.push(['p', pubkey]);
       }
     }
-
     // Add NIP-89 client tag
     addClientTagToEvent(ev);
 
@@ -862,7 +860,6 @@
 
   // Sort all comments chronologically (oldest first)
   $: sortedComments = [...events].sort((a, b) => (a.created_at || 0) - (b.created_at || 0));
-
   $: if (commentComposerEl && commentText !== lastRenderedComment) {
     syncComposerContent(commentText);
   }
@@ -885,60 +882,65 @@
   <!-- Add Comment Form -->
   <div class="space-y-3 pt-4 border-t">
     <h3 class="text-lg font-semibold">Add a comment</h3>
-    <div class="relative">
-      <div
-        id="comment-input"
-        bind:this={commentComposerEl}
-        class="comment-composer-input w-full px-4 py-3 text-base input rounded-lg"
-        contenteditable="true"
-        role="textbox"
-        aria-multiline="true"
-        data-placeholder="Share your thoughts..."
-        on:input={handleCommentInput}
-        on:keydown={handleCommentKeydown}
-        on:beforeinput={handleBeforeInput}
-        on:paste={handlePaste}
-      ></div>
+    {#if $ndk?.signer}
+      <div class="relative">
+        <div
+          id="comment-input"
+          bind:this={commentComposerEl}
+          class="comment-composer-input w-full px-4 py-3 text-base input rounded-lg"
+          contenteditable="true"
+          role="textbox"
+          aria-multiline="true"
+          data-placeholder="Share your thoughts..."
+          on:input={handleCommentInput}
+          on:keydown={handleCommentKeydown}
+          on:beforeinput={handleBeforeInput}
+          on:paste={handlePaste}
+        ></div>
 
-      {#if showMentionSuggestions}
-        <div class="mention-dropdown" style="border-color: var(--color-input-border);">
-          {#if mentionSuggestions.length > 0}
-            <div class="mention-dropdown-content">
-              {#each mentionSuggestions as suggestion, index}
-                <button
-                  type="button"
-                  on:click={() => insertMention(suggestion)}
-                  on:mousedown|preventDefault={() => insertMention(suggestion)}
-                  class="mention-option"
-                  class:mention-selected={index === selectedMentionIndex}
-                >
-                  <CustomAvatar pubkey={suggestion.pubkey} size={24} />
-                  <div class="mention-info">
-                    <span class="mention-name">{suggestion.name}</span>
-                    {#if suggestion.nip05}
-                      <span class="mention-nip05">{suggestion.nip05}</span>
-                    {/if}
-                  </div>
-                </button>
-              {/each}
-            </div>
-          {:else if mentionSearching}
-            <div class="mention-empty">Searching...</div>
-          {:else if mentionQuery.length > 0}
-            <div class="mention-empty">No users found</div>
-          {/if}
-        </div>
-      {/if}
-    </div>
-    <Button
-      on:click={(e) => {
-        e.preventDefault?.();
-        postComment();
-      }}
-      disabled={!commentText.trim()}
-    >
-      Post Comment
-    </Button>
+        {#if showMentionSuggestions}
+          <div class="mention-dropdown" style="border-color: var(--color-input-border);">
+            {#if mentionSuggestions.length > 0}
+              <div class="mention-dropdown-content">
+                {#each mentionSuggestions as suggestion, index}
+                  <button
+                    type="button"
+                    on:click={() => insertMention(suggestion)}
+                    on:mousedown|preventDefault={() => insertMention(suggestion)}
+                    class="mention-option"
+                    class:mention-selected={index === selectedMentionIndex}
+                  >
+                    <CustomAvatar pubkey={suggestion.pubkey} size={24} />
+                    <div class="mention-info">
+                      <span class="mention-name">{suggestion.name}</span>
+                      {#if suggestion.nip05}
+                        <span class="mention-nip05">{suggestion.nip05}</span>
+                      {/if}
+                    </div>
+                  </button>
+                {/each}
+              </div>
+            {:else if mentionSearching}
+              <div class="mention-empty">Searching...</div>
+            {:else if mentionQuery.length > 0}
+              <div class="mention-empty">No users found</div>
+            {/if}
+          </div>
+        {/if}
+      </div>
+      <Button
+        on:click={(e) => {
+          e.preventDefault?.();
+          postComment();
+        }}
+        disabled={!commentText.trim()}
+      >
+        Post Comment
+      </Button>
+    {:else}
+      <p class="text-sm text-caption">Sign in to comment.</p>
+      <a href="/login" class="text-sm underline hover:opacity-80">Sign in</a>
+    {/if}
   </div>
 </div>
 
