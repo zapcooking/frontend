@@ -2,7 +2,7 @@
  * NIP-05 nostr.json endpoint
  * 
  * Serves the NIP-05 mapping file at /.well-known/nostr.json
- * Fetches dynamic NIP-05 mappings from members.zap.cooking and merges with static names
+ * Fetches dynamic NIP-05 mappings from pantry.zap.cooking and merges with static names
  * 
  * GET /.well-known/nostr.json
  * 
@@ -34,8 +34,8 @@ export const GET: RequestHandler = async ({ setHeaders }) => {
   });
 
   try {
-    // Fetch dynamic NIP-05 mappings from members.zap.cooking
-    const membersRes = await fetch('https://members.zap.cooking/.well-known/nostr.json', {
+    // Fetch dynamic NIP-05 mappings from pantry.zap.cooking
+    const membersRes = await fetch('https://pantry.zap.cooking/.well-known/nostr.json', {
       method: 'GET',
       headers: {
         'Accept': 'application/json'

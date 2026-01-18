@@ -39,12 +39,15 @@
   let items: Writable<Atype[]> = writable([]);
 
   async function loadData() {
-    if ($page.params.slug.startsWith('naddr1')) {
-      const b = nip19.decode($page.params.slug).data;
+    const slug = $page.params.slug;
+    if (!slug) return;
+    
+    if (slug.startsWith('naddr1')) {
+      const decoded = nip19.decode(slug);
+      if (decoded.type !== 'naddr') return;
+      const b = decoded.data;
       let e = await $ndk.fetchEvent({
-        // @ts-ignore
         '#d': [b.identifier],
-        // @ts-ignore
         authors: [b.pubkey],
         kinds: [30001]
       });
@@ -52,20 +55,20 @@
         event = e;
       }
     } else {
-      let e = await $ndk.fetchEvent($page.params.slug);
+      let e = await $ndk.fetchEvent(slug);
       if (e) {
         event = e;
-        const c = nip19.naddrEncode({
-          // @ts-ignore
-          identifier: e.tags.find((z) => z[0] == 'd')?.[1],
-          // @ts-ignore
-          kind: e.kind,
-          pubkey: e.author.hexpubkey
-        });
-        goto(`/list/${c}/edit`);
+        const identifier = e.tags.find((z) => z[0] == 'd')?.[1];
+        if (identifier && e.kind) {
+          const c = nip19.naddrEncode({
+            identifier,
+            kind: e.kind,
+            pubkey: e.author.hexpubkey
+          });
+          goto(`/list/${c}/edit`);
+        }
       }
     }
-    console.log(event);
     if (event) {
       let ntitle = event.tags.find((t) => t[0] == 'title')?.[1];
       if (ntitle) {
@@ -136,21 +139,14 @@
         event.tags.push(['image', $images[0]]);
       }
       $items.forEach((e) => {
-        const data = nip19.decode(e.naddr).data;
-        // @ts-ignore
-        const newAtag = `${data.kind}:${data.pubkey}:${data.identifier}`;
-        nevent.tags.push(['a', newAtag]);
+        const decoded = nip19.decode(e.naddr);
+        if (decoded.type === 'naddr') {
+          const data = decoded.data;
+          const newAtag = `${data.kind}:${data.pubkey}:${data.identifier}`;
+          nevent.tags.push(['a', newAtag]);
+        }
       });
-      console.log(nevent);
-      let relays = await nevent.publish();
-      relays.forEach((relay) => {
-        relay.once('published', () => {
-          console.log('published to', relay);
-        });
-        relay.once('publish:failed', (relay, err) => {
-          console.log('publish failed to', relay, err);
-        });
-      });
+      await nevent.publish();
       resultMessage = 'Success!';
       let naddr = nip19.naddrEncode({
         identifier: title.toLowerCase().replaceAll(' ', '-'),
@@ -177,13 +173,12 @@
   items.subscribe((i) => {
     i.forEach(async (t) => {
       if (!t.title) {
-        const data = nip19.decode(t.naddr).data;
+        const decoded = nip19.decode(t.naddr);
+        if (decoded.type !== 'naddr') return;
+        const data = decoded.data;
         const newEv = await $ndk.fetchEvent({
-          // @ts-ignore
           kinds: [Number(data.kind)],
-          // @ts-ignore
           '#d': [data.identifier],
-          // @ts-ignore
           authors: [data.pubkey]
         });
 

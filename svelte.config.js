@@ -1,8 +1,9 @@
 import adapterCloudflare from '@sveltejs/adapter-cloudflare';
+import adapterVercel from '@sveltejs/adapter-vercel';
 import adapterStatic from '@sveltejs/adapter-static';
 import { vitePreprocess } from '@sveltejs/vite-plugin-svelte';
 
-// Use static adapter for mobile builds, Cloudflare for web (upstream compatibility)
+// Use static adapter for mobile builds, Vercel for web deployment, Cloudflare as fallback
 const adapter = process.env.ADAPTER === 'static'
   ? adapterStatic({
       pages: 'build',
@@ -16,7 +17,9 @@ const adapter = process.env.ADAPTER === 'static'
         handleHttpError: 'warn'
       }
     })
-  : adapterCloudflare();
+  : process.env.VERCEL
+    ? adapterVercel()
+    : adapterCloudflare();
 
 /** @type {import('@sveltejs/kit').Config} */
 const config = {

@@ -32,7 +32,7 @@ export async function getExpiringMemberships(
   daysAhead: number = 7
 ): Promise<ExpiringMember[]> {
   try {
-    const response = await fetch('https://members.zap.cooking/api/members', {
+    const response = await fetch('https://pantry.zap.cooking/api/members', {
       headers: {
         'Authorization': `Bearer ${apiSecret}`
       }

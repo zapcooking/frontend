@@ -42,9 +42,7 @@
 
     // load event
     let e = await $ndk.fetchEvent({
-      // @ts-ignore
       '#d': ['nostrcooking-bookmarks'],
-      // @ts-ignore
       authors: [$userPublickey],
       kinds: [30001]
     });
@@ -56,15 +54,7 @@
         event.kind = 30001;
         event.tags.push(['d', 'nostrcooking-bookmarks']);
         event.tags.push(['title', 'Nostr Cooking Bookmarks']);
-        let relays = await event.publish();
-        relays.forEach((relay) => {
-          relay.once('published', () => {
-            console.log('published to', relay);
-          });
-          relay.once('publish:failed', (relay, err) => {
-            console.log('publish failed to', relay, err);
-          });
-        });
+        await event.publish();
         setTimeout(() => {
           tried++;
           loadData();

@@ -39,7 +39,7 @@ export const RELAY_SETS: Record<string, RelaySet> = {
     name: 'Members',
     description: 'Private members relay for Zap.Cooking members',
     relays: [
-      'wss://members.zap.cooking'
+      'wss://pantry.zap.cooking'
     ]
   },
   discovery: {

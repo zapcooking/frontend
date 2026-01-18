@@ -399,9 +399,6 @@
   // Macro exclusion for economics phrases
   const MACRO_EXCLUDING_FOOD_ENERGY_REGEX = /\b(excluding|exclude)\s+food\s+and\s+energy\b/i;
 
-  // Debug flag (set to true to log filter decisions)
-  const DEBUG_FOOD_FILTER = false;
-
   const HASHTAG_PATTERN = /(^|\s)#([^\s#]+)/g;
   const URL_REGEX = /(https?:\/\/[^\s]+)/g;
   const IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.avif', '.svg'];
@@ -419,13 +416,13 @@
   // Speed test: nostr.wine (305ms) > nos.lol (342ms) > purplepag.es (356ms) > relay.damus.io (394ms) > kitchen.zap.cooking (510ms) > relay.nostr.band (514ms)
   // NOTE: All URLs are normalized (no trailing slashes) to prevent duplicate connections
   const RELAY_POOLS = {
-    recipes: ['wss://kitchen.zap.cooking'], // Curated recipe content (510ms, but worth it for relevance)
-    fallback: ['wss://nos.lol', 'wss://relay.damus.io'], // Fast general relays (nos.lol 342ms, relay.damus.io 394ms)
-    discovery: ['wss://nostr.wine', 'wss://relay.primal.net', 'wss://purplepag.es'], // Additional relays for discovery
-    profiles: ['wss://purplepag.es'], // Profile metadata (356ms, specialized for kind:0)
-    members: ['wss://members.zap.cooking'], // Private member relay
-    pro: ['wss://pro.zap.cooking'], // Pro member relay
-    garden: ['wss://garden.zap.cooking'] // Garden relay (no trailing slash!)
+    recipes: ['wss://kitchen.zap.cooking'],      // Curated recipe content (510ms, but worth it for relevance)
+    fallback: ['wss://nos.lol', 'wss://relay.damus.io'],  // Fast general relays (nos.lol 342ms, relay.damus.io 394ms)
+    discovery: ['wss://nostr.wine', 'wss://relay.primal.net', 'wss://purplepag.es'],  // Additional relays for discovery
+    profiles: ['wss://purplepag.es'],             // Profile metadata (356ms, specialized for kind:0)
+    members: ['wss://pantry.zap.cooking'],        // Private member relay (The Pantry)
+    pro: ['wss://pro.zap.cooking'],               // Pro member relay
+    garden: ['wss://garden.zap.cooking']          // Garden relay (no trailing slash!)
   };
 
   // ═══════════════════════════════════════════════════════════════
@@ -680,7 +677,6 @@
 
     // Check for food-related hashtags first (strong signal)
     if (FOOD_HASHTAG_REGEX.test(normalizedContent)) {
-      if (DEBUG_FOOD_FILTER) console.log('[FoodFilter] PASS: hashtag match');
       return true;
     }
 
@@ -698,34 +694,21 @@
     if (MACRO_EXCLUDING_FOOD_ENERGY_REGEX.test(normalizedContent)) {
       // Only allow if there's a strong signal beyond just the word "food"
       if (hardCount === 0 && softCount < 2) {
-        if (DEBUG_FOOD_FILTER) console.log('[FoodFilter] REJECT: macro phrase, no other signals');
         return false;
       }
     }
 
     // Include if at least 1 hard match
     if (hardCount >= 1) {
-      if (DEBUG_FOOD_FILTER)
-        console.log('[FoodFilter] PASS: hard matches:', hardMatches.slice(0, 2));
       return true;
     }
 
     // Include if at least 2 soft matches
     if (softCount >= 2) {
-      if (DEBUG_FOOD_FILTER)
-        console.log('[FoodFilter] PASS: soft matches:', softMatches.slice(0, 2));
       return true;
     }
 
     // Not enough food signals
-    if (DEBUG_FOOD_FILTER && (hardCount > 0 || softCount > 0)) {
-      console.log(
-        '[FoodFilter] REJECT: insufficient signals - hard:',
-        hardCount,
-        'soft:',
-        softCount
-      );
-    }
     return false;
   }
 
@@ -2161,7 +2144,7 @@
         }
 
         // Use only members relay (not pro relay) - normalize URL for consistency
-        const memberRelays: string[] = [normalizeRelayUrl(RELAY_POOLS.members[0])]; // Only members.zap.cooking
+        const memberRelays: string[] = [normalizeRelayUrl(RELAY_POOLS.members[0])]; // Only pantry.zap.cooking
 
         // Fetch older events from member relay (all content, not just food-tagged)
         const memberFilter: any = {
