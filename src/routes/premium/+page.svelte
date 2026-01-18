@@ -61,7 +61,6 @@
   function loadPremiumRecipes() {
     try {
       if (!$ndk) {
-        console.warn('NDK not available, skipping subscription');
         loaded = true;
         return;
       }
@@ -84,39 +83,30 @@
         '#t': [GATED_RECIPE_TAG] // Only our premium recipes
       };
       
-      console.log('[Premium] Subscribing with filter:', filter);
       subscription = $ndk.subscribe(filter);
 
       subscription.on('event', (event: NDKEvent) => {
-        const title = event.tagValue('title') || event.tagValue('d') || 'Unknown';
-        console.log('[Premium] Received event:', event.id.substring(0, 8), 'title:', title, 'author:', event.pubkey.substring(0, 8));
         // Validate it's a recipe format
         if (validateMarkdownTemplate(event.content) !== null) {
           // Check if we already have this event
           if (!events.find(e => e.id === event.id)) {
             events = [...events, event];
-            console.log('[Premium] Added valid recipe:', title, 'total:', events.length);
           }
-        } else {
-          console.log('[Premium] Invalid recipe format for:', title);
         }
       });
 
       subscription.on('eose', () => {
         loaded = true;
-        console.log('[Premium] End of stored events, found:', events.length);
       });
       
       // Fallback: set loaded after 5 seconds even if no eose
       setTimeout(() => {
         if (!loaded) {
           loaded = true;
-          console.log('[Premium] Timeout reached, setting loaded. Events:', events.length);
         }
       }, 5000);
 
     } catch (error) {
-      console.error('[Premium] Error loading recipes:', error);
       loaded = true;
     }
   }
@@ -174,10 +164,9 @@
       if (response.ok) {
         const data = await response.json();
         serverStoredRecipes = data.recipes || [];
-        console.log('[Premium] Loaded server-stored recipes:', serverStoredRecipes.length);
       }
     } catch (error) {
-      console.error('[Premium] Error loading server recipes:', error);
+      // Silently fail - server recipes are a fallback
     }
   }
 

@@ -103,7 +103,7 @@
                   unlockedRecipe = recipe;
                 }
               } catch (err) {
-                console.error('Error checking access:', err);
+                // Access check failed - user will see locked state
               }
               checkingAccess = false;
             }
@@ -126,7 +126,6 @@
         throw new Error('Invalid recipe URL format');
       }
     } catch (err) {
-      console.error('Error loading recipe:', err);
       loading = false;
       error = err instanceof Error ? err.message : 'Failed to load recipe';
       event = null;
@@ -169,13 +168,10 @@
                               invoice.length < 100 ||
                               !invoice.startsWith('lnbc');
         
-        console.log('[Premium Payment] Invoice:', invoice.substring(0, 50) + '...', 'isMock:', isMockInvoice);
-        
         let paymentPreimage = '';
         
         if (isMockInvoice) {
           // For testing: simulate payment with confirmation
-          console.log('[Premium Payment] Using test payment mode');
           const confirmed = confirm(
             `💰 Test Payment\n\nThis would charge ${gatedMetadata.cost} sats to unlock "${recipeTitle}".\n\nClick OK to simulate successful payment.`
           );
@@ -185,7 +181,6 @@
           paymentPreimage = `test_preimage_${Date.now()}`;
         } else {
           // Real Lightning invoice: Pay using wallet
-          console.log('[Premium Payment] Paying real invoice via wallet');
           const paymentResult = await sendPayment(invoice, {
             amount: gatedMetadata.cost,
             description: `Unlock premium recipe: ${recipeTitle}`
@@ -222,7 +217,6 @@
         }
       }
     } catch (err) {
-      console.error('Purchase error:', err);
       purchaseError = err instanceof Error ? err.message : 'Failed to purchase recipe';
     } finally {
       purchasing = false;

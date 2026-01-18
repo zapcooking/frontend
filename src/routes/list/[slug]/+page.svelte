@@ -26,13 +26,16 @@
 
   async function loadData() {
     loaded = false;
+    const slug = $page.params.slug;
+    if (!slug) return;
+    
     // load event
-    if ($page.params.slug?.startsWith('naddr1')) {
-      const b = nip19.decode($page.params.slug).data;
+    if (slug.startsWith('naddr1')) {
+      const decoded = nip19.decode(slug);
+      if (decoded.type !== 'naddr') return;
+      const b = decoded.data;
       let e = await $ndk.fetchEvent({
-        // @ts-ignore
         '#d': [b.identifier],
-        // @ts-ignore
         authors: [b.pubkey],
         kinds: [30001]
       });
@@ -40,17 +43,18 @@
         event = e;
       }
     } else {
-      let e = await $ndk.fetchEvent($page.params.slug);
+      let e = await $ndk.fetchEvent(slug);
       if (e) {
         event = e;
-        const c = nip19.naddrEncode({
-          // @ts-ignore
-          identifier: e.tags.find((z) => z[0] == 'd')?.[1],
-          // @ts-ignore
-          kind: e.kind,
-          pubkey: e.author.hexpubkey
-        });
-        goto(`/list/${c}`);
+        const identifier = e.tags.find((z) => z[0] == 'd')?.[1];
+        if (identifier && e.kind) {
+          const c = nip19.naddrEncode({
+            identifier,
+            kind: e.kind,
+            pubkey: e.author.hexpubkey
+          });
+          goto(`/list/${c}`);
+        }
       }
     }
 

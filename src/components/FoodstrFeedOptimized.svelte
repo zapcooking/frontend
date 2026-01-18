@@ -399,9 +399,6 @@
   // Macro exclusion for economics phrases
   const MACRO_EXCLUDING_FOOD_ENERGY_REGEX = /\b(excluding|exclude)\s+food\s+and\s+energy\b/i;
 
-  // Debug flag (set to true to log filter decisions)
-  const DEBUG_FOOD_FILTER = false;
-
   const HASHTAG_PATTERN = /(^|\s)#([^\s#]+)/g;
   const URL_REGEX = /(https?:\/\/[^\s]+)/g;
   const IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.avif', '.svg'];
@@ -680,7 +677,6 @@
 
     // Check for food-related hashtags first (strong signal)
     if (FOOD_HASHTAG_REGEX.test(normalizedContent)) {
-      if (DEBUG_FOOD_FILTER) console.log('[FoodFilter] PASS: hashtag match');
       return true;
     }
 
@@ -698,34 +694,21 @@
     if (MACRO_EXCLUDING_FOOD_ENERGY_REGEX.test(normalizedContent)) {
       // Only allow if there's a strong signal beyond just the word "food"
       if (hardCount === 0 && softCount < 2) {
-        if (DEBUG_FOOD_FILTER) console.log('[FoodFilter] REJECT: macro phrase, no other signals');
         return false;
       }
     }
 
     // Include if at least 1 hard match
     if (hardCount >= 1) {
-      if (DEBUG_FOOD_FILTER)
-        console.log('[FoodFilter] PASS: hard matches:', hardMatches.slice(0, 2));
       return true;
     }
 
     // Include if at least 2 soft matches
     if (softCount >= 2) {
-      if (DEBUG_FOOD_FILTER)
-        console.log('[FoodFilter] PASS: soft matches:', softMatches.slice(0, 2));
       return true;
     }
 
     // Not enough food signals
-    if (DEBUG_FOOD_FILTER && (hardCount > 0 || softCount > 0)) {
-      console.log(
-        '[FoodFilter] REJECT: insufficient signals - hard:',
-        hardCount,
-        'soft:',
-        softCount
-      );
-    }
     return false;
   }
 

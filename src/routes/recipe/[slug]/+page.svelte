@@ -61,11 +61,9 @@
         if (e) {
           event = e;
           loading = false;
-          console.log('✅ Recipe loaded successfully:', e.id);
         } else {
           loading = false;
           error = 'Recipe not found';
-          console.warn('⚠️ Recipe not found:', b.identifier);
         }
       } else {
         // Add timeout protection for direct event ID loading
@@ -96,7 +94,6 @@
         }
       }
     } catch (err) {
-      console.error('❌ Error loading recipe:', err);
       loading = false;
       error = err instanceof Error ? err.message : 'Failed to load recipe';
       event = null;

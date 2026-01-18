@@ -48,6 +48,9 @@
   // Expandable section states
   let toolboxExpanded = false;
 
+  // Feature flag: Set to true to show Pro features in the menu
+  const SHOW_PRO_FEATURES = false;
+
   // Theme state
   $: resolvedTheme = $theme === 'system' ? theme.getResolvedTheme() : $theme;
   $: isDarkMode = resolvedTheme === 'dark';
@@ -289,39 +292,41 @@
                 <span class="font-medium">Wallet</span>
               </button>
             </li>
-            <li>
-              <button
-                on:click={() => navigate('/extract')}
-                class="w-full flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-opacity-50 transition-colors cursor-pointer"
-                style="color: var(--color-text-primary);"
-              >
-                <SparkleIcon size={22} weight="fill" class="text-primary" />
-                <span class="font-medium">Sous Chef</span>
-                <span class="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary font-medium">Pro</span>
-              </button>
-            </li>
-            <li>
-              <button
-                on:click={() => navigate('/zappy')}
-                class="w-full flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-opacity-50 transition-colors cursor-pointer"
-                style="color: var(--color-text-primary);"
-              >
-                <RobotIcon size={22} weight="fill" class="text-yellow-500" />
-                <span class="font-medium">Zappy</span>
-                <span class="text-xs px-2 py-0.5 rounded-full bg-yellow-500/10 text-yellow-600 font-medium">Pro</span>
-              </button>
-            </li>
-            <li>
-              <button
-                on:click={() => navigate('/premium')}
-                class="w-full flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-opacity-50 transition-colors cursor-pointer"
-                style="color: var(--color-text-primary);"
-              >
-                <LightningIcon size={22} weight="fill" class="text-amber-500" />
-                <span class="font-medium">Premium Recipes</span>
-                <span class="text-xs px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600 font-medium">Pro</span>
-              </button>
-            </li>
+            {#if SHOW_PRO_FEATURES}
+              <li>
+                <button
+                  on:click={() => navigate('/extract')}
+                  class="w-full flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-opacity-50 transition-colors cursor-pointer"
+                  style="color: var(--color-text-primary);"
+                >
+                  <SparkleIcon size={22} weight="fill" class="text-primary" />
+                  <span class="font-medium">Sous Chef</span>
+                  <span class="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary font-medium">Pro</span>
+                </button>
+              </li>
+              <li>
+                <button
+                  on:click={() => navigate('/zappy')}
+                  class="w-full flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-opacity-50 transition-colors cursor-pointer"
+                  style="color: var(--color-text-primary);"
+                >
+                  <RobotIcon size={22} weight="fill" class="text-yellow-500" />
+                  <span class="font-medium">Zappy</span>
+                  <span class="text-xs px-2 py-0.5 rounded-full bg-yellow-500/10 text-yellow-600 font-medium">Pro</span>
+                </button>
+              </li>
+              <li>
+                <button
+                  on:click={() => navigate('/premium')}
+                  class="w-full flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-opacity-50 transition-colors cursor-pointer"
+                  style="color: var(--color-text-primary);"
+                >
+                  <LightningIcon size={22} weight="fill" class="text-amber-500" />
+                  <span class="font-medium">Premium Recipes</span>
+                  <span class="text-xs px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600 font-medium">Pro</span>
+                </button>
+              </li>
+            {/if}
           </ul>
         </div>
 

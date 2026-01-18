@@ -24,8 +24,8 @@
 
   // State management
   let isLoading = true;
-  let hasMembership = true; // TODO: Re-enable membership check when ready
-  let membershipTier: MembershipTier = 'pro'; // TODO: Re-enable membership check when ready
+  let hasMembership = true; // Membership check disabled for testing
+  let membershipTier: MembershipTier = 'pro';
   
   // Form state
   let promptInput = '';
@@ -69,33 +69,7 @@
       return;
     }
     
-    // TODO: Re-enable membership check when ready
-    // For now, skip membership check and allow access for testing
-    // try {
-    //   const membership = membershipStore.getMembership($userPublickey);
-    //   if (membership && membership.expiresAt > Date.now()) {
-    //     hasMembership = true;
-    //     membershipTier = membership.tier;
-    //   } else {
-    //     // Check server-side membership
-    //     const response = await fetch('/api/membership/check-status', {
-    //       method: 'POST',
-    //       headers: { 'Content-Type': 'application/json' },
-    //       body: JSON.stringify({ pubkey: $userPublickey })
-    //     });
-    //     
-    //     if (response.ok) {
-    //       const data = await response.json();
-    //       if (data.found && data.isActive) {
-    //         hasMembership = true;
-    //         membershipTier = data.member?.tier === 'genesis' ? 'pro' : (data.member?.tier || 'cook');
-    //       }
-    //     }
-    //   }
-    // } catch (err) {
-    //   console.error('Error checking membership:', err);
-    // }
-    
+    // Membership check disabled for testing - re-enable when ready
     isLoading = false;
   });
   

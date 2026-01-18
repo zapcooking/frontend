@@ -50,7 +50,7 @@
   let gatePreview = '';
 
   // Check Pro Kitchen membership
-  let isProKitchen = true; // TODO: Enable membership check when ready
+  let isProKitchen = true; // Membership check disabled for testing
   let membershipChecked = true;
   
   // Author's Lightning address for receiving payments
@@ -67,28 +67,13 @@
       const profile = await resolveProfileByPubkey($userPublickey, $ndk);
       if (profile?.lud16) {
         authorLightningAddress = profile.lud16;
-        console.log('Author Lightning address:', authorLightningAddress);
-      } else {
-        console.warn('No Lightning address found in profile. Payments will use test mode.');
       }
     } catch (e) {
-      console.error('Failed to fetch author profile:', e);
+      // Profile fetch failed - payments will use test mode
     }
     
-    // TODO: Re-enable membership check when ready
-    // try {
-    //   const tier = membershipStore.getActiveTier($userPublickey);
-    //   isProKitchen = tier === 'pro';
-    // } catch (e) {
-    //   console.error('Failed to check membership:', e);
-    //   isProKitchen = false;
-    // }
-    // membershipChecked = true;
-    // 
-    // if (!isProKitchen) {
-    //   goto('/membership?redirect=/create/gated');
-    //   return;
-    // }
+    // Membership check disabled for now
+    // When re-enabling, check tier and redirect non-pro users to /membership
 
     // Check for draft ID in URL
     const draftId = $page.url.searchParams.get('draft');
@@ -214,7 +199,6 @@
         // Add NIP-89 client tag
         addClientTagToEvent(event);
         
-        console.log('Creating gated recipe:', event);
         resultMessage = 'Creating gated content...';
         
         // Create gated content (stores encrypted content on server)
@@ -230,22 +214,13 @@
           authorLightningAddress // Pass Lightning address for payments to author
         );
         
-        console.log('Gated content created:', gatedResult.gatedNoteId);
         resultMessage = 'Publishing recipe...';
         
         // Add gated tag to recipe with gatedNoteId and cost in sats (human readable)
         event.tags.push(['gated', gatedResult.gatedNoteId, gateCostSats.toString()]);
         
         // Publish the recipe with gated tag
-        let relays = await event.publish();
-        relays.forEach((relay) => {
-          relay.once('published', () => {
-            console.log('published to', relay);
-          });
-          relay.once('publish:failed', (relay, err) => {
-            console.log('publish failed to', relay, err);
-          });
-        });
+        await event.publish();
         
         const naddr = nip19.naddrEncode({
           identifier: title.toLowerCase().replaceAll(' ', '-'),
@@ -264,7 +239,7 @@
             })
           });
         } catch (e) {
-          console.warn('Failed to update naddr:', e);
+          // Non-critical: naddr update failed
         }
         
         resultMessage = 'Premium recipe created! Redirecting...';
@@ -282,7 +257,6 @@
         return; // Don't reset disablePublishButton - keep it disabled until redirect
       }
     } catch (err) {
-      console.error('error while publishing', err);
       resultMessage = 'Error: Something went wrong, Error: ' + String(err);
     } finally {
       if (resultMessage == 'Processing...') {
