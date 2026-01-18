@@ -12,11 +12,11 @@
   export let className: string = '';
   export let showLinkPreviews: boolean = true;
   export let embedDepth: number = 0; // Track nesting depth to prevent infinite recursion
-  
+
   // Image extensions to detect
   const IMAGE_EXTENSIONS = /\.(jpg|jpeg|png|gif|webp|svg|bmp|avif)(\?.*)?$/i;
   const VIDEO_EXTENSIONS = /\.(mp4|webm|mov|avi|mkv)(\?.*)?$/i;
-  
+
   function isImageUrl(url: string): boolean {
     try {
       const urlObj = new URL(url);
@@ -35,7 +35,7 @@
       return false;
     }
   }
-  
+
   function isVideoUrl(url: string): boolean {
     try {
       const urlObj = new URL(url);
@@ -44,24 +44,44 @@
       return false;
     }
   }
-  
+
   function handleImageError(e: Event) {
     const target = e.target as HTMLImageElement;
     if (target) target.style.display = 'none';
   }
 
+  function isBlockPart(part?: { type?: string; prefix?: string; url?: string }) {
+    if (!part?.type) return false;
+    if (part.type === 'nostr') {
+      return part.prefix === 'nevent1' || part.prefix === 'note1';
+    }
+    if (part.type === 'url') {
+      if (!part.url) return false;
+      return isImageUrl(part.url) || isVideoUrl(part.url) || showLinkPreviews;
+    }
+    return false;
+  }
+
   // Parse content and create clickable links for URLs, hashtags, and nostr references
   function parseContent(text: string) {
-    const urlRegex = /(https?:\/\/[^\s]+)|nostr:(nevent1|note1|npub1|nprofile1)([023456789acdefghjklmnpqrstuvwxyz]+)/g;
+    const urlRegex =
+      /(https?:\/\/[^\s]+)|nostr:(nevent1|note1|npub1|nprofile1)([023456789acdefghjklmnpqrstuvwxyz]+)/g;
     const hashtagRegex = /#[\w]+/g;
-    
+
     const parts = [];
     let lastIndex = 0;
     let match;
     let keyCounter = 0;
 
     // First find URLs and nostr references
-    const urlMatches: Array<{index: number, content: string, type: 'url' | 'nostr', url?: string, prefix?: string, data?: string}> = [];
+    const urlMatches: Array<{
+      index: number;
+      content: string;
+      type: 'url' | 'nostr';
+      url?: string;
+      prefix?: string;
+      data?: string;
+    }> = [];
     urlRegex.lastIndex = 0;
     while ((match = urlRegex.exec(text)) !== null) {
       const [fullMatch, url, nostrPrefix, nostrData] = match;
@@ -82,14 +102,14 @@
         });
       }
     }
-    
+
     // Helper to check if index is inside a URL/nostr reference
     function isInUrl(index: number): boolean {
-      return urlMatches.some(m => index >= m.index && index < m.index + m.content.length);
+      return urlMatches.some((m) => index >= m.index && index < m.index + m.content.length);
     }
-    
+
     // Find all hashtags (excluding those inside URLs)
-    const hashtagMatches: Array<{index: number, content: string}> = [];
+    const hashtagMatches: Array<{ index: number; content: string }> = [];
     hashtagRegex.lastIndex = 0;
     while ((match = hashtagRegex.exec(text)) !== null) {
       // Only include hashtag if it's not inside a URL
@@ -100,13 +120,13 @@
         });
       }
     }
-    
+
     // Combine and sort all matches by index
     const allMatches = [
-      ...hashtagMatches.map(m => ({...m, type: 'hashtag' as const})),
+      ...hashtagMatches.map((m) => ({ ...m, type: 'hashtag' as const })),
       ...urlMatches
     ].sort((a, b) => a.index - b.index);
-    
+
     // Process matches in order
     for (const match of allMatches) {
       // Add text before this match
@@ -152,7 +172,7 @@
         key: `text-${keyCounter++}`
       });
     }
-    
+
     // If no matches, return the whole text as a single part
     if (parts.length === 0) {
       parts.push({
@@ -164,7 +184,7 @@
 
     return parts;
   }
-  
+
   function handleHashtagClick(hashtag: string) {
     // Navigate to tag page (remove #)
     const tag = hashtag.slice(1);
@@ -189,8 +209,8 @@
     {#if part.type === 'text'}
       {@const prevPart = parsedContent[i - 1]}
       {@const nextPart = parsedContent[i + 1]}
-      {@const prevIsBlock = prevPart?.type === 'url' || prevPart?.type === 'nostr'}
-      {@const nextIsBlock = nextPart?.type === 'url' || nextPart?.type === 'nostr'}
+      {@const prevIsBlock = isBlockPart(prevPart)}
+      {@const nextIsBlock = isBlockPart(nextPart)}
       {@const isBetweenBlocks = prevIsBlock && nextIsBlock}
       {@const isOnlyWhitespace = /^\s*$/.test(part.content)}
       {#if isBetweenBlocks && isOnlyWhitespace}
@@ -217,12 +237,7 @@
         </div>
       {:else if part.url && isVideoUrl(part.url)}
         <div class="my-1">
-          <video
-            src={part.url}
-            controls
-            class="max-w-full rounded-lg max-h-96"
-            preload="metadata"
-          >
+          <video src={part.url} controls class="max-w-full rounded-lg max-h-96" preload="metadata">
             <track kind="captions" />
           </video>
         </div>
