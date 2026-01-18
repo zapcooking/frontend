@@ -107,7 +107,7 @@ async function loadData() {
   {#if events.length > 0}
     <Feed {events} />
   {:else if loaded == false}
-    <div class="flex justify-center items-center h-screen">
+    <div class="flex justify-center items-center page-loader">
       <PanLoader />
     </div>
   {:else}
