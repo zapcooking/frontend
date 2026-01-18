@@ -11,7 +11,7 @@
   import { buildNip22CommentTags } from '$lib/tagUtils';
   import HeartIcon from 'phosphor-svelte/lib/Heart';
   import LightningIcon from 'phosphor-svelte/lib/Lightning';
-  import RichTextNostr from './RichTextNostr.svelte';
+  import NoteContent from './NoteContent.svelte';
   import { onMount, onDestroy } from 'svelte';
   import { get } from 'svelte/store';
   import { decode } from '@gandlaf21/bolt11-decode';
@@ -1098,8 +1098,7 @@
 
       <!-- Comment Text -->
       <div class="comment-body">
-        <!-- TODO: Fix RichTextNostr freezing issue with nostr: references -->
-        <p class="whitespace-pre-wrap">{event.content}</p>
+        <NoteContent content={event.content} />
       </div>
 
       <!-- Actions -->
