@@ -10,6 +10,7 @@
   export let className: string = '';
   export let showLoading: boolean = true;
   export let fallbackToRaw: boolean = true;
+  export let colorClass: string = 'text-blue-500 hover:text-blue-700';
 
   let displayName: string = '';
   let isLoading: boolean = false;
@@ -62,7 +63,7 @@
 </script>
 
 <button
-  class="text-blue-500 hover:text-blue-700 hover:underline cursor-pointer {className}"
+  class="{colorClass} hover:underline cursor-pointer {className}"
   on:click={handleClick}
   disabled={!pubkey}
 >

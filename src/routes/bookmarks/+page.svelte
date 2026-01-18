@@ -144,7 +144,7 @@
     <Feed {events} {loaded} />
   </div>
 {:else}
-  <div class="flex justify-center items-center h-screen">
+  <div class="flex justify-center items-center page-loader">
     <PanLoader />
   </div>
 {/if}

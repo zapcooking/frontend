@@ -1506,14 +1506,14 @@
     color: var(--color-caption);
   }
 
-  .mention-pill {
+  :global(.mention-pill) {
     display: inline-flex;
     align-items: center;
     gap: 0.25rem;
     padding: 0.1rem 0.45rem;
     border-radius: 0.5rem;
-    background: rgba(236, 71, 0, 0.15);
-    color: var(--color-primary);
+    background: rgba(247, 147, 26, 0.2);
+    color: #f7931a;
     font-weight: 600;
     user-select: all;
     margin: 0 0.1rem;

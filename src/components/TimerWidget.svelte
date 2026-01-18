@@ -17,13 +17,13 @@
     markTimerDone,
     formatTime,
     getRemainingTime,
-    type TimerItem,
+    type TimerItem
   } from '$lib/timerStore';
   import {
     timerSettings,
     loadTimerSettings,
     updateTimerSetting,
-    saveTimerSettings,
+    saveTimerSettings
   } from '$lib/timerSettings';
   import PlayIcon from 'phosphor-svelte/lib/Play';
   import PauseIcon from 'phosphor-svelte/lib/Pause';
@@ -65,13 +65,16 @@
   let tickInterval: ReturnType<typeof setInterval> | null = null;
   let tick = 0;
 
+  let resizeObserver: ResizeObserver | null = null;
+  let isObservingOffset = false;
+
   // Subscribe to timer store
-  const unsubscribe = timerStore.subscribe(state => {
+  const unsubscribe = timerStore.subscribe((state) => {
     timers = state.timers;
   });
 
   // Subscribe to settings store - only for sound, position handled separately
-  const unsubscribeSettings = timerSettings.subscribe(settings => {
+  const unsubscribeSettings = timerSettings.subscribe((settings) => {
     soundEnabled = settings.soundEnabled;
   });
 
@@ -150,10 +153,50 @@
     unsubscribe();
     unsubscribeSettings();
     stopTicking();
+    teardownMobileOffsetObserver();
     if (browser) {
       window.removeEventListener('resize', handleResize);
     }
   });
+
+  function setMobileOffset(value: number | null) {
+    if (!browser) return;
+    const root = document.documentElement;
+    if (value === null) {
+      root.style.removeProperty('--timer-widget-offset');
+      return;
+    }
+    root.style.setProperty('--timer-widget-offset', `${value}px`);
+  }
+
+  function updateMobileOffset() {
+    if (!browser || !widgetEl) return;
+    const height = widgetEl.offsetHeight;
+    if (height > 0) {
+      setMobileOffset(height);
+    }
+  }
+
+  function setupMobileOffsetObserver() {
+    if (!browser || !widgetEl) return;
+    updateMobileOffset();
+    if (typeof ResizeObserver === 'undefined') return;
+    if (!resizeObserver) {
+      resizeObserver = new ResizeObserver(() => updateMobileOffset());
+    }
+    if (!isObservingOffset) {
+      resizeObserver.observe(widgetEl);
+      isObservingOffset = true;
+    }
+  }
+
+  function teardownMobileOffsetObserver() {
+    if (resizeObserver && isObservingOffset) {
+      resizeObserver.disconnect();
+      isObservingOffset = false;
+    }
+    setMobileOffset(null);
+  }
 
   function startTicking() {
     if (tickInterval) return;
@@ -234,7 +277,7 @@
       saveTimerSettings({
         soundEnabled,
         positionX: posX,
-        positionY: posY,
+        positionY: posY
       });
     }
   }
@@ -275,7 +318,7 @@
 
   function checkForCompletedTimers() {
     const now = Date.now();
-    timers.forEach(timer => {
+    timers.forEach((timer) => {
       if (timer.status === 'running' && now >= timer.endsAt) {
         markTimerDone(timer.id);
         if (soundEnabled) {
@@ -340,8 +383,8 @@
     return formatTime(getRemainingTime(timer));
   }
 
-  $: activeTimers = timers.filter(t => t.status === 'running' || t.status === 'paused');
-  $: completedTimers = timers.filter(t => t.status === 'done');
+  $: activeTimers = timers.filter((t) => t.status === 'running' || t.status === 'paused');
+  $: completedTimers = timers.filter((t) => t.status === 'done');
 
   // Apply position via DOM when values change (not during drag - drag handles its own updates)
   $: if (browser && widgetEl && !isDragging && !isMinimized && !isMobile) {
@@ -354,6 +397,14 @@
       widgetEl.style.left = '';
       widgetEl.style.top = '';
       widgetEl.style.right = '';
+    }
+  }
+
+  $: if (browser) {
+    if (open && isMobile && widgetEl) {
+      setupMobileOffsetObserver();
+    } else {
+      teardownMobileOffsetObserver();
     }
   }
 </script>
@@ -372,7 +423,7 @@
       on:touchstart={!isMobile && !isMinimized ? handleDragStart : undefined}
       role="button"
       tabindex="0"
-      aria-label={isMobile ? 'Timer controls' : (isMinimized ? 'Timer docked' : 'Drag to move')}
+      aria-label={isMobile ? 'Timer controls' : isMinimized ? 'Timer docked' : 'Drag to move'}
     >
       {#if !isMobile && !isMinimized}
         <div class="drag-handle">
@@ -408,7 +459,11 @@
             <BellSlashIcon size={16} />
           {/if}
         </button>
-        <button on:click|stopPropagation={() => open = false} class="close-btn" aria-label="Close">
+        <button
+          on:click|stopPropagation={() => (open = false)}
+          class="close-btn"
+          aria-label="Close"
+        >
           <XIcon size={18} />
         </button>
       </div>
@@ -416,140 +471,145 @@
 
     <!-- Content (hidden when minimized) -->
     {#if !isMinimized}
-    <!-- Quick add -->
-    <div class="quick-add">
-      <input
-        type="text"
-        bind:value={quickLabel}
-        placeholder="Label"
-        class="quick-label"
-        on:keydown={(e) => e.key === 'Enter' && handleQuickAdd()}
-      />
-      <input
-        type="number"
-        bind:value={quickMinutes}
-        min="1"
-        max="999"
-        class="quick-minutes"
-      />
-      <span class="min-label">min</span>
-      <button on:click={handleQuickAdd} class="add-btn" aria-label="Add timer">
-        <PlusIcon size={18} weight="bold" />
-      </button>
-    </div>
+      <!-- Quick add -->
+      <div class="quick-add">
+        <input
+          type="text"
+          bind:value={quickLabel}
+          placeholder="Label"
+          class="quick-label"
+          on:keydown={(e) => e.key === 'Enter' && handleQuickAdd()}
+        />
+        <input type="number" bind:value={quickMinutes} min="1" max="999" class="quick-minutes" />
+        <span class="min-label">min</span>
+        <button on:click={handleQuickAdd} class="add-btn" aria-label="Add timer">
+          <PlusIcon size={18} weight="bold" />
+        </button>
+      </div>
 
-    <!-- Active timers -->
-    {#if activeTimers.length > 0}
-      <div class="timers-list">
-        {#each activeTimers as timer (timer.id)}
-          {@const remaining = getRemainingTime(timer)}
-          {@const progress = timer.status === 'running'
-            ? (1 - remaining / timer.durationMs) * 100
-            : (1 - (timer.pausedRemainingMs || 0) / timer.durationMs) * 100}
-          <div class="timer-item">
-            <div class="timer-progress" style="width: {progress}%"></div>
-            <div class="timer-content">
-              <span class="timer-label">{timer.label}</span>
-              <div class="timer-main-row">
-                <span class="timer-time-large {timer.status === 'paused' ? 'paused' : ''}">
-                  {getDisplayTime(timer, tick)}
-                </span>
-                <div class="timer-actions">
-                  <button on:click={() => handlePauseResume(timer)} class="action-btn">
-                    {#if timer.status === 'running'}
-                      <PauseIcon size={20} />
-                    {:else}
-                      <PlayIcon size={20} />
-                    {/if}
-                  </button>
-                  <button on:click={() => handleDelete(timer)} class="action-btn delete">
-                    <TrashIcon size={20} />
-                  </button>
+      <!-- Active timers -->
+      {#if activeTimers.length > 0}
+        <div class="timers-list">
+          {#each activeTimers as timer (timer.id)}
+            {@const remaining = getRemainingTime(timer)}
+            {@const progress =
+              timer.status === 'running'
+                ? (1 - remaining / timer.durationMs) * 100
+                : (1 - (timer.pausedRemainingMs || 0) / timer.durationMs) * 100}
+            <div class="timer-item">
+              <div class="timer-progress" style="width: {progress}%"></div>
+              <div class="timer-content">
+                <span class="timer-label">{timer.label}</span>
+                <div class="timer-main-row">
+                  <span class="timer-time-large {timer.status === 'paused' ? 'paused' : ''}">
+                    {getDisplayTime(timer, tick)}
+                  </span>
+                  <div class="timer-actions">
+                    <button on:click={() => handlePauseResume(timer)} class="action-btn">
+                      {#if timer.status === 'running'}
+                        <PauseIcon size={20} />
+                      {:else}
+                        <PlayIcon size={20} />
+                      {/if}
+                    </button>
+                    <button on:click={() => handleDelete(timer)} class="action-btn delete">
+                      <TrashIcon size={20} />
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
+          {/each}
+        </div>
+      {:else}
+        <div class="empty-state">No active timers</div>
+      {/if}
+
+      <!-- Completed (if any) -->
+      {#if completedTimers.length > 0}
+        <div class="completed-section">
+          <span class="completed-label">Done ({completedTimers.length})</span>
+          {#each completedTimers as timer (timer.id)}
+            <div class="completed-item">
+              <span>{timer.label}</span>
+              <button on:click={() => handleDelete(timer)} class="action-btn delete small">
+                <TrashIcon size={14} />
+              </button>
+            </div>
+          {/each}
+        </div>
+      {/if}
+
+      <!-- Quick time presets -->
+      <div class="time-presets">
+        {#each [1, 3, 5, 10, 15, 30] as mins}
+          <button
+            on:click={() => startTimer(`${mins} min`, mins * 60 * 1000)}
+            class="time-preset-btn"
+          >
+            {mins}m
+          </button>
         {/each}
       </div>
-    {:else}
-      <div class="empty-state">
-        No active timers
-      </div>
-    {/if}
 
-    <!-- Completed (if any) -->
-    {#if completedTimers.length > 0}
-      <div class="completed-section">
-        <span class="completed-label">Done ({completedTimers.length})</span>
-        {#each completedTimers as timer (timer.id)}
-          <div class="completed-item">
-            <span>{timer.label}</span>
-            <button on:click={() => handleDelete(timer)} class="action-btn delete small">
-              <TrashIcon size={14} />
-            </button>
-          </div>
-        {/each}
+      <!-- Fun Cooking Presets -->
+      <div class="presets-section">
+        <span class="presets-label">Cooking Presets</span>
+        <div class="preset-grid">
+          <button on:click={() => startTimer('Poached Egg', 4 * 60 * 1000)} class="preset-btn egg">
+            <span class="preset-emoji">🥚</span>
+            <span class="preset-name">Poached</span>
+            <span class="preset-time">4 min</span>
+          </button>
+          <button
+            on:click={() => startTimer('Hard Boiled Egg', 10 * 60 * 1000)}
+            class="preset-btn egg"
+          >
+            <span class="preset-emoji">🥚</span>
+            <span class="preset-name">Hard Boiled</span>
+            <span class="preset-time">10 min</span>
+          </button>
+          <button
+            on:click={() => startTimer('Pasta Al Dente', 8 * 60 * 1000)}
+            class="preset-btn pasta"
+          >
+            <span class="preset-emoji">🍝</span>
+            <span class="preset-name">Pasta</span>
+            <span class="preset-time">8 min</span>
+          </button>
+          <button on:click={() => startTimer('Rice', 18 * 60 * 1000)} class="preset-btn grain">
+            <span class="preset-emoji">🍚</span>
+            <span class="preset-name">Rice</span>
+            <span class="preset-time">18 min</span>
+          </button>
+          <button on:click={() => startTimer('Steak Rest', 5 * 60 * 1000)} class="preset-btn meat">
+            <span class="preset-emoji">🥩</span>
+            <span class="preset-name">Steak Rest</span>
+            <span class="preset-time">5 min</span>
+          </button>
+          <button
+            on:click={() => startTimer('Veggies Steam', 7 * 60 * 1000)}
+            class="preset-btn veg"
+          >
+            <span class="preset-emoji">🥦</span>
+            <span class="preset-name">Steam Veg</span>
+            <span class="preset-time">7 min</span>
+          </button>
+          <button on:click={() => startTimer('Casserole', 45 * 60 * 1000)} class="preset-btn veg">
+            <span class="preset-emoji">🥘</span>
+            <span class="preset-name">Casserole</span>
+            <span class="preset-time">45 min</span>
+          </button>
+          <button
+            on:click={() => startTimer('Baked Potato', 60 * 60 * 1000)}
+            class="preset-btn veg"
+          >
+            <span class="preset-emoji">🥔</span>
+            <span class="preset-name">Baked Potato</span>
+            <span class="preset-time">60 min</span>
+          </button>
+        </div>
       </div>
-    {/if}
-
-    <!-- Quick time presets -->
-    <div class="time-presets">
-      {#each [1, 3, 5, 10, 15, 30] as mins}
-        <button
-          on:click={() => startTimer(`${mins} min`, mins * 60 * 1000)}
-          class="time-preset-btn"
-        >
-          {mins}m
-        </button>
-      {/each}
-    </div>
-
-    <!-- Fun Cooking Presets -->
-    <div class="presets-section">
-      <span class="presets-label">Cooking Presets</span>
-      <div class="preset-grid">
-        <button on:click={() => startTimer('Poached Egg', 4 * 60 * 1000)} class="preset-btn egg">
-          <span class="preset-emoji">🥚</span>
-          <span class="preset-name">Poached</span>
-          <span class="preset-time">4 min</span>
-        </button>
-        <button on:click={() => startTimer('Soft Boiled Egg', 6 * 60 * 1000)} class="preset-btn egg">
-          <span class="preset-emoji">🥚</span>
-          <span class="preset-name">Soft Boiled</span>
-          <span class="preset-time">6 min</span>
-        </button>
-        <button on:click={() => startTimer('Hard Boiled Egg', 12 * 60 * 1000)} class="preset-btn egg">
-          <span class="preset-emoji">🥚</span>
-          <span class="preset-name">Hard Boiled</span>
-          <span class="preset-time">12 min</span>
-        </button>
-        <button on:click={() => startTimer('Pasta Al Dente', 8 * 60 * 1000)} class="preset-btn pasta">
-          <span class="preset-emoji">🍝</span>
-          <span class="preset-name">Pasta</span>
-          <span class="preset-time">8 min</span>
-        </button>
-        <button on:click={() => startTimer('Rice', 18 * 60 * 1000)} class="preset-btn grain">
-          <span class="preset-emoji">🍚</span>
-          <span class="preset-name">Rice</span>
-          <span class="preset-time">18 min</span>
-        </button>
-        <button on:click={() => startTimer('Steak Rest', 5 * 60 * 1000)} class="preset-btn meat">
-          <span class="preset-emoji">🥩</span>
-          <span class="preset-name">Steak Rest</span>
-          <span class="preset-time">5 min</span>
-        </button>
-        <button on:click={() => startTimer('Veggies Steam', 7 * 60 * 1000)} class="preset-btn veg">
-          <span class="preset-emoji">🥦</span>
-          <span class="preset-name">Steam Veg</span>
-          <span class="preset-time">7 min</span>
-        </button>
-        <button on:click={() => startTimer('Tea Steep', 3 * 60 * 1000)} class="preset-btn drink">
-          <span class="preset-emoji">🍵</span>
-          <span class="preset-name">Tea</span>
-          <span class="preset-time">3 min</span>
-        </button>
-      </div>
-    </div>
     {/if}
   </div>
 {/if}
@@ -608,7 +668,8 @@
     gap: 4px;
   }
 
-  .sound-btn, .close-btn {
+  .sound-btn,
+  .close-btn {
     padding: 4px;
     border-radius: 6px;
     background: transparent;
@@ -618,7 +679,8 @@
     transition: all 0.2s;
   }
 
-  .sound-btn:hover, .close-btn:hover {
+  .sound-btn:hover,
+  .close-btn:hover {
     background: var(--color-input-border);
   }
 

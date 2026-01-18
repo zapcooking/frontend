@@ -8,12 +8,15 @@
   import { userPublickey, ndk } from '$lib/nostr';
   import BottomNav from '../components/BottomNav.svelte';
   import Footer from '../components/Footer.svelte';
+  import CreateMenuButton from '../components/CreateMenuButton.svelte';
+  import PostModal from '../components/PostModal.svelte';
   import { createAuthManager, type AuthState } from '$lib/authManager';
   import type { LayoutData } from './$types';
   import ErrorBoundary from '../components/ErrorBoundary.svelte';
   import OfflineIndicator from '../components/OfflineIndicator.svelte';
   import { theme } from '$lib/themeStore';
   import { initializeWalletManager } from '$lib/wallet';
+  import { postComposerOpen } from '$lib/postComposerStore';
   // Import sync service to initialize offline sync functionality
   import '$lib/syncService';
   // Import platform detection to initialize early
@@ -26,12 +29,14 @@
   const siteUrl = 'https://zap.cooking';
   const title = 'Zap Cooking';
   const ogTitle = 'Zap Cooking - Food. Friends. Freedom.';
-  const description = 'A place where food culture can live openly and grow naturally. Share recipes, support creators directly, no algorithms or ads.';
+  const description =
+    'A place where food culture can live openly and grow naturally. Share recipes, support creators directly, no algorithms or ads.';
   const ogImage = `${siteUrl}/social-share.png`;
   $: canonical = `${siteUrl}${$page.url.pathname === '/' ? '' : $page.url.pathname}`;
 
   // Skip layout OG tags on pages that set their own (recipe pages)
-  $: hasCustomOgTags = $page.url.pathname.startsWith('/recipe/') || $page.url.pathname.startsWith('/r/');
+  $: hasCustomOgTags =
+    $page.url.pathname.startsWith('/recipe/') || $page.url.pathname.startsWith('/r/');
 
   let authManager: any = null;
   let authState: AuthState = {
@@ -47,7 +52,7 @@
   // Handle deep links from Capacitor (for NIP-46 pairing)
   async function handleDeepLink(url: string) {
     console.log('[DeepLink] Received:', url);
-    
+
     if (!authManager) {
       console.warn('[DeepLink] Auth manager not initialized');
       return;
@@ -77,13 +82,13 @@
   // Setup Capacitor deep link listeners
   async function setupCapacitorListeners() {
     if (!browser) return;
-    
+
     console.log('[Capacitor] Setting up listeners...');
 
     try {
       // Import Capacitor core to check if we're in a native environment
       const { Capacitor } = await import('@capacitor/core');
-      
+
       if (!Capacitor.isNativePlatform()) {
         console.log('[Capacitor] Not a native platform, skipping listener setup');
         return;
@@ -103,7 +108,7 @@
       // Listen for app state changes (resume)
       await App.addListener('appStateChange', async (state) => {
         console.log('[Capacitor] appStateChange:', state.isActive ? 'active' : 'inactive');
-        
+
         if (state.isActive) {
           console.log('[Capacitor] App became active, checking for pending NIP-46 pairing...');
           if (authManager?.hasPendingNip46Pairing()) {
@@ -152,7 +157,7 @@
     try {
       // Detect platform first (iOS, Android, or web)
       detectPlatform();
-      
+
       // Initialize theme first to prevent FOUC
       theme.initialize();
 
@@ -223,7 +228,9 @@
 </svelte:head>
 
 <ErrorBoundary fallback="Something went wrong with the page layout. Please refresh the page.">
-  <div class="h-[100%] scroll-smooth overflow-x-hidden transition-colors duration-200 safe-area-container">
+  <div
+    class="h-[100%] scroll-smooth overflow-x-hidden transition-colors duration-200 safe-area-container"
+  >
     <OfflineIndicator />
     <div class="flex h-full">
       <div class="mx-auto flex-1 pt-2 print:pt-[0] px-4 max-w-full safe-area-content">
@@ -232,7 +239,9 @@
           <slot />
         </div>
         <Footer />
+        <CreateMenuButton variant="floating" />
         <BottomNav />
+        <PostModal bind:open={$postComposerOpen} />
       </div>
     </div>
   </div>
@@ -245,7 +254,7 @@
     padding-left: env(safe-area-inset-left, 0px);
     padding-right: env(safe-area-inset-right, 0px);
   }
-  
+
   /* Extra bottom padding on mobile to account for bottom nav + safe area */
   @media (max-width: 1023px) {
     .safe-area-content {

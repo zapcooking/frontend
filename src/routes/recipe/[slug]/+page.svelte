@@ -181,11 +181,11 @@
 </svelte:head>
 
 {#if loading}
-  <div class="flex justify-center items-center h-screen">
+  <div class="flex justify-center items-center page-loader">
     <PanLoader />
   </div>
 {:else if error}
-  <div class="flex flex-col justify-center items-center h-screen gap-4">
+  <div class="flex flex-col justify-center items-center page-loader gap-4">
     <h1 class="text-2xl font-bold text-red-600">Recipe Loading Error</h1>
     <p class="text-caption">{error}</p>
     <button
@@ -196,7 +196,7 @@
     </button>
   </div>
 {:else if event && (event.tags.some(t => t[0] === 'deleted') || !event.content || event.content.trim() === '')}
-  <div class="flex flex-col justify-center items-center h-screen gap-4">
+  <div class="flex flex-col justify-center items-center page-loader gap-4">
     <h1 class="text-2xl font-bold" style="color: var(--color-text-primary);">Recipe Deleted</h1>
     <p class="text-caption">This recipe has been deleted by its author.</p>
     <a href="/" class="px-4 py-2 bg-primary text-white rounded-full hover:opacity-80">
@@ -206,7 +206,7 @@
 {:else if event}
   <Recipe {event} />
 {:else}
-  <div class="flex justify-center items-center h-screen">
+  <div class="flex justify-center items-center page-loader">
     <PanLoader />
   </div>
 {/if}

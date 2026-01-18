@@ -2,7 +2,6 @@
   import { goto } from '$app/navigation';
   import { userPublickey, userProfilePictureOverride } from '$lib/nostr';
   import SVGNostrCookingWithText from '../assets/nostr.cooking-withtext.svg';
-  import AddIcon from 'phosphor-svelte/lib/Plus';
   import SearchIcon from 'phosphor-svelte/lib/MagnifyingGlass';
   import TimerIcon from 'phosphor-svelte/lib/Timer';
   import { clickOutside } from '$lib/clickOutside';
@@ -15,6 +14,7 @@
   import UserSidePanel from './UserSidePanel.svelte';
   import { timerStore } from '$lib/timerStore';
   import TimerWidget from './TimerWidget.svelte';
+  import CreateMenuButton from './CreateMenuButton.svelte';
 
   let sidePanelOpen = false;
   let searchActive = false;
@@ -22,7 +22,9 @@
   let timerWidgetOpen = false;
 
   // Count active timers (running or paused)
-  $: activeTimers = $timerStore.timers.filter(t => t.status === 'running' || t.status === 'paused');
+  $: activeTimers = $timerStore.timers.filter(
+    (t) => t.status === 'running' || t.status === 'paused'
+  );
   $: hasActiveTimers = activeTimers.length > 0;
 
   // Debug: log when profile picture override changes
@@ -52,33 +54,52 @@
 </script>
 
 {#if searchActive}
-  <div class="fixed z-20 w-full h-full top-0 left-0 duration-500 transition-opacity bg-opacity-50 backdrop-blur-sm" transition:blur={{ amount: 10, duration: 300 }}>
-    <div class="fixed z-25 inset-x-0 top-20 w-3/4 md:w-1/2 lg:w-1/3 mx-auto" use:clickOutside on:click_outside={() => (searchActive = false)} >
-        <TagsSearchAutocomplete
-            placeholderString={"Search recipes, tags, or users..."}
-            action={openTag}
-            autofocus={true}
-        />
+  <div
+    class="fixed z-20 w-full h-full top-0 left-0 duration-500 transition-opacity bg-opacity-50 backdrop-blur-sm"
+    transition:blur={{ amount: 10, duration: 300 }}
+  >
+    <div
+      class="fixed z-25 inset-x-0 top-20 w-3/4 md:w-1/2 lg:w-1/3 mx-auto"
+      use:clickOutside
+      on:click_outside={() => (searchActive = false)}
+    >
+      <TagsSearchAutocomplete
+        placeholderString={'Search recipes, tags, or users...'}
+        action={openTag}
+        autofocus={true}
+      />
     </div>
   </div>
 {/if}
 
 <!-- Mobile-first layout -->
-<div class="flex gap-4 sm:gap-9 justify-between">
-    <a href="/recent" class="flex-none">
-      <img src={isDarkMode ? '/zap_cooking_logo_white.svg' : SVGNostrCookingWithText} class="w-35 sm:w-40 my-3" alt="zap.cooking Logo With Text" />
-    </a>
+<div class="relative flex gap-4 sm:gap-9 justify-between overflow-visible">
+  <a href="/recent" class="flex-none">
+    <img
+      src={isDarkMode ? '/zap_cooking_logo_white.svg' : SVGNostrCookingWithText}
+      class="w-35 sm:w-40 my-3"
+      alt="zap.cooking Logo With Text"
+    />
+  </a>
   <!-- Top row for desktop: Navigation links -->
-  <div class="hidden lg:flex gap-9 self-center font-semibold print:hidden" style="color: var(--color-text-primary)">
+  <div
+    class="hidden lg:flex gap-9 self-center font-semibold print:hidden"
+    style="color: var(--color-text-primary)"
+  >
     <a class="transition duration-300 hover:text-primary" href="/recent">Recipes</a>
     <a class="transition duration-300 hover:text-primary" href="/community">Community</a>
     <a class="transition duration-300 hover:text-primary" href="/explore">Explore</a>
-    <a class="transition duration-300 hover:text-primary" href="https://plebeian.market/community/seth@zap.cooking/zap-cooking-wear-orcd8yg6jd" target="_blank" rel="noopener noreferrer">Shop</a>
+    <a
+      class="transition duration-300 hover:text-primary"
+      href="https://plebeian.market/community/seth@zap.cooking/zap-cooking-wear-orcd8yg6jd"
+      target="_blank"
+      rel="noopener noreferrer">Shop</a
+    >
   </div>
 
   <div class="hidden sm:max-lg:flex xl:flex flex-1 self-center print:hidden max-w-md">
     <TagsSearchAutocomplete
-      placeholderString={"Search recipes, tags, or users..."}
+      placeholderString={'Search recipes, tags, or users...'}
       action={openTag}
     />
   </div>
@@ -87,7 +108,7 @@
     <!-- Search icon (mobile/tablet only when search bar hidden) -->
     <div class="block sm:max-lg:hidden xl:hidden">
       <button
-        on:click={() => searchActive = true}
+        on:click={() => (searchActive = true)}
         class="w-9 h-9 flex items-center justify-center text-caption hover:opacity-80 hover:bg-accent-gray rounded-full transition-colors cursor-pointer"
         aria-label="Search"
       >
@@ -97,27 +118,23 @@
 
     <!-- Timer toggle -->
     <button
-      on:click={() => timerWidgetOpen = !timerWidgetOpen}
-      class="w-9 h-9 flex items-center justify-center rounded-full transition-colors cursor-pointer relative {timerWidgetOpen ? 'bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400' : 'text-caption hover:opacity-80 hover:bg-accent-gray'}"
+      on:click={() => (timerWidgetOpen = !timerWidgetOpen)}
+      class="w-9 h-9 flex items-center justify-center rounded-full transition-colors cursor-pointer relative {timerWidgetOpen
+        ? 'bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400'
+        : 'text-caption hover:opacity-80 hover:bg-accent-gray'}"
       aria-label={timerWidgetOpen ? 'Hide timer' : 'Show timer'}
     >
       <TimerIcon size={20} weight={hasActiveTimers ? 'fill' : 'bold'} />
       {#if hasActiveTimers}
-        <span class="absolute -top-0.5 -right-0.5 w-4 h-4 bg-amber-500 text-white text-xs font-bold rounded-full flex items-center justify-center">
+        <span
+          class="absolute -top-0.5 -right-0.5 w-4 h-4 bg-amber-500 text-white text-xs font-bold rounded-full flex items-center justify-center"
+        >
           {activeTimers.length}
         </span>
       {/if}
     </button>
 
-    <!-- Create - Primary CTA (compact on mobile) -->
-    <button
-      on:click={() => goto('/create')}
-      class="flex items-center justify-center gap-1.5 w-9 h-9 sm:w-auto sm:h-auto sm:gap-2 sm:px-4 sm:py-2 text-white rounded-full bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 font-semibold transition duration-300 cursor-pointer text-sm"
-    >
-      <AddIcon size={18} weight="bold" />
-      <span class="hidden sm:inline">Create</span>
-    </button>
-
+    <CreateMenuButton variant="header" />
 
     <!-- Wallet Balance - only show when logged in and wallet connected -->
     {#if $userPublickey}
@@ -143,7 +160,12 @@
         </button>
         <UserSidePanel bind:open={sidePanelOpen} />
       {:else}
-        <a href="/login" class="px-4 py-2 rounded-full border font-medium transition duration-300 text-sm signin-button" style="color: var(--color-text-primary); border-color: var(--color-input-border);">Sign in</a>
+        <a
+          href="/login"
+          class="px-4 py-2 rounded-full border font-medium transition duration-300 text-sm signin-button"
+          style="color: var(--color-text-primary); border-color: var(--color-input-border);"
+          >Sign in</a
+        >
       {/if}
     </div>
   </div>

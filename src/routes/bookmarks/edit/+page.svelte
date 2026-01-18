@@ -180,7 +180,7 @@
 </svelte:head>
 
 {#if loaded == false}
-  <div class="flex justify-center items-center h-screen">
+  <div class="flex justify-center items-center page-loader">
     <PanLoader />
   </div>
 {:else}

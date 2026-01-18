@@ -255,7 +255,10 @@
       {/if}
     {:else if part.type === 'nostr'}
       {#if part.prefix === 'nprofile1' || part.prefix === 'npub1'}
-        <ProfileLink nostrString={part.content} />
+        <ProfileLink
+          nostrString={part.content}
+          colorClass="text-orange-500 hover:text-orange-600"
+        />
       {:else if part.prefix === 'nevent1'}
         <NoteEmbed nostrString={part.content} depth={embedDepth} />
       {:else}
