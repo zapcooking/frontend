@@ -28,3 +28,6 @@ build/
 
 # Claude Code
 CLAUDE.md
+
+# Local plans
+docs/plans/tanstack-query-migration.md
