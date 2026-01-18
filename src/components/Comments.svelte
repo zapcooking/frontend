@@ -109,7 +109,6 @@
       commentText = '';
     } catch (error) {
       console.error('Error posting comment:', error);
-      console.error('Error stack:', error instanceof Error ? error.stack : 'No stack trace');
       const errorMsg = error instanceof Error ? error.message : String(error);
       alert('Error posting comment: ' + errorMsg);
     }
