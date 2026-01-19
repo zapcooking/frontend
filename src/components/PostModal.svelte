@@ -1,6 +1,7 @@
 <script lang="ts">
   import Modal from './Modal.svelte';
   import PostComposer from './PostComposer.svelte';
+  import CloseIcon from 'phosphor-svelte/lib/XCircle';
 
   export let open = false;
 
@@ -8,9 +9,19 @@
   let selectedRelay: RelaySelection = 'all';
 </script>
 
-<Modal bind:open allowOverflow={true}>
-  <svelte:fragment slot="title">
-    <div class="flex items-center justify-end gap-4 w-full">
+<Modal bind:open allowOverflow={true} noHeader={true}>
+  <div class="flex flex-col gap-4">
+    <!-- Header: X on left, relay selector on right -->
+    <div class="flex items-center justify-between">
+      <button
+        class="cursor-pointer hover:opacity-80 transition-opacity"
+        style="color: var(--color-text-primary)"
+        on:click={() => (open = false)}
+        aria-label="Close"
+      >
+        <CloseIcon size={24} />
+      </button>
+
       <div class="flex items-center gap-2">
         <label for="relay-select" class="text-sm text-caption whitespace-nowrap">Post to:</label>
         <select
@@ -30,9 +41,9 @@
         </select>
       </div>
     </div>
-  </svelte:fragment>
 
-  <PostComposer variant="modal" {selectedRelay} on:close={() => (open = false)} />
+    <PostComposer variant="modal" {selectedRelay} on:close={() => (open = false)} />
+  </div>
 </Modal>
 
 <style>
