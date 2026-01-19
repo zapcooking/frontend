@@ -33,6 +33,7 @@
   import { userPublickey, userProfilePictureOverride } from '$lib/nostr';
   import { getAuthManager } from '$lib/authManager';
   import { profileCacheManager } from '$lib/profileCache';
+  import { timerWidgetOpen } from '$lib/stores/timerWidget';
 
   export let open = false;
 
@@ -113,6 +114,11 @@
   function navigate(path: string) {
     close();
     goto(path);
+  }
+
+  function openTimerWidget() {
+    timerWidgetOpen.set(true);
+    close();
   }
 
   function toggleToolbox(e: Event) {
@@ -201,7 +207,11 @@
     <aside
       class="fixed top-0 right-0 h-full w-full sm:w-80 flex flex-col shadow-2xl"
       style="background-color: var(--color-bg-secondary);"
-      transition:fly={{ x: 320, duration: 300, easing: (t) => t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2 }}
+      transition:fly={{
+        x: 320,
+        duration: 300,
+        easing: (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2)
+      }}
       on:touchstart={handleTouchStart}
       on:touchmove={handleTouchMove}
       on:touchend={handleTouchEnd}
@@ -213,14 +223,16 @@
       <div class="flex-shrink-0 p-6 border-b" style="border-color: var(--color-input-border);">
         <div class="flex items-start justify-between">
           <div class="flex items-center gap-4">
-            <CustomAvatar pubkey={$userPublickey} size={48} imageUrl={$userProfilePictureOverride} />
+            <CustomAvatar
+              pubkey={$userPublickey}
+              size={48}
+              imageUrl={$userProfilePictureOverride}
+            />
             <div class="flex flex-col">
               <span class="font-semibold text-base" style="color: var(--color-text-primary);">
                 {displayName}
               </span>
-              <span class="text-sm" style="color: var(--color-caption);">
-                View profile
-              </span>
+              <span class="text-sm" style="color: var(--color-caption);"> View profile </span>
             </div>
           </div>
           <button
@@ -237,8 +249,11 @@
       <!-- Main navigation section - scrollable -->
       <nav class="flex-1 overflow-y-auto p-4">
         <!-- Section: My Kitchen -->
-        <div class="mb-4">
-          <h3 class="px-4 py-2 text-xs font-semibold uppercase tracking-wider" style="color: var(--color-caption);">
+        <div class="mb-1">
+          <h3
+            class="px-4 py-2 font-semibold uppercase tracking-wider"
+            style="color: var(--color-caption); font-size: 14px;"
+          >
             My Kitchen
           </h3>
           <ul class="flex flex-col gap-1">
@@ -301,7 +316,10 @@
                 >
                   <SparkleIcon size={22} weight="fill" class="text-primary" />
                   <span class="font-medium">Sous Chef</span>
-                  <span class="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary font-medium">Pro</span>
+                  <span
+                    class="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary font-medium"
+                    >Pro</span
+                  >
                 </button>
               </li>
               <li>
@@ -312,7 +330,10 @@
                 >
                   <RobotIcon size={22} weight="fill" class="text-yellow-500" />
                   <span class="font-medium">Zappy</span>
-                  <span class="text-xs px-2 py-0.5 rounded-full bg-yellow-500/10 text-yellow-600 font-medium">Pro</span>
+                  <span
+                    class="text-xs px-2 py-0.5 rounded-full bg-yellow-500/10 text-yellow-600 font-medium"
+                    >Pro</span
+                  >
                 </button>
               </li>
               <li>
@@ -323,7 +344,10 @@
                 >
                   <LightningIcon size={22} weight="fill" class="text-amber-500" />
                   <span class="font-medium">Premium Recipes</span>
-                  <span class="text-xs px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600 font-medium">Pro</span>
+                  <span
+                    class="text-xs px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600 font-medium"
+                    >Pro</span
+                  >
                 </button>
               </li>
             {/if}
@@ -334,7 +358,7 @@
         <div class="mb-4">
           <button
             on:click={toggleToolbox}
-            class="w-full flex items-center justify-between px-4 py-2 rounded-xl hover:bg-opacity-50 transition-colors cursor-pointer"
+            class="w-full flex items-center justify-between px-4 py-3 rounded-xl hover:bg-opacity-50 transition-colors cursor-pointer"
             style="color: var(--color-text-primary);"
             aria-expanded={toolboxExpanded}
           >
@@ -342,8 +366,8 @@
               <ToolboxIcon size={22} />
               <span class="font-medium">Toolbox</span>
             </div>
-            <CaretDownIcon 
-              size={18} 
+            <CaretDownIcon
+              size={18}
               class="transition-transform duration-200 {toolboxExpanded ? 'rotate-180' : ''}"
             />
           </button>
@@ -351,7 +375,7 @@
             <ul class="flex flex-col gap-1 mt-1 ml-4" transition:slide={{ duration: 200 }}>
               <li>
                 <button
-                  on:click={() => navigate('/timer')}
+                  on:click={openTimerWidget}
                   class="w-full flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-opacity-50 transition-colors cursor-pointer"
                   style="color: var(--color-text-primary);"
                 >
@@ -376,7 +400,10 @@
 
         <!-- Section: Community -->
         <div class="mb-4">
-          <h3 class="px-4 py-2 text-xs font-semibold uppercase tracking-wider" style="color: var(--color-caption);">
+          <h3
+            class="px-4 py-2 font-semibold uppercase tracking-wider"
+            style="color: var(--color-caption); font-size: 14px;"
+          >
             Community
           </h3>
           <ul class="flex flex-col gap-1">
@@ -408,7 +435,10 @@
               >
                 <StorefrontIcon size={22} />
                 <span class="font-medium">The Pantry</span>
-                <span class="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary font-medium">Members</span>
+                <span
+                  class="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary font-medium"
+                  >Members</span
+                >
               </button>
             </li>
           </ul>
@@ -433,7 +463,9 @@
             <!-- Toggle switch visual -->
             <div
               class="w-12 h-7 rounded-full p-1 transition-colors duration-200"
-              style="background-color: {isDarkMode ? 'var(--color-primary)' : 'var(--color-accent-gray)'};"
+              style="background-color: {isDarkMode
+                ? 'var(--color-primary)'
+                : 'var(--color-accent-gray)'};"
             >
               <div
                 class="w-5 h-5 rounded-full bg-white shadow-md transition-transform duration-200"

@@ -1,11 +1,11 @@
 /**
  * Timer Store - Multi-timer support with IndexedDB persistence
- * 
+ *
  * This store manages cooking timers that:
  * - Persist across app restarts using IndexedDB
  * - Schedule iOS local notifications for background alerting
  * - Support multiple concurrent timers
- * 
+ *
  * ARCHITECTURE NOTE:
  * We use local notifications for background alerts because JavaScript timers
  * (setInterval/setTimeout) do NOT run when the app is backgrounded on iOS/Android.
@@ -22,7 +22,7 @@ import {
   scheduleTimerNotification,
   cancelTimerNotification,
   checkNotificationPermissions,
-  type PermissionStatus,
+  type PermissionStatus
 } from '$lib/native/notifications';
 
 // =============================================================================
@@ -32,18 +32,18 @@ import {
 export type TimerStatus = 'running' | 'paused' | 'done' | 'canceled';
 
 export interface TimerItem {
-  id: number;              // Unique ID (also used as notification ID)
-  label: string;           // User-provided label (e.g., "Pasta", "Eggs")
-  durationMs: number;      // Original duration in milliseconds
-  endsAt: number;          // When the timer will end (epoch ms) - only valid when running
+  id: number; // Unique ID (also used as notification ID)
+  label: string; // User-provided label (e.g., "Pasta", "Eggs")
+  durationMs: number; // Original duration in milliseconds
+  endsAt: number; // When the timer will end (epoch ms) - only valid when running
   status: TimerStatus;
-  createdAt: number;       // When the timer was created (epoch ms)
+  createdAt: number; // When the timer was created (epoch ms)
   pausedRemainingMs?: number; // Remaining time when paused (ms)
 }
 
 interface TimerStoreState {
   timers: TimerItem[];
-  nextId: number;          // Counter for generating unique IDs
+  nextId: number; // Counter for generating unique IDs
   notificationPermission: PermissionStatus;
 }
 
@@ -96,12 +96,12 @@ async function initDatabase(): Promise<void> {
 
     request.onupgradeneeded = (event) => {
       const database = (event.target as IDBOpenDBRequest).result;
-      
+
       // Create timers store
       if (!database.objectStoreNames.contains(TIMERS_STORE)) {
         database.createObjectStore(TIMERS_STORE, { keyPath: 'id' });
       }
-      
+
       // Create meta store for nextId counter
       if (!database.objectStoreNames.contains(META_STORE)) {
         database.createObjectStore(META_STORE, { keyPath: 'key' });
@@ -122,10 +122,10 @@ async function saveTimersToDb(timers: TimerItem[]): Promise<void> {
   return new Promise((resolve, reject) => {
     const transaction = db!.transaction([TIMERS_STORE], 'readwrite');
     const store = transaction.objectStore(TIMERS_STORE);
-    
+
     // Clear existing and add all timers
     store.clear();
-    timers.forEach(timer => store.put(timer));
+    timers.forEach((timer) => store.put(timer));
 
     transaction.oncomplete = () => resolve();
     transaction.onerror = () => reject(transaction.error);
@@ -184,7 +184,7 @@ async function loadNextId(): Promise<number> {
 const initialState: TimerStoreState = {
   timers: [],
   nextId: 1,
-  notificationPermission: 'prompt',
+  notificationPermission: 'prompt'
 };
 
 const { subscribe, set, update } = writable<TimerStoreState>(initialState);
@@ -206,15 +206,12 @@ export async function loadTimers(): Promise<void> {
   if (!browser) return;
 
   try {
-    const [timers, nextId] = await Promise.all([
-      loadTimersFromDb(),
-      loadNextId(),
-    ]);
+    const [timers, nextId] = await Promise.all([loadTimersFromDb(), loadNextId()]);
 
-  const now = Date.now();
-    
+    const now = Date.now();
+
     // Process timers: mark expired running timers as done
-    const processedTimers = timers.map(timer => {
+    const processedTimers = timers.map((timer) => {
       if (timer.status === 'running' && now >= timer.endsAt) {
         return { ...timer, status: 'done' as TimerStatus };
       }
@@ -223,9 +220,9 @@ export async function loadTimers(): Promise<void> {
 
     set({
       timers: processedTimers,
-      nextId: Math.max(nextId, ...processedTimers.map(t => t.id + 1), 1),
+      nextId: Math.max(nextId, ...processedTimers.map((t) => t.id + 1), 1),
       // Keep notificationPermission field for backwards compatibility, but don't check permissions
-      notificationPermission: 'prompt',
+      notificationPermission: 'prompt'
     });
 
     // Save any state changes (expired timers marked as done)
@@ -243,30 +240,33 @@ export async function loadTimers(): Promise<void> {
  * Create and start a new timer
  */
 export async function startTimer(label: string, durationMs: number): Promise<TimerItem | null> {
-  if (!browser || durationMs <= 0) return null;
+  if (!browser || !Number.isFinite(durationMs)) return null;
+  const minMs = 0.1 * 60 * 1000;
+  const maxMs = 999 * 60 * 1000;
+  const clampedMs = Math.min(maxMs, Math.max(minMs, durationMs));
 
   const state = get({ subscribe });
   const id = state.nextId;
   const now = Date.now();
-  const endsAt = now + durationMs;
+  const endsAt = now + clampedMs;
 
   const newTimer: TimerItem = {
     id,
     label: label.trim() || 'Timer',
-    durationMs,
+    durationMs: clampedMs,
     endsAt,
     status: 'running',
-    createdAt: now,
+    createdAt: now
   };
 
   // Note: Notification scheduling code is intentionally disabled
   // to keep timers as simple in-app timers with no permission prompts
 
-  update(s => {
+  update((s) => {
     const newState = {
       ...s,
       timers: [...s.timers, newTimer],
-      nextId: s.nextId + 1,
+      nextId: s.nextId + 1
     };
     persistState(newState);
     return newState;
@@ -281,8 +281,8 @@ export async function startTimer(label: string, durationMs: number): Promise<Tim
  */
 export async function pauseTimer(id: number): Promise<void> {
   const state = get({ subscribe });
-  const timer = state.timers.find(t => t.id === id);
-  
+  const timer = state.timers.find((t) => t.id === id);
+
   if (!timer || timer.status !== 'running') return;
 
   const now = Date.now();
@@ -291,14 +291,12 @@ export async function pauseTimer(id: number): Promise<void> {
   // Note: Notification cancellation code is intentionally disabled
   // since we're not scheduling notifications
 
-  update(s => {
+  update((s) => {
     const newState = {
       ...s,
-      timers: s.timers.map(t =>
-        t.id === id
-          ? { ...t, status: 'paused' as TimerStatus, pausedRemainingMs: remainingMs }
-          : t
-      ),
+      timers: s.timers.map((t) =>
+        t.id === id ? { ...t, status: 'paused' as TimerStatus, pausedRemainingMs: remainingMs } : t
+      )
     };
     persistState(newState);
     return newState;
@@ -312,8 +310,8 @@ export async function pauseTimer(id: number): Promise<void> {
  */
 export async function resumeTimer(id: number): Promise<void> {
   const state = get({ subscribe });
-  const timer = state.timers.find(t => t.id === id);
-  
+  const timer = state.timers.find((t) => t.id === id);
+
   if (!timer || timer.status !== 'paused' || !timer.pausedRemainingMs) return;
 
   const now = Date.now();
@@ -322,14 +320,14 @@ export async function resumeTimer(id: number): Promise<void> {
   // Note: Notification scheduling code is intentionally disabled
   // to keep timers as simple in-app timers with no permission prompts
 
-  update(s => {
+  update((s) => {
     const newState = {
       ...s,
-      timers: s.timers.map(t =>
+      timers: s.timers.map((t) =>
         t.id === id
           ? { ...t, status: 'running' as TimerStatus, endsAt, pausedRemainingMs: undefined }
           : t
-      ),
+      )
     };
     persistState(newState);
     return newState;
@@ -345,10 +343,10 @@ export async function cancelTimer(id: number): Promise<void> {
   // Note: Notification cancellation code is intentionally disabled
   // since we're not scheduling notifications
 
-  update(s => {
+  update((s) => {
     const newState = {
       ...s,
-      timers: s.timers.filter(t => t.id !== id),
+      timers: s.timers.filter((t) => t.id !== id)
     };
     persistState(newState);
     return newState;
@@ -361,12 +359,10 @@ export async function cancelTimer(id: number): Promise<void> {
  * Mark a timer as done (called when timer reaches 0 in foreground)
  */
 export function markTimerDone(id: number): void {
-  update(s => {
+  update((s) => {
     const newState = {
       ...s,
-      timers: s.timers.map(t =>
-        t.id === id ? { ...t, status: 'done' as TimerStatus } : t
-      ),
+      timers: s.timers.map((t) => (t.id === id ? { ...t, status: 'done' as TimerStatus } : t))
     };
     persistState(newState);
     return newState;
@@ -379,10 +375,10 @@ export function markTimerDone(id: number): void {
  * Clear all completed/canceled timers
  */
 export function clearCompletedTimers(): void {
-  update(s => {
+  update((s) => {
     const newState = {
       ...s,
-      timers: s.timers.filter(t => t.status === 'running' || t.status === 'paused'),
+      timers: s.timers.filter((t) => t.status === 'running' || t.status === 'paused')
     };
     persistState(newState);
     return newState;
@@ -400,7 +396,7 @@ export function getTimerState(): TimerStoreState {
  * Update notification permission status
  */
 export function updatePermissionStatus(status: PermissionStatus): void {
-  update(s => ({ ...s, notificationPermission: status }));
+  update((s) => ({ ...s, notificationPermission: status }));
 }
 
 // Export the store for subscription
@@ -415,7 +411,7 @@ export const timerStore = { subscribe };
  */
 export function formatTime(ms: number): string {
   if (ms <= 0) return '00:00';
-  
+
   const totalSeconds = Math.ceil(ms / 1000);
   const hours = Math.floor(totalSeconds / 3600);
   const minutes = Math.floor((totalSeconds % 3600) / 60);

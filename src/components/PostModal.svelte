@@ -4,7 +4,7 @@
   import CloseIcon from 'phosphor-svelte/lib/XCircle';
 
   export let open = false;
-  
+
   type RelaySelection = 'all' | 'garden' | 'pantry' | 'garden-pantry';
   let selectedRelay: RelaySelection = 'all';
 </script>
@@ -49,9 +49,10 @@
 <style>
   select:focus {
     outline: none;
-    border-color: rgba(247, 147, 26, 0.5);
+    border-color: #f59e0b;
+    box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.35);
   }
-  
+
   select option {
     background: var(--color-input-bg);
     color: var(--color-text-primary);

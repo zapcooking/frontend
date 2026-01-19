@@ -46,12 +46,14 @@
   let timers: TimerItem[] = [];
 
   // Quick add form
-  let quickMinutes = 5;
+  let quickMinutesInput = '5';
   let quickLabel = '';
 
   // Sound state (from settings store)
   let soundEnabled = true;
   let audioContext: AudioContext | null = null;
+  let showSoundPrompt = false;
+  let audioStateListenerAttached = false;
 
   // Drag state
   let isDragging = false;
@@ -286,7 +288,30 @@
   function initAudio() {
     if (!audioContext && browser) {
       audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+      if (!audioStateListenerAttached) {
+        audioContext.addEventListener('statechange', () => {
+          updateSoundPrompt();
+        });
+        audioStateListenerAttached = true;
+      }
     }
+  }
+
+  function updateSoundPrompt() {
+    if (!browser) return;
+    showSoundPrompt =
+      open && isMobile && soundEnabled && (!audioContext || audioContext.state !== 'running');
+  }
+
+  async function enableSound() {
+    initAudio();
+    if (!audioContext) return;
+    try {
+      await audioContext.resume();
+    } catch (error) {
+      console.warn('[TimerWidget] Unable to resume audio context:', error);
+    }
+    updateSoundPrompt();
   }
 
   // Play kitchen timer ding
@@ -296,28 +321,35 @@
     const now = audioContext.currentTime;
     const fundamentalFreq = 2200;
     const harmonics = [1, 2.0, 3.0];
+    const repeatCount = 5;
+    const repeatInterval = 1;
 
-    harmonics.forEach((harmonic, i) => {
-      const osc = audioContext!.createOscillator();
-      const gain = audioContext!.createGain();
+    for (let repeat = 0; repeat < repeatCount; repeat++) {
+      const startAt = now + repeat * repeatInterval;
 
-      osc.type = 'sine';
-      osc.frequency.value = fundamentalFreq * harmonic;
+      harmonics.forEach((harmonic, i) => {
+        const osc = audioContext!.createOscillator();
+        const gain = audioContext!.createGain();
 
-      const volume = 0.4 / (i + 1);
-      gain.gain.setValueAtTime(volume, now);
-      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.6);
+        osc.type = 'sine';
+        osc.frequency.value = fundamentalFreq * harmonic;
 
-      osc.connect(gain);
-      gain.connect(audioContext!.destination);
+        const volume = 0.4 / (i + 1);
+        gain.gain.setValueAtTime(volume, startAt);
+        gain.gain.exponentialRampToValueAtTime(0.001, startAt + 0.6);
 
-      osc.start(now);
-      osc.stop(now + 0.6);
-    });
+        osc.connect(gain);
+        gain.connect(audioContext!.destination);
+
+        osc.start(startAt);
+        osc.stop(startAt + 0.6);
+      });
+    }
   }
 
   function checkForCompletedTimers() {
     const now = Date.now();
+    const expiryMs = import.meta.env.DEV ? 2 * 60 * 1000 : 60 * 60 * 1000;
     timers.forEach((timer) => {
       if (timer.status === 'running' && now >= timer.endsAt) {
         markTimerDone(timer.id);
@@ -326,13 +358,61 @@
           playTimerDing();
         }
       }
+      if (timer.status === 'done' && timer.endsAt && now - timer.endsAt >= expiryMs) {
+        void cancelTimer(timer.id);
+      }
     });
   }
 
+  function normalizeMinutes(value: number): number {
+    if (!Number.isFinite(value)) return 0.1;
+    const clamped = Math.max(0.1, Math.min(999, value));
+    return Math.round(clamped * 10) / 10;
+  }
+
+  function formatMinutesLabel(value: number): string {
+    const rounded = Math.round(value * 10) / 10;
+    const isWhole = Math.abs(rounded - Math.round(rounded)) < 1e-9;
+    return isWhole ? String(Math.round(rounded)) : rounded.toFixed(1);
+  }
+
+  function sanitizeMinutesInput(raw: string): string {
+    const normalized = raw.replace(',', '.');
+    const cleaned = normalized.replace(/[^\d.]/g, '');
+    const firstDot = cleaned.indexOf('.');
+    if (firstDot === -1) {
+      return cleaned;
+    }
+    const intPart = cleaned.slice(0, firstDot);
+    const decPart = cleaned
+      .slice(firstDot + 1)
+      .replace(/\./g, '')
+      .slice(0, 1);
+    return `${intPart}.${decPart}`.replace(/\.$/, '.');
+  }
+
+  function applyQuickMinutesClamp() {
+    const value = Number(quickMinutesInput);
+    const normalized = normalizeMinutes(value);
+    quickMinutesInput = formatMinutesLabel(normalized);
+    return normalized;
+  }
+
+  function handleMinutesInput(event: Event) {
+    const input = event.currentTarget as HTMLInputElement;
+    const sanitized = sanitizeMinutesInput(input.value);
+    quickMinutesInput = sanitized;
+    input.value = sanitized;
+  }
+
+  function handleMinutesBlur() {
+    applyQuickMinutesClamp();
+  }
+
   async function handleQuickAdd() {
-    if (quickMinutes <= 0) return;
-    const durationMs = quickMinutes * 60 * 1000;
-    const label = quickLabel.trim() || `${quickMinutes} min`;
+    const minutes = applyQuickMinutesClamp();
+    const durationMs = minutes * 60 * 1000;
+    const label = quickLabel.trim() || `${formatMinutesLabel(minutes)} min`;
     await startTimer(label, durationMs);
     quickLabel = '';
   }
@@ -354,6 +434,7 @@
     const newValue = !soundEnabled;
     soundEnabled = newValue;
     updateTimerSetting('soundEnabled', newValue);
+    updateSoundPrompt();
   }
 
   function toggleMinimize() {
@@ -383,8 +464,33 @@
     return formatTime(getRemainingTime(timer));
   }
 
+  function formatElapsedTime(ms: number): string {
+    if (ms <= 0) return '00:00';
+    const totalSeconds = Math.floor(ms / 1000);
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+    const pad = (n: number) => n.toString().padStart(2, '0');
+    if (hours > 0) {
+      return `${pad(hours)}:${pad(minutes)}:${pad(seconds)}`;
+    }
+    return `${pad(minutes)}:${pad(seconds)}`;
+  }
+
+  function getElapsedTime(timer: TimerItem, _tick: number): string {
+    if (timer.status !== 'done') return '';
+    if (!timer.endsAt) return '00:00';
+    return formatElapsedTime(Date.now() - timer.endsAt);
+  }
+
+  $: alertTimers = timers.filter((t) => t.status === 'done');
   $: activeTimers = timers.filter((t) => t.status === 'running' || t.status === 'paused');
-  $: completedTimers = timers.filter((t) => t.status === 'done');
+  $: displayTimers = [...alertTimers, ...activeTimers];
+
+  $: if (browser) {
+    showSoundPrompt =
+      open && isMobile && soundEnabled && (!audioContext || audioContext.state !== 'running');
+  }
 
   // Apply position via DOM when values change (not during drag - drag handles its own updates)
   $: if (browser && widgetEl && !isDragging && !isMinimized && !isMobile) {
@@ -431,9 +537,10 @@
         </div>
       {/if}
       <span class="widget-title">Timers</span>
-      {#if activeTimers.length > 0 && isMinimized}
-        <span class="minimized-time">
-          {getDisplayTime(activeTimers[0], tick)}
+      {#if displayTimers.length > 0 && isMinimized}
+        {@const minimizedDone = displayTimers[0].status === 'done'}
+        <span class="minimized-time" class:done={minimizedDone}>
+          {getDisplayTime(displayTimers[0], tick)}
         </span>
       {/if}
       <div class="header-actions">
@@ -471,6 +578,12 @@
 
     <!-- Content (hidden when minimized) -->
     {#if !isMinimized}
+      {#if showSoundPrompt}
+        <button class="sound-prompt" on:click|stopPropagation={enableSound}>
+          <span class="sound-prompt-text">Tap to enable timer sound</span>
+          <span class="sound-prompt-action">Enable</span>
+        </button>
+      {/if}
       <!-- Quick add -->
       <div class="quick-add">
         <input
@@ -480,38 +593,61 @@
           class="quick-label"
           on:keydown={(e) => e.key === 'Enter' && handleQuickAdd()}
         />
-        <input type="number" bind:value={quickMinutes} min="1" max="999" class="quick-minutes" />
+        <input
+          type="text"
+          inputmode="decimal"
+          pattern="\\d*(\\.\\d{(0, 1)})?"
+          bind:value={quickMinutesInput}
+          class="quick-minutes"
+          on:input={handleMinutesInput}
+          on:blur={handleMinutesBlur}
+        />
         <span class="min-label">min</span>
         <button on:click={handleQuickAdd} class="add-btn" aria-label="Add timer">
           <PlusIcon size={18} weight="bold" />
         </button>
       </div>
 
-      <!-- Active timers -->
-      {#if activeTimers.length > 0}
+      <!-- Timers -->
+      {#if displayTimers.length > 0}
         <div class="timers-list">
-          {#each activeTimers as timer (timer.id)}
+          {#each displayTimers as timer (timer.id)}
+            {@const isDone = timer.status === 'done'}
             {@const remaining = getRemainingTime(timer)}
             {@const progress =
               timer.status === 'running'
                 ? (1 - remaining / timer.durationMs) * 100
                 : (1 - (timer.pausedRemainingMs || 0) / timer.durationMs) * 100}
-            <div class="timer-item">
-              <div class="timer-progress" style="width: {progress}%"></div>
+            <div class="timer-item" class:timer-item-done={isDone}>
+              <div
+                class="timer-progress"
+                class:timer-progress-done={isDone}
+                style="width: {progress}%"
+              ></div>
               <div class="timer-content">
-                <span class="timer-label">{timer.label}</span>
+                <div class="timer-label-row">
+                  <span class="timer-label">{timer.label}</span>
+                  {#if isDone}
+                    <span class="timer-elapsed">+{getElapsedTime(timer, tick)}</span>
+                  {/if}
+                </div>
                 <div class="timer-main-row">
-                  <span class="timer-time-large {timer.status === 'paused' ? 'paused' : ''}">
+                  <span
+                    class="timer-time-large {timer.status === 'paused' ? 'paused' : ''}"
+                    class:done={isDone}
+                  >
                     {getDisplayTime(timer, tick)}
                   </span>
                   <div class="timer-actions">
-                    <button on:click={() => handlePauseResume(timer)} class="action-btn">
-                      {#if timer.status === 'running'}
-                        <PauseIcon size={20} />
-                      {:else}
-                        <PlayIcon size={20} />
-                      {/if}
-                    </button>
+                    {#if !isDone}
+                      <button on:click={() => handlePauseResume(timer)} class="action-btn">
+                        {#if timer.status === 'running'}
+                          <PauseIcon size={20} />
+                        {:else}
+                          <PlayIcon size={20} />
+                        {/if}
+                      </button>
+                    {/if}
                     <button on:click={() => handleDelete(timer)} class="action-btn delete">
                       <TrashIcon size={20} />
                     </button>
@@ -523,21 +659,6 @@
         </div>
       {:else}
         <div class="empty-state">No active timers</div>
-      {/if}
-
-      <!-- Completed (if any) -->
-      {#if completedTimers.length > 0}
-        <div class="completed-section">
-          <span class="completed-label">Done ({completedTimers.length})</span>
-          {#each completedTimers as timer (timer.id)}
-            <div class="completed-item">
-              <span>{timer.label}</span>
-              <button on:click={() => handleDelete(timer)} class="action-btn delete small">
-                <TrashIcon size={14} />
-              </button>
-            </div>
-          {/each}
-        </div>
       {/if}
 
       <!-- Quick time presets -->
@@ -693,6 +814,27 @@
     opacity: 0.5;
   }
 
+  .sound-prompt {
+    width: 100%;
+    border: 1px solid var(--color-input-border);
+    background: var(--color-input-bg);
+    border-radius: 10px;
+    padding: 8px 10px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    font-size: 12px;
+    color: var(--color-text-primary);
+    cursor: pointer;
+    margin-bottom: 10px;
+  }
+
+  .sound-prompt-action {
+    font-weight: 600;
+    color: var(--color-primary);
+  }
+
   .quick-add {
     display: flex;
     gap: 8px;
@@ -759,6 +901,10 @@
     overflow: hidden;
   }
 
+  .timer-item.timer-item-done {
+    border-color: rgba(245, 158, 11, 0.45);
+  }
+
   .timer-progress {
     position: absolute;
     top: 0;
@@ -766,6 +912,10 @@
     height: 100%;
     background: color-mix(in srgb, var(--color-primary) 15%, transparent);
     transition: width 0.3s ease;
+  }
+
+  .timer-progress.timer-progress-done {
+    background: color-mix(in srgb, #f59e0b 25%, transparent);
   }
 
   .timer-content {
@@ -778,6 +928,13 @@
   .timer-label {
     font-size: 13px;
     color: var(--color-text-caption);
+  }
+
+  .timer-label-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
     margin-bottom: 4px;
   }
 
@@ -785,6 +942,7 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
+    gap: 12px;
   }
 
   .timer-time-large {
@@ -795,10 +953,26 @@
     color: var(--color-text-primary);
     line-height: 1;
     letter-spacing: 2px;
+    white-space: nowrap;
+    min-width: 0;
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   .timer-time-large.paused {
     color: #f59e0b;
+  }
+
+  .timer-time-large.done {
+    color: #f59e0b;
+    animation: timer-pulse 1.2s ease-in-out infinite;
+  }
+
+  .timer-elapsed {
+    font-size: 13px;
+    color: var(--color-text-caption);
+    white-space: nowrap;
   }
 
   .minimized-time {
@@ -810,9 +984,27 @@
     margin-right: 8px;
   }
 
+  .minimized-time.done {
+    color: #f59e0b;
+    animation: timer-pulse 1.2s ease-in-out infinite;
+  }
+
+  @keyframes timer-pulse {
+    0%,
+    100% {
+      transform: scale(1);
+      opacity: 1;
+    }
+    50% {
+      transform: scale(1.06);
+      opacity: 0.7;
+    }
+  }
+
   .timer-actions {
     display: flex;
     gap: 6px;
+    flex-shrink: 0;
   }
 
   .action-btn {

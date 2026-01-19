@@ -2911,6 +2911,20 @@
       </div>
     {/if}
 
+    {#if (filterMode === 'following' || filterMode === 'replies') && $userPublickey === ''}
+      <div
+        class="mb-4 p-4 bg-accent-gray rounded-lg"
+        style="border: 1px solid var(--color-input-border)"
+      >
+        <p class="text-sm" style="color: var(--color-text-primary)">
+          <a href="/login" class="font-medium underline hover:opacity-80">Log in</a> to see {filterMode ===
+          'following'
+            ? 'posts from people you follow'
+            : 'replies from people you follow'}.
+        </p>
+      </div>
+    {/if}
+
     {#if loading}
       <div class="space-y-6">
         {#each Array(3) as _}
