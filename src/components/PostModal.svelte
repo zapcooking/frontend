@@ -3,16 +3,14 @@
   import PostComposer from './PostComposer.svelte';
 
   export let open = false;
-  
+
   type RelaySelection = 'all' | 'garden' | 'pantry' | 'garden-pantry';
   let selectedRelay: RelaySelection = 'all';
 </script>
 
 <Modal bind:open allowOverflow={true}>
   <svelte:fragment slot="title">
-    <div class="flex items-center justify-between gap-4 w-full">
-      <h2 class="text-lg font-semibold" style="color: var(--color-text-primary)">New Post</h2>
-      
+    <div class="flex items-center justify-end gap-4 w-full">
       <div class="flex items-center gap-2">
         <label for="relay-select" class="text-sm text-caption whitespace-nowrap">Post to:</label>
         <select
@@ -40,9 +38,10 @@
 <style>
   select:focus {
     outline: none;
-    border-color: rgba(247, 147, 26, 0.5);
+    border-color: #f59e0b;
+    box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.35);
   }
-  
+
   select option {
     background: var(--color-input-bg);
     color: var(--color-text-primary);

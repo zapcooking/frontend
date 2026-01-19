@@ -251,8 +251,8 @@
         <!-- Section: My Kitchen -->
         <div class="mb-1">
           <h3
-            class="px-4 py-2 text-[11px] font-semibold uppercase tracking-wider"
-            style="color: var(--color-caption);"
+            class="px-4 py-2 font-semibold uppercase tracking-wider"
+            style="color: var(--color-caption); font-size: 14px;"
           >
             My Kitchen
           </h3>
@@ -401,8 +401,8 @@
         <!-- Section: Community -->
         <div class="mb-4">
           <h3
-            class="px-4 py-2 text-[11px] font-semibold uppercase tracking-wider"
-            style="color: var(--color-caption);"
+            class="px-4 py-2 font-semibold uppercase tracking-wider"
+            style="color: var(--color-caption); font-size: 14px;"
           >
             Community
           </h3>
