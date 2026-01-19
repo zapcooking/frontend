@@ -354,10 +354,26 @@
     });
   }
 
+  function normalizeMinutes(value: number): number {
+    if (!Number.isFinite(value)) return 0.1;
+    const clamped = Math.max(0.1, Math.min(999, value));
+    return Math.round(clamped * 10) / 10;
+  }
+
+  function formatMinutesLabel(value: number): string {
+    const rounded = Math.round(value * 10) / 10;
+    const isWhole = Math.abs(rounded - Math.round(rounded)) < 1e-9;
+    return isWhole ? String(Math.round(rounded)) : rounded.toFixed(1);
+  }
+
+  function clampQuickMinutes() {
+    quickMinutes = normalizeMinutes(Number(quickMinutes));
+  }
+
   async function handleQuickAdd() {
-    if (quickMinutes <= 0) return;
+    clampQuickMinutes();
     const durationMs = quickMinutes * 60 * 1000;
-    const label = quickLabel.trim() || `${quickMinutes} min`;
+    const label = quickLabel.trim() || `${formatMinutesLabel(quickMinutes)} min`;
     await startTimer(label, durationMs);
     quickLabel = '';
   }
@@ -537,7 +553,15 @@
           class="quick-label"
           on:keydown={(e) => e.key === 'Enter' && handleQuickAdd()}
         />
-        <input type="number" bind:value={quickMinutes} min="1" max="999" class="quick-minutes" />
+        <input
+          type="number"
+          bind:value={quickMinutes}
+          min="0.1"
+          max="999"
+          step="0.1"
+          class="quick-minutes"
+          on:blur={clampQuickMinutes}
+        />
         <span class="min-label">min</span>
         <button on:click={handleQuickAdd} class="add-btn" aria-label="Add timer">
           <PlusIcon size={18} weight="bold" />
@@ -564,15 +588,15 @@
                 <span class="timer-label">{timer.label}</span>
                 <div class="timer-main-row">
                   <div class="timer-time-stack">
+                    {#if isDone}
+                      <span class="timer-elapsed">+{getElapsedTime(timer, tick)}</span>
+                    {/if}
                     <span
                       class="timer-time-large {timer.status === 'paused' ? 'paused' : ''}"
                       class:done={isDone}
                     >
                       {getDisplayTime(timer, tick)}
                     </span>
-                    {#if isDone}
-                      <span class="timer-elapsed">+{getElapsedTime(timer, tick)}</span>
-                    {/if}
                   </div>
                   <div class="timer-actions">
                     {#if !isDone}
