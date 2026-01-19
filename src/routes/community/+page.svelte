@@ -197,21 +197,6 @@
       </div>
     </div>
 
-    <!-- Show login prompt for Following/Replies tabs if not logged in -->
-    {#if (activeTab === 'following' || activeTab === 'replies') && !$userPublickey}
-      <div
-        class="mb-4 p-4 bg-accent-gray rounded-lg"
-        style="border: 1px solid var(--color-input-border)"
-      >
-        <p class="text-sm" style="color: var(--color-text-primary)">
-          <a href="/login" class="font-medium underline hover:opacity-80">Log in</a> to see {activeTab ===
-          'following'
-            ? 'posts from people you follow'
-            : 'replies from people you follow'}.
-        </p>
-      </div>
-    {/if}
-
     <!-- Pantry Coming Soon overlay -->
     {#if activeTab === 'members'}
       <div class="relative">
@@ -219,7 +204,9 @@
         <div class="coming-soon-overlay">
           <div class="coming-soon-card">
             <span class="text-3xl mb-2">🏪</span>
-            <h3 class="text-xl font-bold mb-2" style="color: var(--color-text-primary)">The Pantry</h3>
+            <h3 class="text-xl font-bold mb-2" style="color: var(--color-text-primary)">
+              The Pantry
+            </h3>
             <p class="text-sm mb-4" style="color: var(--color-caption)">
               A members-only space for exclusive content and community discussions. Coming soon!
             </p>
@@ -239,21 +226,6 @@
         </div>
       </div>
     {:else}
-      <!-- Show login prompt for Following/Replies tabs if not logged in -->
-      {#if (activeTab === 'following' || activeTab === 'replies') && !$userPublickey}
-        <div
-          class="mb-4 p-4 bg-accent-gray rounded-lg"
-          style="border: 1px solid var(--color-input-border)"
-        >
-          <p class="text-sm" style="color: var(--color-text-primary)">
-            <a href="/login" class="font-medium underline hover:opacity-80">Log in</a> to see {activeTab ===
-            'following'
-              ? 'posts from people you follow'
-              : 'replies from people you follow'}.
-          </p>
-        </div>
-      {/if}
-
       {#key feedKey}
         <FoodstrFeedOptimized bind:this={feedComponent} filterMode={activeTab} />
       {/key}
@@ -276,11 +248,11 @@
 
   /* Hide scrollbar for tabs but allow scrolling */
   .scrollbar-hide {
-    -ms-overflow-style: none;  /* IE and Edge */
-    scrollbar-width: none;  /* Firefox */
+    -ms-overflow-style: none; /* IE and Edge */
+    scrollbar-width: none; /* Firefox */
   }
   .scrollbar-hide::-webkit-scrollbar {
-    display: none;  /* Chrome, Safari, Opera */
+    display: none; /* Chrome, Safari, Opera */
   }
 
   /* Coming Soon overlay */

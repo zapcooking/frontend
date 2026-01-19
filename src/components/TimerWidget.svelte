@@ -46,7 +46,7 @@
   let timers: TimerItem[] = [];
 
   // Quick add form
-  let quickMinutes = 5;
+  let quickMinutesInput = '5';
   let quickLabel = '';
 
   // Sound state (from settings store)
@@ -366,14 +366,43 @@
     return isWhole ? String(Math.round(rounded)) : rounded.toFixed(1);
   }
 
-  function clampQuickMinutes() {
-    quickMinutes = normalizeMinutes(Number(quickMinutes));
+  function sanitizeMinutesInput(raw: string): string {
+    const normalized = raw.replace(',', '.');
+    const cleaned = normalized.replace(/[^\d.]/g, '');
+    const firstDot = cleaned.indexOf('.');
+    if (firstDot === -1) {
+      return cleaned;
+    }
+    const intPart = cleaned.slice(0, firstDot);
+    const decPart = cleaned
+      .slice(firstDot + 1)
+      .replace(/\./g, '')
+      .slice(0, 1);
+    return `${intPart}.${decPart}`.replace(/\.$/, '.');
+  }
+
+  function applyQuickMinutesClamp() {
+    const value = Number(quickMinutesInput);
+    const normalized = normalizeMinutes(value);
+    quickMinutesInput = formatMinutesLabel(normalized);
+    return normalized;
+  }
+
+  function handleMinutesInput(event: Event) {
+    const input = event.currentTarget as HTMLInputElement;
+    const sanitized = sanitizeMinutesInput(input.value);
+    quickMinutesInput = sanitized;
+    input.value = sanitized;
+  }
+
+  function handleMinutesBlur() {
+    applyQuickMinutesClamp();
   }
 
   async function handleQuickAdd() {
-    clampQuickMinutes();
-    const durationMs = quickMinutes * 60 * 1000;
-    const label = quickLabel.trim() || `${formatMinutesLabel(quickMinutes)} min`;
+    const minutes = applyQuickMinutesClamp();
+    const durationMs = minutes * 60 * 1000;
+    const label = quickLabel.trim() || `${formatMinutesLabel(minutes)} min`;
     await startTimer(label, durationMs);
     quickLabel = '';
   }
@@ -499,7 +528,8 @@
       {/if}
       <span class="widget-title">Timers</span>
       {#if displayTimers.length > 0 && isMinimized}
-        <span class="minimized-time">
+        {@const minimizedDone = displayTimers[0].status === 'done'}
+        <span class="minimized-time" class:done={minimizedDone}>
           {getDisplayTime(displayTimers[0], tick)}
         </span>
       {/if}
@@ -554,13 +584,13 @@
           on:keydown={(e) => e.key === 'Enter' && handleQuickAdd()}
         />
         <input
-          type="number"
-          bind:value={quickMinutes}
-          min="0.1"
-          max="999"
-          step="0.1"
+          type="text"
+          inputmode="decimal"
+          pattern="\\d*(\\.\\d{(0, 1)})?"
+          bind:value={quickMinutesInput}
           class="quick-minutes"
-          on:blur={clampQuickMinutes}
+          on:input={handleMinutesInput}
+          on:blur={handleMinutesBlur}
         />
         <span class="min-label">min</span>
         <button on:click={handleQuickAdd} class="add-btn" aria-label="Add timer">
@@ -585,19 +615,19 @@
                 style="width: {progress}%"
               ></div>
               <div class="timer-content">
-                <span class="timer-label">{timer.label}</span>
+                <div class="timer-label-row">
+                  <span class="timer-label">{timer.label}</span>
+                  {#if isDone}
+                    <span class="timer-elapsed">+{getElapsedTime(timer, tick)}</span>
+                  {/if}
+                </div>
                 <div class="timer-main-row">
-                  <div class="timer-time-stack">
-                    {#if isDone}
-                      <span class="timer-elapsed">+{getElapsedTime(timer, tick)}</span>
-                    {/if}
-                    <span
-                      class="timer-time-large {timer.status === 'paused' ? 'paused' : ''}"
-                      class:done={isDone}
-                    >
-                      {getDisplayTime(timer, tick)}
-                    </span>
-                  </div>
+                  <span
+                    class="timer-time-large {timer.status === 'paused' ? 'paused' : ''}"
+                    class:done={isDone}
+                  >
+                    {getDisplayTime(timer, tick)}
+                  </span>
                   <div class="timer-actions">
                     {#if !isDone}
                       <button on:click={() => handlePauseResume(timer)} class="action-btn">
@@ -888,6 +918,13 @@
   .timer-label {
     font-size: 13px;
     color: var(--color-text-caption);
+  }
+
+  .timer-label-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
     margin-bottom: 4px;
   }
 
@@ -895,12 +932,7 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
-  }
-
-  .timer-time-stack {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
+    gap: 12px;
   }
 
   .timer-time-large {
@@ -911,6 +943,11 @@
     color: var(--color-text-primary);
     line-height: 1;
     letter-spacing: 2px;
+    white-space: nowrap;
+    min-width: 0;
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   .timer-time-large.paused {
@@ -925,6 +962,7 @@
   .timer-elapsed {
     font-size: 12px;
     color: var(--color-text-caption);
+    white-space: nowrap;
   }
 
   .minimized-time {
@@ -934,6 +972,11 @@
     color: var(--color-text-primary);
     margin-left: auto;
     margin-right: 8px;
+  }
+
+  .minimized-time.done {
+    color: #f59e0b;
+    animation: timer-pulse 1.2s ease-in-out infinite;
   }
 
   @keyframes timer-pulse {
@@ -951,6 +994,7 @@
   .timer-actions {
     display: flex;
     gap: 6px;
+    flex-shrink: 0;
   }
 
   .action-btn {
