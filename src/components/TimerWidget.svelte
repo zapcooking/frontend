@@ -321,28 +321,35 @@
     const now = audioContext.currentTime;
     const fundamentalFreq = 2200;
     const harmonics = [1, 2.0, 3.0];
+    const repeatCount = 5;
+    const repeatInterval = 1;
 
-    harmonics.forEach((harmonic, i) => {
-      const osc = audioContext!.createOscillator();
-      const gain = audioContext!.createGain();
+    for (let repeat = 0; repeat < repeatCount; repeat++) {
+      const startAt = now + repeat * repeatInterval;
 
-      osc.type = 'sine';
-      osc.frequency.value = fundamentalFreq * harmonic;
+      harmonics.forEach((harmonic, i) => {
+        const osc = audioContext!.createOscillator();
+        const gain = audioContext!.createGain();
 
-      const volume = 0.4 / (i + 1);
-      gain.gain.setValueAtTime(volume, now);
-      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.6);
+        osc.type = 'sine';
+        osc.frequency.value = fundamentalFreq * harmonic;
 
-      osc.connect(gain);
-      gain.connect(audioContext!.destination);
+        const volume = 0.4 / (i + 1);
+        gain.gain.setValueAtTime(volume, startAt);
+        gain.gain.exponentialRampToValueAtTime(0.001, startAt + 0.6);
 
-      osc.start(now);
-      osc.stop(now + 0.6);
-    });
+        osc.connect(gain);
+        gain.connect(audioContext!.destination);
+
+        osc.start(startAt);
+        osc.stop(startAt + 0.6);
+      });
+    }
   }
 
   function checkForCompletedTimers() {
     const now = Date.now();
+    const expiryMs = 60 * 60 * 1000;
     timers.forEach((timer) => {
       if (timer.status === 'running' && now >= timer.endsAt) {
         markTimerDone(timer.id);
@@ -350,6 +357,9 @@
           initAudio();
           playTimerDing();
         }
+      }
+      if (timer.status === 'done' && timer.endsAt && now - timer.endsAt >= expiryMs) {
+        void cancelTimer(timer.id);
       }
     });
   }
@@ -960,7 +970,7 @@
   }
 
   .timer-elapsed {
-    font-size: 12px;
+    font-size: 13px;
     color: var(--color-text-caption);
     white-space: nowrap;
   }
