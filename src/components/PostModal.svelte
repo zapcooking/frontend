@@ -11,17 +11,8 @@
 
 <Modal bind:open allowOverflow={true} noHeader={true}>
   <div class="flex flex-col gap-4">
-    <!-- Header: X on left, relay selector on right -->
+    <!-- Header: relay selector on left, X on right -->
     <div class="flex items-center justify-between">
-      <button
-        class="cursor-pointer hover:opacity-80 transition-opacity"
-        style="color: var(--color-text-primary)"
-        on:click={() => (open = false)}
-        aria-label="Close"
-      >
-        <CloseIcon size={24} />
-      </button>
-
       <div class="flex items-center gap-2">
         <label for="relay-select" class="text-sm text-caption whitespace-nowrap">Post to:</label>
         <select
@@ -40,6 +31,15 @@
           <option value="garden-pantry">🌱🏪 Garden + Pantry</option>
         </select>
       </div>
+
+      <button
+        class="cursor-pointer hover:opacity-80 transition-opacity"
+        style="color: var(--color-text-primary)"
+        on:click={() => (open = false)}
+        aria-label="Close"
+      >
+        <CloseIcon size={24} />
+      </button>
     </div>
 
     <PostComposer variant="modal" {selectedRelay} on:close={() => (open = false)} />
