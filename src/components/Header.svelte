@@ -13,13 +13,13 @@
   import WalletBalance from './WalletBalance.svelte';
   import UserSidePanel from './UserSidePanel.svelte';
   import { timerStore } from '$lib/timerStore';
+  import { timerWidgetOpen } from '$lib/stores/timerWidget';
   import TimerWidget from './TimerWidget.svelte';
   import CreateMenuButton from './CreateMenuButton.svelte';
 
   let sidePanelOpen = false;
   let searchActive = false;
   let isLoading = true;
-  let timerWidgetOpen = false;
 
   // Count active timers (running or paused)
   $: activeTimers = $timerStore.timers.filter(
@@ -51,6 +51,10 @@
   // Reactive resolved theme for logo switching
   $: resolvedTheme = $theme === 'system' ? theme.getResolvedTheme() : $theme;
   $: isDarkMode = resolvedTheme === 'dark';
+
+  function toggleTimerWidget() {
+    timerWidgetOpen.update((open) => !open);
+  }
 </script>
 
 {#if searchActive}
@@ -118,11 +122,11 @@
 
     <!-- Timer toggle -->
     <button
-      on:click={() => (timerWidgetOpen = !timerWidgetOpen)}
-      class="w-9 h-9 flex items-center justify-center rounded-full transition-colors cursor-pointer relative {timerWidgetOpen
+      on:click={toggleTimerWidget}
+      class="w-9 h-9 flex items-center justify-center rounded-full transition-colors cursor-pointer relative {$timerWidgetOpen
         ? 'bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400'
         : 'text-caption hover:opacity-80 hover:bg-accent-gray'}"
-      aria-label={timerWidgetOpen ? 'Hide timer' : 'Show timer'}
+      aria-label={$timerWidgetOpen ? 'Hide timer' : 'Show timer'}
     >
       <TimerIcon size={20} weight={hasActiveTimers ? 'fill' : 'bold'} />
       {#if hasActiveTimers}
@@ -172,7 +176,7 @@
 </div>
 
 <!-- Timer Widget -->
-<TimerWidget bind:open={timerWidgetOpen} />
+<TimerWidget bind:open={$timerWidgetOpen} />
 
 <style>
   .signin-button:hover {
