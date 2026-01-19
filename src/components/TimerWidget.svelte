@@ -349,7 +349,7 @@
 
   function checkForCompletedTimers() {
     const now = Date.now();
-    const expiryMs = 60 * 60 * 1000;
+    const expiryMs = import.meta.env.DEV ? 2 * 60 * 1000 : 60 * 60 * 1000;
     timers.forEach((timer) => {
       if (timer.status === 'running' && now >= timer.endsAt) {
         markTimerDone(timer.id);
