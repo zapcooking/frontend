@@ -15,9 +15,11 @@
   import { searchProfiles } from '$lib/profileSearchService';
 
   type FilterMode = 'global' | 'following' | 'replies' | 'members' | 'garden';
+  type RelaySelection = 'all' | 'garden' | 'pantry' | 'garden-pantry';
 
   export let activeTab: FilterMode = 'global';
   export let variant: 'inline' | 'modal' = 'inline';
+  export let selectedRelay: RelaySelection | undefined = undefined;
 
   const dispatch = createEventDispatcher<{ close: void }>();
 
@@ -384,40 +386,104 @@
       addClientTagToEvent(event);
 
       let publishPromise: Promise<boolean>;
-      if (activeTab === 'garden') {
+      
+      // Determine which relays to publish to
+      // Priority: explicit selectedRelay prop (from modal) > activeTab (from feed context)
+      const relayMode = selectedRelay || (activeTab === 'garden' ? 'garden' : activeTab === 'members' ? 'pantry' : 'all');
+      
+      if (relayMode === 'garden') {
+        // Publish to garden relay only
         const { NDKRelaySet } = await import('@nostr-dev-kit/ndk');
         const gardenRelayUrl = 'wss://garden.zap.cooking';
 
         console.log('[Garden] Publishing to garden relay only:', gardenRelayUrl);
 
-        const gardenRelaySet = NDKRelaySet.fromRelayUrls([gardenRelayUrl], $ndk, true);
+        // Get or create relay and ensure it's connected
+        const relay = $ndk.pool.getRelay(gardenRelayUrl, true, true);
+        await relay.connect();
+        
+        // Wait a moment for the connection to stabilize
+        await new Promise(resolve => setTimeout(resolve, 100));
 
-        publishPromise = event.publish(gardenRelaySet).then((publishedRelays) => {
+        // Create relay set with the actual relay instance (more reliable than fromRelayUrls)
+        const gardenRelaySet = new NDKRelaySet(new Set([relay]), $ndk);
+
+        // Sign the event first to ensure it's ready
+        await event.sign();
+
+        publishPromise = event.publish(gardenRelaySet, 5000).then((publishedRelays) => {
           console.log('[Garden] Publish result:', publishedRelays.size, 'relays confirmed');
-          const gardenRelayPublished = Array.from(publishedRelays).some(
-            (relay) => normalizeRelayUrl(relay.url) === normalizeRelayUrl(gardenRelayUrl)
-          );
-          if (!gardenRelayPublished) {
+          if (publishedRelays.size === 0) {
             throw new Error('Failed to publish to garden relay. Please try again.');
           }
           return true;
         });
-      } else if (activeTab === 'members') {
+      } else if (relayMode === 'pantry') {
+        // Publish to pantry relay only (members)
         const { NDKRelaySet } = await import('@nostr-dev-kit/ndk');
-        const membersRelayUrl = 'wss://members.zap.cooking';
+        const pantryRelayUrl = 'wss://pantry.zap.cooking';
 
-        const membersRelaySet = NDKRelaySet.fromRelayUrls([membersRelayUrl], $ndk, true);
+        console.log('[Pantry] Publishing to pantry relay only:', pantryRelayUrl);
 
-        publishPromise = event.publish(membersRelaySet).then((publishedRelays) => {
-          const membersRelayPublished = Array.from(publishedRelays).some(
-            (relay) => relay.url === membersRelayUrl || relay.url === membersRelayUrl + '/'
-          );
-          if (!membersRelayPublished) {
-            throw new Error('Failed to publish to members relay');
+        // Get or create relay and ensure it's connected
+        const relay = $ndk.pool.getRelay(pantryRelayUrl, true, true);
+        await relay.connect();
+        
+        // Wait a moment for the connection to stabilize
+        await new Promise(resolve => setTimeout(resolve, 100));
+
+        // Create relay set with the actual relay instance
+        const pantryRelaySet = new NDKRelaySet(new Set([relay]), $ndk);
+
+        // Sign the event first
+        await event.sign();
+
+        publishPromise = event.publish(pantryRelaySet, 5000).then((publishedRelays) => {
+          console.log('[Pantry] Publish result:', publishedRelays.size, 'relays confirmed');
+          if (publishedRelays.size === 0) {
+            throw new Error('Failed to publish to pantry relay. Please try again.');
+          }
+          return true;
+        });
+      } else if (relayMode === 'garden-pantry') {
+        // Publish to both garden and pantry relays
+        const { NDKRelaySet } = await import('@nostr-dev-kit/ndk');
+        const gardenRelayUrl = 'wss://garden.zap.cooking';
+        const pantryRelayUrl = 'wss://pantry.zap.cooking';
+
+        console.log('[Garden+Pantry] Publishing to both relays');
+
+        // Get or create relays and ensure they're connected
+        const gardenRelay = $ndk.pool.getRelay(gardenRelayUrl, true, true);
+        const pantryRelay = $ndk.pool.getRelay(pantryRelayUrl, true, true);
+        await Promise.all([gardenRelay.connect(), pantryRelay.connect()]);
+        
+        // Wait a moment for connections to stabilize
+        await new Promise(resolve => setTimeout(resolve, 100));
+
+        // Create relay set with actual relay instances
+        const combinedRelaySet = new NDKRelaySet(new Set([gardenRelay, pantryRelay]), $ndk);
+
+        // Sign the event first
+        await event.sign();
+
+        publishPromise = event.publish(combinedRelaySet, 5000).then((publishedRelays) => {
+          console.log('[Garden+Pantry] Publish result:', publishedRelays.size, 'relays confirmed');
+          const publishedUrls = Array.from(publishedRelays).map(r => normalizeRelayUrl(r.url));
+          const gardenPublished = publishedUrls.includes(normalizeRelayUrl(gardenRelayUrl));
+          const pantryPublished = publishedUrls.includes(normalizeRelayUrl(pantryRelayUrl));
+          
+          if (!gardenPublished && !pantryPublished) {
+            throw new Error('Failed to publish to garden and pantry relays. Please try again.');
+          } else if (!gardenPublished) {
+            console.warn('[Garden+Pantry] Only published to pantry relay');
+          } else if (!pantryPublished) {
+            console.warn('[Garden+Pantry] Only published to garden relay');
           }
           return true;
         });
       } else {
+        // Publish to all relays (default behavior)
         publishPromise = event.publish().then(() => true);
       }
 
@@ -1348,20 +1414,36 @@
                 </div>
               {/if}
 
-              {#if activeTab === 'members'}
+              {#if activeTab === 'members' || selectedRelay === 'pantry'}
                 <div
                   class="mb-2 px-3 py-1.5 rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800"
                 >
                   <p class="text-xs font-medium text-blue-700 dark:text-blue-300">
-                    📡 Posting to: <span class="font-semibold">members.zap.cooking</span>
+                    🏪 The Pantry — If you're seeing this, you're early.
                   </p>
                 </div>
-              {:else if activeTab === 'garden'}
+              {:else if activeTab === 'garden' || selectedRelay === 'garden'}
                 <div
                   class="mb-2 px-3 py-1.5 rounded-lg bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800"
                 >
                   <p class="text-xs font-medium text-green-700 dark:text-green-300">
                     🌱 Posting to: <span class="font-semibold">garden.zap.cooking</span>
+                  </p>
+                </div>
+              {:else if selectedRelay === 'garden-pantry'}
+                <div
+                  class="mb-2 px-3 py-1.5 rounded-lg bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800"
+                >
+                  <p class="text-xs font-medium text-purple-700 dark:text-purple-300">
+                    🌱🏪 Posting to Garden + Pantry
+                  </p>
+                </div>
+              {:else if selectedRelay === 'all'}
+                <div
+                  class="mb-2 px-3 py-1.5 rounded-lg bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800"
+                >
+                  <p class="text-xs font-medium text-orange-700 dark:text-orange-300">
+                    📡 Posting to: <span class="font-semibold">All connected relays</span>
                   </p>
                 </div>
               {/if}
