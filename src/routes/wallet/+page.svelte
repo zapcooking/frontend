@@ -34,8 +34,19 @@
     ensurePendingTransactionsLoaded,
     type Transaction
   } from '$lib/wallet/walletManager';
-  import { parseNwcUrl, getNwcInfo, connectNwc, isNwcConnected, getNwcLud16 } from '$lib/wallet/nwc';
-  import { backupNwcToNostr, restoreNwcFromNostr, hasEncryptionSupport as hasNwcEncryptionSupport, deleteBackupFromNostr as deleteNwcBackupFromNostr } from '$lib/wallet/nwcBackup';
+  import {
+    parseNwcUrl,
+    getNwcInfo,
+    connectNwc,
+    isNwcConnected,
+    getNwcLud16
+  } from '$lib/wallet/nwc';
+  import {
+    backupNwcToNostr,
+    restoreNwcFromNostr,
+    hasEncryptionSupport as hasNwcEncryptionSupport,
+    deleteBackupFromNostr as deleteNwcBackupFromNostr
+  } from '$lib/wallet/nwcBackup';
   import {
     createAndConnectWallet as createSparkWallet,
     restoreFromMnemonic,
@@ -46,6 +57,7 @@
     loadMnemonic,
     lightningAddress as sparkLightningAddressStore,
     walletInitialized as sparkWalletInitialized,
+    sparkSyncing,
     checkLightningAddressAvailable,
     registerLightningAddress,
     deleteLightningAddress,
@@ -99,8 +111,20 @@
   import CloudCheckIcon from 'phosphor-svelte/lib/CloudCheck';
   import WalletRecoveryHelpModal from '../../components/WalletRecoveryHelpModal.svelte';
   import CheckRelayBackupsModal from '../../components/CheckRelayBackupsModal.svelte';
-  import { bitcoinConnectEnabled, enableBitcoinConnect, disableBitcoinConnect } from '$lib/wallet/bitcoinConnect';
-  import { weblnConnected, weblnWalletName, isWeblnAvailable, enableWebln, disableWebln, reconnectWeblnIfEnabled, getWeblnBalance } from '$lib/wallet/webln';
+  import {
+    bitcoinConnectEnabled,
+    enableBitcoinConnect,
+    disableBitcoinConnect
+  } from '$lib/wallet/bitcoinConnect';
+  import {
+    weblnConnected,
+    weblnWalletName,
+    isWeblnAvailable,
+    enableWebln,
+    disableWebln,
+    reconnectWeblnIfEnabled,
+    getWeblnBalance
+  } from '$lib/wallet/webln';
   import WeblnLogo from '../../components/icons/WeblnLogo.svelte';
   import { lightningService } from '$lib/lightningService';
   import { displayCurrency } from '$lib/currencyStore';
@@ -137,7 +161,8 @@
   let isBackingUp = false;
 
   // NWC wallet info
-  let nwcWalletInfo: { alias?: string; methods: string[]; relay: string; pubkey: string } | null = null;
+  let nwcWalletInfo: { alias?: string; methods: string[]; relay: string; pubkey: string } | null =
+    null;
   let isLoadingNwcInfo = false;
 
   // WebLN balance state
@@ -168,23 +193,24 @@
   let isLoadingProfileLud16 = false;
 
   // Check if profile lud16 matches Spark wallet address
-  $: isProfileSynced = profileLud16 && $sparkLightningAddressStore &&
+  $: isProfileSynced =
+    profileLud16 &&
+    $sparkLightningAddressStore &&
     profileLud16.toLowerCase().trim() === $sparkLightningAddressStore.toLowerCase().trim();
 
   // NWC Lightning address from connection string
-  $: nwcLud16 = $activeWallet?.kind === 3 && $activeWallet?.data
-    ? getNwcLud16($activeWallet.data)
-    : null;
+  $: nwcLud16 =
+    $activeWallet?.kind === 3 && $activeWallet?.data ? getNwcLud16($activeWallet.data) : null;
 
   // Check if NWC lud16 matches profile
-  $: isNwcProfileSynced = nwcLud16 && profileLud16 &&
-    nwcLud16.toLowerCase().trim() === profileLud16.toLowerCase().trim();
+  $: isNwcProfileSynced =
+    nwcLud16 && profileLud16 && nwcLud16.toLowerCase().trim() === profileLud16.toLowerCase().trim();
 
   // Check if a Spark wallet already exists (only one allowed at a time)
-  $: hasExistingSparkWallet = $wallets.some(w => w.kind === 4);
+  $: hasExistingSparkWallet = $wallets.some((w) => w.kind === 4);
 
   // Check if an NWC wallet already exists (only one allowed at a time)
-  $: hasExistingNwcWallet = $wallets.some(w => w.kind === 3);
+  $: hasExistingNwcWallet = $wallets.some((w) => w.kind === 3);
 
   // Check if user has maximum wallets (2)
   $: hasMaxWallets = $wallets.length >= 2;
@@ -211,14 +237,15 @@
 
   // Filter pending transactions to only show those for the active wallet
   $: filteredPendingTransactions = $pendingTransactions.filter(
-    tx => !tx.walletId || tx.walletId === $activeWallet?.id
+    (tx) => !tx.walletId || tx.walletId === $activeWallet?.id
   );
 
   // Transaction history state
   let transactions: Transaction[] = [];
   let isLoadingHistory = false;
   let hasMoreTransactions = false;
-  const TRANSACTIONS_PER_PAGE = 10;
+  let oldestTransactionTimestamp: number | undefined = undefined; // Cursor for pagination
+  const TRANSACTIONS_PER_PAGE = 30;
 
   // Send/Receive modal state
   let showSendModal = false;
@@ -301,7 +328,10 @@
    * Parse zap request from invoice description
    * Returns the relevant pubkey (recipient for outgoing, sender for incoming) and comment
    */
-  function parseZapFromDescription(description: string, isIncoming: boolean): { pubkey: string; isZap: boolean; comment?: string } | null {
+  function parseZapFromDescription(
+    description: string,
+    isIncoming: boolean
+  ): { pubkey: string; isZap: boolean; comment?: string } | null {
     if (!description) return null;
 
     try {
@@ -403,7 +433,7 @@
 
     // Migrate existing WebLN wallets (kind 1) to the new external wallet system
     // Remove any kind 1 wallets from the wallets array - they're now handled separately
-    const existingWeblnWallets = $wallets.filter(w => w.kind === 1);
+    const existingWeblnWallets = $wallets.filter((w) => w.kind === 1);
     if (existingWeblnWallets.length > 0) {
       for (const weblnWallet of existingWeblnWallets) {
         removeWallet(weblnWallet.id);
@@ -433,7 +463,12 @@
     }
 
     const handleStorageChange = (event: StorageEvent) => {
-      if (event.key === 'zapcooking_tx_refresh' && $walletConnected && $activeWallet && $activeWallet.kind !== 1) {
+      if (
+        event.key === 'zapcooking_tx_refresh' &&
+        $walletConnected &&
+        $activeWallet &&
+        $activeWallet.kind !== 1
+      ) {
         setTimeout(async () => {
           await refreshBalance();
           loadTransactionHistory(true);
@@ -444,13 +479,18 @@
     window.addEventListener('storage', handleStorageChange);
 
     const unsubscribeSparkEvents = onSparkEvent(async (event) => {
-      if (event.type === 'paymentSucceeded' || event.type === 'paymentFailed' || event.type === 'synced') {
+      if (
+        event.type === 'paymentSucceeded' ||
+        event.type === 'paymentFailed' ||
+        event.type === 'synced'
+      ) {
         await refreshBalance();
         loadTransactionHistory(true);
 
         if (event.type === 'paymentSucceeded' && generatedInvoice && !invoicePaid) {
           const payment = event.payment;
-          const isReceived = payment?.paymentType === 'receive' || payment?.paymentType === 'received';
+          const isReceived =
+            payment?.paymentType === 'receive' || payment?.paymentType === 'received';
           if (isReceived) {
             invoicePaid = true;
             stopInvoicePolling();
@@ -509,7 +549,12 @@
         // Get the most recent profile event
         let latestEvent: any = null;
         for (const event of events) {
-          if (!latestEvent || (event.created_at && latestEvent.created_at && event.created_at > latestEvent.created_at)) {
+          if (
+            !latestEvent ||
+            (event.created_at &&
+              latestEvent.created_at &&
+              event.created_at > latestEvent.created_at)
+          ) {
             latestEvent = event;
           }
         }
@@ -537,7 +582,12 @@
   }
 
   // Auto-refresh transaction history when a payment completes (signaled by transactionsNeedRefresh)
-  $: if ($transactionsNeedRefresh > 0 && $walletConnected && $activeWallet && $activeWallet.kind !== 1) {
+  $: if (
+    $transactionsNeedRefresh > 0 &&
+    $walletConnected &&
+    $activeWallet &&
+    $activeWallet.kind !== 1
+  ) {
     // Small delay to allow the payment to be indexed
     setTimeout(async () => {
       await refreshBalance(); // AWAIT this first
@@ -569,21 +619,49 @@
     if (isLoadingHistory) return;
     isLoadingHistory = true;
     try {
+      // Build existing IDs set for deduplication
+      const existingIds = reset ? new Set<string>() : new Set(transactions.map((tx) => tx.id));
+
+      // For pagination: use toTimestamp (oldest - 1) to fetch older payments
+      // For reset: no toTimestamp to get newest payments
+      const toTimestamp = reset
+        ? undefined
+        : oldestTransactionTimestamp
+          ? oldestTransactionTimestamp - 1
+          : undefined;
+
+      // For NWC, we still use offset-based pagination
       const offset = reset ? 0 : transactions.length;
-      // Initial load: 30 days. Load more: all history (daysBack: 0)
-      const daysBack = reset ? 30 : 0;
-      const result = await getPaymentHistory({ limit: TRANSACTIONS_PER_PAGE, offset, daysBack });
+
+      const result = await getPaymentHistory({
+        limit: TRANSACTIONS_PER_PAGE,
+        offset,
+        toTimestamp,
+        existingIds
+      });
 
       if (reset) {
         transactions = result.transactions;
+        oldestTransactionTimestamp = undefined; // Reset cursor
       } else {
-        transactions = [...transactions, ...result.transactions];
+        // Append new transactions, filtering duplicates
+        const newTxs = result.transactions.filter((tx) => !existingIds.has(tx.id));
+        transactions = [...transactions, ...newTxs];
       }
+
       hasMoreTransactions = result.hasMore;
 
-      // Deduplicate transactions by ID (NWC relays can return duplicates)
+      // Update oldest timestamp cursor for next pagination
+      if (result.oldestTimestamp !== undefined) {
+        oldestTransactionTimestamp = result.oldestTimestamp;
+      } else if (transactions.length > 0) {
+        // Fallback: calculate from transactions
+        oldestTransactionTimestamp = Math.min(...transactions.map((tx) => tx.timestamp));
+      }
+
+      // Deduplicate transactions by ID (safety net)
       const seenIds = new Set<string>();
-      transactions = transactions.filter(tx => {
+      transactions = transactions.filter((tx) => {
         if (seenIds.has(tx.id)) return false;
         seenIds.add(tx.id);
         return true;
@@ -595,10 +673,11 @@
 
       for (const pendingTx of pending) {
         if (pendingTx.status === 'completed') {
-          const matchingRealIndex = transactions.findIndex(tx =>
-            tx.amount === pendingTx.amount &&
-            tx.type === 'outgoing' &&
-            Math.abs(tx.timestamp - pendingTx.timestamp) < 600
+          const matchingRealIndex = transactions.findIndex(
+            (tx) =>
+              tx.amount === pendingTx.amount &&
+              tx.type === 'outgoing' &&
+              Math.abs(tx.timestamp - pendingTx.timestamp) < 600
           );
 
           if (matchingRealIndex >= 0) {
@@ -626,14 +705,16 @@
       }
 
       // Apply any saved metadata to transactions (description, pubkey, comment)
-      transactions = transactions.map(tx => {
+      transactions = transactions.map((tx) => {
         const savedMeta = getTransactionMetadata(tx.id);
         if (savedMeta) {
           return {
             ...tx,
-            description: savedMeta.description && (!tx.description || tx.description === 'Sent' || tx.description === 'Received')
-              ? savedMeta.description
-              : tx.description,
+            description:
+              savedMeta.description &&
+              (!tx.description || tx.description === 'Sent' || tx.description === 'Received')
+                ? savedMeta.description
+                : tx.description,
             pubkey: savedMeta.pubkey || tx.pubkey,
             comment: savedMeta.comment || tx.comment
           };
@@ -659,10 +740,11 @@
       const tx = transactions[i];
 
       // Skip if already has a good description (not generic) and no comment needed
-      const needsEnrichment = !tx.description ||
-          tx.description === 'Sent' ||
-          tx.description === 'Received' ||
-          tx.description.startsWith('lnbc');
+      const needsEnrichment =
+        !tx.description ||
+        tx.description === 'Sent' ||
+        tx.description === 'Received' ||
+        tx.description.startsWith('lnbc');
 
       // Check if transaction description contains zap info
       const zapInfo = parseZapFromDescription(tx.description || '', tx.type === 'incoming');
@@ -673,9 +755,8 @@
         const displayName = profileName || formatPubkeyShort(zapInfo.pubkey);
 
         // Update transaction with zap description and comment
-        const zapDescription = tx.type === 'incoming'
-          ? `⚡ Zap from ${displayName}`
-          : `⚡ Zap to ${displayName}`;
+        const zapDescription =
+          tx.type === 'incoming' ? `⚡ Zap from ${displayName}` : `⚡ Zap to ${displayName}`;
 
         // Update the transaction in place (always update to capture comment and pubkey)
         transactions[i] = {
@@ -857,10 +938,11 @@
       try {
         if ($activeWallet?.kind === 4) {
           const { transactions: latestTxs } = await getPaymentHistory({ limit: 5, offset: 0 });
-          const matchingTx = latestTxs.find(tx =>
-            tx.type === 'incoming' &&
-            tx.amount === receiveAmount &&
-            tx.timestamp > (invoiceCreatedAt || 0)
+          const matchingTx = latestTxs.find(
+            (tx) =>
+              tx.type === 'incoming' &&
+              tx.amount === receiveAmount &&
+              tx.timestamp > (invoiceCreatedAt || 0)
           );
 
           if (matchingTx) {
@@ -1080,7 +1162,11 @@
     const message = error instanceof Error ? error.message : String(error);
 
     // NIP-46 remote signer permission errors - encryption not allowed
-    if (message.includes('kind 24133') || message.includes('not allowed') || message.includes('blocked')) {
+    if (
+      message.includes('kind 24133') ||
+      message.includes('not allowed') ||
+      message.includes('blocked')
+    ) {
       return 'Your signer has not granted encryption permissions. Please grant encryption permissions in your signer app to enable backup.';
     }
 
@@ -1169,7 +1255,9 @@
       const decryptFn = async (ciphertext: string, senderPubkey: string): Promise<string> => {
         // Check encryption support
         if (!hasEncryptionSupport()) {
-          throw new Error('No decryption method available. Please ensure you are logged in with a signer.');
+          throw new Error(
+            'No decryption method available. Please ensure you are logged in with a signer.'
+          );
         }
 
         // Determine encryption method (compatible with Yakihonne/Primal/Jumble backups)
@@ -1190,7 +1278,9 @@
         const decrypted = await encryptionServiceDecrypt(senderPubkey, ciphertext, method);
         if (decrypted) return decrypted;
 
-        throw new Error('Decryption failed. Make sure you are using the same Nostr key that created this backup.');
+        throw new Error(
+          'Decryption failed. Make sure you are using the same Nostr key that created this backup.'
+        );
       };
 
       sparkLoadingMessage = 'Connecting to Spark network...';
@@ -1279,7 +1369,9 @@
     try {
       // Check encryption support
       if (!hasEncryptionSupport()) {
-        throw new Error('No encryption method available. Encryption is supported when logged in with a private key (nsec), NIP-07 extension, or NIP-46 remote signer with encryption permissions.');
+        throw new Error(
+          'No encryption method available. Encryption is supported when logged in with a private key (nsec), NIP-07 extension, or NIP-46 remote signer with encryption permissions.'
+        );
       }
 
       // Use the encryption service - it will pick the best method
@@ -1290,7 +1382,11 @@
         return result.ciphertext;
       };
 
-      const backup = await createBackup($userPublickey, encryptFn, getBestEncryptionMethod() || 'nip44');
+      const backup = await createBackup(
+        $userPublickey,
+        encryptFn,
+        getBestEncryptionMethod() || 'nip44'
+      );
 
       // Download as JSON file
       const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
@@ -1303,9 +1399,10 @@
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
 
-      successMessage = usedMethod === 'nip04'
-        ? 'Backup file downloaded! (encrypted with NIP-04)'
-        : 'Backup file downloaded!';
+      successMessage =
+        usedMethod === 'nip04'
+          ? 'Backup file downloaded! (encrypted with NIP-04)'
+          : 'Backup file downloaded!';
     } catch (e) {
       errorMessage = getSignerErrorMessage(e, 'Failed to create backup');
     } finally {
@@ -1348,7 +1445,10 @@
 
     try {
       const connectionString = await restoreNwcFromNostr($userPublickey);
-      console.log('[Wallet Page] restoreNwcFromNostr returned:', connectionString ? 'connection string (' + connectionString.length + ' chars)' : 'null');
+      console.log(
+        '[Wallet Page] restoreNwcFromNostr returned:',
+        connectionString ? 'connection string (' + connectionString.length + ' chars)' : 'null'
+      );
 
       if (connectionString) {
         // Use the restored connection string to connect
@@ -1576,1848 +1676,2398 @@
 </svelte:head>
 
 <PullToRefresh bind:this={pullToRefreshEl} on:refresh={handleRefresh}>
-<div class="max-w-2xl mx-auto py-8 px-4">
-  <h1 class="text-2xl font-bold mb-6" style="color: var(--color-text-primary)">Wallet</h1>
+  <div class="max-w-2xl mx-auto py-8 px-4">
+    <h1 class="text-2xl font-bold mb-6" style="color: var(--color-text-primary)">Wallet</h1>
 
-  <!-- Error/Success Messages - Fixed at top, above all modals -->
-  {#if errorMessage}
-    <div class="fixed top-4 left-4 right-4 max-w-2xl mx-auto p-4 rounded-lg flex items-center gap-3 shadow-xl border z-[100]"
-         style="background-color: var(--color-bg-primary); border-color: #ef4444; color: #ef4444;">
-      <WarningIcon size={20} class="flex-shrink-0" />
-      <span class="flex-1 text-sm">{errorMessage}</span>
-      <button class="text-sm underline flex-shrink-0 hover:opacity-80" on:click={() => errorMessage = ''}>Dismiss</button>
-    </div>
-  {/if}
-
-  {#if successMessage}
-    <div class="fixed top-4 left-4 right-4 max-w-2xl mx-auto p-4 rounded-lg flex items-center gap-3 shadow-xl border z-[100]"
-         style="background-color: var(--color-bg-primary); border-color: #22c55e; color: #22c55e;">
-      <CheckCircleIcon size={20} class="flex-shrink-0" />
-      <span class="flex-1 text-sm">{successMessage}</span>
-      <button class="text-sm underline flex-shrink-0 hover:opacity-80" on:click={() => successMessage = ''}>Dismiss</button>
-    </div>
-  {/if}
-
-  <!-- WebLN Balance Overview -->
-  {#if $weblnConnected}
-    <div class="mb-8 p-6 rounded-2xl bg-input border border-input">
-      <div class="flex items-center justify-between mb-4">
-        <div class="flex items-center gap-2">
-          <WeblnLogo size={24} />
-          <span class="font-medium text-primary-color">Balance</span>
-        </div>
-        <div class="flex items-center gap-3">
-          <button
-            class="flex items-center gap-1 text-sm text-caption hover:text-primary transition-colors cursor-pointer"
-            on:click={toggleBalanceVisibility}
-            title={$balanceVisible ? 'Hide balance' : 'Show balance'}
-          >
-            {#if $balanceVisible}
-              <EyeSlashIcon size={16} />
-            {:else}
-              <EyeIcon size={16} />
-            {/if}
-          </button>
-          <button
-            class="text-caption hover:text-primary transition-colors cursor-pointer disabled:opacity-50"
-            on:click={refreshWeblnBalance}
-            disabled={weblnBalanceLoading}
-            title="Refresh balance"
-          >
-            <span class:animate-spin={weblnBalanceLoading}>
-              <ArrowsClockwiseIcon size={16} />
-            </span>
-          </button>
-        </div>
-      </div>
-      <div class="flex items-start justify-between mb-2">
-        <div>
-          <div class="text-4xl font-bold text-primary-color flex items-center gap-3">
-            {#if weblnBalanceLoading}
-              <span class="animate-pulse">...</span>
-            {:else if weblnBalance === null}
-              <span class="text-2xl text-caption">Balance not available</span>
-            {:else if $balanceVisible}
-              {formatBalance(weblnBalance)} <span class="text-lg font-normal text-caption">sats</span>
-            {:else}
-              *** <span class="text-lg font-normal text-caption">sats</span>
-            {/if}
-          </div>
-          {#if weblnBalance !== null}
-            <FiatBalance satoshis={weblnBalance} visible={$balanceVisible} />
-          {/if}
-        </div>
-        <CurrencySelector compact />
-      </div>
-      <div class="text-sm text-caption">
-        Active: {$weblnWalletName || 'Browser Wallet'} (WebLN)
-      </div>
-    </div>
-  {/if}
-
-  <!-- Balance Overview -->
-  {#if $walletConnected && $activeWallet && !$weblnConnected}
-    <div class="mb-8 p-6 rounded-2xl bg-input border border-input">
-      <div class="flex items-center justify-between mb-4">
-        <div class="flex items-center gap-2">
-          <LightningIcon size={24} weight="fill" class="text-amber-500" />
-          <span class="font-medium text-primary-color">Balance</span>
-        </div>
-        <div class="flex items-center gap-3">
-          <button
-            class="flex items-center gap-1 text-sm text-caption hover:text-primary transition-colors cursor-pointer"
-            on:click={toggleBalanceVisibility}
-            title={$balanceVisible ? 'Hide balance' : 'Show balance'}
-          >
-            {#if $balanceVisible}
-              <EyeSlashIcon size={16} />
-            {:else}
-              <EyeIcon size={16} />
-            {/if}
-          </button>
-          <button
-            class="text-caption hover:text-primary transition-colors cursor-pointer disabled:opacity-50"
-            on:click={() => refreshBalance()}
-            disabled={$walletLoading}
-            title="Refresh balance"
-          >
-            <span class:animate-spin={$walletLoading}>
-              <ArrowsClockwiseIcon size={16} />
-            </span>
-          </button>
-        </div>
-      </div>
-      <div class="flex items-start justify-between mb-2">
-        <div>
-          <div class="text-4xl font-bold text-primary-color flex items-center gap-3">
-            {#if $walletLoading || $walletBalance === null}
-              <span class="animate-pulse">...</span>
-            {:else if $balanceVisible}
-              {formatBalance($walletBalance)} <span class="text-lg font-normal text-caption">sats</span>
-            {:else}
-              *** <span class="text-lg font-normal text-caption">sats</span>
-            {/if}
-          </div>
-          <FiatBalance satoshis={$walletBalance} visible={$balanceVisible} />
-        </div>
-        <CurrencySelector compact />
-      </div>
-      <div class="text-sm text-caption mb-4">
-        Active: {$activeWallet.name} ({getWalletKindName($activeWallet.kind)})
-      </div>
-
-      <!-- Send/Receive buttons - only for NWC and Spark wallets -->
-      {#if $activeWallet.kind !== 1}
-        <div class="flex gap-3">
-          <button
-            class="flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-medium transition-colors"
-            on:click={() => { showSendModal = true; resetSendModal(); }}
-          >
-            <ArrowUpIcon size={20} weight="bold" />
-            Send
-          </button>
-          <button
-            class="flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-medium transition-colors"
-            on:click={() => { showReceiveModal = true; resetReceiveModal(); }}
-          >
-            <ArrowDownIcon size={20} weight="bold" />
-            Receive
-          </button>
-        </div>
-      {/if}
-    </div>
-  {/if}
-
-  <!-- Connected Wallets -->
-  <div class="mb-8">
-    <div class="flex items-center justify-between mb-4">
-      <h2 class="text-lg font-semibold" style="color: var(--color-text-primary)">Connected Wallets</h2>
-      {#if !hasMaxWallets && !$weblnConnected && !$bitcoinConnectEnabled}
-        <Button on:click={() => { showAddWallet = true; selectedWalletType = null; }}>
-          <PlusIcon size={16} />
-          Add Wallet
-        </Button>
-      {/if}
-    </div>
-
-    <!-- WebLN External Wallet Display -->
-    {#if $weblnConnected}
-      <div class="p-8 rounded-2xl text-center flex flex-col items-center mb-3" style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);">
-        <div class="w-16 h-16 rounded-full bg-gradient-to-br from-orange-500 to-amber-500 flex items-center justify-center mb-4">
-          <WeblnLogo size={32} className="text-white" />
-        </div>
-        <p class="font-medium mb-1" style="color: var(--color-text-primary)">{$weblnWalletName || 'Browser Wallet'}</p>
-        <p class="text-sm text-caption mb-4">Browser wallet connected via WebLN</p>
+    <!-- Error/Success Messages - Fixed at top, above all modals -->
+    {#if errorMessage}
+      <div
+        class="fixed top-4 left-4 right-4 max-w-2xl mx-auto p-4 rounded-lg flex items-center gap-3 shadow-xl border z-[100]"
+        style="background-color: var(--color-bg-primary); border-color: #ef4444; color: #ef4444;"
+      >
+        <WarningIcon size={20} class="flex-shrink-0" />
+        <span class="flex-1 text-sm">{errorMessage}</span>
         <button
-          class="px-5 py-2.5 rounded-full font-semibold text-sm text-caption hover:text-red-500 transition-colors cursor-pointer"
-          style="background-color: var(--color-bg-primary); border: 1px solid var(--color-input-border);"
-          on:click={handleDisconnectWebln}
+          class="text-sm underline flex-shrink-0 hover:opacity-80"
+          on:click={() => (errorMessage = '')}>Dismiss</button
         >
-          Disconnect Browser Wallet
-        </button>
       </div>
     {/if}
 
-    {#if $wallets.length === 0 && !$weblnConnected}
-      <div class="p-8 rounded-2xl text-center flex flex-col items-center" style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);">
-        {#if $bitcoinConnectEnabled}
-          <div class="w-16 h-16 rounded-full bg-gradient-to-br from-orange-500 to-amber-500 flex items-center justify-center mb-4">
-            <BitcoinConnectLogo size={32} className="text-white" />
+    {#if successMessage}
+      <div
+        class="fixed top-4 left-4 right-4 max-w-2xl mx-auto p-4 rounded-lg flex items-center gap-3 shadow-xl border z-[100]"
+        style="background-color: var(--color-bg-primary); border-color: #22c55e; color: #22c55e;"
+      >
+        <CheckCircleIcon size={20} class="flex-shrink-0" />
+        <span class="flex-1 text-sm">{successMessage}</span>
+        <button
+          class="text-sm underline flex-shrink-0 hover:opacity-80"
+          on:click={() => (successMessage = '')}>Dismiss</button
+        >
+      </div>
+    {/if}
+
+    <!-- WebLN Balance Overview -->
+    {#if $weblnConnected}
+      <div class="mb-8 p-6 rounded-2xl bg-input border border-input">
+        <div class="flex items-center justify-between mb-4">
+          <div class="flex items-center gap-2">
+            <div
+              class="w-6 h-6 rounded-full bg-gradient-to-br from-orange-500 to-amber-500 flex items-center justify-center"
+            >
+              <WeblnLogo size={14} className="text-white" />
+            </div>
+            <span class="font-medium text-primary-color">Balance</span>
           </div>
-          <p class="font-medium mb-1" style="color: var(--color-text-primary)">External wallet connected</p>
-          <p class="text-sm text-caption mb-4">Payments will use Bitcoin Connect</p>
-          <button
-            class="px-5 py-2.5 rounded-full font-semibold text-sm text-caption hover:text-red-500 transition-colors cursor-pointer"
-            style="background-color: var(--color-bg-primary); border: 1px solid var(--color-input-border);"
-            on:click={() => showRemoveBitcoinConnectModal = true}
+          <div class="flex items-center gap-3">
+            <button
+              class="flex items-center gap-1 text-sm text-caption hover:text-primary transition-colors cursor-pointer"
+              on:click={toggleBalanceVisibility}
+              title={$balanceVisible ? 'Hide balance' : 'Show balance'}
+            >
+              {#if $balanceVisible}
+                <EyeSlashIcon size={16} />
+              {:else}
+                <EyeIcon size={16} />
+              {/if}
+            </button>
+            <button
+              class="text-caption hover:text-primary transition-colors cursor-pointer disabled:opacity-50"
+              on:click={refreshWeblnBalance}
+              disabled={weblnBalanceLoading}
+              title="Refresh balance"
+            >
+              <span class:animate-spin={weblnBalanceLoading}>
+                <ArrowsClockwiseIcon size={16} />
+              </span>
+            </button>
+          </div>
+        </div>
+        <div class="flex items-start justify-between mb-2">
+          <div>
+            <div class="text-4xl font-bold text-primary-color flex items-center gap-3">
+              {#if weblnBalanceLoading}
+                <span class="animate-pulse">...</span>
+              {:else if weblnBalance === null}
+                <span class="text-2xl text-caption">Balance not available</span>
+              {:else if $balanceVisible}
+                {formatBalance(weblnBalance)}
+                <span class="text-lg font-normal text-caption">sats</span>
+              {:else}
+                *** <span class="text-lg font-normal text-caption">sats</span>
+              {/if}
+            </div>
+            {#if weblnBalance !== null}
+              <FiatBalance satoshis={weblnBalance} visible={$balanceVisible} />
+            {/if}
+          </div>
+          <CurrencySelector compact />
+        </div>
+        <div class="text-sm text-caption">
+          Active: {$weblnWalletName || 'Browser Wallet'} (WebLN)
+        </div>
+      </div>
+    {/if}
+
+    <!-- Balance Overview -->
+    {#if $walletConnected && $activeWallet && !$weblnConnected}
+      <div class="mb-8 p-6 rounded-2xl bg-input border border-input">
+        <div class="flex items-center justify-between mb-4">
+          <div class="flex items-center gap-2">
+            <LightningIcon size={24} weight="fill" class="text-amber-500" />
+            <span class="font-medium text-primary-color">Balance</span>
+          </div>
+          <div class="flex items-center gap-3">
+            <button
+              class="flex items-center gap-1 text-sm text-caption hover:text-primary transition-colors cursor-pointer"
+              on:click={toggleBalanceVisibility}
+              title={$balanceVisible ? 'Hide balance' : 'Show balance'}
+            >
+              {#if $balanceVisible}
+                <EyeSlashIcon size={16} />
+              {:else}
+                <EyeIcon size={16} />
+              {/if}
+            </button>
+            <button
+              class="text-caption hover:text-primary transition-colors cursor-pointer disabled:opacity-50"
+              on:click={() => refreshBalance()}
+              disabled={$walletLoading}
+              title="Refresh balance"
+            >
+              <span class:animate-spin={$walletLoading}>
+                <ArrowsClockwiseIcon size={16} />
+              </span>
+            </button>
+          </div>
+        </div>
+        <div class="flex items-start justify-between mb-2">
+          <div>
+            <div class="text-4xl font-bold text-primary-color flex items-center gap-3">
+              {#if $walletLoading || $walletBalance === null}
+                <span class="animate-pulse">...</span>
+              {:else if $balanceVisible}
+                {formatBalance($walletBalance)}
+                <span class="text-lg font-normal text-caption">sats</span>
+              {:else}
+                *** <span class="text-lg font-normal text-caption">sats</span>
+              {/if}
+            </div>
+            <FiatBalance satoshis={$walletBalance} visible={$balanceVisible} />
+            <!-- Syncing indicator when Spark wallet balance is zero -->
+            {#if $activeWallet?.kind === 4 && $walletBalance === 0n && $sparkSyncing}
+              <div class="text-xs text-caption flex items-center gap-1 mt-1">
+                <ArrowsClockwiseIcon size={12} class="animate-spin" />
+                Syncing wallet...
+              </div>
+            {/if}
+          </div>
+          <CurrencySelector compact />
+        </div>
+        <div class="text-sm text-caption mb-4">
+          Active: {$activeWallet.name} ({getWalletKindName($activeWallet.kind)})
+        </div>
+
+        <!-- Send/Receive buttons - only for NWC and Spark wallets -->
+        {#if $activeWallet.kind !== 1}
+          <div class="flex gap-3">
+            <button
+              class="flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-medium transition-colors"
+              on:click={() => {
+                showSendModal = true;
+                resetSendModal();
+              }}
+            >
+              <ArrowUpIcon size={20} weight="bold" />
+              Send
+            </button>
+            <button
+              class="flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-medium transition-colors"
+              on:click={() => {
+                showReceiveModal = true;
+                resetReceiveModal();
+              }}
+            >
+              <ArrowDownIcon size={20} weight="bold" />
+              Receive
+            </button>
+          </div>
+        {/if}
+      </div>
+    {/if}
+
+    <!-- Connected Wallets -->
+    <div class="mb-8">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-lg font-semibold" style="color: var(--color-text-primary)">
+          Connected Wallets
+        </h2>
+        {#if !hasMaxWallets && !$weblnConnected && !$bitcoinConnectEnabled}
+          <Button
+            on:click={() => {
+              showAddWallet = true;
+              selectedWalletType = null;
+            }}
           >
-            Remove External Wallet
-          </button>
-        {:else}
-          <WalletIcon size={48} class="mb-4 text-caption" />
-          <p class="text-caption mb-4">No wallets connected yet</p>
-          <Button on:click={() => { showAddWallet = true; selectedWalletType = null; }}>
-            Connect Your First Wallet
+            <PlusIcon size={16} />
+            Add Wallet
           </Button>
         {/if}
       </div>
-    {:else if $wallets.length > 0}
-      <!-- WebLN active indicator when embedded wallets exist -->
+
+      <!-- WebLN External Wallet Display -->
       {#if $weblnConnected}
-        <div class="p-3 rounded-xl mb-3 flex items-center gap-3" style="background-color: rgba(249, 115, 22, 0.1); border: 1px solid rgba(249, 115, 22, 0.3);">
-          <WeblnLogo size={20} />
-          <div class="flex-1">
-            <span class="text-sm font-medium" style="color: var(--color-text-primary)">Browser wallet active</span>
-            <span class="text-sm text-caption"> — embedded wallets below are paused</span>
+        <div
+          class="p-8 rounded-2xl text-center flex flex-col items-center mb-3"
+          style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);"
+        >
+          <div
+            class="w-16 h-16 rounded-full bg-gradient-to-br from-orange-500 to-amber-500 flex items-center justify-center mb-4"
+          >
+            <WeblnLogo size={40} className="text-white" />
           </div>
+          <p class="font-medium mb-1" style="color: var(--color-text-primary)">
+            {$weblnWalletName || 'Browser Wallet'}
+          </p>
+          <p class="text-sm text-caption mb-4">Browser wallet connected via WebLN</p>
           <button
-            class="text-xs px-2 py-1 rounded-full text-caption hover:text-red-500 transition-colors cursor-pointer"
+            class="px-5 py-2.5 rounded-full font-semibold text-sm text-caption hover:text-red-500 transition-colors cursor-pointer"
             style="background-color: var(--color-bg-primary); border: 1px solid var(--color-input-border);"
             on:click={handleDisconnectWebln}
           >
-            Disconnect
+            Disconnect Browser Wallet
           </button>
         </div>
       {/if}
-      <div class="space-y-3">
-        {#each $wallets.filter(w => w.kind !== 1) as wallet}
-          {@const isEffectivelyActive = wallet.active && !$weblnConnected}
-          <div
-            class="rounded-xl overflow-hidden"
-            style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);"
-            class:ring-2={isEffectivelyActive}
-            class:ring-amber-500={isEffectivelyActive}
-          >
-            <div class="p-3 sm:p-4 flex items-center gap-2 sm:gap-4">
-              <!-- Wallet type icon -->
-              {#if wallet.kind === 4}
-                <SparkLogo size={24} className="text-orange-500 flex-shrink-0" />
-              {:else if wallet.kind === 3}
-                <NwcLogo size={24} className="text-purple-500 flex-shrink-0" />
-              {/if}
-              <div class="flex-1 min-w-0">
-                <div class="font-medium truncate" style="color: var(--color-text-primary)">{wallet.name}</div>
-                <div class="text-sm text-caption hidden sm:block">
-                  {getWalletKindName(wallet.kind)}{#if wallet.kind === 3}{@const parsed = parseNwcUrl(wallet.data)}{#if parsed} · {parsed.pubkey.slice(0, 8)}...{/if}{/if}
-                </div>
-              </div>
-              {#if isEffectivelyActive}
-                <span class="text-xs px-2 py-1 rounded-full bg-amber-500 text-white flex-shrink-0">Active</span>
-              {:else if $weblnConnected}
-                <span class="text-xs px-2 py-1 rounded-full text-caption flex-shrink-0" style="background-color: var(--color-input-bg);">Inactive</span>
-              {:else}
-                <button
-                  class="text-xs sm:text-sm text-caption hover:text-primary cursor-pointer flex-shrink-0 whitespace-nowrap"
-                  on:click={() => handleSetActive(wallet.id)}
-                >
-                  Set Active
-                </button>
-              {/if}
-              {#if wallet.kind === 4 || wallet.kind === 3}
-                <button
-                  class="relative flex items-center gap-0.5 sm:gap-1 p-1.5 sm:px-2 sm:py-1 rounded-lg text-caption hover:text-primary hover:bg-black/5 dark:hover:bg-white/5 cursor-pointer transition-all flex-shrink-0"
-                  on:click={() => toggleWalletOptions(wallet.id)}
-                  title="Wallet options"
-                >
-                  <GearIcon size={18} weight={expandedWalletId === wallet.id ? "fill" : "regular"} />
-                  <!-- Notification dot for Spark wallets without lightning address (only show after wallet is initialized) -->
-                  {#if wallet.kind === 4 && $sparkWalletInitialized && !$sparkLightningAddressStore && expandedWalletId !== wallet.id}
-                    <span class="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-amber-500 rounded-full border-2" style="border-color: var(--color-input-bg);"></span>
-                  {/if}
-                  <CaretDownIcon
-                    size={14}
-                    weight="bold"
-                    class="transition-transform {expandedWalletId === wallet.id ? 'rotate-180' : ''}"
-                  />
-                </button>
-              {/if}
-            </div>
 
-            <!-- Spark wallet backup options -->
-            {#if wallet.kind === 4 && expandedWalletId === wallet.id}
-              <div class="px-4 pb-4 pt-2 border-t" style="border-color: var(--color-input-border);">
-                <!-- Encryption not supported warning -->
-                {#if !encryptionSupported}
-                  <!-- Encryption not supported warning (for other signer types) -->
-                  <div class="p-3 rounded-lg mb-3 text-sm" style="background-color: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.3);">
-                    <div class="flex items-start gap-2">
-                      <WarningIcon size={18} class="text-amber-500 flex-shrink-0 mt-0.5" />
-                      <div>
-                        <p class="text-caption">
-                          Your signer extension doesn't support the required encryption method. You can still use "Recovery Phrase" to manually back up your wallet.
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                {/if}
-
-                <!-- Backup & Recovery -->
-                <div class="text-xs text-caption mb-2 uppercase tracking-wide">Backup & Recovery</div>
-                <div class="grid grid-cols-2 gap-2">
-                  <button
-                    class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors"
-                    class:cursor-pointer={encryptionSupported}
-                    class:cursor-not-allowed={!encryptionSupported}
-                    class:opacity-50={!encryptionSupported}
-                    style="background-color: var(--color-bg-primary); border: 1px solid var(--color-input-border);"
-                    on:click={handleBackupToNostr}
-                    disabled={isBackingUp || !encryptionSupported}
-                    title={!encryptionSupported ? 'Your signer does not support encryption' : ''}
-                  >
-                    <CloudArrowUpIcon size={16} />
-                    {isBackingUp ? 'Backing up...' : 'Backup to Nostr'}
-                  </button>
-                  <button
-                    class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors"
-                    class:cursor-pointer={encryptionSupported}
-                    class:cursor-not-allowed={!encryptionSupported}
-                    class:opacity-50={!encryptionSupported}
-                    style="background-color: var(--color-bg-primary); border: 1px solid var(--color-input-border);"
-                    on:click={handleDownloadBackup}
-                    disabled={isBackingUp || !encryptionSupported}
-                    title={!encryptionSupported ? 'Your signer does not support encryption' : ''}
-                  >
-                    <DownloadSimpleIcon size={16} />
-                    Download
-                  </button>
-                  <button
-                    class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer"
-                    style="background-color: var(--color-bg-primary); border: 1px solid var(--color-input-border);"
-                    on:click={handleRevealMnemonic}
-                  >
-                    <KeyIcon size={16} />
-                    Recovery Phrase
-                  </button>
-                  <button
-                    class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer"
-                    style="background-color: var(--color-bg-primary); border: 1px solid var(--color-input-border);"
-                    on:click={() => showRecoveryHelpModal = true}
-                  >
-                    <LifebuoyIcon size={16} />
-                    Recovery Help
-                  </button>
-                  <button
-                    class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer"
-                    style="background-color: var(--color-bg-primary); border: 1px solid var(--color-input-border);"
-                    on:click={() => { checkRelayBackupsWalletType = 'spark'; showCheckRelayBackupsModal = true; }}
-                  >
-                    <CloudCheckIcon size={16} />
-                    Check Backups
-                  </button>
-                  <button
-                    class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer text-red-500 hover:bg-red-500/10"
-                    style="background-color: var(--color-bg-primary); border: 1px solid var(--color-input-border);"
-                    on:click={() => walletToDelete = { id: wallet.id, name: wallet.name, kind: wallet.kind, data: wallet.data }}
-                  >
-                    <TrashIcon size={16} />
-                    Remove Wallet
-                  </button>
-                </div>
-
-                <!-- Lightning Address Section -->
-                <div class="mt-4 pt-4 border-t" style="border-color: var(--color-input-border);">
-                  <div class="text-xs text-caption mb-3 uppercase tracking-wide flex items-center gap-2">
-                    <LightningIcon size={14} />
-                    Lightning Address
-                  </div>
-
-                  {#if $sparkLightningAddressStore}
-                    <!-- Has lightning address -->
-                    <div class="p-3 rounded-lg mb-3" style="background-color: var(--color-bg-primary); border: 1px solid var(--color-input-border);">
-                      <div class="text-sm text-caption mb-1">Your lightning address:</div>
-                      <div class="font-medium text-primary-color flex items-center gap-2">
-                        {$sparkLightningAddressStore}
-                        <button
-                          class="text-caption hover:text-primary transition-colors cursor-pointer"
-                          title="Copy lightning address"
-                          on:click={async () => {
-                            const copied = await copyToClipboard($sparkLightningAddressStore || '');
-                            if (copied) successMessage = 'Lightning address copied!';
-                          }}
-                        >
-                          <CopyIcon size={16} />
-                        </button>
-                        {#if isLoadingProfileLud16}
-                          <div class="w-4 h-4 border-2 border-amber-500 border-t-transparent rounded-full animate-spin"></div>
-                        {:else if isProfileSynced}
-                          <span class="text-green-500" title="Synced to your Nostr profile">
-                            <CheckCircleIcon size={18} weight="fill" />
-                          </span>
-                        {:else}
-                          <span class="text-amber-500" title="Not synced to your Nostr profile">
-                            <WarningIcon size={18} weight="fill" />
-                          </span>
-                        {/if}
-                      </div>
-                    </div>
-
-                    <!-- Profile sync status -->
-                    {#if !isLoadingProfileLud16}
-                      {#if isProfileSynced}
-                        <div class="p-3 rounded-lg mb-3" style="background-color: rgba(34, 197, 94, 0.1); border: 1px solid rgba(34, 197, 94, 0.3);">
-                          <div class="text-sm text-green-600 flex items-center gap-2">
-                            <CheckCircleIcon size={16} weight="fill" />
-                            This address is set in your Nostr profile
-                          </div>
-                        </div>
-                      {:else if profileLud16}
-                        <div class="p-3 rounded-lg mb-3" style="background-color: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.3);">
-                          <div class="text-sm" style="color: var(--color-text-primary);">
-                            <div class="flex items-center gap-2 mb-1">
-                              <WarningIcon size={16} class="text-amber-500" />
-                              <span class="font-medium">Profile uses a different address:</span>
-                            </div>
-                            <div class="text-caption font-mono text-xs ml-6">{profileLud16}</div>
-                          </div>
-                        </div>
-                      {:else}
-                        <div class="p-3 rounded-lg mb-3" style="background-color: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.3);">
-                          <div class="text-sm flex items-center gap-2" style="color: var(--color-text-primary);">
-                            <WarningIcon size={16} class="text-amber-500" />
-                            No lightning address in your Nostr profile yet
-                          </div>
-                        </div>
-                      {/if}
-                    {/if}
-
-                    {#if wallet.active}
-                      <div class="flex flex-wrap gap-2">
-                        {#if !isProfileSynced}
-                          <button
-                            class="flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer bg-amber-500 hover:bg-amber-600 text-white"
-                            on:click={() => showSyncConfirmModal = true}
-                          >
-                            <UserCirclePlusIcon size={16} />
-                            Sync to Profile
-                          </button>
-                        {:else}
-                          <button
-                            class="flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer"
-                            style="background-color: var(--color-bg-primary); border: 1px solid var(--color-input-border);"
-                            on:click={() => showSyncConfirmModal = true}
-                          >
-                            <UserCirclePlusIcon size={16} />
-                            Sync to Profile
-                          </button>
-                        {/if}
-                        <button
-                          class="flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-red-500 hover:bg-red-500/10 transition-colors cursor-pointer"
-                          style="background-color: var(--color-bg-primary); border: 1px solid var(--color-input-border);"
-                          on:click={() => showDeleteAddressConfirmModal = true}
-                        >
-                          <TrashIcon size={16} />
-                          Delete
-                        </button>
-                      </div>
-                    {:else}
-                      <p class="text-xs text-caption">Activate this wallet to manage the lightning address.</p>
-                    {/if}
-                  {:else}
-                    <!-- No lightning address or still loading -->
-                    {#if !$sparkWalletInitialized}
-                      <!-- Wallet is still initializing -->
-                      <div class="p-3 rounded-lg" style="background-color: var(--color-bg-primary); border: 1px solid var(--color-input-border);">
-                        <div class="flex items-center gap-2 text-sm text-caption">
-                          <div class="w-4 h-4 border-2 border-amber-500 border-t-transparent rounded-full animate-spin"></div>
-                          Loading lightning address...
-                        </div>
-                      </div>
-                    {:else if wallet.active}
-                      <!-- Show registration form only when wallet is active and initialized -->
-                      <div class="p-3 rounded-lg mb-3" style="background-color: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.3);">
-                        <div class="text-sm" style="color: var(--color-text-primary);">
-                          Set up a lightning address to receive payments easily!
-                        </div>
-                      </div>
-                      <div class="flex items-center gap-2 mb-3">
-                        <div class="flex-1 relative">
-                          <input
-                            type="text"
-                            class="w-full p-2 pr-20 rounded-lg text-sm"
-                            style="background-color: var(--color-bg-primary); border: 1px solid var(--color-input-border); color: var(--color-text-primary);"
-                            placeholder="username"
-                            value={newLightningUsername}
-                            on:input={handleUsernameInput}
-                            disabled={isRegisteringAddress}
-                          />
-                          <span class="absolute right-2 top-1/2 -translate-y-1/2 text-sm text-caption">@breez.tips</span>
-                        </div>
-                        {#if isCheckingAvailability}
-                          <div class="w-6 h-6 flex items-center justify-center">
-                            <div class="w-4 h-4 border-2 border-amber-500 border-t-transparent rounded-full animate-spin"></div>
-                          </div>
-                        {:else if isUsernameAvailable === true}
-                          <div class="w-6 h-6 flex items-center justify-center text-green-500">
-                            <CheckIcon size={20} weight="bold" />
-                          </div>
-                        {:else if isUsernameAvailable === false}
-                          <div class="w-6 h-6 flex items-center justify-center text-red-500">
-                            <XIcon size={20} weight="bold" />
-                          </div>
-                        {:else}
-                          <div class="w-6 h-6"></div>
-                        {/if}
-                      </div>
-                      {#if isUsernameAvailable === false}
-                        <p class="text-xs text-red-500 mb-2">This username is already taken</p>
-                      {/if}
-                      <button
-                        class="flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer disabled:opacity-50"
-                        style="background-color: var(--color-bg-primary); border: 1px solid var(--color-input-border);"
-                        on:click={handleRegisterLightningAddress}
-                        disabled={!isUsernameAvailable || isRegisteringAddress || newLightningUsername.length < 3}
-                      >
-                        <LightningIcon size={16} />
-                        {isRegisteringAddress ? 'Registering...' : 'Register Address'}
-                      </button>
-                    {:else}
-                      <p class="text-sm text-caption">No lightning address registered. Activate this wallet to set one up.</p>
-                    {/if}
-                  {/if}
-                </div>
-              </div>
-            {/if}
-
-            <!-- NWC wallet options -->
-            {#if wallet.kind === 3 && expandedWalletId === wallet.id}
-              <div class="px-4 pb-4 pt-2 border-t" style="border-color: var(--color-input-border);">
-                <!-- Connection -->
-                <div class="text-xs text-caption mb-2 uppercase tracking-wide">Connection</div>
-                <div class="grid grid-cols-2 gap-2 mb-4">
-                  <button
-                    class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer"
-                    style="background-color: var(--color-bg-primary); border: 1px solid var(--color-input-border);"
-                    on:click={() => handleViewNwcInfo(wallet)}
-                    disabled={isLoadingNwcInfo}
-                  >
-                    <InfoIcon size={16} />
-                    <span class="truncate">{isLoadingNwcInfo ? 'Loading...' : 'Wallet Info'}</span>
-                  </button>
-                  <button
-                    class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer"
-                    style="background-color: var(--color-bg-primary); border: 1px solid var(--color-input-border);"
-                    on:click={() => handleCopyNwcConnection(wallet)}
-                  >
-                    <CopyIcon size={16} />
-                    <span class="truncate">Copy Connection</span>
-                  </button>
-                </div>
-
-
-                <!-- Backup & Recovery -->
-                <div class="text-xs text-caption mb-2 uppercase tracking-wide">Backup & Recovery</div>
-                <div class="grid grid-cols-2 gap-2">
-                  <button
-                    class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors"
-                    class:cursor-pointer={encryptionSupported}
-                    class:cursor-not-allowed={!encryptionSupported}
-                    class:opacity-50={!encryptionSupported}
-                    style="background-color: var(--color-bg-primary); border: 1px solid var(--color-input-border);"
-                    on:click={() => handleNwcBackupToNostr(wallet)}
-                    disabled={isBackingUp || !encryptionSupported}
-                    title={!encryptionSupported ? 'Your signer does not support encryption' : ''}
-                  >
-                    <CloudArrowUpIcon size={16} />
-                    <span class="truncate">{isBackingUp ? 'Backing up...' : 'Backup to Nostr'}</span>
-                  </button>
-                  <button
-                    class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer"
-                    style="background-color: var(--color-bg-primary); border: 1px solid var(--color-input-border);"
-                    on:click={() => handleDownloadNwcBackup(wallet)}
-                  >
-                    <DownloadSimpleIcon size={16} />
-                    <span class="truncate">Download</span>
-                  </button>
-                  <button
-                    class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer"
-                    style="background-color: var(--color-bg-primary); border: 1px solid var(--color-input-border);"
-                    on:click={() => { checkRelayBackupsWalletType = 'nwc'; showCheckRelayBackupsModal = true; }}
-                  >
-                    <CloudCheckIcon size={16} />
-                    <span class="truncate">Check Backups</span>
-                  </button>
-                  <button
-                    class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer text-red-500 hover:bg-red-500/10"
-                    style="background-color: var(--color-bg-primary); border: 1px solid var(--color-input-border);"
-                    on:click={() => walletToDelete = { id: wallet.id, name: wallet.name, kind: wallet.kind, data: wallet.data }}
-                  >
-                    <TrashIcon size={16} />
-                    <span class="truncate">Remove Wallet</span>
-                  </button>
-                </div>
-
-                <!-- NWC Lightning Address Section -->
-                {#if wallet.data}
-                  {@const walletNwcLud16 = getNwcLud16(wallet.data)}
-                  {#if walletNwcLud16}
-                  <div class="mt-4 pt-4 border-t" style="border-color: var(--color-input-border);">
-                    <div class="text-xs text-caption mb-3 uppercase tracking-wide flex items-center gap-2">
-                      <LightningIcon size={14} />
-                      Lightning Address
-                    </div>
-
-                    <div class="p-3 rounded-lg mb-3" style="background-color: var(--color-bg-primary); border: 1px solid var(--color-input-border);">
-                      <div class="text-sm text-caption mb-1">From NWC connection:</div>
-                      <div class="font-medium text-primary-color flex items-center gap-2">
-                        {walletNwcLud16}
-                        <button
-                          class="text-caption hover:text-primary transition-colors cursor-pointer"
-                          title="Copy lightning address"
-                          on:click={async () => {
-                            const copied = await copyToClipboard(walletNwcLud16);
-                            if (copied) successMessage = 'Lightning address copied!';
-                          }}
-                        >
-                          <CopyIcon size={16} />
-                        </button>
-                        {#if isLoadingProfileLud16}
-                          <div class="w-4 h-4 border-2 border-amber-500 border-t-transparent rounded-full animate-spin"></div>
-                        {:else if profileLud16 && walletNwcLud16.toLowerCase().trim() === profileLud16.toLowerCase().trim()}
-                          <span class="text-green-500" title="Synced to your Nostr profile">
-                            <CheckCircleIcon size={18} weight="fill" />
-                          </span>
-                        {:else}
-                          <span class="text-amber-500" title="Not synced to your Nostr profile">
-                            <WarningIcon size={18} weight="fill" />
-                          </span>
-                        {/if}
-                      </div>
-                    </div>
-
-                    <!-- Profile sync status -->
-                    {#if !isLoadingProfileLud16}
-                      {@const isNwcSynced = profileLud16 && walletNwcLud16.toLowerCase().trim() === profileLud16.toLowerCase().trim()}
-                      {#if isNwcSynced}
-                        <div class="p-3 rounded-lg mb-3" style="background-color: rgba(34, 197, 94, 0.1); border: 1px solid rgba(34, 197, 94, 0.3);">
-                          <div class="text-sm text-green-600 flex items-center gap-2">
-                            <CheckCircleIcon size={16} weight="fill" />
-                            This address is set in your Nostr profile
-                          </div>
-                        </div>
-                      {:else if profileLud16}
-                        <div class="p-3 rounded-lg mb-3" style="background-color: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.3);">
-                          <div class="text-sm" style="color: var(--color-text-primary);">
-                            <div class="flex items-center gap-2 mb-1">
-                              <WarningIcon size={16} class="text-amber-500" />
-                              <span class="font-medium">Profile uses a different address:</span>
-                            </div>
-                            <div class="text-caption font-mono text-xs ml-6">{profileLud16}</div>
-                          </div>
-                        </div>
-                      {:else}
-                        <div class="p-3 rounded-lg mb-3" style="background-color: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.3);">
-                          <div class="text-sm flex items-center gap-2" style="color: var(--color-text-primary);">
-                            <WarningIcon size={16} class="text-amber-500" />
-                            No lightning address in your Nostr profile yet
-                          </div>
-                        </div>
-                      {/if}
-
-                      {#if !isNwcSynced && wallet.active}
-                        <button
-                          class="flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer bg-amber-500 hover:bg-amber-600 text-white"
-                          on:click={() => showNwcSyncConfirmModal = true}
-                        >
-                          <UserCirclePlusIcon size={16} />
-                          Sync to Profile
-                        </button>
-                      {:else if !isNwcSynced}
-                        <p class="text-xs text-caption">Activate this wallet to sync the lightning address.</p>
-                      {/if}
-                    {/if}
-                  </div>
-                  {:else}
-                    <div class="mt-4 pt-4 border-t" style="border-color: var(--color-input-border);">
-                      <div class="text-xs text-caption mb-3 uppercase tracking-wide flex items-center gap-2">
-                        <LightningIcon size={14} />
-                        Lightning Address
-                      </div>
-                      <p class="text-sm text-caption">No lightning address found in the NWC connection string.</p>
-                    </div>
-                  {/if}
-                {/if}
-              </div>
-            {/if}
-          </div>
-        {/each}
-      </div>
-    {/if}
-  </div>
-
-  <!-- Transaction History -->
-  {#if $walletConnected && $activeWallet}
-    <div class="mb-8">
-      {#if $activeWallet.kind === 1}
-        <!-- WebLN disclaimer -->
-        <div class="p-6 rounded-2xl text-center bg-input border border-input">
-          <ClockIcon size={32} class="mx-auto mb-3 text-caption" />
-          <p class="text-caption text-sm">
-            Transaction history is available in your browser wallet extension.
-          </p>
-        </div>
-      {:else}
-        <div class="flex items-center justify-between mb-4">
-          <h2 class="text-lg font-semibold flex items-center gap-2" style="color: var(--color-text-primary)">
-            <ClockIcon size={20} />
-            Recent Transactions
-          </h2>
-          <button
-            on:click={() => loadTransactionHistory(true)}
-            disabled={isLoadingHistory}
-            class="p-2 rounded-lg hover:bg-input transition-colors disabled:opacity-50"
-            title="Refresh transactions"
-          >
-            <ArrowsClockwiseIcon size={20} class="{isLoadingHistory ? 'animate-spin' : ''} text-caption" />
-          </button>
-        </div>
-
-        {#if isLoadingHistory && transactions.length === 0 && filteredPendingTransactions.length === 0}
-        <div class="p-8 rounded-2xl text-center bg-input border border-input">
-          <div class="animate-pulse text-caption">Loading transactions...</div>
-        </div>
-      {:else if transactions.length === 0 && filteredPendingTransactions.length === 0}
-        <div class="p-8 rounded-2xl text-center bg-input border border-input">
-          <ClockIcon size={48} class="mx-auto mb-4 text-caption" />
-          <p class="text-caption">No transactions yet</p>
-        </div>
-      {:else}
-        <div class="space-y-2">
-          <!-- Pending/completed transactions shown first (filtered to active wallet) -->
-          {#each filteredPendingTransactions as tx (tx.id)}
-            {#if tx.status === 'completed'}
-              <!-- Completed but not yet in history (outgoing = orange) -->
-              <div class="p-4 rounded-xl flex items-center gap-4 bg-input border border-orange-500/50">
-                {#if tx.pubkey}
-                  <a href="/user/{nip19.npubEncode(tx.pubkey)}" class="flex-shrink-0">
-                    <CustomAvatar pubkey={tx.pubkey} size={40} />
-                  </a>
-                {:else}
-                  <div class="w-10 h-10 rounded-full flex items-center justify-center bg-orange-500/20">
-                    <ArrowUpIcon size={20} class="text-orange-500" />
-                  </div>
-                {/if}
-                <div class="flex-1 min-w-0">
-                  <div class="font-medium truncate text-primary-color">
-                    {#if tx.pubkey}
-                      <span class="text-orange-500">⚡ to</span>
-                      <a href="/user/{nip19.npubEncode(tx.pubkey)}" class="hover:underline">
-                        <CustomName pubkey={tx.pubkey} />
-                      </a>
-                    {:else}
-                      {tx.description || 'Payment sent'}
-                    {/if}
-                  </div>
-                  {#if tx.comment}
-                    <div class="text-sm text-primary-color italic truncate">
-                      "{tx.comment}"
-                    </div>
-                  {/if}
-                  <div class="text-sm text-orange-500">
-                    ✓ Payment sent
-                  </div>
-                </div>
-                <div class="text-right">
-                  <div class="font-semibold text-orange-500">
-                    {#if $balanceVisible}
-                      -{tx.amount.toLocaleString()} sats
-                    {:else}
-                      -*** sats
-                    {/if}
-                  </div>
-                </div>
-              </div>
-            {:else}
-              <!-- Still pending -->
-              <div class="p-4 rounded-xl flex items-center gap-4 bg-input border border-amber-500/50 animate-pulse">
-                {#if tx.pubkey}
-                  <a href="/user/{nip19.npubEncode(tx.pubkey)}" class="flex-shrink-0">
-                    <CustomAvatar pubkey={tx.pubkey} size={40} />
-                  </a>
-                {:else}
-                  <div class="w-10 h-10 rounded-full flex items-center justify-center bg-amber-500/20">
-                    <ArrowUpIcon size={20} class="text-amber-500" />
-                  </div>
-                {/if}
-                <div class="flex-1 min-w-0">
-                  <div class="font-medium truncate text-primary-color">
-                    {#if tx.pubkey}
-                      <span class="text-amber-500">⚡ to</span>
-                      <a href="/user/{nip19.npubEncode(tx.pubkey)}" class="hover:underline">
-                        <CustomName pubkey={tx.pubkey} />
-                      </a>
-                    {:else}
-                      {tx.description || 'Sending...'}
-                    {/if}
-                  </div>
-                  {#if tx.comment}
-                    <div class="text-sm text-primary-color italic truncate">
-                      "{tx.comment}"
-                    </div>
-                  {/if}
-                  <div class="text-sm text-amber-500">
-                    Sending payment...
-                  </div>
-                </div>
-                <div class="text-right">
-                  <div class="font-semibold text-amber-500">
-                    {#if $balanceVisible}
-                      -{tx.amount.toLocaleString()} sats
-                    {:else}
-                      -*** sats
-                    {/if}
-                  </div>
-                </div>
-              </div>
-            {/if}
-          {/each}
-
-          <!-- Transactions from SDK (includes pending) -->
-          {#each transactions as tx (tx.id)}
-            {#if tx.status === 'pending'}
-              <!-- Pending transaction from SDK -->
-              <div class="p-4 rounded-xl flex items-center gap-4 bg-input border border-amber-500/50 animate-pulse">
-                {#if tx.pubkey}
-                  <a href="/user/{nip19.npubEncode(tx.pubkey)}" class="flex-shrink-0">
-                    <CustomAvatar pubkey={tx.pubkey} size={40} />
-                  </a>
-                {:else}
-                  <div class="w-10 h-10 rounded-full flex items-center justify-center bg-amber-500/20">
-                    {#if tx.type === 'incoming'}
-                      <ArrowDownIcon size={20} class="text-amber-500" />
-                    {:else}
-                      <ArrowUpIcon size={20} class="text-amber-500" />
-                    {/if}
-                  </div>
-                {/if}
-                <div class="flex-1 min-w-0">
-                  <div class="font-medium truncate text-primary-color">
-                    {#if tx.pubkey}
-                      <span class="text-amber-500">
-                        {tx.type === 'incoming' ? '⚡ from' : '⚡ to'}
-                      </span>
-                      <a href="/user/{nip19.npubEncode(tx.pubkey)}" class="hover:underline">
-                        <CustomName pubkey={tx.pubkey} />
-                      </a>
-                    {:else}
-                      {tx.description || (tx.type === 'incoming' ? 'Receiving...' : 'Sending...')}
-                    {/if}
-                  </div>
-                  {#if tx.comment}
-                    <div class="text-sm text-primary-color italic truncate">
-                      "{tx.comment}"
-                    </div>
-                  {/if}
-                  <div class="text-sm text-amber-500">
-                    {tx.type === 'incoming' ? 'Receiving payment...' : 'Sending payment...'}
-                  </div>
-                </div>
-                <div class="text-right">
-                  <div class="font-semibold text-amber-500">
-                    {#if $balanceVisible}
-                      {tx.type === 'incoming' ? '+' : '-'}{tx.amount.toLocaleString()} sats
-                    {:else}
-                      {tx.type === 'incoming' ? '+' : '-'}*** sats
-                    {/if}
-                  </div>
-                </div>
-              </div>
-            {:else}
-              <!-- Completed transaction -->
-              <div class="p-4 rounded-xl flex items-center gap-4 bg-input border border-input">
-                {#if tx.pubkey}
-                  <a href="/user/{nip19.npubEncode(tx.pubkey)}" class="flex-shrink-0">
-                    <CustomAvatar pubkey={tx.pubkey} size={40} />
-                  </a>
-                {:else}
-                  <div class="w-10 h-10 rounded-full flex items-center justify-center {tx.type === 'incoming' ? 'bg-green-500/20' : 'bg-orange-500/20'}">
-                    {#if tx.type === 'incoming'}
-                      <ArrowDownIcon size={20} class="text-green-500" />
-                    {:else}
-                      <ArrowUpIcon size={20} class="text-orange-500" />
-                    {/if}
-                  </div>
-                {/if}
-                <div class="flex-1 min-w-0">
-                  <div class="font-medium truncate text-primary-color">
-                    {#if tx.pubkey}
-                      <span class="{tx.type === 'incoming' ? 'text-green-500' : 'text-orange-500'}">
-                        {tx.type === 'incoming' ? '⚡ from' : '⚡ to'}
-                      </span>
-                      <a href="/user/{nip19.npubEncode(tx.pubkey)}" class="hover:underline">
-                        <CustomName pubkey={tx.pubkey} />
-                      </a>
-                    {:else}
-                      {tx.description || (tx.type === 'incoming' ? 'Received' : 'Sent')}
-                    {/if}
-                  </div>
-                  {#if tx.comment}
-                    <div class="text-sm text-primary-color italic truncate">
-                      "{tx.comment}"
-                    </div>
-                  {/if}
-                  <div class="text-sm text-caption">
-                    {formatTransactionDate(tx.timestamp)}
-                    {#if tx.fees && $balanceVisible}
-                      <span class="ml-2">• Fee: {tx.fees} sats</span>
-                    {/if}
-                  </div>
-                </div>
-                <div class="text-right">
-                  <div class="font-semibold {tx.type === 'incoming' ? 'text-green-500' : 'text-orange-500'}">
-                    {#if $balanceVisible}
-                      {tx.type === 'incoming' ? '+' : '-'}{tx.amount.toLocaleString()} sats
-                    {:else}
-                      {tx.type === 'incoming' ? '+' : '-'}*** sats
-                    {/if}
-                  </div>
-                </div>
-              </div>
-            {/if}
-          {/each}
-        </div>
-
-        {#if hasMoreTransactions}
-          <div class="mt-4 text-center">
-            <Button on:click={() => loadTransactionHistory(false)} disabled={isLoadingHistory}>
-              {isLoadingHistory ? 'Loading...' : 'Load More'}
-            </Button>
-          </div>
-        {/if}
-      {/if}
-    {/if}
-    </div>
-  {/if}
-
-  <!-- Add Wallet Modal -->
-  {#if showAddWallet && portalTarget}
-    <div use:portal={portalTarget}>
-      <div class="fixed inset-0 bg-black/50 flex z-50 p-4" style="display: flex; align-items: center; justify-content: center;">
-      <div class="rounded-2xl p-6 max-w-md w-full max-h-[90vh] overflow-y-auto" style="background-color: var(--color-bg-primary);">
-        <h2 class="text-xl font-bold mb-4" style="color: var(--color-text-primary)">Add Wallet</h2>
-
-        {#if !selectedWalletType}
-          <!-- Wallet type selection -->
-          <div class="space-y-3">
-            <!-- Embedded wallet options - disabled when external wallet (WebLN) is connected -->
-            <div class="mb-2">
-              <span class="text-xs text-caption uppercase tracking-wide">Embedded Wallets</span>
-            </div>
-
-            {#if $weblnConnected}
-              <div class="p-4 rounded-xl text-center" style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);">
-                <p class="text-sm text-caption">Disconnect your browser wallet to add embedded wallets</p>
-              </div>
-            {:else}
-              <button
-                class="w-full p-4 rounded-xl text-left flex items-center gap-4 transition-colors"
-                class:cursor-pointer={!hasExistingNwcWallet}
-                class:cursor-not-allowed={hasExistingNwcWallet}
-                class:opacity-50={hasExistingNwcWallet}
-                style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);"
-                on:click={() => !hasExistingNwcWallet && (selectedWalletType = 3)}
-                disabled={hasExistingNwcWallet}
-              >
-                <div class="w-10 h-10 rounded-full bg-amber-500/20 flex items-center justify-center">
-                  <NwcLogo size={28} />
-                </div>
-                <div>
-                  <div class="font-medium" style="color: var(--color-text-primary)">NWC (Nostr Wallet Connect)</div>
-                  {#if hasExistingNwcWallet}
-                    <div class="text-sm text-amber-500">You already have an NWC wallet connected</div>
-                  {:else}
-                    <div class="text-sm text-caption">Connect any NWC-compatible wallet</div>
-                  {/if}
-                </div>
-              </button>
-
-              <button
-                class="w-full p-4 rounded-xl text-left flex items-center gap-4 transition-colors"
-                class:cursor-pointer={!hasExistingSparkWallet}
-                class:cursor-not-allowed={hasExistingSparkWallet}
-                class:opacity-50={hasExistingSparkWallet}
-                style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);"
-                on:click={() => !hasExistingSparkWallet && (selectedWalletType = 4)}
-                disabled={hasExistingSparkWallet}
-              >
-                <div class="w-10 h-10 rounded-full bg-orange-500/20 flex items-center justify-center">
-                  <SparkLogo size={24} className="text-orange-500" />
-                </div>
-                <div>
-                  <div class="font-medium" style="color: var(--color-text-primary)">Breez Spark (Self-Custodial)</div>
-                  {#if hasExistingSparkWallet}
-                    <div class="text-sm text-amber-500">You already have a Spark wallet connected</div>
-                  {:else}
-                    <div class="text-sm text-caption">Create or restore a built-in Lightning wallet</div>
-                  {/if}
-                </div>
-              </button>
-            {/if}
-
-            <!-- External wallet options (WebLN, Bitcoin Connect) - only when no embedded wallets -->
-            <div class="flex items-center gap-3 my-4">
-              <div class="flex-1 border-t" style="border-color: var(--color-input-border);"></div>
-              <span class="text-xs text-caption uppercase tracking-wide">Browser / External Wallets</span>
-              <div class="flex-1 border-t" style="border-color: var(--color-input-border);"></div>
-            </div>
-
-            {#if $wallets.length > 0}
-              <div class="p-4 rounded-xl text-center" style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);">
-                <p class="text-sm text-caption">Backup and remove all embedded wallets if you want to connect a browser/external wallet</p>
-              </div>
-            {:else}
-              <!-- WebLN option - only show if browser has WebLN provider -->
-              {#if isWeblnAvailable()}
-                <button
-                  class="w-full p-4 rounded-xl text-left flex items-center gap-4 transition-colors"
-                  class:cursor-pointer={!$weblnConnected}
-                  class:cursor-not-allowed={$weblnConnected}
-                  class:opacity-50={$weblnConnected}
-                  style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);"
-                  on:click={handleConnectWebln}
-                  disabled={$weblnConnected}
-                >
-                  <div class="w-10 h-10 rounded-full overflow-hidden flex items-center justify-center">
-                    <WeblnLogo size={40} />
-                  </div>
-                  <div>
-                    <div class="font-medium" style="color: var(--color-text-primary)">Browser Wallet (WebLN)</div>
-                    {#if $weblnConnected}
-                      <div class="text-sm text-amber-500">Already connected: {$weblnWalletName}</div>
-                    {:else}
-                      <div class="text-sm text-caption">Use your Lightning wallet extension</div>
-                    {/if}
-                  </div>
-                </button>
-              {/if}
-
-              <!-- Bitcoin Connect option -->
-              <button
-                class="w-full p-4 rounded-xl text-left flex items-center gap-4 transition-colors"
-                class:cursor-pointer={!$bitcoinConnectEnabled && !$weblnConnected}
-                class:cursor-not-allowed={$bitcoinConnectEnabled || $weblnConnected}
-                class:opacity-50={$bitcoinConnectEnabled || $weblnConnected}
-                style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);"
-                on:click={handleConnectBitcoinConnect}
-                disabled={$bitcoinConnectEnabled || $weblnConnected}
-              >
-                <div class="w-10 h-10 rounded-full bg-orange-500 flex items-center justify-center">
-                  <BitcoinConnectLogo size={20} className="text-white" />
-                </div>
-                <div>
-                  <div class="font-medium" style="color: var(--color-text-primary)">Bitcoin Connect</div>
-                  {#if $bitcoinConnectEnabled}
-                    <div class="text-sm text-amber-500">External wallet connected</div>
-                  {:else if $weblnConnected}
-                    <div class="text-sm text-caption">Disconnect WebLN to use Bitcoin Connect</div>
-                  {:else}
-                    <div class="text-sm text-caption">Connect any Bitcoin Connect wallet</div>
-                  {/if}
-                </div>
-              </button>
-            {/if}
-          </div>
-        {:else if selectedWalletType === 3}
-          <!-- NWC connection -->
-          <div>
-            <p class="text-caption mb-4">
-              Paste your NWC connection string below, or restore from a previous backup.
-            </p>
-            <input
-              type="text"
-              class="w-full p-3 rounded-lg mb-4 input"
-              placeholder="nostr+walletconnect://..."
-              bind:value={nwcConnectionString}
-              on:paste={() => {
-                // Clean pasted content immediately
-                setTimeout(() => {
-                  nwcConnectionString = nwcConnectionString.trim().replace(/[\r\n\t]/g, '');
-                }, 0);
-              }}
-            />
-            <div class="flex gap-2">
-              <Button on:click={handleConnectNWC} disabled={isConnecting || !nwcConnectionString} class="flex-1">
-                {isConnecting ? 'Connecting...' : 'Connect NWC'}
-              </Button>
-              <Button
-                on:click={handleRestoreNwcFromNostr}
-                disabled={isConnecting}
-                class="flex-1"
-              >
-                <CloudArrowDownIcon size={16} />
-                Restore from Nostr
-              </Button>
-            </div>
-          </div>
-        {:else if selectedWalletType === 4}
-          <!-- Spark wallet options -->
-          <div>
-            {#if sparkRestoreMode === 'options'}
-              <p class="text-caption mb-4">
-                Breez Spark is a self-custodial Lightning wallet built into zap.cooking.
-              </p>
-
-              {#if isConnecting && sparkLoadingMessage}
-                <!-- Show loading state -->
-                <div class="p-8 rounded-xl text-center" style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);">
-                  <div class="animate-spin w-8 h-8 border-2 border-amber-500 border-t-transparent rounded-full mx-auto mb-4"></div>
-                  <p class="text-primary-color font-medium">{sparkLoadingMessage}</p>
-                  <p class="text-caption text-sm mt-2">This may take a moment...</p>
-                </div>
-              {:else}
-                <div class="space-y-3 mb-4">
-                  <Button on:click={handleCreateSparkWallet} disabled={isConnecting} class="w-full">
-                    Create New Wallet
-                  </Button>
-                  <div class="border-t pt-3 mt-3" style="border-color: var(--color-input-border);">
-                    <p class="text-sm text-caption mb-2">Restore existing wallet:</p>
-                    <div class="space-y-2">
-                      <Button
-                        on:click={handleRestoreFromNostr}
-                        disabled={isConnecting}
-                        class="w-full"
-                      >
-                        <CloudArrowDownIcon size={16} />
-                        Restore from Nostr Backup
-                      </Button>
-                      <Button
-                        on:click={() => fileInput?.click()}
-                        disabled={isConnecting}
-                        class="w-full"
-                      >
-                        Restore from Backup File
-                      </Button>
-                      <input
-                        type="file"
-                        accept=".json"
-                        class="hidden"
-                        bind:this={fileInput}
-                        on:change={handleFileSelect}
-                      />
-                      <Button on:click={() => sparkRestoreMode = 'mnemonic'} disabled={isConnecting} class="w-full">
-                        Restore from Recovery Phrase
-                      </Button>
-                    </div>
-                  </div>
-                </div>
-              {/if}
-            {:else if sparkRestoreMode === 'mnemonic'}
-              <p class="text-caption mb-4">
-                Enter your 12 or 24 word recovery phrase to restore your wallet.
-              </p>
-              <textarea
-                class="w-full p-3 rounded-lg mb-4 input"
-                rows="3"
-                placeholder="Enter your recovery phrase..."
-                bind:value={restoreMnemonicInput}
-              ></textarea>
-              <div class="flex gap-2">
-                <Button on:click={() => { sparkRestoreMode = 'options'; restoreMnemonicInput = ''; }} disabled={isConnecting}>Back</Button>
-                <Button on:click={handleRestoreFromMnemonic} disabled={isConnecting}>
-                  {isConnecting ? 'Restoring...' : 'Restore Wallet'}
-                </Button>
-              </div>
-            {/if}
-          </div>
-        {/if}
-
-        <button
-          class="mt-4 w-full text-center text-sm text-caption hover:text-primary cursor-pointer"
-          on:click={() => { showAddWallet = false; selectedWalletType = null; nwcConnectionString = ''; errorMessage = ''; sparkRestoreMode = 'options'; restoreMnemonicInput = ''; }}
+      {#if $wallets.length === 0 && !$weblnConnected}
+        <div
+          class="p-8 rounded-2xl text-center flex flex-col items-center"
+          style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);"
         >
-          Cancel
-        </button>
-      </div>
-      </div>
-    </div>
-  {/if}
-
-  <!-- Mnemonic Display Modal (after wallet creation) -->
-  {#if showMnemonic && sparkMnemonic && portalTarget}
-    <div use:portal={portalTarget}>
-      <div class="fixed inset-0 bg-black/50 flex z-50 p-4" style="display: flex; align-items: center; justify-content: center;">
-      <div class="rounded-2xl p-6 max-w-md w-full max-h-[90vh] overflow-y-auto" style="background-color: var(--color-bg-primary);">
-        <h2 class="text-xl font-bold mb-4" style="color: var(--color-text-primary)">Save Your Recovery Phrase</h2>
-        <div class="mb-4 p-4 rounded-lg" style="background-color: rgba(239, 68, 68, 0.1); color: #ef4444;">
-          <WarningIcon size={20} class="inline mr-2" />
-          Write down these 12 words and store them securely. If you lose them, you will lose access to your wallet.
-        </div>
-        <div class="p-4 rounded-lg mb-4 font-mono text-sm" style="background-color: var(--color-input-bg); color: var(--color-text-primary);">
-          {sparkMnemonic}
-        </div>
-        <Button on:click={closeMnemonicModal} class="w-full">I've Saved My Recovery Phrase</Button>
-      </div>
-      </div>
-    </div>
-  {/if}
-
-  <!-- Reveal Mnemonic Modal - higher z-index to appear above other modals -->
-  {#if revealedMnemonic && portalTarget}
-    <div use:portal={portalTarget}>
-      <div class="fixed inset-0 bg-black/50 flex z-[60] p-4" style="display: flex; align-items: center; justify-content: center;">
-      <div class="rounded-2xl p-6 max-w-md w-full max-h-[90vh] overflow-y-auto" style="background-color: var(--color-bg-primary);">
-        <h2 class="text-xl font-bold mb-4" style="color: var(--color-text-primary)">Recovery Phrase</h2>
-        <div class="mb-4 p-4 rounded-lg" style="background-color: rgba(239, 68, 68, 0.1); color: #ef4444;">
-          <WarningIcon size={20} class="inline mr-2" />
-          Never share this phrase with anyone. Anyone with these words can access your funds.
-        </div>
-        <div class="p-4 rounded-lg mb-4 font-mono text-sm select-all" style="background-color: var(--color-input-bg); color: var(--color-text-primary);">
-          {revealedMnemonic}
-        </div>
-        <Button on:click={closeRevealMnemonicModal} class="w-full">Close</Button>
-      </div>
-      </div>
-    </div>
-  {/if}
-
-  <!-- NWC Wallet Info Modal -->
-  {#if nwcWalletInfo && portalTarget}
-    <div use:portal={portalTarget}>
-      <div class="fixed inset-0 bg-black/50 flex z-50 p-4" style="display: flex; align-items: center; justify-content: center;">
-        <div class="rounded-2xl p-6 max-w-md w-full max-h-[90vh] overflow-y-auto" style="background-color: var(--color-bg-primary);">
-          <h2 class="text-xl font-bold mb-4" style="color: var(--color-text-primary)">Wallet Info</h2>
-
-          <div class="space-y-4">
-            {#if nwcWalletInfo.alias}
-              <div>
-                <div class="text-xs text-caption uppercase tracking-wide mb-1">Wallet Name</div>
-                <div class="font-medium" style="color: var(--color-text-primary)">{nwcWalletInfo.alias}</div>
-              </div>
-            {/if}
-
-            <div>
-              <div class="text-xs text-caption uppercase tracking-wide mb-1">Relay</div>
-              <div class="text-sm font-mono break-all" style="color: var(--color-text-primary)">{nwcWalletInfo.relay}</div>
+          {#if $bitcoinConnectEnabled}
+            <div
+              class="w-16 h-16 rounded-full bg-gradient-to-br from-orange-500 to-amber-500 flex items-center justify-center mb-4"
+            >
+              <BitcoinConnectLogo size={32} className="text-white" />
             </div>
-
-            <div>
-              <div class="text-xs text-caption uppercase tracking-wide mb-1">Wallet Pubkey</div>
-              <div class="text-sm font-mono break-all" style="color: var(--color-text-primary)">{nwcWalletInfo.pubkey}</div>
+            <p class="font-medium mb-1" style="color: var(--color-text-primary)">
+              External wallet connected
+            </p>
+            <p class="text-sm text-caption mb-4">Payments will use Bitcoin Connect</p>
+            <button
+              class="px-5 py-2.5 rounded-full font-semibold text-sm text-caption hover:text-red-500 transition-colors cursor-pointer"
+              style="background-color: var(--color-bg-primary); border: 1px solid var(--color-input-border);"
+              on:click={() => (showRemoveBitcoinConnectModal = true)}
+            >
+              Remove External Wallet
+            </button>
+          {:else}
+            <WalletIcon size={48} class="mb-4 text-caption" />
+            <p class="text-caption mb-4">No wallets connected yet</p>
+            <Button
+              on:click={() => {
+                showAddWallet = true;
+                selectedWalletType = null;
+              }}
+            >
+              Connect Your First Wallet
+            </Button>
+          {/if}
+        </div>
+      {:else if $wallets.length > 0}
+        <!-- WebLN active indicator when embedded wallets exist -->
+        {#if $weblnConnected}
+          <div
+            class="p-3 rounded-xl mb-3 flex items-center gap-3"
+            style="background-color: rgba(249, 115, 22, 0.1); border: 1px solid rgba(249, 115, 22, 0.3);"
+          >
+            <div
+              class="w-5 h-5 rounded-full bg-gradient-to-br from-orange-500 to-amber-500 flex items-center justify-center flex-shrink-0"
+            >
+              <WeblnLogo size={12} className="text-white" />
             </div>
-
-            <div>
-              <div class="text-xs text-caption uppercase tracking-wide mb-1">Supported Methods</div>
-              <div class="flex flex-wrap gap-1 mt-1">
-                {#each nwcWalletInfo.methods as method}
-                  <span class="text-xs px-2 py-1 rounded-full" style="background-color: var(--color-input-bg); color: var(--color-text-primary);">
-                    {method}
-                  </span>
-                {/each}
-              </div>
+            <div class="flex-1">
+              <span class="text-sm font-medium" style="color: var(--color-text-primary)"
+                >Browser wallet active</span
+              >
+              <span class="text-sm text-caption"> — embedded wallets below are paused</span>
             </div>
+            <button
+              class="text-xs px-2 py-1 rounded-full text-caption hover:text-red-500 transition-colors cursor-pointer"
+              style="background-color: var(--color-bg-primary); border: 1px solid var(--color-input-border);"
+              on:click={handleDisconnectWebln}
+            >
+              Disconnect
+            </button>
           </div>
-
-          <Button on:click={closeNwcInfoModal} class="w-full mt-6">Close</Button>
-        </div>
-      </div>
-    </div>
-  {/if}
-
-  <!-- Remove Wallet Confirmation Modal -->
-  {#if walletToDelete && portalTarget}
-    <div use:portal={portalTarget}>
-      <div class="fixed inset-0 bg-black/50 flex z-50 p-4" style="display: flex; align-items: center; justify-content: center;">
-        <div class="rounded-2xl p-6 max-w-md w-full max-h-[90vh] overflow-y-auto" style="background-color: var(--color-bg-primary);">
-          <h2 class="text-xl font-bold mb-4" style="color: var(--color-text-primary)">Remove Wallet</h2>
-
-          <p class="text-caption mb-4">
-            Are you sure you want to remove <strong class="text-primary-color">{walletToDelete.name}</strong>?
-          </p>
-
-          {#if walletToDelete.kind === 4 || walletToDelete.kind === 3}
-            <!-- Backup options section -->
-            <div class="p-4 rounded-xl mb-4" style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);">
-              <div class="flex items-center gap-2 mb-3">
-                <WarningIcon size={18} class="text-amber-500" />
-                <span class="text-sm font-medium text-amber-500">Save a backup first</span>
+        {/if}
+        <div class="space-y-3">
+          {#each $wallets.filter((w) => w.kind !== 1) as wallet}
+            {@const isEffectivelyActive = wallet.active && !$weblnConnected}
+            <div
+              class="rounded-xl overflow-hidden"
+              style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);"
+              class:ring-2={isEffectivelyActive}
+              class:ring-amber-500={isEffectivelyActive}
+            >
+              <div class="p-3 sm:p-4 flex items-center gap-2 sm:gap-4">
+                <!-- Wallet type icon -->
+                {#if wallet.kind === 4}
+                  <SparkLogo size={24} className="text-orange-500 flex-shrink-0" />
+                {:else if wallet.kind === 3}
+                  <NwcLogo size={24} className="text-purple-500 flex-shrink-0" />
+                {/if}
+                <div class="flex-1 min-w-0">
+                  <div class="font-medium truncate" style="color: var(--color-text-primary)">
+                    {wallet.name}
+                  </div>
+                  <div class="text-sm text-caption hidden sm:block">
+                    {getWalletKindName(wallet.kind)}{#if wallet.kind === 3}{@const parsed =
+                        parseNwcUrl(wallet.data)}{#if parsed}
+                        · {parsed.pubkey.slice(0, 8)}...{/if}{/if}
+                  </div>
+                </div>
+                {#if isEffectivelyActive}
+                  <span class="text-xs px-2 py-1 rounded-full bg-amber-500 text-white flex-shrink-0"
+                    >Active</span
+                  >
+                {:else if $weblnConnected}
+                  <span
+                    class="text-xs px-2 py-1 rounded-full text-caption flex-shrink-0"
+                    style="background-color: var(--color-input-bg);">Inactive</span
+                  >
+                {:else}
+                  <button
+                    class="text-xs sm:text-sm text-caption hover:text-primary cursor-pointer flex-shrink-0 whitespace-nowrap"
+                    on:click={() => handleSetActive(wallet.id)}
+                  >
+                    Set Active
+                  </button>
+                {/if}
+                {#if wallet.kind === 4 || wallet.kind === 3}
+                  <button
+                    class="relative flex items-center gap-0.5 sm:gap-1 p-1.5 sm:px-2 sm:py-1 rounded-lg text-caption hover:text-primary hover:bg-black/5 dark:hover:bg-white/5 cursor-pointer transition-all flex-shrink-0"
+                    on:click={() => toggleWalletOptions(wallet.id)}
+                    title="Wallet options"
+                  >
+                    <GearIcon
+                      size={18}
+                      weight={expandedWalletId === wallet.id ? 'fill' : 'regular'}
+                    />
+                    <!-- Notification dot for Spark wallets without lightning address (only show after wallet is initialized) -->
+                    {#if wallet.kind === 4 && $sparkWalletInitialized && !$sparkLightningAddressStore && expandedWalletId !== wallet.id}
+                      <span
+                        class="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-amber-500 rounded-full border-2"
+                        style="border-color: var(--color-input-bg);"
+                      ></span>
+                    {/if}
+                    <CaretDownIcon
+                      size={14}
+                      weight="bold"
+                      class="transition-transform {expandedWalletId === wallet.id
+                        ? 'rotate-180'
+                        : ''}"
+                    />
+                  </button>
+                {/if}
               </div>
 
-              <div class="grid gap-2" class:grid-cols-2={encryptionSupported} class:grid-cols-1={!encryptionSupported}>
-                {#if walletToDelete.kind === 4}
-                  <!-- Spark wallet: Download JSON backup (encrypted) -->
-                  {#if encryptionSupported}
+              <!-- Spark wallet backup options -->
+              {#if wallet.kind === 4 && expandedWalletId === wallet.id}
+                <div
+                  class="px-4 pb-4 pt-2 border-t"
+                  style="border-color: var(--color-input-border);"
+                >
+                  <!-- Encryption not supported warning -->
+                  {#if !encryptionSupported}
+                    <!-- Encryption not supported warning (for other signer types) -->
+                    <div
+                      class="p-3 rounded-lg mb-3 text-sm"
+                      style="background-color: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.3);"
+                    >
+                      <div class="flex items-start gap-2">
+                        <WarningIcon size={18} class="text-amber-500 flex-shrink-0 mt-0.5" />
+                        <div>
+                          <p class="text-caption">
+                            Your signer extension doesn't support the required encryption method.
+                            You can still use "Recovery Phrase" to manually back up your wallet.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  {/if}
+
+                  <!-- Backup & Recovery -->
+                  <div class="text-xs text-caption mb-2 uppercase tracking-wide">
+                    Backup & Recovery
+                  </div>
+                  <div class="grid grid-cols-2 gap-2">
                     <button
-                      class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer bg-amber-500 hover:bg-amber-600 text-black"
+                      class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors"
+                      class:cursor-pointer={encryptionSupported}
+                      class:cursor-not-allowed={!encryptionSupported}
+                      class:opacity-50={!encryptionSupported}
+                      style="background-color: var(--color-bg-primary); border: 1px solid var(--color-input-border);"
+                      on:click={handleBackupToNostr}
+                      disabled={isBackingUp || !encryptionSupported}
+                      title={!encryptionSupported ? 'Your signer does not support encryption' : ''}
+                    >
+                      <CloudArrowUpIcon size={16} />
+                      {isBackingUp ? 'Backing up...' : 'Backup to Nostr'}
+                    </button>
+                    <button
+                      class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors"
+                      class:cursor-pointer={encryptionSupported}
+                      class:cursor-not-allowed={!encryptionSupported}
+                      class:opacity-50={!encryptionSupported}
+                      style="background-color: var(--color-bg-primary); border: 1px solid var(--color-input-border);"
                       on:click={handleDownloadBackup}
-                      disabled={isBackingUp}
+                      disabled={isBackingUp || !encryptionSupported}
+                      title={!encryptionSupported ? 'Your signer does not support encryption' : ''}
                     >
                       <DownloadSimpleIcon size={16} />
-                      Download JSON
+                      Download
                     </button>
-                  {:else}
-                    <!-- Fallback to Recovery Phrase if encryption not supported -->
                     <button
-                      class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer bg-amber-500 hover:bg-amber-600 text-black"
+                      class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer"
+                      style="background-color: var(--color-bg-primary); border: 1px solid var(--color-input-border);"
                       on:click={handleRevealMnemonic}
                     >
                       <KeyIcon size={16} />
                       Recovery Phrase
                     </button>
+                    <button
+                      class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer"
+                      style="background-color: var(--color-bg-primary); border: 1px solid var(--color-input-border);"
+                      on:click={() => (showRecoveryHelpModal = true)}
+                    >
+                      <LifebuoyIcon size={16} />
+                      Recovery Help
+                    </button>
+                    <button
+                      class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer"
+                      style="background-color: var(--color-bg-primary); border: 1px solid var(--color-input-border);"
+                      on:click={() => {
+                        checkRelayBackupsWalletType = 'spark';
+                        showCheckRelayBackupsModal = true;
+                      }}
+                    >
+                      <CloudCheckIcon size={16} />
+                      Check Backups
+                    </button>
+                    <button
+                      class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer text-red-500 hover:bg-red-500/10"
+                      style="background-color: var(--color-bg-primary); border: 1px solid var(--color-input-border);"
+                      on:click={() =>
+                        (walletToDelete = {
+                          id: wallet.id,
+                          name: wallet.name,
+                          kind: wallet.kind,
+                          data: wallet.data
+                        })}
+                    >
+                      <TrashIcon size={16} />
+                      Remove Wallet
+                    </button>
+                  </div>
+
+                  <!-- Lightning Address Section -->
+                  <div class="mt-4 pt-4 border-t" style="border-color: var(--color-input-border);">
+                    <div
+                      class="text-xs text-caption mb-3 uppercase tracking-wide flex items-center gap-2"
+                    >
+                      <LightningIcon size={14} />
+                      Lightning Address
+                    </div>
+
+                    {#if $sparkLightningAddressStore}
+                      <!-- Has lightning address -->
+                      <div
+                        class="p-3 rounded-lg mb-3"
+                        style="background-color: var(--color-bg-primary); border: 1px solid var(--color-input-border);"
+                      >
+                        <div class="text-sm text-caption mb-1">Your lightning address:</div>
+                        <div class="font-medium text-primary-color flex items-center gap-2">
+                          {$sparkLightningAddressStore}
+                          <button
+                            class="text-caption hover:text-primary transition-colors cursor-pointer"
+                            title="Copy lightning address"
+                            on:click={async () => {
+                              const copied = await copyToClipboard(
+                                $sparkLightningAddressStore || ''
+                              );
+                              if (copied) successMessage = 'Lightning address copied!';
+                            }}
+                          >
+                            <CopyIcon size={16} />
+                          </button>
+                          {#if isLoadingProfileLud16}
+                            <div
+                              class="w-4 h-4 border-2 border-amber-500 border-t-transparent rounded-full animate-spin"
+                            ></div>
+                          {:else if isProfileSynced}
+                            <span class="text-green-500" title="Synced to your Nostr profile">
+                              <CheckCircleIcon size={18} weight="fill" />
+                            </span>
+                          {:else}
+                            <span class="text-amber-500" title="Not synced to your Nostr profile">
+                              <WarningIcon size={18} weight="fill" />
+                            </span>
+                          {/if}
+                        </div>
+                      </div>
+
+                      <!-- Profile sync status -->
+                      {#if !isLoadingProfileLud16}
+                        {#if isProfileSynced}
+                          <div
+                            class="p-3 rounded-lg mb-3"
+                            style="background-color: rgba(34, 197, 94, 0.1); border: 1px solid rgba(34, 197, 94, 0.3);"
+                          >
+                            <div class="text-sm text-green-600 flex items-center gap-2">
+                              <CheckCircleIcon size={16} weight="fill" />
+                              This address is set in your Nostr profile
+                            </div>
+                          </div>
+                        {:else if profileLud16}
+                          <div
+                            class="p-3 rounded-lg mb-3"
+                            style="background-color: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.3);"
+                          >
+                            <div class="text-sm" style="color: var(--color-text-primary);">
+                              <div class="flex items-center gap-2 mb-1">
+                                <WarningIcon size={16} class="text-amber-500" />
+                                <span class="font-medium">Profile uses a different address:</span>
+                              </div>
+                              <div class="text-caption font-mono text-xs ml-6">{profileLud16}</div>
+                            </div>
+                          </div>
+                        {:else}
+                          <div
+                            class="p-3 rounded-lg mb-3"
+                            style="background-color: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.3);"
+                          >
+                            <div
+                              class="text-sm flex items-center gap-2"
+                              style="color: var(--color-text-primary);"
+                            >
+                              <WarningIcon size={16} class="text-amber-500" />
+                              No lightning address in your Nostr profile yet
+                            </div>
+                          </div>
+                        {/if}
+                      {/if}
+
+                      {#if wallet.active}
+                        <div class="flex flex-wrap gap-2">
+                          {#if !isProfileSynced}
+                            <button
+                              class="flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer bg-amber-500 hover:bg-amber-600 text-white"
+                              on:click={() => (showSyncConfirmModal = true)}
+                            >
+                              <UserCirclePlusIcon size={16} />
+                              Sync to Profile
+                            </button>
+                          {:else}
+                            <button
+                              class="flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer"
+                              style="background-color: var(--color-bg-primary); border: 1px solid var(--color-input-border);"
+                              on:click={() => (showSyncConfirmModal = true)}
+                            >
+                              <UserCirclePlusIcon size={16} />
+                              Sync to Profile
+                            </button>
+                          {/if}
+                          <button
+                            class="flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-red-500 hover:bg-red-500/10 transition-colors cursor-pointer"
+                            style="background-color: var(--color-bg-primary); border: 1px solid var(--color-input-border);"
+                            on:click={() => (showDeleteAddressConfirmModal = true)}
+                          >
+                            <TrashIcon size={16} />
+                            Delete
+                          </button>
+                        </div>
+                      {:else}
+                        <p class="text-xs text-caption">
+                          Activate this wallet to manage the lightning address.
+                        </p>
+                      {/if}
+                    {:else}
+                      <!-- No lightning address or still loading -->
+                      {#if !$sparkWalletInitialized}
+                        <!-- Wallet is still initializing -->
+                        <div
+                          class="p-3 rounded-lg"
+                          style="background-color: var(--color-bg-primary); border: 1px solid var(--color-input-border);"
+                        >
+                          <div class="flex items-center gap-2 text-sm text-caption">
+                            <div
+                              class="w-4 h-4 border-2 border-amber-500 border-t-transparent rounded-full animate-spin"
+                            ></div>
+                            Loading lightning address...
+                          </div>
+                        </div>
+                      {:else if wallet.active}
+                        <!-- Show registration form only when wallet is active and initialized -->
+                        <div
+                          class="p-3 rounded-lg mb-3"
+                          style="background-color: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.3);"
+                        >
+                          <div class="text-sm" style="color: var(--color-text-primary);">
+                            Set up a lightning address to receive payments easily!
+                          </div>
+                        </div>
+                        <div class="flex items-center gap-2 mb-3">
+                          <div class="flex-1 relative">
+                            <input
+                              type="text"
+                              class="w-full p-2 pr-20 rounded-lg text-sm"
+                              style="background-color: var(--color-bg-primary); border: 1px solid var(--color-input-border); color: var(--color-text-primary);"
+                              placeholder="username"
+                              value={newLightningUsername}
+                              on:input={handleUsernameInput}
+                              disabled={isRegisteringAddress}
+                            />
+                            <span
+                              class="absolute right-2 top-1/2 -translate-y-1/2 text-sm text-caption"
+                              >@breez.tips</span
+                            >
+                          </div>
+                          {#if isCheckingAvailability}
+                            <div class="w-6 h-6 flex items-center justify-center">
+                              <div
+                                class="w-4 h-4 border-2 border-amber-500 border-t-transparent rounded-full animate-spin"
+                              ></div>
+                            </div>
+                          {:else if isUsernameAvailable === true}
+                            <div class="w-6 h-6 flex items-center justify-center text-green-500">
+                              <CheckIcon size={20} weight="bold" />
+                            </div>
+                          {:else if isUsernameAvailable === false}
+                            <div class="w-6 h-6 flex items-center justify-center text-red-500">
+                              <XIcon size={20} weight="bold" />
+                            </div>
+                          {:else}
+                            <div class="w-6 h-6"></div>
+                          {/if}
+                        </div>
+                        {#if isUsernameAvailable === false}
+                          <p class="text-xs text-red-500 mb-2">This username is already taken</p>
+                        {/if}
+                        <button
+                          class="flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer disabled:opacity-50"
+                          style="background-color: var(--color-bg-primary); border: 1px solid var(--color-input-border);"
+                          on:click={handleRegisterLightningAddress}
+                          disabled={!isUsernameAvailable ||
+                            isRegisteringAddress ||
+                            newLightningUsername.length < 3}
+                        >
+                          <LightningIcon size={16} />
+                          {isRegisteringAddress ? 'Registering...' : 'Register Address'}
+                        </button>
+                      {:else}
+                        <p class="text-sm text-caption">
+                          No lightning address registered. Activate this wallet to set one up.
+                        </p>
+                      {/if}
+                    {/if}
+                  </div>
+                </div>
+              {/if}
+
+              <!-- NWC wallet options -->
+              {#if wallet.kind === 3 && expandedWalletId === wallet.id}
+                <div
+                  class="px-4 pb-4 pt-2 border-t"
+                  style="border-color: var(--color-input-border);"
+                >
+                  <!-- Connection -->
+                  <div class="text-xs text-caption mb-2 uppercase tracking-wide">Connection</div>
+                  <div class="grid grid-cols-2 gap-2 mb-4">
+                    <button
+                      class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer"
+                      style="background-color: var(--color-bg-primary); border: 1px solid var(--color-input-border);"
+                      on:click={() => handleViewNwcInfo(wallet)}
+                      disabled={isLoadingNwcInfo}
+                    >
+                      <InfoIcon size={16} />
+                      <span class="truncate">{isLoadingNwcInfo ? 'Loading...' : 'Wallet Info'}</span
+                      >
+                    </button>
+                    <button
+                      class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer"
+                      style="background-color: var(--color-bg-primary); border: 1px solid var(--color-input-border);"
+                      on:click={() => handleCopyNwcConnection(wallet)}
+                    >
+                      <CopyIcon size={16} />
+                      <span class="truncate">Copy Connection</span>
+                    </button>
+                  </div>
+
+                  <!-- Backup & Recovery -->
+                  <div class="text-xs text-caption mb-2 uppercase tracking-wide">
+                    Backup & Recovery
+                  </div>
+                  <div class="grid grid-cols-2 gap-2">
+                    <button
+                      class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors"
+                      class:cursor-pointer={encryptionSupported}
+                      class:cursor-not-allowed={!encryptionSupported}
+                      class:opacity-50={!encryptionSupported}
+                      style="background-color: var(--color-bg-primary); border: 1px solid var(--color-input-border);"
+                      on:click={() => handleNwcBackupToNostr(wallet)}
+                      disabled={isBackingUp || !encryptionSupported}
+                      title={!encryptionSupported ? 'Your signer does not support encryption' : ''}
+                    >
+                      <CloudArrowUpIcon size={16} />
+                      <span class="truncate"
+                        >{isBackingUp ? 'Backing up...' : 'Backup to Nostr'}</span
+                      >
+                    </button>
+                    <button
+                      class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer"
+                      style="background-color: var(--color-bg-primary); border: 1px solid var(--color-input-border);"
+                      on:click={() => handleDownloadNwcBackup(wallet)}
+                    >
+                      <DownloadSimpleIcon size={16} />
+                      <span class="truncate">Download</span>
+                    </button>
+                    <button
+                      class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer"
+                      style="background-color: var(--color-bg-primary); border: 1px solid var(--color-input-border);"
+                      on:click={() => {
+                        checkRelayBackupsWalletType = 'nwc';
+                        showCheckRelayBackupsModal = true;
+                      }}
+                    >
+                      <CloudCheckIcon size={16} />
+                      <span class="truncate">Check Backups</span>
+                    </button>
+                    <button
+                      class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer text-red-500 hover:bg-red-500/10"
+                      style="background-color: var(--color-bg-primary); border: 1px solid var(--color-input-border);"
+                      on:click={() =>
+                        (walletToDelete = {
+                          id: wallet.id,
+                          name: wallet.name,
+                          kind: wallet.kind,
+                          data: wallet.data
+                        })}
+                    >
+                      <TrashIcon size={16} />
+                      <span class="truncate">Remove Wallet</span>
+                    </button>
+                  </div>
+
+                  <!-- NWC Lightning Address Section -->
+                  {#if wallet.data}
+                    {@const walletNwcLud16 = getNwcLud16(wallet.data)}
+                    {#if walletNwcLud16}
+                      <div
+                        class="mt-4 pt-4 border-t"
+                        style="border-color: var(--color-input-border);"
+                      >
+                        <div
+                          class="text-xs text-caption mb-3 uppercase tracking-wide flex items-center gap-2"
+                        >
+                          <LightningIcon size={14} />
+                          Lightning Address
+                        </div>
+
+                        <div
+                          class="p-3 rounded-lg mb-3"
+                          style="background-color: var(--color-bg-primary); border: 1px solid var(--color-input-border);"
+                        >
+                          <div class="text-sm text-caption mb-1">From NWC connection:</div>
+                          <div class="font-medium text-primary-color flex items-center gap-2">
+                            {walletNwcLud16}
+                            <button
+                              class="text-caption hover:text-primary transition-colors cursor-pointer"
+                              title="Copy lightning address"
+                              on:click={async () => {
+                                const copied = await copyToClipboard(walletNwcLud16);
+                                if (copied) successMessage = 'Lightning address copied!';
+                              }}
+                            >
+                              <CopyIcon size={16} />
+                            </button>
+                            {#if isLoadingProfileLud16}
+                              <div
+                                class="w-4 h-4 border-2 border-amber-500 border-t-transparent rounded-full animate-spin"
+                              ></div>
+                            {:else if profileLud16 && walletNwcLud16
+                                .toLowerCase()
+                                .trim() === profileLud16.toLowerCase().trim()}
+                              <span class="text-green-500" title="Synced to your Nostr profile">
+                                <CheckCircleIcon size={18} weight="fill" />
+                              </span>
+                            {:else}
+                              <span class="text-amber-500" title="Not synced to your Nostr profile">
+                                <WarningIcon size={18} weight="fill" />
+                              </span>
+                            {/if}
+                          </div>
+                        </div>
+
+                        <!-- Profile sync status -->
+                        {#if !isLoadingProfileLud16}
+                          {@const isNwcSynced =
+                            profileLud16 &&
+                            walletNwcLud16.toLowerCase().trim() ===
+                              profileLud16.toLowerCase().trim()}
+                          {#if isNwcSynced}
+                            <div
+                              class="p-3 rounded-lg mb-3"
+                              style="background-color: rgba(34, 197, 94, 0.1); border: 1px solid rgba(34, 197, 94, 0.3);"
+                            >
+                              <div class="text-sm text-green-600 flex items-center gap-2">
+                                <CheckCircleIcon size={16} weight="fill" />
+                                This address is set in your Nostr profile
+                              </div>
+                            </div>
+                          {:else if profileLud16}
+                            <div
+                              class="p-3 rounded-lg mb-3"
+                              style="background-color: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.3);"
+                            >
+                              <div class="text-sm" style="color: var(--color-text-primary);">
+                                <div class="flex items-center gap-2 mb-1">
+                                  <WarningIcon size={16} class="text-amber-500" />
+                                  <span class="font-medium">Profile uses a different address:</span>
+                                </div>
+                                <div class="text-caption font-mono text-xs ml-6">
+                                  {profileLud16}
+                                </div>
+                              </div>
+                            </div>
+                          {:else}
+                            <div
+                              class="p-3 rounded-lg mb-3"
+                              style="background-color: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.3);"
+                            >
+                              <div
+                                class="text-sm flex items-center gap-2"
+                                style="color: var(--color-text-primary);"
+                              >
+                                <WarningIcon size={16} class="text-amber-500" />
+                                No lightning address in your Nostr profile yet
+                              </div>
+                            </div>
+                          {/if}
+
+                          {#if !isNwcSynced && wallet.active}
+                            <button
+                              class="flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer bg-amber-500 hover:bg-amber-600 text-white"
+                              on:click={() => (showNwcSyncConfirmModal = true)}
+                            >
+                              <UserCirclePlusIcon size={16} />
+                              Sync to Profile
+                            </button>
+                          {:else if !isNwcSynced}
+                            <p class="text-xs text-caption">
+                              Activate this wallet to sync the lightning address.
+                            </p>
+                          {/if}
+                        {/if}
+                      </div>
+                    {:else}
+                      <div
+                        class="mt-4 pt-4 border-t"
+                        style="border-color: var(--color-input-border);"
+                      >
+                        <div
+                          class="text-xs text-caption mb-3 uppercase tracking-wide flex items-center gap-2"
+                        >
+                          <LightningIcon size={14} />
+                          Lightning Address
+                        </div>
+                        <p class="text-sm text-caption">
+                          No lightning address found in the NWC connection string.
+                        </p>
+                      </div>
+                    {/if}
                   {/if}
-                {:else}
-                  <!-- NWC wallet: Download works without encryption -->
-                  <button
-                    class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer bg-amber-500 hover:bg-amber-600 text-black"
-                    on:click={() => handleDownloadNwcBackup(walletToDelete)}
-                    disabled={isBackingUp}
+                </div>
+              {/if}
+            </div>
+          {/each}
+        </div>
+      {/if}
+    </div>
+
+    <!-- Transaction History -->
+    {#if $walletConnected && $activeWallet}
+      <div class="mb-8">
+        {#if $activeWallet.kind === 1}
+          <!-- WebLN disclaimer -->
+          <div class="p-6 rounded-2xl text-center bg-input border border-input">
+            <ClockIcon size={32} class="mx-auto mb-3 text-caption" />
+            <p class="text-caption text-sm">
+              Transaction history is available in your browser wallet extension.
+            </p>
+          </div>
+        {:else}
+          {@const isSyncing = $activeWallet?.kind === 4 && $sparkSyncing}
+          <div class="flex items-center justify-between mb-4">
+            <h2
+              class="text-lg font-semibold flex items-center gap-2"
+              style="color: var(--color-text-primary)"
+            >
+              <ClockIcon size={20} />
+              Recent Transactions
+            </h2>
+            <div class="flex items-center gap-2">
+              {#if isSyncing}
+                <span class="text-xs text-caption">Syncing...</span>
+              {/if}
+              <button
+                on:click={() => loadTransactionHistory(true)}
+                disabled={isLoadingHistory}
+                class="p-2 rounded-lg hover:bg-input transition-colors disabled:opacity-50"
+                title="Refresh transactions"
+              >
+                <ArrowsClockwiseIcon
+                  size={20}
+                  class="{isLoadingHistory || isSyncing ? 'animate-spin' : ''} text-caption"
+                />
+              </button>
+            </div>
+          </div>
+
+          {#if isLoadingHistory && transactions.length === 0 && filteredPendingTransactions.length === 0}
+            <div class="p-8 rounded-2xl text-center bg-input border border-input">
+              <div class="animate-pulse text-caption">Loading transactions...</div>
+            </div>
+          {:else if transactions.length === 0 && filteredPendingTransactions.length === 0}
+            <div class="p-8 rounded-2xl text-center bg-input border border-input">
+              <ClockIcon size={48} class="mx-auto mb-4 text-caption" />
+              <p class="text-caption">No transactions yet</p>
+            </div>
+          {:else}
+            <div class="space-y-2">
+              <!-- Pending/completed transactions shown first (filtered to active wallet) -->
+              {#each filteredPendingTransactions as tx (tx.id)}
+                {#if tx.status === 'completed'}
+                  <!-- Completed but not yet in history (outgoing = orange) -->
+                  <div
+                    class="p-4 rounded-xl flex items-center gap-4 bg-input border border-orange-500/50"
                   >
-                    <DownloadSimpleIcon size={16} />
-                    Download
+                    {#if tx.pubkey}
+                      <a href="/user/{nip19.npubEncode(tx.pubkey)}" class="flex-shrink-0">
+                        <CustomAvatar pubkey={tx.pubkey} size={40} />
+                      </a>
+                    {:else}
+                      <div
+                        class="w-10 h-10 rounded-full flex items-center justify-center bg-orange-500/20"
+                      >
+                        <ArrowUpIcon size={20} class="text-orange-500" />
+                      </div>
+                    {/if}
+                    <div class="flex-1 min-w-0">
+                      <div class="font-medium truncate text-primary-color">
+                        {#if tx.pubkey}
+                          <span class="text-orange-500">⚡ to</span>
+                          <a href="/user/{nip19.npubEncode(tx.pubkey)}" class="hover:underline">
+                            <CustomName pubkey={tx.pubkey} />
+                          </a>
+                        {:else}
+                          {tx.description || 'Payment sent'}
+                        {/if}
+                      </div>
+                      {#if tx.comment}
+                        <div class="text-sm text-primary-color italic truncate">
+                          "{tx.comment}"
+                        </div>
+                      {/if}
+                      <div class="text-sm text-orange-500">✓ Payment sent</div>
+                    </div>
+                    <div class="text-right">
+                      <div class="font-semibold text-orange-500">
+                        {#if $balanceVisible}
+                          -{tx.amount.toLocaleString()} sats
+                        {:else}
+                          -*** sats
+                        {/if}
+                      </div>
+                    </div>
+                  </div>
+                {:else}
+                  <!-- Still pending -->
+                  <div
+                    class="p-4 rounded-xl flex items-center gap-4 bg-input border border-amber-500/50 animate-pulse"
+                  >
+                    {#if tx.pubkey}
+                      <a href="/user/{nip19.npubEncode(tx.pubkey)}" class="flex-shrink-0">
+                        <CustomAvatar pubkey={tx.pubkey} size={40} />
+                      </a>
+                    {:else}
+                      <div
+                        class="w-10 h-10 rounded-full flex items-center justify-center bg-amber-500/20"
+                      >
+                        <ArrowUpIcon size={20} class="text-amber-500" />
+                      </div>
+                    {/if}
+                    <div class="flex-1 min-w-0">
+                      <div class="font-medium truncate text-primary-color">
+                        {#if tx.pubkey}
+                          <span class="text-amber-500">⚡ to</span>
+                          <a href="/user/{nip19.npubEncode(tx.pubkey)}" class="hover:underline">
+                            <CustomName pubkey={tx.pubkey} />
+                          </a>
+                        {:else}
+                          {tx.description || 'Sending...'}
+                        {/if}
+                      </div>
+                      {#if tx.comment}
+                        <div class="text-sm text-primary-color italic truncate">
+                          "{tx.comment}"
+                        </div>
+                      {/if}
+                      <div class="text-sm text-amber-500">Sending payment...</div>
+                    </div>
+                    <div class="text-right">
+                      <div class="font-semibold text-amber-500">
+                        {#if $balanceVisible}
+                          -{tx.amount.toLocaleString()} sats
+                        {:else}
+                          -*** sats
+                        {/if}
+                      </div>
+                    </div>
+                  </div>
+                {/if}
+              {/each}
+
+              <!-- Transactions from SDK (includes pending) -->
+              {#each transactions as tx (tx.id)}
+                {#if tx.status === 'pending'}
+                  <!-- Pending transaction from SDK -->
+                  <div
+                    class="p-4 rounded-xl flex items-center gap-4 bg-input border border-amber-500/50 animate-pulse"
+                  >
+                    {#if tx.pubkey}
+                      <a href="/user/{nip19.npubEncode(tx.pubkey)}" class="flex-shrink-0">
+                        <CustomAvatar pubkey={tx.pubkey} size={40} />
+                      </a>
+                    {:else}
+                      <div
+                        class="w-10 h-10 rounded-full flex items-center justify-center bg-amber-500/20"
+                      >
+                        {#if tx.type === 'incoming'}
+                          <ArrowDownIcon size={20} class="text-amber-500" />
+                        {:else}
+                          <ArrowUpIcon size={20} class="text-amber-500" />
+                        {/if}
+                      </div>
+                    {/if}
+                    <div class="flex-1 min-w-0">
+                      <div class="font-medium truncate text-primary-color">
+                        {#if tx.pubkey}
+                          <span class="text-amber-500">
+                            {tx.type === 'incoming' ? '⚡ from' : '⚡ to'}
+                          </span>
+                          <a href="/user/{nip19.npubEncode(tx.pubkey)}" class="hover:underline">
+                            <CustomName pubkey={tx.pubkey} />
+                          </a>
+                        {:else}
+                          {tx.description ||
+                            (tx.type === 'incoming' ? 'Receiving...' : 'Sending...')}
+                        {/if}
+                      </div>
+                      {#if tx.comment}
+                        <div class="text-sm text-primary-color italic truncate">
+                          "{tx.comment}"
+                        </div>
+                      {/if}
+                      <div class="text-sm text-amber-500">
+                        {tx.type === 'incoming' ? 'Receiving payment...' : 'Sending payment...'}
+                      </div>
+                    </div>
+                    <div class="text-right">
+                      <div class="font-semibold text-amber-500">
+                        {#if $balanceVisible}
+                          {tx.type === 'incoming' ? '+' : '-'}{tx.amount.toLocaleString()} sats
+                        {:else}
+                          {tx.type === 'incoming' ? '+' : '-'}*** sats
+                        {/if}
+                      </div>
+                    </div>
+                  </div>
+                {:else}
+                  <!-- Completed transaction -->
+                  <div class="p-4 rounded-xl flex items-center gap-4 bg-input border border-input">
+                    {#if tx.pubkey}
+                      <a href="/user/{nip19.npubEncode(tx.pubkey)}" class="flex-shrink-0">
+                        <CustomAvatar pubkey={tx.pubkey} size={40} />
+                      </a>
+                    {:else}
+                      <div
+                        class="w-10 h-10 rounded-full flex items-center justify-center {tx.type ===
+                        'incoming'
+                          ? 'bg-green-500/20'
+                          : 'bg-orange-500/20'}"
+                      >
+                        {#if tx.type === 'incoming'}
+                          <ArrowDownIcon size={20} class="text-green-500" />
+                        {:else}
+                          <ArrowUpIcon size={20} class="text-orange-500" />
+                        {/if}
+                      </div>
+                    {/if}
+                    <div class="flex-1 min-w-0">
+                      <div class="font-medium truncate text-primary-color">
+                        {#if tx.pubkey}
+                          <span
+                            class={tx.type === 'incoming' ? 'text-green-500' : 'text-orange-500'}
+                          >
+                            {tx.type === 'incoming' ? '⚡ from' : '⚡ to'}
+                          </span>
+                          <a href="/user/{nip19.npubEncode(tx.pubkey)}" class="hover:underline">
+                            <CustomName pubkey={tx.pubkey} />
+                          </a>
+                        {:else}
+                          {tx.description || (tx.type === 'incoming' ? 'Received' : 'Sent')}
+                        {/if}
+                      </div>
+                      {#if tx.comment}
+                        <div class="text-sm text-primary-color italic truncate">
+                          "{tx.comment}"
+                        </div>
+                      {/if}
+                      <div class="text-sm text-caption">
+                        {formatTransactionDate(tx.timestamp)}
+                        {#if tx.fees && $balanceVisible}
+                          <span class="ml-2">• Fee: {tx.fees} sats</span>
+                        {/if}
+                      </div>
+                    </div>
+                    <div class="text-right">
+                      <div
+                        class="font-semibold {tx.type === 'incoming'
+                          ? 'text-green-500'
+                          : 'text-orange-500'}"
+                      >
+                        {#if $balanceVisible}
+                          {tx.type === 'incoming' ? '+' : '-'}{tx.amount.toLocaleString()} sats
+                        {:else}
+                          {tx.type === 'incoming' ? '+' : '-'}*** sats
+                        {/if}
+                      </div>
+                    </div>
+                  </div>
+                {/if}
+              {/each}
+            </div>
+
+            {#if hasMoreTransactions}
+              <div class="mt-4 text-center">
+                <Button on:click={() => loadTransactionHistory(false)} disabled={isLoadingHistory}>
+                  {isLoadingHistory ? 'Loading...' : 'Load More'}
+                </Button>
+              </div>
+            {/if}
+          {/if}
+        {/if}
+      </div>
+    {/if}
+
+    <!-- Add Wallet Modal -->
+    {#if showAddWallet && portalTarget}
+      <div use:portal={portalTarget}>
+        <div
+          class="fixed inset-0 bg-black/50 flex z-50 p-4"
+          style="display: flex; align-items: center; justify-content: center;"
+        >
+          <div
+            class="rounded-2xl p-6 max-w-md w-full max-h-[90vh] overflow-y-auto"
+            style="background-color: var(--color-bg-primary);"
+          >
+            <h2 class="text-xl font-bold mb-4" style="color: var(--color-text-primary)">
+              Add Wallet
+            </h2>
+
+            {#if !selectedWalletType}
+              <!-- Wallet type selection -->
+              <div class="space-y-3">
+                <!-- Embedded wallet options - disabled when external wallet (WebLN) is connected -->
+                <div class="mb-2">
+                  <span class="text-xs text-caption uppercase tracking-wide">Embedded Wallets</span>
+                </div>
+
+                {#if $weblnConnected}
+                  <div
+                    class="p-4 rounded-xl text-center"
+                    style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);"
+                  >
+                    <p class="text-sm text-caption">
+                      Disconnect your browser wallet to add embedded wallets
+                    </p>
+                  </div>
+                {:else}
+                  <button
+                    class="w-full p-4 rounded-xl text-left flex items-center gap-4 transition-colors"
+                    class:cursor-pointer={!hasExistingNwcWallet}
+                    class:cursor-not-allowed={hasExistingNwcWallet}
+                    class:opacity-50={hasExistingNwcWallet}
+                    style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);"
+                    on:click={() => !hasExistingNwcWallet && (selectedWalletType = 3)}
+                    disabled={hasExistingNwcWallet}
+                  >
+                    <div
+                      class="w-10 h-10 rounded-full bg-amber-500/20 flex items-center justify-center"
+                    >
+                      <NwcLogo size={28} />
+                    </div>
+                    <div>
+                      <div class="font-medium" style="color: var(--color-text-primary)">
+                        NWC (Nostr Wallet Connect)
+                      </div>
+                      {#if hasExistingNwcWallet}
+                        <div class="text-sm text-amber-500">
+                          You already have an NWC wallet connected
+                        </div>
+                      {:else}
+                        <div class="text-sm text-caption">Connect any NWC-compatible wallet</div>
+                      {/if}
+                    </div>
+                  </button>
+
+                  <button
+                    class="w-full p-4 rounded-xl text-left flex items-center gap-4 transition-colors"
+                    class:cursor-pointer={!hasExistingSparkWallet}
+                    class:cursor-not-allowed={hasExistingSparkWallet}
+                    class:opacity-50={hasExistingSparkWallet}
+                    style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);"
+                    on:click={() => !hasExistingSparkWallet && (selectedWalletType = 4)}
+                    disabled={hasExistingSparkWallet}
+                  >
+                    <div
+                      class="w-10 h-10 rounded-full bg-orange-500/20 flex items-center justify-center"
+                    >
+                      <SparkLogo size={24} className="text-orange-500" />
+                    </div>
+                    <div>
+                      <div class="font-medium" style="color: var(--color-text-primary)">
+                        Breez Spark (Self-Custodial)
+                      </div>
+                      {#if hasExistingSparkWallet}
+                        <div class="text-sm text-amber-500">
+                          You already have a Spark wallet connected
+                        </div>
+                      {:else}
+                        <div class="text-sm text-caption">
+                          Create or restore a built-in Lightning wallet
+                        </div>
+                      {/if}
+                    </div>
                   </button>
                 {/if}
-                {#if encryptionSupported}
-                  <button
-                    class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer bg-black hover:bg-gray-800 text-white"
-                    on:click={() => walletToDelete.kind === 4 ? handleBackupToNostr() : handleNwcBackupToNostr(walletToDelete)}
-                    disabled={isBackingUp}
+
+                <!-- External wallet options (WebLN, Bitcoin Connect) - only when no embedded wallets -->
+                <div class="flex items-center gap-3 my-4">
+                  <div
+                    class="flex-1 border-t"
+                    style="border-color: var(--color-input-border);"
+                  ></div>
+                  <span class="text-xs text-caption uppercase tracking-wide"
+                    >Browser / External Wallets</span
                   >
-                    <CloudArrowUpIcon size={16} />
-                    {isBackingUp ? 'Saving...' : 'Backup to Nostr'}
+                  <div
+                    class="flex-1 border-t"
+                    style="border-color: var(--color-input-border);"
+                  ></div>
+                </div>
+
+                {#if $wallets.length > 0}
+                  <div
+                    class="p-4 rounded-xl text-center"
+                    style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);"
+                  >
+                    <p class="text-sm text-caption">
+                      Backup and remove all embedded wallets if you want to connect a
+                      browser/external wallet
+                    </p>
+                  </div>
+                {:else}
+                  <!-- WebLN option - only show if browser has WebLN provider -->
+                  {#if isWeblnAvailable()}
+                    <button
+                      class="w-full p-4 rounded-xl text-left flex items-center gap-4 transition-colors"
+                      class:cursor-pointer={!$weblnConnected}
+                      class:cursor-not-allowed={$weblnConnected}
+                      class:opacity-50={$weblnConnected}
+                      style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);"
+                      on:click={handleConnectWebln}
+                      disabled={$weblnConnected}
+                    >
+                      <div
+                        class="w-10 h-10 rounded-full bg-gradient-to-br from-orange-500 to-amber-500 flex items-center justify-center"
+                      >
+                        <WeblnLogo size={24} className="text-white" />
+                      </div>
+                      <div>
+                        <div class="font-medium" style="color: var(--color-text-primary)">
+                          Browser Wallet (WebLN)
+                        </div>
+                        {#if $weblnConnected}
+                          <div class="text-sm text-amber-500">
+                            Already connected: {$weblnWalletName}
+                          </div>
+                        {:else}
+                          <div class="text-sm text-caption">
+                            Use your Lightning wallet extension
+                          </div>
+                        {/if}
+                      </div>
+                    </button>
+                  {/if}
+
+                  <!-- Bitcoin Connect option -->
+                  <button
+                    class="w-full p-4 rounded-xl text-left flex items-center gap-4 transition-colors"
+                    class:cursor-pointer={!$bitcoinConnectEnabled && !$weblnConnected}
+                    class:cursor-not-allowed={$bitcoinConnectEnabled || $weblnConnected}
+                    class:opacity-50={$bitcoinConnectEnabled || $weblnConnected}
+                    style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);"
+                    on:click={handleConnectBitcoinConnect}
+                    disabled={$bitcoinConnectEnabled || $weblnConnected}
+                  >
+                    <div
+                      class="w-10 h-10 rounded-full bg-orange-500 flex items-center justify-center"
+                    >
+                      <BitcoinConnectLogo size={20} className="text-white" />
+                    </div>
+                    <div>
+                      <div class="font-medium" style="color: var(--color-text-primary)">
+                        Bitcoin Connect
+                      </div>
+                      {#if $bitcoinConnectEnabled}
+                        <div class="text-sm text-amber-500">External wallet connected</div>
+                      {:else if $weblnConnected}
+                        <div class="text-sm text-caption">
+                          Disconnect WebLN to use Bitcoin Connect
+                        </div>
+                      {:else}
+                        <div class="text-sm text-caption">Connect any Bitcoin Connect wallet</div>
+                      {/if}
+                    </div>
                   </button>
                 {/if}
               </div>
-            </div>
+            {:else if selectedWalletType === 3}
+              <!-- NWC connection -->
+              <div>
+                <p class="text-caption mb-4">
+                  Paste your NWC connection string below, or restore from a previous backup.
+                </p>
+                <input
+                  type="text"
+                  class="w-full p-3 rounded-lg mb-4 input"
+                  placeholder="nostr+walletconnect://..."
+                  bind:value={nwcConnectionString}
+                  on:paste={() => {
+                    // Clean pasted content immediately
+                    setTimeout(() => {
+                      nwcConnectionString = nwcConnectionString.trim().replace(/[\r\n\t]/g, '');
+                    }, 0);
+                  }}
+                />
+                <div class="flex gap-2">
+                  <Button
+                    on:click={handleConnectNWC}
+                    disabled={isConnecting || !nwcConnectionString}
+                    class="flex-1"
+                  >
+                    {isConnecting ? 'Connecting...' : 'Connect NWC'}
+                  </Button>
+                  <Button
+                    on:click={handleRestoreNwcFromNostr}
+                    disabled={isConnecting}
+                    class="flex-1"
+                  >
+                    <CloudArrowDownIcon size={16} />
+                    Restore from Nostr
+                  </Button>
+                </div>
+              </div>
+            {:else if selectedWalletType === 4}
+              <!-- Spark wallet options -->
+              <div>
+                {#if sparkRestoreMode === 'options'}
+                  <p class="text-caption mb-4">
+                    Breez Spark is a self-custodial Lightning wallet built into zap.cooking.
+                  </p>
 
-            <!-- Delete relay backup toggle button -->
-            <button
-              class="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer mb-4"
-              class:bg-red-500={deleteRelayBackups}
-              class:hover:bg-red-600={deleteRelayBackups}
-              class:text-white={deleteRelayBackups}
-              style={deleteRelayBackups ? '' : 'background-color: var(--color-input-bg); border: 1px solid var(--color-input-border); color: var(--color-text-caption);'}
-              on:click={() => deleteRelayBackups = !deleteRelayBackups}
-            >
-              <TrashIcon size={14} />
-              {deleteRelayBackups ? 'Will delete relay backup' : 'Delete relay backup'}
-            </button>
-          {:else}
-            <p class="text-caption text-sm mb-4">You can reconnect it later.</p>
-          {/if}
+                  {#if isConnecting && sparkLoadingMessage}
+                    <!-- Show loading state -->
+                    <div
+                      class="p-8 rounded-xl text-center"
+                      style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);"
+                    >
+                      <div
+                        class="animate-spin w-8 h-8 border-2 border-amber-500 border-t-transparent rounded-full mx-auto mb-4"
+                      ></div>
+                      <p class="text-primary-color font-medium">{sparkLoadingMessage}</p>
+                      <p class="text-caption text-sm mt-2">This may take a moment...</p>
+                    </div>
+                  {:else}
+                    <div class="space-y-3 mb-4">
+                      <Button
+                        on:click={handleCreateSparkWallet}
+                        disabled={isConnecting}
+                        class="w-full"
+                      >
+                        Create New Wallet
+                      </Button>
+                      <div
+                        class="border-t pt-3 mt-3"
+                        style="border-color: var(--color-input-border);"
+                      >
+                        <p class="text-sm text-caption mb-2">Restore existing wallet:</p>
+                        <div class="space-y-2">
+                          <Button
+                            on:click={handleRestoreFromNostr}
+                            disabled={isConnecting}
+                            class="w-full"
+                          >
+                            <CloudArrowDownIcon size={16} />
+                            Restore from Nostr Backup
+                          </Button>
+                          <Button
+                            on:click={() => fileInput?.click()}
+                            disabled={isConnecting}
+                            class="w-full"
+                          >
+                            Restore from Backup File
+                          </Button>
+                          <input
+                            type="file"
+                            accept=".json"
+                            class="hidden"
+                            bind:this={fileInput}
+                            on:change={handleFileSelect}
+                          />
+                          <Button
+                            on:click={() => (sparkRestoreMode = 'mnemonic')}
+                            disabled={isConnecting}
+                            class="w-full"
+                          >
+                            Restore from Recovery Phrase
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  {/if}
+                {:else if sparkRestoreMode === 'mnemonic'}
+                  <p class="text-caption mb-4">
+                    Enter your 12 or 24 word recovery phrase to restore your wallet.
+                  </p>
+                  <textarea
+                    class="w-full p-3 rounded-lg mb-4 input"
+                    rows="3"
+                    placeholder="Enter your recovery phrase..."
+                    bind:value={restoreMnemonicInput}
+                  ></textarea>
+                  <div class="flex gap-2">
+                    <Button
+                      on:click={() => {
+                        sparkRestoreMode = 'options';
+                        restoreMnemonicInput = '';
+                      }}
+                      disabled={isConnecting}>Back</Button
+                    >
+                    <Button on:click={handleRestoreFromMnemonic} disabled={isConnecting}>
+                      {isConnecting ? 'Restoring...' : 'Restore Wallet'}
+                    </Button>
+                  </div>
+                {/if}
+              </div>
+            {/if}
 
-          <div class="flex gap-3">
-            <Button on:click={() => { walletToDelete = null; deleteRelayBackups = false; }} disabled={isDeletingWallet} class="flex-1">
-              Cancel
-            </Button>
             <button
-              class="flex-1 px-4 py-2 rounded-full bg-red-500 hover:bg-red-600 text-white font-medium transition-colors cursor-pointer disabled:opacity-50"
-              disabled={isDeletingWallet}
-              on:click={async () => {
-                if (walletToDelete) {
-                  isDeletingWallet = true;
-                  try {
-                    // Delete relay backups if checkbox is checked
-                    if (deleteRelayBackups && $userPublickey) {
-                      try {
-                        if (walletToDelete.kind === 4) {
-                          await deleteSparkBackupFromNostr($userPublickey);
-                        } else if (walletToDelete.kind === 3) {
-                          await deleteNwcBackupFromNostr($userPublickey);
-                        }
-                      } catch (e) {
-                        console.error('Failed to delete relay backups:', e);
-                        // Continue with wallet removal even if backup deletion fails
-                      }
-                    }
-                    await handleDisconnectWallet(walletToDelete.id);
-                    walletToDelete = null;
-                    deleteRelayBackups = false;
-                  } finally {
-                    isDeletingWallet = false;
-                  }
-                }
+              class="mt-4 w-full text-center text-sm text-caption hover:text-primary cursor-pointer"
+              on:click={() => {
+                showAddWallet = false;
+                selectedWalletType = null;
+                nwcConnectionString = '';
+                errorMessage = '';
+                sparkRestoreMode = 'options';
+                restoreMnemonicInput = '';
               }}
             >
-              {isDeletingWallet ? 'Removing...' : 'Remove'}
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  {/if}
-
-  <!-- Sync Lightning Address to Profile Confirmation Modal (Spark) -->
-  {#if showSyncConfirmModal && portalTarget}
-    <div use:portal={portalTarget}>
-      <div class="fixed inset-0 bg-black/50 flex z-50 p-4" style="display: flex; align-items: center; justify-content: center;">
-        <div class="rounded-2xl p-6 max-w-sm w-full max-h-[90vh] overflow-y-auto" style="background-color: var(--color-bg-primary);">
-          <h2 class="text-xl font-bold mb-2" style="color: var(--color-text-primary)">Sync to Profile</h2>
-          <p class="text-caption mb-4">
-            This will update your Nostr profile (kind 0) to include your lightning address:
-          </p>
-          <div class="p-3 rounded-lg mb-4 font-mono text-sm" style="background-color: var(--color-input-bg); color: var(--color-text-primary);">
-            {$sparkLightningAddressStore}
-          </div>
-          <p class="text-caption text-sm mb-6">
-            Your profile's <strong>lud16</strong> field will be updated. All other profile fields (name, bio, picture, etc.) will be preserved.
-          </p>
-          <div class="flex gap-3">
-            <Button on:click={() => showSyncConfirmModal = false} disabled={isSyncingProfile} class="flex-1">
               Cancel
-            </Button>
-            <button
-              class="flex-1 px-4 py-2 rounded-full bg-amber-500 hover:bg-amber-600 text-white font-medium transition-colors cursor-pointer disabled:opacity-50"
-              on:click={handleSyncToProfile}
-              disabled={isSyncingProfile}
-            >
-              {isSyncingProfile ? 'Syncing...' : 'Sync'}
             </button>
           </div>
         </div>
       </div>
-    </div>
-  {/if}
+    {/if}
 
-  <!-- Sync NWC Lightning Address to Profile Confirmation Modal -->
-  {#if showNwcSyncConfirmModal && portalTarget}
-    <div use:portal={portalTarget}>
-      <div class="fixed inset-0 bg-black/50 flex z-50 p-4" style="display: flex; align-items: center; justify-content: center;">
-        <div class="rounded-2xl p-6 max-w-sm w-full max-h-[90vh] overflow-y-auto" style="background-color: var(--color-bg-primary);">
-          <h2 class="text-xl font-bold mb-2" style="color: var(--color-text-primary)">Sync to Profile</h2>
-          <p class="text-caption mb-4">
-            This will update your Nostr profile (kind 0) to include the lightning address from your NWC wallet:
-          </p>
-          <div class="p-3 rounded-lg mb-4 font-mono text-sm" style="background-color: var(--color-input-bg); color: var(--color-text-primary);">
-            {nwcLud16}
-          </div>
-          <p class="text-caption text-sm mb-6">
-            Your profile's <strong>lud16</strong> field will be updated. All other profile fields (name, bio, picture, etc.) will be preserved.
-          </p>
-          <div class="flex gap-3">
-            <Button on:click={() => showNwcSyncConfirmModal = false} disabled={isSyncingProfile} class="flex-1">
-              Cancel
-            </Button>
-            <button
-              class="flex-1 px-4 py-2 rounded-full bg-amber-500 hover:bg-amber-600 text-white font-medium transition-colors cursor-pointer disabled:opacity-50"
-              on:click={handleNwcSyncToProfile}
-              disabled={isSyncingProfile}
-            >
-              {isSyncingProfile ? 'Syncing...' : 'Sync'}
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  {/if}
-
-  <!-- Remove Bitcoin Connect Confirmation Modal -->
-  {#if showRemoveBitcoinConnectModal && portalTarget}
-    <div use:portal={portalTarget}>
-      <div class="fixed inset-0 bg-black/50 flex z-50 p-4" style="display: flex; align-items: center; justify-content: center;">
-        <div class="rounded-2xl p-6 max-w-sm w-full max-h-[90vh] overflow-y-auto" style="background-color: var(--color-bg-primary);">
-          <h2 class="text-xl font-bold mb-2" style="color: var(--color-text-primary)">Remove External Wallet</h2>
-          <p class="text-caption mb-6">
-            Are you sure you want to disconnect your external wallet? You can reconnect it at any time from the wallet settings.
-          </p>
-          <div class="flex gap-3">
-            <Button on:click={() => showRemoveBitcoinConnectModal = false} class="flex-1">
-              Cancel
-            </Button>
-            <button
-              class="flex-1 px-4 py-2 rounded-full bg-red-500 hover:bg-red-600 text-white font-medium transition-colors cursor-pointer"
-              on:click={() => { handleDisableBitcoinConnect(); showRemoveBitcoinConnectModal = false; }}
-            >
-              Remove
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  {/if}
-
-  <!-- Delete Lightning Address Confirmation Modal -->
-  {#if showDeleteAddressConfirmModal && portalTarget}
-    <div use:portal={portalTarget}>
-      <div class="fixed inset-0 bg-black/50 flex z-50 p-4" style="display: flex; align-items: center; justify-content: center;">
-        <div class="rounded-2xl p-6 max-w-sm w-full max-h-[90vh] overflow-y-auto" style="background-color: var(--color-bg-primary);">
-          <h2 class="text-xl font-bold mb-2" style="color: var(--color-text-primary)">Delete Lightning Address</h2>
-          <p class="text-caption mb-4">
-            Are you sure you want to delete your lightning address?
-          </p>
-          <div class="p-3 rounded-lg mb-4 font-mono text-sm" style="background-color: var(--color-input-bg); color: var(--color-text-primary);">
-            {$sparkLightningAddressStore}
-          </div>
-          <p class="text-caption text-sm mb-6">
-            This will remove the address from your Breez Spark wallet. Payments sent to this address will no longer reach you. Your Nostr profile will not be changed.
-          </p>
-          <div class="flex gap-3">
-            <Button on:click={() => showDeleteAddressConfirmModal = false} disabled={isDeletingAddress} class="flex-1">
-              Cancel
-            </Button>
-            <button
-              class="flex-1 px-4 py-2 rounded-full bg-red-500 hover:bg-red-600 text-white font-medium transition-colors cursor-pointer disabled:opacity-50"
-              on:click={handleDeleteLightningAddress}
-              disabled={isDeletingAddress}
-            >
-              {isDeletingAddress ? 'Deleting...' : 'Delete'}
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  {/if}
-
-  <!-- Send Modal -->
-  {#if showSendModal && portalTarget}
-    <div use:portal={portalTarget}>
-      <div class="fixed inset-0 bg-black/50 flex z-50 p-4" style="display: flex; align-items: center; justify-content: center;">
-      <div class="rounded-2xl p-6 max-w-md w-full max-h-[90vh] overflow-y-auto" style="background-color: var(--color-bg-primary);">
-        <div class="flex items-center justify-between mb-6">
-          <h2 class="text-xl font-bold flex items-center gap-2" style="color: var(--color-text-primary)">
-            <ArrowUpIcon size={24} weight="bold" class="text-amber-500" />
-            Send Payment
-          </h2>
-          <button
-            class="p-2 rounded-full hover:bg-input transition-colors"
-            on:click={() => { showSendModal = false; resetSendModal(); }}
+    <!-- Mnemonic Display Modal (after wallet creation) -->
+    {#if showMnemonic && sparkMnemonic && portalTarget}
+      <div use:portal={portalTarget}>
+        <div
+          class="fixed inset-0 bg-black/50 flex z-50 p-4"
+          style="display: flex; align-items: center; justify-content: center;"
+        >
+          <div
+            class="rounded-2xl p-6 max-w-md w-full max-h-[90vh] overflow-y-auto"
+            style="background-color: var(--color-bg-primary);"
           >
-            <XIcon size={20} class="text-caption" />
-          </button>
-        </div>
-
-        {#if sendSuccess}
-          <div class="mb-4 p-4 rounded-lg flex items-center gap-2" style="background-color: rgba(34, 197, 94, 0.1); color: #22c55e;">
-            <CheckCircleIcon size={20} />
-            <span>{sendSuccess}</span>
-          </div>
-        {/if}
-
-        {#if sendError}
-          <div class="mb-4 p-4 rounded-lg flex items-center gap-2" style="background-color: rgba(239, 68, 68, 0.1); color: #ef4444;">
-            <WarningIcon size={20} />
-            <span>{sendError}</span>
-          </div>
-        {/if}
-
-        <div class="space-y-4">
-          <div>
-            <label class="block text-sm font-medium mb-2 text-caption">Invoice or Lightning Address</label>
-            <textarea
-              bind:value={sendInput}
-              placeholder="lnbc... or user@example.com"
-              class="w-full p-3 rounded-lg bg-input border border-input text-primary-color placeholder-caption resize-none focus:outline-none focus:ring-2 focus:ring-amber-500"
-              rows="3"
-              disabled={isSending}
-            />
-          </div>
-
-          {#if isLightningAddress}
-            <div>
-              <label class="block text-sm font-medium mb-2 text-caption">Amount (sats)</label>
-              <input
-                type="number"
-                bind:value={sendAmount}
-                placeholder="Enter amount in sats"
-                class="w-full p-3 rounded-lg bg-input border border-input text-primary-color placeholder-caption focus:outline-none focus:ring-2 focus:ring-amber-500"
-                disabled={isSending}
-                min="1"
-              />
-            </div>
-            <div>
-              <label class="block text-sm font-medium mb-2 text-caption">Message (optional)</label>
-              <input
-                type="text"
-                bind:value={sendComment}
-                placeholder="Add a note to your payment"
-                class="w-full p-3 rounded-lg bg-input border border-input text-primary-color placeholder-caption focus:outline-none focus:ring-2 focus:ring-amber-500"
-                disabled={isSending}
-                maxlength="144"
-              />
-            </div>
-          {/if}
-
-          <button
-            class="w-full py-3 px-4 rounded-xl bg-amber-500 hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium transition-colors flex items-center justify-center gap-2"
-            on:click={handleSend}
-            disabled={isSending || !sendInput.trim() || (isLightningAddress && sendAmount <= 0)}
-          >
-            {#if isSending}
-              <span class="animate-spin"><ArrowsClockwiseIcon size={20} /></span>
-              Sending...
-            {:else}
-              <ArrowUpIcon size={20} weight="bold" />
-              Send Payment
-            {/if}
-          </button>
-        </div>
-      </div>
-      </div>
-    </div>
-  {/if}
-
-  <!-- Receive Modal -->
-  {#if showReceiveModal && portalTarget}
-    <div use:portal={portalTarget}>
-      <div class="fixed inset-0 bg-black/50 flex z-50 p-4" style="display: flex; align-items: center; justify-content: center;">
-      <div class="rounded-2xl p-6 max-w-md w-full max-h-[90vh] overflow-y-auto" style="background-color: var(--color-bg-primary);">
-        <div class="flex items-center justify-between mb-6">
-          <h2 class="text-xl font-bold flex items-center gap-2" style="color: var(--color-text-primary)">
-            <ArrowDownIcon size={24} weight="bold" class="text-amber-500" />
-            Receive Payment
-          </h2>
-          {#if !invoicePaid}
-            <button
-              class="p-2 rounded-full hover:bg-input transition-colors"
-              on:click={() => { showReceiveModal = false; resetReceiveModal(); }}
+            <h2 class="text-xl font-bold mb-4" style="color: var(--color-text-primary)">
+              Save Your Recovery Phrase
+            </h2>
+            <div
+              class="mb-4 p-4 rounded-lg"
+              style="background-color: rgba(239, 68, 68, 0.1); color: #ef4444;"
             >
-              <XIcon size={20} class="text-caption" />
-            </button>
-          {/if}
-        </div>
-
-        {#if receiveError}
-          <div class="mb-4 p-4 rounded-lg flex items-center gap-2" style="background-color: rgba(239, 68, 68, 0.1); color: #ef4444;">
-            <WarningIcon size={20} />
-            <span>{receiveError}</span>
+              <WarningIcon size={20} class="inline mr-2" />
+              Write down these 12 words and store them securely. If you lose them, you will lose access
+              to your wallet.
+            </div>
+            <div
+              class="p-4 rounded-lg mb-4 font-mono text-sm"
+              style="background-color: var(--color-input-bg); color: var(--color-text-primary);"
+            >
+              {sparkMnemonic}
+            </div>
+            <Button on:click={closeMnemonicModal} class="w-full"
+              >I've Saved My Recovery Phrase</Button
+            >
           </div>
-        {/if}
+        </div>
+      </div>
+    {/if}
 
-        {#if !generatedInvoice}
-          <!-- Amount Selection -->
-          <div class="space-y-4">
-            <div>
-              <label class="block text-sm font-medium mb-3 text-caption">Select Amount</label>
-              <div class="grid grid-cols-3 gap-2">
-                {#each RECEIVE_PRESETS as preset}
-                  <button
-                    class="py-3 px-2 rounded-lg border border-input hover:border-amber-500 hover:bg-amber-500/10 text-primary-color font-medium transition-colors"
-                    on:click={() => handleGenerateInvoice(preset)}
-                    disabled={isGeneratingInvoice}
-                  >
-                    {formatAmount(preset)}
-                  </button>
-                {/each}
+    <!-- Reveal Mnemonic Modal - higher z-index to appear above other modals -->
+    {#if revealedMnemonic && portalTarget}
+      <div use:portal={portalTarget}>
+        <div
+          class="fixed inset-0 bg-black/50 flex z-[60] p-4"
+          style="display: flex; align-items: center; justify-content: center;"
+        >
+          <div
+            class="rounded-2xl p-6 max-w-md w-full max-h-[90vh] overflow-y-auto"
+            style="background-color: var(--color-bg-primary);"
+          >
+            <h2 class="text-xl font-bold mb-4" style="color: var(--color-text-primary)">
+              Recovery Phrase
+            </h2>
+            <div
+              class="mb-4 p-4 rounded-lg"
+              style="background-color: rgba(239, 68, 68, 0.1); color: #ef4444;"
+            >
+              <WarningIcon size={20} class="inline mr-2" />
+              Never share this phrase with anyone. Anyone with these words can access your funds.
+            </div>
+            <div
+              class="p-4 rounded-lg mb-4 font-mono text-sm select-all"
+              style="background-color: var(--color-input-bg); color: var(--color-text-primary);"
+            >
+              {revealedMnemonic}
+            </div>
+            <Button on:click={closeRevealMnemonicModal} class="w-full">Close</Button>
+          </div>
+        </div>
+      </div>
+    {/if}
+
+    <!-- NWC Wallet Info Modal -->
+    {#if nwcWalletInfo && portalTarget}
+      <div use:portal={portalTarget}>
+        <div
+          class="fixed inset-0 bg-black/50 flex z-50 p-4"
+          style="display: flex; align-items: center; justify-content: center;"
+        >
+          <div
+            class="rounded-2xl p-6 max-w-md w-full max-h-[90vh] overflow-y-auto"
+            style="background-color: var(--color-bg-primary);"
+          >
+            <h2 class="text-xl font-bold mb-4" style="color: var(--color-text-primary)">
+              Wallet Info
+            </h2>
+
+            <div class="space-y-4">
+              {#if nwcWalletInfo.alias}
+                <div>
+                  <div class="text-xs text-caption uppercase tracking-wide mb-1">Wallet Name</div>
+                  <div class="font-medium" style="color: var(--color-text-primary)">
+                    {nwcWalletInfo.alias}
+                  </div>
+                </div>
+              {/if}
+
+              <div>
+                <div class="text-xs text-caption uppercase tracking-wide mb-1">Relay</div>
+                <div class="text-sm font-mono break-all" style="color: var(--color-text-primary)">
+                  {nwcWalletInfo.relay}
+                </div>
+              </div>
+
+              <div>
+                <div class="text-xs text-caption uppercase tracking-wide mb-1">Wallet Pubkey</div>
+                <div class="text-sm font-mono break-all" style="color: var(--color-text-primary)">
+                  {nwcWalletInfo.pubkey}
+                </div>
+              </div>
+
+              <div>
+                <div class="text-xs text-caption uppercase tracking-wide mb-1">
+                  Supported Methods
+                </div>
+                <div class="flex flex-wrap gap-1 mt-1">
+                  {#each nwcWalletInfo.methods as method}
+                    <span
+                      class="text-xs px-2 py-1 rounded-full"
+                      style="background-color: var(--color-input-bg); color: var(--color-text-primary);"
+                    >
+                      {method}
+                    </span>
+                  {/each}
+                </div>
               </div>
             </div>
 
-            <div class="flex items-center gap-3 text-caption text-sm">
-              <div class="flex-1 h-px bg-input"></div>
-              <span>or enter custom amount</span>
-              <div class="flex-1 h-px bg-input"></div>
-            </div>
+            <Button on:click={closeNwcInfoModal} class="w-full mt-6">Close</Button>
+          </div>
+        </div>
+      </div>
+    {/if}
 
-            <div class="flex gap-2">
-              <input
-                type="number"
-                bind:value={customReceiveAmount}
-                placeholder="Custom amount in sats"
-                class="flex-1 p-3 rounded-lg bg-input border border-input text-primary-color placeholder-caption focus:outline-none focus:ring-2 focus:ring-amber-500"
-                disabled={isGeneratingInvoice}
-                min="1"
-              />
-              <button
-                class="py-3 px-4 rounded-lg bg-amber-500 hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium transition-colors"
-                on:click={() => handleGenerateInvoice()}
-                disabled={isGeneratingInvoice || !customReceiveAmount || parseInt(customReceiveAmount) <= 0}
+    <!-- Remove Wallet Confirmation Modal -->
+    {#if walletToDelete && portalTarget}
+      <div use:portal={portalTarget}>
+        <div
+          class="fixed inset-0 bg-black/50 flex z-50 p-4"
+          style="display: flex; align-items: center; justify-content: center;"
+        >
+          <div
+            class="rounded-2xl p-6 max-w-md w-full max-h-[90vh] overflow-y-auto"
+            style="background-color: var(--color-bg-primary);"
+          >
+            <h2 class="text-xl font-bold mb-4" style="color: var(--color-text-primary)">
+              Remove Wallet
+            </h2>
+
+            <p class="text-caption mb-4">
+              Are you sure you want to remove <strong class="text-primary-color"
+                >{walletToDelete.name}</strong
+              >?
+            </p>
+
+            {#if walletToDelete.kind === 4 || walletToDelete.kind === 3}
+              <!-- Backup options section -->
+              <div
+                class="p-4 rounded-xl mb-4"
+                style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);"
               >
-                {#if isGeneratingInvoice}
-                  <span class="animate-spin"><ArrowsClockwiseIcon size={20} /></span>
-                {:else}
-                  Generate
-                {/if}
+                <div class="flex items-center gap-2 mb-3">
+                  <WarningIcon size={18} class="text-amber-500" />
+                  <span class="text-sm font-medium text-amber-500">Save a backup first</span>
+                </div>
+
+                <div
+                  class="grid gap-2"
+                  class:grid-cols-2={encryptionSupported}
+                  class:grid-cols-1={!encryptionSupported}
+                >
+                  {#if walletToDelete.kind === 4}
+                    <!-- Spark wallet: Download JSON backup (encrypted) -->
+                    {#if encryptionSupported}
+                      <button
+                        class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer bg-amber-500 hover:bg-amber-600 text-black"
+                        on:click={handleDownloadBackup}
+                        disabled={isBackingUp}
+                      >
+                        <DownloadSimpleIcon size={16} />
+                        Download JSON
+                      </button>
+                    {:else}
+                      <!-- Fallback to Recovery Phrase if encryption not supported -->
+                      <button
+                        class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer bg-amber-500 hover:bg-amber-600 text-black"
+                        on:click={handleRevealMnemonic}
+                      >
+                        <KeyIcon size={16} />
+                        Recovery Phrase
+                      </button>
+                    {/if}
+                  {:else}
+                    <!-- NWC wallet: Download works without encryption -->
+                    <button
+                      class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer bg-amber-500 hover:bg-amber-600 text-black"
+                      on:click={() => handleDownloadNwcBackup(walletToDelete)}
+                      disabled={isBackingUp}
+                    >
+                      <DownloadSimpleIcon size={16} />
+                      Download
+                    </button>
+                  {/if}
+                  {#if encryptionSupported}
+                    <button
+                      class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer bg-black hover:bg-gray-800 text-white"
+                      on:click={() =>
+                        walletToDelete.kind === 4
+                          ? handleBackupToNostr()
+                          : handleNwcBackupToNostr(walletToDelete)}
+                      disabled={isBackingUp}
+                    >
+                      <CloudArrowUpIcon size={16} />
+                      {isBackingUp ? 'Saving...' : 'Backup to Nostr'}
+                    </button>
+                  {/if}
+                </div>
+              </div>
+
+              <!-- Delete relay backup toggle button -->
+              <button
+                class="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer mb-4"
+                class:bg-red-500={deleteRelayBackups}
+                class:hover:bg-red-600={deleteRelayBackups}
+                class:text-white={deleteRelayBackups}
+                style={deleteRelayBackups
+                  ? ''
+                  : 'background-color: var(--color-input-bg); border: 1px solid var(--color-input-border); color: var(--color-text-caption);'}
+                on:click={() => (deleteRelayBackups = !deleteRelayBackups)}
+              >
+                <TrashIcon size={14} />
+                {deleteRelayBackups ? 'Will delete relay backup' : 'Delete relay backup'}
+              </button>
+            {:else}
+              <p class="text-caption text-sm mb-4">You can reconnect it later.</p>
+            {/if}
+
+            <div class="flex gap-3">
+              <Button
+                on:click={() => {
+                  walletToDelete = null;
+                  deleteRelayBackups = false;
+                }}
+                disabled={isDeletingWallet}
+                class="flex-1"
+              >
+                Cancel
+              </Button>
+              <button
+                class="flex-1 px-4 py-2 rounded-full bg-red-500 hover:bg-red-600 text-white font-medium transition-colors cursor-pointer disabled:opacity-50"
+                disabled={isDeletingWallet}
+                on:click={async () => {
+                  if (walletToDelete) {
+                    isDeletingWallet = true;
+                    try {
+                      // Delete relay backups if checkbox is checked
+                      if (deleteRelayBackups && $userPublickey) {
+                        try {
+                          if (walletToDelete.kind === 4) {
+                            await deleteSparkBackupFromNostr($userPublickey);
+                          } else if (walletToDelete.kind === 3) {
+                            await deleteNwcBackupFromNostr($userPublickey);
+                          }
+                        } catch (e) {
+                          console.error('Failed to delete relay backups:', e);
+                          // Continue with wallet removal even if backup deletion fails
+                        }
+                      }
+                      await handleDisconnectWallet(walletToDelete.id);
+                      walletToDelete = null;
+                      deleteRelayBackups = false;
+                    } finally {
+                      isDeletingWallet = false;
+                    }
+                  }
+                }}
+              >
+                {isDeletingWallet ? 'Removing...' : 'Remove'}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    {/if}
+
+    <!-- Sync Lightning Address to Profile Confirmation Modal (Spark) -->
+    {#if showSyncConfirmModal && portalTarget}
+      <div use:portal={portalTarget}>
+        <div
+          class="fixed inset-0 bg-black/50 flex z-50 p-4"
+          style="display: flex; align-items: center; justify-content: center;"
+        >
+          <div
+            class="rounded-2xl p-6 max-w-sm w-full max-h-[90vh] overflow-y-auto"
+            style="background-color: var(--color-bg-primary);"
+          >
+            <h2 class="text-xl font-bold mb-2" style="color: var(--color-text-primary)">
+              Sync to Profile
+            </h2>
+            <p class="text-caption mb-4">
+              This will update your Nostr profile (kind 0) to include your lightning address:
+            </p>
+            <div
+              class="p-3 rounded-lg mb-4 font-mono text-sm"
+              style="background-color: var(--color-input-bg); color: var(--color-text-primary);"
+            >
+              {$sparkLightningAddressStore}
+            </div>
+            <p class="text-caption text-sm mb-6">
+              Your profile's <strong>lud16</strong> field will be updated. All other profile fields (name,
+              bio, picture, etc.) will be preserved.
+            </p>
+            <div class="flex gap-3">
+              <Button
+                on:click={() => (showSyncConfirmModal = false)}
+                disabled={isSyncingProfile}
+                class="flex-1"
+              >
+                Cancel
+              </Button>
+              <button
+                class="flex-1 px-4 py-2 rounded-full bg-amber-500 hover:bg-amber-600 text-white font-medium transition-colors cursor-pointer disabled:opacity-50"
+                on:click={handleSyncToProfile}
+                disabled={isSyncingProfile}
+              >
+                {isSyncingProfile ? 'Syncing...' : 'Sync'}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    {/if}
+
+    <!-- Sync NWC Lightning Address to Profile Confirmation Modal -->
+    {#if showNwcSyncConfirmModal && portalTarget}
+      <div use:portal={portalTarget}>
+        <div
+          class="fixed inset-0 bg-black/50 flex z-50 p-4"
+          style="display: flex; align-items: center; justify-content: center;"
+        >
+          <div
+            class="rounded-2xl p-6 max-w-sm w-full max-h-[90vh] overflow-y-auto"
+            style="background-color: var(--color-bg-primary);"
+          >
+            <h2 class="text-xl font-bold mb-2" style="color: var(--color-text-primary)">
+              Sync to Profile
+            </h2>
+            <p class="text-caption mb-4">
+              This will update your Nostr profile (kind 0) to include the lightning address from
+              your NWC wallet:
+            </p>
+            <div
+              class="p-3 rounded-lg mb-4 font-mono text-sm"
+              style="background-color: var(--color-input-bg); color: var(--color-text-primary);"
+            >
+              {nwcLud16}
+            </div>
+            <p class="text-caption text-sm mb-6">
+              Your profile's <strong>lud16</strong> field will be updated. All other profile fields (name,
+              bio, picture, etc.) will be preserved.
+            </p>
+            <div class="flex gap-3">
+              <Button
+                on:click={() => (showNwcSyncConfirmModal = false)}
+                disabled={isSyncingProfile}
+                class="flex-1"
+              >
+                Cancel
+              </Button>
+              <button
+                class="flex-1 px-4 py-2 rounded-full bg-amber-500 hover:bg-amber-600 text-white font-medium transition-colors cursor-pointer disabled:opacity-50"
+                on:click={handleNwcSyncToProfile}
+                disabled={isSyncingProfile}
+              >
+                {isSyncingProfile ? 'Syncing...' : 'Sync'}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    {/if}
+
+    <!-- Remove Bitcoin Connect Confirmation Modal -->
+    {#if showRemoveBitcoinConnectModal && portalTarget}
+      <div use:portal={portalTarget}>
+        <div
+          class="fixed inset-0 bg-black/50 flex z-50 p-4"
+          style="display: flex; align-items: center; justify-content: center;"
+        >
+          <div
+            class="rounded-2xl p-6 max-w-sm w-full max-h-[90vh] overflow-y-auto"
+            style="background-color: var(--color-bg-primary);"
+          >
+            <h2 class="text-xl font-bold mb-2" style="color: var(--color-text-primary)">
+              Remove External Wallet
+            </h2>
+            <p class="text-caption mb-6">
+              Are you sure you want to disconnect your external wallet? You can reconnect it at any
+              time from the wallet settings.
+            </p>
+            <div class="flex gap-3">
+              <Button on:click={() => (showRemoveBitcoinConnectModal = false)} class="flex-1">
+                Cancel
+              </Button>
+              <button
+                class="flex-1 px-4 py-2 rounded-full bg-red-500 hover:bg-red-600 text-white font-medium transition-colors cursor-pointer"
+                on:click={() => {
+                  handleDisableBitcoinConnect();
+                  showRemoveBitcoinConnectModal = false;
+                }}
+              >
+                Remove
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    {/if}
+
+    <!-- Delete Lightning Address Confirmation Modal -->
+    {#if showDeleteAddressConfirmModal && portalTarget}
+      <div use:portal={portalTarget}>
+        <div
+          class="fixed inset-0 bg-black/50 flex z-50 p-4"
+          style="display: flex; align-items: center; justify-content: center;"
+        >
+          <div
+            class="rounded-2xl p-6 max-w-sm w-full max-h-[90vh] overflow-y-auto"
+            style="background-color: var(--color-bg-primary);"
+          >
+            <h2 class="text-xl font-bold mb-2" style="color: var(--color-text-primary)">
+              Delete Lightning Address
+            </h2>
+            <p class="text-caption mb-4">Are you sure you want to delete your lightning address?</p>
+            <div
+              class="p-3 rounded-lg mb-4 font-mono text-sm"
+              style="background-color: var(--color-input-bg); color: var(--color-text-primary);"
+            >
+              {$sparkLightningAddressStore}
+            </div>
+            <p class="text-caption text-sm mb-6">
+              This will remove the address from your Breez Spark wallet. Payments sent to this
+              address will no longer reach you. Your Nostr profile will not be changed.
+            </p>
+            <div class="flex gap-3">
+              <Button
+                on:click={() => (showDeleteAddressConfirmModal = false)}
+                disabled={isDeletingAddress}
+                class="flex-1"
+              >
+                Cancel
+              </Button>
+              <button
+                class="flex-1 px-4 py-2 rounded-full bg-red-500 hover:bg-red-600 text-white font-medium transition-colors cursor-pointer disabled:opacity-50"
+                on:click={handleDeleteLightningAddress}
+                disabled={isDeletingAddress}
+              >
+                {isDeletingAddress ? 'Deleting...' : 'Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    {/if}
+
+    <!-- Send Modal -->
+    {#if showSendModal && portalTarget}
+      <div use:portal={portalTarget}>
+        <div
+          class="fixed inset-0 bg-black/50 flex z-50 p-4"
+          style="display: flex; align-items: center; justify-content: center;"
+        >
+          <div
+            class="rounded-2xl p-6 max-w-md w-full max-h-[90vh] overflow-y-auto"
+            style="background-color: var(--color-bg-primary);"
+          >
+            <div class="flex items-center justify-between mb-6">
+              <h2
+                class="text-xl font-bold flex items-center gap-2"
+                style="color: var(--color-text-primary)"
+              >
+                <ArrowUpIcon size={24} weight="bold" class="text-amber-500" />
+                Send Payment
+              </h2>
+              <button
+                class="p-2 rounded-full hover:bg-input transition-colors"
+                on:click={() => {
+                  showSendModal = false;
+                  resetSendModal();
+                }}
+              >
+                <XIcon size={20} class="text-caption" />
               </button>
             </div>
 
-            <!-- Lightning Address Section -->
-            {#if $activeWallet?.kind === 3}
-              <!-- NWC wallet -->
-              {#if nwcLud16}
-                <div class="mt-6">
-                  <div class="flex items-center gap-3 text-caption text-sm mb-4">
-                    <div class="flex-1 h-px bg-input"></div>
-                    <span>or receive via Lightning Address</span>
-                    <div class="flex-1 h-px bg-input"></div>
-                  </div>
-
-                  <div class="p-4 rounded-lg bg-input flex items-center justify-between gap-3">
-                    <div class="flex items-center gap-2 min-w-0">
-                      <LightningIcon size={20} class="text-amber-500 flex-shrink-0" />
-                      <span class="text-primary-color font-mono text-sm truncate">{nwcLud16}</span>
-                    </div>
-                    <div class="flex items-center gap-1">
-                      <button
-                        class="flex-shrink-0 p-2 rounded-lg hover:bg-primary/10 transition-colors"
-                        on:click={() => showLightningAddressQr = showLightningAddressQr === nwcLud16 ? null : nwcLud16}
-                        title="Show QR code"
-                      >
-                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 256 256" class="text-caption hover:text-amber-500"><path fill="currentColor" d="M104 40H56a16 16 0 0 0-16 16v48a16 16 0 0 0 16 16h48a16 16 0 0 0 16-16V56a16 16 0 0 0-16-16Zm0 64H56V56h48v48Zm0 32H56a16 16 0 0 0-16 16v48a16 16 0 0 0 16 16h48a16 16 0 0 0 16-16v-48a16 16 0 0 0-16-16Zm0 64H56v-48h48v48Zm96-160h-48a16 16 0 0 0-16 16v48a16 16 0 0 0 16 16h48a16 16 0 0 0 16-16V56a16 16 0 0 0-16-16Zm0 64h-48V56h48v48Zm-64 72v-8a8 8 0 0 1 16 0v8a8 8 0 0 1-16 0Zm80-24h-24v-8a8 8 0 0 1 16 0v8h8a8 8 0 0 1 0 16Zm0 48a8 8 0 0 1-8 8h-16v8a8 8 0 0 1-16 0v-16a8 8 0 0 1 8-8h24a8 8 0 0 1 8 8Zm-48 24a8 8 0 0 1-8 8h-8a8 8 0 0 1 0-16h8a8 8 0 0 1 8 8Zm48-48v16a8 8 0 0 1-16 0v-16a8 8 0 0 1 16 0Z"/></svg>
-                      </button>
-                      <button
-                        class="flex-shrink-0 p-2 rounded-lg hover:bg-primary/10 transition-colors"
-                        on:click={async () => {
-                          const copied = await copyToClipboard(nwcLud16);
-                          if (copied) {
-                            successMessage = 'Lightning address copied!';
-                            setTimeout(() => successMessage = '', 2000);
-                          }
-                        }}
-                        title="Copy Lightning address"
-                      >
-                        <CopyIcon size={18} class="text-caption hover:text-amber-500" />
-                      </button>
-                    </div>
-                  </div>
-
-                  {#if showLightningAddressQr === nwcLud16}
-                    <div class="mt-4 p-4 rounded-lg bg-white flex justify-center" style="color: #000000;">
-                      <svg use:qr={{ data: nwcLud16, shape: 'circle' }} class="w-48 h-48" />
-                    </div>
-                  {/if}
-                </div>
-              {:else}
-                <!-- NWC without lud16 - show disclaimer -->
-                <div class="mt-6">
-                  <div class="p-4 rounded-lg bg-input/50 text-center">
-                    <InfoIcon size={24} class="text-caption mx-auto mb-2" />
-                    <p class="text-sm text-caption">
-                      Your NWC connection doesn't include a Lightning address. Generate an invoice above to receive payments.
-                    </p>
-                  </div>
-                </div>
-              {/if}
-            {:else if $activeWallet?.kind === 4}
-              <!-- Spark wallet -->
-              {#if $sparkLightningAddressStore}
-                <div class="mt-6">
-                  <div class="flex items-center gap-3 text-caption text-sm mb-4">
-                    <div class="flex-1 h-px bg-input"></div>
-                    <span>or receive via Lightning Address</span>
-                    <div class="flex-1 h-px bg-input"></div>
-                  </div>
-
-                  <div class="p-4 rounded-lg bg-input flex items-center justify-between gap-3">
-                    <div class="flex items-center gap-2 min-w-0">
-                      <LightningIcon size={20} class="text-amber-500 flex-shrink-0" />
-                      <span class="text-primary-color font-mono text-sm truncate">{$sparkLightningAddressStore}</span>
-                    </div>
-                    <div class="flex items-center gap-1">
-                      <button
-                        class="flex-shrink-0 p-2 rounded-lg hover:bg-primary/10 transition-colors"
-                        on:click={() => showLightningAddressQr = showLightningAddressQr === $sparkLightningAddressStore ? null : $sparkLightningAddressStore}
-                        title="Show QR code"
-                      >
-                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 256 256" class="text-caption hover:text-amber-500"><path fill="currentColor" d="M104 40H56a16 16 0 0 0-16 16v48a16 16 0 0 0 16 16h48a16 16 0 0 0 16-16V56a16 16 0 0 0-16-16Zm0 64H56V56h48v48Zm0 32H56a16 16 0 0 0-16 16v48a16 16 0 0 0 16 16h48a16 16 0 0 0 16-16v-48a16 16 0 0 0-16-16Zm0 64H56v-48h48v48Zm96-160h-48a16 16 0 0 0-16 16v48a16 16 0 0 0 16 16h48a16 16 0 0 0 16-16V56a16 16 0 0 0-16-16Zm0 64h-48V56h48v48Zm-64 72v-8a8 8 0 0 1 16 0v8a8 8 0 0 1-16 0Zm80-24h-24v-8a8 8 0 0 1 16 0v8h8a8 8 0 0 1 0 16Zm0 48a8 8 0 0 1-8 8h-16v8a8 8 0 0 1-16 0v-16a8 8 0 0 1 8-8h24a8 8 0 0 1 8 8Zm-48 24a8 8 0 0 1-8 8h-8a8 8 0 0 1 0-16h8a8 8 0 0 1 8 8Zm48-48v16a8 8 0 0 1-16 0v-16a8 8 0 0 1 16 0Z"/></svg>
-                      </button>
-                      <button
-                        class="flex-shrink-0 p-2 rounded-lg hover:bg-primary/10 transition-colors"
-                        on:click={async () => {
-                          const copied = await copyToClipboard($sparkLightningAddressStore || '');
-                          if (copied) {
-                            successMessage = 'Lightning address copied!';
-                            setTimeout(() => successMessage = '', 2000);
-                          }
-                        }}
-                        title="Copy Lightning address"
-                      >
-                        <CopyIcon size={18} class="text-caption hover:text-amber-500" />
-                      </button>
-                    </div>
-                  </div>
-
-                  {#if showLightningAddressQr === $sparkLightningAddressStore}
-                    <div class="mt-4 p-4 rounded-lg bg-white flex justify-center" style="color: #000000;">
-                      <svg use:qr={{ data: $sparkLightningAddressStore, shape: 'circle' }} class="w-48 h-48" />
-                    </div>
-                  {/if}
-                </div>
-              {:else}
-                <div class="mt-6">
-                  <p class="text-sm text-caption text-center">
-                    Register a Lightning address in your wallet settings to receive payments easily.
-                  </p>
-                </div>
-              {/if}
+            {#if sendSuccess}
+              <div
+                class="mb-4 p-4 rounded-lg flex items-center gap-2"
+                style="background-color: rgba(34, 197, 94, 0.1); color: #22c55e;"
+              >
+                <CheckCircleIcon size={20} />
+                <span>{sendSuccess}</span>
+              </div>
             {/if}
-          </div>
-        {:else}
-          <!-- Invoice Generated - Show QR and copy options -->
-          <div class="space-y-4 text-center">
-            {#if invoicePaid}
-              <!-- Payment received! -->
-              <div class="py-8">
-                <div class="w-20 h-20 mx-auto mb-4 rounded-full bg-green-500/20 flex items-center justify-center">
-                  <CheckCircleIcon size={48} class="text-green-500" weight="fill" />
-                </div>
-                <div class="text-xl font-bold text-green-500 mb-2">Payment Received!</div>
-                <div class="text-lg text-primary-color">{formatBalance(receiveAmount)} sats</div>
+
+            {#if sendError}
+              <div
+                class="mb-4 p-4 rounded-lg flex items-center gap-2"
+                style="background-color: rgba(239, 68, 68, 0.1); color: #ef4444;"
+              >
+                <WarningIcon size={20} />
+                <span>{sendError}</span>
               </div>
-            {:else}
-              <div class="text-lg font-medium text-primary-color">
-                Invoice for {formatBalance(receiveAmount)} sats
+            {/if}
+
+            <div class="space-y-4">
+              <div>
+                <label class="block text-sm font-medium mb-2 text-caption"
+                  >Invoice or Lightning Address</label
+                >
+                <textarea
+                  bind:value={sendInput}
+                  placeholder="lnbc... or user@example.com"
+                  class="w-full p-3 rounded-lg bg-input border border-input text-primary-color placeholder-caption resize-none focus:outline-none focus:ring-2 focus:ring-amber-500"
+                  rows="3"
+                  disabled={isSending}
+                />
               </div>
 
-              <!-- QR Code -->
-              {#if generatedInvoice && generatedInvoice.length > 0}
-                <div class="qr-wrapper self-center p-4 rounded-xl bg-white" style="width: 100%;">
-                  <svg class="w-full"
-                    use:qr={{
-                      data: generatedInvoice,
-                      shape: "circle",
-                      width: 100,
-                      height: 100,
-                    }}
+              {#if isLightningAddress}
+                <div>
+                  <label class="block text-sm font-medium mb-2 text-caption">Amount (sats)</label>
+                  <input
+                    type="number"
+                    bind:value={sendAmount}
+                    placeholder="Enter amount in sats"
+                    class="w-full p-3 rounded-lg bg-input border border-input text-primary-color placeholder-caption focus:outline-none focus:ring-2 focus:ring-amber-500"
+                    disabled={isSending}
+                    min="1"
+                  />
+                </div>
+                <div>
+                  <label class="block text-sm font-medium mb-2 text-caption"
+                    >Message (optional)</label
+                  >
+                  <input
+                    type="text"
+                    bind:value={sendComment}
+                    placeholder="Add a note to your payment"
+                    class="w-full p-3 rounded-lg bg-input border border-input text-primary-color placeholder-caption focus:outline-none focus:ring-2 focus:ring-amber-500"
+                    disabled={isSending}
+                    maxlength="144"
                   />
                 </div>
               {/if}
 
-              <div class="p-3 rounded-lg bg-input">
-                <div class="text-xs text-caption mb-2">Invoice</div>
-                <div class="font-mono text-xs text-primary-color break-all max-h-24 overflow-y-auto">
-                  {generatedInvoice}
-                </div>
-              </div>
+              <button
+                class="w-full py-3 px-4 rounded-xl bg-amber-500 hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium transition-colors flex items-center justify-center gap-2"
+                on:click={handleSend}
+                disabled={isSending || !sendInput.trim() || (isLightningAddress && sendAmount <= 0)}
+              >
+                {#if isSending}
+                  <span class="animate-spin"><ArrowsClockwiseIcon size={20} /></span>
+                  Sending...
+                {:else}
+                  <ArrowUpIcon size={20} weight="bold" />
+                  Send Payment
+                {/if}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    {/if}
 
-              <div class="flex gap-2">
+    <!-- Receive Modal -->
+    {#if showReceiveModal && portalTarget}
+      <div use:portal={portalTarget}>
+        <div
+          class="fixed inset-0 bg-black/50 flex z-50 p-4"
+          style="display: flex; align-items: center; justify-content: center;"
+        >
+          <div
+            class="rounded-2xl p-6 max-w-md w-full max-h-[90vh] overflow-y-auto"
+            style="background-color: var(--color-bg-primary);"
+          >
+            <div class="flex items-center justify-between mb-6">
+              <h2
+                class="text-xl font-bold flex items-center gap-2"
+                style="color: var(--color-text-primary)"
+              >
+                <ArrowDownIcon size={24} weight="bold" class="text-amber-500" />
+                Receive Payment
+              </h2>
+              {#if !invoicePaid}
                 <button
-                  class="flex-1 py-3 px-4 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-medium transition-colors flex items-center justify-center gap-2"
-                  on:click={async () => {
-                    const copied = await copyToClipboard(generatedInvoice);
-                    if (copied) {
-                      successMessage = 'Invoice copied!';
-                      setTimeout(() => successMessage = '', 2000);
-                    }
+                  class="p-2 rounded-full hover:bg-input transition-colors"
+                  on:click={() => {
+                    showReceiveModal = false;
+                    resetReceiveModal();
                   }}
                 >
-                  <CopyIcon size={20} />
-                  Copy Invoice
+                  <XIcon size={20} class="text-caption" />
                 </button>
-                <button
-                  class="py-3 px-4 rounded-xl border border-input hover:bg-input text-primary-color font-medium transition-colors"
-                  on:click={() => { showReceiveModal = false; resetReceiveModal(); }}
-                >
-                  New Invoice
-                </button>
+              {/if}
+            </div>
+
+            {#if receiveError}
+              <div
+                class="mb-4 p-4 rounded-lg flex items-center gap-2"
+                style="background-color: rgba(239, 68, 68, 0.1); color: #ef4444;"
+              >
+                <WarningIcon size={20} />
+                <span>{receiveError}</span>
+              </div>
+            {/if}
+
+            {#if !generatedInvoice}
+              <!-- Amount Selection -->
+              <div class="space-y-4">
+                <div>
+                  <label class="block text-sm font-medium mb-3 text-caption">Select Amount</label>
+                  <div class="grid grid-cols-3 gap-2">
+                    {#each RECEIVE_PRESETS as preset}
+                      <button
+                        class="py-3 px-2 rounded-lg border border-input hover:border-amber-500 hover:bg-amber-500/10 text-primary-color font-medium transition-colors"
+                        on:click={() => handleGenerateInvoice(preset)}
+                        disabled={isGeneratingInvoice}
+                      >
+                        {formatAmount(preset)}
+                      </button>
+                    {/each}
+                  </div>
+                </div>
+
+                <div class="flex items-center gap-3 text-caption text-sm">
+                  <div class="flex-1 h-px bg-input"></div>
+                  <span>or enter custom amount</span>
+                  <div class="flex-1 h-px bg-input"></div>
+                </div>
+
+                <div class="flex gap-2">
+                  <input
+                    type="number"
+                    bind:value={customReceiveAmount}
+                    placeholder="Custom amount in sats"
+                    class="flex-1 p-3 rounded-lg bg-input border border-input text-primary-color placeholder-caption focus:outline-none focus:ring-2 focus:ring-amber-500"
+                    disabled={isGeneratingInvoice}
+                    min="1"
+                  />
+                  <button
+                    class="py-3 px-4 rounded-lg bg-amber-500 hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium transition-colors"
+                    on:click={() => handleGenerateInvoice()}
+                    disabled={isGeneratingInvoice ||
+                      !customReceiveAmount ||
+                      parseInt(customReceiveAmount) <= 0}
+                  >
+                    {#if isGeneratingInvoice}
+                      <span class="animate-spin"><ArrowsClockwiseIcon size={20} /></span>
+                    {:else}
+                      Generate
+                    {/if}
+                  </button>
+                </div>
+
+                <!-- Lightning Address Section -->
+                {#if $activeWallet?.kind === 3}
+                  <!-- NWC wallet -->
+                  {#if nwcLud16}
+                    <div class="mt-6">
+                      <div class="flex items-center gap-3 text-caption text-sm mb-4">
+                        <div class="flex-1 h-px bg-input"></div>
+                        <span>or receive via Lightning Address</span>
+                        <div class="flex-1 h-px bg-input"></div>
+                      </div>
+
+                      <div class="p-4 rounded-lg bg-input flex items-center justify-between gap-3">
+                        <div class="flex items-center gap-2 min-w-0">
+                          <LightningIcon size={20} class="text-amber-500 flex-shrink-0" />
+                          <span class="text-primary-color font-mono text-sm truncate"
+                            >{nwcLud16}</span
+                          >
+                        </div>
+                        <div class="flex items-center gap-1">
+                          <button
+                            class="flex-shrink-0 p-2 rounded-lg hover:bg-primary/10 transition-colors"
+                            on:click={() =>
+                              (showLightningAddressQr =
+                                showLightningAddressQr === nwcLud16 ? null : nwcLud16)}
+                            title="Show QR code"
+                          >
+                            <svg
+                              xmlns="http://www.w3.org/2000/svg"
+                              width="18"
+                              height="18"
+                              viewBox="0 0 256 256"
+                              class="text-caption hover:text-amber-500"
+                              ><path
+                                fill="currentColor"
+                                d="M104 40H56a16 16 0 0 0-16 16v48a16 16 0 0 0 16 16h48a16 16 0 0 0 16-16V56a16 16 0 0 0-16-16Zm0 64H56V56h48v48Zm0 32H56a16 16 0 0 0-16 16v48a16 16 0 0 0 16 16h48a16 16 0 0 0 16-16v-48a16 16 0 0 0-16-16Zm0 64H56v-48h48v48Zm96-160h-48a16 16 0 0 0-16 16v48a16 16 0 0 0 16 16h48a16 16 0 0 0 16-16V56a16 16 0 0 0-16-16Zm0 64h-48V56h48v48Zm-64 72v-8a8 8 0 0 1 16 0v8a8 8 0 0 1-16 0Zm80-24h-24v-8a8 8 0 0 1 16 0v8h8a8 8 0 0 1 0 16Zm0 48a8 8 0 0 1-8 8h-16v8a8 8 0 0 1-16 0v-16a8 8 0 0 1 8-8h24a8 8 0 0 1 8 8Zm-48 24a8 8 0 0 1-8 8h-8a8 8 0 0 1 0-16h8a8 8 0 0 1 8 8Zm48-48v16a8 8 0 0 1-16 0v-16a8 8 0 0 1 16 0Z"
+                              /></svg
+                            >
+                          </button>
+                          <button
+                            class="flex-shrink-0 p-2 rounded-lg hover:bg-primary/10 transition-colors"
+                            on:click={async () => {
+                              const copied = await copyToClipboard(nwcLud16);
+                              if (copied) {
+                                successMessage = 'Lightning address copied!';
+                                setTimeout(() => (successMessage = ''), 2000);
+                              }
+                            }}
+                            title="Copy Lightning address"
+                          >
+                            <CopyIcon size={18} class="text-caption hover:text-amber-500" />
+                          </button>
+                        </div>
+                      </div>
+
+                      {#if showLightningAddressQr === nwcLud16}
+                        <div
+                          class="mt-4 p-4 rounded-lg bg-white flex justify-center"
+                          style="color: #000000;"
+                        >
+                          <svg use:qr={{ data: nwcLud16, shape: 'circle' }} class="w-48 h-48" />
+                        </div>
+                      {/if}
+                    </div>
+                  {:else}
+                    <!-- NWC without lud16 - show disclaimer -->
+                    <div class="mt-6">
+                      <div class="p-4 rounded-lg bg-input/50 text-center">
+                        <InfoIcon size={24} class="text-caption mx-auto mb-2" />
+                        <p class="text-sm text-caption">
+                          Your NWC connection doesn't include a Lightning address. Generate an
+                          invoice above to receive payments.
+                        </p>
+                      </div>
+                    </div>
+                  {/if}
+                {:else if $activeWallet?.kind === 4}
+                  <!-- Spark wallet -->
+                  {#if $sparkLightningAddressStore}
+                    <div class="mt-6">
+                      <div class="flex items-center gap-3 text-caption text-sm mb-4">
+                        <div class="flex-1 h-px bg-input"></div>
+                        <span>or receive via Lightning Address</span>
+                        <div class="flex-1 h-px bg-input"></div>
+                      </div>
+
+                      <div class="p-4 rounded-lg bg-input flex items-center justify-between gap-3">
+                        <div class="flex items-center gap-2 min-w-0">
+                          <LightningIcon size={20} class="text-amber-500 flex-shrink-0" />
+                          <span class="text-primary-color font-mono text-sm truncate"
+                            >{$sparkLightningAddressStore}</span
+                          >
+                        </div>
+                        <div class="flex items-center gap-1">
+                          <button
+                            class="flex-shrink-0 p-2 rounded-lg hover:bg-primary/10 transition-colors"
+                            on:click={() =>
+                              (showLightningAddressQr =
+                                showLightningAddressQr === $sparkLightningAddressStore
+                                  ? null
+                                  : $sparkLightningAddressStore)}
+                            title="Show QR code"
+                          >
+                            <svg
+                              xmlns="http://www.w3.org/2000/svg"
+                              width="18"
+                              height="18"
+                              viewBox="0 0 256 256"
+                              class="text-caption hover:text-amber-500"
+                              ><path
+                                fill="currentColor"
+                                d="M104 40H56a16 16 0 0 0-16 16v48a16 16 0 0 0 16 16h48a16 16 0 0 0 16-16V56a16 16 0 0 0-16-16Zm0 64H56V56h48v48Zm0 32H56a16 16 0 0 0-16 16v48a16 16 0 0 0 16 16h48a16 16 0 0 0 16-16v-48a16 16 0 0 0-16-16Zm0 64H56v-48h48v48Zm96-160h-48a16 16 0 0 0-16 16v48a16 16 0 0 0 16 16h48a16 16 0 0 0 16-16V56a16 16 0 0 0-16-16Zm0 64h-48V56h48v48Zm-64 72v-8a8 8 0 0 1 16 0v8a8 8 0 0 1-16 0Zm80-24h-24v-8a8 8 0 0 1 16 0v8h8a8 8 0 0 1 0 16Zm0 48a8 8 0 0 1-8 8h-16v8a8 8 0 0 1-16 0v-16a8 8 0 0 1 8-8h24a8 8 0 0 1 8 8Zm-48 24a8 8 0 0 1-8 8h-8a8 8 0 0 1 0-16h8a8 8 0 0 1 8 8Zm48-48v16a8 8 0 0 1-16 0v-16a8 8 0 0 1 16 0Z"
+                              /></svg
+                            >
+                          </button>
+                          <button
+                            class="flex-shrink-0 p-2 rounded-lg hover:bg-primary/10 transition-colors"
+                            on:click={async () => {
+                              const copied = await copyToClipboard(
+                                $sparkLightningAddressStore || ''
+                              );
+                              if (copied) {
+                                successMessage = 'Lightning address copied!';
+                                setTimeout(() => (successMessage = ''), 2000);
+                              }
+                            }}
+                            title="Copy Lightning address"
+                          >
+                            <CopyIcon size={18} class="text-caption hover:text-amber-500" />
+                          </button>
+                        </div>
+                      </div>
+
+                      {#if showLightningAddressQr === $sparkLightningAddressStore}
+                        <div
+                          class="mt-4 p-4 rounded-lg bg-white flex justify-center"
+                          style="color: #000000;"
+                        >
+                          <svg
+                            use:qr={{ data: $sparkLightningAddressStore, shape: 'circle' }}
+                            class="w-48 h-48"
+                          />
+                        </div>
+                      {/if}
+                    </div>
+                  {:else}
+                    <div class="mt-6">
+                      <p class="text-sm text-caption text-center">
+                        Register a Lightning address in your wallet settings to receive payments
+                        easily.
+                      </p>
+                    </div>
+                  {/if}
+                {/if}
+              </div>
+            {:else}
+              <!-- Invoice Generated - Show QR and copy options -->
+              <div class="space-y-4 text-center">
+                {#if invoicePaid}
+                  <!-- Payment received! -->
+                  <div class="py-8">
+                    <div
+                      class="w-20 h-20 mx-auto mb-4 rounded-full bg-green-500/20 flex items-center justify-center"
+                    >
+                      <CheckCircleIcon size={48} class="text-green-500" weight="fill" />
+                    </div>
+                    <div class="text-xl font-bold text-green-500 mb-2">Payment Received!</div>
+                    <div class="text-lg text-primary-color">
+                      {formatBalance(receiveAmount)} sats
+                    </div>
+                  </div>
+                {:else}
+                  <div class="text-lg font-medium text-primary-color">
+                    Invoice for {formatBalance(receiveAmount)} sats
+                  </div>
+
+                  <!-- QR Code -->
+                  {#if generatedInvoice && generatedInvoice.length > 0}
+                    <div
+                      class="qr-wrapper self-center p-4 rounded-xl bg-white"
+                      style="width: 100%;"
+                    >
+                      <svg
+                        class="w-full"
+                        use:qr={{
+                          data: generatedInvoice,
+                          shape: 'circle',
+                          width: 100,
+                          height: 100
+                        }}
+                      />
+                    </div>
+                  {/if}
+
+                  <div class="p-3 rounded-lg bg-input">
+                    <div class="text-xs text-caption mb-2">Invoice</div>
+                    <div
+                      class="font-mono text-xs text-primary-color break-all max-h-24 overflow-y-auto"
+                    >
+                      {generatedInvoice}
+                    </div>
+                  </div>
+
+                  <div class="flex gap-2">
+                    <button
+                      class="flex-1 py-3 px-4 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-medium transition-colors flex items-center justify-center gap-2"
+                      on:click={async () => {
+                        const copied = await copyToClipboard(generatedInvoice);
+                        if (copied) {
+                          successMessage = 'Invoice copied!';
+                          setTimeout(() => (successMessage = ''), 2000);
+                        }
+                      }}
+                    >
+                      <CopyIcon size={20} />
+                      Copy Invoice
+                    </button>
+                    <button
+                      class="py-3 px-4 rounded-xl border border-input hover:bg-input text-primary-color font-medium transition-colors"
+                      on:click={() => {
+                        showReceiveModal = false;
+                        resetReceiveModal();
+                      }}
+                    >
+                      New Invoice
+                    </button>
+                  </div>
+                {/if}
               </div>
             {/if}
           </div>
-        {/if}
+        </div>
       </div>
-      </div>
-    </div>
-  {/if}
-</div>
+    {/if}
+  </div>
 </PullToRefresh>
 
 <!-- Wallet Recovery Help Modal -->
 <WalletRecoveryHelpModal bind:open={showRecoveryHelpModal} />
 
 <!-- Check Relay Backups Modal -->
-<CheckRelayBackupsModal bind:open={showCheckRelayBackupsModal} pubkey={$userPublickey} walletType={checkRelayBackupsWalletType} />
+<CheckRelayBackupsModal
+  bind:open={showCheckRelayBackupsModal}
+  pubkey={$userPublickey}
+  walletType={checkRelayBackupsWalletType}
+/>

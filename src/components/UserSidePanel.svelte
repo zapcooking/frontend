@@ -34,6 +34,8 @@
   import { getAuthManager } from '$lib/authManager';
   import { profileCacheManager } from '$lib/profileCache';
   import { timerWidgetOpen } from '$lib/stores/timerWidget';
+  import { walletConnected } from '$lib/wallet/walletStore';
+  import { weblnConnected } from '$lib/wallet/webln';
 
   export let open = false;
 
@@ -248,6 +250,57 @@
 
       <!-- Main navigation section - scrollable -->
       <nav class="flex-1 overflow-y-auto p-4">
+        <ul class="flex flex-col gap-1">
+          <li>
+            <button
+              on:click={() => navigate(`/user/${nip19.npubEncode($userPublickey)}`)}
+              class="w-full flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-opacity-50 transition-colors cursor-pointer"
+              style="color: var(--color-text-primary);"
+            >
+              <UserIcon size={22} />
+              <span class="font-medium">Profile</span>
+            </button>
+          </li>
+          <li>
+            <button
+              on:click={() => navigate('/cookbook')}
+              class="w-full flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-opacity-50 transition-colors cursor-pointer"
+              style="color: var(--color-text-primary);"
+            >
+              <CookbookIcon size={22} />
+              <span class="font-medium">Cookbook</span>
+            </button>
+          </li>
+          <li>
+            <button
+              on:click={() => navigate('/grocery')}
+              class="w-full flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-opacity-50 transition-colors cursor-pointer"
+              style="color: var(--color-text-primary);"
+            >
+              <ShoppingCartIcon size={22} />
+              <span class="font-medium">Grocery Lists</span>
+            </button>
+          </li>
+          <li>
+            <button
+              on:click={() => navigate(`/user/${nip19.npubEncode($userPublickey)}?tab=drafts`)}
+              class="w-full flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-opacity-50 transition-colors cursor-pointer"
+              style="color: var(--color-text-primary);"
+            >
+              <FloppyDiskIcon size={22} />
+              <span class="font-medium">Drafts</span>
+            </button>
+          </li>
+          <li>
+            <button
+              on:click={() => navigate('/wallet')}
+              class="w-full flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-opacity-50 transition-colors cursor-pointer"
+              style="color: var(--color-text-primary);"
+            >
+              <WalletIcon size={22} />
+              <span class="font-medium">Wallet</span>
+            </button>
+          </li>
         <!-- Section: My Kitchen -->
         <div class="mb-1">
           <h3
@@ -305,6 +358,11 @@
               >
                 <WalletIcon size={22} />
                 <span class="font-medium">Wallet</span>
+                {#if !$walletConnected && !$weblnConnected}
+                  <span class="text-xs px-2 py-0.5 rounded-full bg-primary/20 text-primary"
+                    >Connect</span
+                  >
+                {/if}
               </button>
             </li>
             {#if SHOW_PRO_FEATURES}

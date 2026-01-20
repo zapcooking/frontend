@@ -15,7 +15,12 @@
     setActiveWallet,
     toggleBalanceVisibility
   } from '$lib/wallet';
-  import { weblnConnected, weblnWalletName, disableWebln, getWeblnBalance } from '$lib/wallet/webln';
+  import {
+    weblnConnected,
+    weblnWalletName,
+    disableWebln,
+    getWeblnBalance
+  } from '$lib/wallet/webln';
   import LightningIcon from 'phosphor-svelte/lib/Lightning';
   import WalletIcon from 'phosphor-svelte/lib/Wallet';
   import ArrowsClockwiseIcon from 'phosphor-svelte/lib/ArrowsClockwise';
@@ -94,7 +99,11 @@
       style="background-color: var(--color-input-bg); color: var(--color-text-primary); border: 1px solid var(--color-input-border);"
       on:click={() => (dropdownActive = !dropdownActive)}
     >
-      <WeblnLogo size={16} />
+      <div
+        class="w-4 h-4 rounded-full bg-gradient-to-br from-orange-500 to-amber-500 flex items-center justify-center flex-shrink-0"
+      >
+        <WeblnLogo size={10} className="text-white" />
+      </div>
       {#if weblnBalanceLoading}
         <span class="animate-pulse min-w-[3.5rem] text-right">...</span>
       {:else if weblnBalance === null}
@@ -110,7 +119,10 @@
 
     <!-- Dropdown menu -->
     {#if dropdownActive}
-      <div class="absolute right-0 top-full mt-2 z-20" transition:fade={{ delay: 0, duration: 150 }}>
+      <div
+        class="absolute right-0 top-full mt-2 z-20"
+        transition:fade={{ delay: 0, duration: 150 }}
+      >
         <div
           role="menu"
           tabindex="-1"
@@ -122,9 +134,16 @@
           <button
             class="flex items-center gap-2 pb-2 border-b w-full text-left hover:opacity-80 transition-opacity cursor-pointer"
             style="border-color: var(--color-input-border);"
-            on:click={() => { dropdownActive = false; goto('/wallet'); }}
+            on:click={() => {
+              dropdownActive = false;
+              goto('/wallet');
+            }}
           >
-            <WeblnLogo size={18} />
+            <div
+              class="w-5 h-5 rounded-full bg-gradient-to-br from-orange-500 to-amber-500 flex items-center justify-center flex-shrink-0"
+            >
+              <WeblnLogo size={12} className="text-white" />
+            </div>
             <div class="flex-1 min-w-0">
               <div class="font-medium text-sm truncate">{$weblnWalletName || 'Browser Wallet'}</div>
               <div class="text-xs text-caption">WebLN</div>
@@ -158,7 +177,10 @@
 
           <button
             class="flex items-center gap-2 text-sm hover:text-primary transition-colors cursor-pointer"
-            on:click={() => { dropdownActive = false; goto('/wallet'); }}
+            on:click={() => {
+              dropdownActive = false;
+              goto('/wallet');
+            }}
           >
             <GearIcon size={16} />
             Wallet Settings
@@ -168,7 +190,11 @@
 
           <button
             class="flex items-center gap-2 text-sm text-red-500 hover:text-red-600 transition-colors cursor-pointer"
-            on:click={() => { disableWebln(); weblnBalance = null; dropdownActive = false; }}
+            on:click={() => {
+              disableWebln();
+              weblnBalance = null;
+              dropdownActive = false;
+            }}
           >
             <SignOutIcon size={16} />
             Disconnect
@@ -200,7 +226,10 @@
 
     <!-- Dropdown menu -->
     {#if dropdownActive}
-      <div class="absolute right-0 top-full mt-2 z-20" transition:fade={{ delay: 0, duration: 150 }}>
+      <div
+        class="absolute right-0 top-full mt-2 z-20"
+        transition:fade={{ delay: 0, duration: 150 }}
+      >
         <div
           role="menu"
           tabindex="-1"

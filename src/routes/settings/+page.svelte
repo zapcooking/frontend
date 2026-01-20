@@ -15,7 +15,15 @@
   import { theme, type Theme } from '$lib/themeStore';
   import { displayCurrency, SUPPORTED_CURRENCIES, type CurrencyCode } from '$lib/currencyStore';
   import { getAuthManager, type NIP46ConnectionInfo } from '$lib/authManager';
-  import { userPublickey, ndk, ndkReady, switchRelays, ndkSwitching, getCurrentRelays, type RelayMode } from '$lib/nostr';
+  import {
+    userPublickey,
+    ndk,
+    ndkReady,
+    switchRelays,
+    ndkSwitching,
+    getCurrentRelays,
+    type RelayMode
+  } from '$lib/nostr';
   import { wallets } from '$lib/wallet/walletStore';
   import { bitcoinConnectEnabled } from '$lib/wallet/bitcoinConnect';
   import { weblnConnected, weblnWalletName } from '$lib/wallet/webln';
@@ -203,7 +211,7 @@
   let selectedTheme: Theme = 'system';
 
   if (browser) {
-    theme.subscribe(value => {
+    theme.subscribe((value) => {
       selectedTheme = value;
     });
   }
@@ -217,7 +225,7 @@
   let selectedCurrency: CurrencyCode = 'USD';
 
   if (browser) {
-    displayCurrency.subscribe(value => {
+    displayCurrency.subscribe((value) => {
       selectedCurrency = value;
     });
   }
@@ -234,7 +242,7 @@
       if (!match) {
         return sk;
       }
-      const bytes = new Uint8Array(match.map(byte => parseInt(byte, 16)));
+      const bytes = new Uint8Array(match.map((byte) => parseInt(byte, 16)));
       return nip19.nsecEncode(bytes);
     } catch (error) {
       console.error('Error encoding private key:', error);
@@ -254,15 +262,19 @@
   $: connectedRelaySet = new Set(connectedRelays.map(normalizeRelayUrl));
 
   // Wallet info
-  $: connectedWallets = $wallets.filter(w => w.kind !== 0);
-  $: activeWallet = connectedWallets.find(w => w.active);
+  $: connectedWallets = $wallets.filter((w) => w.kind !== 0);
+  $: activeWallet = connectedWallets.find((w) => w.active);
 
   function getWalletTypeName(kind: number): string {
     switch (kind) {
-      case 1: return 'WebLN';
-      case 3: return 'NWC';
-      case 4: return 'Spark';
-      default: return 'Unknown';
+      case 1:
+        return 'WebLN';
+      case 3:
+        return 'NWC';
+      case 4:
+        return 'Spark';
+      default:
+        return 'Unknown';
     }
   }
 </script>
@@ -280,9 +292,7 @@
       <div class="flex flex-col gap-4">
         <div>
           <p class="text-sm font-medium mb-3" style="color: var(--color-text-primary)">Theme</p>
-          <p class="text-xs text-caption mb-3">
-            Choose how Zap.Cooking looks to you.
-          </p>
+          <p class="text-xs text-caption mb-3">Choose how Zap.Cooking looks to you.</p>
         </div>
 
         <div class="flex gap-2">
@@ -290,9 +300,9 @@
             type="button"
             class="px-4 py-2 rounded-full text-sm font-medium transition-colors
               {selectedTheme === 'light'
-                ? 'bg-primary text-white'
-                : 'bg-secondary hover:bg-accent-gray'}"
-            style="{selectedTheme !== 'light' ? 'color: var(--color-text-primary)' : ''}"
+              ? 'bg-primary text-white'
+              : 'bg-secondary hover:bg-accent-gray'}"
+            style={selectedTheme !== 'light' ? 'color: var(--color-text-primary)' : ''}
             on:click={() => handleThemeChange('light')}
           >
             Light
@@ -301,9 +311,9 @@
             type="button"
             class="px-4 py-2 rounded-full text-sm font-medium transition-colors
               {selectedTheme === 'dark'
-                ? 'bg-primary text-white'
-                : 'bg-secondary hover:bg-accent-gray'}"
-            style="{selectedTheme !== 'dark' ? 'color: var(--color-text-primary)' : ''}"
+              ? 'bg-primary text-white'
+              : 'bg-secondary hover:bg-accent-gray'}"
+            style={selectedTheme !== 'dark' ? 'color: var(--color-text-primary)' : ''}
             on:click={() => handleThemeChange('dark')}
           >
             Dark
@@ -312,9 +322,9 @@
             type="button"
             class="px-4 py-2 rounded-full text-sm font-medium transition-colors
               {selectedTheme === 'system'
-                ? 'bg-primary text-white'
-                : 'bg-secondary hover:bg-accent-gray'}"
-            style="{selectedTheme !== 'system' ? 'color: var(--color-text-primary)' : ''}"
+              ? 'bg-primary text-white'
+              : 'bg-secondary hover:bg-accent-gray'}"
+            style={selectedTheme !== 'system' ? 'color: var(--color-text-primary)' : ''}
             on:click={() => handleThemeChange('system')}
           >
             System
@@ -330,7 +340,9 @@
         <div>
           <div class="flex items-center gap-2 mb-2">
             <BroadcastIcon size={18} class="text-primary" />
-            <p class="text-sm font-medium" style="color: var(--color-text-primary)">Your Announced Relays (NIP-65)</p>
+            <p class="text-sm font-medium" style="color: var(--color-text-primary)">
+              Your Announced Relays (NIP-65)
+            </p>
           </div>
           <p class="text-xs text-caption mb-3">
             These are your publicly announced relay preferences from your kind:10002 event.
@@ -352,16 +364,23 @@
             <div class="flex flex-col gap-3">
               {#if nip65Relays.readWrite.length > 0}
                 <div>
-                  <p class="text-xs font-medium text-caption mb-1.5">Read & Write ({nip65Relays.readWrite.length})</p>
+                  <p class="text-xs font-medium text-caption mb-1.5">
+                    Read & Write ({nip65Relays.readWrite.length})
+                  </p>
                   <div class="flex flex-col gap-1">
                     {#each nip65Relays.readWrite as relay}
                       <div class="flex items-center gap-2 bg-secondary px-3 py-2 rounded-lg">
                         <CircleIcon
                           size={8}
                           weight="fill"
-                          class="{connectedRelaySet.has(normalizeRelayUrl(relay)) ? 'text-green-500' : 'text-gray-400'}"
+                          class={connectedRelaySet.has(normalizeRelayUrl(relay))
+                            ? 'text-green-500'
+                            : 'text-gray-400'}
                         />
-                        <span class="text-xs font-mono truncate" style="color: var(--color-text-primary)">{relay}</span>
+                        <span
+                          class="text-xs font-mono truncate"
+                          style="color: var(--color-text-primary)">{relay}</span
+                        >
                       </div>
                     {/each}
                   </div>
@@ -370,16 +389,23 @@
 
               {#if nip65Relays.writeOnly.length > 0}
                 <div>
-                  <p class="text-xs font-medium text-caption mb-1.5">Write Only ({nip65Relays.writeOnly.length})</p>
+                  <p class="text-xs font-medium text-caption mb-1.5">
+                    Write Only ({nip65Relays.writeOnly.length})
+                  </p>
                   <div class="flex flex-col gap-1">
                     {#each nip65Relays.writeOnly as relay}
                       <div class="flex items-center gap-2 bg-secondary px-3 py-2 rounded-lg">
                         <CircleIcon
                           size={8}
                           weight="fill"
-                          class="{connectedRelaySet.has(normalizeRelayUrl(relay)) ? 'text-green-500' : 'text-gray-400'}"
+                          class={connectedRelaySet.has(normalizeRelayUrl(relay))
+                            ? 'text-green-500'
+                            : 'text-gray-400'}
                         />
-                        <span class="text-xs font-mono truncate" style="color: var(--color-text-primary)">{relay}</span>
+                        <span
+                          class="text-xs font-mono truncate"
+                          style="color: var(--color-text-primary)">{relay}</span
+                        >
                       </div>
                     {/each}
                   </div>
@@ -388,16 +414,23 @@
 
               {#if nip65Relays.readOnly.length > 0}
                 <div>
-                  <p class="text-xs font-medium text-caption mb-1.5">Read Only ({nip65Relays.readOnly.length})</p>
+                  <p class="text-xs font-medium text-caption mb-1.5">
+                    Read Only ({nip65Relays.readOnly.length})
+                  </p>
                   <div class="flex flex-col gap-1">
                     {#each nip65Relays.readOnly as relay}
                       <div class="flex items-center gap-2 bg-secondary px-3 py-2 rounded-lg">
                         <CircleIcon
                           size={8}
                           weight="fill"
-                          class="{connectedRelaySet.has(normalizeRelayUrl(relay)) ? 'text-green-500' : 'text-gray-400'}"
+                          class={connectedRelaySet.has(normalizeRelayUrl(relay))
+                            ? 'text-green-500'
+                            : 'text-gray-400'}
                         />
-                        <span class="text-xs font-mono truncate" style="color: var(--color-text-primary)">{relay}</span>
+                        <span
+                          class="text-xs font-mono truncate"
+                          style="color: var(--color-text-primary)">{relay}</span
+                        >
                       </div>
                     {/each}
                   </div>
@@ -411,7 +444,9 @@
         <div class="border-t border-[var(--color-input-border)] pt-4">
           <div class="flex items-center gap-2 mb-2">
             <PlugsIcon size={18} class="text-primary" />
-            <p class="text-sm font-medium" style="color: var(--color-text-primary)">Manual Relay Configuration</p>
+            <p class="text-sm font-medium" style="color: var(--color-text-primary)">
+              Manual Relay Configuration
+            </p>
           </div>
           <p class="text-xs text-caption mb-3">
             These are the relays this app uses directly. Green dot indicates connected.
@@ -423,9 +458,14 @@
                 <CircleIcon
                   size={8}
                   weight="fill"
-                  class="{connectedRelaySet.has(normalizeRelayUrl(relay)) ? 'text-green-500' : 'text-gray-400'}"
+                  class={connectedRelaySet.has(normalizeRelayUrl(relay))
+                    ? 'text-green-500'
+                    : 'text-gray-400'}
                 />
-                <span class="flex-1 text-xs font-mono truncate" style="color: var(--color-text-primary)">{relay}</span>
+                <span
+                  class="flex-1 text-xs font-mono truncate"
+                  style="color: var(--color-text-primary)">{relay}</span
+                >
                 <button
                   type="button"
                   class="p-1.5 text-caption hover:text-red-500 transition-colors"
@@ -476,21 +516,29 @@
     <!-- Wallet Section -->
     <Accordion title="Wallet" open={false}>
       <div class="flex flex-col gap-4">
-        <p class="text-xs text-caption">
-          Manage your Lightning wallet for zaps.
-        </p>
+        <p class="text-xs text-caption">Manage your Lightning wallet for zaps.</p>
 
         <!-- WebLN External Wallet (takes priority) -->
         {#if $weblnConnected}
-          <div class="flex items-center gap-4 p-4 rounded-xl" style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);">
-            <WeblnLogo size={40} />
+          <div
+            class="flex items-center gap-4 p-4 rounded-xl"
+            style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);"
+          >
+            <div
+              class="w-10 h-10 rounded-full bg-gradient-to-br from-orange-500 to-amber-500 flex items-center justify-center flex-shrink-0"
+            >
+              <WeblnLogo size={24} className="text-white" />
+            </div>
             <div class="flex-1">
               <p class="font-medium" style="color: var(--color-text-primary)">
                 {$weblnWalletName || 'Browser Wallet'}
               </p>
               <p class="text-sm text-caption">WebLN</p>
             </div>
-            <span class="text-xs px-2 py-1 rounded-full bg-green-500/20 text-green-600 dark:text-green-400">Active</span>
+            <span
+              class="text-xs px-2 py-1 rounded-full bg-green-500/20 text-green-600 dark:text-green-400"
+              >Active</span
+            >
           </div>
         {/if}
 
@@ -498,17 +546,26 @@
         {#if connectedWallets.length > 0}
           <div class="flex flex-col gap-2">
             {#each connectedWallets as wallet}
-              <div class="flex items-center gap-4 p-4 rounded-xl" style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);">
+              <div
+                class="flex items-center gap-4 p-4 rounded-xl"
+                style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);"
+              >
                 {#if wallet.kind === 4}
-                  <div class="w-10 h-10 rounded-full bg-orange-500/20 flex items-center justify-center">
+                  <div
+                    class="w-10 h-10 rounded-full bg-orange-500/20 flex items-center justify-center"
+                  >
                     <SparkLogo size={24} className="text-orange-500" />
                   </div>
                 {:else if wallet.kind === 3}
-                  <div class="w-10 h-10 rounded-full bg-purple-500/20 flex items-center justify-center">
+                  <div
+                    class="w-10 h-10 rounded-full bg-purple-500/20 flex items-center justify-center"
+                  >
                     <NwcLogo size={28} />
                   </div>
                 {:else}
-                  <div class="w-10 h-10 rounded-full bg-amber-500/20 flex items-center justify-center">
+                  <div
+                    class="w-10 h-10 rounded-full bg-amber-500/20 flex items-center justify-center"
+                  >
                     <WalletIcon size={24} class="text-amber-500" weight="fill" />
                   </div>
                 {/if}
@@ -519,35 +576,45 @@
                   <p class="text-sm text-caption">{getWalletTypeName(wallet.kind)}</p>
                 </div>
                 {#if wallet.active && !$weblnConnected}
-                  <span class="text-xs px-2 py-1 rounded-full bg-green-500/20 text-green-600 dark:text-green-400">Active</span>
+                  <span
+                    class="text-xs px-2 py-1 rounded-full bg-green-500/20 text-green-600 dark:text-green-400"
+                    >Active</span
+                  >
                 {:else if $weblnConnected}
-                  <span class="text-xs px-2 py-1 rounded-full bg-gray-500/20 text-gray-500">Paused</span>
+                  <span class="text-xs px-2 py-1 rounded-full bg-gray-500/20 text-gray-500"
+                    >Paused</span
+                  >
                 {/if}
               </div>
             {/each}
           </div>
         {:else if $bitcoinConnectEnabled && !$weblnConnected}
-          <div class="flex items-center gap-4 p-4 rounded-xl" style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);">
+          <div
+            class="flex items-center gap-4 p-4 rounded-xl"
+            style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);"
+          >
             <div class="w-10 h-10 rounded-full bg-orange-500 flex items-center justify-center">
               <BitcoinConnectLogo size={20} className="text-white" />
             </div>
             <div class="flex-1">
-              <p class="font-medium" style="color: var(--color-text-primary)">
-                External Wallet
-              </p>
+              <p class="font-medium" style="color: var(--color-text-primary)">External Wallet</p>
               <p class="text-sm text-caption">Bitcoin Connect</p>
             </div>
-            <span class="text-xs px-2 py-1 rounded-full bg-green-500/20 text-green-600 dark:text-green-400">Connected</span>
+            <span
+              class="text-xs px-2 py-1 rounded-full bg-green-500/20 text-green-600 dark:text-green-400"
+              >Connected</span
+            >
           </div>
         {:else if !$weblnConnected}
-          <div class="p-4 rounded-xl text-center" style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);">
+          <div
+            class="p-4 rounded-xl text-center"
+            style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);"
+          >
             <p class="text-sm text-caption">No wallets connected</p>
           </div>
         {/if}
 
-        <Button on:click={() => goto('/wallet')}>
-          Manage Wallets
-        </Button>
+        <Button on:click={() => goto('/wallet')}>Manage Wallets</Button>
       </div>
     </Accordion>
 
@@ -555,7 +622,9 @@
     <Accordion title="Currency" open={false}>
       <div class="flex flex-col gap-4">
         <div>
-          <p class="text-sm font-medium mb-3" style="color: var(--color-text-primary)">Display Currency</p>
+          <p class="text-sm font-medium mb-3" style="color: var(--color-text-primary)">
+            Display Currency
+          </p>
           <p class="text-xs text-caption mb-3">
             Choose a currency to display alongside your sats balance in the wallet.
           </p>
@@ -567,9 +636,9 @@
               type="button"
               class="px-3 py-1.5 rounded-full text-sm font-medium transition-colors
                 {selectedCurrency === currency.code
-                  ? 'bg-primary text-white'
-                  : 'bg-secondary hover:bg-accent-gray'}"
-              style="{selectedCurrency !== currency.code ? 'color: var(--color-text-primary)' : ''}"
+                ? 'bg-primary text-white'
+                : 'bg-secondary hover:bg-accent-gray'}"
+              style={selectedCurrency !== currency.code ? 'color: var(--color-text-primary)' : ''}
               on:click={() => handleCurrencyChange(currency.code)}
             >
               {currency.code}
@@ -588,11 +657,16 @@
       <div class="flex flex-col gap-5">
         <!-- Public Key -->
         <div>
-          <p class="text-sm font-medium mb-1" style="color: var(--color-text-primary)">Public Key (npub)</p>
+          <p class="text-sm font-medium mb-1" style="color: var(--color-text-primary)">
+            Public Key (npub)
+          </p>
           <p class="text-xs text-caption mb-3">Your public identity. Safe to share.</p>
           {#if pk}
             <div class="flex gap-2">
-              <div class="flex-1 bg-secondary p-2.5 rounded-lg font-mono text-xs break-all" style="color: var(--color-text-primary)">
+              <div
+                class="flex-1 bg-secondary p-2.5 rounded-lg font-mono text-xs break-all"
+                style="color: var(--color-text-primary)"
+              >
                 {nip19.npubEncode(pk)}
               </div>
               <button
@@ -617,27 +691,30 @@
         {#if sk}
           <div class="border-t border-[var(--color-input-border)] pt-5">
             <p class="text-sm font-medium mb-1 text-red-500">Private Key (nsec)</p>
-            <p class="text-xs text-caption mb-3">
-              Never share this with anyone. Keep it secret.
-            </p>
+            <p class="text-xs text-caption mb-3">Never share this with anyone. Keep it secret.</p>
 
             {#if !privateKeyRevealed}
               <button
                 type="button"
                 class="px-4 py-2 bg-red-500/10 hover:bg-red-500/20 text-red-500 rounded-lg text-sm font-medium transition-colors"
-                on:click={() => privateKeyRevealed = true}
+                on:click={() => (privateKeyRevealed = true)}
               >
                 Reveal Private Key
               </button>
             {:else}
-              <div class="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-3 mb-3">
+              <div
+                class="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-3 mb-3"
+              >
                 <p class="text-xs text-red-700 dark:text-red-300 font-medium">
                   Warning: Your private key is visible. Make sure no one can see your screen.
                 </p>
               </div>
 
               <div class="flex gap-2">
-                <div class="flex-1 bg-secondary p-2.5 rounded-lg font-mono text-xs break-all" style="color: var(--color-text-primary)">
+                <div
+                  class="flex-1 bg-secondary p-2.5 rounded-lg font-mono text-xs break-all"
+                  style="color: var(--color-text-primary)"
+                >
                   {#if showPrivkey}
                     {getEncodedPrivateKey()}
                   {:else}
@@ -673,7 +750,10 @@
               <button
                 type="button"
                 class="mt-3 text-xs text-caption hover:text-primary transition-colors"
-                on:click={() => { privateKeyRevealed = false; showPrivkey = false; }}
+                on:click={() => {
+                  privateKeyRevealed = false;
+                  showPrivkey = false;
+                }}
               >
                 Hide this section
               </button>
@@ -681,14 +761,18 @@
           </div>
         {:else if authMethod === 'nip46'}
           <div class="border-t border-[var(--color-input-border)] pt-5">
-            <p class="text-sm text-caption italic">Using remote signer - no private key stored on this device</p>
+            <p class="text-sm text-caption italic">
+              Using remote signer - no private key stored on this device
+            </p>
           </div>
         {/if}
 
         <!-- NIP-46 Bunker Section -->
         {#if authMethod === 'nip46' && nip46Info}
           <div class="border-t border-[var(--color-input-border)] pt-5">
-            <p class="text-sm font-medium mb-1" style="color: var(--color-text-primary)">Remote Signer (NIP-46)</p>
+            <p class="text-sm font-medium mb-1" style="color: var(--color-text-primary)">
+              Remote Signer (NIP-46)
+            </p>
             <div class="flex items-center gap-2 text-sm mb-3">
               <CircleIcon size={10} weight="fill" class="text-green-500" />
               <span class="text-green-600 dark:text-green-400">Connected to bunker</span>
