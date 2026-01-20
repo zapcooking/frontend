@@ -2,11 +2,17 @@
   import Modal from './Modal.svelte';
   import PostComposer from './PostComposer.svelte';
   import CloseIcon from 'phosphor-svelte/lib/XCircle';
+  import { quotedNoteStore, clearQuotedNote } from '$lib/postComposerStore';
 
   export let open = false;
 
   type RelaySelection = 'all' | 'garden' | 'pantry' | 'garden-pantry';
   let selectedRelay: RelaySelection = 'all';
+
+  function handleClose() {
+    open = false;
+    clearQuotedNote();
+  }
 </script>
 
 <Modal bind:open allowOverflow={true} noHeader={true}>
@@ -35,14 +41,19 @@
       <button
         class="cursor-pointer hover:opacity-80 transition-opacity"
         style="color: var(--color-text-primary)"
-        on:click={() => (open = false)}
+        on:click={handleClose}
         aria-label="Close"
       >
         <CloseIcon size={24} />
       </button>
     </div>
 
-    <PostComposer variant="modal" {selectedRelay} on:close={() => (open = false)} />
+    <PostComposer 
+      variant="modal" 
+      {selectedRelay} 
+      initialQuotedNote={$quotedNoteStore}
+      on:close={handleClose} 
+    />
   </div>
 </Modal>
 

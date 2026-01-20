@@ -13,6 +13,7 @@
   import type { NDKEvent as NDKEventType } from '@nostr-dev-kit/ndk';
   import { get } from 'svelte/store';
   import { searchProfiles } from '$lib/profileSearchService';
+  import { clearQuotedNote } from '$lib/postComposerStore';
 
   type FilterMode = 'global' | 'following' | 'replies' | 'members' | 'garden';
   type RelaySelection = 'all' | 'garden' | 'pantry' | 'garden-pantry';
@@ -20,6 +21,7 @@
   export let activeTab: FilterMode = 'global';
   export let variant: 'inline' | 'modal' = 'inline';
   export let selectedRelay: RelaySelection | undefined = undefined;
+  export let initialQuotedNote: { nevent: string; event: NDKEventType } | null = null;
 
   const dispatch = createEventDispatcher<{ close: void }>();
 
@@ -89,6 +91,10 @@
     }
 
     if (variant === 'modal') {
+      // Set initial quoted note if provided (from store via PostModal)
+      if (initialQuotedNote) {
+        quotedNote = initialQuotedNote;
+      }
       focusComposer();
     }
   });
@@ -128,6 +134,8 @@
     resetComposerState();
 
     if (variant === 'modal') {
+      // Clear the quoted note store when closing modal
+      clearQuotedNote();
       dispatch('close');
       return;
     }
@@ -1307,19 +1315,18 @@
               {/if}
 
               {#if quotedNote}
-                <div
-                  class="mb-3 rounded-xl overflow-hidden bg-input"
-                  style="border: 1px solid var(--color-input-border)"
-                >
-                  <div
-                    class="flex items-center justify-between px-3 py-2 bg-accent-gray"
-                    style="border-bottom: 1px solid var(--color-input-border)"
-                  >
-                    <span class="text-xs font-medium text-caption">Quoting post</span>
+                <div class="quoted-note-embed mb-3">
+                  <div class="quoted-note-header">
+                    <CustomAvatar pubkey={quotedNote.event.pubkey} size={16} />
+                    <span class="quoted-note-author">
+                      <ProfileLink
+                        nostrString={'nostr:' + nip19.npubEncode(quotedNote.event.pubkey)}
+                      />
+                    </span>
                     <button
                       type="button"
                       on:click={() => (quotedNote = null)}
-                      class="text-caption hover:opacity-80 p-1 hover:bg-input rounded transition-colors"
+                      class="ml-auto text-caption hover:opacity-80 p-0.5 hover:bg-input rounded transition-colors"
                       aria-label="Remove quote"
                     >
                       <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1333,20 +1340,8 @@
                     </button>
                   </div>
 
-                  <div class="p-3">
-                    <div class="flex items-center gap-2 mb-2">
-                      <CustomAvatar pubkey={quotedNote.event.pubkey} size={24} />
-                      <ProfileLink
-                        nostrString={'nostr:' + nip19.npubEncode(quotedNote.event.pubkey)}
-                      />
-                    </div>
-
-                    <div
-                      class="text-sm max-h-32 overflow-hidden"
-                      style="color: var(--color-text-primary)"
-                    >
-                      <NoteContent content={quotedNote.event.content || ''} />
-                    </div>
+                  <div class="quoted-note-content">
+                    <NoteContent content={quotedNote.event.content || ''} />
                   </div>
                 </div>
               {/if}
@@ -1656,5 +1651,57 @@
     text-align: center;
     font-size: 0.875rem;
     color: var(--color-caption);
+  }
+
+  /* Quoted note embed - orange bracket style matching feed */
+  .quoted-note-embed {
+    padding: 0.5rem 0.75rem;
+    background: var(--color-input);
+    border-left: 3px solid var(--color-primary, #f97316);
+    border-radius: 0.375rem;
+  }
+
+  .quoted-note-header {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    margin-bottom: 0.25rem;
+  }
+
+  .quoted-note-author {
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: var(--color-text-secondary);
+  }
+
+  .quoted-note-author :global(a) {
+    color: var(--color-text-secondary);
+    text-decoration: none;
+  }
+
+  .quoted-note-author :global(a:hover) {
+    text-decoration: underline;
+  }
+
+  .quoted-note-content {
+    font-size: 0.75rem;
+    color: var(--color-text-secondary);
+    line-height: 1.4;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    max-height: 4.2em;
+  }
+
+  .quoted-note-content :global(p) {
+    margin: 0;
+  }
+
+  .quoted-note-content :global(a) {
+    color: var(--color-primary, #f97316);
   }
 </style>

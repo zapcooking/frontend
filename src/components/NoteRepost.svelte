@@ -8,6 +8,7 @@
   import ArrowsClockwise from 'phosphor-svelte/lib/ArrowsClockwise';
   import { clickOutside } from '$lib/clickOutside';
   import { getEngagementStore, fetchEngagement } from '$lib/engagementCache';
+  import { openComposerWithQuote } from '$lib/postComposerStore';
 
   export let event: NDKEvent;
   
@@ -86,7 +87,10 @@
       author: event.pubkey
     });
     
-    // Dispatch event to open composer with quote
+    // Open the post composer modal with the quoted note
+    openComposerWithQuote(nevent, event);
+    
+    // Also dispatch event for inline composer compatibility
     window.dispatchEvent(new CustomEvent('quote-note', { 
       detail: { nevent, event } 
     }));
