@@ -156,7 +156,9 @@ function createPaymentStore() {
         // Clean up localStorage on error
         try {
           localStorage.removeItem('pending_stripe_payment');
-        } catch (e) {}
+        } catch (e) {
+          // localStorage may be unavailable in some contexts (e.g., private browsing)
+        }
         // Reset to selection step on error
         update(state => ({ ...state, step: 'selection' }));
         throw error;

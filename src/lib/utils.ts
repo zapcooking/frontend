@@ -34,3 +34,8 @@ export function formatAmount(amount: number): string {
     return amount.toString();
   }
 }
+
+// Format sats with commas for better readability
+export function formatSats(sats: number): string {
+  return sats.toLocaleString('en-US');
+}

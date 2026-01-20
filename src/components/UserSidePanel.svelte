@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { fly } from 'svelte/transition';
+  import { fly, slide } from 'svelte/transition';
   import { goto } from '$app/navigation';
   import { nip19 } from 'nostr-tools';
   import { onMount, onDestroy } from 'svelte';
@@ -9,14 +9,23 @@
   import XIcon from 'phosphor-svelte/lib/X';
   import UserIcon from 'phosphor-svelte/lib/User';
   import CookbookIcon from 'phosphor-svelte/lib/BookOpen';
+  import CookingPotIcon from 'phosphor-svelte/lib/CookingPot';
   import ShoppingCartIcon from 'phosphor-svelte/lib/ShoppingCart';
   import FloppyDiskIcon from 'phosphor-svelte/lib/FloppyDisk';
   import WalletIcon from 'phosphor-svelte/lib/Wallet';
   import PlantIcon from 'phosphor-svelte/lib/Plant';
+  import SparkleIcon from 'phosphor-svelte/lib/Sparkle';
+  import RobotIcon from 'phosphor-svelte/lib/Robot';
   import SunIcon from 'phosphor-svelte/lib/Sun';
   import MoonIcon from 'phosphor-svelte/lib/Moon';
   import GearIcon from 'phosphor-svelte/lib/Gear';
   import SignOutIcon from 'phosphor-svelte/lib/SignOut';
+  import ToolboxIcon from 'phosphor-svelte/lib/Toolbox';
+  import CaretDownIcon from 'phosphor-svelte/lib/CaretDown';
+  import CalculatorIcon from 'phosphor-svelte/lib/Calculator';
+  import StorefrontIcon from 'phosphor-svelte/lib/Storefront';
+  import TimerIcon from 'phosphor-svelte/lib/Timer';
+  import LightningIcon from 'phosphor-svelte/lib/Lightning';
 
   // Components and stores
   import CustomAvatar from './CustomAvatar.svelte';
@@ -38,6 +47,12 @@
   // Profile display name
   let displayName = '';
   let lastPubkey = '';
+
+  // Expandable section states
+  let toolboxExpanded = false;
+
+  // Feature flag: Set to true to show Pro features in the menu
+  const SHOW_PRO_FEATURES = false;
 
   // Theme state
   $: resolvedTheme = $theme === 'system' ? theme.getResolvedTheme() : $theme;
@@ -101,6 +116,17 @@
   function navigate(path: string) {
     close();
     goto(path);
+  }
+
+  function openTimerWidget() {
+    timerWidgetOpen.set(true);
+    close();
+  }
+
+  function toggleToolbox(e: Event) {
+    e.preventDefault();
+    e.stopPropagation();
+    toolboxExpanded = !toolboxExpanded;
   }
 
   function toggleTheme(e: Event) {
@@ -183,7 +209,11 @@
     <aside
       class="fixed top-0 right-0 h-full w-full sm:w-80 flex flex-col shadow-2xl"
       style="background-color: var(--color-bg-secondary);"
-      transition:fly={{ x: 320, duration: 300, easing: (t) => t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2 }}
+      transition:fly={{
+        x: 320,
+        duration: 300,
+        easing: (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2)
+      }}
       on:touchstart={handleTouchStart}
       on:touchmove={handleTouchMove}
       on:touchend={handleTouchEnd}
@@ -195,14 +225,16 @@
       <div class="flex-shrink-0 p-6 border-b" style="border-color: var(--color-input-border);">
         <div class="flex items-start justify-between">
           <div class="flex items-center gap-4">
-            <CustomAvatar pubkey={$userPublickey} size={48} imageUrl={$userProfilePictureOverride} />
+            <CustomAvatar
+              pubkey={$userPublickey}
+              size={48}
+              imageUrl={$userProfilePictureOverride}
+            />
             <div class="flex flex-col">
               <span class="font-semibold text-base" style="color: var(--color-text-primary);">
                 {displayName}
               </span>
-              <span class="text-sm" style="color: var(--color-caption);">
-                View profile
-              </span>
+              <span class="text-sm" style="color: var(--color-caption);"> View profile </span>
             </div>
           </div>
           <button
@@ -218,7 +250,6 @@
 
       <!-- Main navigation section - scrollable -->
       <nav class="flex-1 overflow-y-auto p-4">
-<<<<<<< HEAD
         <ul class="flex flex-col gap-1">
           <li>
             <button
@@ -270,7 +301,6 @@
               <span class="font-medium">Wallet</span>
             </button>
           </li>
-=======
         <!-- Section: My Kitchen -->
         <div class="mb-1">
           <h3
@@ -381,22 +411,99 @@
             {/if}
           </ul>
         </div>
->>>>>>> 8e907f2 (ui: replace wallet icons and add sidebar connect badge)
 
-          <li>
-            <button
-              on:click={() => navigate('/garden')}
-              class="w-full flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-opacity-50 transition-colors cursor-pointer"
-              style="color: var(--color-text-primary);"
-            >
-              <PlantIcon size={22} />
-              <span class="font-medium">The Garden</span>
-            </button>
-          </li>
-        </ul>
+        <!-- Section: Toolbox -->
+        <div class="mb-4">
+          <button
+            on:click={toggleToolbox}
+            class="w-full flex items-center justify-between px-4 py-3 rounded-xl hover:bg-opacity-50 transition-colors cursor-pointer"
+            style="color: var(--color-text-primary);"
+            aria-expanded={toolboxExpanded}
+          >
+            <div class="flex items-center gap-4">
+              <ToolboxIcon size={22} />
+              <span class="font-medium">Toolbox</span>
+            </div>
+            <CaretDownIcon
+              size={18}
+              class="transition-transform duration-200 {toolboxExpanded ? 'rotate-180' : ''}"
+            />
+          </button>
+          {#if toolboxExpanded}
+            <ul class="flex flex-col gap-1 mt-1 ml-4" transition:slide={{ duration: 200 }}>
+              <li>
+                <button
+                  on:click={openTimerWidget}
+                  class="w-full flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-opacity-50 transition-colors cursor-pointer"
+                  style="color: var(--color-text-primary);"
+                >
+                  <TimerIcon size={20} />
+                  <span class="font-medium">Timer</span>
+                </button>
+              </li>
+              <li>
+                <button
+                  on:click={() => navigate('/unit-converter')}
+                  class="w-full flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-opacity-50 transition-colors cursor-pointer"
+                  style="color: var(--color-text-primary);"
+                >
+                  <CalculatorIcon size={20} />
+                  <span class="font-medium">Unit Converter</span>
+                </button>
+              </li>
+              <!-- TODO: Add future tools here (e.g., Recipe Scaler, Nutrition Calculator) -->
+            </ul>
+          {/if}
+        </div>
 
-        <!-- Theme toggle section -->
-        <div class="mt-6 pt-6 border-t" style="border-color: var(--color-input-border);">
+        <!-- Section: Community -->
+        <div class="mb-4">
+          <h3
+            class="px-4 py-2 font-semibold uppercase tracking-wider"
+            style="color: var(--color-caption); font-size: 14px;"
+          >
+            Community
+          </h3>
+          <ul class="flex flex-col gap-1">
+            <li>
+              <button
+                on:click={() => navigate('/kitchen')}
+                class="w-full flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-opacity-50 transition-colors cursor-pointer"
+                style="color: var(--color-text-primary);"
+              >
+                <CookingPotIcon size={22} />
+                <span class="font-medium">The Kitchen</span>
+              </button>
+            </li>
+            <li>
+              <button
+                on:click={() => navigate('/garden')}
+                class="w-full flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-opacity-50 transition-colors cursor-pointer"
+                style="color: var(--color-text-primary);"
+              >
+                <PlantIcon size={22} />
+                <span class="font-medium">The Garden</span>
+              </button>
+            </li>
+            <li>
+              <button
+                on:click={() => navigate('/pantry')}
+                class="w-full flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-opacity-50 transition-colors cursor-pointer"
+                style="color: var(--color-text-primary);"
+              >
+                <StorefrontIcon size={22} />
+                <span class="font-medium">The Pantry</span>
+                <span
+                  class="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary font-medium"
+                  >Members</span
+                >
+              </button>
+            </li>
+          </ul>
+        </div>
+
+        <!-- Theme toggle -->
+        <div class="mt-2 pt-4 border-t" style="border-color: var(--color-input-border);">
           <button
             on:click={toggleTheme}
             class="w-full flex items-center justify-between px-4 py-3 rounded-xl hover:bg-opacity-50 transition-colors cursor-pointer"
@@ -414,7 +521,9 @@
             <!-- Toggle switch visual -->
             <div
               class="w-12 h-7 rounded-full p-1 transition-colors duration-200"
-              style="background-color: {isDarkMode ? 'var(--color-primary)' : 'var(--color-accent-gray)'};"
+              style="background-color: {isDarkMode
+                ? 'var(--color-primary)'
+                : 'var(--color-accent-gray)'};"
             >
               <div
                 class="w-5 h-5 rounded-full bg-white shadow-md transition-transform duration-200"

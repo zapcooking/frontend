@@ -50,26 +50,7 @@
           }
         }
       } catch (e) {
-        // Microlink failed, try fallback
-      }
-
-      // Fallback to jsonlink.io if microlink fails
-      if (!data || (!data.title && !data.description && !data.image)) {
-        try {
-          const response = await fetch(`https://jsonlink.io/api/extract?url=${encodeURIComponent(url)}`);
-          if (response.ok) {
-            const result = await response.json();
-            data = {
-              title: result.title || '',
-              description: result.description || '',
-              image: result.images?.[0] || '',
-              favicon: result.favicon || `https://www.google.com/s2/favicons?domain=${new URL(url).hostname}&sz=32`
-            };
-          }
-        } catch (e) {
-          // Silently handle CORS/network errors from jsonlink.io
-          // These are expected when jsonlink.io blocks requests
-        }
+        // Microlink failed - will fall back to showing plain URL
       }
 
       if (data) {

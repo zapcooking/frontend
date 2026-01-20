@@ -6,7 +6,6 @@
   import { goto } from '$app/navigation';
   import { onMount } from 'svelte';
   import type { PageData } from './$types';
-  import PostComposer from '../../components/PostComposer.svelte';
 
   // Pull-to-refresh refs
   let pullToRefreshEl: PullToRefresh;
@@ -31,7 +30,7 @@
   // Local state for immediate UI updates
   let activeTab: FilterMode = 'following';
 
-  // Check if user has active membership (for Members tab)
+  // Check if user has active membership (for Pantry tab)
   let hasActiveMembership = false;
   let checkingMembership = false;
 
@@ -114,19 +113,17 @@
       </div>
     {/if}
 
-    <PostComposer {activeTab} />
-
     <!-- Filter Tabs -->
-    <div class="mb-4 border-b" style="border-color: var(--color-input-border)">
-      <div class="flex gap-1">
+    <div class="mb-4 border-b tabs-container" style="border-color: var(--color-input-border)">
+      <div class="flex overflow-x-auto flex-nowrap scrollbar-hide">
         <button
           on:click={() => setTab('global')}
-          class="px-4 py-2 text-sm font-medium transition-colors relative"
+          class="px-2.5 py-2 text-sm font-medium transition-colors relative flex-shrink-0"
           style="color: {activeTab === 'global'
             ? 'var(--color-text-primary)'
             : 'var(--color-text-secondary)'}"
         >
-          Global Food
+          Global
           {#if activeTab === 'global'}
             <span
               class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-orange-500 to-amber-500"
@@ -136,7 +133,7 @@
 
         <button
           on:click={() => setTab('following')}
-          class="px-4 py-2 text-sm font-medium transition-colors relative"
+          class="px-2.5 py-2 text-sm font-medium transition-colors relative flex-shrink-0"
           style="color: {activeTab === 'following'
             ? 'var(--color-text-primary)'
             : 'var(--color-text-secondary)'}"
@@ -155,12 +152,12 @@
 
         <button
           on:click={() => setTab('replies')}
-          class="px-4 py-2 text-sm font-medium transition-colors relative"
+          class="px-2.5 py-2 text-sm font-medium transition-colors relative flex-shrink-0"
           style="color: {activeTab === 'replies'
             ? 'var(--color-text-primary)'
             : 'var(--color-text-secondary)'}"
         >
-          Notes & Replies
+          Replies
           {#if activeTab === 'replies'}
             <span
               class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-orange-500 to-amber-500"
@@ -168,28 +165,29 @@
           {/if}
         </button>
 
-        <!-- Members tab hidden for now - keeping functionality intact -->
-        <!-- {#if hasActiveMembership}
         <button
           on:click={() => setTab('members')}
-          class="px-4 py-2 text-sm font-medium transition-colors relative"
-          style="color: {activeTab === 'members' ? 'var(--color-text-primary)' : 'var(--color-text-secondary)'}"
+          class="px-2.5 py-2 text-sm font-medium transition-colors relative flex-shrink-0"
+          style="color: {activeTab === 'members'
+            ? 'var(--color-text-primary)'
+            : 'var(--color-text-secondary)'}"
         >
-          Members
+          Pantry
           {#if activeTab === 'members'}
-            <span class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-orange-500 to-amber-500"></span>
+            <span
+              class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-orange-500 to-amber-500"
+            ></span>
           {/if}
         </button>
-      {/if} -->
 
         <button
           on:click={() => setTab('garden')}
-          class="px-4 py-2 text-sm font-medium transition-colors relative"
+          class="px-2.5 py-2 text-sm font-medium transition-colors relative flex-shrink-0"
           style="color: {activeTab === 'garden'
             ? 'var(--color-text-primary)'
             : 'var(--color-text-secondary)'}"
         >
-          The Garden
+          Garden
           {#if activeTab === 'garden'}
             <span
               class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-orange-500 to-amber-500"
@@ -199,34 +197,39 @@
       </div>
     </div>
 
-    <!-- Show login prompt for Following/Replies tabs if not logged in -->
-    {#if (activeTab === 'following' || activeTab === 'replies') && !$userPublickey}
-      <div
-        class="mb-4 p-4 bg-accent-gray rounded-lg"
-        style="border: 1px solid var(--color-input-border)"
-      >
-        <p class="text-sm" style="color: var(--color-text-primary)">
-          <a href="/login" class="font-medium underline hover:opacity-80">Log in</a> to see {activeTab ===
-          'following'
-            ? 'posts from people you follow'
-            : 'replies from people you follow'}.
-        </p>
+    <!-- Pantry Coming Soon overlay -->
+    {#if activeTab === 'members'}
+      <div class="relative">
+        <!-- Coming Soon overlay -->
+        <div class="coming-soon-overlay">
+          <div class="coming-soon-card">
+            <span class="text-3xl mb-2">🏪</span>
+            <h3 class="text-xl font-bold mb-2" style="color: var(--color-text-primary)">
+              The Pantry
+            </h3>
+            <p class="text-sm mb-4" style="color: var(--color-caption)">
+              A members-only space for exclusive content and community discussions. Coming soon!
+            </p>
+            <a
+              href="/pantry"
+              class="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-primary text-white font-medium text-sm hover:opacity-90 transition-opacity"
+            >
+              Learn More
+            </a>
+          </div>
+        </div>
+        <!-- Feed in background (blurred) -->
+        <div class="blur-sm opacity-30 pointer-events-none">
+          {#key feedKey}
+            <FoodstrFeedOptimized bind:this={feedComponent} filterMode={activeTab} />
+          {/key}
+        </div>
       </div>
+    {:else}
+      {#key feedKey}
+        <FoodstrFeedOptimized bind:this={feedComponent} filterMode={activeTab} />
+      {/key}
     {/if}
-
-    <!-- Members tab and membership prompt hidden for now -->
-    <!-- Show membership prompt for Members tab if not a member -->
-    <!-- {#if activeTab === 'members' && $userPublickey && !hasActiveMembership && !checkingMembership}
-    <div class="mb-4 p-4 bg-accent-gray rounded-lg" style="border: 1px solid var(--color-input-border)">
-      <p class="text-sm" style="color: var(--color-text-primary)">
-        <a href="/membership" class="font-medium underline hover:opacity-80">Become a member</a> to access exclusive content from the private member community.
-      </p>
-    </div>
-  {/if} -->
-
-    {#key feedKey}
-      <FoodstrFeedOptimized bind:this={feedComponent} filterMode={activeTab} />
-    {/key}
   </div>
 </PullToRefresh>
 
@@ -241,5 +244,36 @@
     .community-page {
       padding-bottom: 2rem;
     }
+  }
+
+  /* Hide scrollbar for tabs but allow scrolling */
+  .scrollbar-hide {
+    -ms-overflow-style: none; /* IE and Edge */
+    scrollbar-width: none; /* Firefox */
+  }
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none; /* Chrome, Safari, Opera */
+  }
+
+  /* Coming Soon overlay */
+  .coming-soon-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 10;
+    display: flex;
+    justify-content: center;
+    padding-top: 4rem;
+  }
+
+  .coming-soon-card {
+    background: var(--color-bg-secondary);
+    border: 1px solid var(--color-input-border);
+    border-radius: 1rem;
+    padding: 2rem;
+    text-align: center;
+    max-width: 320px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
   }
 </style>

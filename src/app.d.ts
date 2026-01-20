@@ -8,6 +8,7 @@ declare global {
     interface Platform {
       env?: {
         RELAY_API_SECRET: string;
+        RELAY_ICON?: string;
         NOTIFICATION_PRIVATE_KEY?: string;
         CRON_SECRET?: string;
         MEMBERSHIP_ENABLED?: string;

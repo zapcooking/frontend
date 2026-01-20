@@ -9,7 +9,7 @@
   let memberInfo: any = null;
   let relayAccess: { [key: string]: boolean } = {};
 
-  const MEMBERS_RELAY = 'wss://members.zap.cooking';
+  const MEMBERS_RELAY = 'wss://pantry.zap.cooking';
   const PRO_RELAY = 'wss://pro.zap.cooking';
 
   async function testMembershipStatus() {
@@ -49,7 +49,7 @@
       // Test 2: Test relay access by trying to connect and publish a test event
       testResults.push('\n🔌 Testing relay access...');
       
-      // Test members.zap.cooking relay
+      // Test pantry.zap.cooking relay
       await testRelayAccess(MEMBERS_RELAY, 'members');
       
       // Test pro.zap.cooking relay (if Pro tier)
@@ -104,7 +104,7 @@
 
     try {
       const API_SECRET = '4c7aa1d6f3b1916c35b0a0ab89c29c5cc213f79d1560984f34e0958a3ebfebd5';
-      const res = await fetch('https://members.zap.cooking/api/members', {
+      const res = await fetch('https://pantry.zap.cooking/api/members', {
         headers: {
           'Authorization': `Bearer ${API_SECRET}`
         }

@@ -239,7 +239,7 @@
           <li>✓ Lifetime Pro Kitchen membership (never expires)</li>
           <li>✓ Verified @zap.cooking NIP-05 identity</li>
           <li>✓ Genesis Founder badge (#1-21)</li>
-          <li>✓ Access to both members.zap.cooking and pro.zap.cooking relays</li>
+          <li>✓ Access to both pantry.zap.cooking and pro.zap.cooking relays</li>
           <li>✓ Name permanently displayed as a Genesis Founder</li>
           <li>✓ All future Pro Kitchen features included</li>
         </ul>

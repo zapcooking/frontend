@@ -259,7 +259,7 @@
         <h3>What you get:</h3>
         <ul>
           <li>✓ Custom Lightning address (you@zap.cooking)</li>
-          <li>✓ Access to members.zap.cooking relay</li>
+          <li>✓ Access to pantry.zap.cooking relay</li>
           <li>✓ Recipe collections</li>
           <li>✓ Member badge</li>
           <li>✓ Vote on features</li>

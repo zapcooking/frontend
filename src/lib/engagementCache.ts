@@ -5,6 +5,13 @@ import { decode } from '@gandlaf21/bolt11-decode';
 import { browser } from '$app/environment';
 import { getEngagementCounts, batchFetchFromServerAPI } from './countQuery';
 
+// Individual zapper info
+export interface Zapper {
+  pubkey: string;
+  amount: number; // in sats
+  timestamp: number;
+}
+
 // Types for engagement data
 export interface EngagementData {
   reactions: {
@@ -24,6 +31,7 @@ export interface EngagementData {
     totalAmount: number;
     count: number;
     userZapped: boolean;
+    topZappers: Zapper[]; // Top zappers sorted by amount (descending)
   };
   loading: boolean;
   lastFetched: number;
@@ -37,7 +45,11 @@ interface CachedEngagement {
   };
   comments: number;
   reposts: number;
-  zaps: { amount: number; count: number };
+  zaps: { 
+    amount: number; 
+    count: number;
+    topZappers?: Zapper[]; // Top zappers
+  };
   timestamp: number;
 }
 
@@ -49,6 +61,44 @@ const processedEventIds = new Map<string, Set<string>>();
 const CACHE_KEY_PREFIX = 'engagement_';
 const CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours - persist across page reloads
 
+// ═══════════════════════════════════════════════════════════════
+// PERSISTENT SUBSCRIPTION MANAGER
+// Keep subscriptions alive for real-time engagement updates
+// ═══════════════════════════════════════════════════════════════
+
+const persistentSubscriptions = new Map<string, { sub: NDKSubscription; lastActivity: number }>();
+const SUBSCRIPTION_IDLE_TIMEOUT = 5 * 60 * 1000; // 5 minutes - close idle subscriptions
+let subscriptionCleanupInterval: ReturnType<typeof setInterval> | null = null;
+
+// Start cleanup interval for idle subscriptions
+function startSubscriptionCleanup(): void {
+  if (subscriptionCleanupInterval) return;
+  
+  subscriptionCleanupInterval = setInterval(() => {
+    const now = Date.now();
+    for (const [eventId, { sub, lastActivity }] of persistentSubscriptions) {
+      if (now - lastActivity > SUBSCRIPTION_IDLE_TIMEOUT) {
+        console.debug('[Engagement] Closing idle subscription for', eventId);
+        sub.stop();
+        persistentSubscriptions.delete(eventId);
+      }
+    }
+  }, 60 * 1000); // Check every minute
+}
+
+// Mark subscription as active (called when data is accessed)
+export function touchEngagementSubscription(eventId: string): void {
+  const entry = persistentSubscriptions.get(eventId);
+  if (entry) {
+    entry.lastActivity = Date.now();
+  }
+}
+
+// Get subscription count for monitoring
+export function getActiveSubscriptionCount(): number {
+  return persistentSubscriptions.size;
+}
+
 function getDefaultEngagement(): EngagementData {
   return {
     reactions: {
@@ -59,7 +109,7 @@ function getDefaultEngagement(): EngagementData {
     },
     comments: { count: 0 },
     reposts: { count: 0, userReposted: false },
-    zaps: { totalAmount: 0, count: 0, userZapped: false },
+    zaps: { totalAmount: 0, count: 0, userZapped: false, topZappers: [] },
     loading: true,
     lastFetched: 0
   };
@@ -104,7 +154,11 @@ function saveToCache(eventId: string, engagement: EngagementData): void {
       },
       comments: engagement.comments.count,
       reposts: engagement.reposts.count,
-      zaps: { amount: engagement.zaps.totalAmount, count: engagement.zaps.count },
+      zaps: { 
+        amount: engagement.zaps.totalAmount, 
+        count: engagement.zaps.count,
+        topZappers: engagement.zaps.topZappers // Include top zappers in cache
+      },
       timestamp: Date.now()
     };
     
@@ -140,7 +194,12 @@ export function getEngagementStore(eventId: string): Writable<EngagementData> {
         },
         comments: { count: cached.comments },
         reposts: { count: cached.reposts, userReposted: false },
-        zaps: { totalAmount: cached.zaps.amount, count: cached.zaps.count, userZapped: false },
+        zaps: { 
+          totalAmount: cached.zaps.amount, 
+          count: cached.zaps.count, 
+          userZapped: false,
+          topZappers: cached.zaps.topZappers || []
+        },
         loading: false, // Show cached data immediately - no loading state
         lastFetched: cached.timestamp
       }));
@@ -217,22 +276,41 @@ export async function fetchEngagement(
     console.debug('[Engagement] NIP-45 COUNT failed for', eventId, err);
   });
 
-  // FULL PATH: Also start full event subscription for accurate data + user state
+  // FULL PATH: Start persistent subscription for real-time engagement updates
+  // Check if we already have a persistent subscription
+  const existingPersistent = persistentSubscriptions.get(eventId);
+  const latestData = get(store);
+  const hasAmountData = latestData.zaps.totalAmount > 0 || latestData.zaps.topZappers.length > 0;
+  
+  if (existingPersistent && hasAmountData) {
+    // Only reuse if we already have amount data
+    existingPersistent.lastActivity = Date.now();
+    store.update(s => ({ ...s, loading: false }));
+    return;
+  }
+  
+  // If we have a subscription but no amount data, close it and create a fresh one
+  if (existingPersistent && !hasAmountData) {
+    console.debug('[Engagement] Subscription exists but no amount data, refreshing for', eventId);
+    existingPersistent.sub.stop();
+    persistentSubscriptions.delete(eventId);
+    processedEventIds.delete(eventId); // Allow re-processing events
+  }
+  
   // Initialize processed event tracking
   if (!processedEventIds.has(eventId)) {
     processedEventIds.set(eventId, new Set());
   }
   const processed = processedEventIds.get(eventId)!;
   
-  // Stop existing subscriptions
+  // Stop any old-style subscriptions
   const existingSubs = activeSubscriptions.get(eventId);
   if (existingSubs) {
     existingSubs.forEach(sub => sub.stop());
+    activeSubscriptions.delete(eventId);
   }
   
-  const subscriptions: NDKSubscription[] = [];
-  
-  // Create a single subscription for all engagement types
+  // Create persistent subscription for all engagement types
   const filter = {
     kinds: [7, 6, 9735, 1],
     '#e': [eventId]
@@ -241,12 +319,21 @@ export async function fetchEngagement(
   let eoseReceived = false;
   
   try {
+    // Start subscription cleanup manager
+    startSubscriptionCleanup();
+    
+    // Create persistent subscription (stays open for real-time updates)
     const sub = ndk.subscribe(filter, { closeOnEose: false });
-    subscriptions.push(sub);
+    
+    // Register in persistent subscriptions map
+    persistentSubscriptions.set(eventId, { sub, lastActivity: Date.now() });
     
     sub.on('event', (event: NDKEvent) => {
       if (!event.id || processed.has(event.id)) return;
       processed.add(event.id);
+      
+      // Mark subscription as active on new events
+      touchEngagementSubscription(eventId);
       
       store.update(s => {
         const updated = { ...s };
@@ -269,6 +356,9 @@ export async function fetchEngagement(
             break;
         }
         
+        // Save to cache on each update for persistence
+        saveToCache(eventId, updated);
+        
         return updated;
       });
     });
@@ -278,28 +368,43 @@ export async function fetchEngagement(
         eoseReceived = true;
         store.update(s => {
           const updated = { ...s, loading: false, lastFetched: Date.now() };
+          
+          // Recalculate reaction count from groups to ensure accuracy
+          const sumOfGroups = updated.reactions.groups.reduce((sum, g) => sum + g.count, 0);
+          if (sumOfGroups > 0 && sumOfGroups !== updated.reactions.count) {
+            updated.reactions.count = sumOfGroups;
+          }
+          
           // Save to cache after initial fetch
           saveToCache(eventId, updated);
           return updated;
         });
+        
+        console.debug('[Engagement] EOSE received, subscription stays open for', eventId);
       }
     });
     
     // Timeout fallback - mark as loaded after timeout even if EOSE didn't arrive
-    // This ensures UI doesn't stay in loading state forever
     setTimeout(() => {
       if (!eoseReceived) {
         eoseReceived = true;
         store.update(s => {
           const updated = { ...s, loading: false, lastFetched: Date.now() };
-          // Save whatever we have so far to cache
+          
+          // Recalculate reaction count from groups to ensure accuracy
+          const sumOfGroups = updated.reactions.groups.reduce((sum, g) => sum + g.count, 0);
+          if (sumOfGroups > 0 && sumOfGroups !== updated.reactions.count) {
+            updated.reactions.count = sumOfGroups;
+          }
+          
           saveToCache(eventId, updated);
           return updated;
         });
       }
-    }, 5000); // Reduced timeout - 5 seconds should be enough for most relays
+    }, 5000);
     
-    activeSubscriptions.set(eventId, subscriptions);
+    // Also keep in activeSubscriptions for backward compatibility
+    activeSubscriptions.set(eventId, [sub]);
     
   } catch (error) {
     console.error('Error fetching engagement:', error);
@@ -366,14 +471,53 @@ function processZap(data: EngagementData, event: NDKEvent, userPublickey: string
     const amountSection = decoded.sections.find(s => s.name === 'amount');
     
     if (amountSection?.value) {
-      const amount = Number(amountSection.value);
-      if (!isNaN(amount) && amount > 0) {
-        data.zaps.totalAmount += amount;
+      const amountMillisats = Number(amountSection.value);
+      if (!isNaN(amountMillisats) && amountMillisats > 0) {
+        const amountSats = Math.floor(amountMillisats / 1000); // Convert millisats to sats
+        data.zaps.totalAmount += amountMillisats;
         data.zaps.count++;
         
-        // Check if current user zapped (via P tag)
-        if (event.tags.some(t => t[0] === 'P' && t[1] === userPublickey)) {
+        // Extract zapper info from the zap request in the description tag
+        let zapperPubkey = event.pubkey; // fallback to zapper service pubkey
+        try {
+          const descTag = event.tags.find(t => t[0] === 'description')?.[1];
+          if (descTag) {
+            const zapRequest = JSON.parse(descTag);
+            if (zapRequest.pubkey) {
+              zapperPubkey = zapRequest.pubkey; // The actual sender
+            }
+          }
+        } catch {
+          // Failed to parse description, use event pubkey
+        }
+        
+        // Check if current user zapped
+        if (zapperPubkey === userPublickey) {
           data.zaps.userZapped = true;
+        }
+        
+        // Add or update zapper in the list
+        // Use event timestamp, falling back to current time if missing
+        const zapTimestamp = event.created_at && event.created_at > 1000000000 
+          ? event.created_at 
+          : Math.floor(Date.now() / 1000);
+        
+        const existingZapper = data.zaps.topZappers.find(z => z.pubkey === zapperPubkey);
+        if (existingZapper) {
+          existingZapper.amount += amountSats;
+          existingZapper.timestamp = Math.max(existingZapper.timestamp, zapTimestamp);
+        } else {
+          data.zaps.topZappers.push({
+            pubkey: zapperPubkey,
+            amount: amountSats,
+            timestamp: zapTimestamp
+          });
+        }
+        
+        // Sort by amount descending, keep top 10 for efficiency
+        data.zaps.topZappers.sort((a, b) => b.amount - a.amount);
+        if (data.zaps.topZappers.length > 10) {
+          data.zaps.topZappers = data.zaps.topZappers.slice(0, 10);
         }
       }
     }
@@ -384,11 +528,57 @@ function processZap(data: EngagementData, event: NDKEvent, userPublickey: string
 
 // Cleanup function for when a note is removed from view
 export function cleanupEngagement(eventId: string): void {
+  // Clean up persistent subscription
+  const persistent = persistentSubscriptions.get(eventId);
+  if (persistent) {
+    persistent.sub.stop();
+    persistentSubscriptions.delete(eventId);
+  }
+  
+  // Clean up legacy subscriptions
   const subs = activeSubscriptions.get(eventId);
   if (subs) {
     subs.forEach(sub => sub.stop());
     activeSubscriptions.delete(eventId);
   }
+  
+  // Clear processed events tracking
+  processedEventIds.delete(eventId);
+}
+
+// Force refresh engagement data for an event (bypasses cache)
+export async function refreshEngagement(
+  ndk: NDK,
+  eventId: string,
+  userPublickey: string
+): Promise<void> {
+  // Clear processed events to allow re-processing
+  processedEventIds.delete(eventId);
+  
+  // Reset store to loading state but keep existing data
+  const store = getEngagementStore(eventId);
+  store.update(s => ({ ...s, loading: true }));
+  
+  // Close existing subscription to force reconnect
+  cleanupEngagement(eventId);
+  
+  // Fetch fresh data
+  await fetchEngagement(ndk, eventId, userPublickey);
+}
+
+// Get engagement stats for monitoring
+export function getEngagementStats(): {
+  storeCount: number;
+  subscriptionCount: number;
+  persistentSubscriptionCount: number;
+  processedEventsCount: number;
+} {
+  return {
+    storeCount: engagementStores.size,
+    subscriptionCount: activeSubscriptions.size,
+    persistentSubscriptionCount: persistentSubscriptions.size,
+    processedEventsCount: processedEventIds.size
+  };
 }
 
 // Batch fetch for multiple events (more efficient)
@@ -503,6 +693,13 @@ export async function batchFetchEngagement(
           const store = getEngagementStore(id);
           store.update(s => {
             const updated = { ...s, loading: false, lastFetched: Date.now() };
+            
+            // Recalculate reaction count from groups to ensure accuracy
+            const sumOfGroups = updated.reactions.groups.reduce((sum, g) => sum + g.count, 0);
+            if (sumOfGroups > 0 && sumOfGroups !== updated.reactions.count) {
+              updated.reactions.count = sumOfGroups;
+            }
+            
             saveToCache(id, updated);
             return updated;
           });
@@ -516,7 +713,17 @@ export async function batchFetchEngagement(
         eoseReceived = true;
         toFetch.forEach(id => {
           const store = getEngagementStore(id);
-          store.update(s => ({ ...s, loading: false, lastFetched: Date.now() }));
+          store.update(s => {
+            const updated = { ...s, loading: false, lastFetched: Date.now() };
+            
+            // Recalculate reaction count from groups to ensure accuracy
+            const sumOfGroups = updated.reactions.groups.reduce((sum, g) => sum + g.count, 0);
+            if (sumOfGroups > 0 && sumOfGroups !== updated.reactions.count) {
+              updated.reactions.count = sumOfGroups;
+            }
+            
+            return updated;
+          });
         });
       }
     }, 10000);
@@ -532,7 +739,17 @@ export async function batchFetchEngagement(
 
 // Clear all caches (for logout, etc)
 export function clearAllEngagementCaches(): void {
-  // Stop all subscriptions
+  // Stop persistent subscriptions
+  persistentSubscriptions.forEach(({ sub }) => sub.stop());
+  persistentSubscriptions.clear();
+  
+  // Stop cleanup interval
+  if (subscriptionCleanupInterval) {
+    clearInterval(subscriptionCleanupInterval);
+    subscriptionCleanupInterval = null;
+  }
+  
+  // Stop legacy subscriptions
   activeSubscriptions.forEach(subs => subs.forEach(sub => sub.stop()));
   activeSubscriptions.clear();
   
@@ -545,5 +762,7 @@ export function clearAllEngagementCaches(): void {
     const keys = Object.keys(localStorage).filter(k => k.startsWith(CACHE_KEY_PREFIX));
     keys.forEach(k => localStorage.removeItem(k));
   }
+  
+  console.log('[Engagement] All caches cleared');
 }
 

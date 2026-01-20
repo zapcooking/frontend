@@ -13,11 +13,15 @@
   import type { NDKEvent as NDKEventType } from '@nostr-dev-kit/ndk';
   import { get } from 'svelte/store';
   import { searchProfiles } from '$lib/profileSearchService';
+  import { clearQuotedNote } from '$lib/postComposerStore';
 
   type FilterMode = 'global' | 'following' | 'replies' | 'members' | 'garden';
+  type RelaySelection = 'all' | 'garden' | 'pantry' | 'garden-pantry';
 
   export let activeTab: FilterMode = 'global';
   export let variant: 'inline' | 'modal' = 'inline';
+  export let selectedRelay: RelaySelection | undefined = undefined;
+  export let initialQuotedNote: { nevent: string; event: NDKEventType } | null = null;
 
   const dispatch = createEventDispatcher<{ close: void }>();
 
@@ -87,6 +91,10 @@
     }
 
     if (variant === 'modal') {
+      // Set initial quoted note if provided (from store via PostModal)
+      if (initialQuotedNote) {
+        quotedNote = initialQuotedNote;
+      }
       focusComposer();
     }
   });
@@ -126,6 +134,8 @@
     resetComposerState();
 
     if (variant === 'modal') {
+      // Clear the quoted note store when closing modal
+      clearQuotedNote();
       dispatch('close');
       return;
     }
@@ -384,40 +394,104 @@
       addClientTagToEvent(event);
 
       let publishPromise: Promise<boolean>;
-      if (activeTab === 'garden') {
+      
+      // Determine which relays to publish to
+      // Priority: explicit selectedRelay prop (from modal) > activeTab (from feed context)
+      const relayMode = selectedRelay || (activeTab === 'garden' ? 'garden' : activeTab === 'members' ? 'pantry' : 'all');
+      
+      if (relayMode === 'garden') {
+        // Publish to garden relay only
         const { NDKRelaySet } = await import('@nostr-dev-kit/ndk');
         const gardenRelayUrl = 'wss://garden.zap.cooking';
 
         console.log('[Garden] Publishing to garden relay only:', gardenRelayUrl);
 
-        const gardenRelaySet = NDKRelaySet.fromRelayUrls([gardenRelayUrl], $ndk, true);
+        // Get or create relay and ensure it's connected
+        const relay = $ndk.pool.getRelay(gardenRelayUrl, true, true);
+        await relay.connect();
+        
+        // Wait a moment for the connection to stabilize
+        await new Promise(resolve => setTimeout(resolve, 100));
 
-        publishPromise = event.publish(gardenRelaySet).then((publishedRelays) => {
+        // Create relay set with the actual relay instance (more reliable than fromRelayUrls)
+        const gardenRelaySet = new NDKRelaySet(new Set([relay]), $ndk);
+
+        // Sign the event first to ensure it's ready
+        await event.sign();
+
+        publishPromise = event.publish(gardenRelaySet, 5000).then((publishedRelays) => {
           console.log('[Garden] Publish result:', publishedRelays.size, 'relays confirmed');
-          const gardenRelayPublished = Array.from(publishedRelays).some(
-            (relay) => normalizeRelayUrl(relay.url) === normalizeRelayUrl(gardenRelayUrl)
-          );
-          if (!gardenRelayPublished) {
+          if (publishedRelays.size === 0) {
             throw new Error('Failed to publish to garden relay. Please try again.');
           }
           return true;
         });
-      } else if (activeTab === 'members') {
+      } else if (relayMode === 'pantry') {
+        // Publish to pantry relay only (members)
         const { NDKRelaySet } = await import('@nostr-dev-kit/ndk');
-        const membersRelayUrl = 'wss://members.zap.cooking';
+        const pantryRelayUrl = 'wss://pantry.zap.cooking';
 
-        const membersRelaySet = NDKRelaySet.fromRelayUrls([membersRelayUrl], $ndk, true);
+        console.log('[Pantry] Publishing to pantry relay only:', pantryRelayUrl);
 
-        publishPromise = event.publish(membersRelaySet).then((publishedRelays) => {
-          const membersRelayPublished = Array.from(publishedRelays).some(
-            (relay) => relay.url === membersRelayUrl || relay.url === membersRelayUrl + '/'
-          );
-          if (!membersRelayPublished) {
-            throw new Error('Failed to publish to members relay');
+        // Get or create relay and ensure it's connected
+        const relay = $ndk.pool.getRelay(pantryRelayUrl, true, true);
+        await relay.connect();
+        
+        // Wait a moment for the connection to stabilize
+        await new Promise(resolve => setTimeout(resolve, 100));
+
+        // Create relay set with the actual relay instance
+        const pantryRelaySet = new NDKRelaySet(new Set([relay]), $ndk);
+
+        // Sign the event first
+        await event.sign();
+
+        publishPromise = event.publish(pantryRelaySet, 5000).then((publishedRelays) => {
+          console.log('[Pantry] Publish result:', publishedRelays.size, 'relays confirmed');
+          if (publishedRelays.size === 0) {
+            throw new Error('Failed to publish to pantry relay. Please try again.');
+          }
+          return true;
+        });
+      } else if (relayMode === 'garden-pantry') {
+        // Publish to both garden and pantry relays
+        const { NDKRelaySet } = await import('@nostr-dev-kit/ndk');
+        const gardenRelayUrl = 'wss://garden.zap.cooking';
+        const pantryRelayUrl = 'wss://pantry.zap.cooking';
+
+        console.log('[Garden+Pantry] Publishing to both relays');
+
+        // Get or create relays and ensure they're connected
+        const gardenRelay = $ndk.pool.getRelay(gardenRelayUrl, true, true);
+        const pantryRelay = $ndk.pool.getRelay(pantryRelayUrl, true, true);
+        await Promise.all([gardenRelay.connect(), pantryRelay.connect()]);
+        
+        // Wait a moment for connections to stabilize
+        await new Promise(resolve => setTimeout(resolve, 100));
+
+        // Create relay set with actual relay instances
+        const combinedRelaySet = new NDKRelaySet(new Set([gardenRelay, pantryRelay]), $ndk);
+
+        // Sign the event first
+        await event.sign();
+
+        publishPromise = event.publish(combinedRelaySet, 5000).then((publishedRelays) => {
+          console.log('[Garden+Pantry] Publish result:', publishedRelays.size, 'relays confirmed');
+          const publishedUrls = Array.from(publishedRelays).map(r => normalizeRelayUrl(r.url));
+          const gardenPublished = publishedUrls.includes(normalizeRelayUrl(gardenRelayUrl));
+          const pantryPublished = publishedUrls.includes(normalizeRelayUrl(pantryRelayUrl));
+          
+          if (!gardenPublished && !pantryPublished) {
+            throw new Error('Failed to publish to garden and pantry relays. Please try again.');
+          } else if (!gardenPublished) {
+            console.warn('[Garden+Pantry] Only published to pantry relay');
+          } else if (!pantryPublished) {
+            console.warn('[Garden+Pantry] Only published to garden relay');
           }
           return true;
         });
       } else {
+        // Publish to all relays (default behavior)
         publishPromise = event.publish().then(() => true);
       }
 
@@ -1189,7 +1263,7 @@
               <div class="relative">
                 <div
                   bind:this={composerEl}
-                  class="composer-input w-full min-h-[80px] p-2 border-0 focus:outline-none focus:ring-0 bg-transparent"
+                  class="composer-input w-full min-h-[80px] max-h-[300px] overflow-y-auto p-2 border-0 focus:outline-none focus:ring-0 bg-transparent"
                   style="color: var(--color-text-primary); font-size: 16px;"
                   contenteditable={!posting}
                   role="textbox"
@@ -1241,19 +1315,18 @@
               {/if}
 
               {#if quotedNote}
-                <div
-                  class="mb-3 rounded-xl overflow-hidden bg-input"
-                  style="border: 1px solid var(--color-input-border)"
-                >
-                  <div
-                    class="flex items-center justify-between px-3 py-2 bg-accent-gray"
-                    style="border-bottom: 1px solid var(--color-input-border)"
-                  >
-                    <span class="text-xs font-medium text-caption">Quoting post</span>
+                <div class="quoted-note-embed mb-3">
+                  <div class="quoted-note-header">
+                    <CustomAvatar pubkey={quotedNote.event.pubkey} size={16} />
+                    <span class="quoted-note-author">
+                      <ProfileLink
+                        nostrString={'nostr:' + nip19.npubEncode(quotedNote.event.pubkey)}
+                      />
+                    </span>
                     <button
                       type="button"
                       on:click={() => (quotedNote = null)}
-                      class="text-caption hover:opacity-80 p-1 hover:bg-input rounded transition-colors"
+                      class="ml-auto text-caption hover:opacity-80 p-0.5 hover:bg-input rounded transition-colors"
                       aria-label="Remove quote"
                     >
                       <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1267,20 +1340,8 @@
                     </button>
                   </div>
 
-                  <div class="p-3">
-                    <div class="flex items-center gap-2 mb-2">
-                      <CustomAvatar pubkey={quotedNote.event.pubkey} size={24} />
-                      <ProfileLink
-                        nostrString={'nostr:' + nip19.npubEncode(quotedNote.event.pubkey)}
-                      />
-                    </div>
-
-                    <div
-                      class="text-sm max-h-32 overflow-hidden"
-                      style="color: var(--color-text-primary)"
-                    >
-                      <NoteContent content={quotedNote.event.content || ''} />
-                    </div>
+                  <div class="quoted-note-content">
+                    <NoteContent content={quotedNote.event.content || ''} />
                   </div>
                 </div>
               {/if}
@@ -1348,20 +1409,36 @@
                 </div>
               {/if}
 
-              {#if activeTab === 'members'}
+              {#if activeTab === 'members' || selectedRelay === 'pantry'}
                 <div
                   class="mb-2 px-3 py-1.5 rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800"
                 >
                   <p class="text-xs font-medium text-blue-700 dark:text-blue-300">
-                    📡 Posting to: <span class="font-semibold">members.zap.cooking</span>
+                    🏪 The Pantry — If you're seeing this, you're early.
                   </p>
                 </div>
-              {:else if activeTab === 'garden'}
+              {:else if activeTab === 'garden' || selectedRelay === 'garden'}
                 <div
                   class="mb-2 px-3 py-1.5 rounded-lg bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800"
                 >
                   <p class="text-xs font-medium text-green-700 dark:text-green-300">
                     🌱 Posting to: <span class="font-semibold">garden.zap.cooking</span>
+                  </p>
+                </div>
+              {:else if selectedRelay === 'garden-pantry'}
+                <div
+                  class="mb-2 px-3 py-1.5 rounded-lg bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800"
+                >
+                  <p class="text-xs font-medium text-purple-700 dark:text-purple-300">
+                    🌱🏪 Posting to Garden + Pantry
+                  </p>
+                </div>
+              {:else if selectedRelay === 'all'}
+                <div
+                  class="mb-2 px-3 py-1.5 rounded-lg bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800"
+                >
+                  <p class="text-xs font-medium text-orange-700 dark:text-orange-300">
+                    📡 Posting to: <span class="font-semibold">All connected relays</span>
                   </p>
                 </div>
               {/if}
@@ -1508,6 +1585,24 @@
     word-break: break-word;
   }
 
+  /* Custom scrollbar for composer */
+  .composer-input::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  .composer-input::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .composer-input::-webkit-scrollbar-thumb {
+    background: var(--color-input-border);
+    border-radius: 3px;
+  }
+
+  .composer-input::-webkit-scrollbar-thumb:hover {
+    background: var(--color-caption);
+  }
+
   .composer-input[contenteditable='true']:empty:before {
     content: attr(data-placeholder);
     color: var(--color-caption);
@@ -1556,5 +1651,57 @@
     text-align: center;
     font-size: 0.875rem;
     color: var(--color-caption);
+  }
+
+  /* Quoted note embed - orange bracket style matching feed */
+  .quoted-note-embed {
+    padding: 0.5rem 0.75rem;
+    background: var(--color-input);
+    border-left: 3px solid var(--color-primary, #f97316);
+    border-radius: 0.375rem;
+  }
+
+  .quoted-note-header {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    margin-bottom: 0.25rem;
+  }
+
+  .quoted-note-author {
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: var(--color-text-secondary);
+  }
+
+  .quoted-note-author :global(a) {
+    color: var(--color-text-secondary);
+    text-decoration: none;
+  }
+
+  .quoted-note-author :global(a:hover) {
+    text-decoration: underline;
+  }
+
+  .quoted-note-content {
+    font-size: 0.75rem;
+    color: var(--color-text-secondary);
+    line-height: 1.4;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    max-height: 4.2em;
+  }
+
+  .quoted-note-content :global(p) {
+    margin: 0;
+  }
+
+  .quoted-note-content :global(a) {
+    color: var(--color-primary, #f97316);
   }
 </style>

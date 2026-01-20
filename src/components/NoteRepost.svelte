@@ -8,6 +8,7 @@
   import ArrowsClockwise from 'phosphor-svelte/lib/ArrowsClockwise';
   import { clickOutside } from '$lib/clickOutside';
   import { getEngagementStore, fetchEngagement } from '$lib/engagementCache';
+  import { openComposerWithQuote } from '$lib/postComposerStore';
 
   export let event: NDKEvent;
   
@@ -86,7 +87,10 @@
       author: event.pubkey
     });
     
-    // Dispatch event to open composer with quote
+    // Open the post composer modal with the quoted note
+    openComposerWithQuote(nevent, event);
+    
+    // Also dispatch event for inline composer compatibility
     window.dispatchEvent(new CustomEvent('quote-note', { 
       detail: { nevent, event } 
     }));
@@ -96,7 +100,7 @@
 <div class="relative">
   <button
     on:click={() => showMenu = !showMenu}
-    class="flex gap-1.5 hover:bg-input rounded px-0.5 transition duration-300 cursor-pointer"
+    class="flex items-center gap-1.5 hover:bg-input rounded px-0.5 transition duration-300 cursor-pointer"
     class:opacity-50={!$userPublickey}
     title={!$userPublickey ? 'Login to repost' : $store.reposts.userReposted ? 'You reposted this' : 'Repost'}
   >
@@ -105,7 +109,9 @@
       weight={$store.reposts.userReposted ? 'fill' : 'regular'}
       class={$store.reposts.userReposted ? 'text-green-500' : 'text-caption'}
     />
-    {#if $store.loading}–{:else}{$store.reposts.count}{/if}
+    <span class="text-caption">
+      {#if $store.loading}–{:else}{$store.reposts.count}{/if}
+    </span>
   </button>
 
   {#if showMenu}

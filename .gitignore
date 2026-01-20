@@ -31,3 +31,6 @@ CLAUDE.md
 
 # Local plans
 docs/plans/tanstack-query-migration.md
+
+# NIP-108 gated content store (contains secrets)
+.gated-content-store.json

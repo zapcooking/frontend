@@ -35,9 +35,7 @@
       return;
     }
     let e = await $ndk.fetchEvent({
-      // @ts-ignore
       '#d': ['nostrcooking-bookmarks'],
-      // @ts-ignore
       authors: [$userPublickey],
       kinds: [30001]
     });
@@ -113,21 +111,14 @@
         nevent.tags.push(['image', image]);
       }
       $items.forEach((e) => {
-        const data = nip19.decode(e.naddr).data;
-        // @ts-ignore
-        const newAtag = `${data.kind}:${data.pubkey}:${data.identifier}`;
-        nevent.tags.push(['a', newAtag]);
+        const decoded = nip19.decode(e.naddr);
+        if (decoded.type === 'naddr') {
+          const data = decoded.data;
+          const newAtag = `${data.kind}:${data.pubkey}:${data.identifier}`;
+          nevent.tags.push(['a', newAtag]);
+        }
       });
-      console.log(nevent);
-      let relays = await nevent.publish();
-      relays.forEach((relay) => {
-        relay.once('published', () => {
-          console.log('published to', relay);
-        });
-        relay.once('publish:failed', (relay, err) => {
-          console.log('publish failed to', relay, err);
-        });
-      });
+      await nevent.publish();
       resultMessage = 'Success!';
       let naddr = nip19.naddrEncode({
         identifier: title.toLowerCase().replaceAll(' ', '-'),
@@ -150,13 +141,12 @@
   items.subscribe((i) => {
     i.forEach(async (t) => {
       if (!t.title) {
-        const data = nip19.decode(t.naddr).data;
+        const decoded = nip19.decode(t.naddr);
+        if (decoded.type !== 'naddr') return;
+        const data = decoded.data;
         const newEv = await $ndk.fetchEvent({
-          // @ts-ignore
           kinds: [Number(data.kind)],
-          // @ts-ignore
           '#d': [data.identifier],
-          // @ts-ignore
           authors: [data.pubkey]
         });
 

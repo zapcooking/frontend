@@ -1,6 +1,7 @@
 import type { PageServerLoad } from './$types';
 import { nip19 } from 'nostr-tools';
 import { redirect } from '@sveltejs/kit';
+import { GATED_RECIPE_KIND } from '$lib/consts';
 
 // Tracking parameters to strip
 const TRACKING_PARAMS = [
@@ -21,7 +22,7 @@ const RELAYS = [
 	'wss://nos.lol'
 ];
 
-async function fetchFromRelay(relayUrl: string, identifier: string, pubkey: string): Promise<RecipeMetadata | null> {
+async function fetchFromRelay(relayUrl: string, identifier: string, pubkey: string, kind: number = 30023): Promise<RecipeMetadata | null> {
 	// Check if WebSocket is available (may not be in Node.js dev environment)
 	if (typeof WebSocket === 'undefined') {
 		return null;
@@ -70,7 +71,7 @@ async function fetchFromRelay(relayUrl: string, identifier: string, pubkey: stri
 					'REQ',
 					subId,
 					{
-						kinds: [30023],
+						kinds: [kind],
 						authors: [pubkey],
 						'#d': [identifier],
 						limit: 1
@@ -153,10 +154,10 @@ async function fetchFromRelay(relayUrl: string, identifier: string, pubkey: stri
 	});
 }
 
-async function fetchRecipeMetadata(identifier: string, pubkey: string): Promise<RecipeMetadata | null> {
+async function fetchRecipeMetadata(identifier: string, pubkey: string, kind: number = 30023): Promise<RecipeMetadata | null> {
 	// Try relays in parallel, return first successful result
 	const results = await Promise.all(
-		RELAYS.map(relay => fetchFromRelay(relay, identifier, pubkey))
+		RELAYS.map(relay => fetchFromRelay(relay, identifier, pubkey, kind))
 	);
 
 	return results.find(r => r !== null) || null;
@@ -202,10 +203,13 @@ export const load: PageServerLoad = async ({ params, url }) => {
 			};
 		}
 
-		const { identifier, pubkey } = decoded.data;
+		const { identifier, pubkey, kind } = decoded.data;
+		
+		// Support both regular recipes (30023) and premium recipes (35000)
+		const recipeKind = kind === GATED_RECIPE_KIND ? GATED_RECIPE_KIND : 30023;
 		
 		// Add timeout to prevent hanging
-		const metadataPromise = fetchRecipeMetadata(identifier, pubkey);
+		const metadataPromise = fetchRecipeMetadata(identifier, pubkey, recipeKind);
 		const timeoutPromise = new Promise<null>((resolve) => 
 			setTimeout(() => resolve(null), 5000)
 		);

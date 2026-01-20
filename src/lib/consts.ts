@@ -34,6 +34,11 @@ export const RECIPE_TAG_PREFIX_NEW = 'zapcooking';
 export const RECIPE_TAG_PREFIX_LEGACY = 'nostrcooking';
 export const RECIPE_TAGS = [RECIPE_TAG_PREFIX_NEW, RECIPE_TAG_PREFIX_LEGACY]; // For filtering (supports both)
 
+// Gated/Premium recipe kind (addressable event in 30000-39999 range)
+// Using 35000 to differentiate from regular recipes (30023)
+export const GATED_RECIPE_KIND = 35000;
+export const GATED_RECIPE_TAG = 'zapcooking-premium'; // Tag for filtering premium recipes
+
 export const recipeTags: recipeTagSimple[] = [
   { title: 'Alcohol', emoji: '🍸' },
   { title: 'Nuts', emoji: '🥜' },

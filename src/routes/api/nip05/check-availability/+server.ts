@@ -70,7 +70,7 @@ export const GET: RequestHandler = async ({ url, platform }) => {
     }
     
     // Check availability with members API
-    const checkRes = await fetch(`https://members.zap.cooking/api/nip05/check/${encodeURIComponent(username)}`, {
+    const checkRes = await fetch(`https://pantry.zap.cooking/api/nip05/check/${encodeURIComponent(username)}`, {
       method: 'GET',
       headers: {
         'Authorization': `Bearer ${API_SECRET}`,

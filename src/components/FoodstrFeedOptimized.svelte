@@ -65,7 +65,7 @@
   import { getEventStore, cacheFeedEvents } from '$lib/eventStore';
 
   // Batched engagement fetching for reactions/subscriptions
-  import { batchFetchEngagement, getEngagementStore } from '$lib/engagementCache';
+  import { batchFetchEngagement, getEngagementStore, fetchEngagement, type EngagementData } from '$lib/engagementCache';
 
   // Garden relay dedicated cache (IndexedDB-based)
   import {
@@ -399,9 +399,6 @@
   // Macro exclusion for economics phrases
   const MACRO_EXCLUDING_FOOD_ENERGY_REGEX = /\b(excluding|exclude)\s+food\s+and\s+energy\b/i;
 
-  // Debug flag (set to true to log filter decisions)
-  const DEBUG_FOOD_FILTER = false;
-
   const HASHTAG_PATTERN = /(^|\s)#([^\s#]+)/g;
   const URL_REGEX = /(https?:\/\/[^\s]+)/g;
   const IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.avif', '.svg'];
@@ -419,13 +416,13 @@
   // Speed test: nostr.wine (305ms) > nos.lol (342ms) > purplepag.es (356ms) > relay.damus.io (394ms) > kitchen.zap.cooking (510ms) > relay.nostr.band (514ms)
   // NOTE: All URLs are normalized (no trailing slashes) to prevent duplicate connections
   const RELAY_POOLS = {
-    recipes: ['wss://kitchen.zap.cooking'], // Curated recipe content (510ms, but worth it for relevance)
-    fallback: ['wss://nos.lol', 'wss://relay.damus.io'], // Fast general relays (nos.lol 342ms, relay.damus.io 394ms)
-    discovery: ['wss://nostr.wine', 'wss://relay.primal.net', 'wss://purplepag.es'], // Additional relays for discovery
-    profiles: ['wss://purplepag.es'], // Profile metadata (356ms, specialized for kind:0)
-    members: ['wss://members.zap.cooking'], // Private member relay
-    pro: ['wss://pro.zap.cooking'], // Pro member relay
-    garden: ['wss://garden.zap.cooking'] // Garden relay (no trailing slash!)
+    recipes: ['wss://kitchen.zap.cooking'],      // Curated recipe content (510ms, but worth it for relevance)
+    fallback: ['wss://nos.lol', 'wss://relay.damus.io'],  // Fast general relays (nos.lol 342ms, relay.damus.io 394ms)
+    discovery: ['wss://nostr.wine', 'wss://relay.primal.net', 'wss://purplepag.es'],  // Additional relays for discovery
+    profiles: ['wss://purplepag.es'],             // Profile metadata (356ms, specialized for kind:0)
+    members: ['wss://pantry.zap.cooking'],        // Private member relay (The Pantry)
+    pro: ['wss://pro.zap.cooking'],               // Pro member relay
+    garden: ['wss://garden.zap.cooking']          // Garden relay (no trailing slash!)
   };
 
   // ═══════════════════════════════════════════════════════════════
@@ -663,6 +660,67 @@
     return deduplicateText(cleaned);
   }
 
+  // Extract the first quoted note ID from content (for quote reposts)
+  function getQuotedNoteId(event: NDKEvent): string | null {
+    try {
+      if (!event || !event.content) return null;
+      
+      // First check for q tag (NIP-18 style quote repost)
+      if (Array.isArray(event.tags)) {
+        const qTag = event.tags.find(tag => Array.isArray(tag) && tag[0] === 'q');
+        if (qTag && qTag[1]) {
+          return qTag[1];
+        }
+      }
+      
+      // Then check for nostr:nevent1 or nostr:note1 in content
+      // Use a fresh regex each time to avoid lastIndex issues
+      const regex = /nostr:(nevent1[023456789acdefghjklmnpqrstuvwxyz]+|note1[023456789acdefghjklmnpqrstuvwxyz]+)/;
+      const match = event.content.match(regex);
+      if (match && match[1]) {
+        const nostrString = match[1];
+        if (nostrString.startsWith('nevent1')) {
+          const decoded = nip19.decode(nostrString);
+          if (decoded.type === 'nevent') {
+            return decoded.data.id;
+          }
+        } else if (nostrString.startsWith('note1')) {
+          const decoded = nip19.decode(nostrString);
+          if (decoded.type === 'note') {
+            return decoded.data;
+          }
+        }
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
+  // Check if an event has a quoted note (but is not a reply)
+  function hasQuotedNote(event: NDKEvent): boolean {
+    try {
+      // Don't show quote embed if it's already a reply (to avoid double embeds)
+      if (isReply(event)) return false;
+      return getQuotedNoteId(event) !== null;
+    } catch {
+      return false;
+    }
+  }
+
+  // Get content without the quoted note reference (so it doesn't render as inline embed)
+  function getContentWithoutQuote(content: string): string {
+    try {
+      if (!content) return '';
+      return content
+        .replace(/nostr:(nevent1[023456789acdefghjklmnpqrstuvwxyz]+|note1[023456789acdefghjklmnpqrstuvwxyz]+)/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+    } catch {
+      return content || '';
+    }
+  }
+
   // ═══════════════════════════════════════════════════════════════
   // CONTENT FILTERING
   // ═══════════════════════════════════════════════════════════════
@@ -680,7 +738,6 @@
 
     // Check for food-related hashtags first (strong signal)
     if (FOOD_HASHTAG_REGEX.test(normalizedContent)) {
-      if (DEBUG_FOOD_FILTER) console.log('[FoodFilter] PASS: hashtag match');
       return true;
     }
 
@@ -698,34 +755,21 @@
     if (MACRO_EXCLUDING_FOOD_ENERGY_REGEX.test(normalizedContent)) {
       // Only allow if there's a strong signal beyond just the word "food"
       if (hardCount === 0 && softCount < 2) {
-        if (DEBUG_FOOD_FILTER) console.log('[FoodFilter] REJECT: macro phrase, no other signals');
         return false;
       }
     }
 
     // Include if at least 1 hard match
     if (hardCount >= 1) {
-      if (DEBUG_FOOD_FILTER)
-        console.log('[FoodFilter] PASS: hard matches:', hardMatches.slice(0, 2));
       return true;
     }
 
     // Include if at least 2 soft matches
     if (softCount >= 2) {
-      if (DEBUG_FOOD_FILTER)
-        console.log('[FoodFilter] PASS: soft matches:', softMatches.slice(0, 2));
       return true;
     }
 
     // Not enough food signals
-    if (DEBUG_FOOD_FILTER && (hardCount > 0 || softCount > 0)) {
-      console.log(
-        '[FoodFilter] REJECT: insufficient signals - hard:',
-        hardCount,
-        'soft:',
-        softCount
-      );
-    }
     return false;
   }
 
@@ -743,14 +787,35 @@
     return Math.max(contentHashtags, tagHashtags);
   }
 
+  // Cache muted users to avoid repeated localStorage parsing
+  let cachedMutedUsers: string[] | null = null;
+  let cachedMutedUsersKey: string | null = null;
+  
   function getMutedUsers(): string[] {
     if (!$userPublickey) return [];
+    
+    // Return cached value if user hasn't changed
+    if (cachedMutedUsersKey === $userPublickey && cachedMutedUsers !== null) {
+      return cachedMutedUsers;
+    }
+    
     try {
       const storedMutes = localStorage.getItem('mutedUsers');
-      return storedMutes ? JSON.parse(storedMutes) : [];
+      const parsed: string[] = storedMutes ? JSON.parse(storedMutes) : [];
+      cachedMutedUsers = parsed;
+      cachedMutedUsersKey = $userPublickey;
+      return parsed;
     } catch {
+      cachedMutedUsers = [];
+      cachedMutedUsersKey = $userPublickey;
       return [];
     }
+  }
+  
+  // Invalidate muted users cache when needed (call after mute/unmute actions)
+  export function invalidateMutedUsersCache() {
+    cachedMutedUsers = null;
+    cachedMutedUsersKey = null;
   }
 
   function shouldIncludeEvent(event: NDKEvent): boolean {
@@ -2161,7 +2226,7 @@
         }
 
         // Use only members relay (not pro relay) - normalize URL for consistency
-        const memberRelays: string[] = [normalizeRelayUrl(RELAY_POOLS.members[0])]; // Only members.zap.cooking
+        const memberRelays: string[] = [normalizeRelayUrl(RELAY_POOLS.members[0])]; // Only pantry.zap.cooking
 
         // Fetch older events from member relay (all content, not just food-tagged)
         const memberFilter: any = {
@@ -2626,6 +2691,198 @@
     carouselStates = { ...carouselStates };
   }
 
+  // Consolidated engagement info for rendering - avoids multiple store lookups
+  interface EngagementRenderInfo {
+    isZapPopular: boolean;
+    zapGlowTier: 'none' | 'soft' | 'medium' | 'bright';
+    totalSats: number;
+    zapCount: number;
+  }
+  
+  // Reactive engagement cache - stores computed glow info per event
+  // This updates reactively when engagement stores change
+  let engagementGlowCache = new Map<string, EngagementRenderInfo>();
+  let engagementSubscriptions = new Map<string, () => void>();
+  
+  // Calculate glow tier from engagement data
+  function calculateEngagementInfo(eventId: string, data: EngagementData): EngagementRenderInfo {
+    const zapCount = data.zaps?.count || 0;
+    const uniqueZapperCount = data.zaps?.topZappers?.length || 0;
+    const totalReactionCount = data.reactions?.count || 0;
+    const totalSats = (data.zaps?.totalAmount || 0) / 1000; // Convert millisats to sats
+    
+    // Zap-popular: only for garden posts with more zappers than reactions
+    const isZapPopular = filterMode === 'garden' && 
+                         uniqueZapperCount > 0 && 
+                         uniqueZapperCount > totalReactionCount;
+    
+    // Tier based on zap COUNT (more generous thresholds since we always have count)
+    // 3+ soft, 6+ medium, 9+ bright
+    let countTier: 'none' | 'soft' | 'medium' | 'bright' = 'none';
+    if (zapCount >= 9) countTier = 'bright';
+    else if (zapCount >= 6) countTier = 'medium';
+    else if (zapCount >= 3) countTier = 'soft';
+    
+    // Tier based on total AMOUNT (>500 soft, >1000 medium, >2000 bright)
+    let amountTier: 'none' | 'soft' | 'medium' | 'bright' = 'none';
+    if (totalSats > 2000) amountTier = 'bright';
+    else if (totalSats > 1000) amountTier = 'medium';
+    else if (totalSats > 500) amountTier = 'soft';
+    
+    // FALLBACK: If we have count but no amount data yet, estimate from count
+    // Average zap is ~100-500 sats, so use conservative estimate
+    // This ensures glow shows while waiting for full zap data
+    if (totalSats === 0 && zapCount > 0) {
+      // Estimate: assume average of ~200 sats per zap
+      const estimatedSats = zapCount * 200;
+      if (estimatedSats > 2000) amountTier = 'bright';
+      else if (estimatedSats > 1000) amountTier = 'medium';
+      else if (estimatedSats > 500) amountTier = 'soft';
+    }
+    
+    // Use whichever tier is higher (either count OR amount triggers glow)
+    const tierValues = { 'none': 0, 'soft': 1, 'medium': 2, 'bright': 3 };
+    const valueTiers: ('none' | 'soft' | 'medium' | 'bright')[] = ['none', 'soft', 'medium', 'bright'];
+    const zapGlowTier = valueTiers[Math.max(tierValues[countTier], tierValues[amountTier])];
+    
+    return { isZapPopular, zapGlowTier, totalSats, zapCount };
+  }
+  
+  // Subscribe to an engagement store and update cache reactively
+  function subscribeToEngagement(eventId: string): void {
+    if (engagementSubscriptions.has(eventId)) return;
+    
+    const store = getEngagementStore(eventId);
+    
+    // Immediately read cached data (this loads from localStorage instantly)
+    const initialData = get(store);
+    const initialInfo = calculateEngagementInfo(eventId, initialData);
+    engagementGlowCache.set(eventId, initialInfo);
+    
+    // Subscribe to future updates from relays
+    const unsubscribe = store.subscribe((data) => {
+      const newInfo = calculateEngagementInfo(eventId, data);
+      const currentInfo = engagementGlowCache.get(eventId);
+      
+      // Only update if glow tier changed or sats increased (never decrease glow from cache)
+      if (!currentInfo || 
+          newInfo.zapGlowTier !== currentInfo.zapGlowTier ||
+          newInfo.totalSats > currentInfo.totalSats) {
+        engagementGlowCache.set(eventId, newInfo);
+        // Trigger reactivity by reassigning the map
+        engagementGlowCache = new Map(engagementGlowCache);
+      }
+    });
+    
+    engagementSubscriptions.set(eventId, unsubscribe);
+  }
+  
+  // Unsubscribe from engagement updates
+  function unsubscribeFromEngagement(eventId: string): void {
+    const unsub = engagementSubscriptions.get(eventId);
+    if (unsub) {
+      unsub();
+      engagementSubscriptions.delete(eventId);
+    }
+  }
+  
+  // Get engagement info - reads from reactive cache
+  // Always returns glow info from cache or calculates from store
+  function getEngagementRenderInfo(eventId: string, shouldSubscribe: boolean = true): EngagementRenderInfo {
+    // Check if we have cached info
+    const cached = engagementGlowCache.get(eventId);
+    
+    // If we should subscribe (note is visible), set up subscription
+    if (shouldSubscribe && !engagementSubscriptions.has(eventId)) {
+      subscribeToEngagement(eventId);
+    }
+    
+    // If we have cached info, return it
+    if (cached) {
+      return cached;
+    }
+    
+    // No cache - try to calculate from store (may have localStorage data)
+    const store = getEngagementStore(eventId);
+    const data = get(store);
+    
+    // If we have any data, calculate and cache the glow info
+    if (data && (data.zaps?.count > 0 || data.zaps?.totalAmount > 0 || data.reactions?.count > 0)) {
+      const info = calculateEngagementInfo(eventId, data);
+      engagementGlowCache.set(eventId, info);
+      return info;
+    }
+    
+    return { 
+      isZapPopular: false, 
+      zapGlowTier: 'none',
+      totalSats: 0,
+      zapCount: 0
+    };
+  }
+  
+  // Legacy functions for backward compatibility (if used elsewhere)
+  function isZapPopular(eventId: string): boolean {
+    return getEngagementRenderInfo(eventId).isZapPopular;
+  }
+
+  function getZapGlowTier(eventId: string): 'none' | 'soft' | 'medium' | 'bright' {
+    return getEngagementRenderInfo(eventId).zapGlowTier;
+  }
+  
+  // Cleanup subscriptions when events leave view
+  $: {
+    // When visibleNotes changes, clean up subscriptions for notes no longer visible
+    const visibleIds = new Set(events.map(e => e.id).filter(id => visibleNotes.has(id)));
+    for (const eventId of engagementSubscriptions.keys()) {
+      if (!visibleIds.has(eventId)) {
+        // Keep subscription for a bit in case user scrolls back
+        setTimeout(() => {
+          if (!visibleNotes.has(eventId)) {
+            unsubscribeFromEngagement(eventId);
+            engagementGlowCache.delete(eventId);
+          }
+        }, 30000); // 30 second grace period
+      }
+    }
+  }
+
+  // Zap animation state
+  let zapAnimatingNotes = new Set<string>();
+  let zapAnimationTimeouts = new Map<string, ReturnType<typeof setTimeout>>();
+  
+  function handleZapComplete(eventId: string) {
+    // Clear any existing timeout for this note
+    const existingTimeout = zapAnimationTimeouts.get(eventId);
+    if (existingTimeout) {
+      clearTimeout(existingTimeout);
+    }
+    
+    // Add to animating set
+    zapAnimatingNotes.add(eventId);
+    zapAnimatingNotes = zapAnimatingNotes;
+    
+    // Remove after animation completes (2 seconds)
+    const timeout = setTimeout(() => {
+      zapAnimatingNotes.delete(eventId);
+      zapAnimatingNotes = zapAnimatingNotes;
+      zapAnimationTimeouts.delete(eventId);
+    }, 2000);
+    
+    zapAnimationTimeouts.set(eventId, timeout);
+    
+    // Refresh engagement data to show new zap
+    if ($userPublickey) {
+      fetchEngagement($ndk, eventId, $userPublickey);
+    }
+  }
+  
+  // Cleanup function for zap animation timeouts
+  function cleanupZapAnimationTimeouts() {
+    zapAnimationTimeouts.forEach((timeout) => clearTimeout(timeout));
+    zapAnimationTimeouts.clear();
+  }
+
   // Zap modal
   function openZapModal(event: NDKEvent) {
     selectedEvent = event;
@@ -2801,6 +3058,10 @@
     if (engagementPreloadTimeout) {
       clearTimeout(engagementPreloadTimeout);
     }
+    
+    // Clean up zap animation timeouts
+    cleanupZapAnimationTimeouts();
+    
     cleanupInfiniteScroll();
     await cleanup();
   });
@@ -2928,6 +3189,20 @@
       </div>
     {/if}
 
+    {#if (filterMode === 'following' || filterMode === 'replies') && $userPublickey === ''}
+      <div
+        class="mb-4 p-4 bg-accent-gray rounded-lg"
+        style="border: 1px solid var(--color-input-border)"
+      >
+        <p class="text-sm" style="color: var(--color-text-primary)">
+          <a href="/login" class="font-medium underline hover:opacity-80">Log in</a> to see {filterMode ===
+          'following'
+            ? 'posts from people you follow'
+            : 'replies from people you follow'}.
+        </p>
+      </div>
+    {/if}
+
     {#if loading}
       <div class="space-y-6">
         {#each Array(3) as _}
@@ -2995,11 +3270,21 @@
     {:else}
       <div class="space-y-0">
         {#each events as event (event.id)}
+          <!-- Get engagement info - always check cache, subscribe only when visible -->
+          {@const isVisible = visibleNotes.has(event.id)}
+          {@const engagementInfo = getEngagementRenderInfo(event.id, isVisible)}
+          {@const isPopular = engagementInfo.isZapPopular}
+          {@const isZapAnimating = zapAnimatingNotes.has(event.id)}
+          {@const zapGlowTier = engagementInfo.zapGlowTier}
           <article
-            class="border-b py-4 sm:py-6 first:pt-0"
-            style="border-color: var(--color-input-border)"
+            class="border-b py-4 sm:py-6 first:pt-0 
+                   {isPopular ? 'zap-popular-post' : ''} 
+                   {isZapAnimating ? 'zap-bolt-animation' : ''}
+                   {zapGlowTier !== 'none' ? `zap-glow-${zapGlowTier}` : ''}"
+            style="border-color: var(--color-input-border); {isPopular ? 'box-shadow: 0 0 20px rgba(251, 191, 36, 0.4), 0 0 40px rgba(251, 191, 36, 0.2); border-radius: 8px; border: 2px solid rgba(251, 191, 36, 0.6); padding: 1rem; margin-bottom: 1rem;' : ''}"
           >
-            <div class="flex space-x-3 px-2 sm:px-0">
+            <!-- User header with avatar and name -->
+            <div class="flex items-center space-x-3 mb-3 px-2 sm:px-0">
               {#if !hideAvatar}
                 <a
                   href="/user/{nip19.npubEncode(event.author?.hexpubkey || event.pubkey)}"
@@ -3012,9 +3297,23 @@
                   />
                 </a>
               {/if}
+              
+              <div class="flex items-center space-x-2 flex-wrap min-w-0">
+                {#if !hideAuthorName}
+                  <AuthorName {event} />
+                  <span class="text-sm" style="color: var(--color-caption)">·</span>
+                {/if}
+                <span class="text-sm" style="color: var(--color-caption)">
+                  {event.created_at ? formatTimeAgo(event.created_at) : 'Unknown time'}
+                </span>
+                <ClientAttribution tags={event.tags} enableEnrichment={false} />
+              </div>
+            </div>
 
-              <div class="flex-1 min-w-0">
-                {#if isReply(event)}
+            <!-- Main content area - full width below header -->
+            <div class="px-2 sm:px-0">
+              <!-- Reply context (orange bracket at top for replies) -->
+              {#if isReply(event)}
                   {@const parentNoteId = getParentNoteId(event)}
                   {#if parentNoteId}
                     {#await resolveReplyContext(parentNoteId)}
@@ -3077,21 +3376,21 @@
                         </div>
                       </a>
                     {/await}
-                  {/if}
                 {/if}
+              {/if}
 
-                <div class="flex items-center space-x-2 mb-2 flex-wrap">
-                  {#if !hideAuthorName}
-                    <AuthorName {event} />
-                    <span class="text-sm" style="color: var(--color-caption)">·</span>
+              <!-- Content - strip quoted note reference if present to avoid bubble embed -->
+                {#if hasQuotedNote(event)}
+                  {@const cleanContent = getContentWithoutMedia(getContentWithoutQuote(event.content))}
+                  {#if cleanContent}
+                    <div
+                      class="text-sm leading-relaxed mb-3"
+                      style="color: var(--color-text-primary)"
+                    >
+                      <NoteContent content={cleanContent} />
+                    </div>
                   {/if}
-                  <span class="text-sm" style="color: var(--color-caption)">
-                    {event.created_at ? formatTimeAgo(event.created_at) : 'Unknown time'}
-                  </span>
-                  <ClientAttribution tags={event.tags} enableEnrichment={false} />
-                </div>
-
-                {#if getContentWithoutMedia(event.content)}
+                {:else if getContentWithoutMedia(event.content)}
                   {@const cleanContent = getContentWithoutMedia(event.content)}
                   <div
                     class="text-sm leading-relaxed mb-3"
@@ -3099,6 +3398,73 @@
                   >
                     <NoteContent content={cleanContent} />
                   </div>
+                {/if}
+
+                <!-- Quoted note embed (appears below user's content) -->
+                {#if hasQuotedNote(event)}
+                  {@const quotedNoteId = getQuotedNoteId(event)}
+                  {#if quotedNoteId}
+                    {#await resolveReplyContext(quotedNoteId)}
+                      <!-- Loading state -->
+                      <div class="parent-quote-embed mb-3">
+                        <div class="parent-quote-loading">
+                          <div class="w-4 h-4 bg-accent-gray rounded-full animate-pulse"></div>
+                          <div class="h-3 bg-accent-gray rounded w-20 animate-pulse"></div>
+                        </div>
+                      </div>
+                    {:then context}
+                      <!-- Quoted note with orange bracket style -->
+                      <a
+                        href="/{nip19.noteEncode(quotedNoteId)}"
+                        class="parent-quote-embed mb-3 block hover:opacity-90 transition-opacity"
+                        on:click|stopPropagation
+                      >
+                        <div class="parent-quote-header">
+                          {#if context.authorPubkey}
+                            <CustomAvatar pubkey={context.authorPubkey} size={16} />
+                          {/if}
+                          <span class="parent-quote-author">
+                            {#if context.error === 'deleted'}
+                              <span class="italic">deleted note</span>
+                            {:else if context.error === 'Failed to load'}
+                              a note
+                            {:else}
+                              {context.authorName.startsWith('npub')
+                                ? context.authorName.substring(0, 12) + '...'
+                                : context.authorName}
+                            {/if}
+                          </span>
+                        </div>
+                        {#if context.notePreview && !context.error}
+                          <p class="parent-quote-content">{context.notePreview}</p>
+                        {/if}
+                        <span class="parent-quote-link"> View quoted note → </span>
+                      </a>
+                    {:catch}
+                      <!-- Fallback - simple link -->
+                      <a
+                        href="/{nip19.noteEncode(quotedNoteId)}"
+                        class="parent-quote-embed mb-3 block"
+                      >
+                        <div class="parent-quote-header">
+                          <svg
+                            class="w-4 h-4"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path
+                              stroke-linecap="round"
+                              stroke-linejoin="round"
+                              stroke-width="2"
+                              d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"
+                            />
+                          </svg>
+                          <span class="parent-quote-author">Quoting a note</span>
+                        </div>
+                      </a>
+                    {/await}
+                  {/if}
                 {/if}
 
                 {#if getImageUrls(event).length > 0}
@@ -3231,10 +3597,10 @@
                 {/if}
 
                 <div
-                  class="flex items-center justify-between px-2 sm:px-0 py-1"
+                  class="flex items-center justify-between flex-wrap gap-2 px-2 sm:px-0 py-1"
                   use:lazyLoadAction={event.id}
                 >
-                  <div class="flex items-center space-x-1">
+                  <div class="flex items-center space-x-1 flex-shrink-0">
                     {#if visibleNotes.has(event.id)}
                       <div class="hover:bg-accent-gray rounded-full p-1.5 transition-colors">
                         <NoteTotalLikes {event} />
@@ -3248,12 +3614,9 @@
                         <NoteRepost {event} />
                       </div>
 
-                      <button
-                        class="flex items-center hover:bg-amber-50 rounded-full p-1.5 transition-colors cursor-pointer"
-                        on:click|stopPropagation={() => openZapModal(event)}
-                      >
-                        <NoteTotalZaps {event} />
-                      </button>
+                      <div class="hover:bg-amber-50 rounded-full p-1.5 transition-colors">
+                        <NoteTotalZaps {event} onZapClick={() => openZapModal(event)} />
+                      </div>
                     {:else}
                       <span class="text-caption p-1.5">♡ –</span>
                       <span class="text-caption p-1.5">💬 –</span>
@@ -3262,7 +3625,7 @@
                     {/if}
                   </div>
 
-                  <div class="flex items-center space-x-1">
+                  <div class="flex items-center space-x-1 flex-shrink-0">
                     <button
                       class="flex items-center text-caption hover:opacity-80 hover:bg-accent-gray rounded-full p-1.5 transition-colors"
                       on:click={() => copyNoteId(event)}
@@ -3282,7 +3645,6 @@
                     <FeedComments {event} />
                   {/if}
                 </div>
-              </div>
             </div>
           </article>
         {/each}
@@ -3310,7 +3672,11 @@
 </FeedErrorBoundary>
 
 {#if selectedEvent}
-  <ZapModal bind:open={zapModal} event={selectedEvent} />
+  <ZapModal 
+    bind:open={zapModal} 
+    event={selectedEvent}
+    on:zap-complete={() => selectedEvent && handleZapComplete(selectedEvent.id)}
+  />
 {/if}
 
 <svelte:window on:keydown={handleImageModalKeydown} />
@@ -3498,5 +3864,202 @@
   .carousel-slide {
     scroll-snap-align: start;
     scroll-snap-stop: always;
+  }
+
+  /* Zap-popular post golden border animation */
+  .zap-popular-post {
+    animation: golden-pulse 3s ease-in-out infinite;
+    transition: all 0.3s ease;
+  }
+
+  @keyframes golden-pulse {
+    0%, 100% {
+      box-shadow: 0 0 20px rgba(251, 191, 36, 0.4), 0 0 40px rgba(251, 191, 36, 0.2);
+    }
+    50% {
+      box-shadow: 0 0 30px rgba(251, 191, 36, 0.6), 0 0 60px rgba(251, 191, 36, 0.3);
+    }
+  }
+
+  /* Tiered zap glow effects - visible amber glow */
+  /* Tier 1: Soft glow (>500 sats) - Gentle amber hint */
+  .zap-glow-soft {
+    border-radius: 12px;
+    background: linear-gradient(135deg, rgba(251, 191, 36, 0.03) 0%, transparent 100%);
+    box-shadow: 
+      0 0 15px rgba(251, 191, 36, 0.25),
+      0 0 30px rgba(251, 191, 36, 0.12),
+      inset 0 0 20px rgba(251, 191, 36, 0.03);
+    border: 1px solid rgba(251, 191, 36, 0.15);
+    transition: all 0.5s ease-in-out;
+    margin: 0.25rem 0;
+    padding: 0.75rem !important;
+    overflow: hidden; /* Prevent content overflow */
+    max-width: 100%; /* Ensure it doesn't exceed container */
+  }
+
+  /* Tier 2: Medium glow (>1000 sats) - Noticeable warm glow */
+  .zap-glow-medium {
+    border-radius: 12px;
+    background: linear-gradient(135deg, rgba(251, 191, 36, 0.05) 0%, transparent 100%);
+    box-shadow: 
+      0 0 20px rgba(251, 191, 36, 0.35),
+      0 0 40px rgba(251, 191, 36, 0.18),
+      0 0 60px rgba(251, 191, 36, 0.08),
+      inset 0 0 30px rgba(251, 191, 36, 0.04);
+    border: 1px solid rgba(251, 191, 36, 0.25);
+    transition: all 0.5s ease-in-out;
+    margin: 0.25rem 0;
+    padding: 0.75rem !important;
+    overflow: hidden; /* Prevent content overflow */
+    max-width: 100%; /* Ensure it doesn't exceed container */
+  }
+
+  /* Tier 3: Bright glow (>2000 sats) - Prominent golden aura */
+  .zap-glow-bright {
+    border-radius: 12px;
+    background: linear-gradient(135deg, rgba(251, 191, 36, 0.08) 0%, rgba(245, 158, 11, 0.03) 100%);
+    box-shadow: 
+      0 0 25px rgba(251, 191, 36, 0.45),
+      0 0 50px rgba(251, 191, 36, 0.25),
+      0 0 75px rgba(251, 191, 36, 0.12),
+      0 0 100px rgba(251, 191, 36, 0.06),
+      inset 0 0 40px rgba(251, 191, 36, 0.05);
+    border: 1px solid rgba(251, 191, 36, 0.35);
+    transition: all 0.5s ease-in-out;
+    animation: subtle-glow-pulse 4s ease-in-out infinite;
+    margin: 0.25rem 0;
+    padding: 0.75rem !important;
+    overflow: hidden; /* Prevent content overflow */
+    max-width: 100%; /* Ensure it doesn't exceed container */
+  }
+
+  /* Subtle pulse animation for highest tier */
+  @keyframes subtle-glow-pulse {
+    0%, 100% {
+      box-shadow: 
+        0 0 25px rgba(251, 191, 36, 0.45),
+        0 0 50px rgba(251, 191, 36, 0.25),
+        0 0 75px rgba(251, 191, 36, 0.12),
+        0 0 100px rgba(251, 191, 36, 0.06),
+        inset 0 0 40px rgba(251, 191, 36, 0.05);
+    }
+    50% {
+      box-shadow: 
+        0 0 35px rgba(251, 191, 36, 0.55),
+        0 0 60px rgba(251, 191, 36, 0.30),
+        0 0 85px rgba(251, 191, 36, 0.15),
+        0 0 110px rgba(251, 191, 36, 0.08),
+        inset 0 0 50px rgba(251, 191, 36, 0.07);
+    }
+  }
+
+  /* Lightning bolt rain animation ⚡️ */
+  .zap-bolt-animation {
+    position: relative;
+    border-radius: 12px;
+    overflow: hidden;
+    animation: zap-flash-bg 0.15s ease-out;
+  }
+
+  /* Lightning flash background */
+  @keyframes zap-flash-bg {
+    0% { background-color: rgba(255, 215, 0, 0.3); }
+    100% { background-color: transparent; }
+  }
+
+  /* Container for lightning bolts */
+  .zap-bolt-animation::before {
+    content: '⚡️⚡️⚡️⚡️⚡️⚡️⚡️⚡️';
+    position: absolute;
+    top: -40px;
+    left: 0;
+    right: 0;
+    font-size: 24px;
+    letter-spacing: 8px;
+    text-align: center;
+    animation: lightning-rain 0.6s ease-in forwards;
+    pointer-events: none;
+    z-index: 20;
+    filter: drop-shadow(0 0 8px rgba(255, 215, 0, 0.9)) drop-shadow(0 0 15px rgba(255, 215, 0, 0.6));
+    opacity: 0;
+  }
+
+  /* Second wave of lightning - staggered */
+  .zap-bolt-animation::after {
+    content: '⚡️⚡️⚡️⚡️⚡️⚡️';
+    position: absolute;
+    top: -30px;
+    left: 15%;
+    right: 15%;
+    font-size: 20px;
+    letter-spacing: 12px;
+    text-align: center;
+    animation: lightning-rain 0.7s ease-in 0.1s forwards;
+    pointer-events: none;
+    z-index: 19;
+    filter: drop-shadow(0 0 6px rgba(255, 215, 0, 0.8)) drop-shadow(0 0 12px rgba(255, 215, 0, 0.5));
+    opacity: 0;
+  }
+
+  @keyframes lightning-rain {
+    0% {
+      opacity: 0;
+      transform: translateY(0) scaleY(0.5);
+    }
+    15% {
+      opacity: 1;
+      transform: translateY(20px) scaleY(1.2);
+    }
+    30% {
+      opacity: 1;
+      transform: translateY(60px) scaleY(1);
+    }
+    50% {
+      opacity: 0.9;
+      transform: translateY(120px) scaleY(0.9);
+    }
+    70% {
+      opacity: 0.6;
+      transform: translateY(200px) scaleY(0.8);
+    }
+    100% {
+      opacity: 0;
+      transform: translateY(350px) scaleY(0.5);
+    }
+  }
+
+  /* Golden border pulse effect */
+  .zap-bolt-animation {
+    box-shadow: 
+      0 0 0 2px rgba(255, 215, 0, 0.8),
+      0 0 20px rgba(255, 215, 0, 0.6),
+      0 0 40px rgba(255, 215, 0, 0.3),
+      inset 0 0 30px rgba(255, 215, 0, 0.1);
+    animation: zap-flash-bg 0.15s ease-out, zap-border-pulse 2s ease-out forwards;
+  }
+
+  @keyframes zap-border-pulse {
+    0% {
+      box-shadow: 
+        0 0 0 3px rgba(255, 215, 0, 1),
+        0 0 30px rgba(255, 215, 0, 0.8),
+        0 0 60px rgba(255, 215, 0, 0.5),
+        inset 0 0 40px rgba(255, 215, 0, 0.2);
+    }
+    30% {
+      box-shadow: 
+        0 0 0 2px rgba(255, 215, 0, 0.8),
+        0 0 20px rgba(255, 215, 0, 0.6),
+        0 0 40px rgba(255, 215, 0, 0.3),
+        inset 0 0 25px rgba(255, 215, 0, 0.1);
+    }
+    100% {
+      box-shadow: 
+        0 0 0 0px rgba(255, 215, 0, 0),
+        0 0 0px rgba(255, 215, 0, 0),
+        0 0 0px rgba(255, 215, 0, 0),
+        inset 0 0 0px rgba(255, 215, 0, 0);
+    }
   }
 </style>
