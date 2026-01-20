@@ -2561,6 +2561,7 @@
             </p>
           </div>
         {:else}
+          {@const isSyncing = $activeWallet?.kind === 4 && $sparkSyncing}
           <div class="flex items-center justify-between mb-4">
             <h2
               class="text-lg font-semibold flex items-center gap-2"
@@ -2569,17 +2570,22 @@
               <ClockIcon size={20} />
               Recent Transactions
             </h2>
-            <button
-              on:click={() => loadTransactionHistory(true)}
-              disabled={isLoadingHistory}
-              class="p-2 rounded-lg hover:bg-input transition-colors disabled:opacity-50"
-              title="Refresh transactions"
-            >
-              <ArrowsClockwiseIcon
-                size={20}
-                class="{isLoadingHistory ? 'animate-spin' : ''} text-caption"
-              />
-            </button>
+            <div class="flex items-center gap-2">
+              {#if isSyncing}
+                <span class="text-xs text-caption">Syncing...</span>
+              {/if}
+              <button
+                on:click={() => loadTransactionHistory(true)}
+                disabled={isLoadingHistory}
+                class="p-2 rounded-lg hover:bg-input transition-colors disabled:opacity-50"
+                title="Refresh transactions"
+              >
+                <ArrowsClockwiseIcon
+                  size={20}
+                  class="{isLoadingHistory || isSyncing ? 'animate-spin' : ''} text-caption"
+                />
+              </button>
+            </div>
           </div>
 
           {#if isLoadingHistory && transactions.length === 0 && filteredPendingTransactions.length === 0}

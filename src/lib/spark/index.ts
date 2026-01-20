@@ -104,7 +104,7 @@ export const lightningAddress = createPersistentLightningAddress();
 export const walletBalance = writable<bigint | null>(null);
 export const walletInitialized = writable<boolean>(false);
 export const sparkLoading = writable<boolean>(false);
-export const sparkSyncing = writable<boolean>(false); // True while wallet is syncing with network
+export const sparkSyncing = writable<boolean>(false); // True while explicit sync is in progress
 
 // Store for recently completed payments extracted from SDK events
 // This provides immediate updates before listPayments() returns fresh data
@@ -356,15 +356,32 @@ export async function initializeSdk(
     logger.info('[Spark] SDK initialized, starting background sync...');
 
     // Background sync - don't await, let it run async
-    // Event listener will refresh balance when 'synced' event fires
+    // After sync completes, refresh balance and notify listeners
     sparkSyncing.set(true);
+
+    // Timeout to clear syncing state if SDK hangs (max 20 seconds)
+    const syncTimeout = setTimeout(() => {
+      logger.warn('[Spark] Sync timeout - clearing syncing state');
+      sparkSyncing.set(false);
+    }, 20000);
+
     _sdkInstance
       .syncWallet({})
+      .then(() => {
+        logger.info('[Spark] Background sync completed');
+        refreshBalanceInternal();
+        // Notify listeners that sync completed (triggers transaction refresh)
+        _eventCallbacks.forEach((callback) => {
+          try {
+            callback({ type: 'synced' });
+          } catch {}
+        });
+      })
       .catch(() => {
         logger.warn('[Spark] Background sync failed, will retry on next action');
       })
       .finally(() => {
-        // Ensure syncing is cleared even if sync fails
+        clearTimeout(syncTimeout);
         sparkSyncing.set(false);
       });
 
@@ -449,6 +466,7 @@ export async function disconnectWallet(): Promise<void> {
     lightningAddress.set(null);
     walletBalance.set(null);
     walletInitialized.set(false);
+    sparkSyncing.set(false);
     _sdkInstance = null;
     _currentPubkey = null;
     _eventListenerId = null;
