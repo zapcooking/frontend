@@ -42,14 +42,23 @@
 
   let zapManager: ZapManager;
   let pendingTimeout: ReturnType<typeof setTimeout> | null = null;
+  let successTimeout: ReturnType<typeof setTimeout> | null = null;
   let recipientPubkeyForDisplay: string = '';
 
   const PENDING_TIMEOUT_MS = 45000; // 45 second timeout for entire zap process
+  const SUCCESS_DISPLAY_MS = 1000; // 1 second to show success before auto-closing
 
   function clearPendingTimeout() {
     if (pendingTimeout) {
       clearTimeout(pendingTimeout);
       pendingTimeout = null;
+    }
+  }
+
+  function clearSuccessTimeout() {
+    if (successTimeout) {
+      clearTimeout(successTimeout);
+      successTimeout = null;
     }
   }
 
@@ -67,6 +76,7 @@
     // Cleanup on unmount
     return () => {
       clearPendingTimeout();
+      clearSuccessTimeout();
     };
   });
 
@@ -130,8 +140,14 @@
 
       clearPendingTimeout();
       state = "success";
+      
       // Notify parent that zap completed so it can refresh zap totals
-      setTimeout(() => dispatch('zap-complete', { amount }), 1500);
+      dispatch('zap-complete', { amount });
+      
+      // Auto-close modal after 1 second to show lightning animation on note
+      successTimeout = setTimeout(() => {
+        open = false;
+      }, SUCCESS_DISPLAY_MS);
     } catch (e) {
       clearPendingTimeout();
       console.error('In-app wallet payment failed:', e);
@@ -203,11 +219,14 @@
   // Clean up when modal closes
   $: if (!open) {
     clearPendingTimeout();
-    // Reset state when modal closes
-    if (state !== "pre") {
-      state = "pre";
-      error = null;
-    }
+    clearSuccessTimeout();
+    // Reset state when modal closes (with small delay to allow animation to trigger)
+    setTimeout(() => {
+      if (!open && state !== "pre") {
+        state = "pre";
+        error = null;
+      }
+    }, 100);
   }
 </script>
 

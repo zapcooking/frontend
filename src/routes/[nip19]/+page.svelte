@@ -344,18 +344,18 @@ import { createCommentFilter } from '$lib/commentFilters';
 </svelte:head>
 
 <div class="max-w-2xl mx-auto px-4">
-  <!-- Back to Community Button - Top Left -->
+  <!-- Back link -->
   {#if !loading}
-    <div class="py-4 mb-2">
+    <div class="pt-4 pb-2">
       <button 
         on:click={() => goto('/community')}
-        class="flex items-center gap-2 px-3 py-2 rounded-lg transition-colors text-sm hover:opacity-80"
-        style="background-color: var(--color-bg-secondary); color: var(--color-text-secondary); border: 1px solid var(--color-input-border)"
+        class="flex items-center gap-1 text-sm transition-opacity hover:opacity-70"
+        style="color: var(--color-caption)"
       >
         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
         </svg>
-        Back to Community
+        Community
       </button>
     </div>
   {/if}
@@ -449,31 +449,31 @@ import { createCommentFilter } from '$lib/commentFilters';
       </div>
     {/if}
     
-    <!-- Main Note (highlighted) -->
-    <article class="rounded-xl p-4 my-2 shadow-sm" style="background-color: var(--color-bg-secondary); border: 1px solid var(--color-input-border)">
+    <!-- Main Note -->
+    <article class="py-4 border-b" style="border-color: var(--color-input-border)">
       <div class="flex space-x-3">
         <a href="/user/{nip19.npubEncode(event.author?.hexpubkey || event.pubkey)}" class="flex-shrink-0">
           <CustomAvatar
             className="cursor-pointer"
             pubkey={event.author?.hexpubkey || event.pubkey}
-            size={48}
+            size={40}
           />
         </a>
         <div class="flex-1 min-w-0">
           <div class="flex items-center space-x-2 mb-2 flex-wrap">
-            <a href="/user/{nip19.npubEncode(event.author?.hexpubkey || event.pubkey)}" class="font-semibold hover:underline" style="color: var(--color-text-primary)">
+            <a href="/user/{nip19.npubEncode(event.author?.hexpubkey || event.pubkey)}" class="font-semibold text-sm hover:underline" style="color: var(--color-text-primary)">
               <CustomName pubkey={event.author?.hexpubkey || event.pubkey} />
             </a>
-            <span style="color: var(--color-caption)">·</span>
+            <span class="text-sm" style="color: var(--color-caption)">·</span>
             <span class="text-sm" style="color: var(--color-caption)">
               {event.created_at ? formatTimeAgo(event.created_at) : 'Unknown time'}
             </span>
             <ClientAttribution tags={event.tags} enableEnrichment={true} />
           </div>
-          <div class="leading-relaxed mb-4" style="color: var(--color-text-primary)">
+          <div class="text-sm leading-relaxed mb-3" style="color: var(--color-text-primary)">
             <NoteContent content={event.content} />
           </div>
-          <div class="flex items-center space-x-4 text-sm pt-3 border-t" style="color: var(--color-text-secondary); border-color: var(--color-input-border)">
+          <div class="flex items-center space-x-4 text-sm" style="color: var(--color-text-secondary)">
             <NoteTotalLikes {event} />
             <NoteTotalComments {event} />
             <button

@@ -5,6 +5,7 @@
   import type { TargetType } from '$lib/types/reactions';
   import { publishReaction, canPublishReaction } from '$lib/reactions/publishReaction';
   import { getEngagementStore, fetchEngagement } from '$lib/engagementCache';
+  import TopZappers from '../TopZappers.svelte';
 
   export let event: NDKEvent;
   export let targetType: TargetType;
@@ -83,6 +84,19 @@
   $: visibleGroups = $store.reactions.groups.slice(0, maxVisible);
   $: hiddenCount = $store.reactions.groups.length - maxVisible;
   $: hiddenReactionCount = $store.reactions.groups.slice(maxVisible).reduce((sum, g) => sum + g.count, 0);
+  
+  // Count integrity check - only log significant mismatches in dev mode, throttled
+  // Small mismatches are normal during real-time updates
+  let lastMismatchLog = 0;
+  $: if ($store.reactions.groups.length > 0 && !$store.loading) {
+    const sumOfGroups = $store.reactions.groups.reduce((sum, g) => sum + g.count, 0);
+    const diff = Math.abs(sumOfGroups - $store.reactions.count);
+    // Only log if diff > 5 AND throttle to once per 10 seconds per component
+    if (diff > 5 && Date.now() - lastMismatchLog > 10000) {
+      lastMismatchLog = Date.now();
+      console.debug(`[ReactionPills] Count drift: groups=${sumOfGroups}, total=${$store.reactions.count}, diff=${diff}`);
+    }
+  }
 </script>
 
 {#if $store.reactions.groups.length > 0}
@@ -110,4 +124,9 @@
       </span>
     {/if}
   </div>
+{/if}
+
+<!-- Top Zappers - shown when there are zaps -->
+{#if $store.zaps.topZappers.length > 0}
+  <TopZappers topZappers={$store.zaps.topZappers} maxDisplay={3} />
 {/if}

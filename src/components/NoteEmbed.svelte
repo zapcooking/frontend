@@ -409,150 +409,107 @@
 </script>
 
 {#if loading}
-  <div class="rounded-lg p-4 animate-pulse" style="background-color: var(--color-bg-secondary); border: 1px solid var(--color-input-border)">
-    <div class="flex space-x-3">
-      <div class="w-8 h-8 rounded-full skeleton-bg"></div>
-      <div class="flex-1">
-        <div class="h-4 rounded w-1/4 mb-2 skeleton-bg"></div>
-        <div class="h-3 rounded w-1/6 mb-2 skeleton-bg"></div>
-        <div class="h-3 rounded w-full skeleton-bg"></div>
-      </div>
+  <!-- Loading state with orange bracket style -->
+  <div class="parent-quote-embed my-2">
+    <div class="parent-quote-loading">
+      <div class="w-4 h-4 bg-accent-gray rounded-full animate-pulse"></div>
+      <div class="h-3 bg-accent-gray rounded w-20 animate-pulse"></div>
     </div>
   </div>
 {:else if error}
-  <div class="border border-red-200 rounded-lg p-4 bg-red-50 dark:bg-red-900/20 dark:border-red-800">
-    <p class="text-red-600 dark:text-red-400 text-sm">Failed to load embedded note</p>
-    <p class="text-xs mt-1" style="color: var(--color-caption)">{nostrString}</p>
+  <div class="parent-quote-embed my-2">
+    <div class="parent-quote-header">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+      </svg>
+      <span class="parent-quote-author">Failed to load note</span>
+    </div>
   </div>
 {:else if event}
-  <button
-    type="button"
-    class="w-full rounded-lg overflow-hidden transition-colors note-embed-card hover:opacity-90 cursor-pointer text-left"
-    style="background-color: var(--color-bg-secondary); border: 1px solid var(--color-input-border)"
-    on:click={handleCardClick}
-    on:keydown={(e) => e.key === 'Enter' && handleCardClick()}
+  <a
+    href={getNoteUrl()}
+    class="parent-quote-embed my-2 block hover:opacity-90 transition-opacity"
+    on:click|stopPropagation
   >
-    <div class="flex gap-3 p-3">
-      <!-- Avatar -->
-      <a 
-        href="/user/{nip19.npubEncode(event.author.hexpubkey)}" 
-        class="flex-shrink-0"
-        on:click|stopPropagation
-      >
-        <CustomAvatar
-          className="cursor-pointer"
-          pubkey={event.author.hexpubkey}
-          size={40}
-        />
-      </a>
-
-      <!-- Content -->
-      <div class="flex-1 min-w-0 leading-tight">
-        <!-- Header -->
-        <div class="flex items-center space-x-2 flex-wrap mb-2">
-          <AuthorName {event} />
-          <span class="text-sm" style="color: var(--color-caption)">·</span>
-          <span class="text-sm" style="color: var(--color-caption)">
-            {event.created_at ? formatTimeAgo(event.created_at) : 'Unknown time'}
-          </span>
-          <ClientAttribution tags={event.tags} enableEnrichment={false} />
-        </div>
-
-        <!-- Boost amount inline -->
-        {#if displayBoostAmount > 0}
-          <div class="flex items-center gap-1 text-yellow-500 font-semibold text-sm mb-2">
-            <LightningIcon size={14} weight="fill" />
-            <span>{formatAmount(displayBoostAmount)} sats boost</span>
-          </div>
-        {/if}
-
-        <!-- Content Preview (only if there's content and not too deeply nested) -->
-        {#if getContentWithoutMedia(event.content).trim() && depth < MAX_EMBED_DEPTH}
-          {@const cleanContent = getContentWithoutMedia(event.content).trim()}
-          {@const isKind1 = event.kind === 1}
-          {@const estimatedLines = isKind1 ? estimateLineCount(cleanContent) : 0}
-          {@const needsReadMore = isKind1 && estimatedLines > 6}
-          {@const shouldClamp = needsReadMore && !isContentExpanded}
-          
-          <div class="text-sm leading-relaxed mb-3" style="color: var(--color-text-primary)">
-            <div
-              class="overflow-hidden transition-all duration-200"
-              class:line-clamp-6={shouldClamp}
-            >
-              <NoteContent content={cleanContent} showLinkPreviews={false} embedDepth={depth + 1} />
-            </div>
-            {#if needsReadMore}
-              <button
-                on:click|stopPropagation={toggleExpanded}
-                class="text-caption hover:opacity-80 text-xs mt-1 transition-colors"
-              >
-                {isContentExpanded ? 'Show less' : 'Read more'}
-              </button>
-            {/if}
-          </div>
-        {:else if getContentWithoutMedia(event.content).trim()}
-          <div class="text-sm leading-relaxed mb-3 text-caption italic">
-            [Embedded content - click to view]
-          </div>
-        {/if}
-
-        <!-- Images -->
-        {#if getImageUrls(event).length > 0}
-          {@const mediaUrls = getImageUrls(event)}
-          <div class="mb-2">
-            <div class="relative overflow-hidden rounded-lg h-32" style="background-color: var(--color-bg-secondary); border: 1px solid var(--color-input-border)">
-              {#each mediaUrls.slice(0, 1) as imageUrl}
-                {#if isImageUrl(imageUrl)}
-                  <img 
-                    src={imageUrl} 
-                    class="w-full h-full object-cover"
-                    loading="lazy"
-                    decoding="async"
-                    alt="Embedded image"
-                    on:error={handleImageError}
-                  />
-                {:else if isVideoUrl(imageUrl)}
-                  <video 
-                    src={imageUrl} 
-                    controls 
-                    class="w-full h-full object-cover"
-                    preload="metadata"
-                    on:error={handleVideoError}
-                    on:click|stopPropagation
-                  >
-                    <track kind="captions" src="" srclang="en" label="English" />
-                    Your browser does not support the video tag.
-                  </video>
-                {/if}
-              {/each}
-            </div>
-            {#if mediaUrls.length > 1}
-              <div class="text-xs mt-1" style="color: var(--color-caption)">
-                +{mediaUrls.length - 1} more image{mediaUrls.length - 1 !== 1 ? 's' : ''}
-              </div>
-            {/if}
-          </div>
-        {/if}
-      </div>
+    <div class="parent-quote-header">
+      <CustomAvatar pubkey={event.author.hexpubkey} size={16} />
+      <span class="parent-quote-author">
+        <AuthorName {event} />
+      </span>
     </div>
-  </button>
+    
+    <!-- Boost amount -->
+    {#if displayBoostAmount > 0}
+      <div class="flex items-center gap-1 text-yellow-500 font-semibold text-xs mt-1">
+        <LightningIcon size={12} weight="fill" />
+        <span>{formatAmount(displayBoostAmount)} sats boost</span>
+      </div>
+    {/if}
+    
+    <!-- Content preview -->
+    {#if getContentWithoutMedia(event.content).trim()}
+      <p class="parent-quote-content">{getContentWithoutMedia(event.content).trim().slice(0, 200)}{getContentWithoutMedia(event.content).trim().length > 200 ? '...' : ''}</p>
+    {/if}
+    
+    <span class="parent-quote-link">View quoted note →</span>
+  </a>
 {:else}
-  <div class="rounded-lg p-4" style="background-color: var(--color-bg-secondary); border: 1px solid var(--color-input-border)">
-    <p class="text-sm" style="color: var(--color-caption)">Note not found</p>
+  <div class="parent-quote-embed my-2">
+    <div class="parent-quote-header">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"></path>
+      </svg>
+      <span class="parent-quote-author">Note not found</span>
+    </div>
   </div>
 {/if}
 
 <style>
-  .note-embed-card:hover {
-    background-color: var(--color-input-bg) !important;
+  /* Orange bracket style for embedded notes */
+  .parent-quote-embed {
+    padding: 0.5rem 0.75rem;
+    background: var(--color-input);
+    border-left: 3px solid #f97316;
+    border-radius: 0.25rem;
   }
 
-  .line-clamp-6 {
+  .parent-quote-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.25rem;
+  }
+
+  .parent-quote-author {
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: var(--color-text-secondary);
+  }
+
+  .parent-quote-content {
+    font-size: 0.75rem;
+    color: var(--color-text-secondary);
+    line-height: 1.4;
+    margin-top: 0.25rem;
     display: -webkit-box;
-    -webkit-line-clamp: 6;
-    line-clamp: 6;
+    -webkit-line-clamp: 3;
+    line-clamp: 3;
     -webkit-box-orient: vertical;
     overflow: hidden;
+  }
+
+  .parent-quote-link {
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: #f97316;
+    margin-top: 0.25rem;
+    display: inline-block;
+  }
+
+  .parent-quote-loading {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
   }
 </style>
 

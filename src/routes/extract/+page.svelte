@@ -9,6 +9,7 @@
   import { membershipStore, type MembershipTier } from '$lib/membershipStore';
   import { saveDraft } from '$lib/draftStore';
   import { recipeTags, type recipeTagSimple } from '$lib/consts';
+  import { nip19 } from 'nostr-tools';
   import Button from '../../components/Button.svelte';
   import Tabs from '../../components/Tabs.svelte';
   import TagsComboBox from '../../components/TagsComboBox.svelte';
@@ -23,6 +24,7 @@
   import CheckCircleIcon from 'phosphor-svelte/lib/CheckCircle';
   import PencilIcon from 'phosphor-svelte/lib/PencilSimple';
   import ImageIcon from 'phosphor-svelte/lib/Image';
+  import FloppyDiskIcon from 'phosphor-svelte/lib/FloppyDisk';
 
   // State management
   let isLoading = true;
@@ -345,24 +347,32 @@
     }
   }
   
-  // Re-extract recipe
-  function reExtract() {
-    extractionSuccess = false;
-    // Clear form data
-    title = '';
-    summary = '';
-    chefsnotes = '';
-    preptime = '';
-    cooktime = '';
-    servings = '';
-    ingredientsArray.set([]);
-    directionsArray.set([]);
-    selectedTags.set([]);
-    images.set([]);
+  // Save as draft and navigate to drafts page
+  function saveDraftOnly() {
+    const draftData = {
+      title,
+      images: $images,
+      tags: $selectedTags,
+      summary,
+      chefsnotes,
+      preptime,
+      cooktime,
+      servings,
+      ingredients: $ingredientsArray,
+      directions: $directionsArray,
+      additionalMarkdown
+    };
+    
+    saveDraft(draftData);
+    
+    // Navigate to user's drafts tab
+    if ($userPublickey) {
+      goto(`/user/${nip19.npubEncode($userPublickey)}?tab=drafts`);
+    }
   }
   
-  // Save as draft and navigate to create page
-  function saveDraftAndEdit() {
+  // Save as draft and open in editor to publish
+  function saveDraftAndPublish() {
     const draftData = {
       title,
       images: $images,
@@ -378,7 +388,14 @@
     };
     
     const draftId = saveDraft(draftData);
+    
+    // Navigate directly to create page with draft ID
     goto(`/create?draft=${draftId}`);
+  }
+  
+  // Cancel and go back
+  function handleCancel() {
+    goto('/');
   }
   
   // Check if form has data
@@ -540,7 +557,7 @@
           <div class="flex-1">
             <p class="font-semibold text-green-600 dark:text-green-400">Recipe Extracted Successfully!</p>
             <p class="text-sm text-caption">
-              Review and edit the details below, then continue to the editor.
+              Review and edit the details below, then choose an action.
               {#if $images.length > 0}
                 <span class="inline-flex items-center gap-1 ml-1">
                   <ImageIcon size={14} class="text-green-500" />
@@ -549,13 +566,6 @@
               {/if}
             </p>
           </div>
-          <button
-            type="button"
-            class="text-sm text-caption hover:text-primary underline"
-            on:click={reExtract}
-          >
-            Extract Again
-          </button>
         </div>
         
         <!-- Recipe Form -->
@@ -640,21 +650,41 @@
         </div>
         
         <!-- Action Buttons -->
-        <div class="flex flex-col sm:flex-row gap-3 pt-4">
-          <Button 
-            on:click={saveDraftAndEdit}
-            disabled={!title || $ingredientsArray.length === 0 || $directionsArray.length === 0}
-          >
-            <PencilIcon size={18} />
-            Continue to Editor
-          </Button>
+        <div class="flex flex-col gap-5 pt-6">
+          <!-- Primary: Publish Recipe -->
           <button
             type="button"
-            class="flex items-center justify-center gap-2 px-4 py-2.5 rounded-full font-semibold transition-colors bg-input hover:bg-accent-gray"
-            on:click={reExtract}
+            on:click={saveDraftAndPublish}
+            disabled={!title || $ingredientsArray.length === 0 || $directionsArray.length === 0}
+            class="w-full flex items-center justify-center gap-2 px-6 py-3 rounded-full font-semibold transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+            style="background: linear-gradient(135deg, #f97316 0%, #fb923c 100%); color: white; box-shadow: 0 2px 8px rgba(249, 115, 22, 0.3);"
+            class:hover:shadow-lg={title && $ingredientsArray.length > 0 && $directionsArray.length > 0}
           >
-            <ArrowsClockwiseIcon size={18} />
-            Start Over
+            <PencilIcon size={18} weight="bold" />
+            Publish Recipe
+          </button>
+          
+          <!-- Secondary: Save Draft -->
+          <button
+            type="button"
+            on:click={saveDraftOnly}
+            disabled={!title || $ingredientsArray.length === 0 || $directionsArray.length === 0}
+            class="w-full flex items-center justify-center gap-2 px-6 py-3 rounded-full font-semibold transition-all border-2 disabled:opacity-50 disabled:cursor-not-allowed"
+            style="border-color: var(--color-input-border); color: var(--color-text-primary); background-color: transparent;"
+            class:hover:bg-input={title && $ingredientsArray.length > 0 && $directionsArray.length > 0}
+          >
+            <FloppyDiskIcon size={18} />
+            Save Draft
+          </button>
+          
+          <!-- Tertiary: Cancel -->
+          <button
+            type="button"
+            on:click={handleCancel}
+            class="w-full flex items-center justify-center gap-1.5 py-2 text-sm font-medium transition-colors hover:opacity-70"
+            style="color: var(--color-text-secondary);"
+          >
+            Cancel
           </button>
         </div>
       </div>
