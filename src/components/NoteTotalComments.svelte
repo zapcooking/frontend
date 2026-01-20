@@ -18,7 +18,7 @@
 </script>
 
 <button
-  class="flex gap-1.5 hover:bg-input rounded px-0.5 transition duration-300 cursor-pointer"
+  class="flex items-center gap-1.5 hover:bg-input rounded px-0.5 transition duration-300 cursor-pointer"
   style="color: var(--color-text-primary)"
   on:click={() => {
     // Find the InlineComments component for this event and trigger toggleComments
@@ -31,5 +31,7 @@
   title="View comments"
 >
   <CommentIcon size={24} class="text-caption" />
-  {#if $store.loading}–{:else}{$store.comments.count}{/if}
+  <span class="text-caption">
+    {#if $store.loading}–{:else}{$store.comments.count}{/if}
+  </span>
 </button>

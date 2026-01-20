@@ -34,7 +34,7 @@
 </script>
 
 {#if $store.loading}
-  <div class="flex gap-1.5 rounded px-0.5 transition duration-300" style="color: var(--color-text-primary)">
+  <div class="flex items-center gap-1.5 rounded px-0.5 transition duration-300" style="color: var(--color-text-primary)">
     <button
       class="hover:bg-input rounded p-1"
       on:click={handleZapIconClick}
@@ -45,7 +45,7 @@
     <span class="text-caption">–</span>
   </div>
 {:else}
-  <div class="flex gap-1.5 rounded px-0.5 transition duration-300" style="color: var(--color-text-primary)">
+  <div class="flex items-center gap-1.5 rounded px-0.5 transition duration-300" style="color: var(--color-text-primary)">
     <!-- Zap Icon Button - Opens ZapModal -->
     <button
       class="hover:bg-input rounded p-1 transition-colors"
@@ -61,7 +61,7 @@
 
     <!-- Count Button - Opens ZappersListModal -->
     <button
-      class="hover:bg-input rounded px-1 transition-colors {$store.zaps.count > 0 ? 'cursor-pointer' : ''}"
+      class="hover:bg-input rounded px-1 transition-colors text-caption {$store.zaps.count > 0 ? 'cursor-pointer' : ''}"
       on:click={handleCountClick}
       disabled={$store.zaps.count === 0}
       title={$store.zaps.count > 0 ? `View ${$store.zaps.count} ${$store.zaps.count === 1 ? 'zap' : 'zaps'}` : 'No zaps yet'}

@@ -1255,7 +1255,7 @@
               <div class="relative">
                 <div
                   bind:this={composerEl}
-                  class="composer-input w-full min-h-[80px] p-2 border-0 focus:outline-none focus:ring-0 bg-transparent"
+                  class="composer-input w-full min-h-[80px] max-h-[300px] overflow-y-auto p-2 border-0 focus:outline-none focus:ring-0 bg-transparent"
                   style="color: var(--color-text-primary); font-size: 16px;"
                   contenteditable={!posting}
                   role="textbox"
@@ -1588,6 +1588,24 @@
   .composer-input {
     white-space: pre-wrap;
     word-break: break-word;
+  }
+
+  /* Custom scrollbar for composer */
+  .composer-input::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  .composer-input::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .composer-input::-webkit-scrollbar-thumb {
+    background: var(--color-input-border);
+    border-radius: 3px;
+  }
+
+  .composer-input::-webkit-scrollbar-thumb:hover {
+    background: var(--color-caption);
   }
 
   .composer-input[contenteditable='true']:empty:before {

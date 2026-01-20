@@ -96,7 +96,7 @@
 <div class="relative">
   <button
     on:click={() => showMenu = !showMenu}
-    class="flex gap-1.5 hover:bg-input rounded px-0.5 transition duration-300 cursor-pointer"
+    class="flex items-center gap-1.5 hover:bg-input rounded px-0.5 transition duration-300 cursor-pointer"
     class:opacity-50={!$userPublickey}
     title={!$userPublickey ? 'Login to repost' : $store.reposts.userReposted ? 'You reposted this' : 'Repost'}
   >
@@ -105,7 +105,9 @@
       weight={$store.reposts.userReposted ? 'fill' : 'regular'}
       class={$store.reposts.userReposted ? 'text-green-500' : 'text-caption'}
     />
-    {#if $store.loading}–{:else}{$store.reposts.count}{/if}
+    <span class="text-caption">
+      {#if $store.loading}–{:else}{$store.reposts.count}{/if}
+    </span>
   </button>
 
   {#if showMenu}
