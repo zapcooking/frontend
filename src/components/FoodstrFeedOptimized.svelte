@@ -3594,10 +3594,10 @@
                 {/if}
 
                 <div
-                  class="flex items-center justify-between px-2 sm:px-0 py-1"
+                  class="flex items-center justify-between flex-wrap gap-2 px-2 sm:px-0 py-1"
                   use:lazyLoadAction={event.id}
                 >
-                  <div class="flex items-center space-x-1">
+                  <div class="flex items-center space-x-1 flex-shrink-0">
                     {#if visibleNotes.has(event.id)}
                       <div class="hover:bg-accent-gray rounded-full p-1.5 transition-colors">
                         <NoteTotalLikes {event} />
@@ -3622,7 +3622,7 @@
                     {/if}
                   </div>
 
-                  <div class="flex items-center space-x-1">
+                  <div class="flex items-center space-x-1 flex-shrink-0">
                     <button
                       class="flex items-center text-caption hover:opacity-80 hover:bg-accent-gray rounded-full p-1.5 transition-colors"
                       on:click={() => copyNoteId(event)}
@@ -3892,6 +3892,8 @@
     transition: all 0.5s ease-in-out;
     margin: 0.25rem 0;
     padding: 0.75rem !important;
+    overflow: hidden; /* Prevent content overflow */
+    max-width: 100%; /* Ensure it doesn't exceed container */
   }
 
   /* Tier 2: Medium glow (>1000 sats) - Noticeable warm glow */
@@ -3907,6 +3909,8 @@
     transition: all 0.5s ease-in-out;
     margin: 0.25rem 0;
     padding: 0.75rem !important;
+    overflow: hidden; /* Prevent content overflow */
+    max-width: 100%; /* Ensure it doesn't exceed container */
   }
 
   /* Tier 3: Bright glow (>2000 sats) - Prominent golden aura */
@@ -3924,6 +3928,8 @@
     animation: subtle-glow-pulse 4s ease-in-out infinite;
     margin: 0.25rem 0;
     padding: 0.75rem !important;
+    overflow: hidden; /* Prevent content overflow */
+    max-width: 100%; /* Ensure it doesn't exceed container */
   }
 
   /* Subtle pulse animation for highest tier */
