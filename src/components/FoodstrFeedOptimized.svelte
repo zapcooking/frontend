@@ -3283,7 +3283,8 @@
                    {zapGlowTier !== 'none' ? `zap-glow-${zapGlowTier}` : ''}"
             style="border-color: var(--color-input-border); {isPopular ? 'box-shadow: 0 0 20px rgba(251, 191, 36, 0.4), 0 0 40px rgba(251, 191, 36, 0.2); border-radius: 8px; border: 2px solid rgba(251, 191, 36, 0.6); padding: 1rem; margin-bottom: 1rem;' : ''}"
           >
-            <div class="flex space-x-3 px-2 sm:px-0">
+            <!-- User header with avatar and name -->
+            <div class="flex items-center space-x-3 mb-3 px-2 sm:px-0">
               {#if !hideAvatar}
                 <a
                   href="/user/{nip19.npubEncode(event.author?.hexpubkey || event.pubkey)}"
@@ -3296,10 +3297,23 @@
                   />
                 </a>
               {/if}
+              
+              <div class="flex items-center space-x-2 flex-wrap min-w-0">
+                {#if !hideAuthorName}
+                  <AuthorName {event} />
+                  <span class="text-sm" style="color: var(--color-caption)">·</span>
+                {/if}
+                <span class="text-sm" style="color: var(--color-caption)">
+                  {event.created_at ? formatTimeAgo(event.created_at) : 'Unknown time'}
+                </span>
+                <ClientAttribution tags={event.tags} enableEnrichment={false} />
+              </div>
+            </div>
 
-              <div class="flex-1 min-w-0">
-                <!-- Reply context (orange bracket at top for replies) -->
-                {#if isReply(event)}
+            <!-- Main content area - full width below header -->
+            <div class="px-2 sm:px-0">
+              <!-- Reply context (orange bracket at top for replies) -->
+              {#if isReply(event)}
                   {@const parentNoteId = getParentNoteId(event)}
                   {#if parentNoteId}
                     {#await resolveReplyContext(parentNoteId)}
@@ -3362,21 +3376,10 @@
                         </div>
                       </a>
                     {/await}
-                  {/if}
                 {/if}
+              {/if}
 
-                <div class="flex items-center space-x-2 mb-2 flex-wrap">
-                  {#if !hideAuthorName}
-                    <AuthorName {event} />
-                    <span class="text-sm" style="color: var(--color-caption)">·</span>
-                  {/if}
-                  <span class="text-sm" style="color: var(--color-caption)">
-                    {event.created_at ? formatTimeAgo(event.created_at) : 'Unknown time'}
-                  </span>
-                  <ClientAttribution tags={event.tags} enableEnrichment={false} />
-                </div>
-
-                <!-- Content - strip quoted note reference if present to avoid bubble embed -->
+              <!-- Content - strip quoted note reference if present to avoid bubble embed -->
                 {#if hasQuotedNote(event)}
                   {@const cleanContent = getContentWithoutMedia(getContentWithoutQuote(event.content))}
                   {#if cleanContent}
@@ -3642,7 +3645,6 @@
                     <FeedComments {event} />
                   {/if}
                 </div>
-              </div>
             </div>
           </article>
         {/each}
