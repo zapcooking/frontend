@@ -1713,7 +1713,11 @@
       <div class="mb-8 p-6 rounded-2xl bg-input border border-input">
         <div class="flex items-center justify-between mb-4">
           <div class="flex items-center gap-2">
-            <WeblnLogo size={24} />
+            <div
+              class="w-6 h-6 rounded-full bg-gradient-to-br from-orange-500 to-amber-500 flex items-center justify-center"
+            >
+              <WeblnLogo size={14} className="text-white" />
+            </div>
             <span class="font-medium text-primary-color">Balance</span>
           </div>
           <div class="flex items-center gap-3">
@@ -1881,7 +1885,7 @@
           <div
             class="w-16 h-16 rounded-full bg-gradient-to-br from-orange-500 to-amber-500 flex items-center justify-center mb-4"
           >
-            <WeblnLogo size={32} className="text-white" />
+            <WeblnLogo size={40} className="text-white" />
           </div>
           <p class="font-medium mb-1" style="color: var(--color-text-primary)">
             {$weblnWalletName || 'Browser Wallet'}
@@ -1939,7 +1943,11 @@
             class="p-3 rounded-xl mb-3 flex items-center gap-3"
             style="background-color: rgba(249, 115, 22, 0.1); border: 1px solid rgba(249, 115, 22, 0.3);"
           >
-            <WeblnLogo size={20} />
+            <div
+              class="w-5 h-5 rounded-full bg-gradient-to-br from-orange-500 to-amber-500 flex items-center justify-center flex-shrink-0"
+            >
+              <WeblnLogo size={12} className="text-white" />
+            </div>
             <div class="flex-1">
               <span class="text-sm font-medium" style="color: var(--color-text-primary)"
                 >Browser wallet active</span
@@ -2955,9 +2963,9 @@
                       disabled={$weblnConnected}
                     >
                       <div
-                        class="w-10 h-10 rounded-full overflow-hidden flex items-center justify-center"
+                        class="w-10 h-10 rounded-full bg-gradient-to-br from-orange-500 to-amber-500 flex items-center justify-center"
                       >
-                        <WeblnLogo size={40} />
+                        <WeblnLogo size={24} className="text-white" />
                       </div>
                       <div>
                         <div class="font-medium" style="color: var(--color-text-primary)">
