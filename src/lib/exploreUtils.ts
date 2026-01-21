@@ -481,7 +481,7 @@ export async function fetchTrendingRecipes(limit: number = 12): Promise<NDKEvent
       const timeout = setTimeout(async () => {
         subscription.stop();
         await sortAndResolveRecipes(recipes, limit, ndkInstance, resolve);
-      }, 8000); // Longer timeout to get more recipes
+      }, 5000); // 5 second timeout for faster UX
 
       subscription.on('event', (event: NDKEvent) => {
         if (typeof validateMarkdownTemplate(event.content) !== 'string' && event.author?.pubkey) {
@@ -695,14 +695,14 @@ export async function fetchDiscoverRecipes(
       let resolved = false;
 
       // First paint threshold: resolve early once we have enough for initial render
-      const FIRST_PAINT_MIN = Math.min(8, limit);
+      const FIRST_PAINT_MIN = Math.min(6, limit); // Reduced from 8 for faster first paint
 
       const timeout = setTimeout(async () => {
         if (resolved) return;
         subscription.stop();
         logger.debug(`Timeout reached. Events: ${eventCount}, Valid: ${validCount}, No image: ${noImageCount}, Invalid markdown: ${invalidMarkdownCount}, No author: ${noAuthorCount}`, 'fetchDiscoverRecipes');
         await processAndSampleRecipes(allRecipes, limit, ndkInstance, resolve);
-      }, 8000); // 8 second timeout (reduced from 10s)
+      }, 5000); // 5 second timeout (reduced from 8s)
 
       // Helper to stop subscription and resolve early
       const stopAndResolve = (recipes: NDKEvent[]) => {

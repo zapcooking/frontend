@@ -2699,13 +2699,30 @@
     zapCount: number;
   }
   
+  // Constants for tier calculation - defined once, reused everywhere
+  const GLOW_TIERS = ['none', 'soft', 'medium', 'bright'] as const;
+  type GlowTier = typeof GLOW_TIERS[number];
+  
+  // Thresholds: [soft, medium, bright]
+  const COUNT_THRESHOLDS = [3, 6, 9];
+  const AMOUNT_THRESHOLDS = [500, 1000, 2000];
+  const ESTIMATED_SATS_PER_ZAP = 200;
+  
   // Reactive engagement cache - stores computed glow info per event
-  // This updates reactively when engagement stores change
   let engagementGlowCache = new Map<string, EngagementRenderInfo>();
   let engagementSubscriptions = new Map<string, () => void>();
+  let pendingCleanupTimers = new Map<string, ReturnType<typeof setTimeout>>();
   
-  // Calculate glow tier from engagement data
-  function calculateEngagementInfo(eventId: string, data: EngagementData): EngagementRenderInfo {
+  // Fast tier calculation - returns index 0-3 (none, soft, medium, bright)
+  function getTierIndex(value: number, thresholds: number[]): number {
+    if (value >= thresholds[2]) return 3; // bright
+    if (value >= thresholds[1]) return 2; // medium
+    if (value >= thresholds[0]) return 1; // soft
+    return 0; // none
+  }
+  
+  // Calculate glow tier from engagement data - optimized for speed
+  function calculateEngagementInfo(data: EngagementData): EngagementRenderInfo {
     const zapCount = data.zaps?.count || 0;
     const uniqueZapperCount = data.zaps?.topZappers?.length || 0;
     const totalReactionCount = data.reactions?.count || 0;
@@ -2716,34 +2733,16 @@
                          uniqueZapperCount > 0 && 
                          uniqueZapperCount > totalReactionCount;
     
-    // Tier based on zap COUNT (more generous thresholds since we always have count)
-    // 3+ soft, 6+ medium, 9+ bright
-    let countTier: 'none' | 'soft' | 'medium' | 'bright' = 'none';
-    if (zapCount >= 9) countTier = 'bright';
-    else if (zapCount >= 6) countTier = 'medium';
-    else if (zapCount >= 3) countTier = 'soft';
+    // Get tier from count (3/6/9 thresholds)
+    const countTierIdx = getTierIndex(zapCount, COUNT_THRESHOLDS);
     
-    // Tier based on total AMOUNT (>500 soft, >1000 medium, >2000 bright)
-    let amountTier: 'none' | 'soft' | 'medium' | 'bright' = 'none';
-    if (totalSats > 2000) amountTier = 'bright';
-    else if (totalSats > 1000) amountTier = 'medium';
-    else if (totalSats > 500) amountTier = 'soft';
+    // Get tier from amount (500/1000/2000 thresholds)
+    // If no amount data yet, estimate from count
+    const effectiveSats = totalSats > 0 ? totalSats : zapCount * ESTIMATED_SATS_PER_ZAP;
+    const amountTierIdx = getTierIndex(effectiveSats, AMOUNT_THRESHOLDS);
     
-    // FALLBACK: If we have count but no amount data yet, estimate from count
-    // Average zap is ~100-500 sats, so use conservative estimate
-    // This ensures glow shows while waiting for full zap data
-    if (totalSats === 0 && zapCount > 0) {
-      // Estimate: assume average of ~200 sats per zap
-      const estimatedSats = zapCount * 200;
-      if (estimatedSats > 2000) amountTier = 'bright';
-      else if (estimatedSats > 1000) amountTier = 'medium';
-      else if (estimatedSats > 500) amountTier = 'soft';
-    }
-    
-    // Use whichever tier is higher (either count OR amount triggers glow)
-    const tierValues = { 'none': 0, 'soft': 1, 'medium': 2, 'bright': 3 };
-    const valueTiers: ('none' | 'soft' | 'medium' | 'bright')[] = ['none', 'soft', 'medium', 'bright'];
-    const zapGlowTier = valueTiers[Math.max(tierValues[countTier], tierValues[amountTier])];
+    // Use whichever tier is higher
+    const zapGlowTier = GLOW_TIERS[Math.max(countTierIdx, amountTierIdx)];
     
     return { isZapPopular, zapGlowTier, totalSats, zapCount };
   }
@@ -2752,16 +2751,23 @@
   function subscribeToEngagement(eventId: string): void {
     if (engagementSubscriptions.has(eventId)) return;
     
+    // Cancel any pending cleanup for this eventId
+    const pendingCleanup = pendingCleanupTimers.get(eventId);
+    if (pendingCleanup) {
+      clearTimeout(pendingCleanup);
+      pendingCleanupTimers.delete(eventId);
+    }
+    
     const store = getEngagementStore(eventId);
     
     // Immediately read cached data (this loads from localStorage instantly)
     const initialData = get(store);
-    const initialInfo = calculateEngagementInfo(eventId, initialData);
+    const initialInfo = calculateEngagementInfo(initialData);
     engagementGlowCache.set(eventId, initialInfo);
     
     // Subscribe to future updates from relays
     const unsubscribe = store.subscribe((data) => {
-      const newInfo = calculateEngagementInfo(eventId, data);
+      const newInfo = calculateEngagementInfo(data);
       const currentInfo = engagementGlowCache.get(eventId);
       
       // Only update if glow tier changed or sats increased (never decrease glow from cache)
@@ -2769,8 +2775,8 @@
           newInfo.zapGlowTier !== currentInfo.zapGlowTier ||
           newInfo.totalSats > currentInfo.totalSats) {
         engagementGlowCache.set(eventId, newInfo);
-        // Trigger reactivity by reassigning the map
-        engagementGlowCache = new Map(engagementGlowCache);
+        // Trigger Svelte reactivity - assignment to self
+        engagementGlowCache = engagementGlowCache;
       }
     });
     
@@ -2786,63 +2792,45 @@
     }
   }
   
+  // Default engagement info - cached to avoid object allocation
+  const DEFAULT_ENGAGEMENT_INFO: EngagementRenderInfo = Object.freeze({ 
+    isZapPopular: false, 
+    zapGlowTier: 'none' as const,
+    totalSats: 0,
+    zapCount: 0
+  });
+  
   // Get engagement info - reads from reactive cache
-  // Always returns glow info from cache or calculates from store
+  // Optimized: single code path, minimal allocations
   function getEngagementRenderInfo(eventId: string, shouldSubscribe: boolean = true): EngagementRenderInfo {
-    // Check if we have cached info
-    const cached = engagementGlowCache.get(eventId);
-    
-    // If we should subscribe (note is visible), set up subscription
+    // Set up subscription if needed (this also populates cache)
     if (shouldSubscribe && !engagementSubscriptions.has(eventId)) {
       subscribeToEngagement(eventId);
+      // subscribeToEngagement populates the cache, so check it
+      return engagementGlowCache.get(eventId) || DEFAULT_ENGAGEMENT_INFO;
     }
     
-    // If we have cached info, return it
-    if (cached) {
-      return cached;
-    }
-    
-    // No cache - try to calculate from store (may have localStorage data)
-    const store = getEngagementStore(eventId);
-    const data = get(store);
-    
-    // If we have any data, calculate and cache the glow info
-    if (data && (data.zaps?.count > 0 || data.zaps?.totalAmount > 0 || data.reactions?.count > 0)) {
-      const info = calculateEngagementInfo(eventId, data);
-      engagementGlowCache.set(eventId, info);
-      return info;
-    }
-    
-    return { 
-      isZapPopular: false, 
-      zapGlowTier: 'none',
-      totalSats: 0,
-      zapCount: 0
-    };
-  }
-  
-  // Legacy functions for backward compatibility (if used elsewhere)
-  function isZapPopular(eventId: string): boolean {
-    return getEngagementRenderInfo(eventId).isZapPopular;
-  }
-
-  function getZapGlowTier(eventId: string): 'none' | 'soft' | 'medium' | 'bright' {
-    return getEngagementRenderInfo(eventId).zapGlowTier;
+    // Return cached info or default
+    return engagementGlowCache.get(eventId) || DEFAULT_ENGAGEMENT_INFO;
   }
   
   // Cleanup subscriptions when events leave view
+  // Uses tracked timers to avoid duplicate cleanup attempts
   $: {
-    // When visibleNotes changes, clean up subscriptions for notes no longer visible
+    // When visibleNotes changes, schedule cleanup for notes no longer visible
     const visibleIds = new Set(events.map(e => e.id).filter(id => visibleNotes.has(id)));
     for (const eventId of engagementSubscriptions.keys()) {
-      if (!visibleIds.has(eventId)) {
-        // Keep subscription for a bit in case user scrolls back
-        setTimeout(() => {
+      if (!visibleIds.has(eventId) && !pendingCleanupTimers.has(eventId)) {
+        // Schedule cleanup with grace period (in case user scrolls back)
+        const timer = setTimeout(() => {
+          pendingCleanupTimers.delete(eventId);
+          // Double-check still not visible before cleanup
           if (!visibleNotes.has(eventId)) {
             unsubscribeFromEngagement(eventId);
             engagementGlowCache.delete(eventId);
           }
         }, 30000); // 30 second grace period
+        pendingCleanupTimers.set(eventId, timer);
       }
     }
   }
@@ -3951,6 +3939,13 @@
         0 0 85px rgba(251, 191, 36, 0.15),
         0 0 110px rgba(251, 191, 36, 0.08),
         inset 0 0 50px rgba(251, 191, 36, 0.07);
+    }
+  }
+
+  /* Accessibility: Respect user preference for reduced motion */
+  @media (prefers-reduced-motion: reduce) {
+    .zap-glow-bright {
+      animation: none;
     }
   }
 

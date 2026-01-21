@@ -6,7 +6,8 @@ export interface Notification {
   id: string;
   type: 'reaction' | 'zap' | 'comment' | 'mention' | 'repost';
   fromPubkey: string;
-  eventId?: string;
+  eventId?: string;        // The event to navigate to when clicked
+  targetEventId?: string;  // The original event being reacted to/replied to (your post)
   content?: string;
   amount?: number;  // For zaps, in sats
   emoji?: string;   // For reactions
@@ -99,14 +100,21 @@ export const unreadCount = derived(notifications, $notifications =>
 // Subscription manager
 let activeSubscription: NDKSubscription | null = null;
 
-export function subscribeToNotifications(ndk: NDK, userPubkey: string) {
+export function subscribeToNotifications(ndk: NDK, userPubkey: string, forceFullRefresh = false) {
   if (activeSubscription) {
     activeSubscription.stop();
   }
   
-  const since = notifications.getLastTimestamp();
+  // Use a longer lookback window (7 days) for better notification coverage
+  // On force refresh, go back 7 days regardless of existing notifications
+  const sevenDaysAgo = Math.floor(Date.now() / 1000) - (7 * 24 * 60 * 60);
+  const lastTimestamp = notifications.getLastTimestamp();
   
-  console.log('[Notifications] Subscribing for:', userPubkey, 'since:', new Date(since * 1000));
+  // Use the earlier of: 7 days ago OR last notification timestamp
+  // This ensures we don't miss notifications even if we have recent ones
+  const since = forceFullRefresh ? sevenDaysAgo : Math.min(sevenDaysAgo, lastTimestamp);
+  
+  console.log('[Notifications] Subscribing for:', userPubkey, 'since:', new Date(since * 1000), forceFullRefresh ? '(forced refresh)' : '');
   
   // Subscribe to reactions, zaps, replies, mentions, and reposts
   activeSubscription = ndk.subscribe([
@@ -121,11 +129,28 @@ export function subscribeToNotifications(ndk: NDK, userPubkey: string) {
   ], { closeOnEose: false });
   
   activeSubscription.on('event', async (event: NDKEvent) => {
-    // Ignore my own events
-    if (event.pubkey === userPubkey) return;
+    // Debug: log all incoming notification events
+    console.log(`[Notifications] Received event kind ${event.kind}:`, {
+      id: event.id?.slice(0, 8),
+      pubkey: event.pubkey?.slice(0, 8),
+      tags: event.tags?.slice(0, 5)
+    });
+    
+    // For zap receipts (9735), the pubkey is the zapper service, not the sender
+    // So we should NOT filter these out based on pubkey
+    if (event.kind !== 9735 && event.pubkey === userPubkey) {
+      console.log('[Notifications] Ignoring own event (not a zap)');
+      return;
+    }
     
     const notification = parseNotification(event, userPubkey);
     if (notification) {
+      console.log(`[Notifications] Parsed ${notification.type} notification:`, {
+        id: notification.id?.slice(0, 8),
+        from: notification.fromPubkey?.slice(0, 8),
+        amount: notification.amount
+      });
+      
       // Add to store
       notifications.add(notification);
       
@@ -137,6 +162,8 @@ export function subscribeToNotifications(ndk: NDK, userPubkey: string) {
           console.error('[Notifications] Error sending local notification:', error);
         }
       }
+    } else {
+      console.log('[Notifications] Failed to parse notification for kind', event.kind);
     }
   });
   
@@ -264,10 +291,13 @@ function parseNotification(event: NDKEvent, userPubkey: string): Notification | 
         replyToEvent = eTags[eTags.length - 1][1];
       }
       
+      // For both mentions and replies, clicking should show the note that mentions/replies
+      // (the notification event itself), not just the post being replied to
       return {
         ...baseNotification,
         type: isReply ? 'comment' : 'mention',
-        eventId: replyToEvent,
+        eventId: event.id,  // The note to view (the mention/reply itself)
+        targetEventId: replyToEvent,  // The original post being replied to (if any)
         content: cleanContentForPreview(event.content || '')
       };
       

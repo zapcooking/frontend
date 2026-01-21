@@ -1,3 +1,20 @@
+<script context="module" lang="ts">
+  // Module-level validation cache - persists across component instances
+  // Keyed by event ID for efficient lookup
+  const validationCache = new Map<string, boolean>();
+  
+  // Limit cache size to prevent memory bloat (LRU-style cleanup)
+  const MAX_CACHE_SIZE = 1000;
+  
+  function cleanupCache() {
+    if (validationCache.size > MAX_CACHE_SIZE) {
+      // Remove oldest entries (first half)
+      const keysToDelete = Array.from(validationCache.keys()).slice(0, MAX_CACHE_SIZE / 2);
+      keysToDelete.forEach(key => validationCache.delete(key));
+    }
+  }
+</script>
+
 <script lang="ts">
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
   import RecipeCard from './RecipeCard.svelte';
@@ -12,34 +29,51 @@
   export let isOwnProfile = false;  // true if viewing your own profile
   export let isProfileView = false; // true if this is a profile page
 
-  // Simple filtering - same as original Feed.svelte
-  // Also filter out deleted recipes (empty content or deleted tag)
-  if (!lists) {
-    events = events.filter((e) => {
-      // Filter out deleted recipes
-      if (!e.content || e.content.trim() === '') return false;
-      if (e.tags.some(t => t[0] === 'deleted')) return false;
-      // Validate markdown structure
-      return typeof validateMarkdownTemplate(e.content) !== 'string';
-    });
-  } else {
-    // For lists, still filter deleted items
-    events = events.filter((e) => {
-      if (!e.content || e.content.trim() === '') return false;
-      if (e.tags.some(t => t[0] === 'deleted')) return false;
-      return true;
-    });
+  /**
+   * Memoized validation check for a single event
+   * Results are cached by event ID to avoid re-running expensive markdown validation
+   */
+  function isValidEvent(e: NDKEvent): boolean {
+    // Get a stable identifier for the event
+    const eventId = e.id || e.sig || '';
+    
+    // Check cache first
+    if (eventId && validationCache.has(eventId)) {
+      return validationCache.get(eventId)!;
+    }
+    
+    // Perform validation checks
+    const hasContent = Boolean(e.content && e.content.trim() !== '');
+    const notDeleted = !e.tags.some(t => t[0] === 'deleted');
+    
+    // For lists, skip markdown validation
+    // For recipes, validate markdown structure
+    const validStructure = lists || typeof validateMarkdownTemplate(e.content) !== 'string';
+    
+    const isValid: boolean = hasContent && notDeleted && validStructure;
+    
+    // Cache the result
+    if (eventId) {
+      validationCache.set(eventId, isValid);
+      cleanupCache();
+    }
+    
+    return isValid;
   }
+
+  // Reactive filtering - only re-runs when events array changes
+  // Uses memoized validation so each event is only validated once
+  $: filteredEvents = events.filter(isValidEvent);
 </script>
 
 
-{#if events.length > 0}
+{#if filteredEvents.length > 0}
   <div
     class="grid gap-4 justify-items-center {isProfileView
       ? 'grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5'
       : 'grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-7 2xl:grid-cols-8'}"
   >
-    {#each events as event (event.id)}
+    {#each filteredEvents as event (event.id)}
       {#if !(hideHide == true && event.tags.find((t) => t[0] == 't' && t[1] == 'nostrcooking-hide'))}
         <RecipeCard list={lists} {event} />
       {/if}

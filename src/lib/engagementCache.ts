@@ -57,6 +57,8 @@ interface CachedEngagement {
 const engagementStores = new Map<string, Writable<EngagementData>>();
 const activeSubscriptions = new Map<string, NDKSubscription[]>();
 const processedEventIds = new Map<string, Set<string>>();
+// Track events that are being counted via subscription (to avoid NIP-45 race condition)
+const subscriptionCountingInProgress = new Set<string>();
 
 const CACHE_KEY_PREFIX = 'engagement_';
 const CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours - persist across page reloads
@@ -238,6 +240,12 @@ export async function fetchEngagement(
   // FAST PATH: Try server API first (has batching), then NIP-45 COUNT as fallback
   // Server API is much faster for multiple events
   getEngagementCounts(eventId, { timeout: 2000, skipApi: false }).then(counts => {
+    // Skip if subscription is actively counting (avoid race condition)
+    if (subscriptionCountingInProgress.has(eventId)) {
+      console.debug('[Engagement] Skipping NIP-45 counts - subscription counting in progress for', eventId);
+      return;
+    }
+    
     if (counts) {
       store.update(s => {
         // Always update counts if we got them from NIP-45 (they're authoritative)
@@ -297,10 +305,9 @@ export async function fetchEngagement(
     processedEventIds.delete(eventId); // Allow re-processing events
   }
   
-  // Initialize processed event tracking
-  if (!processedEventIds.has(eventId)) {
-    processedEventIds.set(eventId, new Set());
-  }
+  // Initialize processed event tracking - MUST be fresh to avoid double counting
+  // Clear any stale processed IDs and start fresh
+  processedEventIds.set(eventId, new Set());
   const processed = processedEventIds.get(eventId)!;
   
   // Stop any old-style subscriptions
@@ -309,6 +316,20 @@ export async function fetchEngagement(
     existingSubs.forEach(sub => sub.stop());
     activeSubscriptions.delete(eventId);
   }
+  
+  // IMPORTANT: Reset counts to 0 before subscription to prevent double counting
+  // The cache shows instant data, but subscription will provide accurate final counts
+  store.update(s => ({
+    ...s,
+    reactions: { count: 0, userReacted: false, groups: [], userReactions: new Set() },
+    comments: { count: 0 },
+    reposts: { count: 0, userReposted: false },
+    zaps: { ...s.zaps, count: 0, totalAmount: 0, topZappers: [] }, // Keep userZapped state
+    loading: true
+  }));
+  
+  // Mark that subscription counting is in progress (prevents NIP-45 race condition)
+  subscriptionCountingInProgress.add(eventId);
   
   // Create persistent subscription for all engagement types
   const filter = {
@@ -366,6 +387,9 @@ export async function fetchEngagement(
     sub.on('eose', () => {
       if (!eoseReceived) {
         eoseReceived = true;
+        // Clear counting flag - subscription initial count is complete
+        subscriptionCountingInProgress.delete(eventId);
+        
         store.update(s => {
           const updated = { ...s, loading: false, lastFetched: Date.now() };
           
@@ -388,6 +412,9 @@ export async function fetchEngagement(
     setTimeout(() => {
       if (!eoseReceived) {
         eoseReceived = true;
+        // Clear counting flag on timeout too
+        subscriptionCountingInProgress.delete(eventId);
+        
         store.update(s => {
           const updated = { ...s, loading: false, lastFetched: Date.now() };
           
@@ -544,6 +571,9 @@ export function cleanupEngagement(eventId: string): void {
   
   // Clear processed events tracking
   processedEventIds.delete(eventId);
+  
+  // Clear counting in progress flag
+  subscriptionCountingInProgress.delete(eventId);
 }
 
 // Force refresh engagement data for an event (bypasses cache)
@@ -632,11 +662,24 @@ export async function batchFetchEngagement(
   }
   
   // FULL PATH: NDK subscription for accurate counts + user state
-  // Initialize all stores
+  // Reset processed IDs and counts to prevent double counting
   toFetch.forEach(id => {
-    if (!processedEventIds.has(id)) {
-      processedEventIds.set(id, new Set());
-    }
+    // Clear processed IDs to start fresh
+    processedEventIds.set(id, new Set());
+    
+    // Mark that subscription counting is in progress
+    subscriptionCountingInProgress.add(id);
+    
+    // Reset counts to 0 before fetching to prevent accumulation
+    const store = getEngagementStore(id);
+    store.update(s => ({
+      ...s,
+      reactions: { count: 0, userReacted: false, groups: [], userReactions: new Set() },
+      comments: { count: 0 },
+      reposts: { count: 0, userReposted: false },
+      zaps: { ...s.zaps, count: 0, totalAmount: 0, topZappers: [] },
+      loading: true
+    }));
   });
   
   const filter = {
@@ -688,8 +731,9 @@ export async function batchFetchEngagement(
       if (!eoseReceived) {
         eoseReceived = true;
         
-        // Mark all stores as loaded
+        // Mark all stores as loaded and clear counting flags
         toFetch.forEach(id => {
+          subscriptionCountingInProgress.delete(id);
           const store = getEngagementStore(id);
           store.update(s => {
             const updated = { ...s, loading: false, lastFetched: Date.now() };
@@ -712,6 +756,7 @@ export async function batchFetchEngagement(
       if (!eoseReceived) {
         eoseReceived = true;
         toFetch.forEach(id => {
+          subscriptionCountingInProgress.delete(id);
           const store = getEngagementStore(id);
           store.update(s => {
             const updated = { ...s, loading: false, lastFetched: Date.now() };
@@ -756,6 +801,7 @@ export function clearAllEngagementCaches(): void {
   // Clear stores
   engagementStores.clear();
   processedEventIds.clear();
+  subscriptionCountingInProgress.clear();
   
   // Clear localStorage cache
   if (browser) {

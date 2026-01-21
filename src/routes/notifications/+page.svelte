@@ -18,13 +18,15 @@
   
   async function handleRefresh() {
     try {
-      // Re-subscribe to notifications to fetch fresh data
+      // Re-subscribe to notifications with force refresh to fetch older data
       if ($userPublickey) {
         const ndkInstance = get(ndk);
         if (ndkInstance) {
-          subscribeToNotifications(ndkInstance, $userPublickey);
+          subscribeToNotifications(ndkInstance, $userPublickey, true); // Force full refresh
         }
       }
+      // Wait a bit for notifications to come in
+      await new Promise(resolve => setTimeout(resolve, 2000));
     } finally {
       pullToRefreshEl?.complete();
     }
@@ -76,13 +78,13 @@
   function getMessage(notification: any): string {
     switch (notification.type) {
       case 'reaction':
-        return `reacted ${notification.emoji || '❤️'}`;
+        return `reacted ${notification.emoji || '❤️'} to your post`;
       case 'zap':
         return `zapped you ${notification.amount?.toLocaleString() || ''} sats`;
       case 'comment':
         return 'replied to your post';
       case 'mention':
-        return 'mentioned you';
+        return 'mentioned you in a note';
       case 'repost':
         return 'reposted your note';
       default:
@@ -94,12 +96,48 @@
     return formatDistanceToNow(timestamp * 1000, { addSuffix: true });
   }
   
-  function handleNotificationClick(notification: any) {
+  async function handleNotificationClick(notification: any) {
     notifications.markAsRead(notification.id);
-    if (notification.eventId) {
-      const nevent = nip19.noteEncode(notification.eventId);
-      goto(`/${nevent}`);
+    
+    // For mentions and comments, use the notification id (which is the event id)
+    // as fallback if eventId is not set (for backwards compatibility with old notifications)
+    const eventIdToView = notification.eventId || 
+      (['mention', 'comment'].includes(notification.type) ? notification.id : null);
+    
+    if (!eventIdToView) {
+      return;
     }
+    
+    // For reactions, zaps, and reposts on recipes, try to fetch the event
+    // to determine if it's a recipe (kind 30023) and route accordingly
+    if (['reaction', 'zap', 'repost'].includes(notification.type)) {
+      try {
+        const ndkInstance = get(ndk);
+        if (ndkInstance) {
+          const event = await ndkInstance.fetchEvent({ ids: [eventIdToView] });
+          if (event && event.kind === 30023) {
+            // It's a recipe - build naddr and go to recipe page
+            const dTag = event.tags.find(t => t[0] === 'd')?.[1];
+            if (dTag) {
+              const naddr = nip19.naddrEncode({
+                kind: 30023,
+                pubkey: event.pubkey,
+                identifier: dTag
+              });
+              goto(`/recipe/${naddr}`);
+              return;
+            }
+          }
+        }
+      } catch (e) {
+        // If fetch fails, fall back to note view
+        console.debug('[Notifications] Could not fetch event for routing:', e);
+      }
+    }
+    
+    // Default: go to note view
+    const noteId = nip19.noteEncode(eventIdToView);
+    goto(`/${noteId}`);
   }
 </script>
 

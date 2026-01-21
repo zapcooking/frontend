@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { ndk, userPublickey } from '$lib/nostr';
+  import { ndk, userPublickey, getCurrentRelayGeneration } from '$lib/nostr';
   import type { NDKEvent, NDKFilter, NDKSubscription } from '@nostr-dev-kit/ndk';
   import { onMount, onDestroy } from 'svelte';
   import Feed from '../../components/Feed.svelte';
@@ -9,6 +9,7 @@
   import TagsSearchAutocomplete from '../../components/TagsSearchAutocomplete.svelte';
   import { goto } from '$app/navigation';
   import { RECIPE_TAGS } from '$lib/consts';
+  import { feedCacheService } from '$lib/feedCache';
 
   export const data: PageData = {} as PageData;
 
@@ -19,9 +20,11 @@
   type TabType = 'recent' | 'all';
   let activeTab: TabType = 'recent';
   let events: NDKEvent[] = [];
-  let allEvents: NDKEvent[] = [];
   let loaded = false;
   let showSearch = false;
+  
+  // Cache filter for consistent cache keys
+  const cacheFilter = { kinds: [30023], '#t': RECIPE_TAGS };
 
   // Sort events by created_at descending (most recent first)
   $: sortedEvents = [...events].sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
@@ -40,7 +43,12 @@
     }
   }
 
-  function loadRecipes() {
+  async function loadRecipes(skipCache = false) {
+    const perfStart = performance.now();
+    
+    // Capture relay generation at start to detect stale data from relay switches
+    const startGeneration = getCurrentRelayGeneration();
+    
     try {
       if (!$ndk) {
         console.warn('NDK not available, skipping subscription');
@@ -54,22 +62,81 @@
         subscription = null;
       }
       
-      // Reset state
+      // Check cache first (unless skipping for refresh)
+      if (!skipCache) {
+        try {
+          const cached = await feedCacheService.getCachedFeed({
+            filter: cacheFilter,
+            backgroundRefresh: true // Will refresh in background if stale
+          });
+          
+          if (cached && cached.length > 0) {
+            // Check generation hasn't changed during cache fetch
+            if (getCurrentRelayGeneration() !== startGeneration) {
+              console.log('🚫 Relay changed during cache fetch, ignoring cached data');
+            } else {
+              // Filter cached events for valid recipes
+              events = cached.filter(e => validateMarkdownTemplate(e.content) !== null);
+              loaded = true;
+              console.log(`⚡ Cache hit: ${events.length} recipes in ${(performance.now() - perfStart).toFixed(0)}ms`);
+              return;
+            }
+          }
+        } catch (cacheError) {
+          console.warn('Cache read failed, falling back to network:', cacheError);
+        }
+      }
+      
+      // Reset state for network fetch
       events = [];
       loaded = false;
       
-      let filter: NDKFilter = { limit: 256, kinds: [30023], '#t': RECIPE_TAGS };
+      // Reduced limit from 256 to 100 for faster EOSE
+      let filter: NDKFilter = { limit: 100, kinds: [30023], '#t': RECIPE_TAGS };
       subscription = $ndk.subscribe(filter);
+      
+      const fetchedEvents: NDKEvent[] = [];
 
       subscription.on('event', (event: NDKEvent) => {
+        // Ignore events from old relay generation (prevents stale data on relay switch)
+        if (getCurrentRelayGeneration() !== startGeneration) {
+          console.log('🚫 Ignoring event from old relay generation');
+          return;
+        }
+        
         if (validateMarkdownTemplate(event.content) !== null) {
-          events = [...events, event];
+          fetchedEvents.push(event);
+          events = [...fetchedEvents];
+          
+          // Show content early after first batch (progressive loading)
+          if (fetchedEvents.length >= 12 && !loaded) {
+            loaded = true;
+            console.log(`🚀 First paint: ${fetchedEvents.length} recipes in ${(performance.now() - perfStart).toFixed(0)}ms`);
+          }
         }
       });
 
-      subscription.on('eose', () => {
+      subscription.on('eose', async () => {
+        // Check generation before finalizing
+        if (getCurrentRelayGeneration() !== startGeneration) {
+          console.log('🚫 Relay changed during fetch, discarding results');
+          return;
+        }
+        
         loaded = true;
-        console.log('End of stored events');
+        console.log(`📡 Network load complete: ${fetchedEvents.length} recipes in ${(performance.now() - perfStart).toFixed(0)}ms`);
+        
+        // Cache the fetched events for next time
+        if (fetchedEvents.length > 0) {
+          try {
+            await feedCacheService.setCachedFeed(fetchedEvents, {
+              filter: cacheFilter
+            });
+            console.log(`💾 Cached ${fetchedEvents.length} recipes`);
+          } catch (cacheError) {
+            console.warn('Failed to cache feed:', cacheError);
+          }
+        }
       });
 
     } catch (error) {
@@ -80,7 +147,8 @@
 
   async function handleRefresh() {
     try {
-      loadRecipes();
+      // Skip cache on pull-to-refresh to get fresh data
+      await loadRecipes(true);
       // Wait a bit for events to start coming in
       await new Promise(resolve => setTimeout(resolve, 1000));
     } finally {

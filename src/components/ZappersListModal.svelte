@@ -115,12 +115,16 @@
     return formatDate(timestamp * 1000);
   }
 
-  // Get glow tier based on zap amount
+  // Individual zapper glow thresholds (sats): soft 100+, medium 1000+, bright 10000+
+  const ZAPPER_GLOW_THRESHOLDS = [100, 1000, 10000] as const;
+  const ZAPPER_GLOW_CLASSES = ['', 'zap-glow-soft', 'zap-glow-medium', 'zap-glow-bright'] as const;
+  
+  // Get glow tier based on zap amount - optimized lookup
   function getZapGlowClass(amount: number): string {
-    if (amount >= 10000) return 'zap-glow-bright';
-    if (amount >= 1000) return 'zap-glow-medium';
-    if (amount >= 100) return 'zap-glow-soft';
-    return '';
+    if (amount >= ZAPPER_GLOW_THRESHOLDS[2]) return ZAPPER_GLOW_CLASSES[3];
+    if (amount >= ZAPPER_GLOW_THRESHOLDS[1]) return ZAPPER_GLOW_CLASSES[2];
+    if (amount >= ZAPPER_GLOW_THRESHOLDS[0]) return ZAPPER_GLOW_CLASSES[1];
+    return ZAPPER_GLOW_CLASSES[0];
   }
 </script>
 
@@ -266,6 +270,13 @@
       box-shadow: 0 0 20px rgba(251, 191, 36, 0.8),
                   0 0 40px rgba(249, 115, 22, 0.4),
                   0 0 60px rgba(234, 88, 12, 0.2);
+    }
+  }
+
+  /* Accessibility: Respect user preference for reduced motion */
+  @media (prefers-reduced-motion: reduce) {
+    .zap-glow-bright {
+      animation: none;
     }
   }
 </style>
