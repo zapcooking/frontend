@@ -13,6 +13,9 @@
   import WalletBalance from './WalletBalance.svelte';
   import UserSidePanel from './UserSidePanel.svelte';
   import { timerStore } from '$lib/timerStore';
+  import { navBalanceVisible, walletConnected } from '$lib/wallet';
+  import { weblnConnected } from '$lib/wallet/webln';
+  import { bitcoinConnectEnabled, bitcoinConnectWalletInfo } from '$lib/wallet/bitcoinConnect';
   import { timerWidgetOpen } from '$lib/stores/timerWidget';
   import TimerWidget from './TimerWidget.svelte';
   import CreateMenuButton from './CreateMenuButton.svelte';
@@ -51,6 +54,10 @@
   // Reactive resolved theme for logo switching
   $: resolvedTheme = $theme === 'system' ? theme.getResolvedTheme() : $theme;
   $: isDarkMode = resolvedTheme === 'dark';
+  $: hasNavWallet =
+    $walletConnected ||
+    $weblnConnected ||
+    ($bitcoinConnectEnabled && $bitcoinConnectWalletInfo.connected);
 
   function toggleTimerWidget() {
     timerWidgetOpen.update((open) => !open);
@@ -141,7 +148,7 @@
     <CreateMenuButton variant="header" />
 
     <!-- Wallet Balance - only show when logged in and wallet connected -->
-    {#if $userPublickey}
+    {#if $userPublickey && $navBalanceVisible && hasNavWallet}
       <div class="hidden sm:block">
         <WalletBalance />
       </div>
