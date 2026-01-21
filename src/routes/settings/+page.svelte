@@ -27,6 +27,14 @@
   import { wallets } from '$lib/wallet/walletStore';
   import { bitcoinConnectEnabled } from '$lib/wallet/bitcoinConnect';
   import { weblnConnected, weblnWalletName } from '$lib/wallet/webln';
+  import {
+    oneTapZapEnabled,
+    oneTapZapAmount,
+    setOneTapZapEnabled,
+    setOneTapZapAmount,
+    MAX_ONE_TAP_ZAP_AMOUNT
+  } from '$lib/autoZapSettings';
+  import LightningIcon from 'phosphor-svelte/lib/Lightning';
   import { getConnectionManager } from '$lib/connectionManager';
   import SparkLogo from '../../components/icons/SparkLogo.svelte';
   import NwcLogo from '../../components/icons/NwcLogo.svelte';
@@ -264,6 +272,8 @@
   // Wallet info
   $: connectedWallets = $wallets.filter((w) => w.kind !== 0);
   $: activeWallet = connectedWallets.find((w) => w.active);
+  // Check if user has an in-app wallet (Spark kind=4 or NWC kind=3) for auto-zap
+  $: hasInAppWallet = $wallets.some((w) => w.kind === 3 || w.kind === 4);
 
   function getWalletTypeName(kind: number): string {
     switch (kind) {
@@ -615,6 +625,81 @@
         {/if}
 
         <Button on:click={() => goto('/wallet')}>Manage Wallets</Button>
+      </div>
+    </Accordion>
+
+    <!-- Zap Settings Section -->
+    <Accordion title="Zap Settings" open={false}>
+      <div class="flex flex-col gap-4">
+        <p class="text-xs text-caption">Configure one-tap zap behavior for in-app wallets.</p>
+
+        <!-- One-Tap Zap Toggle -->
+        <div
+          class="p-4 rounded-xl {!hasInAppWallet ? 'opacity-50' : ''}"
+          style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);"
+        >
+          <div class="flex items-center justify-between">
+            <div class="flex-1">
+              <div class="flex items-center gap-2">
+                <LightningIcon size={18} weight="fill" class="text-amber-500" />
+                <span class="font-medium" style="color: var(--color-text-primary)"
+                  >One-Tap Zaps</span
+                >
+              </div>
+              <p class="text-sm text-caption mt-1">Tap a preset to zap instantly</p>
+            </div>
+            <button
+              role="switch"
+              aria-checked={$oneTapZapEnabled}
+              disabled={!hasInAppWallet}
+              class="relative w-12 h-7 rounded-full transition-colors {hasInAppWallet
+                ? 'cursor-pointer'
+                : 'cursor-not-allowed'} {$oneTapZapEnabled && hasInAppWallet
+                ? 'bg-amber-500'
+                : 'bg-gray-300 dark:bg-gray-600'}"
+              on:click={() => hasInAppWallet && setOneTapZapEnabled(!$oneTapZapEnabled)}
+            >
+              <span
+                class="absolute top-1 left-1 w-5 h-5 bg-white rounded-full shadow transition-transform {$oneTapZapEnabled
+                  ? 'translate-x-5'
+                  : ''}"
+              ></span>
+            </button>
+          </div>
+
+          <!-- Amount Setting -->
+          {#if $oneTapZapEnabled && hasInAppWallet}
+            <div class="mt-4 pt-4 border-t" style="border-color: var(--color-input-border);">
+              <label
+                class="block text-sm font-medium mb-2"
+                style="color: var(--color-text-primary)"
+              >
+                Default zap amount
+              </label>
+              <div class="flex items-center gap-3">
+                <input
+                  type="number"
+                  min="1"
+                  max={MAX_ONE_TAP_ZAP_AMOUNT}
+                  value={$oneTapZapAmount}
+                  on:change={(e) => setOneTapZapAmount(parseInt(e.currentTarget.value) || 21)}
+                  class="input w-32 text-center"
+                />
+                <span class="text-caption">sats</span>
+              </div>
+              <p class="text-xs text-caption mt-2">
+                Your preferred zap amount. Pressing the zap button will instantly zap this amount.
+              </p>
+            </div>
+          {/if}
+
+          <!-- No in-app wallet warning -->
+          {#if !hasInAppWallet}
+            <p class="text-xs text-amber-500 mt-3">
+              Connect a Spark or NWC wallet to enable one-tap zaps.
+            </p>
+          {/if}
+        </div>
       </div>
     </Accordion>
 

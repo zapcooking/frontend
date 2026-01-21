@@ -7,6 +7,7 @@
   import LightningIcon from 'phosphor-svelte/lib/Lightning';
 
   export let event: NDKEvent;
+  export let refreshKey: number = 0;
 
   type ZapperInfo = {
     pubkey: string;
@@ -61,7 +62,11 @@
           }, 6000);
 
           ws.onopen = () => {
-            const req = JSON.stringify(['REQ', 'zaps', { kinds: [9735], '#e': [eventId], limit: 500 }]);
+            const req = JSON.stringify([
+              'REQ',
+              'zaps',
+              { kinds: [9735], '#e': [eventId], limit: 500 }
+            ]);
             ws.send(req);
           };
 
@@ -86,7 +91,7 @@
           };
 
           ws.onclose = () => {
-            activeWebSockets = activeWebSockets.filter(w => w !== ws);
+            activeWebSockets = activeWebSockets.filter((w) => w !== ws);
           };
         } catch (e) {
           resolve();
@@ -150,9 +155,18 @@
     loadTopZappers();
   });
 
+  // Reload when refreshKey changes
+  $: if (refreshKey > 0) {
+    loadTopZappers();
+  }
+
   onDestroy(() => {
-    activeWebSockets.forEach(ws => {
-      try { ws.close(); } catch (e) { /* ignore */ }
+    activeWebSockets.forEach((ws) => {
+      try {
+        ws.close();
+      } catch (e) {
+        /* ignore */
+      }
     });
     activeWebSockets = [];
   });
@@ -168,7 +182,10 @@
     {#each visibleZappers as zapper}
       <a
         href="/user/{zapper.pubkey}"
-        class="flex items-center gap-1 h-6 px-1 pr-2 rounded-full bg-accent-gray hover:bg-yellow-500/20 transition-colors {zapper.pubkey === $userPublickey ? 'ring-1 ring-yellow-500' : ''}"
+        class="flex items-center gap-1 h-6 px-1 pr-2 rounded-full bg-accent-gray hover:bg-yellow-500/20 transition-colors {zapper.pubkey ===
+        $userPublickey
+          ? 'ring-1 ring-yellow-500'
+          : ''}"
         title="{zapper.totalSats} sats"
       >
         <CustomAvatar pubkey={zapper.pubkey} size={18} className="rounded-full" />

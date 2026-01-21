@@ -3,9 +3,13 @@
  * Uses Alby's launchPaymentModal for QR code display and wallet connection
  */
 
+import { setBitcoinConnectProvider } from '$lib/wallet/bitcoinConnect';
+
 class LightningService {
   private static instance: LightningService;
   private initialized = false;
+  private unsubscribeConnected: (() => void) | null = null;
+  private unsubscribeDisconnected: (() => void) | null = null;
 
   constructor() {
     if (!LightningService.instance) {
@@ -18,11 +22,24 @@ class LightningService {
     if (this.initialized) return;
 
     // Dynamic import to avoid SSR issues
-    const { init } = await import('@getalby/bitcoin-connect');
+    const { init, onConnected, onDisconnected } = await import('@getalby/bitcoin-connect');
     init({
       appName: 'zap.cooking',
-      showBalance: false
+      showBalance: true
     });
+
+    // Subscribe to connection events to capture WebLN provider
+    this.unsubscribeConnected = onConnected((provider) => {
+      console.log('[LightningService] Bitcoin Connect wallet connected');
+      setBitcoinConnectProvider(provider as Parameters<typeof setBitcoinConnectProvider>[0]);
+    });
+
+    // Subscribe to disconnection events
+    this.unsubscribeDisconnected = onDisconnected(() => {
+      console.log('[LightningService] Bitcoin Connect wallet disconnected');
+      setBitcoinConnectProvider(null);
+    });
+
     this.initialized = true;
   }
 
@@ -82,6 +99,20 @@ class LightningService {
     setPaid = result.setPaid;
 
     return { setPaid };
+  }
+
+  /**
+   * Cleanup subscriptions (call on app unmount if needed)
+   */
+  cleanup(): void {
+    if (this.unsubscribeConnected) {
+      this.unsubscribeConnected();
+      this.unsubscribeConnected = null;
+    }
+    if (this.unsubscribeDisconnected) {
+      this.unsubscribeDisconnected();
+      this.unsubscribeDisconnected = null;
+    }
   }
 }
 
