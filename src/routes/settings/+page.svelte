@@ -24,8 +24,8 @@
     getCurrentRelays,
     type RelayMode
   } from '$lib/nostr';
-  import { wallets } from '$lib/wallet/walletStore';
-  import { bitcoinConnectEnabled } from '$lib/wallet/bitcoinConnect';
+  import { wallets, navBalanceVisible, setNavBalanceVisible } from '$lib/wallet/walletStore';
+  import { bitcoinConnectEnabled, bitcoinConnectWalletInfo } from '$lib/wallet/bitcoinConnect';
   import { weblnConnected, weblnWalletName } from '$lib/wallet/webln';
   import {
     oneTapZapEnabled,
@@ -274,6 +274,10 @@
   $: activeWallet = connectedWallets.find((w) => w.active);
   // Check if user has an in-app wallet (Spark kind=4 or NWC kind=3) for auto-zap
   $: hasInAppWallet = $wallets.some((w) => w.kind === 3 || w.kind === 4);
+  $: hasNavWallet =
+    connectedWallets.length > 0 ||
+    $weblnConnected ||
+    ($bitcoinConnectEnabled && $bitcoinConnectWalletInfo.connected);
 
   function getWalletTypeName(kind: number): string {
     switch (kind) {
@@ -624,6 +628,38 @@
           </div>
         {/if}
 
+        <div
+          class="p-4 rounded-xl {!hasNavWallet ? 'opacity-50' : ''}"
+          style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);"
+        >
+          <div class="flex items-center justify-between">
+            <div class="flex-1">
+              <div class="font-medium" style="color: var(--color-text-primary)">Wallet Widget</div>
+              <p class="text-sm text-caption mt-1">Show the wallet widget in the top navigation.</p>
+            </div>
+            <button
+              role="switch"
+              aria-checked={$navBalanceVisible}
+              disabled={!hasNavWallet}
+              class="relative w-12 h-7 rounded-full transition-colors {hasNavWallet
+                ? 'cursor-pointer'
+                : 'cursor-not-allowed'} {$navBalanceVisible
+                ? 'bg-amber-500'
+                : 'bg-gray-300 dark:bg-gray-600'}"
+              on:click={() => hasNavWallet && setNavBalanceVisible(!$navBalanceVisible)}
+            >
+              <span
+                class="absolute top-1 left-1 w-5 h-5 bg-white rounded-full shadow transition-transform {$navBalanceVisible
+                  ? 'translate-x-5'
+                  : ''}"
+              ></span>
+            </button>
+          </div>
+          {#if !hasNavWallet}
+            <p class="text-xs text-amber-500 mt-3">Connect a wallet to enable this setting.</p>
+          {/if}
+        </div>
+
         <Button on:click={() => goto('/wallet')}>Manage Wallets</Button>
       </div>
     </Accordion>
@@ -646,7 +682,7 @@
                   >One-Tap Zaps</span
                 >
               </div>
-              <p class="text-sm text-caption mt-1">Tap a preset to zap instantly</p>
+              <p class="text-sm text-caption mt-1">Zap a preset amount instantly.</p>
             </div>
             <button
               role="switch"

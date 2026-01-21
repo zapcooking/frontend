@@ -1,7 +1,10 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
+  import { browser } from '$app/environment';
   import { clickOutside } from '$lib/clickOutside';
   import { fade } from 'svelte/transition';
+  import { portal } from './Modal.svelte';
+  import Button from './Button.svelte';
   import {
     wallets,
     activeWallet,
@@ -44,6 +47,10 @@
   import BitcoinConnectLogo from './icons/BitcoinConnectLogo.svelte';
 
   let dropdownActive = false;
+  let showRemoveBitcoinConnectModal = false;
+  let portalTarget: HTMLElement | null = null;
+
+  $: portalTarget = browser ? document.body : null;
 
   // WebLN balance state
   let weblnBalance: number | null = null;
@@ -105,6 +112,11 @@
   function handleDisconnectBitcoinConnect() {
     disableBitcoinConnect();
     dropdownActive = false;
+  }
+
+  function confirmRemoveBitcoinConnect() {
+    dropdownActive = false;
+    showRemoveBitcoinConnectModal = true;
   }
 </script>
 
@@ -323,7 +335,7 @@
 
           <button
             class="flex items-center gap-2 text-sm text-red-500 hover:text-red-600 transition-colors cursor-pointer"
-            on:click={handleDisconnectBitcoinConnect}
+            on:click={confirmRemoveBitcoinConnect}
           >
             <SignOutIcon size={16} />
             Disconnect
@@ -445,5 +457,41 @@
         </div>
       </div>
     {/if}
+  </div>
+{/if}
+
+{#if showRemoveBitcoinConnectModal && portalTarget}
+  <div use:portal={portalTarget}>
+    <div
+      class="fixed inset-0 bg-black/50 flex z-50 p-4"
+      style="display: flex; align-items: center; justify-content: center;"
+    >
+      <div
+        class="rounded-2xl p-6 max-w-sm w-full max-h-[90vh] overflow-y-auto"
+        style="background-color: var(--color-bg-primary);"
+      >
+        <h2 class="text-xl font-bold mb-2" style="color: var(--color-text-primary)">
+          Remove External Wallet
+        </h2>
+        <p class="text-caption mb-6">
+          Are you sure you want to disconnect your external wallet? You can reconnect it at any time
+          from the wallet settings.
+        </p>
+        <div class="flex gap-3">
+          <Button on:click={() => (showRemoveBitcoinConnectModal = false)} class="flex-1">
+            Cancel
+          </Button>
+          <button
+            class="flex-1 px-4 py-2 rounded-full bg-red-500 hover:bg-red-600 text-white font-medium transition-colors cursor-pointer"
+            on:click={() => {
+              handleDisconnectBitcoinConnect();
+              showRemoveBitcoinConnectModal = false;
+            }}
+          >
+            Remove
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 {/if}

@@ -9,56 +9,58 @@
 
 // Export stores
 export {
-	type Wallet,
-	type WalletKind,
-	wallets,
-	activeWallet,
-	walletBalance,
-	walletConnected,
-	walletLoading,
-	walletLastSync,
-	balanceVisible,
-	getWalletKindName,
-	setActiveWallet,
-	addWallet,
-	removeWallet,
-	clearAllWallets,
-	getActiveWallet,
-	hasWalletKind,
-	toggleBalanceVisibility
-} from './walletStore'
+  type Wallet,
+  type WalletKind,
+  wallets,
+  activeWallet,
+  walletBalance,
+  walletConnected,
+  walletLoading,
+  walletLastSync,
+  balanceVisible,
+  navBalanceVisible,
+  getWalletKindName,
+  setActiveWallet,
+  addWallet,
+  removeWallet,
+  clearAllWallets,
+  getActiveWallet,
+  hasWalletKind,
+  toggleBalanceVisibility,
+  setNavBalanceVisible
+} from './walletStore';
 
 // Export manager functions
 export {
-	connectWallet,
-	disconnectWallet,
-	refreshBalance,
-	sendPayment,
-	createInvoice,
-	isWalletReady,
-	getLightningAddress,
-	getPaymentHistory,
-	initializeWalletManager,
-	isWeblnAvailable,
-	isValidNwcUrl,
-	pendingTransactions,
-	addPendingTransaction,
-	removePendingTransaction,
-	updatePendingTransactionStatus,
-	clearPendingTransactions,
-	ensurePendingTransactionsLoaded,
-	transactionsNeedRefresh,
-	signalTransactionsRefresh,
-	type Transaction
-} from './walletManager'
+  connectWallet,
+  disconnectWallet,
+  refreshBalance,
+  sendPayment,
+  createInvoice,
+  isWalletReady,
+  getLightningAddress,
+  getPaymentHistory,
+  initializeWalletManager,
+  isWeblnAvailable,
+  isValidNwcUrl,
+  pendingTransactions,
+  addPendingTransaction,
+  removePendingTransaction,
+  updatePendingTransactionStatus,
+  clearPendingTransactions,
+  ensurePendingTransactionsLoaded,
+  transactionsNeedRefresh,
+  signalTransactionsRefresh,
+  type Transaction
+} from './walletManager';
 
 // Export NWC functions that may be needed directly
-export { getNwcInfo } from './nwc'
+export { getNwcInfo } from './nwc';
 
 // Export Bitcoin Connect external wallet state
 export {
-	bitcoinConnectEnabled,
-	enableBitcoinConnect,
-	disableBitcoinConnect,
-	isBitcoinConnectEnabled
-} from './bitcoinConnect'
+  bitcoinConnectEnabled,
+  enableBitcoinConnect,
+  disableBitcoinConnect,
+  isBitcoinConnectEnabled
+} from './bitcoinConnect';

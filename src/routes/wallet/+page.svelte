@@ -2903,8 +2903,10 @@
               <!-- Wallet type selection -->
               <div class="space-y-3">
                 <!-- Embedded wallet options - disabled when external wallet (WebLN) is connected -->
-                <div class="mb-2">
-                  <span class="text-xs text-caption uppercase tracking-wide">Embedded Wallets</span>
+                <div class="mb-2 text-center">
+                  <span class="text-xs text-caption uppercase tracking-wide block">
+                    Embedded Wallets
+                  </span>
                 </div>
 
                 {#if $weblnConnected}
@@ -3002,6 +3004,37 @@
                     </p>
                   </div>
                 {:else}
+                  <!-- Bitcoin Connect option -->
+                  <button
+                    class="w-full p-4 rounded-xl text-left flex items-center gap-4 transition-colors"
+                    class:cursor-pointer={!$bitcoinConnectEnabled && !$weblnConnected}
+                    class:cursor-not-allowed={$bitcoinConnectEnabled || $weblnConnected}
+                    class:opacity-50={$bitcoinConnectEnabled || $weblnConnected}
+                    style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);"
+                    on:click={handleConnectBitcoinConnect}
+                    disabled={$bitcoinConnectEnabled || $weblnConnected}
+                  >
+                    <div
+                      class="w-10 h-10 rounded-full bg-orange-500 flex items-center justify-center"
+                    >
+                      <BitcoinConnectLogo size={20} className="text-white" />
+                    </div>
+                    <div>
+                      <div class="font-medium" style="color: var(--color-text-primary)">
+                        Bitcoin Connect
+                      </div>
+                      {#if $bitcoinConnectEnabled}
+                        <div class="text-sm text-amber-500">External wallet connected</div>
+                      {:else if $weblnConnected}
+                        <div class="text-sm text-caption">
+                          Disconnect WebLN to use Bitcoin Connect
+                        </div>
+                      {:else}
+                        <div class="text-sm text-caption">Connect any Bitcoin Connect wallet</div>
+                      {/if}
+                    </div>
+                  </button>
+
                   <!-- WebLN option - only show if browser has WebLN provider -->
                   {#if isWeblnAvailable()}
                     <button
@@ -3034,37 +3067,6 @@
                       </div>
                     </button>
                   {/if}
-
-                  <!-- Bitcoin Connect option -->
-                  <button
-                    class="w-full p-4 rounded-xl text-left flex items-center gap-4 transition-colors"
-                    class:cursor-pointer={!$bitcoinConnectEnabled && !$weblnConnected}
-                    class:cursor-not-allowed={$bitcoinConnectEnabled || $weblnConnected}
-                    class:opacity-50={$bitcoinConnectEnabled || $weblnConnected}
-                    style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);"
-                    on:click={handleConnectBitcoinConnect}
-                    disabled={$bitcoinConnectEnabled || $weblnConnected}
-                  >
-                    <div
-                      class="w-10 h-10 rounded-full bg-orange-500 flex items-center justify-center"
-                    >
-                      <BitcoinConnectLogo size={20} className="text-white" />
-                    </div>
-                    <div>
-                      <div class="font-medium" style="color: var(--color-text-primary)">
-                        Bitcoin Connect
-                      </div>
-                      {#if $bitcoinConnectEnabled}
-                        <div class="text-sm text-amber-500">External wallet connected</div>
-                      {:else if $weblnConnected}
-                        <div class="text-sm text-caption">
-                          Disconnect WebLN to use Bitcoin Connect
-                        </div>
-                      {:else}
-                        <div class="text-sm text-caption">Connect any Bitcoin Connect wallet</div>
-                      {/if}
-                    </div>
-                  </button>
                 {/if}
               </div>
             {:else if selectedWalletType === 3}
