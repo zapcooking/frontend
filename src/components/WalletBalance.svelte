@@ -21,6 +21,14 @@
     disableWebln,
     getWeblnBalance
   } from '$lib/wallet/webln';
+  import {
+    bitcoinConnectEnabled,
+    bitcoinConnectWalletInfo,
+    bitcoinConnectBalance,
+    bitcoinConnectBalanceLoading,
+    refreshBitcoinConnectBalance,
+    disableBitcoinConnect
+  } from '$lib/wallet/bitcoinConnect';
   import LightningIcon from 'phosphor-svelte/lib/Lightning';
   import WalletIcon from 'phosphor-svelte/lib/Wallet';
   import ArrowsClockwiseIcon from 'phosphor-svelte/lib/ArrowsClockwise';
@@ -33,6 +41,7 @@
   import SparkLogo from './icons/SparkLogo.svelte';
   import NwcLogo from './icons/NwcLogo.svelte';
   import WeblnLogo from './icons/WeblnLogo.svelte';
+  import BitcoinConnectLogo from './icons/BitcoinConnectLogo.svelte';
 
   let dropdownActive = false;
 
@@ -87,6 +96,15 @@
   function goToWallet() {
     dropdownActive = false;
     goto('/wallet');
+  }
+
+  async function handleRefreshBitcoinConnect() {
+    await refreshBitcoinConnectBalance();
+  }
+
+  function handleDisconnectBitcoinConnect() {
+    disableBitcoinConnect();
+    dropdownActive = false;
   }
 </script>
 
@@ -195,6 +213,117 @@
               weblnBalance = null;
               dropdownActive = false;
             }}
+          >
+            <SignOutIcon size={16} />
+            Disconnect
+          </button>
+        </div>
+      </div>
+    {/if}
+  </div>
+{:else if $bitcoinConnectEnabled && $bitcoinConnectWalletInfo.connected}
+  <!-- Bitcoin Connect Wallet Widget -->
+  <div class="relative" use:clickOutside on:click_outside={() => (dropdownActive = false)}>
+    <!-- Balance button -->
+    <button
+      class="flex items-center gap-1.5 px-3 py-1.5 rounded-full transition-colors cursor-pointer text-sm font-medium"
+      style="background-color: var(--color-input-bg); color: var(--color-text-primary); border: 1px solid var(--color-input-border);"
+      on:click={() => (dropdownActive = !dropdownActive)}
+    >
+      <div
+        class="w-4 h-4 rounded-full bg-gradient-to-br from-yellow-500 to-orange-500 flex items-center justify-center flex-shrink-0"
+      >
+        <BitcoinConnectLogo size={10} className="text-white" />
+      </div>
+      {#if $bitcoinConnectBalanceLoading}
+        <span class="animate-pulse min-w-[3.5rem] text-right">...</span>
+      {:else if $bitcoinConnectBalance === null}
+        <span class="min-w-[3.5rem] text-right">---</span>
+      {:else if $balanceVisible}
+        <span class="min-w-[3.5rem] text-right">{formatBalance($bitcoinConnectBalance)}</span>
+      {:else}
+        <span class="min-w-[3.5rem] text-right">***</span>
+      {/if}
+      <span class="text-caption text-xs">sats</span>
+      <CaretDownIcon size={12} class="text-caption ml-0.5" />
+    </button>
+
+    <!-- Dropdown menu -->
+    {#if dropdownActive}
+      <div
+        class="absolute right-0 top-full mt-2 z-20"
+        transition:fade={{ delay: 0, duration: 150 }}
+      >
+        <div
+          role="menu"
+          tabindex="-1"
+          on:keydown={(e) => e.key === 'Escape' && (dropdownActive = false)}
+          class="flex flex-col gap-3 bg-input rounded-2xl drop-shadow px-4 py-4 min-w-[220px] max-w-[280px]"
+          style="color: var(--color-text-primary)"
+        >
+          <!-- Current wallet info -->
+          <button
+            class="flex items-center gap-2 pb-2 border-b w-full text-left hover:opacity-80 transition-opacity cursor-pointer"
+            style="border-color: var(--color-input-border);"
+            on:click={() => {
+              dropdownActive = false;
+              goto('/wallet');
+            }}
+          >
+            <div
+              class="w-5 h-5 rounded-full bg-gradient-to-br from-yellow-500 to-orange-500 flex items-center justify-center flex-shrink-0"
+            >
+              <BitcoinConnectLogo size={12} className="text-white" />
+            </div>
+            <div class="flex-1 min-w-0">
+              <div class="font-medium text-sm truncate">
+                {$bitcoinConnectWalletInfo.alias || 'Bitcoin Connect'}
+              </div>
+              <div class="text-xs text-caption">External Wallet</div>
+            </div>
+          </button>
+
+          <!-- Actions -->
+          <button
+            class="flex items-center gap-2 text-sm hover:text-primary transition-colors cursor-pointer"
+            on:click={toggleBalanceVisibility}
+          >
+            {#if $balanceVisible}
+              <EyeSlashIcon size={16} />
+              Hide Balance
+            {:else}
+              <EyeIcon size={16} />
+              Show Balance
+            {/if}
+          </button>
+
+          <button
+            class="flex items-center gap-2 text-sm hover:text-primary transition-colors cursor-pointer"
+            on:click={handleRefreshBitcoinConnect}
+            disabled={$bitcoinConnectBalanceLoading}
+          >
+            <span class:animate-spin={$bitcoinConnectBalanceLoading}>
+              <ArrowsClockwiseIcon size={16} />
+            </span>
+            Refresh Balance
+          </button>
+
+          <button
+            class="flex items-center gap-2 text-sm hover:text-primary transition-colors cursor-pointer"
+            on:click={() => {
+              dropdownActive = false;
+              goto('/wallet');
+            }}
+          >
+            <GearIcon size={16} />
+            Wallet Settings
+          </button>
+
+          <div class="border-t" style="border-color: var(--color-input-border);"></div>
+
+          <button
+            class="flex items-center gap-2 text-sm text-red-500 hover:text-red-600 transition-colors cursor-pointer"
+            on:click={handleDisconnectBitcoinConnect}
           >
             <SignOutIcon size={16} />
             Disconnect

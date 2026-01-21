@@ -113,9 +113,14 @@
   import CheckRelayBackupsModal from '../../components/CheckRelayBackupsModal.svelte';
   import {
     bitcoinConnectEnabled,
+    bitcoinConnectWalletInfo,
+    bitcoinConnectBalance,
+    bitcoinConnectBalanceLoading,
     enableBitcoinConnect,
-    disableBitcoinConnect
+    disableBitcoinConnect,
+    refreshBitcoinConnectBalance
   } from '$lib/wallet/bitcoinConnect';
+
   import {
     weblnConnected,
     weblnWalletName,
@@ -1913,16 +1918,62 @@
               <BitcoinConnectLogo size={32} className="text-white" />
             </div>
             <p class="font-medium mb-1" style="color: var(--color-text-primary)">
-              External wallet connected
+              {$bitcoinConnectWalletInfo.alias || 'External wallet connected'}
             </p>
+
+            <!-- Balance display -->
+            {#if $bitcoinConnectBalanceLoading}
+              <p
+                class="text-2xl font-bold mb-1 animate-pulse"
+                style="color: var(--color-text-primary)"
+              >
+                ...
+              </p>
+            {:else if $bitcoinConnectBalance !== null}
+              <p class="text-2xl font-bold mb-1" style="color: var(--color-text-primary)">
+                {#if $balanceVisible}
+                  {$bitcoinConnectBalance.toLocaleString()}
+                  <span class="text-sm font-normal text-caption">sats</span>
+                {:else}
+                  *** <span class="text-sm font-normal text-caption">sats</span>
+                {/if}
+              </p>
+            {:else}
+              <p class="text-sm text-caption mb-1">Balance unavailable</p>
+            {/if}
+
             <p class="text-sm text-caption mb-4">Payments will use Bitcoin Connect</p>
-            <button
-              class="px-5 py-2.5 rounded-full font-semibold text-sm text-caption hover:text-red-500 transition-colors cursor-pointer"
-              style="background-color: var(--color-bg-primary); border: 1px solid var(--color-input-border);"
-              on:click={() => (showRemoveBitcoinConnectModal = true)}
-            >
-              Remove External Wallet
-            </button>
+
+            <!-- Wallet info -->
+            {#if $bitcoinConnectWalletInfo.pubkey}
+              <p class="text-xs text-caption mb-3 font-mono">
+                {$bitcoinConnectWalletInfo.pubkey.slice(
+                  0,
+                  8
+                )}...{$bitcoinConnectWalletInfo.pubkey.slice(-8)}
+              </p>
+            {/if}
+
+            <div class="flex gap-2">
+              <button
+                class="px-4 py-2 rounded-full font-semibold text-sm transition-colors cursor-pointer"
+                style="background-color: var(--color-bg-primary); color: var(--color-text-primary); border: 1px solid var(--color-input-border);"
+                on:click={refreshBitcoinConnectBalance}
+                disabled={$bitcoinConnectBalanceLoading}
+              >
+                <span class:animate-spin={$bitcoinConnectBalanceLoading}>
+                  <ArrowsClockwiseIcon size={16} class="inline" />
+                </span>
+                Refresh
+              </button>
+              <button
+                class="px-4 py-2 rounded-full font-semibold text-sm text-caption hover:text-red-500 transition-colors cursor-pointer"
+                style="background-color: var(--color-bg-primary); border: 1px solid var(--color-input-border);"
+                on:click={() => (showRemoveBitcoinConnectModal = true)}
+              >
+                Disconnect
+              </button>
+            </div>
           {:else}
             <WalletIcon size={48} class="mb-4 text-caption" />
             <p class="text-caption mb-4">No wallets connected yet</p>

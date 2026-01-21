@@ -15,7 +15,12 @@
   import SaveButton from '../SaveButton.svelte';
   import { translateOption } from '$lib/state';
   import { translate } from '$lib/translation';
-  import { parseMarkdown, extractAndGroupDirections, extractRecipeDetails, parseMarkdownForEditing } from '$lib/parser';
+  import {
+    parseMarkdown,
+    extractAndGroupDirections,
+    extractRecipeDetails,
+    parseMarkdownForEditing
+  } from '$lib/parser';
   import { goto } from '$app/navigation';
   import { saveDraft } from '$lib/draftStore';
   import { clickOutside } from '$lib/clickOutside';
@@ -29,10 +34,16 @@
   import TopZappers from './TopZappers.svelte';
   import ZapModal from '../ZapModal.svelte';
   import { requestProvider } from 'webln';
+  import { canOneTapZap, sendOneTapZap } from '$lib/oneTapZap';
   import { nip19 } from 'nostr-tools';
   import Modal from '../Modal.svelte';
   import AuthorProfile from '../AuthorProfile.svelte';
-  import { recipeTags, type recipeTagSimple, RECIPE_TAGS, RECIPE_TAG_PREFIX_NEW } from '$lib/consts';
+  import {
+    recipeTags,
+    type recipeTagSimple,
+    RECIPE_TAGS,
+    RECIPE_TAG_PREFIX_NEW
+  } from '$lib/consts';
   import { onMount } from 'svelte';
   import { resolveProfileByPubkey } from '$lib/profileResolver';
   import { buildCanonicalRecipeShareUrl } from '$lib/utils/share';
@@ -45,15 +56,20 @@
   export let event: NDKEvent;
   export let isPremium = false;
   export let naddr: string = '';
-  
+
   // Compute naddr if not provided
-  $: computedNaddr = naddr || nip19.naddrEncode({
-    identifier: event.replaceableDTag(),
-    pubkey: event.pubkey,
-    kind: event.kind || 30023
-  });
+  $: computedNaddr =
+    naddr ||
+    nip19.naddrEncode({
+      identifier: event.replaceableDTag(),
+      pubkey: event.pubkey,
+      kind: event.kind || 30023
+    });
   let zapModal = false;
   let zapRefreshKey = 0;
+  let isZapping = false;
+  let zapSuccess = false;
+  let zapSuccessAmount = 0;
   let shareModal = false;
   let groceryModal = false;
   let menuOpen = false;
@@ -74,18 +90,19 @@
 
   // Construct the canonical recipe URL for sharing (uses short /r/ format)
   $: shareUrl = buildCanonicalRecipeShareUrl(computedNaddr);
-  
+
   // Get recipe title and image for sharing
-  $: recipeTitle = event.tags.find((t) => t[0] === 'title')?.[1] || 
-                   event.tags.find((t) => t[0] === 'd')?.[1] || 
-                   'Recipe';
+  $: recipeTitle =
+    event.tags.find((t) => t[0] === 'title')?.[1] ||
+    event.tags.find((t) => t[0] === 'd')?.[1] ||
+    'Recipe';
   $: recipeImage = event.tags.find((t) => t[0] === 'image')?.[1] || '';
 
   onMount(async () => {
     // Check if author has a lightning address
     try {
       const profile = await resolveProfileByPubkey(event.author.pubkey, $ndk);
-      authorCanReceiveZaps = !!(profile?.lud16);
+      authorCanReceiveZaps = !!profile?.lud16;
     } catch (error) {
       console.warn('Failed to check author lightning address:', error);
       authorCanReceiveZaps = false;
@@ -117,12 +134,44 @@
     zapRefreshKey++;
   }
 
+  async function handleZapClick() {
+    if (!authorCanReceiveZaps) return;
+
+    if (canOneTapZap()) {
+      isZapping = true;
+      try {
+        console.log('[Recipe] Sending one-tap zap...');
+        const result = await sendOneTapZap(event);
+        console.log('[Recipe] One-tap zap result:', result);
+        if (result.success) {
+          // Show success feedback
+          zapSuccessAmount = result.amount || 0;
+          zapSuccess = true;
+          setTimeout(() => {
+            zapSuccess = false;
+            handleZapComplete();
+          }, 1500);
+        } else {
+          console.log('[Recipe] One-tap zap failed, opening modal. Error:', result.error);
+          zapModal = true;
+        }
+      } catch (e) {
+        console.error('[Recipe] One-tap zap exception:', e);
+        zapModal = true;
+      } finally {
+        isZapping = false;
+      }
+    } else {
+      zapModal = true;
+    }
+  }
+
   function handleEdit() {
     menuOpen = false;
 
     // Extract recipe data from event tags
     const title = event.tagValue('title') || event.tagValue('d') || '';
-    const images = event.getMatchingTags('image').map(t => t[1]) || [];
+    const images = event.getMatchingTags('image').map((t) => t[1]) || [];
     const summary = event.tagValue('summary') || '';
 
     // Extract tags using same approach as TagLinks component
@@ -240,7 +289,6 @@
   let touchStartX = 0;
   let touchEndX = 0;
 
-
   // Image modal functions
   function openImageModal(imageUrl: string, allImages: string[], index: number) {
     selectedImageUrl = imageUrl;
@@ -264,9 +312,8 @@
 
   function prevModalImage() {
     if (selectedEventImages.length === 0) return;
-    selectedImageIndex = selectedImageIndex === 0
-      ? selectedEventImages.length - 1
-      : selectedImageIndex - 1;
+    selectedImageIndex =
+      selectedImageIndex === 0 ? selectedEventImages.length - 1 : selectedImageIndex - 1;
     selectedImageUrl = selectedEventImages[selectedImageIndex];
   }
 
@@ -323,17 +370,17 @@
   $: directionsData = extractAndGroupDirections(event.content);
   $: directionsPhases = directionsData.directions;
   $: markdownWithoutDirections = directionsData.markdownWithoutDirections;
-  
+
   // Extract recipe details for Quick Overview
   $: recipeDetails = extractRecipeDetails(event.content);
-  
+
   // Split markdown into parts: before Directions and after Directions
   // Also remove the Details section since it's now shown in the OverviewCard
   $: {
     const content = event.content;
     const directionsIndex = content.indexOf('## Directions');
     let beforeDirections = '';
-    
+
     if (directionsIndex === -1) {
       beforeDirections = content;
       markdownAfterDirections = '';
@@ -352,7 +399,7 @@
         markdownAfterDirections = '';
       }
     }
-    
+
     // Remove the Details section from the rendered markdown (it's shown in OverviewCard)
     // Match "## Details" followed by content until next "##" heading or end
     const detailsSectionRegex = /## Details\s*\n[\s\S]*?(?=\n## |$)/i;
@@ -362,14 +409,14 @@
       markdownBeforeDirections = beforeDirections;
     }
   }
-  
+
   let markdownBeforeDirections = '';
   let markdownAfterDirections = '';
 </script>
 
 <svelte:window on:keydown={handleImageModalKeydown} />
 
-<ZapModal bind:open={zapModal} event={event} on:zap-complete={handleZapComplete} />
+<ZapModal bind:open={zapModal} {event} on:zap-complete={handleZapComplete} />
 
 <ShareModal bind:open={shareModal} url={shareUrl} title={recipeTitle} imageUrl={recipeImage} />
 
@@ -384,9 +431,7 @@
       Are you sure you want to delete this recipe? This action cannot be undone.
     </p>
     <div class="flex gap-3 justify-end mt-2">
-      <Button primary={false} on:click={() => deleteConfirmOpen = false}>
-        Cancel
-      </Button>
+      <Button primary={false} on:click={() => (deleteConfirmOpen = false)}>Cancel</Button>
       <button
         class="text-white rounded-full whitespace-nowrap flex items-center justify-center gap-2 px-4 py-2.5 font-semibold transition duration-300 bg-red-600 hover:bg-red-700 disabled:bg-red-600/50"
         on:click={handleDelete}
@@ -436,11 +481,12 @@
           <!-- First image - clickable to open modal -->
           <div class="rounded-3xl overflow-hidden">
             <button
-              on:click={() => openImageModal(
-                image[1],
-                uniqueImages.map(img => img[1]),
-                i
-              )}
+              on:click={() =>
+                openImageModal(
+                  image[1],
+                  uniqueImages.map((img) => img[1]),
+                  i
+                )}
               class="w-full cursor-pointer"
             >
               <img
@@ -453,11 +499,12 @@
         {:else}
           <!-- Other images - clickable to open modal -->
           <button
-            on:click={() => openImageModal(
-              image[1],
-              uniqueImages.map(img => img[1]),
-              i
-            )}
+            on:click={() =>
+              openImageModal(
+                image[1],
+                uniqueImages.map((img) => img[1]),
+                i
+              )}
             class="w-full cursor-pointer"
           >
             <img
@@ -471,28 +518,41 @@
       <!-- Reactions and actions -->
       <div class="flex flex-col gap-1 print:hidden -mt-2">
         <RecipeReactionPills {event} />
-        <TopZappers {event} />
+        <TopZappers {event} refreshKey={zapRefreshKey} />
         <div class="flex items-center justify-between">
           <div class="flex gap-6">
             <TotalLikes {event} />
             <TotalComments {event} />
             <NoteRepost {event} />
             <button
-              class={authorCanReceiveZaps ? "cursor-pointer" : "cursor-not-allowed opacity-50"}
-              on:click={() => authorCanReceiveZaps && (zapModal = true)}
-              disabled={!authorCanReceiveZaps}
-              title={authorCanReceiveZaps ? "Zap this recipe" : "Author has no lightning address"}
+              class="{authorCanReceiveZaps
+                ? 'cursor-pointer'
+                : 'cursor-not-allowed opacity-50'} {isZapping ? 'cursor-wait' : ''}"
+              on:click={handleZapClick}
+              disabled={!authorCanReceiveZaps || isZapping || zapSuccess}
+              title={authorCanReceiveZaps ? 'Zap this recipe' : 'Author has no lightning address'}
             >
-              {#key zapRefreshKey}
-                <TotalZaps {event} />
-              {/key}
+              {#if isZapping}
+                <div class="flex gap-1.5 items-center text-orange-500">
+                  <LightningIcon size={24} weight="fill" class="animate-spin" />
+                </div>
+              {:else if zapSuccess}
+                <div class="flex gap-1.5 items-center text-yellow-500 font-medium">
+                  <LightningIcon size={24} weight="fill" class="animate-pulse" />
+                  +{zapSuccessAmount}
+                </div>
+              {:else}
+                {#key zapRefreshKey}
+                  <TotalZaps {event} />
+                {/key}
+              {/if}
             </button>
           </div>
           <!-- 3-dot menu for recipe actions -->
           <div class="relative">
             <button
               class="cursor-pointer hover:bg-input rounded p-1 transition duration-300"
-              on:click={() => menuOpen = !menuOpen}
+              on:click={() => (menuOpen = !menuOpen)}
               aria-label="Recipe options"
               title="Options"
             >
@@ -502,7 +562,7 @@
             {#if menuOpen}
               <div
                 use:clickOutside
-                on:click_outside={() => menuOpen = false}
+                on:click_outside={() => (menuOpen = false)}
                 class="absolute right-0 top-full mt-2 z-20 rounded-xl shadow-lg py-2 min-w-[160px]"
                 style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);"
               >
@@ -519,7 +579,10 @@
                 <button
                   class="w-full flex items-center gap-3 px-4 py-2.5 text-left text-sm hover:bg-accent-gray transition-colors"
                   style="color: var(--color-text-primary);"
-                  on:click={() => { shareModal = true; menuOpen = false; }}
+                  on:click={() => {
+                    shareModal = true;
+                    menuOpen = false;
+                  }}
                 >
                   <ShareIcon size={18} />
                   Share
@@ -528,7 +591,10 @@
                   <button
                     class="w-full flex items-center gap-3 px-4 py-2.5 text-left text-sm hover:bg-accent-gray transition-colors"
                     style="color: var(--color-text-primary);"
-                    on:click={() => { groceryModal = true; menuOpen = false; }}
+                    on:click={() => {
+                      groceryModal = true;
+                      menuOpen = false;
+                    }}
                   >
                     <ShoppingCartIcon size={18} />
                     Add to Grocery List
@@ -537,7 +603,10 @@
                 <button
                   class="w-full flex items-center gap-3 px-4 py-2.5 text-left text-sm hover:bg-accent-gray transition-colors"
                   style="color: var(--color-text-primary);"
-                  on:click={() => { window.print(); menuOpen = false; }}
+                  on:click={() => {
+                    window.print();
+                    menuOpen = false;
+                  }}
                 >
                   <PrinterIcon size={18} />
                   Print
@@ -546,7 +615,10 @@
                   <hr class="my-1 border-t" style="border-color: var(--color-input-border);" />
                   <button
                     class="w-full flex items-center gap-3 px-4 py-2.5 text-left text-sm hover:bg-red-50 dark:hover:bg-red-950 transition-colors text-red-600 dark:text-red-400"
-                    on:click={() => { deleteConfirmOpen = true; menuOpen = false; }}
+                    on:click={() => {
+                      deleteConfirmOpen = true;
+                      menuOpen = false;
+                    }}
                   >
                     <TrashIcon size={18} />
                     Delete Recipe
@@ -557,7 +629,7 @@
           </div>
         </div>
       </div>
-      
+
       <!-- Quick Overview Card -->
       <OverviewCard
         prepTime={recipeDetails.prepTime}
@@ -594,14 +666,14 @@
           }, 100);
         }}
       />
-      
+
       <!-- Recipe Summary -->
       {#if event.tags.find((e) => e[0] === 'summary')?.[1]}
         <p class="text-lg text-caption leading-relaxed">
           {event.tags.find((e) => e[0] === 'summary')?.[1]}
         </p>
       {/if}
-      
+
       <!-- Content before Directions -->
       {#if markdownBeforeDirections}
         <div class="prose">
@@ -637,12 +709,12 @@
           {/if}
         </div>
       {/if}
-      
+
       <!-- Collapsible Directions -->
       {#if directionsPhases.length > 0}
         <DirectionsPhases phases={directionsPhases} />
       {/if}
-      
+
       <!-- Content after Directions -->
       {#if markdownAfterDirections}
         <div class="prose">
@@ -703,13 +775,20 @@
             aria-label="Close image"
           >
             <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M6 18L18 6M6 6l12 12"
+              />
             </svg>
           </button>
 
           <!-- Image counter (if multiple images) -->
           {#if selectedEventImages.length > 1}
-            <div class="absolute top-4 left-4 bg-black/70 text-white text-sm px-4 py-2 rounded-full z-20">
+            <div
+              class="absolute top-4 left-4 bg-black/70 text-white text-sm px-4 py-2 rounded-full z-20"
+            >
               {selectedImageIndex + 1} / {selectedEventImages.length}
             </div>
           {/if}
@@ -722,7 +801,12 @@
               aria-label="Previous image"
             >
               <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M15 19l-7-7 7-7"
+                />
               </svg>
             </button>
 
@@ -732,14 +816,21 @@
               aria-label="Next image"
             >
               <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M9 5l7 7-7 7"
+                />
               </svg>
             </button>
           {/if}
 
           <!-- Swipe indicator for mobile -->
           {#if selectedEventImages.length > 1}
-            <div class="md:hidden absolute bottom-4 left-1/2 -translate-x-1/2 bg-black/70 text-white text-xs px-4 py-2 rounded-full z-20">
+            <div
+              class="md:hidden absolute bottom-4 left-1/2 -translate-x-1/2 bg-black/70 text-white text-xs px-4 py-2 rounded-full z-20"
+            >
               Swipe to navigate
             </div>
           {/if}
