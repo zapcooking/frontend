@@ -3161,54 +3161,50 @@
                     Backup found on Nostr. You can restore it below.
                   </div>
                 {/if}
-                {#if !canCheckNwcBackup || !nwcBackupChecking}
-                  <p class="text-caption mb-4">
-                    Paste your NWC connection string below, or restore from a previous backup.
-                  </p>
-                  <input
-                    type="text"
-                    class="w-full p-3 rounded-lg mb-4 input"
-                    placeholder="nostr+walletconnect://..."
-                    bind:value={nwcConnectionString}
-                    on:paste={() => {
-                      // Clean pasted content immediately
-                      setTimeout(() => {
-                        nwcConnectionString = nwcConnectionString.trim().replace(/[\r\n\t]/g, '');
-                      }, 0);
-                    }}
-                  />
-                  {#if canCheckNwcBackup}
-                    <div class="flex gap-2">
-                      <Button
-                        on:click={handleConnectNWC}
-                        disabled={isConnecting || !nwcConnectionString}
-                        class="flex-1"
-                      >
-                        {isConnecting ? 'Connecting...' : 'Connect NWC'}
-                      </Button>
-                      <Button
-                        on:click={handleRestoreNwcFromNostr}
-                        disabled={isConnecting}
-                        class="flex-1"
-                      >
-                        <CloudArrowDownIcon size={16} />
-                        Restore from Nostr
-                      </Button>
-                    </div>
-                    {#if nwcBackupExists === false}
-                      <p class="mt-2 text-xs text-caption text-center">
-                        No backup found on relays.
-                      </p>
-                    {/if}
-                  {:else}
+                <p class="text-caption mb-4">
+                  Paste your NWC connection string below, or restore from a previous backup.
+                </p>
+                <input
+                  type="text"
+                  class="w-full p-3 rounded-lg mb-4 input"
+                  placeholder="nostr+walletconnect://..."
+                  bind:value={nwcConnectionString}
+                  on:paste={() => {
+                    // Clean pasted content immediately
+                    setTimeout(() => {
+                      nwcConnectionString = nwcConnectionString.trim().replace(/[\r\n\t]/g, '');
+                    }, 0);
+                  }}
+                />
+                {#if canCheckNwcBackup}
+                  <div class="flex gap-2">
                     <Button
                       on:click={handleConnectNWC}
                       disabled={isConnecting || !nwcConnectionString}
-                      class="w-full"
+                      class="flex-1"
                     >
                       {isConnecting ? 'Connecting...' : 'Connect NWC'}
                     </Button>
+                    <Button
+                      on:click={handleRestoreNwcFromNostr}
+                      disabled={isConnecting}
+                      class="flex-1"
+                    >
+                      <CloudArrowDownIcon size={16} />
+                      Restore from Nostr
+                    </Button>
+                  </div>
+                  {#if nwcBackupExists === false}
+                    <p class="mt-2 text-xs text-caption text-center">No backup found on relays.</p>
                   {/if}
+                {:else}
+                  <Button
+                    on:click={handleConnectNWC}
+                    disabled={isConnecting || !nwcConnectionString}
+                    class="w-full"
+                  >
+                    {isConnecting ? 'Connecting...' : 'Connect NWC'}
+                  </Button>
                 {/if}
               </div>
             {:else if selectedWalletType === 4}
@@ -3246,7 +3242,7 @@
                       <p class="text-primary-color font-medium">{sparkLoadingMessage}</p>
                       <p class="text-caption text-sm mt-2">This may take a moment...</p>
                     </div>
-                  {:else if !canCheckSparkBackup || !sparkBackupChecking}
+                  {:else}
                     <div class="space-y-3 mb-4">
                       <div class="text-xs text-caption uppercase tracking-wide text-center">
                         Restore existing wallet
