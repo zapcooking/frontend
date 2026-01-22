@@ -4,7 +4,7 @@
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
   import { formatAmount } from '$lib/utils';
   import LightningIcon from 'phosphor-svelte/lib/Lightning';
-  import { getEngagementStore, fetchEngagement, optimisticZapUpdate } from '$lib/engagementCache';
+  import { getEngagementStore, fetchEngagement } from '$lib/engagementCache';
   import ZappersListModal from './ZappersListModal.svelte';
   import { canOneTapZap, sendOneTapZap, getOneTapAmount } from '$lib/oneTapZap';
 
@@ -22,6 +22,7 @@
   let pressStartTime = 0;
   let touchStartPos: { x: number; y: number } | null = null;
   const TOUCH_MOVE_THRESHOLD = 10; // pixels - if touch moves more than this, cancel long press
+  let lastTapTime = 0; // Debounce to prevent double-handling from touch + click
 
   onMount(() => {
     fetchEngagement($ndk, event.id, $userPublickey);
@@ -69,12 +70,26 @@
     }
   }
 
-  // Cancel long press timer
+  // Cancel long press timer and handle tap for touch events
   function handlePressEnd(e: MouseEvent | TouchEvent) {
+    const wasLongPress = isLongPress;
+    const hadTimer = longPressTimer !== null;
+    
     if (longPressTimer) {
       clearTimeout(longPressTimer);
       longPressTimer = null;
     }
+    
+    // For touch events on Safari, we need to trigger the zap action here
+    // because the click event may not fire after preventDefault on touchstart
+    if (e instanceof TouchEvent && !wasLongPress && touchStartPos !== null) {
+      // This was a tap (touchstart -> touchend without long press or movement)
+      // Trigger the zap action immediately
+      touchStartPos = null;
+      handleZapIconClick(e);
+      return;
+    }
+    
     touchStartPos = null;
   }
 
@@ -104,27 +119,46 @@
     e.stopPropagation(); // Prevent parent click handlers
     e.preventDefault(); // Prevent default on Safari mobile
 
+    // Debounce: prevent double-handling from touch + click events firing together
+    const now = Date.now();
+    if (now - lastTapTime < 300) {
+      console.log('[NoteTotalZaps] Debounced duplicate tap');
+      return;
+    }
+    lastTapTime = now;
+
     // If this was a long press, the modal is already open, don't do one-tap
     if (isLongPress) {
       isLongPress = false;
       return;
     }
 
+    // If already zapping, don't allow another zap
+    if (isZapping) {
+      console.log('[NoteTotalZaps] Already zapping, ignoring tap');
+      return;
+    }
+
     // If one-tap zap is available, send immediately
     if (canOneTapZap()) {
+      console.log('[NoteTotalZaps] One-tap zap starting...');
+      
       // Set loading state immediately for visual feedback
       isZapping = true;
       
-      // Optimistic update happens inside sendOneTapZap, but we want immediate UI feedback
-      // The optimistic update will show the zap count immediately
+      // Optimistic update happens inside sendOneTapZap
+      // The store should update reactively and show the new amount
       const result = await sendOneTapZap(event);
+      
+      console.log('[NoteTotalZaps] One-tap zap result:', result);
       isZapping = false;
 
       if (result.success) {
         // The optimistic update already showed the zap, and the subscription will correct it
         // when the real zap receipt arrives. No need to force refresh here.
-        console.log('[NoteTotalZaps] One-tap zap completed successfully');
+        console.log('[NoteTotalZaps] One-tap zap completed successfully, amount:', result.amount);
       } else {
+        console.log('[NoteTotalZaps] One-tap zap failed:', result.error);
         // If zap failed, we need to revert the optimistic update
         // Refresh to get accurate counts (this will revert the optimistic update)
         fetchEngagement($ndk, event.id, $userPublickey);
