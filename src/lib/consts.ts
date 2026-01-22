@@ -119,7 +119,7 @@ export const recipeTags: recipeTagSimple[] = [
   { title: 'Meat', emoji: '🥩' },
   { title: 'Mediterranean', emoji: '🏖️' },
   { title: 'Mexican', emoji: '🇲🇽' },
-  { title: 'Middle-Eastern' },
+  { title: 'Middle-Eastern', emoji: '🧆' },
   { title: 'Milk', emoji: '🥛' },
   { title: 'Moroccan', emoji: '🇲🇦' },
   { title: 'Mushrooms', emoji: '🍄' },
