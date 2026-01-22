@@ -224,19 +224,19 @@
       <!-- Header section with user info -->
       <div class="flex-shrink-0 p-6 border-b" style="border-color: var(--color-input-border);">
         <div class="flex items-start justify-between">
-          <div class="flex items-center gap-4">
+          <button
+            on:click={() => navigate(`/user/${nip19.npubEncode($userPublickey)}`)}
+            class="profile-header-btn flex items-center gap-4 cursor-pointer bg-transparent border-0 p-0"
+          >
             <CustomAvatar
               pubkey={$userPublickey}
               size={48}
               imageUrl={$userProfilePictureOverride}
             />
-            <div class="flex flex-col">
-              <span class="font-semibold text-base" style="color: var(--color-text-primary);">
-                {displayName}
-              </span>
-              <span class="text-sm" style="color: var(--color-caption);"> View profile </span>
-            </div>
-          </div>
+            <span class="font-semibold text-base" style="color: var(--color-text-primary);">
+              {displayName}
+            </span>
+          </button>
           <button
             on:click={close}
             class="p-2 rounded-full hover:bg-opacity-10 hover:bg-gray-500 transition-colors cursor-pointer"
@@ -250,57 +250,6 @@
 
       <!-- Main navigation section - scrollable -->
       <nav class="flex-1 overflow-y-auto p-4">
-        <ul class="flex flex-col gap-1">
-          <li>
-            <button
-              on:click={() => navigate(`/user/${nip19.npubEncode($userPublickey)}`)}
-              class="w-full flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-opacity-50 transition-colors cursor-pointer"
-              style="color: var(--color-text-primary);"
-            >
-              <UserIcon size={22} />
-              <span class="font-medium">Profile</span>
-            </button>
-          </li>
-          <li>
-            <button
-              on:click={() => navigate('/cookbook')}
-              class="w-full flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-opacity-50 transition-colors cursor-pointer"
-              style="color: var(--color-text-primary);"
-            >
-              <CookbookIcon size={22} />
-              <span class="font-medium">Cookbook</span>
-            </button>
-          </li>
-          <li>
-            <button
-              on:click={() => navigate('/grocery')}
-              class="w-full flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-opacity-50 transition-colors cursor-pointer"
-              style="color: var(--color-text-primary);"
-            >
-              <ShoppingCartIcon size={22} />
-              <span class="font-medium">Grocery Lists</span>
-            </button>
-          </li>
-          <li>
-            <button
-              on:click={() => navigate(`/user/${nip19.npubEncode($userPublickey)}?tab=drafts`)}
-              class="w-full flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-opacity-50 transition-colors cursor-pointer"
-              style="color: var(--color-text-primary);"
-            >
-              <FloppyDiskIcon size={22} />
-              <span class="font-medium">Drafts</span>
-            </button>
-          </li>
-          <li>
-            <button
-              on:click={() => navigate('/wallet')}
-              class="w-full flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-opacity-50 transition-colors cursor-pointer"
-              style="color: var(--color-text-primary);"
-            >
-              <WalletIcon size={22} />
-              <span class="font-medium">Wallet</span>
-            </button>
-          </li>
         <!-- Section: My Kitchen -->
         <div class="mb-1">
           <h3
@@ -501,42 +450,40 @@
             </li>
           </ul>
         </div>
-
-        <!-- Theme toggle -->
-        <div class="mt-2 pt-4 border-t" style="border-color: var(--color-input-border);">
-          <button
-            on:click={toggleTheme}
-            class="w-full flex items-center justify-between px-4 py-3 rounded-xl hover:bg-opacity-50 transition-colors cursor-pointer"
-            style="color: var(--color-text-primary);"
-          >
-            <div class="flex items-center gap-4">
-              {#if isDarkMode}
-                <SunIcon size={22} />
-                <span class="font-medium">Light Mode</span>
-              {:else}
-                <MoonIcon size={22} />
-                <span class="font-medium">Dark Mode</span>
-              {/if}
-            </div>
-            <!-- Toggle switch visual -->
-            <div
-              class="w-12 h-7 rounded-full p-1 transition-colors duration-200"
-              style="background-color: {isDarkMode
-                ? 'var(--color-primary)'
-                : 'var(--color-accent-gray)'};"
-            >
-              <div
-                class="w-5 h-5 rounded-full bg-white shadow-md transition-transform duration-200"
-                style="transform: translateX({isDarkMode ? '20px' : '0px'});"
-              ></div>
-            </div>
-          </button>
-        </div>
       </nav>
 
       <!-- Footer section -->
       <div class="flex-shrink-0 p-4 border-t" style="border-color: var(--color-input-border);">
         <ul class="flex flex-col gap-1">
+          <li>
+            <button
+              on:click={toggleTheme}
+              class="w-full flex items-center justify-between px-4 py-3 rounded-xl hover:bg-opacity-50 transition-colors cursor-pointer"
+              style="color: var(--color-text-primary);"
+            >
+              <div class="flex items-center gap-4">
+                {#if isDarkMode}
+                  <SunIcon size={22} />
+                  <span class="font-medium">Light Mode</span>
+                {:else}
+                  <MoonIcon size={22} />
+                  <span class="font-medium">Dark Mode</span>
+                {/if}
+              </div>
+              <!-- Toggle switch visual -->
+              <div
+                class="w-12 h-7 rounded-full p-1 transition-colors duration-200"
+                style="background-color: {isDarkMode
+                  ? 'var(--color-primary)'
+                  : 'var(--color-accent-gray)'};"
+              >
+                <div
+                  class="w-5 h-5 rounded-full bg-white shadow-md transition-transform duration-200"
+                  style="transform: translateX({isDarkMode ? '20px' : '0px'});"
+                ></div>
+              </div>
+            </button>
+          </li>
           <li>
             <button
               on:click={() => navigate('/settings')}
@@ -547,6 +494,9 @@
               <span class="font-medium">Settings</span>
             </button>
           </li>
+        </ul>
+        <hr class="mt-4 mb-4 -mx-4" style="border-color: var(--color-input-border);" />
+        <ul class="flex flex-col gap-1">
           <li>
             <button
               on:click={logout}
@@ -574,8 +524,13 @@
 
   /* Hover state background for menu items */
   nav button:hover,
-  .flex-shrink-0 button:hover:not(.text-danger) {
+  .flex-shrink-0 button:hover:not(.text-danger):not(.profile-header-btn) {
     background-color: var(--color-input-bg);
+  }
+
+  /* No hover effect on profile header */
+  .profile-header-btn:hover {
+    background-color: transparent !important;
   }
 
   /* Danger button hover */

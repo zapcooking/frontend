@@ -6,7 +6,7 @@
   import PrinterIcon from 'phosphor-svelte/lib/Printer';
   import LightningIcon from 'phosphor-svelte/lib/Lightning';
   import ShareIcon from 'phosphor-svelte/lib/Share';
-  import DotsThreeVerticalIcon from 'phosphor-svelte/lib/DotsThreeVertical';
+  import DotsThreeIcon from 'phosphor-svelte/lib/DotsThree';
   import PencilSimpleIcon from 'phosphor-svelte/lib/PencilSimple';
   import TrashIcon from 'phosphor-svelte/lib/Trash';
   import ShoppingCartIcon from 'phosphor-svelte/lib/ShoppingCart';
@@ -424,13 +424,13 @@
 <AddToListModal bind:open={groceryModal} recipeEvent={event} />
 
 <!-- Delete Confirmation Modal -->
-<Modal bind:open={deleteConfirmOpen}>
-  <div class="flex flex-col gap-4 p-2">
+<Modal bind:open={deleteConfirmOpen} noHeader>
+  <div class="flex flex-col gap-3">
     <h2 class="text-xl font-semibold" style="color: var(--color-text-primary);">Delete Recipe?</h2>
     <p class="text-sm" style="color: var(--color-text-secondary);">
       Are you sure you want to delete this recipe? This action cannot be undone.
     </p>
-    <div class="flex gap-3 justify-end mt-2">
+    <div class="flex gap-3 justify-end">
       <Button primary={false} on:click={() => (deleteConfirmOpen = false)}>Cancel</Button>
       <button
         class="text-white rounded-full whitespace-nowrap flex items-center justify-center gap-2 px-4 py-2.5 font-semibold transition duration-300 bg-red-600 hover:bg-red-700 disabled:bg-red-600/50"
@@ -556,14 +556,14 @@
               aria-label="Recipe options"
               title="Options"
             >
-              <DotsThreeVerticalIcon size={24} weight="bold" class="text-caption" />
+              <DotsThreeIcon size={24} weight="bold" class="text-caption" />
             </button>
 
             {#if menuOpen}
               <div
                 use:clickOutside
                 on:click_outside={() => (menuOpen = false)}
-                class="absolute right-0 top-full mt-2 z-20 rounded-xl shadow-lg py-2 min-w-[160px]"
+                class="absolute right-0 top-full mt-2 z-20 rounded-xl shadow-lg py-2 min-w-[200px]"
                 style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);"
               >
                 {#if isOwner}
@@ -596,7 +596,7 @@
                       menuOpen = false;
                     }}
                   >
-                    <ShoppingCartIcon size={18} />
+                    <ShoppingCartIcon size={20} />
                     Add to Grocery List
                   </button>
                 {/if}

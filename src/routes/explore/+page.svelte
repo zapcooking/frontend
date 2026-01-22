@@ -233,11 +233,11 @@
         {/if}
       </section>
 
-      <!-- Fresh from the kitchen -->
+      <!-- Kitchen -->
       <section class="flex flex-col gap-4">
         <h2 class="text-2xl font-bold flex items-center gap-2">
           <span>🍳</span>
-          <span>Fresh from the kitchen</span>
+          <span>Fresh from the Kitchen</span>
         </h2>
         {#if loadingDiscover}
           <div class="flex gap-4 overflow-x-auto pb-2 -mx-4 px-4">
