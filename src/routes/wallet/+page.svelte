@@ -203,6 +203,7 @@
   let showCheckRelayBackupsModal = false;
   let checkRelayBackupsWalletType: 'spark' | 'nwc' = 'spark';
   let availabilityCheckTimeout: ReturnType<typeof setTimeout> | null = null;
+  let showSparkCreateConfirmModal = false;
 
   // User's profile lud16 (from Nostr kind 0)
   let profileLud16: string | null = null;
@@ -1199,6 +1200,15 @@
       isConnecting = false;
       sparkLoadingMessage = '';
     }
+  }
+
+  function handleSparkCreateRequest() {
+    if (sparkBackupExists) {
+      showSparkCreateConfirmModal = true;
+      return;
+    }
+
+    handleCreateSparkWallet();
   }
 
   async function handleRestoreFromNostr() {
@@ -3287,7 +3297,7 @@
                       </div>
                       <div class="border-t" style="border-color: var(--color-input-border);"></div>
                       <Button
-                        on:click={handleCreateSparkWallet}
+                        on:click={handleSparkCreateRequest}
                         disabled={isConnecting}
                         class="w-full"
                       >
@@ -3465,6 +3475,48 @@
             </div>
 
             <Button on:click={closeNwcInfoModal} class="w-full mt-6">Close</Button>
+          </div>
+        </div>
+      </div>
+    {/if}
+
+    <!-- Spark create confirmation modal -->
+    {#if showSparkCreateConfirmModal && portalTarget}
+      <div use:portal={portalTarget}>
+        <div
+          class="fixed inset-0 bg-black/50 flex z-50 p-4"
+          style="display: flex; align-items: center; justify-content: center;"
+        >
+          <div
+            class="rounded-2xl p-6 max-w-sm w-full max-h-[90vh] overflow-y-auto"
+            style="background-color: var(--color-bg-primary);"
+          >
+            <h2 class="text-xl font-bold mb-2" style="color: var(--color-text-primary)">
+              Create new wallet?
+            </h2>
+            <p class="text-caption mb-4">
+              A wallet backup already exists on Nostr. Creating a new wallet won't delete it, but
+              your next backup will overwrite the existing one.
+            </p>
+            <div class="flex flex-col gap-3">
+              <Button
+                on:click={() => (showSparkCreateConfirmModal = false)}
+                disabled={isConnecting}
+                class="w-full"
+              >
+                Cancel
+              </Button>
+              <button
+                class="w-full px-4 py-2 rounded-full bg-amber-500 hover:bg-amber-600 text-white font-medium transition-colors cursor-pointer disabled:opacity-50"
+                on:click={() => {
+                  showSparkCreateConfirmModal = false;
+                  handleCreateSparkWallet();
+                }}
+                disabled={isConnecting}
+              >
+                Create New Wallet
+              </button>
+            </div>
           </div>
         </div>
       </div>
