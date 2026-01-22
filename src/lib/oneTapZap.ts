@@ -8,11 +8,12 @@
 import { get } from 'svelte/store';
 import { browser } from '$app/environment';
 import { NDKEvent, NDKUser } from '@nostr-dev-kit/ndk';
-import { ndk } from '$lib/nostr';
+import { ndk, userPublickey } from '$lib/nostr';
 import { ZapManager } from '$lib/zapManager';
 import { activeWallet } from '$lib/wallet';
 import { sendPayment } from '$lib/wallet/walletManager';
 import { oneTapZapEnabled, oneTapZapAmount } from '$lib/autoZapSettings';
+import { optimisticZapUpdate } from '$lib/engagementCache';
 
 /**
  * Check if one-tap zap is available (enabled + has in-app wallet)
@@ -71,11 +72,9 @@ export async function sendOneTapZap(target: NDKEvent | NDKUser): Promise<OneTapZ
     return { success: false, error: 'No wallet connected' };
   }
 
-  const amount = get(oneTapZapAmount);
-  console.log('[OneTapZap] Amount:', amount, 'sats, Wallet kind:', wallet.kind);
-
-  try {
-    const zapManager = new ZapManager(ndkInstance);
+    const amount = get(oneTapZapAmount);
+    const currentUserPubkey = get(userPublickey);
+    console.log('[OneTapZap] Amount:', amount, 'sats, Wallet kind:', wallet.kind);
 
     // Determine recipient pubkey and event ID
     let recipientPubkey: string;
@@ -93,6 +92,16 @@ export async function sendOneTapZap(target: NDKEvent | NDKUser): Promise<OneTapZ
       console.log('[OneTapZap] Invalid target');
       return { success: false, error: 'Invalid target for zap' };
     }
+
+    // Optimistically update the zap count immediately (before payment starts)
+    // This provides instant visual feedback while payment processes in background
+    if (eventId && currentUserPubkey) {
+      optimisticZapUpdate(eventId, amount * 1000, currentUserPubkey);
+      console.log('[OneTapZap] Optimistic update applied for event:', eventId, 'amount:', amount, 'sats');
+    }
+
+    try {
+      const zapManager = new ZapManager(ndkInstance);
 
     // Create the zap invoice
     console.log('[OneTapZap] Creating zap invoice...');

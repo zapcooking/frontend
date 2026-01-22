@@ -1,10 +1,10 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import { ndk, userPublickey } from '$lib/nostr';
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
   import { formatAmount } from '$lib/utils';
   import LightningIcon from 'phosphor-svelte/lib/Lightning';
-  import { getEngagementStore, fetchEngagement } from '$lib/engagementCache';
+  import { getEngagementStore, fetchEngagement, optimisticZapUpdate } from '$lib/engagementCache';
   import ZappersListModal from './ZappersListModal.svelte';
   import { canOneTapZap, sendOneTapZap, getOneTapAmount } from '$lib/oneTapZap';
 
@@ -15,8 +15,22 @@
   let showZappersModal = false;
   let isZapping = false;
 
+  // Long press handling
+  const LONG_PRESS_DURATION = 500; // ms
+  let longPressTimer: ReturnType<typeof setTimeout> | null = null;
+  let isLongPress = false;
+  let pressStartTime = 0;
+  let touchStartPos: { x: number; y: number } | null = null;
+  const TOUCH_MOVE_THRESHOLD = 10; // pixels - if touch moves more than this, cancel long press
+
   onMount(() => {
     fetchEngagement($ndk, event.id, $userPublickey);
+  });
+
+  onDestroy(() => {
+    if (longPressTimer) {
+      clearTimeout(longPressTimer);
+    }
   });
 
   function handleCountClick(e: MouseEvent) {
@@ -27,26 +41,113 @@
     }
   }
 
-  async function handleZapIconClick(e: MouseEvent) {
+  // Start tracking press for long-press detection
+  function handlePressStart(e: MouseEvent | TouchEvent) {
+    e.stopPropagation();
+    isLongPress = false;
+    pressStartTime = Date.now();
+    
+    // Track touch position for mobile
+    if (e instanceof TouchEvent && e.touches.length > 0) {
+      touchStartPos = {
+        x: e.touches[0].clientX,
+        y: e.touches[0].clientY
+      };
+    }
+
+    // Only use long press for one-tap zap users (they need a way to access custom amounts)
+    if (canOneTapZap() && onZapClick) {
+      longPressTimer = setTimeout(() => {
+        isLongPress = true;
+        // Vibrate on mobile to indicate long press detected
+        if ('vibrate' in navigator) {
+          navigator.vibrate(50);
+        }
+        // Open the zap modal for custom amount
+        onZapClick();
+      }, LONG_PRESS_DURATION);
+    }
+  }
+
+  // Cancel long press timer
+  function handlePressEnd(e: MouseEvent | TouchEvent) {
+    if (longPressTimer) {
+      clearTimeout(longPressTimer);
+      longPressTimer = null;
+    }
+    touchStartPos = null;
+  }
+
+  // Handle touch move - cancel long press if user is scrolling
+  function handleTouchMove(e: TouchEvent) {
+    if (!touchStartPos || !longPressTimer) return;
+    
+    if (e.touches.length > 0) {
+      const currentX = e.touches[0].clientX;
+      const currentY = e.touches[0].clientY;
+      const deltaX = Math.abs(currentX - touchStartPos.x);
+      const deltaY = Math.abs(currentY - touchStartPos.y);
+      
+      // If touch moved significantly, cancel long press (user is scrolling)
+      if (deltaX > TOUCH_MOVE_THRESHOLD || deltaY > TOUCH_MOVE_THRESHOLD) {
+        if (longPressTimer) {
+          clearTimeout(longPressTimer);
+          longPressTimer = null;
+        }
+        touchStartPos = null;
+      }
+    }
+  }
+
+  // Handle the actual click/tap - works for both mouse and touch
+  async function handleZapIconClick(e: MouseEvent | TouchEvent) {
     e.stopPropagation(); // Prevent parent click handlers
+    e.preventDefault(); // Prevent default on Safari mobile
+
+    // If this was a long press, the modal is already open, don't do one-tap
+    if (isLongPress) {
+      isLongPress = false;
+      return;
+    }
 
     // If one-tap zap is available, send immediately
     if (canOneTapZap()) {
+      // Set loading state immediately for visual feedback
       isZapping = true;
+      
+      // Optimistic update happens inside sendOneTapZap, but we want immediate UI feedback
+      // The optimistic update will show the zap count immediately
       const result = await sendOneTapZap(event);
       isZapping = false;
 
       if (result.success) {
-        // Refresh engagement data after successful zap
+        // The optimistic update already showed the zap, and the subscription will correct it
+        // when the real zap receipt arrives. No need to force refresh here.
+        console.log('[NoteTotalZaps] One-tap zap completed successfully');
+      } else {
+        // If zap failed, we need to revert the optimistic update
+        // Refresh to get accurate counts (this will revert the optimistic update)
         fetchEngagement($ndk, event.id, $userPublickey);
-      } else if (onZapClick) {
-        // Fall back to modal if one-tap fails
-        onZapClick();
+        
+        if (onZapClick) {
+          // Fall back to modal if one-tap fails
+          onZapClick();
+        }
       }
     } else if (onZapClick) {
       // No one-tap available, use the callback to open modal
       onZapClick();
     }
+  }
+
+  // Handle touch cancel (e.g., scroll started)
+  function handleTouchCancel() {
+    if (longPressTimer) {
+      clearTimeout(longPressTimer);
+      longPressTimer = null;
+    }
+    isLongPress = false;
+    touchStartPos = null;
   }
 </script>
 
@@ -55,7 +156,20 @@
     class="flex items-center gap-1.5 rounded px-0.5 transition duration-300"
     style="color: var(--color-text-primary)"
   >
-    <button class="hover:bg-input rounded p-1" on:click={handleZapIconClick} title="Send a zap">
+    <button 
+      class="hover:bg-input rounded p-1 select-none touch-none" 
+      style="touch-action: manipulation; -webkit-tap-highlight-color: transparent;"
+      on:mousedown={handlePressStart}
+      on:mouseup={handlePressEnd}
+      on:mouseleave={handlePressEnd}
+      on:touchstart|preventDefault={handlePressStart}
+      on:touchmove|preventDefault={handleTouchMove}
+      on:touchend|preventDefault={handlePressEnd}
+      on:touchcancel={handleTouchCancel}
+      on:click|preventDefault={handleZapIconClick}
+      on:contextmenu|preventDefault={() => { if (onZapClick) onZapClick(); }}
+      title={canOneTapZap() ? `Zap ${getOneTapAmount()} sats (hold for custom amount)` : 'Send a zap'}
+    >
       <LightningIcon size={24} class="text-caption" weight="regular" />
     </button>
     <span class="text-caption">–</span>
@@ -67,12 +181,21 @@
   >
     <!-- Zap Icon Button -->
     <button
-      class="hover:bg-input rounded p-1 transition-colors"
+      class="hover:bg-input rounded p-1 transition-colors select-none touch-none"
       class:opacity-50={isZapping}
       class:cursor-wait={isZapping}
-      on:click={handleZapIconClick}
+      style="touch-action: manipulation; -webkit-tap-highlight-color: transparent;"
+      on:mousedown={handlePressStart}
+      on:mouseup={handlePressEnd}
+      on:mouseleave={handlePressEnd}
+      on:touchstart|preventDefault={handlePressStart}
+      on:touchmove|preventDefault={handleTouchMove}
+      on:touchend|preventDefault={handlePressEnd}
+      on:touchcancel={handleTouchCancel}
+      on:click|preventDefault={handleZapIconClick}
+      on:contextmenu|preventDefault={() => { if (onZapClick) onZapClick(); }}
       disabled={isZapping}
-      title={canOneTapZap() ? `Zap ${getOneTapAmount()} sats` : 'Send a zap'}
+      title={canOneTapZap() ? `Zap ${getOneTapAmount()} sats (hold for custom amount)` : 'Send a zap'}
     >
       <LightningIcon
         size={24}
