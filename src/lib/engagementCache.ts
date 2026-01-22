@@ -59,6 +59,8 @@ const activeSubscriptions = new Map<string, NDKSubscription[]>();
 const processedEventIds = new Map<string, Set<string>>();
 // Track events that are being counted via subscription (to avoid NIP-45 race condition)
 const subscriptionCountingInProgress = new Set<string>();
+// Track optimistic zap updates to prevent double-counting when real zap arrives
+const optimisticZaps = new Map<string, { amountMillisats: number; timestamp: number; userPubkey: string }>();
 
 const CACHE_KEY_PREFIX = 'engagement_';
 const CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours - persist across page reloads
@@ -367,7 +369,7 @@ export async function fetchEngagement(
             processRepost(updated, event, userPublickey);
             break;
           case 9735: // Zap
-            processZap(updated, event, userPublickey);
+            processZap(updated, event, userPublickey, eventId);
             break;
           case 1: // Comment
             // Only count as comment if it's replying to this event
@@ -489,7 +491,7 @@ function processRepost(data: EngagementData, event: NDKEvent, userPublickey: str
   }
 }
 
-function processZap(data: EngagementData, event: NDKEvent, userPublickey: string): void {
+function processZap(data: EngagementData, event: NDKEvent, userPublickey: string, eventId?: string): void {
   const bolt11 = event.tags.find(t => t[0] === 'bolt11')?.[1];
   if (!bolt11) return;
   
@@ -501,8 +503,6 @@ function processZap(data: EngagementData, event: NDKEvent, userPublickey: string
       const amountMillisats = Number(amountSection.value);
       if (!isNaN(amountMillisats) && amountMillisats > 0) {
         const amountSats = Math.floor(amountMillisats / 1000); // Convert millisats to sats
-        data.zaps.totalAmount += amountMillisats;
-        data.zaps.count++;
         
         // Extract zapper info from the zap request in the description tag
         let zapperPubkey = event.pubkey; // fallback to zapper service pubkey
@@ -518,6 +518,41 @@ function processZap(data: EngagementData, event: NDKEvent, userPublickey: string
           // Failed to parse description, use event pubkey
         }
         
+        // Check if this matches an optimistic zap we already added
+        // Look for optimistic zap with matching user, similar amount, and recent timestamp
+        let matchedOptimistic = false;
+        let matchedOptimisticAmount = 0;
+        if (eventId && zapperPubkey === userPublickey) {
+          const now = Date.now();
+          const fiveMinutesAgo = now - 5 * 60 * 1000; // 5 minute window
+          
+          for (const [key, optimistic] of optimisticZaps.entries()) {
+            // Match if same event, same user, amount within 10% (to account for rounding), and recent
+            const amountDiff = Math.abs(optimistic.amountMillisats - amountMillisats);
+            const amountMatch = amountDiff < optimistic.amountMillisats * 0.1 || amountDiff < 1000; // Within 10% or 1 sat
+            const timeMatch = optimistic.timestamp > fiveMinutesAgo;
+            
+            if (key.startsWith(`${eventId}:${zapperPubkey}:`) && amountMatch && timeMatch) {
+              // This matches our optimistic zap - don't double count
+              matchedOptimistic = true;
+              matchedOptimisticAmount = optimistic.amountMillisats;
+              optimisticZaps.delete(key); // Remove from tracking
+              break;
+            }
+          }
+        }
+        
+        // Only add to count if this isn't matching an optimistic zap we already added
+        if (!matchedOptimistic) {
+          data.zaps.totalAmount += amountMillisats;
+          data.zaps.count++;
+        } else {
+          // This matches our optimistic zap - replace optimistic amount with real amount for accuracy
+          // Adjust totalAmount: subtract optimistic amount, add real amount
+          data.zaps.totalAmount = data.zaps.totalAmount - matchedOptimisticAmount + amountMillisats;
+          // Don't increment count since we already did optimistically
+        }
+        
         // Check if current user zapped
         if (zapperPubkey === userPublickey) {
           data.zaps.userZapped = true;
@@ -531,7 +566,11 @@ function processZap(data: EngagementData, event: NDKEvent, userPublickey: string
         
         const existingZapper = data.zaps.topZappers.find(z => z.pubkey === zapperPubkey);
         if (existingZapper) {
-          existingZapper.amount += amountSats;
+          // If we matched optimistic, the amount was already added optimistically, so just update timestamp
+          // Otherwise, add the amount
+          if (!matchedOptimistic) {
+            existingZapper.amount += amountSats;
+          }
           existingZapper.timestamp = Math.max(existingZapper.timestamp, zapTimestamp);
         } else {
           data.zaps.topZappers.push({
@@ -574,6 +613,71 @@ export function cleanupEngagement(eventId: string): void {
   
   // Clear counting in progress flag
   subscriptionCountingInProgress.delete(eventId);
+  
+  // Clean up optimistic zaps for this event
+  for (const [key] of optimisticZaps.entries()) {
+    if (key.startsWith(`${eventId}:`)) {
+      optimisticZaps.delete(key);
+    }
+  }
+}
+
+// Optimistically update zap count when zap is initiated
+// This provides immediate feedback while the zap is processing
+// The subscription will correct the count when the real zap receipt arrives
+export function optimisticZapUpdate(eventId: string, amountMillisats: number, userPublickey: string): void {
+  const store = getEngagementStore(eventId);
+  const amountSats = Math.floor(amountMillisats / 1000);
+  const now = Date.now();
+  
+  // Track this optimistic zap (keyed by eventId + userPubkey + timestamp for uniqueness)
+  const optimisticKey = `${eventId}:${userPublickey}:${now}`;
+  optimisticZaps.set(optimisticKey, {
+    amountMillisats,
+    timestamp: now,
+    userPubkey: userPublickey
+  });
+  
+  // Clean up old optimistic zaps (older than 5 minutes)
+  const fiveMinutesAgo = now - 5 * 60 * 1000;
+  for (const [key, zap] of optimisticZaps.entries()) {
+    if (zap.timestamp < fiveMinutesAgo) {
+      optimisticZaps.delete(key);
+    }
+  }
+  
+  store.update(s => {
+    const updated = { ...s };
+    
+    // Optimistically add the zap amount and count
+    updated.zaps.totalAmount += amountMillisats;
+    updated.zaps.count += 1;
+    updated.zaps.userZapped = true;
+    
+    // Add or update zapper in the list optimistically
+    const existingZapper = updated.zaps.topZappers.find(z => z.pubkey === userPublickey);
+    if (existingZapper) {
+      existingZapper.amount += amountSats;
+      existingZapper.timestamp = Math.floor(Date.now() / 1000);
+    } else {
+      updated.zaps.topZappers.push({
+        pubkey: userPublickey,
+        amount: amountSats,
+        timestamp: Math.floor(Date.now() / 1000)
+      });
+    }
+    
+    // Sort by amount descending, keep top 10
+    updated.zaps.topZappers.sort((a, b) => b.amount - a.amount);
+    if (updated.zaps.topZappers.length > 10) {
+      updated.zaps.topZappers = updated.zaps.topZappers.slice(0, 10);
+    }
+    
+    // Save to cache with optimistic update
+    saveToCache(eventId, updated);
+    
+    return updated;
+  });
 }
 
 // Force refresh engagement data for an event (bypasses cache)
@@ -714,7 +818,7 @@ export async function batchFetchEngagement(
             processRepost(updated, event, userPublickey);
             break;
           case 9735:
-            processZap(updated, event, userPublickey);
+            processZap(updated, event, userPublickey, targetEventId);
             break;
           case 1:
             if (event.tags.some(t => t[0] === 'e' && t[1] === targetEventId)) {
@@ -802,6 +906,7 @@ export function clearAllEngagementCaches(): void {
   engagementStores.clear();
   processedEventIds.clear();
   subscriptionCountingInProgress.clear();
+  optimisticZaps.clear();
   
   // Clear localStorage cache
   if (browser) {
