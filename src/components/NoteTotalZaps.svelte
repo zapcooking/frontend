@@ -143,6 +143,11 @@
     if (canOneTapZap()) {
       console.log('[NoteTotalZaps] One-tap zap starting...');
       
+      // Haptic feedback on tap - immediate confirmation that tap was registered
+      if ('vibrate' in navigator) {
+        navigator.vibrate(30); // Short vibration on tap
+      }
+      
       // Set loading state immediately for visual feedback
       isZapping = true;
       
@@ -154,10 +159,18 @@
       isZapping = false;
 
       if (result.success) {
+        // Haptic feedback on success - double pulse to confirm payment sent
+        if ('vibrate' in navigator) {
+          navigator.vibrate([40, 50, 40]); // Two short pulses
+        }
         // The optimistic update already showed the zap, and the subscription will correct it
         // when the real zap receipt arrives. No need to force refresh here.
         console.log('[NoteTotalZaps] One-tap zap completed successfully, amount:', result.amount);
       } else {
+        // Haptic feedback on failure - long vibration to indicate error
+        if ('vibrate' in navigator) {
+          navigator.vibrate(200); // Longer single vibration for error
+        }
         console.log('[NoteTotalZaps] One-tap zap failed:', result.error);
         // If zap failed, we need to revert the optimistic update
         // Refresh to get accurate counts (this will revert the optimistic update)
