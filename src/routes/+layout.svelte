@@ -10,12 +10,15 @@
   import Footer from '../components/Footer.svelte';
   import CreateMenuButton from '../components/CreateMenuButton.svelte';
   import PostModal from '../components/PostModal.svelte';
+  import WalletWelcomeModal from '../components/WalletWelcomeModal.svelte';
   import { createAuthManager, type AuthState } from '$lib/authManager';
   import type { LayoutData } from './$types';
   import ErrorBoundary from '../components/ErrorBoundary.svelte';
   import OfflineIndicator from '../components/OfflineIndicator.svelte';
   import { theme } from '$lib/themeStore';
-  import { initializeWalletManager } from '$lib/wallet';
+  import { initializeWalletManager, walletConnected } from '$lib/wallet';
+  import { weblnConnected } from '$lib/wallet/webln';
+  import { bitcoinConnectEnabled, bitcoinConnectWalletInfo } from '$lib/wallet/bitcoinConnect';
   import { postComposerOpen } from '$lib/postComposerStore';
   // Import sync service to initialize offline sync functionality
   import '$lib/syncService';
@@ -48,6 +51,21 @@
     error: null
   };
   let unsubscribe: (() => void) | null = null;
+  let walletWelcomeOpen = false;
+  let walletWelcomeSeen = false;
+  const WALLET_WELCOME_KEY = 'zapcooking_wallet_welcome_seen';
+  $: hasWallet =
+    $walletConnected ||
+    $weblnConnected ||
+    ($bitcoinConnectEnabled && $bitcoinConnectWalletInfo.connected);
+
+  function markWalletWelcomeSeen() {
+    walletWelcomeOpen = false;
+    walletWelcomeSeen = true;
+    if (browser) {
+      localStorage.setItem(WALLET_WELCOME_KEY, '1');
+    }
+  }
 
   // Handle deep links from Capacitor (for NIP-46 pairing)
   async function handleDeepLink(url: string) {
@@ -187,6 +205,16 @@
         } else {
           userPublickey.set('');
         }
+
+        if (
+          browser &&
+          state.isAuthenticated &&
+          state.publicKey &&
+          !walletWelcomeSeen &&
+          !hasWallet
+        ) {
+          walletWelcomeOpen = true;
+        }
       });
 
       // Initialize wallet manager to restore saved wallets
@@ -206,6 +234,16 @@
       unsubscribe();
     }
   });
+
+  onMount(() => {
+    if (browser) {
+      walletWelcomeSeen = localStorage.getItem(WALLET_WELCOME_KEY) === '1';
+    }
+  });
+
+  $: if (walletWelcomeOpen && hasWallet) {
+    markWalletWelcomeSeen();
+  }
 </script>
 
 <svelte:head>
@@ -242,6 +280,7 @@
         <CreateMenuButton variant="floating" />
         <BottomNav />
         <PostModal bind:open={$postComposerOpen} />
+        <WalletWelcomeModal bind:open={walletWelcomeOpen} onDismiss={markWalletWelcomeSeen} />
       </div>
     </div>
   </div>

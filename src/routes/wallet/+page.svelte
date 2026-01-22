@@ -2921,34 +2921,6 @@
                 {:else}
                   <button
                     class="w-full p-4 rounded-xl text-left flex items-center gap-4 transition-colors"
-                    class:cursor-pointer={!hasExistingNwcWallet}
-                    class:cursor-not-allowed={hasExistingNwcWallet}
-                    class:opacity-50={hasExistingNwcWallet}
-                    style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);"
-                    on:click={() => !hasExistingNwcWallet && (selectedWalletType = 3)}
-                    disabled={hasExistingNwcWallet}
-                  >
-                    <div
-                      class="w-10 h-10 rounded-full bg-amber-500/20 flex items-center justify-center"
-                    >
-                      <NwcLogo size={28} />
-                    </div>
-                    <div>
-                      <div class="font-medium" style="color: var(--color-text-primary)">
-                        NWC (Nostr Wallet Connect)
-                      </div>
-                      {#if hasExistingNwcWallet}
-                        <div class="text-sm text-amber-500">
-                          You already have an NWC wallet connected
-                        </div>
-                      {:else}
-                        <div class="text-sm text-caption">Connect any NWC-compatible wallet</div>
-                      {/if}
-                    </div>
-                  </button>
-
-                  <button
-                    class="w-full p-4 rounded-xl text-left flex items-center gap-4 transition-colors"
                     class:cursor-pointer={!hasExistingSparkWallet}
                     class:cursor-not-allowed={hasExistingSparkWallet}
                     class:opacity-50={hasExistingSparkWallet}
@@ -2971,8 +2943,36 @@
                         </div>
                       {:else}
                         <div class="text-sm text-caption">
-                          Create or restore a built-in Lightning wallet
+                          Simplest for new users. Create or restore a built-in Lightning wallet.
                         </div>
+                      {/if}
+                    </div>
+                  </button>
+
+                  <button
+                    class="w-full p-4 rounded-xl text-left flex items-center gap-4 transition-colors"
+                    class:cursor-pointer={!hasExistingNwcWallet}
+                    class:cursor-not-allowed={hasExistingNwcWallet}
+                    class:opacity-50={hasExistingNwcWallet}
+                    style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);"
+                    on:click={() => !hasExistingNwcWallet && (selectedWalletType = 3)}
+                    disabled={hasExistingNwcWallet}
+                  >
+                    <div
+                      class="w-10 h-10 rounded-full bg-amber-500/20 flex items-center justify-center"
+                    >
+                      <NwcLogo size={28} />
+                    </div>
+                    <div>
+                      <div class="font-medium" style="color: var(--color-text-primary)">
+                        NWC (Nostr Wallet Connect)
+                      </div>
+                      {#if hasExistingNwcWallet}
+                        <div class="text-sm text-amber-500">
+                          You already have an NWC wallet connected
+                        </div>
+                      {:else}
+                        <div class="text-sm text-caption">Connect any NWC-compatible wallet</div>
                       {/if}
                     </div>
                   </button>
