@@ -296,12 +296,10 @@
   // Check if signer extension supports encryption (NIP-44 or NIP-04)
   // Required for wallet backup functionality
   let encryptionSupported: boolean = false;
-  let encryptionMethod: 'nip44' | 'nip04' | null = null;
   let isNip46User: boolean = false;
 
   function checkEncryptionSupport() {
-    encryptionMethod = getBestEncryptionMethod();
-    encryptionSupported = encryptionMethod !== null;
+    encryptionSupported = hasEncryptionSupport();
 
     // Check if user is logged in via NIP-46 (remote signer)
     const authManager = getAuthManager();
@@ -309,8 +307,11 @@
   }
 
   // Re-check encryption support when NDK signer changes (reactive)
-  $: if ($ndk?.signer) {
-    checkEncryptionSupport();
+  $: {
+    const signer = $ndk?.signer;
+    if (browser) {
+      checkEncryptionSupport();
+    }
   }
 
   // Filter pending transactions to only show those for the active wallet
@@ -2175,8 +2176,8 @@
                         <WarningIcon size={18} class="text-amber-500 flex-shrink-0 mt-0.5" />
                         <div>
                           <p class="text-caption">
-                            Your signer extension doesn't support the required encryption method.
-                            You can still use "Recovery Phrase" to manually back up your wallet.
+                            Backups require a signer with encryption support. You can still use
+                            "Recovery Phrase" to manually back up your wallet.
                           </p>
                         </div>
                       </div>
