@@ -1,14 +1,18 @@
 import { browser } from '$app/environment';
-import { NDKNip07Signer, NDKPrivateKeySigner, NDKNip46Signer, type NDKUser } from '@nostr-dev-kit/ndk';
+import {
+  NDKNip07Signer,
+  NDKPrivateKeySigner,
+  NDKNip46Signer,
+  type NDKUser
+} from '@nostr-dev-kit/ndk';
 import { nip19, getPublicKey, generateSecretKey } from 'nostr-tools';
-import * as nip06 from 'nostr-tools/nip06';
 import * as nip44 from 'nostr-tools/nip44';
 
 export interface AuthState {
   isAuthenticated: boolean;
   user: NDKUser | null;
   publicKey: string;
-  authMethod: 'nip07' | 'privateKey' | 'seed' | 'anonymous' | 'nip46' | null;
+  authMethod: 'nip07' | 'privateKey' | 'anonymous' | 'nip46' | null;
   isLoading: boolean;
   error: string | null;
 }
@@ -22,9 +26,8 @@ export interface NIP46ConnectionInfo {
 }
 
 export interface AuthOptions {
-  method: 'nip07' | 'privateKey' | 'seed' | 'anonymous' | 'nip46';
+  method: 'nip07' | 'privateKey' | 'anonymous' | 'nip46';
   privateKey?: string;
-  seedPhrase?: string;
   bunkerConnectionString?: string;
 }
 
@@ -51,7 +54,7 @@ export class AuthManager {
   subscribe(listener: (state: AuthState) => void) {
     this.listeners.push(listener);
     return () => {
-      this.listeners = this.listeners.filter(l => l !== listener);
+      this.listeners = this.listeners.filter((l) => l !== listener);
     };
   }
 
@@ -63,8 +66,8 @@ export class AuthManager {
   // Update auth state and notify listeners
   private updateState(updates: Partial<AuthState>) {
     this.authState = { ...this.authState, ...updates };
-    this.listeners.forEach(listener => listener(this.authState));
-    
+    this.listeners.forEach((listener) => listener(this.authState));
+
     // Update NDK instance with new signer if authenticated
     if (this.authState.isAuthenticated && this.authState.publicKey && this.ndk) {
       // The signer should already be set, but ensure NDK is updated
@@ -125,12 +128,14 @@ export class AuthManager {
       }
 
       if (!window.nostr) {
-        throw new Error('Nostr extension not detected. Please install a compatible extension like Alby or nos2x.');
+        throw new Error(
+          'Nostr extension not detected. Please install a compatible extension like Alby or nos2x.'
+        );
       }
 
       const signer = new NDKNip07Signer();
       this.ndk.signer = signer;
-      
+
       const user = await signer.user();
       const publicKey = user.hexpubkey;
 
@@ -144,7 +149,6 @@ export class AuthManager {
       });
 
       localStorage.setItem('nostrcooking_loggedInPublicKey', publicKey);
-      
     } catch (error) {
       console.error('NIP-07 authentication failed:', error);
       this.updateState({
@@ -169,7 +173,7 @@ export class AuthManager {
       }
 
       let pk = privateKey.trim();
-      
+
       // Handle nsec1 format - decode to Uint8Array then convert to hex
       if (pk.startsWith('nsec1')) {
         try {
@@ -179,13 +183,13 @@ export class AuthManager {
           }
           const bytes = decoded.data as Uint8Array;
           pk = Array.from(bytes)
-            .map(b => b.toString(16).padStart(2, '0'))
+            .map((b) => b.toString(16).padStart(2, '0'))
             .join('');
         } catch (decodeError) {
           throw new Error('Invalid nsec key - could not decode');
         }
       }
-      
+
       // Validate hex key format (should be 64 hex characters)
       if (!/^[0-9a-fA-F]{64}$/.test(pk)) {
         throw new Error('Invalid private key format - expected 64 hex characters or nsec1 key');
@@ -193,7 +197,7 @@ export class AuthManager {
 
       const signer = new NDKPrivateKeySigner(pk);
       this.ndk.signer = signer;
-      
+
       const user = await signer.user();
       const publicKey = user.hexpubkey;
 
@@ -208,7 +212,6 @@ export class AuthManager {
 
       localStorage.setItem('nostrcooking_loggedInPublicKey', publicKey);
       localStorage.setItem('nostrcooking_privateKey', pk);
-      
     } catch (error) {
       console.error('Private key authentication failed:', error);
       this.updateState({
@@ -223,56 +226,28 @@ export class AuthManager {
     }
   }
 
-  // Authenticate with seed phrase
-  async authenticateWithSeed(seedPhrase: string): Promise<void> {
-    this.updateState({ isLoading: true, error: null });
-
-    try {
-      if (!browser) {
-        throw new Error('Browser environment required');
-      }
-
-      const privateKeyBytes = nip06.privateKeyFromSeedWords(seedPhrase);
-      const privateKey = Array.from(privateKeyBytes)
-        .map(b => b.toString(16).padStart(2, '0'))
-        .join('');
-      await this.authenticateWithPrivateKey(privateKey);
-      
-      this.updateState({
-        authMethod: 'seed',
-        isLoading: false
-      });
-      
-    } catch (error) {
-      console.error('Seed phrase authentication failed:', error);
-      this.updateState({
-        isAuthenticated: false,
-        user: null,
-        publicKey: '',
-        authMethod: null,
-        isLoading: false,
-        error: error instanceof Error ? error.message : 'Invalid seed phrase'
-      });
-      throw error;
-    }
-  }
-
   // Parse NIP-46 connection string (bunker:// only - nostrconnect:// is client-generated, not user input)
-  parseNIP46ConnectionString(connectionString: string): { signerPubkey: string; relays: string[]; secret?: string } {
+  parseNIP46ConnectionString(connectionString: string): {
+    signerPubkey: string;
+    relays: string[];
+    secret?: string;
+  } {
     const trimmed = connectionString.trim();
-    
+
     // Reject nostrconnect:// - it contains client pubkey, not signer pubkey
     // nostrconnect:// is what clients generate for signers to scan, not what users paste
     if (trimmed.startsWith('nostrconnect://')) {
-      throw new Error('nostrconnect:// URIs are for signers to scan. Please use a bunker:// connection string from your signer app.');
+      throw new Error(
+        'nostrconnect:// URIs are for signers to scan. Please use a bunker:// connection string from your signer app.'
+      );
     }
-    
+
     // Handle bunker:// format: bunker://<remote-signer-pubkey>?relay=<relay>&secret=<secret>
     if (trimmed.startsWith('bunker://')) {
       try {
         const url = new URL(trimmed);
         let signerPubkey = url.hostname || url.pathname.replace('//', '');
-        
+
         // Handle npub format
         if (signerPubkey.startsWith('npub1')) {
           const decoded = nip19.decode(signerPubkey);
@@ -281,21 +256,21 @@ export class AuthManager {
           }
           signerPubkey = decoded.data as string;
         }
-        
+
         // Validate hex pubkey (64 chars)
         if (!/^[0-9a-fA-F]{64}$/.test(signerPubkey)) {
           throw new Error('Invalid signer pubkey format');
         }
-        
+
         // Extract relays from query params
         const relays = url.searchParams.getAll('relay');
         if (relays.length === 0) {
           throw new Error('No relay specified in connection string');
         }
-        
+
         // Extract optional secret
         const secret = url.searchParams.get('secret') || undefined;
-        
+
         return { signerPubkey, relays, secret };
       } catch (error) {
         if (error instanceof Error && error.message.includes('Invalid')) {
@@ -304,24 +279,24 @@ export class AuthManager {
         throw new Error('Invalid bunker connection string format');
       }
     }
-    
+
     // Handle plain npub with relay hints (npub1... wss://relay1 wss://relay2)
     if (trimmed.startsWith('npub1')) {
       const parts = trimmed.split(/\s+/);
       const npub = parts[0];
-      const relays = parts.slice(1).filter(r => r.startsWith('wss://'));
-      
+      const relays = parts.slice(1).filter((r) => r.startsWith('wss://'));
+
       try {
         const decoded = nip19.decode(npub);
         if (decoded.type !== 'npub') {
           throw new Error('Invalid npub format');
         }
         const signerPubkey = decoded.data as string;
-        
+
         if (relays.length === 0) {
           throw new Error('No relay specified. Please add relay URLs after the npub.');
         }
-        
+
         return { signerPubkey, relays };
       } catch (error) {
         if (error instanceof Error && error.message.includes('Invalid')) {
@@ -330,7 +305,7 @@ export class AuthManager {
         throw new Error('Invalid npub format');
       }
     }
-    
+
     throw new Error('Invalid connection string. Use bunker:// or npub with relay hints.');
   }
 
@@ -351,12 +326,12 @@ export class AuthManager {
       // Generate a local ephemeral key for NIP-46 communication
       const localPrivateKeyBytes = generateSecretKey();
       const localPrivateKey = Array.from(localPrivateKeyBytes)
-        .map(b => b.toString(16).padStart(2, '0'))
+        .map((b) => b.toString(16).padStart(2, '0'))
         .join('');
-      
+
       // Create a local signer for the NIP-46 client
       const localSigner = new NDKPrivateKeySigner(localPrivateKey);
-      
+
       // Add relays to NDK if not already present
       for (const relay of relays) {
         try {
@@ -368,9 +343,9 @@ export class AuthManager {
 
       console.log('[NIP-46] Connecting NDK...');
       await this.ndk.connect();
-      
+
       console.log('[NIP-46] Creating NIP-46 signer...');
-      
+
       // Create the NIP-46 signer
       // NDKNip46Signer(ndk, remotePubkey, localSigner)
       this.nip46Signer = new NDKNip46Signer(this.ndk, signerPubkey, localSigner);
@@ -387,33 +362,38 @@ export class AuthManager {
       } catch (e) {
         console.warn('[NIP-46] Could not set signer properties:', e);
       }
-      
+
       // Set the signer on NDK BEFORE blockUntilReady
       this.ndk.signer = this.nip46Signer;
-      
+
       console.log('[NIP-46] Connecting to bunker (this may take a moment)...');
-      
+
       // Block until connected with timeout
       const connectionTimeout = 30000; // 30 seconds
       const connectionPromise = this.nip46Signer.blockUntilReady();
-      
+
       const timeoutPromise = new Promise<never>((_, reject) => {
-        setTimeout(() => reject(new Error('Connection timeout - bunker not responding')), connectionTimeout);
+        setTimeout(
+          () => reject(new Error('Connection timeout - bunker not responding')),
+          connectionTimeout
+        );
       });
-      
+
       await Promise.race([connectionPromise, timeoutPromise]);
-      
+
       console.log('[NIP-46] Connected! Getting user pubkey via get_public_key...');
-      
+
       // Per NIP-46: client MUST call get_public_key to learn user-pubkey
       // The signer pubkey may differ from the actual user pubkey
       const user = await this.nip46Signer.user();
       const userPubkey = user.hexpubkey;
-      
+
       console.log('[NIP-46] Signer pubkey:', signerPubkey);
       console.log('[NIP-46] User pubkey (from get_public_key):', userPubkey);
       if (signerPubkey !== userPubkey) {
-        console.log('[NIP-46] Note: signer pubkey differs from user pubkey (this is valid per spec)');
+        console.log(
+          '[NIP-46] Note: signer pubkey differs from user pubkey (this is valid per spec)'
+        );
       }
 
       this.updateState({
@@ -426,10 +406,10 @@ export class AuthManager {
       });
 
       // Store connection info for reconnection (redact secret for security)
-      const redactedConnectionString = secret 
+      const redactedConnectionString = secret
         ? connectionString.replace(secret, '***REDACTED***')
         : connectionString;
-      
+
       const nip46Info: NIP46ConnectionInfo = {
         signerPubkey,
         userPubkey, // Store the actual user pubkey separately
@@ -437,11 +417,10 @@ export class AuthManager {
         connectionString: redactedConnectionString,
         localPrivateKey // Store to reconnect without re-pairing
       };
-      
+
       localStorage.setItem('nostrcooking_loggedInPublicKey', userPubkey);
       localStorage.setItem('nostrcooking_authMethod', 'nip46');
       localStorage.setItem('nostrcooking_nip46', JSON.stringify(nip46Info));
-      
     } catch (error) {
       console.error('[NIP-46] Authentication failed:', error);
       this.nip46Signer = null;
@@ -463,7 +442,7 @@ export class AuthManager {
 
     try {
       console.log('[NIP-46] Reconnecting to bunker...');
-      
+
       // Use stored local private key if available
       let localSigner: NDKPrivateKeySigner;
       if (nip46Info.localPrivateKey) {
@@ -472,11 +451,11 @@ export class AuthManager {
         // Generate new ephemeral key (will need re-pairing)
         const localPrivateKeyBytes = generateSecretKey();
         const localPrivateKey = Array.from(localPrivateKeyBytes)
-          .map(b => b.toString(16).padStart(2, '0'))
+          .map((b) => b.toString(16).padStart(2, '0'))
           .join('');
         localSigner = new NDKPrivateKeySigner(localPrivateKey);
       }
-      
+
       // Add relays first
       for (const relay of nip46Info.relays) {
         try {
@@ -488,7 +467,7 @@ export class AuthManager {
 
       console.log('[NIP-46] Connecting NDK...');
       await this.ndk.connect();
-      
+
       // Create the NIP-46 signer
       this.nip46Signer = new NDKNip46Signer(this.ndk, nip46Info.signerPubkey, localSigner);
 
@@ -504,10 +483,10 @@ export class AuthManager {
       } catch (e) {
         console.warn('[NIP-46] Could not set signer properties:', e);
       }
-      
+
       // Set the signer on NDK BEFORE blockUntilReady
       this.ndk.signer = this.nip46Signer;
-      
+
       // Try to establish session with timeout
       console.log('[NIP-46] Attempting to establish session on reconnect (15s timeout)...');
       try {
@@ -520,7 +499,7 @@ export class AuthManager {
         console.warn('[NIP-46] Reconnection session establishment failed or timed out:', e);
         // Still proceed - might work anyway, or will fail on actual sign attempt
       }
-      
+
       // ALWAYS fetch the actual user pubkey from the signer to ensure it's correct
       // The stored userPubkey might be incorrect (e.g., if it was stored as signer pubkey)
       // Per NIP-46: client MUST call get_public_key to learn user-pubkey
@@ -532,13 +511,15 @@ export class AuthManager {
         console.log('[NIP-46] Signer pubkey:', nip46Info.signerPubkey);
         console.log('[NIP-46] Stored user pubkey:', userPubkey);
         console.log('[NIP-46] Actual user pubkey (from get_public_key):', actualUserPubkey);
-        
+
         // Use the actual user pubkey from the signer
         userPubkey = actualUserPubkey;
-        
+
         // If stored userPubkey differs from actual, log a warning
         if (nip46Info.userPubkey && nip46Info.userPubkey !== actualUserPubkey) {
-          console.warn('[NIP-46] Stored user pubkey differs from actual user pubkey! Updating stored value.');
+          console.warn(
+            '[NIP-46] Stored user pubkey differs from actual user pubkey! Updating stored value.'
+          );
           // Update the stored value
           nip46Info.userPubkey = actualUserPubkey;
           localStorage.setItem('nostrcooking_nip46', JSON.stringify(nip46Info));
@@ -548,9 +529,9 @@ export class AuthManager {
         console.warn('[NIP-46] Could not get user pubkey from signer, using stored value:', e);
         // Fall back to stored value if we can't fetch it
       }
-      
+
       const user = this.ndk.getUser({ pubkey: userPubkey });
-      
+
       console.log('[NIP-46] Reconnected as user:', userPubkey);
 
       this.updateState({
@@ -561,11 +542,10 @@ export class AuthManager {
         isLoading: false,
         error: null
       });
-      
     } catch (error) {
       console.error('[NIP-46] Reconnection failed:', error);
       this.nip46Signer = null;
-      
+
       // Don't clear storage immediately - user might want to retry
       this.updateState({
         isAuthenticated: false,
@@ -575,7 +555,7 @@ export class AuthManager {
         isLoading: false,
         error: 'Bunker not reachable. Please check your connection or reconnect.'
       });
-      
+
       throw error;
     }
   }
@@ -596,7 +576,7 @@ export class AuthManager {
   async disconnectNIP46(): Promise<void> {
     this.nip46Signer = null;
     this.ndk.signer = null;
-    
+
     this.updateState({
       isAuthenticated: false,
       user: null,
@@ -617,7 +597,9 @@ export class AuthManager {
   private generateSecret(): string {
     const array = new Uint8Array(16);
     crypto.getRandomValues(array);
-    return Array.from(array).map(b => b.toString(16).padStart(2, '0')).join('');
+    return Array.from(array)
+      .map((b) => b.toString(16).padStart(2, '0'))
+      .join('');
   }
 
   // Start universal NIP-46 pairing - generates nostrconnect:// URI
@@ -631,7 +613,7 @@ export class AuthManager {
     // Generate ephemeral local keypair
     const localPrivateKeyBytes = generateSecretKey();
     const localPrivateKey = Array.from(localPrivateKeyBytes)
-      .map(b => b.toString(16).padStart(2, '0'))
+      .map((b) => b.toString(16).padStart(2, '0'))
       .join('');
     const localPubkey = getPublicKey(localPrivateKeyBytes);
 
@@ -644,11 +626,7 @@ export class AuthManager {
       relays = Array.from(this.ndk.pool.relays.keys()) as string[];
     }
     if (relays.length === 0) {
-      relays = [
-        'wss://relay.damus.io',
-        'wss://relay.nostr.band',
-        'wss://nos.lol'
-      ];
+      relays = ['wss://relay.damus.io', 'wss://relay.nostr.band', 'wss://nos.lol'];
     }
 
     // Store pending pairing info including secret for validation
@@ -664,13 +642,13 @@ export class AuthManager {
     // Build nostrconnect:// URI per NIP-46 spec
     // Format: nostrconnect://<client-pubkey>?relay=<relay>&secret=<secret>&name=<name>&url=<url>
     const params = new URLSearchParams();
-    relays.forEach(r => params.append('relay', r));
+    relays.forEach((r) => params.append('relay', r));
     params.set('secret', secret);
     params.set('name', 'Zap Cooking');
     params.set('url', 'https://zap.cooking');
     // Optional: request specific permissions
     // params.set('perms', 'sign_event:30023,sign_event:1,sign_event:7');
-    
+
     const uri = `nostrconnect://${localPubkey}?${params.toString()}`;
 
     console.log('[NIP-46] Generated nostrconnect URI');
@@ -697,16 +675,20 @@ export class AuthManager {
   }
 
   // Decrypt NIP-44 encrypted content
-  private decryptNip44(ciphertext: string, senderPubkey: string, recipientPrivateKey: string): string {
+  private decryptNip44(
+    ciphertext: string,
+    senderPubkey: string,
+    recipientPrivateKey: string
+  ): string {
     try {
       // Convert hex private key to Uint8Array
       const privateKeyBytes = new Uint8Array(
-        recipientPrivateKey.match(/.{1,2}/g)!.map(byte => parseInt(byte, 16))
+        recipientPrivateKey.match(/.{1,2}/g)!.map((byte) => parseInt(byte, 16))
       );
-      
+
       // Get conversation key
       const conversationKey = nip44.v2.utils.getConversationKey(privateKeyBytes, senderPubkey);
-      
+
       // Decrypt
       return nip44.v2.decrypt(ciphertext, conversationKey);
     } catch (e) {
@@ -732,31 +714,40 @@ export class AuthManager {
 
     sub.on('event', async (event: any) => {
       console.log('[NIP-46] Received NIP-46 event from:', event.pubkey);
-      
+
       // Prevent duplicate processing
       if (isProcessingPairing) {
         console.log('[NIP-46] Already processing a pairing, ignoring duplicate event');
         return;
       }
-      
+
       // The event.pubkey is the signer's pubkey
       const signerPubkey = event.pubkey;
-      
+
       // Get pending info to validate secret
       const pendingInfo = this.getPendingNip46Info();
       if (!pendingInfo) {
         console.log('[NIP-46] No pending pairing info, ignoring event');
         return;
       }
-      
+
       // Decrypt and validate the response per NIP-46 spec
       let response: any = null;
       try {
-        const decrypted = this.decryptNip44(event.content, signerPubkey, pendingInfo.localPrivateKey);
+        const decrypted = this.decryptNip44(
+          event.content,
+          signerPubkey,
+          pendingInfo.localPrivateKey
+        );
         response = JSON.parse(decrypted);
-        
-        console.log('[NIP-46] Decrypted response:', { id: response.id, method: response.method, hasResult: !!response.result, hasError: !!response.error });
-        
+
+        console.log('[NIP-46] Decrypted response:', {
+          id: response.id,
+          method: response.method,
+          hasResult: !!response.result,
+          hasError: !!response.error
+        });
+
         // Only validate secret for "connect" method responses
         // Other methods (get_public_key, sign_event, etc.) won't have the secret in result
         if (response.method === 'connect' || (!response.method && response.result)) {
@@ -766,12 +757,17 @@ export class AuthManager {
             console.log('[NIP-46] Secret validated successfully');
           } else if (response.result !== undefined) {
             // Only warn if result is present but doesn't match (might be a different response type)
-            console.warn('[NIP-46] Secret mismatch - expected:', pendingInfo.secret, 'got:', response.result);
+            console.warn(
+              '[NIP-46] Secret mismatch - expected:',
+              pendingInfo.secret,
+              'got:',
+              response.result
+            );
             // Still proceed but log warning - some signers may not implement secret correctly
           }
           // If response.result is undefined and method is not 'connect', it's likely a different method response
         }
-        
+
         if (response.error) {
           console.error('[NIP-46] Signer returned error:', response.error);
           throw new Error(response.error);
@@ -781,14 +777,18 @@ export class AuthManager {
         // Log but continue to try completing - NDK will handle its own validation
         console.warn('[NIP-46] Could not validate response (will still attempt connection):', e);
       }
-      
+
       // Only attempt pairing if this looks like a connect response or if we can't determine the method
       // Skip if it's clearly a different method response (like get_public_key, sign_event, etc.)
       if (response && response.method && response.method !== 'connect') {
-        console.log('[NIP-46] Response is for method:', response.method, '- not a connect response, skipping pairing');
+        console.log(
+          '[NIP-46] Response is for method:',
+          response.method,
+          '- not a connect response, skipping pairing'
+        );
         return;
       }
-      
+
       try {
         isProcessingPairing = true;
         await this.completeNip46PairingWithSignerPubkey(signerPubkey);
@@ -816,7 +816,7 @@ export class AuthManager {
     if (!browser) return false;
     const pending = localStorage.getItem('nostrcooking_nip46_pending');
     if (!pending) return false;
-    
+
     try {
       const info = JSON.parse(pending);
       // Expire after 5 minutes
@@ -831,11 +831,16 @@ export class AuthManager {
   }
 
   // Get pending pairing info
-  getPendingNip46Info(): { localPrivateKey: string; localPubkey: string; relays: string[]; secret: string } | null {
+  getPendingNip46Info(): {
+    localPrivateKey: string;
+    localPubkey: string;
+    relays: string[];
+    secret: string;
+  } | null {
     if (!browser) return null;
     const pending = localStorage.getItem('nostrcooking_nip46_pending');
     if (!pending) return null;
-    
+
     try {
       return JSON.parse(pending);
     } catch {
@@ -855,7 +860,9 @@ export class AuthManager {
         try {
           const nip46Info = JSON.parse(storedNip46);
           if (nip46Info.signerPubkey === signerPubkey) {
-            console.log('[NIP-46] Already authenticated with this signer, ignoring duplicate event');
+            console.log(
+              '[NIP-46] Already authenticated with this signer, ignoring duplicate event'
+            );
             return; // Already paired, just return silently
           }
         } catch (e) {
@@ -902,7 +909,10 @@ export class AuthManager {
         console.log('[NIP-46] Session established successfully!');
         sessionEstablished = true;
       } catch (e) {
-        console.warn('[NIP-46] Session establishment timed out, will still try to get user pubkey:', e);
+        console.warn(
+          '[NIP-46] Session establishment timed out, will still try to get user pubkey:',
+          e
+        );
       }
 
       // Per NIP-46: client MUST call get_public_key to learn user-pubkey
@@ -917,21 +927,26 @@ export class AuthManager {
         console.log('[NIP-46] Got user pubkey via get_public_key:', userPubkey);
         console.log('[NIP-46] Signer pubkey:', signerPubkey);
         if (signerPubkey !== userPubkey) {
-          console.log('[NIP-46] Note: signer pubkey differs from user pubkey (this is valid per spec)');
+          console.log(
+            '[NIP-46] Note: signer pubkey differs from user pubkey (this is valid per spec)'
+          );
         }
       } catch (e) {
-        console.warn('[NIP-46] Could not get user pubkey via get_public_key, using signer pubkey as fallback:', e);
+        console.warn(
+          '[NIP-46] Could not get user pubkey via get_public_key, using signer pubkey as fallback:',
+          e
+        );
         // Only use signer pubkey as fallback if we truly can't get the user pubkey
         // This should be rare, as get_public_key should work even if blockUntilReady() timed out
       }
-      
+
       const user = this.ndk.getUser({ pubkey: userPubkey });
 
       const nip46Info: NIP46ConnectionInfo = {
         signerPubkey,
         userPubkey, // Store the actual user pubkey separately
         relays: pendingInfo.relays,
-        connectionString: `bunker://${signerPubkey}?${pendingInfo.relays.map(r => `relay=${encodeURIComponent(r)}`).join('&')}`,
+        connectionString: `bunker://${signerPubkey}?${pendingInfo.relays.map((r) => `relay=${encodeURIComponent(r)}`).join('&')}`,
         localPrivateKey: pendingInfo.localPrivateKey
       };
 
@@ -939,7 +954,7 @@ export class AuthManager {
       localStorage.setItem('nostrcooking_authMethod', 'nip46');
       localStorage.setItem('nostrcooking_nip46', JSON.stringify(nip46Info));
       localStorage.removeItem('nostrcooking_nip46_pending');
-      
+
       console.log('[NIP-46] Auth info saved, authenticated as user:', userPubkey);
 
       // Update state to show user as logged in
@@ -951,7 +966,6 @@ export class AuthManager {
         isLoading: false,
         error: null
       });
-
     } catch (error) {
       console.error('[NIP-46] Pairing failed:', error);
       this.nip46Signer = null;
@@ -993,7 +1007,7 @@ export class AuthManager {
 
     // Start listening for NIP-46 responses using shared listener method
     this.startNip46ResponseListener(pendingInfo.localPubkey);
-    
+
     console.log('[NIP-46] Listener restarted, waiting for signer response...');
   }
 
@@ -1067,41 +1081,40 @@ export class AuthManager {
   generateAnonymousKey(): { privateKey: string; publicKey: string } {
     const privateKeyBytes = generateSecretKey();
     const privateKey = Array.from(privateKeyBytes)
-      .map(b => b.toString(16).padStart(2, '0'))
+      .map((b) => b.toString(16).padStart(2, '0'))
       .join('');
     const publicKey = getPublicKey(privateKeyBytes);
-    
+
     return { privateKey, publicKey };
   }
 
   // Generate new key pair (nsec format)
-  generateKeyPair(): { privateKey: Uint8Array; publicKey: string; seedPhrase: string } {
+  generateKeyPair(): { privateKey: Uint8Array; publicKey: string } {
     const privateKey = generateSecretKey();
     const publicKey = getPublicKey(privateKey);
-    
-    // Return empty seedPhrase since we're using nsec format
-    return { privateKey, publicKey, seedPhrase: '' };
+
+    return { privateKey, publicKey };
   }
 
   // Post anonymously with ephemeral key
   async postAnonymously(content: string, tags: string[][] = []): Promise<void> {
     const { privateKey } = this.generateAnonymousKey();
     const signer = new NDKPrivateKeySigner(privateKey);
-    
+
     // Temporarily set signer for this post
     const originalSigner = this.ndk.signer;
     this.ndk.signer = signer;
-    
+
     try {
       const event = new (await import('@nostr-dev-kit/ndk')).NDKEvent(this.ndk);
       event.kind = 1;
       event.content = content;
       event.tags = tags;
-      
+
       // Add NIP-89 client tag
       const { addClientTagToEvent } = await import('./nip89');
       addClientTagToEvent(event);
-      
+
       await event.publish();
     } finally {
       // Restore original signer
@@ -1115,7 +1128,7 @@ export class AuthManager {
     if (this.nip46Signer) {
       this.nip46Signer = null;
     }
-    
+
     this.updateState({
       isAuthenticated: false,
       user: null,
@@ -1150,7 +1163,7 @@ export class AuthManager {
     if (!this.authState.user) {
       throw new Error('No authenticated user');
     }
-    
+
     return await this.authState.user.fetchProfile();
   }
 }

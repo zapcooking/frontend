@@ -53,7 +53,9 @@
   let unsubscribe: (() => void) | null = null;
   let walletWelcomeOpen = false;
   let walletWelcomeSeen = false;
+  let walletWelcomeForce = false;
   const WALLET_WELCOME_KEY = 'zapcooking_wallet_welcome_seen';
+  const WALLET_WELCOME_FORCE_KEY = 'zapcooking_wallet_welcome_force';
   $: hasWallet =
     $walletConnected ||
     $weblnConnected ||
@@ -206,14 +208,18 @@
           userPublickey.set('');
         }
 
-        if (
-          browser &&
-          state.isAuthenticated &&
-          state.publicKey &&
-          !walletWelcomeSeen &&
-          !hasWallet
-        ) {
-          walletWelcomeOpen = true;
+        if (browser) {
+          walletWelcomeForce = localStorage.getItem(WALLET_WELCOME_FORCE_KEY) === '1';
+        }
+
+        if (browser && state.isAuthenticated && state.publicKey && !hasWallet) {
+          if (walletWelcomeForce || !walletWelcomeSeen) {
+            walletWelcomeOpen = true;
+            if (walletWelcomeForce) {
+              walletWelcomeForce = false;
+              localStorage.removeItem(WALLET_WELCOME_FORCE_KEY);
+            }
+          }
         }
       });
 
@@ -238,6 +244,7 @@
   onMount(() => {
     if (browser) {
       walletWelcomeSeen = localStorage.getItem(WALLET_WELCOME_KEY) === '1';
+      walletWelcomeForce = localStorage.getItem(WALLET_WELCOME_FORCE_KEY) === '1';
     }
   });
 

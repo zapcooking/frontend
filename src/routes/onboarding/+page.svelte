@@ -15,7 +15,7 @@
   let unsubscribe: (() => void) | null = null;
 
   let step = 0;
-  let generatedKeys: { privateKey: Uint8Array; publicKey: string; seedPhrase: string } | null = null;
+  let generatedKeys: { privateKey: Uint8Array; publicKey: string } | null = null;
   let npub = '';
 
   let disableStepButtons = false;
@@ -28,7 +28,7 @@
     // Subscribe to auth state changes
     unsubscribe = authManager.subscribe((state) => {
       authState = state;
-      
+
       // Update the legacy userPublickey store for compatibility
       if (state.isAuthenticated && state.publicKey) {
         userPublickey.set(state.publicKey);
@@ -62,7 +62,7 @@
 
   async function continuestep() {
     disableStepButtons = true;
-    
+
     if (step == 1) {
       // Generate keys and authenticate
       if (!generatedKeys) {
@@ -71,35 +71,35 @@
       if (generatedKeys) {
         // Convert Uint8Array to hex string for authentication
         const privateKeyHex = Array.from(generatedKeys.privateKey)
-          .map(b => b.toString(16).padStart(2, '0'))
+          .map((b) => b.toString(16).padStart(2, '0'))
           .join('');
         await authManager.authenticateWithPrivateKey(privateKeyHex);
       }
     }
-    
+
     if (step == 2 && name !== '') {
       // Create profile
       const metaEvent = new NDKEvent($ndk);
       metaEvent.kind = 0;
       metaEvent.tags = [];
-      
+
       // Build profile content with username
-      const profileContent: any = { 
-        displayName: name, 
-        picture 
+      const profileContent: any = {
+        displayName: name,
+        picture
       };
-      
+
       // Add username if provided with NIP-05 verification
       if (username.trim()) {
         profileContent.name = username.trim();
         profileContent.nip05 = `${username.trim()}@zap.cooking`;
       }
-      
+
       metaEvent.content = JSON.stringify(profileContent);
       let relays = await metaEvent.publish();
-      
+
       // Small delay to allow relays to propagate
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      await new Promise((resolve) => setTimeout(resolve, 1000));
       relays.forEach((relay) => {
         relay.once('published', () => {
           console.log('published to', relay);
@@ -109,11 +109,11 @@
         });
       });
     }
-    
+
     if (step == 3) {
       goto('/');
     }
-    
+
     step++;
     disableStepButtons = false;
   }
@@ -134,27 +134,27 @@
   async function handleImageUpload(e: Event) {
     const target = e.target as HTMLInputElement;
     if (!target.files || target.files.length === 0) return;
-    
+
     uploadingPicture = true;
     uploadError = '';
-    
+
     try {
       const file = target.files[0];
-      
+
       // Validate file type
       if (!file.type.startsWith('image/')) {
         uploadError = 'Please upload an image file';
         uploadingPicture = false;
         return;
       }
-      
+
       // Validate file size (max 10MB)
       if (file.size > 10 * 1024 * 1024) {
         uploadError = 'Image must be less than 10MB';
         uploadingPicture = false;
         return;
       }
-      
+
       const body = new FormData();
       body.append('file[]', file);
       const result = await uploadToNostrBuild(body);
@@ -177,12 +177,12 @@
 
   async function uploadToNostrBuild(body: FormData) {
     const url = 'https://nostr.build/api/v2/upload/profile';
-    
+
     // Check if we have a signer
     if (!$ndk.signer) {
       throw new Error('Not authenticated - please complete the previous step first');
     }
-    
+
     const template = new NDKEvent($ndk);
     template.kind = 27235;
     template.created_at = Math.floor(Date.now() / 1000);
@@ -193,7 +193,7 @@
     ];
 
     await template.sign();
-    
+
     // Ensure all fields are properly formatted according to NIP-98
     const authEvent = {
       id: template.id,
@@ -213,7 +213,6 @@
       }
     });
   }
-
 </script>
 
 <!-- TODO -->
@@ -242,26 +241,27 @@
         <div class="text-sm text-red-700 space-y-2">
           <p>• This will generate a new Nostr private key (nsec format)</p>
           <p>• <strong>Never share your private key with anyone</strong></p>
-          <p>• Store it securely - if lost, your account cannot be recovered</p>
+          <p>• Store it securely - if lost, your profile cannot be recovered</p>
           <p>• Consider using a hardware wallet for maximum security</p>
         </div>
       </div>
-      
+
       <p>
-        Here, you can securely generate a new Nostr private key. This key serves as your permanent password for the Nostr network. 
-        It's crucial to store it in a secure location and avoid sharing it with anyone.
+        Here, you can securely generate a new Nostr private key. This key serves as your permanent
+        password for the Nostr network. It's crucial to store it in a secure location and avoid
+        sharing it with anyone.
       </p>
-      
+
       <button
         class="w-full py-3 px-4 bg-blue-500 text-white rounded-md hover:bg-blue-600 disabled:opacity-50"
         on:click={generateNewKeys}
         disabled={disableStepButtons}
       >
-        Generate New Account
+        Generate New Profile
       </button>
     </div>
     <p>
-      While generating a seed on the web is convenient, it may not be the most secure option.
+      While generating a key on the web is convenient, it may not be the most secure option.
       Consider downloading a native Nostr client for a more robust and secure experience.
     </p>
   {:else if step == 1}
@@ -272,14 +272,16 @@
           <p>• <strong>Write down your private key (nsec) immediately</strong></p>
           <p>• Store it in a secure location (password manager, encrypted file)</p>
           <p>• <strong>Never share it with anyone</strong></p>
-          <p>• If you lose this key, you cannot recover your account</p>
-          <p>• This is your only way to prove ownership of this account</p>
+          <p>• If you lose this key, you cannot recover your profile</p>
+          <p>• This is your only way to prove ownership of this profile</p>
         </div>
       </div>
-      
+
       {#if generatedKeys}
         <div>
-          <label for="private-key-textarea" class="block text-sm font-medium text-gray-700 mb-1">Private Key (nsec) - SAVE THIS!</label>
+          <label for="private-key-textarea" class="block text-sm font-medium text-gray-700 mb-1"
+            >Private Key (nsec) - SAVE THIS!</label
+          >
           <div class="flex gap-2">
             <textarea
               id="private-key-textarea"
@@ -289,7 +291,8 @@
               class="flex-1 shadow-sm border-red-300 rounded-md text-sm font-mono bg-red-50"
             ></textarea>
             <button
-              on:click={() => generatedKeys && copyToClipboard(nip19.nsecEncode(generatedKeys.privateKey))}
+              on:click={() =>
+                generatedKeys && copyToClipboard(nip19.nsecEncode(generatedKeys.privateKey))}
               class="px-3 py-2 bg-red-100 hover:bg-red-200 rounded-md text-sm text-red-800 font-medium"
             >
               Copy
@@ -299,7 +302,9 @@
         </div>
 
         <div>
-          <label for="public-key-input" class="block text-sm font-medium text-gray-700 mb-1">Public Key (npub)</label>
+          <label for="public-key-input" class="block text-sm font-medium text-gray-700 mb-1"
+            >Public Key (npub)</label
+          >
           <div class="flex gap-2">
             <input
               id="public-key-input"
@@ -308,20 +313,24 @@
               class="flex-1 shadow-sm border-gray-300 rounded-md text-sm font-mono"
             />
             <button
-              on:click={() => generatedKeys && copyToClipboard(nip19.npubEncode(generatedKeys.publicKey))}
+              on:click={() =>
+                generatedKeys && copyToClipboard(nip19.npubEncode(generatedKeys.publicKey))}
               class="px-3 py-2 bg-gray-100 hover:bg-gray-200 rounded-md text-sm"
             >
               Copy
             </button>
           </div>
-          <div class="text-xs text-gray-500 mt-1">This is safe to share - it's your public identity</div>
+          <div class="text-xs text-gray-500 mt-1">
+            This is safe to share - it's your public identity
+          </div>
         </div>
       {/if}
-      
+
       <div class="bg-yellow-50 border border-yellow-200 rounded-md p-3">
         <div class="text-sm font-medium text-yellow-800 mb-1">⚠️ Important</div>
         <div class="text-sm text-yellow-700">
-          Only continue if you have safely saved your private key (nsec). You cannot recover your account without it.
+          Only continue if you have safely saved your private key (nsec). You cannot recover your
+          profile without it.
         </div>
       </div>
     </div>
@@ -340,25 +349,34 @@
         <div class="flex flex-col self-center">
           <h2 class="text-white mb-2">Profile Picture</h2>
           <div class="relative">
-            <label for="file-upload" class="cursor-pointer self-center group {uploadingPicture ? 'pointer-events-none opacity-50' : ''}">
+            <label
+              for="file-upload"
+              class="cursor-pointer self-center group {uploadingPicture
+                ? 'pointer-events-none opacity-50'
+                : ''}"
+            >
               <div class="relative">
                 <img
                   class="w-[100px] h-[100px] md:w-[200px] md:h-[200px] rounded-full bg-input self-center border-2 border-gray-300 group-hover:border-orange-500 transition-colors"
                   src={picture}
                   alt="Profile"
                 />
-                <div class="absolute inset-0 rounded-full bg-black bg-opacity-0 group-hover:bg-opacity-20 transition-all duration-200 flex items-center justify-center">
-                  <div class="opacity-0 group-hover:opacity-100 transition-opacity duration-200 text-white text-sm font-medium">
+                <div
+                  class="absolute inset-0 rounded-full bg-black bg-opacity-0 group-hover:bg-opacity-20 transition-all duration-200 flex items-center justify-center"
+                >
+                  <div
+                    class="opacity-0 group-hover:opacity-100 transition-opacity duration-200 text-white text-sm font-medium"
+                  >
                     {uploadingPicture ? '⏳ Uploading...' : '📷 Upload'}
                   </div>
                 </div>
               </div>
-              <input 
-                id="file-upload" 
-                bind:this={input} 
-                type="file" 
-                accept="image/*" 
-                class="sr-only self-center" 
+              <input
+                id="file-upload"
+                bind:this={input}
+                type="file"
+                accept="image/*"
+                class="sr-only self-center"
                 on:change={handleImageUpload}
                 disabled={uploadingPicture}
               />
@@ -375,14 +393,30 @@
       <div class="flex flex-col gap-4 self-center">
         <div class="flex flex-col gap-2">
           <h2>Display Name</h2>
-          <p class="break-words hidden md:visible text-sm text-gray-400">This will be visible to others.</p>
-          <input bind:value={name} class="input" type="text" placeholder="Zap Cooking Chef" id="display-name" />
+          <p class="break-words hidden md:visible text-sm text-gray-400">
+            This will be visible to others.
+          </p>
+          <input
+            bind:value={name}
+            class="input"
+            type="text"
+            placeholder="Zap Cooking Chef"
+            id="display-name"
+          />
         </div>
-        
+
         <div class="flex flex-col gap-2">
           <h2>Username (Optional)</h2>
-          <p class="break-words hidden md:visible text-sm text-gray-400">A unique identifier for your profile.</p>
-          <input bind:value={username} class="input" type="text" placeholder="chef123" id="username" />
+          <p class="break-words hidden md:visible text-sm text-gray-400">
+            A unique identifier for your profile.
+          </p>
+          <input
+            bind:value={username}
+            class="input"
+            type="text"
+            placeholder="chef123"
+            id="username"
+          />
           <div class="text-xs text-gray-500">
             This will be your @username on Nostr. Leave empty if you prefer to use your public key.
           </div>
@@ -402,9 +436,9 @@
         {#if disableStepButtons == true}
           loading...
         {:else if step == 0}
-          Continue with this seed
+          Continue with this key
         {:else if step == 1}
-          I saved the seed pharse
+          I saved the private key
         {:else if step == 2}
           {#if name == ''}
             please enter a username

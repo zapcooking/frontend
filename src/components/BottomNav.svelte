@@ -34,7 +34,7 @@
       <LightningIcon size={24} />
       {#if !hasWallet}
         <span
-          class="absolute -top-1.5 -right-2 w-3 h-3 rounded-full bg-amber-500 border-2 border-input"
+          class="absolute -top-2 -right-2 w-4 h-4 rounded-full bg-amber-500 border-2 border-input"
           aria-hidden="true"
         ></span>
       {/if}

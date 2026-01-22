@@ -39,10 +39,7 @@
   // Form states
   let nsecInput = '';
   let nsecError = '';
-  let seedInput = '';
-  let seedError = '';
-  let generatedKeys: { privateKey: Uint8Array; publicKey: string; seedPhrase: string } | null =
-    null;
+  let generatedKeys: { privateKey: Uint8Array; publicKey: string } | null = null;
   let newAccountUsername = '';
   let newAccountBio = '';
   let newAccountPicture = '';
@@ -51,10 +48,10 @@
 
   // Modal states
   let nsecModal = false;
-  let seedModal = false;
   let generateModal = false;
   let showPrivateKey = false;
   let backupStep = 1;
+  let backupDownloaded = false;
   let bunkerModal = false;
   let nip46UniversalModal = false;
 
@@ -171,24 +168,6 @@
     }
   }
 
-  async function loginWithSeed() {
-    if (!authManager) return;
-    try {
-      seedError = '';
-      if (!seedInput.trim()) {
-        seedError = 'Please enter a seed phrase';
-        return;
-      }
-
-      await authManager.authenticateWithSeed(seedInput.trim());
-      seedModal = false;
-      seedInput = '';
-    } catch (error) {
-      seedError = authState.error || 'Invalid seed phrase';
-      console.error('Seed login failed:', error);
-    }
-  }
-
   async function loginWithBunker() {
     if (!authManager) return;
     try {
@@ -216,6 +195,7 @@
     if (!authManager) return;
     generatedKeys = authManager.generateKeyPair();
     backupStep = 1;
+    backupDownloaded = false;
   }
 
   function downloadKeysBackup() {
@@ -225,14 +205,16 @@
     const content = [
       'Zap Cooking Nostr Backup',
       '',
-      `Private key (nsec): ${nsec}`,
       `Public key (npub): ${npub}`,
-      `Seed phrase: ${generatedKeys.seedPhrase}`,
+      '',
+      `Private key (nsec): ${nsec}`,
       '',
       'Keep this file safe:',
-      '- Do not share your private key or seed phrase.',
-      '- Store offline or in an encrypted password manager.',
-      '- Anyone with this file can access your account.'
+      '- Do not share your private key.',
+      '- Store in a secure password manager or offline storage.',
+      '- You can restore your profile in any Nostr client.',
+      '- Zap Cooking: https://zap.cooking',
+      '- Anyone with this file can access your profile.'
     ].join('\n');
     const blob = new Blob([content], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
@@ -244,6 +226,7 @@
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
+    backupDownloaded = true;
   }
 
   async function useGeneratedKeys(skipProfile = false) {
@@ -255,6 +238,10 @@
     const profilePicture = newAccountPicture;
 
     try {
+      if (browser) {
+        localStorage.setItem('zapcooking_wallet_welcome_force', '1');
+      }
+
       // Convert Uint8Array to hex string for authentication
       const privateKeyHex = Array.from(generatedKeys.privateKey)
         .map((b) => b.toString(16).padStart(2, '0'))
@@ -341,16 +328,14 @@
 
   function modalCleanup() {
     nsecModal = false;
-    seedModal = false;
     generateModal = false;
     bunkerModal = false;
     nip46UniversalModal = false;
     showPrivateKey = false;
     backupStep = 1;
+    backupDownloaded = false;
     nsecInput = '';
-    seedInput = '';
     nsecError = '';
-    seedError = '';
     bunkerConnectionString = '';
     bunkerError = '';
     bunkerConnecting = false;
@@ -525,32 +510,6 @@
     </div>
   </Modal>
 
-  <!-- Seed Phrase Modal -->
-  <Modal bind:open={seedModal} on:close={modalCleanup}>
-    <svelte:fragment slot="title">🌱 Restore from Seed Phrase</svelte:fragment>
-    <div class="flex flex-col gap-4">
-      <div class="text-sm text-caption">Enter your 12 or 24 word seed phrase</div>
-      <textarea
-        bind:value={seedInput}
-        placeholder="word1 word2 word3..."
-        rows="3"
-        class="input block w-full sm:text-sm p-3"
-        disabled={authState.isLoading}
-      ></textarea>
-      {#if seedError}
-        <div class="text-sm" style="color: var(--color-danger, #ef4444)">{seedError}</div>
-      {/if}
-      <div class="flex gap-2">
-        <Button on:click={loginWithSeed} primary={true} disabled={authState.isLoading}>
-          {authState.isLoading ? '⚡ Restoring...' : '⚡ Restore'}
-        </Button>
-        <Button on:click={modalCleanup} primary={false} disabled={authState.isLoading}
-          >Cancel</Button
-        >
-      </div>
-    </div>
-  </Modal>
-
   <!-- Bunker (NIP-46) Modal -->
   <Modal bind:open={bunkerModal} on:close={modalCleanup}>
     <svelte:fragment slot="title">🔐 Connect External Signer</svelte:fragment>
@@ -701,7 +660,9 @@
   <Modal bind:open={generateModal} on:close={modalCleanup}>
     <svelte:fragment slot="title"
       >{generatedKeys
-        ? '🔐 Save your backup key'
+        ? backupStep === 2
+          ? 'Add a display name and bio (optional)'
+          : '🔐 Save your backup key'
         : '🎉 Your Zap Cooking profile is almost ready!'}</svelte:fragment
     >
     <div class="flex flex-col gap-4">
@@ -748,11 +709,13 @@
       {:else}
         <div class="space-y-4">
           <!-- Calm intro message -->
-          <div class="bg-green-50 border border-green-200 rounded-lg p-3">
-            <p class="text-sm text-green-700">
-              ✓ Your profile has been created. Save your backup key below to recover it later.
-            </p>
-          </div>
+          {#if backupStep === 1}
+            <div class="bg-green-50 border border-green-200 rounded-lg p-3">
+              <p class="text-sm text-green-700">
+                ✓ Your profile has been created. Save your backup key below to recover it later.
+              </p>
+            </div>
+          {/if}
 
           {#if backupStep === 1}
             <p class="text-xs text-caption uppercase tracking-wide mb-2">Step 1</p>
@@ -850,14 +813,19 @@
               </Button>
             </div>
 
-            <Button on:click={() => (backupStep = 2)} primary={false} class="w-full">
+            <Button
+              on:click={() => (backupStep = 2)}
+              primary={false}
+              class="w-full {!backupDownloaded ? 'opacity-50 cursor-not-allowed' : ''}"
+              disabled={!backupDownloaded}
+            >
               Continue to Step 2
             </Button>
+            {#if !backupDownloaded}
+              <p class="text-xs text-caption text-center">Download the backup file to continue.</p>
+            {/if}
           {:else}
             <p class="text-xs text-caption uppercase tracking-wide mb-2">Step 2</p>
-            <p class="text-sm font-medium mb-3" style="color: var(--color-text-primary)">
-              👋 Set up your profile (optional)
-            </p>
 
             <div class="space-y-3 mb-4">
               <!-- Profile Photo -->
@@ -980,13 +948,6 @@
               >
                 {authState.isLoading ? '⚡ Setting up...' : '⚡ Continue to Zap Cooking'}
               </Button>
-              <button
-                on:click={() => useGeneratedKeys(true)}
-                disabled={authState.isLoading || uploadingPicture}
-                class="w-full text-sm text-caption hover:opacity-80 transition-colors disabled:opacity-50"
-              >
-                Skip profile setup for now
-              </button>
             </div>
           {/if}
         </div>
@@ -1127,11 +1088,11 @@
           <button
             on:click={() => (generateModal = true)}
             disabled={authState.isLoading}
-            aria-label="Create a new Zap Cooking account"
+            aria-label="Create a new Zap Cooking profile"
             class="w-full bg-input hover:opacity-90 font-medium h-11 px-6 rounded-xl transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed border"
             style="color: var(--color-text-primary); border-color: var(--color-input-border)"
           >
-            <span class="text-sm">🔑 Create Account</span>
+            <span class="text-sm">🔑 Create Profile</span>
           </button>
         </div>
 

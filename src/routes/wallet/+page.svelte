@@ -44,6 +44,7 @@
   import {
     backupNwcToNostr,
     restoreNwcFromNostr,
+    hasNwcBackupInNostr,
     hasEncryptionSupport as hasNwcEncryptionSupport,
     deleteBackupFromNostr as deleteNwcBackupFromNostr
   } from '$lib/wallet/nwcBackup';
@@ -54,6 +55,7 @@
     createBackup,
     backupWalletToNostr,
     restoreWalletFromNostr,
+    hasSparkBackupInNostr,
     loadMnemonic,
     lightningAddress as sparkLightningAddressStore,
     walletInitialized as sparkWalletInitialized,
@@ -154,6 +156,15 @@
   let restoreMnemonicInput = '';
   let fileInput: HTMLInputElement;
   let sparkLoadingMessage = ''; // Status message during Spark operations
+  let sparkBackupExists: boolean | null = null;
+  let nwcBackupExists: boolean | null = null;
+  let sparkBackupChecking = false;
+  let nwcBackupChecking = false;
+  let lastBackupCheckType: number | null = null;
+  let lastBackupCheckPubkey = '';
+  const BACKUP_CHECK_TIMEOUT_MS = 8000;
+  $: canCheckSparkBackup = browser && hasEncryptionSupport();
+  $: canCheckNwcBackup = browser && hasNwcEncryptionSupport();
 
   // Delete confirmation state
   let walletToDelete: { id: number; name: string; kind: number; data: string } | null = null;
@@ -219,6 +230,68 @@
 
   // Check if user has maximum wallets (2)
   $: hasMaxWallets = $wallets.length >= 2;
+
+  async function checkSparkBackupStatus(pubkey: string) {
+    if (sparkBackupChecking) return;
+    sparkBackupChecking = true;
+    sparkBackupExists = null;
+    try {
+      sparkBackupExists = await Promise.race([
+        hasSparkBackupInNostr(pubkey),
+        new Promise<boolean>((_, reject) =>
+          setTimeout(() => reject(new Error('Backup check timed out')), BACKUP_CHECK_TIMEOUT_MS)
+        )
+      ]);
+    } catch {
+      sparkBackupExists = false;
+    } finally {
+      sparkBackupChecking = false;
+      lastBackupCheckType = 4;
+      lastBackupCheckPubkey = pubkey;
+    }
+  }
+
+  async function checkNwcBackupStatus(pubkey: string) {
+    if (nwcBackupChecking) return;
+    nwcBackupChecking = true;
+    nwcBackupExists = null;
+    try {
+      nwcBackupExists = await Promise.race([
+        hasNwcBackupInNostr(pubkey),
+        new Promise<boolean>((_, reject) =>
+          setTimeout(() => reject(new Error('Backup check timed out')), BACKUP_CHECK_TIMEOUT_MS)
+        )
+      ]);
+    } catch {
+      nwcBackupExists = false;
+    } finally {
+      nwcBackupChecking = false;
+      lastBackupCheckType = 3;
+      lastBackupCheckPubkey = pubkey;
+    }
+  }
+
+  $: if (showAddWallet && selectedWalletType === 4 && $userPublickey && canCheckSparkBackup) {
+    if (lastBackupCheckType !== 4 || lastBackupCheckPubkey !== $userPublickey) {
+      checkSparkBackupStatus($userPublickey);
+    }
+  }
+
+  $: if (showAddWallet && selectedWalletType === 3 && $userPublickey && canCheckNwcBackup) {
+    if (lastBackupCheckType !== 3 || lastBackupCheckPubkey !== $userPublickey) {
+      checkNwcBackupStatus($userPublickey);
+    }
+  }
+
+  $: if (!canCheckSparkBackup) {
+    sparkBackupExists = null;
+    sparkBackupChecking = false;
+  }
+
+  $: if (!canCheckNwcBackup) {
+    nwcBackupExists = null;
+    nwcBackupChecking = false;
+  }
 
   // Check if signer extension supports encryption (NIP-44 or NIP-04)
   // Required for wallet backup functionality
@@ -2929,7 +3002,7 @@
                     disabled={hasExistingSparkWallet}
                   >
                     <div
-                      class="w-10 h-10 rounded-full bg-orange-500/20 flex items-center justify-center"
+                      class="w-10 h-10 flex-shrink-0 rounded-full bg-orange-500/20 flex items-center justify-center"
                     >
                       <SparkLogo size={24} className="text-orange-500" />
                     </div>
@@ -2943,7 +3016,7 @@
                         </div>
                       {:else}
                         <div class="text-sm text-caption">
-                          Simplest for new users. Create or restore a built-in Lightning wallet.
+                          Built-in wallet – simplest for new users
                         </div>
                       {/if}
                     </div>
@@ -2959,7 +3032,7 @@
                     disabled={hasExistingNwcWallet}
                   >
                     <div
-                      class="w-10 h-10 rounded-full bg-amber-500/20 flex items-center justify-center"
+                      class="w-10 h-10 flex-shrink-0 rounded-full bg-amber-500/20 flex items-center justify-center"
                     >
                       <NwcLogo size={28} />
                     </div>
@@ -3015,7 +3088,7 @@
                     disabled={$bitcoinConnectEnabled || $weblnConnected}
                   >
                     <div
-                      class="w-10 h-10 rounded-full bg-orange-500 flex items-center justify-center"
+                      class="w-10 h-10 flex-shrink-0 rounded-full bg-orange-500 flex items-center justify-center"
                     >
                       <BitcoinConnectLogo size={20} className="text-white" />
                     </div>
@@ -3047,7 +3120,7 @@
                       disabled={$weblnConnected}
                     >
                       <div
-                        class="w-10 h-10 rounded-full bg-gradient-to-br from-orange-500 to-amber-500 flex items-center justify-center"
+                        class="w-10 h-10 flex-shrink-0 rounded-full bg-gradient-to-br from-orange-500 to-amber-500 flex items-center justify-center"
                       >
                         <WeblnLogo size={24} className="text-white" />
                       </div>
@@ -3072,42 +3145,89 @@
             {:else if selectedWalletType === 3}
               <!-- NWC connection -->
               <div>
-                <p class="text-caption mb-4">
-                  Paste your NWC connection string below, or restore from a previous backup.
-                </p>
-                <input
-                  type="text"
-                  class="w-full p-3 rounded-lg mb-4 input"
-                  placeholder="nostr+walletconnect://..."
-                  bind:value={nwcConnectionString}
-                  on:paste={() => {
-                    // Clean pasted content immediately
-                    setTimeout(() => {
-                      nwcConnectionString = nwcConnectionString.trim().replace(/[\r\n\t]/g, '');
-                    }, 0);
-                  }}
-                />
-                <div class="flex gap-2">
-                  <Button
-                    on:click={handleConnectNWC}
-                    disabled={isConnecting || !nwcConnectionString}
-                    class="flex-1"
+                {#if canCheckNwcBackup && nwcBackupChecking}
+                  <div
+                    class="mb-4 p-3 rounded-lg border text-sm"
+                    style="background-color: var(--color-input-bg); border-color: var(--color-input-border); color: var(--color-text-primary);"
                   >
-                    {isConnecting ? 'Connecting...' : 'Connect NWC'}
-                  </Button>
-                  <Button
-                    on:click={handleRestoreNwcFromNostr}
-                    disabled={isConnecting}
-                    class="flex-1"
+                    Checking for Nostr backup...
+                  </div>
+                {:else if canCheckNwcBackup && nwcBackupExists}
+                  <div
+                    class="mb-4 p-3 rounded-lg border text-sm"
+                    style="background-color: var(--color-input-bg); border-color: var(--color-input-border); color: var(--color-text-primary);"
                   >
-                    <CloudArrowDownIcon size={16} />
-                    Restore from Nostr
-                  </Button>
-                </div>
+                    Backup found on Nostr. You can restore it below.
+                  </div>
+                {/if}
+                {#if !canCheckNwcBackup || !nwcBackupChecking}
+                  <p class="text-caption mb-4">
+                    Paste your NWC connection string below, or restore from a previous backup.
+                  </p>
+                  <input
+                    type="text"
+                    class="w-full p-3 rounded-lg mb-4 input"
+                    placeholder="nostr+walletconnect://..."
+                    bind:value={nwcConnectionString}
+                    on:paste={() => {
+                      // Clean pasted content immediately
+                      setTimeout(() => {
+                        nwcConnectionString = nwcConnectionString.trim().replace(/[\r\n\t]/g, '');
+                      }, 0);
+                    }}
+                  />
+                  {#if canCheckNwcBackup}
+                    <div class="flex gap-2">
+                      <Button
+                        on:click={handleConnectNWC}
+                        disabled={isConnecting || !nwcConnectionString}
+                        class="flex-1"
+                      >
+                        {isConnecting ? 'Connecting...' : 'Connect NWC'}
+                      </Button>
+                      <Button
+                        on:click={handleRestoreNwcFromNostr}
+                        disabled={isConnecting}
+                        class="flex-1"
+                      >
+                        <CloudArrowDownIcon size={16} />
+                        Restore from Nostr
+                      </Button>
+                    </div>
+                    {#if nwcBackupExists === false}
+                      <p class="mt-2 text-xs text-caption text-center">
+                        No backup found on relays.
+                      </p>
+                    {/if}
+                  {:else}
+                    <Button
+                      on:click={handleConnectNWC}
+                      disabled={isConnecting || !nwcConnectionString}
+                      class="w-full"
+                    >
+                      {isConnecting ? 'Connecting...' : 'Connect NWC'}
+                    </Button>
+                  {/if}
+                {/if}
               </div>
             {:else if selectedWalletType === 4}
               <!-- Spark wallet options -->
               <div>
+                {#if canCheckSparkBackup && sparkBackupChecking}
+                  <div
+                    class="mb-4 p-3 rounded-lg border text-sm"
+                    style="background-color: var(--color-input-bg); border-color: var(--color-input-border); color: var(--color-text-primary);"
+                  >
+                    Checking for Nostr backup...
+                  </div>
+                {:else if canCheckSparkBackup && sparkBackupExists}
+                  <div
+                    class="mb-4 p-3 rounded-lg border text-sm"
+                    style="background-color: var(--color-input-bg); border-color: var(--color-input-border); color: var(--color-text-primary);"
+                  >
+                    Backup found on Nostr. You can restore it below.
+                  </div>
+                {/if}
                 {#if sparkRestoreMode === 'options'}
                   <p class="text-caption mb-4">
                     Breez Spark is a self-custodial Lightning wallet built into zap.cooking.
@@ -3125,21 +3245,13 @@
                       <p class="text-primary-color font-medium">{sparkLoadingMessage}</p>
                       <p class="text-caption text-sm mt-2">This may take a moment...</p>
                     </div>
-                  {:else}
+                  {:else if !canCheckSparkBackup || !sparkBackupChecking}
                     <div class="space-y-3 mb-4">
-                      <Button
-                        on:click={handleCreateSparkWallet}
-                        disabled={isConnecting}
-                        class="w-full"
-                      >
-                        Create New Wallet
-                      </Button>
-                      <div
-                        class="border-t pt-3 mt-3"
-                        style="border-color: var(--color-input-border);"
-                      >
-                        <p class="text-sm text-caption mb-2">Restore existing wallet:</p>
-                        <div class="space-y-2">
+                      <div class="text-xs text-caption uppercase tracking-wide text-center">
+                        Restore existing wallet
+                      </div>
+                      <div class="space-y-2">
+                        {#if canCheckSparkBackup}
                           <Button
                             on:click={handleRestoreFromNostr}
                             disabled={isConnecting}
@@ -3148,29 +3260,42 @@
                             <CloudArrowDownIcon size={16} />
                             Restore from Nostr Backup
                           </Button>
-                          <Button
-                            on:click={() => fileInput?.click()}
-                            disabled={isConnecting}
-                            class="w-full"
-                          >
-                            Restore from Backup File
-                          </Button>
-                          <input
-                            type="file"
-                            accept=".json"
-                            class="hidden"
-                            bind:this={fileInput}
-                            on:change={handleFileSelect}
-                          />
-                          <Button
-                            on:click={() => (sparkRestoreMode = 'mnemonic')}
-                            disabled={isConnecting}
-                            class="w-full"
-                          >
-                            Restore from Recovery Phrase
-                          </Button>
-                        </div>
+                          {#if sparkBackupExists === false}
+                            <p class="text-xs text-caption text-center">
+                              No backup found on relays.
+                            </p>
+                          {/if}
+                        {/if}
+                        <Button
+                          on:click={() => fileInput?.click()}
+                          disabled={isConnecting}
+                          class="w-full"
+                        >
+                          Restore from Backup File
+                        </Button>
+                        <input
+                          type="file"
+                          accept=".json"
+                          class="hidden"
+                          bind:this={fileInput}
+                          on:change={handleFileSelect}
+                        />
+                        <Button
+                          on:click={() => (sparkRestoreMode = 'mnemonic')}
+                          disabled={isConnecting}
+                          class="w-full"
+                        >
+                          Restore from Recovery Phrase
+                        </Button>
                       </div>
+                      <div class="border-t" style="border-color: var(--color-input-border);"></div>
+                      <Button
+                        on:click={handleCreateSparkWallet}
+                        disabled={isConnecting}
+                        class="w-full"
+                      >
+                        Create New Wallet
+                      </Button>
                     </div>
                   {/if}
                 {:else if sparkRestoreMode === 'mnemonic'}

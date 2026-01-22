@@ -34,11 +34,11 @@
 
 <Modal bind:open allowOverflow={true} noHeader={true}>
   <div class="flex flex-col gap-6">
-    <div class="flex items-center gap-3">
+    <div class="flex items-center justify-center">
       <img
         src={isDarkMode ? '/zap_cooking_logo_white.svg' : SVGNostrCookingWithText}
         alt="zap.cooking"
-        class="h-7"
+        class="h-10"
       />
     </div>
     <div class="flex flex-col gap-3">
@@ -48,12 +48,13 @@
       >
         Welcome to Zap Cooking! 👩‍🍳⚡️🍳
       </h2>
-      <p class="text-sm text-caption">Zapping is how you say thanks on zap.cooking.</p>
-      <p class="text-sm text-caption">
-        Connect a Lightning wallet to send sats directly to creators and help #Nostrichefs keep
-        publishing great recipes, tips, and stories.
+      <p class="text-base text-caption">Zapping is how you say thanks on zap.cooking.</p>
+      <p class="text-base text-caption">
+        Connect a Lightning wallet to send value directly to creators and help
+        <span class="font-semibold text-orange-500">#Nostrichefs</span>
+        keep publishing great recipes, tips, and stories.
       </p>
-      <p class="text-sm text-caption">
+      <p class="text-base text-caption">
         If you don't have a wallet yet, you can create your first one right now.
       </p>
     </div>
