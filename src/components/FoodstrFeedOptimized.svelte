@@ -15,6 +15,7 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import { get } from 'svelte/store';
+  import { browser } from '$app/environment';
   import {
     ndk,
     userPublickey,
@@ -35,16 +36,17 @@
   import NoteRepost from './NoteRepost.svelte';
   import FeedComments from './FeedComments.svelte';
   import ZapModal from './ZapModal.svelte';
+  import ShareModal from './ShareModal.svelte';
+  import PostActionsMenu from './PostActionsMenu.svelte';
   import NoteContent from './NoteContent.svelte';
   import AuthorName from './AuthorName.svelte';
+  import { generateNoteImage, generateImageFilename, extractNostrReferences, decodeNostrReference, type EngagementData as ShareEngagementData, type ReferencedNote } from '$lib/shareNoteImage';
   import { optimizeImageUrl, getOptimalFormat } from '$lib/imageOptimizer';
   import { compressedCacheManager, COMPRESSED_FEED_CACHE_CONFIG } from '$lib/compressedCache';
   import FeedErrorBoundary from './FeedErrorBoundary.svelte';
   import FeedPostSkeleton from './FeedPostSkeleton.svelte';
   import LoadingState from './LoadingState.svelte';
   import { nip19 } from 'nostr-tools';
-  import CopyIcon from 'phosphor-svelte/lib/Copy';
-  import CheckIcon from 'phosphor-svelte/lib/Check';
   import ClientAttribution from './ClientAttribution.svelte';
 
   let portalTarget: HTMLElement | null = null;
@@ -466,7 +468,19 @@
 
   // UI state
   let carouselStates: { [eventId: string]: number } = {};
-  let copiedNoteId = '';
+  // Share modal state
+  let shareModalOpen = false;
+  let shareUrl = '';
+  let shareTitle = '';
+  let shareImageUrl = '';
+  let shareImageBlob: Blob | null = null;
+  let shareImageName = 'zap-cooking-note.png';
+  let shareModalEvent: NDKEvent | null = null;
+  let isGeneratingShareImage = false;
+  
+  // Share as image state (direct share)
+  let isGeneratingImage = false;
+  let imageGenerationError: string | null = null;
   let expandedParentNotes: { [eventId: string]: boolean } = {}; // Track expanded parent notes
   let parentNoteCache: { [eventId: string]: NDKEvent | null } = {}; // Cache full parent notes
   let foodFilterEnabled = true; // Toggle for food filtering in Following/Replies modes
@@ -2628,11 +2642,232 @@
     if (target) target.style.display = 'none';
   }
 
-  async function copyNoteId(event: NDKEvent) {
-    const noteId = nip19.noteEncode(event.id);
-    await navigator.clipboard.writeText(noteId);
-    copiedNoteId = event.id;
-    setTimeout(() => (copiedNoteId = ''), 2000);
+  function handlePostCopy(event: CustomEvent<{ noteId: string }>) {
+    // Copy handled by PostActionsMenu component
+    console.log('Note ID copied:', event.detail.noteId);
+  }
+
+  function handlePostShare(event: CustomEvent<{ url: string }>, noteEvent?: NDKEvent) {
+    shareUrl = event.detail.url;
+    shareTitle = 'Check out this post on Zap Cooking';
+    shareImageUrl = '';
+    shareImageBlob = null;
+    shareModalEvent = noteEvent || null;
+    isGeneratingShareImage = false;
+    shareModalOpen = true;
+  }
+
+  async function generateShareModalImage() {
+    if (!shareModalEvent || !browser) return;
+    
+    isGeneratingShareImage = true;
+    
+    try {
+      const { resolveProfileByPubkey, formatDisplayName } = await import('$lib/profileResolver');
+      
+      // Get author info
+      let authorName: string | undefined;
+      let authorPicture: string | undefined;
+      try {
+        const profile = await resolveProfileByPubkey(shareModalEvent.author?.hexpubkey || shareModalEvent.pubkey, $ndk);
+        if (profile) {
+          authorName = formatDisplayName(profile);
+          authorPicture = profile.picture;
+        }
+      } catch (err) {
+        console.warn('Failed to fetch author profile:', err);
+      }
+      
+      // Check for referenced notes
+      let referencedNote: ReferencedNote | undefined;
+      try {
+        const nostrRefs = extractNostrReferences(shareModalEvent.content || '');
+        if (nostrRefs.length > 0) {
+          const refEventId = decodeNostrReference(nostrRefs[0]);
+          if (refEventId) {
+            const refEvent = await $ndk.fetchEvent(refEventId);
+            if (refEvent) {
+              let refAuthorName: string | undefined;
+              let refAuthorPicture: string | undefined;
+              try {
+                const refProfile = await resolveProfileByPubkey(refEvent.author?.hexpubkey || refEvent.pubkey, $ndk);
+                if (refProfile) {
+                  refAuthorName = formatDisplayName(refProfile);
+                  refAuthorPicture = refProfile.picture;
+                }
+              } catch {
+                // Continue without ref author info
+              }
+              
+              referencedNote = {
+                id: refEvent.id,
+                content: refEvent.content,
+                authorName: refAuthorName,
+                authorPicture: refAuthorPicture,
+                authorPubkey: refEvent.author?.hexpubkey || refEvent.pubkey,
+                timestamp: refEvent.created_at
+              };
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('Failed to fetch referenced note:', err);
+      }
+      
+      // Get engagement data
+      const engagementStore = getEngagementStore(shareModalEvent.id);
+      const engagementValue = get(engagementStore);
+      const engagement: ShareEngagementData = {
+        zaps: { totalAmount: engagementValue.zaps.totalAmount, count: engagementValue.zaps.count },
+        reactions: { count: engagementValue.reactions.count },
+        comments: { count: engagementValue.comments.count }
+      };
+      
+      // Generate image
+      const blob = await generateNoteImage(shareModalEvent, engagement, 'square', false, authorName, authorPicture, referencedNote);
+      
+      if (blob) {
+        shareImageBlob = blob;
+        shareImageName = generateImageFilename(shareModalEvent);
+      } else {
+        // Show error to user
+        imageGenerationError = 'Failed to generate image. Please try again.';
+      }
+    } catch (err) {
+      console.error('Failed to generate share image:', err);
+      imageGenerationError = err instanceof Error ? err.message : 'Failed to generate image. Please try again.';
+    } finally {
+      isGeneratingShareImage = false;
+    }
+  }
+
+  async function handleDownloadImage(event: CustomEvent<{ event: NDKEvent; engagementData: ShareEngagementData }>) {
+    if (!browser) return;
+    
+    const noteEvent = event.detail.event;
+    const engagement = event.detail.engagementData;
+    
+    isGeneratingImage = true;
+    imageGenerationError = null;
+    
+    try {
+      // Try to get author name and picture from profile cache
+      let authorName: string | undefined;
+      let authorPicture: string | undefined;
+      const { resolveProfileByPubkey, formatDisplayName } = await import('$lib/profileResolver');
+      
+      try {
+        const profile = await resolveProfileByPubkey(noteEvent.author?.hexpubkey || noteEvent.pubkey, $ndk);
+        if (profile) {
+          authorName = formatDisplayName(profile);
+          authorPicture = profile.picture;
+        }
+      } catch (err) {
+        console.warn('Failed to fetch author profile for image:', err);
+      }
+      
+      // Check for referenced notes (nostr:nevent or nostr:note)
+      let referencedNote: ReferencedNote | undefined;
+      try {
+        const nostrRefs = extractNostrReferences(noteEvent.content || '');
+        if (nostrRefs.length > 0) {
+          const refEventId = decodeNostrReference(nostrRefs[0]);
+          if (refEventId) {
+            // Fetch the referenced event
+            const refEvent = await $ndk.fetchEvent(refEventId);
+            if (refEvent) {
+              // Get the referenced note author's profile
+              let refAuthorName: string | undefined;
+              let refAuthorPicture: string | undefined;
+              try {
+                const refProfile = await resolveProfileByPubkey(refEvent.author?.hexpubkey || refEvent.pubkey, $ndk);
+                if (refProfile) {
+                  refAuthorName = formatDisplayName(refProfile);
+                  refAuthorPicture = refProfile.picture;
+                }
+              } catch {
+                // Continue without ref author info
+              }
+              
+              referencedNote = {
+                id: refEvent.id,
+                content: refEvent.content,
+                authorName: refAuthorName,
+                authorPicture: refAuthorPicture,
+                authorPubkey: refEvent.author?.hexpubkey || refEvent.pubkey,
+                timestamp: refEvent.created_at
+              };
+              console.log('[DownloadImage] Referenced note found:', referencedNote);
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('Failed to fetch referenced note:', err);
+        // Continue without referenced note
+      }
+      
+      // Generate image (default to square format)
+      const blob = await generateNoteImage(noteEvent, engagement, 'square', false, authorName, authorPicture, referencedNote);
+      
+      if (!blob) {
+        throw new Error('Failed to generate image');
+      }
+      
+      // Download the image directly
+      const filename = generateImageFilename(noteEvent);
+      const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+      
+      if (isSafari) {
+        // For Safari on iOS/macOS, try native share which lets user save to Photos
+        if (navigator.share && navigator.canShare) {
+          try {
+            const file = new File([blob], filename, { type: 'image/png' });
+            if (navigator.canShare({ files: [file] })) {
+              await navigator.share({
+                files: [file],
+              });
+              // Share completed (or cancelled) - don't do anything else
+              return;
+            }
+          } catch (e) {
+            // User cancelled or share failed - that's ok, just exit
+            return;
+          }
+        }
+        
+        // Fallback for older Safari without share API: use data URL download
+        const reader = new FileReader();
+        reader.onload = () => {
+          const dataUrl = reader.result as string;
+          const a = document.createElement('a');
+          a.href = dataUrl;
+          a.download = filename;
+          a.style.display = 'none';
+          document.body.appendChild(a);
+          a.click();
+          setTimeout(() => document.body.removeChild(a), 100);
+        };
+        reader.readAsDataURL(blob);
+      } else {
+        // Non-Safari: use blob URL
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        a.style.display = 'none';
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => {
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+        }, 100);
+      }
+    } catch (error) {
+      console.error('Download image failed:', error);
+      imageGenerationError = error instanceof Error ? error.message : 'Failed to generate image';
+    } finally {
+      isGeneratingImage = false;
+    }
   }
 
   // Carousel navigation
@@ -3264,6 +3499,12 @@
           {@const isPopular = engagementInfo.isZapPopular}
           {@const isZapAnimating = zapAnimatingNotes.has(event.id)}
           {@const zapGlowTier = engagementInfo.zapGlowTier}
+          {@const engagementStoreValue = get(getEngagementStore(event.id))}
+          {@const engagementData = {
+            zaps: { totalAmount: engagementStoreValue.zaps.totalAmount, count: engagementStoreValue.zaps.count },
+            reactions: { count: engagementStoreValue.reactions.count },
+            comments: { count: engagementStoreValue.comments.count }
+          }}
           <article
             class="border-b py-4 sm:py-6 first:pt-0 
                    {isPopular ? 'zap-popular-post' : ''} 
@@ -3272,29 +3513,48 @@
             style="border-color: var(--color-input-border); {isPopular ? 'box-shadow: 0 0 20px rgba(251, 191, 36, 0.4), 0 0 40px rgba(251, 191, 36, 0.2); border-radius: 8px; border: 2px solid rgba(251, 191, 36, 0.6); padding: 1rem; margin-bottom: 1rem;' : ''}"
           >
             <!-- User header with avatar and name -->
-            <div class="flex items-center space-x-3 mb-3 px-2 sm:px-0">
-              {#if !hideAvatar}
-                <a
-                  href="/user/{nip19.npubEncode(event.author?.hexpubkey || event.pubkey)}"
-                  class="flex-shrink-0"
-                >
-                  <CustomAvatar
-                    className="cursor-pointer"
-                    pubkey={event.author?.hexpubkey || event.pubkey}
-                    size={40}
-                  />
-                </a>
-              {/if}
-              
-              <div class="flex items-center space-x-2 flex-wrap min-w-0">
-                {#if !hideAuthorName}
-                  <AuthorName {event} />
-                  <span class="text-sm" style="color: var(--color-caption)">·</span>
+            <div class="flex items-center justify-between mb-3 px-2 sm:px-0">
+              <div class="flex items-center space-x-3 flex-1 min-w-0">
+                {#if !hideAvatar}
+                  <a
+                    href="/user/{nip19.npubEncode(event.author?.hexpubkey || event.pubkey)}"
+                    class="flex-shrink-0"
+                  >
+                    <CustomAvatar
+                      className="cursor-pointer"
+                      pubkey={event.author?.hexpubkey || event.pubkey}
+                      size={40}
+                    />
+                  </a>
                 {/if}
-                <span class="text-sm" style="color: var(--color-caption)">
-                  {event.created_at ? formatTimeAgo(event.created_at) : 'Unknown time'}
-                </span>
-                <ClientAttribution tags={event.tags} enableEnrichment={false} />
+                
+                <div class="flex items-center space-x-2 flex-wrap min-w-0">
+                  {#if !hideAuthorName}
+                    <AuthorName {event} />
+                    <span class="text-sm" style="color: var(--color-caption)">·</span>
+                  {/if}
+                  <span class="text-sm" style="color: var(--color-caption)">
+                    {event.created_at ? formatTimeAgo(event.created_at) : 'Unknown time'}
+                  </span>
+                  <ClientAttribution tags={event.tags} enableEnrichment={false} />
+                </div>
+              </div>
+              
+              <!-- Post actions menu (top right) -->
+              <div class="flex-shrink-0 ml-2">
+                <PostActionsMenu 
+                  {event}
+                  {engagementData}
+                  on:copy={(e) => {
+                    selectedEvent = event;
+                    handlePostCopy(e);
+                  }}
+                  on:share={(e) => {
+                    selectedEvent = event;
+                    handlePostShare(e, event);
+                  }}
+                  on:downloadImage={handleDownloadImage}
+                />
               </div>
             </div>
 
@@ -3613,19 +3873,6 @@
                     {/if}
                   </div>
 
-                  <div class="flex items-center space-x-1 flex-shrink-0">
-                    <button
-                      class="flex items-center text-caption hover:opacity-80 hover:bg-accent-gray rounded-full p-1.5 transition-colors"
-                      on:click={() => copyNoteId(event)}
-                      title="Copy note ID"
-                    >
-                      {#if copiedNoteId === event.id}
-                        <CheckIcon size={16} weight="bold" class="text-green-500" />
-                      {:else}
-                        <CopyIcon size={16} />
-                      {/if}
-                    </button>
-                  </div>
                 </div>
 
                 <div class="px-2 sm:px-0">
@@ -3665,6 +3912,75 @@
     event={selectedEvent}
     on:zap-complete={() => selectedEvent && handleZapComplete(selectedEvent.id)}
   />
+{/if}
+
+<ShareModal 
+  bind:open={shareModalOpen}
+  url={shareUrl}
+  title={shareTitle}
+  imageUrl={shareImageUrl}
+  imageBlob={shareImageBlob}
+  imageName={shareImageName}
+  isGeneratingImage={isGeneratingShareImage}
+  onGenerateImage={shareModalEvent ? generateShareModalImage : null}
+/>
+
+<!-- Image generation loading overlay -->
+{#if isGeneratingImage}
+  <div
+    class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
+    style="backdrop-filter: blur(4px);"
+    on:click={() => isGeneratingImage = false}
+    role="button"
+    tabindex="0"
+    on:keydown={(e) => e.key === 'Escape' && (isGeneratingImage = false)}
+  >
+    <div
+      class="bg-input rounded-lg p-6 max-w-sm mx-4 text-center"
+      style="border: 1px solid var(--color-input-border);"
+      on:click|stopPropagation
+      role="dialog"
+    >
+      <div class="animate-spin rounded-full h-10 w-10 border-b-2 border-yellow-500 mx-auto mb-3"></div>
+      <p class="text-base font-semibold mb-1" style="color: var(--color-text-primary);">
+        Generating image...
+      </p>
+      <p class="text-xs mb-3" style="color: var(--color-text-secondary);">
+        This may take a few seconds
+      </p>
+      <button
+        on:click={() => isGeneratingImage = false}
+        class="text-xs px-3 py-1.5 rounded bg-gray-600 hover:bg-gray-500 text-white transition"
+      >
+        Cancel
+      </button>
+    </div>
+  </div>
+{/if}
+
+{#if imageGenerationError}
+  <div
+    class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
+    style="backdrop-filter: blur(4px);"
+    on:click={() => imageGenerationError = null}
+  >
+    <div
+      class="bg-input rounded-lg p-6 max-w-sm mx-4"
+      style="border: 1px solid var(--color-input-border);"
+      on:click|stopPropagation
+    >
+      <p class="text-lg font-semibold mb-2 text-red-500">Error</p>
+      <p class="text-sm mb-4" style="color: var(--color-text-primary);">
+        {imageGenerationError}
+      </p>
+      <button
+        on:click={() => imageGenerationError = null}
+        class="w-full px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors"
+      >
+        Close
+      </button>
+    </div>
+  </div>
 {/if}
 
 <svelte:window on:keydown={handleImageModalKeydown} />

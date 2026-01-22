@@ -177,6 +177,25 @@ export const socialShareUrls = {
     const body = title ? `Check out this recipe: ${title} - ${prodUrl}` : `Check out this recipe: ${prodUrl}`;
     const params = new URLSearchParams({ body });
     return `sms:?${params.toString()}`;
+  },
+
+  whatsapp: (url: string, title?: string): string => {
+    const prodUrl = ensureProductionUrl(url);
+    const text = title ? `${title}\n\nFound on zap.cooking ⚡\n${prodUrl}` : `Found on zap.cooking ⚡\n${prodUrl}`;
+    const params = new URLSearchParams({ text });
+    return `https://api.whatsapp.com/send?${params.toString()}`;
+  },
+
+  telegram: (url: string, title?: string): string => {
+    const prodUrl = ensureProductionUrl(url);
+    const text = title ? `${title} - Found on zap.cooking ⚡` : 'Found on zap.cooking ⚡';
+    const params = new URLSearchParams({ url: prodUrl, text });
+    return `https://t.me/share/url?${params.toString()}`;
+  },
+
+  instagram: (): string => {
+    // Instagram doesn't support web sharing - open the app/website
+    return 'https://instagram.com';
   }
 };
 
