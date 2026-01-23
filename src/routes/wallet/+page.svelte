@@ -3380,36 +3380,27 @@
                           <div class="text-sm font-medium" style="color: var(--color-text-primary)">
                             {formatSparkBackupLabel(backup)}
                           </div>
-                          {#if backup.isLegacy}
-                            <span class="text-xs text-caption">Legacy</span>
-                          {/if}
                         </div>
                         <div class="text-xs text-caption mt-1">
-                          {backup.isLegacy ? 'Legacy backup' : 'Spark backup'}
+                          {#if backup.walletId}
+                            Wallet ID:
+                            <span class="font-mono">{backup.walletId}</span>
+                          {:else if backup.isLegacy}
+                            Legacy Spark wallet
+                          {:else}
+                            Spark wallet backup
+                          {/if}
                         </div>
                       </button>
                     {/each}
                   </div>
-                  <div class="flex gap-2">
-                    <Button
-                      on:click={() => {
-                        sparkRestoreMode = 'options';
-                        sparkBackupOptions = [];
-                        selectedSparkBackupId = '';
-                      }}
-                      disabled={isConnecting}
-                      class="flex-1"
-                    >
-                      Back
-                    </Button>
-                    <Button
-                      on:click={handleRestoreSelectedSparkBackup}
-                      disabled={isConnecting}
-                      class="flex-1"
-                    >
-                      Restore selected backup
-                    </Button>
-                  </div>
+                  <Button
+                    on:click={handleRestoreSelectedSparkBackup}
+                    disabled={isConnecting}
+                    class="w-full"
+                  >
+                    Restore selected backup
+                  </Button>
                 {:else if sparkRestoreMode === 'mnemonic'}
                   <p class="text-caption mb-4">
                     Enter your 12 or 24 word recovery phrase to restore your wallet.

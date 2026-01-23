@@ -367,10 +367,10 @@ interface Wallet {
 
 Relay backups use NIP-78 (kind `30078`) addressable events:
 - **Spark backups (legacy)**: `d` tag `spark-wallet-backup`
-- **Spark backups (multi)**: `d` tag `spark-wallet-backup:<walletId>`
+- **Spark backups (wallet-specific)**: `d` tag `spark-wallet-backup:<walletId>`
 - **NWC backups**: `d` tag `zapcooking-nwc-backup`
 
-Backups are encrypted with NIP-44/NIP-04 via `encryptionService.ts` when a signer supports it. The Add Wallet modal checks for relay backups on Spark/NWC and shows a status banner ("Backup found on Nostr" / "No backup found on relays"). If multiple Spark backups exist, users get a chooser when restoring. If any Spark backup exists, creating a new Spark wallet prompts for confirmation because the next backup will overwrite that wallet's backup entry.
+Backups are encrypted with NIP-44/NIP-04 via `encryptionService.ts` when a signer supports it. The Add Wallet modal checks for relay backups on Spark/NWC and shows a status banner ("Backup found on Nostr" / "No backup found on relays"). If multiple Spark backups exist, users get a chooser when restoring. If any Spark backup exists, creating a new Spark wallet prompts for confirmation because backing up again will replace the wallet-specific backup entry for that wallet ID (it does not delete other Spark wallet backups).
 
 ## One-Tap Zaps (Relay Sync)
 
@@ -854,12 +854,14 @@ Uses NIP-78 (kind 30078) replaceable events with encrypted mnemonic:
 ```typescript
 const BACKUP_EVENT_KIND = 30078
 const BACKUP_D_TAG = 'spark-wallet-backup'
+const walletId = getSparkWalletId(mnemonic)
+const dTag = `${BACKUP_D_TAG}:${walletId}` // Legacy backups use BACKUP_D_TAG
 
 // Event structure
 {
   kind: 30078,
   tags: [
-    ['d', 'spark-wallet-backup'],
+    ['d', dTag],
     ['client', 'zap.cooking'],
     ['encryption', 'nip44']  // or 'nip04'
   ],
@@ -876,6 +878,7 @@ interface SparkWalletBackup {
   encryption?: 'nip44' | 'nip04'  // Optional for v1
   pubkey: string
   encryptedMnemonic: string
+  walletId?: string
   createdAt: number
   createdBy?: string
 }
@@ -984,19 +987,14 @@ export function getBestEncryptionMethod(): 'nip44' | 'nip04' | null {
 #### Restore from Nostr Backup
 ```typescript
 async function restoreWalletFromNostr(pubkey: string, apiKey: string) {
-  // 1. Fetch backup event from relays
-  const events = await ndk.fetchEvents({
-    kinds: [30078],
-    authors: [pubkey],
-    '#d': ['spark-wallet-backup']
-  })
+  // 1. Fetch backups (legacy + wallet-specific)
+  const backups = await listSparkBackups(pubkey)
 
-  // 2. Get encryption method from tags
-  const encryptionTag = event.tags.find(t => t[0] === 'encryption')
-  const encryptionMethod = encryptionTag?.[1] || 'nip44'
+  // 2. If multiple backups exist, show a chooser in UI
+  const backup = backups[0]
 
   // 3. Decrypt using unified service (handles fallback automatically)
-  const mnemonic = await decrypt(pubkey, event.content, encryptionMethod)
+  const mnemonic = await decrypt(pubkey, backup.content, backup.encryptionMethod)
 
   // 4. Initialize SDK
   await initializeSdk(pubkey, mnemonic, apiKey)
@@ -1079,7 +1077,7 @@ export async function checkRelayBackups(pubkey: string): Promise<RelayBackupStat
 
 #### How It Works
 1. Gets the list of configured relays from NDK
-2. Queries each relay individually for the backup event (kind 30078, d-tag: 'spark-wallet-backup')
+2. Queries each relay individually for the backup event (kind 30078, d-tag: `spark-wallet-backup` or `spark-wallet-backup:<walletId>`)
 3. Uses `NDKRelaySet.fromRelayUrls()` to query specific relays
 4. Returns status for each relay: has backup, timestamp, or error
 

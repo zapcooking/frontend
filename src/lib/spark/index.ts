@@ -23,8 +23,8 @@ import {
   detectEncryptionMethod,
   type EncryptionMethod
 } from '$lib/encryptionService';
-import { sha256 } from '@noble/hashes/sha256';
-import { bytesToHex } from '@noble/hashes/utils';
+import { sha256 } from '@noble/hashes/sha2.js';
+import { bytesToHex } from '@noble/hashes/utils.js';
 
 /**
  * Dynamically import bip39 with Buffer polyfill
@@ -873,6 +873,7 @@ export interface SparkWalletBackup {
   encryption?: 'nip44' | 'nip04'; // Optional for v1 backups
   pubkey: string;
   encryptedMnemonic: string;
+  walletId?: string;
   createdAt: number;
   createdBy?: string;
 }
@@ -975,6 +976,7 @@ export async function createBackup(
     throw new Error('No wallet found to backup');
   }
 
+  const walletId = getSparkWalletId(mnemonic);
   const encryptedMnemonic = await encryptFn(mnemonic, pubkey);
 
   return {
@@ -983,6 +985,7 @@ export async function createBackup(
     encryption,
     pubkey,
     encryptedMnemonic,
+    walletId,
     createdAt: Date.now(),
     createdBy: 'zap.cooking'
   };
@@ -1401,7 +1404,7 @@ export async function checkRelayBackups(pubkey: string): Promise<RelayBackupStat
  * Publishes an empty replaceable event to overwrite the backup (more reliable than NIP-09).
  * @param pubkey The user's Nostr public key (hex string).
  */
-export async function deleteBackupFromNostr(pubkey: string): Promise<void> {
+export async function deleteBackupFromNostr(pubkey: string, walletId?: string): Promise<void> {
   if (!browser) throw new Error('Backup deletion can only be performed in browser');
 
   const { ndk, ndkReady } = await import('$lib/nostr');
@@ -1411,6 +1414,10 @@ export async function deleteBackupFromNostr(pubkey: string): Promise<void> {
   await ndkReady;
   const ndkInstance = get(ndk);
 
+  const mnemonic = walletId ? null : await loadMnemonic(pubkey);
+  const resolvedWalletId = walletId || (mnemonic ? getSparkWalletId(mnemonic) : null);
+  const backupTag = getBackupTag(resolvedWalletId);
+
   logger.info('[Spark] Deleting backup by publishing empty replacement...');
 
   // Create an empty replaceable event with the same d-tag to overwrite the backup
@@ -1419,7 +1426,7 @@ export async function deleteBackupFromNostr(pubkey: string): Promise<void> {
   ndkEvent.kind = BACKUP_EVENT_KIND;
   ndkEvent.content = ''; // Empty content - no backup data
   ndkEvent.tags = [
-    ['d', BACKUP_D_TAG],
+    ['d', backupTag],
     ['deleted', 'true']
   ];
 
