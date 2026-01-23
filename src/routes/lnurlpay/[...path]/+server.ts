@@ -25,16 +25,25 @@ export const GET: RequestHandler = async ({ params, url, request }) => {
   console.log(`[LNURL Proxy] Proxying GET /lnurlpay/${path} to ${targetUrl}`);
   
   try {
-    // Forward all headers that might be needed for auth
-    const requestHeaders: HeadersInit = {
-      'Accept': 'application/json',
-    };
+    // Forward ALL headers from the original request (important for auth)
+    const requestHeaders: HeadersInit = {};
+    request.headers.forEach((value, key) => {
+      // Skip host header (will be set by fetch)
+      if (key.toLowerCase() !== 'host') {
+        requestHeaders[key] = value;
+      }
+    });
     
-    // Forward authorization header if present
-    const authHeader = request.headers.get('authorization');
-    if (authHeader) {
-      requestHeaders['Authorization'] = authHeader;
-    }
+    // Log headers for debugging (but redact sensitive ones)
+    const headerLog: Record<string, string> = {};
+    Object.entries(requestHeaders).forEach(([key, value]) => {
+      if (key.toLowerCase().includes('authorization') || key.toLowerCase().includes('cookie')) {
+        headerLog[key] = '[REDACTED]';
+      } else {
+        headerLog[key] = value as string;
+      }
+    });
+    console.log(`[LNURL Proxy] Request headers:`, JSON.stringify(headerLog));
     
     const response = await fetch(targetUrl, {
       method: 'GET',
@@ -76,17 +85,14 @@ export const POST: RequestHandler = async ({ params, url, request }) => {
   try {
     const body = await request.arrayBuffer();
     
-    // Forward all headers that might be needed for auth
-    const requestHeaders: HeadersInit = {
-      'Content-Type': request.headers.get('content-type') || 'application/json',
-      'Accept': 'application/json',
-    };
-    
-    // Forward authorization header if present
-    const authHeader = request.headers.get('authorization');
-    if (authHeader) {
-      requestHeaders['Authorization'] = authHeader;
-    }
+    // Forward ALL headers from the original request (important for auth)
+    const requestHeaders: HeadersInit = {};
+    request.headers.forEach((value, key) => {
+      // Skip host header (will be set by fetch)
+      if (key.toLowerCase() !== 'host') {
+        requestHeaders[key] = value;
+      }
+    });
     
     const response = await fetch(targetUrl, {
       method: 'POST',
