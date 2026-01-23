@@ -355,6 +355,7 @@ export async function initializeSdk(
     
     config.lnurlDomain = lnurlDomain;
     logger.info(`[Spark] Using lnurlDomain: ${config.lnurlDomain} (hostname: ${browser ? window.location.hostname : 'server'})`);
+    console.log(`[Spark] Config lnurlDomain set to: ${config.lnurlDomain}`);
 
     const cleanMnemonic = mnemonic.trim().toLowerCase().replace(/\s+/g, ' ');
 
@@ -754,7 +755,10 @@ export async function registerLightningAddress(
   if (!_sdkInstance) throw new Error('SDK not connected');
 
   try {
-    logger.info('[Spark] Registering lightning address:', username);
+    // Check current domain setting (for debugging)
+    const currentDomain = browser ? (localStorage.getItem('lnurlDomain') || 'not set') : 'server';
+    logger.info(`[Spark] Registering lightning address: ${username} (current domain override: ${currentDomain})`);
+    
     const response = await _sdkInstance.registerLightningAddress({
       username,
       description: description || 'zap.cooking user'
@@ -762,6 +766,9 @@ export async function registerLightningAddress(
 
     // Extract address string from response using shared helper
     const address = extractLightningAddressString(response) || `${username}@zap.cooking`;
+    
+    logger.info(`[Spark] SDK returned address: ${address}`);
+    logger.info(`[Spark] Full registration response:`, JSON.stringify(response, null, 2));
 
     lightningAddress.set(address);
     logger.info('[Spark] Lightning address registered:', address);
