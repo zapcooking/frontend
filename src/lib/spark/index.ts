@@ -335,14 +335,21 @@ export async function initializeSdk(
     // (Local dev can't proxy external SDK requests to breez.tips)
     let lnurlDomain = 'breez.tips'; // default
     
+    // Allow override via localStorage for testing (e.g., localStorage.setItem('lnurlDomain', 'zap.cooking'))
     if (browser) {
-      const hostname = window.location.hostname;
-      // Explicitly check for zap.cooking domain
-      if (hostname === 'zap.cooking' || hostname.endsWith('.zap.cooking')) {
-        lnurlDomain = 'zap.cooking';
-      } else if (hostname !== 'localhost' && !hostname.startsWith('127.') && !hostname.startsWith('192.168.')) {
-        // For any other production domain, use zap.cooking
-        lnurlDomain = 'zap.cooking';
+      const override = localStorage.getItem('lnurlDomain');
+      if (override && (override === 'zap.cooking' || override === 'breez.tips')) {
+        lnurlDomain = override;
+        logger.info(`[Spark] Using lnurlDomain override from localStorage: ${lnurlDomain}`);
+      } else {
+        const hostname = window.location.hostname;
+        // Explicitly check for zap.cooking domain
+        if (hostname === 'zap.cooking' || hostname.endsWith('.zap.cooking')) {
+          lnurlDomain = 'zap.cooking';
+        } else if (hostname !== 'localhost' && !hostname.startsWith('127.') && !hostname.startsWith('192.168.')) {
+          // For any other production domain, use zap.cooking
+          lnurlDomain = 'zap.cooking';
+        }
       }
     }
     
