@@ -380,6 +380,13 @@ One-Tap Zap preferences are stored locally and synced to relays:
 
 `autoZapSettings.ts` loads local settings immediately, then fetches relay settings for authenticated users and publishes changes when toggled in Settings.
 
+## Custom Lightning Address Domain (Breez)
+
+You don't need to set up a hosted server if you want to use Breez's hosted server. Follow the instructions in option #1 here:
+https://sdk-doc-spark.breez.technology/guide/receive_lnurl_pay.html#lnurl-server
+
+Once your custom domain is configured, share it with Breez via email at contact@breez.technology so they can whitelist it.
+
 ## Balance Display Logic
 
 In wallet page (`+page.svelte`):
