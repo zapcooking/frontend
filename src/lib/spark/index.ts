@@ -356,6 +356,7 @@ export async function initializeSdk(
     config.lnurlDomain = lnurlDomain;
     logger.info(`[Spark] Using lnurlDomain: ${config.lnurlDomain} (hostname: ${browser ? window.location.hostname : 'server'})`);
     console.log(`[Spark] Config lnurlDomain set to: ${config.lnurlDomain}`);
+    console.log(`[Spark] Full config object:`, JSON.stringify(config, null, 2));
 
     const cleanMnemonic = mnemonic.trim().toLowerCase().replace(/\s+/g, ' ');
 
