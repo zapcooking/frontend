@@ -17,6 +17,7 @@
   import OfflineIndicator from '../components/OfflineIndicator.svelte';
   import { theme } from '$lib/themeStore';
   import { initializeWalletManager, walletConnected } from '$lib/wallet';
+  import { loadOneTapZapSettings } from '$lib/autoZapSettings';
   import { weblnConnected } from '$lib/wallet/webln';
   import { bitcoinConnectEnabled, bitcoinConnectWalletInfo } from '$lib/wallet/bitcoinConnect';
   import { postComposerOpen } from '$lib/postComposerStore';
@@ -54,6 +55,7 @@
   let walletWelcomeOpen = false;
   let walletWelcomeSeen = false;
   let walletWelcomeForce = false;
+  let oneTapZapLoadedForPubkey = '';
   const WALLET_WELCOME_KEY = 'zapcooking_wallet_welcome_seen';
   const WALLET_WELCOME_FORCE_KEY = 'zapcooking_wallet_welcome_force';
   $: hasWallet =
@@ -206,6 +208,15 @@
           userPublickey.set(state.publicKey);
         } else {
           userPublickey.set('');
+        }
+
+        if (browser && state.isAuthenticated && state.publicKey) {
+          if (oneTapZapLoadedForPubkey !== state.publicKey) {
+            oneTapZapLoadedForPubkey = state.publicKey;
+            void loadOneTapZapSettings();
+          }
+        } else {
+          oneTapZapLoadedForPubkey = '';
         }
 
         if (browser) {
