@@ -333,11 +333,21 @@ export async function initializeSdk(
     
     // Use zap.cooking in production, breez.tips for local development
     // (Local dev can't proxy external SDK requests to breez.tips)
-    const isProduction = typeof window !== 'undefined' && 
-      window.location.hostname !== 'localhost' && 
-      !window.location.hostname.startsWith('127.');
-    config.lnurlDomain = isProduction ? 'zap.cooking' : 'breez.tips';
-    logger.info(`[Spark] Using lnurlDomain: ${config.lnurlDomain}`);
+    let lnurlDomain = 'breez.tips'; // default
+    
+    if (browser) {
+      const hostname = window.location.hostname;
+      // Explicitly check for zap.cooking domain
+      if (hostname === 'zap.cooking' || hostname.endsWith('.zap.cooking')) {
+        lnurlDomain = 'zap.cooking';
+      } else if (hostname !== 'localhost' && !hostname.startsWith('127.') && !hostname.startsWith('192.168.')) {
+        // For any other production domain, use zap.cooking
+        lnurlDomain = 'zap.cooking';
+      }
+    }
+    
+    config.lnurlDomain = lnurlDomain;
+    logger.info(`[Spark] Using lnurlDomain: ${config.lnurlDomain} (hostname: ${browser ? window.location.hostname : 'server'})`);
 
     const cleanMnemonic = mnemonic.trim().toLowerCase().replace(/\s+/g, ' ');
 
