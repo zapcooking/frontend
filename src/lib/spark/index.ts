@@ -762,13 +762,6 @@ export async function registerLightningAddress(
 
   try {
     // Check current domain setting (for debugging)
-<<<<<<< HEAD
-    const currentDomain = browser ? localStorage.getItem('lnurlDomain') || 'not set' : 'server';
-    logger.info(
-      `[Spark] Registering lightning address: ${username} (current domain override: ${currentDomain})`
-    );
-
-=======
     const currentDomain = browser ? (localStorage.getItem('lnurlDomain') || 'not set') : 'server';
     logger.info(`[Spark] Registering lightning address: ${username} (current domain override: ${currentDomain})`);
     
@@ -776,7 +769,6 @@ export async function registerLightningAddress(
     // Note: The SDK might not expose this, but the backend determines the domain
     logger.info(`[Spark] About to call SDK registerLightningAddress with username: ${username}`);
     
->>>>>>> c51ebfa (Switch to subdomain strategy: use sats.zap.cooking for Lightning addresses)
     const response = await _sdkInstance.registerLightningAddress({
       username,
       description: description || 'zap.cooking user'
