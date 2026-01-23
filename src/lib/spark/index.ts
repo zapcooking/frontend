@@ -23,6 +23,8 @@ import {
   detectEncryptionMethod,
   type EncryptionMethod
 } from '$lib/encryptionService';
+import { sha256 } from '@noble/hashes/sha2.js';
+import { bytesToHex } from '@noble/hashes/utils.js';
 
 /**
  * Dynamically import bip39 with Buffer polyfill
@@ -330,11 +332,11 @@ export async function initializeSdk(
     const config = defaultConfig('mainnet');
     config.apiKey = apiKey;
     config.privateEnabledDefault = true;
-    
+
     // Use zap.cooking in production, breez.tips for local development
     // (Local dev can't proxy external SDK requests to breez.tips)
     let lnurlDomain = 'breez.tips'; // default
-    
+
     // Allow override via localStorage for testing (e.g., localStorage.setItem('lnurlDomain', 'zap.cooking'))
     if (browser) {
       const override = localStorage.getItem('lnurlDomain');
@@ -346,15 +348,21 @@ export async function initializeSdk(
         // Explicitly check for zap.cooking domain
         if (hostname === 'zap.cooking' || hostname.endsWith('.zap.cooking')) {
           lnurlDomain = 'zap.cooking';
-        } else if (hostname !== 'localhost' && !hostname.startsWith('127.') && !hostname.startsWith('192.168.')) {
+        } else if (
+          hostname !== 'localhost' &&
+          !hostname.startsWith('127.') &&
+          !hostname.startsWith('192.168.')
+        ) {
           // For any other production domain, use zap.cooking
           lnurlDomain = 'zap.cooking';
         }
       }
     }
-    
+
     config.lnurlDomain = lnurlDomain;
-    logger.info(`[Spark] Using lnurlDomain: ${config.lnurlDomain} (hostname: ${browser ? window.location.hostname : 'server'})`);
+    logger.info(
+      `[Spark] Using lnurlDomain: ${config.lnurlDomain} (hostname: ${browser ? window.location.hostname : 'server'})`
+    );
     console.log(`[Spark] Config lnurlDomain set to: ${config.lnurlDomain}`);
     console.log(`[Spark] Full config object:`, JSON.stringify(config, null, 2));
 
@@ -757,9 +765,11 @@ export async function registerLightningAddress(
 
   try {
     // Check current domain setting (for debugging)
-    const currentDomain = browser ? (localStorage.getItem('lnurlDomain') || 'not set') : 'server';
-    logger.info(`[Spark] Registering lightning address: ${username} (current domain override: ${currentDomain})`);
-    
+    const currentDomain = browser ? localStorage.getItem('lnurlDomain') || 'not set' : 'server';
+    logger.info(
+      `[Spark] Registering lightning address: ${username} (current domain override: ${currentDomain})`
+    );
+
     const response = await _sdkInstance.registerLightningAddress({
       username,
       description: description || 'zap.cooking user'
@@ -767,7 +777,7 @@ export async function registerLightningAddress(
 
     // Extract address string from response using shared helper
     const address = extractLightningAddressString(response) || `${username}@zap.cooking`;
-    
+
     logger.info(`[Spark] SDK returned address: ${address}`);
     logger.info(`[Spark] Full registration response:`, JSON.stringify(response, null, 2));
 
@@ -863,6 +873,7 @@ export interface SparkWalletBackup {
   encryption?: 'nip44' | 'nip04'; // Optional for v1 backups
   pubkey: string;
   encryptedMnemonic: string;
+  walletId?: string;
   createdAt: number;
   createdBy?: string;
 }
@@ -965,6 +976,7 @@ export async function createBackup(
     throw new Error('No wallet found to backup');
   }
 
+  const walletId = getSparkWalletId(mnemonic);
   const encryptedMnemonic = await encryptFn(mnemonic, pubkey);
 
   return {
@@ -973,6 +985,7 @@ export async function createBackup(
     encryption,
     pubkey,
     encryptedMnemonic,
+    walletId,
     createdAt: Date.now(),
     createdBy: 'zap.cooking'
   };
@@ -981,6 +994,47 @@ export async function createBackup(
 // Nostr backup constants
 const BACKUP_EVENT_KIND = 30078; // NIP-78 application-specific data
 const BACKUP_D_TAG = 'spark-wallet-backup';
+const BACKUP_D_TAG_PREFIX = `${BACKUP_D_TAG}:`;
+
+export interface SparkBackupEntry {
+  id: string;
+  dTag: string;
+  content: string;
+  createdAt: number;
+  encryptionMethod: EncryptionMethod;
+  isLegacy: boolean;
+  walletId?: string;
+}
+
+function normalizeMnemonic(mnemonic: string): string {
+  return mnemonic.trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+export function getSparkWalletId(mnemonic: string): string {
+  const normalized = normalizeMnemonic(mnemonic);
+  const hash = sha256(new TextEncoder().encode(normalized));
+  return bytesToHex(hash).slice(0, 16);
+}
+
+function getBackupTag(walletId: string | null): string {
+  return walletId ? `${BACKUP_D_TAG_PREFIX}${walletId}` : BACKUP_D_TAG;
+}
+
+function parseBackupTag(dTag: string): { isLegacy: boolean; walletId?: string } | null {
+  if (dTag === BACKUP_D_TAG) {
+    return { isLegacy: true };
+  }
+
+  if (dTag.startsWith(BACKUP_D_TAG_PREFIX)) {
+    return { isLegacy: false, walletId: dTag.slice(BACKUP_D_TAG_PREFIX.length) };
+  }
+
+  return null;
+}
+
+function isDeletedBackupEvent(event: any): boolean {
+  return !!event?.tags?.some((tag: string[]) => tag[0] === 'deleted' && tag[1] === 'true');
+}
 
 // Re-export encryption functions for backwards compatibility
 export const hasEncryptionSupport = _hasEncryptionSupport;
@@ -1051,12 +1105,14 @@ export async function backupWalletToNostr(pubkey: string): Promise<any> {
   );
   logger.info('[Spark] Encrypted with', encryptionMethod);
 
+  const walletId = getSparkWalletId(mnemonic);
+
   // Create and sign using NDK (works with any signer type)
   const ndkEvent = new NDKEvent(ndkInstance);
   ndkEvent.kind = BACKUP_EVENT_KIND;
   ndkEvent.content = encryptedMnemonic;
   ndkEvent.tags = [
-    ['d', BACKUP_D_TAG],
+    ['d', getBackupTag(walletId)],
     ['client', 'zap.cooking'],
     ['encryption', encryptionMethod || 'nip44']
   ];
@@ -1069,6 +1125,138 @@ export async function backupWalletToNostr(pubkey: string): Promise<any> {
 
   logger.info('[Spark] Wallet backed up to Nostr successfully');
   return ndkEvent.rawEvent();
+}
+
+export async function listSparkBackups(pubkey: string): Promise<SparkBackupEntry[]> {
+  if (!browser) return [];
+
+  try {
+    const { ndk, ndkReady } = await import('$lib/nostr');
+    const { get } = await import('svelte/store');
+
+    await ndkReady;
+    const ndkInstance = get(ndk);
+
+    const events = await ndkInstance.fetchEvents(
+      {
+        kinds: [BACKUP_EVENT_KIND],
+        authors: [pubkey]
+      },
+      { closeOnEose: true }
+    );
+
+    if (!events || events.size === 0) {
+      return [];
+    }
+
+    const latestByTag = new Map<string, SparkBackupEntry>();
+
+    for (const event of events) {
+      const dTag = event.tags?.find((tag: string[]) => tag[0] === 'd')?.[1];
+      if (!dTag) continue;
+
+      const parsed = parseBackupTag(dTag);
+      if (!parsed) continue;
+
+      if (!event.content || isDeletedBackupEvent(event)) continue;
+
+      const createdAt = event.created_at || 0;
+      const encryptionTag = event.tags?.find((tag: string[]) => tag[0] === 'encryption');
+      let encryptionMethod: EncryptionMethod;
+      if (encryptionTag?.[1] === 'nip04' || encryptionTag?.[1] === 'nip44') {
+        encryptionMethod = encryptionTag[1] as EncryptionMethod;
+      } else {
+        encryptionMethod = detectEncryptionMethod(event.content);
+      }
+
+      const entry: SparkBackupEntry = {
+        id: event.id || `${dTag}:${createdAt}`,
+        dTag,
+        content: event.content,
+        createdAt,
+        encryptionMethod,
+        isLegacy: parsed.isLegacy,
+        walletId: parsed.walletId
+      };
+
+      const existing = latestByTag.get(dTag);
+      if (!existing || createdAt > existing.createdAt) {
+        latestByTag.set(dTag, entry);
+      }
+    }
+
+    return Array.from(latestByTag.values()).sort((a, b) => b.createdAt - a.createdAt);
+  } catch (error) {
+    logger.warn('[Spark] Failed to list backups from Nostr:', String(error));
+    return [];
+  }
+}
+
+export async function restoreSparkBackup(
+  pubkey: string,
+  apiKey: string,
+  backup: SparkBackupEntry
+): Promise<string | null> {
+  if (!browser) return null;
+
+  // Check that we have decryption support
+  if (!hasEncryptionSupport()) {
+    throw new Error(
+      'No decryption method available. Please ensure you are logged in with a signer.'
+    );
+  }
+
+  if (!backup.content) {
+    return null;
+  }
+
+  logger.info('[Spark] Restoring wallet from backup:', backup.dTag);
+
+  // Helper to add timeout to decrypt operations
+  const withTimeout = <T>(promise: Promise<T>, ms: number, message: string): Promise<T> => {
+    return Promise.race([
+      promise,
+      new Promise<T>((_, reject) => setTimeout(() => reject(new Error(message)), ms))
+    ]);
+  };
+
+  const encryptionMethod = backup.encryptionMethod || detectEncryptionMethod(backup.content);
+  const DECRYPT_TIMEOUT = 15000;
+
+  const mnemonic = await withTimeout(
+    decrypt(pubkey, backup.content, encryptionMethod),
+    DECRYPT_TIMEOUT,
+    'Decryption timed out. Please approve the request in your signer app.'
+  );
+
+  if (!mnemonic) {
+    throw new Error('Failed to decrypt backup. Make sure you are using the same Nostr key.');
+  }
+
+  const normalizedMnemonic = normalizeMnemonic(mnemonic);
+  if (!validateMnemonic(normalizedMnemonic)) {
+    throw new Error('Decrypted backup contains invalid mnemonic');
+  }
+
+  await saveMnemonic(pubkey, normalizedMnemonic);
+
+  logger.info('[Spark] Initializing wallet from Nostr backup...');
+  const success = await initializeSdk(pubkey, normalizedMnemonic, apiKey);
+
+  if (!success) {
+    deleteMnemonic(pubkey);
+    throw new Error('Failed to initialize wallet from backup');
+  }
+
+  try {
+    const addr = await getLightningAddress();
+    logger.info('[Spark] Wallet lightning address:', addr || 'none');
+  } catch (e) {
+    logger.warn('[Spark] Could not fetch lightning address after restore:', String(e));
+  }
+
+  logger.info('[Spark] Wallet restored from Nostr backup successfully');
+  return normalizedMnemonic;
 }
 
 /**
@@ -1084,128 +1272,23 @@ export async function restoreWalletFromNostr(
 ): Promise<string | null> {
   if (!browser) return null;
 
-  // Check that we have decryption support
-  if (!hasEncryptionSupport()) {
-    throw new Error(
-      'No decryption method available. Please ensure you are logged in with a signer.'
-    );
-  }
+  logger.info('[Spark] Searching for Nostr backups...');
+  const backups = await listSparkBackups(pubkey);
 
-  // Fetch backup event from relays using NDK
-  const { ndk, ndkReady } = await import('$lib/nostr');
-  const { get } = await import('svelte/store');
-
-  await ndkReady;
-  const ndkInstance = get(ndk);
-
-  logger.info('[Spark] Searching for Nostr backup...');
-
-  // Query for the backup event
-  const filter = {
-    kinds: [BACKUP_EVENT_KIND],
-    authors: [pubkey],
-    '#d': [BACKUP_D_TAG]
-  };
-
-  // Fetch with timeout
-  const events = await ndkInstance.fetchEvents(filter, { closeOnEose: true });
-
-  if (!events || events.size === 0) {
+  if (!backups.length) {
     logger.info('[Spark] No backup found on Nostr relays');
     return null;
   }
 
-  // Get the most recent backup (replaceable events should only have one, but just in case)
-  let latestEvent: any = null;
-  for (const event of events) {
-    if (!latestEvent || event.created_at! > latestEvent.created_at!) {
-      latestEvent = event;
-    }
-  }
-
-  if (!latestEvent || !latestEvent.content) {
-    logger.warn('[Spark] Backup event found but has no content');
-    return null;
-  }
-
-  // Determine encryption method from event tags, or detect from ciphertext format
-  const encryptionTag = latestEvent.tags?.find((t: string[]) => t[0] === 'encryption');
-  let encryptionMethod: EncryptionMethod;
-  if (encryptionTag?.[1] === 'nip04' || encryptionTag?.[1] === 'nip44') {
-    encryptionMethod = encryptionTag[1] as EncryptionMethod;
-  } else {
-    encryptionMethod = detectEncryptionMethod(latestEvent.content);
-  }
-  logger.info('[Spark] Found backup, decrypting with', encryptionMethod, '...');
-
-  // Helper to add timeout to decrypt operations
-  const withTimeout = <T>(promise: Promise<T>, ms: number, message: string): Promise<T> => {
-    return Promise.race([
-      promise,
-      new Promise<T>((_, reject) => setTimeout(() => reject(new Error(message)), ms))
-    ]);
-  };
-
-  // Decrypt the mnemonic using the unified encryption service (with 15s timeout)
-  const DECRYPT_TIMEOUT = 15000;
-
-  const mnemonic = await withTimeout(
-    decrypt(pubkey, latestEvent.content, encryptionMethod),
-    DECRYPT_TIMEOUT,
-    'Decryption timed out. Please approve the request in your signer app.'
-  );
-
-  if (!mnemonic) {
-    throw new Error('Failed to decrypt backup. Make sure you are using the same Nostr key.');
-  }
-
-  // Validate mnemonic
-  const words = mnemonic.trim().split(/\s+/);
-  if (![12, 15, 18, 21, 24].includes(words.length)) {
-    throw new Error('Decrypted backup contains invalid mnemonic');
-  }
-
-  // Save mnemonic and initialize SDK
-  await saveMnemonic(pubkey, mnemonic.trim());
-
-  logger.info('[Spark] Initializing wallet from Nostr backup...');
-  const success = await initializeSdk(pubkey, mnemonic.trim(), apiKey);
-
-  if (!success) {
-    deleteMnemonic(pubkey);
-    throw new Error('Failed to initialize wallet from backup');
-  }
-
-  // Explicitly fetch the lightning address for this wallet
-  try {
-    const addr = await getLightningAddress();
-    logger.info('[Spark] Wallet lightning address:', addr || 'none');
-  } catch (e) {
-    logger.warn('[Spark] Could not fetch lightning address after restore:', String(e));
-  }
-
-  logger.info('[Spark] Wallet restored from Nostr backup successfully');
-  return mnemonic.trim();
+  return restoreSparkBackup(pubkey, apiKey, backups[0]);
 }
 
 export async function hasSparkBackupInNostr(pubkey: string): Promise<boolean> {
   if (!browser) return false;
 
   try {
-    const { ndk, ndkReady } = await import('$lib/nostr');
-    const { get } = await import('svelte/store');
-
-    await ndkReady;
-    const ndkInstance = get(ndk);
-
-    const filter = {
-      kinds: [BACKUP_EVENT_KIND],
-      authors: [pubkey],
-      '#d': [BACKUP_D_TAG]
-    };
-
-    const events = await ndkInstance.fetchEvents(filter, { closeOnEose: true });
-    return !!events && events.size > 0;
+    const backups = await listSparkBackups(pubkey);
+    return backups.length > 0;
   } catch (error) {
     logger.warn('[Spark] Failed to check backup status:', String(error));
     return false;
@@ -1257,11 +1340,10 @@ export async function checkRelayBackups(pubkey: string): Promise<RelayBackupStat
   // Query each relay individually in parallel
   const checkPromises = relaysToCheck.map(async (relayUrl): Promise<RelayBackupStatus> => {
     try {
-      // Create a filter for the backup event
+      // Create a filter for Spark backup events (legacy + multi-backup tags)
       const filter = {
         kinds: [BACKUP_EVENT_KIND],
-        authors: [pubkey],
-        '#d': [BACKUP_D_TAG]
+        authors: [pubkey]
       };
 
       // Create a relay set for this specific relay
@@ -1274,25 +1356,30 @@ export async function checkRelayBackups(pubkey: string): Promise<RelayBackupStat
       ]);
 
       if (events && events.size > 0) {
-        // Get the most recent event
         let latestEvent: any = null;
         for (const event of events) {
+          const dTag = event.tags?.find((tag: string[]) => tag[0] === 'd')?.[1];
+          if (!dTag || !parseBackupTag(dTag) || isDeletedBackupEvent(event) || !event.content) {
+            continue;
+          }
           if (!latestEvent || event.created_at! > latestEvent.created_at!) {
             latestEvent = event;
           }
         }
 
-        return {
-          relay: relayUrl,
-          hasBackup: true,
-          timestamp: latestEvent?.created_at ? latestEvent.created_at * 1000 : undefined
-        };
-      } else {
-        return {
-          relay: relayUrl,
-          hasBackup: false
-        };
+        if (latestEvent) {
+          return {
+            relay: relayUrl,
+            hasBackup: true,
+            timestamp: latestEvent?.created_at ? latestEvent.created_at * 1000 : undefined
+          };
+        }
       }
+
+      return {
+        relay: relayUrl,
+        hasBackup: false
+      };
     } catch (error) {
       logger.warn(`[Spark] Failed to check backup on ${relayUrl}: ${String(error)}`);
       return {
@@ -1317,7 +1404,7 @@ export async function checkRelayBackups(pubkey: string): Promise<RelayBackupStat
  * Publishes an empty replaceable event to overwrite the backup (more reliable than NIP-09).
  * @param pubkey The user's Nostr public key (hex string).
  */
-export async function deleteBackupFromNostr(pubkey: string): Promise<void> {
+export async function deleteBackupFromNostr(pubkey: string, walletId?: string): Promise<void> {
   if (!browser) throw new Error('Backup deletion can only be performed in browser');
 
   const { ndk, ndkReady } = await import('$lib/nostr');
@@ -1327,6 +1414,10 @@ export async function deleteBackupFromNostr(pubkey: string): Promise<void> {
   await ndkReady;
   const ndkInstance = get(ndk);
 
+  const mnemonic = walletId ? null : await loadMnemonic(pubkey);
+  const resolvedWalletId = walletId || (mnemonic ? getSparkWalletId(mnemonic) : null);
+  const backupTag = getBackupTag(resolvedWalletId);
+
   logger.info('[Spark] Deleting backup by publishing empty replacement...');
 
   // Create an empty replaceable event with the same d-tag to overwrite the backup
@@ -1335,7 +1426,7 @@ export async function deleteBackupFromNostr(pubkey: string): Promise<void> {
   ndkEvent.kind = BACKUP_EVENT_KIND;
   ndkEvent.content = ''; // Empty content - no backup data
   ndkEvent.tags = [
-    ['d', BACKUP_D_TAG],
+    ['d', backupTag],
     ['deleted', 'true']
   ];
 

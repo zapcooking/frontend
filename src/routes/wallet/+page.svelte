@@ -54,7 +54,8 @@
     restoreFromBackup,
     createBackup,
     backupWalletToNostr,
-    restoreWalletFromNostr,
+    listSparkBackups,
+    restoreSparkBackup,
     hasSparkBackupInNostr,
     loadMnemonic,
     lightningAddress as sparkLightningAddressStore,
@@ -67,7 +68,8 @@
     recentSparkPayments,
     getBestEncryptionMethod,
     deleteBackupFromNostr as deleteSparkBackupFromNostr,
-    type SparkWalletBackup
+    type SparkWalletBackup,
+    type SparkBackupEntry
   } from '$lib/spark';
   import {
     hasEncryptionSupport,
@@ -152,7 +154,7 @@
   let showMnemonic = false;
 
   // Spark restore options
-  let sparkRestoreMode: 'options' | 'mnemonic' | 'file' = 'options';
+  let sparkRestoreMode: 'options' | 'mnemonic' | 'file' | 'nostr-select' = 'options';
   let restoreMnemonicInput = '';
   let fileInput: HTMLInputElement;
   let sparkLoadingMessage = ''; // Status message during Spark operations
@@ -160,6 +162,8 @@
   let nwcBackupExists: boolean | null = null;
   let sparkBackupChecking = false;
   let nwcBackupChecking = false;
+  let sparkBackupOptions: SparkBackupEntry[] = [];
+  let selectedSparkBackupId = '';
   let lastBackupCheckType: number | null = null;
   let lastBackupCheckPubkey = '';
   const BACKUP_CHECK_TIMEOUT_MS = 8000;
@@ -1211,9 +1215,78 @@
     handleCreateSparkWallet();
   }
 
+  function formatSparkBackupLabel(backup: SparkBackupEntry): string {
+    if (!backup.createdAt) return 'Backup (unknown date)';
+    return new Date(backup.createdAt * 1000).toLocaleString();
+  }
+
+  function getSelectedSparkBackup(): SparkBackupEntry | null {
+    return sparkBackupOptions.find((backup) => backup.id === selectedSparkBackupId) || null;
+  }
+
+  async function restoreSelectedSparkBackup(backup: SparkBackupEntry) {
+    const mnemonic = await restoreSparkBackup($userPublickey, BREEZ_API_KEY, backup);
+    if (mnemonic) {
+      // Register in wallet store
+      await connectWallet(4, 'spark');
+
+      // Actively fetch balance and transaction history
+      await refreshBalance();
+      loadTransactionHistory(true);
+
+      // Close modal after successful registration
+      successMessage = 'Breez Spark wallet restored from Nostr backup!';
+      showAddWallet = false;
+      selectedWalletType = null;
+      sparkRestoreMode = 'options';
+      sparkBackupOptions = [];
+      selectedSparkBackupId = '';
+    } else {
+      errorMessage = 'No backup found on Nostr relays.';
+    }
+  }
+
   async function handleRestoreFromNostr() {
     if (!BREEZ_API_KEY) {
       errorMessage = 'Breez API key not configured. Please contact support.';
+      return;
+    }
+
+    isConnecting = true;
+    sparkLoadingMessage = 'Checking for Nostr backups...';
+    errorMessage = '';
+
+    try {
+      const backups = await listSparkBackups($userPublickey);
+      if (!backups.length) {
+        errorMessage = 'No backup found on Nostr relays.';
+        return;
+      }
+
+      if (backups.length === 1) {
+        await restoreSelectedSparkBackup(backups[0]);
+      } else {
+        sparkBackupOptions = backups;
+        selectedSparkBackupId = backups[0].id;
+        sparkRestoreMode = 'nostr-select';
+      }
+    } catch (e) {
+      errorMessage = getSignerErrorMessage(e, 'Failed to restore from Nostr');
+    } finally {
+      isConnecting = false;
+      sparkLoadingMessage = '';
+    }
+  }
+
+  async function handleRestoreSelectedSparkBackup() {
+    if (!BREEZ_API_KEY) {
+      errorMessage = 'Breez API key not configured. Please contact support.';
+      return;
+    }
+
+    const backup = getSelectedSparkBackup();
+    if (!backup) {
+      errorMessage = 'Please select a backup to restore.';
       return;
     }
 
@@ -1222,22 +1295,7 @@
     errorMessage = '';
 
     try {
-      const mnemonic = await restoreWalletFromNostr($userPublickey, BREEZ_API_KEY);
-      if (mnemonic) {
-        // Register in wallet store
-        await connectWallet(4, 'spark');
-
-        // Actively fetch balance and transaction history
-        await refreshBalance();
-        loadTransactionHistory(true);
-
-        // Close modal after successful registration
-        successMessage = 'Breez Spark wallet restored from Nostr backup!';
-        showAddWallet = false;
-        selectedWalletType = null;
-      } else {
-        errorMessage = 'No backup found on Nostr relays.';
-      }
+      await restoreSelectedSparkBackup(backup);
     } catch (e) {
       errorMessage = getSignerErrorMessage(e, 'Failed to restore from Nostr');
     } finally {
@@ -3305,6 +3363,44 @@
                       </Button>
                     </div>
                   {/if}
+                {:else if sparkRestoreMode === 'nostr-select'}
+                  <p class="text-caption mb-4">Choose a backup to restore:</p>
+                  <div class="space-y-2 mb-4">
+                    {#each sparkBackupOptions as backup}
+                      <button
+                        class={`w-full p-3 rounded-lg text-left transition-colors hover:bg-accent-gray ${
+                          selectedSparkBackupId === backup.id
+                            ? 'border-amber-500 bg-amber-500/10'
+                            : ''
+                        }`}
+                        style="border: 1px solid var(--color-input-border);"
+                        on:click={() => (selectedSparkBackupId = backup.id)}
+                      >
+                        <div class="flex items-center justify-between gap-3">
+                          <div class="text-sm font-medium" style="color: var(--color-text-primary)">
+                            {formatSparkBackupLabel(backup)}
+                          </div>
+                        </div>
+                        <div class="text-xs text-caption mt-1">
+                          {#if backup.walletId}
+                            Wallet ID:
+                            <span class="font-mono">{backup.walletId}</span>
+                          {:else if backup.isLegacy}
+                            Legacy Spark wallet
+                          {:else}
+                            Spark wallet backup
+                          {/if}
+                        </div>
+                      </button>
+                    {/each}
+                  </div>
+                  <Button
+                    on:click={handleRestoreSelectedSparkBackup}
+                    disabled={isConnecting}
+                    class="w-full"
+                  >
+                    Restore selected backup
+                  </Button>
                 {:else if sparkRestoreMode === 'mnemonic'}
                   <p class="text-caption mb-4">
                     Enter your 12 or 24 word recovery phrase to restore your wallet.
@@ -3340,6 +3436,8 @@
                 errorMessage = '';
                 sparkRestoreMode = 'options';
                 restoreMnemonicInput = '';
+                sparkBackupOptions = [];
+                selectedSparkBackupId = '';
               }}
             >
               Cancel

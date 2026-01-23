@@ -61,13 +61,13 @@
 
     <div class="flex flex-col sm:flex-row gap-3 sm:justify-end">
       <button
-        class="px-4 py-2 rounded-full text-sm font-medium hover:bg-accent-gray transition-colors"
+        class="order-2 sm:order-1 px-4 py-2 rounded-full text-sm font-medium hover:bg-accent-gray transition-colors"
         style="color: var(--color-text-primary);"
         on:click={handleDismiss}
       >
         Not now
       </button>
-      <Button on:click={goToWallet}>
+      <Button on:click={goToWallet} class="order-1 sm:order-2">
         <LightningIcon size={16} weight="fill" />
         Set up a Wallet
       </Button>
