@@ -330,6 +330,7 @@ export async function initializeSdk(
     const config = defaultConfig('mainnet');
     config.apiKey = apiKey;
     config.privateEnabledDefault = true;
+    config.lnurlDomain = 'sats.zap.cooking';
 
     const cleanMnemonic = mnemonic.trim().toLowerCase().replace(/\s+/g, ' ');
 
