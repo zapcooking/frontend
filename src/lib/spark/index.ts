@@ -361,7 +361,13 @@ export async function initializeSdk(
       `[Spark] Using lnurlDomain: ${config.lnurlDomain} (hostname: ${browser ? window.location.hostname : 'server'})`
     );
     console.log(`[Spark] Config lnurlDomain set to: ${config.lnurlDomain}`);
-    console.log(`[Spark] Full config object:`, JSON.stringify(config, null, 2));
+    // Log the full config to verify it's being set correctly
+    console.log(`[Spark] Full config object:`, JSON.stringify({
+      lnurlDomain: config.lnurlDomain,
+      apiKey: config.apiKey ? '[SET]' : '[NOT SET]',
+      privateEnabledDefault: config.privateEnabledDefault,
+      network: 'mainnet'
+    }, null, 2));
 
     const cleanMnemonic = mnemonic.trim().toLowerCase().replace(/\s+/g, ' ');
 
@@ -775,7 +781,8 @@ export async function registerLightningAddress(
     });
 
     // Extract address string from response using shared helper
-    const address = extractLightningAddressString(response) || `${username}@zap.cooking`;
+    // Fallback uses sats.zap.cooking to match our subdomain strategy
+    const address = extractLightningAddressString(response) || `${username}@sats.zap.cooking`;
 
     logger.info(`[Spark] SDK returned address: ${address}`);
     logger.info(`[Spark] Full registration response:`, JSON.stringify(response, null, 2));
