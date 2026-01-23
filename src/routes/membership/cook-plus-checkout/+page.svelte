@@ -16,9 +16,15 @@
 
   $: isLoggedIn = $userPublickey && $userPublickey.length > 0;
   
-  // Cook+ pricing: $49/year = 49,000 sats (approximately)
+  // Cook+ pricing
   const COOK_PLUS_PRICE_USD = 49;
-  const COOK_PLUS_PRICE_SATS = 49000;
+  
+  // Dynamic Bitcoin pricing (fetched from API)
+  let bitcoinPriceLoading = true;
+  let bitcoinPriceError: string | null = null;
+  let discountedUsdAmount: number | null = null;
+  let amountSats: number | null = null;
+  let discountPercent = 5;
 
   onMount(() => {
     if (!browser) return;
@@ -35,7 +41,38 @@
     if (paymentStatus === 'success' && sessionId) {
       goto(`/membership/cook-plus-success?payment_method=stripe&session_id=${sessionId}`);
     }
+    
+    // Fetch Bitcoin price quote
+    fetchBitcoinPriceQuote();
   });
+  
+  async function fetchBitcoinPriceQuote() {
+    bitcoinPriceLoading = true;
+    bitcoinPriceError = null;
+    
+    try {
+      const response = await fetch('/api/membership/bitcoin-price-quote?tier=cook&period=annual');
+      
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || 'Failed to fetch Bitcoin price');
+      }
+      
+      const data = await response.json();
+      discountedUsdAmount = data.discountedUsdAmount;
+      amountSats = data.amountSats;
+      discountPercent = data.discountPercent;
+      
+    } catch (err) {
+      console.error('[Cook+ Checkout] Bitcoin price error:', err);
+      bitcoinPriceError = err instanceof Error ? err.message : 'Failed to fetch Bitcoin price';
+      // Set fallback values
+      discountedUsdAmount = COOK_PLUS_PRICE_USD * 0.95;
+      amountSats = null;
+    } finally {
+      bitcoinPriceLoading = false;
+    }
+  }
 
   async function proceedToCheckout() {
     if (!browser || !isLoggedIn) {
@@ -128,7 +165,6 @@
           pubkey: $userPublickey,
           tier: 'cook',
           period: 'annual',
-          amountSats: COOK_PLUS_PRICE_SATS,
         }),
       });
 
@@ -299,8 +335,24 @@
               <div class="payment-method-header">
                 <span class="payment-icon">⚡</span>
                 <span class="payment-name">Bitcoin Lightning</span>
+                <span class="discount-badge">{discountPercent}% OFF</span>
               </div>
-              <span class="payment-provider">{COOK_PLUS_PRICE_SATS.toLocaleString()} sats (~${COOK_PLUS_PRICE_USD})</span>
+              <div class="payment-provider bitcoin-pricing">
+                {#if bitcoinPriceLoading}
+                  <span class="loading-price">Loading price...</span>
+                {:else if amountSats}
+                  <span class="sats-amount">{amountSats.toLocaleString()} sats</span>
+                  <span class="usd-pricing">
+                    <span class="original-price">${COOK_PLUS_PRICE_USD}</span>
+                    <span class="discounted-price">${discountedUsdAmount?.toFixed(2)}</span>
+                  </span>
+                {:else}
+                  <span class="usd-pricing">
+                    <span class="original-price">${COOK_PLUS_PRICE_USD}</span>
+                    <span class="discounted-price">${discountedUsdAmount?.toFixed(2)}</span>
+                  </span>
+                {/if}
+              </div>
             </div>
           </label>
         </div>
@@ -522,6 +574,51 @@
     font-size: 0.85rem;
     color: #9ca3af;
     margin-left: 2.25rem;
+  }
+
+  .bitcoin-pricing {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+
+  .sats-amount {
+    font-weight: 600;
+    color: #f59e0b;
+    font-size: 0.95rem;
+  }
+
+  .usd-pricing {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .original-price {
+    text-decoration: line-through;
+    color: #6b7280;
+    font-size: 0.85rem;
+  }
+
+  .discounted-price {
+    color: #10b981;
+    font-weight: 600;
+    font-size: 0.9rem;
+  }
+
+  .discount-badge {
+    background: linear-gradient(135deg, #10b981, #059669);
+    color: white;
+    padding: 0.15rem 0.5rem;
+    border-radius: 10px;
+    font-size: 0.65rem;
+    font-weight: 700;
+    margin-left: auto;
+  }
+
+  .loading-price {
+    color: #9ca3af;
+    font-style: italic;
   }
 
   .payment-method-option:has(input:disabled) {

@@ -12,6 +12,7 @@ declare global {
         NOTIFICATION_PRIVATE_KEY?: string;
         CRON_SECRET?: string;
         MEMBERSHIP_ENABLED?: string;
+        MEMBERSHIP_LIGHTNING_ADDRESS?: string;
         // Add other Cloudflare env vars here
       };
     }

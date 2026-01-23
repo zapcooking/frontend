@@ -202,12 +202,19 @@ async function getCountFromRelays(filter: Record<string, unknown>): Promise<numb
  * Fetch all engagement counts for an event
  */
 async function fetchEngagementCounts(eventId: string): Promise<CountData> {
-  const [reactions, comments, reposts, zaps] = await Promise.all([
+  // Use Promise.allSettled to handle individual failures gracefully
+  const results = await Promise.allSettled([
     getCountFromRelays({ kinds: [7], '#e': [eventId] }),
     getCountFromRelays({ kinds: [1], '#e': [eventId] }),
     getCountFromRelays({ kinds: [6], '#e': [eventId] }),
     getCountFromRelays({ kinds: [9735], '#e': [eventId] })
   ]);
+
+  // Extract results, defaulting to null on failure
+  const reactions = results[0].status === 'fulfilled' ? results[0].value : null;
+  const comments = results[1].status === 'fulfilled' ? results[1].value : null;
+  const reposts = results[2].status === 'fulfilled' ? results[2].value : null;
+  const zaps = results[3].status === 'fulfilled' ? results[3].value : null;
 
   return {
     reactions,
@@ -287,6 +294,7 @@ export const GET: RequestHandler = async ({ params, url, platform }) => {
       }
     }
 
+    // Return success even if some counts are null (partial data is better than error)
     return json(counts, {
       headers: {
         'Cache-Control': 'public, max-age=60, stale-while-revalidate=300',
@@ -294,15 +302,17 @@ export const GET: RequestHandler = async ({ params, url, platform }) => {
       }
     });
   } catch (err) {
-    console.error('Error fetching counts:', err);
+    console.error('[Counts API] Error fetching counts:', err);
+    // Return 200 with null counts instead of 500 - allows client to handle gracefully
     return json({ 
-      error: 'Failed to fetch counts',
       reactions: null,
       comments: null,
       reposts: null,
-      zaps: null
+      zaps: null,
+      source: 'error',
+      timestamp: Date.now()
     }, { 
-      status: 500,
+      status: 200, // Changed from 500 to 200 - partial data is acceptable
       headers: {
         'Cache-Control': 'no-cache'
       }
