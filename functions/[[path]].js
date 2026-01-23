@@ -5,6 +5,15 @@ const corsHeaders = {
 };
 
 export async function onRequest(context) {
+  const url = new URL(context.request.url);
+  const pathname = url.pathname;
+  
+  // Only handle LNURL paths - if not an LNURL path, return 404 so SvelteKit can handle it
+  if (!pathname.startsWith('/.well-known/lnurlp/') && !pathname.startsWith('/lnurlpay/')) {
+    // Not an LNURL path - return 404 so the request falls through to SvelteKit
+    return new Response('Not Found', { status: 404 });
+  }
+  
   // Handle CORS preflight
   if (context.request.method === 'OPTIONS') {
     return new Response(null, {
@@ -13,12 +22,11 @@ export async function onRequest(context) {
     });
   }
 
-  const url = new URL(context.request.url);
-  // Preserve the full path including /.well-known/lnurlp prefix
-  const targetUrl = `https://breez.tips${url.pathname}${url.search}`;
+  // Preserve the full path
+  const targetUrl = `https://breez.tips${pathname}${url.search}`;
   
-  // Debug logging (visible in Cloudflare dashboard)
-  console.log(`[LNURL Proxy] Proxying ${context.request.method} ${url.pathname} to ${targetUrl}`);
+  // Debug logging
+  console.log(`[LNURL Proxy] Proxying ${context.request.method} ${pathname} to ${targetUrl}`);
   
   try {
     // Forward all headers from the original request (important for auth)
