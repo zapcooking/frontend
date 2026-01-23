@@ -17,6 +17,9 @@ export async function onRequest(context) {
   // Preserve the full path including /.well-known/lnurlp prefix
   const targetUrl = `https://breez.tips${url.pathname}${url.search}`;
   
+  // Debug logging (visible in Cloudflare dashboard)
+  console.log(`[LNURL Proxy] Proxying ${context.request.method} ${url.pathname} to ${targetUrl}`);
+  
   try {
     // Forward all headers from the original request (important for auth)
     const requestHeaders = new Headers(context.request.headers);
@@ -33,6 +36,9 @@ export async function onRequest(context) {
     
     // Get response body
     const responseBody = await response.arrayBuffer();
+    
+    // Log response for debugging
+    console.log(`[LNURL Proxy] Response from breez.tips: ${response.status} ${response.statusText}`);
     
     // Clone response headers and add CORS
     const responseHeaders = new Headers(response.headers);
