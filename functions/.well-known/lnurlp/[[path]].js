@@ -14,31 +14,39 @@ export async function onRequest(context) {
   }
 
   const url = new URL(context.request.url);
+  // Preserve the full path including /.well-known/lnurlp prefix
   const targetUrl = `https://breez.tips${url.pathname}${url.search}`;
   
   try {
+    // Forward all headers from the original request (important for auth)
+    const requestHeaders = new Headers(context.request.headers);
+    // Remove host header (will be set by fetch)
+    requestHeaders.delete('host');
+    
     const response = await fetch(targetUrl, {
       method: context.request.method,
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-      },
+      headers: requestHeaders,
       body: context.request.method !== 'GET' && context.request.method !== 'HEAD' 
-        ? context.request.body 
+        ? await context.request.clone().arrayBuffer().then(buf => buf.byteLength > 0 ? buf : undefined)
         : undefined,
     });
     
-    // Clone response and add CORS headers
+    // Get response body
+    const responseBody = await response.arrayBuffer();
+    
+    // Clone response headers and add CORS
     const responseHeaders = new Headers(response.headers);
     Object.entries(corsHeaders).forEach(([key, value]) => {
       responseHeaders.set(key, value);
     });
     
-    return new Response(response.body, {
+    return new Response(responseBody, {
       status: response.status,
+      statusText: response.statusText,
       headers: responseHeaders,
     });
   } catch (error) {
+    console.error('[LNURL Proxy] Error:', error.message);
     return new Response(JSON.stringify({ error: 'Proxy error', message: error.message }), {
       status: 502,
       headers: {
