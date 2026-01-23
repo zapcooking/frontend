@@ -223,7 +223,6 @@
             <li>✓ Everything in Cook+</li>
             <li>✓ Verified @zap.cooking NIP-05 identity</li>
             <li>✓ Creator analytics</li>
-            <li>✓ Access to pro.zap.cooking relay</li>
             <li>✓ Gated recipes (coming soon)</li>
             <li>✓ AI recipe tools</li>
             <li>✓ Priority support</li>

@@ -14,9 +14,15 @@
   let lightningInvoice: string | null = null;
   let paymentHash: string | null = null;
 
-  // Genesis pricing: $210 = ~210,000 sats
-  const GENESIS_PRICE_USD = 210;
-  const GENESIS_PRICE_SATS = 210000;
+  // Founders Club pricing
+  const FOUNDERS_CLUB_PRICE_USD = 210;
+  
+  // Dynamic Bitcoin pricing (fetched from API)
+  let bitcoinPriceLoading = true;
+  let bitcoinPriceError: string | null = null;
+  let discountedUsdAmount: number | null = null;
+  let amountSats: number | null = null;
+  let discountPercent = 5;
 
   $: isLoggedIn = $userPublickey && $userPublickey.length > 0;
 
@@ -36,10 +42,45 @@
       // Redirect to success page
       goto(`/membership/genesis-success?session_id=${sessionId}`);
     }
+    
+    // Fetch Bitcoin price quote
+    fetchBitcoinPriceQuote();
   });
+  
+  async function fetchBitcoinPriceQuote() {
+    bitcoinPriceLoading = true;
+    bitcoinPriceError = null;
+    
+    try {
+      // Use the membership bitcoin price quote endpoint with founders tier
+      const response = await fetch('/api/membership/bitcoin-price-quote?tier=founders&period=lifetime');
+      
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || 'Failed to fetch Bitcoin price');
+      }
+      
+      const data = await response.json();
+      discountedUsdAmount = data.discountedUsdAmount;
+      amountSats = data.amountSats;
+      discountPercent = data.discountPercent;
+      
+    } catch (err) {
+      console.error('[Founders Club Checkout] Bitcoin price error:', err);
+      bitcoinPriceError = err instanceof Error ? err.message : 'Failed to fetch Bitcoin price';
+      // Set fallback values
+      discountedUsdAmount = FOUNDERS_CLUB_PRICE_USD * 0.95;
+      amountSats = null;
+    } finally {
+      bitcoinPriceLoading = false;
+    }
+  }
 
   async function proceedToCheckout() {
-    if (!browser || !isLoggedIn) return;
+    if (!browser || !isLoggedIn) {
+      error = 'Please log in to continue';
+      return;
+    }
     
     if (paymentMethod === 'stripe') {
       await proceedWithStripe();
@@ -100,7 +141,7 @@
     paymentHash = null;
 
     try {
-      console.log('[Genesis Checkout] Creating Lightning invoice...');
+      console.log('[Founders Club Checkout] Creating Lightning invoice...');
       const response = await fetch('/api/genesis/create-lightning-invoice', {
         method: 'POST',
         headers: {
@@ -108,7 +149,6 @@
         },
         body: JSON.stringify({
           pubkey: $userPublickey,
-          amountSats: GENESIS_PRICE_SATS,
         }),
       });
 
@@ -124,7 +164,7 @@
       }
 
       const data = await response.json();
-      console.log('[Genesis Checkout] Lightning invoice created');
+      console.log('[Founders Club Checkout] Lightning invoice created');
       
       lightningInvoice = data.invoice;
       paymentHash = data.paymentHash;
@@ -133,18 +173,18 @@
         invoice: data.invoice,
         verify: undefined,
         onPaid: async (response) => {
-          console.log('[Genesis Checkout] Lightning payment completed, verifying...');
+          console.log('[Founders Club Checkout] Lightning payment completed, verifying...');
           await verifyLightningPayment(response.preimage || '');
         },
         onCancelled: () => {
-          console.log('[Genesis Checkout] Lightning payment cancelled');
+          console.log('[Founders Club Checkout] Lightning payment cancelled');
           loading = false;
           error = 'Payment cancelled';
         }
       });
 
     } catch (err) {
-      console.error('[Genesis Checkout] Error:', err);
+      console.error('[Founders Club Checkout] Error:', err);
       error = err instanceof Error ? err.message : 'Failed to create Lightning invoice. Please try again.';
       loading = false;
     }
@@ -158,7 +198,7 @@
     }
 
     try {
-      console.log('[Genesis Checkout] Verifying Lightning payment...');
+      console.log('[Founders Club Checkout] Verifying Lightning payment...');
       const response = await fetch('/api/genesis/verify-lightning-payment', {
         method: 'POST',
         headers: {
@@ -203,7 +243,7 @@
       }
 
     } catch (err) {
-      console.error('[Genesis Checkout] Verification error:', err);
+      console.error('[Founders Club Checkout] Verification error:', err);
       error = err instanceof Error ? err.message : 'Failed to verify payment. Please contact support.';
       loading = false;
     }
@@ -211,12 +251,12 @@
 </script>
 
 <svelte:head>
-  <title>Genesis Founder Checkout - zap.cooking</title>
+  <title>Founders Club Checkout - zap.cooking</title>
 </svelte:head>
 
 <div class="checkout-page">
   <div class="checkout-container">
-    <h1>Become a Genesis Founder</h1>
+    <h1>Join Founders Club</h1>
     
     {#if error}
       <div class="error-message">
@@ -226,7 +266,7 @@
 
     <div class="checkout-card">
       <div class="checkout-header">
-        <h2>Genesis Founder Membership</h2>
+        <h2>Founders Club Membership</h2>
         <div class="checkout-price">
           <span class="price">$210</span>
           <span class="period">lifetime</span>
@@ -235,14 +275,57 @@
 
       <div class="checkout-benefits">
         <h3>What you get:</h3>
-        <ul>
-          <li>✓ Lifetime Pro Kitchen membership (never expires)</li>
-          <li>✓ Verified @zap.cooking NIP-05 identity</li>
-          <li>✓ Genesis Founder badge (#1-21)</li>
-          <li>✓ Access to both pantry.zap.cooking and pro.zap.cooking relays</li>
-          <li>✓ Name permanently displayed as a Genesis Founder</li>
-          <li>✓ All future Pro Kitchen features included</li>
-        </ul>
+        
+        <!-- Lifetime Membership -->
+        <div class="benefit-section">
+          <h4 class="section-header">Lifetime Membership</h4>
+          <ul class="benefit-list">
+            <li>
+              <span class="checkmark">✓</span>
+              <span class="feature-text">Lifetime Pro Kitchen membership (never expires)</span>
+            </li>
+            <li>
+              <span class="checkmark">✓</span>
+              <span class="feature-text">All future Pro Kitchen features included</span>
+            </li>
+          </ul>
+        </div>
+
+        <!-- Section Divider -->
+        <div class="section-divider"></div>
+
+        <!-- Founders Club Exclusive -->
+        <div class="benefit-section">
+          <h4 class="section-header">Founders Club Exclusive</h4>
+          <ul class="benefit-list">
+            <li>
+              <span class="checkmark">✓</span>
+              <span class="feature-text">Founders Club badge (#1-21)</span>
+            </li>
+            <li>
+              <span class="checkmark">✓</span>
+              <span class="feature-text">Name permanently displayed as a Founder</span>
+            </li>
+          </ul>
+        </div>
+
+        <!-- Section Divider -->
+        <div class="section-divider"></div>
+
+        <!-- Access & Features -->
+        <div class="benefit-section">
+          <h4 class="section-header">Access & Features</h4>
+          <ul class="benefit-list">
+            <li>
+              <span class="checkmark">✓</span>
+              <span class="feature-text">Verified @zap.cooking NIP-05 identity</span>
+            </li>
+            <li>
+              <span class="checkmark">✓</span>
+              <span class="feature-text">Access to pantry.zap.cooking relay</span>
+            </li>
+          </ul>
+        </div>
       </div>
 
       <!-- Payment Method Selection -->
@@ -278,8 +361,24 @@
               <div class="payment-method-header">
                 <span class="payment-icon">⚡</span>
                 <span class="payment-name">Bitcoin Lightning</span>
+                <span class="discount-badge">{discountPercent}% OFF</span>
               </div>
-              <span class="payment-provider">{GENESIS_PRICE_SATS.toLocaleString()} sats (~${GENESIS_PRICE_USD})</span>
+              <div class="payment-provider bitcoin-pricing">
+                {#if bitcoinPriceLoading}
+                  <span class="loading-price">Loading price...</span>
+                {:else if amountSats}
+                  <span class="sats-amount">{amountSats.toLocaleString()} sats</span>
+                  <span class="usd-pricing">
+                    <span class="original-price">${FOUNDERS_CLUB_PRICE_USD}</span>
+                    <span class="discounted-price">${discountedUsdAmount?.toFixed(2)}</span>
+                  </span>
+                {:else}
+                  <span class="usd-pricing">
+                    <span class="original-price">${FOUNDERS_CLUB_PRICE_USD}</span>
+                    <span class="discounted-price">${discountedUsdAmount?.toFixed(2)}</span>
+                  </span>
+                {/if}
+              </div>
             </div>
           </label>
         </div>
@@ -404,57 +503,58 @@
     font-size: 1.2rem;
     font-weight: 600;
     color: #f3f4f6;
-    margin: 0 0 1rem 0;
+    margin: 0 0 1.5rem 0;
   }
 
-  .checkout-benefits ul {
+  .benefit-section {
+    margin-bottom: 1.5rem;
+  }
+
+  .benefit-section:last-of-type {
+    margin-bottom: 0;
+  }
+
+  .section-header {
+    font-size: 1rem;
+    font-weight: 700;
+    color: #f3f4f6;
+    margin: 0 0 0.75rem 0;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-size: 0.875rem;
+  }
+
+  .section-divider {
+    height: 1px;
+    background: rgba(236, 71, 0, 0.15);
+    margin: 1.5rem 0;
+  }
+
+  .benefit-list {
     list-style: none;
     padding: 0;
     margin: 0;
   }
 
-  .checkout-benefits li {
+  .benefit-list li {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
     padding: 0.75rem 0;
     color: #d1d5db;
     font-size: 1rem;
-    border-bottom: 1px solid rgba(236, 71, 0, 0.1);
   }
 
-  .checkout-benefits li:last-child {
-    border-bottom: none;
+  .checkmark {
+    color: #22c55e;
+    font-weight: bold;
+    flex-shrink: 0;
+    margin-top: 0.125rem;
   }
 
-  .checkout-button {
-    width: 100%;
-    padding: 1.25rem 2rem;
-    background: linear-gradient(135deg, var(--color-primary) 0%, #ff6b00 100%);
-    color: white;
-    border: none;
-    border-radius: 12px;
-    font-size: 1.25rem;
-    font-weight: 700;
-    cursor: pointer;
-    transition: all 0.3s ease;
-    box-shadow: 0 4px 12px rgba(236, 71, 0, 0.3);
-    margin-bottom: 1rem;
-  }
-
-  .checkout-button:hover:not(:disabled) {
-    transform: translateY(-2px);
-    box-shadow: 0 6px 20px rgba(236, 71, 0, 0.4);
-    background: linear-gradient(135deg, #ff5722 0%, #ff8c42 100%);
-  }
-
-  .checkout-button:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-
-  .checkout-note {
-    text-align: center;
-    color: #9ca3af;
-    font-size: 0.9rem;
-    margin: 0;
+  .feature-text {
+    color: #d1d5db;
+    line-height: 1.5;
   }
 
   /* Payment Method Selection */
@@ -536,9 +636,87 @@
     margin-left: 2.25rem;
   }
 
+  .bitcoin-pricing {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+
+  .sats-amount {
+    font-weight: 600;
+    color: #f59e0b;
+    font-size: 0.95rem;
+  }
+
+  .usd-pricing {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .original-price {
+    text-decoration: line-through;
+    color: #6b7280;
+    font-size: 0.85rem;
+  }
+
+  .discounted-price {
+    color: #10b981;
+    font-weight: 600;
+    font-size: 0.9rem;
+  }
+
+  .discount-badge {
+    background: linear-gradient(135deg, #10b981, #059669);
+    color: white;
+    padding: 0.15rem 0.5rem;
+    border-radius: 10px;
+    font-size: 0.65rem;
+    font-weight: 700;
+    margin-left: auto;
+  }
+
+  .loading-price {
+    color: #9ca3af;
+    font-style: italic;
+  }
+
   .payment-method-option:has(input:disabled) {
     opacity: 0.5;
     cursor: not-allowed;
+  }
+
+  .checkout-button {
+    width: 100%;
+    padding: 1.25rem 2rem;
+    background: linear-gradient(135deg, var(--color-primary) 0%, #ff6b00 100%);
+    color: white;
+    border: none;
+    border-radius: 12px;
+    font-size: 1.25rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    box-shadow: 0 4px 12px rgba(236, 71, 0, 0.3);
+    margin-bottom: 1rem;
+  }
+
+  .checkout-button:hover:not(:disabled) {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(236, 71, 0, 0.4);
+    background: linear-gradient(135deg, #ff5722 0%, #ff8c42 100%);
+  }
+
+  .checkout-button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .checkout-note {
+    text-align: center;
+    color: #9ca3af;
+    font-size: 0.9rem;
+    margin: 0;
   }
 
   html.dark .checkout-card {

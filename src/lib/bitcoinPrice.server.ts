@@ -205,45 +205,49 @@ export async function getDiscountedBitcoinPrice(
 }
 
 /**
- * Convert USD amount to satoshis using discounted Bitcoin price
+ * Convert USD amount to satoshis using current Bitcoin spot price
  * 
- * @param usdAmount - Amount in USD
- * @param discountPercent - Discount percentage (default: 5%)
+ * NOTE: The discount should be applied to the USD amount BEFORE calling this function.
+ * This function converts at the current market rate.
+ * 
+ * @param usdAmount - Amount in USD (should already have discount applied if desired)
  * @param platform - Optional platform context for Cloudflare Workers
  * @returns Amount in satoshis
  */
 export async function convertUsdToSats(
 	usdAmount: number,
-	discountPercent: number = 5,
+	_discountPercent?: number, // Deprecated - discount should be applied to USD first
 	platform?: any
 ): Promise<number> {
-	const { discountedPrice } = await getDiscountedBitcoinPrice(discountPercent, platform);
+	const currentPrice = await getBitcoinPrice(platform);
 	
 	// Convert USD to BTC, then to satoshis
 	// 1 BTC = 100,000,000 satoshis
-	const btcAmount = usdAmount / discountedPrice;
+	const btcAmount = usdAmount / currentPrice;
 	const sats = Math.round(btcAmount * 100_000_000);
 	
 	return sats;
 }
 
 /**
- * Convert USD amount to BTC using discounted Bitcoin price
+ * Convert USD amount to BTC using current Bitcoin spot price
  * 
- * @param usdAmount - Amount in USD
- * @param discountPercent - Discount percentage (default: 5%)
+ * NOTE: The discount should be applied to the USD amount BEFORE calling this function.
+ * This function converts at the current market rate.
+ * 
+ * @param usdAmount - Amount in USD (should already have discount applied if desired)
  * @param platform - Optional platform context for Cloudflare Workers
  * @returns Amount in BTC (as string for precision)
  */
 export async function convertUsdToBtc(
 	usdAmount: number,
-	discountPercent: number = 5,
+	_discountPercent?: number, // Deprecated - discount should be applied to USD first
 	platform?: any
 ): Promise<string> {
-	const { discountedPrice } = await getDiscountedBitcoinPrice(discountPercent, platform);
+	const currentPrice = await getBitcoinPrice(platform);
 	
 	// Convert USD to BTC
-	const btcAmount = usdAmount / discountedPrice;
+	const btcAmount = usdAmount / currentPrice;
 	
 	// Return as string to preserve precision
 	return btcAmount.toFixed(8);

@@ -136,7 +136,7 @@
 </script>
 
 <svelte:head>
-  <title>Welcome, Genesis Founder! - zap.cooking</title>
+  <title>Welcome, Founders Club Member! - zap.cooking</title>
 </svelte:head>
 
 <div class="success-page">
@@ -157,14 +157,14 @@
     {:else if founderNumber}
       <div class="success-state">
         <div class="success-icon">🎉</div>
-        <h1>Welcome, Genesis Founder #{founderNumber}!</h1>
+        <h1>Welcome, Founders Club #{founderNumber}!</h1>
         <p class="success-message">
-          Your lifetime membership is now active. Thank you for being one of the first 21 founders!
+          Your lifetime membership is now active. Thank you for being one of our founding members!
         </p>
         
         <div class="founder-badge">
           <div class="badge-number">#{founderNumber}</div>
-          <div class="badge-text">Genesis Founder</div>
+          <div class="badge-text">Founders Club</div>
         </div>
 
         <!-- NIP-05 Verification Badge Section -->
@@ -212,9 +212,9 @@
           <ul>
             <li>✓ Lifetime Pro Kitchen access</li>
             <li>✓ Verified @zap.cooking NIP-05 identity</li>
-            <li>✓ Genesis Founder badge</li>
-            <li>✓ Access to pantry.zap.cooking and pro.zap.cooking relays</li>
-            <li>✓ Your name permanently displayed as a Genesis Founder</li>
+            <li>✓ Founders Club badge</li>
+            <li>✓ Access to pantry.zap.cooking relay</li>
+            <li>✓ Your name permanently displayed as a Founder</li>
             <li>✓ All future Pro Kitchen features</li>
           </ul>
         </div>

@@ -101,38 +101,36 @@ export const POST: RequestHandler = async ({ request, platform }) => {
       );
     }
     
-    // Get discounted Bitcoin price and convert USD to BTC
-    console.log('[Membership Lightning] Fetching Bitcoin price with discount...');
-    const { discountedPrice, price: currentPrice } = await getDiscountedBitcoinPrice(
-      BITCOIN_DISCOUNT_PERCENT,
-      platform
-    );
+    // Get current Bitcoin spot price
+    console.log('[Membership Lightning] Fetching current Bitcoin price...');
+    const { price: currentPrice } = await getDiscountedBitcoinPrice(0, platform);
     
-    // Calculate discounted USD amount
+    // Calculate discounted USD amount (5% off for Bitcoin payments)
     const discountedUsdAmount = usdAmount * (1 - BITCOIN_DISCOUNT_PERCENT / 100);
     
-    // Convert to BTC for Strike API
-    const btcAmount = await convertUsdToBtc(discountedUsdAmount, BITCOIN_DISCOUNT_PERCENT, platform);
+    // Convert discounted USD to BTC at current spot price
+    const btcAmount = await convertUsdToBtc(discountedUsdAmount, undefined, platform);
     
-    // Convert to sats for response
-    const amountSats = await convertUsdToSats(discountedUsdAmount, BITCOIN_DISCOUNT_PERCENT, platform);
+    // Convert discounted USD to sats at current spot price
+    const amountSats = await convertUsdToSats(discountedUsdAmount, undefined, platform);
     
     console.log('[Membership Lightning] Price calculation:', {
-      usdAmount,
+      originalUsdPrice: usdAmount,
+      discountPercent: BITCOIN_DISCOUNT_PERCENT,
       discountedUsdAmount: discountedUsdAmount.toFixed(2),
-      currentBtcPrice: currentPrice.toFixed(2),
-      discountedBtcPrice: discountedPrice.toFixed(2),
+      btcSpotPrice: currentPrice.toFixed(2),
       btcAmount,
       amountSats,
       tier,
       period,
     });
     
-    // Create invoice description with full pubkey for webhook processing
-    // Format: "ZapCooking {Tier} {Period} Membership - {pubkey}"
+    // Create invoice description with USD price for display
+    // Note: Full pubkey is passed separately for payment verification
     const tierName = tier === 'cook' ? 'Cook+' : 'Pro Kitchen';
-    const periodLabel = period === 'annual' ? '1yr' : '2yr';
-    const description = `ZapCooking ${tierName} ${periodLabel} Membership - ${pubkey}`;
+    const periodLabel = period === 'annual' ? '1 Year' : '2 Years';
+    const usdDisplay = discountedUsdAmount.toFixed(2);
+    const description = `zap.cooking ${tierName} (${periodLabel}) - $${usdDisplay} USD`;
     
     // Create invoice via Strike API
     console.log('[Membership Lightning] Creating invoice via Strike API...');
@@ -143,25 +141,32 @@ export const POST: RequestHandler = async ({ request, platform }) => {
       platform
     );
     
-    if (!strikeResponse.invoice) {
+    // Strike returns invoice nested under bolt11 object
+    // Handle both possible response structures for compatibility
+    const bolt11Data = (strikeResponse as any).bolt11;
+    const invoice = bolt11Data?.invoice || strikeResponse.invoice;
+    
+    if (!invoice) {
+      console.error('[Membership Lightning] Unexpected Strike response structure:', strikeResponse);
       throw new Error('Strike API did not return a BOLT11 invoice');
     }
     
-    // Extract payment hash and expiration
-    const paymentHash = strikeResponse.paymentHash || '';
+    // Extract payment hash and expiration from bolt11 object or top level
+    const paymentHash = bolt11Data?.paymentHash || strikeResponse.paymentHash || '';
     const receiveRequestId = strikeResponse.receiveRequestId;
     
     // Parse expiration from Strike response (if available) or default to 1 hour
     let expiresAt: number;
-    if (strikeResponse.expires) {
-      expiresAt = Math.floor(new Date(strikeResponse.expires).getTime() / 1000);
+    const expiresString = bolt11Data?.expires || strikeResponse.expires;
+    if (expiresString) {
+      expiresAt = Math.floor(new Date(expiresString).getTime() / 1000);
     } else {
       expiresAt = Math.floor(Date.now() / 1000) + 3600; // 1 hour default
     }
     
     console.log('[Membership Lightning] Invoice created successfully:', {
       receiveRequestId,
-      invoiceLength: strikeResponse.invoice.length,
+      invoiceLength: invoice.length,
       paymentHash: paymentHash.substring(0, 16) + '...',
       amountSats,
       tier,
@@ -174,13 +179,15 @@ export const POST: RequestHandler = async ({ request, platform }) => {
     // This could be stored in a database, cache, or passed via webhook URL metadata
     
     return json({
-      invoice: strikeResponse.invoice,
+      invoice,
       paymentHash,
       receiveRequestId, // Include for client reference and webhook matching
       expiresAt,
       amountSats,
       usdAmount,
       discountedUsdAmount: parseFloat(discountedUsdAmount.toFixed(2)),
+      btcPrice: parseFloat(currentPrice.toFixed(2)), // Current BTC/USD spot price
+      discountPercent: BITCOIN_DISCOUNT_PERCENT,
       tier,
       period,
     });
@@ -190,18 +197,25 @@ export const POST: RequestHandler = async ({ request, platform }) => {
     
     // Provide user-friendly error messages
     let errorMessage = 'Failed to create Lightning invoice';
+    let debugDetails: string | undefined;
     
     if (error.message?.includes('STRIKE_API_KEY')) {
       errorMessage = 'Lightning payment service is not configured. Please use credit card payment.';
     } else if (error.message?.includes('Strike API error')) {
       errorMessage = 'Lightning payment service error. Please try again or use credit card payment.';
+      debugDetails = error.message; // Include full error for debugging
     } else if (error.message) {
       errorMessage = error.message;
     }
     
+    // In development, include full error details for debugging
+    const isDev = env.NODE_ENV !== 'production';
+    
     return json(
       { 
         error: errorMessage,
+        ...(isDev && debugDetails && { debug: debugDetails }),
+        ...(isDev && { rawError: error.message }),
       },
       { status: 500 }
     );

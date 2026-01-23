@@ -31,6 +31,9 @@ const PRICING_USD = {
     annual: 89,
     '2year': 152.40,
   },
+  founders: {
+    lifetime: 210,
+  },
 };
 
 // Discount percentage for Bitcoin payments
@@ -48,28 +51,30 @@ export const GET: RequestHandler = async ({ url, platform }) => {
     const period = url.searchParams.get('period') || 'annual';
     
     // Validate tier and period
-    if (!['cook', 'pro'].includes(tier)) {
+    if (!['cook', 'pro', 'founders'].includes(tier)) {
       return json({ error: 'Invalid tier' }, { status: 400 });
     }
-    if (!['annual', '2year'].includes(period)) {
+    if (!['annual', '2year', 'lifetime'].includes(period)) {
       return json({ error: 'Invalid period' }, { status: 400 });
     }
     
     // Get USD price
-    const tierPricing = PRICING_USD[tier as keyof typeof PRICING_USD];
-    const usdAmount = tierPricing[period as keyof typeof tierPricing];
+    let usdAmount: number;
+    if (tier === 'founders') {
+      usdAmount = PRICING_USD.founders.lifetime;
+    } else {
+      const tierPricing = PRICING_USD[tier as 'cook' | 'pro'];
+      usdAmount = tierPricing[period as 'annual' | '2year'];
+    }
     
-    // Get discounted Bitcoin price
-    const { price: btcPrice, discountedPrice: discountedBtcPrice } = await getDiscountedBitcoinPrice(
-      BITCOIN_DISCOUNT_PERCENT,
-      platform
-    );
+    // Get current Bitcoin price
+    const { price: btcPrice } = await getDiscountedBitcoinPrice(0, platform);
     
     // Calculate discounted USD amount
     const discountedUsdAmount = usdAmount * (1 - BITCOIN_DISCOUNT_PERCENT / 100);
     
-    // Convert to sats at discounted rate
-    const amountSats = await convertUsdToSats(discountedUsdAmount, BITCOIN_DISCOUNT_PERCENT, platform);
+    // Convert to sats at current spot price
+    const amountSats = await convertUsdToSats(discountedUsdAmount, undefined, platform);
     
     return json({
       usdAmount,
@@ -77,7 +82,8 @@ export const GET: RequestHandler = async ({ url, platform }) => {
       discountPercent: BITCOIN_DISCOUNT_PERCENT,
       amountSats,
       btcPrice: parseFloat(btcPrice.toFixed(2)),
-      discountedBtcPrice: parseFloat(discountedBtcPrice.toFixed(2)),
+      tier,
+      period,
     });
     
   } catch (error: any) {

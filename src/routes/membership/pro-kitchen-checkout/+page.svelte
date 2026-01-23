@@ -284,25 +284,73 @@
 
     <div class="checkout-card">
       <div class="checkout-header">
-        <div class="popular-badge">Most Popular</div>
         <h2>Pro Kitchen Membership</h2>
         <div class="checkout-price">
-          <span class="price">$89</span>
-          <span class="period">/year</span>
+          <div class="popular-badge">Most Popular</div>
+          <div class="price-container">
+            <span class="price">$89</span>
+            <span class="period">/year</span>
+          </div>
         </div>
       </div>
 
       <div class="checkout-benefits">
         <h3>What you get:</h3>
-        <ul>
-          <li>✓ Everything in Cook+</li>
-          <li>✓ Verified @zap.cooking NIP-05 identity</li>
-          <li>✓ Creator analytics</li>
-          <li>✓ Access to pro.zap.cooking relay</li>
-          <li>✓ Gated recipes (coming soon)</li>
-          <li>✓ AI recipe tools</li>
-          <li>✓ Priority support</li>
-        </ul>
+        
+        <!-- Includes All Cook+ Features -->
+        <div class="benefit-section">
+          <h4 class="section-header">Includes All Cook+ Features</h4>
+          <ul class="benefit-list">
+            <li>
+              <span class="checkmark">✓</span>
+              <span class="feature-text muted-text">Everything in Cook+ (Sous Chef, NIP-05 identity, pantry relay access, collections, badge, early access, voting)</span>
+            </li>
+          </ul>
+        </div>
+
+        <!-- Section Divider -->
+        <div class="section-divider"></div>
+
+        <!-- Pro Kitchen Exclusive Features -->
+        <div class="benefit-section">
+          <h4 class="section-header">Pro Kitchen Exclusive Features</h4>
+          <ul class="benefit-list">
+            <li>
+              <span class="checkmark">✓</span>
+              <span class="feature-text">Lightning-gated recipes</span>
+            </li>
+            <li>
+              <span class="checkmark">✓</span>
+              <span class="feature-text">Priority recipe promotion</span>
+            </li>
+            <li>
+              <span class="checkmark">✓</span>
+              <span class="feature-text">Access to sell on Marketplace (coming soon)</span>
+            </li>
+          </ul>
+        </div>
+
+        <!-- Section Divider -->
+        <div class="section-divider"></div>
+
+        <!-- Kitchen Tools -->
+        <div class="benefit-section">
+          <h4 class="section-header">Kitchen Tools</h4>
+          <ul class="benefit-list">
+            <li>
+              <span class="feature-icon">🤖</span>
+              <div class="feature-content">
+                <span class="feature-text">Zappy - Kitchen assistant to scan your fridge, generate recipes, and recommend what to make tonight</span>
+                <span class="feature-subtext">Your personal kitchen companion</span>
+              </div>
+            </li>
+            <li>
+              <span class="checkmark">✓</span>
+              <span class="feature-text">Sous Chef features</span>
+            </li>
+          </ul>
+        </div>
+
       </div>
 
       <!-- Payment Method Selection -->
@@ -445,7 +493,21 @@
     margin-bottom: 2rem;
     padding-bottom: 2rem;
     border-bottom: 1px solid rgba(236, 71, 0, 0.2);
+  }
+
+  .checkout-header h2 {
+    font-size: 1.75rem;
+    font-weight: 700;
+    color: #f3f4f6;
+    margin: 0 0 1rem 0;
+  }
+
+  .checkout-price {
     position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
   }
 
   .popular-badge {
@@ -460,29 +522,24 @@
     font-size: 0.75rem;
     font-weight: 600;
     text-transform: uppercase;
+    white-space: nowrap;
   }
 
-  .checkout-header h2 {
-    font-size: 1.75rem;
-    font-weight: 700;
-    color: #f3f4f6;
-    margin: 1rem 0 1rem 0;
-  }
-
-  .checkout-price {
+  .price-container {
     display: flex;
     align-items: baseline;
     justify-content: center;
     gap: 0.5rem;
+    margin-top: 0.5rem;
   }
 
-  .checkout-price .price {
+  .price-container .price {
     font-size: 3rem;
     font-weight: 900;
     color: var(--color-primary);
   }
 
-  .checkout-price .period {
+  .price-container .period {
     font-size: 1.2rem;
     color: #9ca3af;
   }
@@ -495,24 +552,82 @@
     font-size: 1.2rem;
     font-weight: 600;
     color: #f3f4f6;
-    margin: 0 0 1rem 0;
+    margin: 0 0 1.5rem 0;
   }
 
-  .checkout-benefits ul {
+  .benefit-section {
+    margin-bottom: 1.5rem;
+  }
+
+  .benefit-section:last-of-type {
+    margin-bottom: 0;
+  }
+
+  .section-header {
+    font-size: 1rem;
+    font-weight: 700;
+    color: #f3f4f6;
+    margin: 0 0 0.75rem 0;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-size: 0.875rem;
+  }
+
+  .section-divider {
+    height: 1px;
+    background: rgba(236, 71, 0, 0.15);
+    margin: 1.5rem 0;
+  }
+
+  .benefit-list {
     list-style: none;
     padding: 0;
     margin: 0;
   }
 
-  .checkout-benefits li {
+  .benefit-list li {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
     padding: 0.75rem 0;
     color: #d1d5db;
     font-size: 1rem;
-    border-bottom: 1px solid rgba(236, 71, 0, 0.1);
   }
 
-  .checkout-benefits li:last-child {
-    border-bottom: none;
+  .checkmark {
+    color: #22c55e;
+    font-weight: bold;
+    flex-shrink: 0;
+    margin-top: 0.125rem;
+  }
+
+  .feature-icon {
+    font-size: 1.25rem;
+    flex-shrink: 0;
+    margin-top: 0.125rem;
+  }
+
+  .feature-content {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    flex: 1;
+  }
+
+  .feature-text {
+    color: #d1d5db;
+    line-height: 1.5;
+  }
+
+  .muted-text {
+    color: #9ca3af;
+    opacity: 0.8;
+  }
+
+  .feature-subtext {
+    color: #9ca3af;
+    font-size: 0.875rem;
+    font-style: italic;
   }
 
   /* Payment Method Selection */

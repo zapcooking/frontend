@@ -10,7 +10,6 @@
   let relayAccess: { [key: string]: boolean } = {};
 
   const MEMBERS_RELAY = 'wss://pantry.zap.cooking';
-  const PRO_RELAY = 'wss://pro.zap.cooking';
 
   async function testMembershipStatus() {
     if (!browser || !$userPublickey) {
@@ -51,11 +50,6 @@
       
       // Test pantry.zap.cooking relay
       await testRelayAccess(MEMBERS_RELAY, 'members');
-      
-      // Test pro.zap.cooking relay (if Pro tier)
-      if (memberInfo?.tier === 'pro' || memberInfo?.tier === 'standard') {
-        await testRelayAccess(PRO_RELAY, 'pro');
-      }
 
     } catch (err) {
       testResults.push(`❌ Error: ${err instanceof Error ? err.message : 'Unknown error'}`);

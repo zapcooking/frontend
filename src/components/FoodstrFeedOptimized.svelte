@@ -423,7 +423,6 @@
     discovery: ['wss://nostr.wine', 'wss://relay.primal.net', 'wss://purplepag.es'],  // Additional relays for discovery
     profiles: ['wss://purplepag.es'],             // Profile metadata (356ms, specialized for kind:0)
     members: ['wss://pantry.zap.cooking'],        // Private member relay (The Pantry)
-    pro: ['wss://pro.zap.cooking'],               // Pro member relay
     garden: ['wss://garden.zap.cooking']          // Garden relay (no trailing slash!)
   };
 

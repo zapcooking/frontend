@@ -65,7 +65,7 @@
       ctaText: 'Claim Founder Spot',
       features: [
         'Everything in Cook+',
-        'Lightning-gated recipes (Q1 2026)',
+        'Lightning-gated recipes',
         'Advanced analytics',
         'Creator tools and features',
         'Priority recipe promotion',
@@ -204,7 +204,7 @@
         
         {#if badgeExpanded}
           <div class="mt-3 p-3 bg-orange-100 dark:bg-orange-900/30 rounded-lg text-sm text-gray-700 dark:text-gray-300">
-            <p class="font-medium text-orange-700 dark:text-orange-400 mb-2">Genesis Founder Perks:</p>
+            <p class="font-medium text-orange-700 dark:text-orange-400 mb-2">Founders Club Perks:</p>
             <ul class="space-y-1.5 text-gray-600 dark:text-gray-400">
               <li>• Custom Zap Cooking T-shirt</li>
               <li>• Personalized desk plaque</li>

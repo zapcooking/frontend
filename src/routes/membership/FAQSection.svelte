@@ -26,8 +26,8 @@
       answer: 'Lightning-gated recipes are scheduled to launch in Q1 2026. This feature will allow Pro Kitchen members to create recipes that require a small Lightning payment to view, enabling new monetization opportunities for creators. All Pro Kitchen members (including founding members) will have access to this feature when it launches.'
     },
     {
-      question: 'What are the physical perks for the First 21?',
-      answer: 'The First 21 founding members receive a physical package including a custom Zap Cooking T-shirt, a personalized desk plate recognizing them as a Genesis Founder, and all shipping costs covered. These are exclusive to the first 21 spots and cannot be obtained after those spots are filled.'
+      question: 'What are the physical perks for the Founders Club?',
+      answer: 'Founders Club members receive a physical package including a custom Zap Cooking T-shirt, a personalized desk plate recognizing them as a Founder, and all shipping costs covered. These are exclusive to Founders Club members.'
     },
     {
       question: 'How does the 2-year pricing save me money?',

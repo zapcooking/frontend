@@ -1,30 +1,39 @@
 /**
- * Create Lightning Invoice for Genesis Founder Payment
+ * Create Lightning Invoice for Founders Club Payment
  * 
- * Creates a Lightning invoice for Genesis Founder lifetime membership.
- * This is a simulation endpoint - in production, this would connect to a Lightning payment provider.
+ * Creates a Lightning invoice for Founders Club lifetime membership using Strike API.
+ * Applies 5% Bitcoin discount and uses current BTC spot price.
  * 
  * POST /api/genesis/create-lightning-invoice
  * 
  * Body:
  * {
  *   pubkey: string,
- *   amountSats: number
  * }
  * 
  * Returns:
  * {
  *   invoice: string, // bolt11 invoice
- *   paymentHash: string, // For verification
- *   expiresAt: number // Unix timestamp
+ *   paymentHash: string,
+ *   receiveRequestId: string,
+ *   expiresAt: number,
+ *   amountSats: number,
+ *   usdAmount: number,
+ *   discountedUsdAmount: number,
+ *   btcPrice: number,
  * }
  */
 
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
+import { convertUsdToSats, convertUsdToBtc, getDiscountedBitcoinPrice } from '$lib/bitcoinPrice.server';
+import { createInvoice as createStrikeInvoice } from '$lib/strikeService.server';
 
-// Genesis Founder price: $210 = 210,000 sats (approximately, using $1 = 1000 sats)
-const GENESIS_PRICE_SATS = 210000;
+// Founders Club pricing in USD (lifetime membership)
+const FOUNDERS_CLUB_PRICE_USD = 210;
+
+// Discount percentage for Bitcoin payments
+const BITCOIN_DISCOUNT_PERCENT = 5;
 
 export const POST: RequestHandler = async ({ request, platform }) => {
   // Membership feature flag guard
@@ -35,7 +44,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 
   try {
     const body = await request.json();
-    const { pubkey, amountSats } = body;
+    const { pubkey } = body;
     
     if (!pubkey) {
       return json(
@@ -52,60 +61,109 @@ export const POST: RequestHandler = async ({ request, platform }) => {
       );
     }
     
-    // Use provided amount or default to Genesis price
-    const amount = amountSats || GENESIS_PRICE_SATS;
+    const usdAmount = FOUNDERS_CLUB_PRICE_USD;
     
-    // TODO: In production, this would create a real Lightning invoice via:
-    // - LNbits
-    // - BTCPay Server
-    // - Strike
-    // - Other Lightning payment provider
+    // Get current Bitcoin spot price
+    console.log('[Founders Club Lightning] Fetching current Bitcoin price...');
+    const { price: currentPrice } = await getDiscountedBitcoinPrice(0, platform);
     
-    // For simulation, generate a mock bolt11 invoice
-    // Format: lnbc + amount + unit + random data
-    // This is NOT a real invoice - it's for simulation only
-    const mockInvoiceId = Math.random().toString(36).substring(2, 15);
-    const mockPaymentHash = Array.from(crypto.getRandomValues(new Uint8Array(32)))
-      .map(b => b.toString(16).padStart(2, '0'))
-      .join('');
+    // Calculate discounted USD amount (5% off for Bitcoin payments)
+    const discountedUsdAmount = usdAmount * (1 - BITCOIN_DISCOUNT_PERCENT / 100);
     
-    // Generate mock bolt11 invoice (simulation only - not a real invoice)
-    // Real format: lnbc[amount][unit]1[timestamp][expiry][payment_hash][description_hash][min_final_cltv_expiry][signature]
-    // For simulation, we'll create a simple mock format
-    const amountStr = amount.toString();
-    const unit = 'u'; // micro-bitcoin (0.001 BTC = 100,000 sats)
-    const timestamp = Math.floor(Date.now() / 1000);
-    const expiresIn = 3600; // 1 hour expiry
+    // Convert discounted USD to BTC at current spot price
+    const btcAmount = await convertUsdToBtc(discountedUsdAmount, undefined, platform);
     
-    // Mock invoice format (this won't actually work with real Lightning wallets)
-    // In production, replace this with actual invoice generation
-    const mockInvoice = `lnbc${amountStr}${unit}1p${mockInvoiceId}lq${mockPaymentHash.substring(0, 20)}...simulated`;
+    // Convert discounted USD to sats at current spot price
+    const amountSats = await convertUsdToSats(discountedUsdAmount, undefined, platform);
     
-    console.log('[Genesis Lightning] Created mock invoice:', {
-      invoice: mockInvoice.substring(0, 50) + '...',
-      amount,
-      pubkey: pubkey.substring(0, 16) + '...',
-      timestamp
+    console.log('[Founders Club Lightning] Price calculation:', {
+      originalUsdPrice: usdAmount,
+      discountPercent: BITCOIN_DISCOUNT_PERCENT,
+      discountedUsdAmount: discountedUsdAmount.toFixed(2),
+      btcSpotPrice: currentPrice.toFixed(2),
+      btcAmount,
+      amountSats,
     });
     
-    // Store invoice metadata (in production, this would be in a database)
-    // For simulation, we'll just return it - in production, store for verification
+    // Create invoice description with USD price for display
+    const usdDisplay = discountedUsdAmount.toFixed(2);
+    const description = `zap.cooking Founders Club (Lifetime) - $${usdDisplay} USD`;
+    
+    // Create invoice via Strike API
+    console.log('[Founders Club Lightning] Creating invoice via Strike API...');
+    const strikeResponse = await createStrikeInvoice(
+      btcAmount,
+      'BTC',
+      description,
+      platform
+    );
+    
+    // Strike returns invoice nested under bolt11 object
+    const bolt11Data = (strikeResponse as any).bolt11;
+    const invoice = bolt11Data?.invoice || strikeResponse.invoice;
+    
+    if (!invoice) {
+      console.error('[Founders Club Lightning] Unexpected Strike response structure:', strikeResponse);
+      throw new Error('Strike API did not return a BOLT11 invoice');
+    }
+    
+    // Extract payment hash and expiration from bolt11 object or top level
+    const paymentHash = bolt11Data?.paymentHash || strikeResponse.paymentHash || '';
+    const receiveRequestId = strikeResponse.receiveRequestId;
+    
+    // Parse expiration from Strike response (if available) or default to 1 hour
+    let expiresAt: number;
+    const expiresString = bolt11Data?.expires || strikeResponse.expires;
+    if (expiresString) {
+      expiresAt = Math.floor(new Date(expiresString).getTime() / 1000);
+    } else {
+      expiresAt = Math.floor(Date.now() / 1000) + 3600; // 1 hour default
+    }
+    
+    console.log('[Founders Club Lightning] Invoice created successfully:', {
+      receiveRequestId,
+      invoiceLength: invoice.length,
+      paymentHash: paymentHash.substring(0, 16) + '...',
+      amountSats,
+      pubkey: pubkey.substring(0, 16) + '...',
+      expiresAt: new Date(expiresAt * 1000).toISOString(),
+    });
     
     return json({
-      invoice: mockInvoice,
-      paymentHash: mockPaymentHash,
-      expiresAt: timestamp + expiresIn,
-      amount: amount,
-      // Note: This is a simulation - real invoices would come from a Lightning node
-      simulated: true
+      invoice,
+      paymentHash,
+      receiveRequestId,
+      expiresAt,
+      amountSats,
+      usdAmount,
+      discountedUsdAmount: parseFloat(discountedUsdAmount.toFixed(2)),
+      btcPrice: parseFloat(currentPrice.toFixed(2)),
+      discountPercent: BITCOIN_DISCOUNT_PERCENT,
     });
     
   } catch (error: any) {
-    console.error('[Genesis Lightning] Error creating invoice:', error);
+    console.error('[Founders Club Lightning] Error creating invoice:', error);
+    
+    // Provide user-friendly error messages
+    let errorMessage = 'Failed to create Lightning invoice';
+    let debugDetails: string | undefined;
+    
+    if (error.message?.includes('STRIKE_API_KEY')) {
+      errorMessage = 'Lightning payment service is not configured. Please use credit card payment.';
+    } else if (error.message?.includes('Strike API error')) {
+      errorMessage = 'Lightning payment service error. Please try again or use credit card payment.';
+      debugDetails = error.message;
+    } else if (error.message) {
+      errorMessage = error.message;
+    }
+    
+    const isDev = env.NODE_ENV !== 'production';
     
     return json(
       { 
-        error: error.message || 'Failed to create Lightning invoice',
+        error: errorMessage,
+        ...(isDev && debugDetails && { debug: debugDetails }),
+        ...(isDev && { rawError: error.message }),
       },
       { status: 500 }
     );

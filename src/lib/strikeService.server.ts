@@ -143,7 +143,9 @@ export async function createInvoice(
 		);
 	}
 
-	return await response.json();
+	const data = await response.json();
+	console.log('[Strike API] Receive request response:', JSON.stringify(data, null, 2));
+	return data;
 }
 
 /**

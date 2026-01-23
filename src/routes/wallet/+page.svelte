@@ -2485,7 +2485,7 @@
                             />
                             <span
                               class="absolute right-2 top-1/2 -translate-y-1/2 text-sm text-caption"
-                              >@zap.cooking</span
+                              >@sats.zap.cooking</span
                             >
                           </div>
                           {#if isCheckingAvailability}
@@ -3066,7 +3066,9 @@
                     class:cursor-pointer={!hasExistingSparkWallet}
                     class:cursor-not-allowed={hasExistingSparkWallet}
                     class:opacity-50={hasExistingSparkWallet}
-                    style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);"
+                    style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);{hasExistingSparkWallet
+                      ? ''
+                      : ' box-shadow: 0 0 0 2px rgb(251 146 60 / 0.4);'}"
                     on:click={() => !hasExistingSparkWallet && (selectedWalletType = 4)}
                     disabled={hasExistingSparkWallet}
                   >

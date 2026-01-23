@@ -111,7 +111,7 @@
     
     // Check if sold out
     if (isSoldOut) {
-      alert('All Genesis Founder spots have been claimed!');
+      alert('All Founders Club spots have been claimed!');
       return;
     }
     
@@ -141,10 +141,10 @@
 <div class="membership-page">
   <section class="hero">
     <h1>Become a Founder</h1>
-    <p>Join the community building the future of food on Nostr</p>
+    <p>Join the community building the future of food</p>
   </section>
 
-  <!-- Genesis Founders Hero Section -->
+  <!-- Founders Club Hero Section -->
   <section class="genesis-founders-hero">
     <div 
       class="genesis-hero-card {isSoldOut ? 'sold-out' : ''}" 
@@ -158,12 +158,12 @@
       role="button" 
       tabindex="0"
       aria-expanded={showFoundersList}
-      aria-label="Toggle Genesis Founders list"
+      aria-label="Toggle Founders Club list"
     >
       <div class="genesis-hero-content">
         <div class="genesis-hero-icon">🔥</div>
         <div class="genesis-hero-text">
-          <h2>Genesis Founders</h2>
+          <h2>Founders Club</h2>
           <p class="genesis-hero-countdown">
             {spotsTaken}/{TOTAL_GENESIS_SPOTS} taken
           </p>
@@ -196,24 +196,68 @@
     </div>
   </section>
 
-  <!-- Genesis Founders Checkout Section (shown when expanded) -->
+  <!-- Founders Club Checkout Section (shown when expanded) -->
   {#if showFoundersList && !isSoldOut}
     <section class="genesis-checkout-section">
       <div class="genesis-checkout-card">
         <div class="genesis-checkout-header">
-          <h3>Become a Genesis Founder</h3>
+          <h3>Join Founders Club</h3>
           <p class="genesis-checkout-price">$210 <span>lifetime</span></p>
         </div>
         
         <div class="genesis-checkout-benefits">
           <h4>What you get:</h4>
-          <ul>
-            <li>✓ Lifetime Pro Kitchen membership (never expires)</li>
-            <li>✓ Genesis Founder badge (#{spotsTaken + 1}-21)</li>
-            <li>✓ Access to both pantry.zap.cooking and pro.zap.cooking relays</li>
-            <li>✓ Name permanently displayed as a Genesis Founder</li>
-            <li>✓ All future Pro Kitchen features included</li>
-          </ul>
+          
+          <!-- Lifetime Membership -->
+          <div class="benefit-section">
+            <h5 class="section-header">Lifetime Membership</h5>
+            <ul class="benefit-list">
+              <li>
+                <span class="checkmark">✓</span>
+                <span class="feature-text">Lifetime Pro Kitchen membership (never expires)</span>
+              </li>
+              <li>
+                <span class="checkmark">✓</span>
+                <span class="feature-text">All future Pro Kitchen features included</span>
+              </li>
+            </ul>
+          </div>
+
+          <!-- Section Divider -->
+          <div class="section-divider"></div>
+
+          <!-- Founders Club Exclusive -->
+          <div class="benefit-section">
+            <h5 class="section-header">Founders Club Exclusive</h5>
+            <ul class="benefit-list">
+              <li>
+                <span class="checkmark">✓</span>
+                <span class="feature-text">Founders Club badge (#{spotsTaken + 1}-21)</span>
+              </li>
+              <li>
+                <span class="checkmark">✓</span>
+                <span class="feature-text">Name permanently displayed as a Founder</span>
+              </li>
+            </ul>
+          </div>
+
+          <!-- Section Divider -->
+          <div class="section-divider"></div>
+
+          <!-- Access & Features -->
+          <div class="benefit-section">
+            <h5 class="section-header">Access & Features</h5>
+            <ul class="benefit-list">
+              <li>
+                <span class="checkmark">✓</span>
+                <span class="feature-text">Verified @zap.cooking NIP-05 identity</span>
+              </li>
+              <li>
+                <span class="checkmark">✓</span>
+                <span class="feature-text">Access to pantry.zap.cooking relay</span>
+              </li>
+            </ul>
+          </div>
         </div>
         
         <div class="genesis-checkout-urgency">
@@ -239,10 +283,10 @@
     </section>
   {/if}
 
-  <!-- Genesis Founders List (Collapsible) -->
+  <!-- Founders Club List (Collapsible) -->
   {#if showFoundersList}
     <section class="genesis-founders">
-      <h2>🔥 Genesis Founders</h2>
+      <h2>🔥 Founders Club</h2>
       <p class="subtitle">The first believers who made this possible</p>
     
     {#if loading}
@@ -270,7 +314,7 @@
   </div>
 
             <div class="founder-badge">
-              Genesis Founder
+              Founders Club
             </div>
           </div>
         {/each}
@@ -286,29 +330,139 @@
     <div class="tiers-grid">
       <div class="tier-card cook-plus">
         <h3>Cook+</h3>
-        <div class="price">$49<span>/year</span></div>
-        <ul>
-          <li>Custom Lightning address (you@zap.cooking)</li>
-          <li>Access to pantry.zap.cooking relay</li>
-          <li>Recipe collections</li>
-          <li>Member badge</li>
-          <li>Vote on features</li>
-        </ul>
+        <div class="price">
+          <div class="price-container">
+            $49<span>/year</span>
+          </div>
+        </div>
+        
+        <div class="tier-benefits">
+          <!-- Premium Features -->
+          <div class="benefit-section">
+            <h4 class="section-header">Premium Features</h4>
+            <ul class="benefit-list">
+              <li>
+                <span class="feature-icon">✨</span>
+                <div class="feature-content">
+                  <span class="feature-text">Sous Chef - Extract recipes from any link or photo instantly</span>
+                  <span class="feature-subtext">Save time - let it do the work</span>
+                </div>
+              </li>
+              <li>
+                <span class="checkmark">✓</span>
+                <span class="feature-text">Verified @zap.cooking NIP-05 identity</span>
+              </li>
+            </ul>
+          </div>
+
+          <div class="section-divider"></div>
+
+          <!-- Community & Content -->
+          <div class="benefit-section">
+            <h4 class="section-header">Community & Content</h4>
+            <ul class="benefit-list">
+              <li>
+                <span class="checkmark">✓</span>
+                <span class="feature-text">Access to pantry.zap.cooking private relay</span>
+              </li>
+              <li>
+                <span class="checkmark">✓</span>
+                <span class="feature-text">Featured recipe collections</span>
+              </li>
+              <li>
+                <span class="checkmark">✓</span>
+                <span class="feature-text">Exclusive Cook+ member badge</span>
+              </li>
+            </ul>
+          </div>
+
+          <div class="section-divider"></div>
+
+          <!-- Member Perks -->
+          <div class="benefit-section">
+            <h4 class="section-header">Member Perks</h4>
+            <ul class="benefit-list">
+              <li>
+                <span class="checkmark">✓</span>
+                <span class="feature-text">Early access to new features</span>
+              </li>
+              <li>
+                <span class="checkmark">✓</span>
+                <span class="feature-text">Vote on features and roadmap</span>
+              </li>
+            </ul>
+          </div>
+        </div>
+        
         <button class="tier-button" on:click={goToCookPlusCheckout}>Join Cook+</button>
       </div>
 
       <div class="tier-card pro-kitchen">
-        <div class="popular-badge">Most Popular</div>
-        <h3>Pro Kitchen</h3>
-        <div class="price">$89<span>/year</span></div>
-        <ul>
-          <li>Everything in Cook+</li>
-          <li>Creator analytics</li>
-          <li>Access to pro.zap.cooking relay</li>
-          <li>Gated recipes (coming soon)</li>
-          <li>AI recipe tools</li>
-          <li>Priority support</li>
-        </ul>
+        <div class="tier-title-row">
+          <h3>Pro Kitchen</h3>
+          <div class="popular-badge">Most Popular</div>
+        </div>
+        <div class="price">
+          <div class="price-container">
+            $89<span>/year</span>
+          </div>
+        </div>
+        
+        <div class="tier-benefits">
+          <!-- Includes All Cook+ Features -->
+          <div class="benefit-section">
+            <h4 class="section-header">Includes All Cook+ Features</h4>
+            <ul class="benefit-list">
+              <li>
+                <span class="checkmark">✓</span>
+                <span class="feature-text muted-text">Everything in Cook+ (Sous Chef, NIP-05 identity, pantry relay access, collections, badge, early access, voting)</span>
+              </li>
+            </ul>
+          </div>
+
+          <div class="section-divider"></div>
+
+          <!-- Pro Kitchen Exclusive Features -->
+          <div class="benefit-section">
+            <h4 class="section-header">Pro Kitchen Exclusive Features</h4>
+            <ul class="benefit-list">
+              <li>
+                <span class="checkmark">✓</span>
+                <span class="feature-text">Lightning-gated recipes</span>
+              </li>
+              <li>
+                <span class="checkmark">✓</span>
+                <span class="feature-text">Priority recipe promotion</span>
+              </li>
+              <li>
+                <span class="checkmark">✓</span>
+                <span class="feature-text">Access to sell on Marketplace (coming soon)</span>
+              </li>
+            </ul>
+          </div>
+
+          <div class="section-divider"></div>
+
+          <!-- Kitchen Tools -->
+          <div class="benefit-section">
+            <h4 class="section-header">Kitchen Tools</h4>
+            <ul class="benefit-list">
+              <li>
+                <span class="feature-icon">🤖</span>
+                <div class="feature-content">
+                  <span class="feature-text">Zappy - Kitchen assistant to scan your fridge, generate recipes, and recommend what to make tonight</span>
+                  <span class="feature-subtext">Your personal kitchen companion</span>
+                </div>
+              </li>
+              <li>
+                <span class="checkmark">✓</span>
+                <span class="feature-text">Sous Chef features</span>
+              </li>
+            </ul>
+          </div>
+
+        </div>
+        
         <button class="tier-button primary" on:click={goToProKitchenCheckout}>Join Pro Kitchen</button>
       </div>
     </div>
@@ -582,24 +736,58 @@
     font-size: 1.2rem;
     font-weight: 600;
     color: #f3f4f6;
-    margin: 0 0 1rem 0;
+    margin: 0 0 1.5rem 0;
   }
 
-  .genesis-checkout-benefits ul {
+  .genesis-checkout-benefits .benefit-section {
+    margin-bottom: 1.5rem;
+  }
+
+  .genesis-checkout-benefits .benefit-section:last-of-type {
+    margin-bottom: 0;
+  }
+
+  .genesis-checkout-benefits .section-header {
+    font-size: 0.875rem;
+    font-weight: 700;
+    color: #f3f4f6;
+    margin: 0 0 0.75rem 0;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  .genesis-checkout-benefits .section-divider {
+    height: 1px;
+    background: rgba(236, 71, 0, 0.15);
+    margin: 1.5rem 0;
+  }
+
+  .genesis-checkout-benefits .benefit-list {
     list-style: none;
     padding: 0;
     margin: 0;
   }
 
-  .genesis-checkout-benefits li {
+  .genesis-checkout-benefits .benefit-list li {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
     padding: 0.75rem 0;
     color: #d1d5db;
     font-size: 1rem;
-    border-bottom: 1px solid rgba(236, 71, 0, 0.1);
+    border-bottom: none;
   }
 
-  .genesis-checkout-benefits li:last-child {
-    border-bottom: none;
+  .genesis-checkout-benefits .checkmark {
+    color: #22c55e;
+    font-weight: bold;
+    flex-shrink: 0;
+    margin-top: 0.125rem;
+  }
+
+  .genesis-checkout-benefits .feature-text {
+    color: #d1d5db;
+    line-height: 1.5;
   }
 
   .genesis-checkout-urgency {
@@ -769,6 +957,8 @@
     padding: 2rem;
     position: relative;
     transition: transform 0.2s, box-shadow 0.2s;
+    display: flex;
+    flex-direction: column;
   }
 
   .tier-card:hover {
@@ -781,33 +971,45 @@
     background: var(--color-bg-primary);
   }
 
-  .popular-badge {
-    position: absolute;
-    top: -12px;
-    left: 50%;
-    transform: translateX(-50%);
-    background: var(--color-primary);
-    color: white;
-    font-size: 0.75rem;
-    font-weight: bold;
-    padding: 0.25rem 1rem;
-    border-radius: 20px;
+  .tier-title-row {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 0.5rem;
   }
 
   .tier-card h3 {
     font-size: 1.5rem;
-    margin-bottom: 0.5rem;
+    margin: 0;
     color: var(--color-text-primary);
+  }
+
+  .popular-badge {
+    background: var(--color-primary);
+    color: white;
+    font-size: 0.75rem;
+    font-weight: bold;
+    padding: 0.25rem 0.75rem;
+    border-radius: 20px;
+    white-space: nowrap;
   }
 
   .price {
-    font-size: 2.5rem;
-    font-weight: bold;
+    position: relative;
     margin-bottom: 1.5rem;
-    color: var(--color-text-primary);
   }
 
-  .price span {
+  .price-container {
+    display: flex;
+    align-items: baseline;
+    gap: 0.5rem;
+    font-size: 2.5rem;
+    font-weight: bold;
+    color: var(--color-text-primary);
+    margin-top: 0.5rem;
+  }
+
+  .price-container span {
     font-size: 1rem;
     font-weight: normal;
     color: var(--color-text-secondary);
@@ -832,6 +1034,90 @@
     left: 0;
     color: #22c55e;
     font-weight: bold;
+  }
+
+  /* Tier Benefits Styling */
+  .tier-benefits {
+    margin-bottom: 2rem;
+    flex: 1;
+  }
+
+  .benefit-section {
+    margin-bottom: 1.5rem;
+  }
+
+  .benefit-section:last-of-type {
+    margin-bottom: 0;
+  }
+
+  .section-header {
+    font-size: 0.875rem;
+    font-weight: 700;
+    color: var(--color-text-primary);
+    margin: 0 0 0.75rem 0;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  .section-divider {
+    height: 1px;
+    background: rgba(236, 71, 0, 0.15);
+    margin: 1.5rem 0;
+  }
+
+  .benefit-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+  }
+
+  .benefit-list li {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+    padding: 0.75rem 0;
+    padding-left: 0;
+    color: var(--color-text-primary);
+  }
+
+  .benefit-list li::before {
+    display: none;
+  }
+
+  .checkmark {
+    color: #22c55e;
+    font-weight: bold;
+    flex-shrink: 0;
+    margin-top: 0.125rem;
+  }
+
+  .feature-icon {
+    font-size: 1.25rem;
+    flex-shrink: 0;
+    margin-top: 0.125rem;
+  }
+
+  .feature-content {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    flex: 1;
+  }
+
+  .feature-text {
+    color: var(--color-text-primary);
+    line-height: 1.5;
+  }
+
+  .muted-text {
+    color: var(--color-text-secondary);
+    opacity: 0.8;
+  }
+
+  .feature-subtext {
+    color: var(--color-text-secondary);
+    font-size: 0.875rem;
+    font-style: italic;
   }
 
   .tier-button {

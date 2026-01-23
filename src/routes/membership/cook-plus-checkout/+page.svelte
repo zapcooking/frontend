@@ -293,13 +293,64 @@
 
       <div class="checkout-benefits">
         <h3>What you get:</h3>
-        <ul>
-          <li>✓ Custom Lightning address (you@zap.cooking)</li>
-          <li>✓ Access to pantry.zap.cooking relay</li>
-          <li>✓ Recipe collections</li>
-          <li>✓ Member badge</li>
-          <li>✓ Vote on features</li>
-        </ul>
+        
+        <!-- Premium Features -->
+        <div class="benefit-section">
+          <h4 class="section-header">Premium Features</h4>
+          <ul class="benefit-list">
+            <li>
+              <span class="feature-icon">✨</span>
+              <div class="feature-content">
+                <span class="feature-text">Sous Chef - Extract recipes from any link or photo instantly</span>
+                <span class="feature-subtext">Save time - let it do the work</span>
+              </div>
+            </li>
+            <li>
+              <span class="checkmark">✓</span>
+              <span class="feature-text">Verified @zap.cooking NIP-05 identity</span>
+            </li>
+          </ul>
+        </div>
+
+        <!-- Section Divider -->
+        <div class="section-divider"></div>
+
+        <!-- Community & Content -->
+        <div class="benefit-section">
+          <h4 class="section-header">Community & Content</h4>
+          <ul class="benefit-list">
+            <li>
+              <span class="checkmark">✓</span>
+              <span class="feature-text">Access to pantry.zap.cooking private relay</span>
+            </li>
+            <li>
+              <span class="checkmark">✓</span>
+              <span class="feature-text">Featured recipe collections</span>
+            </li>
+            <li>
+              <span class="checkmark">✓</span>
+              <span class="feature-text">Exclusive Cook+ member badge</span>
+            </li>
+          </ul>
+        </div>
+
+        <!-- Section Divider -->
+        <div class="section-divider"></div>
+
+        <!-- Member Perks -->
+        <div class="benefit-section">
+          <h4 class="section-header">Member Perks</h4>
+          <ul class="benefit-list">
+            <li>
+              <span class="checkmark">✓</span>
+              <span class="feature-text">Early access to new features</span>
+            </li>
+            <li>
+              <span class="checkmark">✓</span>
+              <span class="feature-text">Vote on features and roadmap</span>
+            </li>
+          </ul>
+        </div>
       </div>
 
       <!-- Payment Method Selection -->
@@ -477,24 +528,77 @@
     font-size: 1.2rem;
     font-weight: 600;
     color: #f3f4f6;
-    margin: 0 0 1rem 0;
+    margin: 0 0 1.5rem 0;
   }
 
-  .checkout-benefits ul {
+  .benefit-section {
+    margin-bottom: 1.5rem;
+  }
+
+  .benefit-section:last-of-type {
+    margin-bottom: 0;
+  }
+
+  .section-header {
+    font-size: 1rem;
+    font-weight: 700;
+    color: #f3f4f6;
+    margin: 0 0 0.75rem 0;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-size: 0.875rem;
+  }
+
+  .section-divider {
+    height: 1px;
+    background: rgba(236, 71, 0, 0.15);
+    margin: 1.5rem 0;
+  }
+
+  .benefit-list {
     list-style: none;
     padding: 0;
     margin: 0;
   }
 
-  .checkout-benefits li {
+  .benefit-list li {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
     padding: 0.75rem 0;
     color: #d1d5db;
     font-size: 1rem;
-    border-bottom: 1px solid rgba(236, 71, 0, 0.1);
   }
 
-  .checkout-benefits li:last-child {
-    border-bottom: none;
+  .checkmark {
+    color: #22c55e;
+    font-weight: bold;
+    flex-shrink: 0;
+    margin-top: 0.125rem;
+  }
+
+  .feature-icon {
+    font-size: 1.25rem;
+    flex-shrink: 0;
+    margin-top: 0.125rem;
+  }
+
+  .feature-content {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    flex: 1;
+  }
+
+  .feature-text {
+    color: #d1d5db;
+    line-height: 1.5;
+  }
+
+  .feature-subtext {
+    color: #9ca3af;
+    font-size: 0.875rem;
+    font-style: italic;
   }
 
   /* Payment Method Selection */

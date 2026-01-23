@@ -23,7 +23,7 @@
 
   function handleClaim() {
     // TODO: Connect to checkout/payment flow
-    console.log('Claim Genesis Founder Spot clicked');
+    console.log('Claim Founders Club Spot clicked');
     // For now, scroll to pricing section
     if (browser) {
       const pricingSection = document.querySelector('[data-pricing-grid]');
@@ -54,7 +54,7 @@
         </div>
         
         <p class="text-xl sm:text-2xl lg:text-3xl font-semibold text-gray-900 dark:text-gray-100 mb-1 sm:mb-2">
-          Genesis Founder Spots
+          Founders Club Spots
         </p>
         
         <div class="text-2xl sm:text-3xl lg:text-4xl font-bold text-orange-600 dark:text-orange-400 mb-4 sm:mb-6">
@@ -103,7 +103,7 @@
         
         <!-- Title -->
         <p class="text-lg sm:text-2xl lg:text-3xl font-semibold text-gray-900 dark:text-gray-100 mb-1 sm:mb-2">
-          Genesis Founder Spots
+          Founders Club Spots
         </p>
         
         <!-- Remaining count -->
@@ -122,9 +122,9 @@
                    transform hover:scale-[1.02] active:scale-[0.98]
                    transition-all duration-200 ease-out
                    focus:outline-none focus:ring-4 focus:ring-orange-500/50"
-            aria-label="Claim a Genesis Founder Spot"
+            aria-label="Claim a Founders Club Spot"
           >
-            Claim a Genesis Founder Spot
+            Claim a Founders Club Spot
           </button>
         </div>
 
@@ -198,7 +198,7 @@
             >
               <p>
                 <strong class="text-orange-600 dark:text-orange-400">21</strong> is a nod to Bitcoin's fixed supply and digital scarcity done right. 
-                Genesis Founders help fund development and set the tone for the community.
+                Founders Club members help fund development and set the tone for the community.
               </p>
             </div>
           {/if}

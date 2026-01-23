@@ -14,6 +14,21 @@ import { json, type RequestHandler } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
 import { handleWebhook, checkInvoiceStatus } from '$lib/strikeService.server';
 
+/**
+ * GET handler - Returns info about the webhook endpoint
+ * This is useful for verifying the endpoint is reachable
+ */
+export const GET: RequestHandler = async () => {
+  return json({
+    status: 'ok',
+    endpoint: '/api/membership/strike-webhook',
+    description: 'Strike webhook endpoint for membership payments',
+    method: 'POST',
+    note: 'This endpoint receives POST requests from Strike API when payments are confirmed. Configure this URL in your Strike Dashboard webhook settings.',
+    events: ['invoice.paid', 'invoice.state.changed']
+  });
+};
+
 export const POST: RequestHandler = async ({ request, platform }) => {
   // Membership feature flag guard
   const MEMBERSHIP_ENABLED = platform?.env?.MEMBERSHIP_ENABLED || env.MEMBERSHIP_ENABLED;
@@ -70,11 +85,44 @@ export const POST: RequestHandler = async ({ request, platform }) => {
       console.log('[Membership Strike Webhook] Invoice is paid, processing membership activation...');
       
       // Extract membership details from invoice description
-      // Format: "ZapCooking {Tier} {Period} Membership - {pubkey}"
+      // New format: "zap.cooking {Tier} ({Period}) - ${USD} USD"
+      // Old format: "ZapCooking {Tier} {Period} Membership - {pubkey}"
       const description = invoice.description || '';
-      const match = description.match(/ZapCooking\s+(Cook\+|Pro Kitchen)\s+(\d+yr)\s+Membership\s+-\s+([0-9a-fA-F]{64})/);
       
-      if (!match) {
+      // Try new format first
+      let tier: 'cook' | 'pro';
+      let period: 'annual' | '2year';
+      let pubkey: string | null = null;
+      
+      // Match: "zap.cooking Cook+ (1 Year) - $46.55 USD" or "zap.cooking Pro Kitchen (2 Years) - $144.78 USD"
+      const newFormatMatch = description.match(/zap\.cooking\s+(Cook\+|Pro Kitchen)\s+\((\d+)\s*Years?\)(?:\s*-\s*\$[\d.]+\s*USD)?/i);
+      const oldFormatMatch = description.match(/ZapCooking\s+(Cook\+|Pro Kitchen)\s+(\d+yr)\s+Membership\s+-\s+([0-9a-fA-F]{64})/);
+      
+      if (newFormatMatch) {
+        const [, tierName, periodYears] = newFormatMatch;
+        tier = tierName.toLowerCase() === 'cook+' ? 'cook' : 'pro';
+        period = periodYears === '2' ? '2year' : 'annual';
+        
+        // New format doesn't include pubkey - webhook can't auto-activate
+        // Payment is verified client-side via verify-lightning-payment endpoint
+        console.log('[Membership Strike Webhook] New format invoice detected - pubkey not in description');
+        console.log('[Membership Strike Webhook] Payment will be verified client-side');
+        
+        return json({ 
+          received: true, 
+          message: 'Invoice paid - awaiting client-side verification',
+          invoiceId,
+          tier,
+          period,
+          note: 'Pubkey not in description - client will verify payment'
+        });
+        
+      } else if (oldFormatMatch) {
+        const [, tierName, periodLabel, extractedPubkey] = oldFormatMatch;
+        tier = tierName === 'Cook+' ? 'cook' : 'pro';
+        period = periodLabel === '1yr' ? 'annual' : '2year';
+        pubkey = extractedPubkey;
+      } else {
         console.error('[Membership Strike Webhook] Could not parse membership details from description:', description);
         return json({ 
           received: true, 
@@ -82,10 +130,6 @@ export const POST: RequestHandler = async ({ request, platform }) => {
           invoiceId 
         }, { status: 400 });
       }
-      
-      const [, tierName, periodLabel, pubkey] = match;
-      const tier = tierName === 'Cook+' ? 'cook' : 'pro';
-      const period = periodLabel === '1yr' ? 'annual' : '2year';
       
       // Validate pubkey format
       if (!/^[0-9a-fA-F]{64}$/.test(pubkey)) {
