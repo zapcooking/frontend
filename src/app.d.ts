@@ -5,17 +5,20 @@ declare global {
     // interface Error {}
     // interface Locals {}
     // interface PageData {}
-    interface Platform {
-      env?: {
-        RELAY_API_SECRET: string;
-        RELAY_ICON?: string;
-        NOTIFICATION_PRIVATE_KEY?: string;
-        CRON_SECRET?: string;
-        MEMBERSHIP_ENABLED?: string;
-        MEMBERSHIP_LIGHTNING_ADDRESS?: string;
-        // Add other Cloudflare env vars here
-      };
-    }
+      interface Platform {
+        env?: {
+          RELAY_API_SECRET: string;
+          RELAY_ICON?: string;
+          NOTIFICATION_PRIVATE_KEY?: string;
+          CRON_SECRET?: string;
+          MEMBERSHIP_ENABLED?: string;
+          MEMBERSHIP_LIGHTNING_ADDRESS?: string;
+          STRIKE_API_KEY?: string;
+          STRIKE_API_BASE_URL?: string;
+          STRIKE_WEBHOOK_SECRET?: string;
+          // Add other Cloudflare env vars here
+        };
+      }
   }
 
   const __VERSION__: string;

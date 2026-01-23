@@ -21,8 +21,7 @@ const adapter = process.env.ADAPTER === 'static'
     ? adapterVercel()
     : adapterCloudflare({
         routes: {
-          include: ['/*'],
-          exclude: ['/.well-known/lnurlp/*', '/lnurlpay/*']
+          include: ['/*']
         }
       });
 
