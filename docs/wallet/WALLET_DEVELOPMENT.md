@@ -366,10 +366,11 @@ interface Wallet {
 ## Relay Backups & Restore
 
 Relay backups use NIP-78 (kind `30078`) addressable events:
-- **Spark backups**: `d` tag `spark-wallet-backup`
+- **Spark backups (legacy)**: `d` tag `spark-wallet-backup`
+- **Spark backups (multi)**: `d` tag `spark-wallet-backup:<walletId>`
 - **NWC backups**: `d` tag `zapcooking-nwc-backup`
 
-Backups are encrypted with NIP-44/NIP-04 via `encryptionService.ts` when a signer supports it. The Add Wallet modal checks for relay backups on Spark/NWC and shows a status banner ("Backup found on Nostr" / "No backup found on relays"). If a Spark backup exists, creating a new Spark wallet prompts for confirmation because the next backup will overwrite the existing relay backup.
+Backups are encrypted with NIP-44/NIP-04 via `encryptionService.ts` when a signer supports it. The Add Wallet modal checks for relay backups on Spark/NWC and shows a status banner ("Backup found on Nostr" / "No backup found on relays"). If multiple Spark backups exist, users get a chooser when restoring. If any Spark backup exists, creating a new Spark wallet prompts for confirmation because the next backup will overwrite that wallet's backup entry.
 
 ## One-Tap Zaps (Relay Sync)
 
