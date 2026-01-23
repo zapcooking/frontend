@@ -19,7 +19,12 @@ const adapter = process.env.ADAPTER === 'static'
     })
   : process.env.VERCEL
     ? adapterVercel()
-    : adapterCloudflare();
+    : adapterCloudflare({
+        routes: {
+          include: ['/*'],
+          exclude: ['/.well-known/lnurlp/*', '/lnurlpay/*']
+        }
+      });
 
 /** @type {import('@sveltejs/kit').Config} */
 const config = {
