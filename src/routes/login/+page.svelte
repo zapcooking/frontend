@@ -39,10 +39,7 @@
   // Form states
   let nsecInput = '';
   let nsecError = '';
-  let seedInput = '';
-  let seedError = '';
-  let generatedKeys: { privateKey: Uint8Array; publicKey: string; seedPhrase: string } | null =
-    null;
+  let generatedKeys: { privateKey: Uint8Array; publicKey: string } | null = null;
   let newAccountUsername = '';
   let newAccountBio = '';
   let newAccountPicture = '';
@@ -51,9 +48,10 @@
 
   // Modal states
   let nsecModal = false;
-  let seedModal = false;
   let generateModal = false;
   let showPrivateKey = false;
+  let backupStep = 1;
+  let backupDownloaded = false;
   let bunkerModal = false;
   let nip46UniversalModal = false;
 
@@ -170,24 +168,6 @@
     }
   }
 
-  async function loginWithSeed() {
-    if (!authManager) return;
-    try {
-      seedError = '';
-      if (!seedInput.trim()) {
-        seedError = 'Please enter a seed phrase';
-        return;
-      }
-
-      await authManager.authenticateWithSeed(seedInput.trim());
-      seedModal = false;
-      seedInput = '';
-    } catch (error) {
-      seedError = authState.error || 'Invalid seed phrase';
-      console.error('Seed login failed:', error);
-    }
-  }
-
   async function loginWithBunker() {
     if (!authManager) return;
     try {
@@ -214,6 +194,39 @@
   function generateNewKeys() {
     if (!authManager) return;
     generatedKeys = authManager.generateKeyPair();
+    backupStep = 1;
+    backupDownloaded = false;
+  }
+
+  function downloadKeysBackup() {
+    if (!browser || !generatedKeys) return;
+    const nsec = nip19.nsecEncode(generatedKeys.privateKey);
+    const npub = nip19.npubEncode(generatedKeys.publicKey);
+    const content = [
+      'Zap Cooking Nostr Backup',
+      '',
+      `Public key (npub): ${npub}`,
+      '',
+      `Private key (nsec): ${nsec}`,
+      '',
+      'Keep this file safe:',
+      '- Do not share your private key.',
+      '- Store in a secure password manager or offline storage.',
+      '- You can restore your profile in any Nostr client.',
+      '- Zap Cooking: https://zap.cooking',
+      '- Anyone with this file can access your profile.'
+    ].join('\n');
+    const blob = new Blob([content], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const date = new Date().toISOString().slice(0, 10);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `zapcooking-keys-${date}.txt`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    backupDownloaded = true;
   }
 
   async function useGeneratedKeys(skipProfile = false) {
@@ -225,6 +238,10 @@
     const profilePicture = newAccountPicture;
 
     try {
+      if (browser) {
+        localStorage.setItem('zapcooking_wallet_welcome_force', '1');
+      }
+
       // Convert Uint8Array to hex string for authentication
       const privateKeyHex = Array.from(generatedKeys.privateKey)
         .map((b) => b.toString(16).padStart(2, '0'))
@@ -311,15 +328,14 @@
 
   function modalCleanup() {
     nsecModal = false;
-    seedModal = false;
     generateModal = false;
     bunkerModal = false;
     nip46UniversalModal = false;
     showPrivateKey = false;
+    backupStep = 1;
+    backupDownloaded = false;
     nsecInput = '';
-    seedInput = '';
     nsecError = '';
-    seedError = '';
     bunkerConnectionString = '';
     bunkerError = '';
     bunkerConnecting = false;
@@ -494,32 +510,6 @@
     </div>
   </Modal>
 
-  <!-- Seed Phrase Modal -->
-  <Modal bind:open={seedModal} on:close={modalCleanup}>
-    <svelte:fragment slot="title">🌱 Restore from Seed Phrase</svelte:fragment>
-    <div class="flex flex-col gap-4">
-      <div class="text-sm text-caption">Enter your 12 or 24 word seed phrase</div>
-      <textarea
-        bind:value={seedInput}
-        placeholder="word1 word2 word3..."
-        rows="3"
-        class="input block w-full sm:text-sm p-3"
-        disabled={authState.isLoading}
-      ></textarea>
-      {#if seedError}
-        <div class="text-sm" style="color: var(--color-danger, #ef4444)">{seedError}</div>
-      {/if}
-      <div class="flex gap-2">
-        <Button on:click={loginWithSeed} primary={true} disabled={authState.isLoading}>
-          {authState.isLoading ? '⚡ Restoring...' : '⚡ Restore'}
-        </Button>
-        <Button on:click={modalCleanup} primary={false} disabled={authState.isLoading}
-          >Cancel</Button
-        >
-      </div>
-    </div>
-  </Modal>
-
   <!-- Bunker (NIP-46) Modal -->
   <Modal bind:open={bunkerModal} on:close={modalCleanup}>
     <svelte:fragment slot="title">🔐 Connect External Signer</svelte:fragment>
@@ -670,8 +660,10 @@
   <Modal bind:open={generateModal} on:close={modalCleanup}>
     <svelte:fragment slot="title"
       >{generatedKeys
-        ? '🔐 Save your backup key'
-        : '🎉 Your Zap Cooking account is almost ready'}</svelte:fragment
+        ? backupStep === 2
+          ? 'Add a display name and bio (optional)'
+          : '🔐 Save your backup key'
+        : '🎉 Your Zap Cooking profile is almost ready!'}</svelte:fragment
     >
     <div class="flex flex-col gap-4">
       {#if !generatedKeys}
@@ -681,15 +673,15 @@
             style="border-color: var(--color-input-border)"
           >
             <div class="text-sm font-medium mb-2" style="color: var(--color-text-primary)">
-              🔐 Your account, your keys
+              🔐 Your profile, your keys
             </div>
             <p class="text-sm text-caption mb-3">
-              Zap Cooking uses Nostr, which means you own your account and data.
+              Zap Cooking uses Nostr, which means you own your profile and data.
             </p>
             <ul class="text-sm text-caption space-y-1.5">
               <li class="flex items-start gap-2">
                 <span class="text-caption">•</span>
-                <span>Your account will be created on this device</span>
+                <span>Your profile will be created on this device</span>
               </li>
               <li class="flex items-start gap-2">
                 <span class="text-caption">•</span>
@@ -697,19 +689,19 @@
               </li>
               <li class="flex items-start gap-2">
                 <span class="text-caption">•</span>
-                <span>Saving it lets you recover your account later</span>
+                <span>Saving it lets you recover your profile later</span>
               </li>
             </ul>
           </div>
 
           <p class="text-sm text-caption">
-            When you continue, we'll create your account and show you a backup key to save for
+            When you continue, we'll create your profile and show you a backup key to save for
             safekeeping.
           </p>
 
           <div>
             <Button on:click={generateNewKeys} primary={true} class="w-full">
-              ⚡ Create Account
+              ⚡ Create Profile
             </Button>
             <p class="text-xs text-caption text-center mt-2">Takes less than 10 seconds</p>
           </div>
@@ -717,100 +709,123 @@
       {:else}
         <div class="space-y-4">
           <!-- Calm intro message -->
-          <div class="bg-green-50 border border-green-200 rounded-lg p-3">
-            <p class="text-sm text-green-700">
-              ✓ Your account has been created. Save your backup key below to recover it later.
-            </p>
-          </div>
+          {#if backupStep === 1}
+            <div class="bg-green-50 border border-green-200 rounded-lg p-3">
+              <p class="text-sm text-green-700">
+                ✓ Your profile has been created. Save your backup key below to recover it later.
+              </p>
+            </div>
+          {/if}
 
-          <!-- Backup Key (Private) - Hidden by default -->
-          <div>
-            <p class="block text-sm font-medium mb-1" style="color: var(--color-text-primary)">
-              Backup key (private)
-            </p>
-            {#if showPrivateKey}
+          {#if backupStep === 1}
+            <p class="text-xs text-caption uppercase tracking-wide mb-2">Step 1</p>
+            <!-- Backup Key (Private) - Hidden by default -->
+            <div>
+              <p class="block text-sm font-medium mb-1" style="color: var(--color-text-primary)">
+                Backup key (private)
+              </p>
+              {#if showPrivateKey}
+                <div class="flex gap-2">
+                  <textarea
+                    id="private-key-textarea"
+                    readonly
+                    value={nip19.nsecEncode(generatedKeys.privateKey)}
+                    rows="2"
+                    class="flex-1 input text-sm font-mono p-3"
+                  ></textarea>
+                  <button
+                    on:click={() =>
+                      generatedKeys && copyToClipboard(nip19.nsecEncode(generatedKeys.privateKey))}
+                    class="px-3 py-2 bg-accent-gray hover:opacity-80 rounded-lg text-sm font-medium transition-colors"
+                    style="color: var(--color-text-primary)"
+                  >
+                    Copy
+                  </button>
+                </div>
+                <div class="flex items-center justify-between mt-1.5">
+                  <p class="text-xs text-amber-600">
+                    ⚠️ Anyone with this key can control your profile. Never share it.
+                  </p>
+                  <button
+                    on:click={() => (showPrivateKey = false)}
+                    class="text-xs text-caption hover:opacity-80 underline"
+                  >
+                    Hide
+                  </button>
+                </div>
+              {:else}
+                <div class="flex gap-2">
+                  <div
+                    class="flex-1 bg-input border rounded-lg p-3 text-sm text-caption font-mono"
+                    style="border-color: var(--color-input-border)"
+                  >
+                    ••••••••••••••••••••••••••••••••
+                  </div>
+                  <button
+                    on:click={() => (showPrivateKey = true)}
+                    class="px-3 py-2 bg-accent-gray hover:opacity-80 rounded-lg text-sm font-medium transition-colors"
+                    style="color: var(--color-text-primary)"
+                  >
+                    Reveal
+                  </button>
+                </div>
+                <p class="text-xs text-caption mt-1.5">Reveal to copy and save securely</p>
+              {/if}
+            </div>
+
+            <!-- Public Identity (npub) -->
+            <div>
+              <label
+                for="public-key-input"
+                class="block text-sm font-medium mb-1"
+                style="color: var(--color-text-primary)">Public identity (npub)</label
+              >
               <div class="flex gap-2">
-                <textarea
-                  id="private-key-textarea"
+                <input
+                  id="public-key-input"
                   readonly
-                  value={nip19.nsecEncode(generatedKeys.privateKey)}
-                  rows="2"
+                  value={nip19.npubEncode(generatedKeys.publicKey)}
                   class="flex-1 input text-sm font-mono p-3"
-                ></textarea>
+                />
                 <button
                   on:click={() =>
-                    generatedKeys && copyToClipboard(nip19.nsecEncode(generatedKeys.privateKey))}
-                  class="px-3 py-2 bg-accent-gray hover:opacity-80 rounded-lg text-sm font-medium transition-colors"
+                    generatedKeys && copyToClipboard(nip19.npubEncode(generatedKeys.publicKey))}
+                  class="px-3 py-2 bg-accent-gray hover:opacity-80 rounded-lg text-sm transition-colors"
                   style="color: var(--color-text-primary)"
                 >
                   Copy
                 </button>
               </div>
-              <div class="flex items-center justify-between mt-1.5">
-                <p class="text-xs text-amber-600">
-                  ⚠️ Anyone with this key can control your account. Never share it.
-                </p>
-                <button
-                  on:click={() => (showPrivateKey = false)}
-                  class="text-xs text-caption hover:opacity-80 underline"
-                >
-                  Hide
-                </button>
-              </div>
-            {:else}
-              <div class="flex gap-2">
-                <div
-                  class="flex-1 bg-input border rounded-lg p-3 text-sm text-caption font-mono"
-                  style="border-color: var(--color-input-border)"
-                >
-                  ••••••••••••••••••••••••••••••••
-                </div>
-                <button
-                  on:click={() => (showPrivateKey = true)}
-                  class="px-3 py-2 bg-accent-gray hover:opacity-80 rounded-lg text-sm font-medium transition-colors"
-                  style="color: var(--color-text-primary)"
-                >
-                  Reveal
-                </button>
-              </div>
-              <p class="text-xs text-caption mt-1.5">Reveal to copy and save securely</p>
-            {/if}
-          </div>
-
-          <!-- Public Identity (npub) -->
-          <div>
-            <label
-              for="public-key-input"
-              class="block text-sm font-medium mb-1"
-              style="color: var(--color-text-primary)">Public identity (npub)</label
-            >
-            <div class="flex gap-2">
-              <input
-                id="public-key-input"
-                readonly
-                value={nip19.npubEncode(generatedKeys.publicKey)}
-                class="flex-1 input text-sm font-mono p-3"
-              />
-              <button
-                on:click={() =>
-                  generatedKeys && copyToClipboard(nip19.npubEncode(generatedKeys.publicKey))}
-                class="px-3 py-2 bg-accent-gray hover:opacity-80 rounded-lg text-sm transition-colors"
-                style="color: var(--color-text-primary)"
-              >
-                Copy
-              </button>
+              <p class="text-xs text-caption mt-1.5">
+                This is safe to share - it's your public identity
+              </p>
             </div>
-            <p class="text-xs text-caption mt-1.5">
-              This is safe to share - it's your public identity
-            </p>
-          </div>
 
-          <!-- Divider -->
-          <div class="border-t pt-4" style="border-color: var(--color-input-border)">
-            <!-- Profile Setup Section -->
-            <p class="text-sm font-medium mb-3" style="color: var(--color-text-primary)">
-              👋 Set up your profile (optional)
-            </p>
+            <div
+              class="bg-input border rounded-lg p-3"
+              style="border-color: var(--color-input-border)"
+            >
+              <p class="text-sm text-caption">
+                Download a backup file with your keys and safety notes.
+              </p>
+              <Button on:click={downloadKeysBackup} primary={true} class="w-full mt-3">
+                Download backup file
+              </Button>
+            </div>
+
+            <Button
+              on:click={() => (backupStep = 2)}
+              primary={false}
+              class="w-full {!backupDownloaded ? 'opacity-50 cursor-not-allowed' : ''}"
+              disabled={!backupDownloaded}
+            >
+              Continue to Step 2
+            </Button>
+            {#if !backupDownloaded}
+              <p class="text-xs text-caption text-center">Download the backup file to continue.</p>
+            {/if}
+          {:else}
+            <p class="text-xs text-caption uppercase tracking-wide mb-2">Step 2</p>
 
             <div class="space-y-3 mb-4">
               <!-- Profile Photo -->
@@ -933,15 +948,8 @@
               >
                 {authState.isLoading ? '⚡ Setting up...' : '⚡ Continue to Zap Cooking'}
               </Button>
-              <button
-                on:click={() => useGeneratedKeys(true)}
-                disabled={authState.isLoading || uploadingPicture}
-                class="w-full text-sm text-caption hover:opacity-80 transition-colors disabled:opacity-50"
-              >
-                Skip profile setup for now
-              </button>
             </div>
-          </div>
+          {/if}
         </div>
       {/if}
     </div>
@@ -1080,11 +1088,11 @@
           <button
             on:click={() => (generateModal = true)}
             disabled={authState.isLoading}
-            aria-label="Create a new Zap Cooking account"
+            aria-label="Create a new Zap Cooking profile"
             class="w-full bg-input hover:opacity-90 font-medium h-11 px-6 rounded-xl transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed border"
             style="color: var(--color-text-primary); border-color: var(--color-input-border)"
           >
-            <span class="text-sm">🔑 Create Account</span>
+            <span class="text-sm">🔑 Create Profile</span>
           </button>
         </div>
 

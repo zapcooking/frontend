@@ -3,6 +3,14 @@
   import ChatCircleDotsIcon from 'phosphor-svelte/lib/ChatCircleDots';
   import CompassIcon from 'phosphor-svelte/lib/Compass';
   import LightningIcon from 'phosphor-svelte/lib/Lightning';
+  import { walletConnected } from '$lib/wallet';
+  import { weblnConnected } from '$lib/wallet/webln';
+  import { bitcoinConnectEnabled, bitcoinConnectWalletInfo } from '$lib/wallet/bitcoinConnect';
+
+  $: hasWallet =
+    $walletConnected ||
+    $weblnConnected ||
+    ($bitcoinConnectEnabled && $bitcoinConnectWalletInfo.connected);
 </script>
 
 <nav
@@ -22,7 +30,15 @@
     Explore
   </a>
   <a href="/wallet" class="flex flex-col hover:text-primary">
-    <LightningIcon class="self-center" size={24} />
+    <span class="relative self-center">
+      <LightningIcon size={24} />
+      {#if !hasWallet}
+        <span
+          class="absolute -top-2 -right-2 w-4 h-4 rounded-full bg-amber-500 border-2 border-input"
+          aria-hidden="true"
+        ></span>
+      {/if}
+    </span>
     Wallet
   </a>
 </nav>

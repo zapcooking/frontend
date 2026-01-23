@@ -1188,6 +1188,30 @@ export async function restoreWalletFromNostr(
   return mnemonic.trim();
 }
 
+export async function hasSparkBackupInNostr(pubkey: string): Promise<boolean> {
+  if (!browser) return false;
+
+  try {
+    const { ndk, ndkReady } = await import('$lib/nostr');
+    const { get } = await import('svelte/store');
+
+    await ndkReady;
+    const ndkInstance = get(ndk);
+
+    const filter = {
+      kinds: [BACKUP_EVENT_KIND],
+      authors: [pubkey],
+      '#d': [BACKUP_D_TAG]
+    };
+
+    const events = await ndkInstance.fetchEvents(filter, { closeOnEose: true });
+    return !!events && events.size > 0;
+  } catch (error) {
+    logger.warn('[Spark] Failed to check backup status:', String(error));
+    return false;
+  }
+}
+
 /**
  * Relay backup status result
  */

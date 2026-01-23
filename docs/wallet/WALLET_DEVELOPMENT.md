@@ -45,7 +45,8 @@ src/lib/spark/
 
 src/lib/
 ├── encryptionService.ts # Unified NIP-44/NIP-04 encryption (signer-agnostic)
-└── lightningService.ts  # Bitcoin Connect payment modal integration
+├── lightningService.ts  # Bitcoin Connect payment modal integration
+└── autoZapSettings.ts   # One-Tap Zap settings (local + relay sync)
 
 src/components/
 ├── CheckRelayBackupsModal.svelte  # Modal showing relay backup status
@@ -361,6 +362,30 @@ interface Wallet {
   active: boolean   // Is this the active wallet
 }
 ```
+
+## Relay Backups & Restore
+
+Relay backups use NIP-78 (kind `30078`) addressable events:
+- **Spark backups**: `d` tag `spark-wallet-backup`
+- **NWC backups**: `d` tag `zapcooking-nwc-backup`
+
+Backups are encrypted with NIP-44/NIP-04 via `encryptionService.ts` when a signer supports it. The Add Wallet modal checks for relay backups on Spark/NWC and shows a status banner ("Backup found on Nostr" / "No backup found on relays"). If a Spark backup exists, creating a new Spark wallet prompts for confirmation because the next backup will overwrite the existing relay backup.
+
+## One-Tap Zaps (Relay Sync)
+
+One-Tap Zap preferences are stored locally and synced to relays:
+- **kind**: `30078`
+- **d tag**: `one-tap-zap-settings`
+- **content**: JSON `{ enabled: boolean, amount: number }`
+
+`autoZapSettings.ts` loads local settings immediately, then fetches relay settings for authenticated users and publishes changes when toggled in Settings.
+
+## Custom Lightning Address Domain (Breez)
+
+You don't need to set up a hosted server if you want to use Breez's hosted server. Follow the instructions in option #1 here:
+https://sdk-doc-spark.breez.technology/guide/receive_lnurl_pay.html#lnurl-server
+
+Once your custom domain is configured, share it with Breez via email at contact@breez.technology so they can whitelist it.
 
 ## Balance Display Logic
 

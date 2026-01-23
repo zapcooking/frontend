@@ -12,6 +12,10 @@
 
 import { writable, get } from 'svelte/store';
 import { browser } from '$app/environment';
+import { ndk, userPublickey, ndkReady } from '$lib/nostr';
+import { NDKEvent } from '@nostr-dev-kit/ndk';
+import { getOutboxRelays } from '$lib/relayListCache';
+import { CLIENT_TAG_IDENTIFIER } from '$lib/consts';
 
 // Storage keys
 const ONE_TAP_ZAP_ENABLED_KEY = 'zapcooking_one_tap_zap_enabled';
@@ -22,6 +26,18 @@ const DEFAULT_AMOUNT = 21;
 
 // Maximum allowed amount (safety limit)
 export const MAX_ONE_TAP_ZAP_AMOUNT = 10000;
+
+// Nostr settings
+const SETTINGS_KIND = 30078;
+const SETTINGS_D_TAG = 'one-tap-zap-settings';
+
+export interface OneTapZapSettings {
+  enabled: boolean;
+  amount: number;
+}
+
+let isLoadingFromRelay = false;
+let lastLoadedPubkey = '';
 
 /**
  * Load one-tap zap enabled state from localStorage
@@ -37,6 +53,23 @@ function loadEnabled(): boolean {
   } catch {
     return false;
   }
+}
+
+function normalizeSettings(settings: Partial<OneTapZapSettings>): OneTapZapSettings {
+  return {
+    enabled: !!settings.enabled,
+    amount:
+      typeof settings.amount === 'number'
+        ? Math.min(Math.max(1, settings.amount), MAX_ONE_TAP_ZAP_AMOUNT)
+        : DEFAULT_AMOUNT
+  };
+}
+
+function applySettings(settings: OneTapZapSettings): void {
+  oneTapZapEnabled.set(settings.enabled);
+  oneTapZapAmount.set(settings.amount);
+  saveEnabled(settings.enabled);
+  saveAmount(settings.amount);
 }
 
 /**
@@ -127,6 +160,98 @@ oneTapZapAmount.subscribe((amount) => {
   }
 });
 
+// --- Nostr Sync ---
+
+export async function loadOneTapZapSettings(): Promise<OneTapZapSettings> {
+  const localSettings = normalizeSettings({
+    enabled: loadEnabled(),
+    amount: loadAmount()
+  });
+  applySettings(localSettings);
+
+  if (!browser) return localSettings;
+
+  const pubkey = get(userPublickey);
+  if (!pubkey) {
+    console.log('[OneTapZap] No user logged in, using localStorage');
+    return localSettings;
+  }
+
+  if (isLoadingFromRelay || lastLoadedPubkey === pubkey) {
+    return localSettings;
+  }
+
+  isLoadingFromRelay = true;
+  lastLoadedPubkey = pubkey;
+
+  try {
+    await get(ndkReady);
+    const ndkInstance = get(ndk);
+    if (!ndkInstance) return localSettings;
+
+    const events = await ndkInstance.fetchEvents({
+      kinds: [SETTINGS_KIND],
+      authors: [pubkey],
+      '#d': [SETTINGS_D_TAG]
+    });
+
+    if (events.size === 0) {
+      console.log('[OneTapZap] No relay settings found, using localStorage');
+      return localSettings;
+    }
+
+    const sortedEvents = Array.from(events).sort(
+      (a, b) => (b.created_at || 0) - (a.created_at || 0)
+    );
+    const latestEvent = sortedEvents[0];
+
+    const relaySettings = normalizeSettings(JSON.parse(latestEvent.content));
+    applySettings(relaySettings);
+    console.log('[OneTapZap] Loaded from relay:', relaySettings);
+    return relaySettings;
+  } catch (e) {
+    console.error('[OneTapZap] Error loading from relay:', e);
+    return localSettings;
+  } finally {
+    isLoadingFromRelay = false;
+  }
+}
+
+async function publishOneTapZapSettings(settings: OneTapZapSettings): Promise<boolean> {
+  if (!browser) return false;
+
+  const pubkey = get(userPublickey);
+  if (!pubkey) {
+    console.log('[OneTapZap] No user logged in, skipping relay save');
+    return true;
+  }
+
+  try {
+    await get(ndkReady);
+    const ndkInstance = get(ndk);
+    if (!ndkInstance) return false;
+
+    const event = new NDKEvent(ndkInstance);
+    event.kind = SETTINGS_KIND;
+    event.content = JSON.stringify(settings);
+    event.tags = [
+      ['d', SETTINGS_D_TAG],
+      ['client', CLIENT_TAG_IDENTIFIER]
+    ];
+
+    const outboxRelays = await getOutboxRelays(pubkey);
+
+    await event.sign();
+    await event.publish(outboxRelays);
+
+    console.log('[OneTapZap] Saved to relay:', settings);
+    return true;
+  } catch (e) {
+    console.error('[OneTapZap] Error saving to relay:', e);
+    return false;
+  }
+}
+
 // --- Functions ---
 
 /**
@@ -134,6 +259,11 @@ oneTapZapAmount.subscribe((amount) => {
  */
 export function setOneTapZapEnabled(enabled: boolean): void {
   oneTapZapEnabled.set(enabled);
+  const settings = normalizeSettings({
+    enabled,
+    amount: get(oneTapZapAmount)
+  });
+  void publishOneTapZapSettings(settings);
 }
 
 /**
@@ -142,6 +272,11 @@ export function setOneTapZapEnabled(enabled: boolean): void {
 export function setOneTapZapAmount(sats: number): void {
   const capped = Math.min(Math.max(1, sats), MAX_ONE_TAP_ZAP_AMOUNT);
   oneTapZapAmount.set(capped);
+  const settings = normalizeSettings({
+    enabled: get(oneTapZapEnabled),
+    amount: capped
+  });
+  void publishOneTapZapSettings(settings);
 }
 
 /**
