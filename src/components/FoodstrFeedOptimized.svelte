@@ -1611,7 +1611,18 @@
 
             // Convert cached events to NDK-like format and display immediately
             const cachedNDKEvents = cachedEvents.map((e) => cachedEventToNDKLike(e));
-            events = cachedNDKEvents;
+            
+            // Apply food filter if enabled
+            const beforeFilter = cachedNDKEvents.length;
+            const filteredCachedEvents = foodFilterEnabled
+              ? cachedNDKEvents.filter((e) => shouldIncludeEvent(e))
+              : cachedNDKEvents;
+            
+            if (foodFilterEnabled && beforeFilter !== filteredCachedEvents.length) {
+              console.log(`[Feed] Garden: Filtered cached events: ${filteredCachedEvents.length} / ${beforeFilter}`);
+            }
+            
+            events = filteredCachedEvents;
             loading = false; // Show cached data immediately
 
             // Check for stale results
@@ -1708,8 +1719,18 @@
         const hadCachedEvents = events.length;
 
         if (gardenEvents.length > 0) {
+          // Apply food filter if enabled
+          const beforeFilter = gardenEvents.length;
+          const filteredGardenEvents = foodFilterEnabled
+            ? gardenEvents.filter((e) => shouldIncludeEvent(e))
+            : gardenEvents;
+          
+          if (foodFilterEnabled && beforeFilter !== filteredGardenEvents.length) {
+            console.log(`[Feed] Garden: Filtered relay events: ${filteredGardenEvents.length} / ${beforeFilter}`);
+          }
+          
           // Got fresh events from relay - update display and cache
-          events = dedupeAndSort(gardenEvents);
+          events = dedupeAndSort(filteredGardenEvents);
           console.log(`[Feed] Garden: Got ${events.length} fresh events from relay`);
 
           // Save to dedicated Garden cache
@@ -1963,7 +1984,7 @@
     }
 
     if (filterMode === 'garden') {
-      // Subscribe to garden relay - show ALL content (not just food-tagged)
+      // Subscribe to garden relay - content filtering controlled by foodFilterEnabled toggle
       const gardenFilter: any = {
         kinds: [1],
         since
@@ -2063,10 +2084,15 @@
     // Skip if already seen
     if (seenEventIds.has(event.id)) return;
 
-    // Validate content - skip food filter for garden/members feeds
-    if (filterMode !== 'garden' && filterMode !== 'members') {
+    // Validate content - apply food filter based on toggle for garden mode
+    if (filterMode === 'garden') {
+      // Garden mode: respect foodFilterEnabled toggle
+      if (foodFilterEnabled && !shouldIncludeEvent(event)) return;
+    } else if (filterMode !== 'members') {
+      // Other modes (except members): always apply food filter
       if (!shouldIncludeEvent(event)) return;
     }
+    // Members mode: no food filter
 
     // Mark as seen and queue for batch processing
     seenEventIds.add(event.id);
@@ -2314,8 +2340,9 @@
       const validOlder = olderEvents.filter((e) => {
         if (seenEventIds.has(e.id)) return false;
 
-        // Garden mode: NO FILTERING - show ALL content from garden relay
+        // Garden mode: apply food filter based on toggle
         if (filterMode === 'garden') {
+          if (foodFilterEnabled && !shouldIncludeEvent(e)) return false;
           return true;
         }
 
@@ -3380,7 +3407,7 @@
   <div class="max-w-2xl mx-auto">
     <!-- Note: Refresh indicator is handled by PullToRefresh component on the page -->
 
-    {#if filterMode === 'following' || filterMode === 'replies' || authorPubkey}
+    {#if filterMode === 'following' || filterMode === 'replies' || filterMode === 'garden' || authorPubkey}
       <div class="flex items-center justify-end gap-2 px-2 sm:px-0 mb-4">
         {#if foodFilterEnabled}
           <span class="text-sm">

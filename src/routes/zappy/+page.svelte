@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import { browser } from '$app/environment';
   import { goto } from '$app/navigation';
   import { userPublickey } from '$lib/nostr';
@@ -18,6 +18,10 @@
   import WarningIcon from 'phosphor-svelte/lib/Warning';
   import HeartIcon from 'phosphor-svelte/lib/Heart';
   import Checkmark from 'phosphor-svelte/lib/CheckFat';
+  import CameraIcon from 'phosphor-svelte/lib/Camera';
+  import ShuffleIcon from 'phosphor-svelte/lib/Shuffle';
+  import XIcon from 'phosphor-svelte/lib/X';
+  import PlusIcon from 'phosphor-svelte/lib/Plus';
 
   // Zappy's lightning address
   const ZAPPY_LIGHTNING_ADDRESS = 'ZapCooking@getalby.com';
@@ -30,6 +34,20 @@
   // Form state
   let promptInput = '';
   
+  // Rotating placeholder examples
+  const placeholderExamples = [
+    "Quick dinner with chicken",
+    "I have eggs, spinach, and rice",
+    "Something cozy and vegetarian",
+    "Simple weeknight pasta",
+    "Easy lunch under 20 minutes",
+    "Comfort food for a rainy day"
+  ];
+  let currentPlaceholderIndex = 0;
+  let placeholderInterval: ReturnType<typeof setInterval>;
+  
+  $: currentPlaceholder = placeholderExamples[currentPlaceholderIndex];
+  
   // Generation state
   type Status = 'idle' | 'generating' | 'error';
   let status: Status = 'idle';
@@ -39,6 +57,14 @@
   // Copy state
   let copied = false;
   let copyTimeout: ReturnType<typeof setTimeout>;
+  
+  // Scan Fridge state
+  let fileInput: HTMLInputElement;
+  let isScanning = false;
+  let scanError = '';
+  let detectedIngredients: string[] = [];
+  let newIngredient = '';
+  let showIngredientInput = false;
   
   // Zap Zappy state
   let zapModalOpen = false;
@@ -71,6 +97,17 @@
     
     // Membership check disabled for testing - re-enable when ready
     isLoading = false;
+    
+    // Start rotating placeholder examples
+    placeholderInterval = setInterval(() => {
+      currentPlaceholderIndex = (currentPlaceholderIndex + 1) % placeholderExamples.length;
+    }, 4000);
+  });
+  
+  onDestroy(() => {
+    if (placeholderInterval) clearInterval(placeholderInterval);
+    if (copyTimeout) clearTimeout(copyTimeout);
+    if (zapSuccessTimeout) clearTimeout(zapSuccessTimeout);
   });
   
   // Generate recipe from prompt
@@ -231,7 +268,108 @@
   }
   
   // Check if we can generate
-  $: canGenerate = promptInput.trim().length > 0 && status !== 'generating';
+  $: canGenerate = (promptInput.trim().length > 0 || detectedIngredients.length > 0) && status !== 'generating';
+  
+  // Scan Fridge functions
+  function triggerScan() {
+    fileInput?.click();
+  }
+  
+  async function handleFileSelect(event: Event) {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    if (!file) return;
+    
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+      scanError = 'Please select an image file';
+      return;
+    }
+    
+    // Validate file size (max 10MB)
+    if (file.size > 10 * 1024 * 1024) {
+      scanError = 'Image too large. Please select an image under 10MB.';
+      return;
+    }
+    
+    isScanning = true;
+    scanError = '';
+    
+    try {
+      // Convert to base64
+      const base64 = await fileToBase64(file);
+      
+      // Call scan API
+      const response = await fetch('/api/zappy/scan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          image: base64,
+          pubkey: $userPublickey
+        })
+      });
+      
+      const data = await response.json();
+      
+      if (!response.ok || !data.ok) {
+        throw new Error(data.error || 'Failed to analyze image');
+      }
+      
+      // Set detected ingredients
+      detectedIngredients = data.ingredients || [];
+      
+      // Auto-populate prompt
+      if (detectedIngredients.length > 0) {
+        promptInput = `I have: ${detectedIngredients.join(', ')}`;
+      }
+      
+    } catch (err) {
+      scanError = err instanceof Error ? err.message : 'Failed to scan image';
+    } finally {
+      isScanning = false;
+      // Reset file input
+      if (input) input.value = '';
+    }
+  }
+  
+  function fileToBase64(file: File): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const result = reader.result as string;
+        // Remove data URL prefix to get just the base64 content
+        const base64 = result.split(',')[1];
+        resolve(base64);
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  }
+  
+  function removeIngredient(ingredient: string) {
+    detectedIngredients = detectedIngredients.filter(i => i !== ingredient);
+    // Update prompt
+    if (detectedIngredients.length > 0) {
+      promptInput = `I have: ${detectedIngredients.join(', ')}`;
+    } else {
+      promptInput = '';
+    }
+  }
+  
+  function addIngredient() {
+    const trimmed = newIngredient.trim();
+    if (trimmed && !detectedIngredients.includes(trimmed)) {
+      detectedIngredients = [...detectedIngredients, trimmed];
+      promptInput = `I have: ${detectedIngredients.join(', ')}`;
+    }
+    newIngredient = '';
+    showIngredientInput = false;
+  }
+  
+  function clearIngredients() {
+    detectedIngredients = [];
+    promptInput = '';
+  }
 </script>
 
 <svelte:head>
@@ -251,6 +389,7 @@
           type="button"
           class="flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium transition-all bg-yellow-500/10 hover:bg-yellow-500/20 text-yellow-600 hover:scale-105"
           on:click={openZapModal}
+          title="Zap Zappy to say thanks ⚡"
         >
           <LightningIcon size={16} weight="fill" />
           Zap Zappy
@@ -258,7 +397,7 @@
       {/if}
     </div>
     <p class="text-caption">
-      Tell Zappy what you're craving or what you've got. Tap "I'm Hungry" for a surprise.
+      What's cooking? Tell me what you're craving or show me your fridge!
     </p>
     <p class="text-caption text-sm">Pro Kitchen feature.</p>
   </div>
@@ -296,38 +435,183 @@
           <textarea
             id="prompt"
             bind:value={promptInput}
-            placeholder="E.g., 'A quick pasta dish with chicken and vegetables' or 'Something sweet with chocolate and peanut butter' or 'A healthy breakfast I can meal prep'"
-            rows="4"
-            class="input resize-none"
+            placeholder={currentPlaceholder}
+            rows="5"
+            class="input resize-none text-base"
             disabled={status === 'generating'}
           />
         </div>
         
-        <!-- Buttons -->
-        <div class="flex flex-wrap gap-3">
-          <Button 
-            disabled={!canGenerate}
-            on:click={() => generateRecipe('prompt')}
-          >
-            {#if status === 'generating'}
-              <ArrowsClockwiseIcon size={18} class="animate-spin" />
-              Cooking...
-            {:else}
-              <CookingPotIcon size={18} weight="fill" />
-              Cook Something
-            {/if}
-          </Button>
+        <!-- Hidden file input for camera/upload -->
+        <input
+          bind:this={fileInput}
+          type="file"
+          accept="image/*"
+          capture="environment"
+          class="hidden"
+          on:change={handleFileSelect}
+        />
+        
+        <!-- Three-button action row -->
+        <!-- Mobile: Scan full width, other two side-by-side -->
+        <!-- Desktop: All three equal width -->
+        <div class="flex flex-col sm:flex-row gap-4">
+          <!-- Scan Fridge Button -->
+          <div class="flex flex-col items-center gap-1 w-full sm:flex-1">
+            <button
+              type="button"
+              class="flex items-center justify-center gap-2 px-4 py-3 rounded-full font-semibold transition-all
+                bg-teal-500 hover:bg-teal-600 text-white disabled:opacity-50 disabled:cursor-not-allowed
+                w-full"
+              disabled={isScanning || status === 'generating'}
+              on:click={triggerScan}
+            >
+              {#if isScanning}
+                <ArrowsClockwiseIcon size={18} class="animate-spin" />
+                Scanning...
+              {:else}
+                <CameraIcon size={18} weight="fill" />
+                Scan Fridge
+              {/if}
+            </button>
+            <span class="text-xs text-caption">Use what you have</span>
+          </div>
           
-          <button
-            type="button"
-            class="flex items-center justify-center gap-2 px-4 py-2.5 rounded-full font-semibold transition-colors bg-yellow-500 hover:bg-yellow-600 text-white disabled:opacity-50 disabled:cursor-not-allowed"
-            disabled={status === 'generating'}
-            on:click={() => generateRecipe('hungry')}
-          >
-            <LightningIcon size={18} weight="fill" />
-            I'm Hungry
-          </button>
+          <!-- Mobile: Two buttons side-by-side -->
+          <div class="flex gap-4 sm:contents">
+            <!-- Surprise Me Button -->
+            <div class="flex flex-col items-center gap-1 flex-1">
+              <button
+                type="button"
+                class="flex items-center justify-center gap-2 px-4 py-3 rounded-full font-semibold transition-all
+                  bg-yellow-500 hover:bg-yellow-600 text-white disabled:opacity-50 disabled:cursor-not-allowed
+                  w-full"
+                disabled={status === 'generating'}
+                on:click={() => generateRecipe('hungry')}
+              >
+                {#if status === 'generating' && !promptInput.trim()}
+                  <ArrowsClockwiseIcon size={18} class="animate-spin" />
+                {:else}
+                  <ShuffleIcon size={18} weight="fill" />
+                {/if}
+                Surprise Me
+              </button>
+              <span class="text-xs text-caption">No thinking required</span>
+            </div>
+            
+            <!-- Cook It Button (Primary) -->
+            <div class="flex flex-col items-center gap-1 flex-1">
+              <button
+                type="button"
+                class="flex items-center justify-center gap-2 px-4 py-3 rounded-full font-semibold transition-all
+                  bg-primary hover:opacity-90 text-white disabled:opacity-50 disabled:cursor-not-allowed
+                  w-full"
+                disabled={!canGenerate}
+                on:click={() => generateRecipe('prompt')}
+              >
+                {#if status === 'generating' && promptInput.trim()}
+                  <ArrowsClockwiseIcon size={18} class="animate-spin" />
+                  Cooking...
+                {:else}
+                  <RobotIcon size={18} weight="fill" />
+                  Cook It
+                {/if}
+              </button>
+              <span class="text-xs text-caption">Let's cook</span>
+            </div>
+          </div>
         </div>
+        
+        <!-- Scan error message -->
+        {#if scanError}
+          <div class="flex items-start gap-3 p-3 rounded-xl bg-red-500/10 border border-red-500/20">
+            <WarningIcon size={18} class="text-red-500 flex-shrink-0 mt-0.5" />
+            <p class="text-sm text-red-500">{scanError}</p>
+          </div>
+        {/if}
+        
+        <!-- Detected Ingredients Chips -->
+        {#if detectedIngredients.length > 0}
+          <div class="flex flex-col gap-3 p-4 rounded-xl bg-teal-500/10 border border-teal-500/20">
+            <div class="flex items-center justify-between">
+              <span class="text-sm font-medium" style="color: var(--color-text-primary)">
+                🥬 Detected Ingredients ({detectedIngredients.length})
+              </span>
+              <div class="flex items-center gap-2">
+                <button
+                  type="button"
+                  class="text-xs text-teal-600 hover:text-teal-700 font-medium"
+                  on:click={triggerScan}
+                >
+                  🔄 Scan Again
+                </button>
+                <button
+                  type="button"
+                  class="text-xs text-caption hover:text-red-500"
+                  on:click={clearIngredients}
+                >
+                  Clear All
+                </button>
+              </div>
+            </div>
+            
+            <div class="flex flex-wrap gap-2">
+              {#each detectedIngredients as ingredient}
+                <span class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium bg-white/80 dark:bg-gray-800/80 border border-teal-300 dark:border-teal-700" style="color: var(--color-text-primary)">
+                  {ingredient}
+                  <button
+                    type="button"
+                    class="text-gray-400 hover:text-red-500 transition-colors"
+                    on:click={() => removeIngredient(ingredient)}
+                  >
+                    <XIcon size={14} weight="bold" />
+                  </button>
+                </span>
+              {/each}
+              
+              <!-- Add ingredient button/input -->
+              {#if showIngredientInput}
+                <form 
+                  class="inline-flex items-center gap-1"
+                  on:submit|preventDefault={addIngredient}
+                >
+                  <input
+                    type="text"
+                    bind:value={newIngredient}
+                    placeholder="Add item..."
+                    class="w-24 px-2 py-1 text-sm rounded-full border border-teal-300 dark:border-teal-700 bg-white dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-teal-500"
+                    autofocus
+                    on:blur={() => {
+                      if (!newIngredient.trim()) showIngredientInput = false;
+                    }}
+                    on:keydown={(e) => {
+                      if (e.key === 'Escape') {
+                        showIngredientInput = false;
+                        newIngredient = '';
+                      }
+                    }}
+                  />
+                  <button type="submit" class="text-teal-600 hover:text-teal-700">
+                    <CheckIcon size={16} weight="bold" />
+                  </button>
+                </form>
+              {:else}
+                <button
+                  type="button"
+                  class="inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-sm font-medium border border-dashed border-teal-400 text-teal-600 hover:bg-teal-50 dark:hover:bg-teal-900/20 transition-colors"
+                  on:click={() => showIngredientInput = true}
+                >
+                  <PlusIcon size={14} weight="bold" />
+                  Add
+                </button>
+              {/if}
+            </div>
+            
+            <p class="text-xs text-caption">
+              Edit ingredients above, then tap "🤖 Cook It" to generate a recipe
+            </p>
+          </div>
+        {/if}
       </div>
       
       <!-- Status indicator -->
@@ -369,7 +653,28 @@
           style="background-color: #1a1a2e; border: 1px solid #2d2d44;"
         >
           {#if output}
+            <!-- Zappy attribution header -->
+            <p class="text-yellow-400/80 text-xs font-medium mb-3 pb-2 border-b border-gray-700/50">
+              Zappy cooked this up for you 🤖⚡
+            </p>
             <pre class="whitespace-pre-wrap font-mono text-sm leading-relaxed text-gray-200">{output}</pre>
+            
+            <!-- Bottom copy button -->
+            <div class="mt-4 pt-3 border-t border-gray-700/50 flex justify-end">
+              <button
+                type="button"
+                class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors {copied ? 'bg-green-500/20 text-green-400' : 'bg-gray-700/50 hover:bg-gray-600/50 text-gray-300 hover:text-white'}"
+                on:click={copyToClipboard}
+              >
+                {#if copied}
+                  <CheckIcon size={16} weight="bold" />
+                  Copied!
+                {:else}
+                  <CopyIcon size={16} />
+                  Copy Recipe
+                {/if}
+              </button>
+            </div>
           {:else}
             <p class="text-gray-500 font-mono text-sm italic">Zappy will drop your recipe here…</p>
           {/if}
