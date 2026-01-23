@@ -64,7 +64,21 @@ export default defineConfig({
   server: {
     fs: {
       allow: ['..']
-    }
+    },
+    // Proxy LNURL requests to breez.tips for local development
+    // (In production, Cloudflare Pages Functions handle this)
+    proxy: {
+      '/.well-known/lnurlp': {
+        target: 'https://breez.tips',
+        changeOrigin: true,
+        secure: true,
+      },
+      '/lnurlpay': {
+        target: 'https://breez.tips',
+        changeOrigin: true,
+        secure: true,
+      },
+    },
   },
   ssr: {
     // External packages that shouldn't be bundled/evaluated during SSR

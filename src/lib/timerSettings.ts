@@ -14,6 +14,7 @@
 import { browser } from '$app/environment';
 import { get, writable } from 'svelte/store';
 import { ndk, userPublickey, ndkReady } from '$lib/nostr';
+// Note: ndkReady is a Promise, not a store - use await ndkReady, not get(ndkReady)
 import { NDKEvent } from '@nostr-dev-kit/ndk';
 import { getOutboxRelays } from '$lib/relayListCache';
 import { CLIENT_TAG_IDENTIFIER } from '$lib/consts';
@@ -98,7 +99,7 @@ export async function loadTimerSettings(): Promise<TimerSettings> {
   }
 
   try {
-    await get(ndkReady);
+    await ndkReady;
     const ndkInstance = get(ndk);
     if (!ndkInstance) return localSettings;
 
@@ -151,7 +152,7 @@ export async function saveTimerSettings(settings: TimerSettings): Promise<boolea
   }
 
   try {
-    await get(ndkReady);
+    await ndkReady;
     const ndkInstance = get(ndk);
     if (!ndkInstance) return false;
 

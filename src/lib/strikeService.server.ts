@@ -229,6 +229,54 @@ export async function handleWebhook(
 }
 
 /**
+ * Get current BTC/USD exchange rate from Strike API
+ * 
+ * @param platform - Optional platform context for Cloudflare Workers
+ * @returns Current BTC price in USD
+ */
+export async function getBtcUsdRate(platform?: any): Promise<number> {
+	const response = await strikeRequest(
+		'/v1/rates/ticker',
+		{
+			method: 'GET',
+		},
+		platform
+	);
+
+	if (!response.ok) {
+		const errorText = await response.text();
+		throw new Error(
+			`Strike API error: ${response.status} ${response.statusText}. ${errorText}`
+		);
+	}
+
+	const rates = await response.json();
+	
+	// Strike returns an array of rate objects
+	// Find the BTC/USD pair
+	const btcUsdRate = rates.find((rate: any) => 
+		rate.sourceCurrency === 'BTC' && rate.targetCurrency === 'USD'
+	);
+
+	if (!btcUsdRate || !btcUsdRate.amount) {
+		throw new Error('BTC/USD rate not found in Strike response');
+	}
+
+	return parseFloat(btcUsdRate.amount);
+}
+
+/**
+ * Check if Strike API is configured
+ * 
+ * @param platform - Optional platform context for Cloudflare Workers
+ * @returns true if STRIKE_API_KEY is set
+ */
+export function isStrikeConfigured(platform?: any): boolean {
+	const apiKey = platform?.env?.STRIKE_API_KEY || env.STRIKE_API_KEY;
+	return !!apiKey;
+}
+
+/**
  * Verify webhook signature using HMAC-SHA256
  * 
  * @param payload - Raw payload string

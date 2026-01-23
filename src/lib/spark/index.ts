@@ -330,7 +330,14 @@ export async function initializeSdk(
     const config = defaultConfig('mainnet');
     config.apiKey = apiKey;
     config.privateEnabledDefault = true;
-    config.lnurlDomain = 'zap.cooking';
+    
+    // Use zap.cooking in production, breez.tips for local development
+    // (Local dev can't proxy external SDK requests to breez.tips)
+    const isProduction = typeof window !== 'undefined' && 
+      window.location.hostname !== 'localhost' && 
+      !window.location.hostname.startsWith('127.');
+    config.lnurlDomain = isProduction ? 'zap.cooking' : 'breez.tips';
+    logger.info(`[Spark] Using lnurlDomain: ${config.lnurlDomain}`);
 
     const cleanMnemonic = mnemonic.trim().toLowerCase().replace(/\s+/g, ' ');
 

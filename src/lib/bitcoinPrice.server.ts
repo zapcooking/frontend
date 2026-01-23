@@ -1,13 +1,17 @@
 /**
  * Bitcoin Price Service
  * 
- * Fetches current Bitcoin price from market API and calculates discounted rates.
+ * Fetches current Bitcoin price from market APIs and calculates discounted rates.
  * 
- * Uses CoinGecko API (free tier, no API key required)
- * Alternative: Can be configured to use other APIs via environment variables
+ * Uses multiple APIs with fallback (prioritizes Strike when configured):
+ * 1. Strike API (if STRIKE_API_KEY is configured - uses same service as payments)
+ * 2. Kraken API (public, no API key required)
+ * 3. Coinbase API (public, no API key required)
+ * 4. CoinGecko API (free tier, often rate limited)
  */
 
 import { env } from '$env/dynamic/private';
+import { getBtcUsdRate, isStrikeConfigured } from './strikeService.server';
 
 interface BitcoinPriceResponse {
 	price: number;
@@ -16,12 +20,107 @@ interface BitcoinPriceResponse {
 	timestamp: number;
 }
 
-// Cache for 1 minute to avoid excessive API calls
-const CACHE_DURATION = 60 * 1000; // 1 minute
-let priceCache: { price: number; timestamp: number } | null = null;
+// Cache for 5 minutes to reduce API calls (price doesn't change that much)
+const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+let priceCache: { price: number; timestamp: number; source: string } | null = null;
 
 /**
- * Fetch current Bitcoin price in USD from CoinGecko
+ * Fetch Bitcoin price from Strike API (requires STRIKE_API_KEY)
+ */
+async function fetchFromStrike(platform?: any): Promise<number> {
+	if (!isStrikeConfigured(platform)) {
+		throw new Error('Strike API not configured');
+	}
+	return await getBtcUsdRate(platform);
+}
+
+/**
+ * Fetch Bitcoin price from Kraken (public API, no key required)
+ */
+async function fetchFromKraken(): Promise<number> {
+	const apiUrl = 'https://api.kraken.com/0/public/Ticker?pair=XBTUSD';
+	
+	const response = await fetch(apiUrl, {
+		headers: {
+			'Accept': 'application/json',
+		},
+	});
+
+	if (!response.ok) {
+		throw new Error(`Kraken API error: ${response.status} ${response.statusText}`);
+	}
+
+	const data = await response.json();
+	
+	if (data.error && data.error.length > 0) {
+		throw new Error(`Kraken API error: ${data.error.join(', ')}`);
+	}
+
+	// Kraken returns price in result.XXBTZUSD.c[0] (last trade closed price)
+	const tickerData = data.result?.XXBTZUSD || data.result?.XBTUSD;
+	const price = tickerData?.c?.[0];
+
+	if (!price) {
+		throw new Error('Invalid price data from Kraken');
+	}
+
+	return parseFloat(price);
+}
+
+/**
+ * Fetch Bitcoin price from Coinbase (public API, no key required)
+ */
+async function fetchFromCoinbase(): Promise<number> {
+	const apiUrl = 'https://api.coinbase.com/v2/prices/BTC-USD/spot';
+	
+	const response = await fetch(apiUrl, {
+		headers: {
+			'Accept': 'application/json',
+		},
+	});
+
+	if (!response.ok) {
+		throw new Error(`Coinbase API error: ${response.status} ${response.statusText}`);
+	}
+
+	const data = await response.json();
+	const price = data.data?.amount;
+
+	if (!price) {
+		throw new Error('Invalid price data from Coinbase');
+	}
+
+	return parseFloat(price);
+}
+
+/**
+ * Fetch Bitcoin price from CoinGecko (often rate limited)
+ */
+async function fetchFromCoinGecko(): Promise<number> {
+	const apiUrl = 'https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd';
+	
+	const response = await fetch(apiUrl, {
+		headers: {
+			'Accept': 'application/json',
+		},
+	});
+
+	if (!response.ok) {
+		throw new Error(`CoinGecko API error: ${response.status} ${response.statusText}`);
+	}
+
+	const data = await response.json();
+	const price = data.bitcoin?.usd;
+
+	if (!price || typeof price !== 'number') {
+		throw new Error('Invalid price data from CoinGecko');
+	}
+
+	return price;
+}
+
+/**
+ * Fetch current Bitcoin price in USD with fallback APIs
  * 
  * @param platform - Optional platform context for Cloudflare Workers
  * @returns Bitcoin price in USD
@@ -29,50 +128,58 @@ let priceCache: { price: number; timestamp: number } | null = null;
 export async function getBitcoinPrice(platform?: any): Promise<number> {
 	// Check cache first
 	if (priceCache && Date.now() - priceCache.timestamp < CACHE_DURATION) {
+		console.log(`[BitcoinPrice] Using cached price from ${priceCache.source}: $${priceCache.price}`);
 		return priceCache.price;
 	}
 
-	try {
-		// Use CoinGecko API (free, no API key required)
-		const apiUrl = 'https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd';
-		
-		const response = await fetch(apiUrl, {
-			headers: {
-				'Accept': 'application/json',
-			},
-		});
-
-		if (!response.ok) {
-			throw new Error(`CoinGecko API error: ${response.status} ${response.statusText}`);
-		}
-
-		const data = await response.json();
-		const price = data.bitcoin?.usd;
-
-		if (!price || typeof price !== 'number') {
-			throw new Error('Invalid price data from CoinGecko');
-		}
-
-		// Update cache
-		priceCache = {
-			price,
-			timestamp: Date.now(),
-		};
-
-		return price;
-	} catch (error) {
-		console.error('[BitcoinPrice] Error fetching price:', error);
-		
-		// If cache exists, use it even if expired
-		if (priceCache) {
-			console.warn('[BitcoinPrice] Using cached price due to API error');
-			return priceCache.price;
-		}
-		
-		throw new Error(
-			`Failed to fetch Bitcoin price: ${error instanceof Error ? error.message : 'Unknown error'}`
-		);
+	// Build API list dynamically - Strike first if configured
+	const apis: { name: string; fetch: () => Promise<number> }[] = [];
+	
+	// Add Strike first if configured (uses same API key as payments)
+	if (isStrikeConfigured(platform)) {
+		apis.push({ name: 'Strike', fetch: () => fetchFromStrike(platform) });
 	}
+	
+	// Add public APIs as fallback
+	apis.push(
+		{ name: 'Kraken', fetch: fetchFromKraken },
+		{ name: 'Coinbase', fetch: fetchFromCoinbase },
+		{ name: 'CoinGecko', fetch: fetchFromCoinGecko },
+	);
+
+	const errors: string[] = [];
+
+	for (const api of apis) {
+		try {
+			console.log(`[BitcoinPrice] Trying ${api.name}...`);
+			const price = await api.fetch();
+			
+			// Update cache
+			priceCache = {
+				price,
+				timestamp: Date.now(),
+				source: api.name,
+			};
+
+			console.log(`[BitcoinPrice] Got price from ${api.name}: $${price}`);
+			return price;
+		} catch (error) {
+			const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+			console.warn(`[BitcoinPrice] ${api.name} failed: ${errorMsg}`);
+			errors.push(`${api.name}: ${errorMsg}`);
+		}
+	}
+
+	// All APIs failed - try to use expired cache if available
+	if (priceCache) {
+		console.warn(`[BitcoinPrice] All APIs failed, using expired cache from ${priceCache.source}`);
+		return priceCache.price;
+	}
+
+	// No cache available - throw error with all API failures
+	throw new Error(
+		`Failed to fetch Bitcoin price from all sources: ${errors.join('; ')}`
+	);
 }
 
 /**
