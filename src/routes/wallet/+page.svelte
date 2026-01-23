@@ -2343,7 +2343,7 @@
                             />
                             <span
                               class="absolute right-2 top-1/2 -translate-y-1/2 text-sm text-caption"
-                              >@breez.tips</span
+                              >@zap.cooking</span
                             >
                           </div>
                           {#if isCheckingAvailability}

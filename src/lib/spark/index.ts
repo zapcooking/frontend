@@ -703,7 +703,7 @@ export async function getLightningAddress(): Promise<string | null> {
 
 /**
  * Check if a lightning address username is available.
- * @param username The username to check (without @breez.tips suffix)
+ * @param username The username to check (without @zap.cooking suffix)
  */
 export async function checkLightningAddressAvailable(username: string): Promise<boolean> {
   if (!_sdkInstance) throw new Error('SDK not connected');
@@ -720,7 +720,7 @@ export async function checkLightningAddressAvailable(username: string): Promise<
 
 /**
  * Register a new lightning address.
- * @param username The desired username (without @breez.tips suffix)
+ * @param username The desired username (without @zap.cooking suffix)
  * @param description Optional description for the address
  */
 export async function registerLightningAddress(
@@ -737,7 +737,7 @@ export async function registerLightningAddress(
     });
 
     // Extract address string from response using shared helper
-    const address = extractLightningAddressString(response) || `${username}@breez.tips`;
+    const address = extractLightningAddressString(response) || `${username}@zap.cooking`;
 
     lightningAddress.set(address);
     logger.info('[Spark] Lightning address registered:', address);
