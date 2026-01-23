@@ -332,29 +332,26 @@ export async function initializeSdk(
     const config = defaultConfig('mainnet');
     config.apiKey = apiKey;
     config.privateEnabledDefault = true;
-
-    // Use zap.cooking in production, breez.tips for local development
+    
+    // Use sats.zap.cooking (subdomain) in production, breez.tips for local development
+    // Strategy A: Subdomain approach - uses CNAME sats -> breez.tips in Cloudflare
     // (Local dev can't proxy external SDK requests to breez.tips)
     let lnurlDomain = 'breez.tips'; // default
-
-    // Allow override via localStorage for testing (e.g., localStorage.setItem('lnurlDomain', 'zap.cooking'))
+    
+    // Allow override via localStorage for testing
     if (browser) {
       const override = localStorage.getItem('lnurlDomain');
-      if (override && (override === 'zap.cooking' || override === 'breez.tips')) {
+      if (override && (override === 'sats.zap.cooking' || override === 'zap.cooking' || override === 'breez.tips')) {
         lnurlDomain = override;
         logger.info(`[Spark] Using lnurlDomain override from localStorage: ${lnurlDomain}`);
       } else {
         const hostname = window.location.hostname;
-        // Explicitly check for zap.cooking domain
+        // Use subdomain approach: sats.zap.cooking
         if (hostname === 'zap.cooking' || hostname.endsWith('.zap.cooking')) {
-          lnurlDomain = 'zap.cooking';
-        } else if (
-          hostname !== 'localhost' &&
-          !hostname.startsWith('127.') &&
-          !hostname.startsWith('192.168.')
-        ) {
-          // For any other production domain, use zap.cooking
-          lnurlDomain = 'zap.cooking';
+          lnurlDomain = 'sats.zap.cooking'; // Subdomain strategy
+        } else if (hostname !== 'localhost' && !hostname.startsWith('127.') && !hostname.startsWith('192.168.')) {
+          // For any other production domain, use subdomain
+          lnurlDomain = 'sats.zap.cooking';
         }
       }
     }
@@ -765,11 +762,21 @@ export async function registerLightningAddress(
 
   try {
     // Check current domain setting (for debugging)
+<<<<<<< HEAD
     const currentDomain = browser ? localStorage.getItem('lnurlDomain') || 'not set' : 'server';
     logger.info(
       `[Spark] Registering lightning address: ${username} (current domain override: ${currentDomain})`
     );
 
+=======
+    const currentDomain = browser ? (localStorage.getItem('lnurlDomain') || 'not set') : 'server';
+    logger.info(`[Spark] Registering lightning address: ${username} (current domain override: ${currentDomain})`);
+    
+    // Try to get the configured domain from the SDK instance if possible
+    // Note: The SDK might not expose this, but the backend determines the domain
+    logger.info(`[Spark] About to call SDK registerLightningAddress with username: ${username}`);
+    
+>>>>>>> c51ebfa (Switch to subdomain strategy: use sats.zap.cooking for Lightning addresses)
     const response = await _sdkInstance.registerLightningAddress({
       username,
       description: description || 'zap.cooking user'
