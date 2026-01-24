@@ -1023,7 +1023,7 @@ export function isBitcoinAddress(address: string): boolean {
   if (/^3[a-km-zA-HJ-NP-Z1-9]{25,34}$/.test(trimmed)) return true;
 
   // Bech32 (SegWit v0) and Bech32m (SegWit v1/Taproot) addresses start with bc1
-  if (/^bc1[a-z0-9]{39,59}$/i.test(trimmed)) return true;
+  if (/^bc1[a-z0-9]{39,87}$/i.test(trimmed)) return true;
 
   return false;
 }
