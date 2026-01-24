@@ -5529,6 +5529,9 @@
             min="1"
             max="500"
             class="w-full px-4 py-3 rounded-xl bg-input border border-input text-primary-color"
+            on:input={(event) =>
+              (refundFeeRate = Number((event.currentTarget as HTMLInputElement).value))
+            }
           />
           {#if refundDeposit_ && refundFeeRate}
             {#await Promise.resolve(refundFeeRate * 200) then estRefundFee}
