@@ -136,8 +136,18 @@
     }
     
     // Default: go to note view
-    const noteId = nip19.noteEncode(eventIdToView);
-    goto(`/${noteId}`);
+    const raw = String(eventIdToView).trim();
+    if (!raw) return;
+    if (raw.startsWith('note1') || raw.startsWith('nevent1')) {
+      goto(`/${raw}`);
+      return;
+    }
+    try {
+      const noteId = nip19.noteEncode(raw);
+      goto(`/${noteId}`);
+    } catch (e) {
+      console.warn('[Notifications] Invalid eventId for note view:', raw, e);
+    }
   }
 </script>
 

@@ -58,8 +58,18 @@
     onClose();
     // Navigate to the event if we have an eventId
     if (notification.eventId) {
-      const nevent = nip19.noteEncode(notification.eventId);
-      goto(`/${nevent}`);
+      const raw = String(notification.eventId).trim();
+      if (!raw) return;
+      if (raw.startsWith('note1') || raw.startsWith('nevent1')) {
+        goto(`/${raw}`);
+        return;
+      }
+      try {
+        const noteId = nip19.noteEncode(raw);
+        goto(`/${noteId}`);
+      } catch (e) {
+        console.warn('[NotificationPanel] Invalid eventId for navigation:', raw, e);
+      }
     }
   }
   
