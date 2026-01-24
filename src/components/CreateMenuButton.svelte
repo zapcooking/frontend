@@ -172,6 +172,7 @@
 {#if isSignedIn}
   <div
     class={`create-menu ${variant === 'floating' ? 'create-menu-floating' : 'create-menu-header'} ${className}`}
+    role="presentation"
     on:pointerdown={handlePointerDown}
     on:pointerup={handlePointerUp}
     on:pointercancel={handlePointerUp}
@@ -210,6 +211,7 @@
         class={`create-menu-panel ${
           variant === 'floating' ? 'create-menu-panel-floating' : 'create-menu-panel-header'
         }`}
+        role="presentation"
         style="border-color: var(--color-input-border);"
         on:mouseenter={() => {
           menuHovering = true;
@@ -363,8 +365,14 @@
   }
 
   @media (min-width: 1024px) {
-    .create-menu-floating {
+    /* Desktop: match mobile UX (floating create button) */
+    .create-menu-header {
       display: none;
+    }
+
+    .create-menu-floating {
+      display: inline-flex;
+      bottom: calc(1.25rem + var(--timer-widget-offset, 0px));
     }
   }
 </style>

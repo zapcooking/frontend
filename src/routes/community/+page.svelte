@@ -99,7 +99,7 @@
 </svelte:head>
 
 <PullToRefresh bind:this={pullToRefreshEl} on:refresh={handleRefresh}>
-  <div class="container mx-auto px-4 max-w-2xl community-page">
+  <div class="px-4 max-w-2xl mx-auto lg:mx-0 lg:max-w-4xl community-page">
     <!-- Orientation text for signed-out users -->
     {#if $userPublickey === ''}
       <div class="mb-4 pt-1">
@@ -234,6 +234,14 @@
 </PullToRefresh>
 
 <style>
+  /* Keep relay tabs pinned; feed scrolls beneath them */
+  .tabs-container {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    background-color: var(--color-bg-primary);
+  }
+
   /* Bottom padding to prevent fixed mobile nav from covering content */
   .community-page {
     padding-bottom: calc(80px + env(safe-area-inset-bottom, 0px));

@@ -405,13 +405,13 @@
           {/if}
         </div>
 
-        <!-- Section: Community -->
+        <!-- Section: Community Relays -->
         <div class="mb-4">
           <h3
             class="px-4 py-2 font-semibold uppercase tracking-wider"
             style="color: var(--color-caption); font-size: 14px;"
           >
-            Community
+            Community Relays
           </h3>
           <ul class="flex flex-col gap-1">
             <li>
