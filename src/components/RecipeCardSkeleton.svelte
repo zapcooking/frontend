@@ -11,26 +11,30 @@
     className="recipe-image-skeleton"
   />
   
-  <!-- Title skeleton -->
+  <!-- Title skeleton (2 lines) -->
   <Skeleton 
     width="90%" 
     height={20} 
     borderRadius="0.25rem"
     className="recipe-title-skeleton"
   />
-  
-  <!-- Optional subtitle skeleton -->
   <Skeleton 
     width="70%" 
-    height={16} 
+    height={20} 
     borderRadius="0.25rem"
-    className="recipe-subtitle-skeleton"
+    className="recipe-title-skeleton"
   />
 </div>
 
 <style lang="postcss">
   @reference "../app.css";
   .recipe-card-skeleton {
-    @apply flex flex-col gap-4 w-full max-w-[160px] justify-self-center;
+    @apply flex flex-col gap-3 w-full max-w-[160px] min-h-[320px] justify-self-center;
+  }
+  .recipe-image-skeleton {
+    @apply flex-shrink-0;
+  }
+  .recipe-title-skeleton {
+    @apply flex-shrink-0;
   }
 </style>

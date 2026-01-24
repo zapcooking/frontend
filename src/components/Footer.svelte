@@ -25,7 +25,7 @@
 
 <footer
   class="footer mt-12 border-t mb-20 lg:mb-0 print:hidden"
-  style="border-color: var(--color-input-border); background-color: var(--color-bg-secondary);"
+  style="border-color: var(--color-input-border); background-color: var(--color-bg-primary);"
 >
   <div class="mx-auto max-w-7xl footer-inner">
     <div class="flex flex-col items-center footer-content">

@@ -4,7 +4,7 @@
   import { userPublickey } from '$lib/nostr';
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import type { PageData } from './$types';
 
   // Pull-to-refresh refs
@@ -36,6 +36,41 @@
 
   // Key to force component recreation
   let feedKey = 0;
+
+  // Scroll-based fade state
+  let tabsVisible = true;
+  let scrollTimeout: ReturnType<typeof setTimeout> | null = null;
+  let lastScrollY = 0;
+  let scrollContainer: HTMLElement | null = null;
+  let throttledScrollHandler: (() => void) | null = null;
+
+  // Handle scroll for tab fade
+  function handleScroll() {
+    if (!scrollContainer) return;
+
+    const currentScrollY = scrollContainer.scrollTop;
+    const scrollingDown = currentScrollY > lastScrollY;
+    const scrollThreshold = 10; // Minimum scroll distance to trigger fade
+
+    // Show tabs when scrolling up or at top
+    if (currentScrollY < scrollThreshold || !scrollingDown) {
+      tabsVisible = true;
+    } else if (scrollingDown && currentScrollY > scrollThreshold) {
+      tabsVisible = false;
+    }
+
+    lastScrollY = currentScrollY;
+
+    // Clear existing timeout
+    if (scrollTimeout) {
+      clearTimeout(scrollTimeout);
+    }
+
+    // Show tabs after scrolling stops
+    scrollTimeout = setTimeout(() => {
+      tabsVisible = true;
+    }, 150);
+  }
 
   async function setTab(tab: FilterMode) {
     if (tab === activeTab) return;
@@ -87,6 +122,36 @@
     if ($userPublickey) {
       checkMembership();
     }
+
+    // Setup scroll listener for tab fade
+    if (typeof window !== 'undefined') {
+      // Find the scrollable container (app-scroll from layout)
+      scrollContainer = document.getElementById('app-scroll');
+      if (scrollContainer) {
+        // Throttle scroll events for performance
+        let ticking = false;
+        throttledScrollHandler = () => {
+          if (!ticking) {
+            window.requestAnimationFrame(() => {
+              handleScroll();
+              ticking = false;
+            });
+            ticking = true;
+          }
+        };
+        scrollContainer.addEventListener('scroll', throttledScrollHandler, { passive: true });
+      }
+    }
+  });
+
+  onDestroy(() => {
+    // Cleanup scroll listener and timeout
+    if (scrollContainer && throttledScrollHandler) {
+      scrollContainer.removeEventListener('scroll', throttledScrollHandler);
+    }
+    if (scrollTimeout) {
+      clearTimeout(scrollTimeout);
+    }
   });
 </script>
 
@@ -114,7 +179,10 @@
     {/if}
 
     <!-- Filter Tabs -->
-    <div class="mb-4 border-b tabs-container" style="border-color: var(--color-input-border)">
+    <div 
+      class="mb-4 border-b tabs-container transition-opacity duration-300" 
+      style="border-color: var(--color-input-border); opacity: {tabsVisible ? 1 : 0}; pointer-events: {tabsVisible ? 'auto' : 'none'};"
+    >
       <div class="flex overflow-x-auto flex-nowrap scrollbar-hide">
         <button
           on:click={() => setTab('global')}
@@ -240,6 +308,10 @@
     top: 0;
     z-index: 20;
     background-color: var(--color-bg-primary);
+    padding-top: 0.5rem;
+    margin-top: -0.5rem;
+    /* Ensure full background coverage to prevent gaps */
+    box-shadow: 0 2px 4px -2px rgba(0, 0, 0, 0.1);
   }
 
   /* Bottom padding to prevent fixed mobile nav from covering content */

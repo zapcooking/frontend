@@ -94,8 +94,8 @@
 
 <aside class="hidden lg:block lg:w-72 xl:w-80">
   <div
-    class="sticky top-2 max-h-[calc(100vh-1rem)] overflow-y-auto rounded-2xl p-3"
-    style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);"
+    class="sticky top-2 max-h-[calc(100vh-1rem)] overflow-y-auto p-3 border-r"
+    style="background-color: var(--color-bg-primary); border-color: var(--color-input-border);"
   >
     <a href="/community" class="block px-2 py-2 rounded-xl hover:bg-accent-gray transition-colors">
       <img
@@ -130,7 +130,7 @@
                 {#if item.badge === 'notificationsDot' && $unreadCount > 0}
                   <span
                     class="absolute top-1.5 right-1.5 w-2.5 h-2.5 rounded-full bg-red-500 border-2"
-                    style="border-color: var(--color-input-bg);"
+                    style="border-color: var(--color-bg-primary);"
                     aria-hidden="true"
                   ></span>
                 {/if}

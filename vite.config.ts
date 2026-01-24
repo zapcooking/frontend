@@ -58,6 +58,19 @@ export default defineConfig({
           return true;
         }
         return false;
+      },
+      onwarn(warning, warn) {
+        // Suppress warnings about Svelte 5 functions (untrack, fork, settled) 
+        // that SvelteKit 2.49.5 references but aren't available in Svelte 4 SSR
+        if (
+          warning.code === 'UNRESOLVED_IMPORT' &&
+          (warning.message?.includes('untrack') ||
+            warning.message?.includes('fork') ||
+            warning.message?.includes('settled'))
+        ) {
+          return;
+        }
+        warn(warning);
       }
     }
   },

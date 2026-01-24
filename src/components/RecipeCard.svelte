@@ -68,16 +68,16 @@
   {:else}
     <a
       href={link}
-      class="flex flex-col gap-4 w-full max-w-[160px] justify-self-center hover:text-primary transition-colors duration-300"
+      class="flex flex-col gap-3 w-full max-w-[160px] min-h-[320px] justify-self-center hover:text-primary transition-colors duration-300"
     >
-      <div class="relative image image-placeholder">
+      <div class="relative image-container image-placeholder">
         <div
           bind:this={imageElement}
-          class="absolute top-0 left-0 bottom-0 right-0 image hover:scale-105 transition-transform duration-700 ease-in-out"
+          class="absolute inset-0 image hover:scale-105 transition-transform duration-700 ease-in-out"
         />
       </div>
 
-      <h5 class="text-md leading-tight text-wrap" style="color: var(--color-text-primary)">
+      <h5 class="text-md leading-tight line-clamp-2 min-h-[2.5rem] flex-shrink-0" style="color: var(--color-text-primary)">
         {title}
       </h5>
     </a>
@@ -86,7 +86,12 @@
 
 <style lang="postcss">
   @reference "../app.css";
+  .image-container {
+    @apply w-full aspect-[2/3] rounded-2xl overflow-hidden relative;
+    min-height: 237px;
+    max-height: 237px;
+  }
   .image {
-    @apply rounded-2xl w-[160px] h-[237px] cursor-pointer relative overflow-hidden object-cover bg-cover bg-center aspect-auto before:animate-pulse;
+    @apply w-full h-full cursor-pointer object-cover bg-cover bg-center;
   }
 </style>
