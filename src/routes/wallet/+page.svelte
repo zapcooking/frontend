@@ -5207,10 +5207,15 @@
   <div
     class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
     on:click|self={() => (showRefundModal = false)}
-    on:keydown={(e) => e.key === 'Escape' && (showRefundModal = false)}
+    on:keydown={(e) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        showRefundModal = false;
+      }
+    }}
     role="dialog"
     aria-modal="true"
-    tabindex="-1"
   >
     <div
       class="rounded-2xl p-6 max-w-md w-full"
