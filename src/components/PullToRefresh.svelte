@@ -195,7 +195,8 @@
     class="pull-indicator"
     style="
       opacity: {spinnerOpacity};
-      transform: scale({spinnerScale}) translateY({Math.max(0, pullDistance - 40)}px);
+      /* Keep centered: include translateX(-50%) even when scaling */
+      transform: translateX(-50%) scale({spinnerScale}) translateY({Math.max(0, pullDistance - 40)}px);
     "
     class:triggered={isTriggered}
     class:refreshing={isRefreshing}
