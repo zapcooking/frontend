@@ -299,7 +299,7 @@
           <div class="flex-1 min-h-0 min-w-0 flex flex-col">
             <NotificationSubscriber />
             <Header />
-            <div class="w-full mt-3 pb-24 lg:pb-8 flex-1 min-h-0 overflow-y-auto">
+            <div class="w-full mt-0 lg:mt-3 pb-24 lg:pb-8 flex-1 min-h-0 overflow-y-auto">
               <slot />
               <Footer />
             </div>
