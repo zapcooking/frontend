@@ -10,6 +10,8 @@
   width={size}
   height={size}
   class={className}
+  role="img"
+  aria-label="Bitcoin"
 >
   <path
     d="M122.7,109.9l0.1-30.1c8.5,0,35.2-2.6,35.2,15.2C157.9,112,131.2,109.9,122.7,109.9z M164.8,141.8L164.8,141.8
