@@ -5258,6 +5258,18 @@
             max="500"
             class="w-full px-4 py-3 rounded-xl bg-input border border-input text-primary-color"
           />
+          {#if refundDeposit_ && refundFeeRate}
+            {#await Promise.resolve(refundFeeRate * 200) then estRefundFee}
+              <p class="text-xs text-caption mt-1">
+                Estimated refund network fee (approx. 200 vB): {formatBalance(estRefundFee)} sats.
+              </p>
+              {#if estRefundFee > refundDeposit_.amountSats * 0.5}
+                <p class="text-xs text-red-500 mt-1">
+                  Warning: The estimated network fee is more than 50% of your deposit. Consider using a lower fee rate.
+                </p>
+              {/if}
+            {/await}
+          {/if}
           {#if mempoolFees}
             <div class="flex gap-2 mt-2">
               <button
