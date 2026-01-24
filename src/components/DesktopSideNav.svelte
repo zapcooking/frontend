@@ -1,6 +1,7 @@
 <script lang="ts">
   import { page } from '$app/stores';
   import { unreadCount } from '$lib/notificationStore';
+  import { triggerNotificationsNav } from '$lib/notificationsNav';
   import { theme } from '$lib/themeStore';
   import SVGNostrCookingWithText from '../assets/nostr.cooking-withtext.svg';
   import { walletConnected } from '$lib/wallet';
@@ -81,6 +82,14 @@
       active ? 'bg-accent-gray border-l-2 border-orange-500' : 'hover:bg-accent-gray'
     ].join(' ');
   }
+
+  function handleNotificationsClick(event: MouseEvent, isActive: boolean) {
+    triggerNotificationsNav();
+    // If we're already on the page, prevent navigation and just refresh/scroll
+    if (isActive) {
+      event.preventDefault();
+    }
+  }
 </script>
 
 <aside class="hidden lg:block lg:w-72 xl:w-80">
@@ -112,6 +121,9 @@
               aria-current={active ? 'page' : undefined}
               target={item.external ? '_blank' : undefined}
               rel={item.external ? 'noopener noreferrer' : undefined}
+              on:click={(e) => {
+                if (item.href === '/notifications') handleNotificationsClick(e, active);
+              }}
             >
               <span class="relative flex items-center justify-center w-9 h-9 rounded-xl">
                 <svelte:component this={item.icon} size={20} weight={item.href === '/notifications' && $unreadCount > 0 ? 'fill' : 'regular'} />

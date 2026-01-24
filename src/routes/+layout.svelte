@@ -296,10 +296,19 @@
       <div class="mx-auto w-full flex-1 min-h-0 pt-2 print:pt-[0] px-4 max-w-full safe-area-content flex flex-col">
         <div class="flex-1 min-h-0 flex flex-col lg:flex-row lg:gap-6">
           <DesktopSideNav />
-          <div class="flex-1 min-h-0 min-w-0 flex flex-col">
+          <div
+            class="flex-1 min-h-0 min-w-0 flex flex-col"
+            style="background-color: var(--color-bg-primary);"
+          >
             <NotificationSubscriber />
-            <Header />
-            <div class="w-full mt-0 lg:mt-3 pb-24 lg:pb-8 flex-1 min-h-0 overflow-y-auto">
+            <div style="background-color: var(--color-bg-primary);">
+              <Header />
+            </div>
+            <div
+              id="app-scroll"
+              class="w-full mt-0 lg:mt-3 pb-24 lg:pb-8 flex-1 min-h-0 overflow-y-auto"
+              style="background-color: var(--color-bg-primary);"
+            >
               <slot />
               <Footer />
             </div>

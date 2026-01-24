@@ -4,15 +4,27 @@
   import BellIcon from 'phosphor-svelte/lib/Bell';
   import CompassIcon from 'phosphor-svelte/lib/Compass';
   import LightningIcon from 'phosphor-svelte/lib/Lightning';
+  import { page } from '$app/stores';
   import { walletConnected } from '$lib/wallet';
   import { weblnConnected } from '$lib/wallet/webln';
   import { bitcoinConnectEnabled, bitcoinConnectWalletInfo } from '$lib/wallet/bitcoinConnect';
   import { unreadCount } from '$lib/notificationStore';
+  import { triggerNotificationsNav } from '$lib/notificationsNav';
 
   $: hasWallet =
     $walletConnected ||
     $weblnConnected ||
     ($bitcoinConnectEnabled && $bitcoinConnectWalletInfo.connected);
+
+  $: pathname = $page.url.pathname;
+
+  function handleNotificationsClick(event: MouseEvent) {
+    triggerNotificationsNav();
+    // If we're already on the page, prevent navigation and just refresh/scroll
+    if (pathname.startsWith('/notifications')) {
+      event.preventDefault();
+    }
+  }
 </script>
 
 <nav
@@ -43,7 +55,11 @@
     </span>
     <span class="sr-only">Wallet</span>
   </a>
-  <a href="/notifications" class="flex flex-col items-center justify-center hover:text-primary">
+  <a
+    href="/notifications"
+    class="flex flex-col items-center justify-center hover:text-primary"
+    on:click={handleNotificationsClick}
+  >
     <span class="relative self-center">
       <BellIcon size={24} weight={$unreadCount > 0 ? 'fill' : 'regular'} />
       {#if $unreadCount > 0}

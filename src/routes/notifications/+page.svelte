@@ -1,6 +1,7 @@
 <script lang="ts">
   import { notifications, unreadCount, subscribeToNotifications, type Notification } from '$lib/notificationStore';
   import { goto } from '$app/navigation';
+  import { browser } from '$app/environment';
   import { formatDistanceToNow } from 'date-fns';
   import { nip19 } from 'nostr-tools';
   import CustomAvatar from '../../components/CustomAvatar.svelte';
@@ -10,6 +11,7 @@
   import PullToRefresh from '../../components/PullToRefresh.svelte';
   import { get } from 'svelte/store';
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
+  import { notificationsNavTick } from '$lib/notificationsNav';
   
   // Pull-to-refresh ref
   let pullToRefreshEl: PullToRefresh;
@@ -30,17 +32,34 @@
   const MAX_CONTEXT_FETCH = 50;
   const CONTEXT_CONCURRENCY = 4;
   
+  function scrollAppToTop() {
+    if (!browser) return;
+    const el = document.getElementById('app-scroll');
+    if (el) el.scrollTop = 0;
+    else window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+  }
+
+  async function forceRefreshNotifications() {
+    // Re-subscribe to notifications with force refresh to fetch older data
+    if ($userPublickey) {
+      const ndkInstance = get(ndk);
+      if (ndkInstance) {
+        subscribeToNotifications(ndkInstance, $userPublickey, true); // Force full refresh
+      }
+    }
+    // Wait a bit for notifications to come in
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+  }
+
+  async function refreshAndResetView() {
+    scrollAppToTop();
+    activeTab = 'all';
+    await forceRefreshNotifications();
+  }
+
   async function handleRefresh() {
     try {
-      // Re-subscribe to notifications with force refresh to fetch older data
-      if ($userPublickey) {
-        const ndkInstance = get(ndk);
-        if (ndkInstance) {
-          subscribeToNotifications(ndkInstance, $userPublickey, true); // Force full refresh
-        }
-      }
-      // Wait a bit for notifications to come in
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      await forceRefreshNotifications();
     } finally {
       pullToRefreshEl?.complete();
     }
@@ -159,11 +178,21 @@
     void prefetchReferencedNotes(filteredNotifications);
   }
   
+  let lastNavTick = 0;
+  $: if ($notificationsNavTick !== lastNavTick) {
+    lastNavTick = $notificationsNavTick;
+    void refreshAndResetView();
+  }
+
   onMount(() => {
     if (!$userPublickey) {
       goto('/login');
       return;
     }
+
+    // Initialize nav tick tracking and always reset/refresh on entry
+    lastNavTick = $notificationsNavTick;
+    void refreshAndResetView();
     
     // Auto-mark all notifications as read when viewing the page
     if ($unreadCount > 0) {
