@@ -417,8 +417,6 @@
   let selectedFeeSpeed: 'fast' | 'medium' | 'slow' = 'medium';
   let isPreparingOnchain = false;
   let isSendingOnchain = false;
-  let showOnchainConfirmation = false; // Show address verification step before sending
-  let sendingMaxBalance = false; // Track if user wants to send full balance (fee will be deducted)
 
   // Check if send input is a Bitcoin address
   $: isBtcAddress = isBitcoinAddress(sendInput);
@@ -1070,18 +1068,6 @@
     selectedFeeSpeed = 'medium';
     isPreparingOnchain = false;
     isSendingOnchain = false;
-    showOnchainConfirmation = false;
-    sendingMaxBalance = false;
-  }
-
-  // Format Bitcoin address into segments for easier verification
-  function formatAddressSegments(address: string): string[] {
-    const segmentSize = 4;
-    const segments: string[] = [];
-    for (let i = 0; i < address.length; i += segmentSize) {
-      segments.push(address.slice(i, i + segmentSize));
-    }
-    return segments;
   }
 
   // Reset receive modal state
@@ -1219,58 +1205,9 @@
     onchainPrepareResponse = null;
 
     try {
-      if (sendingMaxBalance) {
-        if ($walletBalance === null) {
-          sendError = 'Wallet balance unavailable';
-          return;
-        }
-
-        const balanceSats = Number($walletBalance);
-        if (balanceSats <= 0) {
-          sendError = 'Balance is too low to cover the network fee';
-          return;
-        }
-
-        const address = sendInput.trim();
-        const probeAmount = Math.min(balanceSats, 1000);
-        let result = await prepareOnchainSend(address, probeAmount);
-        let feeSats = result.feeQuote.fast.feeSats;
-        let maxSendable = balanceSats - feeSats;
-
-        if (maxSendable <= 0) {
-          sendError = 'Balance is too low to cover the network fee';
-          return;
-        }
-
-        result = await prepareOnchainSend(address, maxSendable);
-        feeSats = result.feeQuote.fast.feeSats;
-        const adjustedAmount = balanceSats - feeSats;
-
-        if (adjustedAmount <= 0) {
-          sendError = 'Balance is too low to cover the network fee';
-          return;
-        }
-
-        if (adjustedAmount !== maxSendable) {
-          result = await prepareOnchainSend(address, adjustedAmount);
-          feeSats = result.feeQuote.fast.feeSats;
-          maxSendable = balanceSats - feeSats;
-          if (maxSendable <= 0) {
-            sendError = 'Balance is too low to cover the network fee';
-            return;
-          }
-        } else {
-          maxSendable = adjustedAmount;
-        }
-
-        onchainFeeQuote = result.feeQuote;
-        onchainPrepareResponse = result.prepareResponse;
-        sendAmount = maxSendable;
-      } else {
-        const result = await prepareOnchainSend(sendInput.trim(), sendAmount);
-        onchainFeeQuote = result.feeQuote;
-        onchainPrepareResponse = result.prepareResponse;
-      }
+      const result = await prepareOnchainSend(sendInput.trim(), sendAmount);
+      onchainFeeQuote = result.feeQuote;
+      onchainPrepareResponse = result.prepareResponse;
     } catch (e) {
       sendError = e instanceof Error ? e.message : 'Failed to prepare on-chain payment';
     } finally {
@@ -1287,52 +1224,9 @@
 
     isSendingOnchain = true;
     sendError = '';
-    const pendingId =
-      $activeWallet?.id !== undefined
-        ? addPendingTransaction({
-            id: `pending-${Date.now()}-${Math.random().toString(36).substring(7)}`,
-            type: 'outgoing',
-            amount: sendAmount,
-            description: 'Sending on-chain payment...',
-            timestamp: Math.floor(Date.now() / 1000),
-            walletId: $activeWallet.id
-          })
-        : null;
 
     try {
-      // Always use 'fast' speed - Spark cooperative exits currently have fixed fees
-      const payment = await sendOnchain(onchainPrepareResponse, 'fast');
-      const txid =
-        payment?.txid ||
-        payment?.txId ||
-        payment?.tx_id ||
-        payment?.txHash ||
-        payment?.tx_hash ||
-        payment?.transactionId ||
-        payment?.transaction_id ||
-        payment?.onchainTxid ||
-        payment?.onchain_txid ||
-        payment?.onchain?.txid ||
-        payment?.onchain?.txId ||
-        payment?.paymentMethod?.txid ||
-        payment?.paymentMethod?.txId ||
-        payment?.paymentMethod?.transactionId ||
-        payment?.paymentMethod?.transaction_id ||
-        payment?.paymentMethod?.txHash ||
-        payment?.paymentMethod?.tx_hash;
-      const paymentId =
-        payment?.id || payment?.paymentHash || payment?.payment_hash || txid || null;
-
-      if (pendingId) {
-        updatePendingTransaction(pendingId, {
-          status: 'completed',
-          txid: txid || undefined
-        });
-      }
-
-      if (paymentId && txid) {
-        saveTransactionMetadata(paymentId, { txid });
-      }
+      await sendOnchain(onchainPrepareResponse, selectedFeeSpeed);
       sendSuccess = 'On-chain payment sent!';
       await refreshBalance();
       loadTransactionHistory(true);
@@ -1342,9 +1236,6 @@
       }, 1500);
     } catch (e) {
       sendError = e instanceof Error ? e.message : 'Failed to send on-chain payment';
-      if (pendingId) {
-        removePendingTransaction(pendingId);
-      }
     } finally {
       isSendingOnchain = false;
     }
@@ -4693,7 +4584,6 @@
                   disabled={isSending || isSendingOnchain}
                   on:input={() => {
                     // Reset on-chain state when input changes
-                    sendingMaxBalance = false;
                     if (onchainFeeQuote) {
                       onchainFeeQuote = null;
                       onchainPrepareResponse = null;
@@ -4738,7 +4628,6 @@
                     min="1"
                     on:input={() => {
                       // Reset fee quote when amount changes
-                      sendingMaxBalance = false;
                       if (onchainFeeQuote) {
                         onchainFeeQuote = null;
                         onchainPrepareResponse = null;
@@ -4779,22 +4668,83 @@
                       Get Fee Quote
                     {/if}
                   </button>
-                {:else if !showOnchainConfirmation}
-                  <!-- Fee Display (Spark cooperative exits have fixed fees) -->
+                {:else}
+                  <!-- Fee Selection -->
+                  <div>
+                    <label class="block text-sm font-medium mb-2 text-caption"
+                      >Select Fee Speed</label
+                    >
+                    <div class="space-y-2">
+                      <button
+                        class="w-full p-3 rounded-lg border text-left transition-colors"
+                        class:border-amber-500={selectedFeeSpeed === 'fast'}
+                        class:border-input={selectedFeeSpeed !== 'fast'}
+                        style={selectedFeeSpeed === 'fast'
+                          ? 'background-color: rgba(251, 191, 36, 0.1);'
+                          : 'background-color: var(--color-input-bg);'}
+                        on:click={() => (selectedFeeSpeed = 'fast')}
+                      >
+                        <div class="flex justify-between items-center">
+                          <span class="font-medium text-primary-color">Fast</span>
+                          <span class="text-caption text-sm"
+                            >{formatBalance(onchainFeeQuote.fast.feeSats)} sats</span
+                          >
+                        </div>
+                        <div class="text-xs text-caption">
+                          ~10-20 min • {onchainFeeQuote.fast.feeRate} sat/vB
+                        </div>
+                      </button>
+                      <button
+                        class="w-full p-3 rounded-lg border text-left transition-colors"
+                        class:border-amber-500={selectedFeeSpeed === 'medium'}
+                        class:border-input={selectedFeeSpeed !== 'medium'}
+                        style={selectedFeeSpeed === 'medium'
+                          ? 'background-color: rgba(251, 191, 36, 0.1);'
+                          : 'background-color: var(--color-input-bg);'}
+                        on:click={() => (selectedFeeSpeed = 'medium')}
+                      >
+                        <div class="flex justify-between items-center">
+                          <span class="font-medium text-primary-color">Medium</span>
+                          <span class="text-caption text-sm"
+                            >{formatBalance(onchainFeeQuote.medium.feeSats)} sats</span
+                          >
+                        </div>
+                        <div class="text-xs text-caption">
+                          ~30-60 min • {onchainFeeQuote.medium.feeRate} sat/vB
+                        </div>
+                      </button>
+                      <button
+                        class="w-full p-3 rounded-lg border text-left transition-colors"
+                        class:border-amber-500={selectedFeeSpeed === 'slow'}
+                        class:border-input={selectedFeeSpeed !== 'slow'}
+                        style={selectedFeeSpeed === 'slow'
+                          ? 'background-color: rgba(251, 191, 36, 0.1);'
+                          : 'background-color: var(--color-input-bg);'}
+                        on:click={() => (selectedFeeSpeed = 'slow')}
+                      >
+                        <div class="flex justify-between items-center">
+                          <span class="font-medium text-primary-color">Slow</span>
+                          <span class="text-caption text-sm"
+                            >{formatBalance(onchainFeeQuote.slow.feeSats)} sats</span
+                          >
+                        </div>
+                        <div class="text-xs text-caption">
+                          ~1-2 hours • {onchainFeeQuote.slow.feeRate} sat/vB
+                        </div>
+                      </button>
+                    </div>
+                  </div>
+
+                  <!-- Total -->
                   <div class="p-3 rounded-lg bg-input">
-                    {#if sendingMaxBalance}
-                      <div class="mb-2 text-xs text-amber-500">
-                        Using full balance. Network fee is deducted from the amount.
-                      </div>
-                    {/if}
                     <div class="flex justify-between items-center">
                       <span class="text-caption">Amount</span>
                       <span class="text-primary-color">{formatBalance(sendAmount)} sats</span>
                     </div>
                     <div class="flex justify-between items-center mt-1">
-                      <span class="text-caption">Network Fee</span>
+                      <span class="text-caption">Fee ({selectedFeeSpeed})</span>
                       <span class="text-primary-color"
-                        >{formatBalance(onchainFeeQuote.fast.feeSats)} sats</span
+                        >{formatBalance(onchainFeeQuote[selectedFeeSpeed].feeSats)} sats</span
                       >
                     </div>
                     <div
@@ -4803,91 +4753,24 @@
                     >
                       <span class="font-medium text-primary-color">Total</span>
                       <span class="font-medium text-amber-500"
-                        >{formatBalance(sendAmount + onchainFeeQuote.fast.feeSats)} sats</span
+                        >{formatBalance(sendAmount + onchainFeeQuote[selectedFeeSpeed].feeSats)} sats</span
                       >
                     </div>
                   </div>
 
                   <button
                     class="w-full py-3 px-4 rounded-xl bg-amber-500 hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium transition-colors flex items-center justify-center gap-2"
-                    on:click={() => (showOnchainConfirmation = true)}
+                    on:click={handleSendOnchain}
+                    disabled={isSendingOnchain}
                   >
-                    <ArrowUpIcon size={20} weight="bold" />
-                    Continue
+                    {#if isSendingOnchain}
+                      <span class="animate-spin"><ArrowsClockwiseIcon size={20} /></span>
+                      Sending...
+                    {:else}
+                      <ArrowUpIcon size={20} weight="bold" />
+                      Send On-Chain
+                    {/if}
                   </button>
-                {:else}
-                  <!-- Address Verification Step -->
-                  <div class="space-y-4">
-                    <div class="text-center">
-                      <p class="text-sm text-caption mb-2">Verify the destination address</p>
-                      <p class="text-xs text-amber-500 mb-3">
-                        Bitcoin transactions cannot be reversed. Please confirm this is correct.
-                      </p>
-                    </div>
-
-                    <!-- Segmented address display -->
-                    <div class="p-4 rounded-lg bg-input">
-                      <p class="text-xs text-caption mb-2 text-center">Sending to:</p>
-                      <div class="font-mono text-sm text-primary-color text-center leading-relaxed">
-                        {#each formatAddressSegments(sendInput.trim()) as segment, i}
-                          <span class={i % 2 === 0 ? 'text-primary-color' : 'text-amber-500'}
-                            >{segment}</span
-                          >{#if (i + 1) % 8 === 0 && i < formatAddressSegments(sendInput.trim()).length - 1}<br
-                            />{:else if i < formatAddressSegments(sendInput.trim()).length - 1}{' '}{/if}
-                        {/each}
-                      </div>
-                    </div>
-
-                    <!-- Summary -->
-                    <div class="p-3 rounded-lg bg-input">
-                      {#if sendingMaxBalance}
-                        <div class="mb-2 text-xs text-amber-500">
-                          Using full balance. Network fee is deducted from the amount.
-                        </div>
-                      {/if}
-                      <div class="flex justify-between items-center">
-                        <span class="text-caption">Amount</span>
-                        <span class="text-primary-color">{formatBalance(sendAmount)} sats</span>
-                      </div>
-                      <div class="flex justify-between items-center mt-1">
-                        <span class="text-caption">Network Fee</span>
-                        <span class="text-primary-color"
-                          >{formatBalance(onchainFeeQuote.fast.feeSats)} sats</span
-                        >
-                      </div>
-                      <div
-                        class="flex justify-between items-center mt-2 pt-2 border-t"
-                        style="border-color: var(--color-input-border);"
-                      >
-                        <span class="font-medium text-primary-color">Total</span>
-                        <span class="font-medium text-amber-500"
-                          >{formatBalance(sendAmount + onchainFeeQuote.fast.feeSats)} sats</span
-                        >
-                      </div>
-                    </div>
-
-                    <div class="flex gap-3">
-                      <button
-                        class="flex-1 py-3 px-4 rounded-xl border border-input text-caption hover:text-primary-color transition-colors"
-                        on:click={() => (showOnchainConfirmation = false)}
-                        disabled={isSendingOnchain}
-                      >
-                        Back
-                      </button>
-                      <button
-                        class="flex-1 py-3 px-4 rounded-xl bg-amber-500 hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium transition-colors flex items-center justify-center gap-2"
-                        on:click={handleSendOnchain}
-                        disabled={isSendingOnchain}
-                      >
-                        {#if isSendingOnchain}
-                          <span class="animate-spin"><ArrowsClockwiseIcon size={20} /></span>
-                          Sending...
-                        {:else}
-                          Confirm Send
-                        {/if}
-                      </button>
-                    </div>
-                  </div>
                 {/if}
               {:else}
                 <!-- Lightning payment button -->
@@ -5529,9 +5412,6 @@
             min="1"
             max="500"
             class="w-full px-4 py-3 rounded-xl bg-input border border-input text-primary-color"
-            on:input={(event) =>
-              (refundFeeRate = Number((event.currentTarget as HTMLInputElement).value))
-            }
           />
           {#if refundDeposit_ && refundFeeRate}
             {#await Promise.resolve(refundFeeRate * 200) then estRefundFee}

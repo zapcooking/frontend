@@ -19,7 +19,8 @@
     tags: recipeTagSimple[];
     recipes: { title: string; naddr: string; author: string }[];
     users: { name: string; npub: string; picture?: string }[];
-  } = { tags: [], recipes: [], users: [] };
+    note: { id: string; preview?: string } | null;
+  } = { tags: [], recipes: [], users: [], note: null };
   let isSearching = false;
   let searchTimeout: ReturnType<typeof setTimeout>;
   
@@ -29,20 +30,42 @@
 
   function handleInputChange(event: Event) {
     const input = event.target as HTMLInputElement;
-    tagquery = input.value.toLowerCase().trim();
+    tagquery = input.value.trim();
+    const queryLower = tagquery.toLowerCase();
     
     // Clear previous timeout
     if (searchTimeout) clearTimeout(searchTimeout);
     
     if (tagquery.length === 0) {
-      searchResults = { tags: [], recipes: [], users: [] };
+      searchResults = { tags: [], recipes: [], users: [], note: null };
       showAutocomplete = false;
       return;
     }
     
+    // Check for note identifiers (note1 or nevent1)
+    if (tagquery.startsWith('note1') || tagquery.startsWith('nevent1')) {
+      try {
+        // Validate it's a proper nip19 identifier
+        const decoded = nip19.decode(tagquery);
+        if (decoded.type === 'note' || decoded.type === 'nevent') {
+          searchResults.note = { id: tagquery };
+          searchResults.tags = [];
+          searchResults.recipes = [];
+          searchResults.users = [];
+          showAutocomplete = true;
+          return;
+        }
+      } catch {
+        // Invalid identifier, continue with normal search
+      }
+    }
+    
+    // Clear note result if not a note identifier
+    searchResults.note = null;
+    
     // Immediate tag search (client-side)
     searchResults.tags = recipeTags
-      .filter(tag => tag.title.toLowerCase().includes(tagquery))
+      .filter(tag => tag.title.toLowerCase().includes(queryLower))
       .slice(0, 5);
     
     showAutocomplete = true;
@@ -51,7 +74,7 @@
     searchTimeout = setTimeout(async () => {
       isSearching = true;
       try {
-        await Promise.all([searchRecipes(tagquery), searchUsers(tagquery)]);
+        await Promise.all([searchRecipes(queryLower), searchUsers(queryLower)]);
       } catch (e) {
         console.debug('Search error:', e);
       } finally {
@@ -247,7 +270,7 @@
   function selectTag(title: string) {
     action(title);
     tagquery = '';
-    searchResults = { tags: [], recipes: [], users: [] };
+    searchResults = { tags: [], recipes: [], users: [], note: null };
     showAutocomplete = false;
   }
 
@@ -255,7 +278,7 @@
     // Navigate to recipe
     window.location.href = `/recipe/${naddr}`;
     tagquery = '';
-    searchResults = { tags: [], recipes: [], users: [] };
+    searchResults = { tags: [], recipes: [], users: [], note: null };
     showAutocomplete = false;
   }
 
@@ -263,13 +286,21 @@
     // Navigate to user profile
     window.location.href = `/user/${npub}`;
     tagquery = '';
-    searchResults = { tags: [], recipes: [], users: [] };
+    searchResults = { tags: [], recipes: [], users: [], note: null };
+    showAutocomplete = false;
+  }
+
+  function selectNote(noteId: string) {
+    // Navigate to note
+    window.location.href = `/${noteId}`;
+    tagquery = '';
+    searchResults = { tags: [], recipes: [], users: [], note: null };
     showAutocomplete = false;
   }
 
   onMount(() => {
     // Initialize empty
-    searchResults = { tags: [], recipes: [], users: [] };
+    searchResults = { tags: [], recipes: [], users: [], note: null };
     
     // Preload profiles in background
     Promise.all([
@@ -288,9 +319,14 @@
     class="flex rounded-xl shadow-sm bg-input"
     on:submit|preventDefault={() => {
       if (tagquery) {
+        // If it's a note identifier, navigate directly
+        if (searchResults.note) {
+          selectNote(searchResults.note.id);
+          return;
+        }
         action(tagquery);
         tagquery = '';
-        searchResults = { tags: [], recipes: [], users: [] };
+        searchResults = { tags: [], recipes: [], users: [], note: null };
       }
     }}
   >
@@ -308,8 +344,21 @@
     <input type="submit" class="hidden" />
   </form>
 
-  {#if showAutocomplete && (searchResults.tags.length > 0 || searchResults.recipes.length > 0 || searchResults.users.length > 0 || isSearching)}
+  {#if showAutocomplete && (searchResults.note || searchResults.tags.length > 0 || searchResults.recipes.length > 0 || searchResults.users.length > 0 || isSearching)}
     <ul class="max-h-[320px] overflow-y-auto absolute top-full left-0 w-full bg-input border shadow-lg rounded-xl mt-1 z-[60]" style="border-color: var(--color-input-border); color: var(--color-text-primary);">
+
+      {#if searchResults.note}
+        <li class="px-3 py-1.5 text-xs font-semibold text-caption bg-accent-gray border-b" style="border-color: var(--color-input-border)">📝 Note</li>
+        <!-- svelte-ignore a11y-click-events-have-key-events -->
+        <!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
+        <li
+          on:click={() => selectNote(searchResults.note?.id || '')}
+          class="cursor-pointer px-3 py-2 hover:bg-accent-gray"
+        >
+          <span class="text-sm">View note: </span>
+          <span class="text-xs text-caption font-mono">{searchResults.note.id.slice(0, 24)}...</span>
+        </li>
+      {/if}
 
       {#if searchResults.tags.length > 0}
         <li class="px-3 py-1.5 text-xs font-semibold text-caption bg-accent-gray border-b" style="border-color: var(--color-input-border)">🏷️ Tags</li>
@@ -361,7 +410,7 @@
         <li class="px-3 py-2 text-sm text-caption text-center">Searching...</li>
       {/if}
 
-      {#if !isSearching && searchResults.tags.length === 0 && searchResults.recipes.length === 0 && searchResults.users.length === 0 && tagquery.length > 0}
+      {#if !isSearching && !searchResults.note && searchResults.tags.length === 0 && searchResults.recipes.length === 0 && searchResults.users.length === 0 && tagquery.length > 0}
         <li class="px-3 py-2 text-sm text-caption text-center">No results found</li>
       {/if}
     </ul>

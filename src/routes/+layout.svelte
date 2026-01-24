@@ -7,6 +7,8 @@
   import { goto } from '$app/navigation';
   import { userPublickey, ndk } from '$lib/nostr';
   import BottomNav from '../components/BottomNav.svelte';
+  import DesktopSideNav from '../components/DesktopSideNav.svelte';
+  import NotificationSubscriber from '../components/NotificationSubscriber.svelte';
   import Footer from '../components/Footer.svelte';
   import CreateMenuButton from '../components/CreateMenuButton.svelte';
   import PostModal from '../components/PostModal.svelte';
@@ -28,6 +30,8 @@
 
   // Accept props from SvelteKit to prevent warnings
   export let data: LayoutData = {} as LayoutData;
+  // Also reference it to satisfy svelte-check (it can be unused in markup)
+  $: data;
 
   // Site-wide meta tag defaults
   const siteUrl = 'https://zap.cooking';
@@ -285,21 +289,36 @@
 
 <ErrorBoundary fallback="Something went wrong with the page layout. Please refresh the page.">
   <div
-    class="h-[100%] scroll-smooth overflow-x-hidden transition-colors duration-200 safe-area-container"
+    class="h-screen scroll-smooth overflow-hidden transition-colors duration-200 safe-area-container"
   >
     <OfflineIndicator />
-    <div class="flex h-full">
-      <div class="mx-auto flex-1 pt-2 print:pt-[0] px-4 max-w-full safe-area-content">
-        <Header />
-        <div class="w-full mt-6 pb-24 lg:pb-8">
-          <slot />
+    <div class="flex flex-col h-full">
+      <div class="mx-auto w-full flex-1 min-h-0 pt-2 print:pt-[0] px-4 max-w-full safe-area-content flex flex-col">
+        <div class="flex-1 min-h-0 flex flex-col lg:flex-row lg:gap-6">
+          <DesktopSideNav />
+          <div
+            class="flex-1 min-h-0 min-w-0 flex flex-col"
+            style="background-color: var(--color-bg-primary);"
+          >
+            <NotificationSubscriber />
+            <div style="background-color: var(--color-bg-primary);">
+              <Header />
+            </div>
+            <div
+              id="app-scroll"
+              class="w-full mt-0 lg:mt-3 pb-24 lg:pb-8 flex-1 min-h-0 overflow-y-auto"
+              style="background-color: var(--color-bg-primary);"
+            >
+              <slot />
+              <Footer />
+            </div>
+          </div>
         </div>
-        <Footer />
-        <CreateMenuButton variant="floating" />
-        <BottomNav />
-        <PostModal bind:open={$postComposerOpen} />
-        <WalletWelcomeModal bind:open={walletWelcomeOpen} onDismiss={markWalletWelcomeSeen} />
       </div>
+      <CreateMenuButton variant="floating" />
+      <BottomNav />
+      <PostModal bind:open={$postComposerOpen} />
+      <WalletWelcomeModal bind:open={walletWelcomeOpen} onDismiss={markWalletWelcomeSeen} />
     </div>
   </div>
 </ErrorBoundary>

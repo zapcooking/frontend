@@ -90,7 +90,7 @@
   </div>
 
   <!-- Filter Tabs -->
-  <div class="mb-4 border-b" style="border-color: var(--color-input-border)">
+  <div class="mb-4 border-b kitchen-tabs" style="border-color: var(--color-input-border)">
     <div class="flex gap-1">
       <button
         on:click={() => setTab('global')}
@@ -147,6 +147,14 @@
 </PullToRefresh>
 
 <style>
+  /* Keep relay tabs pinned; feed scrolls beneath them */
+  .kitchen-tabs {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    background-color: var(--color-bg-primary);
+  }
+
   /* Bottom padding to prevent fixed mobile nav from covering content */
   .kitchen-page {
     padding-bottom: calc(80px + env(safe-area-inset-bottom, 0px));

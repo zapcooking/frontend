@@ -1,6 +1,7 @@
 <script lang="ts">
-  import { notifications, unreadCount } from '$lib/notificationStore';
+  import { notifications, unreadCount, subscribeToNotifications, type Notification } from '$lib/notificationStore';
   import { goto } from '$app/navigation';
+  import { browser } from '$app/environment';
   import { formatDistanceToNow } from 'date-fns';
   import { nip19 } from 'nostr-tools';
   import CustomAvatar from '../../components/CustomAvatar.svelte';
@@ -8,25 +9,57 @@
   import { userPublickey, ndk } from '$lib/nostr';
   import { onMount } from 'svelte';
   import PullToRefresh from '../../components/PullToRefresh.svelte';
-  import { subscribeToNotifications } from '$lib/notificationStore';
   import { get } from 'svelte/store';
+  import type { NDKEvent } from '@nostr-dev-kit/ndk';
+  import { notificationsNavTick } from '$lib/notificationsNav';
   
   // Pull-to-refresh ref
   let pullToRefreshEl: PullToRefresh;
   
   type TabType = 'all' | 'zaps' | 'replies' | 'mentions';
+  type ContextPreview =
+    | {
+        kind: number;
+        pubkey: string;
+        title?: string;
+        preview: string;
+      }
+    | null;
+
+  // Map of referenced eventId -> preview data (null = failed to load)
+  let contextById: Record<string, ContextPreview> = {};
+  let contextInFlight = new Set<string>();
+  const MAX_CONTEXT_FETCH = 50;
+  const CONTEXT_CONCURRENCY = 4;
   
+  function scrollAppToTop() {
+    if (!browser) return;
+    const el = document.getElementById('app-scroll');
+    if (el) el.scrollTop = 0;
+    else window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+  }
+
+  async function forceRefreshNotifications() {
+    // Re-subscribe to notifications with force refresh to fetch older data
+    if ($userPublickey) {
+      const ndkInstance = get(ndk);
+      if (ndkInstance) {
+        subscribeToNotifications(ndkInstance, $userPublickey, true); // Force full refresh
+      }
+    }
+    // Wait a bit for notifications to come in
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+  }
+
+  async function refreshAndResetView() {
+    scrollAppToTop();
+    activeTab = 'all';
+    await forceRefreshNotifications();
+  }
+
   async function handleRefresh() {
     try {
-      // Re-subscribe to notifications with force refresh to fetch older data
-      if ($userPublickey) {
-        const ndkInstance = get(ndk);
-        if (ndkInstance) {
-          subscribeToNotifications(ndkInstance, $userPublickey, true); // Force full refresh
-        }
-      }
-      // Wait a bit for notifications to come in
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      await forceRefreshNotifications();
     } finally {
       pullToRefreshEl?.complete();
     }
@@ -48,12 +81,118 @@
     if (activeTab === 'mentions') return n.type === 'mention';
     return true;
   });
+
+  function getReferencedEventId(notification: Notification): string | null {
+    // Reactions/zaps/reposts: eventId points to the post/recipe being reacted to
+    if (
+      notification.type === 'reaction' ||
+      notification.type === 'zap' ||
+      notification.type === 'repost'
+    ) {
+      return notification.eventId || null;
+    }
+    // Replies: show the parent note being replied to (if known)
+    if (notification.type === 'comment' && notification.targetEventId) {
+      return notification.targetEventId;
+    }
+    return null;
+  }
+
+  function normalizeText(s: string): string {
+    return String(s || '')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  function buildContextPreview(event: NDKEvent): ContextPreview {
+    const kind = event.kind || 1;
+    const pubkey = event.pubkey;
+
+    if (kind === 30023) {
+      const title =
+        event.tags.find((t) => t[0] === 'title')?.[1] || event.tags.find((t) => t[0] === 'd')?.[1];
+      const summary = event.tags.find((t) => t[0] === 'summary')?.[1] || '';
+      const base = title ? `Recipe: ${normalizeText(title)}` : 'Recipe';
+      const extra = normalizeText(summary) || normalizeText(event.content || '');
+      const preview = extra ? `${base} — ${extra}` : base;
+      return { kind, pubkey, title: title ? normalizeText(title) : undefined, preview: preview.slice(0, 220) };
+    }
+
+    const preview = normalizeText(event.content || '').slice(0, 220);
+    return { kind, pubkey, preview: preview || '(No text)' };
+  }
+
+  async function runWithConcurrency(
+    items: string[],
+    limit: number,
+    worker: (id: string) => Promise<void>
+  ): Promise<void> {
+    const queue = [...items];
+    const runners: Promise<void>[] = [];
+
+    const runOne = async () => {
+      while (queue.length) {
+        const id = queue.shift();
+        if (!id) return;
+        await worker(id);
+      }
+    };
+
+    for (let i = 0; i < Math.max(1, limit); i++) {
+      runners.push(runOne());
+    }
+    await Promise.all(runners);
+  }
+
+  async function prefetchReferencedNotes(list: Notification[]) {
+    const ndkInstance = get(ndk);
+    if (!ndkInstance) return;
+
+    const ids: string[] = [];
+    for (const n of list) {
+      const id = getReferencedEventId(n);
+      if (!id) continue;
+      if (id in contextById) continue;
+      if (contextInFlight.has(id)) continue;
+      ids.push(id);
+      if (ids.length >= MAX_CONTEXT_FETCH) break;
+    }
+
+    if (ids.length === 0) return;
+    ids.forEach((id) => contextInFlight.add(id));
+
+    await runWithConcurrency(ids, CONTEXT_CONCURRENCY, async (id) => {
+      try {
+        const ev = await ndkInstance.fetchEvent({ ids: [id] });
+        contextById = { ...contextById, [id]: ev ? buildContextPreview(ev) : null };
+      } catch {
+        contextById = { ...contextById, [id]: null };
+      } finally {
+        contextInFlight.delete(id);
+      }
+    });
+  }
+
+  // Prefetch referenced notes for context as notifications load/update
+  $: if ($userPublickey && filteredNotifications.length > 0) {
+    void prefetchReferencedNotes(filteredNotifications);
+  }
   
+  let lastNavTick = 0;
+  $: if ($notificationsNavTick !== lastNavTick) {
+    lastNavTick = $notificationsNavTick;
+    void refreshAndResetView();
+  }
+
   onMount(() => {
     if (!$userPublickey) {
       goto('/login');
       return;
     }
+
+    // Initialize nav tick tracking and always reset/refresh on entry
+    lastNavTick = $notificationsNavTick;
+    void refreshAndResetView();
     
     // Auto-mark all notifications as read when viewing the page
     if ($unreadCount > 0) {
@@ -136,8 +275,18 @@
     }
     
     // Default: go to note view
-    const noteId = nip19.noteEncode(eventIdToView);
-    goto(`/${noteId}`);
+    const raw = String(eventIdToView).trim();
+    if (!raw) return;
+    if (raw.startsWith('note1') || raw.startsWith('nevent1')) {
+      goto(`/${raw}`);
+      return;
+    }
+    try {
+      const noteId = nip19.noteEncode(raw);
+      goto(`/${noteId}`);
+    } catch (e) {
+      console.warn('[Notifications] Invalid eventId for note view:', raw, e);
+    }
   }
 </script>
 
@@ -207,6 +356,37 @@
               <p class="mt-1 line-clamp-2" style="color: var(--color-text-secondary);">
                 "{notification.content}"
               </p>
+            {/if}
+
+            {#if getReferencedEventId(notification)}
+              {@const refId = getReferencedEventId(notification)}
+              {@const ctx = refId ? contextById[refId] : undefined}
+              <div
+                class="mt-2 px-3 py-2 rounded-lg border-l-2"
+                style="background-color: var(--color-input-bg); border-color: #f97316;"
+              >
+                {#if refId && ctx === undefined}
+                  <div class="flex items-center gap-2">
+                    <div class="w-4 h-4 bg-accent-gray rounded-full animate-pulse"></div>
+                    <div class="h-3 bg-accent-gray rounded w-28 animate-pulse"></div>
+                  </div>
+                  <div class="mt-1 h-3 bg-accent-gray rounded w-48 animate-pulse"></div>
+                {:else if refId && ctx}
+                  <div class="flex items-center gap-2">
+                    <CustomAvatar pubkey={ctx.pubkey} size={18} />
+                    <span class="text-xs font-medium" style="color: var(--color-text-secondary);">
+                      <CustomName pubkey={ctx.pubkey} />
+                    </span>
+                  </div>
+                  <p class="mt-1 text-xs line-clamp-2" style="color: var(--color-text-secondary);">
+                    {ctx.preview}
+                  </p>
+                {:else}
+                  <p class="text-xs" style="color: var(--color-text-secondary);">
+                    Referenced post unavailable
+                  </p>
+                {/if}
+              </div>
             {/if}
             <p class="text-sm mt-2" style="color: var(--color-caption);">
               {formatTime(notification.createdAt)}

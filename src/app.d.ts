@@ -1,6 +1,12 @@
 // See https://kit.svelte.dev/docs/types#app
 // for information about these interfaces
 declare global {
+  namespace svelteHTML {
+    interface HTMLAttributes<T> {
+      'on:click_outside'?: (event: CustomEvent<void>) => void;
+    }
+  }
+
   namespace App {
     // interface Error {}
     // interface Locals {}

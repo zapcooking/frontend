@@ -9,7 +9,6 @@
   import TagsSearchAutocomplete from './TagsSearchAutocomplete.svelte';
   import CustomAvatar from './CustomAvatar.svelte';
   import { theme } from '$lib/themeStore';
-  import NotificationBell from './NotificationBell.svelte';
   import WalletBalance from './WalletBalance.svelte';
   import UserSidePanel from './UserSidePanel.svelte';
   import LightningIcon from 'phosphor-svelte/lib/Lightning';
@@ -19,7 +18,6 @@
   import { bitcoinConnectEnabled, bitcoinConnectWalletInfo } from '$lib/wallet/bitcoinConnect';
   import { timerWidgetOpen } from '$lib/stores/timerWidget';
   import TimerWidget from './TimerWidget.svelte';
-  import CreateMenuButton from './CreateMenuButton.svelte';
 
   let sidePanelOpen = false;
   let searchActive = false;
@@ -42,6 +40,8 @@
       goto(`/user/${query}`);
     } else if (query.startsWith('naddr')) {
       goto(`/recipe/${query}`);
+    } else if (query.startsWith('note1') || query.startsWith('nevent1')) {
+      goto(`/${query}`);
     } else {
       goto(`/tag/${query}`);
     }
@@ -86,30 +86,15 @@
 
 <!-- Mobile-first layout -->
 <div class="relative flex gap-4 sm:gap-9 justify-between overflow-visible">
-  <a href="/recent" class="flex-none">
+  <a href="/recent" class="flex-none lg:hidden">
     <img
       src={isDarkMode ? '/zap_cooking_logo_white.svg' : SVGNostrCookingWithText}
       class="w-35 sm:w-40 my-3"
       alt="zap.cooking Logo With Text"
     />
   </a>
-  <!-- Top row for desktop: Navigation links -->
-  <div
-    class="hidden lg:flex gap-9 self-center font-semibold print:hidden"
-    style="color: var(--color-text-primary)"
-  >
-    <a class="transition duration-300 hover:text-primary" href="/recent">Recipes</a>
-    <a class="transition duration-300 hover:text-primary" href="/community">Community</a>
-    <a class="transition duration-300 hover:text-primary" href="/explore">Explore</a>
-    <a
-      class="transition duration-300 hover:text-primary"
-      href="https://plebeian.market/community/seth@zap.cooking/zap-cooking-wear-orcd8yg6jd"
-      target="_blank"
-      rel="noopener noreferrer">Shop</a
-    >
-  </div>
 
-  <div class="hidden sm:max-lg:flex xl:flex flex-1 self-center print:hidden max-w-md">
+  <div class="hidden sm:flex flex-1 self-center print:hidden max-w-2xl">
     <TagsSearchAutocomplete
       placeholderString={'Search recipes, tags, or users...'}
       action={openTag}
@@ -118,7 +103,7 @@
   <span class="hidden lg:max-xl:flex lg:max-xl:grow"></span>
   <div class="flex items-center gap-1.5 sm:gap-3 self-center flex-none print:hidden">
     <!-- Search icon (mobile/tablet only when search bar hidden) -->
-    <div class="block sm:max-lg:hidden xl:hidden">
+    <div class="block sm:hidden">
       <button
         on:click={() => (searchActive = true)}
         class="w-9 h-9 flex items-center justify-center text-caption hover:opacity-80 hover:bg-accent-gray rounded-full transition-colors cursor-pointer"
@@ -146,8 +131,6 @@
       {/if}
     </button>
 
-    <CreateMenuButton variant="header" />
-
     <!-- Wallet Balance - only show when logged in -->
     {#if $userPublickey && $navBalanceVisible}
       {#if hasNavWallet}
@@ -164,11 +147,6 @@
           <span>Set up a Wallet</span>
         </a>
       {/if}
-    {/if}
-
-    <!-- Notifications - only show when logged in -->
-    {#if $userPublickey}
-      <NotificationBell />
     {/if}
 
     <!-- Sign in / User menu -->
