@@ -47,6 +47,7 @@ export {
   addPendingTransaction,
   removePendingTransaction,
   updatePendingTransactionStatus,
+  updatePendingTransaction,
   clearPendingTransactions,
   ensurePendingTransactionsLoaded,
   transactionsNeedRefresh,

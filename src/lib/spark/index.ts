@@ -332,16 +332,19 @@ export async function initializeSdk(
     const config = defaultConfig('mainnet');
     config.apiKey = apiKey;
     config.privateEnabledDefault = true;
-    
+
     // Use sats.zap.cooking (subdomain) in production, breez.tips for local development
     // Strategy A: Subdomain approach - uses CNAME sats -> breez.tips in Cloudflare
     // (Local dev can't proxy external SDK requests to breez.tips)
     let lnurlDomain = 'breez.tips'; // default
-    
+
     // Allow override via localStorage for testing
     if (browser) {
       const override = localStorage.getItem('lnurlDomain');
-      if (override && (override === 'sats.zap.cooking' || override === 'zap.cooking' || override === 'breez.tips')) {
+      if (
+        override &&
+        (override === 'sats.zap.cooking' || override === 'zap.cooking' || override === 'breez.tips')
+      ) {
         lnurlDomain = override;
         logger.info(`[Spark] Using lnurlDomain override from localStorage: ${lnurlDomain}`);
       } else {
@@ -349,7 +352,11 @@ export async function initializeSdk(
         // Use subdomain approach: sats.zap.cooking
         if (hostname === 'zap.cooking' || hostname.endsWith('.zap.cooking')) {
           lnurlDomain = 'sats.zap.cooking'; // Subdomain strategy
-        } else if (hostname !== 'localhost' && !hostname.startsWith('127.') && !hostname.startsWith('192.168.')) {
+        } else if (
+          hostname !== 'localhost' &&
+          !hostname.startsWith('127.') &&
+          !hostname.startsWith('192.168.')
+        ) {
           // For any other production domain, use subdomain
           lnurlDomain = 'sats.zap.cooking';
         }
@@ -362,12 +369,19 @@ export async function initializeSdk(
     );
     console.log(`[Spark] Config lnurlDomain set to: ${config.lnurlDomain}`);
     // Log the full config to verify it's being set correctly
-    console.log(`[Spark] Full config object:`, JSON.stringify({
-      lnurlDomain: config.lnurlDomain,
-      apiKey: config.apiKey ? '[SET]' : '[NOT SET]',
-      privateEnabledDefault: config.privateEnabledDefault,
-      network: 'mainnet'
-    }, null, 2));
+    console.log(
+      `[Spark] Full config object:`,
+      JSON.stringify(
+        {
+          lnurlDomain: config.lnurlDomain,
+          apiKey: config.apiKey ? '[SET]' : '[NOT SET]',
+          privateEnabledDefault: config.privateEnabledDefault,
+          network: 'mainnet'
+        },
+        null,
+        2
+      )
+    );
 
     const cleanMnemonic = mnemonic.trim().toLowerCase().replace(/\s+/g, ' ');
 
@@ -626,6 +640,450 @@ export async function receivePayment(
   }
 }
 
+// =============================================================================
+// ON-CHAIN BITCOIN FUNCTIONS
+// =============================================================================
+
+/**
+ * On-chain fee quote for sending Bitcoin
+ */
+export interface OnchainFeeQuote {
+  fast: { feeSats: number; feeRate: number };
+  medium: { feeSats: number; feeRate: number };
+  slow: { feeSats: number; feeRate: number };
+}
+
+/**
+ * Claim error types from the SDK
+ */
+export type ClaimErrorType = 'maxDepositClaimFeeExceeded' | 'missingUtxo' | 'generic';
+
+/**
+ * Unclaimed on-chain deposit info
+ */
+export interface UnclaimedDeposit {
+  txid: string;
+  vout: number;
+  amountSats: number;
+  claimError?: {
+    type: ClaimErrorType;
+    message: string;
+  };
+}
+
+/**
+ * Result of a claim deposit operation
+ */
+export interface ClaimDepositResult {
+  txid: string;
+}
+
+/**
+ * Result of a refund deposit operation
+ */
+export interface RefundDepositResult {
+  txid: string;
+}
+
+/**
+ * Generate a Bitcoin address to receive on-chain payments.
+ * Funds sent to this address will need to be claimed after confirmation.
+ * @returns The Bitcoin address for receiving
+ */
+export async function receiveOnchain(): Promise<{ address: string }> {
+  if (!_sdkInstance) {
+    throw new Error('Spark SDK is not initialized');
+  }
+
+  try {
+    sparkLoading.set(true);
+
+    const request = {
+      paymentMethod: {
+        type: 'bitcoinAddress'
+      }
+    };
+
+    const response = await _sdkInstance.receivePayment(request);
+
+    logger.info('[Spark] On-chain address generated:', response);
+
+    // The SDK returns the Bitcoin address in the paymentRequest field
+    // (same pattern as bolt11Invoice and sparkAddress)
+    const address = response?.paymentRequest;
+    if (!address) {
+      throw new Error('Spark SDK did not return a Bitcoin address');
+    }
+
+    return { address };
+  } catch (error) {
+    logger.error('[Spark] Failed to generate on-chain address:', String(error));
+    throw error;
+  } finally {
+    sparkLoading.set(false);
+  }
+}
+
+/**
+ * Prepare an on-chain Bitcoin payment and get fee quotes.
+ * @param address The destination Bitcoin address
+ * @param amountSats The amount to send in satoshis
+ * @returns Fee quotes for different confirmation speeds and the prepare response
+ */
+export async function prepareOnchainSend(
+  address: string,
+  amountSats: number
+): Promise<{ feeQuote: OnchainFeeQuote; prepareResponse: any }> {
+  if (!_sdkInstance) {
+    throw new Error('Spark SDK is not initialized');
+  }
+
+  try {
+    // Note: Don't set sparkLoading here - this is just a prepare/quote step, not an actual payment
+    // SDK expects paymentRequest (the Bitcoin address) and optional amount
+    const request: any = {
+      paymentRequest: address
+    };
+
+    // Only include amount if specified (allows for "send all" when omitted)
+    // SDK expects amount as a BigInt (u128), not a regular number
+    if (amountSats !== undefined && amountSats > 0) {
+      request.amount = BigInt(Math.floor(amountSats));
+    }
+
+    const response = await _sdkInstance.prepareSendPayment(request);
+
+    logger.info('[Spark] On-chain send prepared:', response);
+    // Log full structure for debugging
+    console.log(
+      '[Spark] Full prepareResponse:',
+      JSON.stringify(
+        response,
+        (key, value) => (typeof value === 'bigint' ? value.toString() : value),
+        2
+      )
+    );
+
+    // Extract fee quotes from the response - try multiple possible paths
+    const feeQuoteData = response?.paymentMethod?.feeQuote || response?.feeQuote;
+    console.log(
+      '[Spark] feeQuoteData:',
+      JSON.stringify(
+        feeQuoteData,
+        (key, value) => (typeof value === 'bigint' ? value.toString() : value),
+        2
+      )
+    );
+
+    if (!feeQuoteData) {
+      throw new Error('No fee quote returned for on-chain payment');
+    }
+
+    // Helper to extract fee value (handles BigInt)
+    const extractFee = (obj: any, ...keys: string[]): number => {
+      for (const key of keys) {
+        const val = obj?.[key];
+        if (val !== undefined && val !== null) {
+          return typeof val === 'bigint' ? Number(val) : Number(val);
+        }
+      }
+      return 0;
+    };
+
+    const extractTotalFee = (obj: any): number => {
+      const totalFee = extractFee(obj, 'totalFee', 'totalFeeSat', 'totalFeeSats');
+      if (totalFee > 0) return totalFee;
+
+      const userFee = extractFee(obj, 'userFeeSat', 'userFee', 'user_fee_sat');
+      const broadcastFee = extractFee(obj, 'l1BroadcastFeeSat', 'l1BroadcastFee');
+      if (userFee > 0 && broadcastFee > 0) return userFee + broadcastFee;
+      return userFee || broadcastFee;
+    };
+
+    // SDK returns userFeeSat (user's fee) and l1BroadcastFeeSat (L1 broadcast fee).
+    // Prefer total fee when provided, otherwise sum user + broadcast fee as a safe total.
+    const feeQuote: OnchainFeeQuote = {
+      fast: {
+        feeSats: extractTotalFee(feeQuoteData.speedFast),
+        feeRate: extractFee(feeQuoteData.speedFast, 'feeRate', 'l1BroadcastFeeSat')
+      },
+      medium: {
+        feeSats: extractTotalFee(feeQuoteData.speedMedium),
+        feeRate: extractFee(feeQuoteData.speedMedium, 'feeRate', 'l1BroadcastFeeSat')
+      },
+      slow: {
+        feeSats: extractTotalFee(feeQuoteData.speedSlow),
+        feeRate: extractFee(feeQuoteData.speedSlow, 'feeRate', 'l1BroadcastFeeSat')
+      }
+    };
+
+    console.log('[Spark] Extracted feeQuote:', feeQuote);
+
+    return { feeQuote, prepareResponse: response };
+  } catch (error) {
+    logger.error('[Spark] Failed to prepare on-chain send:', String(error));
+    throw error;
+  }
+}
+
+/**
+ * Send an on-chain Bitcoin payment.
+ * @param prepareResponse The response from prepareOnchainSend
+ * @param speed The confirmation speed to use ('fast', 'medium', or 'slow')
+ * @returns The payment result
+ */
+export async function sendOnchain(
+  prepareResponse: any,
+  speed: 'fast' | 'medium' | 'slow' = 'medium'
+): Promise<any> {
+  if (!_sdkInstance) {
+    throw new Error('Spark SDK is not initialized');
+  }
+
+  try {
+    sparkLoading.set(true);
+
+    // SDK expects options with type and confirmationSpeed
+    const request = {
+      prepareResponse,
+      options: {
+        type: 'bitcoinAddress',
+        confirmationSpeed: speed
+      }
+    };
+
+    logger.info(
+      '[Spark] Sending on-chain payment with request:',
+      JSON.stringify(
+        request,
+        (key, value) => (typeof value === 'bigint' ? value.toString() : value),
+        2
+      )
+    );
+
+    const response = await _sdkInstance.sendPayment(request);
+
+    logger.info('[Spark] On-chain payment sent:', response);
+
+    await refreshBalanceInternal();
+    return response?.payment || response;
+  } catch (error) {
+    logger.error('[Spark] Failed to send on-chain payment:', String(error));
+    throw error;
+  } finally {
+    sparkLoading.set(false);
+  }
+}
+
+/**
+ * List unclaimed on-chain deposits.
+ * These are Bitcoin transactions sent to the wallet's deposit address
+ * that have confirmed but not yet been claimed into the Spark balance.
+ * @returns Array of unclaimed deposits
+ */
+export async function listUnclaimedDeposits(): Promise<UnclaimedDeposit[]> {
+  if (!_sdkInstance) {
+    throw new Error('Spark SDK is not initialized');
+  }
+
+  try {
+    const response = await _sdkInstance.listUnclaimedDeposits({});
+
+    logger.info('[Spark] Unclaimed deposits:', response);
+
+    const deposits = response?.deposits || [];
+    return deposits.map((d: any) => {
+      let claimError: UnclaimedDeposit['claimError'] | undefined;
+
+      if (d.claimError) {
+        // Parse the error type from SDK response
+        const errorType = d.claimError.type || 'generic';
+        const errorMessage =
+          d.claimError.message ||
+          (errorType === 'maxDepositClaimFeeExceeded'
+            ? 'Claim fee exceeds maximum configured limit'
+            : errorType === 'missingUtxo'
+              ? 'UTXO not found on chain'
+              : 'Failed to claim deposit');
+
+        claimError = {
+          type: errorType as ClaimErrorType,
+          message: errorMessage
+        };
+      }
+
+      return {
+        txid: d.txid,
+        vout: d.vout,
+        amountSats: d.amountSats,
+        claimError
+      };
+    });
+  } catch (error) {
+    logger.error('[Spark] Failed to list unclaimed deposits:', String(error));
+    throw error;
+  }
+}
+
+/**
+ * Claim an on-chain deposit into the Spark wallet balance with a fixed max fee.
+ * @param txid The transaction ID of the deposit
+ * @param vout The output index of the deposit
+ * @param maxFeeSats Maximum fee in satoshis willing to pay for the claim
+ * @returns The claim result
+ */
+export async function claimDeposit(
+  txid: string,
+  vout: number,
+  maxFeeSats?: number
+): Promise<ClaimDepositResult> {
+  if (!_sdkInstance) {
+    throw new Error('Spark SDK is not initialized');
+  }
+
+  try {
+    sparkLoading.set(true);
+
+    const request: any = {
+      txid,
+      vout
+    };
+
+    // If maxFeeSats is provided, set a fixed max fee
+    if (maxFeeSats !== undefined) {
+      request.maxFee = {
+        type: 'fixed',
+        amountSats: maxFeeSats
+      };
+    }
+
+    const response = await _sdkInstance.claimDeposit(request);
+
+    logger.info('[Spark] Deposit claimed:', response);
+
+    await refreshBalanceInternal();
+    return { txid: response?.txid || txid };
+  } catch (error) {
+    logger.error('[Spark] Failed to claim deposit:', String(error));
+    throw error;
+  } finally {
+    sparkLoading.set(false);
+  }
+}
+
+/**
+ * Claim an on-chain deposit using network-recommended fee rate.
+ * @param txid The transaction ID of the deposit
+ * @param vout The output index of the deposit
+ * @param leewaySatPerVbyte Additional sat/vbyte above the network recommended rate (default: 1)
+ * @returns The claim result
+ */
+export async function claimDepositWithNetworkFee(
+  txid: string,
+  vout: number,
+  leewaySatPerVbyte: number = 1
+): Promise<ClaimDepositResult> {
+  if (!_sdkInstance) {
+    throw new Error('Spark SDK is not initialized');
+  }
+
+  try {
+    sparkLoading.set(true);
+
+    const request = {
+      txid,
+      vout,
+      maxFee: {
+        type: 'networkRecommended',
+        leewaySatPerVbyte
+      }
+    };
+
+    const response = await _sdkInstance.claimDeposit(request);
+
+    logger.info('[Spark] Deposit claimed with network fee:', response);
+
+    await refreshBalanceInternal();
+    return { txid: response?.txid || txid };
+  } catch (error) {
+    logger.error('[Spark] Failed to claim deposit with network fee:', String(error));
+    throw error;
+  } finally {
+    sparkLoading.set(false);
+  }
+}
+
+/**
+ * Refund an on-chain deposit to an external Bitcoin address.
+ * Use this when claiming is not possible or desired.
+ * @param txid The transaction ID of the deposit
+ * @param vout The output index of the deposit
+ * @param destinationAddress The Bitcoin address to refund to
+ * @param feeSatPerVbyte The fee rate in sat/vbyte for the refund transaction
+ * @returns The refund result including the refund transaction ID
+ */
+export async function refundDeposit(
+  txid: string,
+  vout: number,
+  destinationAddress: string,
+  feeSatPerVbyte: number
+): Promise<RefundDepositResult> {
+  if (!_sdkInstance) {
+    throw new Error('Spark SDK is not initialized');
+  }
+
+  if (!isBitcoinAddress(destinationAddress)) {
+    throw new Error('Invalid Bitcoin address for refund');
+  }
+
+  try {
+    sparkLoading.set(true);
+
+    const request = {
+      txid,
+      vout,
+      destinationAddress,
+      fee: {
+        type: 'rate',
+        satPerVbyte: feeSatPerVbyte
+      }
+    };
+
+    const response = await _sdkInstance.refundDeposit(request);
+
+    logger.info('[Spark] Deposit refunded:', response);
+
+    return { txid: response?.txid };
+  } catch (error) {
+    logger.error('[Spark] Failed to refund deposit:', String(error));
+    throw error;
+  } finally {
+    sparkLoading.set(false);
+  }
+}
+
+/**
+ * Check if a string is a valid Bitcoin address (mainnet).
+ * Supports P2PKH (1...), P2SH (3...), and Bech32/Bech32m (bc1...) addresses.
+ * @param address The string to check
+ * @returns True if it's a valid Bitcoin address
+ */
+export function isBitcoinAddress(address: string): boolean {
+  if (!address) return false;
+  const trimmed = address.trim();
+
+  // P2PKH addresses start with 1
+  if (/^1[a-km-zA-HJ-NP-Z1-9]{25,34}$/.test(trimmed)) return true;
+
+  // P2SH addresses start with 3
+  if (/^3[a-km-zA-HJ-NP-Z1-9]{25,34}$/.test(trimmed)) return true;
+
+  // Bech32 (SegWit v0) and Bech32m (SegWit v1/Taproot) addresses start with bc1
+  if (/^bc1[a-z0-9]{39,87}$/i.test(trimmed)) return true;
+
+  return false;
+}
+
 /**
  * Get payment history with cursor-based pagination.
  * Uses toTimestamp to load older payments (pagination cursor).
@@ -708,6 +1166,83 @@ export function getSdkInstance(): any {
   return _sdkInstance;
 }
 
+/**
+ * Spark wallet info for display purposes.
+ */
+export interface SparkWalletInfo {
+  walletId: string;
+  sparkAddress: string | null;
+  network: string;
+  createdBy: string | null;
+}
+
+/**
+ * Get Spark wallet info for display.
+ * @param pubkey The user's Nostr public key.
+ * @returns Wallet info including ID, Spark address, network, and creator.
+ */
+export async function getSparkWalletInfo(pubkey: string): Promise<SparkWalletInfo | null> {
+  if (!_sdkInstance) return null;
+
+  try {
+    // Get wallet ID from mnemonic
+    const mnemonic = await loadMnemonic(pubkey);
+    if (!mnemonic) return null;
+
+    const walletId = getSparkWalletId(mnemonic);
+
+    // Get Spark address (static address for receiving from other Spark users)
+    let sparkAddress: string | null = null;
+    try {
+      const response = await _sdkInstance.receivePayment({
+        paymentMethod: { type: 'sparkAddress' }
+      });
+      sparkAddress = response?.paymentRequest || response?.sparkAddress || null;
+    } catch (e) {
+      logger.debug('[Spark] Could not get Spark address:', String(e));
+    }
+
+    // Check backup for createdBy info
+    let createdBy: string | null = null;
+    try {
+      const backups = await listSparkBackups(pubkey);
+      if (backups.length > 0) {
+        // Check the backup event for client tag
+        const { ndk, ndkReady } = await import('$lib/nostr');
+        const { get } = await import('svelte/store');
+        await ndkReady;
+        const ndkInstance = get(ndk);
+
+        const events = await ndkInstance.fetchEvents({
+          kinds: [30078],
+          authors: [pubkey],
+          '#d': [backups[0].dTag]
+        });
+
+        for (const event of events) {
+          const clientTag = event.tags?.find((t: string[]) => t[0] === 'client');
+          if (clientTag?.[1]) {
+            createdBy = clientTag[1];
+            break;
+          }
+        }
+      }
+    } catch (e) {
+      logger.debug('[Spark] Could not get backup info:', String(e));
+    }
+
+    return {
+      walletId,
+      sparkAddress,
+      network: 'mainnet',
+      createdBy
+    };
+  } catch (error) {
+    logger.error('[Spark] Failed to get wallet info:', String(error));
+    return null;
+  }
+}
+
 export async function refreshBalance(sync = false): Promise<bigint | null> {
   if (sync && _sdkInstance) {
     try {
@@ -768,13 +1303,15 @@ export async function registerLightningAddress(
 
   try {
     // Check current domain setting (for debugging)
-    const currentDomain = browser ? (localStorage.getItem('lnurlDomain') || 'not set') : 'server';
-    logger.info(`[Spark] Registering lightning address: ${username} (current domain override: ${currentDomain})`);
-    
+    const currentDomain = browser ? localStorage.getItem('lnurlDomain') || 'not set' : 'server';
+    logger.info(
+      `[Spark] Registering lightning address: ${username} (current domain override: ${currentDomain})`
+    );
+
     // Try to get the configured domain from the SDK instance if possible
     // Note: The SDK might not expose this, but the backend determines the domain
     logger.info(`[Spark] About to call SDK registerLightningAddress with username: ${username}`);
-    
+
     const response = await _sdkInstance.registerLightningAddress({
       username,
       description: description || 'zap.cooking user'
