@@ -29,6 +29,8 @@
     isValidNwcUrl,
     getPaymentHistory,
     pendingTransactions,
+    addPendingTransaction,
+    updatePendingTransaction,
     removePendingTransaction,
     transactionsNeedRefresh,
     ensurePendingTransactionsLoaded,
@@ -436,6 +438,7 @@
     recipient?: string; // Lightning address or npub
     pubkey?: string; // Nostr pubkey for zap sender/recipient
     comment?: string; // Zap comment
+    txid?: string; // On-chain transaction id
   }
 
   function getTransactionMetadata(txId: string): TransactionMetadata | null {
@@ -470,6 +473,45 @@
     } catch (e) {
       console.error('[Wallet] Failed to save tx metadata:', e);
     }
+  }
+
+  function extractSparkTxid(payment: any): string | undefined {
+    return (
+      payment?.txid ||
+      payment?.txId ||
+      payment?.tx_id ||
+      payment?.txHash ||
+      payment?.tx_hash ||
+      payment?.transactionId ||
+      payment?.transaction_id ||
+      payment?.onchainTxid ||
+      payment?.onchain_txid ||
+      payment?.onchain?.txid ||
+      payment?.onchain?.txId ||
+      payment?.paymentMethod?.txid ||
+      payment?.paymentMethod?.txId ||
+      payment?.paymentMethod?.transactionId ||
+      payment?.paymentMethod?.transaction_id ||
+      payment?.paymentMethod?.txHash ||
+      payment?.paymentMethod?.tx_hash ||
+      undefined
+    );
+  }
+
+  function extractSparkAmountSat(payment: any): number {
+    const amountMsat = payment?.amountMsat || payment?.amount_msat || payment?.amountMSat || 0;
+    const amountSat =
+      payment?.amountSat ||
+      payment?.amount_sat ||
+      payment?.amount ||
+      Math.floor(Number(amountMsat) / 1000);
+    return Number(amountSat) || 0;
+  }
+
+  function extractSparkTimestamp(payment: any): number {
+    let ts = payment?.createdAt || payment?.created_at || payment?.timestamp || payment?.time || 0;
+    if (ts > 4102444800) ts = Math.floor(ts / 1000);
+    return Number(ts) || Math.floor(Date.now() / 1000);
   }
 
   // Cache for profile lookups to avoid repeated fetches
@@ -635,6 +677,37 @@
         event.type === 'paymentFailed' ||
         event.type === 'synced'
       ) {
+        if (event.type === 'paymentSucceeded' && event.payment) {
+          const payment = event.payment;
+          const paymentType = payment?.paymentType || payment?.payment_type || payment?.type || '';
+          const isIncoming =
+            paymentType === 'received' ||
+            paymentType === 'RECEIVED' ||
+            paymentType === 'receive' ||
+            paymentType === 'incoming';
+          const txid = extractSparkTxid(payment);
+          const amountSat = extractSparkAmountSat(payment);
+          const paymentId = payment?.id || payment?.paymentHash || payment?.payment_hash;
+          const paymentTimestamp = extractSparkTimestamp(payment);
+
+          if (!isIncoming && txid && amountSat > 0) {
+            const pending = $pendingTransactions;
+            const matching = pending.find(
+              (tx) =>
+                tx.type === 'outgoing' &&
+                tx.amount === amountSat &&
+                Math.abs(tx.timestamp - paymentTimestamp) < 600
+            );
+            if (matching) {
+              updatePendingTransaction(matching.id, { txid });
+            }
+          }
+
+          if (paymentId && txid) {
+            saveTransactionMetadata(paymentId, { txid });
+          }
+        }
+
         await refreshBalance();
         loadTransactionHistory(true);
 
@@ -843,13 +916,15 @@
               ...matchingReal,
               description: pendingTx.description || matchingReal.description,
               pubkey: pendingTx.pubkey || matchingReal.pubkey,
-              comment: pendingTx.comment || matchingReal.comment
+              comment: pendingTx.comment || matchingReal.comment,
+              txid: pendingTx.txid || matchingReal.txid
             };
             // Save metadata for persistence (keyed by real transaction ID)
             saveTransactionMetadata(matchingReal.id, {
               description: pendingTx.description,
               pubkey: pendingTx.pubkey,
-              comment: pendingTx.comment
+              comment: pendingTx.comment,
+              txid: pendingTx.txid
             });
             removePendingTransaction(pendingTx.id);
           } else if (now - pendingTx.timestamp > 600) {
@@ -872,7 +947,8 @@
                 ? savedMeta.description
                 : tx.description,
             pubkey: savedMeta.pubkey || tx.pubkey,
-            comment: savedMeta.comment || tx.comment
+            comment: savedMeta.comment || tx.comment,
+            txid: savedMeta.txid || tx.txid
           };
         }
         return tx;
@@ -2090,32 +2166,36 @@
   <div class="max-w-2xl mx-auto py-8 px-4">
     <h1 class="text-2xl font-bold mb-6" style="color: var(--color-text-primary)">Wallet</h1>
 
-    <!-- Error/Success Messages - Fixed at top, above all modals -->
-    {#if errorMessage}
-      <div
-        class="fixed top-4 left-4 right-4 max-w-2xl mx-auto p-4 rounded-lg flex items-center gap-3 shadow-xl border z-[100]"
-        style="background-color: var(--color-bg-primary); border-color: #ef4444; color: #ef4444;"
-      >
-        <WarningIcon size={20} class="flex-shrink-0" />
-        <span class="flex-1 text-sm">{errorMessage}</span>
-        <button
-          class="text-sm underline flex-shrink-0 hover:opacity-80"
-          on:click={() => (errorMessage = '')}>Dismiss</button
+    <!-- Error/Success Messages - Fixed at top, above all modals (portaled to body for z-index) -->
+    {#if errorMessage && portalTarget}
+      <div use:portal={portalTarget}>
+        <div
+          class="fixed top-4 left-4 right-4 max-w-2xl mx-auto p-4 rounded-lg flex items-center gap-3 shadow-xl border z-[200]"
+          style="background-color: var(--color-bg-primary); border-color: #ef4444; color: #ef4444;"
         >
+          <WarningIcon size={20} class="flex-shrink-0" />
+          <span class="flex-1 text-sm">{errorMessage}</span>
+          <button
+            class="text-sm underline flex-shrink-0 hover:opacity-80"
+            on:click={() => (errorMessage = '')}>Dismiss</button
+          >
+        </div>
       </div>
     {/if}
 
-    {#if successMessage}
-      <div
-        class="fixed top-4 left-4 right-4 max-w-2xl mx-auto p-4 rounded-lg flex items-center gap-3 shadow-xl border z-[100]"
-        style="background-color: var(--color-bg-primary); border-color: #22c55e; color: #22c55e;"
-      >
-        <CheckCircleIcon size={20} class="flex-shrink-0" />
-        <span class="flex-1 text-sm">{successMessage}</span>
-        <button
-          class="text-sm underline flex-shrink-0 hover:opacity-80"
-          on:click={() => (successMessage = '')}>Dismiss</button
+    {#if successMessage && portalTarget}
+      <div use:portal={portalTarget}>
+        <div
+          class="fixed top-4 left-4 right-4 max-w-2xl mx-auto p-4 rounded-lg flex items-center gap-3 shadow-xl border z-[200]"
+          style="background-color: var(--color-bg-primary); border-color: #22c55e; color: #22c55e;"
         >
+          <CheckCircleIcon size={20} class="flex-shrink-0" />
+          <span class="flex-1 text-sm">{successMessage}</span>
+          <button
+            class="text-sm underline flex-shrink-0 hover:opacity-80"
+            on:click={() => (successMessage = '')}>Dismiss</button
+          >
+        </div>
       </div>
     {/if}
 
@@ -3206,7 +3286,22 @@
                           "{tx.comment}"
                         </div>
                       {/if}
-                      <div class="text-sm text-orange-500">✓ Payment sent</div>
+                      <div class="text-sm text-orange-500">
+                        ✓ Payment sent
+                        {#if tx.txid}
+                          <span class="ml-2">
+                            •
+                            <a
+                              href="https://mempool.space/tx/{tx.txid}"
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              class="text-amber-500 hover:text-amber-400"
+                            >
+                              Tx: {tx.txid.slice(0, 8)}...{tx.txid.slice(-8)}
+                            </a>
+                          </span>
+                        {/if}
+                      </div>
                     </div>
                     <div class="text-right">
                       <div class="font-semibold text-orange-500">
@@ -3250,7 +3345,22 @@
                           "{tx.comment}"
                         </div>
                       {/if}
-                      <div class="text-sm text-amber-500">Sending payment...</div>
+                      <div class="text-sm text-amber-500">
+                        Sending payment...
+                        {#if tx.txid}
+                          <span class="ml-2">
+                            •
+                            <a
+                              href="https://mempool.space/tx/{tx.txid}"
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              class="text-amber-500 hover:text-amber-400"
+                            >
+                              Tx: {tx.txid.slice(0, 8)}...{tx.txid.slice(-8)}
+                            </a>
+                          </span>
+                        {/if}
+                      </div>
                     </div>
                     <div class="text-right">
                       <div class="font-semibold text-amber-500">
@@ -3308,6 +3418,19 @@
                       {/if}
                       <div class="text-sm text-amber-500">
                         {tx.type === 'incoming' ? 'Receiving payment...' : 'Sending payment...'}
+                        {#if tx.txid}
+                          <span class="ml-2">
+                            •
+                            <a
+                              href="https://mempool.space/tx/{tx.txid}"
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              class="text-amber-500 hover:text-amber-400"
+                            >
+                              Tx: {tx.txid.slice(0, 8)}...{tx.txid.slice(-8)}
+                            </a>
+                          </span>
+                        {/if}
                       </div>
                     </div>
                     <div class="text-right">
@@ -3365,6 +3488,19 @@
                         {formatTransactionDate(tx.timestamp)}
                         {#if tx.fees && $balanceVisible}
                           <span class="ml-2">• Fee: {tx.fees} sats</span>
+                        {/if}
+                        {#if tx.txid}
+                          <span class="ml-2">
+                            •
+                            <a
+                              href="https://mempool.space/tx/{tx.txid}"
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              class="text-amber-500 hover:text-amber-400"
+                            >
+                              Tx: {tx.txid.slice(0, 8)}...{tx.txid.slice(-8)}
+                            </a>
+                          </span>
                         {/if}
                       </div>
                     </div>
@@ -4463,7 +4599,26 @@
 
               {#if isLightningAddress || isBtcAddress}
                 <div>
-                  <label class="block text-sm font-medium mb-2 text-caption">Amount (sats)</label>
+                  <div class="flex items-center justify-between mb-2">
+                    <label class="block text-sm font-medium text-caption">Amount (sats)</label>
+                    {#if isBtcAddress && $activeWallet?.kind === 4 && $walletBalance !== null && $walletBalance > 0n}
+                      <button
+                        type="button"
+                        class="text-xs text-amber-500 hover:text-amber-400 font-medium"
+                        on:click={() => {
+                          sendAmount = Number($walletBalance);
+                          sendingMaxBalance = true;
+                          // Reset fee quote when amount changes
+                          if (onchainFeeQuote) {
+                            onchainFeeQuote = null;
+                            onchainPrepareResponse = null;
+                          }
+                        }}
+                      >
+                        Use All ({formatBalance(Number($walletBalance))} sats)
+                      </button>
+                    {/if}
+                  </div>
                   <input
                     type="number"
                     bind:value={sendAmount}

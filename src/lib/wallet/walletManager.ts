@@ -523,6 +523,7 @@ export async function lookupInvoice(
  */
 export interface Transaction {
   id: string;
+  txid?: string; // On-chain transaction id when available
   type: 'incoming' | 'outgoing';
   amount: number; // in sats
   description?: string;
@@ -643,6 +644,13 @@ export function updatePendingTransactionStatus(
   pendingTransactions.update((txs) => txs.map((tx) => (tx.id === id ? { ...tx, status } : tx)));
 }
 
+export function updatePendingTransaction(
+  id: string,
+  updates: Partial<Omit<Transaction, 'id'>>
+): void {
+  pendingTransactions.update((txs) => txs.map((tx) => (tx.id === id ? { ...tx, ...updates } : tx)));
+}
+
 /**
  * Clear all pending transactions
  */
@@ -675,8 +683,53 @@ function mapSparkPayment(p: any): Transaction {
   const status =
     rawStatus === 'pending' ? 'pending' : rawStatus === 'failed' ? 'failed' : 'completed';
 
+  const txid =
+    p.txid ||
+    p.txId ||
+    p.tx_id ||
+    p.txHash ||
+    p.tx_hash ||
+    p.transactionId ||
+    p.transaction_id ||
+    p.onchainTxid ||
+    p.onchain_txid ||
+    p.onchain?.txid ||
+    p.onchain?.txId ||
+    p.paymentMethod?.txid ||
+    p.paymentMethod?.txId ||
+    p.paymentMethod?.transactionId ||
+    p.paymentMethod?.transaction_id ||
+    p.paymentMethod?.txHash ||
+    p.paymentMethod?.tx_hash;
+
+  if (!txid) {
+    const isOnchain =
+      p.paymentMethod?.type === 'bitcoinAddress' ||
+      p.payment_method?.type === 'bitcoinAddress' ||
+      p.onchain ||
+      p.onchainTxid ||
+      p.onchain_txid ||
+      String(paymentType).toLowerCase().includes('onchain');
+    const paymentId = p.id || p.paymentHash || p.payment_hash || '';
+    if (isOnchain) {
+      try {
+        console.warn(
+          '[WalletManager] Spark on-chain payment missing txid:',
+          JSON.stringify(
+            { id: paymentId, payment: p },
+            (key, value) => (typeof value === 'bigint' ? value.toString() : value),
+            2
+          )
+        );
+      } catch (e) {
+        console.warn('[WalletManager] Spark on-chain payment missing txid:', paymentId, p);
+      }
+    }
+  }
+
   return {
-    id: p.id || p.paymentHash || p.payment_hash || String(Math.random()),
+    id: p.id || p.paymentHash || p.payment_hash || txid || String(Math.random()),
+    txid,
     type: isIncoming ? 'incoming' : ('outgoing' as 'incoming' | 'outgoing'),
     amount: Number(amountSat),
     description: p.description || p.memo || p.bolt11?.substring(0, 20),
@@ -759,6 +812,29 @@ export async function getPaymentHistory(
         // Fetch from SDK with optional toTimestamp for pagination
         const sparkResult = await listSparkPayments(limit, options.toTimestamp);
         const recentFromEvents = get(recentSparkPayments);
+        if (!sparkPaymentDebugLogged) {
+          sparkPaymentDebugLogged = true;
+          try {
+            const sample = sparkResult.payments?.[0];
+            console.warn(
+              '[WalletManager] Spark listPayments sample:',
+              JSON.stringify(
+                {
+                  count: sparkResult.payments?.length || 0,
+                  hasRecentEvents: recentFromEvents.length,
+                  sample
+                },
+                (key, value) => (typeof value === 'bigint' ? value.toString() : value),
+                2
+              )
+            );
+          } catch (e) {
+            console.warn(
+              '[WalletManager] Spark listPayments sample (raw):',
+              sparkResult.payments?.[0]
+            );
+          }
+        }
 
         // On initial load (no toTimestamp), merge with recent events
         // On pagination (has toTimestamp), only use SDK results
@@ -825,6 +901,7 @@ export async function getPaymentHistory(
 
 let isInitialized = false;
 let initializationPromise: Promise<void> | null = null;
+let sparkPaymentDebugLogged = false;
 
 export async function initializeWalletManager(): Promise<void> {
   if (isInitialized) return;
