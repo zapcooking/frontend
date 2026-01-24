@@ -68,8 +68,22 @@
     recentSparkPayments,
     getBestEncryptionMethod,
     deleteBackupFromNostr as deleteSparkBackupFromNostr,
+    getSparkWalletInfo,
+    receiveOnchain,
+    prepareOnchainSend,
+    sendOnchain,
+    listUnclaimedDeposits,
+    claimDeposit,
+    claimDepositWithNetworkFee,
+    refundDeposit,
+    isBitcoinAddress,
     type SparkWalletBackup,
-    type SparkBackupEntry
+    type SparkBackupEntry,
+    type SparkWalletInfo,
+    type OnchainFeeQuote,
+    type UnclaimedDeposit,
+    type ClaimDepositResult,
+    type RefundDepositResult
   } from '$lib/spark';
   import {
     hasEncryptionSupport,
@@ -107,6 +121,7 @@
   import XIcon from 'phosphor-svelte/lib/X';
   import UserCirclePlusIcon from 'phosphor-svelte/lib/UserCirclePlus';
   import SparkLogo from '../../components/icons/SparkLogo.svelte';
+  import BitcoinIcon from '../../components/icons/BitcoinIcon.svelte';
   import NwcLogo from '../../components/icons/NwcLogo.svelte';
   import BitcoinConnectLogo from '../../components/icons/BitcoinConnectLogo.svelte';
   import CustomAvatar from '../../components/CustomAvatar.svelte';
@@ -185,6 +200,10 @@
     null;
   let isLoadingNwcInfo = false;
 
+  // Spark wallet info state
+  let sparkWalletInfo: SparkWalletInfo | null = null;
+  let isLoadingSparkInfo = false;
+
   // WebLN balance state
   let weblnBalance: number | null = null;
   let weblnBalanceLoading = false;
@@ -229,6 +248,9 @@
 
   // Check if a Spark wallet already exists (only one allowed at a time)
   $: hasExistingSparkWallet = $wallets.some((w) => w.kind === 4);
+
+  // Get the active Spark wallet (for on-chain features)
+  $: activeSparkWallet = $wallets.find((w) => w.kind === 4) || null;
 
   // Check if an NWC wallet already exists (only one allowed at a time)
   $: hasExistingNwcWallet = $wallets.some((w) => w.kind === 3);
@@ -351,6 +373,51 @@
   let sendError = '';
   let receiveError = '';
   let sendSuccess = '';
+
+  // On-chain Bitcoin state
+  let receiveMode: 'lightning' | 'onchain' = 'lightning';
+  let onchainAddress: string | null = null;
+  let isGeneratingOnchainAddress = false;
+  let unclaimedDeposits: UnclaimedDeposit[] = [];
+  let isLoadingDeposits = false;
+  let isClaimingDeposit = false;
+  let claimingTxid: string | null = null;
+
+  // Mempool fee estimates from mempool.space API
+  interface MempoolFees {
+    fastestFee: number; // sat/vB for next block
+    halfHourFee: number; // sat/vB for ~30 min
+    hourFee: number; // sat/vB for ~1 hour
+    economyFee: number; // sat/vB for low priority
+    minimumFee: number; // sat/vB minimum relay fee
+  }
+  let mempoolFees: MempoolFees | null = null;
+  let isLoadingMempoolFees = false;
+
+  async function fetchMempoolFees(): Promise<void> {
+    if (isLoadingMempoolFees) return;
+    isLoadingMempoolFees = true;
+    try {
+      const response = await fetch('https://mempool.space/api/v1/fees/recommended');
+      if (response.ok) {
+        mempoolFees = await response.json();
+      }
+    } catch (e) {
+      console.warn('Failed to fetch mempool fees:', e);
+    } finally {
+      isLoadingMempoolFees = false;
+    }
+  }
+
+  // On-chain send state
+  let onchainFeeQuote: OnchainFeeQuote | null = null;
+  let onchainPrepareResponse: any = null;
+  let selectedFeeSpeed: 'fast' | 'medium' | 'slow' = 'medium';
+  let isPreparingOnchain = false;
+  let isSendingOnchain = false;
+
+  // Check if send input is a Bitcoin address
+  $: isBtcAddress = isBitcoinAddress(sendInput);
 
   // Preset amounts for receiving (matching jumble-spark)
   const RECEIVE_PRESETS = [1000, 5000, 10000, 20000, 50000, 100000];
@@ -665,6 +732,11 @@
     loadTransactionHistory(true);
   }
 
+  // Load unclaimed deposits when Spark wallet connects
+  $: if ($walletConnected && $activeWallet?.kind === 4 && $sparkWalletInitialized) {
+    loadUnclaimedDeposits();
+  }
+
   // Auto-refresh transaction history when a payment completes (signaled by transactionsNeedRefresh)
   $: if (
     $transactionsNeedRefresh > 0 &&
@@ -909,6 +981,17 @@
     sendError = '';
     sendSuccess = '';
     isSending = false;
+    // Reset on-chain state
+    resetOnchainSendState();
+  }
+
+  // Reset on-chain send state (defined above resetSendModal call)
+  function resetOnchainSendState() {
+    onchainFeeQuote = null;
+    onchainPrepareResponse = null;
+    selectedFeeSpeed = 'medium';
+    isPreparingOnchain = false;
+    isSendingOnchain = false;
   }
 
   // Reset receive modal state
@@ -923,6 +1006,163 @@
     isGeneratingInvoice = false;
     balanceBeforeInvoice = null;
     invoiceCreatedAt = 0;
+    // Reset on-chain state
+    receiveMode = 'lightning';
+    onchainAddress = null;
+  }
+
+  // Generate on-chain Bitcoin address for receiving
+  async function handleGenerateOnchainAddress() {
+    if ($activeWallet?.kind !== 4) return;
+
+    isGeneratingOnchainAddress = true;
+    receiveError = '';
+
+    try {
+      const result = await receiveOnchain();
+      onchainAddress = result.address;
+      // Also load any pending deposits
+      await loadUnclaimedDeposits();
+    } catch (e) {
+      receiveError = e instanceof Error ? e.message : 'Failed to generate Bitcoin address';
+    } finally {
+      isGeneratingOnchainAddress = false;
+    }
+  }
+
+  // Load unclaimed on-chain deposits
+  async function loadUnclaimedDeposits() {
+    if ($activeWallet?.kind !== 4) return;
+
+    isLoadingDeposits = true;
+    try {
+      unclaimedDeposits = await listUnclaimedDeposits();
+    } catch (e) {
+      console.error('Failed to load unclaimed deposits:', e);
+    } finally {
+      isLoadingDeposits = false;
+    }
+  }
+
+  // Claim an on-chain deposit (uses network-recommended fee by default)
+  async function handleClaimDeposit(txid: string, vout: number, maxFeeSats?: number) {
+    isClaimingDeposit = true;
+    claimingTxid = txid;
+
+    try {
+      // If no max fee specified, use network-recommended fee with 2 sat/vbyte leeway
+      if (maxFeeSats !== undefined) {
+        await claimDeposit(txid, vout, maxFeeSats);
+      } else {
+        await claimDepositWithNetworkFee(txid, vout, 2);
+      }
+      successMessage = 'Deposit claimed successfully!';
+      // Refresh deposits list
+      await loadUnclaimedDeposits();
+      await refreshBalance();
+    } catch (e) {
+      errorMessage = e instanceof Error ? e.message : 'Failed to claim deposit';
+    } finally {
+      isClaimingDeposit = false;
+      claimingTxid = null;
+    }
+  }
+
+  // Refund modal state
+  let showRefundModal = false;
+  let refundDeposit_: UnclaimedDeposit | null = null;
+  let refundAddress = '';
+  let refundFeeRate = 10; // Default 10 sat/vbyte
+  let isRefunding = false;
+
+  function openRefundModal(deposit: UnclaimedDeposit) {
+    refundDeposit_ = deposit;
+    refundAddress = '';
+    // Use medium fee from mempool if available, otherwise default to 10
+    refundFeeRate = mempoolFees?.halfHourFee || 10;
+    showRefundModal = true;
+    // Fetch latest fees
+    fetchMempoolFees();
+  }
+
+  async function handleRefundDeposit() {
+    if (!refundDeposit_) return;
+    if (!refundAddress.trim()) {
+      errorMessage = 'Please enter a Bitcoin address for the refund';
+      return;
+    }
+    if (!isBitcoinAddress(refundAddress.trim())) {
+      errorMessage = 'Invalid Bitcoin address';
+      return;
+    }
+
+    isRefunding = true;
+    try {
+      await refundDeposit(
+        refundDeposit_.txid,
+        refundDeposit_.vout,
+        refundAddress.trim(),
+        refundFeeRate
+      );
+      successMessage = 'Deposit refunded successfully!';
+      showRefundModal = false;
+      refundDeposit_ = null;
+      // Refresh deposits list
+      await loadUnclaimedDeposits();
+    } catch (e) {
+      errorMessage = e instanceof Error ? e.message : 'Failed to refund deposit';
+    } finally {
+      isRefunding = false;
+    }
+  }
+
+  // Prepare on-chain send (get fee quotes)
+  async function handlePrepareOnchainSend() {
+    if (!sendInput.trim() || sendAmount <= 0) {
+      sendError = 'Please enter a Bitcoin address and amount';
+      return;
+    }
+
+    isPreparingOnchain = true;
+    sendError = '';
+    onchainFeeQuote = null;
+    onchainPrepareResponse = null;
+
+    try {
+      const result = await prepareOnchainSend(sendInput.trim(), sendAmount);
+      onchainFeeQuote = result.feeQuote;
+      onchainPrepareResponse = result.prepareResponse;
+    } catch (e) {
+      sendError = e instanceof Error ? e.message : 'Failed to prepare on-chain payment';
+    } finally {
+      isPreparingOnchain = false;
+    }
+  }
+
+  // Send on-chain payment
+  async function handleSendOnchain() {
+    if (!onchainPrepareResponse) {
+      sendError = 'Please prepare the payment first';
+      return;
+    }
+
+    isSendingOnchain = true;
+    sendError = '';
+
+    try {
+      await sendOnchain(onchainPrepareResponse, selectedFeeSpeed);
+      sendSuccess = 'On-chain payment sent!';
+      await refreshBalance();
+      loadTransactionHistory(true);
+      setTimeout(() => {
+        showSendModal = false;
+        resetSendModal();
+      }, 1500);
+    } catch (e) {
+      sendError = e instanceof Error ? e.message : 'Failed to send on-chain payment';
+    } finally {
+      isSendingOnchain = false;
+    }
   }
 
   // Handle sending payment
@@ -1660,6 +1900,30 @@
     nwcWalletInfo = null;
   }
 
+  async function handleViewSparkInfo() {
+    if (!$userPublickey) return;
+
+    isLoadingSparkInfo = true;
+    errorMessage = '';
+
+    try {
+      const info = await getSparkWalletInfo($userPublickey);
+      if (info) {
+        sparkWalletInfo = info;
+      } else {
+        throw new Error('Could not load wallet info');
+      }
+    } catch (e) {
+      errorMessage = e instanceof Error ? e.message : 'Failed to get wallet info';
+    } finally {
+      isLoadingSparkInfo = false;
+    }
+  }
+
+  function closeSparkInfoModal() {
+    sparkWalletInfo = null;
+  }
+
   async function handleCopyNwcConnection(wallet: { data: string }) {
     try {
       await navigator.clipboard.writeText(wallet.data);
@@ -2004,6 +2268,94 @@
       </div>
     {/if}
 
+    <!-- Pending On-Chain Deposits (Spark wallet only) -->
+    {#if $activeWallet?.kind === 4 && unclaimedDeposits.length > 0}
+      <div
+        class="mb-8 p-4 rounded-2xl"
+        style="background-color: var(--color-bg-secondary); border: 1px solid var(--color-input-border);"
+      >
+        <div class="flex items-center gap-2 mb-1">
+          <h3 class="font-semibold text-primary-color">Pending Deposits</h3>
+          <button
+            class="ml-auto p-1 rounded hover:bg-amber-500/20 transition-colors"
+            on:click={loadUnclaimedDeposits}
+            disabled={isLoadingDeposits}
+            title="Refresh deposits"
+          >
+            <ArrowsClockwiseIcon
+              size={16}
+              class="text-amber-500 {isLoadingDeposits ? 'animate-spin' : ''}"
+            />
+          </button>
+        </div>
+        <p class="text-xs text-caption mb-4">
+          These on-chain deposits need manual approval to claim
+        </p>
+
+        <div class="space-y-4">
+          {#each unclaimedDeposits as deposit}
+            <div>
+              <div class="flex items-center gap-3 mb-2">
+                <BitcoinIcon size={24} className="text-amber-500" />
+                <div class="flex-1 min-w-0">
+                  <div class="flex items-center justify-between">
+                    <span class="font-semibold text-primary-color">
+                      {formatBalance(deposit.amountSats)} sats
+                    </span>
+                    <span class="text-xs text-amber-500 font-medium">Pending</span>
+                  </div>
+                  <a
+                    href="https://mempool.space/tx/{deposit.txid}"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="text-xs text-caption font-mono hover:text-amber-500 transition-colors inline-flex items-center gap-1"
+                  >
+                    {deposit.txid.slice(0, 8)}...{deposit.txid.slice(-8)}
+                    <LinkIcon size={12} />
+                  </a>
+                </div>
+              </div>
+
+              {#if deposit.claimError && deposit.claimError.type !== 'maxDepositClaimFeeExceeded'}
+                <div class="mb-3 text-xs text-caption flex items-center gap-1.5">
+                  <WarningIcon size={14} class="text-amber-500 flex-shrink-0" />
+                  {#if deposit.claimError.type === 'missingUtxo'}
+                    Transaction not yet confirmed. Please wait.
+                  {:else}
+                    {deposit.claimError.message}
+                  {/if}
+                </div>
+              {/if}
+
+              <div class="flex gap-2">
+                <button
+                  class="flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-medium transition-colors disabled:opacity-50"
+                  on:click={() => handleClaimDeposit(deposit.txid, deposit.vout)}
+                  disabled={isClaimingDeposit}
+                >
+                  {#if isClaimingDeposit && claimingTxid === deposit.txid}
+                    <ArrowsClockwiseIcon size={16} class="animate-spin" />
+                    Claiming...
+                  {:else}
+                    <ArrowDownIcon size={16} />
+                    Claim Now
+                  {/if}
+                </button>
+                <button
+                  class="py-2.5 px-4 rounded-xl border font-medium transition-colors disabled:opacity-50"
+                  style="border-color: var(--color-input-border); color: var(--color-text-primary);"
+                  on:click={() => openRefundModal(deposit)}
+                  disabled={isClaimingDeposit || isRefunding}
+                >
+                  Refund
+                </button>
+              </div>
+            </div>
+          {/each}
+        </div>
+      </div>
+    {/if}
+
     <!-- Connected Wallets -->
     <div class="mb-8">
       <div class="flex items-center justify-between mb-4">
@@ -2251,6 +2603,24 @@
                       </div>
                     </div>
                   {/if}
+
+                  <!-- Wallet Info -->
+                  <div class="text-xs text-caption mb-2 uppercase tracking-wide">
+                    Wallet Details
+                  </div>
+                  <div class="grid grid-cols-2 gap-2 mb-4">
+                    <button
+                      class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer"
+                      style="background-color: var(--color-bg-primary); border: 1px solid var(--color-input-border);"
+                      on:click={handleViewSparkInfo}
+                      disabled={isLoadingSparkInfo}
+                    >
+                      <InfoIcon size={16} />
+                      <span class="truncate"
+                        >{isLoadingSparkInfo ? 'Loading...' : 'Wallet Info'}</span
+                      >
+                    </button>
+                  </div>
 
                   <!-- Backup & Recovery -->
                   <div class="text-xs text-caption mb-2 uppercase tracking-wide">
@@ -2537,7 +2907,9 @@
                   style="border-color: var(--color-input-border);"
                 >
                   <!-- Connection -->
-                  <div class="text-xs text-caption mb-2 uppercase tracking-wide">Connection</div>
+                  <div class="text-xs text-caption mb-2 uppercase tracking-wide">
+                    Wallet Details
+                  </div>
                   <div class="grid grid-cols-2 gap-2 mb-4">
                     <button
                       class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer"
@@ -3063,12 +3435,11 @@
                 {:else}
                   <button
                     class="w-full p-4 rounded-xl text-left flex items-center gap-4 transition-colors"
+                    class:spark-glow={!hasExistingSparkWallet}
                     class:cursor-pointer={!hasExistingSparkWallet}
                     class:cursor-not-allowed={hasExistingSparkWallet}
                     class:opacity-50={hasExistingSparkWallet}
-                    style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);{hasExistingSparkWallet
-                      ? ''
-                      : ' box-shadow: 0 0 0 2px rgb(251 146 60 / 0.4);'}"
+                    style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);"
                     on:click={() => !hasExistingSparkWallet && (selectedWalletType = 4)}
                     disabled={hasExistingSparkWallet}
                   >
@@ -3580,6 +3951,61 @@
       </div>
     {/if}
 
+    <!-- Spark Wallet Info Modal -->
+    {#if sparkWalletInfo && portalTarget}
+      <div use:portal={portalTarget}>
+        <div
+          class="fixed inset-0 bg-black/50 flex z-50 p-4"
+          style="display: flex; align-items: center; justify-content: center;"
+        >
+          <div
+            class="rounded-2xl p-6 max-w-md w-full max-h-[90vh] overflow-y-auto"
+            style="background-color: var(--color-bg-primary);"
+          >
+            <h2 class="text-xl font-bold mb-4" style="color: var(--color-text-primary)">
+              Spark Wallet Info
+            </h2>
+
+            <div class="space-y-4">
+              <div>
+                <div class="text-xs text-caption uppercase tracking-wide mb-1">Wallet ID</div>
+                <div class="text-sm font-mono break-all" style="color: var(--color-text-primary)">
+                  {sparkWalletInfo.walletId}
+                </div>
+              </div>
+
+              {#if sparkWalletInfo.sparkAddress}
+                <div>
+                  <div class="text-xs text-caption uppercase tracking-wide mb-1">Spark Address</div>
+                  <div class="text-sm font-mono break-all" style="color: var(--color-text-primary)">
+                    {sparkWalletInfo.sparkAddress}
+                  </div>
+                </div>
+              {/if}
+
+              <div>
+                <div class="text-xs text-caption uppercase tracking-wide mb-1">Network</div>
+                <div class="font-medium capitalize" style="color: var(--color-text-primary)">
+                  {sparkWalletInfo.network}
+                </div>
+              </div>
+
+              {#if sparkWalletInfo.createdBy}
+                <div>
+                  <div class="text-xs text-caption uppercase tracking-wide mb-1">Created By</div>
+                  <div class="font-medium" style="color: var(--color-text-primary)">
+                    {sparkWalletInfo.createdBy}
+                  </div>
+                </div>
+              {/if}
+            </div>
+
+            <Button on:click={closeSparkInfoModal} class="w-full mt-6">Close</Button>
+          </div>
+        </div>
+      </div>
+    {/if}
+
     <!-- Spark create confirmation modal -->
     {#if showSparkCreateConfirmModal && portalTarget}
       <div use:portal={portalTarget}>
@@ -3595,8 +4021,8 @@
               Create new wallet?
             </h2>
             <p class="text-caption mb-4">
-              A wallet backup already exists on Nostr. Creating a new wallet won't delete it, but
-              your next backup will overwrite the existing one.
+              A wallet backup already exists on Nostr. Creating a new wallet won't delete it—each
+              wallet is backed up separately and can be restored individually.
             </p>
             <div class="flex flex-col gap-3">
               <Button
@@ -4005,19 +4431,37 @@
 
             <div class="space-y-4">
               <div>
-                <label class="block text-sm font-medium mb-2 text-caption"
-                  >Invoice or Lightning Address</label
-                >
+                <label class="block text-sm font-medium mb-2 text-caption">
+                  {#if $activeWallet?.kind === 4}
+                    Invoice, Lightning Address, or Bitcoin Address
+                  {:else}
+                    Invoice or Lightning Address
+                  {/if}
+                </label>
                 <textarea
                   bind:value={sendInput}
-                  placeholder="lnbc... or user@example.com"
+                  placeholder={$activeWallet?.kind === 4
+                    ? 'lnbc..., user@example.com, or bc1...'
+                    : 'lnbc... or user@example.com'}
                   class="w-full p-3 rounded-lg bg-input border border-input text-primary-color placeholder-caption resize-none focus:outline-none focus:ring-2 focus:ring-amber-500"
                   rows="3"
-                  disabled={isSending}
+                  disabled={isSending || isSendingOnchain}
+                  on:input={() => {
+                    // Reset on-chain state when input changes
+                    if (onchainFeeQuote) {
+                      onchainFeeQuote = null;
+                      onchainPrepareResponse = null;
+                    }
+                  }}
                 />
+                {#if isBtcAddress && $activeWallet?.kind === 4}
+                  <div class="mt-1 text-xs text-amber-500 flex items-center gap-1">
+                    ₿ Bitcoin address detected - on-chain payment
+                  </div>
+                {/if}
               </div>
 
-              {#if isLightningAddress}
+              {#if isLightningAddress || isBtcAddress}
                 <div>
                   <label class="block text-sm font-medium mb-2 text-caption">Amount (sats)</label>
                   <input
@@ -4025,10 +4469,20 @@
                     bind:value={sendAmount}
                     placeholder="Enter amount in sats"
                     class="w-full p-3 rounded-lg bg-input border border-input text-primary-color placeholder-caption focus:outline-none focus:ring-2 focus:ring-amber-500"
-                    disabled={isSending}
+                    disabled={isSending || isSendingOnchain}
                     min="1"
+                    on:input={() => {
+                      // Reset fee quote when amount changes
+                      if (onchainFeeQuote) {
+                        onchainFeeQuote = null;
+                        onchainPrepareResponse = null;
+                      }
+                    }}
                   />
                 </div>
+              {/if}
+
+              {#if isLightningAddress && !isBtcAddress}
                 <div>
                   <label class="block text-sm font-medium mb-2 text-caption"
                     >Message (optional)</label
@@ -4044,19 +4498,143 @@
                 </div>
               {/if}
 
-              <button
-                class="w-full py-3 px-4 rounded-xl bg-amber-500 hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium transition-colors flex items-center justify-center gap-2"
-                on:click={handleSend}
-                disabled={isSending || !sendInput.trim() || (isLightningAddress && sendAmount <= 0)}
-              >
-                {#if isSending}
-                  <span class="animate-spin"><ArrowsClockwiseIcon size={20} /></span>
-                  Sending...
+              <!-- On-chain fee selection -->
+              {#if isBtcAddress && $activeWallet?.kind === 4}
+                {#if !onchainFeeQuote}
+                  <button
+                    class="w-full py-3 px-4 rounded-xl bg-amber-500 hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium transition-colors flex items-center justify-center gap-2"
+                    on:click={handlePrepareOnchainSend}
+                    disabled={isPreparingOnchain || !sendInput.trim() || sendAmount <= 0}
+                  >
+                    {#if isPreparingOnchain}
+                      <span class="animate-spin"><ArrowsClockwiseIcon size={20} /></span>
+                      Getting fees...
+                    {:else}
+                      Get Fee Quote
+                    {/if}
+                  </button>
                 {:else}
-                  <ArrowUpIcon size={20} weight="bold" />
-                  Send Payment
+                  <!-- Fee Selection -->
+                  <div>
+                    <label class="block text-sm font-medium mb-2 text-caption"
+                      >Select Fee Speed</label
+                    >
+                    <div class="space-y-2">
+                      <button
+                        class="w-full p-3 rounded-lg border text-left transition-colors"
+                        class:border-amber-500={selectedFeeSpeed === 'fast'}
+                        class:border-input={selectedFeeSpeed !== 'fast'}
+                        style={selectedFeeSpeed === 'fast'
+                          ? 'background-color: rgba(251, 191, 36, 0.1);'
+                          : 'background-color: var(--color-input-bg);'}
+                        on:click={() => (selectedFeeSpeed = 'fast')}
+                      >
+                        <div class="flex justify-between items-center">
+                          <span class="font-medium text-primary-color">Fast</span>
+                          <span class="text-caption text-sm"
+                            >{formatBalance(onchainFeeQuote.fast.feeSats)} sats</span
+                          >
+                        </div>
+                        <div class="text-xs text-caption">
+                          ~10-20 min • {onchainFeeQuote.fast.feeRate} sat/vB
+                        </div>
+                      </button>
+                      <button
+                        class="w-full p-3 rounded-lg border text-left transition-colors"
+                        class:border-amber-500={selectedFeeSpeed === 'medium'}
+                        class:border-input={selectedFeeSpeed !== 'medium'}
+                        style={selectedFeeSpeed === 'medium'
+                          ? 'background-color: rgba(251, 191, 36, 0.1);'
+                          : 'background-color: var(--color-input-bg);'}
+                        on:click={() => (selectedFeeSpeed = 'medium')}
+                      >
+                        <div class="flex justify-between items-center">
+                          <span class="font-medium text-primary-color">Medium</span>
+                          <span class="text-caption text-sm"
+                            >{formatBalance(onchainFeeQuote.medium.feeSats)} sats</span
+                          >
+                        </div>
+                        <div class="text-xs text-caption">
+                          ~30-60 min • {onchainFeeQuote.medium.feeRate} sat/vB
+                        </div>
+                      </button>
+                      <button
+                        class="w-full p-3 rounded-lg border text-left transition-colors"
+                        class:border-amber-500={selectedFeeSpeed === 'slow'}
+                        class:border-input={selectedFeeSpeed !== 'slow'}
+                        style={selectedFeeSpeed === 'slow'
+                          ? 'background-color: rgba(251, 191, 36, 0.1);'
+                          : 'background-color: var(--color-input-bg);'}
+                        on:click={() => (selectedFeeSpeed = 'slow')}
+                      >
+                        <div class="flex justify-between items-center">
+                          <span class="font-medium text-primary-color">Slow</span>
+                          <span class="text-caption text-sm"
+                            >{formatBalance(onchainFeeQuote.slow.feeSats)} sats</span
+                          >
+                        </div>
+                        <div class="text-xs text-caption">
+                          ~1-2 hours • {onchainFeeQuote.slow.feeRate} sat/vB
+                        </div>
+                      </button>
+                    </div>
+                  </div>
+
+                  <!-- Total -->
+                  <div class="p-3 rounded-lg bg-input">
+                    <div class="flex justify-between items-center">
+                      <span class="text-caption">Amount</span>
+                      <span class="text-primary-color">{formatBalance(sendAmount)} sats</span>
+                    </div>
+                    <div class="flex justify-between items-center mt-1">
+                      <span class="text-caption">Fee ({selectedFeeSpeed})</span>
+                      <span class="text-primary-color"
+                        >{formatBalance(onchainFeeQuote[selectedFeeSpeed].feeSats)} sats</span
+                      >
+                    </div>
+                    <div
+                      class="flex justify-between items-center mt-2 pt-2 border-t"
+                      style="border-color: var(--color-input-border);"
+                    >
+                      <span class="font-medium text-primary-color">Total</span>
+                      <span class="font-medium text-amber-500"
+                        >{formatBalance(sendAmount + onchainFeeQuote[selectedFeeSpeed].feeSats)} sats</span
+                      >
+                    </div>
+                  </div>
+
+                  <button
+                    class="w-full py-3 px-4 rounded-xl bg-amber-500 hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium transition-colors flex items-center justify-center gap-2"
+                    on:click={handleSendOnchain}
+                    disabled={isSendingOnchain}
+                  >
+                    {#if isSendingOnchain}
+                      <span class="animate-spin"><ArrowsClockwiseIcon size={20} /></span>
+                      Sending...
+                    {:else}
+                      <ArrowUpIcon size={20} weight="bold" />
+                      Send On-Chain
+                    {/if}
+                  </button>
                 {/if}
-              </button>
+              {:else}
+                <!-- Lightning payment button -->
+                <button
+                  class="w-full py-3 px-4 rounded-xl bg-amber-500 hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium transition-colors flex items-center justify-center gap-2"
+                  on:click={handleSend}
+                  disabled={isSending ||
+                    !sendInput.trim() ||
+                    (isLightningAddress && sendAmount <= 0)}
+                >
+                  {#if isSending}
+                    <span class="animate-spin"><ArrowsClockwiseIcon size={20} /></span>
+                    Sending...
+                  {:else}
+                    <ArrowUpIcon size={20} weight="bold" />
+                    Send Payment
+                  {/if}
+                </button>
+              {/if}
             </div>
           </div>
         </div>
@@ -4105,8 +4683,233 @@
               </div>
             {/if}
 
-            {#if !generatedInvoice}
-              <!-- Amount Selection -->
+            <!-- Lightning / On-Chain Toggle (only for Spark wallets) -->
+            {#if $activeWallet?.kind === 4 && !generatedInvoice && !onchainAddress}
+              <div
+                class="flex rounded-lg p-1 mb-4"
+                style="background-color: var(--color-input-bg);"
+              >
+                <button
+                  class="flex-1 py-2 px-4 rounded-md text-sm font-medium transition-colors"
+                  class:bg-amber-500={receiveMode === 'lightning'}
+                  class:text-white={receiveMode === 'lightning'}
+                  class:text-caption={receiveMode !== 'lightning'}
+                  on:click={() => (receiveMode = 'lightning')}
+                >
+                  ⚡ Lightning
+                </button>
+                <button
+                  class="flex-1 py-2 px-4 rounded-md text-sm font-medium transition-colors flex items-center justify-center gap-1"
+                  class:bg-amber-500={receiveMode === 'onchain'}
+                  class:text-white={receiveMode === 'onchain'}
+                  class:text-caption={receiveMode !== 'onchain'}
+                  on:click={() => {
+                    receiveMode = 'onchain';
+                    fetchMempoolFees();
+                  }}
+                >
+                  <BitcoinIcon size={16} /> On-Chain
+                </button>
+              </div>
+            {/if}
+
+            {#if receiveMode === 'onchain' && $activeWallet?.kind === 4}
+              <!-- On-Chain Receive -->
+              {#if !onchainAddress}
+                <div class="space-y-4 text-center">
+                  <p class="text-caption text-sm">
+                    Generate a Bitcoin address to receive on-chain payments. Funds will need to be
+                    claimed after confirmation.
+                  </p>
+
+                  <!-- Current Network Fees -->
+                  <div
+                    class="p-3 rounded-lg text-left"
+                    style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);"
+                  >
+                    <div class="flex items-center justify-between mb-2">
+                      <span class="text-xs font-medium text-caption">Current Network Fees</span>
+                      <a
+                        href="https://mempool.space"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        class="text-xs text-amber-500 hover:underline"
+                      >
+                        mempool.space
+                      </a>
+                    </div>
+                    {#if isLoadingMempoolFees}
+                      <div class="text-xs text-caption">Loading...</div>
+                    {:else if mempoolFees}
+                      <div class="grid grid-cols-3 gap-2 text-center">
+                        <div>
+                          <div class="text-xs text-caption">Fast</div>
+                          <div class="text-sm font-medium text-primary-color">
+                            {mempoolFees.fastestFee} sat/vB
+                          </div>
+                          <div class="text-xs text-caption">~10 min</div>
+                        </div>
+                        <div>
+                          <div class="text-xs text-caption">Medium</div>
+                          <div class="text-sm font-medium text-primary-color">
+                            {mempoolFees.halfHourFee} sat/vB
+                          </div>
+                          <div class="text-xs text-caption">~30 min</div>
+                        </div>
+                        <div>
+                          <div class="text-xs text-caption">Slow</div>
+                          <div class="text-sm font-medium text-primary-color">
+                            {mempoolFees.hourFee} sat/vB
+                          </div>
+                          <div class="text-xs text-caption">~1 hour</div>
+                        </div>
+                      </div>
+                    {:else}
+                      <div class="text-xs text-caption">
+                        Check <a
+                          href="https://mempool.space"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          class="text-amber-500 hover:underline">mempool.space</a
+                        > for current fees
+                      </div>
+                    {/if}
+                  </div>
+
+                  <p class="text-caption text-xs">
+                    On-chain transactions typically take up to 60 minutes for final settlement. The
+                    sender's fee rate affects confirmation time.
+                  </p>
+
+                  <Button
+                    on:click={handleGenerateOnchainAddress}
+                    disabled={isGeneratingOnchainAddress}
+                    class="w-full"
+                  >
+                    {#if isGeneratingOnchainAddress}
+                      <span class="animate-spin mr-2"><ArrowsClockwiseIcon size={16} /></span>
+                      Generating...
+                    {:else}
+                      Generate Bitcoin Address
+                    {/if}
+                  </Button>
+                </div>
+              {:else}
+                <!-- Show Bitcoin Address with QR -->
+                <div class="space-y-4 text-center">
+                  <div class="text-sm text-caption mb-2">Send only Bitcoin to this address:</div>
+
+                  <!-- QR Code -->
+                  <div class="qr-wrapper self-center p-4 rounded-xl bg-white" style="width: 100%;">
+                    <svg
+                      class="w-full"
+                      use:qr={{
+                        data: `bitcoin:${onchainAddress}`,
+                        shape: 'circle',
+                        width: 100,
+                        height: 100
+                      }}
+                    />
+                  </div>
+
+                  <!-- Address -->
+                  <div class="p-3 rounded-lg bg-input">
+                    <div class="text-xs text-caption mb-2">Bitcoin Address</div>
+                    <div class="text-sm font-mono break-all text-primary-color">
+                      {onchainAddress}
+                    </div>
+                  </div>
+
+                  <!-- Copy Button -->
+                  <button
+                    class="w-full py-3 px-4 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-medium transition-colors flex items-center justify-center gap-2"
+                    on:click={async () => {
+                      if (onchainAddress) {
+                        await navigator.clipboard.writeText(onchainAddress);
+                        successMessage = 'Address copied!';
+                      }
+                    }}
+                  >
+                    <CopyIcon size={18} />
+                    Copy Address
+                  </button>
+
+                  <!-- Pending Deposits -->
+                  {#if unclaimedDeposits.length > 0}
+                    <div
+                      class="mt-4 pt-4 border-t"
+                      style="border-color: var(--color-input-border);"
+                    >
+                      <div class="text-sm font-medium text-primary-color mb-2">
+                        Pending Deposits
+                      </div>
+                      <div class="space-y-2">
+                        {#each unclaimedDeposits as deposit}
+                          <div class="p-3 rounded-lg bg-input">
+                            <div class="flex items-center justify-between">
+                              <div>
+                                <div class="text-sm font-medium text-primary-color">
+                                  {formatBalance(deposit.amountSats)} sats
+                                </div>
+                                <div class="text-xs text-caption font-mono truncate max-w-[150px]">
+                                  {deposit.txid.slice(0, 8)}...{deposit.txid.slice(-8)}
+                                </div>
+                              </div>
+                              <div class="flex gap-2">
+                                <button
+                                  class="px-3 py-1 rounded-lg bg-amber-500 hover:bg-amber-600 text-white text-sm font-medium transition-colors disabled:opacity-50"
+                                  on:click={() => handleClaimDeposit(deposit.txid, deposit.vout)}
+                                  disabled={isClaimingDeposit}
+                                >
+                                  {#if isClaimingDeposit && claimingTxid === deposit.txid}
+                                    Claiming...
+                                  {:else}
+                                    Claim
+                                  {/if}
+                                </button>
+                                <button
+                                  class="px-3 py-1 rounded-lg border border-input hover:bg-input text-caption text-sm font-medium transition-colors disabled:opacity-50"
+                                  on:click={() => openRefundModal(deposit)}
+                                  disabled={isClaimingDeposit || isRefunding}
+                                  title="Refund to external Bitcoin address"
+                                >
+                                  Refund
+                                </button>
+                              </div>
+                            </div>
+                            {#if deposit.claimError && deposit.claimError.type !== 'maxDepositClaimFeeExceeded'}
+                              <div class="mt-2 text-xs text-red-500 flex items-start gap-1">
+                                <WarningIcon size={14} class="flex-shrink-0 mt-0.5" />
+                                <span>
+                                  {#if deposit.claimError.type === 'missingUtxo'}
+                                    Transaction not yet confirmed. Please wait.
+                                  {:else}
+                                    {deposit.claimError.message}
+                                  {/if}
+                                </span>
+                              </div>
+                            {/if}
+                          </div>
+                        {/each}
+                      </div>
+                    </div>
+                  {:else if isLoadingDeposits}
+                    <div class="text-center text-caption text-sm mt-4">Loading deposits...</div>
+                  {/if}
+
+                  <button
+                    class="w-full py-3 px-4 rounded-xl border border-input hover:bg-input text-primary-color font-medium transition-colors"
+                    on:click={() => {
+                      onchainAddress = null;
+                      receiveMode = 'lightning';
+                    }}
+                  >
+                    Done
+                  </button>
+                </div>
+              {/if}
+            {:else if !generatedInvoice}
+              <!-- Lightning Amount Selection -->
               <div class="space-y-4">
                 <div>
                   <label class="block text-sm font-medium mb-3 text-caption">Select Amount</label>
@@ -4398,3 +5201,179 @@
   pubkey={$userPublickey}
   walletType={checkRelayBackupsWalletType}
 />
+
+<!-- Refund Deposit Modal -->
+{#if showRefundModal && refundDeposit_}
+  <div
+    class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+    on:click|self={() => (showRefundModal = false)}
+    on:keydown={(e) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        showRefundModal = false;
+      }
+    }}
+    role="dialog"
+    aria-modal="true"
+  >
+    <div
+      class="rounded-2xl p-6 max-w-md w-full"
+      style="background-color: var(--color-bg); border: 1px solid var(--color-input-border);"
+    >
+      <h3 class="text-lg font-semibold text-primary-color mb-4">Refund Deposit</h3>
+
+      <div class="space-y-4">
+        <div class="p-3 rounded-lg bg-input">
+          <div class="text-sm text-caption">Amount</div>
+          <div class="text-lg font-semibold text-primary-color">
+            {formatBalance(refundDeposit_.amountSats)} sats
+          </div>
+          <div class="text-xs text-caption font-mono mt-1">
+            {refundDeposit_.txid}
+          </div>
+        </div>
+
+        <div>
+          <label class="block text-sm font-medium text-caption mb-2">
+            Destination Bitcoin Address
+          </label>
+          <input
+            type="text"
+            bind:value={refundAddress}
+            placeholder="bc1q... or 1... or 3..."
+            class="w-full px-4 py-3 rounded-xl bg-input border border-input text-primary-color placeholder:text-caption font-mono text-sm"
+          />
+          <p class="text-xs text-caption mt-1">
+            The deposit will be sent to this address minus the network fee.
+          </p>
+        </div>
+
+        <div>
+          <label class="block text-sm font-medium text-caption mb-2"> Fee Rate (sat/vB) </label>
+          <input
+            type="number"
+            bind:value={refundFeeRate}
+            min="1"
+            max="500"
+            class="w-full px-4 py-3 rounded-xl bg-input border border-input text-primary-color"
+          />
+          {#if refundDeposit_ && refundFeeRate}
+            {#await Promise.resolve(refundFeeRate * 200) then estRefundFee}
+              <p class="text-xs text-caption mt-1">
+                Estimated refund network fee (approx. 200 vB): {formatBalance(estRefundFee)} sats.
+              </p>
+              {#if estRefundFee > refundDeposit_.amountSats * 0.5}
+                <p class="text-xs text-red-500 mt-1">
+                  Warning: The estimated network fee is more than 50% of your deposit. Consider using a lower fee rate.
+                </p>
+              {/if}
+            {/await}
+          {/if}
+          {#if mempoolFees}
+            <div class="flex gap-2 mt-2">
+              <button
+                type="button"
+                class="flex-1 py-1.5 px-2 rounded text-xs border border-input hover:bg-input transition-colors"
+                class:bg-amber-500={refundFeeRate === mempoolFees.fastestFee}
+                class:text-white={refundFeeRate === mempoolFees.fastestFee}
+                class:border-amber-500={refundFeeRate === mempoolFees.fastestFee}
+                on:click={() => (refundFeeRate = mempoolFees?.fastestFee || 10)}
+              >
+                Fast ({mempoolFees.fastestFee})
+              </button>
+              <button
+                type="button"
+                class="flex-1 py-1.5 px-2 rounded text-xs border border-input hover:bg-input transition-colors"
+                class:bg-amber-500={refundFeeRate === mempoolFees.halfHourFee}
+                class:text-white={refundFeeRate === mempoolFees.halfHourFee}
+                class:border-amber-500={refundFeeRate === mempoolFees.halfHourFee}
+                on:click={() => (refundFeeRate = mempoolFees?.halfHourFee || 5)}
+              >
+                Medium ({mempoolFees.halfHourFee})
+              </button>
+              <button
+                type="button"
+                class="flex-1 py-1.5 px-2 rounded text-xs border border-input hover:bg-input transition-colors"
+                class:bg-amber-500={refundFeeRate === mempoolFees.hourFee}
+                class:text-white={refundFeeRate === mempoolFees.hourFee}
+                class:border-amber-500={refundFeeRate === mempoolFees.hourFee}
+                on:click={() => (refundFeeRate = mempoolFees?.hourFee || 2)}
+              >
+                Slow ({mempoolFees.hourFee})
+              </button>
+            </div>
+            <p class="text-xs text-caption mt-1">
+              Current rates from <a
+                href="https://mempool.space"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="text-amber-500 hover:underline">mempool.space</a
+              >
+            </p>
+          {:else}
+            <p class="text-xs text-caption mt-1">
+              Higher fee = faster confirmation. Check <a
+                href="https://mempool.space"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="text-amber-500 hover:underline">mempool.space</a
+              > for current rates.
+            </p>
+          {/if}
+        </div>
+
+        <div class="flex gap-3 pt-2">
+          <button
+            class="flex-1 py-3 px-4 rounded-xl border border-input hover:bg-input text-primary-color font-medium transition-colors"
+            on:click={() => (showRefundModal = false)}
+            disabled={isRefunding}
+          >
+            Cancel
+          </button>
+          <button
+            class="flex-1 py-3 px-4 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-medium transition-colors disabled:opacity-50"
+            on:click={handleRefundDeposit}
+            disabled={isRefunding || !refundAddress.trim()}
+          >
+            {#if isRefunding}
+              Refunding...
+            {:else}
+              Refund
+            {/if}
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+{/if}
+
+<style>
+  .spark-glow {
+    box-shadow:
+      0 0 15px rgba(251, 191, 36, 0.25),
+      0 0 30px rgba(251, 191, 36, 0.12);
+    border: 1px solid rgba(251, 191, 36, 0.3) !important;
+    animation: spark-pulse 4s ease-in-out infinite;
+  }
+
+  @keyframes spark-pulse {
+    0%,
+    100% {
+      box-shadow:
+        0 0 15px rgba(251, 191, 36, 0.25),
+        0 0 30px rgba(251, 191, 36, 0.12);
+    }
+    50% {
+      box-shadow:
+        0 0 20px rgba(251, 191, 36, 0.35),
+        0 0 40px rgba(251, 191, 36, 0.18);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .spark-glow {
+      animation: none;
+    }
+  }
+</style>
