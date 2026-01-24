@@ -134,6 +134,8 @@
       // Clear existing data for fresh load
       seenEventIds.clear();
       events = [];
+      hasMore = true;
+      loadingMore = false;
       visibleNotes = new Set();
       followedPubkeysForRealtime = [];
 
@@ -1453,6 +1455,8 @@
       error = false;
       events = [];
       seenEventIds.clear();
+      hasMore = true;
+      loadingMore = false;
 
       if (!$ndk) {
         console.error('[Feed] NDK not initialized');
@@ -3968,6 +3972,8 @@
               events = hydratedEvents;
               loading = false;
               error = false;
+              hasMore = true;
+              loadingMore = false;
               
               console.log(`[Feed] Tab switch: Rendered ${events.length} cached events instantly`);
               
@@ -4006,6 +4012,8 @@
               events = hydratedEvents;
               loading = false;
               error = false;
+              hasMore = true;
+              loadingMore = false;
               
               console.log(`[Feed] Tab switch: Rendered ${events.length} cached events instantly`);
               
@@ -4065,6 +4073,8 @@
       events = [];
       seenEventIds.clear();
       loading = true;
+      hasMore = true;
+      loadingMore = false;
       pendingNewEvents = [];
       showNewPostsButton = false;
     });
@@ -4099,6 +4109,8 @@
         events = hydratedEvents;
         loading = false; // No loading spinner - we have content!
         error = false;
+        hasMore = true;
+        loadingMore = false;
         lastEventTime = Math.max(...events.map((e) => e.created_at || 0));
         
         console.log(`[Feed] Rendered ${events.length} cached events instantly`);
