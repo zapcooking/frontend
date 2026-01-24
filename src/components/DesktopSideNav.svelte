@@ -12,7 +12,6 @@
   import ForkKnifeIcon from 'phosphor-svelte/lib/ForkKnife';
   import CompassIcon from 'phosphor-svelte/lib/Compass';
   import BellIcon from 'phosphor-svelte/lib/Bell';
-  import ShoppingBagIcon from 'phosphor-svelte/lib/ShoppingBagOpen';
 
   import CookbookIcon from 'phosphor-svelte/lib/BookOpen';
   import ShoppingCartIcon from 'phosphor-svelte/lib/ShoppingCart';
@@ -52,12 +51,6 @@
       icon: BellIcon,
       match: (p) => p.startsWith('/notifications'),
       badge: 'notificationsDot'
-    },
-    {
-      href: 'https://plebeian.market/community/seth@zap.cooking/zap-cooking-wear-orcd8yg6jd',
-      label: 'Shop',
-      icon: ShoppingBagIcon,
-      external: true
     }
   ];
 
