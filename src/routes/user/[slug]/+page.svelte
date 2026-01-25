@@ -946,7 +946,7 @@
   </div>
 </Modal>
 
-<div class="max-w-4xl mx-auto">
+<div class="max-w-4xl mx-auto overflow-x-hidden w-full">
   <!-- Profile Banner -->
   <div class="relative -mx-4 sm:-mx-6 lg:-mx-8 mb-4">
     <div
@@ -1141,7 +1141,7 @@
       </div>
     {/if}
   {:else if activeTab === 'posts'}
-    <div class="max-w-2xl">
+    <div class="max-w-2xl w-full overflow-x-hidden">
       <FoodstrFeedOptimized bind:this={foodstrFeedComponent} authorPubkey={hexpubkey} />
       <div bind:this={postsSentinel} class="py-4 text-center"></div>
     </div>

@@ -4360,7 +4360,7 @@
 </script>
 
 <FeedErrorBoundary>
-  <div class="max-w-2xl mx-auto">
+  <div class="max-w-2xl mx-auto overflow-x-hidden">
     <!-- Note: Refresh indicator is handled by PullToRefresh component on the page -->
 
     <!-- Background loading indicator (subtle, centered at top) - only show if no new posts button -->
@@ -4497,7 +4497,7 @@
         </div>
       </div>
     {:else}
-      <div class="space-y-0">
+      <div class="space-y-0 w-full overflow-x-hidden">
         {#each events as event (event.id)}
           <!-- Get engagement info - always check cache, subscribe only when visible -->
           {@const isVisible = visibleNotes.has(event.id)}
@@ -4512,7 +4512,7 @@
             comments: { count: engagementStoreValue.comments.count }
           }}
           <article
-            class="border-b py-4 sm:py-6 first:pt-0 
+            class="border-b py-4 sm:py-6 first:pt-0 w-full overflow-x-hidden
                    {isPopular ? 'zap-popular-post' : ''} 
                    {isZapAnimating ? 'zap-bolt-animation' : ''}
                    {zapGlowTier !== 'none' ? `zap-glow-${zapGlowTier}` : ''}"

@@ -164,7 +164,7 @@
 </svelte:head>
 
 <PullToRefresh bind:this={pullToRefreshEl} on:refresh={handleRefresh}>
-  <div class="px-4 max-w-2xl mx-auto lg:mx-0 lg:max-w-4xl community-page">
+  <div class="px-4 max-w-2xl mx-auto lg:mx-0 lg:max-w-4xl community-page overflow-x-hidden w-full">
     <!-- Orientation text for signed-out users -->
     {#if $userPublickey === ''}
       <div class="mb-4 pt-1">

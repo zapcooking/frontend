@@ -207,7 +207,7 @@
   }
 </script>
 
-<div class="whitespace-pre-wrap break-words note-content {className}">
+<div class="whitespace-pre-wrap break-words note-content {className} w-full overflow-x-hidden">
   {#each parsedContent as part, i}
     {#if part.type === 'text'}
       {@const prevPart = parsedContent[i - 1]}
