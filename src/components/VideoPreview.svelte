@@ -105,10 +105,16 @@
         // Don't set isPlaying to true if autoplay fails
       }
     } else {
-      // Video left viewport - pause
-      if (isPlaying && autoplayVideo) {
-        autoplayVideo.pause();
-        isPlaying = false;
+      // Video left viewport - pause immediately
+      if (autoplayVideo) {
+        // Pause immediately when scrolled past
+        try {
+          autoplayVideo.pause();
+          isPlaying = false;
+        } catch (e) {
+          console.warn('Error pausing video:', e);
+          isPlaying = false;
+        }
       }
     }
   }
@@ -169,10 +175,25 @@
               isVisible = true;
             }
             
-            // Track viewport for autoplay - video should be at least 50% visible
-            // This ensures only the main video in view plays
-            const inViewport = entry.isIntersecting && entry.intersectionRatio >= 0.5;
+            // Track viewport for autoplay
+            // Pause if: not intersecting OR less than 50% visible
+            // Play if: intersecting AND at least 50% visible
+            const shouldPlay = entry.isIntersecting && entry.intersectionRatio >= 0.5;
+            const inViewport = shouldPlay;
+            
+            // Always update state when it changes (including when scrolling past)
             if (inViewport !== wasInViewport) {
+              // Clear any pending timeouts
+              if (pauseTimeout) {
+                clearTimeout(pauseTimeout);
+                pauseTimeout = null;
+              }
+              if (playTimeout) {
+                clearTimeout(playTimeout);
+                playTimeout = null;
+              }
+              
+              // Update state immediately
               handleViewportChange(inViewport);
             }
           });
