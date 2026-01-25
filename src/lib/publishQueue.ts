@@ -408,9 +408,13 @@ class PublishQueueManager {
     event: NDKEvent,
     relayMode: PendingPublish['relayMode']
   ): Promise<void> {
-    const { ndk, normalizeRelayUrl } = await import('$lib/nostr');
-    const { NDKRelaySet, NDKEvent: NDKEventClass } = await import('@nostr-dev-kit/ndk');
+    const { ndk, ensureNdkConnected, getConnectedRelays } = await import('$lib/nostr');
+    const { NDKRelaySet } = await import('@nostr-dev-kit/ndk');
     const ndkInstance = get(ndk);
+
+    // Ensure NDK is connected before attempting to publish
+    console.log('[PublishQueue] Ensuring NDK connection...');
+    await ensureNdkConnected(5000);
 
     // Ensure signer is ready
     const { getAuthManager } = await import('$lib/authManager');
@@ -421,24 +425,32 @@ class PublishQueueManager {
 
     // Sign the event if not already signed
     if (!event.sig) {
+      console.log('[PublishQueue] Signing event...');
       await event.sign();
     }
 
+    console.log(`[PublishQueue] Publishing event (kind ${event.kind}) with mode: ${relayMode}`);
+    console.log(`[PublishQueue] Event ID: ${event.id}`);
+
     let publishPromise: Promise<Set<any>>;
+    let targetRelays: string[] = [];
 
     if (relayMode === 'garden') {
+      targetRelays = ['wss://garden.zap.cooking'];
       const relay = ndkInstance.pool.getRelay('wss://garden.zap.cooking', true, true);
       await relay.connect();
       await new Promise(resolve => setTimeout(resolve, 100));
       const relaySet = new NDKRelaySet(new Set([relay]), ndkInstance);
       publishPromise = event.publish(relaySet, PUBLISH_TIMEOUT);
     } else if (relayMode === 'pantry') {
+      targetRelays = ['wss://pantry.zap.cooking'];
       const relay = ndkInstance.pool.getRelay('wss://pantry.zap.cooking', true, true);
       await relay.connect();
       await new Promise(resolve => setTimeout(resolve, 100));
       const relaySet = new NDKRelaySet(new Set([relay]), ndkInstance);
       publishPromise = event.publish(relaySet, PUBLISH_TIMEOUT);
     } else if (relayMode === 'garden-pantry') {
+      targetRelays = ['wss://garden.zap.cooking', 'wss://pantry.zap.cooking'];
       const gardenRelay = ndkInstance.pool.getRelay('wss://garden.zap.cooking', true, true);
       const pantryRelay = ndkInstance.pool.getRelay('wss://pantry.zap.cooking', true, true);
       await Promise.all([gardenRelay.connect(), pantryRelay.connect()]);
@@ -446,23 +458,72 @@ class PublishQueueManager {
       const relaySet = new NDKRelaySet(new Set([gardenRelay, pantryRelay]), ndkInstance);
       publishPromise = event.publish(relaySet, PUBLISH_TIMEOUT);
     } else {
-      // 'all' mode - publish to all connected relays with extended timeout
-      publishPromise = event.publish(undefined, PUBLISH_TIMEOUT);
+      // 'all' mode - get connected relays and create explicit relay set
+      const connectedRelays = getConnectedRelays();
+      console.log(`[PublishQueue] Connected relays: ${connectedRelays.length}`, connectedRelays);
+      
+      if (connectedRelays.length === 0) {
+        // No relays connected, try to get from pool
+        const poolRelays: any[] = [];
+        if (ndkInstance.pool && ndkInstance.pool.relays) {
+          for (const [url, relay] of ndkInstance.pool.relays) {
+            if (relay.connectivity?.status === 1) {
+              poolRelays.push(relay);
+              targetRelays.push(url);
+            }
+          }
+        }
+        
+        console.log(`[PublishQueue] Pool relays found: ${poolRelays.length}`, targetRelays);
+        
+        if (poolRelays.length === 0) {
+          throw new Error('No relays connected. Please check your internet connection.');
+        }
+        
+        const relaySet = new NDKRelaySet(new Set(poolRelays), ndkInstance);
+        publishPromise = event.publish(relaySet, PUBLISH_TIMEOUT);
+      } else {
+        targetRelays = connectedRelays;
+        // Create relay set from connected relays
+        const relays: any[] = [];
+        for (const url of connectedRelays) {
+          const relay = ndkInstance.pool?.relays.get(url);
+          if (relay) {
+            relays.push(relay);
+          }
+        }
+        
+        if (relays.length > 0) {
+          const relaySet = new NDKRelaySet(new Set(relays), ndkInstance);
+          publishPromise = event.publish(relaySet, PUBLISH_TIMEOUT);
+        } else {
+          // Fallback to default publish
+          console.log('[PublishQueue] Falling back to default publish');
+          publishPromise = event.publish(undefined, PUBLISH_TIMEOUT);
+        }
+      }
     }
+
+    console.log(`[PublishQueue] Publishing to relays:`, targetRelays);
 
     // Add our own timeout wrapper
     const timeoutPromise = new Promise<never>((_, reject) => {
-      setTimeout(() => reject(new Error('Publishing timeout')), PUBLISH_TIMEOUT + 5000);
+      setTimeout(() => reject(new Error('Publishing timeout - relays may be slow or disconnected')), PUBLISH_TIMEOUT + 5000);
     });
 
     const publishedRelays = await Promise.race([publishPromise, timeoutPromise]);
 
     // Verify at least one relay received it
     if (!publishedRelays || publishedRelays.size === 0) {
-      throw new Error('No relays received the event');
+      throw new Error('No relays confirmed receipt of the event');
     }
 
-    console.log(`[PublishQueue] Published to ${publishedRelays.size} relay(s)`);
+    // Log which relays confirmed
+    const confirmedUrls: string[] = [];
+    for (const relay of publishedRelays) {
+      confirmedUrls.push(relay.url || 'unknown');
+    }
+    console.log(`[PublishQueue] ✅ Published to ${publishedRelays.size} relay(s):`, confirmedUrls);
   }
 
   /**
