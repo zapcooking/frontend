@@ -1055,9 +1055,10 @@
 
     try {
       const result = await receiveOnchain();
-      onchainAddress = result.address;
       // Register with Branta for verification (zk: true for on-chain)
-      registerWithBranta(result.address, 'zap.cooking Bitcoin deposit address', true);
+      // Await to ensure badge can verify after registration completes
+      await registerWithBranta(result.address, 'zap.cooking Bitcoin deposit address', true);
+      onchainAddress = result.address;
       // Also load any pending deposits
       await loadUnclaimedDeposits();
     } catch (e) {
@@ -1370,10 +1371,15 @@
       if (!result || !result.invoice) {
         throw new Error('Failed to generate invoice - no invoice returned');
       }
-      generatedInvoice = result.invoice;
       generatedPaymentHash = result.paymentHash || '';
       // Register with Branta for verification (zk: false for Lightning)
-      registerWithBranta(result.invoice, `zap.cooking invoice for ${amountToUse} sats`, false);
+      // Await to ensure badge can verify after registration completes
+      await registerWithBranta(
+        result.invoice,
+        `zap.cooking invoice for ${amountToUse} sats`,
+        false
+      );
+      generatedInvoice = result.invoice;
 
       setTimeout(() => {
         if (generatedInvoice && !invoicePaid) startInvoicePolling();
@@ -5172,11 +5178,13 @@
                         <div class="flex items-center gap-1">
                           <button
                             class="flex-shrink-0 p-2 rounded-lg hover:bg-primary/10 transition-colors"
-                            on:click={() => {
+                            on:click={async () => {
                               const wasHidden = showLightningAddressQr !== nwcLud16;
-                              showLightningAddressQr = wasHidden ? nwcLud16 : null;
                               if (wasHidden && nwcLud16) {
-                                registerWithBranta(nwcLud16, 'NWC Lightning Address', false);
+                                await registerWithBranta(nwcLud16, 'NWC Lightning Address', false);
+                                showLightningAddressQr = nwcLud16;
+                              } else {
+                                showLightningAddressQr = null;
                               }
                             }}
                             title="Show QR code"
@@ -5254,18 +5262,18 @@
                         <div class="flex items-center gap-1">
                           <button
                             class="flex-shrink-0 p-2 rounded-lg hover:bg-primary/10 transition-colors"
-                            on:click={() => {
+                            on:click={async () => {
                               const wasHidden =
                                 showLightningAddressQr !== $sparkLightningAddressStore;
-                              showLightningAddressQr = wasHidden
-                                ? $sparkLightningAddressStore
-                                : null;
                               if (wasHidden && $sparkLightningAddressStore) {
-                                registerWithBranta(
+                                await registerWithBranta(
                                   $sparkLightningAddressStore,
                                   'Spark Lightning Address',
                                   false
                                 );
+                                showLightningAddressQr = $sparkLightningAddressStore;
+                              } else {
+                                showLightningAddressQr = null;
                               }
                             }}
                             title="Show QR code"
