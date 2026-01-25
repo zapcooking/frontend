@@ -4360,7 +4360,7 @@
 </script>
 
 <FeedErrorBoundary>
-  <div class="max-w-2xl mx-auto overflow-x-hidden">
+  <div class="max-w-2xl mx-auto overflow-x-hidden" style="padding-left: 0; padding-right: 0;">
     <!-- Note: Refresh indicator is handled by PullToRefresh component on the page -->
 
     <!-- Background loading indicator (subtle, centered at top) - only show if no new posts button -->
@@ -4497,7 +4497,7 @@
         </div>
       </div>
     {:else}
-      <div class="space-y-0 w-full overflow-x-hidden">
+      <div class="space-y-0 w-full">
         {#each events as event (event.id)}
           <!-- Get engagement info - always check cache, subscribe only when visible -->
           {@const isVisible = visibleNotes.has(event.id)}
@@ -4512,7 +4512,7 @@
             comments: { count: engagementStoreValue.comments.count }
           }}
           <article
-            class="border-b py-4 sm:py-6 first:pt-0 w-full overflow-x-hidden
+            class="border-b py-4 sm:py-6 first:pt-0 w-full
                    {isPopular ? 'zap-popular-post' : ''} 
                    {isZapAnimating ? 'zap-bolt-animation' : ''}
                    {zapGlowTier !== 'none' ? `zap-glow-${zapGlowTier}` : ''}"
@@ -5202,6 +5202,13 @@
   }
 
   /* Tiered zap glow effects - visible amber glow */
+  /* Wrapper to allow glow to extend beyond container */
+  .zap-glow-soft,
+  .zap-glow-medium,
+  .zap-glow-bright {
+    position: relative;
+  }
+
   /* Tier 1: Soft glow (>500 sats) - Gentle amber hint */
   .zap-glow-soft {
     border-radius: 12px;
@@ -5212,10 +5219,10 @@
       inset 0 0 20px rgba(251, 191, 36, 0.03);
     border: 1px solid rgba(251, 191, 36, 0.15);
     transition: all 0.5s ease-in-out;
-    margin: 0.25rem 0;
+    margin: 0.25rem 0.75rem;
     padding: 0.75rem !important;
-    overflow: hidden; /* Prevent content overflow */
-    max-width: 100%; /* Ensure it doesn't exceed container */
+    /* Removed overflow: hidden to allow glow to be visible on all sides */
+    max-width: calc(100% - 1.5rem); /* Account for horizontal margin */
   }
 
   /* Tier 2: Medium glow (>1000 sats) - Noticeable warm glow */
@@ -5229,10 +5236,10 @@
       inset 0 0 30px rgba(251, 191, 36, 0.04);
     border: 1px solid rgba(251, 191, 36, 0.25);
     transition: all 0.5s ease-in-out;
-    margin: 0.25rem 0;
+    margin: 0.25rem 1rem;
     padding: 0.75rem !important;
-    overflow: hidden; /* Prevent content overflow */
-    max-width: 100%; /* Ensure it doesn't exceed container */
+    /* Removed overflow: hidden to allow glow to be visible on all sides */
+    max-width: calc(100% - 2rem); /* Account for horizontal margin */
   }
 
   /* Tier 3: Bright glow (>2000 sats) - Prominent golden aura */
@@ -5248,10 +5255,10 @@
     border: 1px solid rgba(251, 191, 36, 0.35);
     transition: all 0.5s ease-in-out;
     animation: subtle-glow-pulse 4s ease-in-out infinite;
-    margin: 0.25rem 0;
+    margin: 0.25rem 1.25rem;
     padding: 0.75rem !important;
-    overflow: hidden; /* Prevent content overflow */
-    max-width: 100%; /* Ensure it doesn't exceed container */
+    /* Removed overflow: hidden to allow glow to be visible on all sides */
+    max-width: calc(100% - 2.5rem); /* Account for horizontal margin */
   }
 
   /* Subtle pulse animation for highest tier */

@@ -52,16 +52,20 @@
     const scrollingDown = currentScrollY > lastScrollY;
     const scrollThreshold = 10; // Minimum scroll distance to trigger fade
 
-    // Show tabs when scrolling up or at top
-    if (currentScrollY < scrollThreshold || !scrollingDown) {
+    // Show tabs when scrolling up or near top
+    if (currentScrollY < scrollThreshold) {
+      tabsVisible = true;
+    } else if (!scrollingDown) {
+      // Scrolling up - show tabs immediately
       tabsVisible = true;
     } else if (scrollingDown && currentScrollY > scrollThreshold) {
+      // Scrolling down - hide tabs
       tabsVisible = false;
     }
 
     lastScrollY = currentScrollY;
 
-    // Clear existing timeout
+    // Always reset the "show after scroll stops" timeout
     if (scrollTimeout) {
       clearTimeout(scrollTimeout);
     }
@@ -69,7 +73,7 @@
     // Show tabs after scrolling stops
     scrollTimeout = setTimeout(() => {
       tabsVisible = true;
-    }, 150);
+    }, 400);
   }
 
   async function setTab(tab: FilterMode) {
@@ -127,18 +131,23 @@
     if (typeof window !== 'undefined') {
       // Find the scrollable container (app-scroll from layout)
       scrollContainer = document.getElementById('app-scroll');
+      
       if (scrollContainer) {
-        // Throttle scroll events for performance
+        // Initialize lastScrollY with current position
+        lastScrollY = scrollContainer.scrollTop;
+        
+        // Simple scroll handler with requestAnimationFrame throttling
         let ticking = false;
         throttledScrollHandler = () => {
           if (!ticking) {
+            ticking = true;
             window.requestAnimationFrame(() => {
               handleScroll();
               ticking = false;
             });
-            ticking = true;
           }
         };
+        
         scrollContainer.addEventListener('scroll', throttledScrollHandler, { passive: true });
       }
     }
@@ -164,7 +173,7 @@
 </svelte:head>
 
 <PullToRefresh bind:this={pullToRefreshEl} on:refresh={handleRefresh}>
-  <div class="px-4 max-w-2xl mx-auto lg:mx-0 lg:max-w-4xl community-page overflow-x-hidden w-full">
+  <div class="px-4 max-w-2xl mx-auto lg:mx-0 lg:max-w-4xl community-page w-full" style="padding-left: 1.5rem; padding-right: 1.5rem;">
     <!-- Orientation text for signed-out users -->
     {#if $userPublickey === ''}
       <div class="mb-4 pt-1">
@@ -180,8 +189,8 @@
 
     <!-- Filter Tabs -->
     <div 
-      class="mb-4 border-b tabs-container transition-opacity duration-300" 
-      style="border-color: var(--color-input-border); opacity: {tabsVisible ? 1 : 0}; pointer-events: {tabsVisible ? 'auto' : 'none'};"
+      class="mb-4 border-b tabs-container transition-all duration-300 ease-in-out" 
+      style="border-color: var(--color-input-border); opacity: {tabsVisible ? 1 : 0}; pointer-events: {tabsVisible ? 'auto' : 'none'}; transform: translateY({tabsVisible ? '0' : '-10px'});"
     >
       <div class="flex overflow-x-auto flex-nowrap scrollbar-hide">
         <button
@@ -302,16 +311,28 @@
 </PullToRefresh>
 
 <style>
-  /* Keep relay tabs pinned; feed scrolls beneath them */
+  /* Keep relay tabs pinned below the glass header */
   .tabs-container {
     position: sticky;
-    top: 0;
-    z-index: 20;
-    background-color: var(--color-bg-primary);
+    /* Position below the glass header (~60px on desktop) */
+    top: 60px;
+    z-index: 15; /* Below header (z-20) but above content */
+    /* Frosted glass effect - matches header */
+    background-color: color-mix(in srgb, var(--color-bg-primary) 70%, transparent);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
     padding-top: 0.5rem;
-    margin-top: -0.5rem;
-    /* Ensure full background coverage to prevent gaps */
-    box-shadow: 0 2px 4px -2px rgba(0, 0, 0, 0.1);
+    padding-bottom: 0.25rem;
+    /* Smooth transitions for show/hide */
+    transition: opacity 0.3s ease-in-out, transform 0.3s ease-in-out;
+    will-change: opacity, transform;
+  }
+  
+  /* On mobile, account for safe area inset that the header uses */
+  @media (max-width: 1023px) {
+    .tabs-container {
+      top: calc(56px + env(safe-area-inset-top, 0px));
+    }
   }
 
   /* Bottom padding to prevent fixed mobile nav from covering content */
