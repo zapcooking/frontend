@@ -739,44 +739,90 @@ export async function prepareOnchainSend(
   }
 
   try {
-    sparkLoading.set(true);
-
-    const request = {
-      destination: address,
-      amountSat: amountSats
+    // Note: Don't set sparkLoading here - this is just a prepare/quote step, not an actual payment
+    // SDK expects paymentRequest (the Bitcoin address) and optional amount
+    const request: any = {
+      paymentRequest: address
     };
+
+    // Only include amount if specified (allows for "send all" when omitted)
+    // SDK expects amount as a BigInt (u128), not a regular number
+    if (amountSats !== undefined && amountSats > 0) {
+      request.amount = BigInt(Math.floor(amountSats));
+    }
 
     const response = await _sdkInstance.prepareSendPayment(request);
 
     logger.info('[Spark] On-chain send prepared:', response);
+    // Log full structure for debugging
+    console.log(
+      '[Spark] Full prepareResponse:',
+      JSON.stringify(
+        response,
+        (key, value) => (typeof value === 'bigint' ? value.toString() : value),
+        2
+      )
+    );
 
-    // Extract fee quotes from the response
-    const feeQuoteData = response?.paymentMethod?.feeQuote;
+    // Extract fee quotes from the response - try multiple possible paths
+    const feeQuoteData = response?.paymentMethod?.feeQuote || response?.feeQuote;
+    console.log(
+      '[Spark] feeQuoteData:',
+      JSON.stringify(
+        feeQuoteData,
+        (key, value) => (typeof value === 'bigint' ? value.toString() : value),
+        2
+      )
+    );
+
     if (!feeQuoteData) {
       throw new Error('No fee quote returned for on-chain payment');
     }
 
+    // Helper to extract fee value (handles BigInt)
+    const extractFee = (obj: any, ...keys: string[]): number => {
+      for (const key of keys) {
+        const val = obj?.[key];
+        if (val !== undefined && val !== null) {
+          return typeof val === 'bigint' ? Number(val) : Number(val);
+        }
+      }
+      return 0;
+    };
+
+    const extractTotalFee = (obj: any): number => {
+      const totalFee = extractFee(obj, 'totalFee', 'totalFeeSat', 'totalFeeSats');
+      if (totalFee > 0) return totalFee;
+
+      const userFee = extractFee(obj, 'userFeeSat', 'userFee', 'user_fee_sat');
+      const broadcastFee = extractFee(obj, 'l1BroadcastFeeSat', 'l1BroadcastFee');
+      if (userFee > 0 && broadcastFee > 0) return userFee + broadcastFee;
+      return userFee || broadcastFee;
+    };
+
+    // SDK returns userFeeSat (user's fee) and l1BroadcastFeeSat (L1 broadcast fee).
+    // Prefer total fee when provided, otherwise sum user + broadcast fee as a safe total.
     const feeQuote: OnchainFeeQuote = {
       fast: {
-        feeSats: feeQuoteData.speedFast?.totalFee || 0,
-        feeRate: feeQuoteData.speedFast?.feeRate || 0
+        feeSats: extractTotalFee(feeQuoteData.speedFast),
+        feeRate: extractFee(feeQuoteData.speedFast, 'feeRate', 'l1BroadcastFeeSat')
       },
       medium: {
-        feeSats: feeQuoteData.speedMedium?.totalFee || 0,
-        feeRate: feeQuoteData.speedMedium?.feeRate || 0
+        feeSats: extractTotalFee(feeQuoteData.speedMedium),
+        feeRate: extractFee(feeQuoteData.speedMedium, 'feeRate', 'l1BroadcastFeeSat')
       },
       slow: {
-        feeSats: feeQuoteData.speedSlow?.totalFee || 0,
-        feeRate: feeQuoteData.speedSlow?.feeRate || 0
+        feeSats: extractTotalFee(feeQuoteData.speedSlow),
+        feeRate: extractFee(feeQuoteData.speedSlow, 'feeRate', 'l1BroadcastFeeSat')
       }
     };
+
+    console.log('[Spark] Extracted feeQuote:', feeQuote);
 
     return { feeQuote, prepareResponse: response };
   } catch (error) {
     logger.error('[Spark] Failed to prepare on-chain send:', String(error));
     throw error;
-  } finally {
-    sparkLoading.set(false);
   }
 }
 
@@ -797,6 +843,7 @@ export async function sendOnchain(
   try {
     sparkLoading.set(true);
 
+    // SDK expects options with type and confirmationSpeed
     const request = {
       prepareResponse,
       options: {
@@ -805,12 +852,21 @@ export async function sendOnchain(
       }
     };
 
-    const payment = await _sdkInstance.sendPayment(request);
+    logger.info(
+      '[Spark] Sending on-chain payment with request:',
+      JSON.stringify(
+        request,
+        (key, value) => (typeof value === 'bigint' ? value.toString() : value),
+        2
+      )
+    );
 
-    logger.info('[Spark] On-chain payment sent:', payment);
+    const response = await _sdkInstance.sendPayment(request);
+
+    logger.info('[Spark] On-chain payment sent:', response);
 
     await refreshBalanceInternal();
-    return payment;
+    return response?.payment || response;
   } catch (error) {
     logger.error('[Spark] Failed to send on-chain payment:', String(error));
     throw error;
