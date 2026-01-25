@@ -61,6 +61,8 @@ const processedEventIds = new Map<string, Set<string>>();
 const subscriptionCountingInProgress = new Set<string>();
 // Track optimistic zap updates to prevent double-counting when real zap arrives
 const optimisticZaps = new Map<string, { amountMillisats: number; timestamp: number; userPubkey: string }>();
+// Track optimistic reaction updates to prevent double-counting when real reaction arrives
+const optimisticReactions = new Map<string, { emoji: string; timestamp: number; userPubkey: string }>();
 
 const CACHE_KEY_PREFIX = 'engagement_';
 const CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours - persist across page reloads
@@ -363,7 +365,7 @@ export async function fetchEngagement(
         
         switch (event.kind) {
           case 7: // Reaction
-            processReaction(updated, event, userPublickey);
+            processReaction(updated, event, userPublickey, eventId);
             break;
           case 6: // Repost
             processRepost(updated, event, userPublickey);
@@ -441,7 +443,7 @@ export async function fetchEngagement(
   }
 }
 
-function processReaction(data: EngagementData, event: NDKEvent, userPublickey: string): void {
+function processReaction(data: EngagementData, event: NDKEvent, userPublickey: string, targetEventId?: string): void {
   const content = event.content.trim() || '+';
   
   // Normalize reaction content
@@ -455,6 +457,18 @@ function processReaction(data: EngagementData, event: NDKEvent, userPublickey: s
     return;
   } else {
     emoji = content;
+  }
+  
+  // Check if this matches an optimistic reaction we already added
+  // This prevents double counting when the published reaction comes back through subscription
+  if (targetEventId && event.pubkey === userPublickey) {
+    const optimisticKey = `${targetEventId}:${userPublickey}:${emoji}`;
+    if (optimisticReactions.has(optimisticKey)) {
+      // This matches our optimistic reaction - don't count it again
+      console.debug('[Engagement] Skipping optimistic reaction:', emoji);
+      optimisticReactions.delete(optimisticKey); // Clean up
+      return;
+    }
   }
   
   data.reactions.count++;
@@ -592,6 +606,42 @@ function processZap(data: EngagementData, event: NDKEvent, userPublickey: string
   }
 }
 
+// Mark a reaction/engagement event as already processed to prevent double counting
+// Call this after optimistic updates + successful publish
+export function markEventAsProcessed(targetEventId: string, processedEventId: string): void {
+  const processed = processedEventIds.get(targetEventId);
+  if (processed) {
+    processed.add(processedEventId);
+  }
+}
+
+// Track an optimistic reaction BEFORE publishing to prevent double counting
+// Call this before publishReaction to mark that we're expecting this reaction
+export function trackOptimisticReaction(targetEventId: string, emoji: string, userPubkey: string): void {
+  const now = Date.now();
+  const key = `${targetEventId}:${userPubkey}:${emoji}`;
+  
+  optimisticReactions.set(key, {
+    emoji,
+    timestamp: now,
+    userPubkey
+  });
+  
+  // Clean up old optimistic reactions (older than 2 minutes)
+  const twoMinutesAgo = now - 2 * 60 * 1000;
+  for (const [k, reaction] of optimisticReactions.entries()) {
+    if (reaction.timestamp < twoMinutesAgo) {
+      optimisticReactions.delete(k);
+    }
+  }
+}
+
+// Clear an optimistic reaction (call on publish failure to allow retry)
+export function clearOptimisticReaction(targetEventId: string, emoji: string, userPubkey: string): void {
+  const key = `${targetEventId}:${userPubkey}:${emoji}`;
+  optimisticReactions.delete(key);
+}
+
 // Cleanup function for when a note is removed from view
 export function cleanupEngagement(eventId: string): void {
   // Clean up persistent subscription
@@ -618,6 +668,13 @@ export function cleanupEngagement(eventId: string): void {
   for (const [key] of optimisticZaps.entries()) {
     if (key.startsWith(`${eventId}:`)) {
       optimisticZaps.delete(key);
+    }
+  }
+  
+  // Clean up optimistic reactions for this event
+  for (const [key] of optimisticReactions.entries()) {
+    if (key.startsWith(`${eventId}:`)) {
+      optimisticReactions.delete(key);
     }
   }
 }
@@ -812,7 +869,7 @@ export async function batchFetchEngagement(
         
         switch (event.kind) {
           case 7:
-            processReaction(updated, event, userPublickey);
+            processReaction(updated, event, userPublickey, targetEventId);
             break;
           case 6:
             processRepost(updated, event, userPublickey);
@@ -907,6 +964,7 @@ export function clearAllEngagementCaches(): void {
   processedEventIds.clear();
   subscriptionCountingInProgress.clear();
   optimisticZaps.clear();
+  optimisticReactions.clear();
   
   // Clear localStorage cache
   if (browser) {

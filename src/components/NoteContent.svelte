@@ -5,6 +5,7 @@
   import ProfileLink from './ProfileLink.svelte';
   import NoteEmbed from './NoteEmbed.svelte';
   import LinkPreview from './LinkPreview.svelte';
+  import VideoPreview from './VideoPreview.svelte';
   import { processContentWithProfiles } from '$lib/contentProcessor';
   import { onMount } from 'svelte';
 
@@ -53,7 +54,8 @@
   function isBlockPart(part?: { type?: string; prefix?: string; url?: string }) {
     if (!part?.type) return false;
     if (part.type === 'nostr') {
-      return part.prefix === 'nevent1' || part.prefix === 'note1';
+      // nevent1, note1, and naddr1 are all block-level embedded content
+      return part.prefix === 'nevent1' || part.prefix === 'note1' || part.prefix === 'naddr1';
     }
     if (part.type === 'url') {
       if (!part.url) return false;
@@ -64,8 +66,9 @@
 
   // Parse content and create clickable links for URLs, hashtags, and nostr references
   function parseContent(text: string) {
+    // Include naddr1 for addressable events (recipes, long-form content)
     const urlRegex =
-      /(https?:\/\/[^\s]+)|nostr:(nevent1|note1|npub1|nprofile1)([023456789acdefghjklmnpqrstuvwxyz]+)/g;
+      /(https?:\/\/[^\s]+)|nostr:(nevent1|note1|npub1|nprofile1|naddr1)([023456789acdefghjklmnpqrstuvwxyz]+)/g;
     const hashtagRegex = /#[\w]+/g;
 
     const parts = [];
@@ -236,11 +239,7 @@
           />
         </div>
       {:else if part.url && isVideoUrl(part.url)}
-        <div class="my-1">
-          <video src={part.url} controls class="max-w-full rounded-lg max-h-96" preload="metadata">
-            <track kind="captions" />
-          </video>
-        </div>
+        <VideoPreview url={part.url} />
       {:else if showLinkPreviews && part.url}
         <LinkPreview url={part.url} />
       {:else}
@@ -259,7 +258,10 @@
           nostrString={part.content}
           colorClass="text-orange-500 hover:text-orange-600"
         />
-      {:else if part.prefix === 'nevent1'}
+      {:else if part.prefix === 'nevent1' || part.prefix === 'note1'}
+        <NoteEmbed nostrString={part.content} depth={embedDepth} />
+      {:else if part.prefix === 'naddr1'}
+        <!-- Addressable event (recipe, article, etc.) - render as embedded content -->
         <NoteEmbed nostrString={part.content} depth={embedDepth} />
       {:else}
         <button

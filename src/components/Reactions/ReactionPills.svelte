@@ -4,7 +4,7 @@
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
   import type { TargetType } from '$lib/types/reactions';
   import { publishReaction, canPublishReaction } from '$lib/reactions/publishReaction';
-  import { getEngagementStore, fetchEngagement } from '$lib/engagementCache';
+  import { getEngagementStore, fetchEngagement, markEventAsProcessed, trackOptimisticReaction, clearOptimisticReaction } from '$lib/engagementCache';
   import TopZappers from '../TopZappers.svelte';
 
   export let event: NDKEvent;
@@ -32,6 +32,10 @@
     const wasReacted = $store.reactions.userReactions.has(emoji);
 
     if (!wasReacted) {
+      // Track optimistic reaction BEFORE publishing to prevent double counting
+      // This must happen before any async operations so the subscription can detect it
+      trackOptimisticReaction(event.id, emoji, $userPublickey);
+      
       // Optimistic update
       store.update(s => {
         const updated = { ...s };
@@ -57,7 +61,13 @@
         targetType
       });
 
-      if (!result?.id) {
+      if (result?.id) {
+        // Also mark by event ID as secondary protection
+        markEventAsProcessed(event.id, result.id);
+      } else {
+        // Clear optimistic tracking on failure to allow retry
+        clearOptimisticReaction(event.id, emoji, $userPublickey);
+        
         // Revert on failure
         store.update(s => {
           const updated = { ...s };

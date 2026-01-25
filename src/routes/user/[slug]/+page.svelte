@@ -43,7 +43,8 @@
   let isZapping = false;
 
   // Tab state: 'recipes' | 'posts' | 'drafts'
-  let activeTab: 'recipes' | 'posts' | 'drafts' = 'recipes';
+  // Default to 'posts' tab for a more social-first experience
+  let activeTab: 'recipes' | 'posts' | 'drafts' = 'posts';
 
   // Infinite scroll state for recipes
   let hasMoreRecipes = true;
@@ -117,7 +118,7 @@
       profile = {};
       hexpubkey = undefined;
       loaded = false;
-      activeTab = 'recipes';
+      activeTab = 'posts'; // Default to posts tab for social-first experience
       // Reset pagination state
       hasMoreRecipes = true;
       loadingMoreRecipes = false;
