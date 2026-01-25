@@ -14,6 +14,7 @@
   import { get } from 'svelte/store';
   import { searchProfiles } from '$lib/profileSearchService';
   import { clearQuotedNote } from '$lib/postComposerStore';
+  import { publishQueue, publishQueueState } from '$lib/publishQueue';
 
   type FilterMode = 'global' | 'following' | 'replies' | 'members' | 'garden';
   type RelaySelection = 'all' | 'garden' | 'pantry' | 'garden-pantry';
@@ -29,6 +30,7 @@
   let content = '';
   let posting = false;
   let success = false;
+  let successQueued = false; // True when post was queued for retry
   let error = '';
   let composerEl: HTMLDivElement;
   let lastRenderedContent = '';
@@ -117,6 +119,7 @@
     content = '';
     lastRenderedContent = '';
     error = '';
+    successQueued = false;
     showMentionSuggestions = false;
     mentionSuggestions = [];
     mentionQuery = '';
@@ -393,119 +396,19 @@
 
       addClientTagToEvent(event);
 
-      let publishPromise: Promise<boolean>;
-      
       // Determine which relays to publish to
       // Priority: explicit selectedRelay prop (from modal) > activeTab (from feed context)
       const relayMode = selectedRelay || (activeTab === 'garden' ? 'garden' : activeTab === 'members' ? 'pantry' : 'all');
       
-      if (relayMode === 'garden') {
-        // Publish to garden relay only
-        const { NDKRelaySet } = await import('@nostr-dev-kit/ndk');
-        const gardenRelayUrl = 'wss://garden.zap.cooking';
+      console.log(`[PostComposer] Publishing with relay mode: ${relayMode}`);
 
-        console.log('[Garden] Publishing to garden relay only:', gardenRelayUrl);
+      // Use the resilient publish queue with automatic retry
+      const result = await publishQueue.publishWithRetry(event, relayMode);
 
-        // Get or create relay and ensure it's connected
-        const relay = $ndk.pool.getRelay(gardenRelayUrl, true, true);
-        await relay.connect();
-        
-        // Wait a moment for the connection to stabilize
-        await new Promise(resolve => setTimeout(resolve, 100));
-
-        // Create relay set with the actual relay instance (more reliable than fromRelayUrls)
-        const gardenRelaySet = new NDKRelaySet(new Set([relay]), $ndk);
-
-        // Sign the event first to ensure it's ready
-        await event.sign();
-
-        publishPromise = event.publish(gardenRelaySet, 5000).then((publishedRelays) => {
-          console.log('[Garden] Publish result:', publishedRelays.size, 'relays confirmed');
-          if (publishedRelays.size === 0) {
-            throw new Error('Failed to publish to garden relay. Please try again.');
-          }
-          return true;
-        });
-      } else if (relayMode === 'pantry') {
-        // Publish to pantry relay only (members)
-        const { NDKRelaySet } = await import('@nostr-dev-kit/ndk');
-        const pantryRelayUrl = 'wss://pantry.zap.cooking';
-
-        console.log('[Pantry] Publishing to pantry relay only:', pantryRelayUrl);
-
-        // Get or create relay and ensure it's connected
-        const relay = $ndk.pool.getRelay(pantryRelayUrl, true, true);
-        await relay.connect();
-        
-        // Wait a moment for the connection to stabilize
-        await new Promise(resolve => setTimeout(resolve, 100));
-
-        // Create relay set with the actual relay instance
-        const pantryRelaySet = new NDKRelaySet(new Set([relay]), $ndk);
-
-        // Sign the event first
-        await event.sign();
-
-        publishPromise = event.publish(pantryRelaySet, 5000).then((publishedRelays) => {
-          console.log('[Pantry] Publish result:', publishedRelays.size, 'relays confirmed');
-          if (publishedRelays.size === 0) {
-            throw new Error('Failed to publish to pantry relay. Please try again.');
-          }
-          return true;
-        });
-      } else if (relayMode === 'garden-pantry') {
-        // Publish to both garden and pantry relays
-        const { NDKRelaySet } = await import('@nostr-dev-kit/ndk');
-        const gardenRelayUrl = 'wss://garden.zap.cooking';
-        const pantryRelayUrl = 'wss://pantry.zap.cooking';
-
-        console.log('[Garden+Pantry] Publishing to both relays');
-
-        // Get or create relays and ensure they're connected
-        const gardenRelay = $ndk.pool.getRelay(gardenRelayUrl, true, true);
-        const pantryRelay = $ndk.pool.getRelay(pantryRelayUrl, true, true);
-        await Promise.all([gardenRelay.connect(), pantryRelay.connect()]);
-        
-        // Wait a moment for connections to stabilize
-        await new Promise(resolve => setTimeout(resolve, 100));
-
-        // Create relay set with actual relay instances
-        const combinedRelaySet = new NDKRelaySet(new Set([gardenRelay, pantryRelay]), $ndk);
-
-        // Sign the event first
-        await event.sign();
-
-        publishPromise = event.publish(combinedRelaySet, 5000).then((publishedRelays) => {
-          console.log('[Garden+Pantry] Publish result:', publishedRelays.size, 'relays confirmed');
-          const publishedUrls = Array.from(publishedRelays).map(r => normalizeRelayUrl(r.url));
-          const gardenPublished = publishedUrls.includes(normalizeRelayUrl(gardenRelayUrl));
-          const pantryPublished = publishedUrls.includes(normalizeRelayUrl(pantryRelayUrl));
-          
-          if (!gardenPublished && !pantryPublished) {
-            throw new Error('Failed to publish to garden and pantry relays. Please try again.');
-          } else if (!gardenPublished) {
-            console.warn('[Garden+Pantry] Only published to pantry relay');
-          } else if (!pantryPublished) {
-            console.warn('[Garden+Pantry] Only published to garden relay');
-          }
-          return true;
-        });
-      } else {
-        // Publish to all relays (default behavior)
-        publishPromise = event.publish().then(() => true);
-      }
-
-      const timeoutPromise = new Promise<never>((_, reject) => {
-        setTimeout(
-          () => reject(new Error('Publishing timeout - signer may not be responding')),
-          30000
-        );
-      });
-
-      const publishedEvent = await Promise.race([publishPromise, timeoutPromise]);
-
-      if (publishedEvent) {
+      if (result.success) {
+        // Published successfully on first attempt
         success = true;
+        successQueued = false;
         resetComposerState();
 
         const closeDelay = variant === 'modal' ? 1500 : 2500;
@@ -517,8 +420,28 @@
             isComposerOpen = false;
           }
         }, closeDelay);
+      } else if (result.queued) {
+        // Failed initial publish, but queued for background retry
+        // Show optimistic success - the post will be published when connection improves
+        success = true;
+        successQueued = true;
+        resetComposerState();
+        
+        // Log for debugging
+        console.log('[PostComposer] Post queued for background retry:', result.error);
+
+        const closeDelay = variant === 'modal' ? 2000 : 3000; // Slightly longer to read the message
+        setTimeout(() => {
+          success = false;
+          successQueued = false;
+          if (variant === 'modal') {
+            dispatch('close');
+          } else {
+            isComposerOpen = false;
+          }
+        }, closeDelay);
       } else {
-        error = 'Failed to publish';
+        error = result.error || 'Failed to publish';
       }
     } catch (err) {
       console.error('Error posting to feed:', err);
@@ -1311,7 +1234,11 @@
               {/if}
 
               {#if success}
-                <p class="text-green-600 text-xs mb-2">Posted!</p>
+                {#if successQueued}
+                  <p class="text-amber-600 text-xs mb-2">Post queued — will publish when connection improves</p>
+                {:else}
+                  <p class="text-green-600 text-xs mb-2">Posted!</p>
+                {/if}
               {/if}
 
               {#if quotedNote}
@@ -1492,6 +1419,15 @@
                 </div>
 
                 <div class="flex items-center gap-2">
+                  {#if $publishQueueState.pending > 0}
+                    <span class="text-xs text-amber-600 flex items-center gap-1" title="Posts queued for retry">
+                      <svg class="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                      </svg>
+                      {$publishQueueState.pending} pending
+                    </span>
+                  {/if}
                   <button
                     on:click={closeComposer}
                     class="px-3 py-1.5 text-xs text-caption hover:opacity-80 transition-colors"
