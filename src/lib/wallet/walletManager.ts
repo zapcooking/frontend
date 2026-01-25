@@ -446,6 +446,12 @@ export async function createInvoice(
   try {
     walletLoading.set(true);
 
+    // Ensure the wallet is connected before trying to create invoice
+    const connected = await ensureWalletConnected(wallet);
+    if (!connected) {
+      throw new Error('Wallet not connected. Please try again.');
+    }
+
     switch (wallet.kind) {
       case 3: // NWC
         const nwcResult = await createNwcInvoice(amountSats, description);
@@ -499,6 +505,12 @@ export async function lookupInvoice(
   }
 
   try {
+    // Ensure the wallet is connected before trying to lookup
+    const connected = await ensureWalletConnected(wallet);
+    if (!connected) {
+      return { paid: false };
+    }
+
     switch (wallet.kind) {
       case 3: // NWC
         return await lookupNwcInvoice(paymentHash);
