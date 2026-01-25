@@ -20,7 +20,7 @@
   import MoonIcon from 'phosphor-svelte/lib/Moon';
   import GearIcon from 'phosphor-svelte/lib/Gear';
   import SignOutIcon from 'phosphor-svelte/lib/SignOut';
-  import ToolboxIcon from 'phosphor-svelte/lib/Toolbox';
+  import WrenchIcon from 'phosphor-svelte/lib/Wrench';
   import CaretDownIcon from 'phosphor-svelte/lib/CaretDown';
   import CalculatorIcon from 'phosphor-svelte/lib/Calculator';
   import StorefrontIcon from 'phosphor-svelte/lib/Storefront';
@@ -34,10 +34,12 @@
   import { getAuthManager } from '$lib/authManager';
   import { profileCacheManager } from '$lib/profileCache';
   import { timerWidgetOpen } from '$lib/stores/timerWidget';
+  import { userSidePanelOpen } from '$lib/stores/userSidePanel';
   import { walletConnected } from '$lib/wallet/walletStore';
   import { weblnConnected } from '$lib/wallet/webln';
 
-  export let open = false;
+  // Use the store for open state
+  $: open = $userSidePanelOpen;
 
   // Touch handling for swipe-to-close
   let touchStartX = 0;
@@ -98,7 +100,7 @@
   }
 
   function close() {
-    open = false;
+    userSidePanelOpen.set(false);
   }
 
   function handleBackdropClick(e: MouseEvent) {
@@ -123,7 +125,7 @@
     close();
   }
 
-  function toggleToolbox(e: Event) {
+  function toggleTools(e: Event) {
     e.preventDefault();
     e.stopPropagation();
     toolboxExpanded = !toolboxExpanded;
@@ -199,320 +201,347 @@
 {#if open}
   <!-- Backdrop overlay -->
   <div
-    class="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm"
+    class="user-panel-backdrop"
     on:click={handleBackdropClick}
     on:keydown={handleKeydown}
     role="presentation"
     transition:fly={{ duration: 300, opacity: 0 }}
+  ></div>
+  <!-- Side panel -->
+  <aside
+    class="user-panel-aside"
+    transition:fly={{
+      x: 320,
+      duration: 300,
+      easing: (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2)
+    }}
+    on:touchstart={handleTouchStart}
+    on:touchmove={handleTouchMove}
+    on:touchend={handleTouchEnd}
+    role="dialog"
+    aria-modal="true"
+    aria-label="User menu"
   >
-    <!-- Side panel -->
-    <aside
-      class="fixed top-0 right-0 h-full w-full sm:w-80 flex flex-col shadow-2xl"
-      style="background-color: var(--color-bg-secondary);"
-      transition:fly={{
-        x: 320,
-        duration: 300,
-        easing: (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2)
-      }}
-      on:touchstart={handleTouchStart}
-      on:touchmove={handleTouchMove}
-      on:touchend={handleTouchEnd}
-      role="dialog"
-      aria-modal="true"
-      aria-label="User menu"
-    >
-      <!-- Header section with user info -->
-      <div class="flex-shrink-0 p-6 border-b" style="border-color: var(--color-input-border);">
-        <div class="flex items-start justify-between">
-          <button
-            on:click={() => navigate(`/user/${nip19.npubEncode($userPublickey)}`)}
-            class="profile-header-btn flex items-center gap-4 cursor-pointer bg-transparent border-0 p-0"
-          >
-            <CustomAvatar
-              pubkey={$userPublickey}
-              size={48}
-              imageUrl={$userProfilePictureOverride}
-            />
-            <span class="font-semibold text-base" style="color: var(--color-text-primary);">
-              {displayName}
-            </span>
-          </button>
-          <button
-            on:click={close}
-            class="p-2 rounded-full hover:bg-opacity-10 hover:bg-gray-500 transition-colors cursor-pointer"
-            style="color: var(--color-text-primary);"
-            aria-label="Close menu"
-          >
-            <XIcon size={24} weight="bold" />
-          </button>
-        </div>
+    <!-- Header section with user info -->
+    <div class="flex-shrink-0 p-6 border-b" style="border-color: var(--color-input-border);">
+      <div class="flex items-start justify-between">
+        <button
+          on:click={() => navigate(`/user/${nip19.npubEncode($userPublickey)}`)}
+          class="profile-header-btn flex items-center gap-4 cursor-pointer bg-transparent border-0 p-0"
+        >
+          <CustomAvatar pubkey={$userPublickey} size={48} imageUrl={$userProfilePictureOverride} />
+          <span class="font-semibold text-base" style="color: var(--color-text-primary);">
+            {displayName}
+          </span>
+        </button>
+        <button
+          on:click={close}
+          class="p-2 rounded-full hover:bg-opacity-10 hover:bg-gray-500 transition-colors cursor-pointer"
+          style="color: var(--color-text-primary);"
+          aria-label="Close menu"
+        >
+          <XIcon size={24} weight="bold" />
+        </button>
       </div>
+    </div>
 
-      <!-- Main navigation section - scrollable -->
-      <nav class="flex-1 overflow-y-auto p-4">
-        <!-- Section: My Kitchen -->
-        <div class="mb-1">
-          <h3
-            class="px-4 py-2 font-semibold uppercase tracking-wider"
-            style="color: var(--color-caption); font-size: 14px;"
-          >
-            My Kitchen
-          </h3>
-          <ul class="flex flex-col gap-1">
-            <li>
-              <button
-                on:click={() => navigate(`/user/${nip19.npubEncode($userPublickey)}`)}
-                class="w-full flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-opacity-50 transition-colors cursor-pointer"
-                style="color: var(--color-text-primary);"
-              >
-                <UserIcon size={22} />
-                <span class="font-medium">Profile</span>
-              </button>
-            </li>
-            <li>
-              <button
-                on:click={() => navigate('/cookbook')}
-                class="w-full flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-opacity-50 transition-colors cursor-pointer"
-                style="color: var(--color-text-primary);"
-              >
-                <CookbookIcon size={22} />
-                <span class="font-medium">Cookbook</span>
-              </button>
-            </li>
-            <li>
-              <button
-                on:click={() => navigate('/grocery')}
-                class="w-full flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-opacity-50 transition-colors cursor-pointer"
-                style="color: var(--color-text-primary);"
-              >
-                <ShoppingCartIcon size={22} />
-                <span class="font-medium">Grocery Lists</span>
-              </button>
-            </li>
-            <li>
-              <button
-                on:click={() => navigate(`/user/${nip19.npubEncode($userPublickey)}?tab=drafts`)}
-                class="w-full flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-opacity-50 transition-colors cursor-pointer"
-                style="color: var(--color-text-primary);"
-              >
-                <FloppyDiskIcon size={22} />
-                <span class="font-medium">Drafts</span>
-              </button>
-            </li>
-            <li>
-              <button
-                on:click={() => navigate('/wallet')}
-                class="w-full flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-opacity-50 transition-colors cursor-pointer"
-                style="color: var(--color-text-primary);"
-              >
-                <WalletIcon size={22} />
-                <span class="font-medium">Wallet</span>
-                {#if !$walletConnected && !$weblnConnected}
-                  <span class="text-xs px-2 py-0.5 rounded-full bg-primary/20 text-primary"
-                    >Connect</span
-                  >
-                {/if}
-              </button>
-            </li>
-            {#if SHOW_PRO_FEATURES}
-              <li>
-                <button
-                  on:click={() => navigate('/extract')}
-                  class="w-full flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-opacity-50 transition-colors cursor-pointer"
-                  style="color: var(--color-text-primary);"
-                >
-                  <SparkleIcon size={22} weight="fill" class="text-primary" />
-                  <span class="font-medium">Sous Chef</span>
-                  <span
-                    class="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary font-medium"
-                    >Pro</span
-                  >
-                </button>
-              </li>
-              <li>
-                <button
-                  on:click={() => navigate('/zappy')}
-                  class="w-full flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-opacity-50 transition-colors cursor-pointer"
-                  style="color: var(--color-text-primary);"
-                >
-                  <RobotIcon size={22} weight="fill" class="text-yellow-500" />
-                  <span class="font-medium">Zappy</span>
-                  <span
-                    class="text-xs px-2 py-0.5 rounded-full bg-yellow-500/10 text-yellow-600 font-medium"
-                    >Pro</span
-                  >
-                </button>
-              </li>
-              <li>
-                <button
-                  on:click={() => navigate('/premium')}
-                  class="w-full flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-opacity-50 transition-colors cursor-pointer"
-                  style="color: var(--color-text-primary);"
-                >
-                  <LightningIcon size={22} weight="fill" class="text-amber-500" />
-                  <span class="font-medium">Premium Recipes</span>
-                  <span
-                    class="text-xs px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600 font-medium"
-                    >Pro</span
-                  >
-                </button>
-              </li>
-            {/if}
-          </ul>
-        </div>
-
-        <!-- Section: Toolbox -->
-        <div class="mb-4">
-          <button
-            on:click={toggleToolbox}
-            class="w-full flex items-center justify-between px-4 py-3 rounded-xl hover:bg-opacity-50 transition-colors cursor-pointer"
-            style="color: var(--color-text-primary);"
-            aria-expanded={toolboxExpanded}
-          >
-            <div class="flex items-center gap-4">
-              <ToolboxIcon size={22} />
-              <span class="font-medium">Toolbox</span>
-            </div>
-            <CaretDownIcon
-              size={18}
-              class="transition-transform duration-200 {toolboxExpanded ? 'rotate-180' : ''}"
-            />
-          </button>
-          {#if toolboxExpanded}
-            <ul class="flex flex-col gap-1 mt-1 ml-4" transition:slide={{ duration: 200 }}>
-              <li>
-                <button
-                  on:click={openTimerWidget}
-                  class="w-full flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-opacity-50 transition-colors cursor-pointer"
-                  style="color: var(--color-text-primary);"
-                >
-                  <TimerIcon size={20} />
-                  <span class="font-medium">Timer</span>
-                </button>
-              </li>
-              <li>
-                <button
-                  on:click={() => navigate('/unit-converter')}
-                  class="w-full flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-opacity-50 transition-colors cursor-pointer"
-                  style="color: var(--color-text-primary);"
-                >
-                  <CalculatorIcon size={20} />
-                  <span class="font-medium">Unit Converter</span>
-                </button>
-              </li>
-              <!-- TODO: Add future tools here (e.g., Recipe Scaler, Nutrition Calculator) -->
-            </ul>
-          {/if}
-        </div>
-
-        <!-- Section: Community Relays -->
-        <div class="mb-4">
-          <h3
-            class="px-4 py-2 font-semibold uppercase tracking-wider"
-            style="color: var(--color-caption); font-size: 14px;"
-          >
-            Community Relays
-          </h3>
-          <ul class="flex flex-col gap-1">
-            <li>
-              <button
-                on:click={() => navigate('/kitchen')}
-                class="w-full flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-opacity-50 transition-colors cursor-pointer"
-                style="color: var(--color-text-primary);"
-              >
-                <CookingPotIcon size={22} />
-                <span class="font-medium">The Kitchen</span>
-              </button>
-            </li>
-            <li>
-              <button
-                on:click={() => navigate('/garden')}
-                class="w-full flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-opacity-50 transition-colors cursor-pointer"
-                style="color: var(--color-text-primary);"
-              >
-                <PlantIcon size={22} />
-                <span class="font-medium">The Garden</span>
-              </button>
-            </li>
-            <li>
-              <button
-                on:click={() => navigate('/pantry')}
-                class="w-full flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-opacity-50 transition-colors cursor-pointer"
-                style="color: var(--color-text-primary);"
-              >
-                <StorefrontIcon size={22} />
-                <span class="font-medium">The Pantry</span>
-                <span
-                  class="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary font-medium"
-                  >Members</span
-                >
-              </button>
-            </li>
-          </ul>
-        </div>
-      </nav>
-
-      <!-- Footer section -->
-      <div class="flex-shrink-0 p-4 border-t" style="border-color: var(--color-input-border);">
+    <!-- Main navigation section - scrollable -->
+    <nav class="flex-1 overflow-y-auto p-4">
+      <!-- Section: My Kitchen -->
+      <div class="mb-1">
+        <h3
+          class="px-4 py-2 font-semibold uppercase tracking-wider"
+          style="color: var(--color-caption); font-size: 14px;"
+        >
+          My Kitchen
+        </h3>
         <ul class="flex flex-col gap-1">
           <li>
             <button
-              on:click={toggleTheme}
-              class="w-full flex items-center justify-between px-4 py-3 rounded-xl hover:bg-opacity-50 transition-colors cursor-pointer"
-              style="color: var(--color-text-primary);"
-            >
-              <div class="flex items-center gap-4">
-                {#if isDarkMode}
-                  <SunIcon size={22} />
-                  <span class="font-medium">Light Mode</span>
-                {:else}
-                  <MoonIcon size={22} />
-                  <span class="font-medium">Dark Mode</span>
-                {/if}
-              </div>
-              <!-- Toggle switch visual -->
-              <div
-                class="w-12 h-7 rounded-full p-1 transition-colors duration-200"
-                style="background-color: {isDarkMode
-                  ? 'var(--color-primary)'
-                  : 'var(--color-accent-gray)'};"
-              >
-                <div
-                  class="w-5 h-5 rounded-full bg-white shadow-md transition-transform duration-200"
-                  style="transform: translateX({isDarkMode ? '20px' : '0px'});"
-                ></div>
-              </div>
-            </button>
-          </li>
-          <li>
-            <button
-              on:click={() => navigate('/settings')}
+              on:click={() => navigate(`/user/${nip19.npubEncode($userPublickey)}`)}
               class="w-full flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-opacity-50 transition-colors cursor-pointer"
               style="color: var(--color-text-primary);"
             >
-              <GearIcon size={22} />
-              <span class="font-medium">Settings</span>
+              <UserIcon size={22} />
+              <span class="font-medium">Profile</span>
             </button>
           </li>
+          <li>
+            <button
+              on:click={() => navigate('/cookbook')}
+              class="w-full flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-opacity-50 transition-colors cursor-pointer"
+              style="color: var(--color-text-primary);"
+            >
+              <CookbookIcon size={22} />
+              <span class="font-medium">Cookbook</span>
+            </button>
+          </li>
+          <li>
+            <button
+              on:click={() => navigate('/grocery')}
+              class="w-full flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-opacity-50 transition-colors cursor-pointer"
+              style="color: var(--color-text-primary);"
+            >
+              <ShoppingCartIcon size={22} />
+              <span class="font-medium">Grocery Lists</span>
+            </button>
+          </li>
+          <li>
+            <button
+              on:click={() => navigate(`/user/${nip19.npubEncode($userPublickey)}?tab=drafts`)}
+              class="w-full flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-opacity-50 transition-colors cursor-pointer"
+              style="color: var(--color-text-primary);"
+            >
+              <FloppyDiskIcon size={22} />
+              <span class="font-medium">Drafts</span>
+            </button>
+          </li>
+          <li>
+            <button
+              on:click={() => navigate('/wallet')}
+              class="w-full flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-opacity-50 transition-colors cursor-pointer"
+              style="color: var(--color-text-primary);"
+            >
+              <WalletIcon size={22} />
+              <span class="font-medium">Wallet</span>
+              {#if !$walletConnected && !$weblnConnected}
+                <span class="text-xs px-2 py-0.5 rounded-full bg-primary/20 text-primary"
+                  >Connect</span
+                >
+              {/if}
+            </button>
+          </li>
+          {#if SHOW_PRO_FEATURES}
+            <li>
+              <button
+                on:click={() => navigate('/extract')}
+                class="w-full flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-opacity-50 transition-colors cursor-pointer"
+                style="color: var(--color-text-primary);"
+              >
+                <SparkleIcon size={22} weight="fill" class="text-primary" />
+                <span class="font-medium">Sous Chef</span>
+                <span
+                  class="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary font-medium"
+                  >Pro</span
+                >
+              </button>
+            </li>
+            <li>
+              <button
+                on:click={() => navigate('/zappy')}
+                class="w-full flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-opacity-50 transition-colors cursor-pointer"
+                style="color: var(--color-text-primary);"
+              >
+                <RobotIcon size={22} weight="fill" class="text-yellow-500" />
+                <span class="font-medium">Zappy</span>
+                <span
+                  class="text-xs px-2 py-0.5 rounded-full bg-yellow-500/10 text-yellow-600 font-medium"
+                  >Pro</span
+                >
+              </button>
+            </li>
+            <li>
+              <button
+                on:click={() => navigate('/premium')}
+                class="w-full flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-opacity-50 transition-colors cursor-pointer"
+                style="color: var(--color-text-primary);"
+              >
+                <LightningIcon size={22} weight="fill" class="text-amber-500" />
+                <span class="font-medium">Premium Recipes</span>
+                <span
+                  class="text-xs px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600 font-medium"
+                  >Pro</span
+                >
+              </button>
+            </li>
+          {/if}
         </ul>
-        <hr class="mt-4 mb-4 -mx-4" style="border-color: var(--color-input-border);" />
+      </div>
+
+      <!-- Section: Tools -->
+      <div class="mb-4">
+        <button
+          on:click={toggleTools}
+          class="w-full flex items-center justify-between px-4 py-3 rounded-xl hover:bg-opacity-50 transition-colors cursor-pointer"
+          style="color: var(--color-text-primary);"
+          aria-expanded={toolboxExpanded}
+        >
+          <div class="flex items-center gap-4">
+            <WrenchIcon size={22} />
+            <span class="font-medium">Tools</span>
+          </div>
+          <CaretDownIcon
+            size={18}
+            class="transition-transform duration-200 {toolboxExpanded ? 'rotate-180' : ''}"
+          />
+        </button>
+        {#if toolboxExpanded}
+          <ul class="flex flex-col gap-1 mt-1 ml-4" transition:slide={{ duration: 200 }}>
+            <li>
+              <button
+                on:click={openTimerWidget}
+                class="w-full flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-opacity-50 transition-colors cursor-pointer"
+                style="color: var(--color-text-primary);"
+              >
+                <TimerIcon size={20} />
+                <span class="font-medium">Timer</span>
+              </button>
+            </li>
+            <li>
+              <button
+                on:click={() => navigate('/unit-converter')}
+                class="w-full flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-opacity-50 transition-colors cursor-pointer"
+                style="color: var(--color-text-primary);"
+              >
+                <CalculatorIcon size={20} />
+                <span class="font-medium">Unit Converter</span>
+              </button>
+            </li>
+            <!-- TODO: Add future tools here (e.g., Recipe Scaler, Nutrition Calculator) -->
+          </ul>
+        {/if}
+      </div>
+
+      <!-- Section: Community Relays -->
+      <div class="mb-4">
+        <h3
+          class="px-4 py-2 font-semibold uppercase tracking-wider"
+          style="color: var(--color-caption); font-size: 14px;"
+        >
+          Community Relays
+        </h3>
         <ul class="flex flex-col gap-1">
           <li>
             <button
-              on:click={logout}
-              class="w-full flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-opacity-50 transition-colors cursor-pointer text-danger"
+              on:click={() => navigate('/kitchen')}
+              class="w-full flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-opacity-50 transition-colors cursor-pointer"
+              style="color: var(--color-text-primary);"
             >
-              <SignOutIcon size={22} />
-              <span class="font-medium">Log out</span>
+              <CookingPotIcon size={22} />
+              <span class="font-medium">The Kitchen</span>
+            </button>
+          </li>
+          <li>
+            <button
+              on:click={() => navigate('/garden')}
+              class="w-full flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-opacity-50 transition-colors cursor-pointer"
+              style="color: var(--color-text-primary);"
+            >
+              <PlantIcon size={22} />
+              <span class="font-medium">The Garden</span>
+            </button>
+          </li>
+          <li>
+            <button
+              on:click={() => navigate('/pantry')}
+              class="w-full flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-opacity-50 transition-colors cursor-pointer"
+              style="color: var(--color-text-primary);"
+            >
+              <StorefrontIcon size={22} />
+              <span class="font-medium">The Pantry</span>
+              <span class="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary font-medium"
+                >Members</span
+              >
             </button>
           </li>
         </ul>
       </div>
-    </aside>
-  </div>
+    </nav>
+
+    <!-- Footer section -->
+    <div class="flex-shrink-0 p-4 border-t" style="border-color: var(--color-input-border);">
+      <ul class="flex flex-col gap-1">
+        <li>
+          <button
+            on:click={toggleTheme}
+            class="w-full flex items-center justify-between px-4 py-3 rounded-xl hover:bg-opacity-50 transition-colors cursor-pointer"
+            style="color: var(--color-text-primary);"
+          >
+            <div class="flex items-center gap-4">
+              {#if isDarkMode}
+                <SunIcon size={22} />
+                <span class="font-medium">Light Mode</span>
+              {:else}
+                <MoonIcon size={22} />
+                <span class="font-medium">Dark Mode</span>
+              {/if}
+            </div>
+            <!-- Toggle switch visual -->
+            <div
+              class="w-12 h-7 rounded-full p-1 transition-colors duration-200"
+              style="background-color: {isDarkMode
+                ? 'var(--color-primary)'
+                : 'var(--color-accent-gray)'};"
+            >
+              <div
+                class="w-5 h-5 rounded-full bg-white shadow-md transition-transform duration-200"
+                style="transform: translateX({isDarkMode ? '20px' : '0px'});"
+              ></div>
+            </div>
+          </button>
+        </li>
+        <li>
+          <button
+            on:click={() => navigate('/settings')}
+            class="w-full flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-opacity-50 transition-colors cursor-pointer"
+            style="color: var(--color-text-primary);"
+          >
+            <GearIcon size={22} />
+            <span class="font-medium">Settings</span>
+          </button>
+        </li>
+      </ul>
+      <hr class="mt-4 mb-4 -mx-4" style="border-color: var(--color-input-border);" />
+      <ul class="flex flex-col gap-1">
+        <li>
+          <button
+            on:click={logout}
+            class="w-full flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-opacity-50 transition-colors cursor-pointer text-danger"
+          >
+            <SignOutIcon size={22} />
+            <span class="font-medium">Log out</span>
+          </button>
+        </li>
+      </ul>
+    </div>
+  </aside>
 {/if}
 
 <style>
+  /* Backdrop - full screen overlay */
+  .user-panel-backdrop {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 9998;
+    background-color: rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+  }
+
+  /* Side panel - above backdrop */
+  .user-panel-aside {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 9999;
+    width: 100%;
+    max-width: 20rem;
+    display: flex;
+    flex-direction: column;
+    background-color: var(--color-bg-secondary);
+    box-shadow: -4px 0 20px rgba(0, 0, 0, 0.3);
+  }
+
+  @media (min-width: 640px) {
+    .user-panel-aside {
+      width: 20rem;
+    }
+  }
+
   /* Ensure touch targets are at least 44px for accessibility */
   button {
     min-height: 44px;

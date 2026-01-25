@@ -7,6 +7,7 @@
   import Modal from './Modal.svelte';
   import ZapModal from './ZapModal.svelte';
   import { qr } from '@svelte-put/qr/svg';
+  import BrantaBadge from './BrantaBadge.svelte';
 
   // ZapCooking's pubkey (npub1xxdd8eusvdxmaph3fkuu9x2mymhrcc3ghe2l38zv0l4f4nqp659qskkt7a)
   const ZAPCOOKING_PUBKEY = '31acd3e790619b7437c54b39c236d93d72e3c6228be5f13898fe9d536028d6a5';
@@ -24,8 +25,8 @@
 </script>
 
 <footer
-  class="footer mt-12 border-t mb-20 lg:mb-0 print:hidden"
-  style="border-color: var(--color-input-border); background-color: var(--color-bg-primary);"
+  class="footer mt-12 mb-20 lg:mb-0 print:hidden"
+  style="background-color: var(--color-bg-primary);"
 >
   <div class="mx-auto max-w-7xl footer-inner">
     <div class="flex flex-col items-center footer-content">
@@ -129,17 +130,20 @@
     <!-- QR Code + Lightning Address side by side on larger screens -->
     <div class="flex flex-col sm:flex-row gap-4 items-center">
       <!-- QR Code -->
-      <div class="p-3 bg-white rounded-xl flex-shrink-0">
-        <svg
-          class="w-32 h-32"
-          use:qr={{
-            data: 'lightning:ZapCooking@getalby.com',
-            logo: 'https://zap.cooking/favicon.svg',
-            shape: 'circle',
-            width: 128,
-            height: 128
-          }}
-        />
+      <div class="flex flex-col items-center gap-2">
+        <div class="p-3 bg-white rounded-xl flex-shrink-0">
+          <svg
+            class="w-32 h-32"
+            use:qr={{
+              data: 'lightning:ZapCooking@getalby.com',
+              logo: 'https://zap.cooking/favicon.svg',
+              shape: 'circle',
+              width: 128,
+              height: 128
+            }}
+          />
+        </div>
+        <BrantaBadge paymentString="ZapCooking@getalby.com" />
       </div>
 
       <!-- Lightning Address + Buttons -->

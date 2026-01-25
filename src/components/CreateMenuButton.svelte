@@ -156,11 +156,21 @@
 
   onMount(() => {
     if (typeof window === 'undefined' || variant !== 'floating') return;
+    // Listen to scroll on the app-scroll container (not window) since that's where scrolling happens
+    const scrollContainer = document.getElementById('app-scroll');
+    if (scrollContainer) {
+      scrollContainer.addEventListener('scroll', handleScroll, { passive: true });
+    }
+    // Also listen to window scroll as fallback
     window.addEventListener('scroll', handleScroll, { passive: true });
   });
 
   onDestroy(() => {
     if (typeof window === 'undefined' || variant !== 'floating') return;
+    const scrollContainer = document.getElementById('app-scroll');
+    if (scrollContainer) {
+      scrollContainer.removeEventListener('scroll', handleScroll);
+    }
     window.removeEventListener('scroll', handleScroll);
     if (scrollTimeout) {
       clearTimeout(scrollTimeout);
@@ -248,7 +258,8 @@
   .create-menu-floating {
     position: fixed;
     right: 1.25rem;
-    bottom: calc(72px + var(--safe-area-inset-bottom, 0px) + var(--timer-widget-offset, 0px));
+    /* Bottom nav is 40px tall, positioned at safe-area-inset-bottom */
+    bottom: calc(40px + env(safe-area-inset-bottom, 0px) + 1rem + var(--timer-widget-offset, 0px));
     z-index: 40;
   }
 
@@ -365,7 +376,7 @@
   }
 
   @media (min-width: 1024px) {
-    /* Desktop: match mobile UX (floating create button) */
+    /* Desktop: no bottom nav, so position closer to bottom */
     .create-menu-header {
       display: none;
     }
