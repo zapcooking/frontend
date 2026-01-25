@@ -7,12 +7,15 @@
 
   let showVideo = false;
   let previewVideo: HTMLVideoElement;
+  let autoplayVideo: HTMLVideoElement;
   let containerEl: HTMLDivElement;
   let isVisible = false;
   let isLoading = true;
   let hasError = false;
   let thumbnailLoaded = false;
   let observer: IntersectionObserver | null = null;
+  let isInViewport = false;
+  let isPlaying = false;
 
   // Try to get thumbnail URL for known video hosts
   function getThumbnailUrl(videoUrl: string): string | null {
@@ -41,23 +44,92 @@
   $: thumbnailUrl = getThumbnailUrl(url);
 
   function handlePlayClick() {
-    showVideo = true;
+    // If autoplay is active, switch to controls mode
+    if (isPlaying && autoplayVideo) {
+      showVideo = true;
+      autoplayVideo.pause();
+      isPlaying = false;
+    } else {
+      showVideo = true;
+    }
+  }
+
+  // Handle autoplay based on viewport visibility
+  async function handleViewportChange(inViewport: boolean) {
+    isInViewport = inViewport;
+    
+    if (!autoplayVideo || showVideo) return;
+    
+    if (inViewport) {
+      // Video entered viewport - start playing
+      try {
+        // Ensure video is muted (required for autoplay)
+        autoplayVideo.muted = true;
+        
+        if (autoplayVideo.readyState >= 2) {
+          // Video has loaded enough data (HAVE_CURRENT_DATA or higher)
+          const playPromise = autoplayVideo.play();
+          if (playPromise !== undefined) {
+            await playPromise;
+            isPlaying = true;
+            isLoading = false;
+          }
+        } else {
+          // Wait for video to load enough data
+          const canPlayHandler = async () => {
+            if (isInViewport && !showVideo && autoplayVideo) {
+              try {
+                autoplayVideo.muted = true;
+                await autoplayVideo.play();
+                isPlaying = true;
+                isLoading = false;
+              } catch (e) {
+                console.warn('Autoplay failed:', e);
+              }
+            }
+          };
+          
+          if (autoplayVideo.readyState >= 1) {
+            // Already have metadata, try playing
+            canPlayHandler();
+          } else {
+            // Wait for canplay event
+            autoplayVideo.addEventListener('canplay', canPlayHandler, { once: true });
+          }
+        }
+      } catch (e) {
+        // Autoplay may be blocked by browser policy
+        console.warn('Autoplay blocked:', e);
+        // Don't set isPlaying to true if autoplay fails
+      }
+    } else {
+      // Video left viewport - pause
+      if (isPlaying && autoplayVideo) {
+        autoplayVideo.pause();
+        isPlaying = false;
+      }
+    }
   }
 
   // Seek to first frame when metadata loads to show preview
   function handleLoadedMetadata() {
-    if (previewVideo && !showVideo) {
+    // Use autoplayVideo if available, otherwise previewVideo
+    const video = autoplayVideo || previewVideo;
+    if (video && !showVideo && !isPlaying) {
       // Seek to a small time to get the first visible frame
-      previewVideo.currentTime = 0.1;
+      video.currentTime = 0.1;
     }
   }
 
-  // Ensure video stays paused at first frame
+  // Ensure video shows first frame (for thumbnail extraction)
   function handleSeeked() {
-    if (previewVideo && !showVideo) {
-      previewVideo.pause();
+    const video = previewVideo;
+    if (video && !showVideo && !isPlaying) {
+      video.pause();
       isLoading = false;
-      thumbnailLoaded = true;
+      if (!thumbnailUrl) {
+        thumbnailLoaded = true;
+      }
     }
   }
 
@@ -80,26 +152,35 @@
   }
 
   onMount(() => {
-    // Use intersection observer to only load video when visible
+    // Use intersection observer for lazy loading and autoplay
     if (typeof IntersectionObserver !== 'undefined' && containerEl) {
       observer = new IntersectionObserver(
         (entries) => {
           entries.forEach((entry) => {
+            const wasVisible = isVisible;
+            const wasInViewport = isInViewport;
+            
             if (entry.isIntersecting && !isVisible) {
               isVisible = true;
-              // Don't disconnect - we want to keep tracking
+            }
+            
+            // Track viewport for autoplay (more strict threshold)
+            const inViewport = entry.isIntersecting && entry.intersectionRatio > 0.5;
+            if (inViewport !== wasInViewport) {
+              handleViewportChange(inViewport);
             }
           });
         },
         {
-          rootMargin: '100px', // Start loading 100px before visible
-          threshold: 0.1
+          rootMargin: '50px', // Start loading 50px before visible
+          threshold: [0, 0.5, 1.0] // Multiple thresholds for better tracking
         }
       );
       observer.observe(containerEl);
     } else {
       // Fallback: just make it visible
       isVisible = true;
+      handleViewportChange(true);
     }
   });
 
@@ -132,6 +213,7 @@
       role="button" 
       tabindex="0"
       style="min-height: 200px; aspect-ratio: 16/9;"
+      title={isPlaying ? "Tap to show controls" : "Tap to play"}
     >
       {#if isVisible}
         {#if thumbnailUrl && !thumbnailLoaded && !hasError}
@@ -146,26 +228,60 @@
           />
         {/if}
 
-        {#if !thumbnailUrl || !thumbnailLoaded}
-          <!-- Fall back to video element for frame extraction -->
-          <video
-            bind:this={previewVideo}
-            src={url}
-            preload="metadata"
-            muted
-            playsinline
-            class="absolute inset-0 w-full h-full object-cover pointer-events-none"
-            class:opacity-0={isLoading && !thumbnailLoaded}
-            on:loadedmetadata={handleLoadedMetadata}
-            on:seeked={handleSeeked}
-            on:error={handleVideoError}
-          />
-        {:else}
-          <!-- Show thumbnail as background -->
+        {#if thumbnailUrl && thumbnailLoaded}
+          <!-- Show thumbnail as background initially -->
           <img 
             src={thumbnailUrl}
             alt="Video thumbnail"
-            class="absolute inset-0 w-full h-full object-cover"
+            class="absolute inset-0 w-full h-full object-cover transition-opacity duration-300"
+            class:opacity-0={isPlaying}
+          />
+        {/if}
+
+        <!-- Video element for autoplay -->
+        <video
+          bind:this={autoplayVideo}
+          src={url}
+          preload="metadata"
+          muted
+          playsinline
+          loop
+          class="absolute inset-0 w-full h-full object-cover pointer-events-none transition-opacity duration-300"
+          class:opacity-0={!isPlaying && (isLoading || (thumbnailUrl && thumbnailLoaded))}
+          on:loadedmetadata={() => {
+            if (!thumbnailUrl || !thumbnailLoaded) {
+              handleLoadedMetadata();
+            }
+            // Try to autoplay if in viewport
+            if (isInViewport && !showVideo) {
+              handleViewportChange(true);
+            }
+          }}
+          on:seeked={() => {
+            if (!thumbnailUrl || !thumbnailLoaded) {
+              handleSeeked();
+            }
+          }}
+          on:canplay={() => {
+            // Auto-play when video can play and is in viewport
+            if (isInViewport && !showVideo && !isPlaying && autoplayVideo) {
+              handleViewportChange(true);
+            }
+          }}
+          on:error={handleVideoError}
+        />
+        
+        <!-- Keep previewVideo for initial frame extraction if no thumbnail -->
+        {#if !thumbnailUrl && !thumbnailLoaded}
+          <video
+            bind:this={previewVideo}
+            src={url}
+            preload="none"
+            muted
+            playsinline
+            class="hidden"
+            on:loadedmetadata={handleLoadedMetadata}
+            on:seeked={handleSeeked}
           />
         {/if}
       {/if}
@@ -194,12 +310,17 @@
         </div>
       {/if}
       
-      <!-- Play button overlay - always visible -->
-      <div class="absolute inset-0 flex items-center justify-center bg-black/30 group-hover:bg-black/40 transition-colors pointer-events-none">
-        <div class="bg-white/90 hover:bg-white rounded-full p-4 shadow-lg group-hover:scale-110 transition-transform pointer-events-auto">
-          <PlayIcon size={32} weight="fill" class="text-gray-900 ml-1" />
+      <!-- Play button overlay - hide when playing -->
+      {#if !isPlaying}
+        <div class="absolute inset-0 flex items-center justify-center bg-black/30 group-hover:bg-black/40 transition-colors pointer-events-none">
+          <div class="bg-white/90 hover:bg-white rounded-full p-4 shadow-lg group-hover:scale-110 transition-transform pointer-events-auto">
+            <PlayIcon size={32} weight="fill" class="text-gray-900 ml-1" />
+          </div>
         </div>
-      </div>
+      {:else}
+        <!-- Subtle overlay when playing - click to show controls -->
+        <div class="absolute inset-0 bg-black/0 hover:bg-black/10 transition-colors pointer-events-none"></div>
+      {/if}
     </div>
   {/if}
 </div>
