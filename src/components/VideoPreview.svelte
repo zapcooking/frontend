@@ -19,6 +19,7 @@
   let isPlaying = false;
   let playTimeout: ReturnType<typeof setTimeout> | null = null;
   let pauseTimeout: ReturnType<typeof setTimeout> | null = null;
+  let userHasInteracted = false; // Track if user has interacted (required for Safari autoplay)
 
   // Try to get thumbnail URL for known video hosts
   function getThumbnailUrl(videoUrl: string): string | null {
@@ -47,6 +48,9 @@
   $: thumbnailUrl = getThumbnailUrl(url);
 
   function handlePlayClick() {
+    // Enable autoplay on user interaction (Safari requirement)
+    enableAutoplay();
+    
     // If autoplay is active, switch to controls mode
     if (isPlaying && autoplayVideo) {
       showVideo = true;
@@ -55,6 +59,13 @@
     } else {
       showVideo = true;
     }
+  }
+
+  // Detect Safari browser
+  function isSafari(): boolean {
+    if (typeof window === 'undefined') return false;
+    const ua = window.navigator.userAgent.toLowerCase();
+    return ua.includes('safari') && !ua.includes('chrome') && !ua.includes('chromium');
   }
 
   // Handle autoplay based on viewport visibility
@@ -71,10 +82,23 @@
       
       if (!autoplayVideo) return;
       
+      // Safari: Check if user has interacted before attempting autoplay
+      if (isSafari() && !userHasInteracted) {
+        // Safari requires user interaction before muted autoplay works
+        // Will be enabled when user interacts
+        return;
+      }
+      
       // Start autoplay for muted preview
       try {
-        // Ensure video is muted (required for autoplay)
+        // Safari-specific: Set volume to 0 and ensure muted before play
+        autoplayVideo.volume = 0;
         autoplayVideo.muted = true;
+        
+        // For Safari, ensure autoplay attribute is set
+        if (isSafari()) {
+          autoplayVideo.setAttribute('autoplay', '');
+        }
         
         if (autoplayVideo.readyState >= 2) {
           // Video has loaded enough data (HAVE_CURRENT_DATA or higher)
@@ -87,9 +111,19 @@
         } else {
           // Wait for video to load enough data
           const canPlayHandler = async () => {
+            // Safari: Check if user has interacted
+            if (isSafari() && !userHasInteracted) {
+              return; // Will be enabled when user interacts
+            }
+            
             if (isInViewport && !showVideo && autoplayVideo) {
               try {
+                // Safari: Ensure muted and volume 0
+                autoplayVideo.volume = 0;
                 autoplayVideo.muted = true;
+                if (isSafari()) {
+                  autoplayVideo.setAttribute('autoplay', '');
+                }
                 await autoplayVideo.play();
                 isPlaying = true;
                 isLoading = false;
@@ -127,6 +161,10 @@
         // Pause autoplay preview
         try {
           autoplayVideo.pause();
+          // Safari: Remove autoplay attribute when pausing
+          if (isSafari()) {
+            autoplayVideo.removeAttribute('autoplay');
+          }
           isPlaying = false;
         } catch (e) {
           console.warn('Error pausing autoplay video:', e);
@@ -176,7 +214,33 @@
     thumbnailLoaded = false;
   }
 
+  // Enable autoplay after user interaction (required for Safari)
+  function enableAutoplay() {
+    if (!userHasInteracted) {
+      userHasInteracted = true;
+      // Try to play any videos currently in viewport
+      if (isInViewport && autoplayVideo && !showVideo && !isPlaying) {
+        handleViewportChange(true);
+      }
+    }
+  }
+
   onMount(() => {
+    // Listen for user interaction to enable autoplay (Safari requirement)
+    if (typeof window !== 'undefined') {
+      const enableOnInteraction = () => {
+        enableAutoplay();
+        // Remove listeners after first interaction
+        window.removeEventListener('click', enableOnInteraction);
+        window.removeEventListener('touchstart', enableOnInteraction);
+        window.removeEventListener('scroll', enableOnInteraction);
+      };
+      
+      window.addEventListener('click', enableOnInteraction, { once: true });
+      window.addEventListener('touchstart', enableOnInteraction, { once: true });
+      window.addEventListener('scroll', enableOnInteraction, { once: true });
+    }
+
     // Use intersection observer for lazy loading and autoplay
     if (typeof IntersectionObserver !== 'undefined' && containerEl) {
       // Find the app's scroll container (app-scroll from layout)
@@ -320,6 +384,15 @@
             if (!thumbnailUrl || !thumbnailLoaded) {
               handleLoadedMetadata();
             }
+            // Safari: Set volume to 0 explicitly and ensure muted
+            if (autoplayVideo) {
+              autoplayVideo.volume = 0;
+              autoplayVideo.muted = true;
+              // Safari: Set autoplay attribute if in viewport
+              if (isSafari() && isInViewport && !showVideo) {
+                autoplayVideo.setAttribute('autoplay', '');
+              }
+            }
             // Try to autoplay if in viewport
             if (isInViewport && !showVideo) {
               handleViewportChange(true);
@@ -331,6 +404,15 @@
             }
           }}
           on:canplay={() => {
+            // Safari: Ensure muted and volume 0 before attempting play
+            if (autoplayVideo) {
+              autoplayVideo.volume = 0;
+              autoplayVideo.muted = true;
+              // Safari: Set autoplay attribute if in viewport
+              if (isSafari() && isInViewport && !showVideo) {
+                autoplayVideo.setAttribute('autoplay', '');
+              }
+            }
             // Auto-play when video can play and is in viewport
             if (isInViewport && !showVideo && !isPlaying && autoplayVideo) {
               handleViewportChange(true);
