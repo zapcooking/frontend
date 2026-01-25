@@ -2,6 +2,46 @@
 
 This document outlines the multi-wallet system architecture to ensure future changes don't break existing functionality.
 
+## Recent Updates (January 2026)
+
+### Branta Guardrail Integration
+Payment address verification for Bitcoin and Lightning payments. When users generate invoices or addresses, they're registered with Branta so recipients can verify legitimacy.
+
+**Key Points:**
+- API v2 at `https://guardrail.branta.pro/v2`
+- `zk: true` for on-chain Bitcoin addresses (zero-knowledge encryption)
+- `zk: false` for Lightning invoices/addresses (plaintext)
+- Registration must complete BEFORE showing the badge (race condition fix)
+- See `docs/wallet/Branta Integration Plan.md` for full API reference
+
+**Files:**
+- `src/lib/brantaService.server.ts` - Server-side API calls
+- `src/routes/api/branta/register/+server.ts` - Registration endpoint
+- `src/routes/api/branta/verify/+server.ts` - Verification endpoint
+- `src/components/BrantaBadge.svelte` - Verification badge component
+
+**Race Condition Fix:**
+The badge verifies when `paymentString` changes. Must `await registerWithBranta()` before setting the payment string:
+```typescript
+// WRONG - badge verifies before registration completes
+generatedInvoice = result.invoice;
+registerWithBranta(result.invoice, description, false);
+
+// CORRECT - await registration first
+await registerWithBranta(result.invoice, description, false);
+generatedInvoice = result.invoice;
+```
+
+### NWC Reconnection Fix
+`createInvoice()` and `lookupInvoice()` now call `ensureWalletConnected()` before NWC operations. Previously these would fail with "NWC not connected" if the relay connection dropped.
+
+### On-Chain Bitcoin Receive
+Spark wallets can now receive on-chain Bitcoin:
+- Generate deposit addresses via `receiveOnchain()`
+- View pending deposits with `listUnclaimedDeposits()`
+- Claim confirmed deposits with `claimUnclaimedDeposits()`
+- Registered with Branta (`zk: true`) for verification
+
 ## Architecture Overview
 
 The wallet system supports two **embedded wallet** types and two **external wallet** options:
