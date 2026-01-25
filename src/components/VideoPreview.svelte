@@ -8,6 +8,7 @@
   let showVideo = false;
   let previewVideo: HTMLVideoElement;
   let autoplayVideo: HTMLVideoElement;
+  let fullVideoPlayer: HTMLVideoElement;
   let containerEl: HTMLDivElement;
   let isVisible = false;
   let isLoading = true;
@@ -60,10 +61,17 @@
   async function handleViewportChange(inViewport: boolean) {
     isInViewport = inViewport;
     
-    if (!autoplayVideo || showVideo) return;
-    
     if (inViewport) {
-      // Video entered viewport - start playing
+      // Video entered viewport
+      if (showVideo && fullVideoPlayer) {
+        // If in full player mode, don't auto-play (user controls it)
+        // Just ensure it's ready
+        return;
+      }
+      
+      if (!autoplayVideo) return;
+      
+      // Start autoplay for muted preview
       try {
         // Ensure video is muted (required for autoplay)
         autoplayVideo.muted = true;
@@ -105,14 +113,23 @@
         // Don't set isPlaying to true if autoplay fails
       }
     } else {
-      // Video left viewport - pause immediately
+      // Video left viewport - pause immediately (both autoplay and full player)
+      if (showVideo && fullVideoPlayer) {
+        // Pause full video player with controls/audio
+        try {
+          fullVideoPlayer.pause();
+        } catch (e) {
+          console.warn('Error pausing full video player:', e);
+        }
+      }
+      
       if (autoplayVideo) {
-        // Pause immediately when scrolled past
+        // Pause autoplay preview
         try {
           autoplayVideo.pause();
           isPlaying = false;
         } catch (e) {
-          console.warn('Error pausing video:', e);
+          console.warn('Error pausing autoplay video:', e);
           isPlaying = false;
         }
       }
@@ -223,10 +240,15 @@
       pauseTimeout = null;
     }
     
-    // Pause video if playing
+    // Pause videos if playing
     if (isPlaying && autoplayVideo) {
       autoplayVideo.pause();
       isPlaying = false;
+    }
+    
+    // Also pause full video player if it exists
+    if (fullVideoPlayer && !fullVideoPlayer.paused) {
+      fullVideoPlayer.pause();
     }
     
     // Disconnect observer
@@ -241,6 +263,7 @@
   {#if showVideo}
     <!-- Show full video player when clicked -->
     <video
+      bind:this={fullVideoPlayer}
       src={url}
       controls
       autoplay
