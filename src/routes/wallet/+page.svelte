@@ -1010,7 +1010,8 @@
   }
 
   // Register a payment address/invoice with Branta Guardrail (fire-and-forget)
-  async function registerWithBranta(paymentString: string, description?: string) {
+  // zk: true for on-chain Bitcoin addresses, false for Lightning invoices/addresses
+  async function registerWithBranta(paymentString: string, description?: string, zk?: boolean) {
     try {
       await fetch('/api/branta/register', {
         method: 'POST',
@@ -1018,7 +1019,8 @@
         body: JSON.stringify({
           paymentString,
           description,
-          ttl: 86400 // 24 hours
+          ttl: 86400, // 24 hours
+          zk
         })
       });
     } catch (e) {
@@ -1054,8 +1056,8 @@
     try {
       const result = await receiveOnchain();
       onchainAddress = result.address;
-      // Register with Branta for verification
-      registerWithBranta(result.address, 'zap.cooking Bitcoin deposit address');
+      // Register with Branta for verification (zk: true for on-chain)
+      registerWithBranta(result.address, 'zap.cooking Bitcoin deposit address', true);
       // Also load any pending deposits
       await loadUnclaimedDeposits();
     } catch (e) {
@@ -1370,8 +1372,8 @@
       }
       generatedInvoice = result.invoice;
       generatedPaymentHash = result.paymentHash || '';
-      // Register with Branta for verification
-      registerWithBranta(result.invoice, `zap.cooking invoice for ${amountToUse} sats`);
+      // Register with Branta for verification (zk: false for Lightning)
+      registerWithBranta(result.invoice, `zap.cooking invoice for ${amountToUse} sats`, false);
 
       setTimeout(() => {
         if (generatedInvoice && !invoicePaid) startInvoicePolling();
@@ -5174,7 +5176,7 @@
                               const wasHidden = showLightningAddressQr !== nwcLud16;
                               showLightningAddressQr = wasHidden ? nwcLud16 : null;
                               if (wasHidden && nwcLud16) {
-                                registerWithBranta(nwcLud16, 'NWC Lightning Address');
+                                registerWithBranta(nwcLud16, 'NWC Lightning Address', false);
                               }
                             }}
                             title="Show QR code"
@@ -5261,7 +5263,8 @@
                               if (wasHidden && $sparkLightningAddressStore) {
                                 registerWithBranta(
                                   $sparkLightningAddressStore,
-                                  'Spark Lightning Address'
+                                  'Spark Lightning Address',
+                                  false
                                 );
                               }
                             }}
