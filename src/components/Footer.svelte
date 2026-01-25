@@ -62,7 +62,31 @@
         >
           <GithubLogo size={16} weight="fill" />
         </a>
+        <a
+          href="https://branta.pro/network#Zap-Cooking"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="w-8 h-8 rounded-full flex items-center justify-center text-caption hover:text-primary transition-colors"
+          style="background-color: var(--color-input-bg);"
+          title="Branta Verified"
+        >
+          <svg class="w-3.5 h-3.5" viewBox="0 0 42 23" fill="currentColor">
+            <path
+              d="M38.84 0.349999C39.42 0.589999 39.93 0.909999 40.37 1.34C40.81 1.76 41.16 2.29 41.43 2.91C41.7 3.54 41.83 4.23 41.83 4.98V8.22C41.83 8.94 41.64 9.58 41.27 10.15C40.89 10.71 40.52 11.14 40.14 11.42C40.52 11.64 40.89 11.98 41.27 12.45C41.65 12.92 41.83 13.55 41.83 14.33V17.81C41.83 18.56 41.7 19.25 41.43 19.88C41.16 20.51 40.81 21.03 40.37 21.45C39.93 21.87 39.42 22.2 38.84 22.44C38.26 22.68 37.67 22.79 37.08 22.79H0V0H37.08C37.68 0 38.26 0.119999 38.84 0.349999ZM5.03 8.88H35.01C35.48 8.88 35.89 8.77 36.26 8.55C36.62 8.33 36.8 7.91 36.8 7.28V6.76C36.8 6.1 36.64 5.64 36.31 5.37C35.98 5.1 35.53 4.97 34.97 4.97H5.03V8.87V8.88ZM5.03 17.81H35.06C35.62 17.81 36.05 17.72 36.35 17.55C36.65 17.38 36.8 16.96 36.8 16.3V15.74C36.8 15.11 36.61 14.64 36.24 14.33C35.86 14.02 35.44 13.86 34.97 13.86H5.03V17.81Z"
+            />
+          </svg>
+        </a>
       </div>
+
+      <!-- Branta Guardrail -->
+      <p class="text-xs text-caption">
+        Running Guardrail by <a
+          href="https://primal.net/p/npub16ndruwfg7dsdhnp3w8zvqrg0r2rn3wucnttgrg5acm2lhqpkepkqncr9qr"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="hover:text-primary transition-colors">@branta</a
+        > since Block 933,735 ✅
+      </p>
 
       <!-- Utility Links -->
       <div class="flex flex-wrap items-center justify-center footer-links text-caption">
