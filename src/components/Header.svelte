@@ -4,23 +4,19 @@
   import SVGNostrCookingWithText from '../assets/nostr.cooking-withtext.svg';
   import SearchIcon from 'phosphor-svelte/lib/MagnifyingGlass';
   import TimerIcon from 'phosphor-svelte/lib/Timer';
-  import { clickOutside } from '$lib/clickOutside';
-  import { blur } from 'svelte/transition';
   import TagsSearchAutocomplete from './TagsSearchAutocomplete.svelte';
   import CustomAvatar from './CustomAvatar.svelte';
   import { theme } from '$lib/themeStore';
   import WalletBalance from './WalletBalance.svelte';
-  import UserSidePanel from './UserSidePanel.svelte';
   import LightningIcon from 'phosphor-svelte/lib/Lightning';
+  import { userSidePanelOpen } from '$lib/stores/userSidePanel';
+  import { mobileSearchOpen } from '$lib/stores/mobileSearch';
   import { timerStore } from '$lib/timerStore';
   import { navBalanceVisible, walletConnected } from '$lib/wallet';
   import { weblnConnected } from '$lib/wallet/webln';
   import { bitcoinConnectEnabled, bitcoinConnectWalletInfo } from '$lib/wallet/bitcoinConnect';
   import { timerWidgetOpen } from '$lib/stores/timerWidget';
-  import TimerWidget from './TimerWidget.svelte';
 
-  let sidePanelOpen = false;
-  let searchActive = false;
   let isLoading = true;
 
   // Count active timers (running or paused)
@@ -35,7 +31,7 @@
   }
 
   function openTag(query: string) {
-    searchActive = false;
+    mobileSearchOpen.set(false);
     if (query.startsWith('npub')) {
       goto(`/user/${query}`);
     } else if (query.startsWith('naddr')) {
@@ -65,27 +61,8 @@
   }
 </script>
 
-{#if searchActive}
-  <div
-    class="fixed z-20 w-full h-full top-0 left-0 duration-500 transition-opacity bg-opacity-50 backdrop-blur-sm"
-    transition:blur={{ amount: 10, duration: 300 }}
-  >
-    <div
-      class="fixed z-25 inset-x-0 top-20 w-3/4 md:w-1/2 lg:w-1/3 mx-auto"
-      use:clickOutside
-      on:click_outside={() => (searchActive = false)}
-    >
-      <TagsSearchAutocomplete
-        placeholderString={'Search recipes, tags, or users...'}
-        action={openTag}
-        autofocus={true}
-      />
-    </div>
-  </div>
-{/if}
-
 <!-- Mobile-first layout -->
-<div class="relative flex gap-4 sm:gap-9 justify-between overflow-visible">
+<div class="relative flex gap-4 sm:gap-9 lg:gap-12 justify-between overflow-visible">
   <a href="/recent" class="flex-none lg:hidden">
     <img
       src={isDarkMode ? '/zap_cooking_logo_white.svg' : SVGNostrCookingWithText}
@@ -94,7 +71,9 @@
     />
   </a>
 
-  <div class="hidden sm:flex flex-1 self-center print:hidden max-w-2xl">
+  <div
+    class="hidden sm:flex flex-1 self-center print:hidden max-w-2xl min-w-[280px] lg:min-w-[500px]"
+  >
     <TagsSearchAutocomplete
       placeholderString={'Search recipes, tags, or users...'}
       action={openTag}
@@ -105,7 +84,7 @@
     <!-- Search icon (mobile/tablet only when search bar hidden) -->
     <div class="block sm:hidden">
       <button
-        on:click={() => (searchActive = true)}
+        on:click={() => mobileSearchOpen.set(true)}
         class="w-9 h-9 flex items-center justify-center text-caption hover:opacity-80 hover:bg-accent-gray rounded-full transition-colors cursor-pointer"
         aria-label="Search"
       >
@@ -154,12 +133,11 @@
       {#if $userPublickey !== ''}
         <button
           class="flex cursor-pointer rounded-full transition-transform duration-200 hover:scale-105 active:scale-95"
-          on:click={() => (sidePanelOpen = true)}
+          on:click={() => userSidePanelOpen.set(true)}
           aria-label="Open user menu"
         >
           <CustomAvatar pubkey={$userPublickey} size={36} imageUrl={$userProfilePictureOverride} />
         </button>
-        <UserSidePanel bind:open={sidePanelOpen} />
       {:else}
         <a
           href="/login"
@@ -171,9 +149,6 @@
     </div>
   </div>
 </div>
-
-<!-- Timer Widget -->
-<TimerWidget bind:open={$timerWidgetOpen} />
 
 <style>
   .signin-button:hover {

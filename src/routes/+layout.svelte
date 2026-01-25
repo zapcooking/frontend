@@ -23,6 +23,10 @@
   import { weblnConnected } from '$lib/wallet/webln';
   import { bitcoinConnectEnabled, bitcoinConnectWalletInfo } from '$lib/wallet/bitcoinConnect';
   import { postComposerOpen } from '$lib/postComposerStore';
+  import { timerWidgetOpen } from '$lib/stores/timerWidget';
+  import TimerWidget from '../components/TimerWidget.svelte';
+  import UserSidePanel from '../components/UserSidePanel.svelte';
+  import MobileSearchOverlay from '../components/MobileSearchOverlay.svelte';
   // Import sync service to initialize offline sync functionality
   import '$lib/syncService';
   // Import platform detection to initialize early
@@ -292,31 +296,30 @@
     class="h-screen scroll-smooth overflow-hidden transition-colors duration-200 safe-area-container"
   >
     <OfflineIndicator />
-    <div class="flex flex-col h-full">
-      <div class="mx-auto w-full flex-1 min-h-0 pt-2 print:pt-[0] px-4 max-w-full safe-area-content flex flex-col">
-        <div class="flex-1 min-h-0 flex flex-col lg:flex-row lg:gap-6">
-          <DesktopSideNav />
-          <div
-            class="flex-1 min-h-0 min-w-0 flex flex-col"
-            style="background-color: var(--color-bg-primary);"
-          >
-            <NotificationSubscriber />
-            <div style="background-color: var(--color-bg-primary);">
-              <Header />
-            </div>
-            <div
-              id="app-scroll"
-              class="w-full mt-0 lg:mt-3 pb-24 lg:pb-8 flex-1 min-h-0 overflow-y-auto"
-              style="background-color: var(--color-bg-primary);"
-            >
-              <slot />
-              <Footer />
-            </div>
-          </div>
+    <div class="flex flex-col h-full overflow-hidden">
+      <NotificationSubscriber />
+      <!-- Fixed sidebar -->
+      <DesktopSideNav />
+      <!-- Full-page scroll container -->
+      <div
+        id="app-scroll"
+        class="flex-1 min-h-0 overflow-y-auto lg:ml-72 xl:ml-80"
+        style="background-color: var(--color-bg-primary);"
+      >
+        <!-- Sticky header with blur -->
+        <div class="header-blur sticky top-0 z-20 py-3 px-4">
+          <Header />
+        </div>
+        <div class="px-4 pb-24 lg:pb-8">
+          <slot />
+          <Footer />
         </div>
       </div>
       <CreateMenuButton variant="floating" />
       <BottomNav />
+      <TimerWidget bind:open={$timerWidgetOpen} />
+      <UserSidePanel />
+      <MobileSearchOverlay />
       <PostModal bind:open={$postComposerOpen} />
       <WalletWelcomeModal bind:open={walletWelcomeOpen} onDismiss={markWalletWelcomeSeen} />
     </div>
@@ -326,7 +329,6 @@
 <style>
   /* Safe area support for Android/iOS edge-to-edge displays */
   .safe-area-container {
-    padding-top: env(safe-area-inset-top, 0px);
     padding-left: env(safe-area-inset-left, 0px);
     padding-right: env(safe-area-inset-right, 0px);
   }
@@ -335,6 +337,34 @@
   @media (max-width: 1023px) {
     .safe-area-content {
       padding-bottom: env(safe-area-inset-bottom, 0px);
+    }
+  }
+
+  /* Header with frosted glass effect */
+  .header-blur {
+    background-color: color-mix(in srgb, var(--color-bg-primary) 70%, transparent);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+  }
+
+  /* Safe area padding for header on mobile */
+  @media (max-width: 1023px) {
+    .header-blur {
+      padding-top: env(safe-area-inset-top, 0px);
+    }
+  }
+
+  /* Left edge gradient for smooth transition from sidebar (desktop only) */
+  @media (min-width: 1024px) {
+    .header-blur::before {
+      content: '';
+      position: absolute;
+      left: 0;
+      top: 0;
+      bottom: 0;
+      width: 10%;
+      background: linear-gradient(to right, var(--color-bg-primary) 0%, transparent 100%);
+      pointer-events: none;
     }
   }
 </style>

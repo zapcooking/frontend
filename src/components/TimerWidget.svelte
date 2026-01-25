@@ -1155,13 +1155,16 @@
   /* Mobile styles - bottom-locked widget */
   .timer-widget.mobile {
     top: auto;
-    bottom: calc(56px + env(safe-area-inset-bottom, 0px)); /* Sit directly on bottom nav */
+    /* Bottom nav: 8px padding top + 24px icon + 8px padding bottom = 40px, positioned at safe-area-inset-bottom */
+    bottom: calc(40px + env(safe-area-inset-bottom, 0px));
     left: 0;
     right: 0;
     width: 100%;
     max-width: 100%;
     border-radius: 16px 16px 0 0;
+    border-bottom: none;
     max-height: 70vh;
+    z-index: 50;
   }
 
   .timer-widget.mobile.minimized {
@@ -1169,10 +1172,10 @@
     overflow: hidden;
   }
 
-  /* Desktop minimized - docked to bottom (use !important to override inline drag styles) */
+  /* Desktop minimized - docked to bottom */
   .timer-widget.desktop.minimized {
     top: auto !important;
-    bottom: calc(56px + env(safe-area-inset-bottom, 0px) + 8px) !important;
+    bottom: calc(40px + env(safe-area-inset-bottom, 0px) + 8px) !important;
     left: 50% !important;
     transform: translateX(-50%) !important;
     right: auto !important;
@@ -1181,6 +1184,7 @@
     max-height: none;
     overflow: hidden;
     border-radius: 12px;
+    z-index: 50;
   }
 
   /* On larger screens without bottom nav, position closer to bottom */

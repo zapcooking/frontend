@@ -29,8 +29,6 @@
     isValidNwcUrl,
     getPaymentHistory,
     pendingTransactions,
-    addPendingTransaction,
-    updatePendingTransaction,
     removePendingTransaction,
     transactionsNeedRefresh,
     ensurePendingTransactionsLoaded,
@@ -132,6 +130,7 @@
   import CloudCheckIcon from 'phosphor-svelte/lib/CloudCheck';
   import WalletRecoveryHelpModal from '../../components/WalletRecoveryHelpModal.svelte';
   import CheckRelayBackupsModal from '../../components/CheckRelayBackupsModal.svelte';
+  import BrantaBadge from '../../components/BrantaBadge.svelte';
   import {
     bitcoinConnectEnabled,
     bitcoinConnectWalletInfo,
@@ -417,6 +416,8 @@
   let selectedFeeSpeed: 'fast' | 'medium' | 'slow' = 'medium';
   let isPreparingOnchain = false;
   let isSendingOnchain = false;
+  let showOnchainConfirmation = false; // Show address verification step before sending
+  let sendingMaxBalance = false; // Track if user wants to send full balance (fee will be deducted)
 
   // Check if send input is a Bitcoin address
   $: isBtcAddress = isBitcoinAddress(sendInput);
@@ -438,7 +439,6 @@
     recipient?: string; // Lightning address or npub
     pubkey?: string; // Nostr pubkey for zap sender/recipient
     comment?: string; // Zap comment
-    txid?: string; // On-chain transaction id
   }
 
   function getTransactionMetadata(txId: string): TransactionMetadata | null {
@@ -473,45 +473,6 @@
     } catch (e) {
       console.error('[Wallet] Failed to save tx metadata:', e);
     }
-  }
-
-  function extractSparkTxid(payment: any): string | undefined {
-    return (
-      payment?.txid ||
-      payment?.txId ||
-      payment?.tx_id ||
-      payment?.txHash ||
-      payment?.tx_hash ||
-      payment?.transactionId ||
-      payment?.transaction_id ||
-      payment?.onchainTxid ||
-      payment?.onchain_txid ||
-      payment?.onchain?.txid ||
-      payment?.onchain?.txId ||
-      payment?.paymentMethod?.txid ||
-      payment?.paymentMethod?.txId ||
-      payment?.paymentMethod?.transactionId ||
-      payment?.paymentMethod?.transaction_id ||
-      payment?.paymentMethod?.txHash ||
-      payment?.paymentMethod?.tx_hash ||
-      undefined
-    );
-  }
-
-  function extractSparkAmountSat(payment: any): number {
-    const amountMsat = payment?.amountMsat || payment?.amount_msat || payment?.amountMSat || 0;
-    const amountSat =
-      payment?.amountSat ||
-      payment?.amount_sat ||
-      payment?.amount ||
-      Math.floor(Number(amountMsat) / 1000);
-    return Number(amountSat) || 0;
-  }
-
-  function extractSparkTimestamp(payment: any): number {
-    let ts = payment?.createdAt || payment?.created_at || payment?.timestamp || payment?.time || 0;
-    if (ts > 4102444800) ts = Math.floor(ts / 1000);
-    return Number(ts) || Math.floor(Date.now() / 1000);
   }
 
   // Cache for profile lookups to avoid repeated fetches
@@ -677,37 +638,6 @@
         event.type === 'paymentFailed' ||
         event.type === 'synced'
       ) {
-        if (event.type === 'paymentSucceeded' && event.payment) {
-          const payment = event.payment;
-          const paymentType = payment?.paymentType || payment?.payment_type || payment?.type || '';
-          const isIncoming =
-            paymentType === 'received' ||
-            paymentType === 'RECEIVED' ||
-            paymentType === 'receive' ||
-            paymentType === 'incoming';
-          const txid = extractSparkTxid(payment);
-          const amountSat = extractSparkAmountSat(payment);
-          const paymentId = payment?.id || payment?.paymentHash || payment?.payment_hash;
-          const paymentTimestamp = extractSparkTimestamp(payment);
-
-          if (!isIncoming && txid && amountSat > 0) {
-            const pending = $pendingTransactions;
-            const matching = pending.find(
-              (tx) =>
-                tx.type === 'outgoing' &&
-                tx.amount === amountSat &&
-                Math.abs(tx.timestamp - paymentTimestamp) < 600
-            );
-            if (matching) {
-              updatePendingTransaction(matching.id, { txid });
-            }
-          }
-
-          if (paymentId && txid) {
-            saveTransactionMetadata(paymentId, { txid });
-          }
-        }
-
         await refreshBalance();
         loadTransactionHistory(true);
 
@@ -916,15 +846,13 @@
               ...matchingReal,
               description: pendingTx.description || matchingReal.description,
               pubkey: pendingTx.pubkey || matchingReal.pubkey,
-              comment: pendingTx.comment || matchingReal.comment,
-              txid: pendingTx.txid || matchingReal.txid
+              comment: pendingTx.comment || matchingReal.comment
             };
             // Save metadata for persistence (keyed by real transaction ID)
             saveTransactionMetadata(matchingReal.id, {
               description: pendingTx.description,
               pubkey: pendingTx.pubkey,
-              comment: pendingTx.comment,
-              txid: pendingTx.txid
+              comment: pendingTx.comment
             });
             removePendingTransaction(pendingTx.id);
           } else if (now - pendingTx.timestamp > 600) {
@@ -947,8 +875,7 @@
                 ? savedMeta.description
                 : tx.description,
             pubkey: savedMeta.pubkey || tx.pubkey,
-            comment: savedMeta.comment || tx.comment,
-            txid: savedMeta.txid || tx.txid
+            comment: savedMeta.comment || tx.comment
           };
         }
         return tx;
@@ -1068,6 +995,36 @@
     selectedFeeSpeed = 'medium';
     isPreparingOnchain = false;
     isSendingOnchain = false;
+    showOnchainConfirmation = false;
+    sendingMaxBalance = false;
+  }
+
+  // Format Bitcoin address into segments for easier verification
+  function formatAddressSegments(address: string): string[] {
+    const segmentSize = 4;
+    const segments: string[] = [];
+    for (let i = 0; i < address.length; i += segmentSize) {
+      segments.push(address.slice(i, i + segmentSize));
+    }
+    return segments;
+  }
+
+  // Register a payment address/invoice with Branta Guardrail (fire-and-forget)
+  async function registerWithBranta(paymentString: string, description?: string) {
+    try {
+      await fetch('/api/branta/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          paymentString,
+          description,
+          ttl: 86400 // 24 hours
+        })
+      });
+    } catch (e) {
+      // Silent fail - Branta registration is optional
+      console.warn('[Branta] Registration failed:', e);
+    }
   }
 
   // Reset receive modal state
@@ -1097,6 +1054,8 @@
     try {
       const result = await receiveOnchain();
       onchainAddress = result.address;
+      // Register with Branta for verification
+      registerWithBranta(result.address, 'zap.cooking Bitcoin deposit address');
       // Also load any pending deposits
       await loadUnclaimedDeposits();
     } catch (e) {
@@ -1205,9 +1164,59 @@
     onchainPrepareResponse = null;
 
     try {
-      const result = await prepareOnchainSend(sendInput.trim(), sendAmount);
-      onchainFeeQuote = result.feeQuote;
-      onchainPrepareResponse = result.prepareResponse;
+      if (sendingMaxBalance) {
+        if ($walletBalance === null) {
+          sendError = 'Wallet balance unavailable';
+          return;
+        }
+
+        const balanceSats = Number($walletBalance);
+        if (balanceSats <= 0) {
+          sendError = 'Balance is too low to cover the network fee';
+          return;
+        }
+
+        const address = sendInput.trim();
+        const probeAmount = Math.min(balanceSats, 1000);
+        let result = await prepareOnchainSend(address, probeAmount);
+        let feeSats = result.feeQuote.fast.feeSats;
+        let maxSendable = balanceSats - feeSats;
+
+        if (maxSendable <= 0) {
+          sendError = 'Balance is too low to cover the network fee';
+          return;
+        }
+
+        result = await prepareOnchainSend(address, maxSendable);
+        feeSats = result.feeQuote.fast.feeSats;
+        const adjustedAmount = balanceSats - feeSats;
+
+        if (adjustedAmount <= 0) {
+          sendError = 'Balance is too low to cover the network fee';
+          return;
+        }
+
+        if (adjustedAmount !== maxSendable) {
+          result = await prepareOnchainSend(address, adjustedAmount);
+          feeSats = result.feeQuote.fast.feeSats;
+          maxSendable = balanceSats - feeSats;
+          if (maxSendable <= 0) {
+            sendError = 'Balance is too low to cover the network fee';
+            return;
+          }
+        } else {
+          maxSendable = adjustedAmount;
+        }
+
+        onchainFeeQuote = result.feeQuote;
+        onchainPrepareResponse = result.prepareResponse;
+        // Don't modify sendAmount - keep it at full balance for display
+        // The prepareResponse already has the correct net amount for the transaction
+      } else {
+        const result = await prepareOnchainSend(sendInput.trim(), sendAmount);
+        onchainFeeQuote = result.feeQuote;
+        onchainPrepareResponse = result.prepareResponse;
+      }
     } catch (e) {
       sendError = e instanceof Error ? e.message : 'Failed to prepare on-chain payment';
     } finally {
@@ -1224,9 +1233,52 @@
 
     isSendingOnchain = true;
     sendError = '';
+    const pendingId =
+      $activeWallet?.id !== undefined
+        ? addPendingTransaction({
+            id: `pending-${Date.now()}-${Math.random().toString(36).substring(7)}`,
+            type: 'outgoing',
+            amount: sendAmount,
+            description: 'Sending on-chain payment...',
+            timestamp: Math.floor(Date.now() / 1000),
+            walletId: $activeWallet.id
+          })
+        : null;
 
     try {
-      await sendOnchain(onchainPrepareResponse, selectedFeeSpeed);
+      // Always use 'fast' speed - Spark cooperative exits currently have fixed fees
+      const payment = await sendOnchain(onchainPrepareResponse, 'fast');
+      const txid =
+        payment?.txid ||
+        payment?.txId ||
+        payment?.tx_id ||
+        payment?.txHash ||
+        payment?.tx_hash ||
+        payment?.transactionId ||
+        payment?.transaction_id ||
+        payment?.onchainTxid ||
+        payment?.onchain_txid ||
+        payment?.onchain?.txid ||
+        payment?.onchain?.txId ||
+        payment?.paymentMethod?.txid ||
+        payment?.paymentMethod?.txId ||
+        payment?.paymentMethod?.transactionId ||
+        payment?.paymentMethod?.transaction_id ||
+        payment?.paymentMethod?.txHash ||
+        payment?.paymentMethod?.tx_hash;
+      const paymentId =
+        payment?.id || payment?.paymentHash || payment?.payment_hash || txid || null;
+
+      if (pendingId) {
+        updatePendingTransaction(pendingId, {
+          status: 'completed',
+          txid: txid || undefined
+        });
+      }
+
+      if (paymentId && txid) {
+        saveTransactionMetadata(paymentId, { txid });
+      }
       sendSuccess = 'On-chain payment sent!';
       await refreshBalance();
       loadTransactionHistory(true);
@@ -1236,6 +1288,9 @@
       }, 1500);
     } catch (e) {
       sendError = e instanceof Error ? e.message : 'Failed to send on-chain payment';
+      if (pendingId) {
+        removePendingTransaction(pendingId);
+      }
     } finally {
       isSendingOnchain = false;
     }
@@ -1315,6 +1370,8 @@
       }
       generatedInvoice = result.invoice;
       generatedPaymentHash = result.paymentHash || '';
+      // Register with Branta for verification
+      registerWithBranta(result.invoice, `zap.cooking invoice for ${amountToUse} sats`);
 
       setTimeout(() => {
         if (generatedInvoice && !invoicePaid) startInvoicePolling();
@@ -2166,27 +2223,25 @@
   <div class="max-w-2xl mx-auto py-8 px-4">
     <h1 class="text-2xl font-bold mb-6" style="color: var(--color-text-primary)">Wallet</h1>
 
-    <!-- Error/Success Messages - Fixed at top, above all modals (portaled to body for z-index) -->
-    {#if errorMessage && portalTarget}
-      <div use:portal={portalTarget}>
-        <div
-          class="fixed top-4 left-4 right-4 max-w-2xl mx-auto p-4 rounded-lg flex items-center gap-3 shadow-xl border z-[200]"
-          style="background-color: var(--color-bg-primary); border-color: #ef4444; color: #ef4444;"
+    <!-- Error/Success Messages - Fixed at top, above all modals -->
+    {#if errorMessage}
+      <div
+        class="fixed top-4 left-4 right-4 max-w-2xl mx-auto p-4 rounded-lg flex items-center gap-3 shadow-xl border z-[100]"
+        style="background-color: var(--color-bg-primary); border-color: #ef4444; color: #ef4444;"
+      >
+        <WarningIcon size={20} class="flex-shrink-0" />
+        <span class="flex-1 text-sm">{errorMessage}</span>
+        <button
+          class="text-sm underline flex-shrink-0 hover:opacity-80"
+          on:click={() => (errorMessage = '')}>Dismiss</button
         >
-          <WarningIcon size={20} class="flex-shrink-0" />
-          <span class="flex-1 text-sm">{errorMessage}</span>
-          <button
-            class="text-sm underline flex-shrink-0 hover:opacity-80"
-            on:click={() => (errorMessage = '')}>Dismiss</button
-          >
-        </div>
       </div>
     {/if}
 
     {#if successMessage && portalTarget}
       <div use:portal={portalTarget}>
         <div
-          class="fixed top-4 left-4 right-4 max-w-2xl mx-auto p-4 rounded-lg flex items-center gap-3 shadow-xl border z-[200]"
+          class="fixed top-4 left-4 right-4 max-w-2xl mx-auto p-4 rounded-lg flex items-center gap-3 shadow-xl border z-[9999]"
           style="background-color: var(--color-bg-primary); border-color: #22c55e; color: #22c55e;"
         >
           <CheckCircleIcon size={20} class="flex-shrink-0" />
@@ -3286,22 +3341,7 @@
                           "{tx.comment}"
                         </div>
                       {/if}
-                      <div class="text-sm text-orange-500">
-                        ✓ Payment sent
-                        {#if tx.txid}
-                          <span class="ml-2">
-                            •
-                            <a
-                              href="https://mempool.space/tx/{tx.txid}"
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              class="text-amber-500 hover:text-amber-400"
-                            >
-                              Tx: {tx.txid.slice(0, 8)}...{tx.txid.slice(-8)}
-                            </a>
-                          </span>
-                        {/if}
-                      </div>
+                      <div class="text-sm text-orange-500">✓ Payment sent</div>
                     </div>
                     <div class="text-right">
                       <div class="font-semibold text-orange-500">
@@ -3345,22 +3385,7 @@
                           "{tx.comment}"
                         </div>
                       {/if}
-                      <div class="text-sm text-amber-500">
-                        Sending payment...
-                        {#if tx.txid}
-                          <span class="ml-2">
-                            •
-                            <a
-                              href="https://mempool.space/tx/{tx.txid}"
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              class="text-amber-500 hover:text-amber-400"
-                            >
-                              Tx: {tx.txid.slice(0, 8)}...{tx.txid.slice(-8)}
-                            </a>
-                          </span>
-                        {/if}
-                      </div>
+                      <div class="text-sm text-amber-500">Sending payment...</div>
                     </div>
                     <div class="text-right">
                       <div class="font-semibold text-amber-500">
@@ -3418,19 +3443,6 @@
                       {/if}
                       <div class="text-sm text-amber-500">
                         {tx.type === 'incoming' ? 'Receiving payment...' : 'Sending payment...'}
-                        {#if tx.txid}
-                          <span class="ml-2">
-                            •
-                            <a
-                              href="https://mempool.space/tx/{tx.txid}"
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              class="text-amber-500 hover:text-amber-400"
-                            >
-                              Tx: {tx.txid.slice(0, 8)}...{tx.txid.slice(-8)}
-                            </a>
-                          </span>
-                        {/if}
                       </div>
                     </div>
                     <div class="text-right">
@@ -3488,19 +3500,6 @@
                         {formatTransactionDate(tx.timestamp)}
                         {#if tx.fees && $balanceVisible}
                           <span class="ml-2">• Fee: {tx.fees} sats</span>
-                        {/if}
-                        {#if tx.txid}
-                          <span class="ml-2">
-                            •
-                            <a
-                              href="https://mempool.space/tx/{tx.txid}"
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              class="text-amber-500 hover:text-amber-400"
-                            >
-                              Tx: {tx.txid.slice(0, 8)}...{tx.txid.slice(-8)}
-                            </a>
-                          </span>
                         {/if}
                       </div>
                     </div>
@@ -4566,91 +4565,95 @@
             {/if}
 
             <div class="space-y-4">
-              <div>
-                <label class="block text-sm font-medium mb-2 text-caption">
-                  {#if $activeWallet?.kind === 4}
-                    Invoice, Lightning Address, or Bitcoin Address
-                  {:else}
-                    Invoice or Lightning Address
-                  {/if}
-                </label>
-                <textarea
-                  bind:value={sendInput}
-                  placeholder={$activeWallet?.kind === 4
-                    ? 'lnbc..., user@example.com, or bc1...'
-                    : 'lnbc... or user@example.com'}
-                  class="w-full p-3 rounded-lg bg-input border border-input text-primary-color placeholder-caption resize-none focus:outline-none focus:ring-2 focus:ring-amber-500"
-                  rows="3"
-                  disabled={isSending || isSendingOnchain}
-                  on:input={() => {
-                    // Reset on-chain state when input changes
-                    if (onchainFeeQuote) {
-                      onchainFeeQuote = null;
-                      onchainPrepareResponse = null;
-                    }
-                  }}
-                />
-                {#if isBtcAddress && $activeWallet?.kind === 4}
-                  <div class="mt-1 text-xs text-amber-500 flex items-center gap-1">
-                    ₿ Bitcoin address detected - on-chain payment
-                  </div>
-                {/if}
-              </div>
-
-              {#if isLightningAddress || isBtcAddress}
+              {#if !showOnchainConfirmation}
                 <div>
-                  <div class="flex items-center justify-between mb-2">
-                    <label class="block text-sm font-medium text-caption">Amount (sats)</label>
-                    {#if isBtcAddress && $activeWallet?.kind === 4 && $walletBalance !== null && $walletBalance > 0n}
-                      <button
-                        type="button"
-                        class="text-xs text-amber-500 hover:text-amber-400 font-medium"
-                        on:click={() => {
-                          sendAmount = Number($walletBalance);
-                          sendingMaxBalance = true;
-                          // Reset fee quote when amount changes
-                          if (onchainFeeQuote) {
-                            onchainFeeQuote = null;
-                            onchainPrepareResponse = null;
-                          }
-                        }}
-                      >
-                        Use All ({formatBalance(Number($walletBalance))} sats)
-                      </button>
+                  <label class="block text-sm font-medium mb-2 text-caption">
+                    {#if $activeWallet?.kind === 4}
+                      Invoice, Lightning Address, or Bitcoin Address
+                    {:else}
+                      Invoice or Lightning Address
                     {/if}
-                  </div>
-                  <input
-                    type="number"
-                    bind:value={sendAmount}
-                    placeholder="Enter amount in sats"
-                    class="w-full p-3 rounded-lg bg-input border border-input text-primary-color placeholder-caption focus:outline-none focus:ring-2 focus:ring-amber-500"
+                  </label>
+                  <textarea
+                    bind:value={sendInput}
+                    placeholder={$activeWallet?.kind === 4
+                      ? 'lnbc..., user@example.com, or bc1...'
+                      : 'lnbc... or user@example.com'}
+                    class="w-full p-3 rounded-lg bg-input border border-input text-primary-color placeholder-caption resize-none focus:outline-none focus:ring-2 focus:ring-amber-500"
+                    rows="3"
                     disabled={isSending || isSendingOnchain}
-                    min="1"
                     on:input={() => {
-                      // Reset fee quote when amount changes
+                      // Reset on-chain state when input changes
+                      sendingMaxBalance = false;
                       if (onchainFeeQuote) {
                         onchainFeeQuote = null;
                         onchainPrepareResponse = null;
                       }
                     }}
                   />
+                  {#if isBtcAddress && $activeWallet?.kind === 4}
+                    <div class="mt-1 text-xs text-amber-500 flex items-center gap-1">
+                      ₿ Bitcoin address detected - on-chain payment
+                    </div>
+                  {/if}
                 </div>
-              {/if}
 
-              {#if isLightningAddress && !isBtcAddress}
-                <div>
-                  <label class="block text-sm font-medium mb-2 text-caption"
-                    >Message (optional)</label
-                  >
-                  <input
-                    type="text"
-                    bind:value={sendComment}
-                    placeholder="Add a note to your payment"
-                    class="w-full p-3 rounded-lg bg-input border border-input text-primary-color placeholder-caption focus:outline-none focus:ring-2 focus:ring-amber-500"
-                    disabled={isSending}
-                    maxlength="144"
-                  />
-                </div>
+                {#if isLightningAddress || isBtcAddress}
+                  <div>
+                    <div class="flex items-center justify-between mb-2">
+                      <label class="block text-sm font-medium text-caption">Amount (sats)</label>
+                      {#if isBtcAddress && $activeWallet?.kind === 4 && $walletBalance !== null && $walletBalance > 0n}
+                        <button
+                          type="button"
+                          class="text-xs text-amber-500 hover:text-amber-400 font-medium"
+                          on:click={() => {
+                            sendAmount = Number($walletBalance);
+                            sendingMaxBalance = true;
+                            // Reset fee quote when amount changes
+                            if (onchainFeeQuote) {
+                              onchainFeeQuote = null;
+                              onchainPrepareResponse = null;
+                            }
+                          }}
+                        >
+                          Use All ({formatBalance(Number($walletBalance))} sats)
+                        </button>
+                      {/if}
+                    </div>
+                    <input
+                      type="number"
+                      bind:value={sendAmount}
+                      placeholder="Enter amount in sats"
+                      class="w-full p-3 rounded-lg bg-input border border-input text-primary-color placeholder-caption focus:outline-none focus:ring-2 focus:ring-amber-500"
+                      disabled={isSending || isSendingOnchain}
+                      min="1"
+                      on:input={() => {
+                        // Reset fee quote when amount changes
+                        sendingMaxBalance = false;
+                        if (onchainFeeQuote) {
+                          onchainFeeQuote = null;
+                          onchainPrepareResponse = null;
+                        }
+                      }}
+                    />
+                  </div>
+                {/if}
+
+                {#if isLightningAddress && !isBtcAddress}
+                  <div>
+                    <label class="block text-sm font-medium mb-2 text-caption"
+                      >Message (optional)</label
+                    >
+                    <input
+                      type="text"
+                      bind:value={sendComment}
+                      placeholder="Add a note to your payment"
+                      class="w-full p-3 rounded-lg bg-input border border-input text-primary-color placeholder-caption focus:outline-none focus:ring-2 focus:ring-amber-500"
+                      disabled={isSending}
+                      maxlength="144"
+                    />
+                  </div>
+                {/if}
               {/if}
 
               <!-- On-chain fee selection -->
@@ -4668,109 +4671,133 @@
                       Get Fee Quote
                     {/if}
                   </button>
-                {:else}
-                  <!-- Fee Selection -->
-                  <div>
-                    <label class="block text-sm font-medium mb-2 text-caption"
-                      >Select Fee Speed</label
-                    >
-                    <div class="space-y-2">
-                      <button
-                        class="w-full p-3 rounded-lg border text-left transition-colors"
-                        class:border-amber-500={selectedFeeSpeed === 'fast'}
-                        class:border-input={selectedFeeSpeed !== 'fast'}
-                        style={selectedFeeSpeed === 'fast'
-                          ? 'background-color: rgba(251, 191, 36, 0.1);'
-                          : 'background-color: var(--color-input-bg);'}
-                        on:click={() => (selectedFeeSpeed = 'fast')}
-                      >
-                        <div class="flex justify-between items-center">
-                          <span class="font-medium text-primary-color">Fast</span>
-                          <span class="text-caption text-sm"
-                            >{formatBalance(onchainFeeQuote.fast.feeSats)} sats</span
-                          >
-                        </div>
-                        <div class="text-xs text-caption">
-                          ~10-20 min • {onchainFeeQuote.fast.feeRate} sat/vB
-                        </div>
-                      </button>
-                      <button
-                        class="w-full p-3 rounded-lg border text-left transition-colors"
-                        class:border-amber-500={selectedFeeSpeed === 'medium'}
-                        class:border-input={selectedFeeSpeed !== 'medium'}
-                        style={selectedFeeSpeed === 'medium'
-                          ? 'background-color: rgba(251, 191, 36, 0.1);'
-                          : 'background-color: var(--color-input-bg);'}
-                        on:click={() => (selectedFeeSpeed = 'medium')}
-                      >
-                        <div class="flex justify-between items-center">
-                          <span class="font-medium text-primary-color">Medium</span>
-                          <span class="text-caption text-sm"
-                            >{formatBalance(onchainFeeQuote.medium.feeSats)} sats</span
-                          >
-                        </div>
-                        <div class="text-xs text-caption">
-                          ~30-60 min • {onchainFeeQuote.medium.feeRate} sat/vB
-                        </div>
-                      </button>
-                      <button
-                        class="w-full p-3 rounded-lg border text-left transition-colors"
-                        class:border-amber-500={selectedFeeSpeed === 'slow'}
-                        class:border-input={selectedFeeSpeed !== 'slow'}
-                        style={selectedFeeSpeed === 'slow'
-                          ? 'background-color: rgba(251, 191, 36, 0.1);'
-                          : 'background-color: var(--color-input-bg);'}
-                        on:click={() => (selectedFeeSpeed = 'slow')}
-                      >
-                        <div class="flex justify-between items-center">
-                          <span class="font-medium text-primary-color">Slow</span>
-                          <span class="text-caption text-sm"
-                            >{formatBalance(onchainFeeQuote.slow.feeSats)} sats</span
-                          >
-                        </div>
-                        <div class="text-xs text-caption">
-                          ~1-2 hours • {onchainFeeQuote.slow.feeRate} sat/vB
-                        </div>
-                      </button>
-                    </div>
-                  </div>
-
-                  <!-- Total -->
+                {:else if !showOnchainConfirmation}
+                  <!-- Fee Display (Spark cooperative exits have fixed fees) -->
                   <div class="p-3 rounded-lg bg-input">
-                    <div class="flex justify-between items-center">
-                      <span class="text-caption">Amount</span>
-                      <span class="text-primary-color">{formatBalance(sendAmount)} sats</span>
-                    </div>
-                    <div class="flex justify-between items-center mt-1">
-                      <span class="text-caption">Fee ({selectedFeeSpeed})</span>
-                      <span class="text-primary-color"
-                        >{formatBalance(onchainFeeQuote[selectedFeeSpeed].feeSats)} sats</span
+                    {#if sendingMaxBalance}
+                      <div class="mb-2 text-xs text-amber-500">
+                        Using full balance. Network fee is deducted from the amount.
+                      </div>
+                      <div class="flex justify-between items-center">
+                        <span class="text-caption">Recipient gets</span>
+                        <span class="text-primary-color"
+                          >{formatBalance(sendAmount - onchainFeeQuote.fast.feeSats)} sats</span
+                        >
+                      </div>
+                      <div class="flex justify-between items-center mt-1">
+                        <span class="text-caption">Network Fee</span>
+                        <span class="text-primary-color"
+                          >{formatBalance(onchainFeeQuote.fast.feeSats)} sats</span
+                        >
+                      </div>
+                      <div
+                        class="flex justify-between items-center mt-2 pt-2 border-t"
+                        style="border-color: var(--color-input-border);"
                       >
-                    </div>
-                    <div
-                      class="flex justify-between items-center mt-2 pt-2 border-t"
-                      style="border-color: var(--color-input-border);"
-                    >
-                      <span class="font-medium text-primary-color">Total</span>
-                      <span class="font-medium text-amber-500"
-                        >{formatBalance(sendAmount + onchainFeeQuote[selectedFeeSpeed].feeSats)} sats</span
+                        <span class="font-medium text-primary-color">Total</span>
+                        <span class="font-medium text-amber-500"
+                          >{formatBalance(sendAmount)} sats</span
+                        >
+                      </div>
+                    {:else}
+                      <div class="flex justify-between items-center">
+                        <span class="text-caption">Amount</span>
+                        <span class="text-primary-color">{formatBalance(sendAmount)} sats</span>
+                      </div>
+                      <div class="flex justify-between items-center mt-1">
+                        <span class="text-caption">Network Fee</span>
+                        <span class="text-primary-color"
+                          >{formatBalance(onchainFeeQuote.fast.feeSats)} sats</span
+                        >
+                      </div>
+                      <div
+                        class="flex justify-between items-center mt-2 pt-2 border-t"
+                        style="border-color: var(--color-input-border);"
                       >
-                    </div>
+                        <span class="font-medium text-primary-color">Total</span>
+                        <span class="font-medium text-amber-500"
+                          >{formatBalance(sendAmount + onchainFeeQuote.fast.feeSats)} sats</span
+                        >
+                      </div>
+                    {/if}
                   </div>
 
                   <button
                     class="w-full py-3 px-4 rounded-xl bg-amber-500 hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium transition-colors flex items-center justify-center gap-2"
-                    on:click={handleSendOnchain}
-                    disabled={isSendingOnchain}
+                    on:click={() => (showOnchainConfirmation = true)}
                   >
-                    {#if isSendingOnchain}
-                      <span class="animate-spin"><ArrowsClockwiseIcon size={20} /></span>
-                      Sending...
-                    {:else}
-                      <ArrowUpIcon size={20} weight="bold" />
-                      Send On-Chain
-                    {/if}
+                    <ArrowUpIcon size={20} weight="bold" />
+                    Continue
                   </button>
+                {:else}
+                  <!-- Address Verification Step -->
+                  <div class="space-y-4">
+                    <!-- Amount display (read-only) -->
+                    <div class="text-center">
+                      {#if sendingMaxBalance}
+                        <div class="text-3xl font-bold text-amber-500">
+                          {formatBalance(sendAmount - onchainFeeQuote.fast.feeSats)} sats
+                        </div>
+                        <div class="text-xs text-caption mt-1">
+                          Recipient gets (from {formatBalance(sendAmount)} total)
+                        </div>
+                        <div class="text-sm text-caption mt-1">
+                          {formatBalance(onchainFeeQuote.fast.feeSats)} sats fee deducted
+                        </div>
+                      {:else}
+                        <div class="text-3xl font-bold text-amber-500">
+                          {formatBalance(sendAmount)} sats
+                        </div>
+                        <div class="text-sm text-caption mt-1">
+                          + {formatBalance(onchainFeeQuote.fast.feeSats)} sats fee
+                        </div>
+                      {/if}
+                    </div>
+
+                    <!-- Segmented address display -->
+                    <div class="p-4 rounded-lg bg-input">
+                      <p class="text-xs text-caption mb-2 text-center">Sending to:</p>
+                      <div
+                        class="font-mono text-sm text-primary-color flex flex-wrap justify-center gap-x-2 gap-y-1"
+                      >
+                        {#each formatAddressSegments(sendInput.trim()) as segment, i}
+                          <span class={i % 2 === 0 ? 'text-primary-color' : 'text-amber-500'}
+                            >{segment}</span
+                          >
+                        {/each}
+                      </div>
+                    </div>
+
+                    <!-- Warning text -->
+                    <div class="text-center">
+                      <p class="text-sm text-amber-500 font-medium">
+                        Bitcoin transactions cannot be reversed. Please verify the address is
+                        correct.
+                      </p>
+                    </div>
+
+                    <div class="flex gap-3">
+                      <button
+                        class="flex-1 py-3 px-4 rounded-xl border border-input text-caption hover:text-primary-color transition-colors"
+                        on:click={() => (showOnchainConfirmation = false)}
+                        disabled={isSendingOnchain}
+                      >
+                        Back
+                      </button>
+                      <button
+                        class="flex-1 py-3 px-4 rounded-xl bg-amber-500 hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium transition-colors flex items-center justify-center gap-2"
+                        on:click={handleSendOnchain}
+                        disabled={isSendingOnchain}
+                      >
+                        {#if isSendingOnchain}
+                          <span class="animate-spin"><ArrowsClockwiseIcon size={20} /></span>
+                          Sending...
+                        {:else}
+                          Confirm Send
+                        {/if}
+                      </button>
+                    </div>
+                  </div>
                 {/if}
               {:else}
                 <!-- Lightning payment button -->
@@ -4967,11 +4994,22 @@
                     />
                   </div>
 
-                  <!-- Address -->
-                  <div class="p-3 rounded-lg bg-input">
-                    <div class="text-xs text-caption mb-2">Bitcoin Address</div>
-                    <div class="text-sm font-mono break-all text-primary-color">
-                      {onchainAddress}
+                  <!-- Branta Verification Badge -->
+                  <div class="flex justify-center">
+                    <BrantaBadge paymentString={onchainAddress} />
+                  </div>
+
+                  <!-- Address (segmented for easier verification) -->
+                  <div class="p-4 rounded-lg bg-input">
+                    <p class="text-xs text-caption mb-2 text-center">Bitcoin Address</p>
+                    <div
+                      class="font-mono text-sm text-primary-color flex flex-wrap justify-center gap-x-2 gap-y-1"
+                    >
+                      {#each formatAddressSegments(onchainAddress) as segment, i}
+                        <span class={i % 2 === 0 ? 'text-primary-color' : 'text-amber-500'}
+                          >{segment}</span
+                        >
+                      {/each}
                     </div>
                   </div>
 
@@ -5132,9 +5170,13 @@
                         <div class="flex items-center gap-1">
                           <button
                             class="flex-shrink-0 p-2 rounded-lg hover:bg-primary/10 transition-colors"
-                            on:click={() =>
-                              (showLightningAddressQr =
-                                showLightningAddressQr === nwcLud16 ? null : nwcLud16)}
+                            on:click={() => {
+                              const wasHidden = showLightningAddressQr !== nwcLud16;
+                              showLightningAddressQr = wasHidden ? nwcLud16 : null;
+                              if (wasHidden && nwcLud16) {
+                                registerWithBranta(nwcLud16, 'NWC Lightning Address');
+                              }
+                            }}
                             title="Show QR code"
                           >
                             <svg
@@ -5167,10 +5209,14 @@
 
                       {#if showLightningAddressQr === nwcLud16}
                         <div
-                          class="mt-4 p-4 rounded-lg bg-white flex justify-center"
+                          class="mt-4 p-4 rounded-lg bg-white flex flex-col items-center"
                           style="color: #000000;"
                         >
                           <svg use:qr={{ data: nwcLud16, shape: 'circle' }} class="w-48 h-48" />
+                        </div>
+                        <!-- Branta Verification Badge -->
+                        <div class="flex justify-center mt-2">
+                          <BrantaBadge paymentString={nwcLud16} />
                         </div>
                       {/if}
                     </div>
@@ -5206,11 +5252,19 @@
                         <div class="flex items-center gap-1">
                           <button
                             class="flex-shrink-0 p-2 rounded-lg hover:bg-primary/10 transition-colors"
-                            on:click={() =>
-                              (showLightningAddressQr =
-                                showLightningAddressQr === $sparkLightningAddressStore
-                                  ? null
-                                  : $sparkLightningAddressStore)}
+                            on:click={() => {
+                              const wasHidden =
+                                showLightningAddressQr !== $sparkLightningAddressStore;
+                              showLightningAddressQr = wasHidden
+                                ? $sparkLightningAddressStore
+                                : null;
+                              if (wasHidden && $sparkLightningAddressStore) {
+                                registerWithBranta(
+                                  $sparkLightningAddressStore,
+                                  'Spark Lightning Address'
+                                );
+                              }
+                            }}
                             title="Show QR code"
                           >
                             <svg
@@ -5245,13 +5299,17 @@
 
                       {#if showLightningAddressQr === $sparkLightningAddressStore}
                         <div
-                          class="mt-4 p-4 rounded-lg bg-white flex justify-center"
+                          class="mt-4 p-4 rounded-lg bg-white flex flex-col items-center"
                           style="color: #000000;"
                         >
                           <svg
                             use:qr={{ data: $sparkLightningAddressStore, shape: 'circle' }}
                             class="w-48 h-48"
                           />
+                        </div>
+                        <!-- Branta Verification Badge -->
+                        <div class="flex justify-center mt-2">
+                          <BrantaBadge paymentString={$sparkLightningAddressStore} />
                         </div>
                       {/if}
                     </div>
@@ -5301,6 +5359,10 @@
                           height: 100
                         }}
                       />
+                    </div>
+                    <!-- Branta Verification Badge -->
+                    <div class="flex justify-center mt-2">
+                      <BrantaBadge paymentString={generatedInvoice} />
                     </div>
                   {/if}
 
@@ -5420,7 +5482,8 @@
               </p>
               {#if estRefundFee > refundDeposit_.amountSats * 0.5}
                 <p class="text-xs text-red-500 mt-1">
-                  Warning: The estimated network fee is more than 50% of your deposit. Consider using a lower fee rate.
+                  Warning: The estimated network fee is more than 50% of your deposit. Consider
+                  using a lower fee rate.
                 </p>
               {/if}
             {/await}
