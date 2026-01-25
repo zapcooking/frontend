@@ -16,6 +16,16 @@
   import { clearQuotedNote } from '$lib/postComposerStore';
   import { publishQueue, publishQueueState } from '$lib/publishQueue';
 
+  // Clear stuck posts from the publish queue
+  async function clearPendingQueue() {
+    try {
+      await publishQueue.clearQueue();
+      console.log('[PostComposer] Cleared publish queue');
+    } catch (err) {
+      console.error('[PostComposer] Failed to clear queue:', err);
+    }
+  }
+
   type FilterMode = 'global' | 'following' | 'replies' | 'members' | 'garden';
   type RelaySelection = 'all' | 'garden' | 'pantry' | 'garden-pantry';
 
@@ -1427,6 +1437,13 @@
                       </svg>
                       {$publishQueueState.pending} pending
                     </span>
+                    <button
+                      on:click={clearPendingQueue}
+                      class="text-xs text-red-500 hover:text-red-600 underline"
+                      title="Clear stuck posts from queue"
+                    >
+                      clear
+                    </button>
                   {/if}
                   <button
                     on:click={closeComposer}

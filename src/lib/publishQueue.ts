@@ -22,10 +22,11 @@ const DB_VERSION = 1;
 const QUEUE_STORE = 'pendingPublishes';
 
 // Retry configuration
-const MAX_RETRIES = 5;
+const MAX_RETRIES = 3; // Reduced - if it fails 3 times, it's probably not going to work
 const INITIAL_RETRY_DELAY = 2000; // 2 seconds
-const MAX_RETRY_DELAY = 60000; // 1 minute
-const PUBLISH_TIMEOUT = 15000; // 15 seconds per relay (increased from NDK default of 2.5s)
+const MAX_RETRY_DELAY = 30000; // 30 seconds
+const PUBLISH_TIMEOUT = 10000; // 10 seconds per relay
+const STALE_ITEM_AGE = 30 * 60 * 1000; // 30 minutes - auto-cleanup stale items
 
 /**
  * Represents a pending publish operation
@@ -77,10 +78,15 @@ class PublishQueueManager {
     });
 
     if (browser) {
-      this.initDatabase().catch((error) => {
-        console.warn('[PublishQueue] Failed to initialize:', error);
-        this.dbReadyResolve();
-      });
+      this.initDatabase()
+        .then(() => {
+          // Clean up stale items on startup
+          this.cleanupStaleItems();
+        })
+        .catch((error) => {
+          console.warn('[PublishQueue] Failed to initialize:', error);
+          this.dbReadyResolve();
+        });
 
       // Register for auto-sync when connection is restored
       onConnect(() => {
@@ -320,18 +326,21 @@ class PublishQueueManager {
     event: NDKEvent,
     relayMode: PendingPublish['relayMode'] = 'all'
   ): Promise<{ success: boolean; queued: boolean; error?: string }> {
-    // Queue the event first (in case of crash/close during publish)
-    const queueId = await this.queuePublish(event, relayMode);
+    // Clean up stale items first
+    await this.cleanupStaleItems();
 
-    // Try to publish immediately
+    // Try to publish immediately (DON'T queue first - only queue on failure)
     try {
       await this.attemptPublish(event, relayMode);
       
-      // Success! Remove from queue
-      await this.removePublish(queueId);
+      // Success!
       return { success: true, queued: false };
     } catch (error: any) {
       console.warn('[PublishQueue] Initial publish failed:', error.message);
+      
+      // Only queue AFTER failure - this prevents ghost items in the queue
+      // when relays actually received the post but we timed out waiting for confirmation
+      const queueId = await this.queuePublish(event, relayMode);
       
       // Update the queued item with error info
       const pending = await this.getPublish(queueId);
@@ -353,6 +362,42 @@ class PublishQueueManager {
         queued: true, 
         error: error.message || 'Failed to publish, will retry in background'
       };
+    }
+  }
+
+  /**
+   * Clean up stale items from the queue
+   * Items older than STALE_ITEM_AGE are automatically removed
+   */
+  private async cleanupStaleItems(): Promise<void> {
+    await this.ready();
+    if (!this.db) return;
+
+    try {
+      const all = await this.getPendingPublishes();
+      const now = Date.now();
+      let cleanedCount = 0;
+
+      for (const item of all) {
+        // Remove items older than STALE_ITEM_AGE
+        if (now - item.createdAt > STALE_ITEM_AGE) {
+          console.log(`[PublishQueue] Removing stale item ${item.id} (age: ${Math.round((now - item.createdAt) / 1000 / 60)}min)`);
+          await this.removePublish(item.id);
+          cleanedCount++;
+        }
+        // Also remove items that have exceeded max retries
+        else if (item.retryCount >= MAX_RETRIES) {
+          console.log(`[PublishQueue] Removing failed item ${item.id} (retries: ${item.retryCount})`);
+          await this.removePublish(item.id);
+          cleanedCount++;
+        }
+      }
+
+      if (cleanedCount > 0) {
+        console.log(`[PublishQueue] Cleaned up ${cleanedCount} stale/failed items`);
+      }
+    } catch (error) {
+      console.warn('[PublishQueue] Error cleaning up stale items:', error);
     }
   }
 
