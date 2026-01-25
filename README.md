@@ -46,6 +46,12 @@ Login via NIP-07 browser extensions, with fallback options.
 Designed to work smoothly across desktop and mobile.
 	•	🚀 Performance Focused
 Optimized relay usage, caching, and loading behavior.
+	•	💼 Integrated Wallet
+Built-in wallet supporting NWC (Nostr Wallet Connect) and Spark (Breez SDK).
+	•	₿ On-Chain Bitcoin
+Receive Bitcoin directly to on-chain addresses with deposit claiming.
+	•	🛡️ Branta Guardrail
+Payment address verification so users can confirm they're paying the right recipient.
 
 ⸻
 
@@ -53,8 +59,10 @@ Optimized relay usage, caching, and loading behavior.
 	•	Frontend: Svelte / SvelteKit
 	•	Protocol: Nostr
 	•	Hosting: Cloudflare Pages
-	•	Auth: NIP-07 (browser extensions)
-	•	Payments: Bitcoin Lightning (zaps)
+	•	Auth: NIP-07, NIP-46 (Nostr Connect), nsec
+	•	Payments: Bitcoin Lightning (zaps), On-chain Bitcoin
+	•	Wallet: NWC, Spark (Breez SDK), WebLN
+	•	Verification: Branta Guardrail
 
 ⸻
 
