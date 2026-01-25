@@ -16,6 +16,8 @@
   let observer: IntersectionObserver | null = null;
   let isInViewport = false;
   let isPlaying = false;
+  let playTimeout: ReturnType<typeof setTimeout> | null = null;
+  let pauseTimeout: ReturnType<typeof setTimeout> | null = null;
 
   // Try to get thumbnail URL for known video hosts
   function getThumbnailUrl(videoUrl: string): string | null {
@@ -154,6 +156,9 @@
   onMount(() => {
     // Use intersection observer for lazy loading and autoplay
     if (typeof IntersectionObserver !== 'undefined' && containerEl) {
+      // Find the app's scroll container (app-scroll from layout)
+      const scrollRoot = document.getElementById('app-scroll') || null;
+      
       observer = new IntersectionObserver(
         (entries) => {
           entries.forEach((entry) => {
@@ -164,16 +169,18 @@
               isVisible = true;
             }
             
-            // Track viewport for autoplay (more strict threshold)
-            const inViewport = entry.isIntersecting && entry.intersectionRatio > 0.5;
+            // Track viewport for autoplay - video should be at least 50% visible
+            // This ensures only the main video in view plays
+            const inViewport = entry.isIntersecting && entry.intersectionRatio >= 0.5;
             if (inViewport !== wasInViewport) {
               handleViewportChange(inViewport);
             }
           });
         },
         {
-          rootMargin: '50px', // Start loading 50px before visible
-          threshold: [0, 0.5, 1.0] // Multiple thresholds for better tracking
+          root: scrollRoot, // Use app scroll container instead of viewport
+          rootMargin: '0px', // No margin - play when actually visible
+          threshold: [0, 0.25, 0.5, 0.75, 1.0] // Multiple thresholds for smooth transitions
         }
       );
       observer.observe(containerEl);
@@ -185,6 +192,23 @@
   });
 
   onDestroy(() => {
+    // Clean up timeouts
+    if (playTimeout) {
+      clearTimeout(playTimeout);
+      playTimeout = null;
+    }
+    if (pauseTimeout) {
+      clearTimeout(pauseTimeout);
+      pauseTimeout = null;
+    }
+    
+    // Pause video if playing
+    if (isPlaying && autoplayVideo) {
+      autoplayVideo.pause();
+      isPlaying = false;
+    }
+    
+    // Disconnect observer
     if (observer) {
       observer.disconnect();
       observer = null;
