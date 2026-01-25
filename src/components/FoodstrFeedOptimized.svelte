@@ -39,6 +39,7 @@
   import ShareModal from './ShareModal.svelte';
   import PostActionsMenu from './PostActionsMenu.svelte';
   import NoteContent from './NoteContent.svelte';
+  import VideoPreview from './VideoPreview.svelte';
   import AuthorName from './AuthorName.svelte';
   import { generateNoteImage, generateImageFilename, extractNostrReferences, decodeNostrReference, type EngagementData as ShareEngagementData, type ReferencedNote } from '$lib/shareNoteImage';
   import { optimizeImageUrl, getOptimalFormat } from '$lib/imageOptimizer';
@@ -601,14 +602,16 @@
 
     switch (mode) {
       case 'initial':
-        // Initial load: last 24 hours (reduced from 7 days for faster load)
-        return { since: now - ONE_DAY_SECONDS };
+        // Initial load: last 7 days for better content discovery
+        return { since: now - SEVEN_DAYS_SECONDS };
 
       case 'pagination':
-        // Pagination: smaller window based on oldest event
+        // Pagination: larger window based on oldest event
         const oldestTime = events[events.length - 1]?.created_at || now;
+        // Extend to 30 days max for deeper pagination
+        const THIRTY_DAYS_SECONDS = 30 * 24 * 60 * 60;
         return {
-          since: Math.max(oldestTime - ONE_DAY_SECONDS, now - SEVEN_DAYS_SECONDS), // Max 7 days back
+          since: Math.max(oldestTime - SEVEN_DAYS_SECONDS, now - THIRTY_DAYS_SECONDS), // Max 30 days back
           until: oldestTime - 1
         };
 
@@ -1511,7 +1514,7 @@
             followedPubkeysForRealtime = primalFollows;
             
             const { events: primalEvents } = await fetchFeedFromPrimal($ndk, primalFollows, {
-              limit: 100,
+              limit: 300, // Increased from 100 for better initial load
               since: sevenDaysAgo(),
               includeReplies: false
             });
@@ -1585,7 +1588,7 @@
         const result: OutboxFetchResult = await fetchFollowingEvents($ndk, $userPublickey, {
           since: timeWindow.since,
           kinds: [1],
-          limit: 50, // Reduced since we're getting targeted results
+          limit: 200, // Increased from 50 for better initial load
           timeoutMs: 5000,
           maxRelays: 10, // Top 10 relays by coverage
           additionalFilter: {
@@ -1694,7 +1697,7 @@
             followedPubkeysForRealtime = primalFollows;
             
             const { events: primalEvents } = await fetchFeedFromPrimal($ndk, primalFollows, {
-              limit: 100,
+              limit: 300, // Increased from 100 for better initial load
               since: sevenDaysAgo(),
               includeReplies: true // Include replies for this mode
             });
@@ -1767,7 +1770,7 @@
         const result: OutboxFetchResult = await fetchFollowingEvents($ndk, $userPublickey, {
           since: timeWindow.since,
           kinds: [1],
-          limit: 50, // Reduced since we're getting targeted results
+          limit: 200, // Increased from 50 for better initial load
           timeoutMs: 5000,
           maxRelays: 10, // Top 10 relays by coverage
           additionalFilter: {
@@ -2978,7 +2981,7 @@
           since: paginationWindow.since,
           until: paginationWindow.until,
           kinds: [1],
-          limit: 20,
+          limit: 100, // Increased from 20 for deeper pagination
           timeoutMs: 5000,
           maxRelays: 10,
           additionalFilter: {
@@ -3008,7 +3011,7 @@
           kinds: [1],
           since: paginationWindow.since,
           until: paginationWindow.until,
-          limit: 20
+          limit: 100 // Increased from 20 for deeper pagination
         };
 
         // CRITICAL: Skip NDK cache to prevent events from other relays leaking in
@@ -3038,7 +3041,7 @@
           kinds: [1],
           since: paginationWindow.since,
           until: paginationWindow.until,
-          limit: 20
+          limit: 100 // Increased from 20 for deeper pagination
         };
 
         // Use existing pool connection (useTemporaryRelaySet = false) to avoid WebSocket errors
@@ -3056,7 +3059,7 @@
           '#t': FOOD_HASHTAGS,
           since: paginationWindow.since,
           until: paginationWindow.until,
-          limit: 20
+          limit: 100 // Increased from 20 for deeper pagination
         };
 
         if (authorPubkey) {
@@ -3124,10 +3127,25 @@
       if (validOlder.length > 0) {
         validOlder.forEach((e) => seenEventIds.add(e.id));
         events = [...events, ...validOlder];
-        hasMore = olderEvents.length === 20;
+        // Continue fetching if we got events and we're still within time window
+        // Check if we've reached the time limit (30 days back)
+        const THIRTY_DAYS_SECONDS = 30 * 24 * 60 * 60;
+        const now = Math.floor(Date.now() / 1000);
+        const oldestEventTime = events[events.length - 1]?.created_at || now;
+        const timeLimit = now - THIRTY_DAYS_SECONDS;
+        
+        // Continue if we got a good batch (>= 50) or if we're still within time window
+        hasMore = olderEvents.length >= 50 || oldestEventTime > timeLimit;
         await cacheEvents();
       } else {
-        hasMore = olderEvents.length === 20;
+        // No valid events - check if we've exhausted the time window
+        const THIRTY_DAYS_SECONDS = 30 * 24 * 60 * 60;
+        const now = Math.floor(Date.now() / 1000);
+        const oldestEventTime = events[events.length - 1]?.created_at || now;
+        const timeLimit = now - THIRTY_DAYS_SECONDS;
+        
+        // Stop if we've gone back 30 days or got no events
+        hasMore = oldestEventTime > timeLimit && olderEvents.length > 0;
       }
     } catch {
       // Load more failed
@@ -4686,17 +4704,9 @@
                                 />
                               </button>
                             {:else if isVideoUrl(imageUrl)}
-                              <video
-                                src={imageUrl}
-                                controls
-                                class="carousel-image select-none"
-                                style="touch-action: pan-y pan-x; -webkit-touch-callout: none; background-color: #1f2937;"
-                                preload="metadata"
-                                draggable="false"
-                                on:error={handleMediaError}
-                              >
-                                <track kind="captions" src="" srclang="en" label="English" />
-                              </video>
+                              <div class="carousel-image">
+                                <VideoPreview url={imageUrl} />
+                              </div>
                             {/if}
                           </div>
                         {/each}
