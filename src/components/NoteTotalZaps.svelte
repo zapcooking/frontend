@@ -42,6 +42,11 @@
     }
   }
 
+  // Helper to safely check if event is a touch event (Safari on macOS doesn't have TouchEvent)
+  function isTouchEvent(e: MouseEvent | TouchEvent): e is TouchEvent {
+    return 'touches' in e;
+  }
+
   // Start tracking press for long-press detection
   function handlePressStart(e: MouseEvent | TouchEvent) {
     e.stopPropagation();
@@ -49,7 +54,7 @@
     pressStartTime = Date.now();
     
     // Track touch position for mobile
-    if (e instanceof TouchEvent && e.touches.length > 0) {
+    if (isTouchEvent(e) && e.touches.length > 0) {
       touchStartPos = {
         x: e.touches[0].clientX,
         y: e.touches[0].clientY
@@ -82,7 +87,7 @@
     
     // For touch events on Safari, we need to trigger the zap action here
     // because the click event may not fire after preventDefault on touchstart
-    if (e instanceof TouchEvent && !wasLongPress && touchStartPos !== null) {
+    if (isTouchEvent(e) && !wasLongPress && touchStartPos !== null) {
       // This was a tap (touchstart -> touchend without long press or movement)
       // Trigger the zap action immediately
       touchStartPos = null;
