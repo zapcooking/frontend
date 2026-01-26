@@ -92,15 +92,44 @@ export const FOOD_LONGFORM_HASHTAGS = [
 ];
 
 // Tag categories for filtering (ordered for UI display)
+// Food category is comprehensive to match FOOD_LONGFORM_HASHTAGS
 export const ARTICLE_TAG_CATEGORIES: Record<string, string[]> = {
   'All': [],
-  'Food': ['food', 'cooking', 'recipe', 'chef', 'cuisine', 'gourmet', 'homecooking', 'baking', 'foodie', 'foodstr'],
-  'Farming': ['farming', 'agriculture', 'homesteading', 'gardening', 'permaculture', 'regenerative', 'homestead'],
-  'Bitcoin': ['bitcoin', 'carnivore', 'meatmafia', 'btc', 'lightning', 'sats'],
-  'Nostr': ['nostr', 'nostrdev', 'grownostr', 'nostrich', 'zap', 'relay', 'nip'],
-  'Travel': ['travel', 'adventure', 'wanderlust', 'roadtrip', 'explore', 'destination', 'tourism', 'backpacking'],
+  'Food': [
+    // Core food tags
+    'food', 'foodie', 'foodstr', 'foodporn', 'instafood', 'foodstagram', 'foodblogger',
+    // Cooking & baking
+    'cooking', 'cook', 'cookstr', 'homecooking', 'fromscratch', 'baking', 'baker', 'pastry',
+    'chef', 'chefs', 'cuisine', 'gourmet', 'recipe', 'recipes', 'recipestr',
+    // Meals
+    'breakfast', 'lunch', 'dinner', 'supper', 'dessert', 'snack', 'snackstr', 'mealprep', 'meal',
+    // Specific foods
+    'pasta', 'pizza', 'sushi', 'tacos', 'taco', 'burrito', 'sandwich', 'salad', 'soup', 'soupstr',
+    'stew', 'curry', 'burger', 'steak', 'steakstr', 'bbq', 'coffee',
+    // Proteins
+    'beef', 'chicken', 'pork', 'seafood', 'fish',
+    // Drinks
+    'drink', 'drinks', 'drinkstr', 'cocktail', 'wine', 'beer',
+    // Methods
+    'grill', 'grilled', 'roast', 'roasted', 'fried', 'baked', 'smoked', 'fermented', 'pickled',
+    // Diets
+    'vegan', 'vegetarian', 'keto', 'paleo', 'glutenfree', 'dairyfree', 'carnivore', 'carnivor', 'carnivorediet',
+    // Restaurant
+    'restaurant', 'restaurants', 'dine', 'dining'
+  ],
+  'Farming': [
+    'farming', 'farm', 'farmer', 'farmers', 'agriculture', 'ag', 'agrarian',
+    'homesteading', 'homestead', 'homesteader', 'gardening', 'garden', 'gardener',
+    'permaculture', 'regenerative', 'regenerativeagriculture', 'biodynamic',
+    'harvest', 'harvesting', 'growing', 'growyourown', 'growfood',
+    'livestock', 'chickens', 'goats', 'beekeeping', 'bees', 'honey',
+    'urbanfarming', 'backyardfarming', 'selfsufficient'
+  ],
+  'Bitcoin': ['bitcoin', 'btc', 'lightning', 'sats', 'satoshi', 'nostr'],
+  'Nostr': ['nostr', 'nostrdev', 'grownostr', 'nostrich', 'zap', 'relay', 'nip', 'decentralized'],
+  'Travel': ['travel', 'adventure', 'wanderlust', 'roadtrip', 'explore', 'destination', 'tourism', 'backpacking', 'vacation'],
   'Philosophy': ['philosophy', 'stoicism', 'ethics', 'wisdom', 'mindfulness', 'meditation', 'consciousness', 'thinking', 'ideas'],
-  'Health': ['health', 'wellness', 'nutrition', 'healthy', 'dietitian', 'nutritionist', 'keto', 'paleo']
+  'Health': ['health', 'wellness', 'nutrition', 'healthy', 'dietitian', 'nutritionist', 'fitness', 'exercise', 'wholefood', 'realfood']
 };
 
 // Category display order
