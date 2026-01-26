@@ -1,6 +1,6 @@
 <!--
   ConverterWidget - Floating draggable unit converter panel that overlays page content
-  
+
   Allows users to quickly convert units while viewing recipes.
   Can be dragged anywhere on screen (desktop) or docked at bottom (mobile).
 -->
@@ -66,7 +66,7 @@
   onMount(() => {
     if (browser) {
       isMobile = window.innerWidth < 1024;
-      
+
       // Load saved position
       const savedPos = localStorage.getItem('zapcooking_converter_position');
       if (savedPos) {
@@ -80,7 +80,7 @@
           posY = Math.max(0, Math.min(y, maxY));
         } catch {}
       }
-      
+
       window.addEventListener('resize', handleResize);
     }
   });
@@ -263,7 +263,11 @@
       on:touchstart={!isMobile && !isMinimized ? handleDragStart : undefined}
       role="button"
       tabindex="0"
-      aria-label={isMobile ? 'Converter controls' : isMinimized ? 'Converter docked' : 'Drag to move'}
+      aria-label={isMobile
+        ? 'Converter controls'
+        : isMinimized
+          ? 'Converter docked'
+          : 'Drag to move'}
     >
       {#if !isMobile && !isMinimized}
         <div class="drag-handle">
@@ -326,7 +330,8 @@
           >
             {#each availableUnits as unit}
               <option value={unit.id}>
-                {unit.label} {unit.abbreviation ? `(${unit.abbreviation})` : ''}
+                {unit.label}
+                {unit.abbreviation ? `(${unit.abbreviation})` : ''}
               </option>
             {/each}
           </select>
@@ -350,7 +355,8 @@
           >
             {#each availableUnits as unit}
               <option value={unit.id}>
-                {unit.label} {unit.abbreviation ? `(${unit.abbreviation})` : ''}
+                {unit.label}
+                {unit.abbreviation ? `(${unit.abbreviation})` : ''}
               </option>
             {/each}
           </select>
@@ -375,10 +381,7 @@
           <span class="presets-label">Quick Presets</span>
           <div class="preset-grid">
             {#each presets as preset}
-              <button
-                on:click={() => handlePreset(preset)}
-                class="preset-btn"
-              >
+              <button on:click={() => handlePreset(preset)} class="preset-btn">
                 {preset.label}
               </button>
             {/each}
@@ -607,7 +610,7 @@
   /* Mobile styles */
   .converter-widget.mobile {
     top: auto;
-    bottom: calc(40px + env(safe-area-inset-bottom, 0px));
+    bottom: calc(var(--bottom-nav-height, 40px) + env(safe-area-inset-bottom, 0px));
     left: 0;
     right: 0;
     width: 100%;

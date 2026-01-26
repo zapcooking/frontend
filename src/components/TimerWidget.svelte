@@ -1156,7 +1156,7 @@
   .timer-widget.mobile {
     top: auto;
     /* Bottom nav: 8px padding top + 24px icon + 8px padding bottom + 1px border = 41px, positioned at safe-area-inset-bottom */
-    bottom: calc(41px + env(safe-area-inset-bottom, 0px));
+    bottom: calc(var(--bottom-nav-height, 40px) + env(safe-area-inset-bottom, 0px));
     left: 0;
     right: 0;
     width: 100%;

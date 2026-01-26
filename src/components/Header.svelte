@@ -3,8 +3,7 @@
   import { userPublickey, userProfilePictureOverride } from '$lib/nostr';
   import SVGNostrCookingWithText from '../assets/nostr.cooking-withtext.svg';
   import SearchIcon from 'phosphor-svelte/lib/MagnifyingGlass';
-  import TimerIcon from 'phosphor-svelte/lib/Timer';
-  import CalculatorIcon from 'phosphor-svelte/lib/Calculator';
+  import CookingPotIcon from 'phosphor-svelte/lib/CookingPot';
   import TagsSearchAutocomplete from './TagsSearchAutocomplete.svelte';
   import { page } from '$app/stores';
   import CustomAvatar from './CustomAvatar.svelte';
@@ -18,14 +17,13 @@
   import { navBalanceVisible, walletConnected } from '$lib/wallet';
   import { weblnConnected } from '$lib/wallet/webln';
   import { bitcoinConnectEnabled, bitcoinConnectWalletInfo } from '$lib/wallet/bitcoinConnect';
-  import { timerWidgetOpen } from '$lib/stores/timerWidget';
-  import { converterWidgetOpen } from '$lib/stores/converterWidget';
+  import { cookingToolsStore, cookingToolsOpen } from '$lib/stores/cookingToolsWidget';
 
   let isLoading = true;
 
-  // Count active timers (running or paused)
+  // Count active timers (running or paused + done)
   $: activeTimers = $timerStore.timers.filter(
-    (t) => t.status === 'running' || t.status === 'paused'
+    (t) => t.status === 'running' || t.status === 'paused' || t.status === 'done'
   );
   $: hasActiveTimers = activeTimers.length > 0;
 
@@ -60,12 +58,8 @@
     $weblnConnected ||
     ($bitcoinConnectEnabled && $bitcoinConnectWalletInfo.connected);
 
-  function toggleTimerWidget() {
-    timerWidgetOpen.update((open) => !open);
-  }
-
-  function toggleConverterWidget() {
-    converterWidgetOpen.update((open) => !open);
+  function toggleCookingTools() {
+    cookingToolsStore.toggle();
   }
 </script>
 
@@ -101,27 +95,20 @@
       </button>
     </div>
 
-    <!-- Converter toggle (hidden on mobile to reduce clutter) -->
+    <!-- Cooking Tools toggle (timer + converter) -->
     <button
-      on:click={toggleConverterWidget}
-      class="hidden sm:flex w-9 h-9 items-center justify-center rounded-full transition-colors cursor-pointer {$converterWidgetOpen
-        ? 'bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400'
-        : 'text-caption hover:opacity-80 hover:bg-accent-gray'}"
-      aria-label={$converterWidgetOpen ? 'Hide converter' : 'Show converter'}
-    >
-      <CalculatorIcon size={20} weight={$converterWidgetOpen ? 'fill' : 'bold'} />
-    </button>
-
-    <!-- Timer toggle -->
-    <button
-      on:click={toggleTimerWidget}
-      class="w-8 h-8 sm:w-9 sm:h-9 flex items-center justify-center rounded-full transition-colors cursor-pointer relative {$timerWidgetOpen
+      on:click={toggleCookingTools}
+      class="w-8 h-8 sm:w-9 sm:h-9 flex items-center justify-center rounded-full transition-colors cursor-pointer relative {$cookingToolsOpen
         ? 'bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400'
         : 'hover:opacity-80 hover:bg-accent-gray'}"
-      style={$timerWidgetOpen ? '' : 'color: var(--color-text-primary)'}
-      aria-label={$timerWidgetOpen ? 'Hide timer' : 'Show timer'}
+      style={$cookingToolsOpen ? '' : 'color: var(--color-text-primary)'}
+      aria-label={$cookingToolsOpen ? 'Hide cooking tools' : 'Show cooking tools'}
     >
-      <TimerIcon size={18} weight={hasActiveTimers ? 'fill' : 'bold'} class="sm:w-5 sm:h-5" />
+      <CookingPotIcon
+        size={18}
+        weight={$cookingToolsOpen || hasActiveTimers ? 'fill' : 'bold'}
+        class="sm:w-5 sm:h-5"
+      />
       {#if hasActiveTimers}
         <span
           class="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 sm:w-4 sm:h-4 bg-amber-500 text-white text-[10px] sm:text-xs font-bold rounded-full flex items-center justify-center"

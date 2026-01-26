@@ -1,11 +1,11 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
   import CustomAvatar from './CustomAvatar.svelte';
   import AuthorName from './AuthorName.svelte';
   import BookmarkIcon from 'phosphor-svelte/lib/BookmarkSimple';
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
   import { formatDistanceToNow } from 'date-fns';
+  import { getPlaceholderImage } from '$lib/placeholderImages';
 
   export let event: NDKEvent;
   export let imageUrl: string | null = null;
@@ -17,20 +17,11 @@
 
   let imageError = false;
   let imageLoaded = false;
-  let gradientIndex = 0;
 
-  // Calculate gradient index based on event ID for consistency
-  $: if (event?.id) {
-    gradientIndex = parseInt(event.id.slice(0, 8), 16) % 4;
-  }
-
-  // Gradient options with warm food-related colors
-  const gradients = [
-    'linear-gradient(135deg, #ff6b35 0%, #f7931e 50%, #ffa500 100%)',
-    'linear-gradient(135deg, #d32f2f 0%, #ff6b35 50%, #ff8c42 100%)',
-    'linear-gradient(135deg, #2e7d32 0%, #66bb6a 50%, #81c784 100%)',
-    'linear-gradient(135deg, #f57c00 0%, #ff9800 50%, #ffb74d 100%)'
-  ];
+  // Use placeholder image when no image or on error
+  $: displayImageUrl = imageError
+    ? getPlaceholderImage(event?.id)
+    : imageUrl || getPlaceholderImage(event?.id);
 
   function handleImageError() {
     imageError = true;
@@ -66,45 +57,22 @@
   on:keydown={(e) => e.key === 'Enter' && handleCardClick()}
 >
   <!-- Image Section -->
-  <div class="relative w-full flex-shrink-0" style="height: 200px; aspect-ratio: 16/9; overflow: hidden; border-radius: 8px 8px 0 0;">
-    {#if imageUrl && !imageError}
-      <img
-        src={imageUrl}
-        alt={title}
-        class="w-full h-full object-cover transition-opacity duration-200 {imageLoaded ? 'opacity-100' : 'opacity-0'}"
-        loading="lazy"
-        on:error={handleImageError}
-        on:load={handleImageLoad}
-      />
-      {#if !imageLoaded}
-        <div class="absolute inset-0 animate-pulse bg-gray-200 dark:bg-gray-700"></div>
-      {/if}
-    {/if}
-
-    <!-- Fallback Gradient -->
-    {#if !imageUrl || imageError}
-      <div
-        class="w-full h-full flex items-center justify-center relative"
-        style="background: {gradients[gradientIndex]};"
-      >
-        <!-- Watermark Logo -->
-        <div class="absolute inset-0 flex items-center justify-center opacity-20">
-          <svg
-            width="120"
-            height="120"
-            viewBox="0 0 120 120"
-            fill="none"
-            xmlns="http://www.w3.org/2000/svg"
-          >
-            <!-- Simplified zap.cooking logo - lightning bolt -->
-            <path
-              d="M60 10 L75 50 L60 50 L45 90 L60 50 L45 50 Z"
-              fill="white"
-              opacity="0.3"
-            />
-          </svg>
-        </div>
-      </div>
+  <div
+    class="relative w-full flex-shrink-0"
+    style="height: 200px; aspect-ratio: 16/9; overflow: hidden; border-radius: 8px 8px 0 0;"
+  >
+    <img
+      src={displayImageUrl}
+      alt={title}
+      class="w-full h-full object-cover transition-opacity duration-200 {imageLoaded
+        ? 'opacity-100'
+        : 'opacity-0'}"
+      loading="lazy"
+      on:error={handleImageError}
+      on:load={handleImageLoad}
+    />
+    {#if !imageLoaded}
+      <div class="absolute inset-0 animate-pulse bg-gray-200 dark:bg-gray-700"></div>
     {/if}
 
     <!-- Bookmark Icon -->
@@ -153,7 +121,10 @@
     {/if}
 
     <!-- Footer: Read Time and Tags -->
-    <div class="flex items-center justify-between gap-2 mt-auto pt-3 border-t flex-shrink-0" style="border-color: var(--color-input-border);">
+    <div
+      class="flex items-center justify-between gap-2 mt-auto pt-3 border-t flex-shrink-0"
+      style="border-color: var(--color-input-border);"
+    >
       <span class="text-xs text-caption">
         {readTime} min read
       </span>
@@ -196,7 +167,9 @@
   }
 
   .article-card {
-    transition: transform 200ms ease-in-out, box-shadow 200ms ease-in-out;
+    transition:
+      transform 200ms ease-in-out,
+      box-shadow 200ms ease-in-out;
     min-height: 100%;
   }
 
