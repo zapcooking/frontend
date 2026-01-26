@@ -28,11 +28,13 @@
   import Modal from '../../../components/Modal.svelte';
   import FoodstrFeedOptimized from '../../../components/FoodstrFeedOptimized.svelte';
   import FloppyDiskIcon from 'phosphor-svelte/lib/FloppyDisk';
+  import BookOpenIcon from 'phosphor-svelte/lib/BookOpen';
   import type { PageData } from './$types';
   import { onMount, onDestroy } from 'svelte';
   import { Fetch } from 'hurdak';
   import { profileCacheManager } from '$lib/profileCache';
   import { RECIPE_TAGS } from '$lib/consts';
+  import ArticleFeed from '../../../components/ArticleFeed.svelte';
 
   export const data: PageData = {} as PageData;
 
@@ -44,9 +46,17 @@
   let zapModal = false;
   let isZapping = false;
 
-  // Tab state: 'recipes' | 'posts' | 'drafts'
+  // Tab state: 'recipes' | 'posts' | 'reads' | 'drafts'
   // Default to 'posts' tab for a more social-first experience
-  let activeTab: 'recipes' | 'posts' | 'drafts' = 'posts';
+  let activeTab: 'recipes' | 'posts' | 'reads' | 'drafts' = 'posts';
+
+  // Reads tab state (longform articles)
+  let readsEvents: NDKEvent[] = [];
+  let readsLoaded = false;
+  let loadingMoreReads = false;
+  let hasMoreReads = true;
+  let oldestReadsTime: number | null = null;
+  let readsSentinel: HTMLElement;
 
   // Infinite scroll state for recipes
   let hasMoreRecipes = true;
@@ -57,6 +67,7 @@
   let foodstrFeedComponent: FoodstrFeedOptimized;
   let recipeObserver: IntersectionObserver | null = null;
   let postsObserver: IntersectionObserver | null = null;
+  let readsObserver: IntersectionObserver | null = null;
 
   // Bio expand/collapse state
   let bioExpanded = false;
@@ -90,7 +101,7 @@
   // Handle ?tab= query parameter for direct tab navigation
   $: {
     const tabParam = $page.url.searchParams.get('tab');
-    const allowedTabs = new Set(['recipes', 'posts', 'drafts']);
+    const allowedTabs = new Set(['recipes', 'posts', 'reads', 'drafts']);
 
     if (tabParam && allowedTabs.has(tabParam)) {
       // Only allow "drafts" tab for the profile owner
@@ -125,6 +136,11 @@
       hasMoreRecipes = true;
       loadingMoreRecipes = false;
       oldestRecipeTime = null;
+      // Reset reads state
+      readsEvents = [];
+      readsLoaded = false;
+      hasMoreReads = true;
+      oldestReadsTime = null;
       // Reset bio expanded state
       bioExpanded = false;
       // Reset mute state
@@ -477,6 +493,276 @@
     }
   }
 
+  // Helper functions for reads/articles formatting
+  const IMAGE_URL_REGEX = /(https?:\/\/[^\s]+\.(jpg|jpeg|png|gif|webp|avif|svg)(\?[^\s]*)?)/gi;
+
+  function extractArticleImage(event: NDKEvent): string | null {
+    const content = event.content || '';
+
+    // Check for featured image tag
+    const imageTag = event.tags.find((t) => t[0] === 'image' || t[0] === 'picture');
+    if (imageTag && imageTag[1]) {
+      return imageTag[1];
+    }
+
+    // Extract first image URL from content
+    const imageMatches = content.match(IMAGE_URL_REGEX);
+    if (imageMatches && imageMatches.length > 0) {
+      return imageMatches[0];
+    }
+
+    return null;
+  }
+
+  function calculateReadTime(content: string): number {
+    const text = content
+      .replace(/#+\s+/g, '')
+      .replace(/\[([^\]]+)\]\([^\)]+\)/g, '$1')
+      .replace(/!\[([^\]]*)\]\([^\)]+\)/g, '')
+      .replace(/`[^`]+`/g, '')
+      .replace(/\*\*([^\*]+)\*\*/g, '$1')
+      .replace(/\*([^\*]+)\*/g, '$1')
+      .trim();
+
+    const words = text.split(/\s+/).filter((word) => word.length > 0);
+    const minutes = Math.ceil(words.length / 200);
+    return Math.max(1, minutes);
+  }
+
+  function cleanArticlePreview(content: string): string {
+    let cleaned = content;
+    cleaned = cleaned.replace(/https?:\/\/[^\s]+/g, '');
+    cleaned = cleaned.replace(/!\[([^\]]*)\]\([^\)]+\)/g, '');
+    cleaned = cleaned.replace(/\[([^\]]+)\]\([^\)]+\)/g, '$1');
+    cleaned = cleaned.replace(/^#+\s+/gm, '');
+    cleaned = cleaned.replace(/\*\*([^\*]+)\*\*/g, '$1');
+    cleaned = cleaned.replace(/\*([^\*]+)\*/g, '$1');
+    cleaned = cleaned.replace(/`[^`]+`/g, '');
+
+    const lines = cleaned.split('\n').filter((line) => line.trim().length > 0);
+    if (lines.length > 0) {
+      const preview = lines[0].trim();
+      return preview.length > 150 ? preview.substring(0, 150).trim() + '...' : preview;
+    }
+
+    return cleaned.trim().substring(0, 150);
+  }
+
+  function getArticleUrl(event: NDKEvent): string {
+    if (event.kind === 30023) {
+      const dTag = event.tags.find((t) => t[0] === 'd')?.[1];
+      if (dTag && event.pubkey) {
+        try {
+          const naddr = nip19.naddrEncode({
+            identifier: dTag,
+            kind: 30023,
+            pubkey: event.pubkey
+          });
+          return `/recipe/${naddr}`;
+        } catch (e) {
+          console.warn('Failed to encode naddr:', e);
+        }
+      }
+    }
+    return '#';
+  }
+
+  function getArticleTitle(event: NDKEvent): string {
+    const titleTag = event.tags.find((t) => t[0] === 'title');
+    if (titleTag && titleTag[1]) {
+      return titleTag[1];
+    }
+
+    const content = event.content || '';
+    const lines = content.split('\n').filter((line) => line.trim());
+    if (lines.length > 0) {
+      const firstLine = lines[0].trim();
+      if (firstLine.startsWith('# ')) {
+        return firstLine.substring(2).trim();
+      }
+      if (firstLine.length < 100) {
+        return firstLine;
+      }
+    }
+
+    return 'Untitled Article';
+  }
+
+  function getArticleTags(event: NDKEvent): string[] {
+    return event.tags
+      .filter((t) => t[0] === 't' && t[1])
+      .map((t) => t[1])
+      .slice(0, 3); // Limit to 3 tags for display
+  }
+
+  function formatReadsArticles(events: NDKEvent[]) {
+    return events.map((event) => ({
+      event,
+      imageUrl: extractArticleImage(event),
+      title: getArticleTitle(event),
+      preview: cleanArticlePreview(event.content || ''),
+      readTime: calculateReadTime(event.content || ''),
+      tags: getArticleTags(event),
+      articleUrl: getArticleUrl(event)
+    }));
+  }
+
+  // Load user's longform articles (reads)
+  async function loadReads() {
+    if (!hexpubkey || readsLoaded) return;
+
+    try {
+      const filter: NDKFilter = {
+        authors: [hexpubkey],
+        kinds: [30023],
+        limit: 20
+      };
+
+      const subscription = $ndk.subscribe(filter);
+      const fetchedEvents: NDKEvent[] = [];
+      const seenIds = new Set<string>();
+
+      await new Promise<void>((resolve) => {
+        let resolved = false;
+
+        subscription.on('event', (ev: NDKEvent) => {
+          if (seenIds.has(ev.id)) return;
+          seenIds.add(ev.id);
+
+          // Exclude recipes (events with recipe tags)
+          const hasRecipeTag = ev.tags.some(
+            (tag) => tag[0] === 't' && RECIPE_TAGS.includes(tag[1]?.toLowerCase() || '')
+          );
+          if (hasRecipeTag) return;
+
+          // Exclude events that match recipe format
+          const recipeValidation = validateMarkdownTemplate(ev.content);
+          if (typeof recipeValidation !== 'string') return;
+
+          fetchedEvents.push(ev);
+        });
+
+        subscription.on('eose', () => {
+          if (!resolved) {
+            resolved = true;
+            subscription.stop();
+
+            readsEvents = fetchedEvents.sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
+            readsLoaded = true;
+
+            if (readsEvents.length > 0) {
+              const oldestEvent = readsEvents[readsEvents.length - 1];
+              if (oldestEvent?.created_at) {
+                oldestReadsTime = oldestEvent.created_at;
+              }
+            }
+            hasMoreReads = fetchedEvents.length >= 20;
+            resolve();
+          }
+        });
+
+        setTimeout(() => {
+          if (!resolved) {
+            resolved = true;
+            subscription.stop();
+            readsEvents = fetchedEvents.sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
+            readsLoaded = true;
+            hasMoreReads = fetchedEvents.length >= 20;
+            resolve();
+          }
+        }, 10000);
+      });
+    } catch (error) {
+      console.error('Error loading reads:', error);
+      readsLoaded = true;
+    }
+  }
+
+  async function loadMoreReads() {
+    if (loadingMoreReads || !hasMoreReads || !hexpubkey || !oldestReadsTime) return;
+
+    loadingMoreReads = true;
+
+    try {
+      const filter: NDKFilter = {
+        authors: [hexpubkey],
+        kinds: [30023],
+        limit: 20,
+        until: oldestReadsTime - 1
+      };
+
+      const subscription = $ndk.subscribe(filter);
+      const newReads: NDKEvent[] = [];
+      const existingIds = new Set(readsEvents.map((e) => e.id));
+
+      await new Promise<void>((resolve) => {
+        let resolved = false;
+
+        subscription.on('event', (ev: NDKEvent) => {
+          if (existingIds.has(ev.id)) return;
+
+          // Exclude recipes
+          const hasRecipeTag = ev.tags.some(
+            (tag) => tag[0] === 't' && RECIPE_TAGS.includes(tag[1]?.toLowerCase() || '')
+          );
+          if (hasRecipeTag) return;
+
+          const recipeValidation = validateMarkdownTemplate(ev.content);
+          if (typeof recipeValidation !== 'string') return;
+
+          newReads.push(ev);
+        });
+
+        subscription.on('eose', () => {
+          if (!resolved) {
+            resolved = true;
+            subscription.stop();
+
+            if (newReads.length > 0) {
+              readsEvents = [...readsEvents, ...newReads].sort(
+                (a, b) => (b.created_at || 0) - (a.created_at || 0)
+              );
+
+              const oldestEvent = readsEvents[readsEvents.length - 1];
+              if (oldestEvent?.created_at) {
+                oldestReadsTime = oldestEvent.created_at;
+              }
+              hasMoreReads = newReads.length >= 20;
+            } else {
+              hasMoreReads = false;
+            }
+            resolve();
+          }
+        });
+
+        setTimeout(() => {
+          if (!resolved) {
+            resolved = true;
+            subscription.stop();
+            if (newReads.length > 0) {
+              readsEvents = [...readsEvents, ...newReads].sort(
+                (a, b) => (b.created_at || 0) - (a.created_at || 0)
+              );
+              hasMoreReads = newReads.length >= 20;
+            } else {
+              hasMoreReads = false;
+            }
+            resolve();
+          }
+        }, 5000);
+      });
+    } catch (error) {
+      console.error('Error loading more reads:', error);
+    } finally {
+      loadingMoreReads = false;
+    }
+  }
+
+  // Load reads when switching to reads tab
+  $: if (activeTab === 'reads' && hexpubkey && !readsLoaded) {
+    loadReads();
+  }
+
   let qrModal = false;
   let npubCopied = false;
   let lightningCopied = false;
@@ -739,6 +1025,10 @@
       postsObserver.disconnect();
       postsObserver = null;
     }
+    if (readsObserver) {
+      readsObserver.disconnect();
+      readsObserver = null;
+    }
 
     // Observer for recipes tab
     if (recipeSentinel && activeTab === 'recipes') {
@@ -776,10 +1066,28 @@
       );
       postsObserver.observe(postsSentinel);
     }
+
+    // Observer for reads tab
+    if (readsSentinel && activeTab === 'reads') {
+      readsObserver = new IntersectionObserver(
+        (entries) => {
+          if (
+            entries[0].isIntersecting &&
+            activeTab === 'reads' &&
+            hasMoreReads &&
+            !loadingMoreReads
+          ) {
+            loadMoreReads();
+          }
+        },
+        { rootMargin: '200px' }
+      );
+      readsObserver.observe(readsSentinel);
+    }
   }
 
   // Reactive statement to setup observers when tab or sentinels change
-  $: if (recipeSentinel || postsSentinel) {
+  $: if (recipeSentinel || postsSentinel || readsSentinel) {
     // Use setTimeout to ensure DOM is ready
     setTimeout(() => {
       setupObservers();
@@ -794,6 +1102,10 @@
     if (postsObserver) {
       postsObserver.disconnect();
       postsObserver = null;
+    }
+    if (readsObserver) {
+      readsObserver.disconnect();
+      readsObserver = null;
     }
   });
 </script>
@@ -951,7 +1263,7 @@
   </div>
 </Modal>
 
-<div class="max-w-4xl mx-auto overflow-x-hidden w-full">
+<div class="max-w-4xl mx-auto w-full">
   <!-- Profile Banner -->
   <div class="relative -mx-4 sm:-mx-6 lg:-mx-8 mb-4">
     <div
@@ -1126,6 +1438,21 @@
           ></span>
         {/if}
       </button>
+      <button
+        on:click={() => (activeTab = 'reads')}
+        class="px-4 py-2 text-sm font-medium transition-colors relative flex items-center gap-1"
+        style="color: {activeTab === 'reads'
+          ? 'var(--color-text-primary)'
+          : 'var(--color-text-secondary)'}"
+      >
+        <BookOpenIcon size={16} />
+        Reads
+        {#if activeTab === 'reads'}
+          <span
+            class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-orange-500 to-amber-500"
+          ></span>
+        {/if}
+      </button>
       {#if $userPublickey && $userPublickey === hexpubkey}
         <button
           on:click={() => (activeTab = 'drafts')}
@@ -1188,10 +1515,82 @@
       {/if}
     {/if}
   {:else if activeTab === 'posts'}
-    <div class="max-w-2xl w-full overflow-x-hidden">
+    <div class="max-w-2xl w-full">
       <FoodstrFeedOptimized bind:this={foodstrFeedComponent} authorPubkey={hexpubkey} />
       <div bind:this={postsSentinel} class="py-4 text-center"></div>
     </div>
+  {:else if activeTab === 'reads'}
+    {#if hexpubkey && $mutedPubkeys.has(hexpubkey)}
+      <!-- Muted user message for reads tab -->
+      <div class="py-12 text-center">
+        <div class="max-w-sm mx-auto space-y-6">
+          <div style="color: var(--color-caption)">
+            <svg
+              class="h-12 w-12 mx-auto mb-4 opacity-50"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"
+              ></path>
+            </svg>
+            <p class="text-lg font-medium">This user is muted</p>
+            <p class="text-sm">You won't see articles from this user.</p>
+          </div>
+          <button
+            on:click={toggleMute}
+            class="px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors"
+          >
+            Unmute User
+          </button>
+        </div>
+      </div>
+    {:else if !readsLoaded}
+      <!-- Loading skeleton for reads -->
+      <div class="reads-feed-vertical">
+        {#each Array(3) as _}
+          <div
+            class="article-card-skeleton rounded-lg overflow-hidden animate-pulse"
+            style="background-color: var(--color-bg-secondary); border: 1px solid var(--color-input-border);"
+          >
+            <div class="w-full h-48 bg-gray-200 dark:bg-gray-700"></div>
+            <div class="p-5">
+              <div class="h-6 w-3/4 rounded bg-gray-200 dark:bg-gray-700 mb-3"></div>
+              <div class="flex items-center gap-2 mb-3">
+                <div class="w-8 h-8 rounded-full bg-gray-200 dark:bg-gray-700"></div>
+                <div class="h-4 w-24 rounded bg-gray-200 dark:bg-gray-700"></div>
+              </div>
+              <div class="h-4 w-full rounded bg-gray-200 dark:bg-gray-700 mb-2"></div>
+              <div class="h-4 w-5/6 rounded bg-gray-200 dark:bg-gray-700"></div>
+            </div>
+          </div>
+        {/each}
+      </div>
+    {:else if readsEvents.length > 0}
+      {@const formattedArticles = formatReadsArticles(readsEvents)}
+      <div class="reads-feed-vertical">
+        <ArticleFeed articles={formattedArticles} />
+      </div>
+      {#if hasMoreReads}
+        <div bind:this={readsSentinel} class="py-4 text-center">
+          {#if loadingMoreReads}
+            <div class="text-gray-500 text-sm">Loading more articles...</div>
+          {/if}
+        </div>
+      {/if}
+    {:else}
+      <div class="py-12 text-center">
+        <div class="max-w-sm mx-auto space-y-4" style="color: var(--color-caption)">
+          <BookOpenIcon size={48} class="mx-auto opacity-50" />
+          <p class="text-lg font-medium">No articles found</p>
+          <p class="text-sm">This user hasn't published any longform articles yet.</p>
+        </div>
+      </div>
+    {/if}
   {:else if activeTab === 'drafts'}
     {#if $userPublickey === hexpubkey}
       <ProfileDrafts />
@@ -1216,5 +1615,35 @@
     line-clamp: 2;
     -webkit-box-orient: vertical;
     overflow: hidden;
+  }
+
+  /* Vertical layout for reads feed on profile page */
+  .reads-feed-vertical {
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+    max-width: 100%;
+  }
+
+  .reads-feed-vertical :global(.article-feed-horizontal) {
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+    overflow-x: visible;
+  }
+
+  .reads-feed-vertical :global(.article-card-wrapper) {
+    flex: none;
+    width: 100%;
+    max-width: 600px;
+    height: auto;
+  }
+
+  .article-card-skeleton {
+    width: 100%;
+    max-width: 600px;
+    height: 400px;
+    display: flex;
+    flex-direction: column;
   }
 </style>

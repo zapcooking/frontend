@@ -220,27 +220,15 @@
   }
 </script>
 
-<div class="whitespace-pre-wrap break-words note-content {className} w-full">
+<div
+  class="whitespace-pre-wrap break-words note-content {className} w-full"
+  style="white-space: pre-wrap;"
+>
   {#each finalParsedContent as part, i}
-    {#if part.type === 'text'}
-      {@const prevPart = finalParsedContent[i - 1]}
-      {@const nextPart = finalParsedContent[i + 1]}
-      {@const prevIsBlock = isBlockPart(prevPart)}
-      {@const nextIsBlock = isBlockPart(nextPart)}
-      {@const isBetweenBlocks = prevIsBlock && nextIsBlock}
-      {@const isOnlyWhitespace = /^\s*$/.test(part.content)}
-      {#if isBetweenBlocks && isOnlyWhitespace}
-        <!-- Skip whitespace between block elements -->
-      {:else if prevIsBlock && nextIsBlock}
-        {part.content.replace(/\n{2,}/g, '\n').trim()}
-      {:else if prevIsBlock}
-        {part.content.replace(/^\n+/, '').replace(/\n{2,}/g, '\n')}
-      {:else if nextIsBlock}
-        {part.content.replace(/\n+$/, '').replace(/\n{2,}/g, '\n')}
-      {:else}{part.content}{/if}
+    {#if part.type === 'text'}<span>{part.content}</span>
     {:else if part.type === 'hashtag'}
       <button
-        class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-orange-50 text-orange-600 hover:bg-orange-500 hover:text-white transition-colors cursor-pointer"
+        class="hashtag-pill inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium transition-colors cursor-pointer"
         on:click={() => handleHashtagClick(part.content)}
       >
         {part.content}
@@ -323,5 +311,25 @@
   .note-content :global(> a + div),
   .note-content :global(> div + a) {
     margin-top: 0.125rem;
+  }
+
+  /* Hashtag pill - light mode (default) */
+  .hashtag-pill {
+    background-color: rgb(255 247 237); /* bg-orange-50 */
+    color: rgb(234 88 12); /* text-orange-600 */
+  }
+  .hashtag-pill:hover {
+    background-color: rgb(249 115 22); /* bg-orange-500 */
+    color: white;
+  }
+
+  /* Hashtag pill - dark mode */
+  :global(html.dark) .hashtag-pill {
+    background-color: rgb(55 48 45); /* dark brownish-gray */
+    color: rgb(251 146 60); /* text-orange-400 */
+  }
+  :global(html.dark) .hashtag-pill:hover {
+    background-color: rgb(234 88 12); /* bg-orange-600 */
+    color: white;
   }
 </style>
