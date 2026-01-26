@@ -5,7 +5,9 @@
   import { browser } from '$app/environment';
   import CopyIcon from 'phosphor-svelte/lib/Copy';
   import CheckIcon from 'phosphor-svelte/lib/Check';
-  import ShareIcon from 'phosphor-svelte/lib/Share';
+  import LinkIcon from 'phosphor-svelte/lib/Link';
+  import UserIcon from 'phosphor-svelte/lib/User';
+  import TextAlignLeftIcon from 'phosphor-svelte/lib/TextAlignLeft';
   import DownloadIcon from 'phosphor-svelte/lib/DownloadSimple';
   import DotsThree from 'phosphor-svelte/lib/DotsThree';
   import { clickOutside } from '$lib/clickOutside';
@@ -19,7 +21,6 @@
 
   const dispatch = createEventDispatcher<{
     copy: { noteId: string };
-    share: { url: string };
     downloadImage: { event: NDKEvent; engagementData: any };
   }>();
 
@@ -37,28 +38,81 @@
 
   async function handleCopy() {
     if (!browser) return;
-    
+
     const noteId = nip19.noteEncode(event.id);
     try {
       await navigator.clipboard.writeText(noteId);
       copied = true;
+      dispatch('copy', { noteId });
       if (copyTimeout) clearTimeout(copyTimeout);
       copyTimeout = setTimeout(() => {
         copied = false;
-      }, 2000);
-      dispatch('copy', { noteId });
-      closeMenu();
+        closeMenu();
+      }, 800);
     } catch (error) {
       console.error('Failed to copy note ID:', error);
     }
   }
 
-  function handleShare() {
+  let linkCopied = false;
+  let linkCopyTimeout: ReturnType<typeof setTimeout> | null = null;
+
+  async function handleCopyLink() {
     if (!browser) return;
     const noteId = nip19.noteEncode(event.id);
     const url = `${window.location.origin}/${noteId}`;
-    dispatch('share', { url });
-    closeMenu();
+
+    try {
+      await navigator.clipboard.writeText(url);
+      linkCopied = true;
+      if (linkCopyTimeout) clearTimeout(linkCopyTimeout);
+      linkCopyTimeout = setTimeout(() => {
+        linkCopied = false;
+        closeMenu();
+      }, 800);
+    } catch (error) {
+      console.error('Failed to copy link:', error);
+    }
+  }
+
+  let npubCopied = false;
+  let npubCopyTimeout: ReturnType<typeof setTimeout> | null = null;
+
+  async function handleCopyNpub() {
+    if (!browser) return;
+    const authorPubkey = event.author?.hexpubkey || event.pubkey;
+    const npub = nip19.npubEncode(authorPubkey);
+
+    try {
+      await navigator.clipboard.writeText(npub);
+      npubCopied = true;
+      if (npubCopyTimeout) clearTimeout(npubCopyTimeout);
+      npubCopyTimeout = setTimeout(() => {
+        npubCopied = false;
+        closeMenu();
+      }, 800);
+    } catch (error) {
+      console.error('Failed to copy npub:', error);
+    }
+  }
+
+  let textCopied = false;
+  let textCopyTimeout: ReturnType<typeof setTimeout> | null = null;
+
+  async function handleCopyText() {
+    if (!browser) return;
+
+    try {
+      await navigator.clipboard.writeText(event.content || '');
+      textCopied = true;
+      if (textCopyTimeout) clearTimeout(textCopyTimeout);
+      textCopyTimeout = setTimeout(() => {
+        textCopied = false;
+        closeMenu();
+      }, 800);
+    } catch (error) {
+      console.error('Failed to copy text:', error);
+    }
   }
 
   function handleDownloadImage() {
@@ -99,12 +153,43 @@
         {/if}
       </button>
       <button
-        on:click={handleShare}
+        on:click={handleCopyLink}
         class="w-full px-4 py-2 text-left text-sm hover:bg-accent-gray flex items-center gap-2"
         style="color: var(--color-text-primary);"
       >
-        <ShareIcon size={16} class="text-caption" />
-        <span>Share Link</span>
+        {#if linkCopied}
+          <CheckIcon size={16} class="text-green-500" weight="bold" />
+          <span>Link Copied!</span>
+        {:else}
+          <LinkIcon size={16} class="text-caption" />
+          <span>Copy Link</span>
+        {/if}
+      </button>
+      <button
+        on:click={handleCopyNpub}
+        class="w-full px-4 py-2 text-left text-sm hover:bg-accent-gray flex items-center gap-2"
+        style="color: var(--color-text-primary);"
+      >
+        {#if npubCopied}
+          <CheckIcon size={16} class="text-green-500" weight="bold" />
+          <span>Copied!</span>
+        {:else}
+          <UserIcon size={16} class="text-caption" />
+          <span>Copy npub</span>
+        {/if}
+      </button>
+      <button
+        on:click={handleCopyText}
+        class="w-full px-4 py-2 text-left text-sm hover:bg-accent-gray flex items-center gap-2"
+        style="color: var(--color-text-primary);"
+      >
+        {#if textCopied}
+          <CheckIcon size={16} class="text-green-500" weight="bold" />
+          <span>Copied!</span>
+        {:else}
+          <TextAlignLeftIcon size={16} class="text-caption" />
+          <span>Copy Text</span>
+        {/if}
       </button>
       {#if engagementData}
         <button
