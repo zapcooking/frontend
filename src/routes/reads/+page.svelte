@@ -157,7 +157,7 @@
     }
 
     // Always fetch all articles - feed shows all, cover filtered by foodOnly
-    const cacheFilter = { kinds: [30023], hashtags: ALL_ARTICLE_HASHTAGS.slice(0, 40), limit: 150 };
+    const cacheFilter = { kinds: [30023], hashtags: ALL_ARTICLE_HASHTAGS.slice(0, 40), limit: 500 };
 
     // Try to load from cache first for instant paint
     let cacheWasUsed = false;
@@ -234,7 +234,7 @@
     try {
       const newEvents = await backgroundArticleRefresh($ndk, seenEventIds, {
         hashtags: ALL_ARTICLE_HASHTAGS.slice(0, 40),
-        limit: 50
+        limit: 100 // Increased for better depth
       });
       
       // Check generation hasn't changed
@@ -268,11 +268,11 @@
       }
       
       // Re-curate cover if we got new articles
-      if (hasNewArticles && articles.length >= 6) {
+      if (hasNewArticles && articles.length >= 1) {
         const coverArticles = foodOnly
           ? articles.filter(a => isValidLongformArticle(a.event))
           : articles;
-        if (coverArticles.length >= 6) {
+        if (coverArticles.length >= 1) {
           cover = curateCover(coverArticles, false);
         }
       }
@@ -285,6 +285,76 @@
       console.warn('[Reads] Background refresh error:', err);
     }
   }
+  
+  // Deep background fetch - continues loading older articles for more depth
+  async function deepBackgroundFetch(startGeneration: number) {
+    if (!$ndk || !browser) return;
+    if (getCurrentRelayGeneration() !== startGeneration) return;
+    
+    console.log('[Reads] Starting deep background fetch for more food articles...');
+    
+    try {
+      // Fetch older articles using 'until' with our oldest timestamp
+      const untilTime = oldestTimestamp ? oldestTimestamp - 1 : Math.floor(Date.now() / 1000);
+      
+      const { events, stats } = await fetchArticles($ndk, {
+        hashtags: ALL_ARTICLE_HASHTAGS.slice(0, 40),
+        until: untilTime,
+        limit: 300,
+        skipPrimal: true
+      });
+      
+      if (getCurrentRelayGeneration() !== startGeneration) return;
+      
+      let addedCount = 0;
+      const eventsToCache: NDKEvent[] = [];
+      
+      for (const event of events) {
+        if (seenEventIds.has(event.id)) continue;
+        
+        seenEventIds.add(event.id);
+        eventsToCache.push(event);
+        
+        const articleData = eventToArticleData(event, true);
+        if (articleData) {
+          addedCount++;
+          articles = [...articles, articleData]
+            .filter((a, i, arr) => arr.findIndex((x) => x.id === a.id) === i)
+            .sort((a, b) => b.publishedAt - a.publishedAt);
+        }
+      }
+      
+      // Update oldest timestamp
+      if (articles.length > 0) {
+        oldestTimestamp = Math.min(...articles.map(a => a.publishedAt));
+      }
+      
+      // Cache events
+      if (eventsToCache.length > 0) {
+        cacheFeedEvents(eventsToCache).catch(() => {});
+      }
+      
+      // Re-curate cover with the expanded article pool
+      const foodArticleCount = articles.filter(a => isValidLongformArticle(a.event)).length;
+      console.log(`[Reads] Deep fetch complete: ${addedCount} new articles, ${foodArticleCount} total food articles`);
+      
+      if (foodArticleCount >= 1) {
+        const coverArticles = foodOnly
+          ? articles.filter(a => isValidLongformArticle(a.event))
+          : articles;
+        cover = curateCover(coverArticles, false);
+      }
+      
+      // If still not enough food articles, schedule another deep fetch
+      if (foodOnly && foodArticleCount < 10 && stats.totalEvents > 0) {
+        console.log('[Reads] Still need more food articles, scheduling another deep fetch...');
+        setTimeout(() => deepBackgroundFetch(startGeneration), 5000);
+      }
+      
+    } catch (err) {
+      console.warn('[Reads] Deep background fetch error:', err);
+    }
+  }
 
   // Fetch using article outbox strategy (Primal fast-path + relay fallback)
   async function fetchWithOutbox(forceRefresh: boolean, startGeneration: number) {
@@ -295,7 +365,7 @@
       // relay.primal.net is included in the relay list and works for articles
       const { events, stats } = await fetchArticles($ndk, {
         hashtags: ALL_ARTICLE_HASHTAGS.slice(0, 40),
-        limit: 200,
+        limit: 500, // Fetch more articles for better depth
         skipPrimal: true, // Skip Primal cache API (doesn't support kind:30023)
         onEvent: (event: NDKEvent) => {
           // Check generation hasn't changed (relay switch)
@@ -386,6 +456,14 @@
         await fetchFromRelaysDirect(forceRefresh, startGeneration);
       }
       
+      // Check if we need more food articles for the cover
+      const foodArticleCount = articles.filter(a => isValidLongformArticle(a.event)).length;
+      if (foodOnly && foodArticleCount < 10) {
+        console.log(`[Reads] Only ${foodArticleCount} food articles, starting deep fetch...`);
+        // Schedule a deep fetch to get more articles
+        setTimeout(() => deepBackgroundFetch(startGeneration), 2000);
+      }
+      
     } catch (error) {
       console.error('[Reads] Error loading articles:', error);
       loading = false;
@@ -404,7 +482,7 @@
       // Use simple filter without hashtags - some relays don't handle large arrays well
       const filter: NDKFilter = {
         kinds: [30023],
-        limit: 300 // Request more since we filter client-side
+        limit: 500 // Request more since we filter client-side
       };
       
       // Use specific relays known to work well for articles

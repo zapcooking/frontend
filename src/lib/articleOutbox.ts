@@ -78,7 +78,7 @@ const CONFIG = {
   PRIMAL_MIN_RESULTS: 10,            // Minimum results to consider Primal successful
   
   // Relay settings  
-  RELAY_TIMEOUT_MS: 12000,           // 12 seconds for relays
+  RELAY_TIMEOUT_MS: 15000,           // 15 seconds for relays (more time for depth)
   
   // Article-optimized relays (good for longform content)
   ARTICLE_RELAYS: [
@@ -87,12 +87,13 @@ const CONFIG = {
     'wss://nos.lol',                 // Popular relay with good uptime
     'wss://nostr.wine',              // Premium relay with quality content
     'wss://purplepag.es',            // Good for profile/content discovery
+    'wss://relay.nostr.band',        // Search-optimized relay
   ],
   
   // Fallback relays if primary ones fail
   FALLBACK_RELAYS: [
-    'wss://relay.nostr.band',        // Search-optimized relay
     'wss://nostr.mutinywallet.com',
+    'wss://relay.snort.social',
   ]
 };
 
@@ -267,7 +268,7 @@ export async function fetchArticles(
       // Some relays don't handle large hashtag arrays well
       const filter: NDKFilter = {
         kinds: [30023],
-        limit: Math.min(limit * 3, 300) // Request more since we filter client-side
+        limit: Math.min(limit * 2, 1000) // Request more since we filter client-side
       };
       
       if (since) filter.since = since;

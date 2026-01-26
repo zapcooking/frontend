@@ -484,7 +484,13 @@ export function isValidLongformArticle(event: NDKEvent): boolean {
       FOOD_AND_FARMING_TAGS.includes(tag[1]?.toLowerCase() || '')
   );
 
-  return hasFoodOrFarmingTag;
+  if (hasFoodOrFarmingTag) return true;
+  
+  // Also check title for food keywords (wider variety of articles)
+  const title = getTitle(event);
+  if (hasFoodKeywordsInTitle(title)) return true;
+
+  return false;
 }
 
 /**
