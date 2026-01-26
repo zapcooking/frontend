@@ -131,11 +131,11 @@
     if (typeof window !== 'undefined') {
       // Find the scrollable container (app-scroll from layout)
       scrollContainer = document.getElementById('app-scroll');
-      
+
       if (scrollContainer) {
         // Initialize lastScrollY with current position
         lastScrollY = scrollContainer.scrollTop;
-        
+
         // Simple scroll handler with requestAnimationFrame throttling
         let ticking = false;
         throttledScrollHandler = () => {
@@ -147,7 +147,7 @@
             });
           }
         };
-        
+
         scrollContainer.addEventListener('scroll', throttledScrollHandler, { passive: true });
       }
     }
@@ -173,7 +173,10 @@
 </svelte:head>
 
 <PullToRefresh bind:this={pullToRefreshEl} on:refresh={handleRefresh}>
-  <div class="px-4 max-w-2xl mx-auto lg:mx-0 lg:max-w-4xl community-page w-full" style="padding-left: 1.5rem; padding-right: 1.5rem;">
+  <div
+    class="px-4 max-w-2xl mx-auto lg:mx-0 lg:max-w-4xl community-page w-full"
+    style="padding-left: 1.5rem; padding-right: 1.5rem;"
+  >
     <!-- Orientation text for signed-out users -->
     {#if $userPublickey === ''}
       <div class="mb-4 pt-1">
@@ -188,9 +191,13 @@
     {/if}
 
     <!-- Filter Tabs -->
-    <div 
-      class="mb-4 border-b tabs-container transition-all duration-300 ease-in-out" 
-      style="border-color: var(--color-input-border); opacity: {tabsVisible ? 1 : 0}; pointer-events: {tabsVisible ? 'auto' : 'none'}; transform: translateY({tabsVisible ? '0' : '-10px'});"
+    <div
+      class="mb-4 border-b tabs-container transition-all duration-300 ease-in-out"
+      style="border-color: var(--color-input-border); opacity: {tabsVisible
+        ? 1
+        : 0}; pointer-events: {tabsVisible ? 'auto' : 'none'}; transform: translateY({tabsVisible
+        ? '0'
+        : '-10px'});"
     >
       <div class="flex overflow-x-auto flex-nowrap scrollbar-hide">
         <button
@@ -318,16 +325,20 @@
     top: 60px;
     z-index: 15; /* Below header (z-20) but above content */
     /* Frosted glass effect - matches header */
+    /* Fallback for browsers that don't support color-mix */
+    background-color: var(--color-bg-primary);
     background-color: color-mix(in srgb, var(--color-bg-primary) 70%, transparent);
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
     padding-top: 0.5rem;
     padding-bottom: 0.25rem;
     /* Smooth transitions for show/hide */
-    transition: opacity 0.3s ease-in-out, transform 0.3s ease-in-out;
+    transition:
+      opacity 0.3s ease-in-out,
+      transform 0.3s ease-in-out;
     will-change: opacity, transform;
   }
-  
+
   /* On mobile, account for safe area inset that the header uses */
   @media (max-width: 1023px) {
     .tabs-container {

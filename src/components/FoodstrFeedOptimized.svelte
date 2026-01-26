@@ -41,7 +41,14 @@
   import NoteContent from './NoteContent.svelte';
   import VideoPreview from './VideoPreview.svelte';
   import AuthorName from './AuthorName.svelte';
-  import { generateNoteImage, generateImageFilename, extractNostrReferences, decodeNostrReference, type EngagementData as ShareEngagementData, type ReferencedNote } from '$lib/shareNoteImage';
+  import {
+    generateNoteImage,
+    generateImageFilename,
+    extractNostrReferences,
+    decodeNostrReference,
+    type EngagementData as ShareEngagementData,
+    type ReferencedNote
+  } from '$lib/shareNoteImage';
   import { optimizeImageUrl, getOptimalFormat } from '$lib/imageOptimizer';
   import { compressedCacheManager, COMPRESSED_FEED_CACHE_CONFIG } from '$lib/compressedCache';
   import FeedErrorBoundary from './FeedErrorBoundary.svelte';
@@ -68,7 +75,12 @@
   import { getEventStore, cacheFeedEvents } from '$lib/eventStore';
 
   // Batched engagement fetching for reactions/subscriptions
-  import { batchFetchEngagement, getEngagementStore, fetchEngagement, type EngagementData } from '$lib/engagementCache';
+  import {
+    batchFetchEngagement,
+    getEngagementStore,
+    fetchEngagement,
+    type EngagementData
+  } from '$lib/engagementCache';
 
   // Garden relay dedicated cache (IndexedDB-based)
   import {
@@ -428,12 +440,12 @@
   // Speed test: nostr.wine (305ms) > nos.lol (342ms) > purplepag.es (356ms) > relay.damus.io (394ms) > kitchen.zap.cooking (510ms) > relay.nostr.band (514ms)
   // NOTE: All URLs are normalized (no trailing slashes) to prevent duplicate connections
   const RELAY_POOLS = {
-    recipes: ['wss://kitchen.zap.cooking'],      // Curated recipe content (510ms, but worth it for relevance)
-    fallback: ['wss://nos.lol', 'wss://relay.damus.io'],  // Fast general relays (nos.lol 342ms, relay.damus.io 394ms)
-    discovery: ['wss://nostr.wine', 'wss://relay.primal.net', 'wss://purplepag.es'],  // Additional relays for discovery
-    profiles: ['wss://purplepag.es'],             // Profile metadata (356ms, specialized for kind:0)
-    members: ['wss://pantry.zap.cooking'],        // Private member relay (The Pantry)
-    garden: ['wss://garden.zap.cooking']          // Garden relay (no trailing slash!)
+    recipes: ['wss://kitchen.zap.cooking'], // Curated recipe content (510ms, but worth it for relevance)
+    fallback: ['wss://nos.lol', 'wss://relay.damus.io'], // Fast general relays (nos.lol 342ms, relay.damus.io 394ms)
+    discovery: ['wss://nostr.wine', 'wss://relay.primal.net', 'wss://purplepag.es'], // Additional relays for discovery
+    profiles: ['wss://purplepag.es'], // Profile metadata (356ms, specialized for kind:0)
+    members: ['wss://pantry.zap.cooking'], // Private member relay (The Pantry)
+    garden: ['wss://garden.zap.cooking'] // Garden relay (no trailing slash!)
   };
 
   // ═══════════════════════════════════════════════════════════════
@@ -486,7 +498,7 @@
   let shareImageName = 'zap-cooking-note.png';
   let shareModalEvent: NDKEvent | null = null;
   let isGeneratingShareImage = false;
-  
+
   // Share as image state (direct share)
   let isGeneratingImage = false;
   let imageGenerationError: string | null = null;
@@ -724,7 +736,8 @@
       try {
         const decoded = nip19.decode(s);
         if (decoded.type === 'note') return normalizeEventIdHex(decoded.data as string);
-        if (decoded.type === 'nevent') return normalizeEventIdHex((decoded.data as any).id as string);
+        if (decoded.type === 'nevent')
+          return normalizeEventIdHex((decoded.data as any).id as string);
       } catch {
         // Fall through to hex normalization
       }
@@ -748,19 +761,20 @@
   function getQuotedNoteId(event: NDKEvent): string | null {
     try {
       if (!event) return null;
-      
+
       // First check for q tag (NIP-18 style quote repost)
       if (Array.isArray(event.tags)) {
-        const qTag = event.tags.find(tag => Array.isArray(tag) && tag[0] === 'q');
+        const qTag = event.tags.find((tag) => Array.isArray(tag) && tag[0] === 'q');
         const qRef = qTag?.[1] ? String(qTag[1]) : '';
         const qId = qRef ? decodeToEventIdHex(qRef) : null;
         if (qId) return qId;
       }
       if (!event.content) return null;
-      
+
       // Then check for nostr:nevent1 or nostr:note1 in content
       // Use a fresh regex each time to avoid lastIndex issues
-      const regex = /nostr:(nevent1[023456789acdefghjklmnpqrstuvwxyz]+|note1[023456789acdefghjklmnpqrstuvwxyz]+)/;
+      const regex =
+        /nostr:(nevent1[023456789acdefghjklmnpqrstuvwxyz]+|note1[023456789acdefghjklmnpqrstuvwxyz]+)/;
       const match = event.content.match(regex);
       if (match && match[1]) {
         const id = decodeToEventIdHex(match[1]);
@@ -788,7 +802,10 @@
     try {
       if (!content) return '';
       return content
-        .replace(/nostr:(nevent1[023456789acdefghjklmnpqrstuvwxyz]+|note1[023456789acdefghjklmnpqrstuvwxyz]+)/g, '')
+        .replace(
+          /nostr:(nevent1[023456789acdefghjklmnpqrstuvwxyz]+|note1[023456789acdefghjklmnpqrstuvwxyz]+)/g,
+          ''
+        )
         .replace(/\s+/g, ' ')
         .trim();
     } catch {
@@ -865,15 +882,15 @@
   // Cache muted users to avoid repeated localStorage parsing
   let cachedMutedUsers: string[] | null = null;
   let cachedMutedUsersKey: string | null = null;
-  
+
   function getMutedUsers(): string[] {
     if (!$userPublickey) return [];
-    
+
     // Return cached value if user hasn't changed
     if (cachedMutedUsersKey === $userPublickey && cachedMutedUsers !== null) {
       return cachedMutedUsers;
     }
-    
+
     try {
       const storedMutes = localStorage.getItem('mutedUsers');
       const parsed: string[] = storedMutes ? JSON.parse(storedMutes) : [];
@@ -886,7 +903,7 @@
       return [];
     }
   }
-  
+
   // Invalidate muted users cache when needed (call after mute/unmute actions)
   export function invalidateMutedUsersCache() {
     cachedMutedUsers = null;
@@ -1039,14 +1056,14 @@
   /**
    * Load events from instant cache (synchronous for immediate UI)
    */
-  function loadFromInstantCache(mode: string): { events: any[], timestamp: number } | null {
+  function loadFromInstantCache(mode: string): { events: any[]; timestamp: number } | null {
     if (typeof window === 'undefined') return null;
-    
+
     try {
       const key = getInstantCacheKey(mode);
       const stored = localStorage.getItem(key);
       if (!stored) return null;
-      
+
       const { events: rawEvents, timestamp } = JSON.parse(stored);
       if (typeof timestamp !== 'number') return null;
 
@@ -1059,11 +1076,11 @@
         }
         return null;
       }
-      
+
       if (!rawEvents || !Array.isArray(rawEvents) || rawEvents.length === 0) {
         return null;
       }
-      
+
       return { events: rawEvents, timestamp };
     } catch {
       return null;
@@ -1076,11 +1093,11 @@
    */
   function saveToInstantCache(mode: string, eventsToCache: NDKEvent[]) {
     if (typeof window === 'undefined' || eventsToCache.length === 0) return;
-    
+
     try {
       const key = getInstantCacheKey(mode);
       // Store only essential event data (not full NDKEvent instances)
-      const rawEvents = eventsToCache.slice(0, INSTANT_CACHE_MAX_EVENTS).map(e => ({
+      const rawEvents = eventsToCache.slice(0, INSTANT_CACHE_MAX_EVENTS).map((e) => ({
         id: e.id,
         pubkey: e.pubkey,
         content: e.content,
@@ -1088,17 +1105,19 @@
         kind: e.kind,
         tags: e.tags,
         sig: e.sig,
-        author: e.author ? {
-          hexpubkey: e.author.hexpubkey,
-          profile: e.author.profile
-        } : null
+        author: e.author
+          ? {
+              hexpubkey: e.author.hexpubkey,
+              profile: e.author.profile
+            }
+          : null
       }));
-      
+
       const data = JSON.stringify({
         events: rawEvents,
         timestamp: Date.now()
       });
-      
+
       try {
         localStorage.setItem(key, data);
       } catch (quotaError) {
@@ -1133,10 +1152,12 @@
     // Return a minimal event object that works with our display code
     return {
       ...rawEvent,
-      author: rawEvent.author ? {
-        hexpubkey: rawEvent.author.hexpubkey,
-        profile: rawEvent.author.profile
-      } : null
+      author: rawEvent.author
+        ? {
+            hexpubkey: rawEvent.author.hexpubkey,
+            profile: rawEvent.author.profile
+          }
+        : null
     };
   }
 
@@ -1504,75 +1525,79 @@
         let usedPrimal = false;
         try {
           const primalStartTime = performance.now();
-          
+
           // Get follows from Primal (much faster than fetching kind:3)
           const primalFollows = await fetchContactListFromPrimal($userPublickey);
-          
+
           if (primalFollows.length > 0) {
-            console.log(`[Feed] Primal: Got ${primalFollows.length} follows in ${(performance.now() - primalStartTime).toFixed(0)}ms`);
-            
+            console.log(
+              `[Feed] Primal: Got ${primalFollows.length} follows in ${(performance.now() - primalStartTime).toFixed(0)}ms`
+            );
+
             // Cache followed pubkeys for real-time subscription
             followedPubkeysForRealtime = primalFollows;
-            
+
             const { events: primalEvents } = await fetchFeedFromPrimal($ndk, primalFollows, {
               limit: 300, // Increased from 100 for better initial load
               since: sevenDaysAgo(),
               includeReplies: false
             });
-            
-            console.log(`[Feed] Primal: ${primalEvents.length} events in ${(performance.now() - primalStartTime).toFixed(0)}ms`);
-            
+
+            console.log(
+              `[Feed] Primal: ${primalEvents.length} events in ${(performance.now() - primalStartTime).toFixed(0)}ms`
+            );
+
             // Apply existing food filter and exclude replies
             const beforeFilter = primalEvents.length;
             const foodEvents = primalEvents.filter((event) => {
               // Exclude replies - only show top-level notes in Following
               if (isReply(event)) return false;
-              
+
               // Check muted users
               if ($userPublickey) {
                 const mutedUsers = getMutedUsers();
                 const authorKey = event.author?.hexpubkey || event.pubkey;
                 if (authorKey && mutedUsers.includes(authorKey)) return false;
               }
-              
+
               // Apply food filter only if enabled
               if (foodFilterEnabled) {
                 return shouldIncludeEvent(event);
               }
-              
+
               return true;
             });
-            
+
             console.log(`[Feed] Primal: After food filter: ${foodEvents.length} / ${beforeFilter}`);
-            
+
             if (foodEvents.length >= 10) {
               // Check for stale results
               if (isStaleResult(loadGeneration)) {
                 console.log('[Feed] Discarding stale Primal results');
                 return;
               }
-              
+
               // Success - use Primal results
               events = dedupeAndSort(foodEvents);
               loading = false;
               error = false;
               usedPrimal = true;
-              
+
               if (events.length > 0) {
                 lastEventTime = Math.max(...events.map((e) => e.created_at || 0));
                 await cacheEvents();
               }
-              
+
               // Start realtime subscription
               try {
                 startRealtimeSubscription();
               } catch {
                 // Non-critical
               }
-              
+
               // Supplement with outbox in background (non-blocking)
               supplementWithOutbox('following');
-              
+
               console.log(`[Feed] Primal SUCCESS: ${events.length} events displayed`);
               return;
             } else {
@@ -1593,15 +1618,19 @@
           timeoutMs: 5000,
           maxRelays: 10 // Top 10 relays by coverage
         };
-        
+
         // Only add food hashtag filter when food filter is enabled
         if (foodFilterEnabled) {
           outboxOptions.additionalFilter = {
             '#t': FOOD_HASHTAGS // Server-side food filtering!
           };
         }
-        
-        const result: OutboxFetchResult = await fetchFollowingEvents($ndk, $userPublickey, outboxOptions);
+
+        const result: OutboxFetchResult = await fetchFollowingEvents(
+          $ndk,
+          $userPublickey,
+          outboxOptions
+        );
 
         console.log('[Feed] Raw events from outbox:', result.events.length);
 
@@ -1693,24 +1722,28 @@
         // ═══════════════════════════════════════════════════════════════
         try {
           const primalStartTime = performance.now();
-          
+
           // Get follows from Primal (much faster than fetching kind:3)
           const primalFollows = await fetchContactListFromPrimal($userPublickey);
-          
+
           if (primalFollows.length > 0) {
-            console.log(`[Feed] Primal (replies): Got ${primalFollows.length} follows in ${(performance.now() - primalStartTime).toFixed(0)}ms`);
-            
+            console.log(
+              `[Feed] Primal (replies): Got ${primalFollows.length} follows in ${(performance.now() - primalStartTime).toFixed(0)}ms`
+            );
+
             // Cache followed pubkeys for real-time subscription
             followedPubkeysForRealtime = primalFollows;
-            
+
             const { events: primalEvents } = await fetchFeedFromPrimal($ndk, primalFollows, {
               limit: 300, // Increased from 100 for better initial load
               since: sevenDaysAgo(),
               includeReplies: true // Include replies for this mode
             });
-            
-            console.log(`[Feed] Primal (replies): ${primalEvents.length} events in ${(performance.now() - primalStartTime).toFixed(0)}ms`);
-            
+
+            console.log(
+              `[Feed] Primal (replies): ${primalEvents.length} events in ${(performance.now() - primalStartTime).toFixed(0)}ms`
+            );
+
             // Apply existing food filter (both notes AND replies allowed)
             const beforeFilter = primalEvents.length;
             const foodEvents = primalEvents.filter((event) => {
@@ -1720,51 +1753,55 @@
                 const authorKey = event.author?.hexpubkey || event.pubkey;
                 if (authorKey && mutedUsers.includes(authorKey)) return false;
               }
-              
+
               // Apply food filter only if enabled
               if (foodFilterEnabled) {
                 return shouldIncludeEvent(event);
               }
-              
+
               return true;
             });
-            
-            console.log(`[Feed] Primal (replies): After food filter: ${foodEvents.length} / ${beforeFilter}`);
-            
+
+            console.log(
+              `[Feed] Primal (replies): After food filter: ${foodEvents.length} / ${beforeFilter}`
+            );
+
             if (foodEvents.length >= 10) {
               // Check for stale results
               if (isStaleResult(loadGeneration)) {
                 console.log('[Feed] Discarding stale Primal replies results');
                 return;
               }
-              
+
               // Success - use Primal results
               events = dedupeAndSort(foodEvents);
               loading = false;
               error = false;
-              
+
               if (events.length > 0) {
                 lastEventTime = Math.max(...events.map((e) => e.created_at || 0));
                 await cacheEvents();
               }
-              
+
               // Prefetch reply contexts for better UX
               prefetchReplyContexts($ndk, events.slice(0, 20)).catch(() => {});
-              
+
               // Start realtime subscription
               try {
                 startRealtimeSubscription();
               } catch {
                 // Non-critical
               }
-              
+
               // Supplement with outbox in background (non-blocking)
               supplementWithOutbox('replies');
-              
+
               console.log(`[Feed] Primal (replies) SUCCESS: ${events.length} events displayed`);
               return;
             } else {
-              console.log('[Feed] Primal (replies): Not enough food events, falling back to outbox');
+              console.log(
+                '[Feed] Primal (replies): Not enough food events, falling back to outbox'
+              );
             }
           }
         } catch (err) {
@@ -1781,15 +1818,19 @@
           timeoutMs: 5000,
           maxRelays: 10 // Top 10 relays by coverage
         };
-        
+
         // Only add food hashtag filter when food filter is enabled
         if (foodFilterEnabled) {
           repliesOutboxOptions.additionalFilter = {
             '#t': FOOD_HASHTAGS // Server-side food filtering!
           };
         }
-        
-        const result: OutboxFetchResult = await fetchFollowingEvents($ndk, $userPublickey, repliesOutboxOptions);
+
+        const result: OutboxFetchResult = await fetchFollowingEvents(
+          $ndk,
+          $userPublickey,
+          repliesOutboxOptions
+        );
 
         console.log('[Feed] Raw events from outbox:', result.events.length);
 
@@ -1982,17 +2023,19 @@
 
             // Convert cached events to NDK-like format and display immediately
             const cachedNDKEvents = cachedEvents.map((e) => cachedEventToNDKLike(e));
-            
+
             // Apply food filter if enabled
             const beforeFilter = cachedNDKEvents.length;
             const filteredCachedEvents = foodFilterEnabled
               ? cachedNDKEvents.filter((e) => shouldIncludeEvent(e))
               : cachedNDKEvents;
-            
+
             if (foodFilterEnabled && beforeFilter !== filteredCachedEvents.length) {
-              console.log(`[Feed] Garden: Filtered cached events: ${filteredCachedEvents.length} / ${beforeFilter}`);
+              console.log(
+                `[Feed] Garden: Filtered cached events: ${filteredCachedEvents.length} / ${beforeFilter}`
+              );
             }
-            
+
             events = filteredCachedEvents;
             loading = false; // Show cached data immediately
 
@@ -2095,11 +2138,13 @@
           const filteredGardenEvents = foodFilterEnabled
             ? gardenEvents.filter((e) => shouldIncludeEvent(e))
             : gardenEvents;
-          
+
           if (foodFilterEnabled && beforeFilter !== filteredGardenEvents.length) {
-            console.log(`[Feed] Garden: Filtered relay events: ${filteredGardenEvents.length} / ${beforeFilter}`);
+            console.log(
+              `[Feed] Garden: Filtered relay events: ${filteredGardenEvents.length} / ${beforeFilter}`
+            );
           }
-          
+
           // Got fresh events from relay - update display and cache
           events = dedupeAndSort(filteredGardenEvents);
           console.log(`[Feed] Garden: Got ${events.length} fresh events from relay`);
@@ -2150,9 +2195,11 @@
             limit: 200,
             since: sevenDaysAgo()
           });
-          
-          console.log(`[Feed] Primal global: ${primalEvents.length} events in ${(performance.now() - primalStartTime).toFixed(0)}ms`);
-          
+
+          console.log(
+            `[Feed] Primal global: ${primalEvents.length} events in ${(performance.now() - primalStartTime).toFixed(0)}ms`
+          );
+
           // Get followed users to exclude from Global feed (if logged in)
           let followedSet = new Set<string>();
           if ($userPublickey) {
@@ -2167,7 +2214,7 @@
               followedPubkeysForRealtime = followed;
             }
           }
-          
+
           // Apply food content filter
           const beforeFilter = primalEvents.length;
           const foodEvents = primalEvents.filter((event) => {
@@ -2177,52 +2224,56 @@
               const authorKey = event.author?.hexpubkey || event.pubkey;
               if (authorKey && mutedUsers.includes(authorKey)) return false;
             }
-            
+
             // Exclude replies
             if (isReply(event)) return false;
-            
+
             // Apply food filter
             if (!shouldIncludeEvent(event)) return false;
-            
+
             // Exclude posts from followed users (they go in Following feed)
             if (followedSet.size > 0) {
               const authorKey = event.author?.hexpubkey || event.pubkey;
               if (authorKey && followedSet.has(authorKey)) return false;
             }
-            
+
             return true;
           });
-          
-          console.log(`[Feed] Primal global: After food filter: ${foodEvents.length} / ${beforeFilter}`);
-          
+
+          console.log(
+            `[Feed] Primal global: After food filter: ${foodEvents.length} / ${beforeFilter}`
+          );
+
           if (foodEvents.length >= 15) {
             // Check for stale results
             if (isStaleResult(loadGeneration)) {
               console.log('[Feed] Discarding stale Primal global results');
               return;
             }
-            
+
             // Success - use Primal results
             events = dedupeAndSort(foodEvents);
             loading = false;
             error = false;
-            
+
             if (events.length > 0) {
               lastEventTime = Math.max(...events.map((e) => e.created_at || 0));
               await cacheEvents();
             }
-            
+
             // Start realtime subscription
             try {
               startRealtimeSubscription();
             } catch {
               // Non-critical
             }
-            
+
             console.log(`[Feed] Primal global SUCCESS: ${events.length} events displayed`);
             return;
           } else {
-            console.log('[Feed] Primal global: Not enough food events, supplementing with relay pools');
+            console.log(
+              '[Feed] Primal global: Not enough food events, supplementing with relay pools'
+            );
             // Continue to relay pools fetch to supplement
           }
         } catch (err) {
@@ -2233,14 +2284,14 @@
       // ═══════════════════════════════════════════════════════════════
       // RELAY POOLS FALLBACK - Use when Primal fails or returns too few
       // ═══════════════════════════════════════════════════════════════
-      
+
       // Build filters
       const hashtagFilter: any = {
         kinds: [1],
         limit: authorPubkey && !foodFilterEnabled ? 100 : 50, // Fetch more for profile view when showing all posts
         since: timeWindow.since
       };
-      
+
       // Only add food hashtag filter when needed
       // For profile view: respect the toggle
       // For global feed: always filter for food content
@@ -2404,7 +2455,7 @@
           if (foodFilterEnabled && !shouldIncludeEvent(event)) {
             return;
           }
-          
+
           handleRealtimeEvent(event);
         });
 
@@ -2530,7 +2581,7 @@
       kinds: [1],
       since
     };
-    
+
     // Only add food hashtag filter when needed
     // For profile view: respect the toggle
     // For global feed: always filter for food content
@@ -2559,7 +2610,7 @@
           return; // Skip - belongs in Following/Notes & Replies
         }
       }
-      
+
       // For profile view with food filter disabled, apply client-side filter
       if (authorPubkey && foodFilterEnabled && !shouldIncludeEvent(event)) {
         return;
@@ -2642,12 +2693,12 @@
    */
   async function supplementWithOutbox(mode: 'following' | 'replies') {
     if (!$userPublickey) return;
-    
+
     // Run in background after short delay to not compete with initial render
     setTimeout(async () => {
       try {
         const supplementStartTime = performance.now();
-        
+
         // Build options - only include food filter when enabled
         const supplementOptions: any = {
           since: sevenDaysAgo(),
@@ -2656,53 +2707,55 @@
           timeoutMs: 5000,
           maxRelays: 10
         };
-        
+
         if (foodFilterEnabled) {
           supplementOptions.additionalFilter = {
             '#t': FOOD_HASHTAGS
           };
         }
-        
+
         const result = await fetchFollowingEvents($ndk, $userPublickey, supplementOptions);
-        
+
         // Filter based on mode
         const newEvents = result.events.filter((e) => {
           // Skip already seen
           if (seenEventIds.has(e.id)) return false;
-          
+
           // For Following mode, exclude replies
           if (mode === 'following' && isReply(e)) return false;
-          
+
           // Check muted users
           if ($userPublickey) {
             const mutedUsers = getMutedUsers();
             const authorKey = e.author?.hexpubkey || e.pubkey;
             if (authorKey && mutedUsers.includes(authorKey)) return false;
           }
-          
+
           // Apply food filter
           if (foodFilterEnabled && !shouldIncludeEvent(e)) return false;
-          
+
           return true;
         });
-        
+
         if (newEvents.length > 0) {
-          console.log(`[Feed] Outbox supplement: +${newEvents.length} events in ${(performance.now() - supplementStartTime).toFixed(0)}ms`);
-          
+          console.log(
+            `[Feed] Outbox supplement: +${newEvents.length} events in ${(performance.now() - supplementStartTime).toFixed(0)}ms`
+          );
+
           // Add to seen set
           for (const e of newEvents) {
             seenEventIds.add(e.id);
           }
-          
+
           // Merge with existing events
           events = dedupeAndSort([...events, ...newEvents]);
-          
+
           // Update last event time
           const maxTime = Math.max(...newEvents.map((e) => e.created_at || 0));
           if (maxTime > lastEventTime) {
             lastEventTime = maxTime;
           }
-          
+
           // Cache updated events
           await cacheEvents();
         } else {
@@ -2735,48 +2788,47 @@
     try {
       const startTime = performance.now();
       let freshEvents: NDKEvent[] = [];
-      
+
       if (startMode === 'following' || startMode === 'replies') {
         if (!$userPublickey) return;
-        
+
         // Get follows from Primal (fast)
         const follows = await fetchContactListFromPrimal($userPublickey);
-        
+
         // Check if user switched tabs during fetch
         if (filterMode !== startMode) return;
-        
+
         if (follows.length === 0) return;
-        
+
         // Cache for realtime subscription
         followedPubkeysForRealtime = follows;
-        
+
         const { events: primalEvents } = await fetchFeedFromPrimal($ndk, follows, {
           limit: 100,
           since: sevenDaysAgo(),
           includeReplies: startMode === 'replies'
         });
-        
+
         // Check again after async fetch
         if (filterMode !== startMode) return;
-        
+
         // Apply food filter
         freshEvents = primalEvents.filter((event) => {
           // For Following mode, exclude replies
           if (startMode === 'following' && isReply(event)) return false;
-          
+
           // Check muted users
           if ($userPublickey) {
             const mutedUsers = getMutedUsers();
             const authorKey = event.author?.hexpubkey || event.pubkey;
             if (authorKey && mutedUsers.includes(authorKey)) return false;
           }
-          
+
           // Apply food filter only if enabled
           if (foodFilterEnabled && !shouldIncludeEvent(event)) return false;
-          
+
           return true;
         });
-        
       } else if (startMode === 'global') {
         // Get followed users to exclude (if logged in)
         let followedSet = new Set<string>();
@@ -2792,18 +2844,18 @@
             followedPubkeysForRealtime = follows;
           }
         }
-        
+
         // Check if user switched tabs
         if (filterMode !== startMode) return;
-        
+
         const { events: primalEvents } = await fetchGlobalFromPrimal($ndk, {
           limit: 200,
           since: sevenDaysAgo()
         });
-        
+
         // Check again after async fetch
         if (filterMode !== startMode) return;
-        
+
         // Apply food filter and exclude followed users
         freshEvents = primalEvents.filter((event) => {
           // Check muted users
@@ -2812,40 +2864,42 @@
             const authorKey = event.author?.hexpubkey || event.pubkey;
             if (authorKey && mutedUsers.includes(authorKey)) return false;
           }
-          
+
           // Exclude replies
           if (isReply(event)) return false;
-          
+
           // Apply food filter
           if (!shouldIncludeEvent(event)) return false;
-          
+
           // Exclude posts from followed users (they go in Following feed)
           if (followedSet.size > 0) {
             const authorKey = event.author?.hexpubkey || event.pubkey;
             if (authorKey && followedSet.has(authorKey)) return false;
           }
-          
+
           return true;
         });
       }
-      
+
       // Final stale check before applying results
       if (filterMode !== startMode) return;
-      
-      console.log(`[Feed] Background refresh: ${freshEvents.length} events in ${(performance.now() - startTime).toFixed(0)}ms`);
-      
+
+      console.log(
+        `[Feed] Background refresh: ${freshEvents.length} events in ${(performance.now() - startTime).toFixed(0)}ms`
+      );
+
       // Find events we don't already have
-      const existingIds = new Set(events.map(e => e.id));
-      const newEvents = freshEvents.filter(e => !existingIds.has(e.id));
-      
+      const existingIds = new Set(events.map((e) => e.id));
+      const newEvents = freshEvents.filter((e) => !existingIds.has(e.id));
+
       if (newEvents.length > 0) {
         console.log(`[Feed] ${newEvents.length} new posts found`);
-        
+
         // Add to seen set
         for (const e of newEvents) {
           seenEventIds.add(e.id);
         }
-        
+
         if (isScrolledToTop) {
           // User is at top - auto-prepend smoothly
           events = dedupeAndSort([...newEvents, ...events]);
@@ -2854,26 +2908,25 @@
           pendingNewEvents = newEvents;
           showNewPostsButton = true;
         }
-        
+
         // Update last event time
         const maxTime = Math.max(...newEvents.map((e) => e.created_at || 0));
         if (maxTime > lastEventTime) {
           lastEventTime = maxTime;
         }
       }
-      
+
       // Update cache for next session (merge fresh + existing)
       const allEvents = dedupeAndSort([...freshEvents, ...events]);
       saveToInstantCache(startMode, allEvents);
       await cacheEvents();
-      
+
       // Start realtime subscription if not already running
       try {
         startRealtimeSubscription();
       } catch {
         // Non-critical
       }
-      
     } catch (err) {
       // Only log if it's not a tab-switch scenario
       if (filterMode === startMode) {
@@ -2888,11 +2941,11 @@
    */
   function loadPendingPosts() {
     if (pendingNewEvents.length === 0) return;
-    
+
     events = dedupeAndSort([...pendingNewEvents, ...events]);
     pendingNewEvents = [];
     showNewPostsButton = false;
-    
+
     // Scroll to top smoothly
     if (typeof window !== 'undefined') {
       window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -2906,17 +2959,17 @@
   let scrollThrottleTimer: ReturnType<typeof setTimeout> | null = null;
   function handleFeedScroll() {
     if (typeof window === 'undefined') return;
-    
+
     // Throttle scroll handling to max once per 100ms
     if (scrollThrottleTimer) return;
     scrollThrottleTimer = setTimeout(() => {
       scrollThrottleTimer = null;
     }, 100);
-    
+
     const scrollTop = window.scrollY || document.documentElement.scrollTop;
     const wasAtTop = isScrolledToTop;
     isScrolledToTop = scrollTop < 100;
-    
+
     // If user scrolled to top and there are pending posts, auto-load them
     if (isScrolledToTop && !wasAtTop && pendingNewEvents.length > 0) {
       loadPendingPosts();
@@ -2934,7 +2987,7 @@
         limit: authorPubkey && !foodFilterEnabled ? 100 : 50, // Fetch more for profile view when showing all posts
         since: timeWindow.since
       };
-      
+
       // Only add food hashtag filter when needed
       // For profile view: respect the toggle
       // For global feed: always filter for food content
@@ -3036,14 +3089,14 @@
           timeoutMs: 5000,
           maxRelays: 10
         };
-        
+
         // Only add food hashtag filter when food filter is enabled
         if (foodFilterEnabled) {
           loadMoreOptions.additionalFilter = {
             '#t': FOOD_HASHTAGS // Server-side food filtering!
           };
         }
-        
+
         const result = await fetchFollowingEvents($ndk, $userPublickey, loadMoreOptions);
 
         olderEvents = result.events;
@@ -3117,7 +3170,7 @@
           until: paginationWindow.until,
           limit: authorPubkey && !foodFilterEnabled ? 150 : 100 // Fetch more for profile view when showing all posts
         };
-        
+
         // Only add food hashtag filter when needed
         // For profile view: respect the toggle
         // For global feed: always filter for food content
@@ -3202,7 +3255,7 @@
         const now = Math.floor(Date.now() / 1000);
         const oldestEventTime = events[events.length - 1]?.created_at || now;
         const timeLimit = now - THIRTY_DAYS_SECONDS;
-        
+
         // Continue if we got a good batch (>= 50) or if we're still within time window
         hasMore = olderEvents.length >= 50 || oldestEventTime > timeLimit;
         await cacheEvents();
@@ -3212,7 +3265,7 @@
         const now = Math.floor(Date.now() / 1000);
         const oldestEventTime = events[events.length - 1]?.created_at || now;
         const timeLimit = now - THIRTY_DAYS_SECONDS;
-        
+
         // Stop if we've gone back 30 days or got no events
         hasMore = oldestEventTime > timeLimit && olderEvents.length > 0;
       }
@@ -3509,17 +3562,20 @@
 
   async function generateShareModalImage() {
     if (!shareModalEvent || !browser) return;
-    
+
     isGeneratingShareImage = true;
-    
+
     try {
       const { resolveProfileByPubkey, formatDisplayName } = await import('$lib/profileResolver');
-      
+
       // Get author info
       let authorName: string | undefined;
       let authorPicture: string | undefined;
       try {
-        const profile = await resolveProfileByPubkey(shareModalEvent.author?.hexpubkey || shareModalEvent.pubkey, $ndk);
+        const profile = await resolveProfileByPubkey(
+          shareModalEvent.author?.hexpubkey || shareModalEvent.pubkey,
+          $ndk
+        );
         if (profile) {
           authorName = formatDisplayName(profile);
           authorPicture = profile.picture;
@@ -3527,7 +3583,7 @@
       } catch (err) {
         console.warn('Failed to fetch author profile:', err);
       }
-      
+
       // Check for referenced notes
       let referencedNote: ReferencedNote | undefined;
       try {
@@ -3540,7 +3596,10 @@
               let refAuthorName: string | undefined;
               let refAuthorPicture: string | undefined;
               try {
-                const refProfile = await resolveProfileByPubkey(refEvent.author?.hexpubkey || refEvent.pubkey, $ndk);
+                const refProfile = await resolveProfileByPubkey(
+                  refEvent.author?.hexpubkey || refEvent.pubkey,
+                  $ndk
+                );
                 if (refProfile) {
                   refAuthorName = formatDisplayName(refProfile);
                   refAuthorPicture = refProfile.picture;
@@ -3548,7 +3607,7 @@
               } catch {
                 // Continue without ref author info
               }
-              
+
               referencedNote = {
                 id: refEvent.id,
                 content: refEvent.content,
@@ -3563,7 +3622,7 @@
       } catch (err) {
         console.warn('Failed to fetch referenced note:', err);
       }
-      
+
       // Get engagement data
       const engagementStore = getEngagementStore(shareModalEvent.id);
       const engagementValue = get(engagementStore);
@@ -3572,10 +3631,18 @@
         reactions: { count: engagementValue.reactions.count },
         comments: { count: engagementValue.comments.count }
       };
-      
+
       // Generate image
-      const blob = await generateNoteImage(shareModalEvent, engagement, 'square', false, authorName, authorPicture, referencedNote);
-      
+      const blob = await generateNoteImage(
+        shareModalEvent,
+        engagement,
+        'square',
+        false,
+        authorName,
+        authorPicture,
+        referencedNote
+      );
+
       if (blob) {
         shareImageBlob = blob;
         shareImageName = generateImageFilename(shareModalEvent);
@@ -3585,29 +3652,35 @@
       }
     } catch (err) {
       console.error('Failed to generate share image:', err);
-      imageGenerationError = err instanceof Error ? err.message : 'Failed to generate image. Please try again.';
+      imageGenerationError =
+        err instanceof Error ? err.message : 'Failed to generate image. Please try again.';
     } finally {
       isGeneratingShareImage = false;
     }
   }
 
-  async function handleDownloadImage(event: CustomEvent<{ event: NDKEvent; engagementData: ShareEngagementData }>) {
+  async function handleDownloadImage(
+    event: CustomEvent<{ event: NDKEvent; engagementData: ShareEngagementData }>
+  ) {
     if (!browser) return;
-    
+
     const noteEvent = event.detail.event;
     const engagement = event.detail.engagementData;
-    
+
     isGeneratingImage = true;
     imageGenerationError = null;
-    
+
     try {
       // Try to get author name and picture from profile cache
       let authorName: string | undefined;
       let authorPicture: string | undefined;
       const { resolveProfileByPubkey, formatDisplayName } = await import('$lib/profileResolver');
-      
+
       try {
-        const profile = await resolveProfileByPubkey(noteEvent.author?.hexpubkey || noteEvent.pubkey, $ndk);
+        const profile = await resolveProfileByPubkey(
+          noteEvent.author?.hexpubkey || noteEvent.pubkey,
+          $ndk
+        );
         if (profile) {
           authorName = formatDisplayName(profile);
           authorPicture = profile.picture;
@@ -3615,7 +3688,7 @@
       } catch (err) {
         console.warn('Failed to fetch author profile for image:', err);
       }
-      
+
       // Check for referenced notes (nostr:nevent or nostr:note)
       let referencedNote: ReferencedNote | undefined;
       try {
@@ -3630,7 +3703,10 @@
               let refAuthorName: string | undefined;
               let refAuthorPicture: string | undefined;
               try {
-                const refProfile = await resolveProfileByPubkey(refEvent.author?.hexpubkey || refEvent.pubkey, $ndk);
+                const refProfile = await resolveProfileByPubkey(
+                  refEvent.author?.hexpubkey || refEvent.pubkey,
+                  $ndk
+                );
                 if (refProfile) {
                   refAuthorName = formatDisplayName(refProfile);
                   refAuthorPicture = refProfile.picture;
@@ -3638,7 +3714,7 @@
               } catch {
                 // Continue without ref author info
               }
-              
+
               referencedNote = {
                 id: refEvent.id,
                 content: refEvent.content,
@@ -3655,18 +3731,26 @@
         console.warn('Failed to fetch referenced note:', err);
         // Continue without referenced note
       }
-      
+
       // Generate image (default to square format)
-      const blob = await generateNoteImage(noteEvent, engagement, 'square', false, authorName, authorPicture, referencedNote);
-      
+      const blob = await generateNoteImage(
+        noteEvent,
+        engagement,
+        'square',
+        false,
+        authorName,
+        authorPicture,
+        referencedNote
+      );
+
       if (!blob) {
         throw new Error('Failed to generate image');
       }
-      
+
       // Download the image directly
       const filename = generateImageFilename(noteEvent);
       const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
-      
+
       if (isSafari) {
         // For Safari on iOS/macOS, try native share which lets user save to Photos
         if (navigator.share && navigator.canShare) {
@@ -3674,7 +3758,7 @@
             const file = new File([blob], filename, { type: 'image/png' });
             if (navigator.canShare({ files: [file] })) {
               await navigator.share({
-                files: [file],
+                files: [file]
               });
               // Share completed (or cancelled) - don't do anything else
               return;
@@ -3684,7 +3768,7 @@
             return;
           }
         }
-        
+
         // Fallback for older Safari without share API: use data URL download
         const reader = new FileReader();
         reader.onload = () => {
@@ -3783,21 +3867,21 @@
     totalSats: number;
     zapCount: number;
   }
-  
+
   // Constants for tier calculation - defined once, reused everywhere
   const GLOW_TIERS = ['none', 'soft', 'medium', 'bright'] as const;
-  type GlowTier = typeof GLOW_TIERS[number];
-  
+  type GlowTier = (typeof GLOW_TIERS)[number];
+
   // Thresholds: [soft, medium, bright]
   const COUNT_THRESHOLDS = [3, 6, 9];
   const AMOUNT_THRESHOLDS = [500, 1000, 2000];
   const ESTIMATED_SATS_PER_ZAP = 200;
-  
+
   // Reactive engagement cache - stores computed glow info per event
   let engagementGlowCache = new Map<string, EngagementRenderInfo>();
   let engagementSubscriptions = new Map<string, () => void>();
   let pendingCleanupTimers = new Map<string, ReturnType<typeof setTimeout>>();
-  
+
   // Fast tier calculation - returns index 0-3 (none, soft, medium, bright)
   function getTierIndex(value: number, thresholds: number[]): number {
     if (value >= thresholds[2]) return 3; // bright
@@ -3805,69 +3889,70 @@
     if (value >= thresholds[0]) return 1; // soft
     return 0; // none
   }
-  
+
   // Calculate glow tier from engagement data - optimized for speed
   function calculateEngagementInfo(data: EngagementData): EngagementRenderInfo {
     const zapCount = data.zaps?.count || 0;
     const uniqueZapperCount = data.zaps?.topZappers?.length || 0;
     const totalReactionCount = data.reactions?.count || 0;
     const totalSats = (data.zaps?.totalAmount || 0) / 1000; // Convert millisats to sats
-    
+
     // Zap-popular: only for garden posts with more zappers than reactions
-    const isZapPopular = filterMode === 'garden' && 
-                         uniqueZapperCount > 0 && 
-                         uniqueZapperCount > totalReactionCount;
-    
+    const isZapPopular =
+      filterMode === 'garden' && uniqueZapperCount > 0 && uniqueZapperCount > totalReactionCount;
+
     // Get tier from count (3/6/9 thresholds)
     const countTierIdx = getTierIndex(zapCount, COUNT_THRESHOLDS);
-    
+
     // Get tier from amount (500/1000/2000 thresholds)
     // If no amount data yet, estimate from count
     const effectiveSats = totalSats > 0 ? totalSats : zapCount * ESTIMATED_SATS_PER_ZAP;
     const amountTierIdx = getTierIndex(effectiveSats, AMOUNT_THRESHOLDS);
-    
+
     // Use whichever tier is higher
     const zapGlowTier = GLOW_TIERS[Math.max(countTierIdx, amountTierIdx)];
-    
+
     return { isZapPopular, zapGlowTier, totalSats, zapCount };
   }
-  
+
   // Subscribe to an engagement store and update cache reactively
   function subscribeToEngagement(eventId: string): void {
     if (engagementSubscriptions.has(eventId)) return;
-    
+
     // Cancel any pending cleanup for this eventId
     const pendingCleanup = pendingCleanupTimers.get(eventId);
     if (pendingCleanup) {
       clearTimeout(pendingCleanup);
       pendingCleanupTimers.delete(eventId);
     }
-    
+
     const store = getEngagementStore(eventId);
-    
+
     // Immediately read cached data (this loads from localStorage instantly)
     const initialData = get(store);
     const initialInfo = calculateEngagementInfo(initialData);
     engagementGlowCache.set(eventId, initialInfo);
-    
+
     // Subscribe to future updates from relays
     const unsubscribe = store.subscribe((data) => {
       const newInfo = calculateEngagementInfo(data);
       const currentInfo = engagementGlowCache.get(eventId);
-      
+
       // Only update if glow tier changed or sats increased (never decrease glow from cache)
-      if (!currentInfo || 
-          newInfo.zapGlowTier !== currentInfo.zapGlowTier ||
-          newInfo.totalSats > currentInfo.totalSats) {
+      if (
+        !currentInfo ||
+        newInfo.zapGlowTier !== currentInfo.zapGlowTier ||
+        newInfo.totalSats > currentInfo.totalSats
+      ) {
         engagementGlowCache.set(eventId, newInfo);
         // Trigger Svelte reactivity - assignment to self
         engagementGlowCache = engagementGlowCache;
       }
     });
-    
+
     engagementSubscriptions.set(eventId, unsubscribe);
   }
-  
+
   // Unsubscribe from engagement updates
   function unsubscribeFromEngagement(eventId: string): void {
     const unsub = engagementSubscriptions.get(eventId);
@@ -3876,34 +3961,37 @@
       engagementSubscriptions.delete(eventId);
     }
   }
-  
+
   // Default engagement info - cached to avoid object allocation
-  const DEFAULT_ENGAGEMENT_INFO: EngagementRenderInfo = Object.freeze({ 
-    isZapPopular: false, 
+  const DEFAULT_ENGAGEMENT_INFO: EngagementRenderInfo = Object.freeze({
+    isZapPopular: false,
     zapGlowTier: 'none' as const,
     totalSats: 0,
     zapCount: 0
   });
-  
+
   // Get engagement info - reads from reactive cache
   // Optimized: single code path, minimal allocations
-  function getEngagementRenderInfo(eventId: string, shouldSubscribe: boolean = true): EngagementRenderInfo {
+  function getEngagementRenderInfo(
+    eventId: string,
+    shouldSubscribe: boolean = true
+  ): EngagementRenderInfo {
     // Set up subscription if needed (this also populates cache)
     if (shouldSubscribe && !engagementSubscriptions.has(eventId)) {
       subscribeToEngagement(eventId);
       // subscribeToEngagement populates the cache, so check it
       return engagementGlowCache.get(eventId) || DEFAULT_ENGAGEMENT_INFO;
     }
-    
+
     // Return cached info or default
     return engagementGlowCache.get(eventId) || DEFAULT_ENGAGEMENT_INFO;
   }
-  
+
   // Cleanup subscriptions when events leave view
   // Uses tracked timers to avoid duplicate cleanup attempts
   $: {
     // When visibleNotes changes, schedule cleanup for notes no longer visible
-    const visibleIds = new Set(events.map(e => e.id).filter(id => visibleNotes.has(id)));
+    const visibleIds = new Set(events.map((e) => e.id).filter((id) => visibleNotes.has(id)));
     for (const eventId of engagementSubscriptions.keys()) {
       if (!visibleIds.has(eventId) && !pendingCleanupTimers.has(eventId)) {
         // Schedule cleanup with grace period (in case user scrolls back)
@@ -3923,33 +4011,33 @@
   // Zap animation state
   let zapAnimatingNotes = new Set<string>();
   let zapAnimationTimeouts = new Map<string, ReturnType<typeof setTimeout>>();
-  
+
   function handleZapComplete(eventId: string) {
     // Clear any existing timeout for this note
     const existingTimeout = zapAnimationTimeouts.get(eventId);
     if (existingTimeout) {
       clearTimeout(existingTimeout);
     }
-    
+
     // Add to animating set
     zapAnimatingNotes.add(eventId);
     zapAnimatingNotes = zapAnimatingNotes;
-    
+
     // Remove after animation completes (2 seconds)
     const timeout = setTimeout(() => {
       zapAnimatingNotes.delete(eventId);
       zapAnimatingNotes = zapAnimatingNotes;
       zapAnimationTimeouts.delete(eventId);
     }, 2000);
-    
+
     zapAnimationTimeouts.set(eventId, timeout);
-    
+
     // Refresh engagement data to show new zap
     if ($userPublickey) {
       fetchEngagement($ndk, eventId, $userPublickey);
     }
   }
-  
+
   // Cleanup function for zap animation timeouts
   function cleanupZapAnimationTimeouts() {
     zapAnimationTimeouts.forEach((timeout) => clearTimeout(timeout));
@@ -4052,7 +4140,7 @@
           const cached = loadFromInstantCache(filterMode);
           if (cached && cached.events.length > 0) {
             const hydratedEvents = cached.events.map(hydrateFromCache).filter(shouldIncludeEvent);
-            
+
             if (hydratedEvents.length > 0) {
               seenEventIds.clear();
               hydratedEvents.forEach((e: any) => seenEventIds.add(e.id));
@@ -4061,12 +4149,12 @@
               error = false;
               hasMore = true;
               loadingMore = false;
-              
+
               console.log(`[Feed] Tab switch: Rendered ${events.length} cached events instantly`);
-              
+
               // Background refresh
               backgroundLoading = true;
-              fetchFreshAndMerge().finally(() => backgroundLoading = false);
+              fetchFreshAndMerge().finally(() => (backgroundLoading = false));
               return;
             }
           }
@@ -4092,7 +4180,7 @@
           const cached = loadFromInstantCache(filterMode);
           if (cached && cached.events.length > 0) {
             const hydratedEvents = cached.events.map(hydrateFromCache).filter(shouldIncludeEvent);
-            
+
             if (hydratedEvents.length > 0) {
               seenEventIds.clear();
               hydratedEvents.forEach((e: any) => seenEventIds.add(e.id));
@@ -4101,12 +4189,12 @@
               error = false;
               hasMore = true;
               loadingMore = false;
-              
+
               console.log(`[Feed] Tab switch: Rendered ${events.length} cached events instantly`);
-              
+
               // Background refresh
               backgroundLoading = true;
-              fetchFreshAndMerge().finally(() => backgroundLoading = false);
+              fetchFreshAndMerge().finally(() => (backgroundLoading = false));
               return;
             }
           }
@@ -4175,7 +4263,9 @@
       loading = true;
       try {
         await loadFoodstrFeed(false);
-        console.log(`[Feed] Profile/special mode: Loaded ${events.length} events for ${authorPubkey || filterMode}`);
+        console.log(
+          `[Feed] Profile/special mode: Loaded ${events.length} events for ${authorPubkey || filterMode}`
+        );
       } catch (err) {
         console.error(`[Feed] Failed to load ${authorPubkey ? 'profile' : filterMode} feed:`, err);
         error = true;
@@ -4187,25 +4277,25 @@
     // ═══════════════════════════════════════════════════════════════
     // STALE-WHILE-REVALIDATE: Show cached content instantly, then refresh
     // ═══════════════════════════════════════════════════════════════
-    
+
     // Step 1: Try to render cached content immediately (0ms perceived load)
     const cached = loadFromInstantCache(filterMode);
     if (cached && cached.events.length > 0) {
       const hydratedEvents = cached.events.map(hydrateFromCache).filter(shouldIncludeEvent);
-      
+
       if (hydratedEvents.length > 0) {
         // Add to seen set
         hydratedEvents.forEach((e: any) => seenEventIds.add(e.id));
-        
+
         events = hydratedEvents;
         loading = false; // No loading spinner - we have content!
         error = false;
         hasMore = true;
         loadingMore = false;
         lastEventTime = Math.max(...events.map((e) => e.created_at || 0));
-        
+
         console.log(`[Feed] Rendered ${events.length} cached events instantly`);
-        
+
         // Step 2: Fetch fresh content in background
         backgroundLoading = true;
         try {
@@ -4213,14 +4303,14 @@
         } finally {
           backgroundLoading = false;
         }
-        
+
         return; // Done - we showed cached content and refreshed in background
       }
     }
-    
+
     // No usable cache - fall back to normal loading flow
     console.log('[Feed] No cache available, loading fresh');
-    
+
     // Prewarm outbox cache in background (non-blocking)
     // This fetches relay configs for all follows, making subsequent loads faster
     if ($userPublickey) {
@@ -4231,7 +4321,7 @@
 
     try {
       await retryWithDelay();
-      
+
       // Save to instant cache for next session
       if (events.length > 0) {
         saveToInstantCache(filterMode, events);
@@ -4264,10 +4354,10 @@
     if (engagementPreloadTimeout) {
       clearTimeout(engagementPreloadTimeout);
     }
-    
+
     // Clean up zap animation timeouts
     cleanupZapAnimationTimeouts();
-    
+
     cleanupInfiniteScroll();
     await cleanup();
   });
@@ -4360,13 +4450,18 @@
 </script>
 
 <FeedErrorBoundary>
-  <div class="max-w-2xl mx-auto overflow-x-hidden" style="padding-left: 0; padding-right: 0;">
+  <div class="max-w-2xl mx-auto">
     <!-- Note: Refresh indicator is handled by PullToRefresh component on the page -->
 
     <!-- Background loading indicator (subtle, centered at top) - only show if no new posts button -->
     {#if backgroundLoading && !showNewPostsButton}
-      <div class="fixed top-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 bg-card/90 backdrop-blur-sm px-3 py-1.5 rounded-full shadow-lg" style="border: 1px solid var(--color-input-border)">
-        <div class="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin"></div>
+      <div
+        class="fixed top-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 bg-card/90 backdrop-blur-sm px-3 py-1.5 rounded-full shadow-lg"
+        style="border: 1px solid var(--color-input-border)"
+      >
+        <div
+          class="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin"
+        ></div>
         <span class="text-xs" style="color: var(--color-caption)">Updating...</span>
       </div>
     {/if}
@@ -4379,7 +4474,12 @@
           class="py-2 px-4 bg-primary text-white rounded-full shadow-lg hover:bg-primary/90 transition-all flex items-center gap-2"
         >
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 10l7-7m0 0l7 7m-7-7v18" />
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M5 10l7-7m0 0l7 7m-7-7v18"
+            />
           </svg>
           {pendingNewEvents.length} new {pendingNewEvents.length === 1 ? 'post' : 'posts'}
         </button>
@@ -4507,16 +4607,21 @@
           {@const zapGlowTier = engagementInfo.zapGlowTier}
           {@const engagementStoreValue = get(getEngagementStore(event.id))}
           {@const engagementData = {
-            zaps: { totalAmount: engagementStoreValue.zaps.totalAmount, count: engagementStoreValue.zaps.count },
+            zaps: {
+              totalAmount: engagementStoreValue.zaps.totalAmount,
+              count: engagementStoreValue.zaps.count
+            },
             reactions: { count: engagementStoreValue.reactions.count },
             comments: { count: engagementStoreValue.comments.count }
           }}
           <article
             class="border-b py-4 sm:py-6 first:pt-0 w-full
-                   {isPopular ? 'zap-popular-post' : ''} 
+                   {isPopular ? 'zap-popular-post' : ''}
                    {isZapAnimating ? 'zap-bolt-animation' : ''}
                    {zapGlowTier !== 'none' ? `zap-glow-${zapGlowTier}` : ''}"
-            style="border-color: var(--color-input-border); {isPopular ? 'box-shadow: 0 0 20px rgba(251, 191, 36, 0.4), 0 0 40px rgba(251, 191, 36, 0.2); border-radius: 8px; border: 2px solid rgba(251, 191, 36, 0.6); padding: 1rem; margin-bottom: 1rem;' : ''}"
+            style="border-color: var(--color-input-border); {isPopular
+              ? 'box-shadow: 0 0 20px rgba(251, 191, 36, 0.4), 0 0 40px rgba(251, 191, 36, 0.2); border-radius: 8px; border: 2px solid rgba(251, 191, 36, 0.6); padding: 1rem; margin-bottom: 1rem;'
+              : ''}"
           >
             <!-- User header with avatar and name -->
             <div class="flex items-center justify-between mb-3 px-2 sm:px-0">
@@ -4533,7 +4638,7 @@
                     />
                   </a>
                 {/if}
-                
+
                 <div class="flex items-center space-x-2 flex-wrap min-w-0">
                   {#if !hideAuthorName}
                     <AuthorName {event} />
@@ -4545,10 +4650,10 @@
                   <ClientAttribution tags={event.tags} enableEnrichment={false} />
                 </div>
               </div>
-              
+
               <!-- Post actions menu (top right) -->
               <div class="flex-shrink-0 ml-2">
-                <PostActionsMenu 
+                <PostActionsMenu
                   {event}
                   {engagementData}
                   on:copy={(e) => {
@@ -4568,93 +4673,83 @@
             <div class="px-2 sm:px-0">
               <!-- Reply context (orange bracket at top for replies) -->
               {#if isReply(event)}
-                  {@const parentNoteId = getParentNoteId(event)}
-                  {#if parentNoteId}
-                    {@const parentHref = noteHrefFromEventId(parentNoteId)}
-                    {#if parentHref}
-                      {#await resolveReplyContext(parentNoteId)}
-                        <!-- Loading state -->
-                        <div class="parent-quote-embed mb-3">
-                          <div class="parent-quote-loading">
-                            <div class="w-4 h-4 bg-accent-gray rounded-full animate-pulse"></div>
-                            <div class="h-3 bg-accent-gray rounded w-20 animate-pulse"></div>
-                          </div>
-                        </div>
-                      {:then context}
-                        <!-- Always-visible embedded parent quote -->
-                        <a
-                          href={parentHref}
-                          class="parent-quote-embed mb-3 block hover:opacity-90 transition-opacity"
-                          on:click|stopPropagation
-                        >
-                          <div class="parent-quote-header">
-                            {#if context.authorPubkey}
-                              <CustomAvatar pubkey={context.authorPubkey} size={16} />
-                            {/if}
-                            <span class="parent-quote-author">
-                              {#if context.error === 'deleted'}
-                                <span class="italic">deleted note</span>
-                              {:else if context.error === 'Failed to load'}
-                                a note
-                              {:else}
-                                {context.authorName.startsWith('npub')
-                                  ? context.authorName.substring(0, 12) + '...'
-                                  : context.authorName}
-                              {/if}
-                            </span>
-                          </div>
-                          {#if context.notePreview && !context.error}
-                            <p class="parent-quote-content">{context.notePreview}</p>
-                          {/if}
-                          <span class="parent-quote-link"> View full thread → </span>
-                        </a>
-                      {:catch}
-                        <!-- Fallback - simple link -->
-                        <a
-                          href={parentHref}
-                          class="parent-quote-embed mb-3 block"
-                        >
-                          <div class="parent-quote-header">
-                            <svg
-                              class="w-4 h-4"
-                              fill="none"
-                              stroke="currentColor"
-                              viewBox="0 0 24 24"
-                            >
-                              <path
-                                stroke-linecap="round"
-                                stroke-linejoin="round"
-                                stroke-width="2"
-                                d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6"
-                              />
-                            </svg>
-                            <span class="parent-quote-author">Replying to a note</span>
-                          </div>
-                        </a>
-                      {/await}
-                    {:else}
+                {@const parentNoteId = getParentNoteId(event)}
+                {#if parentNoteId}
+                  {@const parentHref = noteHrefFromEventId(parentNoteId)}
+                  {#if parentHref}
+                    {#await resolveReplyContext(parentNoteId)}
+                      <!-- Loading state -->
                       <div class="parent-quote-embed mb-3">
-                        <div class="parent-quote-header">
-                          <span class="parent-quote-author">Replying to a note</span>
+                        <div class="parent-quote-loading">
+                          <div class="w-4 h-4 bg-accent-gray rounded-full animate-pulse"></div>
+                          <div class="h-3 bg-accent-gray rounded w-20 animate-pulse"></div>
                         </div>
                       </div>
-                    {/if}
+                    {:then context}
+                      <!-- Always-visible embedded parent quote -->
+                      <a
+                        href={parentHref}
+                        class="parent-quote-embed mb-3 block hover:opacity-90 transition-opacity"
+                        on:click|stopPropagation
+                      >
+                        <div class="parent-quote-header">
+                          {#if context.authorPubkey}
+                            <CustomAvatar pubkey={context.authorPubkey} size={16} />
+                          {/if}
+                          <span class="parent-quote-author">
+                            {#if context.error === 'deleted'}
+                              <span class="italic">deleted note</span>
+                            {:else if context.error === 'Failed to load'}
+                              a note
+                            {:else}
+                              {context.authorName.startsWith('npub')
+                                ? context.authorName.substring(0, 12) + '...'
+                                : context.authorName}
+                            {/if}
+                          </span>
+                        </div>
+                        {#if context.notePreview && !context.error}
+                          <p class="parent-quote-content">{context.notePreview}</p>
+                        {/if}
+                        <span class="parent-quote-link"> View full thread → </span>
+                      </a>
+                    {:catch}
+                      <!-- Fallback - simple link -->
+                      <a href={parentHref} class="parent-quote-embed mb-3 block">
+                        <div class="parent-quote-header">
+                          <svg
+                            class="w-4 h-4"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path
+                              stroke-linecap="round"
+                              stroke-linejoin="round"
+                              stroke-width="2"
+                              d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6"
+                            />
+                          </svg>
+                          <span class="parent-quote-author">Replying to a note</span>
+                        </div>
+                      </a>
+                    {/await}
+                  {:else}
+                    <div class="parent-quote-embed mb-3">
+                      <div class="parent-quote-header">
+                        <span class="parent-quote-author">Replying to a note</span>
+                      </div>
+                    </div>
+                  {/if}
                 {/if}
               {/if}
 
               <!-- Content - strip quoted note reference if present to avoid bubble embed -->
-                {#if hasQuotedNote(event)}
-                  {@const cleanContent = getContentWithoutMedia(getContentWithoutQuote(event.content))}
-                  {#if cleanContent}
-                    <div
-                      class="text-sm leading-relaxed mb-3"
-                      style="color: var(--color-text-primary)"
-                    >
-                      <NoteContent content={cleanContent} />
-                    </div>
-                  {/if}
-                {:else if getContentWithoutMedia(event.content)}
-                  {@const cleanContent = getContentWithoutMedia(event.content)}
+              {#if hasQuotedNote(event)}
+                {@const cleanContent = getContentWithoutMedia(
+                  getContentWithoutQuote(event.content)
+                )}
+                {#if cleanContent}
                   <div
                     class="text-sm leading-relaxed mb-3"
                     style="color: var(--color-text-primary)"
@@ -4662,240 +4757,232 @@
                     <NoteContent content={cleanContent} />
                   </div>
                 {/if}
+              {:else if getContentWithoutMedia(event.content)}
+                {@const cleanContent = getContentWithoutMedia(event.content)}
+                <div class="text-sm leading-relaxed mb-3" style="color: var(--color-text-primary)">
+                  <NoteContent content={cleanContent} />
+                </div>
+              {/if}
 
-                <!-- Quoted note embed (appears below user's content) -->
-                {#if hasQuotedNote(event)}
-                  {@const quotedNoteId = getQuotedNoteId(event)}
-                  {#if quotedNoteId}
-                    {@const quotedHref = noteHrefFromEventId(quotedNoteId)}
-                    {#if quotedHref}
-                      {#await resolveReplyContext(quotedNoteId)}
-                        <!-- Loading state -->
-                        <div class="parent-quote-embed mb-3">
-                          <div class="parent-quote-loading">
-                            <div class="w-4 h-4 bg-accent-gray rounded-full animate-pulse"></div>
-                            <div class="h-3 bg-accent-gray rounded w-20 animate-pulse"></div>
-                          </div>
-                        </div>
-                      {:then context}
-                        <!-- Quoted note with orange bracket style -->
-                        <a
-                          href={quotedHref}
-                          class="parent-quote-embed mb-3 block hover:opacity-90 transition-opacity"
-                          on:click|stopPropagation
-                        >
-                          <div class="parent-quote-header">
-                            {#if context.authorPubkey}
-                              <CustomAvatar pubkey={context.authorPubkey} size={16} />
-                            {/if}
-                            <span class="parent-quote-author">
-                              {#if context.error === 'deleted'}
-                                <span class="italic">deleted note</span>
-                              {:else if context.error === 'Failed to load'}
-                                a note
-                              {:else}
-                                {context.authorName.startsWith('npub')
-                                  ? context.authorName.substring(0, 12) + '...'
-                                  : context.authorName}
-                              {/if}
-                            </span>
-                          </div>
-                          {#if context.notePreview && !context.error}
-                            <p class="parent-quote-content">{context.notePreview}</p>
-                          {/if}
-                          <span class="parent-quote-link"> View quoted note → </span>
-                        </a>
-                      {:catch}
-                        <!-- Fallback - simple link -->
-                        <a
-                          href={quotedHref}
-                          class="parent-quote-embed mb-3 block"
-                        >
-                          <div class="parent-quote-header">
-                            <svg
-                              class="w-4 h-4"
-                              fill="none"
-                              stroke="currentColor"
-                              viewBox="0 0 24 24"
-                            >
-                              <path
-                                stroke-linecap="round"
-                                stroke-linejoin="round"
-                                stroke-width="2"
-                                d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"
-                              />
-                            </svg>
-                            <span class="parent-quote-author">Quoting a note</span>
-                          </div>
-                        </a>
-                      {/await}
-                    {:else}
+              <!-- Quoted note embed (appears below user's content) -->
+              {#if hasQuotedNote(event)}
+                {@const quotedNoteId = getQuotedNoteId(event)}
+                {#if quotedNoteId}
+                  {@const quotedHref = noteHrefFromEventId(quotedNoteId)}
+                  {#if quotedHref}
+                    {#await resolveReplyContext(quotedNoteId)}
+                      <!-- Loading state -->
                       <div class="parent-quote-embed mb-3">
+                        <div class="parent-quote-loading">
+                          <div class="w-4 h-4 bg-accent-gray rounded-full animate-pulse"></div>
+                          <div class="h-3 bg-accent-gray rounded w-20 animate-pulse"></div>
+                        </div>
+                      </div>
+                    {:then context}
+                      <!-- Quoted note with orange bracket style -->
+                      <a
+                        href={quotedHref}
+                        class="parent-quote-embed mb-3 block hover:opacity-90 transition-opacity"
+                        on:click|stopPropagation
+                      >
                         <div class="parent-quote-header">
+                          {#if context.authorPubkey}
+                            <CustomAvatar pubkey={context.authorPubkey} size={16} />
+                          {/if}
+                          <span class="parent-quote-author">
+                            {#if context.error === 'deleted'}
+                              <span class="italic">deleted note</span>
+                            {:else if context.error === 'Failed to load'}
+                              a note
+                            {:else}
+                              {context.authorName.startsWith('npub')
+                                ? context.authorName.substring(0, 12) + '...'
+                                : context.authorName}
+                            {/if}
+                          </span>
+                        </div>
+                        {#if context.notePreview && !context.error}
+                          <p class="parent-quote-content">{context.notePreview}</p>
+                        {/if}
+                        <span class="parent-quote-link"> View quoted note → </span>
+                      </a>
+                    {:catch}
+                      <!-- Fallback - simple link -->
+                      <a href={quotedHref} class="parent-quote-embed mb-3 block">
+                        <div class="parent-quote-header">
+                          <svg
+                            class="w-4 h-4"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path
+                              stroke-linecap="round"
+                              stroke-linejoin="round"
+                              stroke-width="2"
+                              d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"
+                            />
+                          </svg>
                           <span class="parent-quote-author">Quoting a note</span>
                         </div>
+                      </a>
+                    {/await}
+                  {:else}
+                    <div class="parent-quote-embed mb-3">
+                      <div class="parent-quote-header">
+                        <span class="parent-quote-author">Quoting a note</span>
                       </div>
-                    {/if}
-                  {/if}
-                {/if}
-
-                {#if getImageUrls(event).length > 0}
-                  {@const mediaUrls = getImageUrls(event)}
-
-                  <div class="mb-3 -mx-2 sm:mx-0">
-                    <div
-                      class="relative rounded-none sm:rounded-lg border-0 sm:border bg-input"
-                      style="border-color: var(--color-input-border)"
-                    >
-                      <!-- Swipeable carousel container -->
-                      <div
-                        class="carousel-container flex overflow-x-auto snap-x snap-mandatory"
-                        style="touch-action: pan-y pan-x; overscroll-behavior-x: contain; -webkit-overflow-scrolling: touch; background-color: #1f2937;"
-                        data-carousel-id={event.id}
-                        on:scroll={(e) => handleCarouselScroll(e, event.id)}
-                      >
-                        {#each mediaUrls as imageUrl, index}
-                          <div
-                            class="carousel-slide flex-shrink-0 w-full snap-center flex items-center justify-center"
-                            style="background-color: #1f2937; min-height: 200px;"
-                          >
-                            {#if isImageUrl(imageUrl)}
-                              <button
-                                class="w-full flex items-center justify-center"
-                                style="touch-action: pan-y pan-x; -webkit-tap-highlight-color: transparent; background-color: #1f2937;"
-                                on:click={() => openImageModal(imageUrl, mediaUrls, index)}
-                              >
-                                <img
-                                  src={getOptimizedImageUrl(imageUrl)}
-                                  alt="Preview"
-                                  class="carousel-image cursor-pointer hover:opacity-95 transition-opacity select-none"
-                                  style="-webkit-user-drag: none; user-drag: none; -webkit-touch-callout: none; pointer-events: auto;"
-                                  loading="lazy"
-                                  decoding="async"
-                                  draggable="false"
-                                  on:error={handleMediaError}
-                                />
-                              </button>
-                            {:else if isVideoUrl(imageUrl)}
-                              <div class="carousel-image">
-                                <VideoPreview url={imageUrl} />
-                              </div>
-                            {/if}
-                          </div>
-                        {/each}
-                      </div>
-
-                      {#if mediaUrls.length > 1}
-                        <!-- Arrow buttons (hidden on mobile, visible on larger screens) -->
-                        <button
-                          on:click={() => scrollCarouselPrev(event.id)}
-                          class="hidden sm:block absolute left-2 top-1/2 -translate-y-1/2 bg-black/50 hover:bg-black/70 text-white rounded-full p-2 transition-colors z-10"
-                        >
-                          <svg
-                            class="w-4 h-4"
-                            fill="none"
-                            stroke="currentColor"
-                            viewBox="0 0 24 24"
-                          >
-                            <path
-                              stroke-linecap="round"
-                              stroke-linejoin="round"
-                              stroke-width="2"
-                              d="M15 19l-7-7 7-7"
-                            />
-                          </svg>
-                        </button>
-
-                        <button
-                          on:click={() => scrollCarouselNext(event.id)}
-                          class="hidden sm:block absolute right-2 top-1/2 -translate-y-1/2 bg-black/50 hover:bg-black/70 text-white rounded-full p-2 transition-colors z-10"
-                        >
-                          <svg
-                            class="w-4 h-4"
-                            fill="none"
-                            stroke="currentColor"
-                            viewBox="0 0 24 24"
-                          >
-                            <path
-                              stroke-linecap="round"
-                              stroke-linejoin="round"
-                              stroke-width="2"
-                              d="M9 5l7 7-7 7"
-                            />
-                          </svg>
-                        </button>
-
-                        <!-- Slide counter -->
-                        <div
-                          class="absolute top-2 right-2 bg-black/50 text-white text-xs px-2 py-1 rounded z-10"
-                        >
-                          {getCurrentSlide(event.id) + 1} / {mediaUrls.length}
-                        </div>
-
-                        <!-- Dot indicators -->
-                        {#if mediaUrls.length <= 5}
-                          <div
-                            class="absolute bottom-2 left-1/2 -translate-x-1/2 flex space-x-1.5 z-10"
-                          >
-                            {#each mediaUrls as _, index}
-                              <button
-                                on:click={() => scrollCarouselTo(event.id, index)}
-                                class="w-2 h-2 rounded-full transition-all {index ===
-                                getCurrentSlide(event.id)
-                                  ? 'bg-white'
-                                  : 'bg-white/50'}"
-                              />
-                            {/each}
-                          </div>
-                        {/if}
-                      {/if}
                     </div>
-                  </div>
+                  {/if}
                 {/if}
+              {/if}
 
-                <!-- Reaction pills row -->
-                {#if visibleNotes.has(event.id)}
-                  <div class="px-2 sm:px-0">
-                    <NoteReactionPills {event} />
-                  </div>
-                {/if}
+              {#if getImageUrls(event).length > 0}
+                {@const mediaUrls = getImageUrls(event)}
 
-                <div
-                  class="flex items-center justify-between flex-wrap gap-2 px-2 sm:px-0 py-1"
-                  use:lazyLoadAction={event.id}
-                >
-                  <div class="flex items-center space-x-1 flex-shrink-0">
-                    {#if visibleNotes.has(event.id)}
-                      <div class="hover:bg-accent-gray rounded-full p-1.5 transition-colors">
-                        <NoteTotalLikes {event} />
+                <div class="mb-3 -mx-2 sm:mx-0">
+                  <div
+                    class="relative rounded-none sm:rounded-lg border-0 sm:border bg-input"
+                    style="border-color: var(--color-input-border)"
+                  >
+                    <!-- Swipeable carousel container -->
+                    <div
+                      class="carousel-container flex overflow-x-auto snap-x snap-mandatory"
+                      style="touch-action: pan-y pan-x; overscroll-behavior-x: contain; -webkit-overflow-scrolling: touch; background-color: #1f2937;"
+                      data-carousel-id={event.id}
+                      on:scroll={(e) => handleCarouselScroll(e, event.id)}
+                    >
+                      {#each mediaUrls as imageUrl, index}
+                        <div
+                          class="carousel-slide flex-shrink-0 w-full snap-center flex items-center justify-center"
+                          style="background-color: #1f2937; min-height: 200px;"
+                        >
+                          {#if isImageUrl(imageUrl)}
+                            <button
+                              class="w-full flex items-center justify-center"
+                              style="touch-action: pan-y pan-x; -webkit-tap-highlight-color: transparent; background-color: #1f2937;"
+                              on:click={() => openImageModal(imageUrl, mediaUrls, index)}
+                            >
+                              <img
+                                src={getOptimizedImageUrl(imageUrl)}
+                                alt="Preview"
+                                class="carousel-image cursor-pointer hover:opacity-95 transition-opacity select-none"
+                                style="-webkit-user-drag: none; user-drag: none; -webkit-touch-callout: none; pointer-events: auto;"
+                                loading="lazy"
+                                decoding="async"
+                                draggable="false"
+                                on:error={handleMediaError}
+                              />
+                            </button>
+                          {:else if isVideoUrl(imageUrl)}
+                            <div class="carousel-image">
+                              <VideoPreview url={imageUrl} />
+                            </div>
+                          {/if}
+                        </div>
+                      {/each}
+                    </div>
+
+                    {#if mediaUrls.length > 1}
+                      <!-- Arrow buttons (hidden on mobile, visible on larger screens) -->
+                      <button
+                        on:click={() => scrollCarouselPrev(event.id)}
+                        class="hidden sm:block absolute left-2 top-1/2 -translate-y-1/2 bg-black/50 hover:bg-black/70 text-white rounded-full p-2 transition-colors z-10"
+                      >
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                            stroke-width="2"
+                            d="M15 19l-7-7 7-7"
+                          />
+                        </svg>
+                      </button>
+
+                      <button
+                        on:click={() => scrollCarouselNext(event.id)}
+                        class="hidden sm:block absolute right-2 top-1/2 -translate-y-1/2 bg-black/50 hover:bg-black/70 text-white rounded-full p-2 transition-colors z-10"
+                      >
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                            stroke-width="2"
+                            d="M9 5l7 7-7 7"
+                          />
+                        </svg>
+                      </button>
+
+                      <!-- Slide counter -->
+                      <div
+                        class="absolute top-2 right-2 bg-black/50 text-white text-xs px-2 py-1 rounded z-10"
+                      >
+                        {getCurrentSlide(event.id) + 1} / {mediaUrls.length}
                       </div>
 
-                      <div class="hover:bg-accent-gray rounded-full p-1.5 transition-colors">
-                        <NoteTotalComments {event} />
-                      </div>
-
-                      <div class="hover:bg-accent-gray rounded-full p-1.5 transition-colors">
-                        <NoteRepost {event} />
-                      </div>
-
-                      <div class="hover:bg-amber-50 rounded-full p-1.5 transition-colors">
-                        <NoteTotalZaps {event} onZapClick={() => openZapModal(event)} />
-                      </div>
-                    {:else}
-                      <span class="text-caption p-1.5">♡ –</span>
-                      <span class="text-caption p-1.5">💬 –</span>
-                      <span class="text-caption p-1.5">🔁 –</span>
-                      <span class="text-caption p-1.5">⚡ –</span>
+                      <!-- Dot indicators -->
+                      {#if mediaUrls.length <= 5}
+                        <div
+                          class="absolute bottom-2 left-1/2 -translate-x-1/2 flex space-x-1.5 z-10"
+                        >
+                          {#each mediaUrls as _, index}
+                            <button
+                              on:click={() => scrollCarouselTo(event.id, index)}
+                              class="w-2 h-2 rounded-full transition-all {index ===
+                              getCurrentSlide(event.id)
+                                ? 'bg-white'
+                                : 'bg-white/50'}"
+                            />
+                          {/each}
+                        </div>
+                      {/if}
                     {/if}
                   </div>
-
                 </div>
+              {/if}
 
+              <!-- Reaction pills row -->
+              {#if visibleNotes.has(event.id)}
                 <div class="px-2 sm:px-0">
+                  <NoteReactionPills {event} />
+                </div>
+              {/if}
+
+              <div
+                class="flex items-center justify-between flex-wrap gap-2 px-2 sm:px-0 py-1"
+                use:lazyLoadAction={event.id}
+              >
+                <div class="flex items-center space-x-1 flex-shrink-0">
                   {#if visibleNotes.has(event.id)}
-                    <FeedComments {event} />
+                    <div class="hover:bg-accent-gray rounded-full p-1.5 transition-colors">
+                      <NoteTotalLikes {event} />
+                    </div>
+
+                    <div class="hover:bg-accent-gray rounded-full p-1.5 transition-colors">
+                      <NoteTotalComments {event} />
+                    </div>
+
+                    <div class="hover:bg-accent-gray rounded-full p-1.5 transition-colors">
+                      <NoteRepost {event} />
+                    </div>
+
+                    <div class="hover:bg-amber-50 rounded-full p-1.5 transition-colors">
+                      <NoteTotalZaps {event} onZapClick={() => openZapModal(event)} />
+                    </div>
+                  {:else}
+                    <span class="text-caption p-1.5">♡ –</span>
+                    <span class="text-caption p-1.5">💬 –</span>
+                    <span class="text-caption p-1.5">🔁 –</span>
+                    <span class="text-caption p-1.5">⚡ –</span>
                   {/if}
                 </div>
+              </div>
+
+              <div class="px-2 sm:px-0">
+                {#if visibleNotes.has(event.id)}
+                  <FeedComments {event} />
+                {/if}
+              </div>
             </div>
           </article>
         {/each}
@@ -4923,14 +5010,14 @@
 </FeedErrorBoundary>
 
 {#if selectedEvent}
-  <ZapModal 
-    bind:open={zapModal} 
+  <ZapModal
+    bind:open={zapModal}
     event={selectedEvent}
     on:zap-complete={() => selectedEvent && handleZapComplete(selectedEvent.id)}
   />
 {/if}
 
-<ShareModal 
+<ShareModal
   bind:open={shareModalOpen}
   url={shareUrl}
   title={shareTitle}
@@ -4946,7 +5033,7 @@
   <div
     class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
     style="backdrop-filter: blur(4px);"
-    on:click={() => isGeneratingImage = false}
+    on:click={() => (isGeneratingImage = false)}
     role="button"
     tabindex="0"
     on:keydown={(e) => e.key === 'Escape' && (isGeneratingImage = false)}
@@ -4957,7 +5044,9 @@
       on:click|stopPropagation
       role="dialog"
     >
-      <div class="animate-spin rounded-full h-10 w-10 border-b-2 border-yellow-500 mx-auto mb-3"></div>
+      <div
+        class="animate-spin rounded-full h-10 w-10 border-b-2 border-yellow-500 mx-auto mb-3"
+      ></div>
       <p class="text-base font-semibold mb-1" style="color: var(--color-text-primary);">
         Generating image...
       </p>
@@ -4965,7 +5054,7 @@
         This may take a few seconds
       </p>
       <button
-        on:click={() => isGeneratingImage = false}
+        on:click={() => (isGeneratingImage = false)}
         class="text-xs px-3 py-1.5 rounded bg-gray-600 hover:bg-gray-500 text-white transition"
       >
         Cancel
@@ -4978,7 +5067,7 @@
   <div
     class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
     style="backdrop-filter: blur(4px);"
-    on:click={() => imageGenerationError = null}
+    on:click={() => (imageGenerationError = null)}
   >
     <div
       class="bg-input rounded-lg p-6 max-w-sm mx-4"
@@ -4990,7 +5079,7 @@
         {imageGenerationError}
       </p>
       <button
-        on:click={() => imageGenerationError = null}
+        on:click={() => (imageGenerationError = null)}
         class="w-full px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors"
       >
         Close
@@ -5193,78 +5282,80 @@
   }
 
   @keyframes golden-pulse {
-    0%, 100% {
-      box-shadow: 0 0 20px rgba(251, 191, 36, 0.4), 0 0 40px rgba(251, 191, 36, 0.2);
+    0%,
+    100% {
+      box-shadow:
+        0 0 20px rgba(251, 191, 36, 0.4),
+        0 0 40px rgba(251, 191, 36, 0.2);
     }
     50% {
-      box-shadow: 0 0 30px rgba(251, 191, 36, 0.6), 0 0 60px rgba(251, 191, 36, 0.3);
+      box-shadow:
+        0 0 30px rgba(251, 191, 36, 0.6),
+        0 0 60px rgba(251, 191, 36, 0.3);
     }
   }
 
   /* Tiered zap glow effects - visible amber glow */
-  /* Wrapper to allow glow to extend beyond container */
-  .zap-glow-soft,
-  .zap-glow-medium,
-  .zap-glow-bright {
-    position: relative;
-  }
-
   /* Tier 1: Soft glow (>500 sats) - Gentle amber hint */
   .zap-glow-soft {
     border-radius: 12px;
     background: linear-gradient(135deg, rgba(251, 191, 36, 0.03) 0%, transparent 100%);
-    box-shadow: 
+    box-shadow:
       0 0 15px rgba(251, 191, 36, 0.25),
       0 0 30px rgba(251, 191, 36, 0.12),
       inset 0 0 20px rgba(251, 191, 36, 0.03);
-    border: 1px solid rgba(251, 191, 36, 0.15);
+    border: none !important;
     transition: all 0.5s ease-in-out;
-    margin: 0.25rem 0.75rem;
+    margin: 0.25rem 0 1rem 0;
     padding: 0.75rem !important;
-    /* Removed overflow: hidden to allow glow to be visible on all sides */
-    max-width: calc(100% - 1.5rem); /* Account for horizontal margin */
+    padding-bottom: 1.5rem !important;
+    overflow-x: hidden; /* Prevent horizontal overflow of content */
+    max-width: 100%; /* Ensure it doesn't exceed container */
   }
 
   /* Tier 2: Medium glow (>1000 sats) - Noticeable warm glow */
   .zap-glow-medium {
     border-radius: 12px;
     background: linear-gradient(135deg, rgba(251, 191, 36, 0.05) 0%, transparent 100%);
-    box-shadow: 
+    box-shadow:
       0 0 20px rgba(251, 191, 36, 0.35),
       0 0 40px rgba(251, 191, 36, 0.18),
       0 0 60px rgba(251, 191, 36, 0.08),
       inset 0 0 30px rgba(251, 191, 36, 0.04);
-    border: 1px solid rgba(251, 191, 36, 0.25);
+    border: none !important;
     transition: all 0.5s ease-in-out;
-    margin: 0.25rem 1rem;
+    margin: 0.25rem 0 1.5rem 0;
     padding: 0.75rem !important;
-    /* Removed overflow: hidden to allow glow to be visible on all sides */
-    max-width: calc(100% - 2rem); /* Account for horizontal margin */
+    padding-bottom: 2rem !important;
+    overflow-x: hidden; /* Prevent horizontal overflow of content */
+    max-width: 100%; /* Ensure it doesn't exceed container */
   }
 
   /* Tier 3: Bright glow (>2000 sats) - Prominent golden aura */
   .zap-glow-bright {
     border-radius: 12px;
     background: linear-gradient(135deg, rgba(251, 191, 36, 0.08) 0%, rgba(245, 158, 11, 0.03) 100%);
-    box-shadow: 
+    box-shadow:
       0 0 25px rgba(251, 191, 36, 0.45),
       0 0 50px rgba(251, 191, 36, 0.25),
       0 0 75px rgba(251, 191, 36, 0.12),
       0 0 100px rgba(251, 191, 36, 0.06),
       inset 0 0 40px rgba(251, 191, 36, 0.05);
-    border: 1px solid rgba(251, 191, 36, 0.35);
+    border: none !important;
     transition: all 0.5s ease-in-out;
     animation: subtle-glow-pulse 4s ease-in-out infinite;
-    margin: 0.25rem 1.25rem;
+    margin: 0.25rem 0 2rem 0;
     padding: 0.75rem !important;
-    /* Removed overflow: hidden to allow glow to be visible on all sides */
-    max-width: calc(100% - 2.5rem); /* Account for horizontal margin */
+    padding-bottom: 2.5rem !important;
+    overflow-x: hidden; /* Prevent horizontal overflow of content */
+    max-width: 100%; /* Ensure it doesn't exceed container */
   }
 
   /* Subtle pulse animation for highest tier */
   @keyframes subtle-glow-pulse {
-    0%, 100% {
-      box-shadow: 
+    0%,
+    100% {
+      box-shadow:
         0 0 25px rgba(251, 191, 36, 0.45),
         0 0 50px rgba(251, 191, 36, 0.25),
         0 0 75px rgba(251, 191, 36, 0.12),
@@ -5272,13 +5363,21 @@
         inset 0 0 40px rgba(251, 191, 36, 0.05);
     }
     50% {
-      box-shadow: 
+      box-shadow:
         0 0 35px rgba(251, 191, 36, 0.55),
-        0 0 60px rgba(251, 191, 36, 0.30),
+        0 0 60px rgba(251, 191, 36, 0.3),
         0 0 85px rgba(251, 191, 36, 0.15),
         0 0 110px rgba(251, 191, 36, 0.08),
         inset 0 0 50px rgba(251, 191, 36, 0.07);
     }
+  }
+
+  /* Remove bottom border from articles that come before glowing articles */
+  article:has(+ .zap-glow-soft),
+  article:has(+ .zap-glow-medium),
+  article:has(+ .zap-glow-bright) {
+    border-bottom: none !important;
+    margin-bottom: 1rem;
   }
 
   /* Accessibility: Respect user preference for reduced motion */
@@ -5298,8 +5397,12 @@
 
   /* Lightning flash background */
   @keyframes zap-flash-bg {
-    0% { background-color: rgba(255, 215, 0, 0.3); }
-    100% { background-color: transparent; }
+    0% {
+      background-color: rgba(255, 215, 0, 0.3);
+    }
+    100% {
+      background-color: transparent;
+    }
   }
 
   /* Container for lightning bolts */
@@ -5365,31 +5468,33 @@
 
   /* Golden border pulse effect */
   .zap-bolt-animation {
-    box-shadow: 
+    box-shadow:
       0 0 0 2px rgba(255, 215, 0, 0.8),
       0 0 20px rgba(255, 215, 0, 0.6),
       0 0 40px rgba(255, 215, 0, 0.3),
       inset 0 0 30px rgba(255, 215, 0, 0.1);
-    animation: zap-flash-bg 0.15s ease-out, zap-border-pulse 2s ease-out forwards;
+    animation:
+      zap-flash-bg 0.15s ease-out,
+      zap-border-pulse 2s ease-out forwards;
   }
 
   @keyframes zap-border-pulse {
     0% {
-      box-shadow: 
+      box-shadow:
         0 0 0 3px rgba(255, 215, 0, 1),
         0 0 30px rgba(255, 215, 0, 0.8),
         0 0 60px rgba(255, 215, 0, 0.5),
         inset 0 0 40px rgba(255, 215, 0, 0.2);
     }
     30% {
-      box-shadow: 
+      box-shadow:
         0 0 0 2px rgba(255, 215, 0, 0.8),
         0 0 20px rgba(255, 215, 0, 0.6),
         0 0 40px rgba(255, 215, 0, 0.3),
         inset 0 0 25px rgba(255, 215, 0, 0.1);
     }
     100% {
-      box-shadow: 
+      box-shadow:
         0 0 0 0px rgba(255, 215, 0, 0),
         0 0 0px rgba(255, 215, 0, 0),
         0 0 0px rgba(255, 215, 0, 0),
