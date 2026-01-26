@@ -365,7 +365,7 @@
       // relay.primal.net is included in the relay list and works for articles
       const { events, stats } = await fetchArticles($ndk, {
         hashtags: ALL_ARTICLE_HASHTAGS.slice(0, 40),
-        limit: 500, // Fetch more articles for better depth
+        limit: 2000, // Request lots of articles (no longer capped in articleOutbox)
         skipPrimal: true, // Skip Primal cache API (doesn't support kind:30023)
         onEvent: (event: NDKEvent) => {
           // Check generation hasn't changed (relay switch)
@@ -439,12 +439,16 @@
         cacheFeedEvents(eventsToCache).catch(() => {});
       }
       
-      // Log results (including in production for debugging)
+      // Log results with detailed stats
+      const foodArticles = articles.filter(a => isValidLongformArticle(a.event));
+      const newestDate = articles.length > 0 ? new Date(Math.max(...articles.map(a => a.publishedAt)) * 1000).toLocaleDateString() : 'N/A';
+      const oldestDate = articles.length > 0 ? new Date(Math.min(...articles.map(a => a.publishedAt)) * 1000).toLocaleDateString() : 'N/A';
+      
       console.log(
-        `[Reads] Outbox fetch complete: ${stats.totalEvents} articles ` +
-        `(Primal: ${stats.primalEvents}, Relays: ${stats.relayEvents}) ` +
-        `in ${stats.totalTimeMs}ms`
+        `[Reads] Fetch complete: ${articles.length} total articles, ${foodArticles.length} food articles ` +
+        `(from relays: ${stats.relayEvents}) in ${stats.totalTimeMs}ms`
       );
+      console.log(`[Reads] Date range: ${newestDate} to ${oldestDate}`);
       
       if (stats.errors.length > 0) {
         console.warn('[Reads] Outbox fetch errors:', stats.errors);
@@ -480,9 +484,11 @@
   async function fetchFromRelaysDirect(forceRefresh: boolean, startGeneration: number) {
     try {
       // Use simple filter without hashtags - some relays don't handle large arrays well
+      // Include since filter to get recent articles (last 90 days)
       const filter: NDKFilter = {
         kinds: [30023],
-        limit: 500 // Request more since we filter client-side
+        limit: 2000,
+        since: Math.floor(Date.now() / 1000) - (90 * 24 * 60 * 60) // Last 90 days
       };
       
       // Use specific relays known to work well for articles

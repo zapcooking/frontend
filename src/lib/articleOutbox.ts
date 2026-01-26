@@ -268,10 +268,16 @@ export async function fetchArticles(
       // Some relays don't handle large hashtag arrays well
       const filter: NDKFilter = {
         kinds: [30023],
-        limit: Math.min(limit * 2, 1000) // Request more since we filter client-side
+        limit: 2000 // Request lots of events since we filter client-side
       };
       
-      if (since) filter.since = since;
+      // If no since/until specified, default to recent articles (last 90 days)
+      if (since) {
+        filter.since = since;
+      } else if (!until) {
+        // Default to last 90 days for recent articles
+        filter.since = Math.floor(Date.now() / 1000) - (90 * 24 * 60 * 60);
+      }
       if (until) filter.until = until;
       
       // Only add hashtag filter if we have a small number of hashtags
@@ -324,10 +330,9 @@ export async function fetchArticles(
   // Sort by timestamp (newest first)
   allEvents.sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
   
-  // Limit results
-  const finalEvents = allEvents.slice(0, limit);
-  
-  stats.totalEvents = finalEvents.length;
+  // Return all events (let the caller decide how many to use)
+  // The limit is just a hint for relay requests, not a hard cap on results
+  stats.totalEvents = allEvents.length;
   stats.totalTimeMs = Date.now() - startTime;
   
   if (import.meta.env.DEV) {
@@ -343,7 +348,7 @@ export async function fetchArticles(
   }
   
   return {
-    events: finalEvents,
+    events: allEvents, // Return all valid events, sorted by date
     stats
   };
 }
