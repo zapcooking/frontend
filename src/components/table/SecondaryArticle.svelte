@@ -3,15 +3,18 @@
   import CustomAvatar from '../CustomAvatar.svelte';
   import AuthorName from '../AuthorName.svelte';
   import { formatDistanceToNow } from 'date-fns';
-  import { FALLBACK_GRADIENTS, getGradientIndex } from '$lib/articleUtils';
   import type { ArticleData } from '$lib/articleUtils';
+  import { getPlaceholderImage } from '$lib/placeholderImages';
 
   export let article: ArticleData;
 
   let imageError = false;
   let imageLoaded = false;
 
-  $: gradientIndex = getGradientIndex(article.id);
+  // Use placeholder image when no image or on error
+  $: displayImageUrl = imageError
+    ? getPlaceholderImage(article.id)
+    : article.imageUrl || getPlaceholderImage(article.id);
 
   function handleImageError() {
     imageError = true;
@@ -44,40 +47,18 @@
   <!-- Image Section - 4:3 aspect ratio -->
   <div class="relative w-full overflow-hidden flex-shrink-0">
     <div class="aspect-[4/3] w-full">
-      {#if article.imageUrl && !imageError}
-        <img
-          src={article.imageUrl}
-          alt={article.title}
-          class="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105 {imageLoaded ? 'opacity-100' : 'opacity-0'}"
-          loading="lazy"
-          on:error={handleImageError}
-          on:load={handleImageLoad}
-        />
-        {#if !imageLoaded}
-          <div class="absolute inset-0 animate-pulse bg-gray-200 dark:bg-gray-700"></div>
-        {/if}
-      {:else}
-        <!-- Fallback Gradient with Logo -->
-        <div
-          class="w-full h-full flex items-center justify-center relative"
-          style="background: {FALLBACK_GRADIENTS[gradientIndex]};"
-        >
-          <div class="absolute inset-0 flex items-center justify-center opacity-25">
-            <svg
-              width="100"
-              height="100"
-              viewBox="0 0 120 120"
-              fill="none"
-              xmlns="http://www.w3.org/2000/svg"
-            >
-              <path
-                d="M60 10 L75 50 L60 50 L45 90 L60 50 L45 50 Z"
-                fill="white"
-                opacity="0.3"
-              />
-            </svg>
-          </div>
-        </div>
+      <img
+        src={displayImageUrl}
+        alt={article.title}
+        class="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105 {imageLoaded
+          ? 'opacity-100'
+          : 'opacity-0'}"
+        loading="lazy"
+        on:error={handleImageError}
+        on:load={handleImageLoad}
+      />
+      {#if !imageLoaded}
+        <div class="absolute inset-0 animate-pulse bg-gray-200 dark:bg-gray-700"></div>
       {/if}
     </div>
   </div>
@@ -112,7 +93,10 @@
     </p>
 
     <!-- Footer -->
-    <div class="flex items-center justify-between mt-auto pt-3 border-t flex-shrink-0" style="border-color: var(--color-input-border);">
+    <div
+      class="flex items-center justify-between mt-auto pt-3 border-t flex-shrink-0"
+      style="border-color: var(--color-input-border);"
+    >
       <span class="text-xs text-caption font-medium">
         {article.readTimeMinutes} min read
       </span>
@@ -136,7 +120,9 @@
 
 <style>
   .secondary-article {
-    transition: transform 200ms ease-out, box-shadow 200ms ease-out;
+    transition:
+      transform 200ms ease-out,
+      box-shadow 200ms ease-out;
   }
 
   .line-clamp-2 {

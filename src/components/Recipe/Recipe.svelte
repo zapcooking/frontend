@@ -28,6 +28,7 @@
   import OverviewCard from './OverviewCard.svelte';
   import TotalLikes from './TotalLikes.svelte';
   import TotalComments from './TotalComments.svelte';
+  import { getPlaceholderImage } from '$lib/placeholderImages';
   import NoteRepost from '../NoteRepost.svelte';
   import Comments from '../Comments.svelte';
   import RecipeReactionPills from './RecipeReactionPills.svelte';
@@ -81,9 +82,9 @@
 
   // Check if this is an actual recipe (has recipe-related tags) vs a general longform article
   // Only recipes should show "Add to Grocery List"
-  $: isActualRecipe = event && event.tags.some(
-    (tag) => tag[0] === 't' && RECIPE_TAGS.includes(tag[1]?.toLowerCase() || '')
-  );
+  $: isActualRecipe =
+    event &&
+    event.tags.some((tag) => tag[0] === 't' && RECIPE_TAGS.includes(tag[1]?.toLowerCase() || ''));
 
   // Gated recipe state
   let gatedMetadata: GatedRecipeMetadata | null = null;
@@ -102,7 +103,7 @@
     event.tags.find((t) => t[0] === 'title')?.[1] ||
     event.tags.find((t) => t[0] === 'd')?.[1] ||
     'Recipe';
-  $: recipeImage = event.tags.find((t) => t[0] === 'image')?.[1] || '';
+  $: recipeImage = event.tags.find((t) => t[0] === 'image')?.[1] || getPlaceholderImage(event.id);
 
   onMount(async () => {
     // Check if author has a lightning address
@@ -367,10 +368,17 @@
     (e) => e.title.toLowerCase().replaceAll(' ', '-') == event.getMatchingTags("t").filter((t) => t[1].slice(13)[0])[0][1].slice(13)
   );*/
 
-  // Deduplicate image tags by URL
-  $: uniqueImages = event.tags
-    .filter((e) => e[0] === 'image')
-    .filter((img, index, arr) => arr.findIndex((t) => t[1] === img[1]) === index);
+  // Deduplicate image tags by URL, use placeholder if no images or all images are empty
+  $: uniqueImages = (() => {
+    const images = event.tags
+      .filter((e) => e[0] === 'image' && e[1] && e[1].trim() !== '')
+      .filter((img, index, arr) => arr.findIndex((t) => t[1] === img[1]) === index);
+    // If no valid images, return a placeholder
+    if (images.length === 0) {
+      return [['image', getPlaceholderImage(event.id)]];
+    }
+    return images;
+  })();
 
   // Extract and group directions
   $: directionsData = extractAndGroupDirections(event.content);

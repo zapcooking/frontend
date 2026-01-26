@@ -3,15 +3,18 @@
   import CustomAvatar from '../CustomAvatar.svelte';
   import AuthorName from '../AuthorName.svelte';
   import { formatDistanceToNow } from 'date-fns';
-  import { FALLBACK_GRADIENTS, getGradientIndex } from '$lib/articleUtils';
   import type { ArticleData } from '$lib/articleUtils';
+  import { getPlaceholderImage } from '$lib/placeholderImages';
 
   export let article: ArticleData;
 
   let imageError = false;
   let imageLoaded = false;
 
-  $: gradientIndex = getGradientIndex(article.id);
+  // Use placeholder image when no image or on error
+  $: displayImageUrl = imageError
+    ? getPlaceholderImage(article.id)
+    : article.imageUrl || getPlaceholderImage(article.id);
 
   function handleImageError() {
     imageError = true;
@@ -45,40 +48,18 @@
     <!-- Image Section - 3:2 aspect ratio on desktop, 16:9 on mobile -->
     <div class="relative lg:w-3/5 overflow-hidden">
       <div class="aspect-[16/9] lg:aspect-[3/2] w-full h-full">
-        {#if article.imageUrl && !imageError}
-          <img
-            src={article.imageUrl}
-            alt={article.title}
-            class="w-full h-full object-cover transition-all duration-500 group-hover:scale-105 {imageLoaded ? 'opacity-100' : 'opacity-0'}"
-            loading="eager"
-            on:error={handleImageError}
-            on:load={handleImageLoad}
-          />
-          {#if !imageLoaded}
-            <div class="absolute inset-0 animate-pulse bg-gray-200 dark:bg-gray-700"></div>
-          {/if}
-        {:else}
-          <!-- Fallback Gradient with Logo -->
-          <div
-            class="w-full h-full flex items-center justify-center relative"
-            style="background: {FALLBACK_GRADIENTS[gradientIndex]};"
-          >
-            <div class="absolute inset-0 flex items-center justify-center opacity-30">
-              <svg
-                width="180"
-                height="180"
-                viewBox="0 0 120 120"
-                fill="none"
-                xmlns="http://www.w3.org/2000/svg"
-              >
-                <path
-                  d="M60 10 L75 50 L60 50 L45 90 L60 50 L45 50 Z"
-                  fill="white"
-                  opacity="0.4"
-                />
-              </svg>
-            </div>
-          </div>
+        <img
+          src={displayImageUrl}
+          alt={article.title}
+          class="w-full h-full object-cover transition-all duration-500 group-hover:scale-105 {imageLoaded
+            ? 'opacity-100'
+            : 'opacity-0'}"
+          loading="eager"
+          on:error={handleImageError}
+          on:load={handleImageLoad}
+        />
+        {#if !imageLoaded}
+          <div class="absolute inset-0 animate-pulse bg-gray-200 dark:bg-gray-700"></div>
         {/if}
 
         <!-- Featured Badge -->
@@ -160,7 +141,9 @@
 
 <style>
   .hero-article {
-    transition: transform 300ms ease-out, box-shadow 300ms ease-out;
+    transition:
+      transform 300ms ease-out,
+      box-shadow 300ms ease-out;
   }
 
   .hero-article:hover {

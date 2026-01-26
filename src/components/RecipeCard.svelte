@@ -3,6 +3,7 @@
   import { nip19 } from 'nostr-tools';
   import RecipeErrorBoundary from './RecipeErrorBoundary.svelte';
   import RecipeCardSkeleton from './RecipeCardSkeleton.svelte';
+  import { getImageOrPlaceholder } from '$lib/placeholderImages';
 
   export let event: NDKEvent;
   export let list = false;
@@ -31,20 +32,23 @@
     }
   }
 
-  // Simplified image URL computation
+  // Simplified image URL computation with placeholder fallback
   $: {
     if (event) {
       const rawImageUrl = event.tags.find((e) => e[0] == 'image')?.[1] || '';
-      imageUrl = rawImageUrl;
-      
+      // Use placeholder if no image, with event ID as seed for consistency
+      imageUrl = getImageOrPlaceholder(rawImageUrl, event.id);
+
       // Use original image URL for faster loading (skip optimization for now)
-      optimizedImageUrl = rawImageUrl;
+      optimizedImageUrl = imageUrl;
     }
   }
 
   // Simple title computation
-  $: title = event?.tags.find((e) => e[0] == 'title')?.[1] ||
-            event?.tags.find((e) => e[0] == 'd')?.[1] || '';
+  $: title =
+    event?.tags.find((e) => e[0] == 'title')?.[1] ||
+    event?.tags.find((e) => e[0] == 'd')?.[1] ||
+    '';
 
   let imageElement: HTMLElement | null = null;
 
@@ -77,7 +81,10 @@
         />
       </div>
 
-      <h5 class="text-md leading-tight line-clamp-2 min-h-[2.5rem] flex-shrink-0" style="color: var(--color-text-primary)">
+      <h5
+        class="text-md leading-tight line-clamp-2 min-h-[2.5rem] flex-shrink-0"
+        style="color: var(--color-text-primary)"
+      >
         {title}
       </h5>
     </a>
