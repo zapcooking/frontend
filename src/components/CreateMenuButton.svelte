@@ -8,6 +8,7 @@
   import AddIcon from 'phosphor-svelte/lib/Plus';
   import ForkKnifeIcon from 'phosphor-svelte/lib/ForkKnife';
   import PencilSimpleIcon from 'phosphor-svelte/lib/PencilSimple';
+  import NewspaperIcon from 'phosphor-svelte/lib/Newspaper';
 
   export let variant: 'floating' | 'header' = 'header';
   export let showLabel = true;
@@ -126,6 +127,12 @@
       longPressTriggered = false;
       return;
     }
+    // On floating variant, always show menu on click (mobile FAB behavior)
+    if (variant === 'floating') {
+      showMenu = !showMenu;
+      return;
+    }
+    // On header variant, go directly to recipe
     openRecipe();
   }
 
@@ -241,6 +248,11 @@
           <PencilSimpleIcon size={18} />
           <span>New post</span>
         </button>
+        <div class="create-menu-item create-menu-item-disabled">
+          <NewspaperIcon size={18} />
+          <span class="new-read-label">New read</span>
+          <span class="coming-soon-label">Coming soon</span>
+        </div>
       </div>
     {/if}
   </div>
@@ -367,6 +379,28 @@
   .create-menu-item:hover {
     background: var(--color-accent-gray);
     color: var(--color-text-primary);
+  }
+
+  .create-menu-item-disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .create-menu-item-disabled:hover {
+    background: transparent;
+  }
+
+  .create-menu-item-disabled .coming-soon-label {
+    display: none;
+    color: var(--color-primary);
+  }
+
+  .create-menu-item-disabled:hover .new-read-label {
+    display: none;
+  }
+
+  .create-menu-item-disabled:hover .coming-soon-label {
+    display: inline;
   }
 
   @media (max-width: 1023px) {

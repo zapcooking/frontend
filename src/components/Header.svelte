@@ -11,6 +11,7 @@
   import { theme } from '$lib/themeStore';
   import WalletBalance from './WalletBalance.svelte';
   import LightningIcon from 'phosphor-svelte/lib/Lightning';
+  import WalletIcon from 'phosphor-svelte/lib/Wallet';
   import { userSidePanelOpen } from '$lib/stores/userSidePanel';
   import { mobileSearchOpen } from '$lib/stores/mobileSearch';
   import { timerStore } from '$lib/timerStore';
@@ -92,7 +93,8 @@
     <div class="block sm:hidden">
       <button
         on:click={() => mobileSearchOpen.set(true)}
-        class="w-8 h-8 sm:w-9 sm:h-9 flex items-center justify-center text-caption hover:opacity-80 hover:bg-accent-gray rounded-full transition-colors cursor-pointer"
+        class="w-8 h-8 sm:w-9 sm:h-9 flex items-center justify-center hover:opacity-80 hover:bg-accent-gray rounded-full transition-colors cursor-pointer"
+        style="color: var(--color-text-primary)"
         aria-label="Search"
       >
         <SearchIcon size={18} weight="bold" class="sm:w-5 sm:h-5" />
@@ -129,14 +131,15 @@
       {/if}
     </button>
 
-    <!-- Zap/Wallet button (mobile only) - shortcut to wallet page -->
+    <!-- Wallet button (mobile only) - shortcut to wallet page -->
     {#if $userPublickey}
       <a
         href="/wallet"
-        class="sm:hidden w-8 h-8 flex items-center justify-center rounded-full transition-colors cursor-pointer text-caption hover:opacity-80 hover:bg-accent-gray"
+        class="sm:hidden w-8 h-8 flex items-center justify-center rounded-full transition-colors cursor-pointer hover:opacity-80 hover:bg-accent-gray"
+        style="color: var(--color-text-primary)"
         aria-label="Open wallet"
       >
-        <LightningIcon size={18} weight="bold" class="text-amber-500" />
+        <WalletIcon size={18} weight="bold" />
       </a>
     {/if}
 

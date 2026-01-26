@@ -1400,15 +1400,7 @@
         <div class="space-y-0">
           {#each directReplies as reply}
             {#if !$mutedPubkeys.has(reply.author?.hexpubkey || reply.pubkey)}
-              <div class="relative">
-                <!-- Thread line for nested replies -->
-                {#if getNestedReplies(reply.id).length > 0}
-                  <div
-                    class="absolute left-4 top-12 bottom-0 w-0.5"
-                    style="background-color: var(--color-input-border)"
-                  ></div>
-                {/if}
-
+              <div>
                 <article
                   class="py-3 border-b last:border-0"
                   style="border-color: var(--color-input-border)"
@@ -1454,10 +1446,7 @@
                 <!-- Nested Replies (1 level deep shown inline) -->
                 {#each getNestedReplies(reply.id).slice(0, 2) as nestedReply}
                   {#if !$mutedPubkeys.has(nestedReply.author?.hexpubkey || nestedReply.pubkey)}
-                    <div
-                      class="ml-8 pl-3 border-l-2"
-                      style="border-color: var(--color-input-border)"
-                    >
+                    <div class="ml-8 pl-3">
                       <article class="py-2">
                         <div class="flex space-x-2">
                           <a
@@ -1515,8 +1504,7 @@
                 {#if getNestedReplies(reply.id).length > 2}
                   <a
                     href="/{nip19.noteEncode(reply.id)}"
-                    class="ml-8 pl-3 border-l-2 py-2 block text-xs text-primary hover:opacity-80"
-                    style="border-color: var(--color-input-border)"
+                    class="ml-8 pl-3 py-2 block text-xs text-primary hover:opacity-80"
                   >
                     Show {getNestedReplies(reply.id).length - 2} more {getNestedReplies(reply.id)
                       .length -
