@@ -747,6 +747,40 @@
       </div>
     </Accordion>
 
+    <!-- Currency Section -->
+    <Accordion title="Currency" open={false}>
+      <div class="flex flex-col gap-4">
+        <div>
+          <p class="text-sm font-medium mb-3" style="color: var(--color-text-primary)">
+            Display Currency
+          </p>
+          <p class="text-xs text-caption mb-3">
+            Choose a currency to display alongside your sats balance in the wallet.
+          </p>
+        </div>
+
+        <div class="flex flex-wrap gap-2">
+          {#each SUPPORTED_CURRENCIES as currency}
+            <button
+              type="button"
+              class="px-3 py-1.5 rounded-full text-sm font-medium transition-colors
+                {selectedCurrency === currency.code
+                ? 'bg-primary text-white'
+                : 'bg-secondary hover:bg-accent-gray'}"
+              style={selectedCurrency !== currency.code ? 'color: var(--color-text-primary)' : ''}
+              on:click={() => handleCurrencyChange(currency.code)}
+            >
+              {currency.code}
+            </button>
+          {/each}
+        </div>
+
+        <p class="text-xs text-caption">
+          Your balance will show sats as the primary amount with the selected currency shown below.
+        </p>
+      </div>
+    </Accordion>
+
     <!-- Content Filters Section -->
     <Accordion title="Content Filters" open={false}>
       <div class="flex flex-col gap-4">
@@ -784,40 +818,6 @@
             <span>Very strict</span>
           </div>
         </div>
-      </div>
-    </Accordion>
-
-    <!-- Currency Section -->
-    <Accordion title="Currency" open={false}>
-      <div class="flex flex-col gap-4">
-        <div>
-          <p class="text-sm font-medium mb-3" style="color: var(--color-text-primary)">
-            Display Currency
-          </p>
-          <p class="text-xs text-caption mb-3">
-            Choose a currency to display alongside your sats balance in the wallet.
-          </p>
-        </div>
-
-        <div class="flex flex-wrap gap-2">
-          {#each SUPPORTED_CURRENCIES as currency}
-            <button
-              type="button"
-              class="px-3 py-1.5 rounded-full text-sm font-medium transition-colors
-                {selectedCurrency === currency.code
-                ? 'bg-primary text-white'
-                : 'bg-secondary hover:bg-accent-gray'}"
-              style={selectedCurrency !== currency.code ? 'color: var(--color-text-primary)' : ''}
-              on:click={() => handleCurrencyChange(currency.code)}
-            >
-              {currency.code}
-            </button>
-          {/each}
-        </div>
-
-        <p class="text-xs text-caption">
-          Your balance will show sats as the primary amount with the selected currency shown below.
-        </p>
       </div>
     </Accordion>
 
