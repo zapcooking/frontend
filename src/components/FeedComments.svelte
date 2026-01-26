@@ -11,6 +11,7 @@
   import { get } from 'svelte/store';
   import { createCommentFilter } from '$lib/commentFilters';
   import { searchProfiles } from '$lib/profileSearchService';
+  import { mutedPubkeys } from '$lib/muteListStore';
 
   export let event: NDKEvent;
   let events: NDKEvent[] = [];
@@ -854,8 +855,13 @@
     showComments = !showComments;
   }
 
-  // Sort all comments chronologically (oldest first for thread view)
-  $: sortedComments = [...events].sort((a, b) => (a.created_at || 0) - (b.created_at || 0));
+  // Sort all comments chronologically (oldest first for thread view) and filter muted users
+  $: sortedComments = [...events]
+    .filter((comment) => {
+      const authorKey = comment.author?.hexpubkey || comment.pubkey;
+      return !authorKey || !$mutedPubkeys.has(authorKey);
+    })
+    .sort((a, b) => (a.created_at || 0) - (b.created_at || 0));
 
   $: if (commentComposerEl && commentText !== lastRenderedComment) {
     syncComposerContent(commentText);

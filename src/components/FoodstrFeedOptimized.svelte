@@ -25,6 +25,14 @@
     getCurrentRelayGeneration,
     onRelaySwitchStopSubscriptions
   } from '$lib/nostr';
+  import { hellthreadThreshold } from '$lib/hellthreadFilterSettings';
+  import { muteListStore, mutedPubkeys } from '$lib/muteListStore';
+  import {
+    isPubkeyMuted,
+    containsMutedWord,
+    hasMutedTag,
+    isThreadMuted
+  } from '$lib/mutableIntegration';
   import { formatDistanceToNow } from 'date-fns';
   import CustomAvatar from './CustomAvatar.svelte';
   import type { NDKEvent, NDKSubscription } from '@nostr-dev-kit/ndk';
@@ -910,12 +918,47 @@
     cachedMutedUsersKey = null;
   }
 
+  /**
+   * Detect if an event is a hellthread based on number of 'p' tags (mentions)
+   * @param event - NDKEvent to check
+   * @param threshold - Number of mentions that constitutes a hellthread (0 = disabled)
+   * @returns true if event should be hidden as a hellthread
+   */
+  function isHellthread(event: NDKEvent, threshold: number): boolean {
+    if (threshold === 0) return false; // Disabled
+
+    if (!event.tags || !Array.isArray(event.tags)) return false;
+
+    // Count 'p' tags (person mentions)
+    const mentionCount = event.tags.filter((tag) => Array.isArray(tag) && tag[0] === 'p').length;
+
+    return mentionCount >= threshold;
+  }
+
   function shouldIncludeEvent(event: NDKEvent): boolean {
-    // Check muted users
-    if ($userPublickey) {
-      const mutedUsers = getMutedUsers();
+    // Check muted users (both public and private lists)
+    if ($userPublickey && $muteListStore.muteList) {
       const authorKey = event.author?.hexpubkey || event.pubkey;
-      if (authorKey && mutedUsers.includes(authorKey)) return false;
+
+      // Check pubkey mute
+      if (authorKey && isPubkeyMuted($muteListStore.muteList, authorKey)) {
+        return false;
+      }
+
+      // Check word mutes
+      if (containsMutedWord($muteListStore.muteList, event.content)) {
+        return false;
+      }
+
+      // Check tag mutes
+      if (hasMutedTag($muteListStore.muteList, event.tags)) {
+        return false;
+      }
+
+      // Check thread mutes
+      if (isThreadMuted($muteListStore.muteList, event.id)) {
+        return false;
+      }
     }
 
     // Client-side filtered results: notes without hashtags that contain food words
@@ -944,6 +987,12 @@
     // Check hashtag spam
     const hashtagCount = getHashtagCount(event);
     if (hashtagCount > MAX_HASHTAGS) {
+      return false;
+    }
+
+    // Check hellthread threshold
+    const threshold = get(hellthreadThreshold);
+    if (isHellthread(event, threshold)) {
       return false;
     }
 
@@ -3987,6 +4036,11 @@
     return engagementGlowCache.get(eventId) || DEFAULT_ENGAGEMENT_INFO;
   }
 
+  // Reload mute list when user changes
+  $: if ($userPublickey) {
+    muteListStore.load();
+  }
+
   // Cleanup subscriptions when events leave view
   // Uses tracked timers to avoid duplicate cleanup attempts
   $: {
@@ -4233,6 +4287,11 @@
     // This prevents the reactive statement from triggering on initial mount
     isInitialized = true;
     lastFilterMode = filterMode;
+
+    // Load mute list if user is logged in
+    if ($userPublickey) {
+      muteListStore.load();
+    }
 
     // Add scroll listener for "new posts" button behavior
     if (typeof window !== 'undefined') {
@@ -4569,31 +4628,69 @@
     {:else if events.length === 0}
       <div class="py-12 text-center">
         <div class="max-w-sm mx-auto space-y-6">
-          <div style="color: var(--color-caption)">
-            <svg
-              class="h-12 w-12 mx-auto mb-4 opacity-50"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
+          {#if authorPubkey && $mutedPubkeys.has(authorPubkey)}
+            <!-- Muted user message -->
+            <div style="color: var(--color-caption)">
+              <svg
+                class="h-12 w-12 mx-auto mb-4 opacity-50"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"
+                ></path>
+              </svg>
+              <p class="text-lg font-medium">This user is muted</p>
+              <p class="text-sm">You won't see posts from this user in your feeds.</p>
+            </div>
+            <button
+              on:click={() => {
+                if (authorPubkey) {
+                  const mutedUsers = JSON.parse(localStorage.getItem('mutedUsers') || '[]');
+                  const updated = mutedUsers.filter((pk) => pk !== authorPubkey);
+                  localStorage.setItem('mutedUsers', JSON.stringify(updated));
+                  invalidateMutedUsersCache();
+                  muteListStore.invalidate();
+                  muteListStore.load(true);
+                  retryWithDelay();
+                }
+              }}
+              class="px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors"
             >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-              ></path>
-            </svg>
-            <p class="text-lg font-medium">No cooking posts found</p>
-            <p class="text-sm">
-              Try posting with cooking tags like #foodstr, #cook, #cooking, etc.
-            </p>
-          </div>
-          <button
-            on:click={() => retryWithDelay()}
-            class="px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors"
-          >
-            Refresh Feed
-          </button>
+              Unmute User
+            </button>
+          {:else}
+            <!-- No posts found message -->
+            <div style="color: var(--color-caption)">
+              <svg
+                class="h-12 w-12 mx-auto mb-4 opacity-50"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                ></path>
+              </svg>
+              <p class="text-lg font-medium">No cooking posts found</p>
+              <p class="text-sm">
+                Try posting with cooking tags like #foodstr, #cook, #cooking, etc.
+              </p>
+            </div>
+            <button
+              on:click={() => retryWithDelay()}
+              class="px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors"
+            >
+              Refresh Feed
+            </button>
+          {/if}
         </div>
       </div>
     {:else}

@@ -16,8 +16,10 @@
   import CheckIcon from 'phosphor-svelte/lib/Check';
   import UserPlusIcon from 'phosphor-svelte/lib/UserPlus';
   import SpeakerSlashIcon from 'phosphor-svelte/lib/SpeakerSlash';
+  import SpeakerSimpleSlashIcon from 'phosphor-svelte/lib/SpeakerSimpleSlash';
   import SealCheckIcon from 'phosphor-svelte/lib/SealCheck';
   import PencilSimpleIcon from 'phosphor-svelte/lib/PencilSimple';
+  import { mutedPubkeys } from '$lib/muteListStore';
   import { requestProvider } from 'webln';
   import { canOneTapZap, sendOneTapZap } from '$lib/oneTapZap';
   import ProfileEditModal from '../../../components/ProfileEditModal.svelte';
@@ -868,8 +870,8 @@
 
       <!-- Action buttons for other users -->
       {#if hexpubkey !== $userPublickey}
-        <!-- Zap Button -->
-        {#if profile?.lud16 || profile?.lud06}
+        <!-- Zap Button (hidden for muted users) -->
+        {#if (profile?.lud16 || profile?.lud06) && hexpubkey && !$mutedPubkeys.has(hexpubkey)}
           <button
             class="w-full flex items-center justify-center gap-2 px-4 py-4 rounded-lg font-medium text-base transition-colors bg-yellow-500 text-black hover:bg-yellow-400 disabled:opacity-50"
             disabled={isZapping}
@@ -883,7 +885,7 @@
           </button>
         {/if}
 
-        <!-- Follow Button -->
+        <!-- Follow Button with mute indicator -->
         {#if $userPublickey}
           <button
             on:click={toggleFollow}
@@ -901,6 +903,9 @@
             {:else}
               <UserPlusIcon size={18} weight="bold" />
               <span>Follow</span>
+            {/if}
+            {#if hexpubkey && $mutedPubkeys.has(hexpubkey)}
+              <SpeakerSimpleSlashIcon size={18} weight="bold" class="opacity-70" />
             {/if}
           </button>
         {/if}
@@ -1004,7 +1009,8 @@
               <PencilSimpleIcon size={20} weight="bold" />
             </button>
           {:else}
-            {#if profile?.lud16 || profile?.lud06}
+            <!-- Zap button (hidden for muted users) -->
+            {#if (profile?.lud16 || profile?.lud06) && hexpubkey && !$mutedPubkeys.has(hexpubkey)}
               <button
                 class="p-2 bg-yellow-500 hover:bg-yellow-400 rounded-full transition-colors disabled:opacity-50"
                 on:click={handleZapClick}
@@ -1033,6 +1039,16 @@
                   <UserPlusIcon size={20} weight="bold" class="text-white" />
                 {/if}
               </button>
+
+              {#if hexpubkey && $mutedPubkeys.has(hexpubkey)}
+                <div
+                  class="p-2 rounded-full bg-input"
+                  style="color: var(--color-text-primary)"
+                  title="User is muted"
+                >
+                  <SpeakerSimpleSlashIcon size={20} weight="bold" class="opacity-70" />
+                </div>
+              {/if}
             {/if}
 
             <button
@@ -1132,13 +1148,44 @@
 
   <!-- Tab Content -->
   {#if activeTab === 'recipes'}
-    <Feed {events} {loaded} isProfileView={true} isOwnProfile={$userPublickey === hexpubkey} />
-    {#if hasMoreRecipes}
-      <div bind:this={recipeSentinel} class="py-4 text-center">
-        {#if loadingMoreRecipes}
-          <div class="text-gray-500 text-sm">Loading more recipes...</div>
-        {/if}
+    {#if hexpubkey && $mutedPubkeys.has(hexpubkey)}
+      <!-- Muted user message for recipes tab -->
+      <div class="py-12 text-center">
+        <div class="max-w-sm mx-auto space-y-6">
+          <div style="color: var(--color-caption)">
+            <svg
+              class="h-12 w-12 mx-auto mb-4 opacity-50"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"
+              ></path>
+            </svg>
+            <p class="text-lg font-medium">This user is muted</p>
+            <p class="text-sm">You won't see recipes from this user.</p>
+          </div>
+          <button
+            on:click={toggleMute}
+            class="px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors"
+          >
+            Unmute User
+          </button>
+        </div>
       </div>
+    {:else}
+      <Feed {events} {loaded} isProfileView={true} isOwnProfile={$userPublickey === hexpubkey} />
+      {#if hasMoreRecipes}
+        <div bind:this={recipeSentinel} class="py-4 text-center">
+          {#if loadingMoreRecipes}
+            <div class="text-gray-500 text-sm">Loading more recipes...</div>
+          {/if}
+        </div>
+      {/if}
     {/if}
   {:else if activeTab === 'posts'}
     <div class="max-w-2xl w-full overflow-x-hidden">

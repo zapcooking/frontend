@@ -3,6 +3,7 @@
   import { nip19 } from 'nostr-tools';
   import { browser } from '$app/environment';
   import { ndk } from '$lib/nostr';
+  import { mutedPubkeys } from '$lib/muteListStore';
   import CustomAvatar from './CustomAvatar.svelte';
   import AuthorName from './AuthorName.svelte';
   import { formatDistanceToNow } from 'date-fns';
@@ -17,7 +18,7 @@
   export let nostrString: string;
   export let boostAmount: number = 0; // Optional boost amount in sats (passed from parent)
   export let depth: number = 0; // Prevent infinite recursion with nested embeds
-  
+
   const MAX_EMBED_DEPTH = 2; // Maximum nesting depth for embedded content
 
   let event: NDKEvent | null = null;
@@ -41,7 +42,7 @@
       subscription.stop();
       subscription = null;
     }
-    
+
     // Reset state
     event = null;
     eventId = '';
@@ -53,7 +54,7 @@
     boostFetchDone = false;
     isContentExpanded = true; // Default to expanded for kind 1 notes
     contentLines = 0;
-    
+
     try {
       const cleanString = nostrStr.replace(/^nostr:/, '');
       if (cleanString.startsWith('nevent1')) {
@@ -102,7 +103,7 @@
 
     try {
       let filter: any;
-      
+
       if (eventId) {
         // Fetch by event ID (nevent)
         filter = { ids: [eventId] };
@@ -181,7 +182,10 @@
   function extractBoostAmountFromEvent(boostEvent: NDKEvent): number {
     // Debug: log the event to see its structure
     const authorName = boostEvent.author?.profile?.name || boostEvent.pubkey?.slice(0, 8);
-    if (authorName?.toLowerCase().includes('fountain') || boostEvent.content?.toLowerCase().includes('boost')) {
+    if (
+      authorName?.toLowerCase().includes('fountain') ||
+      boostEvent.content?.toLowerCase().includes('boost')
+    ) {
       console.log('[NoteEmbed] Potential boost event:', {
         author: authorName,
         content: boostEvent.content?.slice(0, 200),
@@ -243,7 +247,7 @@
     // Prevent duplicate fetches
     if (boostFetchDone) return;
     boostFetchDone = true;
-    
+
     const idToUse = event?.id || eventId;
     if (!idToUse || !$ndk || boostAmount > 0) return;
 
@@ -265,7 +269,7 @@
 
       // Add timeout to prevent hanging
       const fetchPromise = $ndk.fetchEvents(zapFilter);
-      const timeoutPromise = new Promise<Set<any>>((resolve) => 
+      const timeoutPromise = new Promise<Set<any>>((resolve) =>
         setTimeout(() => resolve(new Set()), 5000)
       );
       const zapEvents = await Promise.race([fetchPromise, timeoutPromise]);
@@ -306,7 +310,7 @@
 
   function getNoteUrl(): string | null {
     if (!event) return null;
-    
+
     // Check if it's a recipe (kind 30023)
     if (event.kind === 30023) {
       const dTag = event.tags.find((t) => t[0] === 'd')?.[1];
@@ -323,7 +327,7 @@
         }
       }
     }
-    
+
     // For regular notes, use noteEncode
     try {
       const noteId = nip19.noteEncode(event.id);
@@ -346,36 +350,41 @@
     const content = event.content || '';
     const urlRegex = /(https?:\/\/[^\s]+)/g;
     const urls = content.match(urlRegex) || [];
-    
+
     // Filter for image and video URLs
-    return urls.filter(url => isImageUrl(url) || isVideoUrl(url));
+    return urls.filter((url) => isImageUrl(url) || isVideoUrl(url));
   }
 
   function isImageUrl(url: string): boolean {
     const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.avif', '.svg'];
     const lowercaseUrl = url.toLowerCase();
-    return imageExtensions.some(ext => lowercaseUrl.includes(ext));
+    return imageExtensions.some((ext) => lowercaseUrl.includes(ext));
   }
 
   function isVideoUrl(url: string): boolean {
     const videoExtensions = ['.mp4', '.webm', '.mov', '.avi', '.mkv', '.m4v'];
     const lowercaseUrl = url.toLowerCase();
-    return videoExtensions.some(ext => lowercaseUrl.includes(ext)) ||
-           lowercaseUrl.includes('youtube.com') || 
-           lowercaseUrl.includes('youtu.be') ||
-           lowercaseUrl.includes('vimeo.com');
+    return (
+      videoExtensions.some((ext) => lowercaseUrl.includes(ext)) ||
+      lowercaseUrl.includes('youtube.com') ||
+      lowercaseUrl.includes('youtu.be') ||
+      lowercaseUrl.includes('vimeo.com')
+    );
   }
 
   function getContentWithoutMedia(content: string): string {
     // Remove image and video URLs from content to avoid duplication
     const urlRegex = /(https?:\/\/[^\s]+)/g;
-    return content.replace(urlRegex, (url) => {
-      // Only remove URLs that are images or videos
-      if (isImageUrl(url) || isVideoUrl(url)) {
-        return '';
-      }
-      return url; // Keep other URLs (like marketplace links)
-    }).replace(/\s+/g, ' ').trim(); // Clean up extra spaces
+    return content
+      .replace(urlRegex, (url) => {
+        // Only remove URLs that are images or videos
+        if (isImageUrl(url) || isVideoUrl(url)) {
+          return '';
+        }
+        return url; // Keep other URLs (like marketplace links)
+      })
+      .replace(/\s+/g, ' ')
+      .trim(); // Clean up extra spaces
   }
 
   function handleImageError(e: Event) {
@@ -408,7 +417,9 @@
   }
 </script>
 
-{#if loading}
+{#if event && $mutedPubkeys.has(event.pubkey)}
+  <!-- Don't render embedded notes from muted users -->
+{:else if loading}
   <!-- Loading state with orange bracket style -->
   <div class="parent-quote-embed my-2">
     <div class="parent-quote-loading">
@@ -420,7 +431,12 @@
   <div class="parent-quote-embed my-2">
     <div class="parent-quote-header">
       <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+        <path
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          stroke-width="2"
+          d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+        ></path>
       </svg>
       <span class="parent-quote-author">Failed to load note</span>
     </div>
@@ -437,7 +453,7 @@
         <AuthorName {event} />
       </span>
     </div>
-    
+
     <!-- Boost amount -->
     {#if displayBoostAmount > 0}
       <div class="flex items-center gap-1 text-yellow-500 font-semibold text-xs mt-1">
@@ -445,19 +461,30 @@
         <span>{formatAmount(displayBoostAmount)} sats boost</span>
       </div>
     {/if}
-    
+
     <!-- Content preview -->
     {#if getContentWithoutMedia(event.content).trim()}
-      <p class="parent-quote-content">{getContentWithoutMedia(event.content).trim().slice(0, 200)}{getContentWithoutMedia(event.content).trim().length > 200 ? '...' : ''}</p>
+      <p class="parent-quote-content">
+        {getContentWithoutMedia(event.content).trim().slice(0, 200)}{getContentWithoutMedia(
+          event.content
+        ).trim().length > 200
+          ? '...'
+          : ''}
+      </p>
     {/if}
-    
+
     <span class="parent-quote-link">View quoted note →</span>
   </a>
 {:else}
   <div class="parent-quote-embed my-2">
     <div class="parent-quote-header">
       <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"></path>
+        <path
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          stroke-width="2"
+          d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"
+        ></path>
       </svg>
       <span class="parent-quote-author">Note not found</span>
     </div>
@@ -512,4 +539,3 @@
     gap: 0.5rem;
   }
 </style>
-

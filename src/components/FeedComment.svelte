@@ -3,6 +3,7 @@
   import { ndk, userPublickey } from '$lib/nostr';
   import { nip19 } from 'nostr-tools';
   import { format as formatDate } from 'timeago.js';
+  import { mutedPubkeys } from '$lib/muteListStore';
   import CustomAvatar from './CustomAvatar.svelte';
   import NoteContent from './NoteContent.svelte';
   import ZapModal from './ZapModal.svelte';
@@ -1045,179 +1046,181 @@
   }
 </script>
 
-<div class="comment-card">
-  <!-- Embedded parent quote (if replying to another comment) -->
-  {#if !parentLoading && parentComment}
-    <div class="parent-quote">
-      <div class="parent-quote-header">
-        <CustomAvatar pubkey={parentComment.pubkey} size={16} />
-        <span class="parent-quote-author">{parentDisplayName || 'Loading...'}</span>
+{#if !$mutedPubkeys.has(event.pubkey)}
+  <div class="comment-card">
+    <!-- Embedded parent quote (if replying to another comment) -->
+    {#if !parentLoading && parentComment}
+      <div class="parent-quote">
+        <div class="parent-quote-header">
+          <CustomAvatar pubkey={parentComment.pubkey} size={16} />
+          <span class="parent-quote-author">{parentDisplayName || 'Loading...'}</span>
+        </div>
+        <p class="parent-quote-content">{truncateContent(parentComment.content)}</p>
       </div>
-      <p class="parent-quote-content">{truncateContent(parentComment.content)}</p>
-    </div>
-  {/if}
+    {/if}
 
-  <!-- Main comment row -->
-  <div class="comment-row">
-    <!-- Avatar -->
-    <a href="/user/{nip19.npubEncode(event.pubkey)}" class="comment-avatar">
-      <CustomAvatar className="rounded-full" pubkey={event.pubkey} size={32} />
-    </a>
+    <!-- Main comment row -->
+    <div class="comment-row">
+      <!-- Avatar -->
+      <a href="/user/{nip19.npubEncode(event.pubkey)}" class="comment-avatar">
+        <CustomAvatar className="rounded-full" pubkey={event.pubkey} size={32} />
+      </a>
 
-    <!-- Content -->
-    <div class="comment-content">
-      <!-- Name + Time -->
-      <div class="comment-header">
-        <a href="/user/{nip19.npubEncode(event.pubkey)}" class="comment-author">
-          {#if isLoading}
-            <span class="animate-pulse">Loading...</span>
-          {:else}
-            {displayName}
-          {/if}
-        </a>
-        <span class="comment-time">
-          {formatDate(new Date((event.created_at || 0) * 1000))}
-        </span>
-      </div>
-
-      <!-- Comment Text -->
-      <div class="comment-body">
-        <NoteContent content={event.content} />
-      </div>
-
-      <!-- Actions -->
-      <div class="comment-actions">
-        <!-- Like Button -->
-        <button
-          on:click={toggleLike}
-          class="action-btn"
-          class:text-red-500={liked}
-          disabled={!$userPublickey}
-        >
-          <HeartIcon size={14} weight={liked ? 'fill' : 'regular'} />
-          {#if !likesLoading && likeCount > 0}
-            <span>{likeCount}</span>
-          {/if}
-        </button>
-
-        <!-- Zap Button -->
-        {#if $userPublickey}
-          <button
-            on:click={openZapModal}
-            class="action-btn zap-btn"
-            class:text-yellow-500={hasUserZapped}
-          >
-            <LightningIcon size={14} weight={hasUserZapped ? 'fill' : 'regular'} />
-            {#if totalZapAmount > 0}
-              <span>{formatAmount(totalZapAmount / 1000)}</span>
+      <!-- Content -->
+      <div class="comment-content">
+        <!-- Name + Time -->
+        <div class="comment-header">
+          <a href="/user/{nip19.npubEncode(event.pubkey)}" class="comment-author">
+            {#if isLoading}
+              <span class="animate-pulse">Loading...</span>
+            {:else}
+              {displayName}
             {/if}
-          </button>
-        {:else}
-          <span class="action-btn zap-display">
-            <LightningIcon size={14} class={totalZapAmount > 0 ? 'text-yellow-500' : ''} />
-            {#if totalZapAmount > 0}
-              <span>{formatAmount(totalZapAmount / 1000)}</span>
-            {/if}
+          </a>
+          <span class="comment-time">
+            {formatDate(new Date((event.created_at || 0) * 1000))}
           </span>
-        {/if}
+        </div>
 
-        <!-- Reply Button -->
-        {#if $userPublickey}
+        <!-- Comment Text -->
+        <div class="comment-body">
+          <NoteContent content={event.content} />
+        </div>
+
+        <!-- Actions -->
+        <div class="comment-actions">
+          <!-- Like Button -->
           <button
-            on:click={() => {
-              showReplyBox = !showReplyBox;
-              if (showReplyBox && $userPublickey) {
-                loadMentionFollowList();
-              }
-            }}
-            class="action-btn action-btn-text"
+            on:click={toggleLike}
+            class="action-btn"
+            class:text-red-500={liked}
+            disabled={!$userPublickey}
           >
-            {showReplyBox ? 'Cancel' : 'Reply'}
-          </button>
-        {/if}
-      </div>
-
-      <!-- Inline Reply Box -->
-      {#if showReplyBox}
-        <div class="reply-form">
-          <div class="relative">
-            <div
-              bind:this={replyComposerEl}
-              class="reply-input"
-              contenteditable={!postingReply}
-              role="textbox"
-              aria-multiline="true"
-              data-placeholder="Add a reply..."
-              on:input={handleReplyInput}
-              on:keydown={handleReplyKeydown}
-              on:beforeinput={handleBeforeInput}
-              on:paste={handlePaste}
-            ></div>
-
-            {#if showMentionSuggestions}
-              <div class="mention-dropdown" style="border-color: var(--color-input-border);">
-                {#if mentionSuggestions.length > 0}
-                  <div class="mention-dropdown-content">
-                    {#each mentionSuggestions as suggestion, index}
-                      <button
-                        type="button"
-                        on:click={() => insertMention(suggestion)}
-                        on:mousedown|preventDefault={() => insertMention(suggestion)}
-                        class="mention-option"
-                        class:mention-selected={index === selectedMentionIndex}
-                      >
-                        <CustomAvatar pubkey={suggestion.pubkey} size={24} />
-                        <div class="mention-info">
-                          <span class="mention-name">{suggestion.name}</span>
-                          {#if suggestion.nip05}
-                            <span class="mention-nip05">{suggestion.nip05}</span>
-                          {/if}
-                        </div>
-                      </button>
-                    {/each}
-                  </div>
-                {:else if mentionSearching}
-                  <div class="mention-empty">Searching...</div>
-                {:else if mentionQuery.length > 0}
-                  <div class="mention-empty">No users found</div>
-                {/if}
-              </div>
+            <HeartIcon size={14} weight={liked ? 'fill' : 'regular'} />
+            {#if !likesLoading && likeCount > 0}
+              <span>{likeCount}</span>
             {/if}
-          </div>
-          <div class="reply-buttons">
+          </button>
+
+          <!-- Zap Button -->
+          {#if $userPublickey}
             <button
-              on:click={postReply}
-              disabled={!replyText.trim() || postingReply}
-              class="btn-post"
+              on:click={openZapModal}
+              class="action-btn zap-btn"
+              class:text-yellow-500={hasUserZapped}
             >
-              {postingReply ? 'Posting...' : 'Post'}
+              <LightningIcon size={14} weight={hasUserZapped ? 'fill' : 'regular'} />
+              {#if totalZapAmount > 0}
+                <span>{formatAmount(totalZapAmount / 1000)}</span>
+              {/if}
             </button>
+          {:else}
+            <span class="action-btn zap-display">
+              <LightningIcon size={14} class={totalZapAmount > 0 ? 'text-yellow-500' : ''} />
+              {#if totalZapAmount > 0}
+                <span>{formatAmount(totalZapAmount / 1000)}</span>
+              {/if}
+            </span>
+          {/if}
+
+          <!-- Reply Button -->
+          {#if $userPublickey}
             <button
               on:click={() => {
-                showReplyBox = false;
-                replyText = '';
-                lastRenderedReply = '';
-                if (replyComposerEl) {
-                  replyComposerEl.innerHTML = '';
+                showReplyBox = !showReplyBox;
+                if (showReplyBox && $userPublickey) {
+                  loadMentionFollowList();
                 }
-                showMentionSuggestions = false;
-                mentionSuggestions = [];
-                mentionQuery = '';
               }}
-              class="btn-cancel"
+              class="action-btn action-btn-text"
             >
-              Cancel
+              {showReplyBox ? 'Cancel' : 'Reply'}
             </button>
-          </div>
+          {/if}
         </div>
-      {/if}
+
+        <!-- Inline Reply Box -->
+        {#if showReplyBox}
+          <div class="reply-form">
+            <div class="relative">
+              <div
+                bind:this={replyComposerEl}
+                class="reply-input"
+                contenteditable={!postingReply}
+                role="textbox"
+                aria-multiline="true"
+                data-placeholder="Add a reply..."
+                on:input={handleReplyInput}
+                on:keydown={handleReplyKeydown}
+                on:beforeinput={handleBeforeInput}
+                on:paste={handlePaste}
+              ></div>
+
+              {#if showMentionSuggestions}
+                <div class="mention-dropdown" style="border-color: var(--color-input-border);">
+                  {#if mentionSuggestions.length > 0}
+                    <div class="mention-dropdown-content">
+                      {#each mentionSuggestions as suggestion, index}
+                        <button
+                          type="button"
+                          on:click={() => insertMention(suggestion)}
+                          on:mousedown|preventDefault={() => insertMention(suggestion)}
+                          class="mention-option"
+                          class:mention-selected={index === selectedMentionIndex}
+                        >
+                          <CustomAvatar pubkey={suggestion.pubkey} size={24} />
+                          <div class="mention-info">
+                            <span class="mention-name">{suggestion.name}</span>
+                            {#if suggestion.nip05}
+                              <span class="mention-nip05">{suggestion.nip05}</span>
+                            {/if}
+                          </div>
+                        </button>
+                      {/each}
+                    </div>
+                  {:else if mentionSearching}
+                    <div class="mention-empty">Searching...</div>
+                  {:else if mentionQuery.length > 0}
+                    <div class="mention-empty">No users found</div>
+                  {/if}
+                </div>
+              {/if}
+            </div>
+            <div class="reply-buttons">
+              <button
+                on:click={postReply}
+                disabled={!replyText.trim() || postingReply}
+                class="btn-post"
+              >
+                {postingReply ? 'Posting...' : 'Post'}
+              </button>
+              <button
+                on:click={() => {
+                  showReplyBox = false;
+                  replyText = '';
+                  lastRenderedReply = '';
+                  if (replyComposerEl) {
+                    replyComposerEl.innerHTML = '';
+                  }
+                  showMentionSuggestions = false;
+                  mentionSuggestions = [];
+                  mentionQuery = '';
+                }}
+                class="btn-cancel"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        {/if}
+      </div>
     </div>
   </div>
-</div>
 
-<!-- Zap Modal -->
-{#if zapModalOpen}
-  <ZapModal bind:open={zapModalOpen} {event} />
+  <!-- Zap Modal -->
+  {#if zapModalOpen}
+    <ZapModal bind:open={zapModalOpen} {event} />
+  {/if}
 {/if}
 
 <style>
