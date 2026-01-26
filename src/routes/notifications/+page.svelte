@@ -8,7 +8,7 @@
   import { goto } from '$app/navigation';
   import { browser } from '$app/environment';
   import { formatDistanceToNow } from 'date-fns';
-  import { nip19 } from 'nostr-tools';
+  import { nip19, nip21 } from 'nostr-tools';
   import CustomAvatar from '../../components/CustomAvatar.svelte';
   import CustomName from '../../components/CustomName.svelte';
   import { userPublickey, ndk } from '$lib/nostr';
@@ -18,6 +18,7 @@
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
   import { notificationsNavTick } from '$lib/notificationsNav';
   import { mutedPubkeys, muteListStore } from '$lib/muteListStore';
+  import { resolveProfileByPubkey, getDisplayName } from '$lib/profileResolver';
 
   // Pull-to-refresh ref
   let pullToRefreshEl: PullToRefresh;
@@ -35,6 +36,13 @@
   let contextInFlight = new Set<string>();
   const MAX_CONTEXT_FETCH = 50;
   const CONTEXT_CONCURRENCY = 4;
+
+  // Map of pubkey -> display name for resolving nostr:npub mentions
+  let resolvedNames: Record<string, string> = {};
+  let namesInFlight = new Set<string>();
+
+  // Pattern to match nostr:npub mentions
+  const NPUB_MENTION_PATTERN = /nostr:(npub1[a-z0-9]+)/gi;
 
   function scrollAppToTop() {
     if (!browser) return;
@@ -148,6 +156,67 @@
   }
 
   /**
+   * Extract all npub mentions from text and resolve their profiles
+   */
+  async function resolveNpubMentions(text: string): Promise<void> {
+    if (!text) return;
+
+    const ndkInstance = get(ndk);
+    if (!ndkInstance) return;
+
+    const matches = text.matchAll(NPUB_MENTION_PATTERN);
+    const npubs: string[] = [];
+
+    for (const match of matches) {
+      const npub = match[1]; // e.g., npub1xxdd8...
+      if (npub && !resolvedNames[npub] && !namesInFlight.has(npub)) {
+        npubs.push(npub);
+      }
+    }
+
+    if (npubs.length === 0) return;
+
+    // Mark as in-flight to prevent duplicate fetches
+    npubs.forEach((npub) => namesInFlight.add(npub));
+
+    // Resolve profiles in parallel
+    await Promise.all(
+      npubs.map(async (npub) => {
+        try {
+          const decoded = nip19.decode(npub);
+          if (decoded.type === 'npub') {
+            const pubkey = decoded.data as string;
+            const profile = await resolveProfileByPubkey(pubkey, ndkInstance);
+            const name = getDisplayName(profile);
+            resolvedNames = { ...resolvedNames, [npub]: name };
+          }
+        } catch (e) {
+          // If decode fails, use truncated npub as fallback
+          resolvedNames = { ...resolvedNames, [npub]: `${npub.slice(0, 12)}...` };
+        } finally {
+          namesInFlight.delete(npub);
+        }
+      })
+    );
+  }
+
+  /**
+   * Replace nostr:npub mentions with resolved display names
+   */
+  function replaceNpubMentions(text: string): string {
+    if (!text) return text;
+
+    return text.replace(NPUB_MENTION_PATTERN, (match, npub) => {
+      const name = resolvedNames[npub];
+      if (name) {
+        return `@${name}`;
+      }
+      // Not yet resolved, show truncated npub
+      return `@${npub.slice(0, 12)}...`;
+    });
+  }
+
+  /**
    * Replace image URLs with [image] placeholder for cleaner display
    */
   function cleanImageUrls(text: string): string {
@@ -176,15 +245,20 @@
       const base = title ? `Recipe: ${normalizeText(title)}` : 'Recipe';
       const extra = normalizeText(summary) || normalizeText(event.content || '');
       const preview = extra ? `${base} — ${extra}` : base;
+      const previewText = preview.slice(0, 220);
+      // Trigger async resolution of any npub mentions
+      void resolveNpubMentions(previewText);
       return {
         kind,
         pubkey,
         title: title ? normalizeText(title) : undefined,
-        preview: preview.slice(0, 220)
+        preview: previewText
       };
     }
 
     const preview = normalizeText(event.content || '').slice(0, 220);
+    // Trigger async resolution of any npub mentions
+    void resolveNpubMentions(preview);
     return { kind, pubkey, preview: preview || '(No text)' };
   }
 
@@ -242,6 +316,10 @@
   // Prefetch referenced notes for context as notifications load/update
   $: if ($userPublickey && filteredNotifications.length > 0) {
     void prefetchReferencedNotes(filteredNotifications);
+    // Also resolve npub mentions in notification content
+    filteredNotifications.forEach((n) => {
+      if (n.content) void resolveNpubMentions(n.content);
+    });
   }
 
   let lastNavTick = 0;
@@ -437,7 +515,7 @@
               </p>
               {#if notification.content}
                 <p class="mt-1 line-clamp-2" style="color: var(--color-text-secondary);">
-                  {cleanImageUrls(notification.content)}
+                  {replaceNpubMentions(cleanImageUrls(notification.content))}
                 </p>
               {/if}
 
@@ -465,7 +543,7 @@
                       class="mt-1 text-xs line-clamp-2"
                       style="color: var(--color-text-secondary);"
                     >
-                      {cleanImageUrls(ctx.preview)}
+                      {replaceNpubMentions(cleanImageUrls(ctx.preview))}
                     </p>
                   {:else}
                     <p class="text-xs" style="color: var(--color-text-secondary);">
