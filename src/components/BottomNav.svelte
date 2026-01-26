@@ -3,18 +3,10 @@
   import ChatCircleDotsIcon from 'phosphor-svelte/lib/ChatCircleDots';
   import BellIcon from 'phosphor-svelte/lib/Bell';
   import CompassIcon from 'phosphor-svelte/lib/Compass';
-  import WalletIcon from 'phosphor-svelte/lib/Wallet';
+  import NewspaperIcon from 'phosphor-svelte/lib/Newspaper';
   import { page } from '$app/stores';
-  import { walletConnected } from '$lib/wallet';
-  import { weblnConnected } from '$lib/wallet/webln';
-  import { bitcoinConnectEnabled, bitcoinConnectWalletInfo } from '$lib/wallet/bitcoinConnect';
   import { unreadCount } from '$lib/notificationStore';
   import { triggerNotificationsNav } from '$lib/notificationsNav';
-
-  $: hasWallet =
-    $walletConnected ||
-    $weblnConnected ||
-    ($bitcoinConnectEnabled && $bitcoinConnectWalletInfo.connected);
 
   $: pathname = $page.url.pathname;
 
@@ -43,17 +35,9 @@
     <CompassIcon class="self-center" size={24} />
     <span class="sr-only">Explore</span>
   </a>
-  <a href="/wallet" class="flex flex-col items-center justify-center hover:text-primary">
-    <span class="relative self-center">
-      <WalletIcon size={24} />
-      {#if !hasWallet}
-        <span
-          class="absolute -top-2 -right-2 w-4 h-4 rounded-full bg-amber-500 border-2 border-input"
-          aria-hidden="true"
-        ></span>
-      {/if}
-    </span>
-    <span class="sr-only">Wallet</span>
+  <a href="/reads" class="flex flex-col items-center justify-center hover:text-primary">
+    <NewspaperIcon class="self-center" size={24} />
+    <span class="sr-only">Reads</span>
   </a>
   <a
     href="/notifications"

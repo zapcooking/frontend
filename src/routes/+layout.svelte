@@ -24,7 +24,9 @@
   import { bitcoinConnectEnabled, bitcoinConnectWalletInfo } from '$lib/wallet/bitcoinConnect';
   import { postComposerOpen } from '$lib/postComposerStore';
   import { timerWidgetOpen } from '$lib/stores/timerWidget';
+  import { converterWidgetOpen } from '$lib/stores/converterWidget';
   import TimerWidget from '../components/TimerWidget.svelte';
+  import ConverterWidget from '../components/ConverterWidget.svelte';
   import UserSidePanel from '../components/UserSidePanel.svelte';
   import MobileSearchOverlay from '../components/MobileSearchOverlay.svelte';
   // Import sync service to initialize offline sync functionality
@@ -318,6 +320,7 @@
       <CreateMenuButton variant="floating" />
       <BottomNav />
       <TimerWidget bind:open={$timerWidgetOpen} />
+      <ConverterWidget bind:open={$converterWidgetOpen} />
       <UserSidePanel />
       <MobileSearchOverlay />
       <PostModal bind:open={$postComposerOpen} />

@@ -53,17 +53,17 @@ const CONFIG = {
   DB_VERSION: 1,
   STORE_NAME: 'events',
   
-  // TTL settings
-  DEFAULT_TTL_MS: 5 * 60 * 1000,           // 5 minutes default TTL
-  FEED_TTL_MS: 10 * 60 * 1000,             // 10 minutes for feed events
-  PROFILE_TTL_MS: 30 * 60 * 1000,          // 30 minutes for profile data
+  // TTL settings - longer TTLs since we do smart background refreshes
+  DEFAULT_TTL_MS: 15 * 60 * 1000,          // 15 minutes default TTL
+  FEED_TTL_MS: 30 * 60 * 1000,             // 30 minutes for feed events (articles, recipes)
+  PROFILE_TTL_MS: 60 * 60 * 1000,          // 1 hour for profile data
   
   // Limits
   MAX_CACHED_EVENTS: 5000,                  // Max events to store
   CLEANUP_BATCH_SIZE: 500,                  // Events per cleanup batch
   
   // Cleanup
-  CLEANUP_INTERVAL_MS: 5 * 60 * 1000,       // Cleanup every 5 minutes
+  CLEANUP_INTERVAL_MS: 10 * 60 * 1000,      // Cleanup every 10 minutes
   
   // Size estimate
   AVG_EVENT_SIZE_KB: 1                      // ~1KB per event estimate

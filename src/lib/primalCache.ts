@@ -1,5 +1,6 @@
 import { browser } from '$app/environment';
-import { NDKEvent, type NDK } from '@nostr-dev-kit/ndk';
+import { NDKEvent } from '@nostr-dev-kit/ndk';
+import type NDK from '@nostr-dev-kit/ndk';
 
 export interface PrimalProfile {
   pubkey: string;
@@ -48,7 +49,14 @@ interface PendingRequest {
   profiles: PrimalProfile[];
   events: PrimalEvent[];
   follows: string[];
-  type: 'search' | 'feed' | 'contacts' | 'global';
+  type: 'search' | 'feed' | 'contacts' | 'global' | 'articles';
+}
+
+export interface PrimalArticleOptions {
+  limit?: number;
+  since?: number;
+  until?: number;
+  hashtags?: string[];
 }
 
 export class PrimalCacheService {
@@ -169,6 +177,9 @@ export class PrimalCacheService {
       } else if (event.kind === 1) {
         // Note event
         pending.events.push(event);
+      } else if (event.kind === 30023) {
+        // Longform article event
+        pending.events.push(event);
       } else if (event.kind === 3) {
         // Contact list - extract followed pubkeys
         const follows = event.tags
@@ -183,7 +194,7 @@ export class PrimalCacheService {
         
         if (pending.type === 'search') {
           (pending.resolve as (value: PrimalSearchResult) => void)({ profiles: pending.profiles });
-        } else if (pending.type === 'feed' || pending.type === 'global') {
+        } else if (pending.type === 'feed' || pending.type === 'global' || pending.type === 'articles') {
           (pending.resolve as (value: PrimalFeedResponse) => void)({ 
             events: pending.events, 
             profiles: pending.profiles 
@@ -435,6 +446,135 @@ export class PrimalCacheService {
     });
   }
 
+  /**
+   * Fetch longform articles (kind:30023) from Primal cache
+   * Primal aggregates from 100+ relays, making this much faster than individual relay queries
+   */
+  public async fetchArticles(
+    options: PrimalArticleOptions = {},
+    timeoutMs: number = 8000
+  ): Promise<PrimalFeedResponse> {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      await this.connect();
+    }
+
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      throw new Error('WebSocket not connected');
+    }
+
+    const { limit = 100, since, until, hashtags } = options;
+
+    const requestId = this.generateRequestId();
+    
+    // Build the article request
+    // Try multiple Primal cache endpoints for longform content
+    const cacheParams: Record<string, unknown> = {
+      limit,
+      kind: 30023
+    };
+    
+    if (since) cacheParams.since = since;
+    if (until) cacheParams.until = until;
+    if (hashtags && hashtags.length > 0) {
+      cacheParams.hashtags = hashtags;
+    }
+
+    // Use explore_latest_with_filter for kind-specific queries
+    // Primal's cache API supports filtering by kind
+    const request = [
+      'REQ',
+      requestId,
+      {
+        cache: ['explore_global_latest_with_filter', cacheParams]
+      }
+    ];
+
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        this.pendingRequests.delete(requestId);
+        reject(new Error('Article fetch request timed out'));
+      }, timeoutMs);
+
+      this.pendingRequests.set(requestId, {
+        resolve: resolve as (value: PrimalSearchResult | PrimalFeedResponse | string[]) => void,
+        reject,
+        timeout,
+        profiles: [],
+        events: [],
+        follows: [],
+        type: 'articles'
+      });
+
+      try {
+        this.ws!.send(JSON.stringify(request));
+      } catch (error) {
+        clearTimeout(timeout);
+        this.pendingRequests.delete(requestId);
+        reject(error as Error);
+      }
+    });
+  }
+
+  /**
+   * Fetch articles by hashtags using standard Nostr REQ
+   * Falls back to regular REQ if cache endpoints don't support articles
+   */
+  public async fetchArticlesByHashtags(
+    hashtags: string[],
+    options: { limit?: number; since?: number; until?: number } = {},
+    timeoutMs: number = 8000
+  ): Promise<PrimalFeedResponse> {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      await this.connect();
+    }
+
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      throw new Error('WebSocket not connected');
+    }
+
+    const { limit = 100, since, until } = options;
+
+    const requestId = this.generateRequestId();
+    
+    // Build standard Nostr filter for articles
+    const filter: Record<string, unknown> = {
+      kinds: [30023],
+      limit,
+      '#t': hashtags
+    };
+    
+    if (since) filter.since = since;
+    if (until) filter.until = until;
+
+    // Use standard REQ format - Primal relays support this
+    const request = ['REQ', requestId, filter];
+
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        this.pendingRequests.delete(requestId);
+        reject(new Error('Article hashtag fetch request timed out'));
+      }, timeoutMs);
+
+      this.pendingRequests.set(requestId, {
+        resolve: resolve as (value: PrimalSearchResult | PrimalFeedResponse | string[]) => void,
+        reject,
+        timeout,
+        profiles: [],
+        events: [],
+        follows: [],
+        type: 'articles'
+      });
+
+      try {
+        this.ws!.send(JSON.stringify(request));
+      } catch (error) {
+        clearTimeout(timeout);
+        this.pendingRequests.delete(requestId);
+        reject(error as Error);
+      }
+    });
+  }
+
   public async fetchProfile(pubkey: string, timeoutMs: number = 5000): Promise<PrimalProfile | null> {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
       await this.connect();
@@ -603,4 +743,58 @@ export async function fetchGlobalFromPrimal(
  */
 export function sevenDaysAgo(): number {
   return Math.floor(Date.now() / 1000) - (7 * 24 * 60 * 60);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ARTICLE FETCH FUNCTIONS
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Fetch longform articles from Primal cache
+ * Converts Primal events to NDKEvent format for compatibility
+ */
+export async function fetchArticlesFromPrimal(
+  ndk: NDK,
+  options: PrimalArticleOptions = {}
+): Promise<PrimalFeedResult> {
+  const cache = getPrimalCache();
+  if (!cache) {
+    throw new Error('Primal cache not available');
+  }
+  
+  const { limit = 100, since, until, hashtags } = options;
+  
+  let response: PrimalFeedResponse;
+  
+  // Try hashtag-based fetch if hashtags provided (more reliable)
+  if (hashtags && hashtags.length > 0) {
+    try {
+      response = await cache.fetchArticlesByHashtags(hashtags, { limit, since, until });
+    } catch (err) {
+      // Fallback to general article fetch
+      console.warn('[PrimalCache] Hashtag fetch failed, trying general fetch:', err);
+      response = await cache.fetchArticles({ limit, since, until });
+    }
+  } else {
+    response = await cache.fetchArticles({ limit, since, until });
+  }
+  
+  // Convert Primal events to NDKEvent format
+  const events = response.events.map(e => primalEventToNDKLike(e, ndk));
+  
+  // Build profile map
+  const profiles = new Map<string, PrimalProfile>();
+  for (const profile of response.profiles) {
+    profiles.set(profile.pubkey, profile);
+  }
+  
+  return { events, profiles };
+}
+
+/**
+ * Check if Primal cache is available and connected
+ */
+export function isPrimalCacheAvailable(): boolean {
+  const cache = getPrimalCache();
+  return cache !== null && cache.isConnected();
 }

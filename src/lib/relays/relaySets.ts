@@ -59,6 +59,19 @@ export const RELAY_SETS: Record<string, RelaySet> = {
     relays: [
       'wss://purplepag.es'
     ]
+  },
+  articles: {
+    id: 'articles',
+    name: 'Articles',
+    description: 'Optimized for longform content (kind:30023)',
+    relays: [
+      'wss://relay.primal.net',     // Primal - aggregated from 100+ relays
+      'wss://nos.lol',               // Popular with good uptime
+      'wss://relay.damus.io',        // Large general relay
+      'wss://nostr.wine',            // Quality content focus
+      'wss://purplepag.es',          // Good for content discovery
+      'wss://relay.nostr.band'       // Search-optimized
+    ]
   }
 };
 

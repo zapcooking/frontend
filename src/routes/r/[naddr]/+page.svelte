@@ -7,7 +7,8 @@
   import Recipe from '../../../components/Recipe/Recipe.svelte';
   import PanLoader from '../../../components/PanLoader.svelte';
   import type { PageData } from './$types';
-  import { GATED_RECIPE_KIND } from '$lib/consts';
+  import { GATED_RECIPE_KIND, RECIPE_TAGS } from '$lib/consts';
+  import ArrowLeftIcon from 'phosphor-svelte/lib/ArrowLeft';
 
   export let data: PageData;
 
@@ -133,6 +134,11 @@
   $: og_image = event
     ? (event.tags?.find((tag) => tag[0] === 'image')?.[1] || 'https://zap.cooking/social-share.png')
     : (data?.ogMeta?.image || 'https://zap.cooking/social-share.png');
+
+  // Check if this is a longform article (not a recipe) to show "Back to Reads" link
+  $: isLongformArticle = event && event.kind === 30023 && !event.tags.some(
+    (tag) => tag[0] === 't' && RECIPE_TAGS.includes(tag[1]?.toLowerCase() || '')
+  );
 </script>
 
 <svelte:head>
@@ -156,6 +162,20 @@
   <meta name="twitter:description" content={og_description} />
   <meta name="twitter:image" content={og_image} />
 </svelte:head>
+
+<!-- Back to Reads link for longform articles -->
+{#if isLongformArticle}
+  <div class="mb-4">
+    <a
+      href="/reads"
+      class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium transition-colors hover:bg-accent-gray"
+      style="color: var(--color-text-secondary);"
+    >
+      <ArrowLeftIcon size={16} weight="bold" />
+      <span>Back to Reads</span>
+    </a>
+  </div>
+{/if}
 
 {#if loading}
   <div class="flex justify-center items-center page-loader">

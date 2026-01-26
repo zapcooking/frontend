@@ -16,6 +16,7 @@
   import ProfileAvatar from '../../components/ProfileAvatar.svelte';
   import TrendingRecipeCard from '../../components/TrendingRecipeCard.svelte';
   import PullToRefresh from '../../components/PullToRefresh.svelte';
+  import LongformFoodFeed from '../../components/LongformFoodFeed.svelte';
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
   import { nip19 } from 'nostr-tools';
   import { init, markOnce } from '$lib/perf/explorePerf';
@@ -181,27 +182,22 @@
 
     <!-- Explore Content -->
     <div class="flex flex-col gap-8">
-      <!-- Top Collections -->
+      <!-- Fresh from the Kitchen -->
       <section class="flex flex-col gap-4">
         <h2 class="text-2xl font-bold flex items-center gap-2">
-          <span>📚</span>
-          <span>Top Collections</span>
+          <span>🍳</span>
+          <span>Fresh from the Kitchen</span>
         </h2>
-        {#if loadingCollections}
+        {#if loadingDiscover}
           <div class="flex gap-4 overflow-x-auto pb-2 -mx-4 px-4">
-            {#each Array(5) as _}
-              <div class="flex-shrink-0 w-64 h-40 rounded-xl animate-pulse skeleton-bg"></div>
+            {#each Array(6) as _}
+              <div class="flex-shrink-0 w-56 h-72 rounded-xl animate-pulse skeleton-bg"></div>
             {/each}
           </div>
-        {:else if collections.length > 0}
+        {:else if discoverRecipes.length > 0}
           <div class="flex gap-4 overflow-x-auto pb-2 -mx-4 px-4 scrollbar-hide touch-pan-x">
-            {#each collections as collection}
-              <CollectionCard
-                title={collection.title}
-                subtitle={collection.subtitle}
-                imageUrl={collection.imageUrl}
-                onClick={() => handleCollectionClick(collection)}
-              />
+            {#each discoverRecipes.filter((r) => r && r.author?.pubkey) as recipe (recipe.id || recipe.created_at)}
+              <TrendingRecipeCard event={recipe} />
             {/each}
           </div>
         {/if}
@@ -233,22 +229,43 @@
         {/if}
       </section>
 
-      <!-- Kitchen -->
+      <!-- Food Stories & Articles -->
+      <section class="flex flex-col gap-4">
+        <div class="px-4 -mx-4 sm:px-0 sm:mx-0">
+          <h2 class="text-2xl font-bold flex items-center gap-2">
+            <span>📖</span>
+            <span>Food Stories & Articles</span>
+          </h2>
+          <p class="text-sm text-caption">
+            Recent longform articles about food, farming, homesteading, and food culture.
+          </p>
+        </div>
+        <div class="-mx-4 px-4 sm:mx-0 sm:px-0">
+          <LongformFoodFeed />
+        </div>
+      </section>
+
+      <!-- Top Collections -->
       <section class="flex flex-col gap-4">
         <h2 class="text-2xl font-bold flex items-center gap-2">
-          <span>🍳</span>
-          <span>Fresh from the Kitchen</span>
+          <span>📚</span>
+          <span>Top Collections</span>
         </h2>
-        {#if loadingDiscover}
+        {#if loadingCollections}
           <div class="flex gap-4 overflow-x-auto pb-2 -mx-4 px-4">
-            {#each Array(6) as _}
-              <div class="flex-shrink-0 w-56 h-72 rounded-xl animate-pulse skeleton-bg"></div>
+            {#each Array(5) as _}
+              <div class="flex-shrink-0 w-64 h-40 rounded-xl animate-pulse skeleton-bg"></div>
             {/each}
           </div>
-        {:else if discoverRecipes.length > 0}
+        {:else if collections.length > 0}
           <div class="flex gap-4 overflow-x-auto pb-2 -mx-4 px-4 scrollbar-hide touch-pan-x">
-            {#each discoverRecipes.filter((r) => r && r.author?.pubkey) as recipe (recipe.id || recipe.created_at)}
-              <TrendingRecipeCard event={recipe} />
+            {#each collections as collection}
+              <CollectionCard
+                title={collection.title}
+                subtitle={collection.subtitle}
+                imageUrl={collection.imageUrl}
+                onClick={() => handleCollectionClick(collection)}
+              />
             {/each}
           </div>
         {/if}

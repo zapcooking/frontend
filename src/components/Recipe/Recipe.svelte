@@ -79,6 +79,12 @@
   // Check if current user owns this recipe
   $: isOwner = $userPublickey && $userPublickey === event.author.pubkey;
 
+  // Check if this is an actual recipe (has recipe-related tags) vs a general longform article
+  // Only recipes should show "Add to Grocery List"
+  $: isActualRecipe = event && event.tags.some(
+    (tag) => tag[0] === 't' && RECIPE_TAGS.includes(tag[1]?.toLowerCase() || '')
+  );
+
   // Gated recipe state
   let gatedMetadata: GatedRecipeMetadata | null = null;
   let unlockedRecipe: NDKEvent | null = null;
@@ -587,7 +593,7 @@
                   <ShareIcon size={18} />
                   Share
                 </button>
-                {#if $userPublickey}
+                {#if $userPublickey && isActualRecipe}
                   <button
                     class="w-full flex items-center gap-3 px-4 py-2.5 text-left text-sm hover:bg-accent-gray transition-colors"
                     style="color: var(--color-text-primary);"

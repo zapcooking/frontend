@@ -12,13 +12,11 @@
   import ForkKnifeIcon from 'phosphor-svelte/lib/ForkKnife';
   import CompassIcon from 'phosphor-svelte/lib/Compass';
   import BellIcon from 'phosphor-svelte/lib/Bell';
+  import NewspaperIcon from 'phosphor-svelte/lib/Newspaper';
 
   import CookbookIcon from 'phosphor-svelte/lib/BookOpen';
   import ShoppingCartIcon from 'phosphor-svelte/lib/ShoppingCart';
   import WalletIcon from 'phosphor-svelte/lib/Wallet';
-  import TimerIcon from 'phosphor-svelte/lib/Timer';
-  import CalculatorIcon from 'phosphor-svelte/lib/Calculator';
-  import { timerWidgetOpen } from '$lib/stores/timerWidget';
 
   $: pathname = $page.url.pathname;
   $: resolvedTheme = $theme === 'system' ? theme.getResolvedTheme() : $theme;
@@ -55,6 +53,12 @@
       label: 'Explore',
       icon: CompassIcon,
       match: (p) => p.startsWith('/explore')
+    },
+    {
+      href: '/reads',
+      label: 'Reads',
+      icon: NewspaperIcon,
+      match: (p) => p.startsWith('/reads')
     },
     {
       href: '/notifications',
@@ -205,42 +209,6 @@
         </ul>
       </div>
 
-      <!-- Tools Section -->
-      <div class="mt-4">
-        <h3
-          class="px-3 pb-2 font-semibold uppercase tracking-wider"
-          style="color: var(--color-caption); font-size: 12px;"
-        >
-          Tools
-        </h3>
-        <div class="flex gap-2 px-3">
-          <button
-            type="button"
-            class="flex-1 flex flex-col items-center gap-1.5 py-3 px-2 rounded-xl transition-colors cursor-pointer {$timerWidgetOpen
-              ? 'nav-active'
-              : 'nav-hover'}"
-            style="color: var(--color-text-primary);"
-            on:click={() => timerWidgetOpen.update((open) => !open)}
-          >
-            <TimerIcon size={22} weight={$timerWidgetOpen ? 'fill' : 'regular'} />
-            <span class="text-xs font-medium">Timer</span>
-          </button>
-          <a
-            href="/unit-converter"
-            class="flex-1 flex flex-col items-center gap-1.5 py-3 px-2 rounded-xl transition-colors cursor-pointer {pathname ===
-            '/unit-converter'
-              ? 'nav-active'
-              : 'nav-hover'}"
-            style="color: var(--color-text-primary);"
-          >
-            <CalculatorIcon
-              size={22}
-              weight={pathname === '/unit-converter' ? 'fill' : 'regular'}
-            />
-            <span class="text-xs font-medium">Converter</span>
-          </a>
-        </div>
-      </div>
     </nav>
   </div>
 </aside>
