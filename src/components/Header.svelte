@@ -9,6 +9,7 @@
   import { theme } from '$lib/themeStore';
   import WalletBalance from './WalletBalance.svelte';
   import LightningIcon from 'phosphor-svelte/lib/Lightning';
+  import BellIcon from 'phosphor-svelte/lib/Bell';
   import { userSidePanelOpen } from '$lib/stores/userSidePanel';
   import { mobileSearchOpen } from '$lib/stores/mobileSearch';
   import { timerStore } from '$lib/timerStore';
@@ -16,6 +17,7 @@
   import { weblnConnected } from '$lib/wallet/webln';
   import { bitcoinConnectEnabled, bitcoinConnectWalletInfo } from '$lib/wallet/bitcoinConnect';
   import { timerWidgetOpen } from '$lib/stores/timerWidget';
+  import { unreadCount } from '$lib/notificationStore';
 
   let isLoading = true;
 
@@ -97,10 +99,11 @@
       on:click={toggleTimerWidget}
       class="w-9 h-9 flex items-center justify-center rounded-full transition-colors cursor-pointer relative {$timerWidgetOpen
         ? 'bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400'
-        : 'text-caption hover:opacity-80 hover:bg-accent-gray'}"
+        : 'hover:opacity-80 hover:bg-accent-gray'}"
+      style={$timerWidgetOpen ? '' : 'color: var(--color-text-primary)'}
       aria-label={$timerWidgetOpen ? 'Hide timer' : 'Show timer'}
     >
-      <TimerIcon size={20} weight={hasActiveTimers ? 'fill' : 'bold'} />
+      <TimerIcon size={24} weight={hasActiveTimers ? 'fill' : 'bold'} />
       {#if hasActiveTimers}
         <span
           class="absolute -top-0.5 -right-0.5 w-4 h-4 bg-amber-500 text-white text-xs font-bold rounded-full flex items-center justify-center"
@@ -126,6 +129,24 @@
           <span>Set up a Wallet</span>
         </a>
       {/if}
+    {/if}
+
+    <!-- Notifications Icon - only show when logged in -->
+    {#if $userPublickey}
+      <a
+        href="/notifications"
+        class="relative p-2 rounded-full transition-colors hover:bg-accent-gray"
+        aria-label="Notifications"
+      >
+        <BellIcon size={24} weight="regular" style="color: var(--color-text-primary)" />
+        {#if $unreadCount > 0}
+          <span
+            class="absolute top-0 right-0 flex items-center justify-center min-w-[18px] h-[18px] px-1 text-[10px] font-bold text-white bg-orange-500 rounded-full"
+          >
+            {$unreadCount > 99 ? '99+' : $unreadCount}
+          </span>
+        {/if}
+      </a>
     {/if}
 
     <!-- Sign in / User menu -->

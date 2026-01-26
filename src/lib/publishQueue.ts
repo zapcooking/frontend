@@ -1,12 +1,12 @@
 /**
  * Publish Queue Service
- * 
+ *
  * Provides resilient event publishing with:
  * - IndexedDB persistence for pending posts
  * - Automatic retry with exponential backoff
  * - Background sync when connection is restored
  * - Longer timeouts for slow relay connections
- * 
+ *
  * This solves the "not enough relays to publish" error that occurs when
  * relay connections are slow or unstable.
  */
@@ -131,7 +131,7 @@ class PublishQueueManager {
 
       request.onupgradeneeded = (event: IDBVersionChangeEvent) => {
         const db = (event.target as IDBOpenDBRequest).result;
-        
+
         if (!db.objectStoreNames.contains(QUEUE_STORE)) {
           const store = db.createObjectStore(QUEUE_STORE, { keyPath: 'id' });
           store.createIndex('status', 'status', { unique: false });
@@ -153,7 +153,7 @@ class PublishQueueManager {
    */
   private async updateQueueState(): Promise<void> {
     const pending = await this.getPendingCount();
-    publishQueueState.update(s => ({ ...s, pending }));
+    publishQueueState.update((s) => ({ ...s, pending }));
   }
 
   /**
@@ -167,7 +167,7 @@ class PublishQueueManager {
       const transaction = this.db!.transaction([QUEUE_STORE], 'readonly');
       const store = transaction.objectStore(QUEUE_STORE);
       const index = store.index('status');
-      
+
       // Count pending and retrying items
       let count = 0;
       const pendingRequest = index.count(IDBKeyRange.only('pending'));
@@ -188,20 +188,17 @@ class PublishQueueManager {
   /**
    * Add an event to the publish queue
    */
-  async queuePublish(
-    event: NDKEvent,
-    relayMode: PendingPublish['relayMode']
-  ): Promise<string> {
+  async queuePublish(event: NDKEvent, relayMode: PendingPublish['relayMode']): Promise<string> {
     await this.ready();
-    
+
     const id = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-    
+
     const pendingPublish: PendingPublish = {
       id,
       eventData: {
         kind: event.kind || 1,
         content: event.content,
-        tags: event.tags.map(t => [...t]),
+        tags: event.tags.map((t) => [...t]),
         created_at: event.created_at || Math.floor(Date.now() / 1000)
       },
       relayMode,
@@ -304,7 +301,7 @@ class PublishQueueManager {
         const all = request.result || [];
         // Return pending and retrying items, sorted by createdAt
         const pending = all
-          .filter(p => p.status === 'pending' || p.status === 'retrying')
+          .filter((p) => p.status === 'pending' || p.status === 'retrying')
           .sort((a, b) => a.createdAt - b.createdAt);
         resolve(pending);
       };
@@ -314,11 +311,11 @@ class PublishQueueManager {
 
   /**
    * Publish an event with resilient retry logic
-   * 
+   *
    * This is the main entry point for publishing events.
    * It will attempt to publish immediately, and if that fails,
    * queue the event for background retry.
-   * 
+   *
    * @returns true if published successfully on first attempt,
    *          'queued' if queued for retry
    */
@@ -332,16 +329,16 @@ class PublishQueueManager {
     // Try to publish immediately (DON'T queue first - only queue on failure)
     try {
       await this.attemptPublish(event, relayMode);
-      
+
       // Success!
       return { success: true, queued: false };
     } catch (error: any) {
       console.warn('[PublishQueue] Initial publish failed:', error.message);
-      
+
       // Only queue AFTER failure - this prevents ghost items in the queue
       // when relays actually received the post but we timed out waiting for confirmation
       const queueId = await this.queuePublish(event, relayMode);
-      
+
       // Update the queued item with error info
       const pending = await this.getPublish(queueId);
       if (pending) {
@@ -352,14 +349,14 @@ class PublishQueueManager {
         await this.updatePublish(pending);
       }
 
-      publishQueueState.update(s => ({ ...s, lastError: error.message }));
+      publishQueueState.update((s) => ({ ...s, lastError: error.message }));
 
       // Schedule background retry
       this.scheduleRetry();
 
-      return { 
-        success: false, 
-        queued: true, 
+      return {
+        success: false,
+        queued: true,
         error: error.message || 'Failed to publish, will retry in background'
       };
     }
@@ -381,13 +378,17 @@ class PublishQueueManager {
       for (const item of all) {
         // Remove items older than STALE_ITEM_AGE
         if (now - item.createdAt > STALE_ITEM_AGE) {
-          console.log(`[PublishQueue] Removing stale item ${item.id} (age: ${Math.round((now - item.createdAt) / 1000 / 60)}min)`);
+          console.log(
+            `[PublishQueue] Removing stale item ${item.id} (age: ${Math.round((now - item.createdAt) / 1000 / 60)}min)`
+          );
           await this.removePublish(item.id);
           cleanedCount++;
         }
         // Also remove items that have exceeded max retries
         else if (item.retryCount >= MAX_RETRIES) {
-          console.log(`[PublishQueue] Removing failed item ${item.id} (retries: ${item.retryCount})`);
+          console.log(
+            `[PublishQueue] Removing failed item ${item.id} (retries: ${item.retryCount})`
+          );
           await this.removePublish(item.id);
           cleanedCount++;
         }
@@ -408,7 +409,7 @@ class PublishQueueManager {
     event: NDKEvent,
     relayMode: PendingPublish['relayMode']
   ): Promise<void> {
-    const { ndk, ensureNdkConnected, getConnectedRelays } = await import('$lib/nostr');
+    const { ndk, ensureNdkConnected } = await import('$lib/nostr');
     const { NDKRelaySet } = await import('@nostr-dev-kit/ndk');
     const ndkInstance = get(ndk);
 
@@ -439,14 +440,14 @@ class PublishQueueManager {
       targetRelays = ['wss://garden.zap.cooking'];
       const relay = ndkInstance.pool.getRelay('wss://garden.zap.cooking', true, true);
       await relay.connect();
-      await new Promise(resolve => setTimeout(resolve, 100));
+      await new Promise((resolve) => setTimeout(resolve, 100));
       const relaySet = new NDKRelaySet(new Set([relay]), ndkInstance);
       publishPromise = event.publish(relaySet, PUBLISH_TIMEOUT);
     } else if (relayMode === 'pantry') {
       targetRelays = ['wss://pantry.zap.cooking'];
       const relay = ndkInstance.pool.getRelay('wss://pantry.zap.cooking', true, true);
       await relay.connect();
-      await new Promise(resolve => setTimeout(resolve, 100));
+      await new Promise((resolve) => setTimeout(resolve, 100));
       const relaySet = new NDKRelaySet(new Set([relay]), ndkInstance);
       publishPromise = event.publish(relaySet, PUBLISH_TIMEOUT);
     } else if (relayMode === 'garden-pantry') {
@@ -454,76 +455,86 @@ class PublishQueueManager {
       const gardenRelay = ndkInstance.pool.getRelay('wss://garden.zap.cooking', true, true);
       const pantryRelay = ndkInstance.pool.getRelay('wss://pantry.zap.cooking', true, true);
       await Promise.all([gardenRelay.connect(), pantryRelay.connect()]);
-      await new Promise(resolve => setTimeout(resolve, 100));
+      await new Promise((resolve) => setTimeout(resolve, 100));
       const relaySet = new NDKRelaySet(new Set([gardenRelay, pantryRelay]), ndkInstance);
       publishPromise = event.publish(relaySet, PUBLISH_TIMEOUT);
     } else {
-      // 'all' mode - get connected relays and create explicit relay set
-      const connectedRelays = getConnectedRelays();
-      console.log(`[PublishQueue] Connected relays: ${connectedRelays.length}`, connectedRelays);
-      
-      if (connectedRelays.length === 0) {
-        // No relays connected, try to get from pool
-        const poolRelays: any[] = [];
-        if (ndkInstance.pool && ndkInstance.pool.relays) {
-          for (const [url, relay] of ndkInstance.pool.relays) {
-            if (relay.connectivity?.status === 1) {
-              poolRelays.push(relay);
-              targetRelays.push(url);
-            }
-          }
-        }
-        
-        console.log(`[PublishQueue] Pool relays found: ${poolRelays.length}`, targetRelays);
-        
-        if (poolRelays.length === 0) {
-          throw new Error('No relays connected. Please check your internet connection.');
-        }
-        
-        const relaySet = new NDKRelaySet(new Set(poolRelays), ndkInstance);
-        publishPromise = event.publish(relaySet, PUBLISH_TIMEOUT);
-      } else {
-        targetRelays = connectedRelays;
-        // Create relay set from connected relays
-        const relays: any[] = [];
-        for (const url of connectedRelays) {
-          const relay = ndkInstance.pool?.relays.get(url);
-          if (relay) {
-            relays.push(relay);
-          }
-        }
-        
-        if (relays.length > 0) {
-          const relaySet = new NDKRelaySet(new Set(relays), ndkInstance);
-          publishPromise = event.publish(relaySet, PUBLISH_TIMEOUT);
-        } else {
-          // Fallback to default publish
-          console.log('[PublishQueue] Falling back to default publish');
-          publishPromise = event.publish(undefined, PUBLISH_TIMEOUT);
+      // 'all' mode - get relay URLs from pool and use getRelay() to ensure proper initialization
+      console.log('[PublishQueue] Using "all" mode');
+
+      // Collect relay URLs from the pool
+      const relayUrls: string[] = [];
+      if (ndkInstance.pool && ndkInstance.pool.relays) {
+        for (const [url] of ndkInstance.pool.relays) {
+          relayUrls.push(url);
         }
       }
+
+      console.log(`[PublishQueue] Pool has ${relayUrls.length} relays:`, relayUrls);
+
+      if (relayUrls.length === 0) {
+        throw new Error('No relays available. Please check your internet connection.');
+      }
+
+      // Use getRelay() with autoConnect=true, createIfMissing=true to get properly initialized relays
+      const relaysToPublish: any[] = [];
+      for (const url of relayUrls) {
+        const relay = ndkInstance.pool.getRelay(url, true, true);
+        if (relay) {
+          relaysToPublish.push(relay);
+          targetRelays.push(url);
+        }
+      }
+
+      // Ensure connections are established
+      await Promise.all(relaysToPublish.map((r) => r.connect().catch(() => {})));
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      // Log connection states
+      for (const relay of relaysToPublish) {
+        const status = relay.connectivity?.status;
+        const statusName = status === 1 ? 'OPEN' : status === 0 ? 'CONNECTING' : 'CLOSED';
+        console.log(`[PublishQueue] Relay ${relay.url}: ${statusName}`);
+      }
+
+      const relaySet = new NDKRelaySet(new Set(relaysToPublish), ndkInstance);
+      publishPromise = event.publish(relaySet, PUBLISH_TIMEOUT);
     }
 
     console.log(`[PublishQueue] Publishing to relays:`, targetRelays);
+    console.log(`[PublishQueue] Awaiting publish result (timeout: ${PUBLISH_TIMEOUT + 5000}ms)...`);
 
     // Add our own timeout wrapper
     const timeoutPromise = new Promise<never>((_, reject) => {
-      setTimeout(() => reject(new Error('Publishing timeout - relays may be slow or disconnected')), PUBLISH_TIMEOUT + 5000);
+      setTimeout(() => {
+        console.log('[PublishQueue] ⏱️ Timeout reached!');
+        reject(new Error('Publishing timeout - relays may be slow or disconnected'));
+      }, PUBLISH_TIMEOUT + 5000);
     });
 
-    const publishedRelays = await Promise.race([publishPromise, timeoutPromise]);
+    try {
+      const publishedRelays = await Promise.race([publishPromise, timeoutPromise]);
+      console.log('[PublishQueue] Publish promise resolved, checking result...');
 
-    // Verify at least one relay received it
-    if (!publishedRelays || publishedRelays.size === 0) {
-      throw new Error('No relays confirmed receipt of the event');
-    }
+      // Verify at least one relay received it
+      if (!publishedRelays || publishedRelays.size === 0) {
+        console.log('[PublishQueue] ❌ No relays in result set');
+        throw new Error('No relays confirmed receipt of the event');
+      }
 
-    // Log which relays confirmed
-    const confirmedUrls: string[] = [];
-    for (const relay of publishedRelays) {
-      confirmedUrls.push(relay.url || 'unknown');
+      // Log which relays confirmed
+      const confirmedUrls: string[] = [];
+      for (const relay of publishedRelays) {
+        confirmedUrls.push(relay.url || 'unknown');
+      }
+      console.log(
+        `[PublishQueue] ✅ Published to ${publishedRelays.size} relay(s):`,
+        confirmedUrls
+      );
+    } catch (publishError: any) {
+      console.error('[PublishQueue] ❌ Publish failed:', publishError?.message || publishError);
+      throw publishError;
     }
-    console.log(`[PublishQueue] ✅ Published to ${publishedRelays.size} relay(s):`, confirmedUrls);
   }
 
   /**
@@ -535,9 +546,9 @@ class PublishQueueManager {
     }
 
     const delay = delayOverride ?? INITIAL_RETRY_DELAY;
-    
+
     console.log(`[PublishQueue] Scheduling retry in ${delay}ms`);
-    
+
     this.retryTimer = setTimeout(() => {
       this.processQueue();
     }, delay);
@@ -558,11 +569,11 @@ class PublishQueueManager {
     }
 
     this.isProcessing = true;
-    publishQueueState.update(s => ({ ...s, retrying: true }));
+    publishQueueState.update((s) => ({ ...s, retrying: true }));
 
     try {
       const pending = await this.getPendingPublishes();
-      
+
       if (pending.length === 0) {
         console.log('[PublishQueue] No pending publishes');
         return;
@@ -598,7 +609,7 @@ class PublishQueueManager {
           await this.removePublish(item.id);
         } catch (error: any) {
           console.warn(`[PublishQueue] Retry failed for ${item.id}:`, error.message);
-          
+
           item.retryCount++;
           item.lastAttempt = Date.now();
           item.lastError = error.message || 'Unknown error';
@@ -610,16 +621,13 @@ class PublishQueueManager {
       const remaining = await this.getPendingPublishes();
       if (remaining.length > 0) {
         // Schedule next retry with exponential backoff
-        const maxRetryCount = Math.max(...remaining.map(r => r.retryCount));
-        const delay = Math.min(
-          INITIAL_RETRY_DELAY * Math.pow(2, maxRetryCount),
-          MAX_RETRY_DELAY
-        );
+        const maxRetryCount = Math.max(...remaining.map((r) => r.retryCount));
+        const delay = Math.min(INITIAL_RETRY_DELAY * Math.pow(2, maxRetryCount), MAX_RETRY_DELAY);
         this.scheduleRetry(delay);
       }
     } finally {
       this.isProcessing = false;
-      publishQueueState.update(s => ({ ...s, retrying: false }));
+      publishQueueState.update((s) => ({ ...s, retrying: false }));
     }
   }
 
@@ -649,10 +657,10 @@ class PublishQueueManager {
   async getStats(): Promise<{ pending: number; failed: number; retrying: boolean }> {
     const all = await this.getPendingPublishes();
     const state = get(publishQueueState);
-    
+
     return {
       pending: all.length,
-      failed: all.filter(p => p.retryCount >= MAX_RETRIES).length,
+      failed: all.filter((p) => p.retryCount >= MAX_RETRIES).length,
       retrying: state.retrying
     };
   }

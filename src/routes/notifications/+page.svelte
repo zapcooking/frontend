@@ -1,5 +1,10 @@
 <script lang="ts">
-  import { notifications, unreadCount, subscribeToNotifications, type Notification } from '$lib/notificationStore';
+  import {
+    notifications,
+    unreadCount,
+    subscribeToNotifications,
+    type Notification
+  } from '$lib/notificationStore';
   import { goto } from '$app/navigation';
   import { browser } from '$app/environment';
   import { formatDistanceToNow } from 'date-fns';
@@ -12,26 +17,25 @@
   import { get } from 'svelte/store';
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
   import { notificationsNavTick } from '$lib/notificationsNav';
-  
+  import { mutedPubkeys, muteListStore } from '$lib/muteListStore';
+
   // Pull-to-refresh ref
   let pullToRefreshEl: PullToRefresh;
-  
+
   type TabType = 'all' | 'zaps' | 'replies' | 'mentions';
-  type ContextPreview =
-    | {
-        kind: number;
-        pubkey: string;
-        title?: string;
-        preview: string;
-      }
-    | null;
+  type ContextPreview = {
+    kind: number;
+    pubkey: string;
+    title?: string;
+    preview: string;
+  } | null;
 
   // Map of referenced eventId -> preview data (null = failed to load)
   let contextById: Record<string, ContextPreview> = {};
   let contextInFlight = new Set<string>();
   const MAX_CONTEXT_FETCH = 50;
   const CONTEXT_CONCURRENCY = 4;
-  
+
   function scrollAppToTop() {
     if (!browser) return;
     const el = document.getElementById('app-scroll');
@@ -64,17 +68,56 @@
       pullToRefreshEl?.complete();
     }
   }
-  
+
   let activeTab: TabType = 'all';
-  
+
   const tabs: { id: TabType; label: string }[] = [
     { id: 'all', label: 'All' },
     { id: 'zaps', label: 'Zaps' },
     { id: 'replies', label: 'Replies' },
     { id: 'mentions', label: 'Mentions' }
   ];
-  
-  $: filteredNotifications = $notifications.filter(n => {
+
+  // Local muted users set - populated from localStorage immediately
+  let localMutedUsers: Set<string> = new Set();
+
+  // Load muted users from localStorage immediately
+  if (browser) {
+    try {
+      const stored = localStorage.getItem('mutedUsers');
+      console.log('[Notifications] Raw localStorage mutedUsers:', stored);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        console.log('[Notifications] Parsed localStorage mutes:', parsed);
+        localMutedUsers = new Set(parsed);
+        console.log('[Notifications] localMutedUsers Set size:', localMutedUsers.size);
+      }
+    } catch (e) {
+      console.error('[Notifications] Error parsing localStorage:', e);
+    }
+  }
+
+  // Debug: log store values
+  $: console.log(
+    '[Notifications] $mutedPubkeys size:',
+    $mutedPubkeys.size,
+    'values:',
+    Array.from($mutedPubkeys)
+  );
+
+  // Combined muted users from store + localStorage
+  $: combinedMutedPubkeys = new Set([...$mutedPubkeys, ...localMutedUsers]);
+  $: console.log('[Notifications] combinedMutedPubkeys size:', combinedMutedPubkeys.size);
+
+  $: filteredNotifications = $notifications.filter((n) => {
+    // Filter out notifications from muted users
+    const isMuted = n.fromPubkey && combinedMutedPubkeys.has(n.fromPubkey);
+    if (isMuted) {
+      console.log('[Notifications] FILTERING OUT muted user:', n.fromPubkey);
+      return false;
+    }
+
+    // Filter by tab
     if (activeTab === 'all') return true;
     if (activeTab === 'zaps') return n.type === 'zap';
     if (activeTab === 'replies') return n.type === 'comment';
@@ -104,6 +147,24 @@
       .trim();
   }
 
+  /**
+   * Replace image URLs with [image] placeholder for cleaner display
+   */
+  function cleanImageUrls(text: string): string {
+    if (!text) return text;
+    // Match common image URLs (http/https URLs ending with image extensions or from known image hosts)
+    const imageUrlPattern =
+      /https?:\/\/[^\s]+\.(?:jpg|jpeg|png|gif|webp|svg|bmp|avif)(?:\?[^\s]*)?/gi;
+    const imageHostPattern =
+      /https?:\/\/(?:i\.)?(?:nostr\.build|imgur\.com|primal\.b-cdn\.net|image\.nostr\.build|void\.cat|m\.primal\.net|cdn\.satellite\.earth)[^\s]*/gi;
+
+    return text
+      .replace(imageUrlPattern, '[image]')
+      .replace(imageHostPattern, '[image]')
+      .replace(/\[image\](\s*\[image\])+/g, '[image]') // Collapse multiple consecutive [image] tags
+      .trim();
+  }
+
   function buildContextPreview(event: NDKEvent): ContextPreview {
     const kind = event.kind || 1;
     const pubkey = event.pubkey;
@@ -115,7 +176,12 @@
       const base = title ? `Recipe: ${normalizeText(title)}` : 'Recipe';
       const extra = normalizeText(summary) || normalizeText(event.content || '');
       const preview = extra ? `${base} — ${extra}` : base;
-      return { kind, pubkey, title: title ? normalizeText(title) : undefined, preview: preview.slice(0, 220) };
+      return {
+        kind,
+        pubkey,
+        title: title ? normalizeText(title) : undefined,
+        preview: preview.slice(0, 220)
+      };
     }
 
     const preview = normalizeText(event.content || '').slice(0, 220);
@@ -177,7 +243,7 @@
   $: if ($userPublickey && filteredNotifications.length > 0) {
     void prefetchReferencedNotes(filteredNotifications);
   }
-  
+
   let lastNavTick = 0;
   $: if ($notificationsNavTick !== lastNavTick) {
     lastNavTick = $notificationsNavTick;
@@ -190,10 +256,13 @@
       return;
     }
 
+    // Load mute list for filtering
+    muteListStore.load();
+
     // Initialize nav tick tracking and always reset/refresh on entry
     lastNavTick = $notificationsNavTick;
     void refreshAndResetView();
-    
+
     // Auto-mark all notifications as read when viewing the page
     if ($unreadCount > 0) {
       // Small delay to let user see the unread state briefly before clearing
@@ -202,18 +271,24 @@
       }, 500);
     }
   });
-  
+
   function getIcon(type: string): string {
     switch (type) {
-      case 'reaction': return '❤️';
-      case 'zap': return '⚡';
-      case 'comment': return '💬';
-      case 'mention': return '📣';
-      case 'repost': return '🔁';
-      default: return '🔔';
+      case 'reaction':
+        return '❤️';
+      case 'zap':
+        return '⚡';
+      case 'comment':
+        return '💬';
+      case 'mention':
+        return '📣';
+      case 'repost':
+        return '🔁';
+      default:
+        return '🔔';
     }
   }
-  
+
   function getMessage(notification: any): string {
     switch (notification.type) {
       case 'reaction':
@@ -230,23 +305,24 @@
         return 'interacted with you';
     }
   }
-  
+
   function formatTime(timestamp: number): string {
     return formatDistanceToNow(timestamp * 1000, { addSuffix: true });
   }
-  
+
   async function handleNotificationClick(notification: any) {
     notifications.markAsRead(notification.id);
-    
+
     // For mentions and comments, use the notification id (which is the event id)
     // as fallback if eventId is not set (for backwards compatibility with old notifications)
-    const eventIdToView = notification.eventId || 
+    const eventIdToView =
+      notification.eventId ||
       (['mention', 'comment'].includes(notification.type) ? notification.id : null);
-    
+
     if (!eventIdToView) {
       return;
     }
-    
+
     // For reactions, zaps, and reposts on recipes, try to fetch the event
     // to determine if it's a recipe (kind 30023) and route accordingly
     if (['reaction', 'zap', 'repost'].includes(notification.type)) {
@@ -256,7 +332,7 @@
           const event = await ndkInstance.fetchEvent({ ids: [eventIdToView] });
           if (event && event.kind === 30023) {
             // It's a recipe - build naddr and go to recipe page
-            const dTag = event.tags.find(t => t[0] === 'd')?.[1];
+            const dTag = event.tags.find((t) => t[0] === 'd')?.[1];
             if (dTag) {
               const naddr = nip19.naddrEncode({
                 kind: 30023,
@@ -273,7 +349,7 @@
         console.debug('[Notifications] Could not fetch event for routing:', e);
       }
     }
-    
+
     // Default: go to note view
     const raw = String(eventIdToView).trim();
     if (!raw) return;
@@ -295,111 +371,120 @@
 </svelte:head>
 
 <PullToRefresh bind:this={pullToRefreshEl} on:refresh={handleRefresh}>
-<div class="max-w-2xl mx-auto px-4 py-8">
-  <div class="flex items-center justify-between mb-6">
-    <h1 class="text-2xl font-bold">Notifications</h1>
-  </div>
-  
-  <!-- Tabs -->
-  <div class="mb-6 border-b" style="border-color: var(--color-input-border)">
-    <div class="flex gap-1">
-      {#each tabs as tab}
-        <button
-          on:click={() => activeTab = tab.id}
-          class="px-4 py-2 text-sm font-medium transition-colors relative cursor-pointer"
-          style="color: {activeTab === tab.id ? 'var(--color-text-primary)' : 'var(--color-text-secondary)'}"
-        >
-          {tab.label}
-          {#if activeTab === tab.id}
-            <span class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-orange-500 to-amber-500"></span>
-          {/if}
-        </button>
-      {/each}
+  <div class="max-w-2xl mx-auto px-4 py-8">
+    <div class="flex items-center justify-between mb-6">
+      <h1 class="text-2xl font-bold">Notifications</h1>
     </div>
-  </div>
-  
-  {#if $notifications.length === 0}
-    <div class="text-center py-12 text-caption">
-      <span class="text-5xl">🔔</span>
-      <p class="mt-4 text-lg">No notifications yet</p>
-      <p class="mt-2">When someone reacts, zaps, or replies to you, it will show up here.</p>
+
+    <!-- Tabs -->
+    <div class="mb-6 border-b" style="border-color: var(--color-input-border)">
+      <div class="flex gap-1">
+        {#each tabs as tab}
+          <button
+            on:click={() => (activeTab = tab.id)}
+            class="px-4 py-2 text-sm font-medium transition-colors relative cursor-pointer"
+            style="color: {activeTab === tab.id
+              ? 'var(--color-text-primary)'
+              : 'var(--color-text-secondary)'}"
+          >
+            {tab.label}
+            {#if activeTab === tab.id}
+              <span
+                class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-orange-500 to-amber-500"
+              ></span>
+            {/if}
+          </button>
+        {/each}
+      </div>
     </div>
-  {:else if filteredNotifications.length === 0}
-    <div class="text-center py-12 text-caption">
-      <span class="text-5xl">🔔</span>
-      <p class="mt-4 text-lg">No {activeTab === 'all' ? '' : activeTab} notifications</p>
-    </div>
-  {:else}
-    <div class="rounded-xl divide-y" style="background-color: var(--color-bg-secondary); border: 1px solid var(--color-input-border);">
-      {#each filteredNotifications as notification (notification.id)}
-        <button
-          on:click={() => handleNotificationClick(notification)}
-          class="w-full flex items-start gap-4 p-4 transition-colors cursor-pointer text-left hover:opacity-80
+
+    {#if $notifications.length === 0}
+      <div class="text-center py-12 text-caption">
+        <span class="text-5xl">🔔</span>
+        <p class="mt-4 text-lg">No notifications yet</p>
+        <p class="mt-2">When someone reacts, zaps, or replies to you, it will show up here.</p>
+      </div>
+    {:else if filteredNotifications.length === 0}
+      <div class="text-center py-12 text-caption">
+        <span class="text-5xl">🔔</span>
+        <p class="mt-4 text-lg">No {activeTab === 'all' ? '' : activeTab} notifications</p>
+      </div>
+    {:else}
+      <div
+        class="rounded-xl divide-y"
+        style="background-color: var(--color-bg-secondary); border: 1px solid var(--color-input-border);"
+      >
+        {#each filteredNotifications as notification (notification.id)}
+          <button
+            on:click={() => handleNotificationClick(notification)}
+            class="w-full flex items-start gap-4 p-4 transition-colors cursor-pointer text-left hover:opacity-80
             {notification.read ? 'opacity-60' : ''}"
-          style="border-color: var(--color-input-border);"
-        >
-          <div class="relative flex-shrink-0">
-            <CustomAvatar pubkey={notification.fromPubkey} size={48} />
-            <span class="absolute -bottom-1 -right-1 text-lg">
-              {getIcon(notification.type)}
-            </span>
-          </div>
-          
-          <div class="flex-1 min-w-0">
-            <p style="color: var(--color-text-primary);">
-              <span class="font-semibold">
-                <CustomName pubkey={notification.fromPubkey} />
+            style="border-color: var(--color-input-border);"
+          >
+            <div class="relative flex-shrink-0">
+              <CustomAvatar pubkey={notification.fromPubkey} size={48} />
+              <span class="absolute -bottom-1 -right-1 text-lg">
+                {getIcon(notification.type)}
               </span>
-              {' '}{getMessage(notification)}
-            </p>
-            {#if notification.content}
-              <p class="mt-1 line-clamp-2" style="color: var(--color-text-secondary);">
-                "{notification.content}"
+            </div>
+
+            <div class="flex-1 min-w-0">
+              <p style="color: var(--color-text-primary);">
+                <span class="font-semibold">
+                  <CustomName pubkey={notification.fromPubkey} />
+                </span>
+                {' '}{getMessage(notification)}
               </p>
-            {/if}
+              {#if notification.content}
+                <p class="mt-1 line-clamp-2" style="color: var(--color-text-secondary);">
+                  {cleanImageUrls(notification.content)}
+                </p>
+              {/if}
 
-            {#if getReferencedEventId(notification)}
-              {@const refId = getReferencedEventId(notification)}
-              {@const ctx = refId ? contextById[refId] : undefined}
-              <div
-                class="mt-2 px-3 py-2 rounded-lg border-l-2"
-                style="background-color: var(--color-input-bg); border-color: #f97316;"
-              >
-                {#if refId && ctx === undefined}
-                  <div class="flex items-center gap-2">
-                    <div class="w-4 h-4 bg-accent-gray rounded-full animate-pulse"></div>
-                    <div class="h-3 bg-accent-gray rounded w-28 animate-pulse"></div>
-                  </div>
-                  <div class="mt-1 h-3 bg-accent-gray rounded w-48 animate-pulse"></div>
-                {:else if refId && ctx}
-                  <div class="flex items-center gap-2">
-                    <CustomAvatar pubkey={ctx.pubkey} size={18} />
-                    <span class="text-xs font-medium" style="color: var(--color-text-secondary);">
-                      <CustomName pubkey={ctx.pubkey} />
-                    </span>
-                  </div>
-                  <p class="mt-1 text-xs line-clamp-2" style="color: var(--color-text-secondary);">
-                    {ctx.preview}
-                  </p>
-                {:else}
-                  <p class="text-xs" style="color: var(--color-text-secondary);">
-                    Referenced post unavailable
-                  </p>
-                {/if}
-              </div>
+              {#if getReferencedEventId(notification)}
+                {@const refId = getReferencedEventId(notification)}
+                {@const ctx = refId ? contextById[refId] : undefined}
+                <div
+                  class="mt-2 px-3 py-2 rounded-lg border-l-2"
+                  style="background-color: var(--color-input-bg); border-color: #f97316;"
+                >
+                  {#if refId && ctx === undefined}
+                    <div class="flex items-center gap-2">
+                      <div class="w-4 h-4 bg-accent-gray rounded-full animate-pulse"></div>
+                      <div class="h-3 bg-accent-gray rounded w-28 animate-pulse"></div>
+                    </div>
+                    <div class="mt-1 h-3 bg-accent-gray rounded w-48 animate-pulse"></div>
+                  {:else if refId && ctx}
+                    <div class="flex items-center gap-2">
+                      <CustomAvatar pubkey={ctx.pubkey} size={18} />
+                      <span class="text-xs font-medium" style="color: var(--color-text-secondary);">
+                        <CustomName pubkey={ctx.pubkey} />
+                      </span>
+                    </div>
+                    <p
+                      class="mt-1 text-xs line-clamp-2"
+                      style="color: var(--color-text-secondary);"
+                    >
+                      {cleanImageUrls(ctx.preview)}
+                    </p>
+                  {:else}
+                    <p class="text-xs" style="color: var(--color-text-secondary);">
+                      Referenced post unavailable
+                    </p>
+                  {/if}
+                </div>
+              {/if}
+              <p class="text-sm mt-2" style="color: var(--color-caption);">
+                {formatTime(notification.createdAt)}
+              </p>
+            </div>
+
+            {#if !notification.read}
+              <span class="w-3 h-3 bg-orange-500 rounded-full flex-shrink-0 mt-2"></span>
             {/if}
-            <p class="text-sm mt-2" style="color: var(--color-caption);">
-              {formatTime(notification.createdAt)}
-            </p>
-          </div>
-          
-          {#if !notification.read}
-            <span class="w-3 h-3 bg-orange-500 rounded-full flex-shrink-0 mt-2"></span>
-          {/if}
-        </button>
-      {/each}
-    </div>
-  {/if}
-</div>
+          </button>
+        {/each}
+      </div>
+    {/if}
+  </div>
 </PullToRefresh>
-

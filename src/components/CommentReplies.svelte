@@ -2,6 +2,7 @@
   import { onMount, onDestroy } from 'svelte';
   import { ndk, userPublickey } from '$lib/nostr';
   import { NDKEvent } from '@nostr-dev-kit/ndk';
+  import { mutedPubkeys } from '$lib/muteListStore';
   import CustomAvatar from './CustomAvatar.svelte';
   import CustomName from './CustomName.svelte';
   import { nip19 } from 'nostr-tools';
@@ -1015,28 +1016,30 @@
           <div class="text-center py-2 text-xs text-caption">No replies yet</div>
         {:else}
           {#each replies as reply}
-            <div class="reply-row">
-              <div class="reply-avatar">
-                <CustomAvatar className="flex-shrink-0" pubkey={reply.pubkey} size={24} />
+            {#if !$mutedPubkeys.has(reply.pubkey)}
+              <div class="reply-row">
+                <div class="reply-avatar">
+                  <CustomAvatar className="flex-shrink-0" pubkey={reply.pubkey} size={24} />
+                </div>
+                <div class="reply-content">
+                  <div class="reply-header">
+                    <span class="reply-author">
+                      <CustomName pubkey={reply.pubkey} />
+                    </span>
+                    <span class="reply-time">
+                      {formatDate(new Date((reply.created_at || 0) * 1000))}
+                    </span>
+                  </div>
+                  <div class="reply-body">
+                    <NoteContent content={reply.content} />
+                  </div>
+                  <!-- Reply Actions -->
+                  <div class="flex items-center gap-2">
+                    <CommentLikes event={reply} />
+                  </div>
+                </div>
               </div>
-              <div class="reply-content">
-                <div class="reply-header">
-                  <span class="reply-author">
-                    <CustomName pubkey={reply.pubkey} />
-                  </span>
-                  <span class="reply-time">
-                    {formatDate(new Date((reply.created_at || 0) * 1000))}
-                  </span>
-                </div>
-                <div class="reply-body">
-                  <NoteContent content={reply.content} />
-                </div>
-                <!-- Reply Actions -->
-                <div class="flex items-center gap-2">
-                  <CommentLikes event={reply} />
-                </div>
-              </div>
-            </div>
+            {/if}
           {/each}
         {/if}
       </div>

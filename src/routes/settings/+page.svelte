@@ -34,6 +34,7 @@
     setOneTapZapAmount,
     MAX_ONE_TAP_ZAP_AMOUNT
   } from '$lib/autoZapSettings';
+  import { hellthreadThreshold } from '$lib/hellthreadFilterSettings';
   import LightningIcon from 'phosphor-svelte/lib/Lightning';
   import { getConnectionManager } from '$lib/connectionManager';
   import SparkLogo from '../../components/icons/SparkLogo.svelte';
@@ -236,6 +237,13 @@
     displayCurrency.subscribe((value) => {
       selectedCurrency = value;
     });
+  }
+
+  // Hellthread threshold state
+  let currentThreshold = $hellthreadThreshold;
+
+  function handleThresholdChange() {
+    hellthreadThreshold.setThreshold(currentThreshold);
   }
 
   function handleCurrencyChange(newCurrency: CurrencyCode) {
@@ -735,6 +743,46 @@
               Connect a Spark or NWC wallet to enable one-tap zaps.
             </p>
           {/if}
+        </div>
+      </div>
+    </Accordion>
+
+    <!-- Content Filters Section -->
+    <Accordion title="Content Filters" open={false}>
+      <div class="flex flex-col gap-4">
+        <!-- Hellthread Filter -->
+        <div class="flex flex-col gap-2">
+          <label class="text-sm font-medium" style="color: var(--color-text-primary)">
+            Hellthread Threshold
+          </label>
+          <p class="text-xs" style="color: var(--color-caption)">
+            Hide notes with too many mentions (common in spam threads). Set to 0 to disable.
+          </p>
+          <div class="flex items-center gap-3">
+            <input
+              type="range"
+              min="0"
+              max="100"
+              step="5"
+              bind:value={currentThreshold}
+              on:change={handleThresholdChange}
+              class="flex-1"
+            />
+            <input
+              type="number"
+              min="0"
+              max="500"
+              bind:value={currentThreshold}
+              on:change={handleThresholdChange}
+              class="w-20 px-2 py-1 rounded text-sm"
+              style="background-color: var(--color-input-bg); color: var(--color-text-primary); border: 1px solid var(--color-input-border);"
+            />
+          </div>
+          <div class="flex justify-between text-xs" style="color: var(--color-caption)">
+            <span>Disabled</span>
+            <span>Current: {currentThreshold} mentions</span>
+            <span>Very strict</span>
+          </div>
         </div>
       </div>
     </Accordion>
