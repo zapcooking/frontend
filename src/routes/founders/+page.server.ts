@@ -7,33 +7,41 @@ const PRIORITY_FOUNDER_NPUBS = [
   'npub15u3cqhx6vuj3rywg0ph5mfv009lxja6cyvqn2jagaydukq6zmjwqex05rq', // #1
   'npub1aeh2zw4elewy5682lxc6xnlqzjnxksq303gwu2npfaxd49vmde6qcq4nwx', // #2
   'npub1cgcwm56v5hyrrzl5ty4vq4kdud63n5u4czgycdl2r3jshzk55ufqe52ndy', // #3
-  'npub1chakany8dcz93clv4xgcudcvhnfhdyqutprq2yh72daydevv8zasmuhf02'  // #4
+  'npub1chakany8dcz93clv4xgcudcvhnfhdyqutprq2yh72daydevv8zasmuhf02' // #4
 ];
 
 // Convert npubs to hex pubkeys
-const PRIORITY_FOUNDERS = PRIORITY_FOUNDER_NPUBS.map(npub => {
+const PRIORITY_FOUNDERS = PRIORITY_FOUNDER_NPUBS.map((npub) => {
   try {
     const decoded = nip19.decode(npub);
-    return decoded.type === 'npub' ? decoded.data as string : null;
+    return decoded.type === 'npub' ? (decoded.data as string) : null;
   } catch {
     console.error('Failed to decode npub:', npub);
     return null;
   }
 }).filter(Boolean) as string[];
 
+// Fallback data for local development when API secret is not available
+const FALLBACK_FOUNDERS = PRIORITY_FOUNDERS.map((pubkey, idx) => ({
+  number: idx + 1,
+  pubkey: pubkey,
+  tier: 'genesis_founder',
+  joined: null
+}));
+
 export const load: PageServerLoad = async ({ fetch, platform }) => {
   // Cloudflare uses platform.env, local dev uses $env
   const API_SECRET = platform?.env?.RELAY_API_SECRET || env.RELAY_API_SECRET;
 
   if (!API_SECRET) {
-    console.error('RELAY_API_SECRET not found');
-    return { founders: [] };
+    console.warn('RELAY_API_SECRET not found, using fallback founders data');
+    return { founders: FALLBACK_FOUNDERS };
   }
 
   try {
     const res = await fetch('https://pantry.zap.cooking/api/members', {
       headers: {
-        'Authorization': `Bearer ${API_SECRET}`
+        Authorization: `Bearer ${API_SECRET}`
       }
     });
 
@@ -47,7 +55,7 @@ export const load: PageServerLoad = async ({ fetch, platform }) => {
       })
       // Remove duplicates by pubkey
       .reduce((acc: any[], m: any) => {
-        if (!acc.find(f => f.pubkey === m.pubkey)) {
+        if (!acc.find((f) => f.pubkey === m.pubkey)) {
           acc.push(m);
         }
         return acc;
@@ -58,17 +66,16 @@ export const load: PageServerLoad = async ({ fetch, platform }) => {
     const founders = PRIORITY_FOUNDERS.map((pubkey, idx) => {
       // Find this pubkey in the API response
       const member = allFounders.find((m: any) => m.pubkey === pubkey);
-      
+
       return {
         number: idx + 1, // #1, #2, #3, #4
         pubkey: pubkey,
         tier: member?.tier || 'genesis_founder',
         joined: member?.created_at || null
       };
-    }).filter(f => f && f.pubkey); // Filter out any that failed to decode
+    }).filter((f) => f && f.pubkey); // Filter out any that failed to decode
 
     return { founders };
-
   } catch (err) {
     console.error('Failed to load founders:', err);
     return { founders: [] };

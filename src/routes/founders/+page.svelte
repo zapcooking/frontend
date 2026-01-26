@@ -1,17 +1,26 @@
 <script lang="ts">
+  import { nip19 } from 'nostr-tools';
   import CustomAvatar from '../../components/CustomAvatar.svelte';
   import CustomName from '../../components/CustomName.svelte';
   import type { PageData } from './$types';
-  
+
   export let data: PageData;
-  
+
+  function getNpub(pubkey: string): string {
+    try {
+      return nip19.npubEncode(pubkey);
+    } catch {
+      return pubkey;
+    }
+  }
+
   interface Founder {
     number: number;
     pubkey: string;
     tier: string;
     joined: string | null;
   }
-  
+
   // CustomAvatar and CustomName handle their own profile loading
   let founders: Founder[] = (data.founders || []).map((f: any) => ({
     number: f.number,
@@ -33,7 +42,7 @@
   <section class="genesis-founders">
     <h2>🔥 Genesis Founders</h2>
     <p class="subtitle">The first believers who made this possible</p>
-  
+
     {#if founders.length === 0}
       <div class="empty-state">
         <p>No founders found.</p>
@@ -43,20 +52,18 @@
         {#each founders as founder}
           <div class="founder-card">
             <div class="founder-number">#{founder.number}</div>
-            
-            <div class="founder-avatar-wrapper">
+
+            <a href="/user/{getNpub(founder.pubkey)}" class="founder-avatar-wrapper">
               <CustomAvatar pubkey={founder.pubkey} size={80} className="founder-avatar-img" />
-            </div>
+            </a>
 
             <div class="founder-info">
-              <div class="founder-name">
+              <a href="/user/{getNpub(founder.pubkey)}" class="founder-name">
                 <CustomName pubkey={founder.pubkey} className="founder-name-text" />
-              </div>
+              </a>
             </div>
 
-            <div class="founder-badge">
-              Genesis Founder
-            </div>
+            <div class="founder-badge">Genesis Founder</div>
           </div>
         {/each}
       </div>
@@ -113,7 +120,9 @@
     text-align: center;
     position: relative;
     color: var(--color-text-primary);
-    transition: transform 0.2s, box-shadow 0.2s;
+    transition:
+      transform 0.2s,
+      box-shadow 0.2s;
   }
 
   .founder-card:hover {
@@ -137,6 +146,11 @@
   .founder-avatar-wrapper {
     margin: 1rem auto;
     position: relative;
+    width: 80px;
+    height: 80px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
   }
 
   .founder-avatar-img {
@@ -153,10 +167,17 @@
   .founder-name {
     font-weight: 600;
     font-size: 1rem;
+    text-decoration: none;
+    color: var(--color-text-primary);
+    transition: color 0.2s;
+  }
+
+  .founder-name:hover {
+    color: var(--color-primary);
   }
 
   .founder-name-text {
-    color: var(--color-text-primary);
+    color: inherit;
   }
 
   .founder-badge {

@@ -679,29 +679,18 @@
   }
 
   function deduplicateText(text: string): string {
-    if (!text || text.length < 20) return text;
+    if (!text || text.length < 40) return text;
 
-    const segments = text.split(/(?<=[.!?\n])(?:\s+|$)/);
-    if (segments.length < 2) return text;
-
-    const deduplicated: string[] = [];
-    for (const segment of segments) {
-      const current = segment.trim();
-      const prev = deduplicated[deduplicated.length - 1]?.trim();
-      if (current && current !== prev) {
-        deduplicated.push(segment);
-      }
-    }
-
-    const result = deduplicated.join(' ').trim();
-    const halfLen = Math.floor(result.length / 2);
+    // Check if the entire text is duplicated (first half equals second half)
+    const trimmed = text.trim();
+    const halfLen = Math.floor(trimmed.length / 2);
     if (halfLen > 20) {
-      const firstHalf = result.substring(0, halfLen).trim();
-      const secondHalf = result.substring(halfLen).trim();
+      const firstHalf = trimmed.substring(0, halfLen).trim();
+      const secondHalf = trimmed.substring(halfLen).trim();
       if (firstHalf === secondHalf) return firstHalf;
     }
 
-    return result;
+    return text;
   }
 
   function getContentWithoutMedia(content: string): string {
@@ -709,7 +698,6 @@
       .replace(URL_REGEX, (url) => {
         return isImageUrl(url) || isVideoUrl(url) ? '' : url;
       })
-      .replace(/\s+/g, ' ')
       .trim();
 
     return deduplicateText(cleaned);
@@ -5392,7 +5380,7 @@
     }
   }
 
-  /* Tiered zap glow effects - visible amber glow */
+  /* Tiered zap glow effects - amber/gold glow for dark mode */
   /* Tier 1: Soft glow (>500 sats) - Gentle amber hint */
   .zap-glow-soft {
     border-radius: 12px;
@@ -5466,6 +5454,55 @@
         0 0 85px rgba(251, 191, 36, 0.15),
         0 0 110px rgba(251, 191, 36, 0.08),
         inset 0 0 50px rgba(251, 191, 36, 0.07);
+    }
+  }
+
+  /* Light mode: More visible orange glow (when .dark is NOT present) */
+  :global(html:not(.dark)) .zap-glow-soft {
+    background: linear-gradient(135deg, rgba(249, 115, 22, 0.08) 0%, transparent 100%);
+    box-shadow:
+      0 0 15px rgba(249, 115, 22, 0.4),
+      0 0 30px rgba(249, 115, 22, 0.2),
+      inset 0 0 20px rgba(249, 115, 22, 0.05);
+  }
+
+  :global(html:not(.dark)) .zap-glow-medium {
+    background: linear-gradient(135deg, rgba(249, 115, 22, 0.1) 0%, transparent 100%);
+    box-shadow:
+      0 0 20px rgba(249, 115, 22, 0.5),
+      0 0 40px rgba(249, 115, 22, 0.28),
+      0 0 60px rgba(249, 115, 22, 0.15),
+      inset 0 0 30px rgba(249, 115, 22, 0.06);
+  }
+
+  :global(html:not(.dark)) .zap-glow-bright {
+    background: linear-gradient(135deg, rgba(249, 115, 22, 0.12) 0%, rgba(234, 88, 12, 0.06) 100%);
+    box-shadow:
+      0 0 25px rgba(249, 115, 22, 0.6),
+      0 0 50px rgba(249, 115, 22, 0.35),
+      0 0 75px rgba(249, 115, 22, 0.18),
+      0 0 100px rgba(249, 115, 22, 0.1),
+      inset 0 0 40px rgba(249, 115, 22, 0.07);
+    animation: subtle-glow-pulse-light 4s ease-in-out infinite;
+  }
+
+  @keyframes subtle-glow-pulse-light {
+    0%,
+    100% {
+      box-shadow:
+        0 0 25px rgba(249, 115, 22, 0.6),
+        0 0 50px rgba(249, 115, 22, 0.35),
+        0 0 75px rgba(249, 115, 22, 0.18),
+        0 0 100px rgba(249, 115, 22, 0.1),
+        inset 0 0 40px rgba(249, 115, 22, 0.07);
+    }
+    50% {
+      box-shadow:
+        0 0 35px rgba(249, 115, 22, 0.7),
+        0 0 60px rgba(249, 115, 22, 0.4),
+        0 0 85px rgba(249, 115, 22, 0.22),
+        0 0 110px rgba(249, 115, 22, 0.12),
+        inset 0 0 50px rgba(249, 115, 22, 0.09);
     }
   }
 
