@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       '@breeztech/breez-sdk-spark':
-        specifier: 0.6.6
-        version: 0.6.6
+        specifier: 0.7.12
+        version: 0.7.12
       '@capacitor/android':
         specifier: ^8.0.0
         version: 8.0.0(@capacitor/core@8.0.0)
@@ -247,8 +247,8 @@ packages:
     resolution: {integrity: sha512-qSs4ifwzKJSV39ucNjsvc6WVHs6b7S03sOh2OcHF9UHfVPqWWALUsNUVzhSBiItjRZoLHx7nIarVjqKVusUZ1Q==}
     engines: {node: '>=6.9.0'}
 
-  '@breeztech/breez-sdk-spark@0.6.6':
-    resolution: {integrity: sha512-5En4550dP5VfP6FuRb1tqT8mDgKwAMA1a7cyw8Wjb2puhCnmX/NnGhPIDGsITw37JNVK4gU/55QoDCLvvjx8Kg==}
+  '@breeztech/breez-sdk-spark@0.7.12':
+    resolution: {integrity: sha512-AdjvkgQFEQicfHEO7JEIMKq/v9T/sP8MTBHs/Jgwz6Dx8vnVjwCUKKBbsJtXBw9hpO8AT63QD6O7H0tq3KeeAQ==}
     engines: {node: '>=22'}
 
   '@capacitor/android@8.0.0':
@@ -1665,8 +1665,8 @@ packages:
   bech32@2.0.0:
     resolution: {integrity: sha512-LcknSilhIGatDAsY1ak2I8VtGaHNhgMSYVxFrGLXv+xLHytaKZKcaUJJUE7qmBr7h33o5YQwP55pMI0xmkpJwg==}
 
-  better-sqlite3@12.5.0:
-    resolution: {integrity: sha512-WwCZ/5Diz7rsF29o27o0Gcc1Du+l7Zsv7SYtVPG0X3G/uUI1LqdxrQI7c9Hs2FWpqXXERjW9hp6g3/tH7DlVKg==}
+  better-sqlite3@12.6.2:
+    resolution: {integrity: sha512-8VYKM3MjCa9WcaSAI3hzwhmyHVlH8tiGFwf0RlTsZPWJ1I5MkzjiudCo4KC4DxOaL/53A5B1sI/IbldNFDbsKA==}
     engines: {node: 20.x || 22.x || 23.x || 24.x || 25.x}
 
   big-integer@1.6.52:
@@ -4795,9 +4795,9 @@ snapshots:
 
   '@babel/helper-validator-identifier@7.28.5': {}
 
-  '@breeztech/breez-sdk-spark@0.6.6':
+  '@breeztech/breez-sdk-spark@0.7.12':
     optionalDependencies:
-      better-sqlite3: 12.5.0
+      better-sqlite3: 12.6.2
 
   '@capacitor/android@8.0.0(@capacitor/core@8.0.0)':
     dependencies:
@@ -6209,7 +6209,7 @@ snapshots:
 
   bech32@2.0.0: {}
 
-  better-sqlite3@12.5.0:
+  better-sqlite3@12.6.2:
     dependencies:
       bindings: 1.5.0
       prebuild-install: 7.1.3
