@@ -280,11 +280,15 @@ export async function fetchArticles(
       }
       if (until) filter.until = until;
       
-      // Only add hashtag filter if we have a small number of hashtags
-      // Large arrays can cause issues with some relays
-      if (hashtags.length > 0 && hashtags.length <= 10) {
-        filter['#t'] = hashtags;
-      }
+      // Use top food hashtags for relay filter (most relays limit to ~10-20 tags)
+      // This ensures we get food-related content from the relay
+      const TOP_FOOD_HASHTAGS = [
+        'food', 'foodstr', 'cooking', 'recipe', 'recipes', 'chef',
+        'farming', 'homesteading', 'gardening', 'foodie', 'homecooking',
+        'beef', 'chicken', 'breakfast', 'dinner', 'baking', 'bbq',
+        'vegan', 'keto', 'coffee'
+      ];
+      filter['#t'] = TOP_FOOD_HASHTAGS;
       
       // Log relay query info
       console.log(`[ArticleOutbox] Querying ${relaysToQuery.size} relays for kind:30023...`);

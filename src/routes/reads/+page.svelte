@@ -483,11 +483,18 @@
   // Direct relay subscription fallback (old method)
   async function fetchFromRelaysDirect(forceRefresh: boolean, startGeneration: number) {
     try {
-      // Use simple filter without hashtags - some relays don't handle large arrays well
-      // Include since filter to get recent articles (last 90 days)
+      // Use top food hashtags for filtering (same as articleOutbox)
+      const TOP_FOOD_HASHTAGS = [
+        'food', 'foodstr', 'cooking', 'recipe', 'recipes', 'chef',
+        'farming', 'homesteading', 'gardening', 'foodie', 'homecooking',
+        'beef', 'chicken', 'breakfast', 'dinner', 'baking', 'bbq',
+        'vegan', 'keto', 'coffee'
+      ];
+      
       const filter: NDKFilter = {
         kinds: [30023],
-        limit: 2000,
+        '#t': TOP_FOOD_HASHTAGS,
+        limit: 200,
         since: Math.floor(Date.now() / 1000) - (90 * 24 * 60 * 60) // Last 90 days
       };
       
