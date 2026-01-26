@@ -19,7 +19,7 @@
     if (!pk) return '';
     // Create a readable name based on pubkey hash
     const hash = pk.split('').reduce((a, b) => {
-      a = ((a << 5) - a) + b.charCodeAt(0);
+      a = (a << 5) - a + b.charCodeAt(0);
       return a & a;
     }, 0);
 
@@ -78,7 +78,7 @@
   $: npub = formatNpub(pubkey);
 </script>
 
-<span 
+<span
   class="name {className}"
   on:click={() => dispatch('click')}
   role="button"
@@ -101,17 +101,17 @@
     cursor: pointer;
     transition: color 0.2s ease;
   }
-  
+
   .name:hover {
-    color: #3b82f6;
+    color: #ec4700;
   }
-  
+
   .name:focus {
-    outline: 2px solid #3b82f6;
+    outline: 2px solid #ec4700;
     outline-offset: 2px;
     border-radius: 2px;
   }
-  
+
   .npub {
     font-size: 0.8em;
     opacity: 0.7;

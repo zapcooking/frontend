@@ -231,8 +231,13 @@
       {@const isOnlyWhitespace = /^\s*$/.test(part.content)}
       {#if isBetweenBlocks && isOnlyWhitespace}
         <!-- Skip whitespace between block elements -->
-      {:else if prevIsBlock || nextIsBlock}
-        {part.content.replace(/\n{2,}/g, '\n').trim()}{:else}{part.content}{/if}
+      {:else if prevIsBlock && nextIsBlock}
+        {part.content.replace(/\n{2,}/g, '\n').trim()}
+      {:else if prevIsBlock}
+        {part.content.replace(/^\n+/, '').replace(/\n{2,}/g, '\n')}
+      {:else if nextIsBlock}
+        {part.content.replace(/\n+$/, '').replace(/\n{2,}/g, '\n')}
+      {:else}{part.content}{/if}
     {:else if part.type === 'hashtag'}
       <button
         class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-orange-50 text-orange-600 hover:bg-orange-500 hover:text-white transition-colors cursor-pointer"

@@ -312,7 +312,7 @@
         <div class="header-blur sticky top-0 z-20 py-3 px-4">
           <Header />
         </div>
-        <div class="px-4 pb-24 lg:pb-8">
+        <div class="px-4 pb-16 lg:pb-8">
           <slot />
           <Footer />
         </div>

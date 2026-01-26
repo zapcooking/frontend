@@ -986,8 +986,8 @@
 
   <!-- Profile Header -->
   <div class="flex items-start gap-5 pb-5 pt-8">
-    <!-- Spacer for avatar -->
-    <div class="w-20 flex-shrink-0"></div>
+    <!-- Spacer for avatar (hidden on mobile where avatar overlaps banner) -->
+    <div class="hidden sm:block w-20 flex-shrink-0"></div>
 
     <!-- Profile Info (right side) -->
     <div class="flex-1 min-w-0 flex flex-col gap-2">

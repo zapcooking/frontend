@@ -11,8 +11,9 @@
   let displayName: string = '@Anonymous';
   let isLoading: boolean = true;
   let mounted = false;
+  let isHovering = false;
 
-  // Get pubkey from event  
+  // Get pubkey from event
   $: pubkey = event?.pubkey || event?.author?.hexpubkey || '';
 
   // Load profile on mount only (not reactively)
@@ -27,25 +28,27 @@
       isLoading = false;
       return;
     }
-    
+
     try {
       // Get NDK instance
       let ndkInstance: any;
-      const unsub = ndk.subscribe(v => { ndkInstance = v; });
+      const unsub = ndk.subscribe((v) => {
+        ndkInstance = v;
+      });
       unsub();
-      
+
       if (!ndkInstance) {
         displayName = '@Anonymous';
         isLoading = false;
         return;
       }
-      
+
       // Simple profile fetch with timeout
       const profile = await Promise.race([
         resolveProfileByPubkey(pubkey, ndkInstance),
-        new Promise<null>(r => setTimeout(() => r(null), 3000))
+        new Promise<null>((r) => setTimeout(() => r(null), 3000))
       ]);
-      
+
       if (profile) {
         displayName = formatDisplayName(profile) || '@Anonymous';
       } else {
@@ -68,21 +71,18 @@
 </script>
 
 <button
-  class="{className} hover:text-primary hover:underline cursor-pointer"
-  style="color: var(--color-text-primary)"
+  class="{className} cursor-pointer"
+  style="color: {isHovering
+    ? '#ec4700'
+    : 'var(--color-text-primary)'}; background: none; border: none; padding: 0; text-decoration: none;"
   on:click={handleClick}
+  on:mouseenter={() => (isHovering = true)}
+  on:mouseleave={() => (isHovering = false)}
   disabled={!pubkey}
 >
   {#if isLoading}
-    <span class="animate-pulse">Loading...</span>
+    <span class="animate-pulse" style="color: inherit;">Loading...</span>
   {:else}
-    {displayName}
+    <span style="color: inherit;">{displayName}</span>
   {/if}
 </button>
-
-<style>
-  button:disabled {
-    cursor: not-allowed;
-    opacity: 0.6;
-  }
-</style>
