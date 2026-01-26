@@ -141,18 +141,29 @@ export async function fetchArticles(
   // Helper to add events without duplicates
   const addEvents = (events: NDKEvent[], source: 'primal' | 'relay'): number => {
     let added = 0;
+    let skippedDuplicate = 0;
+    let skippedInvalid = 0;
+    
     for (const event of events) {
-      if (event.id && !seenIds.has(event.id)) {
-        // Validate it's a valid longform article
-        if (isValidLongformArticleNoFoodFilter(event)) {
-          seenIds.add(event.id);
-          allEvents.push(event);
-          added++;
-          
-          if (onEvent) {
-            onEvent(event);
-          }
-        }
+      if (!event.id) continue;
+      
+      if (seenIds.has(event.id)) {
+        skippedDuplicate++;
+        continue;
+      }
+      
+      // Validate it's a valid longform article
+      if (!isValidLongformArticleNoFoodFilter(event)) {
+        skippedInvalid++;
+        continue;
+      }
+      
+      seenIds.add(event.id);
+      allEvents.push(event);
+      added++;
+      
+      if (onEvent) {
+        onEvent(event);
       }
     }
     
@@ -160,6 +171,11 @@ export async function fetchArticles(
       stats.primalEvents += added;
     } else {
       stats.relayEvents += added;
+    }
+    
+    // Log filtering stats for debugging
+    if (events.length > 0 && added === 0) {
+      console.log(`[ArticleOutbox] ${source}: ${events.length} events received, ${skippedDuplicate} duplicates, ${skippedInvalid} invalid`);
     }
     
     return added;
@@ -202,10 +218,13 @@ export async function fetchArticles(
       
     } catch (err) {
       stats.primalTimeMs = Date.now() - primalStart;
-      stats.errors.push(`Primal: ${err instanceof Error ? err.message : 'Unknown error'}`);
+      const errorMsg = err instanceof Error ? err.message : 'Unknown error';
+      stats.errors.push(`Primal: ${errorMsg}`);
       
-      if (import.meta.env.DEV) {
-        console.warn('[ArticleOutbox] Primal failed:', err);
+      // Log error in production too (but as warn, not error)
+      console.warn('[ArticleOutbox] Primal failed:', errorMsg);
+      if (import.meta.env.DEV && err instanceof Error) {
+        console.warn('[ArticleOutbox] Primal error details:', err);
       }
     }
   }
@@ -231,28 +250,37 @@ export async function fetchArticles(
       const discoveryRelays = RELAY_SETS.discovery?.relays || [];
       discoveryRelays.forEach(r => relaysToQuery.add(r));
       
-      // Add default relays
+      // Add default relays (but exclude garden.zap.cooking - it has issues with kind:30023)
       const defaultRelays = RELAY_SETS.default?.relays || [];
-      defaultRelays.forEach(r => relaysToQuery.add(r));
+      defaultRelays.forEach(r => {
+        if (r !== 'wss://garden.zap.cooking') {
+          relaysToQuery.add(r);
+        }
+      });
       
       // Add article-optimized relays
       CONFIG.ARTICLE_RELAYS.forEach(r => relaysToQuery.add(r));
       
       stats.relaysQueried = [...relaysToQuery];
       
-      // Build filter
+      // Build filter - fetch all kind:30023 events, filter by hashtags client-side
+      // Some relays don't handle large hashtag arrays well
       const filter: NDKFilter = {
         kinds: [30023],
-        '#t': hashtags,
-        limit: Math.min(limit * 2, 200) // Request more to account for filtering
+        limit: Math.min(limit * 3, 300) // Request more since we filter client-side
       };
       
       if (since) filter.since = since;
       if (until) filter.until = until;
       
-      if (import.meta.env.DEV) {
-        console.log(`[ArticleOutbox] Querying ${relaysToQuery.size} relays...`);
+      // Only add hashtag filter if we have a small number of hashtags
+      // Large arrays can cause issues with some relays
+      if (hashtags.length > 0 && hashtags.length <= 10) {
+        filter['#t'] = hashtags;
       }
+      
+      // Log relay query info
+      console.log(`[ArticleOutbox] Querying ${relaysToQuery.size} relays for kind:30023...`);
       
       // Create relay set and fetch
       const relaySet = NDKRelaySet.fromRelayUrls([...relaysToQuery], ndk, true);
@@ -264,19 +292,26 @@ export async function fetchArticles(
         )
       ]);
       
+      const rawCount = relayEvents.size;
       const addedCount = addEvents([...relayEvents], 'relay');
       stats.relayTimeMs = Date.now() - relayStart;
       
-      if (import.meta.env.DEV) {
-        console.log(`[ArticleOutbox] Relays: ${addedCount} new articles in ${stats.relayTimeMs}ms`);
+      // Log results (even in production for debugging)
+      console.log(`[ArticleOutbox] Relays returned ${rawCount} events, ${addedCount} valid articles in ${stats.relayTimeMs}ms`);
+      
+      if (rawCount > 0 && addedCount === 0) {
+        console.warn('[ArticleOutbox] All events filtered out - check article validation');
       }
       
     } catch (err) {
       stats.relayTimeMs = Date.now() - relayStart;
-      stats.errors.push(`Relays: ${err instanceof Error ? err.message : 'Unknown error'}`);
+      const errorMsg = err instanceof Error ? err.message : 'Unknown error';
+      stats.errors.push(`Relays: ${errorMsg}`);
       
-      if (import.meta.env.DEV) {
-        console.warn('[ArticleOutbox] Relay fetch failed:', err);
+      // Log error in production too
+      console.error('[ArticleOutbox] Relay fetch failed:', errorMsg);
+      if (import.meta.env.DEV && err instanceof Error) {
+        console.error('[ArticleOutbox] Relay error details:', err);
       }
     }
   }

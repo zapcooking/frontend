@@ -2,6 +2,7 @@
   import { onMount, onDestroy } from 'svelte';
   import { browser } from '$app/environment';
   import { ndk, getCurrentRelayGeneration } from '$lib/nostr';
+  import { NDKRelaySet } from '@nostr-dev-kit/ndk';
   import type { NDKEvent, NDKFilter, NDKSubscription } from '@nostr-dev-kit/ndk';
   import CoverSection from '../../components/table/CoverSection.svelte';
   import FeedSection from '../../components/table/FeedSection.svelte';
@@ -19,6 +20,7 @@
   import { cacheFeedEvents, loadCachedFeedEvents } from '$lib/eventStore';
   import { RELAY_SETS } from '$lib/relays/relaySets';
   import { fetchArticles, backgroundArticleRefresh, type ArticleFetchStats } from '$lib/articleOutbox';
+  import { isPrimalCacheAvailable } from '$lib/primalCache';
   import ArrowClockwiseIcon from 'phosphor-svelte/lib/ArrowClockwise';
 
   let articles: ArticleData[] = [];
@@ -59,13 +61,16 @@
     
     // Re-curate cover based on new toggle state - no need to refetch!
     // We already have all articles, just need to re-filter for the cover
-    if (articles.length >= 6) {
+    if (articles.length >= 1) {
       clearCoverCache();
       const coverArticles = foodOnly
         ? articles.filter(a => isValidLongformArticle(a.event))
         : articles;
       if (coverArticles.length >= 1) {
         cover = curateCover(coverArticles, true);
+      } else if (foodOnly) {
+        // If foodOnly is on but no food articles, clear cover
+        cover = null;
       }
     }
   }
@@ -96,12 +101,13 @@
             .filter((a, i, arr) => arr.findIndex((x) => x.id === a.id) === i)
             .sort((a, b) => b.publishedAt - a.publishedAt);
 
-          // Curate cover from food-only articles when foodOnly is ON
-          if (articles.length >= 6 && !cover) {
+          // Curate cover when we have enough articles (try to curate even with fewer articles)
+          if (articles.length >= 1 && !cover) {
             const coverArticles = foodOnly
               ? articles.filter(a => isValidLongformArticle(a.event))
               : articles;
-            if (coverArticles.length >= 6) {
+            // Curate if we have at least 1 article (curateCover can work with fewer)
+            if (coverArticles.length >= 1) {
               cover = curateCover(coverArticles, forceRefresh);
             }
           }
@@ -167,12 +173,13 @@
           processEvents(cachedEvents, false);
           cacheWasUsed = true;
           
-          // If we have enough cached data, show it immediately
-          if (articles.length >= 6) {
+          // If we have cached data, show it immediately and curate cover
+          if (articles.length >= 1) {
             const coverArticles = foodOnly
               ? articles.filter(a => isValidLongformArticle(a.event))
               : articles;
-            if (coverArticles.length >= 6) {
+            // Curate cover if we have at least 1 matching article
+            if (coverArticles.length >= 1) {
               cover = curateCover(coverArticles, false);
             }
             loading = false;
@@ -284,10 +291,12 @@
     try {
       const eventsToCache: NDKEvent[] = [];
       
-      // Use the article outbox which tries Primal first, then relays
+      // Use the article outbox - skip Primal cache (doesn't support kind:30023)
+      // relay.primal.net is included in the relay list and works for articles
       const { events, stats } = await fetchArticles($ndk, {
         hashtags: ALL_ARTICLE_HASHTAGS.slice(0, 40),
         limit: 200,
+        skipPrimal: true, // Skip Primal cache API (doesn't support kind:30023)
         onEvent: (event: NDKEvent) => {
           // Check generation hasn't changed (relay switch)
           if (getCurrentRelayGeneration() !== startGeneration) return;
@@ -302,18 +311,35 @@
               .filter((a, i, arr) => arr.findIndex((x) => x.id === a.id) === i)
               .sort((a, b) => b.publishedAt - a.publishedAt);
 
-            // Curate cover when we have enough articles
-            if (articles.length >= 6 && !cover) {
+            // Curate cover when we have articles (try to curate even with fewer)
+            if (articles.length >= 1 && !cover) {
               const coverArticles = foodOnly
                 ? articles.filter(a => isValidLongformArticle(a.event))
                 : articles;
-              if (coverArticles.length >= 6) {
+              if (coverArticles.length >= 1) {
                 cover = curateCover(coverArticles, forceRefresh);
               }
             }
           }
         }
       });
+
+      // Process any events that weren't handled by onEvent callback
+      // (This can happen if onEvent isn't called or events are returned directly)
+      for (const event of events) {
+        if (getCurrentRelayGeneration() !== startGeneration) break;
+        if (seenEventIds.has(event.id)) continue;
+        
+        seenEventIds.add(event.id);
+        eventsToCache.push(event);
+        
+        const articleData = eventToArticleData(event, true);
+        if (articleData) {
+          articles = [...articles, articleData]
+            .filter((a, i, arr) => arr.findIndex((x) => x.id === a.id) === i)
+            .sort((a, b) => b.publishedAt - a.publishedAt);
+        }
+      }
 
       // Final processing
       loading = false;
@@ -324,13 +350,17 @@
         oldestTimestamp = Math.min(...articles.map(a => a.publishedAt));
       }
       
-      // Curate cover
-      if (articles.length > 0 && !cover) {
+      // Always try to curate cover after fetch completes (even if already set, re-curate to ensure it's correct)
+      if (articles.length > 0) {
         const coverArticles = foodOnly
           ? articles.filter(a => isValidLongformArticle(a.event))
           : articles;
         if (coverArticles.length >= 1) {
+          // Always re-curate to ensure cover matches current foodOnly state
           cover = curateCover(coverArticles, forceRefresh);
+        } else if (foodOnly) {
+          // If foodOnly is on but no food articles, clear cover
+          cover = null;
         }
       }
 
@@ -339,16 +369,141 @@
         cacheFeedEvents(eventsToCache).catch(() => {});
       }
       
-      if (import.meta.env.DEV) {
-        console.log(
-          `[Reads] Outbox fetch complete: ${stats.totalEvents} articles ` +
-          `(Primal: ${stats.primalEvents}, Relays: ${stats.relayEvents}) ` +
-          `in ${stats.totalTimeMs}ms`
-        );
+      // Log results (including in production for debugging)
+      console.log(
+        `[Reads] Outbox fetch complete: ${stats.totalEvents} articles ` +
+        `(Primal: ${stats.primalEvents}, Relays: ${stats.relayEvents}) ` +
+        `in ${stats.totalTimeMs}ms`
+      );
+      
+      if (stats.errors.length > 0) {
+        console.warn('[Reads] Outbox fetch errors:', stats.errors);
+      }
+      
+      // If no events were fetched, try the direct relay fallback
+      if (stats.totalEvents === 0 && articles.length === 0) {
+        console.warn('[Reads] No articles from outbox, trying direct relay subscription...');
+        await fetchFromRelaysDirect(forceRefresh, startGeneration);
       }
       
     } catch (error) {
       console.error('[Reads] Error loading articles:', error);
+      loading = false;
+      
+      // If fetch completely fails, try direct relay subscription as fallback
+      if (articles.length === 0) {
+        console.warn('[Reads] Outbox failed, trying direct relay subscription...');
+        await fetchFromRelaysDirect(forceRefresh, startGeneration);
+      }
+    }
+  }
+
+  // Direct relay subscription fallback (old method)
+  async function fetchFromRelaysDirect(forceRefresh: boolean, startGeneration: number) {
+    try {
+      // Use simple filter without hashtags - some relays don't handle large arrays well
+      const filter: NDKFilter = {
+        kinds: [30023],
+        limit: 300 // Request more since we filter client-side
+      };
+      
+      // Use specific relays known to work well for articles
+      const articleRelays = [
+        'wss://relay.primal.net',
+        'wss://nos.lol',
+        'wss://relay.damus.io',
+        'wss://nostr.wine'
+      ];
+      
+      console.log('[Reads] Direct fallback: querying', articleRelays.join(', '));
+
+      const eventsToCache: NDKEvent[] = [];
+      const relaySet = NDKRelaySet.fromRelayUrls(articleRelays, $ndk, true);
+      subscription = $ndk.subscribe(filter, { closeOnEose: true }, relaySet);
+
+      subscription.on('event', (event: NDKEvent) => {
+        if (getCurrentRelayGeneration() !== startGeneration) return;
+        if (seenEventIds.has(event.id)) return;
+
+        const isValid = isValidLongformArticleNoFoodFilter(event);
+
+        if (isValid) {
+          eventsToCache.push(event);
+          seenEventIds.add(event.id);
+          
+          const articleData = eventToArticleData(event, true);
+          if (articleData) {
+            articles = [...articles, articleData]
+              .filter((a, i, arr) => arr.findIndex((x) => x.id === a.id) === i)
+              .sort((a, b) => b.publishedAt - a.publishedAt);
+
+            // Curate cover when we have articles (try to curate even with fewer)
+            if (articles.length >= 1 && !cover) {
+              const coverArticles = foodOnly
+                ? articles.filter(a => isValidLongformArticle(a.event))
+                : articles;
+              if (coverArticles.length >= 1) {
+                cover = curateCover(coverArticles, forceRefresh);
+              }
+            }
+          }
+        }
+      });
+
+      subscription.on('eose', () => {
+        loading = false;
+        markCacheRefreshed();
+        
+        // Track oldest timestamp for pagination
+        if (articles.length > 0) {
+          oldestTimestamp = Math.min(...articles.map(a => a.publishedAt));
+        }
+        
+        // Always try to curate cover after fetch completes (even if already set, re-curate to ensure it's correct)
+        if (articles.length > 0) {
+          const coverArticles = foodOnly
+            ? articles.filter(a => isValidLongformArticle(a.event))
+            : articles;
+          if (coverArticles.length >= 1) {
+            // Always re-curate to ensure cover matches current foodOnly state
+            cover = curateCover(coverArticles, forceRefresh);
+          } else if (foodOnly) {
+            // If foodOnly is on but no food articles, clear cover
+            cover = null;
+          }
+        }
+
+        // Cache events for next visit
+        if (eventsToCache.length > 0 && browser) {
+          cacheFeedEvents(eventsToCache).catch(() => {});
+        }
+        
+        console.log(`[Reads] Direct relay fetch complete, ${eventsToCache.length} events`);
+      });
+
+      // Timeout after 15 seconds
+      setTimeout(() => {
+        if (loading) {
+          loading = false;
+          if (subscription) {
+            subscription.stop();
+            subscription = null;
+          }
+          if (articles.length > 0 && !cover) {
+            const coverArticles = foodOnly
+              ? articles.filter(a => isValidLongformArticle(a.event))
+              : articles;
+            if (coverArticles.length >= 1) {
+              cover = curateCover(coverArticles, forceRefresh);
+            }
+          }
+          if (eventsToCache.length > 0 && browser) {
+            cacheFeedEvents(eventsToCache).catch(() => {});
+          }
+        }
+      }, 15000);
+    } catch (error) {
+      console.error('[Reads] Error in direct relay fetch:', error);
       loading = false;
     }
   }
@@ -490,14 +645,9 @@
     <header class="page-header mb-8">
       <div class="flex items-start justify-between gap-4">
         <div>
-          <h1 class="text-3xl md:text-4xl font-bold {foodOnly ? 'mb-2' : 'mb-0'}" style="color: var(--color-text-primary);">
+          <h1 class="text-3xl md:text-4xl font-bold" style="color: var(--color-text-primary);">
             Reads
           </h1>
-          {#if foodOnly}
-            <p class="text-base md:text-lg max-w-2xl" style="color: var(--color-text-secondary);">
-              Food, Farming, and Culture
-            </p>
-          {/if}
         </div>
 
         <div class="flex items-center gap-3 flex-shrink-0">

@@ -766,17 +766,29 @@ export async function fetchArticlesFromPrimal(
   
   let response: PrimalFeedResponse;
   
-  // Try hashtag-based fetch if hashtags provided (more reliable)
+  // Always try hashtag-based fetch first (uses standard Nostr REQ, more reliable)
+  // The cache endpoint might not support kind:30023 filtering
   if (hashtags && hashtags.length > 0) {
     try {
       response = await cache.fetchArticlesByHashtags(hashtags, { limit, since, until });
     } catch (err) {
-      // Fallback to general article fetch
+      // Fallback to general article fetch (but this might also fail)
       console.warn('[PrimalCache] Hashtag fetch failed, trying general fetch:', err);
-      response = await cache.fetchArticles({ limit, since, until });
+      try {
+        response = await cache.fetchArticles({ limit, since, until });
+      } catch (err2) {
+        // If both fail, return empty (relay fallback will handle it)
+        console.warn('[PrimalCache] General fetch also failed:', err2);
+        return { events: [], profiles: new Map() };
+      }
     }
   } else {
-    response = await cache.fetchArticles({ limit, since, until });
+    try {
+      response = await cache.fetchArticles({ limit, since, until });
+    } catch (err) {
+      console.warn('[PrimalCache] Article fetch failed:', err);
+      return { events: [], profiles: new Map() };
+    }
   }
   
   // Convert Primal events to NDKEvent format
