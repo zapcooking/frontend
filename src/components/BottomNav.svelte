@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { onMount, onDestroy } from 'svelte';
+  import { browser } from '$app/environment';
   import ForkKnifeIcon from 'phosphor-svelte/lib/ForkKnife';
   import ChatCircleDotsIcon from 'phosphor-svelte/lib/ChatCircleDots';
   import BellIcon from 'phosphor-svelte/lib/Bell';
@@ -10,6 +12,31 @@
 
   $: pathname = $page.url.pathname;
 
+  let navEl: HTMLElement;
+  let resizeObserver: ResizeObserver | null = null;
+
+  function updateNavHeight() {
+    if (!browser || !navEl) return;
+    const height = navEl.offsetHeight;
+    document.documentElement.style.setProperty('--bottom-nav-height', `${height}px`);
+  }
+
+  onMount(() => {
+    if (browser && navEl) {
+      updateNavHeight();
+      if (typeof ResizeObserver !== 'undefined') {
+        resizeObserver = new ResizeObserver(() => updateNavHeight());
+        resizeObserver.observe(navEl);
+      }
+    }
+  });
+
+  onDestroy(() => {
+    if (resizeObserver) {
+      resizeObserver.disconnect();
+    }
+  });
+
   function handleNotificationsClick(event: MouseEvent) {
     triggerNotificationsNav();
     // If we're already on the page, prevent navigation and just refresh/scroll
@@ -20,6 +47,7 @@
 </script>
 
 <nav
+  bind:this={navEl}
   class="lg:hidden bg-input w-full fixed left-0 right-0 z-40 grid grid-cols-5 text-center print:hidden"
   style="color: var(--color-text-primary); border-top: 1px solid var(--color-input-border); bottom: env(safe-area-inset-bottom, 0px); padding: 0.5rem 0;"
 >

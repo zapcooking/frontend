@@ -20,8 +20,8 @@
   import MoonIcon from 'phosphor-svelte/lib/Moon';
   import GearIcon from 'phosphor-svelte/lib/Gear';
   import SignOutIcon from 'phosphor-svelte/lib/SignOut';
-  import WrenchIcon from 'phosphor-svelte/lib/Wrench';
   import CaretDownIcon from 'phosphor-svelte/lib/CaretDown';
+  import FlameIcon from 'phosphor-svelte/lib/Flame';
   import CalculatorIcon from 'phosphor-svelte/lib/Calculator';
   import StorefrontIcon from 'phosphor-svelte/lib/Storefront';
   import TimerIcon from 'phosphor-svelte/lib/Timer';
@@ -33,7 +33,7 @@
   import { userPublickey, userProfilePictureOverride } from '$lib/nostr';
   import { getAuthManager } from '$lib/authManager';
   import { profileCacheManager } from '$lib/profileCache';
-  import { timerWidgetOpen } from '$lib/stores/timerWidget';
+  import { cookingToolsStore } from '$lib/stores/cookingToolsWidget';
   import { userSidePanelOpen } from '$lib/stores/userSidePanel';
   import { walletConnected } from '$lib/wallet/walletStore';
   import { weblnConnected } from '$lib/wallet/webln';
@@ -121,7 +121,12 @@
   }
 
   function openTimerWidget() {
-    timerWidgetOpen.set(true);
+    cookingToolsStore.open('timer');
+    close();
+  }
+
+  function openConverterWidget() {
+    cookingToolsStore.open('converter');
     close();
   }
 
@@ -367,8 +372,8 @@
           aria-expanded={toolboxExpanded}
         >
           <div class="flex items-center gap-4">
-            <WrenchIcon size={22} />
-            <span class="font-medium">Tools</span>
+            <CookingPotIcon size={22} />
+            <span class="font-medium">Cooking Tools</span>
           </div>
           <CaretDownIcon
             size={18}
@@ -389,7 +394,7 @@
             </li>
             <li>
               <button
-                on:click={() => navigate('/unit-converter')}
+                on:click={openConverterWidget}
                 class="w-full flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-opacity-50 transition-colors cursor-pointer"
                 style="color: var(--color-text-primary);"
               >
@@ -417,7 +422,7 @@
               class="w-full flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-opacity-50 transition-colors cursor-pointer"
               style="color: var(--color-text-primary);"
             >
-              <CookingPotIcon size={22} />
+              <FlameIcon size={22} />
               <span class="font-medium">The Kitchen</span>
             </button>
           </li>
