@@ -342,6 +342,8 @@
 
   /* Header with frosted glass effect */
   .header-blur {
+    /* Fallback for browsers that don't support color-mix */
+    background-color: var(--color-bg-primary);
     background-color: color-mix(in srgb, var(--color-bg-primary) 70%, transparent);
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);

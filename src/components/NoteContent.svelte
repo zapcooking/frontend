@@ -13,6 +13,10 @@
   export let className: string = '';
   export let showLinkPreviews: boolean = true;
   export let embedDepth: number = 0; // Track nesting depth to prevent infinite recursion
+  export let collapsible: boolean = true; // Enable collapsible long content
+  export let maxLength: number = 500; // Character limit before collapse
+
+  let isExpanded: boolean = false;
 
   // Image extensions to detect
   const IMAGE_EXTENSIONS = /\.(jpg|jpeg|png|gif|webp|svg|bmp|avif)(\?.*)?$/i;
@@ -201,17 +205,26 @@
 
   $: parsedContent = parseContent(content);
 
+  // Check if content should be collapsed
+  $: shouldCollapse = collapsible && content.length > maxLength;
+  $: displayContent = shouldCollapse && !isExpanded ? content.substring(0, maxLength) : content;
+  $: finalParsedContent = parseContent(displayContent);
+
   // Preload profiles when content changes
   $: if (content) {
     processContentWithProfiles(content);
   }
+
+  function toggleExpanded() {
+    isExpanded = !isExpanded;
+  }
 </script>
 
-<div class="whitespace-pre-wrap break-words note-content {className} w-full overflow-x-hidden">
-  {#each parsedContent as part, i}
+<div class="whitespace-pre-wrap break-words note-content {className} w-full">
+  {#each finalParsedContent as part, i}
     {#if part.type === 'text'}
-      {@const prevPart = parsedContent[i - 1]}
-      {@const nextPart = parsedContent[i + 1]}
+      {@const prevPart = finalParsedContent[i - 1]}
+      {@const nextPart = finalParsedContent[i + 1]}
       {@const prevIsBlock = isBlockPart(prevPart)}
       {@const nextIsBlock = isBlockPart(nextPart)}
       {@const isBetweenBlocks = prevIsBlock && nextIsBlock}
@@ -273,6 +286,24 @@
       {/if}
     {/if}
   {/each}
+
+  {#if shouldCollapse}
+    <button
+      on:click={toggleExpanded}
+      class="mt-2 text-sm font-medium transition-colors inline-flex items-center gap-1"
+      style="color: var(--color-primary);"
+    >
+      {isExpanded ? 'View less' : 'View more'}
+      <svg
+        class="w-4 h-4 transition-transform {isExpanded ? 'rotate-180' : ''}"
+        fill="none"
+        stroke="currentColor"
+        viewBox="0 0 24 24"
+      >
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+      </svg>
+    </button>
+  {/if}
 </div>
 
 <style>
