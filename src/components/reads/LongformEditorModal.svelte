@@ -458,9 +458,6 @@
 							{readingTime} min
 						</span>
 					</div>
-				</div>
-
-				<div class="header-right">
 					<button
 						type="button"
 						class="preview-btn"
@@ -475,7 +472,9 @@
 							<span>Preview</span>
 						{/if}
 					</button>
+				</div>
 
+				<div class="header-right">
 					<button 
 						type="button" 
 						class="save-btn" 
@@ -654,12 +653,10 @@
 	.header-center {
 		position: absolute;
 		left: 50%;
-		transform: translateX(-50%);
-		pointer-events: none; /* Allow clicks to pass through to elements behind */
-	}
-
-	.header-center .stats {
-		pointer-events: auto; /* Re-enable for stats */
+		transform: translateX(-65%);
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
 	}
 
 	.close-btn {
@@ -1040,12 +1037,13 @@
 			position: relative;
 		}
 
-		/* Show stats in center on mobile - shift left to avoid preview button */
+		/* Show stats in center on mobile - shift left */
 		.header-center {
 			display: flex;
 			position: absolute;
 			left: 50%;
-			transform: translateX(calc(-50% - 0.75rem)); /* Shift left to create more space */
+			transform: translateX(-65%);
+			gap: 0.375rem;
 		}
 
 		.header-left {
@@ -1057,7 +1055,6 @@
 			gap: 0.5rem;
 			flex: 0 0 auto;
 			margin-left: auto;
-			padding-left: 1rem; /* More padding to separate from stats */
 		}
 
 		/* Compact drafts button - hide "Drafts" text on mobile */

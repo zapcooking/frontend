@@ -7,9 +7,12 @@
   import { getEngagementStore, fetchEngagement } from '$lib/engagementCache';
   import ZappersListModal from './ZappersListModal.svelte';
   import { canOneTapZap, sendOneTapZap, getOneTapAmount } from '$lib/oneTapZap';
+  import CustomAvatar from './CustomAvatar.svelte';
 
   export let event: NDKEvent;
   export let onZapClick: (() => void) | undefined = undefined; // Callback for zap button click (fallback when one-tap not available)
+  export let showPills: boolean = false; // Whether to show zapper pills (pill format with pfp + amount)
+  export let maxPills: number = 3; // Maximum number of zapper pills to show
 
   const store = getEngagementStore(event.id);
   let showZappersModal = false;
@@ -201,6 +204,11 @@
     isLongPress = false;
     touchStartPos = null;
   }
+
+  // Derived values for pill display
+  $: visibleZappers = showPills ? $store.zaps.topZappers.slice(0, maxPills) : [];
+  $: hiddenCount = showPills ? Math.max(0, $store.zaps.topZappers.length - maxPills) : 0;
+  $: totalSats = Math.floor($store.zaps.totalAmount / 1000);
 </script>
 
 {#if $store.loading}
@@ -226,7 +234,59 @@
     </button>
     <span class="text-caption">–</span>
   </div>
+{:else if showPills && $store.zaps.topZappers.length > 0}
+  <!-- Pill format: Lightning icon + pfp pills with amounts -->
+  <div class="flex flex-wrap items-center gap-1.5">
+    <!-- Zap Button -->
+    <button
+      class="hover:bg-input rounded p-1 transition-colors select-none touch-none flex-shrink-0"
+      class:opacity-50={isZapping}
+      class:cursor-wait={isZapping}
+      style="touch-action: manipulation; -webkit-tap-highlight-color: transparent;"
+      on:mousedown={handlePressStart}
+      on:mouseup={handlePressEnd}
+      on:mouseleave={handlePressEnd}
+      on:touchstart|preventDefault={handlePressStart}
+      on:touchmove|preventDefault={handleTouchMove}
+      on:touchend|preventDefault={handlePressEnd}
+      on:touchcancel={handleTouchCancel}
+      on:click|preventDefault={handleZapIconClick}
+      on:contextmenu|preventDefault={() => { if (onZapClick) onZapClick(); }}
+      disabled={isZapping}
+      title={canOneTapZap() ? `Zap ${getOneTapAmount()} sats (hold for custom amount)` : 'Send a zap'}
+    >
+      <LightningIcon
+        size={18}
+        class="{totalSats > 0 ? 'text-yellow-500' : 'text-caption'} {isZapping ? 'animate-pulse' : ''}"
+        weight={$store.zaps.userZapped ? 'fill' : 'regular'}
+      />
+    </button>
+
+    <!-- Zapper Pills -->
+    {#each visibleZappers as zapper (zapper.pubkey)}
+      <button
+        on:click|stopPropagation={handleCountClick}
+        class="flex items-center gap-1 h-6 px-1 pr-2 rounded-full bg-accent-gray hover:bg-yellow-500/20 transition-colors cursor-pointer {zapper.pubkey === $userPublickey ? 'ring-1 ring-yellow-500' : ''}"
+        title="{zapper.amount} sats"
+      >
+        <CustomAvatar pubkey={zapper.pubkey} size={18} className="rounded-full flex-shrink-0" />
+        <span class="text-xs text-caption">{formatAmount(zapper.amount)}</span>
+      </button>
+    {/each}
+
+    <!-- Hidden count badge -->
+    {#if hiddenCount > 0}
+      <button
+        on:click|stopPropagation={handleCountClick}
+        class="flex items-center h-6 px-2 rounded-full bg-accent-gray hover:bg-yellow-500/20 text-caption text-xs cursor-pointer transition-colors"
+        title="{hiddenCount} more zappers ({formatAmount(totalSats)} sats total)"
+      >
+        +{hiddenCount}
+      </button>
+    {/if}
+  </div>
 {:else}
+  <!-- Default format: Lightning icon + count -->
   <div
     class="flex items-center gap-1.5 rounded px-0.5 transition duration-300"
     style="color: var(--color-text-primary)"

@@ -5051,8 +5051,8 @@
                       <NoteRepost {event} />
                     </div>
 
-                    <div class="hover:bg-amber-50 rounded-full p-1.5 transition-colors">
-                      <NoteTotalZaps {event} onZapClick={() => openZapModal(event)} />
+                    <div class="hover:bg-amber-50/50 rounded-full p-1 transition-colors">
+                      <NoteTotalZaps {event} onZapClick={() => openZapModal(event)} showPills={true} maxPills={3} />
                     </div>
                   {:else}
                     <span class="text-caption p-1.5">♡ –</span>

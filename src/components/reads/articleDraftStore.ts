@@ -1,6 +1,6 @@
 /**
  * Article Draft Store
- * Manages article drafts in localStorage, separate from recipe drafts
+ * Manages article drafts in localStorage with NIP-37 sync support
  */
 
 import { writable, derived, get } from 'svelte/store';
@@ -11,6 +11,14 @@ import {
 	ARTICLE_DRAFT_STORAGE_KEY,
 	createEmptyDraft
 } from '$lib/articleEditor';
+import {
+	publishArticleDraftDebounced,
+	publishArticleDraft,
+	deleteDraftRemote,
+	isDraftSyncAvailable,
+	fetchRemoteDrafts,
+	type RemoteDraft
+} from '$lib/nip37DraftService';
 
 // Store for all drafts
 export const drafts = writable<ArticleDraft[]>([]);
@@ -68,8 +76,9 @@ function persistDrafts(allDrafts: ArticleDraft[]): void {
 
 /**
  * Save or update a draft
+ * Optionally sync to NIP-37 relays if available
  */
-export function saveDraft(draft: ArticleDraft): void {
+export function saveDraft(draft: ArticleDraft, syncToRelays: boolean = true): { draftId: string; syncPromise?: Promise<boolean> } {
 	draftStatus.set('saving');
 	
 	const updatedDraft = {
@@ -94,18 +103,35 @@ export function saveDraft(draft: ArticleDraft): void {
 		return newDrafts;
 	});
 	
+	// Sync to relays if available and requested
+	let syncPromise: Promise<boolean> | undefined;
+	if (syncToRelays && isDraftSyncAvailable()) {
+		// Use debounced publish for auto-saves, immediate for manual saves
+		publishArticleDraftDebounced(updatedDraft);
+		// For immediate sync (manual save), return a promise
+		syncPromise = publishArticleDraft(updatedDraft);
+	}
+	
 	draftStatus.set('saved');
+	
+	return { draftId: updatedDraft.id, syncPromise };
 }
 
 /**
  * Delete a draft by ID
+ * Also deletes from remote relays if NIP-37 sync is available
  */
-export function deleteDraft(draftId: string): void {
+export async function deleteDraft(draftId: string): Promise<void> {
 	drafts.update((allDrafts) => {
 		const newDrafts = allDrafts.filter((d) => d.id !== draftId);
 		persistDrafts(newDrafts);
 		return newDrafts;
 	});
+	
+	// Delete from remote relays if available
+	if (isDraftSyncAvailable()) {
+		await deleteDraftRemote(draftId, 'article');
+	}
 	
 	// Clear current draft if it was deleted
 	const $currentDraftId = get(currentDraftId);
@@ -155,7 +181,62 @@ export function getDraftCount(): number {
 	return get(drafts).length;
 }
 
+/**
+ * Sync drafts from remote relays
+ * Merges remote drafts with local ones, keeping the newest version
+ */
+export async function syncDraftsFromRemote(): Promise<void> {
+	if (!browser || !isDraftSyncAvailable()) return;
+	
+	try {
+		const remoteDrafts = await fetchRemoteDrafts();
+		
+		// Filter for article drafts only
+		const articleDrafts = remoteDrafts
+			.filter(rd => rd.draftType === 'article')
+			.map(rd => rd.draft as ArticleDraft);
+		
+		if (articleDrafts.length === 0) return;
+		
+		// Merge with local drafts
+		const localDrafts = get(drafts);
+		const mergedMap = new Map<string, ArticleDraft>();
+		
+		// Add remote drafts first
+		for (const remote of articleDrafts) {
+			mergedMap.set(remote.id, remote);
+		}
+		
+		// Merge local drafts (keep if newer)
+		for (const local of localDrafts) {
+			const existing = mergedMap.get(local.id);
+			if (!existing || local.updatedAt > existing.updatedAt) {
+				mergedMap.set(local.id, local);
+			}
+		}
+		
+		// Update store
+		const merged = Array.from(mergedMap.values()).sort((a, b) => b.updatedAt - a.updatedAt);
+		drafts.set(merged);
+		persistDrafts(merged);
+		
+		// Sync any local-only or newer drafts back to remote
+		for (const draft of merged) {
+			const remote = articleDrafts.find(rd => rd.id === draft.id);
+			if (!remote || draft.updatedAt > remote.createdAt) {
+				publishArticleDraftDebounced(draft);
+			}
+		}
+	} catch (error) {
+		console.error('[ArticleDrafts] Error syncing from remote:', error);
+	}
+}
+
 // Initialize drafts on module load (browser only)
 if (browser) {
 	loadDrafts();
+	// Sync from remote in background if available
+	if (isDraftSyncAvailable()) {
+		syncDraftsFromRemote().catch(console.error);
+	}
 }
