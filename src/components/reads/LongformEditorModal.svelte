@@ -58,6 +58,10 @@
 	let isPublishing = false;
 	let publishError: string | null = null;
 	
+	// Save status fade-out
+	let saveStatusFaded = false;
+	let saveStatusTimeout: ReturnType<typeof setTimeout> | null = null;
+	
 	// Initialize turndown for HTML to Markdown conversion
 	const turndownService = new TurndownService({
 		headingStyle: 'atx',
@@ -79,6 +83,27 @@
 	$: readingTime = getReadingTime(wordCount);
 	$: statusText = getStatusText($draftStatus);
 	$: canPublish = localDraft.title.trim().length > 0 && wordCount > 50;
+	
+	// Fade out save status after 2 seconds when saved
+	$: if ($draftStatus === 'saved') {
+		// Clear any existing timeout
+		if (saveStatusTimeout) {
+			clearTimeout(saveStatusTimeout);
+		}
+		// Reset fade state
+		saveStatusFaded = false;
+		// Fade out after 2 seconds
+		saveStatusTimeout = setTimeout(() => {
+			saveStatusFaded = true;
+		}, 2000);
+	} else {
+		// Reset fade state when status changes away from saved
+		saveStatusFaded = false;
+		if (saveStatusTimeout) {
+			clearTimeout(saveStatusTimeout);
+			saveStatusTimeout = null;
+		}
+	}
 
 	// Track changes by comparing to last saved state
 	$: currentState = JSON.stringify({
@@ -375,6 +400,10 @@
 			clearInterval(autosaveTimer);
 			autosaveTimer = null;
 		}
+		if (saveStatusTimeout) {
+			clearTimeout(saveStatusTimeout);
+			saveStatusTimeout = null;
+		}
 		if (browser) {
 			window.removeEventListener('keydown', handleKeydown);
 		}
@@ -416,8 +445,23 @@
 							<span class="draft-count">{draftCount}</span>
 						{/if}
 					</button>
+				</div>
 
-					<div class="draft-status" class:error={$draftStatus === 'error'}>
+				<div class="header-center">
+					<div class="stats">
+						<span class="stat">
+							{wordCount} words
+						</span>
+						<span class="stat-divider">·</span>
+						<span class="stat">
+							<ClockIcon size={14} />
+							{readingTime} min
+						</span>
+					</div>
+				</div>
+
+				<div class="header-right">
+					<div class="draft-status" class:error={$draftStatus === 'error'} class:faded={saveStatusFaded && $draftStatus === 'saved'}>
 						{#if $draftStatus === 'saving'}
 							<span class="status-spinner" />
 						{:else if $draftStatus === 'saved'}
@@ -429,22 +473,6 @@
 						{/if}
 						<span>{statusText}</span>
 					</div>
-				</div>
-
-				<div class="header-center">
-					<div class="stats">
-						<span class="stat">
-							{wordCount} words
-						</span>
-						<span class="stat-divider">·</span>
-						<span class="stat">
-							<ClockIcon size={14} />
-							{readingTime} min read
-						</span>
-					</div>
-				</div>
-
-				<div class="header-right">
 					<button
 						type="button"
 						class="preview-btn"
@@ -621,6 +649,11 @@
 		position: absolute;
 		left: 50%;
 		transform: translateX(-50%);
+		pointer-events: none; /* Allow clicks to pass through to elements behind */
+	}
+
+	.header-center .stats {
+		pointer-events: auto; /* Re-enable for stats */
 	}
 
 	.close-btn {
@@ -676,10 +709,18 @@
 		gap: 0.375rem;
 		font-size: 0.875rem;
 		color: var(--color-text-secondary);
+		transition: opacity 0.5s ease, transform 0.5s ease;
+	}
+
+	.draft-status.faded {
+		opacity: 0.3;
+		transform: scale(0.95);
+		pointer-events: none;
 	}
 
 	.draft-status.error {
 		color: #dc2626;
+		opacity: 1; /* Keep error visible */
 	}
 
 	.status-spinner {
@@ -990,25 +1031,53 @@
 		.editor-header {
 			padding: 0.5rem 0.75rem;
 			gap: 0.5rem;
+			position: relative;
 		}
 
-		/* Hide stats row on mobile */
+		/* Show stats in center on mobile - shift left to avoid preview button */
 		.header-center {
-			display: none;
+			display: flex;
+			position: absolute;
+			left: 50%;
+			transform: translateX(calc(-50% - 0.75rem)); /* Shift left to create more space */
 		}
 
 		.header-left {
 			gap: 0.5rem;
+			flex: 0 0 auto;
 		}
 
 		.header-right {
 			gap: 0.5rem;
+			flex: 0 0 auto;
+			margin-left: auto;
+			padding-left: 1rem; /* More padding to separate from stats */
 		}
 
-		/* Compact drafts button */
+		/* Compact drafts button - hide "Drafts" text on mobile */
 		.drafts-btn {
 			padding: 0.375rem 0.5rem;
 			font-size: 0.8125rem;
+		}
+
+		.drafts-btn span:first-of-type {
+			display: none; /* Hide "Drafts" text, keep icon and count */
+		}
+
+		/* Compact stats for mobile with even padding */
+		.stats {
+			font-size: 0.8125rem;
+			gap: 0.375rem;
+			padding: 0 0.75rem; /* More padding on both sides for better separation */
+		}
+
+		.stat {
+			gap: 0.125rem;
+		}
+
+		.stat :global(svg) {
+			width: 12px;
+			height: 12px;
 		}
 
 		/* Hide status text, keep icon only */
@@ -1020,6 +1089,10 @@
 			padding: 0.375rem;
 			border-radius: 0.375rem;
 			background: var(--color-accent-gray);
+		}
+
+		.draft-status.faded {
+			background: transparent;
 		}
 
 		.preview-btn span,
