@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import { browser } from '$app/environment';
-  import { ndk, getCurrentRelayGeneration } from '$lib/nostr';
+  import { ndk, getCurrentRelayGeneration, userPublickey } from '$lib/nostr';
   import { NDKRelaySet } from '@nostr-dev-kit/ndk';
   import type { NDKEvent, NDKFilter, NDKSubscription } from '@nostr-dev-kit/ndk';
   import CoverSection from '../../components/table/CoverSection.svelte';
@@ -21,7 +21,13 @@
   import { RELAY_SETS } from '$lib/relays/relaySets';
   import { fetchArticles, backgroundArticleRefresh, type ArticleFetchStats } from '$lib/articleOutbox';
   import { isPrimalCacheAvailable } from '$lib/primalCache';
+  import { openNewDraft, drafts } from '../../components/reads/articleDraftStore';
   import ArrowClockwiseIcon from 'phosphor-svelte/lib/ArrowClockwise';
+  import PencilSimpleLineIcon from 'phosphor-svelte/lib/PencilSimpleLine';
+  import FolderIcon from 'phosphor-svelte/lib/Folder';
+
+  $: isSignedIn = $userPublickey !== '';
+  $: draftCount = $drafts.length;
 
   let articles: ArticleData[] = [];
   let cover: CuratedCover | null = null;
@@ -742,6 +748,31 @@
         </div>
 
         <div class="flex items-center gap-3 flex-shrink-0">
+          <!-- Write Article Button (only when signed in) -->
+          {#if isSignedIn}
+            <button
+              class="write-article-btn"
+              on:click={openNewDraft}
+              aria-label="Write article"
+            >
+              <PencilSimpleLineIcon size={18} />
+              <span>Write</span>
+            </button>
+
+            <!-- My Drafts Button -->
+            <a
+              href="/drafts"
+              class="drafts-link"
+              aria-label="My Drafts"
+            >
+              <FolderIcon size={18} />
+              <span>Drafts</span>
+              {#if draftCount > 0}
+                <span class="draft-badge">{draftCount}</span>
+              {/if}
+            </a>
+          {/if}
+
           <!-- Food Only Toggle (matches community feed style) -->
           <div class="flex items-center gap-2">
             {#if foodOnly}
@@ -803,6 +834,73 @@
   .page-header {
     padding-bottom: 1.5rem;
     border-bottom: 1px solid var(--color-input-border);
+  }
+
+  .write-article-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 0.5rem 0.875rem;
+    border-radius: 9999px;
+    background: linear-gradient(135deg, #f97316, #f59e0b);
+    color: white;
+    font-size: 0.875rem;
+    font-weight: 600;
+    transition: all 0.15s ease;
+    box-shadow: 0 4px 12px rgba(249, 115, 22, 0.25);
+  }
+
+  .write-article-btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 16px rgba(249, 115, 22, 0.35);
+  }
+
+  .drafts-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 0.5rem 0.75rem;
+    border-radius: 9999px;
+    background: var(--color-bg-secondary);
+    border: 1px solid var(--color-input-border);
+    color: var(--color-text-secondary);
+    font-size: 0.875rem;
+    font-weight: 500;
+    transition: all 0.15s ease;
+    text-decoration: none;
+  }
+
+  .drafts-link:hover {
+    background: var(--color-accent-gray);
+    color: var(--color-text-primary);
+    border-color: var(--color-text-secondary);
+  }
+
+  .draft-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 1.25rem;
+    height: 1.25rem;
+    padding: 0 0.375rem;
+    background: var(--color-primary);
+    color: white;
+    font-size: 0.75rem;
+    font-weight: 600;
+    border-radius: 9999px;
+  }
+
+  @media (max-width: 640px) {
+    .write-article-btn span,
+    .drafts-link span {
+      display: none;
+    }
+
+    .write-article-btn,
+    .drafts-link {
+      padding: 0.5rem;
+      border-radius: 9999px;
+    }
   }
 
   .refresh-button:disabled {

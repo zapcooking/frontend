@@ -12,6 +12,7 @@
   import Footer from '../components/Footer.svelte';
   import CreateMenuButton from '../components/CreateMenuButton.svelte';
   import PostModal from '../components/PostModal.svelte';
+  import LongformEditorModal from '../components/reads/LongformEditorModal.svelte';
   import WalletWelcomeModal from '../components/WalletWelcomeModal.svelte';
   import { createAuthManager, type AuthState } from '$lib/authManager';
   import type { LayoutData } from './$types';
@@ -320,6 +321,7 @@
       <UserSidePanel />
       <MobileSearchOverlay />
       <PostModal bind:open={$postComposerOpen} />
+      <LongformEditorModal />
       <WalletWelcomeModal bind:open={walletWelcomeOpen} onDismiss={markWalletWelcomeSeen} />
     </div>
   </div>

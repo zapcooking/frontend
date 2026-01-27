@@ -5,6 +5,7 @@
   import { userPublickey } from '$lib/nostr';
   import { clickOutside } from '$lib/clickOutside';
   import { postComposerOpen } from '$lib/postComposerStore';
+  import { openNewDraft } from './reads/articleDraftStore';
   import AddIcon from 'phosphor-svelte/lib/Plus';
   import ForkKnifeIcon from 'phosphor-svelte/lib/ForkKnife';
   import PencilSimpleIcon from 'phosphor-svelte/lib/PencilSimple';
@@ -54,6 +55,15 @@
     menuHovering = false;
     clearCloseMenuTimeout();
     postComposerOpen.set(true);
+  }
+
+  function openRead() {
+    showMenu = false;
+    longPressTriggered = false;
+    triggerHovering = false;
+    menuHovering = false;
+    clearCloseMenuTimeout();
+    openNewDraft();
   }
 
   function clearLongPress() {
@@ -248,11 +258,10 @@
           <PencilSimpleIcon size={18} />
           <span>New post</span>
         </button>
-        <div class="create-menu-item create-menu-item-disabled">
+        <button type="button" class="create-menu-item" on:click={openRead}>
           <NewspaperIcon size={18} />
-          <span class="new-read-label">New read</span>
-          <span class="coming-soon-label">Coming soon</span>
-        </div>
+          <span>New read</span>
+        </button>
       </div>
     {/if}
   </div>
