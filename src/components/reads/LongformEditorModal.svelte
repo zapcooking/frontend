@@ -458,6 +458,9 @@
 							{readingTime} min
 						</span>
 					</div>
+				</div>
+
+				<div class="header-right">
 					<button
 						type="button"
 						class="preview-btn"
@@ -472,9 +475,7 @@
 							<span>Preview</span>
 						{/if}
 					</button>
-				</div>
 
-				<div class="header-right">
 					<button 
 						type="button" 
 						class="save-btn" 
@@ -653,10 +654,12 @@
 	.header-center {
 		position: absolute;
 		left: 50%;
-		transform: translateX(-65%);
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
+		transform: translateX(-50%);
+		pointer-events: none; /* Allow clicks to pass through to elements behind */
+	}
+
+	.header-center .stats {
+		pointer-events: auto; /* Re-enable for stats */
 	}
 
 	.close-btn {
@@ -1037,13 +1040,16 @@
 			position: relative;
 		}
 
-		/* Show stats in center on mobile - shift left */
+		/* Show only word count centered on mobile */
 		.header-center {
-			display: flex;
 			position: absolute;
 			left: 50%;
-			transform: translateX(-65%);
-			gap: 0.375rem;
+			transform: translateX(-50%);
+		}
+
+		.stat-divider,
+		.reading-time {
+			display: none;
 		}
 
 		.header-left {
