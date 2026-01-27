@@ -318,7 +318,7 @@
 			closeEditor();
 			
 			// Navigate to the published article
-			goto(`/r/${naddr}`);
+			goto(`/reads/${naddr}`);
 			
 		} catch (error) {
 			console.error('Error publishing article:', error);
@@ -498,7 +498,8 @@
 					<div class="fixed-toolbar-inner">
 						<EditorToolbar 
 							editor={editorInstance} 
-							onImageUpload={() => tiptapEditor?.triggerImageUpload()} 
+							onImageUpload={() => tiptapEditor?.triggerImageUpload()}
+							onVideoUpload={() => tiptapEditor?.triggerVideoUpload()}
 						/>
 					</div>
 				</div>
@@ -987,23 +988,38 @@
 	/* Mobile Responsive */
 	@media (max-width: 768px) {
 		.editor-header {
-			padding: 0.5rem;
-			flex-wrap: wrap;
+			padding: 0.5rem 0.75rem;
 			gap: 0.5rem;
 		}
 
+		/* Hide stats row on mobile */
 		.header-center {
-			position: static;
-			transform: none;
-			order: 3;
-			width: 100%;
-			justify-content: center;
-			padding-top: 0.5rem;
-			border-top: 1px solid var(--color-input-border);
+			display: none;
+		}
+
+		.header-left {
+			gap: 0.5rem;
 		}
 
 		.header-right {
 			gap: 0.5rem;
+		}
+
+		/* Compact drafts button */
+		.drafts-btn {
+			padding: 0.375rem 0.5rem;
+			font-size: 0.8125rem;
+		}
+
+		/* Hide status text, keep icon only */
+		.draft-status span {
+			display: none;
+		}
+
+		.draft-status {
+			padding: 0.375rem;
+			border-radius: 0.375rem;
+			background: var(--color-accent-gray);
 		}
 
 		.preview-btn span,

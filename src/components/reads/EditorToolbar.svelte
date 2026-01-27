@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onMount, onDestroy } from 'svelte';
 	import type { Editor } from '@tiptap/core';
 	import TextBIcon from 'phosphor-svelte/lib/TextB';
 	import TextItalicIcon from 'phosphor-svelte/lib/TextItalic';
@@ -13,17 +14,84 @@
 	import TextHOneIcon from 'phosphor-svelte/lib/TextHOne';
 	import TextHTwoIcon from 'phosphor-svelte/lib/TextHTwo';
 	import TextHThreeIcon from 'phosphor-svelte/lib/TextHThree';
+	import TextHIcon from 'phosphor-svelte/lib/TextH';
+	import CaretDownIcon from 'phosphor-svelte/lib/CaretDown';
+	import ArrowUTurnLeftIcon from 'phosphor-svelte/lib/ArrowUUpLeft';
+	import VideoIcon from 'phosphor-svelte/lib/VideoCamera';
 
 	export let editor: Editor | null = null;
 	export let onImageUpload: () => void = () => {};
+	export let onVideoUpload: () => void = () => {};
 
 	let showLinkInput = false;
 	let linkUrl = '';
 	let linkInputRef: HTMLInputElement;
+	let toolbarRef: HTMLDivElement;
+	
+	// Dropdown states
+	let showHeadingDropdown = false;
+	let showListDropdown = false;
+	let showMediaDropdown = false;
+
+	// Close dropdowns when clicking outside
+	function handleClickOutside(e: MouseEvent) {
+		if (toolbarRef && !toolbarRef.contains(e.target as Node)) {
+			showHeadingDropdown = false;
+			showListDropdown = false;
+			showMediaDropdown = false;
+		}
+	}
+
+	onMount(() => {
+		document.addEventListener('click', handleClickOutside);
+	});
+
+	onDestroy(() => {
+		document.removeEventListener('click', handleClickOutside);
+	});
+
+	function closeAllDropdowns() {
+		showHeadingDropdown = false;
+		showListDropdown = false;
+	}
+
+	function toggleHeadingDropdown() {
+		showListDropdown = false;
+		showMediaDropdown = false;
+		showHeadingDropdown = !showHeadingDropdown;
+	}
+
+	function toggleListDropdown() {
+		showHeadingDropdown = false;
+		showMediaDropdown = false;
+		showListDropdown = !showListDropdown;
+	}
+
+	function toggleMediaDropdown() {
+		showHeadingDropdown = false;
+		showListDropdown = false;
+		showMediaDropdown = !showMediaDropdown;
+	}
+
+	function handleImageSelect() {
+		showMediaDropdown = false;
+		onImageUpload();
+	}
+
+	function handleVideoSelect() {
+		showMediaDropdown = false;
+		onVideoUpload();
+	}
+
+	function undo() {
+		if (!editor) return;
+		editor.chain().focus().undo().run();
+	}
 
 	function toggleHeading(level: 1 | 2 | 3) {
 		if (!editor) return;
 		editor.chain().focus().toggleHeading({ level }).run();
+		showHeadingDropdown = false;
 	}
 
 	function toggleBold() {
@@ -44,11 +112,13 @@
 	function toggleBulletList() {
 		if (!editor) return;
 		editor.chain().focus().toggleBulletList().run();
+		showListDropdown = false;
 	}
 
 	function toggleOrderedList() {
 		if (!editor) return;
 		editor.chain().focus().toggleOrderedList().run();
+		showListDropdown = false;
 	}
 
 	function toggleBlockquote() {
@@ -118,36 +188,52 @@
 	};
 </script>
 
-<div class="editor-toolbar">
-	<!-- Headings -->
+<div class="editor-toolbar" bind:this={toolbarRef}>
+	<!-- Headings Dropdown -->
 	<div class="toolbar-group">
-		<button
-			type="button"
-			class="toolbar-btn"
-			class:active={isActive('heading', { level: 1 })}
-			on:click={() => toggleHeading(1)}
-			title="Heading 1"
-		>
-			<TextHOneIcon size={18} />
-		</button>
-		<button
-			type="button"
-			class="toolbar-btn"
-			class:active={isActive('heading', { level: 2 })}
-			on:click={() => toggleHeading(2)}
-			title="Heading 2"
-		>
-			<TextHTwoIcon size={18} />
-		</button>
-		<button
-			type="button"
-			class="toolbar-btn"
-			class:active={isActive('heading', { level: 3 })}
-			on:click={() => toggleHeading(3)}
-			title="Heading 3"
-		>
-			<TextHThreeIcon size={18} />
-		</button>
+		<div class="dropdown-wrapper">
+			<button
+				type="button"
+				class="toolbar-btn dropdown-trigger"
+				class:active={isActive('heading', { level: 1 }) || isActive('heading', { level: 2 }) || isActive('heading', { level: 3 })}
+				on:click={toggleHeadingDropdown}
+				title="Headings"
+			>
+				<TextHIcon size={18} />
+				<CaretDownIcon size={12} class="caret" />
+			</button>
+			{#if showHeadingDropdown}
+				<div class="dropdown-menu">
+					<button
+						type="button"
+						class="dropdown-item"
+						class:active={isActive('heading', { level: 1 })}
+						on:click={() => toggleHeading(1)}
+					>
+						<TextHOneIcon size={18} />
+						<span>Heading 1</span>
+					</button>
+					<button
+						type="button"
+						class="dropdown-item"
+						class:active={isActive('heading', { level: 2 })}
+						on:click={() => toggleHeading(2)}
+					>
+						<TextHTwoIcon size={18} />
+						<span>Heading 2</span>
+					</button>
+					<button
+						type="button"
+						class="dropdown-item"
+						class:active={isActive('heading', { level: 3 })}
+						on:click={() => toggleHeading(3)}
+					>
+						<TextHThreeIcon size={18} />
+						<span>Heading 3</span>
+					</button>
+				</div>
+			{/if}
+		</div>
 	</div>
 
 	<div class="toolbar-divider" />
@@ -185,26 +271,42 @@
 
 	<div class="toolbar-divider" />
 
-	<!-- Lists -->
+	<!-- Lists Dropdown -->
 	<div class="toolbar-group">
-		<button
-			type="button"
-			class="toolbar-btn"
-			class:active={isActive('bulletList')}
-			on:click={toggleBulletList}
-			title="Bullet List"
-		>
-			<ListBulletsIcon size={18} />
-		</button>
-		<button
-			type="button"
-			class="toolbar-btn"
-			class:active={isActive('orderedList')}
-			on:click={toggleOrderedList}
-			title="Numbered List"
-		>
-			<ListNumbersIcon size={18} />
-		</button>
+		<div class="dropdown-wrapper">
+			<button
+				type="button"
+				class="toolbar-btn dropdown-trigger"
+				class:active={isActive('bulletList') || isActive('orderedList')}
+				on:click={toggleListDropdown}
+				title="Lists"
+			>
+				<ListBulletsIcon size={18} />
+				<CaretDownIcon size={12} class="caret" />
+			</button>
+			{#if showListDropdown}
+				<div class="dropdown-menu">
+					<button
+						type="button"
+						class="dropdown-item"
+						class:active={isActive('bulletList')}
+						on:click={toggleBulletList}
+					>
+						<ListBulletsIcon size={18} />
+						<span>Bullet List</span>
+					</button>
+					<button
+						type="button"
+						class="dropdown-item"
+						class:active={isActive('orderedList')}
+						on:click={toggleOrderedList}
+					>
+						<ListNumbersIcon size={18} />
+						<span>Numbered List</span>
+					</button>
+				</div>
+			{/if}
+		</div>
 	</div>
 
 	<div class="toolbar-divider" />
@@ -241,7 +343,7 @@
 
 	<div class="toolbar-divider" />
 
-	<!-- Link and Image -->
+	<!-- Link -->
 	<div class="toolbar-group">
 		<div class="relative">
 			<button
@@ -274,13 +376,51 @@
 			{/if}
 		</div>
 		
+		<!-- Media Dropdown (Photo/Video) -->
+		<div class="dropdown-wrapper">
+			<button
+				type="button"
+				class="toolbar-btn dropdown-trigger"
+				on:click={toggleMediaDropdown}
+				title="Insert Media"
+			>
+				<ImageIcon size={18} />
+				<CaretDownIcon size={12} class="caret" />
+			</button>
+			{#if showMediaDropdown}
+				<div class="dropdown-menu dropdown-menu-right">
+					<button
+						type="button"
+						class="dropdown-item"
+						on:click={handleImageSelect}
+					>
+						<ImageIcon size={18} />
+						<span>Photo</span>
+					</button>
+					<button
+						type="button"
+						class="dropdown-item"
+						on:click={handleVideoSelect}
+					>
+						<VideoIcon size={18} />
+						<span>Video</span>
+					</button>
+				</div>
+			{/if}
+		</div>
+	</div>
+
+	<div class="toolbar-divider" />
+
+	<!-- Undo -->
+	<div class="toolbar-group">
 		<button
 			type="button"
 			class="toolbar-btn"
-			on:click={onImageUpload}
-			title="Insert Image"
+			on:click={undo}
+			title="Undo (Ctrl+Z)"
 		>
-			<ImageIcon size={18} />
+			<ArrowUTurnLeftIcon size={18} />
 		</button>
 	</div>
 </div>
@@ -333,6 +473,61 @@
 
 	.relative {
 		position: relative;
+	}
+
+	/* Dropdown styles */
+	.dropdown-wrapper {
+		position: relative;
+	}
+
+	.dropdown-trigger {
+		gap: 0.125rem;
+		padding-right: 0.25rem;
+	}
+
+	.dropdown-trigger :global(.caret) {
+		opacity: 0.5;
+	}
+
+	.dropdown-menu {
+		position: absolute;
+		top: 100%;
+		left: 0;
+		margin-top: 0.25rem;
+		padding: 0.25rem;
+		background: var(--color-bg-secondary);
+		border: 1px solid var(--color-input-border);
+		border-radius: 0.5rem;
+		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+		z-index: 100;
+		min-width: 140px;
+	}
+
+	.dropdown-menu-right {
+		left: auto;
+		right: 0;
+	}
+
+	.dropdown-item {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		width: 100%;
+		padding: 0.5rem 0.625rem;
+		border-radius: 0.375rem;
+		font-size: 0.875rem;
+		color: var(--color-text-secondary);
+		transition: all 0.15s ease;
+	}
+
+	.dropdown-item:hover {
+		background: var(--color-accent-gray);
+		color: var(--color-text-primary);
+	}
+
+	.dropdown-item.active {
+		background: var(--color-primary);
+		color: white;
 	}
 
 	.link-input-popover {
@@ -405,6 +600,15 @@
 
 		.toolbar-divider {
 			margin: 0 0.125rem;
+		}
+
+		.dropdown-menu {
+			min-width: 130px;
+		}
+
+		.dropdown-item {
+			padding: 0.375rem 0.5rem;
+			font-size: 0.8125rem;
 		}
 
 		.link-input-popover {

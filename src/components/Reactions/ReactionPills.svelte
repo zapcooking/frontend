@@ -5,7 +5,6 @@
   import type { TargetType } from '$lib/types/reactions';
   import { publishReaction, canPublishReaction } from '$lib/reactions/publishReaction';
   import { getEngagementStore, fetchEngagement, markEventAsProcessed, trackOptimisticReaction, clearOptimisticReaction } from '$lib/engagementCache';
-  import TopZappers from '../TopZappers.svelte';
 
   export let event: NDKEvent;
   export let targetType: TargetType;
@@ -134,9 +133,4 @@
       </span>
     {/if}
   </div>
-{/if}
-
-<!-- Top Zappers - shown when there are zaps -->
-{#if $store.zaps.topZappers.length > 0}
-  <TopZappers topZappers={$store.zaps.topZappers} maxDisplay={3} />
 {/if}

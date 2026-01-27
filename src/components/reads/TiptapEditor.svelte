@@ -22,8 +22,10 @@
 	let element: HTMLDivElement;
 	let editor: Editor | null = null;
 	let fileInput: HTMLInputElement;
+	let videoFileInput: HTMLInputElement;
 	let isUploading = false;
 	let uploadError = '';
+	let uploadType: 'image' | 'video' = 'image';
 
 	// Word count from character count extension
 	$: wordCount = editor?.storage.characterCount?.words() || 0;
@@ -161,6 +163,7 @@
 		if (!editor || files.length === 0) return;
 
 		isUploading = true;
+		uploadType = 'image';
 		uploadError = '';
 
 		for (const file of files) {
@@ -178,17 +181,58 @@
 		isUploading = false;
 	}
 
+	// Handle video file uploads
+	async function handleVideoFiles(files: File[]) {
+		if (!editor || files.length === 0) return;
+
+		isUploading = true;
+		uploadType = 'video';
+		uploadError = '';
+
+		for (const file of files) {
+			try {
+				const videoUrl = await uploadToNostrBuild(file);
+				if (videoUrl) {
+					// Insert video as HTML since TipTap doesn't have native video support
+					const videoHtml = `<video src="${videoUrl}" controls class="article-video" style="max-width: 100%; border-radius: 0.5rem; margin: 1rem 0;"></video>`;
+					editor.chain().focus().insertContent(videoHtml).run();
+				}
+			} catch (error) {
+				console.error('Failed to upload video:', error);
+				uploadError = 'Failed to upload video. Please try again.';
+			}
+		}
+
+		isUploading = false;
+	}
+
 	// Open file picker for image upload
 	function openImagePicker() {
 		fileInput?.click();
 	}
 
-	// Handle file input change
+	// Open file picker for video upload
+	function openVideoPicker() {
+		videoFileInput?.click();
+	}
+
+	// Handle image file input change
 	function handleFileSelect(e: Event) {
 		const target = e.target as HTMLInputElement;
 		if (target.files?.length) {
 			const images = Array.from(target.files).filter((file) => file.type.startsWith('image/'));
 			handleImageFiles(images);
+			// Reset input
+			target.value = '';
+		}
+	}
+
+	// Handle video file input change
+	function handleVideoFileSelect(e: Event) {
+		const target = e.target as HTMLInputElement;
+		if (target.files?.length) {
+			const videos = Array.from(target.files).filter((file) => file.type.startsWith('video/'));
+			handleVideoFiles(videos);
 			// Reset input
 			target.value = '';
 		}
@@ -220,6 +264,11 @@
 	export function triggerImageUpload() {
 		openImagePicker();
 	}
+
+	// Expose video upload trigger for external toolbar
+	export function triggerVideoUpload() {
+		openVideoPicker();
+	}
 </script>
 
 <div class="tiptap-editor" class:no-toolbar={!showToolbar}>
@@ -231,6 +280,15 @@
 		multiple
 		class="hidden"
 		on:change={handleFileSelect}
+	/>
+	
+	<!-- Hidden file input for video uploads -->
+	<input
+		bind:this={videoFileInput}
+		type="file"
+		accept="video/*"
+		class="hidden"
+		on:change={handleVideoFileSelect}
 	/>
 
 	<!-- Toolbar (can be hidden if using external toolbar) -->
@@ -244,7 +302,7 @@
 	{#if isUploading}
 		<div class="upload-status">
 			<span class="upload-spinner" />
-			Uploading image...
+			Uploading {uploadType}...
 		</div>
 	{/if}
 
@@ -436,6 +494,14 @@
 
 	.editor-content :global(.article-link:hover) {
 		opacity: 0.8;
+	}
+
+	.editor-content :global(video),
+	.editor-content :global(.article-video) {
+		max-width: 100%;
+		height: auto;
+		margin: 1rem 0;
+		border-radius: 0.5rem;
 	}
 
 	.editor-content :global(strong) {
