@@ -453,7 +453,7 @@
 							{wordCount} words
 						</span>
 						<span class="stat-divider">·</span>
-						<span class="stat">
+						<span class="stat reading-time">
 							<ClockIcon size={14} />
 							{readingTime} min
 						</span>
@@ -461,18 +461,6 @@
 				</div>
 
 				<div class="header-right">
-					<div class="draft-status" class:error={$draftStatus === 'error'} class:faded={saveStatusFaded && $draftStatus === 'saved'}>
-						{#if $draftStatus === 'saving'}
-							<span class="status-spinner" />
-						{:else if $draftStatus === 'saved'}
-							<CloudCheckIcon size={16} />
-						{:else if $draftStatus === 'error'}
-							<WarningIcon size={16} />
-						{:else}
-							<FloppyDiskIcon size={16} />
-						{/if}
-						<span>{statusText}</span>
-					</div>
 					<button
 						type="button"
 						class="preview-btn"
@@ -488,9 +476,27 @@
 						{/if}
 					</button>
 
-					<button type="button" class="save-btn" on:click={handleSave} disabled={isPublishing}>
-						<FloppyDiskIcon size={18} />
-						<span>Save</span>
+					<button 
+						type="button" 
+						class="save-btn" 
+						class:error={$draftStatus === 'error'} 
+						class:faded={saveStatusFaded && $draftStatus === 'saved'}
+						on:click={handleSave} 
+						disabled={isPublishing || $draftStatus === 'saving'}
+					>
+						{#if $draftStatus === 'saving'}
+							<span class="status-spinner" />
+							<span>Saving...</span>
+						{:else if $draftStatus === 'saved'}
+							<CloudCheckIcon size={18} />
+							<span>Saved</span>
+						{:else if $draftStatus === 'error'}
+							<WarningIcon size={18} />
+							<span>Error</span>
+						{:else}
+							<FloppyDiskIcon size={18} />
+							<span>Save</span>
+						{/if}
 					</button>
 
 					<button 
@@ -703,33 +709,15 @@
 		border-radius: 9999px;
 	}
 
-	.draft-status {
-		display: flex;
-		align-items: center;
-		gap: 0.375rem;
-		font-size: 0.875rem;
-		color: var(--color-text-secondary);
-		transition: opacity 0.5s ease, transform 0.5s ease;
-	}
-
-	.draft-status.faded {
-		opacity: 0.3;
-		transform: scale(0.95);
-		pointer-events: none;
-	}
-
-	.draft-status.error {
-		color: #dc2626;
-		opacity: 1; /* Keep error visible */
-	}
 
 	.status-spinner {
-		width: 1rem;
-		height: 1rem;
+		width: 0.875rem;
+		height: 0.875rem;
 		border: 2px solid var(--color-input-border);
-		border-top-color: var(--color-primary);
+		border-top-color: currentColor;
 		border-radius: 50%;
 		animation: spin 0.8s linear infinite;
+		flex-shrink: 0;
 	}
 
 	@keyframes spin {
@@ -770,7 +758,7 @@
 	}
 
 	.preview-btn:hover,
-	.save-btn:hover {
+	.save-btn:hover:not(:disabled) {
 		background: var(--color-accent-gray);
 		color: var(--color-text-primary);
 	}
@@ -778,6 +766,20 @@
 	.preview-btn.active {
 		background: var(--color-primary);
 		color: white;
+	}
+
+	.save-btn.error {
+		color: #dc2626;
+	}
+
+	.save-btn.faded {
+		opacity: 0.3;
+		transform: scale(0.95);
+	}
+
+	.save-btn:disabled {
+		cursor: not-allowed;
+		opacity: 0.6;
 	}
 
 	.publish-btn {
@@ -834,12 +836,16 @@
 		background: rgba(220, 38, 38, 0.1);
 	}
 
-	/* Fixed Toolbar */
+	/* Fixed Toolbar - sticky so it stays accessible when scrolling */
 	.fixed-toolbar {
+		position: sticky;
+		top: 0;
+		z-index: 10;
 		flex-shrink: 0;
 		background: var(--color-bg-secondary);
 		border-bottom: 1px solid var(--color-input-border);
 		padding: 0.5rem 1rem;
+		box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
 	}
 
 	.fixed-toolbar-inner {
@@ -1080,24 +1086,14 @@
 			height: 12px;
 		}
 
-		/* Hide status text, keep icon only */
-		.draft-status span {
-			display: none;
-		}
-
-		.draft-status {
-			padding: 0.375rem;
-			border-radius: 0.375rem;
-			background: var(--color-accent-gray);
-		}
-
-		.draft-status.faded {
-			background: transparent;
-		}
 
 		.preview-btn span,
 		.save-btn span {
 			display: none;
+		}
+
+		.save-btn.faded {
+			opacity: 0.3;
 		}
 
 		.preview-btn,

@@ -16,8 +16,9 @@
 	import TextHThreeIcon from 'phosphor-svelte/lib/TextHThree';
 	import TextHIcon from 'phosphor-svelte/lib/TextH';
 	import CaretDownIcon from 'phosphor-svelte/lib/CaretDown';
-	import ArrowUTurnLeftIcon from 'phosphor-svelte/lib/ArrowUUpLeft';
 	import VideoIcon from 'phosphor-svelte/lib/VideoCamera';
+	import ArrowUUpLeftIcon from 'phosphor-svelte/lib/ArrowUUpLeft';
+	import ArrowUUpRightIcon from 'phosphor-svelte/lib/ArrowUUpRight';
 
 	export let editor: Editor | null = null;
 	export let onImageUpload: () => void = () => {};
@@ -32,6 +33,9 @@
 	let showHeadingDropdown = false;
 	let showListDropdown = false;
 	let showMediaDropdown = false;
+	
+	// Track editor updates for undo/redo reactivity
+	let editorUpdateKey = 0;
 
 	// Close dropdowns when clicking outside
 	function handleClickOutside(e: MouseEvent) {
@@ -42,12 +46,30 @@
 		}
 	}
 
+	// Set up editor update listeners
+	let updateHandler: (() => void) | null = null;
+	
+	$: if (editor && !updateHandler) {
+		updateHandler = () => {
+			editorUpdateKey++;
+		};
+		
+		editor.on('update', updateHandler);
+		editor.on('selectionUpdate', updateHandler);
+		editor.on('transaction', updateHandler);
+	}
+
 	onMount(() => {
 		document.addEventListener('click', handleClickOutside);
 	});
 
 	onDestroy(() => {
 		document.removeEventListener('click', handleClickOutside);
+		if (editor && updateHandler) {
+			editor.off('update', updateHandler);
+			editor.off('selectionUpdate', updateHandler);
+			editor.off('transaction', updateHandler);
+		}
 	});
 
 	function closeAllDropdowns() {
@@ -83,10 +105,27 @@
 		onVideoUpload();
 	}
 
-	function undo() {
+	// Undo/Redo toggle
+	function handleUndoRedo() {
 		if (!editor) return;
-		editor.chain().focus().undo().run();
+		
+		// Prioritize undo if available, otherwise redo
+		if (editor.can().undo()) {
+			editor.chain().focus().undo().run();
+		} else if (editor.can().redo()) {
+			editor.chain().focus().redo().run();
+		}
+		
+		// Force reactivity update after a brief delay to allow editor state to update
+		setTimeout(() => {
+			editorUpdateKey++;
+		}, 10);
 	}
+
+	// Check if undo/redo is available - reactive to editor updates
+	$: editorUpdateKey; // Force reactivity
+	$: canUndo = editor?.can().undo() ?? false;
+	$: canRedo = editor?.can().redo() ?? false;
 
 	function toggleHeading(level: 1 | 2 | 3) {
 		if (!editor) return;
@@ -408,20 +447,25 @@
 				</div>
 			{/if}
 		</div>
-	</div>
 
-	<div class="toolbar-divider" />
-
-	<!-- Undo -->
-	<div class="toolbar-group">
-		<button
-			type="button"
-			class="toolbar-btn"
-			on:click={undo}
-			title="Undo (Ctrl+Z)"
-		>
-			<ArrowUTurnLeftIcon size={18} />
-		</button>
+		<!-- Undo/Redo Toggle -->
+		<div class="toolbar-group">
+			<button
+				type="button"
+				class="toolbar-btn toolbar-btn-compact"
+				on:click={handleUndoRedo}
+				disabled={!canUndo && !canRedo}
+				title={canUndo ? 'Undo (Ctrl+Z)' : canRedo ? 'Redo (Ctrl+Shift+Z)' : 'Undo/Redo'}
+			>
+				{#if canUndo}
+					<ArrowUUpLeftIcon size={16} />
+				{:else if canRedo}
+					<ArrowUUpRightIcon size={16} />
+				{:else}
+					<ArrowUUpLeftIcon size={16} />
+				{/if}
+			</button>
+		</div>
 	</div>
 </div>
 
@@ -469,6 +513,16 @@
 	.toolbar-btn.active {
 		background: var(--color-primary);
 		color: white;
+	}
+
+	.toolbar-btn:disabled {
+		opacity: 0.4;
+		cursor: not-allowed;
+	}
+
+	.toolbar-btn-compact {
+		width: 1.75rem;
+		height: 1.75rem;
 	}
 
 	.relative {
