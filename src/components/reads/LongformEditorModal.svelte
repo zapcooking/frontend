@@ -10,7 +10,6 @@
 	import { addClientTagToEvent } from '$lib/nip89';
 	import TurndownService from 'turndown';
 	import DOMPurify from 'dompurify';
-	import { browser } from '$app/environment';
 	import XIcon from 'phosphor-svelte/lib/X';
 	import FloppyDiskIcon from 'phosphor-svelte/lib/FloppyDisk';
 	import CloudCheckIcon from 'phosphor-svelte/lib/CloudCheck';
