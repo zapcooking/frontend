@@ -300,17 +300,17 @@
       <NotificationSubscriber />
       <!-- Fixed sidebar -->
       <DesktopSideNav />
-      <!-- Full-page scroll container -->
+      <!-- Full-page scroll container: clip horizontal overflow to prevent Safari horizontal scroll/gap -->
       <div
         id="app-scroll"
-        class="flex-1 min-h-0 overflow-y-auto lg:ml-72 xl:ml-80"
+        class="flex-1 min-h-0 min-w-0 overflow-y-auto overflow-x-hidden lg:ml-72 xl:ml-80"
         style="background-color: var(--color-bg-primary);"
       >
         <!-- Sticky header with blur -->
         <div class="header-blur sticky top-0 z-20 py-3 px-4">
           <Header />
         </div>
-        <div class="px-4 pb-16 lg:pb-8">
+        <div class="px-4 pb-16 lg:pb-8 min-w-0 max-w-full">
           <slot />
           <Footer />
         </div>
