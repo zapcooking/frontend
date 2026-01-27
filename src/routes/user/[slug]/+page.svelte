@@ -19,6 +19,7 @@
   import SpeakerSimpleSlashIcon from 'phosphor-svelte/lib/SpeakerSimpleSlash';
   import SealCheckIcon from 'phosphor-svelte/lib/SealCheck';
   import PencilSimpleIcon from 'phosphor-svelte/lib/PencilSimple';
+  import SpinnerIcon from 'phosphor-svelte/lib/SpinnerGap';
   import { mutedPubkeys } from '$lib/muteListStore';
   import { requestProvider } from 'webln';
   import { canOneTapZap, sendOneTapZap } from '$lib/oneTapZap';
@@ -1314,7 +1315,7 @@
           {#if hexpubkey === $userPublickey}
             <button
               on:click={() => (profileEditModal = true)}
-              class="p-2 rounded-full transition-colors bg-input hover:bg-accent-gray"
+              class="h-9 w-9 p-2 rounded-full transition-colors bg-input hover:bg-accent-gray flex items-center justify-center"
               style="color: var(--color-text-primary)"
               aria-label="Edit profile"
             >
@@ -1324,7 +1325,7 @@
             <!-- Zap button (hidden for muted users) -->
             {#if (profile?.lud16 || profile?.lud06) && hexpubkey && !$mutedPubkeys.has(hexpubkey)}
               <button
-                class="p-2 bg-yellow-500 hover:bg-yellow-400 rounded-full transition-colors disabled:opacity-50"
+                class="h-9 w-9 p-2 bg-yellow-500 hover:bg-yellow-400 rounded-full transition-colors disabled:opacity-50 flex items-center justify-center"
                 on:click={handleZapClick}
                 disabled={isZapping}
                 aria-label="Zap user"
@@ -1337,14 +1338,14 @@
               <button
                 on:click={toggleFollow}
                 disabled={followLoading}
-                class="p-2 rounded-full transition-colors disabled:opacity-50 {isFollowing
+                class="h-9 w-9 p-2 rounded-full transition-colors disabled:opacity-50 flex items-center justify-center {isFollowing
                   ? 'bg-input hover:bg-accent-gray'
                   : 'bg-orange-500 hover:bg-orange-600'}"
                 style={isFollowing ? 'color: var(--color-text-primary)' : ''}
                 aria-label={isFollowing ? 'Unfollow' : 'Follow'}
               >
                 {#if followLoading}
-                  <span class="animate-pulse text-sm">...</span>
+                  <SpinnerIcon size={20} class="animate-spin" />
                 {:else if isFollowing}
                   <CheckIcon size={20} weight="bold" />
                 {:else}
@@ -1354,7 +1355,7 @@
 
               {#if hexpubkey && $mutedPubkeys.has(hexpubkey)}
                 <div
-                  class="p-2 rounded-full bg-input"
+                  class="h-9 w-9 p-2 rounded-full bg-input flex items-center justify-center"
                   style="color: var(--color-text-primary)"
                   title="User is muted"
                 >
@@ -1365,7 +1366,7 @@
 
             <button
               on:click={() => (qrModal = true)}
-              class="p-2 rounded-full bg-input hover:bg-accent-gray transition-colors"
+              class="h-9 w-9 p-2 rounded-full bg-input hover:bg-accent-gray transition-colors flex items-center justify-center"
               style="color: var(--color-text-primary)"
               aria-label="More options"
             >
