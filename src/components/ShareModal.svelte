@@ -6,13 +6,13 @@
   import ShareIcon from 'phosphor-svelte/lib/Share';
   import DownloadIcon from 'phosphor-svelte/lib/Download';
   import ImageIcon from 'phosphor-svelte/lib/Image';
-  import LinkSimpleIcon from 'phosphor-svelte/lib/LinkSimple';
   import FacebookLogo from 'phosphor-svelte/lib/FacebookLogo';
   import LinkedinLogo from 'phosphor-svelte/lib/LinkedinLogo';
   import RedditLogo from 'phosphor-svelte/lib/RedditLogo';
   import PinterestLogo from 'phosphor-svelte/lib/PinterestLogo';
   import ChatCircleText from 'phosphor-svelte/lib/ChatCircleText';
   import { qr } from '@svelte-put/qr/svg';
+  import html2canvas from 'html2canvas';
   import {
     copyToClipboard,
     canUseNativeShare,
@@ -39,8 +39,13 @@
   let shortUrlResult: { shortUrl: string; shortCode: string } | null = null;
   let loadingShort = false;
   let shortError: string | null = null;
-  let shortCopied = false;
-  let shortCopyTimeout: ReturnType<typeof setTimeout> | null = null;
+
+  // Branded QR card for copy/save
+  let qrCardEl: HTMLDivElement | undefined;
+  let qrImageCopying = false;
+  let qrImageSaving = false;
+  let qrImageCopied = false;
+  let qrCopyResetTimeout: ReturnType<typeof setTimeout> | null = null;
 
   // Create preview URL when blob changes
   $: if (imageBlob && browser) {
@@ -60,31 +65,32 @@
     ? url.replace(/https?:\/\/localhost:\d+/, SITE_URL)
     : url;
 
+  // Short link is the primary share URL when available
+  $: effectiveShareUrl = shortUrlResult?.shortUrl ?? displayUrl;
+
+  // Auto-fetch short link when share modal opens
+  $: if (browser && open && displayUrl && !shortUrlResult && !loadingShort && !shortError) {
+    getShortLink();
+  }
+
   // Check for native share support on mount
   $: if (browser) {
     showNativeShare = canUseNativeShare();
   }
 
   async function handleCopy() {
-    if (!browser || !url) return;
-    
-    // Copy rich text format
-    const richText = buildRichShareText(title, url);
+    if (!browser || !effectiveShareUrl) return;
+    const richText = buildRichShareText(title, effectiveShareUrl);
     const success = await copyToClipboard(richText);
-    
     if (success) {
       copied = true;
       if (copyTimeout) clearTimeout(copyTimeout);
-      copyTimeout = setTimeout(() => {
-        copied = false;
-      }, 2000);
+      copyTimeout = setTimeout(() => { copied = false; }, 2000);
     }
   }
 
   async function handleNativeShare() {
-    if (!browser || !url) return;
-    
-    // If we have an image blob, try to share it with the link
+    if (!browser || !effectiveShareUrl) return;
     if (imageBlob) {
       try {
         const file = new File([imageBlob], imageName, { type: 'image/png' });
@@ -92,7 +98,7 @@
           await navigator.share({
             files: [file],
             title,
-            text: `Found on zap.cooking ⚡\n${url}`,
+            text: `Found on zap.cooking ⚡\n${effectiveShareUrl}`,
           });
           return;
         }
@@ -100,15 +106,11 @@
         console.warn('Failed to share with image:', err);
       }
     }
-    
-    // Fall back to sharing just the URL
     const success = await nativeShare({
       title,
       text: 'Found on zap.cooking ⚡',
-      url
+      url: effectiveShareUrl
     });
-    
-    // If native share failed/cancelled, fall back to copy
     if (!success) {
       await handleCopy();
     }
@@ -174,9 +176,9 @@
       clearTimeout(copyTimeout);
       copyTimeout = null;
     }
-    if (shortCopyTimeout) {
-      clearTimeout(shortCopyTimeout);
-      shortCopyTimeout = null;
+    if (qrCopyResetTimeout) {
+      clearTimeout(qrCopyResetTimeout);
+      qrCopyResetTimeout = null;
     }
   }
 
@@ -208,14 +210,57 @@
     }
   }
 
-  async function copyShortLink() {
-    if (!browser || !shortUrlResult?.shortUrl) return;
-    const ok = await copyToClipboard(shortUrlResult.shortUrl);
-    if (ok) {
-      shortCopied = true;
-      if (shortCopyTimeout) clearTimeout(shortCopyTimeout);
-      shortCopyTimeout = setTimeout(() => { shortCopied = false; }, 2000);
+  async function captureQrCardAsBlob(): Promise<Blob | null> {
+    if (!browser || !qrCardEl) return null;
+    try {
+      const canvas = await html2canvas(qrCardEl, {
+        scale: 2,
+        useCORS: true,
+        allowTaint: true,
+        backgroundColor: '#ffffff',
+        logging: false,
+      });
+      return new Promise<Blob | null>((resolve) => {
+        canvas.toBlob((b) => resolve(b ?? null), 'image/png', 1);
+      });
+    } catch {
+      return null;
     }
+  }
+
+  async function copyQrImage() {
+    if (!browser || !qrCardEl) return;
+    qrImageCopying = true;
+    const blob = await captureQrCardAsBlob();
+    qrImageCopying = false;
+    if (!blob) return;
+    try {
+      await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+      qrImageCopied = true;
+      if (qrCopyResetTimeout) clearTimeout(qrCopyResetTimeout);
+      qrCopyResetTimeout = setTimeout(() => { qrImageCopied = false; }, 2000);
+    } catch {
+      saveQrImage(blob);
+    }
+  }
+
+  async function saveQrImage(blob?: Blob | null) {
+    if (!browser) return;
+    qrImageSaving = true;
+    const b = blob ?? await captureQrCardAsBlob();
+    qrImageSaving = false;
+    if (!b) return;
+    const url = URL.createObjectURL(b);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `zap-cooking-recipe-${shortUrlResult?.shortCode ?? 'share'}.png`;
+    a.style.display = 'none';
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => {
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }, 100);
   }
 
   function handleInputFocus(e: FocusEvent) {
@@ -234,16 +279,16 @@
     }
   }
 
-  // Social share URLs using the utility
-  $: xShareUrl = socialShareUrls.x(url, title);
-  $: facebookShareUrl = socialShareUrls.facebook(url);
-  $: linkedinShareUrl = socialShareUrls.linkedin(url);
-  $: redditShareUrl = socialShareUrls.reddit(url, title);
-  $: pinterestShareUrl = socialShareUrls.pinterest(url, title, imageUrl);
-  $: blueskyShareUrl = socialShareUrls.bluesky(url, title);
-  $: smsShareUrl = socialShareUrls.sms(url, title);
-  $: whatsappShareUrl = socialShareUrls.whatsapp(url, title);
-  $: telegramShareUrl = socialShareUrls.telegram(url, title);
+  // Social share URLs use the short link when available
+  $: xShareUrl = socialShareUrls.x(effectiveShareUrl, title);
+  $: facebookShareUrl = socialShareUrls.facebook(effectiveShareUrl);
+  $: linkedinShareUrl = socialShareUrls.linkedin(effectiveShareUrl);
+  $: redditShareUrl = socialShareUrls.reddit(effectiveShareUrl, title);
+  $: pinterestShareUrl = socialShareUrls.pinterest(effectiveShareUrl, title, imageUrl);
+  $: blueskyShareUrl = socialShareUrls.bluesky(effectiveShareUrl, title);
+  $: smsShareUrl = socialShareUrls.sms(effectiveShareUrl, title);
+  $: whatsappShareUrl = socialShareUrls.whatsapp(effectiveShareUrl, title);
+  $: telegramShareUrl = socialShareUrls.telegram(effectiveShareUrl, title);
 
   // Download image and open platform share dialog
   async function shareToplatform(shareUrl: string) {
@@ -343,13 +388,18 @@
       <div class="border-t" style="border-color: var(--color-input-border);"></div>
     {/if}
     
-    <!-- URL Display -->
+    <!-- Share Link (short link when ready, auto-fetched on open) -->
     <div class="flex flex-col gap-2">
-      <p class="text-sm font-medium" style="color: var(--color-text-primary);">Share Link</p>
+      <p class="text-sm font-medium" style="color: var(--color-text-primary);">
+        Share Link
+        {#if loadingShort}
+          <span class="text-xs font-normal opacity-70">(getting short link…)</span>
+        {/if}
+      </p>
       <input
         type="text"
         readonly
-        value={displayUrl}
+        value={effectiveShareUrl}
         class="w-full input font-mono text-sm px-3 py-2 rounded-lg"
         style="background-color: var(--color-input); border: 1px solid var(--color-input-border);"
         on:focus={handleInputFocus}
@@ -362,7 +412,8 @@
         {#if showNativeShare}
           <button
             on:click={handleNativeShare}
-            class="flex-1 py-2.5 px-4 rounded-lg font-semibold transition duration-200 flex items-center justify-center gap-2 bg-primary hover:bg-primary/90 text-white"
+            disabled={loadingShort}
+            class="flex-1 py-2.5 px-4 rounded-lg font-semibold transition duration-200 flex items-center justify-center gap-2 bg-primary hover:bg-primary/90 text-white disabled:opacity-50"
             aria-label="Share"
           >
             <ShareIcon size={18} weight="bold" />
@@ -372,7 +423,8 @@
         
         <button
           on:click={handleCopy}
-          class="flex-1 py-2.5 px-4 rounded-lg font-semibold transition duration-200 flex items-center justify-center gap-2
+          disabled={loadingShort}
+          class="flex-1 py-2.5 px-4 rounded-lg font-semibold transition duration-200 flex items-center justify-center gap-2 disabled:opacity-50
             {copied
               ? 'bg-green-500 hover:bg-green-600 text-white'
               : showNativeShare 
@@ -389,61 +441,91 @@
           {/if}
         </button>
       </div>
-    </div>
 
-    <!-- Get short link -->
-    <div class="flex flex-col gap-2">
-      <p class="text-sm font-medium" style="color: var(--color-text-primary);">Short link</p>
+      <!-- Branded QR card (pan icon center + copy/save) when short link is ready -->
       {#if shortUrlResult}
-        <div class="flex flex-col gap-2 rounded-lg p-3" style="background-color: var(--color-input); border: 1px solid var(--color-input-border);">
-          <div class="flex items-center gap-2">
-            <input
-              type="text"
-              readonly
-              value={shortUrlResult.shortUrl}
-              class="flex-1 input font-mono text-sm px-2 py-1.5 rounded border-0 min-w-0"
-              style="background-color: var(--color-bg);"
-              on:focus={handleInputFocus}
-              on:click={handleInputClick}
-              aria-label="Short URL"
-            />
+        <div class="flex flex-col gap-2">
+          <div
+            bind:this={qrCardEl}
+            class="qr-card-branded flex flex-col items-center justify-center rounded-xl overflow-hidden"
+            style="background: #fff; width: 280px; max-width: 100%; margin: 0 auto; padding: 20px; box-sizing: border-box;"
+          >
+            <div class="relative flex-shrink-0" style="width: 200px; height: 200px;">
+              <svg
+                use:qr={{ data: shortUrlResult.shortUrl }}
+                class="absolute inset-0 w-full h-full"
+                style="left: 0; top: 0;"
+                aria-hidden="true"
+              />
+              <!-- Center: pan on the QR, in context—no lift, fades into the pattern -->
+              <div
+                class="absolute inset-0 flex items-center justify-center m-auto rounded-full"
+                style="
+                  width: 46px; height: 46px;
+                  background: radial-gradient(circle at center, #f5f4f1 0%, rgba(245,244,241,0.88) 38%, rgba(245,244,241,0.35) 62%, transparent 85%);
+                "
+              >
+                <img
+                  src="/pan-qr-center.svg"
+                  alt=""
+                  class="block"
+                  style="width: 38px; height: 38px; object-fit: contain; pointer-events: none;"
+                  role="presentation"
+                />
+              </div>
+            </div>
+            <p class="text-center text-sm font-medium mt-3 mb-0 tracking-tight" style="color: #2d2d2d; letter-spacing: 0.01em;">
+              Discover on zap.cooking 🍳⚡
+            </p>
+          </div>
+          <div class="flex gap-2 justify-center flex-wrap">
             <button
-              on:click={copyShortLink}
-              class="shrink-0 py-1.5 px-3 rounded-lg font-medium transition flex items-center gap-1.5
-                {shortCopied ? 'bg-green-500 text-white' : 'bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-white hover:opacity-90'}"
-              aria-label={shortCopied ? 'Copied' : 'Copy short link'}
+              type="button"
+              on:click={copyQrImage}
+              disabled={qrImageCopying}
+              class="inline-flex items-center gap-1.5 py-1.5 px-3 rounded-lg text-sm font-medium transition disabled:opacity-50
+                {qrImageCopied ? 'bg-green-500 text-white' : 'bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-white hover:opacity-90'}"
+              aria-label={qrImageCopied ? 'Copied' : 'Copy QR image'}
             >
-              {#if shortCopied}
-                <CheckIcon size={16} weight="bold" />
+              {#if qrImageCopied}
+                <CheckIcon size={14} weight="bold" />
                 <span>Copied</span>
+              {:else if qrImageCopying}
+                <span>Copying…</span>
               {:else}
-                <CopyIcon size={16} weight="bold" />
-                <span>Copy</span>
+                <CopyIcon size={14} weight="bold" />
+                <span>Copy QR</span>
+              {/if}
+            </button>
+            <button
+              type="button"
+              on:click={() => saveQrImage()}
+              disabled={qrImageSaving}
+              class="inline-flex items-center gap-1.5 py-1.5 px-3 rounded-lg text-sm font-medium bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-white hover:opacity-90 transition disabled:opacity-50"
+              aria-label="Save QR image"
+            >
+              {#if qrImageSaving}
+                <span>Saving…</span>
+              {:else}
+                <DownloadIcon size={14} weight="bold" />
+                <span>Save QR</span>
               {/if}
             </button>
           </div>
-          <div class="flex justify-center p-2 rounded bg-white">
-            <svg use:qr={{ data: shortUrlResult.shortUrl }} class="w-24 h-24" aria-hidden="true" />
-          </div>
         </div>
-      {:else}
-        <button
-          on:click={getShortLink}
-          disabled={loadingShort}
-          class="w-full py-2.5 px-4 rounded-lg font-semibold transition duration-200 flex items-center justify-center gap-2 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-800 dark:text-white disabled:opacity-50"
-          aria-label="Get short link"
-        >
-          {#if loadingShort}
-            <div class="w-4 h-4 border-2 border-gray-400 border-t-transparent rounded-full animate-spin"></div>
-            <span>Creating...</span>
-          {:else}
-            <LinkSimpleIcon size={18} weight="bold" />
-            <span>Get short link</span>
-          {/if}
-        </button>
-        {#if shortError}
-          <p class="text-xs text-red-600 dark:text-red-400">{shortError}</p>
-        {/if}
+      {/if}
+
+      {#if shortError}
+        <p class="text-xs text-red-600 dark:text-red-400">
+          {shortError}
+          <button
+            type="button"
+            on:click={getShortLink}
+            class="ml-1 underline font-medium hover:no-underline"
+          >
+            Try again
+          </button>
+        </p>
       {/if}
     </div>
     
