@@ -12,30 +12,19 @@ import { redirectPath } from '$lib/shortlinks/parse.server';
 export const load: PageServerLoad = async ({ params, platform }) => {
   const kv = platform?.env?.SHORTLINKS;
   
-  console.log('[ShortLink] Redirect request for code:', params?.code);
-  console.log('[ShortLink] KV available:', !!kv);
-  
   if (!kv) {
-    // KV not configured - redirect to home
-    console.log('[ShortLink] KV not configured, redirecting to /');
     throw redirect(302, '/');
   }
 
   const code = params?.code?.trim();
   if (!code) {
-    console.log('[ShortLink] No code provided, redirecting to /recent');
     throw redirect(302, '/recent');
   }
 
   const key = normalizeShortCode(code);
-  console.log('[ShortLink] Looking up key:', key);
-  
   const record = await kv.get(key, 'json') as ShortenedURL | null;
-  console.log('[ShortLink] Record found:', !!record, record ? `naddr: ${record.naddr?.slice(0, 20)}...` : 'null');
   
   if (!record) {
-    // Short link not found - redirect to recent recipes
-    console.log('[ShortLink] Record not found, redirecting to /recent');
     throw redirect(302, '/recent');
   }
 

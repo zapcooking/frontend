@@ -66,11 +66,6 @@
   // Short link is the primary share URL when available
   $: effectiveShareUrl = shortUrlResult?.shortUrl ?? displayUrl;
 
-  // Debug: log the URL being used for QR (remove after testing)
-  $: if (browser && open && effectiveShareUrl) {
-    console.log('[ShareModal] QR URL:', effectiveShareUrl, '| displayUrl:', displayUrl, '| shortUrl:', shortUrlResult?.shortUrl);
-  }
-
   // Auto-fetch short link when share modal opens
   $: if (browser && open && displayUrl && !shortUrlResult && !loadingShort && !shortError) {
     getShortLink();
