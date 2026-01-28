@@ -957,6 +957,11 @@
       if (hashtagCount > MAX_HASHTAGS) {
         return false;
       }
+      // Check hellthread threshold
+      const threshold = get(hellthreadThreshold);
+      if (isHellthread(event, threshold)) {
+        return false;
+      }
       return true;
     }
 
@@ -5036,7 +5041,13 @@
               <!-- Zap pills row: above action icons to avoid cutoff on the right -->
               {#if visibleNotes.has(event.id)}
                 <div class="px-2 sm:px-0">
-                  <NoteTotalZaps {event} onZapClick={() => openZapModal(event)} showPills={true} onlyPills={true} maxPills={10} />
+                  <NoteTotalZaps
+                    {event}
+                    onZapClick={() => openZapModal(event)}
+                    showPills={true}
+                    onlyPills={true}
+                    maxPills={10}
+                  />
                 </div>
               {/if}
 
@@ -5059,7 +5070,11 @@
                     </div>
 
                     <div class="hover:bg-amber-50/50 rounded-full p-1 transition-colors">
-                      <NoteTotalZaps {event} onZapClick={() => openZapModal(event)} showPills={false} />
+                      <NoteTotalZaps
+                        {event}
+                        onZapClick={() => openZapModal(event)}
+                        showPills={false}
+                      />
                     </div>
                   {:else}
                     <span class="text-caption p-1.5">♡ –</span>
