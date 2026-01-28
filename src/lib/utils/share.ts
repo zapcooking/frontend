@@ -92,6 +92,14 @@ export function buildFullRecipeUrl(naddr: string): string {
 }
 
 /**
+ * Build short link URL (zap.cooking/s/:code).
+ * Use with the /api/shorten endpoint to create short links.
+ */
+export function buildShortLinkUrl(code: string): string {
+  return `${SITE_URL}/s/${code}`;
+}
+
+/**
  * Build rich text for clipboard (title + source + URL)
  * Always uses production URL for sharing
  */

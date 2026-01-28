@@ -6,11 +6,13 @@
   import ShareIcon from 'phosphor-svelte/lib/Share';
   import DownloadIcon from 'phosphor-svelte/lib/Download';
   import ImageIcon from 'phosphor-svelte/lib/Image';
+  import LinkSimpleIcon from 'phosphor-svelte/lib/LinkSimple';
   import FacebookLogo from 'phosphor-svelte/lib/FacebookLogo';
   import LinkedinLogo from 'phosphor-svelte/lib/LinkedinLogo';
   import RedditLogo from 'phosphor-svelte/lib/RedditLogo';
   import PinterestLogo from 'phosphor-svelte/lib/PinterestLogo';
   import ChatCircleText from 'phosphor-svelte/lib/ChatCircleText';
+  import { qr } from '@svelte-put/qr/svg';
   import {
     copyToClipboard,
     canUseNativeShare,
@@ -32,6 +34,13 @@
   let copyTimeout: ReturnType<typeof setTimeout> | null = null;
   let showNativeShare = false;
   let imagePreviewUrl: string | null = null;
+
+  // Short link state
+  let shortUrlResult: { shortUrl: string; shortCode: string } | null = null;
+  let loadingShort = false;
+  let shortError: string | null = null;
+  let shortCopied = false;
+  let shortCopyTimeout: ReturnType<typeof setTimeout> | null = null;
 
   // Create preview URL when blob changes
   $: if (imageBlob && browser) {
@@ -159,9 +168,53 @@
   function handleClose() {
     open = false;
     copied = false;
+    shortUrlResult = null;
+    shortError = null;
     if (copyTimeout) {
       clearTimeout(copyTimeout);
       copyTimeout = null;
+    }
+    if (shortCopyTimeout) {
+      clearTimeout(shortCopyTimeout);
+      shortCopyTimeout = null;
+    }
+  }
+
+  async function getShortLink() {
+    if (!browser || !displayUrl) return;
+    loadingShort = true;
+    shortError = null;
+    shortUrlResult = null;
+    try {
+      const res = await fetch('/api/shorten', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: displayUrl })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        shortError = data?.error ?? 'Could not create short link';
+        return;
+      }
+      if (data.success && data.shortUrl) {
+        shortUrlResult = { shortUrl: data.shortUrl, shortCode: data.shortCode ?? '' };
+      } else {
+        shortError = data?.error ?? 'Could not create short link';
+      }
+    } catch (err) {
+      shortError = 'Network error – try again';
+    } finally {
+      loadingShort = false;
+    }
+  }
+
+  async function copyShortLink() {
+    if (!browser || !shortUrlResult?.shortUrl) return;
+    const ok = await copyToClipboard(shortUrlResult.shortUrl);
+    if (ok) {
+      shortCopied = true;
+      if (shortCopyTimeout) clearTimeout(shortCopyTimeout);
+      shortCopyTimeout = setTimeout(() => { shortCopied = false; }, 2000);
     }
   }
 
@@ -336,6 +389,62 @@
           {/if}
         </button>
       </div>
+    </div>
+
+    <!-- Get short link -->
+    <div class="flex flex-col gap-2">
+      <p class="text-sm font-medium" style="color: var(--color-text-primary);">Short link</p>
+      {#if shortUrlResult}
+        <div class="flex flex-col gap-2 rounded-lg p-3" style="background-color: var(--color-input); border: 1px solid var(--color-input-border);">
+          <div class="flex items-center gap-2">
+            <input
+              type="text"
+              readonly
+              value={shortUrlResult.shortUrl}
+              class="flex-1 input font-mono text-sm px-2 py-1.5 rounded border-0 min-w-0"
+              style="background-color: var(--color-bg);"
+              on:focus={handleInputFocus}
+              on:click={handleInputClick}
+              aria-label="Short URL"
+            />
+            <button
+              on:click={copyShortLink}
+              class="shrink-0 py-1.5 px-3 rounded-lg font-medium transition flex items-center gap-1.5
+                {shortCopied ? 'bg-green-500 text-white' : 'bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-white hover:opacity-90'}"
+              aria-label={shortCopied ? 'Copied' : 'Copy short link'}
+            >
+              {#if shortCopied}
+                <CheckIcon size={16} weight="bold" />
+                <span>Copied</span>
+              {:else}
+                <CopyIcon size={16} weight="bold" />
+                <span>Copy</span>
+              {/if}
+            </button>
+          </div>
+          <div class="flex justify-center p-2 rounded bg-white">
+            <svg use:qr={{ data: shortUrlResult.shortUrl }} class="w-24 h-24" aria-hidden="true" />
+          </div>
+        </div>
+      {:else}
+        <button
+          on:click={getShortLink}
+          disabled={loadingShort}
+          class="w-full py-2.5 px-4 rounded-lg font-semibold transition duration-200 flex items-center justify-center gap-2 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-800 dark:text-white disabled:opacity-50"
+          aria-label="Get short link"
+        >
+          {#if loadingShort}
+            <div class="w-4 h-4 border-2 border-gray-400 border-t-transparent rounded-full animate-spin"></div>
+            <span>Creating...</span>
+          {:else}
+            <LinkSimpleIcon size={18} weight="bold" />
+            <span>Get short link</span>
+          {/if}
+        </button>
+        {#if shortError}
+          <p class="text-xs text-red-600 dark:text-red-400">{shortError}</p>
+        {/if}
+      {/if}
     </div>
     
     <!-- Social Share (Link only) -->
