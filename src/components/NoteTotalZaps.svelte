@@ -248,13 +248,13 @@
       >
         <CustomAvatar pubkey={zapper.pubkey} size={18} className="rounded-full flex-shrink-0" />
         <LightningIcon size={12} class="text-yellow-500 flex-shrink-0" weight="fill" />
-        <span class="text-xs text-caption">{formatAmount(zapper.amount)}</span>
+        <span class="text-xs text-caption font-semibold">{formatAmount(zapper.amount)}</span>
       </button>
     {/each}
     {#if hiddenCount > 0}
       <button
         on:click|stopPropagation={handleCountClick}
-        class="zap-pill flex items-center gap-1 h-6 pl-1.5 pr-2 rounded-full bg-accent-gray hover:bg-yellow-500/20 text-caption text-xs cursor-pointer transition-colors flex-shrink-0"
+        class="zap-pill flex items-center gap-1 h-6 pl-1.5 pr-2 rounded-full bg-accent-gray hover:bg-yellow-500/20 text-caption text-xs font-semibold cursor-pointer transition-colors flex-shrink-0"
         title="{hiddenCount} more zappers ({formatAmount(totalSats)} sats total)"
       >
         <LightningIcon size={12} class="text-yellow-500 flex-shrink-0" weight="fill" />
@@ -299,7 +299,7 @@
       >
         <CustomAvatar pubkey={zapper.pubkey} size={18} className="rounded-full flex-shrink-0" />
         <LightningIcon size={12} class="text-yellow-500 flex-shrink-0" weight="fill" />
-        <span class="text-xs text-caption">{formatAmount(zapper.amount)}</span>
+        <span class="text-xs text-caption font-semibold">{formatAmount(zapper.amount)}</span>
       </button>
     {/each}
 
@@ -307,7 +307,7 @@
     {#if hiddenCount > 0}
       <button
         on:click|stopPropagation={handleCountClick}
-        class="zap-pill flex items-center gap-1 h-6 pl-1.5 pr-2 rounded-full bg-accent-gray hover:bg-yellow-500/20 text-caption text-xs cursor-pointer transition-colors flex-shrink-0"
+        class="zap-pill flex items-center gap-1 h-6 pl-1.5 pr-2 rounded-full bg-accent-gray hover:bg-yellow-500/20 text-caption text-xs font-semibold cursor-pointer transition-colors flex-shrink-0"
         title="{hiddenCount} more zappers ({formatAmount(totalSats)} sats total)"
       >
         <LightningIcon size={12} class="text-yellow-500 flex-shrink-0" weight="fill" />
