@@ -16,8 +16,8 @@ export interface Notification {
   read: boolean;
 }
 
-const STORAGE_KEY = 'zc_notifications_v4'; // Bumped to fix reply vs mention classification
-const MAX_NOTIFICATIONS = 100;
+const STORAGE_KEY = 'zc_notifications_v6'; // Cursor-based pagination
+const MAX_STORED_NOTIFICATIONS = 100; // Only store recent notifications for quick load
 
 // Load from localStorage
 function loadNotifications(): Notification[] {
@@ -32,10 +32,13 @@ function loadNotifications(): Notification[] {
   return [];
 }
 
-// Save to localStorage
+// Save to localStorage (only recent ones for quick initial load)
 function saveNotifications(notifications: Notification[]) {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(notifications.slice(0, MAX_NOTIFICATIONS)));
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify(notifications.slice(0, MAX_STORED_NOTIFICATIONS))
+    );
   } catch {}
 }
 
@@ -53,12 +56,31 @@ function createNotificationStore() {
           return notifications;
         }
         // Add and re-sort by createdAt descending (most recent first)
-        const updated = [notification, ...notifications]
-          .sort((a, b) => b.createdAt - a.createdAt)
-          .slice(0, MAX_NOTIFICATIONS);
+        // No limit on in-memory, only localStorage is limited
+        const updated = [notification, ...notifications].sort((a, b) => b.createdAt - a.createdAt);
         saveNotifications(updated);
         return updated;
       });
+    },
+
+    addBulk: (newNotifications: Notification[]): number => {
+      let addedCount = 0;
+      update((notifications) => {
+        const existingIds = new Set(notifications.map((n) => n.id));
+        const toAdd = newNotifications.filter((n) => {
+          if (existingIds.has(n.id)) return false;
+          existingIds.add(n.id);
+          return true;
+        });
+        addedCount = toAdd.length;
+        if (toAdd.length === 0) return notifications;
+
+        // No limit on in-memory, only localStorage is limited
+        const updated = [...notifications, ...toAdd].sort((a, b) => b.createdAt - a.createdAt);
+        saveNotifications(updated);
+        return updated;
+      });
+      return addedCount;
     },
 
     markAsRead: (id: string) => {
@@ -190,6 +212,99 @@ export function unsubscribeFromNotifications() {
     activeSubscription.stop();
     activeSubscription = null;
   }
+}
+
+/**
+ * Fetch older notifications before a given timestamp
+ * Returns the number of new notifications found
+ */
+export async function fetchOlderNotifications(
+  ndk: NDK,
+  userPubkey: string,
+  beforeTimestamp: number
+): Promise<number> {
+  // Fetch 7 days before the given timestamp
+  const until = beforeTimestamp;
+  const since = beforeTimestamp - 7 * 24 * 60 * 60;
+
+  console.log(
+    '[Notifications] Fetching older notifications from',
+    new Date(since * 1000),
+    'to',
+    new Date(until * 1000)
+  );
+
+  let newCount = 0;
+  const collectedEvents: NDKEvent[] = [];
+
+  return new Promise((resolve) => {
+    const TIMEOUT_MS = 8000; // 8 second timeout
+    let resolved = false;
+
+    const sub = ndk.subscribe(
+      [
+        { kinds: [7], '#p': [userPubkey], since, until },
+        { kinds: [9735], '#p': [userPubkey], since, until },
+        { kinds: [1], '#p': [userPubkey], since, until },
+        { kinds: [6], '#p': [userPubkey], since, until }
+      ],
+      { closeOnEose: true }
+    );
+
+    sub.on('event', (event: NDKEvent) => {
+      collectedEvents.push(event);
+    });
+
+    sub.on('eose', () => {
+      if (resolved) return;
+      resolved = true;
+      sub.stop();
+      newCount = processCollectedEvents(collectedEvents, userPubkey);
+      console.log('[Notifications] Found', newCount, 'older notifications (EOSE)');
+      resolve(newCount);
+    });
+
+    // Timeout fallback
+    setTimeout(() => {
+      if (resolved) return;
+      resolved = true;
+      sub.stop();
+      newCount = processCollectedEvents(collectedEvents, userPubkey);
+      console.log('[Notifications] Found', newCount, 'older notifications (timeout)');
+      resolve(newCount);
+    }, TIMEOUT_MS);
+  });
+}
+
+function processCollectedEvents(events: NDKEvent[], userPubkey: string): number {
+  const newNotifications: Notification[] = [];
+  const seenIds = new Set<string>();
+
+  for (const event of events) {
+    // Skip duplicates within this batch
+    if (seenIds.has(event.id)) {
+      continue;
+    }
+    seenIds.add(event.id);
+
+    // Skip own events (except zaps)
+    if (event.kind !== 9735 && event.pubkey === userPubkey) {
+      continue;
+    }
+
+    // Filter out hellthreads
+    if (isHellthread(event)) {
+      continue;
+    }
+
+    const notification = parseNotification(event, userPubkey);
+    if (notification) {
+      newNotifications.push(notification);
+    }
+  }
+
+  // Add all new notifications in bulk (returns actual count added)
+  return notifications.addBulk(newNotifications);
 }
 
 /**
