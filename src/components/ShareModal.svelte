@@ -12,7 +12,6 @@
   import PinterestLogo from 'phosphor-svelte/lib/PinterestLogo';
   import ChatCircleText from 'phosphor-svelte/lib/ChatCircleText';
   import { qr } from '@svelte-put/qr/svg';
-  import html2canvas from 'html2canvas';
   import {
     copyToClipboard,
     canUseNativeShare,
@@ -40,8 +39,7 @@
   let loadingShort = false;
   let shortError: string | null = null;
 
-  // Branded QR card for copy/save
-  let qrCardEl: HTMLDivElement | undefined;
+  // Branded QR image state
   let qrImageCopying = false;
   let qrImageSaving = false;
   let qrImageCopied = false;
@@ -68,6 +66,11 @@
   // Short link is the primary share URL when available
   $: effectiveShareUrl = shortUrlResult?.shortUrl ?? displayUrl;
 
+  // Debug: log the URL being used for QR (remove after testing)
+  $: if (browser && open && effectiveShareUrl) {
+    console.log('[ShareModal] QR URL:', effectiveShareUrl, '| displayUrl:', displayUrl, '| shortUrl:', shortUrlResult?.shortUrl);
+  }
+
   // Auto-fetch short link when share modal opens
   $: if (browser && open && displayUrl && !shortUrlResult && !loadingShort && !shortError) {
     getShortLink();
@@ -80,8 +83,8 @@
 
   async function handleCopy() {
     if (!browser || !effectiveShareUrl) return;
-    const richText = buildRichShareText(title, effectiveShareUrl);
-    const success = await copyToClipboard(richText);
+    // Copy just the URL, not rich text
+    const success = await copyToClipboard(effectiveShareUrl);
     if (success) {
       copied = true;
       if (copyTimeout) clearTimeout(copyTimeout);
@@ -210,28 +213,101 @@
     }
   }
 
-  async function captureQrCardAsBlob(): Promise<Blob | null> {
-    if (!browser || !qrCardEl) return null;
+  async function generateBrandedQrBlob(): Promise<Blob | null> {
+    // Use effectiveShareUrl which is the short URL if available, else the full URL
+    const qrUrl = effectiveShareUrl;
+    if (!browser || !qrUrl) return null;
+
     try {
-      const canvas = await html2canvas(qrCardEl, {
-        scale: 2,
-        useCORS: true,
-        allowTaint: true,
-        backgroundColor: '#ffffff',
-        logging: false,
+      // Dynamically import qrcode-generator
+      const qrGen = (await import('qrcode-generator')).default;
+
+      // Generate QR code
+      const qrCode = qrGen(0, 'M');
+      qrCode.addData(qrUrl);
+      qrCode.make();
+
+      const moduleCount = qrCode.getModuleCount();
+      const cellSize = 8;
+      const qrSize = moduleCount * cellSize;
+      const padding = 32;
+      const centerSize = 52;
+      const panSize = 44;
+      const textHeight = 70;
+      const canvasWidth = qrSize + padding * 2;
+      const canvasHeight = qrSize + padding * 2 + textHeight;
+
+      const canvas = document.createElement('canvas');
+      canvas.width = canvasWidth * 2; // 2x for sharpness
+      canvas.height = canvasHeight * 2;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return null;
+
+      ctx.scale(2, 2);
+
+      // White background
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+
+      // Draw QR modules
+      const qrOffsetX = padding;
+      const qrOffsetY = padding;
+      ctx.fillStyle = '#000000';
+      for (let row = 0; row < moduleCount; row++) {
+        for (let col = 0; col < moduleCount; col++) {
+          if (qrCode.isDark(row, col)) {
+            ctx.fillRect(qrOffsetX + col * cellSize, qrOffsetY + row * cellSize, cellSize, cellSize);
+          }
+        }
+      }
+
+      // Clear center area for pan icon (with soft circular mask)
+      const centerX = qrOffsetX + qrSize / 2;
+      const centerY = qrOffsetY + qrSize / 2;
+      const gradient = ctx.createRadialGradient(centerX, centerY, 0, centerX, centerY, centerSize / 2 + 4);
+      gradient.addColorStop(0, 'rgba(245,244,241,1)');
+      gradient.addColorStop(0.7, 'rgba(245,244,241,0.95)');
+      gradient.addColorStop(1, 'rgba(245,244,241,0)');
+      ctx.fillStyle = gradient;
+      ctx.beginPath();
+      ctx.arc(centerX, centerY, centerSize / 2 + 8, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Draw pan icon
+      const panImg = new Image();
+      panImg.crossOrigin = 'anonymous';
+      await new Promise<void>((resolve, reject) => {
+        panImg.onload = () => resolve();
+        panImg.onerror = reject;
+        panImg.src = '/pan-qr-center.svg';
       });
+      ctx.drawImage(panImg, centerX - panSize / 2, centerY - panSize / 2, panSize, panSize);
+
+      // Draw title (recipe name)
+      const displayTitle = title.length > 32 ? title.slice(0, 30) + '…' : title;
+      ctx.fillStyle = '#1a1a1a';
+      ctx.font = 'bold 16px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(displayTitle, canvasWidth / 2, qrOffsetY + qrSize + 28);
+
+      // Draw branding with emojis
+      ctx.fillStyle = '#555555';
+      ctx.font = '13px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+      ctx.fillText('Discover on zap.cooking 🍳⚡', canvasWidth / 2, qrOffsetY + qrSize + 52);
+
       return new Promise<Blob | null>((resolve) => {
-        canvas.toBlob((b) => resolve(b ?? null), 'image/png', 1);
+        canvas.toBlob((b) => resolve(b), 'image/png', 1);
       });
-    } catch {
+    } catch (err) {
+      console.error('[QR] Failed to generate branded QR:', err);
       return null;
     }
   }
 
   async function copyQrImage() {
-    if (!browser || !qrCardEl) return;
+    if (!browser || !effectiveShareUrl) return;
     qrImageCopying = true;
-    const blob = await captureQrCardAsBlob();
+    const blob = await generateBrandedQrBlob();
     qrImageCopying = false;
     if (!blob) return;
     try {
@@ -247,19 +323,20 @@
   async function saveQrImage(blob?: Blob | null) {
     if (!browser) return;
     qrImageSaving = true;
-    const b = blob ?? await captureQrCardAsBlob();
+    const b = blob ?? await generateBrandedQrBlob();
     qrImageSaving = false;
     if (!b) return;
-    const url = URL.createObjectURL(b);
+    const dataUrl = URL.createObjectURL(b);
     const a = document.createElement('a');
-    a.href = url;
-    a.download = `zap-cooking-recipe-${shortUrlResult?.shortCode ?? 'share'}.png`;
+    a.href = dataUrl;
+    const safeTitle = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 40);
+    a.download = `zap-cooking-${safeTitle || 'recipe'}.png`;
     a.style.display = 'none';
     document.body.appendChild(a);
     a.click();
     setTimeout(() => {
       document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      URL.revokeObjectURL(dataUrl);
     }, 100);
   }
 
@@ -442,17 +519,16 @@
         </button>
       </div>
 
-      <!-- Branded QR card (pan icon center + copy/save) when short link is ready -->
-      {#if shortUrlResult}
+      <!-- Branded QR card (pan icon center + copy/save) when URL is ready -->
+      {#if effectiveShareUrl}
         <div class="flex flex-col gap-2">
           <div
-            bind:this={qrCardEl}
             class="qr-card-branded flex flex-col items-center justify-center rounded-xl overflow-hidden"
             style="background: #fff; width: 280px; max-width: 100%; margin: 0 auto; padding: 20px; box-sizing: border-box;"
           >
             <div class="relative flex-shrink-0" style="width: 200px; height: 200px;">
               <svg
-                use:qr={{ data: shortUrlResult.shortUrl }}
+                use:qr={{ data: effectiveShareUrl }}
                 class="absolute inset-0 w-full h-full"
                 style="left: 0; top: 0;"
                 aria-hidden="true"
@@ -474,7 +550,11 @@
                 />
               </div>
             </div>
-            <p class="text-center text-sm font-medium mt-3 mb-0 tracking-tight" style="color: #2d2d2d; letter-spacing: 0.01em;">
+            <!-- Recipe title -->
+            <p class="text-center text-sm font-semibold mt-3 mb-1 tracking-tight line-clamp-2" style="color: #1a1a1a; max-width: 240px;">
+              {title}
+            </p>
+            <p class="text-center text-xs font-medium mb-0 tracking-tight" style="color: #555555;">
               Discover on zap.cooking 🍳⚡
             </p>
           </div>

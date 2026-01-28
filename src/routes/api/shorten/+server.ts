@@ -87,7 +87,9 @@ export const POST: RequestHandler = async ({ request, platform }) => {
     type
   };
 
+  console.log('[Shorten] Saving to KV - key:', shortCode, 'naddr:', naddr.slice(0, 30) + '...');
   await kv.put(shortCode, JSON.stringify(record));
+  console.log('[Shorten] Saved successfully, returning shortUrl:', getShortUrl(shortCode));
 
   return json({
     success: true,

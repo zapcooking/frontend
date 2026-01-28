@@ -140,6 +140,9 @@ importers:
       phosphor-svelte:
         specifier: ^1.4.2
         version: 1.4.2(svelte@4.2.20)
+      qrcode-generator:
+        specifier: ^1.4.4
+        version: 1.4.4
       stripe:
         specifier: ^20.1.0
         version: 20.1.0(@types/node@18.19.64)
