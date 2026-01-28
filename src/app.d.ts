@@ -22,6 +22,11 @@ declare global {
           STRIKE_API_KEY?: string;
           STRIKE_API_BASE_URL?: string;
           STRIKE_WEBHOOK_SECRET?: string;
+          /** KV namespace for URL shortlinks (Cloudflare Pages: bind in dashboard as SHORTLINKS) */
+          SHORTLINKS?: {
+            get(key: string, type?: 'text' | 'json'): Promise<string | unknown | null>;
+            put(key: string, value: string, options?: { expirationTtl?: number; expiration?: number }): Promise<void>;
+          };
           // Add other Cloudflare env vars here
         };
       }

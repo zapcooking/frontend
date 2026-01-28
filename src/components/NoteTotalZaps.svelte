@@ -13,6 +13,7 @@
   export let onZapClick: (() => void) | undefined = undefined; // Callback for zap button click (fallback when one-tap not available)
   export let showPills: boolean = false; // Whether to show zapper pills (pill format with pfp + amount)
   export let maxPills: number = 3; // Maximum number of zapper pills to show
+  export let onlyPills: boolean = false; // When true with showPills, render only the pills row (for layout above action icons)
 
   const store = getEngagementStore(event.id);
   let showZappersModal = false;
@@ -211,7 +212,9 @@
   $: totalSats = Math.floor($store.zaps.totalAmount / 1000);
 </script>
 
-{#if $store.loading}
+{#if onlyPills && ($store.loading || $store.zaps.topZappers.length === 0)}
+  <!-- Pills-only slot: nothing when loading or no zappers -->
+{:else if $store.loading}
   <div
     class="flex items-center gap-1.5 rounded px-0.5 transition duration-300"
     style="color: var(--color-text-primary)"
@@ -234,9 +237,34 @@
     </button>
     <span class="text-caption">–</span>
   </div>
+{:else if onlyPills && showPills && $store.zaps.topZappers.length > 0}
+  <!-- Pills-only row (one row only; +X at end shows remaining); contain horizontal scroll for Safari -->
+  <div class="zap-pills-row flex flex-nowrap items-center gap-1.5 w-full min-w-0 overflow-x-auto overflow-y-hidden">
+    {#each visibleZappers as zapper (zapper.pubkey)}
+      <button
+        on:click|stopPropagation={handleCountClick}
+        class="zap-pill flex items-center gap-1 h-6 pl-1 pr-2 rounded-full bg-accent-gray hover:bg-yellow-500/20 transition-colors cursor-pointer flex-shrink-0 {zapper.pubkey === $userPublickey ? 'ring-1 ring-yellow-500' : ''}"
+        title="{zapper.amount} sats"
+      >
+        <CustomAvatar pubkey={zapper.pubkey} size={18} className="rounded-full flex-shrink-0" />
+        <LightningIcon size={12} class="text-yellow-500 flex-shrink-0" weight="fill" />
+        <span class="text-xs text-caption font-semibold">{formatAmount(zapper.amount)}</span>
+      </button>
+    {/each}
+    {#if hiddenCount > 0}
+      <button
+        on:click|stopPropagation={handleCountClick}
+        class="zap-pill flex items-center gap-1 h-6 pl-1.5 pr-2 rounded-full bg-accent-gray hover:bg-yellow-500/20 text-caption text-xs font-semibold cursor-pointer transition-colors flex-shrink-0"
+        title="{hiddenCount} more zappers ({formatAmount(totalSats)} sats total)"
+      >
+        <LightningIcon size={12} class="text-yellow-500 flex-shrink-0" weight="fill" />
+        +{hiddenCount}
+      </button>
+    {/if}
+  </div>
 {:else if showPills && $store.zaps.topZappers.length > 0}
-  <!-- Pill format: Lightning icon + pfp pills with amounts -->
-  <div class="flex flex-wrap items-center gap-1.5">
+  <!-- Pill format: Lightning icon + pfp pills with amounts (inline, one row; +X at end); contain horizontal scroll for Safari -->
+  <div class="zap-pills-row flex flex-nowrap items-center gap-1.5 overflow-x-auto overflow-y-hidden">
     <!-- Zap Button -->
     <button
       class="hover:bg-input rounded p-1 transition-colors select-none touch-none flex-shrink-0"
@@ -266,21 +294,23 @@
     {#each visibleZappers as zapper (zapper.pubkey)}
       <button
         on:click|stopPropagation={handleCountClick}
-        class="flex items-center gap-1 h-6 px-1 pr-2 rounded-full bg-accent-gray hover:bg-yellow-500/20 transition-colors cursor-pointer {zapper.pubkey === $userPublickey ? 'ring-1 ring-yellow-500' : ''}"
+        class="zap-pill flex items-center gap-1 h-6 pl-1 pr-2 rounded-full bg-accent-gray hover:bg-yellow-500/20 transition-colors cursor-pointer flex-shrink-0 {zapper.pubkey === $userPublickey ? 'ring-1 ring-yellow-500' : ''}"
         title="{zapper.amount} sats"
       >
         <CustomAvatar pubkey={zapper.pubkey} size={18} className="rounded-full flex-shrink-0" />
-        <span class="text-xs text-caption">{formatAmount(zapper.amount)}</span>
+        <LightningIcon size={12} class="text-yellow-500 flex-shrink-0" weight="fill" />
+        <span class="text-xs text-caption font-semibold">{formatAmount(zapper.amount)}</span>
       </button>
     {/each}
 
-    <!-- Hidden count badge -->
+    <!-- Hidden count badge (+X pill) -->
     {#if hiddenCount > 0}
       <button
         on:click|stopPropagation={handleCountClick}
-        class="flex items-center h-6 px-2 rounded-full bg-accent-gray hover:bg-yellow-500/20 text-caption text-xs cursor-pointer transition-colors"
+        class="zap-pill flex items-center gap-1 h-6 pl-1.5 pr-2 rounded-full bg-accent-gray hover:bg-yellow-500/20 text-caption text-xs font-semibold cursor-pointer transition-colors flex-shrink-0"
         title="{hiddenCount} more zappers ({formatAmount(totalSats)} sats total)"
       >
+        <LightningIcon size={12} class="text-yellow-500 flex-shrink-0" weight="fill" />
         +{hiddenCount}
       </button>
     {/if}
@@ -339,3 +369,16 @@
   zappers={$store.zaps.topZappers}
   totalAmount={$store.zaps.totalAmount}
 />
+
+<style>
+  .zap-pill {
+    border: 1px solid rgba(245, 158, 11, 0.4);
+    box-shadow: 0 0 10px rgba(245, 158, 11, 0.25);
+  }
+
+  /* Contain horizontal scroll so Safari doesn't pull the whole page sideways */
+  .zap-pills-row {
+    overscroll-behavior-x: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+</style>

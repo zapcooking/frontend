@@ -11,6 +11,7 @@
   import RedditLogo from 'phosphor-svelte/lib/RedditLogo';
   import PinterestLogo from 'phosphor-svelte/lib/PinterestLogo';
   import ChatCircleText from 'phosphor-svelte/lib/ChatCircleText';
+  import { qr } from '@svelte-put/qr/svg';
   import {
     copyToClipboard,
     canUseNativeShare,
@@ -33,6 +34,17 @@
   let showNativeShare = false;
   let imagePreviewUrl: string | null = null;
 
+  // Short link state
+  let shortUrlResult: { shortUrl: string; shortCode: string } | null = null;
+  let loadingShort = false;
+  let shortError: string | null = null;
+
+  // Branded QR image state
+  let qrImageCopying = false;
+  let qrImageSaving = false;
+  let qrImageCopied = false;
+  let qrCopyResetTimeout: ReturnType<typeof setTimeout> | null = null;
+
   // Create preview URL when blob changes
   $: if (imageBlob && browser) {
     if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl);
@@ -51,31 +63,32 @@
     ? url.replace(/https?:\/\/localhost:\d+/, SITE_URL)
     : url;
 
+  // Short link is the primary share URL when available
+  $: effectiveShareUrl = shortUrlResult?.shortUrl ?? displayUrl;
+
+  // Auto-fetch short link when share modal opens
+  $: if (browser && open && displayUrl && !shortUrlResult && !loadingShort && !shortError) {
+    getShortLink();
+  }
+
   // Check for native share support on mount
   $: if (browser) {
     showNativeShare = canUseNativeShare();
   }
 
   async function handleCopy() {
-    if (!browser || !url) return;
-    
-    // Copy rich text format
-    const richText = buildRichShareText(title, url);
-    const success = await copyToClipboard(richText);
-    
+    if (!browser || !effectiveShareUrl) return;
+    // Copy just the URL, not rich text
+    const success = await copyToClipboard(effectiveShareUrl);
     if (success) {
       copied = true;
       if (copyTimeout) clearTimeout(copyTimeout);
-      copyTimeout = setTimeout(() => {
-        copied = false;
-      }, 2000);
+      copyTimeout = setTimeout(() => { copied = false; }, 2000);
     }
   }
 
   async function handleNativeShare() {
-    if (!browser || !url) return;
-    
-    // If we have an image blob, try to share it with the link
+    if (!browser || !effectiveShareUrl) return;
     if (imageBlob) {
       try {
         const file = new File([imageBlob], imageName, { type: 'image/png' });
@@ -83,7 +96,7 @@
           await navigator.share({
             files: [file],
             title,
-            text: `Found on zap.cooking ⚡\n${url}`,
+            text: `Found on zap.cooking ⚡\n${effectiveShareUrl}`,
           });
           return;
         }
@@ -91,15 +104,11 @@
         console.warn('Failed to share with image:', err);
       }
     }
-    
-    // Fall back to sharing just the URL
     const success = await nativeShare({
       title,
       text: 'Found on zap.cooking ⚡',
-      url
+      url: effectiveShareUrl
     });
-    
-    // If native share failed/cancelled, fall back to copy
     if (!success) {
       await handleCopy();
     }
@@ -159,10 +168,171 @@
   function handleClose() {
     open = false;
     copied = false;
+    shortUrlResult = null;
+    shortError = null;
     if (copyTimeout) {
       clearTimeout(copyTimeout);
       copyTimeout = null;
     }
+    if (qrCopyResetTimeout) {
+      clearTimeout(qrCopyResetTimeout);
+      qrCopyResetTimeout = null;
+    }
+  }
+
+  async function getShortLink() {
+    if (!browser || !displayUrl) return;
+    loadingShort = true;
+    shortError = null;
+    shortUrlResult = null;
+    try {
+      const res = await fetch('/api/shorten', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: displayUrl })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        shortError = data?.error ?? 'Could not create short link';
+        return;
+      }
+      if (data.success && data.shortUrl) {
+        shortUrlResult = { shortUrl: data.shortUrl, shortCode: data.shortCode ?? '' };
+      } else {
+        shortError = data?.error ?? 'Could not create short link';
+      }
+    } catch (err) {
+      shortError = 'Network error – try again';
+    } finally {
+      loadingShort = false;
+    }
+  }
+
+  async function generateBrandedQrBlob(): Promise<Blob | null> {
+    // Use effectiveShareUrl which is the short URL if available, else the full URL
+    const qrUrl = effectiveShareUrl;
+    if (!browser || !qrUrl) return null;
+
+    try {
+      // Dynamically import qrcode-generator
+      const qrGen = (await import('qrcode-generator')).default;
+
+      // Generate QR code
+      const qrCode = qrGen(0, 'M');
+      qrCode.addData(qrUrl);
+      qrCode.make();
+
+      const moduleCount = qrCode.getModuleCount();
+      const cellSize = 8;
+      const qrSize = moduleCount * cellSize;
+      const padding = 32;
+      const centerSize = 52;
+      const panSize = 44;
+      const textHeight = 70;
+      const canvasWidth = qrSize + padding * 2;
+      const canvasHeight = qrSize + padding * 2 + textHeight;
+
+      const canvas = document.createElement('canvas');
+      canvas.width = canvasWidth * 2; // 2x for sharpness
+      canvas.height = canvasHeight * 2;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return null;
+
+      ctx.scale(2, 2);
+
+      // White background
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+
+      // Draw QR modules
+      const qrOffsetX = padding;
+      const qrOffsetY = padding;
+      ctx.fillStyle = '#000000';
+      for (let row = 0; row < moduleCount; row++) {
+        for (let col = 0; col < moduleCount; col++) {
+          if (qrCode.isDark(row, col)) {
+            ctx.fillRect(qrOffsetX + col * cellSize, qrOffsetY + row * cellSize, cellSize, cellSize);
+          }
+        }
+      }
+
+      // Clear center area for pan icon (with soft circular mask)
+      const centerX = qrOffsetX + qrSize / 2;
+      const centerY = qrOffsetY + qrSize / 2;
+      const gradient = ctx.createRadialGradient(centerX, centerY, 0, centerX, centerY, centerSize / 2 + 4);
+      gradient.addColorStop(0, 'rgba(245,244,241,1)');
+      gradient.addColorStop(0.7, 'rgba(245,244,241,0.95)');
+      gradient.addColorStop(1, 'rgba(245,244,241,0)');
+      ctx.fillStyle = gradient;
+      ctx.beginPath();
+      ctx.arc(centerX, centerY, centerSize / 2 + 8, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Draw pan icon
+      const panImg = new Image();
+      panImg.crossOrigin = 'anonymous';
+      await new Promise<void>((resolve, reject) => {
+        panImg.onload = () => resolve();
+        panImg.onerror = reject;
+        panImg.src = '/pan-qr-center.svg';
+      });
+      ctx.drawImage(panImg, centerX - panSize / 2, centerY - panSize / 2, panSize, panSize);
+
+      // Draw title (recipe name)
+      const displayTitle = title.length > 32 ? title.slice(0, 30) + '…' : title;
+      ctx.fillStyle = '#1a1a1a';
+      ctx.font = 'bold 16px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(displayTitle, canvasWidth / 2, qrOffsetY + qrSize + 28);
+
+      // Draw branding with emojis
+      ctx.fillStyle = '#555555';
+      ctx.font = '13px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+      ctx.fillText('Discover on zap.cooking 🍳⚡', canvasWidth / 2, qrOffsetY + qrSize + 52);
+
+      return new Promise<Blob | null>((resolve) => {
+        canvas.toBlob((b) => resolve(b), 'image/png', 1);
+      });
+    } catch (err) {
+      console.error('[QR] Failed to generate branded QR:', err);
+      return null;
+    }
+  }
+
+  async function copyQrImage() {
+    if (!browser || !effectiveShareUrl) return;
+    qrImageCopying = true;
+    const blob = await generateBrandedQrBlob();
+    qrImageCopying = false;
+    if (!blob) return;
+    try {
+      await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+      qrImageCopied = true;
+      if (qrCopyResetTimeout) clearTimeout(qrCopyResetTimeout);
+      qrCopyResetTimeout = setTimeout(() => { qrImageCopied = false; }, 2000);
+    } catch {
+      saveQrImage(blob);
+    }
+  }
+
+  async function saveQrImage(blob?: Blob | null) {
+    if (!browser) return;
+    qrImageSaving = true;
+    const b = blob ?? await generateBrandedQrBlob();
+    qrImageSaving = false;
+    if (!b) return;
+    const dataUrl = URL.createObjectURL(b);
+    const a = document.createElement('a');
+    a.href = dataUrl;
+    const safeTitle = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 40);
+    a.download = `zap-cooking-${safeTitle || 'recipe'}.png`;
+    a.style.display = 'none';
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => {
+      document.body.removeChild(a);
+      URL.revokeObjectURL(dataUrl);
+    }, 100);
   }
 
   function handleInputFocus(e: FocusEvent) {
@@ -181,16 +351,16 @@
     }
   }
 
-  // Social share URLs using the utility
-  $: xShareUrl = socialShareUrls.x(url, title);
-  $: facebookShareUrl = socialShareUrls.facebook(url);
-  $: linkedinShareUrl = socialShareUrls.linkedin(url);
-  $: redditShareUrl = socialShareUrls.reddit(url, title);
-  $: pinterestShareUrl = socialShareUrls.pinterest(url, title, imageUrl);
-  $: blueskyShareUrl = socialShareUrls.bluesky(url, title);
-  $: smsShareUrl = socialShareUrls.sms(url, title);
-  $: whatsappShareUrl = socialShareUrls.whatsapp(url, title);
-  $: telegramShareUrl = socialShareUrls.telegram(url, title);
+  // Social share URLs use the short link when available
+  $: xShareUrl = socialShareUrls.x(effectiveShareUrl, title);
+  $: facebookShareUrl = socialShareUrls.facebook(effectiveShareUrl);
+  $: linkedinShareUrl = socialShareUrls.linkedin(effectiveShareUrl);
+  $: redditShareUrl = socialShareUrls.reddit(effectiveShareUrl, title);
+  $: pinterestShareUrl = socialShareUrls.pinterest(effectiveShareUrl, title, imageUrl);
+  $: blueskyShareUrl = socialShareUrls.bluesky(effectiveShareUrl, title);
+  $: smsShareUrl = socialShareUrls.sms(effectiveShareUrl, title);
+  $: whatsappShareUrl = socialShareUrls.whatsapp(effectiveShareUrl, title);
+  $: telegramShareUrl = socialShareUrls.telegram(effectiveShareUrl, title);
 
   // Download image and open platform share dialog
   async function shareToplatform(shareUrl: string) {
@@ -290,13 +460,18 @@
       <div class="border-t" style="border-color: var(--color-input-border);"></div>
     {/if}
     
-    <!-- URL Display -->
+    <!-- Share Link (short link when ready, auto-fetched on open) -->
     <div class="flex flex-col gap-2">
-      <p class="text-sm font-medium" style="color: var(--color-text-primary);">Share Link</p>
+      <p class="text-sm font-medium" style="color: var(--color-text-primary);">
+        Share Link
+        {#if loadingShort}
+          <span class="text-xs font-normal opacity-70">(getting short link…)</span>
+        {/if}
+      </p>
       <input
         type="text"
         readonly
-        value={displayUrl}
+        value={effectiveShareUrl}
         class="w-full input font-mono text-sm px-3 py-2 rounded-lg"
         style="background-color: var(--color-input); border: 1px solid var(--color-input-border);"
         on:focus={handleInputFocus}
@@ -309,7 +484,8 @@
         {#if showNativeShare}
           <button
             on:click={handleNativeShare}
-            class="flex-1 py-2.5 px-4 rounded-lg font-semibold transition duration-200 flex items-center justify-center gap-2 bg-primary hover:bg-primary/90 text-white"
+            disabled={loadingShort}
+            class="flex-1 py-2.5 px-4 rounded-lg font-semibold transition duration-200 flex items-center justify-center gap-2 bg-primary hover:bg-primary/90 text-white disabled:opacity-50"
             aria-label="Share"
           >
             <ShareIcon size={18} weight="bold" />
@@ -319,7 +495,8 @@
         
         <button
           on:click={handleCopy}
-          class="flex-1 py-2.5 px-4 rounded-lg font-semibold transition duration-200 flex items-center justify-center gap-2
+          disabled={loadingShort}
+          class="flex-1 py-2.5 px-4 rounded-lg font-semibold transition duration-200 flex items-center justify-center gap-2 disabled:opacity-50
             {copied
               ? 'bg-green-500 hover:bg-green-600 text-white'
               : showNativeShare 
@@ -336,6 +513,95 @@
           {/if}
         </button>
       </div>
+
+      <!-- Branded QR card (pan icon center + copy/save) when URL is ready -->
+      {#if effectiveShareUrl}
+        <div class="flex flex-col gap-2">
+          <div
+            class="qr-card-branded flex flex-col items-center justify-center rounded-xl overflow-hidden"
+            style="background: #fff; width: 280px; max-width: 100%; margin: 0 auto; padding: 20px; box-sizing: border-box;"
+          >
+            <div class="relative flex-shrink-0" style="width: 200px; height: 200px;">
+              <svg
+                use:qr={{ data: effectiveShareUrl }}
+                class="absolute inset-0 w-full h-full"
+                style="left: 0; top: 0;"
+                aria-hidden="true"
+              />
+              <!-- Center: pan on the QR, in context—no lift, fades into the pattern -->
+              <div
+                class="absolute inset-0 flex items-center justify-center m-auto rounded-full"
+                style="
+                  width: 46px; height: 46px;
+                  background: radial-gradient(circle at center, #f5f4f1 0%, rgba(245,244,241,0.88) 38%, rgba(245,244,241,0.35) 62%, transparent 85%);
+                "
+              >
+                <img
+                  src="/pan-qr-center.svg"
+                  alt=""
+                  class="block"
+                  style="width: 38px; height: 38px; object-fit: contain; pointer-events: none;"
+                  role="presentation"
+                />
+              </div>
+            </div>
+            <!-- Recipe title -->
+            <p class="text-center text-sm font-semibold mt-3 mb-1 tracking-tight line-clamp-2" style="color: #1a1a1a; max-width: 240px;">
+              {title}
+            </p>
+            <p class="text-center text-xs font-medium mb-0 tracking-tight" style="color: #555555;">
+              Discover on zap.cooking 🍳⚡
+            </p>
+          </div>
+          <div class="flex gap-2 justify-center flex-wrap">
+            <button
+              type="button"
+              on:click={copyQrImage}
+              disabled={qrImageCopying}
+              class="inline-flex items-center gap-1.5 py-1.5 px-3 rounded-lg text-sm font-medium transition disabled:opacity-50
+                {qrImageCopied ? 'bg-green-500 text-white' : 'bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-white hover:opacity-90'}"
+              aria-label={qrImageCopied ? 'Copied' : 'Copy QR image'}
+            >
+              {#if qrImageCopied}
+                <CheckIcon size={14} weight="bold" />
+                <span>Copied</span>
+              {:else if qrImageCopying}
+                <span>Copying…</span>
+              {:else}
+                <CopyIcon size={14} weight="bold" />
+                <span>Copy QR</span>
+              {/if}
+            </button>
+            <button
+              type="button"
+              on:click={() => saveQrImage()}
+              disabled={qrImageSaving}
+              class="inline-flex items-center gap-1.5 py-1.5 px-3 rounded-lg text-sm font-medium bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-white hover:opacity-90 transition disabled:opacity-50"
+              aria-label="Save QR image"
+            >
+              {#if qrImageSaving}
+                <span>Saving…</span>
+              {:else}
+                <DownloadIcon size={14} weight="bold" />
+                <span>Save QR</span>
+              {/if}
+            </button>
+          </div>
+        </div>
+      {/if}
+
+      {#if shortError}
+        <p class="text-xs text-red-600 dark:text-red-400">
+          {shortError}
+          <button
+            type="button"
+            on:click={getShortLink}
+            class="ml-1 underline font-medium hover:no-underline"
+          >
+            Try again
+          </button>
+        </p>
+      {/if}
     </div>
     
     <!-- Social Share (Link only) -->

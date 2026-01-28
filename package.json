@@ -67,6 +67,7 @@
     "nostr-tools": "^2.13.0",
     "openai": "^6.16.0",
     "phosphor-svelte": "^1.4.2",
+    "qrcode-generator": "^1.4.4",
     "stripe": "^20.1.0",
     "svelte-fa": "^4.0.2",
     "svelte-qrcode": "^1.0.0",
