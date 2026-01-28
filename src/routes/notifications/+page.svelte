@@ -12,6 +12,7 @@
   import CustomAvatar from '../../components/CustomAvatar.svelte';
   import CustomName from '../../components/CustomName.svelte';
   import { userPublickey, ndk } from '$lib/nostr';
+  import { hellthreadThreshold } from '$lib/hellthreadFilterSettings';
   import { onMount } from 'svelte';
   import PullToRefresh from '../../components/PullToRefresh.svelte';
   import { get } from 'svelte/store';
@@ -36,6 +37,9 @@
   let contextInFlight = new Set<string>();
   const MAX_CONTEXT_FETCH = 50;
   const CONTEXT_CONCURRENCY = 4;
+
+  // Track event IDs that are hellthreads (to filter out notifications referencing them)
+  let hellthreadEventIds = new Set<string>();
 
   // Map of pubkey -> display name for resolving nostr:npub mentions
   let resolvedNames: Record<string, string> = {};
@@ -122,6 +126,12 @@
     const isMuted = n.fromPubkey && combinedMutedPubkeys.has(n.fromPubkey);
     if (isMuted) {
       console.log('[Notifications] FILTERING OUT muted user:', n.fromPubkey);
+      return false;
+    }
+
+    // Filter out notifications referencing hellthread events
+    const refId = getReferencedEventId(n);
+    if (refId && hellthreadEventIds.has(refId)) {
       return false;
     }
 
@@ -234,6 +244,21 @@
       .trim();
   }
 
+  /**
+   * Check if an event is a hellthread based on number of 'p' tags
+   */
+  function isHellthread(event: NDKEvent): boolean {
+    const threshold = get(hellthreadThreshold);
+    if (threshold === 0) return false; // Disabled
+
+    if (!event.tags || !Array.isArray(event.tags)) return false;
+
+    const mentionCount = event.tags.filter(
+      (tag: string[]) => Array.isArray(tag) && tag[0] === 'p'
+    ).length;
+    return mentionCount >= threshold;
+  }
+
   function buildContextPreview(event: NDKEvent): ContextPreview {
     const kind = event.kind || 1;
     const pubkey = event.pubkey;
@@ -304,7 +329,13 @@
     await runWithConcurrency(ids, CONTEXT_CONCURRENCY, async (id) => {
       try {
         const ev = await ndkInstance.fetchEvent({ ids: [id] });
-        contextById = { ...contextById, [id]: ev ? buildContextPreview(ev) : null };
+        if (ev && isHellthread(ev)) {
+          // Mark as hellthread so we can filter out notifications referencing it
+          hellthreadEventIds = new Set([...hellthreadEventIds, id]);
+          contextById = { ...contextById, [id]: null };
+        } else {
+          contextById = { ...contextById, [id]: ev ? buildContextPreview(ev) : null };
+        }
       } catch {
         contextById = { ...contextById, [id]: null };
       } finally {

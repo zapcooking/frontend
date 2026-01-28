@@ -957,6 +957,11 @@
       if (hashtagCount > MAX_HASHTAGS) {
         return false;
       }
+      // Check hellthread threshold
+      const threshold = get(hellthreadThreshold);
+      if (isHellthread(event, threshold)) {
+        return false;
+      }
       return true;
     }
 
@@ -5052,7 +5057,12 @@
                     </div>
 
                     <div class="hover:bg-amber-50/50 rounded-full p-1 transition-colors">
-                      <NoteTotalZaps {event} onZapClick={() => openZapModal(event)} showPills={true} maxPills={3} />
+                      <NoteTotalZaps
+                        {event}
+                        onZapClick={() => openZapModal(event)}
+                        showPills={true}
+                        maxPills={3}
+                      />
                     </div>
                   {:else}
                     <span class="text-caption p-1.5">♡ –</span>
