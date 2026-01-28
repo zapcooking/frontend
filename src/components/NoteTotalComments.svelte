@@ -7,7 +7,7 @@
   import { getEngagementStore, fetchEngagement } from '$lib/engagementCache';
 
   export let event: NDKEvent;
-  
+
   const store = getEngagementStore(event.id);
 
   onMount(() => {
@@ -22,7 +22,9 @@
   style="color: var(--color-text-primary)"
   on:click={() => {
     // Find the InlineComments component for this event and trigger toggleComments
-    const inlineCommentsComponent = document.querySelector(`[data-event-id="${event.id}"]`)?.closest('.inline-comments');
+    const inlineCommentsComponent = document
+      .querySelector(`[data-event-id="${event.id}"]`)
+      ?.closest('.inline-comments');
     if (inlineCommentsComponent) {
       // Dispatch a custom event to trigger the toggleComments function
       inlineCommentsComponent.dispatchEvent(new CustomEvent('toggleComments'));
@@ -32,6 +34,6 @@
 >
   <CommentIcon size={24} class="text-caption" />
   <span class="text-caption">
-    {#if $store.loading}–{:else}{$store.comments.count}{/if}
+    {#if $store.loading}<span class="opacity-0">0</span>{:else}{$store.comments.count}{/if}
   </span>
 </button>

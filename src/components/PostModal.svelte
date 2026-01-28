@@ -16,7 +16,7 @@
 </script>
 
 <Modal bind:open allowOverflow={true} noHeader={true}>
-  <div class="flex flex-col gap-4">
+  <div class="flex flex-col gap-4 flex-1">
     <!-- Header: relay selector on left, X on right -->
     <div class="flex items-center justify-between">
       <div class="flex items-center gap-2">
@@ -48,11 +48,11 @@
       </button>
     </div>
 
-    <PostComposer 
-      variant="modal" 
-      {selectedRelay} 
+    <PostComposer
+      variant="modal"
+      {selectedRelay}
       initialQuotedNote={$quotedNoteStore}
-      on:close={handleClose} 
+      on:close={handleClose}
     />
   </div>
 </Modal>

@@ -7,7 +7,8 @@
   import LinkPreview from './LinkPreview.svelte';
   import VideoPreview from './VideoPreview.svelte';
   import { processContentWithProfiles } from '$lib/contentProcessor';
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
+  import { browser } from '$app/environment';
 
   export let content: string;
   export let className: string = '';
@@ -17,6 +18,54 @@
   export let maxLength: number = 500; // Character limit before collapse
 
   let isExpanded: boolean = false;
+
+  // Image modal state
+  let imageModalOpen = false;
+  let selectedImageUrl = '';
+  let allImageUrls: string[] = [];
+  let selectedImageIndex = 0;
+
+  function openImageModal(imageUrl: string, index: number) {
+    selectedImageUrl = imageUrl;
+    selectedImageIndex = index;
+    imageModalOpen = true;
+  }
+
+  function closeImageModal() {
+    imageModalOpen = false;
+    selectedImageUrl = '';
+    selectedImageIndex = 0;
+  }
+
+  function nextModalImage() {
+    if (allImageUrls.length <= 1) return;
+    selectedImageIndex = (selectedImageIndex + 1) % allImageUrls.length;
+    selectedImageUrl = allImageUrls[selectedImageIndex];
+  }
+
+  function prevModalImage() {
+    if (allImageUrls.length <= 1) return;
+    selectedImageIndex =
+      selectedImageIndex === 0 ? allImageUrls.length - 1 : selectedImageIndex - 1;
+    selectedImageUrl = allImageUrls[selectedImageIndex];
+  }
+
+  function handleKeydown(e: KeyboardEvent) {
+    if (!imageModalOpen) return;
+    if (e.key === 'Escape') closeImageModal();
+    else if (e.key === 'ArrowLeft') prevModalImage();
+    else if (e.key === 'ArrowRight') nextModalImage();
+  }
+
+  // Extract all image URLs from parsed content for navigation
+  function extractImageUrls(parts: any[]): string[] {
+    return parts
+      .filter((part) => part.type === 'url' && part.url && isImageUrl(part.url))
+      .map((part) => part.url);
+  }
+
+  // Update allImageUrls when content changes
+  $: allImageUrls = extractImageUrls(finalParsedContent);
 
   // Image extensions to detect
   const IMAGE_EXTENSIONS = /\.(jpg|jpeg|png|gif|webp|svg|bmp|avif)(\?.*)?$/i;
@@ -235,14 +284,21 @@
       </button>
     {:else if part.type === 'url'}
       {#if part.url && isImageUrl(part.url)}
+        {@const imageUrl = part.url || ''}
+        {@const imageIndex = allImageUrls.indexOf(imageUrl)}
         <div class="my-1">
-          <img
-            src={part.url}
-            alt=""
-            class="max-w-full rounded-lg max-h-96 object-contain"
-            loading="lazy"
-            on:error={handleImageError}
-          />
+          <button
+            class="block cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary rounded-lg"
+            on:click={() => openImageModal(imageUrl, imageIndex >= 0 ? imageIndex : 0)}
+          >
+            <img
+              src={part.url}
+              alt=""
+              class="max-w-full rounded-lg max-h-96 object-contain hover:opacity-95 transition-opacity"
+              loading="lazy"
+              on:error={handleImageError}
+            />
+          </button>
         </div>
       {:else if part.url && isVideoUrl(part.url)}
         <VideoPreview url={part.url} />
@@ -298,6 +354,91 @@
     </button>
   {/if}
 </div>
+
+<!-- Image Modal -->
+<svelte:window on:keydown={handleKeydown} />
+
+{#if imageModalOpen}
+  <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-noninteractive-element-interactions -->
+  <div
+    class="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-75 p-4"
+    on:click={closeImageModal}
+    role="dialog"
+    aria-modal="true"
+  >
+    <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+    <div
+      class="relative bg-input rounded-lg shadow-2xl max-w-4xl max-h-[90vh] overflow-hidden"
+      on:click|stopPropagation
+    >
+      <!-- Close button -->
+      <button
+        class="absolute top-2 right-2 bg-input hover:bg-accent-gray rounded-full p-2 shadow-md transition z-10"
+        style="color: var(--color-text-primary)"
+        on:click={closeImageModal}
+        aria-label="Close image"
+      >
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="2"
+            d="M6 18L18 6M6 6l12 12"
+          />
+        </svg>
+      </button>
+
+      {#if allImageUrls.length > 1}
+        <!-- Image counter -->
+        <div
+          class="absolute top-2 left-2 bg-black/60 text-white text-sm px-3 py-1.5 rounded-full z-10"
+        >
+          {selectedImageIndex + 1} / {allImageUrls.length}
+        </div>
+
+        <!-- Previous button -->
+        <button
+          on:click|stopPropagation={prevModalImage}
+          class="absolute left-2 top-1/2 -translate-y-1/2 bg-input/90 hover:bg-input rounded-full p-2 shadow-md transition z-10"
+          style="color: var(--color-text-primary)"
+          aria-label="Previous image"
+        >
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M15 19l-7-7 7-7"
+            />
+          </svg>
+        </button>
+
+        <!-- Next button -->
+        <button
+          on:click|stopPropagation={nextModalImage}
+          class="absolute right-2 top-1/2 -translate-y-1/2 bg-input/90 hover:bg-input rounded-full p-2 shadow-md transition z-10"
+          style="color: var(--color-text-primary)"
+          aria-label="Next image"
+        >
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M9 5l7 7-7 7"
+            />
+          </svg>
+        </button>
+      {/if}
+
+      <img
+        src={selectedImageUrl}
+        alt="Full size preview"
+        class="w-full h-auto max-h-[90vh] object-contain"
+      />
+    </div>
+  </div>
+{/if}
 
 <style>
   /* First block element gets more top margin */

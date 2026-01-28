@@ -56,7 +56,7 @@
     e.stopPropagation();
     isLongPress = false;
     pressStartTime = Date.now();
-    
+
     // Track touch position for mobile
     if (isTouchEvent(e) && e.touches.length > 0) {
       touchStartPos = {
@@ -83,12 +83,12 @@
   function handlePressEnd(e: MouseEvent | TouchEvent) {
     const wasLongPress = isLongPress;
     const hadTimer = longPressTimer !== null;
-    
+
     if (longPressTimer) {
       clearTimeout(longPressTimer);
       longPressTimer = null;
     }
-    
+
     // For touch events on Safari, we need to trigger the zap action here
     // because the click event may not fire after preventDefault on touchstart
     if (isTouchEvent(e) && !wasLongPress && touchStartPos !== null) {
@@ -98,20 +98,20 @@
       handleZapIconClick(e);
       return;
     }
-    
+
     touchStartPos = null;
   }
 
   // Handle touch move - cancel long press if user is scrolling
   function handleTouchMove(e: TouchEvent) {
     if (!touchStartPos || !longPressTimer) return;
-    
+
     if (e.touches.length > 0) {
       const currentX = e.touches[0].clientX;
       const currentY = e.touches[0].clientY;
       const deltaX = Math.abs(currentX - touchStartPos.x);
       const deltaY = Math.abs(currentY - touchStartPos.y);
-      
+
       // If touch moved significantly, cancel long press (user is scrolling)
       if (deltaX > TOUCH_MOVE_THRESHOLD || deltaY > TOUCH_MOVE_THRESHOLD) {
         if (longPressTimer) {
@@ -151,19 +151,19 @@
     // If one-tap zap is available, send immediately
     if (canOneTapZap()) {
       console.log('[NoteTotalZaps] One-tap zap starting...');
-      
+
       // Haptic feedback on tap - immediate confirmation that tap was registered
       if ('vibrate' in navigator) {
         navigator.vibrate(30); // Short vibration on tap
       }
-      
+
       // Set loading state immediately for visual feedback
       isZapping = true;
-      
+
       // Optimistic update happens inside sendOneTapZap
       // The store should update reactively and show the new amount
       const result = await sendOneTapZap(event);
-      
+
       console.log('[NoteTotalZaps] One-tap zap result:', result);
       isZapping = false;
 
@@ -184,7 +184,7 @@
         // If zap failed, we need to revert the optimistic update
         // Refresh to get accurate counts (this will revert the optimistic update)
         fetchEngagement($ndk, event.id, $userPublickey);
-        
+
         if (onZapClick) {
           // Fall back to modal if one-tap fails
           onZapClick();
@@ -219,8 +219,8 @@
     class="flex items-center gap-1.5 rounded px-0.5 transition duration-300"
     style="color: var(--color-text-primary)"
   >
-    <button 
-      class="hover:bg-input rounded p-1 select-none touch-none" 
+    <button
+      class="hover:bg-input rounded p-1 select-none touch-none"
       style="touch-action: manipulation; -webkit-tap-highlight-color: transparent;"
       on:mousedown={handlePressStart}
       on:mouseup={handlePressEnd}
@@ -230,20 +230,29 @@
       on:touchend|preventDefault={handlePressEnd}
       on:touchcancel={handleTouchCancel}
       on:click|preventDefault={handleZapIconClick}
-      on:contextmenu|preventDefault={() => { if (onZapClick) onZapClick(); }}
-      title={canOneTapZap() ? `Zap ${getOneTapAmount()} sats (hold for custom amount)` : 'Send a zap'}
+      on:contextmenu|preventDefault={() => {
+        if (onZapClick) onZapClick();
+      }}
+      title={canOneTapZap()
+        ? `Zap ${getOneTapAmount()} sats (hold for custom amount)`
+        : 'Send a zap'}
     >
       <LightningIcon size={24} class="text-caption" weight="regular" />
     </button>
-    <span class="text-caption">–</span>
+    <span class="text-caption opacity-0">0</span>
   </div>
 {:else if onlyPills && showPills && $store.zaps.topZappers.length > 0}
   <!-- Pills-only row (one row only; +X at end shows remaining); contain horizontal scroll for Safari -->
-  <div class="zap-pills-row flex flex-nowrap items-center gap-1.5 w-full min-w-0 overflow-x-auto overflow-y-hidden">
+  <div
+    class="zap-pills-row flex flex-nowrap items-center gap-1.5 w-full min-w-0 overflow-x-auto overflow-y-hidden"
+  >
     {#each visibleZappers as zapper (zapper.pubkey)}
       <button
         on:click|stopPropagation={handleCountClick}
-        class="zap-pill flex items-center gap-1 h-6 pl-1 pr-2 rounded-full bg-accent-gray hover:bg-yellow-500/20 transition-colors cursor-pointer flex-shrink-0 {zapper.pubkey === $userPublickey ? 'ring-1 ring-yellow-500' : ''}"
+        class="zap-pill flex items-center gap-1 h-6 pl-1 pr-2 rounded-full bg-accent-gray hover:bg-yellow-500/20 transition-colors cursor-pointer flex-shrink-0 {zapper.pubkey ===
+        $userPublickey
+          ? 'ring-1 ring-yellow-500'
+          : ''}"
         title="{zapper.amount} sats"
       >
         <CustomAvatar pubkey={zapper.pubkey} size={18} className="rounded-full flex-shrink-0" />
@@ -264,7 +273,9 @@
   </div>
 {:else if showPills && $store.zaps.topZappers.length > 0}
   <!-- Pill format: Lightning icon + pfp pills with amounts (inline, one row; +X at end); contain horizontal scroll for Safari -->
-  <div class="zap-pills-row flex flex-nowrap items-center gap-1.5 overflow-x-auto overflow-y-hidden">
+  <div
+    class="zap-pills-row flex flex-nowrap items-center gap-1.5 overflow-x-auto overflow-y-hidden"
+  >
     <!-- Zap Button -->
     <button
       class="hover:bg-input rounded p-1 transition-colors select-none touch-none flex-shrink-0"
@@ -279,13 +290,19 @@
       on:touchend|preventDefault={handlePressEnd}
       on:touchcancel={handleTouchCancel}
       on:click|preventDefault={handleZapIconClick}
-      on:contextmenu|preventDefault={() => { if (onZapClick) onZapClick(); }}
+      on:contextmenu|preventDefault={() => {
+        if (onZapClick) onZapClick();
+      }}
       disabled={isZapping}
-      title={canOneTapZap() ? `Zap ${getOneTapAmount()} sats (hold for custom amount)` : 'Send a zap'}
+      title={canOneTapZap()
+        ? `Zap ${getOneTapAmount()} sats (hold for custom amount)`
+        : 'Send a zap'}
     >
       <LightningIcon
         size={18}
-        class="{totalSats > 0 ? 'text-yellow-500' : 'text-caption'} {isZapping ? 'animate-pulse' : ''}"
+        class="{totalSats > 0 ? 'text-yellow-500' : 'text-caption'} {isZapping
+          ? 'animate-pulse'
+          : ''}"
         weight={$store.zaps.userZapped ? 'fill' : 'regular'}
       />
     </button>
@@ -294,7 +311,10 @@
     {#each visibleZappers as zapper (zapper.pubkey)}
       <button
         on:click|stopPropagation={handleCountClick}
-        class="zap-pill flex items-center gap-1 h-6 pl-1 pr-2 rounded-full bg-accent-gray hover:bg-yellow-500/20 transition-colors cursor-pointer flex-shrink-0 {zapper.pubkey === $userPublickey ? 'ring-1 ring-yellow-500' : ''}"
+        class="zap-pill flex items-center gap-1 h-6 pl-1 pr-2 rounded-full bg-accent-gray hover:bg-yellow-500/20 transition-colors cursor-pointer flex-shrink-0 {zapper.pubkey ===
+        $userPublickey
+          ? 'ring-1 ring-yellow-500'
+          : ''}"
         title="{zapper.amount} sats"
       >
         <CustomAvatar pubkey={zapper.pubkey} size={18} className="rounded-full flex-shrink-0" />
@@ -335,9 +355,13 @@
       on:touchend|preventDefault={handlePressEnd}
       on:touchcancel={handleTouchCancel}
       on:click|preventDefault={handleZapIconClick}
-      on:contextmenu|preventDefault={() => { if (onZapClick) onZapClick(); }}
+      on:contextmenu|preventDefault={() => {
+        if (onZapClick) onZapClick();
+      }}
       disabled={isZapping}
-      title={canOneTapZap() ? `Zap ${getOneTapAmount()} sats (hold for custom amount)` : 'Send a zap'}
+      title={canOneTapZap()
+        ? `Zap ${getOneTapAmount()} sats (hold for custom amount)`
+        : 'Send a zap'}
     >
       <LightningIcon
         size={24}

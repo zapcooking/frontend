@@ -4930,11 +4930,8 @@
               {#if getImageUrls(event).length > 0}
                 {@const mediaUrls = getImageUrls(event)}
 
-                <div class="mb-3 -mx-2 sm:mx-0">
-                  <div
-                    class="relative rounded-none sm:rounded-lg border-0 sm:border bg-input"
-                    style="border-color: var(--color-input-border)"
-                  >
+                <div class="mb-3">
+                  <div class="relative rounded-lg overflow-hidden">
                     <!-- Swipeable carousel container -->
                     <div
                       class="carousel-container flex overflow-x-auto snap-x snap-mandatory"
@@ -5077,10 +5074,10 @@
                       />
                     </div>
                   {:else}
-                    <span class="text-caption p-1.5">♡ –</span>
-                    <span class="text-caption p-1.5">💬 –</span>
-                    <span class="text-caption p-1.5">🔁 –</span>
-                    <span class="text-caption p-1.5">⚡ –</span>
+                    <span class="text-caption p-1.5 opacity-40">♡</span>
+                    <span class="text-caption p-1.5 opacity-40">💬</span>
+                    <span class="text-caption p-1.5 opacity-40">🔁</span>
+                    <span class="text-caption p-1.5 opacity-40">⚡</span>
                   {/if}
                 </div>
               </div>

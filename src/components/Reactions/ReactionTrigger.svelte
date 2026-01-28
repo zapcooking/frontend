@@ -53,20 +53,23 @@
 
     if (!wasReacted) {
       // Optimistic update
-      store.update(s => {
+      store.update((s) => {
         const updated = { ...s };
         updated.reactions.userReactions.add(emoji);
         updated.reactions.count++;
         updated.reactions.userReacted = true;
-        
-        const existingGroup = updated.reactions.groups.find(g => g.emoji === emoji);
+
+        const existingGroup = updated.reactions.groups.find((g) => g.emoji === emoji);
         if (existingGroup) {
           existingGroup.count++;
           existingGroup.userReacted = true;
         } else {
-          updated.reactions.groups = [{ emoji, count: 1, userReacted: true }, ...updated.reactions.groups];
+          updated.reactions.groups = [
+            { emoji, count: 1, userReacted: true },
+            ...updated.reactions.groups
+          ];
         }
-        
+
         return updated;
       });
 
@@ -79,20 +82,20 @@
 
       if (!result?.id) {
         // Revert on failure
-        store.update(s => {
+        store.update((s) => {
           const updated = { ...s };
           updated.reactions.userReactions.delete(emoji);
           updated.reactions.count--;
-          
-          const group = updated.reactions.groups.find(g => g.emoji === emoji);
+
+          const group = updated.reactions.groups.find((g) => g.emoji === emoji);
           if (group) {
             group.count--;
             group.userReacted = false;
             if (group.count === 0) {
-              updated.reactions.groups = updated.reactions.groups.filter(g => g.emoji !== emoji);
+              updated.reactions.groups = updated.reactions.groups.filter((g) => g.emoji !== emoji);
             }
           }
-          
+
           updated.reactions.userReacted = updated.reactions.userReactions.size > 0;
           return updated;
         });
@@ -112,14 +115,10 @@
   {#if hasUserReacted && userEmoji}
     <span class={compact ? 'text-lg' : 'text-xl'}>{userEmoji}</span>
   {:else}
-    <HeartIcon
-      size={compact ? 20 : 24}
-      weight="regular"
-      class="text-caption"
-    />
+    <HeartIcon size={compact ? 20 : 24} weight="regular" class="text-caption" />
   {/if}
   <span class="text-caption {compact ? 'text-sm' : ''}">
-    {#if $store.loading}–{:else}{$store.reactions.count}{/if}
+    {#if $store.loading}<span class="opacity-0">0</span>{:else}{$store.reactions.count}{/if}
   </span>
 </button>
 
@@ -133,7 +132,7 @@
       showPicker = false;
       showFullPicker = true;
     }}
-    on:close={() => showPicker = false}
+    on:close={() => (showPicker = false)}
   />
 {/if}
 
@@ -142,5 +141,5 @@
   open={showFullPicker}
   anchorEl={buttonEl}
   on:select={(e) => handleReaction(e.detail.emoji)}
-  on:close={() => showFullPicker = false}
+  on:close={() => (showFullPicker = false)}
 />
