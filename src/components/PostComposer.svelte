@@ -1187,7 +1187,7 @@
 
 {#if $userPublickey !== '' || variant === 'modal'}
   <div
-    class={`bg-input rounded-xl transition-all ${variant === 'inline' ? 'mb-4' : ''}`}
+    class={`bg-input rounded-xl transition-all ${variant === 'inline' ? 'mb-4' : 'flex-1 flex flex-col'}`}
     class:overflow-hidden={!isComposerOpen}
     class:overflow-visible={isComposerOpen}
     style="border: 1px solid var(--color-input-border)"
@@ -1210,14 +1210,14 @@
         <a href="/login" class="text-sm underline hover:opacity-80">Sign in</a>
       </div>
     {:else}
-      <div class="p-3">
-        <div class="flex gap-3">
+      <div class={`p-3 ${variant === 'modal' ? 'flex-1 flex flex-col' : ''}`}>
+        <div class={`flex gap-3 ${variant === 'modal' ? 'flex-1' : ''}`}>
           <CustomAvatar pubkey={$userPublickey} size={36} />
-          <div class="flex-1">
-            <div class="relative">
+          <div class={`flex-1 ${variant === 'modal' ? 'flex flex-col' : ''}`}>
+            <div class={`relative ${variant === 'modal' ? 'flex-1' : ''}`}>
               <div
                 bind:this={composerEl}
-                class="composer-input w-full min-h-[80px] max-h-[300px] overflow-y-auto p-2 border-0 focus:outline-none focus:ring-0 bg-transparent"
+                class={`composer-input w-full min-h-[120px] sm:min-h-[100px] overflow-y-auto p-2 border-0 focus:outline-none focus:ring-0 bg-transparent ${variant === 'modal' ? 'flex-1' : 'max-h-[50vh]'}`}
                 style="color: var(--color-text-primary); font-size: 16px;"
                 contenteditable={!posting}
                 role="textbox"
@@ -1645,9 +1645,11 @@
   /* Quoted note embed - orange bracket style matching feed */
   .quoted-note-embed {
     padding: 0.5rem 0.75rem;
-    background: var(--color-input);
+    background: var(--color-bg-secondary);
     border-left: 3px solid var(--color-primary, #f97316);
     border-radius: 0.375rem;
+    overflow: hidden;
+    max-width: 100%;
   }
 
   .quoted-note-header {
@@ -1679,11 +1681,11 @@
     overflow-wrap: anywhere;
     word-break: break-word;
     display: -webkit-box;
-    -webkit-line-clamp: 3;
-    line-clamp: 3;
+    -webkit-line-clamp: 5;
+    line-clamp: 5;
     -webkit-box-orient: vertical;
     overflow: hidden;
-    max-height: 4.2em;
+    max-height: 7em;
   }
 
   .quoted-note-content :global(p) {
@@ -1692,5 +1694,20 @@
 
   .quoted-note-content :global(a) {
     color: var(--color-primary, #f97316);
+  }
+
+  /* Hide images and videos in quoted note preview - they cause overflow */
+  .quoted-note-content :global(img),
+  .quoted-note-content :global(video),
+  .quoted-note-content :global(.video-preview),
+  .quoted-note-content :global(.my-1.relative),
+  .quoted-note-content :global(div[style*='aspect-ratio']) {
+    display: none !important;
+  }
+
+  /* Ensure all text breaks properly */
+  .quoted-note-content :global(*) {
+    overflow-wrap: anywhere;
+    word-break: break-word;
   }
 </style>

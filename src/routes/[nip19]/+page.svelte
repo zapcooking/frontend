@@ -3,7 +3,7 @@
   import { goto } from '$app/navigation';
   import { nip19 } from 'nostr-tools';
   import { ndk, userPublickey } from '$lib/nostr';
-  import { mutedPubkeys } from '$lib/muteListStore';
+  import { mutedPubkeys, muteListStore } from '$lib/muteListStore';
   import { onMount, onDestroy } from 'svelte';
   import { get } from 'svelte/store';
   import CustomAvatar from '../../components/CustomAvatar.svelte';
@@ -941,6 +941,13 @@
     }
   }
 
+  // Load mute list when user is logged in
+  onMount(() => {
+    if ($userPublickey) {
+      muteListStore.load();
+    }
+  });
+
   onDestroy(() => {
     if (mentionSearchTimeout) {
       clearTimeout(mentionSearchTimeout);
@@ -1145,6 +1152,42 @@
           <p class="text-lg font-medium">Note not found</p>
           <p class="text-sm">The referenced note could not be loaded.</p>
         </div>
+      </div>
+    </div>
+  {:else if event && $mutedPubkeys.has(event.author?.hexpubkey || event.pubkey)}
+    <!-- Muted user content -->
+    <div class="py-12 text-center">
+      <div class="max-w-sm mx-auto space-y-6">
+        <div style="color: var(--color-caption)">
+          <svg
+            class="h-12 w-12 mx-auto mb-4 opacity-50"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z"
+            />
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2"
+            />
+          </svg>
+          <p class="text-lg font-medium">Content from muted user</p>
+          <p class="text-sm">You have muted this user. Their content is hidden.</p>
+        </div>
+        <button
+          on:click={() => goto('/community')}
+          class="px-4 py-2 bg-input rounded-lg hover:bg-accent-gray transition-colors"
+          style="color: var(--color-text-primary)"
+        >
+          Back to Community
+        </button>
       </div>
     </div>
   {:else if event}
