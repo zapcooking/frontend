@@ -20,17 +20,26 @@ const TRACKING_PARAMS = [
 ];
 
 /**
+ * Check if the current origin is a shareable public URL (not dev or Capacitor app shell).
+ * Capacitor iOS/Android use capacitor://localhost - shares must use production URL.
+ */
+function isShareableOrigin(): boolean {
+  if (!browser || !window?.location?.origin) return false;
+  const o = window.location.origin;
+  if (o.startsWith('capacitor://') || o === 'capacitor://localhost') return false;
+  if (o.includes('localhost')) return false;
+  return true;
+}
+
+/**
  * Get the site origin for building URLs
- * In dev, returns localhost for display purposes
- * In production, returns the production URL
+ * In dev or Capacitor app, returns production URL so share links work (dev/Capacitor origins are not shareable).
+ * In production web, returns the production URL.
  */
 export function getSiteOrigin(): string {
   if (browser && window?.location?.origin) {
-    // In production, use the production URL; in dev, use localhost
-    if (!window.location.origin.includes('localhost')) {
-      return SITE_URL;
-    }
-    return window.location.origin;
+    if (isShareableOrigin()) return window.location.origin;
+    return SITE_URL;
   }
   // SSR fallback
   return SITE_URL;
@@ -104,21 +113,21 @@ export function buildShortLinkUrl(code: string): string {
  * Always uses production URL for sharing
  */
 export function buildRichShareText(title: string, url: string): string {
-  const prodUrl = url.includes('localhost') 
-    ? url.replace(/https?:\/\/localhost:\d+/, SITE_URL)
-    : url;
+  const prodUrl = ensureProductionUrl(url);
   return `${title}\nShared on Zap Cooking\n${prodUrl}`;
 }
 
 /**
- * Convert a URL to always use production domain for social sharing
- * Social platforms reject localhost URLs
+ * Convert a URL to always use production domain for social sharing.
+ * Replaces localhost and Capacitor app (capacitor://localhost) URLs so shared links open in browser.
  */
 function ensureProductionUrl(url: string): string {
   if (!url) return url;
-  // If it's a localhost URL, replace with production
+  if (url.startsWith('capacitor://')) {
+    return url.replace(/^capacitor:\/\/[^/]+/, SITE_URL);
+  }
   if (url.includes('localhost')) {
-    return url.replace(/https?:\/\/localhost:\d+/, SITE_URL);
+    return url.replace(/https?:\/\/localhost(?::\d+)?/, SITE_URL);
   }
   return url;
 }
@@ -227,10 +236,8 @@ export async function nativeShare(options: {
     return false;
   }
   
-  // Always use production URL for sharing
-  const prodUrl = options.url.includes('localhost')
-    ? options.url.replace(/https?:\/\/localhost:\d+/, SITE_URL)
-    : options.url;
+  // Always use production URL for sharing (including Capacitor app's capacitor://localhost)
+  const prodUrl = ensureProductionUrl(options.url);
   
   try {
     await navigator.share({

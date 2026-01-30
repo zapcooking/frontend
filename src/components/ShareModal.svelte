@@ -57,11 +57,14 @@
     imagePreviewUrl = null;
   }
 
-  // Convert localhost URLs to production for display and sharing
+  // Convert localhost and Capacitor app (capacitor://localhost) URLs to production for display and sharing
   const SITE_URL = 'https://zap.cooking';
-  $: displayUrl = url.includes('localhost')
-    ? url.replace(/https?:\/\/localhost:\d+/, SITE_URL)
-    : url;
+  $: displayUrl = (() => {
+    if (!url) return url;
+    if (url.startsWith('capacitor://')) return url.replace(/^capacitor:\/\/[^/]+/, SITE_URL);
+    if (url.includes('localhost')) return url.replace(/https?:\/\/localhost(?::\d+)?/, SITE_URL);
+    return url;
+  })();
 
   // Short link is the primary share URL when available
   $: effectiveShareUrl = shortUrlResult?.shortUrl ?? displayUrl;
