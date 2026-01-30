@@ -48,8 +48,8 @@
 
 <nav
   bind:this={navEl}
-  class="lg:hidden bg-input w-full fixed left-0 right-0 z-40 grid grid-cols-5 text-center print:hidden"
-  style="color: var(--color-text-primary); border-top: 1px solid var(--color-input-border); bottom: env(safe-area-inset-bottom, 0px); padding: 0.5rem 0;"
+  class="lg:hidden bg-input w-full fixed left-0 right-0 z-40 grid grid-cols-5 text-center print:hidden bottom-nav-ios"
+  style="color: var(--color-text-primary); border-top: 1px solid var(--color-input-border);"
 >
   <a href="/community" class="flex flex-col items-center justify-center hover:text-primary">
     <ChatCircleDotsIcon class="self-center" size={24} />
@@ -84,3 +84,14 @@
     <span class="sr-only">Notifications</span>
   </a>
 </nav>
+
+<style>
+  /* Fix to bottom of screen; fill safe area so no gap below nav on iOS */
+  .bottom-nav-ios {
+    bottom: 0;
+    padding: 0.5rem 0;
+    padding-left: env(safe-area-inset-left, 0px);
+    padding-right: env(safe-area-inset-right, 0px);
+    padding-bottom: calc(0.5rem + env(safe-area-inset-bottom, 0px));
+  }
+</style>
