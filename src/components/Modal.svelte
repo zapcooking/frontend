@@ -16,13 +16,13 @@
 <script lang="ts">
   import { blur, scale } from 'svelte/transition';
   import CloseIcon from 'phosphor-svelte/lib/XCircle';
-  import { has } from 'markdown-it/lib/common/utils';
-  import { onMount, onDestroy } from 'svelte';
+  import { onMount } from 'svelte';
 
   export let open = false;
   export let cleanup: (() => void) | null = null;
   export let noHeader = false;
   export let allowOverflow = false;
+  export let compact = false;
 
   // Portal target - render at document body level
   let portalTarget: HTMLElement;
@@ -53,12 +53,15 @@
         aria-labelledby="title"
         aria-modal="true"
         class="absolute m-0 top-1/2 left-1/2 px-4 md:px-8 pt-6 pb-8 rounded-3xl w-[calc(100%-2rem)] md:w-[calc(100vw-4em)] max-w-xl min-h-[50vh] md:min-h-0 max-h-[85vh] md:max-h-[90vh] -translate-x-1/2 -translate-y-1/2 flex flex-col"
+        class:compact-padding={compact}
         class:overflow-y-auto={!allowOverflow}
         class:overflow-visible={allowOverflow}
         style="background-color: var(--color-bg-secondary);"
         open
       >
-        <div class="flex flex-col gap-6 flex-1">
+        <div
+          class="flex flex-col flex-1 {compact ? 'gap-2' : 'gap-6'}"
+        >
           {#if !noHeader}
             <div class="flex justify-between">
               <h2
@@ -85,6 +88,15 @@
     html {
       overflow: hidden;
       touch-action: none;
+    }
+    :global(.compact-padding) {
+      padding: 1rem 1rem 1.25rem;
+    }
+    @media (min-width: 768px) {
+      :global(.compact-padding) {
+        padding-left: 1.5rem;
+        padding-right: 1.5rem;
+      }
     }
   </style>
 {/if}

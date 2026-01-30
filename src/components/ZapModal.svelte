@@ -13,6 +13,9 @@
   import { onMount, createEventDispatcher } from 'svelte';
   import { ZapManager } from '$lib/zapManager';
   import { lightningService } from '$lib/lightningService';
+  import { hapticSuccess } from '$lib/haptics';
+  import { displayCurrency } from '$lib/currencyStore';
+  import { convertSatsToFiat, formatFiatValue } from '$lib/currencyConversion';
 
   const dispatch = createEventDispatcher<{ 'zap-complete': { amount: number } }>();
   import { activeWallet, getWalletKindName } from '$lib/wallet';
@@ -47,7 +50,7 @@
   let recipientPubkeyForDisplay: string = '';
 
   const PENDING_TIMEOUT_MS = 45000; // 45 second timeout for entire zap process
-  const SUCCESS_DISPLAY_MS = 1000; // 1 second to show success before auto-closing
+  const SUCCESS_DISPLAY_MS = 2500; // 2.5s to show success before auto-closing
 
   function clearPendingTimeout() {
     if (pendingTimeout) {
@@ -148,11 +151,12 @@
 
       clearPendingTimeout();
       state = 'success';
+      hapticSuccess();
 
       // Notify parent that zap completed so it can refresh zap totals
       dispatch('zap-complete', { amount });
 
-      // Auto-close modal after 1 second to show lightning animation on note
+      // Auto-close modal after 2.5s; user can also tap anywhere to dismiss
       successTimeout = setTimeout(() => {
         open = false;
       }, SUCCESS_DISPLAY_MS);
@@ -245,9 +249,23 @@
       }
     }, 100);
   }
+
+  function dismissSuccess() {
+    clearSuccessTimeout();
+    open = false;
+  }
+
+  // Optional USD equivalent for success message (when display currency is not SATS)
+  let successFiatStr: string | null = null;
+  $: if (state === 'success' && amount != null && $displayCurrency !== 'SATS' && browser) {
+    convertSatsToFiat(amount).then((v) => {
+      successFiatStr = v != null ? formatFiatValue(v) : null;
+    });
+  }
+  $: if (state !== 'success') successFiatStr = null;
 </script>
 
-<Modal bind:open>
+<Modal bind:open compact={state === 'success'}>
   <h1 slot="title">Zap</h1>
   <div class="flex flex-col gap-3">
     {#if state == 'pending'}
@@ -348,61 +366,147 @@
         </div>
       </div>
     {:else if state == 'success'}
-      <!-- Payment Success -->
-      <div class="flex flex-col items-center justify-center">
+      <!-- Payment Success: tap anywhere to dismiss, auto-closes in 2.5s -->
+      <button
+        type="button"
+        class="zap-success-tap-target flex flex-col items-center justify-center cursor-pointer text-left w-full focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--color-bg-secondary)] rounded-2xl"
+        on:click={dismissSuccess}
+        on:keydown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            dismissSuccess();
+          }
+        }}
+      >
         {#if recipientPubkeyForDisplay}
-          <div class="flex gap-3 items-center mb-4">
-            <CustomAvatar className="flex-shrink-0" pubkey={recipientPubkeyForDisplay} size={56} />
-            <div class="flex flex-col gap-1">
-              <span class="font-semibold" style="color: var(--color-text-primary)">
+          <div class="flex gap-3 items-center mb-3">
+            <CustomAvatar className="flex-shrink-0" pubkey={recipientPubkeyForDisplay} size={48} />
+            <div class="flex flex-col gap-0.5">
+              <span
+                class="text-base font-semibold"
+                style="color: var(--color-text-primary)"
+              >
                 <CustomName pubkey={recipientPubkeyForDisplay} />
               </span>
             </div>
           </div>
         {/if}
-        <Checkmark color="#90EE90" weight="fill" class="w-36 h-36" />
-        <span class="text-2xl ml-4 text-center" style="color: var(--color-text-primary)"
-          >Payment Sent!</span
-        >
-        <span class="text-lg text-caption text-center mt-2">
-          Your zap of {amount} sats has been sent.
-        </span>
-        <div class="flex gap-2 mt-4">
-          <Button on:click={() => (open = false)}>Close</Button>
+        <div class="zap-success-checkmark-wrap relative my-1">
+          <svg class="zap-success-progress-ring" viewBox="0 0 100 100" aria-hidden="true">
+            <circle
+              class="zap-success-progress-ring-bg"
+              cx="50"
+              cy="50"
+              r="46"
+              fill="none"
+              stroke-width="2"
+            />
+            <circle
+              class="zap-success-progress-ring-fg"
+              cx="50"
+              cy="50"
+              r="46"
+              fill="none"
+              stroke-width="2"
+              stroke-dasharray="289"
+              stroke-dashoffset="0"
+            />
+          </svg>
+          <span class="zap-success-checkmark">
+            <Checkmark color="#90EE90" weight="fill" class="w-24 h-24 block" />
+          </span>
         </div>
-      </div>
+        <span
+          class="text-xl font-semibold text-center mt-2"
+          style="color: var(--color-text-primary)"
+        >
+          Payment Sent!
+        </span>
+        <div class="flex flex-col items-center gap-1.5 mt-2">
+          <span
+            class="inline-flex items-center px-3 py-1.5 rounded-full text-base font-semibold bg-emerald-500/20 text-emerald-400 border border-emerald-500/40"
+          >
+            {amount != null ? amount.toLocaleString() : ''} sats
+          </span>
+          {#if successFiatStr}
+            <span class="text-sm text-caption">{successFiatStr}</span>
+          {/if}
+        </div>
+      </button>
     {/if}
   </div>
 </Modal>
 
 <style>
-  /* Fix animated pan icon appearance - remove any borders/outlines that appear on mobile */
-  .pending-pan-icon {
-    display: block;
-    border: none !important;
-    outline: none !important;
-    box-shadow: none !important;
-    background: transparent;
-    /* Remove any default browser styling that might add borders */
-    -webkit-appearance: none;
-    -moz-appearance: none;
-    appearance: none;
-    /* Remove any browser default image styling */
-    image-rendering: -webkit-optimize-contrast;
-    image-rendering: crisp-edges;
+  /* Zap success: checkmark container + progress ring */
+  .zap-success-checkmark-wrap {
+    width: 6rem;
+    height: 6rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
   }
 
-  /* Mobile-specific styling to ensure clean appearance in dark mode */
-  @media (max-width: 768px) {
-    .pending-pan-icon {
-      /* Ensure no borders or outlines on mobile */
-      border: none !important;
-      outline: none !important;
-      box-shadow: none !important;
-      /* Remove any touch highlight or selection styling */
-      -webkit-tap-highlight-color: transparent;
-      -webkit-touch-callout: none;
-      user-select: none;
+  .zap-success-checkmark {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    animation: zap-checkmark-in 380ms ease-out both;
+  }
+
+  .zap-success-checkmark :global(svg) {
+    filter: drop-shadow(0 0 12px rgba(144, 238, 144, 0.5))
+      drop-shadow(0 0 24px rgba(144, 238, 144, 0.25));
+  }
+
+  @keyframes zap-checkmark-in {
+    0% {
+      opacity: 0;
+      transform: scale(0.5);
+    }
+    70% {
+      transform: scale(1.08);
+    }
+    85% {
+      transform: scale(0.96);
+    }
+    100% {
+      opacity: 1;
+      transform: scale(1);
+    }
+  }
+
+  .zap-success-tap-target {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* Thin circular progress ring (auto-close countdown) */
+  .zap-success-progress-ring {
+    position: absolute;
+    width: calc(6rem + 12px);
+    height: calc(6rem + 12px);
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%) rotate(-90deg);
+    pointer-events: none;
+  }
+
+  .zap-success-progress-ring-bg {
+    stroke: rgba(144, 238, 144, 0.2);
+  }
+
+  .zap-success-progress-ring-fg {
+    stroke: rgba(144, 238, 144, 0.55);
+    stroke-linecap: round;
+    animation: zap-progress-deplete 2500ms linear forwards;
+  }
+
+  @keyframes zap-progress-deplete {
+    from {
+      stroke-dashoffset: 0;
+    }
+    to {
+      stroke-dashoffset: 289;
     }
   }
 </style>

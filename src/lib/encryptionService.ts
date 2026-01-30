@@ -56,24 +56,24 @@ export function hasEncryptionSupport(): boolean {
 
   const ndkInstance = get(ndk);
   const signer = ndkInstance.signer;
-  const signerName = signer?.constructor?.name;
+  const signerName = signer?.constructor?.name || '';
 
-  // Check by signer type
+  // Check by signer type (use includes() to handle minified class names like _NDKPrivateKeySigner)
   if (signer) {
     // NIP-07 signers use window.nostr for encryption
-    if (signerName === 'NDKNip07Signer') {
+    if (signerName.includes('Nip07Signer')) {
       const nostr = (window as any).nostr;
       return !!(nostr?.nip44?.encrypt || nostr?.nip04?.encrypt);
     }
 
     // For private key signers, we can use nostr-tools directly
-    if (signerName === 'NDKPrivateKeySigner') {
+    if (signerName.includes('PrivateKeySigner')) {
       return !!getPrivateKey();
     }
 
     // For NIP-46 signers, encryption support depends on remote signer permissions
     // We can't check this synchronously, so we return true and let encrypt() handle it
-    if (signerName === 'NDKNip46Signer') {
+    if (signerName.includes('Nip46Signer')) {
       return true;
     }
 
@@ -85,6 +85,11 @@ export function hasEncryptionSupport(): boolean {
     // Unknown signer type - check window.nostr as fallback
     const nostr = (window as any).nostr;
     if (nostr?.nip44?.encrypt || nostr?.nip04?.encrypt) {
+      return true;
+    }
+
+    // Last resort for private key signer: check localStorage directly
+    if (getPrivateKey()) {
       return true;
     }
 
@@ -117,7 +122,8 @@ export async function getEncryptionMethod(): Promise<EncryptionMethod> {
     if (typeof signer.nip04Encrypt === 'function') return 'nip04';
 
     // For private key signers, we can use nostr-tools directly
-    if (signer.constructor?.name === 'NDKPrivateKeySigner' && getPrivateKey()) {
+    // Use includes() to handle minified class names
+    if ((signer.constructor?.name || '').includes('PrivateKeySigner') && getPrivateKey()) {
       return 'nip44'; // Prefer NIP-44 for private key signers
     }
   }
@@ -146,7 +152,8 @@ export function getBestEncryptionMethod(): EncryptionMethod {
   // NDK signers support both, prefer NIP-44
   if (ndkInstance.signer) {
     // For private key signers, we can use nostr-tools directly
-    if (ndkInstance.signer.constructor?.name === 'NDKPrivateKeySigner' && getPrivateKey()) {
+    // Use includes() to handle minified class names
+    if ((ndkInstance.signer.constructor?.name || '').includes('PrivateKeySigner') && getPrivateKey()) {
       return 'nip44';
     }
     return 'nip44';
@@ -179,12 +186,13 @@ export async function encrypt(
 
   const ndkInstance = get(ndk);
   const signer = ndkInstance.signer;
-  const signerName = signer?.constructor?.name;
+  const signerName = signer?.constructor?.name || '';
 
   console.log('[Encryption] Starting encryption, signer type:', signerName);
 
   // For NIP-07 signers, go directly to window.nostr (NDKNip07Signer delegates to it anyway)
-  if (signerName === 'NDKNip07Signer') {
+  // Use includes() to handle minified class names like _NDKNip07Signer
+  if (signerName.includes('Nip07Signer')) {
     console.log('[Encryption] NIP-07 signer detected, using window.nostr directly');
     const nostr = (window as any).nostr;
 
@@ -225,7 +233,7 @@ export async function encrypt(
   }
 
   // For NIP-46 signers, use the signer's encryption methods
-  if (signerName === 'NDKNip46Signer' && signer) {
+  if (signerName.includes('Nip46Signer') && signer) {
     console.log('[Encryption] NIP-46 signer detected, checking for encryption methods...');
     const recipient = new NDKUser({ pubkey: recipientPubkey });
 
@@ -260,7 +268,7 @@ export async function encrypt(
   }
 
   // For private key signers, use nostr-tools directly
-  if (signerName === 'NDKPrivateKeySigner') {
+  if (signerName.includes('PrivateKeySigner')) {
     const privateKey = getPrivateKey();
     if (!privateKey) {
       throw new Error('Private key not found. Please log in again with your private key.');
