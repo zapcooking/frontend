@@ -411,24 +411,16 @@
   }
 
   onMount(() => {
-    if (!$userPublickey) {
-      goto('/login');
-      return;
-    }
-
-    // Load mute list for filtering
-    muteListStore.load();
-
-    // Initialize nav tick tracking and always reset/refresh on entry
-    lastNavTick = $notificationsNavTick;
-    void refreshAndResetView();
-
-    // Auto-mark all notifications as read when viewing the page
-    if ($unreadCount > 0) {
-      // Small delay to let user see the unread state briefly before clearing
-      setTimeout(() => {
-        notifications.markAllAsRead();
-      }, 500);
+    // When signed in: load mute list, refresh, mark read. When signed out: show empty state (no redirect).
+    if ($userPublickey) {
+      muteListStore.load();
+      lastNavTick = $notificationsNavTick;
+      void refreshAndResetView();
+      if ($unreadCount > 0) {
+        setTimeout(() => {
+          notifications.markAllAsRead();
+        }, 500);
+      }
     }
   });
 
@@ -596,29 +588,51 @@
       <h1 class="text-2xl font-bold">Notifications</h1>
     </div>
 
-    <!-- Tabs -->
-    <div class="mb-6 border-b" style="border-color: var(--color-input-border)">
-      <div class="flex gap-1">
-        {#each tabs as tab}
-          <button
-            on:click={() => (activeTab = tab.id)}
-            class="px-4 py-2 text-sm font-medium transition-colors relative cursor-pointer"
-            style="color: {activeTab === tab.id
-              ? 'var(--color-text-primary)'
-              : 'var(--color-text-secondary)'}"
-          >
-            {tab.label}
-            {#if activeTab === tab.id}
-              <span
-                class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-orange-500 to-amber-500"
-              ></span>
-            {/if}
-          </button>
-        {/each}
+    {#if !$userPublickey}
+      <!-- Signed-out empty state: no redirect, clear CTA (4.2 first-60-seconds improvement) -->
+      <div
+        class="flex flex-col items-center justify-center py-16 px-4 rounded-xl text-center"
+        style="background-color: var(--color-bg-secondary); border: 1px solid var(--color-input-border);"
+      >
+        <span class="text-5xl mb-4" aria-hidden="true">🔔</span>
+        <h2 class="text-xl font-semibold mb-2" style="color: var(--color-text-primary);">
+          Sign in to see your notifications
+        </h2>
+        <p class="text-caption text-sm mb-6 max-w-xs">
+          When someone reacts, zaps, or replies to you, it will show up here.
+        </p>
+        <a
+          href="/login?redirect=/notifications"
+          class="inline-flex items-center justify-center gap-2 px-6 py-3 rounded-full font-semibold transition-all"
+          style="background: linear-gradient(135deg, #f97316 0%, #fb923c 100%); color: white;"
+        >
+          Sign in
+        </a>
       </div>
-    </div>
+    {:else}
+      <!-- Tabs -->
+      <div class="mb-6 border-b" style="border-color: var(--color-input-border)">
+        <div class="flex gap-1">
+          {#each tabs as tab}
+            <button
+              on:click={() => (activeTab = tab.id)}
+              class="px-4 py-2 text-sm font-medium transition-colors relative cursor-pointer"
+              style="color: {activeTab === tab.id
+                ? 'var(--color-text-primary)'
+                : 'var(--color-text-secondary)'}"
+            >
+              {tab.label}
+              {#if activeTab === tab.id}
+                <span
+                  class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-orange-500 to-amber-500"
+                ></span>
+              {/if}
+            </button>
+          {/each}
+        </div>
+      </div>
 
-    {#if $notifications.length === 0}
+      {#if $notifications.length === 0}
       <div class="text-center py-12 text-caption">
         <span class="text-5xl">🔔</span>
         <p class="mt-4 text-lg">No notifications yet</p>
@@ -745,6 +759,7 @@
           </button>
         {/if}
       </div>
+    {/if}
     {/if}
   </div>
 </PullToRefresh>

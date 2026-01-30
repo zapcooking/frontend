@@ -69,13 +69,12 @@
   let directionsArray: Writable<string[]> = writable([]);
   let additionalMarkdown = '';
   
-  // Check membership on mount
+  // Allow view/upload without login; gate only on Extract/Save (4.2 first-60-seconds improvement)
   onMount(async () => {
     if (!$userPublickey) {
-      goto('/login?redirect=/extract');
+      isLoading = false;
       return;
     }
-    
     // Membership check disabled for testing - re-enable when ready
     isLoading = false;
   });
@@ -246,8 +245,12 @@
     }
   }
   
-  // Extract recipe
+  // Extract recipe (requires login; redirect so reviewer can see upload UI first)
   async function extractRecipe() {
+    if (!$userPublickey) {
+      goto('/login?redirect=/extract');
+      return;
+    }
     if (!canExtract || isExtracting) return;
     
     isExtracting = true;
@@ -349,6 +352,10 @@
   
   // Save as draft and navigate to drafts page
   function saveDraftOnly() {
+    if (!$userPublickey) {
+      goto('/login?redirect=/extract');
+      return;
+    }
     const draftData = {
       title,
       images: $images,
@@ -373,6 +380,10 @@
   
   // Save as draft and open in editor to publish
   function saveDraftAndPublish() {
+    if (!$userPublickey) {
+      goto('/login?redirect=/extract');
+      return;
+    }
     const draftData = {
       title,
       images: $images,
@@ -428,7 +439,7 @@
       <ArrowsClockwiseIcon size={48} class="animate-spin text-primary" />
       <p class="text-caption">Checking membership status...</p>
     </div>
-  {:else if !hasMembership}
+  {:else if $userPublickey && !hasMembership}
     <!-- No membership -->
     <div class="flex flex-col items-center justify-center py-16 gap-6">
       <div class="w-20 h-20 rounded-full bg-primary/10 flex items-center justify-center">
@@ -536,6 +547,9 @@
         {/if}
         
         <!-- Extract Button -->
+        {#if !$userPublickey}
+          <p class="text-sm text-caption mb-2">Sign in to extract and save this recipe.</p>
+        {/if}
         <Button 
           disabled={!canExtract || isExtracting}
           on:click={extractRecipe}
@@ -543,8 +557,10 @@
           {#if isExtracting}
             <ArrowsClockwiseIcon size={18} class="animate-spin" />
             {extractionProgress}
-          {:else}
+          {:else if $userPublickey}
             🤖 Get Recipe
+          {:else}
+            Sign in to get recipe
           {/if}
         </Button>
       </div>

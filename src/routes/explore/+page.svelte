@@ -21,10 +21,27 @@
   import { nip19 } from 'nostr-tools';
   import { init, markOnce } from '$lib/perf/explorePerf';
   import { userPublickey } from '$lib/nostr';
+  import { cookingToolsStore } from '$lib/stores/cookingToolsWidget';
+  import { browser } from '$app/environment';
   import type { PageData } from './$types';
 
   // Accept SvelteKit props to prevent warnings
   export let data: PageData;
+
+  // One-time Cooking Tools tip (4.2 first-60-seconds improvement)
+  const COOKING_TOOLS_TIP_KEY = 'zapcooking_cooking_tools_tip_seen';
+  let showCookingToolsTip = false;
+  if (browser) {
+    showCookingToolsTip = localStorage.getItem(COOKING_TOOLS_TIP_KEY) !== '1';
+  }
+  function dismissCookingToolsTip() {
+    showCookingToolsTip = false;
+    if (browser) localStorage.setItem(COOKING_TOOLS_TIP_KEY, '1');
+  }
+  function openCookingTools() {
+    cookingToolsStore.open('timer');
+    dismissCookingToolsTip();
+  }
 
   // Pull-to-refresh refs
   let pullToRefreshEl: PullToRefresh;
@@ -180,6 +197,39 @@
       </div>
     {/if}
 
+    <!-- One-time Cooking Tools tip (4.2 first-60-seconds) -->
+    {#if showCookingToolsTip}
+      <div
+        class="mb-4 flex items-start gap-3 p-4 rounded-xl border"
+        style="background-color: var(--color-bg-secondary); border-color: var(--color-input-border);"
+      >
+        <span class="text-2xl flex-shrink-0" aria-hidden="true">🍳</span>
+        <div class="flex-1 min-w-0">
+          <p class="text-sm font-medium" style="color: var(--color-text-primary);">
+            Tap the pot icon above for cooking timer & unit converter.
+          </p>
+          <div class="flex flex-wrap gap-2 mt-2">
+            <button
+              type="button"
+              on:click={openCookingTools}
+              class="text-sm font-medium px-3 py-1.5 rounded-full transition-colors"
+              style="background-color: var(--color-primary); color: white;"
+            >
+              Try it
+            </button>
+            <button
+              type="button"
+              on:click={dismissCookingToolsTip}
+              class="text-sm font-medium px-3 py-1.5 rounded-full transition-colors"
+              style="color: var(--color-text-secondary);"
+            >
+              Got it
+            </button>
+          </div>
+        </div>
+      </div>
+    {/if}
+
     <!-- Explore Content -->
     <div class="flex flex-col gap-8">
       <!-- Fresh from the Kitchen -->
@@ -199,6 +249,16 @@
             {#each discoverRecipes.filter((r) => r && r.author?.pubkey) as recipe (recipe.id || recipe.created_at)}
               <TrendingRecipeCard event={recipe} />
             {/each}
+          </div>
+        {:else}
+          <!-- Friendly empty state when network returns no recipes (4.2 improvement) -->
+          <div
+            class="flex flex-col items-center justify-center py-8 px-4 rounded-xl text-center"
+            style="background-color: var(--color-bg-secondary); border: 1px solid var(--color-input-border);"
+          >
+            <p class="text-sm text-caption max-w-xs">
+              Recipes will appear here as the community shares. Try the <strong>Timer</strong> (pot icon above) or <strong>Collections</strong> below.
+            </p>
           </div>
         {/if}
       </section>

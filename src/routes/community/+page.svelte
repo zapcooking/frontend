@@ -123,6 +123,12 @@
       activeTab = tab;
     }
 
+    // Signed out: default to garden tab (following is disabled when signed out)
+    if (!$userPublickey && (activeTab === 'following' || !tab)) {
+      activeTab = 'garden';
+      goto('/community?tab=garden', { noScroll: true, replaceState: true });
+    }
+
     if ($userPublickey) {
       checkMembership();
     }
