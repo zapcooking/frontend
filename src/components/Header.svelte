@@ -98,6 +98,7 @@
     <!-- Cooking Tools toggle (timer + converter) -->
     <button
       on:click={toggleCookingTools}
+      data-cooking-tools-button
       class="w-8 h-8 sm:w-9 sm:h-9 flex items-center justify-center rounded-full transition-colors cursor-pointer relative {$cookingToolsOpen
         ? 'bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400'
         : 'hover:opacity-80 hover:bg-accent-gray'}"

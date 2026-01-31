@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, tick } from 'svelte';
   import { goto } from '$app/navigation';
   import { recipeTags, CURATED_TAG_SECTIONS, type recipeTagSimple } from '$lib/consts';
   import { computePopularTags, type TagWithCount } from '$lib/tagUtils';
@@ -21,7 +21,7 @@
   import { nip19 } from 'nostr-tools';
   import { init, markOnce } from '$lib/perf/explorePerf';
   import { userPublickey } from '$lib/nostr';
-  import { cookingToolsStore } from '$lib/stores/cookingToolsWidget';
+  import { cookingToolsOpen, cookingToolsStore } from '$lib/stores/cookingToolsWidget';
   import { browser } from '$app/environment';
   import type { PageData } from './$types';
 
@@ -31,6 +31,10 @@
   // One-time Cooking Tools tip (4.2 first-60-seconds improvement)
   const COOKING_TOOLS_TIP_KEY = 'zapcooking_cooking_tools_tip_seen';
   let showCookingToolsTip = false;
+  let cookingToolsTipEl: HTMLDivElement | null = null;
+  let tipPointerX = '2.5rem';
+  let tipTop = '0.5rem';
+  let tipPointerScheduled = false;
   if (browser) {
     showCookingToolsTip = localStorage.getItem(COOKING_TOOLS_TIP_KEY) !== '1';
   }
@@ -40,6 +44,54 @@
   }
   function openCookingTools() {
     cookingToolsStore.open('timer');
+    dismissCookingToolsTip();
+  }
+
+  // Portal action to render the tip at document body level (above sticky header).
+  function portal(node: HTMLElement) {
+    document.body.appendChild(node);
+
+    return {
+      destroy() {
+        if (node.parentNode) {
+          node.parentNode.removeChild(node);
+        }
+      }
+    };
+  }
+
+  async function syncTipPointer() {
+    if (!browser || !showCookingToolsTip || tipPointerScheduled) return;
+    tipPointerScheduled = true;
+    await tick();
+    requestAnimationFrame(() => {
+      tipPointerScheduled = false;
+      updateTipPointer();
+    });
+  }
+
+  function updateTipPointer() {
+    if (!browser || !showCookingToolsTip || !cookingToolsTipEl) return;
+    const anchor = document.querySelector<HTMLElement>('[data-cooking-tools-button]');
+    if (!anchor) return;
+
+    const tipRect = cookingToolsTipEl.getBoundingClientRect();
+    const anchorRect = anchor.getBoundingClientRect();
+    const anchorCenter = anchorRect.left + anchorRect.width / 2;
+    const arrowOffset = 16;
+    const rawPointerX = anchorCenter - tipRect.left;
+    const minPointerX = 18;
+    const maxPointerX = Math.max(minPointerX, tipRect.width - 18);
+
+    tipTop = `${Math.max(anchorRect.bottom + arrowOffset, 8)}px`;
+    tipPointerX = `${Math.min(Math.max(rawPointerX, minPointerX), maxPointerX)}px`;
+  }
+
+  $: if (showCookingToolsTip) {
+    syncTipPointer();
+  }
+
+  $: if (showCookingToolsTip && $cookingToolsOpen) {
     dismissCookingToolsTip();
   }
 
@@ -128,7 +180,19 @@
   }
 
   onMount(async () => {
+    syncTipPointer();
     await loadExploreData();
+
+    if (browser) {
+      const handleLayoutChange = () => syncTipPointer();
+      const scrollContainer = document.getElementById('app-scroll');
+      window.addEventListener('resize', handleLayoutChange);
+      scrollContainer?.addEventListener('scroll', handleLayoutChange, { passive: true });
+      return () => {
+        window.removeEventListener('resize', handleLayoutChange);
+        scrollContainer?.removeEventListener('scroll', handleLayoutChange);
+      };
+    }
   });
 
   function navigateToTag(tag: recipeTagSimple) {
@@ -197,39 +261,6 @@
       </div>
     {/if}
 
-    <!-- One-time Cooking Tools tip (4.2 first-60-seconds) -->
-    {#if showCookingToolsTip}
-      <div
-        class="mb-4 flex items-start gap-3 p-4 rounded-xl border"
-        style="background-color: var(--color-bg-secondary); border-color: var(--color-input-border);"
-      >
-        <span class="text-2xl flex-shrink-0" aria-hidden="true">🍳</span>
-        <div class="flex-1 min-w-0">
-          <p class="text-sm font-medium" style="color: var(--color-text-primary);">
-            Tap the pot icon above for cooking timer & unit converter.
-          </p>
-          <div class="flex flex-wrap gap-2 mt-2">
-            <button
-              type="button"
-              on:click={openCookingTools}
-              class="text-sm font-medium px-3 py-1.5 rounded-full transition-colors"
-              style="background-color: var(--color-primary); color: white;"
-            >
-              Try it
-            </button>
-            <button
-              type="button"
-              on:click={dismissCookingToolsTip}
-              class="text-sm font-medium px-3 py-1.5 rounded-full transition-colors"
-              style="color: var(--color-text-secondary);"
-            >
-              Got it
-            </button>
-          </div>
-        </div>
-      </div>
-    {/if}
-
     <!-- Explore Content -->
     <div class="flex flex-col gap-8">
       <!-- Fresh from the Kitchen -->
@@ -257,7 +288,8 @@
             style="background-color: var(--color-bg-secondary); border: 1px solid var(--color-input-border);"
           >
             <p class="text-sm text-caption max-w-xs">
-              Recipes will appear here as the community shares. Try the <strong>Timer</strong> (pot icon above) or <strong>Collections</strong> below.
+              Recipes will appear here as the community shares. Try the <strong>Timer</strong> (pot
+              icon above) or <strong>Collections</strong> below.
             </p>
           </div>
         {/if}
@@ -426,6 +458,50 @@
   </div>
 </PullToRefresh>
 
+<!-- One-time Cooking Tools tip (4.2 first-60-seconds) -->
+{#if showCookingToolsTip}
+  <div use:portal>
+    <div class="cooking-tools-tip-wrapper" aria-live="polite">
+      <div
+        bind:this={cookingToolsTipEl}
+        class="flex items-start gap-3 p-4 cooking-tools-tip"
+        style={`--tip-pointer-x: ${tipPointerX}; --tip-top: ${tipTop};`}
+      >
+        <span class="text-2xl flex-shrink-0" aria-hidden="true">🍳</span>
+        <div class="flex-1 min-w-0">
+          <p
+            class="text-[11px] uppercase tracking-[0.14em] font-semibold mb-1"
+            style="color: var(--color-text-secondary);"
+          >
+            Kitchen tip:
+          </p>
+          <p class="text-sm font-medium" style="color: var(--color-text-primary);">
+            Tap the pot icon above for cooking timer & unit converter.
+          </p>
+          <div class="flex flex-wrap gap-2 mt-2">
+            <button
+              type="button"
+              on:click={openCookingTools}
+              class="text-sm font-medium px-3 py-1.5 rounded-full transition-colors"
+              style="background-color: var(--color-primary); color: white;"
+            >
+              Try it
+            </button>
+            <button
+              type="button"
+              on:click={dismissCookingToolsTip}
+              class="text-sm font-medium px-3 py-1.5 rounded-full transition-colors"
+              style="color: var(--color-text-secondary);"
+            >
+              Got it
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+{/if}
+
 <style>
   /* Hide scrollbar but keep functionality */
   :global(.scrollbar-hide) {
@@ -446,5 +522,61 @@
     button {
       min-height: 44px;
     }
+  }
+
+  .cooking-tools-tip-wrapper {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 1000;
+    --tip-bg: #ffffff;
+    --tip-border: var(--color-input-border);
+  }
+
+  .cooking-tools-tip {
+    position: absolute;
+    top: var(--tip-top, 0.5rem);
+    right: 0.75rem;
+    max-width: min(260px, 78vw);
+    border-radius: 18px;
+    border: 2px solid var(--tip-border);
+    background: var(--tip-bg);
+    color: var(--color-text-primary);
+    box-shadow:
+      0 16px 28px rgba(18, 26, 33, 0.18),
+      0 6px 12px rgba(18, 26, 33, 0.1);
+    z-index: 1001;
+    pointer-events: auto;
+  }
+
+  .cooking-tools-tip::before,
+  .cooking-tools-tip::after {
+    content: '';
+    position: absolute;
+    top: -16px;
+    left: var(--tip-pointer-x, 2.5rem);
+    transform: translateX(-50%);
+    border-left: 14px solid transparent;
+    border-right: 14px solid transparent;
+  }
+
+  .cooking-tools-tip::before {
+    border-bottom: 16px solid var(--tip-border);
+  }
+
+  .cooking-tools-tip::after {
+    top: -14px;
+    border-bottom: 14px solid var(--tip-bg);
+  }
+
+  @media (max-width: 640px) {
+    .cooking-tools-tip {
+      max-width: min(240px, 90vw);
+    }
+  }
+
+  :global(html.dark) .cooking-tools-tip-wrapper {
+    --tip-bg: var(--color-bg-secondary);
+    --tip-border: var(--color-input-border);
   }
 </style>
