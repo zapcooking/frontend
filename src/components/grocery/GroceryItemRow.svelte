@@ -2,9 +2,18 @@
   import { groceryStore, type GroceryItem } from '$lib/stores/groceryStore';
   import CheckIcon from 'phosphor-svelte/lib/Check';
   import TrashIcon from 'phosphor-svelte/lib/Trash';
+  import DotsSixVerticalIcon from 'phosphor-svelte/lib/DotsSixVertical';
 
   export let item: GroceryItem;
   export let listId: string;
+  export let index: number;
+  export let isDragged: boolean = false;
+  export let isDragOver: boolean = false;
+  export let onDragStart: (e: DragEvent, index: number) => void = () => {};
+  export let onDragOver: (e: DragEvent, index: number) => void = () => {};
+  export let onDrop: (e: DragEvent, index: number) => void = () => {};
+  export let onDragEnd: () => void = () => {};
+  export let onDragLeave: () => void = () => {};
 
   function toggleItem() {
     groceryStore.toggleItem(listId, item.id);
@@ -15,10 +24,30 @@
   }
 </script>
 
-<div 
-  class="group flex items-center gap-3 p-3 rounded-xl transition-all {item.checked ? 'opacity-60' : ''}"
+<div
+  role="listitem"
+  draggable="true"
+  on:dragstart={(e) => onDragStart(e, index)}
+  on:dragover|preventDefault={(e) => onDragOver(e, index)}
+  on:drop|preventDefault={(e) => onDrop(e, index)}
+  on:dragend={onDragEnd}
+  on:dragleave={onDragLeave}
+  class="group flex items-center gap-3 p-3 rounded-xl transition-all
+    {item.checked ? 'opacity-60' : ''}
+    {isDragged ? 'opacity-50' : ''}
+    {isDragOver ? 'ring-2 ring-primary' : ''}"
   style="background-color: var(--color-bg-secondary);"
 >
+  <!-- Drag handle -->
+  <div
+    class="cursor-grab active:cursor-grabbing text-caption hover:text-primary flex-shrink-0 touch-none"
+    title="Drag to reorder"
+    aria-label="Drag to reorder"
+    role="img"
+  >
+    <DotsSixVerticalIcon size={20} weight="bold" />
+  </div>
+
   <!-- Checkbox -->
   <button
     on:click={toggleItem}

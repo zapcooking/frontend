@@ -21,11 +21,11 @@
   import PanLoader from '../../../components/PanLoader.svelte';
   import Modal from '../../../components/Modal.svelte';
   import Button from '../../../components/Button.svelte';
-  import GroceryItemRow from '../../../components/grocery/GroceryItemRow.svelte';
+  import SortableGroceryCategory from '../../../components/grocery/SortableGroceryCategory.svelte';
   import AddItemForm from '../../../components/grocery/AddItemForm.svelte';
 
   // Get list ID from URL params
-  $: listId = $page.params.id;
+  $: listId = $page.params.id as string;
   
   // Get reactive list data
   $: listStore = getGroceryList(listId);
@@ -279,21 +279,13 @@
       {#each categoryOrder as category}
         {#if itemsByCategory.has(category)}
           {@const items = itemsByCategory.get(category) || []}
-          <div class="flex flex-col gap-2">
-            <!-- Category header -->
-            <h3 class="text-sm font-semibold flex items-center gap-2" style="color: var(--color-text-secondary)">
-              <span>{categoryInfo[category].emoji}</span>
-              <span>{categoryInfo[category].label}</span>
-              <span class="text-caption font-normal">({items.length})</span>
-            </h3>
-
-            <!-- Items -->
-            <div class="flex flex-col gap-1">
-              {#each items as item (item.id)}
-                <GroceryItemRow {item} {listId} />
-              {/each}
-            </div>
-          </div>
+          <SortableGroceryCategory
+            {listId}
+            {category}
+            {items}
+            categoryLabel={categoryInfo[category].label}
+            categoryEmoji={categoryInfo[category].emoji}
+          />
         {/if}
       {/each}
 
