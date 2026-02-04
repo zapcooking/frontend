@@ -5,6 +5,8 @@
   import { nip19 } from 'nostr-tools';
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
   import { get } from 'svelte/store';
+  import { searchProfiles, getDisplayName, type SearchProfile } from '$lib/profileSearchService';
+  import { getPrimalCache } from '$lib/primalCache';
 
   export let placeholderString: string;
   export let autofocus = false;
@@ -23,10 +25,6 @@
   } = { tags: [], recipes: [], users: [], note: null };
   let isSearching = false;
   let searchTimeout: ReturnType<typeof setTimeout>;
-  
-  // Profile cache for user search - grows as users are seen
-  let profileCache: Map<string, { name: string; npub: string; picture?: string }> = new Map();
-  let followListLoaded = false;
 
   function handleInputChange(event: Event) {
     const input = event.target as HTMLInputElement;
@@ -85,15 +83,64 @@
 
   async function searchRecipes(query: string) {
     try {
+      const primalCache = getPrimalCache();
+      
+      // Try Primal Cache first (supports NIP-50 search)
+      if (primalCache) {
+        try {
+          const primalEvents = await primalCache.fetchArticles({
+            limit: 50,
+          }, 5000);
+          
+          // Filter by title or content on client-side
+          const queryLower = query.toLowerCase();
+          const filtered = primalEvents.events
+            .filter(event => {
+              const title = event.tags.find(t => t[0] === 'title')?.[1] || '';
+              const summary = event.tags.find(t => t[0] === 'summary')?.[1] || '';
+              return title.toLowerCase().includes(queryLower) || 
+                     summary.toLowerCase().includes(queryLower);
+            })
+            .slice(0, 5);
+          
+          searchResults.recipes = filtered.map(event => {
+            const title = event.tags.find(t => t[0] === 'title')?.[1] || 'Untitled';
+            const d = event.tags.find(t => t[0] === 'd')?.[1] || '';
+            const naddr = nip19.naddrEncode({
+              kind: 30023,
+              pubkey: event.pubkey,
+              identifier: d
+            });
+            return { title, naddr, author: event.pubkey };
+          });
+          
+          searchResults = searchResults;
+          return;
+        } catch (primalError) {
+          console.debug('Primal recipe search failed, falling back to direct relay search:', primalError);
+        }
+      }
+      
+      // Fallback: fetch recent recipes and filter client-side
       if (!$ndk) return;
       
       const events = await $ndk.fetchEvents({
         kinds: [30023],
-        search: query,
-        limit: 5
+        limit: 100
       });
       
-      searchResults.recipes = Array.from(events).map(event => {
+      // Client-side filtering by title and summary
+      const queryLower = query.toLowerCase();
+      const filtered = Array.from(events)
+        .filter(event => {
+          const title = event.tags.find(t => t[0] === 'title')?.[1] || '';
+          const summary = event.tags.find(t => t[0] === 'summary')?.[1] || '';
+          return title.toLowerCase().includes(queryLower) || 
+                 summary.toLowerCase().includes(queryLower);
+        })
+        .slice(0, 5);
+      
+      searchResults.recipes = filtered.map(event => {
         const title = event.tags.find(t => t[0] === 'title')?.[1] || 'Untitled';
         const d = event.tags.find(t => t[0] === 'd')?.[1] || '';
         const naddr = nip19.naddrEncode({
@@ -103,155 +150,30 @@
         });
         return { title, naddr, author: event.pubkey };
       });
-      searchResults = searchResults; // Trigger reactivity
+      
+      searchResults = searchResults;
     } catch (e) {
       console.warn('Recipe search failed:', e);
     }
   }
 
-  async function loadFollowListProfiles() {
-    if (followListLoaded) return;
-    
-    const pubkey = get(userPublickey);
-    if (!pubkey || !$ndk) return;
-    
-    try {
-      // Get user's follow list
-      const contactEvent = await $ndk.fetchEvent({
-        kinds: [3],
-        authors: [pubkey],
-        limit: 1
-      });
-      
-      if (!contactEvent) return;
-      
-      const followPubkeys = contactEvent.tags
-        .filter(t => t[0] === 'p' && t[1])
-        .map(t => t[1])
-        .slice(0, 500); // Limit to first 500
-      
-      if (followPubkeys.length === 0) return;
-      
-      // Fetch profiles in batches
-      const batchSize = 100;
-      for (let i = 0; i < followPubkeys.length; i += batchSize) {
-        const batch = followPubkeys.slice(i, i + batchSize);
-        try {
-          const events = await $ndk.fetchEvents({
-            kinds: [0],
-            authors: batch
-          });
-          
-          for (const event of events) {
-            try {
-              const profile = JSON.parse(event.content);
-              const name = profile.display_name || profile.name || '';
-              if (name) {
-                profileCache.set(event.pubkey, {
-                  name,
-                  npub: nip19.npubEncode(event.pubkey),
-                  picture: profile.picture
-                });
-              }
-            } catch {}
-          }
-        } catch (e) {
-          console.debug('Failed to fetch follow list profile batch:', e);
-          continue;
-        }
-      }
-      
-      followListLoaded = true;
-      console.log(`[Search] Loaded ${profileCache.size} profiles from follow list`);
-    } catch (e) {
-      console.debug('Failed to load follow list profiles:', e);
-    }
-  }
-
-  async function loadRecipeAuthorProfiles() {
-    try {
-      if (!$ndk) return;
-      
-      // Fetch recent recipes to get active food creators
-      const recipeEvents = await $ndk.fetchEvents({
-        kinds: [30023],
-        limit: 200
-      });
-      
-      // Get unique author pubkeys
-      const authorPubkeys = [...new Set(Array.from(recipeEvents).map(e => e.pubkey))];
-      
-      if (authorPubkeys.length === 0) return;
-      
-      // Fetch their profiles
-      const profileEvents = await $ndk.fetchEvents({
-        kinds: [0],
-        authors: authorPubkeys
-      });
-      
-      for (const event of profileEvents) {
-        if (profileCache.has(event.pubkey)) continue; // Don't overwrite
-        try {
-          const profile = JSON.parse(event.content);
-          const name = profile.display_name || profile.name || '';
-          if (name) {
-            profileCache.set(event.pubkey, {
-              name,
-              npub: nip19.npubEncode(event.pubkey),
-              picture: profile.picture
-            });
-          }
-        } catch {}
-      }
-      
-      console.log(`[Search] Total profiles cached: ${profileCache.size}`);
-    } catch (e) {
-      console.debug('Failed to load recipe author profiles:', e);
-    }
-  }
-
   async function searchUsers(query: string) {
-    // First, check if it's an npub - direct lookup
-    if (query.startsWith('npub1')) {
-      try {
-        const decoded = nip19.decode(query);
-        if (decoded.type === 'npub' && $ndk) {
-          const event = await $ndk.fetchEvent({
-            kinds: [0],
-            authors: [decoded.data as string]
-          });
-          if (event) {
-            const profile = JSON.parse(event.content);
-            searchResults.users = [{
-              name: profile.display_name || profile.name || 'Anonymous',
-              npub: query,
-              picture: profile.picture
-            }];
-            searchResults = searchResults;
-            return;
-          }
-        }
-      } catch {}
+    try {
+      // Use profileSearchService which leverages Primal Cache API
+      const profiles = await searchProfiles(query, 5);
+      
+      searchResults.users = profiles.map(profile => ({
+        name: getDisplayName(profile),
+        npub: profile.npub,
+        picture: profile.picture
+      }));
+      
+      searchResults = searchResults;
+    } catch (e) {
+      console.warn('User search failed:', e);
+      searchResults.users = [];
+      searchResults = searchResults;
     }
-    
-    // Load follow list profiles if not already loaded
-    if (!followListLoaded) {
-      await loadFollowListProfiles();
-    }
-    
-    // Search the cache
-    const queryLower = query.toLowerCase();
-    const matches: { name: string; npub: string; picture?: string }[] = [];
-    
-    for (const profile of profileCache.values()) {
-      if (profile.name.toLowerCase().includes(queryLower)) {
-        matches.push(profile);
-        if (matches.length >= 5) break;
-      }
-    }
-    
-    searchResults.users = matches;
-    searchResults = searchResults;
   }
 
   function handleInputFocus() {
@@ -301,12 +223,6 @@
   onMount(() => {
     // Initialize empty
     searchResults = { tags: [], recipes: [], users: [], note: null };
-    
-    // Preload profiles in background
-    Promise.all([
-      loadFollowListProfiles(),
-      loadRecipeAuthorProfiles()
-    ]);
   });
 
   onDestroy(() => {
@@ -324,6 +240,24 @@
           selectNote(searchResults.note.id);
           return;
         }
+        
+        // Select first result from search results (priority: recipes > users > tags)
+        if (searchResults.recipes.length > 0) {
+          selectRecipe(searchResults.recipes[0].naddr);
+          return;
+        }
+        
+        if (searchResults.users.length > 0) {
+          selectUser(searchResults.users[0].npub);
+          return;
+        }
+        
+        if (searchResults.tags.length > 0) {
+          selectTag(searchResults.tags[0].title);
+          return;
+        }
+        
+        // Fallback: treat as tag search if no results
         action(tagquery);
         tagquery = '';
         searchResults = { tags: [], recipes: [], users: [], note: null };
