@@ -143,7 +143,7 @@
       {:else}
         <span class="min-w-[3.5rem] text-right">***</span>
       {/if}
-      <span class="text-caption text-xs">sats</span>
+
       <CaretDownIcon size={12} class="text-caption ml-0.5" />
     </button>
 
@@ -256,7 +256,7 @@
       {:else}
         <span class="min-w-[3.5rem] text-right">***</span>
       {/if}
-      <span class="text-caption text-xs">sats</span>
+
       <CaretDownIcon size={12} class="text-caption ml-0.5" />
     </button>
 
@@ -361,7 +361,7 @@
       {:else}
         <span class="min-w-[3.5rem] text-right">***</span>
       {/if}
-      <span class="text-caption text-xs">sats</span>
+
       <CaretDownIcon size={12} class="text-caption ml-0.5" />
     </button>
 

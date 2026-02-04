@@ -2560,9 +2560,8 @@
               <p class="text-2xl font-bold mb-1" style="color: var(--color-text-primary)">
                 {#if $balanceVisible}
                   {$bitcoinConnectBalance.toLocaleString()}
-                  <span class="text-sm font-normal text-caption">sats</span>
                 {:else}
-                  *** <span class="text-sm font-normal text-caption">sats</span>
+                  ***
                 {/if}
               </p>
             {:else}
