@@ -2265,61 +2265,56 @@
     <!-- WebLN Balance Overview -->
     {#if $weblnConnected}
       <div class="mb-8 p-6 rounded-2xl bg-input border border-input">
-        <div class="flex items-center justify-between mb-4">
-          <div class="flex items-center gap-2">
-            <div
-              class="w-6 h-6 rounded-full bg-gradient-to-br from-orange-500 to-amber-500 flex items-center justify-center"
-            >
-              <WeblnLogo size={14} className="text-white" />
-            </div>
-            <span class="font-medium text-primary-color">Balance</span>
-          </div>
-          <div class="flex items-center gap-3">
-            <button
-              class="flex items-center gap-1 text-sm text-caption hover:text-primary transition-colors cursor-pointer"
-              on:click={toggleBalanceVisibility}
-              title={$balanceVisible ? 'Hide balance' : 'Show balance'}
-            >
-              {#if $balanceVisible}
-                <EyeSlashIcon size={16} />
-              {:else}
-                <EyeIcon size={16} />
-              {/if}
-            </button>
-            <button
-              class="text-caption hover:text-primary transition-colors cursor-pointer disabled:opacity-50"
-              on:click={refreshWeblnBalance}
-              disabled={weblnBalanceLoading}
-              title="Refresh balance"
-            >
-              <span class:animate-spin={weblnBalanceLoading}>
-                <ArrowsClockwiseIcon size={16} />
-              </span>
-            </button>
-          </div>
-        </div>
         <div class="flex items-start justify-between mb-2">
           <div>
             <div class="text-4xl font-bold text-primary-color flex items-center gap-3">
+              <div
+                class="w-8 h-8 rounded-full bg-gradient-to-br from-orange-500 to-amber-500 flex items-center justify-center flex-shrink-0"
+              >
+                <WeblnLogo size={18} className="text-white" />
+              </div>
               {#if weblnBalanceLoading}
                 <span class="animate-pulse">...</span>
               {:else if weblnBalance === null}
                 <span class="text-2xl text-caption">Balance not available</span>
               {:else if $balanceVisible}
                 {formatBalance(weblnBalance)}
-                <span class="text-lg font-normal text-caption">sats</span>
               {:else}
-                *** <span class="text-lg font-normal text-caption">sats</span>
+                ***
               {/if}
             </div>
             {#if weblnBalance !== null}
-              <FiatBalance satoshis={weblnBalance} visible={$balanceVisible} />
+              <div class="ml-11">
+                <FiatBalance satoshis={weblnBalance} visible={$balanceVisible} />
+              </div>
             {/if}
           </div>
-          <CurrencySelector compact />
-        </div>
-        <div class="text-sm text-caption">
-          Active: {$weblnWalletName || 'Browser Wallet'} (WebLN)
+          <div class="flex flex-col items-end gap-2">
+            <CurrencySelector compact />
+            <div class="flex items-center gap-3">
+              <button
+                class="flex items-center gap-1 text-sm text-caption hover:text-primary transition-colors cursor-pointer"
+                on:click={toggleBalanceVisibility}
+                title={$balanceVisible ? 'Hide balance' : 'Show balance'}
+              >
+                {#if $balanceVisible}
+                  <EyeSlashIcon size={16} />
+                {:else}
+                  <EyeIcon size={16} />
+                {/if}
+              </button>
+              <button
+                class="text-caption hover:text-primary transition-colors cursor-pointer disabled:opacity-50"
+                on:click={refreshWeblnBalance}
+                disabled={weblnBalanceLoading}
+                title="Refresh balance"
+              >
+                <span class:animate-spin={weblnBalanceLoading}>
+                  <ArrowsClockwiseIcon size={16} />
+                </span>
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     {/if}
@@ -2327,65 +2322,60 @@
     <!-- Balance Overview -->
     {#if $walletConnected && $activeWallet && !$weblnConnected}
       <div class="mb-8 p-6 rounded-2xl bg-input border border-input">
-        <div class="flex items-center justify-between mb-4">
-          <div class="flex items-center gap-2">
-            <LightningIcon size={24} weight="fill" class="text-amber-500" />
-            <span class="font-medium text-primary-color">Balance</span>
-          </div>
-          <div class="flex items-center gap-3">
-            <button
-              class="flex items-center gap-1 text-sm text-caption hover:text-primary transition-colors cursor-pointer"
-              on:click={toggleBalanceVisibility}
-              title={$balanceVisible ? 'Hide balance' : 'Show balance'}
-            >
-              {#if $balanceVisible}
-                <EyeSlashIcon size={16} />
-              {:else}
-                <EyeIcon size={16} />
-              {/if}
-            </button>
-            <button
-              class="text-caption hover:text-primary transition-colors cursor-pointer disabled:opacity-50"
-              on:click={() => refreshBalance()}
-              disabled={$walletLoading}
-              title="Refresh balance"
-            >
-              <span class:animate-spin={$walletLoading}>
-                <ArrowsClockwiseIcon size={16} />
-              </span>
-            </button>
-          </div>
-        </div>
         <div class="flex items-start justify-between mb-2">
           <div>
             <div class="text-4xl font-bold text-primary-color flex items-center gap-3">
+              <LightningIcon size={32} weight="fill" class="text-amber-500 flex-shrink-0" />
               {#if $walletLoading || $walletBalance === null}
                 <span class="animate-pulse">...</span>
               {:else if $balanceVisible}
                 {formatBalance($walletBalance)}
-                <span class="text-lg font-normal text-caption">sats</span>
               {:else}
-                *** <span class="text-lg font-normal text-caption">sats</span>
+                ***
               {/if}
             </div>
-            <FiatBalance satoshis={$walletBalance} visible={$balanceVisible} />
+            <div class="ml-11">
+              <FiatBalance satoshis={$walletBalance} visible={$balanceVisible} />
+            </div>
             <!-- Syncing indicator when Spark wallet balance is zero -->
             {#if $activeWallet?.kind === 4 && $walletBalance === 0n && $sparkSyncing}
-              <div class="text-xs text-caption flex items-center gap-1 mt-1">
+              <div class="text-xs text-caption flex items-center gap-1 mt-1 ml-11">
                 <ArrowsClockwiseIcon size={12} class="animate-spin" />
                 Syncing wallet...
               </div>
             {/if}
           </div>
-          <CurrencySelector compact />
-        </div>
-        <div class="text-sm text-caption mb-4">
-          Active: {$activeWallet.name} ({getWalletKindName($activeWallet.kind)})
+          <div class="flex flex-col items-end gap-2">
+            <CurrencySelector compact />
+            <div class="flex items-center gap-3">
+              <button
+                class="flex items-center gap-1 text-sm text-caption hover:text-primary transition-colors cursor-pointer"
+                on:click={toggleBalanceVisibility}
+                title={$balanceVisible ? 'Hide balance' : 'Show balance'}
+              >
+                {#if $balanceVisible}
+                  <EyeSlashIcon size={16} />
+                {:else}
+                  <EyeIcon size={16} />
+                {/if}
+              </button>
+              <button
+                class="text-caption hover:text-primary transition-colors cursor-pointer disabled:opacity-50"
+                on:click={() => refreshBalance()}
+                disabled={$walletLoading}
+                title="Refresh balance"
+              >
+                <span class:animate-spin={$walletLoading}>
+                  <ArrowsClockwiseIcon size={16} />
+                </span>
+              </button>
+            </div>
+          </div>
         </div>
 
         <!-- Send/Receive buttons - only for NWC and Spark wallets -->
         {#if $activeWallet.kind !== 1}
-          <div class="flex gap-3">
+          <div class="flex gap-3 mt-4">
             <button
               class="flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-medium transition-colors"
               on:click={() => {
@@ -2570,9 +2560,8 @@
               <p class="text-2xl font-bold mb-1" style="color: var(--color-text-primary)">
                 {#if $balanceVisible}
                   {$bitcoinConnectBalance.toLocaleString()}
-                  <span class="text-sm font-normal text-caption">sats</span>
                 {:else}
-                  *** <span class="text-sm font-normal text-caption">sats</span>
+                  ***
                 {/if}
               </p>
             {:else}
