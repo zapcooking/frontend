@@ -1,12 +1,12 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
-  import { recipeTags, type recipeTagSimple } from '$lib/consts';
+  import { recipeTags, type recipeTagSimple, RECIPE_TAGS } from '$lib/consts';
   import { ndk, userPublickey } from '$lib/nostr';
   import { nip19 } from 'nostr-tools';
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
   import { get } from 'svelte/store';
   import { searchProfiles, getDisplayName, type SearchProfile } from '$lib/profileSearchService';
-  import { getPrimalCache } from '$lib/primalCache';
+  import { feedCacheService } from '$lib/feedCache';
 
   export let placeholderString: string;
   export let autofocus = false;
@@ -25,28 +25,36 @@
   } = { tags: [], recipes: [], users: [], note: null };
   let isSearching = false;
   let searchTimeout: ReturnType<typeof setTimeout>;
+  
+  // Recipe cache for fast client-side search
+  let recipeCache: Array<{ title: string; summary: string; naddr: string; author: string }> = [];
+  let recipeCacheLoaded = false;
+  let recipeCacheLoading = false;
+  let recipeSubscription: any = null;
 
   function handleInputChange(event: Event) {
     const input = event.target as HTMLInputElement;
-    tagquery = input.value.trim();
-    const queryLower = tagquery.toLowerCase();
-    
+    tagquery = input.value;
+
+    const normalizedQuery = tagquery.trim().toLowerCase();
+
     // Clear previous timeout
     if (searchTimeout) clearTimeout(searchTimeout);
-    
-    if (tagquery.length === 0) {
+
+    // If query is empty or only whitespace, reset state
+    if (normalizedQuery.length === 0) {
       searchResults = { tags: [], recipes: [], users: [], note: null };
       showAutocomplete = false;
       return;
     }
-    
+
     // Check for note identifiers (note1 or nevent1)
-    if (tagquery.startsWith('note1') || tagquery.startsWith('nevent1')) {
+    if (normalizedQuery.startsWith('note1') || normalizedQuery.startsWith('nevent1')) {
       try {
         // Validate it's a proper nip19 identifier
-        const decoded = nip19.decode(tagquery);
+        const decoded = nip19.decode(normalizedQuery);
         if (decoded.type === 'note' || decoded.type === 'nevent') {
-          searchResults.note = { id: tagquery };
+          searchResults.note = { id: normalizedQuery };
           searchResults.tags = [];
           searchResults.recipes = [];
           searchResults.users = [];
@@ -57,22 +65,25 @@
         // Invalid identifier, continue with normal search
       }
     }
-    
+
     // Clear note result if not a note identifier
     searchResults.note = null;
-    
+
     // Immediate tag search (client-side)
     searchResults.tags = recipeTags
-      .filter(tag => tag.title.toLowerCase().includes(queryLower))
+      .filter((tag) => tag.title.toLowerCase().includes(normalizedQuery))
       .slice(0, 5);
-    
+
     showAutocomplete = true;
-    
-    // Debounced relay search for recipes and users
+
+    // Immediate recipe search (client-side cache)
+    searchRecipes(normalizedQuery);
+
+    // Debounced user search (API call)
     searchTimeout = setTimeout(async () => {
       isSearching = true;
       try {
-        await Promise.all([searchRecipes(queryLower), searchUsers(queryLower)]);
+        await searchUsers(normalizedQuery);
       } catch (e) {
         console.debug('Search error:', e);
       } finally {
@@ -81,80 +92,129 @@
     }, 300);
   }
 
-  async function searchRecipes(query: string) {
+  // Load recipes progressively using subscription (like /recent page)
+  async function preloadRecipes() {
+    if (recipeCacheLoading || recipeCacheLoaded) {
+      return;
+    }
+    
+    recipeCacheLoading = true;
+    
     try {
-      const primalCache = getPrimalCache();
+      // Try to get cached recipes from IndexedDB (same cache as /recent page)
+      const cacheFilter = { kinds: [30023], '#t': RECIPE_TAGS };
+      const cachedEvents = await feedCacheService.getCachedFeed({
+        filter: cacheFilter,
+        backgroundRefresh: false
+      });
       
-      // Try Primal Cache first (supports NIP-50 search)
-      if (primalCache) {
-        try {
-          const primalEvents = await primalCache.fetchArticles({
-            limit: 50,
-          }, 5000);
-          
-          // Filter by title or content on client-side
-          const queryLower = query.toLowerCase();
-          const filtered = primalEvents.events
-            .filter(event => {
-              const title = event.tags.find(t => t[0] === 'title')?.[1] || '';
-              const summary = event.tags.find(t => t[0] === 'summary')?.[1] || '';
-              return title.toLowerCase().includes(queryLower) || 
-                     summary.toLowerCase().includes(queryLower);
-            })
-            .slice(0, 5);
-          
-          searchResults.recipes = filtered.map(event => {
-            const title = event.tags.find(t => t[0] === 'title')?.[1] || 'Untitled';
-            const d = event.tags.find(t => t[0] === 'd')?.[1] || '';
-            const naddr = nip19.naddrEncode({
-              kind: 30023,
-              pubkey: event.pubkey,
-              identifier: d
-            });
-            return { title, naddr, author: event.pubkey };
+      if (cachedEvents && cachedEvents.length > 0) {
+        recipeCache = cachedEvents.map((event) => {
+          const title = event.tags.find((t) => t[0] === 'title')?.[1] || 'Untitled';
+          const summary = event.tags.find((t) => t[0] === 'summary')?.[1] || '';
+          const d = event.tags.find((t) => t[0] === 'd')?.[1] || '';
+          const naddr = nip19.naddrEncode({
+            kind: 30023,
+            pubkey: event.pubkey,
+            identifier: d
           });
-          
-          searchResults = searchResults;
-          return;
-        } catch (primalError) {
-          console.debug('Primal recipe search failed, falling back to direct relay search:', primalError);
-        }
+          return { title, summary, naddr, author: event.pubkey };
+        });
+        
+        recipeCacheLoaded = true;
+        recipeCacheLoading = false;
+        return;
       }
       
-      // Fallback: fetch recent recipes and filter client-side
-      if (!$ndk) return;
+      // Fallback: subscribe to recipes (progressive loading)
+      if (!$ndk) {
+        recipeCacheLoading = false;
+        setTimeout(() => preloadRecipes(), 1000);
+        return;
+      }
       
-      const events = await $ndk.fetchEvents({
+      recipeSubscription = $ndk.subscribe({
         kinds: [30023],
+        '#t': RECIPE_TAGS,
         limit: 100
       });
       
-      // Client-side filtering by title and summary
-      const queryLower = query.toLowerCase();
-      const filtered = Array.from(events)
-        .filter(event => {
-          const title = event.tags.find(t => t[0] === 'title')?.[1] || '';
-          const summary = event.tags.find(t => t[0] === 'summary')?.[1] || '';
-          return title.toLowerCase().includes(queryLower) || 
-                 summary.toLowerCase().includes(queryLower);
-        })
-        .slice(0, 5);
+      const tempCache: typeof recipeCache = [];
       
-      searchResults.recipes = filtered.map(event => {
-        const title = event.tags.find(t => t[0] === 'title')?.[1] || 'Untitled';
-        const d = event.tags.find(t => t[0] === 'd')?.[1] || '';
+      recipeSubscription.on('event', (event: any) => {
+        const title = event.tags.find((t: any) => t[0] === 'title')?.[1] || 'Untitled';
+        const summary = event.tags.find((t: any) => t[0] === 'summary')?.[1] || '';
+        const d = event.tags.find((t: any) => t[0] === 'd')?.[1] || '';
         const naddr = nip19.naddrEncode({
           kind: 30023,
           pubkey: event.pubkey,
           identifier: d
         });
-        return { title, naddr, author: event.pubkey };
+        
+        tempCache.push({ title, summary, naddr, author: event.pubkey });
+        
+        // Update cache progressively every 10 recipes
+        if (tempCache.length % 10 === 0) {
+          recipeCache = [...tempCache];
+          
+          // Mark as loaded after first batch
+          if (!recipeCacheLoaded && tempCache.length >= 10) {
+            recipeCacheLoaded = true;
+          }
+        }
       });
       
-      searchResults = searchResults;
+      recipeSubscription.on('eose', () => {
+        recipeCache = [...tempCache];
+        recipeCacheLoaded = true;
+        recipeCacheLoading = false;
+      });
+      
+      // Timeout fallback - mark as loaded after 15s even if subscription hasn't completed
+      setTimeout(() => {
+        if (!recipeCacheLoaded && tempCache.length > 0) {
+          recipeCache = [...tempCache];
+          recipeCacheLoaded = true;
+          recipeCacheLoading = false;
+        } else if (tempCache.length === 0) {
+          recipeCacheLoaded = true;
+          recipeCacheLoading = false;
+        }
+      }, 15000);
+      
     } catch (e) {
-      console.warn('Recipe search failed:', e);
+      console.error('[RecipeSearch] Failed to load recipes:', e);
+      recipeCacheLoaded = true;
+      recipeCacheLoading = false;
     }
+  }
+
+  function searchRecipes(query: string) {
+    // If recipes not loaded yet, return empty
+    if (!recipeCacheLoaded || recipeCache.length === 0) {
+      searchResults.recipes = [];
+      searchResults = searchResults;
+      return;
+    }
+    
+    // Token-based search: all words must appear in title or summary
+    const queryLower = query.toLowerCase();
+    const tokens = queryLower.split(/\s+/).filter(Boolean);
+    
+    const filtered = recipeCache
+      .filter((recipe) => {
+        const haystack = `${recipe.title.toLowerCase()} ${recipe.summary.toLowerCase()}`;
+        return tokens.every((token) => haystack.includes(token));
+      })
+      .slice(0, 5);
+    
+    searchResults.recipes = filtered.map((recipe) => ({
+      title: recipe.title,
+      naddr: recipe.naddr,
+      author: recipe.author
+    }));
+    
+    searchResults = searchResults;
   }
 
   async function searchUsers(query: string) {
@@ -221,12 +281,19 @@
   }
 
   onMount(() => {
-    // Initialize empty
+    // Initialize empty search results
     searchResults = { tags: [], recipes: [], users: [], note: null };
+    
+    // Preload recipes in background for fast search
+    preloadRecipes();
   });
 
   onDestroy(() => {
     if (searchTimeout) clearTimeout(searchTimeout);
+    if (recipeSubscription) {
+      recipeSubscription.stop();
+      recipeSubscription = null;
+    }
   });
 </script>
 
@@ -340,12 +407,22 @@
         {/each}
       {/if}
 
+      {#if recipeCacheLoading}
+        <li class="px-3 py-2 text-sm text-caption text-center">⏳ Loading recipes for search...</li>
+      {/if}
+
       {#if isSearching}
         <li class="px-3 py-2 text-sm text-caption text-center">Searching...</li>
       {/if}
 
-      {#if !isSearching && !searchResults.note && searchResults.tags.length === 0 && searchResults.recipes.length === 0 && searchResults.users.length === 0 && tagquery.length > 0}
-        <li class="px-3 py-2 text-sm text-caption text-center">No results found</li>
+      {#if !recipeCacheLoading && !isSearching && !searchResults.note && searchResults.tags.length === 0 && searchResults.recipes.length === 0 && searchResults.users.length === 0 && tagquery.length > 0}
+        <li class="px-3 py-2 text-sm text-caption text-center">
+          {#if !recipeCacheLoaded}
+            ⏳ Loading recipes...
+          {:else}
+            No results found
+          {/if}
+        </li>
       {/if}
     </ul>
   {/if}
