@@ -37,9 +37,9 @@
 
   function handleInputChange(event: Event) {
     const input = event.target as HTMLInputElement;
-    tagquery = input.value;
+    tagquery = input.value.trim();
 
-    const rawQuery = tagquery.trim();
+    const rawQuery = tagquery;
     const normalizedQuery = rawQuery.toLowerCase();
 
     // Clear previous timeout
