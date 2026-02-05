@@ -1,2 +1,18 @@
+repository: https://github.com/zapcooking/frontend
+
+name: Zap Cooking
+summary: Nostr-native recipes, culture, and Bitcoin zaps
+
+description: >
+  Zap Cooking is a Nostr-native food culture platform.
+  Discover and share recipes, publish food and culture writing,
+  and zap creators directly without algorithms or gatekeepers.
+
+  The app includes a built-in self-custodial Bitcoin wallet
+  with Lightning and on-chain support, designed for long-term ownership.
+
+homepage: https://zap.cooking
+license: MIT
+
 assets:
   - android/app/release/.*\.apk
