@@ -156,7 +156,7 @@
     <PanLoader size="md" />
   </div>
 {:else}
-  <div class="flex flex-col gap-6 max-w-2xl mx-auto">
+  <div class="flex flex-col gap-4 max-w-2xl mx-auto">
     <!-- Header -->
     <div class="flex flex-col gap-4">
       <!-- Back link and actions -->
@@ -263,10 +263,12 @@
       <!-- Progress bar -->
       {#if totalItems > 0}
         <div class="h-2 rounded-full overflow-hidden" style="background-color: var(--color-input-bg);">
-          <div 
-            class="h-full rounded-full transition-all duration-300 bg-gradient-to-r from-green-500 to-emerald-500"
-            style="width: {(checkedItems / totalItems) * 100}%"
-          />
+          {#if checkedItems > 0}
+            <div
+              class="h-full rounded-full transition-all duration-300 bg-gradient-to-r from-green-500 to-emerald-500"
+              style="width: {(checkedItems / totalItems) * 100}%"
+            />
+          {/if}
         </div>
       {/if}
     </div>
