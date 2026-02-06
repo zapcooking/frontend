@@ -80,7 +80,10 @@
     }
   });
 
-  function loadDraftById(draftId: string) {
+  async function loadDraftById(draftId: string, retryCount: number = 0) {
+    const maxRetries = 3;
+    const retryDelay = 100; // ms
+    
     const draft = getDraftWithSyncState(draftId);
     if (draft) {
       currentDraftId = draftId;
@@ -100,10 +103,16 @@
       setTimeout(() => {
         draftSaveMessage = '';
       }, 2000);
+    } else if (retryCount < maxRetries) {
+      // Draft not found yet, retry after a short delay
+      console.log(`[Create] Draft ${draftId} not found, retrying (${retryCount + 1}/${maxRetries})...`);
+      await new Promise(resolve => setTimeout(resolve, retryDelay));
+      await loadDraftById(draftId, retryCount + 1);
     } else {
-      // Draft not found: clear current draft state and URL param, and show an error message.
+      // Draft not found after retries: clear current draft state and URL param, and show an error message.
+      console.error(`[Create] Draft ${draftId} not found after ${maxRetries} retries`);
       currentDraftId = null;
-      draftSaveMessage = 'Draft not found';
+      draftSaveMessage = 'Draft not found. It may have been deleted or failed to save.';
       if (browser) {
         const url = new URL(window.location.href);
         url.searchParams.delete('draft');
@@ -111,7 +120,7 @@
       }
       setTimeout(() => {
         draftSaveMessage = '';
-      }, 2000);
+      }, 4000);
     }
   }
 

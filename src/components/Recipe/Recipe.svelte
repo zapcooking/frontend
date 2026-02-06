@@ -76,6 +76,7 @@
   let menuOpen = false;
   let deleteConfirmOpen = false;
   let isDeleting = false;
+  let isEditingRecipe = false;
 
   // Check if current user owns this recipe
   $: isOwner = $userPublickey && $userPublickey === event.author.pubkey;
@@ -173,70 +174,86 @@
     }
   }
 
-  function handleEdit() {
+  async function handleEdit() {
+    if (isEditingRecipe) return;
+    
     menuOpen = false;
+    isEditingRecipe = true;
 
-    // Extract recipe data from event tags
-    const title = event.tagValue('title') || event.tagValue('d') || '';
-    const images = event.getMatchingTags('image').map((t) => t[1]) || [];
-    const summary = event.tagValue('summary') || '';
+    try {
+      // Extract recipe data from event tags
+      const title = event.tagValue('title') || event.tagValue('d') || '';
+      const images = event.getMatchingTags('image').map((t) => t[1]) || [];
+      const summary = event.tagValue('summary') || '';
 
-    // Extract tags using same approach as TagLinks component
-    const dTag = event.tags.find((a) => a[0] === 'd')?.[1];
-    const tags: Array<{ title: string; emoji?: string }> = [];
-    let nameTagFound = false;
+      // Extract tags using same approach as TagLinks component
+      const dTag = event.tags.find((a) => a[0] === 'd')?.[1];
+      const tags: Array<{ title: string; emoji?: string }> = [];
+      let nameTagFound = false;
 
-    event.tags.forEach((t) => {
-      if (t[0] === 't' && t[1]) {
-        const tagValue = t[1];
-        const isLegacyPrefix = tagValue.startsWith('nostrcooking-');
-        const isNewPrefix = tagValue.startsWith(`${RECIPE_TAG_PREFIX_NEW}-`);
+      event.tags.forEach((t) => {
+        if (t[0] === 't' && t[1]) {
+          const tagValue = t[1];
+          const isLegacyPrefix = tagValue.startsWith('nostrcooking-');
+          const isNewPrefix = tagValue.startsWith(`${RECIPE_TAG_PREFIX_NEW}-`);
 
-        if ((isLegacyPrefix || isNewPrefix) && !nameTagFound) {
-          // First prefixed tag is the name tag - skip it
-          const tagName = isNewPrefix
-            ? tagValue.slice(RECIPE_TAG_PREFIX_NEW.length + 1)
-            : tagValue.slice('nostrcooking-'.length);
-          if (tagName === dTag) {
-            nameTagFound = true;
-          }
-        } else if (isLegacyPrefix || isNewPrefix) {
-          // Extract actual category tags
-          const tagName = isNewPrefix
-            ? tagValue.slice(RECIPE_TAG_PREFIX_NEW.length + 1)
-            : tagValue.slice('nostrcooking-'.length);
+          if ((isLegacyPrefix || isNewPrefix) && !nameTagFound) {
+            // First prefixed tag is the name tag - skip it
+            const tagName = isNewPrefix
+              ? tagValue.slice(RECIPE_TAG_PREFIX_NEW.length + 1)
+              : tagValue.slice('nostrcooking-'.length);
+            if (tagName === dTag) {
+              nameTagFound = true;
+            }
+          } else if (isLegacyPrefix || isNewPrefix) {
+            // Extract actual category tags
+            const tagName = isNewPrefix
+              ? tagValue.slice(RECIPE_TAG_PREFIX_NEW.length + 1)
+              : tagValue.slice('nostrcooking-'.length);
 
-          const matchingTag = recipeTags.find(
-            (rt) => rt.title.toLowerCase().replaceAll(' ', '-') === tagName
-          );
-          if (matchingTag) {
-            tags.push(matchingTag);
-          } else {
-            tags.push({ title: tagName.replaceAll('-', ' ') });
+            const matchingTag = recipeTags.find(
+              (rt) => rt.title.toLowerCase().replaceAll(' ', '-') === tagName
+            );
+            if (matchingTag) {
+              tags.push(matchingTag);
+            } else {
+              tags.push({ title: tagName.replaceAll('-', ' ') });
+            }
           }
         }
-      }
-    });
+      });
 
-    // Parse markdown content to extract structured data (use lenient parser for editing)
-    const info = parseMarkdownForEditing(event.content);
+      // Parse markdown content to extract structured data (use lenient parser for editing)
+      const info = parseMarkdownForEditing(event.content);
 
-    const draftData = {
-      title,
-      images,
-      tags,
-      summary,
-      chefsnotes: info.chefNotes || '',
-      preptime: info.information?.prepTime || '',
-      cooktime: info.information?.cookTime || '',
-      servings: info.information?.servings || '',
-      ingredients: info.ingredients,
-      directions: info.directions,
-      additionalMarkdown: info.additionalMarkdown || ''
-    };
+      const draftData = {
+        title,
+        images,
+        tags,
+        summary,
+        chefsnotes: info.chefNotes || '',
+        preptime: info.information?.prepTime || '',
+        cooktime: info.information?.cookTime || '',
+        servings: info.information?.servings || '',
+        ingredients: info.ingredients,
+        directions: info.directions,
+        additionalMarkdown: info.additionalMarkdown || ''
+      };
 
-    const draftId = saveDraft(draftData);
-    goto(`/create?draft=${draftId}`);
+      // Save draft and wait for it to complete
+      const { draftId, syncPromise } = saveDraft(draftData, undefined, false);
+      
+      // Wait a tick to ensure localStorage write completes
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
+      // Navigate to edit page
+      goto(`/create?draft=${draftId}`);
+    } catch (error) {
+      console.error('[Recipe] Failed to prepare edit:', error);
+      alert('Failed to open recipe for editing. Please try again.');
+    } finally {
+      isEditingRecipe = false;
+    }
   }
 
   async function handleDelete() {
@@ -644,12 +661,20 @@
               >
                 {#if isOwner}
                   <button
-                    class="w-full flex items-center gap-3 px-4 py-2.5 text-left text-sm hover:bg-accent-gray transition-colors"
+                    class="w-full flex items-center gap-3 px-4 py-2.5 text-left text-sm hover:bg-accent-gray transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                     style="color: var(--color-text-primary);"
                     on:click={handleEdit}
+                    disabled={isEditingRecipe}
                   >
-                    <PencilSimpleIcon size={18} />
-                    Edit Recipe
+                    {#if isEditingRecipe}
+                      <div class="animate-spin">
+                        <PencilSimpleIcon size={18} />
+                      </div>
+                      Preparing...
+                    {:else}
+                      <PencilSimpleIcon size={18} />
+                      Edit Recipe
+                    {/if}
                   </button>
                 {/if}
                 <button

@@ -137,8 +137,8 @@ function loadLocalDrafts(): DraftWithSyncState[] {
 /**
  * Save drafts to localStorage
  */
-function saveLocalDrafts(drafts: DraftWithSyncState[]): void {
-  if (!browser) return;
+function saveLocalDrafts(drafts: DraftWithSyncState[]): boolean {
+  if (!browser) return false;
 
   try {
     // Strip sync state before saving to localStorage
@@ -146,9 +146,27 @@ function saveLocalDrafts(drafts: DraftWithSyncState[]): void {
       const { syncStatus, lastSyncedAt, syncError, ...draft } = d;
       return draft;
     });
-    localStorage.setItem(DRAFTS_STORAGE_KEY, JSON.stringify(cleanDrafts));
+    const serialized = JSON.stringify(cleanDrafts);
+    localStorage.setItem(DRAFTS_STORAGE_KEY, serialized);
+    
+    // Verify the write was successful
+    const verified = localStorage.getItem(DRAFTS_STORAGE_KEY);
+    if (verified !== serialized) {
+      throw new Error('localStorage write verification failed');
+    }
+    
+    return true;
   } catch (error) {
     console.error('[DraftStore] Error saving drafts:', error);
+    
+    // Check if it's a quota exceeded error
+    if (error instanceof DOMException && 
+        (error.name === 'QuotaExceededError' || 
+         error.name === 'NS_ERROR_DOM_QUOTA_REACHED')) {
+      console.error('[DraftStore] localStorage quota exceeded');
+    }
+    
+    return false;
   }
 }
 
@@ -470,8 +488,12 @@ export function saveDraft(
   // Sort by most recently updated
   drafts.sort((a, b) => b.updatedAt - a.updatedAt);
 
-  // Save locally
-  saveLocalDrafts(drafts);
+  // Save locally and check for errors
+  const saveSuccess = saveLocalDrafts(drafts);
+  if (!saveSuccess) {
+    console.error('[DraftStore] Failed to save draft to localStorage');
+    // Still update the store so the draft appears in memory, even if not persisted
+  }
 
   // Update store
   stateStore.update((s) => ({
