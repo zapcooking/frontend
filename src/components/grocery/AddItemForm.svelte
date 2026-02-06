@@ -53,7 +53,7 @@
 <form 
   on:submit|preventDefault={addItem}
   class="flex flex-col gap-3 p-4 rounded-2xl"
-  style="background-color: var(--color-bg-secondary); border: 1px solid var(--color-input-border);"
+  style="background-color: var(--color-bg-secondary);"
 >
   <div class="flex flex-col sm:flex-row gap-3">
     <!-- Item name -->
@@ -98,7 +98,7 @@
   <button
     type="submit"
     disabled={!itemName.trim()}
-    class="flex items-center justify-center gap-2 px-4 py-2.5 bg-gradient-to-r from-green-500 to-emerald-500 hover:from-green-600 hover:to-emerald-600 text-white rounded-xl font-semibold transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+    class="flex items-center justify-center gap-2 px-4 py-2 border border-green-500/40 text-green-500 hover:bg-green-500/10 rounded-xl font-medium text-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed"
   >
     <PlusIcon size={18} weight="bold" />
     <span>Add Item</span>

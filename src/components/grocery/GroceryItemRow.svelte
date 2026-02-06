@@ -40,7 +40,7 @@
 >
   <!-- Drag handle -->
   <div
-    class="cursor-grab active:cursor-grabbing text-caption hover:text-primary flex-shrink-0 touch-none"
+    class="cursor-grab active:cursor-grabbing text-caption hover:text-primary flex-shrink-0 touch-none mr-1"
     title="Drag to reorder"
     aria-label="Drag to reorder"
     role="img"
@@ -51,9 +51,9 @@
   <!-- Checkbox -->
   <button
     on:click={toggleItem}
-    class="w-6 h-6 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition-all {item.checked 
-      ? 'bg-green-500 border-green-500' 
-      : 'border-gray-300 dark:border-gray-600 hover:border-green-400'}"
+    class="w-6 h-6 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition-all {item.checked
+      ? 'bg-green-500 border-green-500'
+      : 'border-gray-400 dark:border-gray-400 hover:border-green-400'}"
     aria-label={item.checked ? 'Uncheck item' : 'Check item'}
   >
     {#if item.checked}
@@ -69,11 +69,9 @@
     >
       {item.name}
     </span>
-    {#if item.quantity}
-      <span class="text-sm text-caption">
-        {item.quantity}
-      </span>
-    {/if}
+    <span class="text-sm text-caption">
+      {item.quantity || '1'}
+    </span>
   </div>
 
   <!-- Delete button -->
