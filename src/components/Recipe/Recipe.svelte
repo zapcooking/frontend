@@ -176,7 +176,7 @@
 
   async function handleEdit() {
     if (isEditingRecipe) return;
-    
+
     menuOpen = false;
     isEditingRecipe = true;
 
@@ -240,12 +240,9 @@
         additionalMarkdown: info.additionalMarkdown || ''
       };
 
-      // Save draft and wait for it to complete
-      const { draftId, syncPromise } = saveDraft(draftData, undefined, false);
-      
-      // Wait a tick to ensure localStorage write completes
-      await new Promise(resolve => setTimeout(resolve, 100));
-      
+      // Save draft - returns the saved draft directly, no need to wait
+      const { draftId } = saveDraft(draftData, undefined, false);
+
       // Navigate to edit page
       goto(`/create?draft=${draftId}`);
     } catch (error) {
@@ -541,7 +538,9 @@
             aria-label="Recipe images"
           >
             {#each uniqueImages as image, i}
-              <div class="recipe-carousel-slide flex-shrink-0 w-full min-w-full snap-center flex items-center justify-center">
+              <div
+                class="recipe-carousel-slide flex-shrink-0 w-full min-w-full snap-center flex items-center justify-center"
+              >
                 <button
                   on:click={() =>
                     openImageModal(
@@ -565,39 +564,66 @@
             <!-- Arrows: hidden on mobile, visible on sm+ (match community feed) -->
             <button
               type="button"
-              on:click={(e) => { e.stopPropagation(); carouselPrev(); }}
+              on:click={(e) => {
+                e.stopPropagation();
+                carouselPrev();
+              }}
               class="hidden sm:block absolute left-2 top-1/2 -translate-y-1/2 bg-black/50 hover:bg-black/70 text-white rounded-full p-2 transition-colors z-10"
               aria-label="Previous image"
             >
               <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M15 19l-7-7 7-7"
+                />
               </svg>
             </button>
             <button
               type="button"
-              on:click={(e) => { e.stopPropagation(); carouselNext(); }}
+              on:click={(e) => {
+                e.stopPropagation();
+                carouselNext();
+              }}
               class="hidden sm:block absolute right-2 top-1/2 -translate-y-1/2 bg-black/50 hover:bg-black/70 text-white rounded-full p-2 transition-colors z-10"
               aria-label="Next image"
             >
               <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M9 5l7 7-7 7"
+                />
               </svg>
             </button>
             <!-- Slide counter (match community feed) -->
-            <div class="absolute top-2 right-2 bg-black/50 text-white text-xs px-2 py-1 rounded z-10">
+            <div
+              class="absolute top-2 right-2 bg-black/50 text-white text-xs px-2 py-1 rounded z-10"
+            >
               {carouselIndex + 1} / {uniqueImages.length}
             </div>
             <!-- Dot indicators: only when ≤5 images (match community feed) -->
             {#if uniqueImages.length <= 5}
-              <div class="absolute bottom-2 left-1/2 -translate-x-1/2 flex space-x-1.5 z-10" aria-hidden="true">
+              <div
+                class="absolute bottom-2 left-1/2 -translate-x-1/2 flex space-x-1.5 z-10"
+                aria-hidden="true"
+              >
                 {#each uniqueImages as _, i}
                   <button
                     type="button"
-                    class="w-2 h-2 rounded-full transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-1 focus-visible:ring-offset-transparent {carouselIndex === i ? 'bg-white' : 'bg-white/50'}"
+                    class="w-2 h-2 rounded-full transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-1 focus-visible:ring-offset-transparent {carouselIndex ===
+                    i
+                      ? 'bg-white'
+                      : 'bg-white/50'}"
                     on:click={(e) => {
                       e.stopPropagation();
                       if (carouselEl) {
-                        carouselEl.scrollTo({ left: carouselEl.clientWidth * i, behavior: 'smooth' });
+                        carouselEl.scrollTo({
+                          left: carouselEl.clientWidth * i,
+                          behavior: 'smooth'
+                        });
                       }
                     }}
                     aria-label="Go to image {i + 1}"

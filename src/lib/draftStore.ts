@@ -148,24 +148,25 @@ function saveLocalDrafts(drafts: DraftWithSyncState[]): boolean {
     });
     const serialized = JSON.stringify(cleanDrafts);
     localStorage.setItem(DRAFTS_STORAGE_KEY, serialized);
-    
+
     // Verify the write was successful
     const verified = localStorage.getItem(DRAFTS_STORAGE_KEY);
     if (verified !== serialized) {
       throw new Error('localStorage write verification failed');
     }
-    
+
     return true;
   } catch (error) {
     console.error('[DraftStore] Error saving drafts:', error);
-    
+
     // Check if it's a quota exceeded error
-    if (error instanceof DOMException && 
-        (error.name === 'QuotaExceededError' || 
-         error.name === 'NS_ERROR_DOM_QUOTA_REACHED')) {
+    if (
+      error instanceof DOMException &&
+      (error.name === 'QuotaExceededError' || error.name === 'NS_ERROR_DOM_QUOTA_REACHED')
+    ) {
       console.error('[DraftStore] localStorage quota exceeded');
     }
-    
+
     return false;
   }
 }
@@ -436,53 +437,55 @@ function generateDraftId(): string {
  * @param draft - The draft data to save
  * @param existingId - Optional ID of existing draft to update
  * @param syncImmediately - If true, syncs to relays immediately instead of debouncing
- * @returns Object with draftId and optional syncPromise
+ * @returns Object with draftId, saved draft, and optional syncPromise
  */
 export function saveDraft(
   draft: Omit<RecipeDraft, 'id' | 'createdAt' | 'updatedAt'>,
   existingId?: string,
   syncImmediately: boolean = false
-): { draftId: string; syncPromise?: Promise<boolean> } {
+): { draftId: string; draft: DraftWithSyncState; syncPromise?: Promise<boolean> } {
   const state = get(stateStore);
   let drafts = [...state.drafts];
   const now = Date.now();
 
   let draftId: string;
+  let savedDraft: DraftWithSyncState;
 
   if (existingId) {
     // Update existing draft
     const index = drafts.findIndex((d) => d.id === existingId);
     if (index !== -1) {
-      drafts[index] = {
+      savedDraft = {
         ...drafts[index],
         ...draft,
         updatedAt: now,
         syncStatus: state.syncAvailable ? 'syncing' : 'local'
       };
+      drafts[index] = savedDraft;
       draftId = existingId;
     } else {
       // ID not found, create new
       draftId = generateDraftId();
-      const newDraft: DraftWithSyncState = {
+      savedDraft = {
         ...draft,
         id: draftId,
         createdAt: now,
         updatedAt: now,
         syncStatus: state.syncAvailable ? 'syncing' : 'local'
       };
-      drafts.unshift(newDraft);
+      drafts.unshift(savedDraft);
     }
   } else {
     // Create new draft
     draftId = generateDraftId();
-    const newDraft: DraftWithSyncState = {
+    savedDraft = {
       ...draft,
       id: draftId,
       createdAt: now,
       updatedAt: now,
       syncStatus: state.syncAvailable ? 'syncing' : 'local'
     };
-    drafts.unshift(newDraft);
+    drafts.unshift(savedDraft);
   }
 
   // Sort by most recently updated
@@ -505,37 +508,34 @@ export function saveDraft(
   let syncPromise: Promise<boolean> | undefined;
 
   if (state.syncAvailable) {
-    const savedDraft = drafts.find((d) => d.id === draftId);
-    if (savedDraft) {
-      if (syncImmediately) {
-        // Sync immediately and return promise
-        syncPromise = publishDraft(savedDraft).then((success) => {
-          // Update sync status based on result
-          stateStore.update((s) => {
-            const updatedDrafts = s.drafts.map((d) => {
-              if (d.id === draftId) {
-                return {
-                  ...d,
-                  syncStatus: success ? ('synced' as const) : ('error' as const),
-                  lastSyncedAt: success ? Date.now() : d.lastSyncedAt,
-                  syncError: success ? undefined : 'Failed to sync to relays'
-                };
-              }
-              return d;
-            });
-            saveLocalDrafts(updatedDrafts);
-            return { ...s, drafts: updatedDrafts };
+    if (syncImmediately) {
+      // Sync immediately and return promise
+      syncPromise = publishDraft(savedDraft).then((success) => {
+        // Update sync status based on result
+        stateStore.update((s) => {
+          const updatedDrafts = s.drafts.map((d) => {
+            if (d.id === draftId) {
+              return {
+                ...d,
+                syncStatus: success ? ('synced' as const) : ('error' as const),
+                lastSyncedAt: success ? Date.now() : d.lastSyncedAt,
+                syncError: success ? undefined : 'Failed to sync to relays'
+              };
+            }
+            return d;
           });
-          return success;
+          saveLocalDrafts(updatedDrafts);
+          return { ...s, drafts: updatedDrafts };
         });
-      } else {
-        // Queue for debounced sync
-        publishDraftDebounced(savedDraft);
-      }
+        return success;
+      });
+    } else {
+      // Queue for debounced sync
+      publishDraftDebounced(savedDraft);
     }
   }
 
-  return { draftId, syncPromise };
+  return { draftId, draft: savedDraft, syncPromise };
 }
 
 /**
