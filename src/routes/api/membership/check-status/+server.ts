@@ -1,15 +1,16 @@
 /**
  * Check Membership Status
- * 
+ *
  * Checks if a user's pubkey is in the members API.
- * 
+ * Uses direct single-member lookup for O(1) performance.
+ *
  * POST /api/membership/check-status
- * 
+ *
  * Body:
  * {
  *   pubkey: string
  * }
- * 
+ *
  * Returns:
  * {
  *   found: boolean,
@@ -26,6 +27,7 @@
 
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
+import { lookupMember } from '$lib/membershipApi.server';
 
 export const POST: RequestHandler = async ({ request, platform }) => {
   // Membership feature flag guard
@@ -37,14 +39,14 @@ export const POST: RequestHandler = async ({ request, platform }) => {
   try {
     const body = await request.json();
     const { pubkey } = body;
-    
+
     if (!pubkey) {
       return json(
         { error: 'pubkey is required' },
         { status: 400 }
       );
     }
-    
+
     // Validate pubkey format
     if (!/^[0-9a-fA-F]{64}$/.test(pubkey)) {
       return json(
@@ -52,7 +54,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
         { status: 400 }
       );
     }
-    
+
     // Get API secret
     const API_SECRET = platform?.env?.RELAY_API_SECRET || env.RELAY_API_SECRET;
     if (!API_SECRET) {
@@ -61,65 +63,25 @@ export const POST: RequestHandler = async ({ request, platform }) => {
         { status: 500 }
       );
     }
-    
-    // Fetch all members
-    const membersRes = await fetch('https://pantry.zap.cooking/api/members', {
-      headers: {
-        'Authorization': `Bearer ${API_SECRET}`
-      }
+
+    const result = await lookupMember(pubkey, API_SECRET);
+
+    if (!result.found) {
+      return json({ found: false });
+    }
+
+    return json({
+      found: true,
+      isActive: result.isActive,
+      isExpired: result.isExpired,
+      member: result.member
     });
-    
-    if (!membersRes.ok) {
-      throw new Error(`Failed to fetch members: ${membersRes.status}`);
-    }
-    
-    const data = await membersRes.json();
-    const member = data.members?.find((m: any) => 
-      m.pubkey?.toLowerCase() === pubkey.toLowerCase()
-    );
-    
-    if (member) {
-      // Check if subscription is still active (not expired)
-      const now = new Date();
-      let isActive = member.status === 'active';
-      let isExpired = false;
-      
-      if (member.subscription_end) {
-        const endDate = new Date(member.subscription_end);
-        if (endDate < now) {
-          isExpired = true;
-          isActive = false; // Expired members are not active
-        }
-      }
-      
-      return json({
-        found: true,
-        isActive,
-        isExpired,
-        member: {
-          pubkey: member.pubkey,
-          tier: member.tier,
-          status: member.status,
-          subscription_end: member.subscription_end,
-          subscription_start: member.subscription_start,
-          payment_id: member.payment_id,
-          payment_method: member.payment_method,
-          created_at: member.created_at,
-          updated_at: member.updated_at
-        }
-      });
-    } else {
-      return json({
-        found: false,
-        totalMembers: data.total || 0
-      });
-    }
-    
+
   } catch (error: any) {
     console.error('[Membership Status] Error checking status:', error);
-    
+
     return json(
-      { 
+      {
         error: error.message || 'Failed to check membership status',
         found: false
       },
