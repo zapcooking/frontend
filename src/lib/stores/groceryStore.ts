@@ -411,6 +411,49 @@ function createGroceryStore() {
     },
 
     /**
+     * Reorder an item within a category
+     */
+    reorderItem(listId: string, category: GroceryCategory, oldIndex: number, newIndex: number): void {
+      if (oldIndex === newIndex) return;
+
+      update(s => {
+        const lists = s.lists.map(list => {
+          if (list.id !== listId) return list;
+
+          const categoryItemIndices: number[] = [];
+          list.items.forEach((item, idx) => {
+            if (item.category === category) {
+              categoryItemIndices.push(idx);
+            }
+          });
+
+          if (oldIndex < 0 || oldIndex >= categoryItemIndices.length) return list;
+          if (newIndex < 0 || newIndex >= categoryItemIndices.length) return list;
+
+          const actualOldIndex = categoryItemIndices[oldIndex];
+          const actualNewIndex = categoryItemIndices[newIndex];
+          const newItems = [...list.items];
+          const [movedItem] = newItems.splice(actualOldIndex, 1);
+
+          const insertAt = actualOldIndex < actualNewIndex ? actualNewIndex - 1 : actualNewIndex;
+          newItems.splice(insertAt, 0, movedItem);
+
+          const updatedList: GroceryList = {
+            ...list,
+            items: newItems,
+            updatedAt: Math.floor(Date.now() / 1000)
+          };
+
+          scheduleSave(updatedList.id);
+
+          return updatedList;
+        });
+
+        return { ...s, lists };
+      });
+    },
+
+    /**
      * Clear all checked items from a list
      */
     clearCheckedItems(listId: string): void {
