@@ -169,17 +169,15 @@ async function fetchFromRelay(relayUrl: string, identifier: string, pubkey: stri
 							.replace(/\n+/g, ' ') // Replace newlines with spaces
 							.trim();
 						
-						// Get first 200 characters, but try to end at a sentence
-						if (text.length > 200) {
-							const truncated = text.slice(0, 200);
-							const lastPeriod = truncated.lastIndexOf('.');
-							const lastExclamation = truncated.lastIndexOf('!');
-							const lastQuestion = truncated.lastIndexOf('?');
-							const lastSentence = Math.max(lastPeriod, lastExclamation, lastQuestion);
-							if (lastSentence > 100) {
+						// Get first 155 characters, but try to end at a natural boundary
+						if (text.length > 155) {
+							const truncated = text.slice(0, 155);
+							const lastSpace = truncated.lastIndexOf(' ');
+							const lastSentence = Math.max(truncated.lastIndexOf('.'), truncated.lastIndexOf('!'), truncated.lastIndexOf('?'));
+							if (lastSentence > 80) {
 								description = text.slice(0, lastSentence + 1);
 							} else {
-								description = truncated + '...';
+								description = (lastSpace > 80 ? truncated.slice(0, lastSpace) : truncated) + '...';
 							}
 						} else {
 							description = text;

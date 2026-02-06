@@ -115,17 +115,12 @@
             .replace(/\n+/g, ' ') // Replace newlines with spaces
             .trim();
           
-          if (text.length > 200) {
-            const truncated = text.slice(0, 200);
-            const lastPeriod = truncated.lastIndexOf('.');
-            const lastExclamation = truncated.lastIndexOf('!');
-            const lastQuestion = truncated.lastIndexOf('?');
-            const lastSentence = Math.max(lastPeriod, lastExclamation, lastQuestion);
-            if (lastSentence > 100) {
-              return text.slice(0, lastSentence + 1);
-            } else {
-              return truncated + '...';
-            }
+          if (text.length > 155) {
+            const truncated = text.slice(0, 155);
+            const lastSpace = truncated.lastIndexOf(' ');
+            const lastSentence = Math.max(truncated.lastIndexOf('.'), truncated.lastIndexOf('!'), truncated.lastIndexOf('?'));
+            if (lastSentence > 80) return text.slice(0, lastSentence + 1);
+            return (lastSpace > 80 ? truncated.slice(0, lastSpace) : truncated) + '...';
           }
           return text || 'An article shared on zap.cooking';
         }
@@ -136,27 +131,37 @@
   $: og_image = event
     ? (event.tags?.find((tag) => tag[0] === 'image')?.[1] || 'https://zap.cooking/social-share.png')
     : (data?.ogMeta?.image || 'https://zap.cooking/social-share.png');
+
+  // Cap description at ~155 chars for Facebook/social preview
+  $: og_desc = (() => {
+    const d = og_description;
+    if (!d || d.length <= 155) return d;
+    const t = d.slice(0, 155);
+    const ls = Math.max(t.lastIndexOf('.'), t.lastIndexOf('!'), t.lastIndexOf('?'));
+    if (ls > 80) return d.slice(0, ls + 1);
+    const sp = t.lastIndexOf(' ');
+    return (sp > 80 ? t.slice(0, sp) : t) + '...';
+  })();
 </script>
 
 <svelte:head>
   <title>{fullPageTitle || 'Article - zap.cooking'}</title>
-  <meta name="description" content={og_description} />
-  
+  <meta name="description" content={og_desc} />
+
   <!-- Open Graph / Facebook -->
   <meta property="og:type" content="article" />
   <meta property="og:url" content={`https://zap.cooking/reads/${$page.params.naddr}`} />
   <meta property="og:title" content={og_title} />
-  <meta property="og:description" content={og_description} />
+  <meta property="og:description" content={og_desc} />
   <meta property="og:image" content={og_image} />
   <meta property="og:image:secure_url" content={og_image} />
-  <meta property="og:image:type" content="image/jpeg" />
-  <meta property="og:site_name" content="Zap Cooking" />
+  <meta property="og:site_name" content="zap.cooking" />
   
   <!-- Twitter -->
   <meta name="twitter:card" content="summary_large_image" />
   <meta name="twitter:url" content={`https://zap.cooking/reads/${$page.params.naddr}`} />
   <meta name="twitter:title" content={og_title} />
-  <meta name="twitter:description" content={og_description} />
+  <meta name="twitter:description" content={og_desc} />
   <meta name="twitter:image" content={og_image} />
 </svelte:head>
 
