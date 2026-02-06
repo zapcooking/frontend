@@ -117,33 +117,13 @@ export const POST: RequestHandler = async ({ request, platform }) => {
       const API_SECRET = platform?.env?.RELAY_API_SECRET || env.RELAY_API_SECRET;
       if (API_SECRET) {
         try {
-          const membersRes = await fetch('https://pantry.zap.cooking/api/members', {
-            headers: { 'Authorization': `Bearer ${API_SECRET}` }
-          });
-          
-          if (membersRes.ok) {
-            const data = await membersRes.json();
-            const member = data.members?.find((m: any) => 
-              m.pubkey?.toLowerCase() === pubkey.toLowerCase()
+          const { hasActiveMembership } = await import('$lib/membershipApi.server');
+          const isActive = await hasActiveMembership(pubkey, API_SECRET);
+          if (!isActive) {
+            return json(
+              { ok: false, error: 'Premium membership required for Zappy' },
+              { status: 403 }
             );
-            
-            if (!member) {
-              return json(
-                { ok: false, error: 'Premium membership required for Zappy' },
-                { status: 403 }
-              );
-            }
-            
-            // Check if membership is still active
-            if (member.subscription_end) {
-              const endDate = new Date(member.subscription_end);
-              if (endDate < new Date()) {
-                return json(
-                  { ok: false, error: 'Your membership has expired. Please renew to use Zappy.' },
-                  { status: 403 }
-                );
-              }
-            }
           }
         } catch (err) {
           console.error('[Zappy] Error checking membership:', err);
