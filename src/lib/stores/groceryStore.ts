@@ -435,7 +435,7 @@ function createGroceryStore() {
           const newItems = [...list.items];
           const [movedItem] = newItems.splice(actualOldIndex, 1);
 
-          const insertAt = actualOldIndex < actualNewIndex ? actualNewIndex : actualNewIndex;
+          const insertAt = actualOldIndex < actualNewIndex ? actualNewIndex - 1 : actualNewIndex;
           newItems.splice(insertAt, 0, movedItem);
 
           const updatedList: GroceryList = {
