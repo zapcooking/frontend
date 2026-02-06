@@ -88,42 +88,75 @@
   $: fullPageTitle = `${pageHeading} - zap.cooking`;
   $: fullMetaTitle = `${metaTitleBase} - zap.cooking`;
 
-  // Use server-loaded metadata for initial SSR, then client data once loaded
-  // Ensure we always have fallback values for SSR
-  $: og_title = event 
-    ? fullMetaTitle 
-    : (data?.ogMeta?.title || 'Recipe - zap.cooking');
-  
-  // Better description extraction from event content
+  // OG title: raw title without site suffix (site_name handles branding)
+  $: og_title = event
+    ? metaTitleBase
+    : (data?.ogMeta?.title || 'Recipe');
+
+  // Description: prefer summary, then build from recipe metadata, then clean content
   $: og_description = event
     ? (() => {
         // Try summary tag first
         const summary = event.tags?.find((tag) => tag[0] === 'summary')?.[1];
         if (summary) return summary;
-        
-        // Clean and extract from content
+
+        // Try to build structured description from recipe metadata in content
         if (event.content) {
+          const title = event.tags?.find((tag) => tag[0] === 'title')?.[1] || '';
+          const parts: string[] = [];
+
+          const servingsMatch = event.content.match(/##\s*Servings\s*\n+([^\n#]+)/i);
+          if (servingsMatch) {
+            const servings = servingsMatch[1].trim();
+            if (servings) parts.push(servings);
+          }
+
+          const totalMatch = event.content.match(/Total:\s*([^\n,]+)/i);
+          const prepMatch = event.content.match(/Prep:\s*([^\n,]+)/i);
+          const cookMatch = event.content.match(/Cook:\s*([^\n,]+)/i);
+          if (totalMatch) {
+            parts.push(`Ready in ${totalMatch[1].trim()}`);
+          } else if (prepMatch && cookMatch) {
+            parts.push(`Prep: ${prepMatch[1].trim()}, Cook: ${cookMatch[1].trim()}`);
+          }
+
+          const ingredientsSection = event.content.match(/##\s*Ingredients\s*\n([\s\S]*?)(?=##|$)/i);
+          if (ingredientsSection) {
+            const ingredients = ingredientsSection[1]
+              .split('\n')
+              .filter((line: string) => line.trim().startsWith('-') || line.trim().startsWith('*'))
+              .map((line: string) => line.replace(/^[\s*-]+/, '').replace(/\s*\(.*?\)\s*/g, '').trim())
+              .filter((i: string) => i.length > 0 && i.length < 80);
+
+            if (ingredients.length > 0) {
+              const preview = ingredients.slice(0, 3).join(', ');
+              if (ingredients.length > 3) {
+                parts.push(`${ingredients.length} ingredients including ${preview}`);
+              } else {
+                parts.push(`Made with ${preview}`);
+              }
+            }
+          }
+
+          if (parts.length > 0) {
+            return title ? `${title}. ${parts.join('. ')}.` : parts.join('. ') + '.';
+          }
+
+          // Fall back to cleaned content extraction
           let text = event.content
-            .replace(/^#+\s+/gm, '') // Remove markdown headers
-            .replace(/\[([^\]]+)\]\([^\)]+\)/g, '$1') // Convert links to text
-            .replace(/!\[([^\]]*)\]\([^\)]+\)/g, '') // Remove images
-            .replace(/\*\*([^\*]+)\*\*/g, '$1') // Remove bold
-            .replace(/\*([^\*]+)\*/g, '$1') // Remove italic
-            .replace(/`([^`]+)`/g, '$1') // Remove code
-            .replace(/\n+/g, ' ') // Replace newlines with spaces
+            .replace(/^#+\s+/gm, '')
+            .replace(/\[([^\]]+)\]\([^\)]+\)/g, '$1')
+            .replace(/!\[([^\]]*)\]\([^\)]+\)/g, '')
+            .replace(/\*\*([^\*]+)\*\*/g, '$1')
+            .replace(/\*([^\*]+)\*/g, '$1')
+            .replace(/`([^`]+)`/g, '$1')
+            .replace(/\n+/g, ' ')
             .trim();
-          
+
           if (text.length > 200) {
             const truncated = text.slice(0, 200);
-            const lastPeriod = truncated.lastIndexOf('.');
-            const lastExclamation = truncated.lastIndexOf('!');
-            const lastQuestion = truncated.lastIndexOf('?');
-            const lastSentence = Math.max(lastPeriod, lastExclamation, lastQuestion);
-            if (lastSentence > 100) {
-              return text.slice(0, lastSentence + 1);
-            } else {
-              return truncated + '...';
-            }
+            const lastSentence = Math.max(truncated.lastIndexOf('.'), truncated.lastIndexOf('!'), truncated.lastIndexOf('?'));
+            return lastSentence > 100 ? text.slice(0, lastSentence + 1) : truncated + '...';
           }
           return text || 'A delicious recipe shared on zap.cooking';
         }
@@ -153,8 +186,16 @@
   <meta property="og:image" content={og_image} />
   <meta property="og:image:secure_url" content={og_image} />
   <meta property="og:image:type" content="image/jpeg" />
-  <meta property="og:site_name" content="Zap Cooking" />
-  
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta property="og:site_name" content="zap.cooking" />
+  {#if event?.created_at || data?.ogMeta?.created_at}
+    <meta property="article:published_time" content={new Date((event?.created_at || data?.ogMeta?.created_at) * 1000).toISOString()} />
+  {/if}
+  {#if event?.pubkey || data?.ogMeta?.pubkey}
+    <meta property="article:author" content={`https://zap.cooking/p/${event?.pubkey || data?.ogMeta?.pubkey}`} />
+  {/if}
+
   <!-- Twitter -->
   <meta name="twitter:card" content="summary_large_image" />
   <meta name="twitter:url" content={`https://zap.cooking/r/${$page.params.naddr}`} />
