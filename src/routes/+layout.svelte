@@ -15,6 +15,8 @@
   import LongformEditorModal from '../components/reads/LongformEditorModal.svelte';
   import WalletWelcomeModal from '../components/WalletWelcomeModal.svelte';
   import { createAuthManager, type AuthState } from '$lib/authManager';
+  import { initMessageSubscription, stopMessageSubscription, clearMessages } from '$lib/stores/messages';
+  import { initGroupSubscription, stopGroupSubscription, clearGroups } from '$lib/stores/groups';
   import type { LayoutData } from './$types';
   import ErrorBoundary from '../components/ErrorBoundary.svelte';
   import OfflineIndicator from '../components/OfflineIndicator.svelte';
@@ -214,8 +216,16 @@
         // Sync with legacy userPublickey store for compatibility
         if (state.isAuthenticated && state.publicKey) {
           userPublickey.set(state.publicKey);
+          // Initialize NIP-17 message subscription
+          initMessageSubscription($ndk, state.publicKey);
+          // Initialize NIP-29 group subscription
+          initGroupSubscription($ndk, state.publicKey);
         } else {
           userPublickey.set('');
+          stopMessageSubscription();
+          clearMessages();
+          stopGroupSubscription();
+          clearGroups();
         }
 
         if (browser && state.isAuthenticated && state.publicKey) {

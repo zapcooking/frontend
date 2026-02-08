@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <base href="/admin/">
+    <title>Pantry Admin</title>
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        pantry: {
+                            50: '#fdf8f0',
+                            100: '#f9eddb',
+                            200: '#f2d7b5',
+                            300: '#e9bb86',
+                            400: '#df9a55',
+                            500: '#d78035',
+                            600: '#c9682b',
+                            700: '#a75125',
+                            800: '#864124',
+                            900: '#6d3720',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        [x-cloak] { display: none !important; }
+        .spinner { animation: spin 1s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen" x-data="app()" x-init="init()">
+
+    <!-- Login screen -->
+    <div x-show="!authenticated" x-cloak class="flex items-center justify-center min-h-screen">
+        <div class="bg-white rounded-2xl shadow-lg p-8 max-w-sm w-full text-center">
+            <div class="text-4xl mb-4">🏠</div>
+            <h1 class="text-2xl font-bold text-gray-900 mb-2">The Pantry</h1>
+            <p class="text-gray-500 mb-6">Admin Dashboard</p>
+
+            <template x-if="!nostrAvailable">
+                <div class="bg-red-50 text-red-700 rounded-lg p-4 text-sm">
+                    No NIP-07 extension detected. Install nos2x, Alby, or another Nostr signer extension.
+                </div>
+            </template>
+
+            <template x-if="nostrAvailable">
+                <div>
+                    <button @click="login()" :disabled="loggingIn"
+                        class="w-full bg-pantry-600 hover:bg-pantry-700 text-white font-medium py-3 px-6 rounded-lg transition disabled:opacity-50">
+                        <span x-show="!loggingIn">Sign in with Nostr</span>
+                        <span x-show="loggingIn" class="flex items-center justify-center gap-2">
+                            <svg class="spinner w-5 h-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
+                            </svg>
+                            Signing in...
+                        </span>
+                    </button>
+                    <p x-show="loginError" x-text="loginError" class="mt-3 text-red-600 text-sm"></p>
+                </div>
+            </template>
+        </div>
+    </div>
+
+    <!-- Main app -->
+    <div x-show="authenticated" x-cloak class="min-h-screen">
+        <!-- Top nav -->
+        <nav class="bg-white border-b border-gray-200 sticky top-0 z-10">
+            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                <div class="flex justify-between h-14 items-center">
+                    <div class="flex items-center gap-3">
+                        <span class="text-xl">🏠</span>
+                        <span class="font-bold text-gray-900">Pantry Admin</span>
+                    </div>
+                    <div class="flex items-center gap-4">
+                        <span class="text-sm text-gray-500 hidden sm:inline" x-text="pubkey ? toNpub(pubkey).slice(0,16) + '...' : ''"></span>
+                        <button @click="logout()" class="text-sm text-gray-500 hover:text-gray-700">Sign out</button>
+                    </div>
+                </div>
+            </div>
+        </nav>
+
+        <!-- Tab bar -->
+        <div class="bg-white border-b border-gray-200">
+            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                <div class="flex gap-6 -mb-px overflow-x-auto">
+                    <template x-for="t in tabs" :key="t.id">
+                        <button @click="switchTab(t.id)"
+                            :class="tab === t.id ? 'border-pantry-600 text-pantry-600' : 'border-transparent text-gray-500 hover:text-gray-700'"
+                            class="py-3 px-1 border-b-2 font-medium text-sm whitespace-nowrap transition"
+                            x-text="t.label">
+                        </button>
+                    </template>
+                </div>
+            </div>
+        </div>
+
+        <!-- Content -->
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+
+            <!-- Dashboard -->
+            <div x-show="tab === 'dashboard'" x-cloak>
+                <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4 mb-8">
+                    <template x-for="card in dashboardCards" :key="card.label">
+                        <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+                            <div class="text-2xl font-bold text-gray-900" x-text="card.value"></div>
+                            <div class="text-xs text-gray-500 mt-1" x-text="card.label"></div>
+                        </div>
+                    </template>
+                </div>
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <template x-for="card in eventCards" :key="card.label">
+                        <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+                            <div class="text-2xl font-bold text-gray-900" x-text="card.value"></div>
+                            <div class="text-xs text-gray-500 mt-1" x-text="card.label"></div>
+                        </div>
+                    </template>
+                </div>
+            </div>
+
+            <!-- Members -->
+            <div x-show="tab === 'members'" x-cloak>
+                <!-- Actions bar -->
+                <div class="flex flex-col sm:flex-row gap-3 mb-4">
+                    <input type="text" x-model="memberSearch" @input.debounce.300ms="loadMembers()"
+                        placeholder="Search by npub or hex..."
+                        class="border border-gray-300 rounded-lg px-3 py-2 text-sm flex-1 focus:ring-pantry-500 focus:border-pantry-500">
+                    <div class="flex gap-2">
+                        <select x-model="memberStatusFilter" @change="loadMembers()"
+                            class="border border-gray-300 rounded-lg px-3 py-2 text-sm">
+                            <option value="">All statuses</option>
+                            <option value="active">Active</option>
+                            <option value="expired">Expired</option>
+                            <option value="grace">Grace</option>
+                            <option value="cancelled">Cancelled</option>
+                        </select>
+                        <button @click="showAddMemberModal = true"
+                            class="bg-pantry-600 hover:bg-pantry-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition">
+                            + Add Member
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Members table -->
+                <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+                    <div class="overflow-x-auto">
+                        <table class="min-w-full divide-y divide-gray-200">
+                            <thead class="bg-gray-50">
+                                <tr>
+                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Member</th>
+                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Tier</th>
+                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Expires</th>
+                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-gray-200">
+                                <template x-for="m in members" :key="m.pubkey">
+                                    <tr class="hover:bg-gray-50">
+                                        <td class="px-4 py-3">
+                                            <div class="flex items-center gap-3">
+                                                <img x-show="profilePicture(m.pubkey)"
+                                                    :src="profilePicture(m.pubkey)"
+                                                    class="w-9 h-9 rounded-full object-cover flex-shrink-0"
+                                                    onerror="this.style.display='none'">
+                                                <div x-show="!profilePicture(m.pubkey)"
+                                                    class="w-9 h-9 rounded-full bg-pantry-100 flex items-center justify-center flex-shrink-0">
+                                                    <span class="text-pantry-600 text-xs font-bold" x-text="(profileName(m.pubkey) || m.pubkey.slice(0,2)).slice(0,2).toUpperCase()"></span>
+                                                </div>
+                                                <div class="min-w-0">
+                                                    <div x-show="profileName(m.pubkey)" class="text-sm font-medium text-gray-900 truncate" x-text="profileName(m.pubkey)"></div>
+                                                    <div class="text-xs font-mono text-gray-400 truncate" x-text="toNpub(m.pubkey).slice(0,20) + '...'" :title="toNpub(m.pubkey)"></div>
+                                                    <div x-show="profileNip05(m.pubkey)" class="text-xs text-purple-500 truncate" x-text="profileNip05(m.pubkey)"></div>
+                                                </div>
+                                            </div>
+                                        </td>
+                                        <td class="px-4 py-3">
+                                            <span class="inline-flex px-2 py-0.5 rounded-full text-xs font-medium"
+                                                :class="{
+                                                    'bg-green-100 text-green-800': m.status === 'active',
+                                                    'bg-red-100 text-red-800': m.status === 'expired',
+                                                    'bg-yellow-100 text-yellow-800': m.status === 'grace',
+                                                    'bg-gray-100 text-gray-800': m.status === 'cancelled'
+                                                }" x-text="m.status">
+                                            </span>
+                                        </td>
+                                        <td class="px-4 py-3 text-sm text-gray-600" x-text="m.tier"></td>
+                                        <td class="px-4 py-3 text-sm text-gray-600" x-text="formatDate(m.subscription_end)"></td>
+                                        <td class="px-4 py-3 text-sm">
+                                            <div class="flex gap-2">
+                                                <button @click="openRenewModal(m)" class="text-pantry-600 hover:text-pantry-800 text-xs font-medium">Renew</button>
+                                                <button @click="openHistoryModal(m)" class="text-blue-600 hover:text-blue-800 text-xs font-medium">History</button>
+                                                <button x-show="m.status !== 'cancelled'" @click="cancelMember(m.pubkey)"
+                                                    class="text-red-600 hover:text-red-800 text-xs font-medium">Cancel</button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                </template>
+                                <tr x-show="members.length === 0">
+                                    <td colspan="5" class="px-4 py-8 text-center text-gray-400 text-sm">No members found</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <!-- Pagination -->
+                    <div class="flex items-center justify-between px-4 py-3 border-t border-gray-200 bg-gray-50">
+                        <span class="text-sm text-gray-500" x-text="'Total: ' + membersTotal"></span>
+                        <div class="flex gap-2">
+                            <button @click="memberPage > 0 && (memberPage--, loadMembers())"
+                                :disabled="memberPage === 0"
+                                class="px-3 py-1 text-sm border rounded disabled:opacity-30">Prev</button>
+                            <button @click="(memberPage + 1) * 50 < membersTotal && (memberPage++, loadMembers())"
+                                :disabled="(memberPage + 1) * 50 >= membersTotal"
+                                class="px-3 py-1 text-sm border rounded disabled:opacity-30">Next</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- NIP-05 -->
+            <div x-show="tab === 'nip05'" x-cloak>
+                <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+                    <div class="overflow-x-auto">
+                        <table class="min-w-full divide-y divide-gray-200">
+                            <thead class="bg-gray-50">
+                                <tr>
+                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Identity</th>
+                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Tier</th>
+                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Expires</th>
+                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-gray-200">
+                                <template x-for="n in nip05Identities" :key="n.username">
+                                    <tr class="hover:bg-gray-50">
+                                        <td class="px-4 py-3">
+                                            <div class="flex items-center gap-3">
+                                                <img x-show="profilePicture(n.pubkey)"
+                                                    :src="profilePicture(n.pubkey)"
+                                                    class="w-9 h-9 rounded-full object-cover flex-shrink-0"
+                                                    onerror="this.style.display='none'">
+                                                <div x-show="!profilePicture(n.pubkey)"
+                                                    class="w-9 h-9 rounded-full bg-purple-100 flex items-center justify-center flex-shrink-0">
+                                                    <span class="text-purple-600 text-xs font-bold" x-text="n.username.slice(0,2).toUpperCase()"></span>
+                                                </div>
+                                                <div class="min-w-0">
+                                                    <div class="text-sm font-medium text-gray-900" x-text="n.username + '@zap.cooking'"></div>
+                                                    <div class="text-xs font-mono text-gray-400 truncate" x-text="toNpub(n.pubkey).slice(0,20) + '...'" :title="toNpub(n.pubkey)"></div>
+                                                </div>
+                                            </div>
+                                        </td>
+                                        <td class="px-4 py-3 text-sm text-gray-600" x-text="n.tier"></td>
+                                        <td class="px-4 py-3 text-sm text-gray-600" x-text="formatDate(n.expires_at)"></td>
+                                        <td class="px-4 py-3 text-sm">
+                                            <button @click="revokeNip05(n.username)" class="text-red-600 hover:text-red-800 text-xs font-medium">Revoke</button>
+                                        </td>
+                                    </tr>
+                                </template>
+                                <tr x-show="nip05Identities.length === 0">
+                                    <td colspan="4" class="px-4 py-8 text-center text-gray-400 text-sm">No NIP-05 identities found</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <!-- Pagination -->
+                    <div class="flex items-center justify-between px-4 py-3 border-t border-gray-200 bg-gray-50">
+                        <span class="text-sm text-gray-500" x-text="'Total: ' + nip05Total"></span>
+                        <div class="flex gap-2">
+                            <button @click="nip05Page > 0 && (nip05Page--, loadNip05())"
+                                :disabled="nip05Page === 0"
+                                class="px-3 py-1 text-sm border rounded disabled:opacity-30">Prev</button>
+                            <button @click="(nip05Page + 1) * 50 < nip05Total && (nip05Page++, loadNip05())"
+                                :disabled="(nip05Page + 1) * 50 >= nip05Total"
+                                class="px-3 py-1 text-sm border rounded disabled:opacity-30">Next</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Events -->
+            <div x-show="tab === 'events'" x-cloak>
+                <div class="flex flex-col sm:flex-row gap-3 mb-4">
+                    <select x-model="eventKindFilter" @change="loadEvents()"
+                        class="border border-gray-300 rounded-lg px-3 py-2 text-sm">
+                        <option value="">All kinds</option>
+                        <option value="30023">Recipes (30023)</option>
+                        <option value="9">Group messages (9)</option>
+                        <option value="1">Short notes (1)</option>
+                    </select>
+                    <input type="text" x-model="eventPubkeyFilter" @input.debounce.300ms="loadEvents()"
+                        placeholder="Filter by npub or hex pubkey..."
+                        class="border border-gray-300 rounded-lg px-3 py-2 text-sm flex-1 focus:ring-pantry-500 focus:border-pantry-500">
+                </div>
+
+                <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+                    <div class="overflow-x-auto">
+                        <table class="min-w-full divide-y divide-gray-200">
+                            <thead class="bg-gray-50">
+                                <tr>
+                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Kind</th>
+                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Author</th>
+                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Created</th>
+                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Content</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-gray-200">
+                                <template x-for="e in events" :key="e.id">
+                                    <tr class="hover:bg-gray-50 cursor-pointer" @click="e._expanded = !e._expanded">
+                                        <td class="px-4 py-3 text-sm">
+                                            <span class="inline-flex px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800" x-text="e.kind"></span>
+                                        </td>
+                                        <td class="px-4 py-3">
+                                            <div class="flex items-center gap-2">
+                                                <img x-show="profilePicture(e.pubkey)"
+                                                    :src="profilePicture(e.pubkey)"
+                                                    class="w-6 h-6 rounded-full object-cover flex-shrink-0"
+                                                    onerror="this.style.display='none'">
+                                                <div class="min-w-0">
+                                                    <span x-show="profileName(e.pubkey)" class="text-sm text-gray-900" x-text="profileName(e.pubkey)"></span>
+                                                    <span x-show="!profileName(e.pubkey)" class="text-xs font-mono text-gray-500" x-text="toNpub(e.pubkey).slice(0,20) + '...'"></span>
+                                                </div>
+                                            </div>
+                                        </td>
+                                        <td class="px-4 py-3 text-sm text-gray-600" x-text="formatDate(e.created_at)"></td>
+                                        <td class="px-4 py-3 text-sm text-gray-600 max-w-xs truncate" x-text="(e.content || '').slice(0, 80)"></td>
+                                    </tr>
+                                </template>
+                                <template x-for="e in events" :key="'detail-' + e.id">
+                                    <tr x-show="e._expanded" class="bg-gray-50">
+                                        <td colspan="4" class="px-4 py-3">
+                                            <pre class="text-xs bg-gray-900 text-green-400 p-4 rounded-lg overflow-x-auto max-h-96" x-text="JSON.stringify(e.raw || e, null, 2)"></pre>
+                                        </td>
+                                    </tr>
+                                </template>
+                                <tr x-show="events.length === 0">
+                                    <td colspan="4" class="px-4 py-8 text-center text-gray-400 text-sm">No events found</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <!-- Pagination -->
+                    <div class="flex items-center justify-between px-4 py-3 border-t border-gray-200 bg-gray-50">
+                        <span class="text-sm text-gray-500" x-text="'Showing ' + events.length + ' events'"></span>
+                        <div class="flex gap-2">
+                            <button @click="eventPage > 0 && (eventPage--, loadEvents())"
+                                :disabled="eventPage === 0"
+                                class="px-3 py-1 text-sm border rounded disabled:opacity-30">Prev</button>
+                            <button @click="events.length === 50 && (eventPage++, loadEvents())"
+                                :disabled="events.length < 50"
+                                class="px-3 py-1 text-sm border rounded disabled:opacity-30">Next</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- Add Member Modal -->
+    <div x-show="showAddMemberModal" x-cloak
+        class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+        @click.self="showAddMemberModal = false">
+        <div class="bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
+            <h3 class="text-lg font-bold text-gray-900 mb-4">Add Member</h3>
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Pubkey</label>
+                    <input type="text" x-model="newMember.pubkey"
+                        class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono"
+                        placeholder="npub1... or hex pubkey">
+                </div>
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Months</label>
+                        <input type="number" x-model.number="newMember.subscription_months" min="1" max="120"
+                            class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Tier</label>
+                        <select x-model="newMember.tier" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+                            <option value="standard">Standard</option>
+                            <option value="premium">Premium</option>
+                            <option value="lifetime">Lifetime</option>
+                        </select>
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Payment Method</label>
+                    <select x-model="newMember.payment_method" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+                        <option value="lightning">Lightning</option>
+                        <option value="onchain">On-chain</option>
+                        <option value="gift">Gift</option>
+                        <option value="manual">Manual</option>
+                    </select>
+                </div>
+            </div>
+            <div class="flex justify-end gap-3 mt-6">
+                <button @click="showAddMemberModal = false" class="px-4 py-2 text-sm text-gray-600 hover:text-gray-800">Cancel</button>
+                <button @click="addMember()" :disabled="!newMember.pubkey"
+                    class="px-4 py-2 text-sm bg-pantry-600 hover:bg-pantry-700 text-white rounded-lg disabled:opacity-50">Add Member</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Renew Member Modal -->
+    <div x-show="showRenewModal" x-cloak
+        class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+        @click.self="showRenewModal = false">
+        <div class="bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
+            <h3 class="text-lg font-bold text-gray-900 mb-4">Renew Member</h3>
+            <p class="text-sm text-gray-500 mb-4 font-mono" x-text="renewTarget?.pubkey ? toNpub(renewTarget.pubkey).slice(0,24) + '...' : ''"></p>
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Additional Months</label>
+                    <input type="number" x-model.number="renewMonths" min="1" max="120"
+                        class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+                </div>
+            </div>
+            <div class="flex justify-end gap-3 mt-6">
+                <button @click="showRenewModal = false" class="px-4 py-2 text-sm text-gray-600 hover:text-gray-800">Cancel</button>
+                <button @click="renewMember()" class="px-4 py-2 text-sm bg-pantry-600 hover:bg-pantry-700 text-white rounded-lg">Renew</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- History Modal -->
+    <div x-show="showHistoryModal" x-cloak
+        class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+        @click.self="showHistoryModal = false">
+        <div class="bg-white rounded-2xl shadow-xl w-full max-w-lg p-6 max-h-[80vh] overflow-y-auto">
+            <h3 class="text-lg font-bold text-gray-900 mb-4">Membership History</h3>
+            <p class="text-sm text-gray-500 mb-4 font-mono" x-text="historyTarget?.pubkey ? toNpub(historyTarget.pubkey).slice(0,24) + '...' : ''"></p>
+            <div class="space-y-3">
+                <template x-for="h in historyEntries" :key="h.id">
+                    <div class="bg-gray-50 rounded-lg p-3">
+                        <div class="flex justify-between items-start">
+                            <span class="text-sm font-medium" x-text="h.action"></span>
+                            <span class="text-xs text-gray-400" x-text="formatDate(h.created_at)"></span>
+                        </div>
+                        <div class="text-xs text-gray-500 mt-1">
+                            <span x-show="h.old_status" x-text="h.old_status + ' → ' + h.new_status"></span>
+                            <span x-show="h.new_end_date" x-text="' | Expires: ' + formatDate(h.new_end_date)"></span>
+                        </div>
+                    </div>
+                </template>
+                <div x-show="historyEntries.length === 0" class="text-center text-gray-400 text-sm py-4">No history found</div>
+            </div>
+            <div class="flex justify-end mt-6">
+                <button @click="showHistoryModal = false" class="px-4 py-2 text-sm text-gray-600 hover:text-gray-800">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

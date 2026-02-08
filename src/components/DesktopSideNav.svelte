@@ -13,10 +13,14 @@
   import CompassIcon from 'phosphor-svelte/lib/Compass';
   import BellIcon from 'phosphor-svelte/lib/Bell';
   import NewspaperIcon from 'phosphor-svelte/lib/Newspaper';
+  import EnvelopeSimpleIcon from 'phosphor-svelte/lib/EnvelopeSimple';
 
   import CookbookIcon from 'phosphor-svelte/lib/BookOpen';
+  import UsersThreeIcon from 'phosphor-svelte/lib/UsersThree';
   import ShoppingCartIcon from 'phosphor-svelte/lib/ShoppingCart';
   import WalletIcon from 'phosphor-svelte/lib/Wallet';
+
+  import { totalUnreadCount } from '$lib/stores/messages';
 
   $: pathname = $page.url.pathname;
   $: resolvedTheme = $theme === 'system' ? theme.getResolvedTheme() : $theme;
@@ -31,7 +35,7 @@
     label: string;
     icon: any;
     match?: (path: string) => boolean;
-    badge?: 'notificationsDot' | 'walletConnect' | 'members';
+    badge?: 'notificationsDot' | 'walletConnect' | 'members' | 'messagesDot';
     external?: boolean;
   };
 
@@ -66,6 +70,13 @@
       icon: BellIcon,
       match: (p) => p.startsWith('/notifications'),
       badge: 'notificationsDot'
+    },
+    {
+      href: '/messages',
+      label: 'Messages',
+      icon: EnvelopeSimpleIcon,
+      match: (p) => p.startsWith('/messages'),
+      badge: 'messagesDot'
     }
   ];
 
@@ -75,6 +86,13 @@
       label: 'Cookbook',
       icon: CookbookIcon,
       match: (p) => p.startsWith('/cookbook')
+    },
+    {
+      href: '/groups',
+      label: 'Groups',
+      icon: UsersThreeIcon,
+      match: (p) => p.startsWith('/groups'),
+      badge: 'members'
     },
     {
       href: '/grocery',
@@ -153,9 +171,16 @@
                   <svelte:component
                     this={item.icon}
                     size={20}
-                    weight={item.href === '/notifications' && $unreadCount > 0 ? 'fill' : 'regular'}
+                    weight={(item.href === '/notifications' && $unreadCount > 0) || (item.href === '/messages' && $totalUnreadCount > 0) ? 'fill' : 'regular'}
                   />
                   {#if item.badge === 'notificationsDot' && $unreadCount > 0}
+                    <span
+                      class="absolute top-1.5 right-1.5 w-2.5 h-2.5 rounded-full bg-red-500 border-2"
+                      style="border-color: var(--color-bg-primary);"
+                      aria-hidden="true"
+                    ></span>
+                  {/if}
+                  {#if item.badge === 'messagesDot' && $totalUnreadCount > 0}
                     <span
                       class="absolute top-1.5 right-1.5 w-2.5 h-2.5 rounded-full bg-red-500 border-2"
                       style="border-color: var(--color-bg-primary);"
