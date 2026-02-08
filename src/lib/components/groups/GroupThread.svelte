@@ -34,7 +34,8 @@
 	$: visibleMembers = members.slice(0, MAX_VISIBLE_AVATARS);
 	$: hiddenCount = Math.max(0, members.length - MAX_VISIBLE_AVATARS);
 	$: isMembersOnly = !!($group?.isPrivate || $group?.isRestricted);
-	$: isLockedOut = isMembersOnly && !hasActiveMembership;
+	$: isMemberOfGroup = !!$userPublickey && members.includes($userPublickey);
+	$: isLockedOut = isMembersOnly && !hasActiveMembership && !isMemberOfGroup;
 
 	$: {
 		if (groupId) {

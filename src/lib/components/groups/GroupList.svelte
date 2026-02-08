@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { sortedGroups, groupsLoading, setGroupMetadata, removeGroup } from '$lib/stores/groups';
+	import { userPublickey } from '$lib/nostr';
 	import { editGroupMetadata, deleteGroup, uploadGroupPicture } from '$lib/nip29';
 	import { clickOutside } from '$lib/clickOutside';
 	import Modal from '../../../components/Modal.svelte';
@@ -317,7 +318,8 @@
 								>
 									{group.name}
 									{#if group.isPrivate || group.isRestricted}
-										<span title="Members only" style="color: {hasActiveMembership ? '#22c55e' : 'var(--color-caption)'};">
+									{@const isMemberOfGroup = !!$userPublickey && group.members.includes($userPublickey)}
+										<span title="Members only" style="color: {hasActiveMembership || isMemberOfGroup ? '#22c55e' : 'var(--color-caption)'};">
 											<LockIcon size={12} />
 										</span>
 									{:else}
