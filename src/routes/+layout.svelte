@@ -321,7 +321,9 @@
         </div>
         <div class="px-4 pb-16 lg:pb-8 min-w-0 max-w-full">
           <slot />
-          <Footer />
+          {#if !$page.url.pathname.startsWith('/messages')}
+            <Footer />
+          {/if}
         </div>
       </div>
       {#if !$page.url.pathname.startsWith('/messages') && !$page.url.pathname.startsWith('/groups')}

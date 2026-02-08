@@ -4,11 +4,12 @@
 	import { getConversation, setActiveConversation, addMessage } from '$lib/stores/messages';
 	import { sendDirectMessage, sendNip04DirectMessage } from '$lib/nip17';
 	import MessageBubble from './MessageBubble.svelte';
-	import ArrowsClockwiseIcon from 'phosphor-svelte/lib/ArrowsClockwise';
 	import CustomAvatar from '../../../components/CustomAvatar.svelte';
 	import CustomName from '../../../components/CustomName.svelte';
 	import ArrowLeftIcon from 'phosphor-svelte/lib/ArrowLeft';
 	import PaperPlaneTiltIcon from 'phosphor-svelte/lib/PaperPlaneTilt';
+	import LockSimpleIcon from 'phosphor-svelte/lib/LockSimple';
+	import LockSimpleOpenIcon from 'phosphor-svelte/lib/LockSimpleOpen';
 	import { nip19 } from 'nostr-tools';
 
 	export let partnerPubkey: string;
@@ -145,6 +146,15 @@
 		class="p-3 border-t"
 		style="border-color: var(--color-input-border);"
 	>
+		<div class="flex items-center gap-1.5 mb-1.5 px-0.5 transition-all duration-200">
+			{#if sendProtocol === 'nip17'}
+				<LockSimpleIcon class="w-3 h-3 flex-shrink-0" weight="bold" style="color: rgba(167, 139, 250, 0.8);" />
+				<span class="text-[10px]" style="color: rgba(167, 139, 250, 0.8);">Private — metadata hidden</span>
+			{:else}
+				<LockSimpleOpenIcon class="w-3 h-3 flex-shrink-0" weight="bold" style="color: rgba(249, 115, 22, 0.6);" />
+				<span class="text-[10px]" style="color: rgba(249, 115, 22, 0.6);">Compatible — metadata visible</span>
+			{/if}
+		</div>
 		<div class="flex items-end gap-2">
 			<textarea
 				bind:value={messageInput}
@@ -157,12 +167,27 @@
 			></textarea>
 			<button
 				on:click={toggleProtocol}
-				class="flex items-center gap-0.5 px-1.5 py-1 rounded-lg text-[10px] font-medium transition-colors cursor-pointer whitespace-nowrap"
-				style="color: var(--color-caption); background-color: var(--color-input-bg);"
-				title="Switch between NIP-04 and NIP-17 encryption"
+				class="relative flex items-center w-[72px] h-7 rounded-full cursor-pointer transition-colors duration-200 flex-shrink-0"
+				style={sendProtocol === 'nip17'
+					? 'background-color: rgba(124, 58, 237, 0.25);'
+					: 'background-color: rgba(249, 115, 22, 0.18);'}
+				title={sendProtocol === 'nip17'
+					? 'Private — metadata hidden (less compatible)'
+					: 'Compatible — metadata visible (less private)'}
 			>
-				{sendProtocol === 'nip04' ? 'NIP-04' : 'NIP-17'}
-				<ArrowsClockwiseIcon size={10} />
+				<span
+					class="absolute top-0.5 h-6 w-9 rounded-full transition-all duration-200 shadow-sm"
+					style="left: {sendProtocol === 'nip17' ? '33px' : '2px'};
+						background-color: {sendProtocol === 'nip17' ? 'rgba(124, 58, 237, 0.9)' : 'rgba(249, 115, 22, 0.9)'};"
+				></span>
+				<span
+					class="relative z-10 w-1/2 text-center text-[9px] font-semibold transition-colors duration-200"
+					style="color: {sendProtocol === 'nip04' ? '#fff' : 'rgba(249, 115, 22, 0.6)'};"
+				>04</span>
+				<span
+					class="relative z-10 w-1/2 text-center text-[9px] font-semibold transition-colors duration-200"
+					style="color: {sendProtocol === 'nip17' ? '#fff' : 'rgba(167, 139, 250, 0.6)'};"
+				>17</span>
 			</button>
 			<button
 				on:click={handleSend}

@@ -1,5 +1,7 @@
 <script lang="ts">
 	import { userPublickey } from '$lib/nostr';
+	import LockSimpleIcon from 'phosphor-svelte/lib/LockSimple';
+	import LockSimpleOpenIcon from 'phosphor-svelte/lib/LockSimpleOpen';
 
 	export let sender: string;
 	export let content: string;
@@ -7,6 +9,9 @@
 	export let protocol: 'nip17' | 'nip04' = 'nip04';
 
 	$: isMine = sender === $userPublickey;
+	$: protocolTip = protocol === 'nip17'
+		? 'Private — metadata hidden'
+		: 'Compatible — metadata visible';
 
 	$: timeString = formatTime(created_at);
 
@@ -37,8 +42,12 @@
 			? 'rounded-br-md'
 			: 'rounded-bl-md'}"
 		style={isMine
-			? 'background-color: var(--color-primary); color: #ffffff;'
-			: 'background-color: var(--color-input-bg); color: var(--color-text-primary);'}
+			? (protocol === 'nip17'
+				? 'background-color: rgba(124, 58, 237, 0.85); color: #ffffff;'
+				: 'background-color: var(--color-primary); color: #ffffff;')
+			: (protocol === 'nip17'
+				? 'background-color: rgba(124, 58, 237, 0.12); color: var(--color-text-primary);'
+				: 'background-color: var(--color-input-bg); color: var(--color-text-primary);')}
 	>
 		<p class="text-sm whitespace-pre-wrap break-words">{content}</p>
 		<p
@@ -46,7 +55,16 @@
 			style={isMine ? 'color: rgba(255,255,255,0.7);' : 'color: var(--color-caption);'}
 		>
 			{timeString}
-			<span class="text-[9px] ml-1">{protocol === 'nip17' ? 'NIP-17' : 'NIP-04'}</span>
+			<span
+				class="inline-flex items-center gap-px ml-1"
+				title={protocolTip}
+			>
+				{#if protocol === 'nip17'}
+					<LockSimpleIcon class="w-2.5 h-2.5" weight="bold" style="color: rgba(167, 139, 250, 0.8);" />
+				{:else}
+					<LockSimpleOpenIcon class="w-2.5 h-2.5" weight="bold" style="color: rgba(249, 115, 22, 0.6);" />
+				{/if}
+			</span>
 		</p>
 	</div>
 </div>
