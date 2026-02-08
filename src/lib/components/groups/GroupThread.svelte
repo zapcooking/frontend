@@ -186,7 +186,7 @@
 				</div>
 			{:else}
 				{#each messages as msg (msg.id)}
-					<GroupMessage sender={msg.sender} content={msg.content} created_at={msg.created_at} />
+					<GroupMessage id={msg.id} sender={msg.sender} content={msg.content} created_at={msg.created_at} />
 				{/each}
 			{/if}
 		</div>

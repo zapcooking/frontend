@@ -99,10 +99,13 @@
 							</span>
 							<span class="flex-shrink-0 ml-2 flex items-center gap-1.5">
 								{#if getLastProtocol(convo.messages)}
+									{@const proto = getLastProtocol(convo.messages)}
 									<span
-										class="text-[9px] px-1 py-0.5 rounded"
-										style="color: var(--color-caption); background-color: var(--color-input-bg);"
-									>{getLastProtocol(convo.messages)}</span>
+										class="text-[9px] px-1 py-0.5 rounded font-medium"
+										style={proto === 'NIP-17'
+											? 'background-color: rgba(124, 58, 237, 0.15); color: rgba(167, 139, 250, 1);'
+											: 'background-color: rgba(249, 115, 22, 0.12); color: rgba(249, 115, 22, 0.8);'}
+									>{proto}</span>
 								{/if}
 								<span class="text-xs" style="color: var(--color-caption);">
 									{formatRelativeTime(convo.lastMessageAt)}
