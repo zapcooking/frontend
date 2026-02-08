@@ -73,6 +73,13 @@
       badge: 'notificationsDot'
     },
     {
+      href: '/groups',
+      label: 'Groups',
+      icon: UsersThreeIcon,
+      match: (p) => p.startsWith('/groups'),
+      badge: 'members'
+    },
+    {
       href: '/messages',
       label: 'Messages',
       icon: EnvelopeSimpleIcon,
@@ -87,13 +94,6 @@
       label: 'Cookbook',
       icon: CookbookIcon,
       match: (p) => p.startsWith('/cookbook')
-    },
-    {
-      href: '/groups',
-      label: 'Groups',
-      icon: UsersThreeIcon,
-      match: (p) => p.startsWith('/groups'),
-      badge: 'members'
     },
     {
       href: '/grocery',
@@ -195,6 +195,14 @@
                   {/if}
                 </span>
                 <span class="font-medium">{item.label}</span>
+                {#if item.badge === 'members'}
+                  <span class="ml-auto">
+                    <span
+                      class="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary font-medium"
+                      >Members</span
+                    >
+                  </span>
+                {/if}
               </a>
             </li>
           {/each}
