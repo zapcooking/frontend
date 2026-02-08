@@ -70,6 +70,10 @@
     <NewspaperIcon class="self-center" size={24} />
     <span class="sr-only">Reads</span>
   </a>
+  <a href="/groups" class="flex flex-col items-center justify-center hover:text-primary">
+    <UsersThreeIcon class="self-center" size={24} />
+    <span class="sr-only">Groups</span>
+  </a>
   <a href="/messages" class="flex flex-col items-center justify-center hover:text-primary">
     <span class="relative self-center">
       <EnvelopeSimpleIcon size={24} weight={$totalUnreadCount > 0 ? 'fill' : 'regular'} />
@@ -81,10 +85,6 @@
       {/if}
     </span>
     <span class="sr-only">Messages</span>
-  </a>
-  <a href="/groups" class="flex flex-col items-center justify-center hover:text-primary">
-    <UsersThreeIcon class="self-center" size={24} />
-    <span class="sr-only">Groups</span>
   </a>
   <a
     href="/notifications"
