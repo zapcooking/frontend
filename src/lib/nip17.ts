@@ -245,8 +245,6 @@ export async function sendDirectMessage(
 	const relaySet = NDKRelaySet.fromRelayUrls(recipientRelays, ndkInstance, true);
 	await ndkEvent.publish(relaySet);
 
-	console.log('[NIP-17] Message sent to', recipientPubkey.slice(0, 8));
-
 	// 5. Self-copy: seal + gift wrap targeting the sender's own pubkey
 	try {
 		const selfSeal = await createSeal(rumor, senderPubkey);
@@ -255,7 +253,6 @@ export async function sendDirectMessage(
 		const selfNdkEvent = new NDKEvent(ndkInstance, selfGiftWrap as any);
 		const selfRelaySet = NDKRelaySet.fromRelayUrls(senderRelays, ndkInstance, true);
 		await selfNdkEvent.publish(selfRelaySet);
-		console.log('[NIP-17] Self-copy published to', senderRelays.length, 'relays');
 	} catch (e) {
 		console.warn('[NIP-17] Failed to publish self-copy (non-fatal):', e);
 	}
@@ -282,8 +279,6 @@ export async function sendDirectMessage(
 export async function unwrapGiftWrap(event: NDKEvent): Promise<DecryptedMessage | null> {
 	try {
 		// Step 1: Decrypt the gift wrap to get the seal
-		// Uses: ECDH(myPrivateKey, giftWrap.pubkey) where giftWrap.pubkey is the ephemeral key
-		console.log('[NIP-17] Unwrapping gift wrap', event.id.slice(0, 8), 'from ephemeral key', event.pubkey.slice(0, 8));
 		const sealJSON = await decrypt(event.pubkey, event.content, 'nip44');
 		const seal = JSON.parse(sealJSON);
 
@@ -293,8 +288,6 @@ export async function unwrapGiftWrap(event: NDKEvent): Promise<DecryptedMessage 
 		}
 
 		// Step 2: Decrypt the seal to get the rumor
-		// Uses: ECDH(myPrivateKey, seal.pubkey) where seal.pubkey is the sender's real key
-		console.log('[NIP-17] Decrypting seal from', seal.pubkey.slice(0, 8));
 		const rumorJSON = await decrypt(seal.pubkey, seal.content, 'nip44');
 		const rumor = JSON.parse(rumorJSON);
 
@@ -304,7 +297,6 @@ export async function unwrapGiftWrap(event: NDKEvent): Promise<DecryptedMessage 
 			return null;
 		}
 
-		console.log('[NIP-17] Message decrypted from', rumor.pubkey.slice(0, 8));
 		return {
 			id: rumor.id || event.id,
 			sender: rumor.pubkey,
@@ -334,8 +326,6 @@ export function subscribeToGiftWraps(
 ): { stop: () => void } {
 	const seenIds = new Set<string>();
 
-	console.log('[NIP-17] Starting gift wrap subscription for', userPubkey.slice(0, 8));
-
 	const sub = ndkInstance.subscribe(
 		{ kinds: [1059 as number], '#p': [userPubkey] },
 		{ closeOnEose: false }
@@ -346,15 +336,10 @@ export function subscribeToGiftWraps(
 		if (seenIds.has(event.id)) return;
 		seenIds.add(event.id);
 
-		console.log('[NIP-17] Received gift wrap event', event.id.slice(0, 8));
 		const message = await unwrapGiftWrap(event);
 		if (message) {
 			onMessage(message, event.id);
 		}
-	});
-
-	sub.on('eose', () => {
-		console.log('[NIP-17] Subscription EOSE received, seen', seenIds.size, 'events');
 	});
 
 	return {
@@ -378,11 +363,6 @@ export async function fetchHistoricalMessages(
 ): Promise<DecryptedMessage[]> {
 	const sinceTimestamp = since || now() - 3 * 24 * 60 * 60; // Default: 3 days
 
-	console.log(
-		'[NIP-17] Fetching historical messages since',
-		new Date(sinceTimestamp * 1000).toISOString()
-	);
-
 	let events: Set<NDKEvent>;
 	try {
 		events = await Promise.race([
@@ -392,7 +372,7 @@ export async function fetchHistoricalMessages(
 				since: sinceTimestamp
 			}),
 			new Promise<Set<NDKEvent>>((_, reject) =>
-				setTimeout(() => reject(new Error('Fetch timeout after 15s')), 15000)
+				setTimeout(() => reject(new Error('Fetch timeout')), 10000)
 			)
 		]);
 	} catch (e) {
@@ -400,28 +380,28 @@ export async function fetchHistoricalMessages(
 		return [];
 	}
 
-	console.log('[NIP-17] Found', events.size, 'gift wraps');
-
 	const messages: DecryptedMessage[] = [];
 	const seenRumorIds = new Set<string>();
+	const eventArray = Array.from(events);
 
-	for (const event of events) {
-		try {
-			const message = await unwrapGiftWrap(event);
-			if (message && !seenRumorIds.has(message.id)) {
-				seenRumorIds.add(message.id);
-				messages.push(message);
-				// Stream each message to the caller as it's decrypted
+	// Decrypt in batches of 5 to avoid blocking main thread
+	const BATCH_SIZE = 5;
+	for (let i = 0; i < eventArray.length; i += BATCH_SIZE) {
+		const batch = eventArray.slice(i, i + BATCH_SIZE);
+		const results = await Promise.allSettled(
+			batch.map((event) => unwrapGiftWrap(event))
+		);
+		for (const result of results) {
+			if (result.status === 'fulfilled' && result.value && !seenRumorIds.has(result.value.id)) {
+				seenRumorIds.add(result.value.id);
+				messages.push(result.value);
 				if (onMessage) {
-					onMessage(message);
+					onMessage(result.value);
 				}
 			}
-		} catch {
-			// Skip messages we can't decrypt
 		}
 	}
 
-	console.log('[NIP-17] Decrypted', messages.length, 'messages');
 	return messages.sort((a, b) => a.created_at - b.created_at);
 }
 
@@ -452,8 +432,6 @@ export async function sendNip04DirectMessage(
 
 	await event.sign();
 	await event.publish();
-
-	console.log('[NIP-04] Message sent to', recipientPubkey.slice(0, 8));
 
 	return {
 		id: event.id,

@@ -263,7 +263,7 @@ async function doPantryConnect(ndkInstance: NDK): Promise<void> {
 					cleanup();
 					resolve();
 				}
-			}, 250);
+			}, 1000);
 
 			relay.on('connect', onConnect);
 			relay.on('ready', onConnect);

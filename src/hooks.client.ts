@@ -1,6 +1,5 @@
 import type { HandleClientError } from '@sveltejs/kit';
 
-console.log('[hooks.client.ts] Loading hooks - hostname:', typeof window !== 'undefined' ? window.location.hostname : 'SSR');
 
 // Register Service Worker to intercept __data.json requests and cache app assets for offline support
 // Service Workers can intercept requests and cache assets for offline functionality
@@ -8,7 +7,6 @@ if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
   // Register service worker for all builds (static and web) to enable offline asset caching
   navigator.serviceWorker.register('/sw.js')
     .then(reg => {
-      console.log('[hooks.client.ts] Service Worker registered:', reg.scope);
       
       // Check for updates periodically (every hour)
       setInterval(() => {
@@ -28,7 +26,6 @@ if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
 // Intercept fetch requests for __data.json files that don't exist in static builds
 // This is a backup in case the Service Worker doesn't catch the request
 if (typeof window !== 'undefined') {
-  console.log('[hooks.client.ts] Setting up fetch interceptor');
   const originalFetch = window.fetch;
   window.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;

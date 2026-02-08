@@ -188,17 +188,15 @@ export async function encrypt(
   const signer = ndkInstance.signer;
   const signerName = signer?.constructor?.name || '';
 
-  console.log('[Encryption] Starting encryption, signer type:', signerName);
 
   // For NIP-07 signers, go directly to window.nostr (NDKNip07Signer delegates to it anyway)
   // Use includes() to handle minified class names like _NDKNip07Signer
   if (signerName.includes('Nip07Signer')) {
-    console.log('[Encryption] NIP-07 signer detected, using window.nostr directly');
     const nostr = (window as any).nostr;
 
     if (nostr?.nip44?.encrypt && (!preferredMethod || preferredMethod === 'nip44')) {
       try {
-        console.log('[Encryption] Trying window.nostr.nip44.encrypt...');
+
         const ciphertext = await nostr.nip44.encrypt(recipientPubkey, plaintext);
         return { ciphertext, method: 'nip44' };
       } catch (e) {
@@ -208,7 +206,7 @@ export async function encrypt(
     }
     if (nostr?.nip04?.encrypt) {
       try {
-        console.log('[Encryption] Trying window.nostr.nip04.encrypt...');
+
         const ciphertext = await nostr.nip04.encrypt(recipientPubkey, plaintext);
         return { ciphertext, method: 'nip04' };
       } catch (e) {
@@ -234,7 +232,7 @@ export async function encrypt(
 
   // For NIP-46 signers, use the signer's encryption methods
   if (signerName.includes('Nip46Signer') && signer) {
-    console.log('[Encryption] NIP-46 signer detected, checking for encryption methods...');
+
     const recipient = new NDKUser({ pubkey: recipientPubkey });
 
     if (
@@ -242,7 +240,7 @@ export async function encrypt(
       (!preferredMethod || preferredMethod === 'nip44')
     ) {
       try {
-        console.log('[Encryption] Trying signer.nip44Encrypt...');
+
         const ciphertext = await signer.nip44Encrypt(recipient, plaintext);
         return { ciphertext, method: 'nip44' };
       } catch (e) {
@@ -252,7 +250,7 @@ export async function encrypt(
     }
     if (typeof signer.nip04Encrypt === 'function') {
       try {
-        console.log('[Encryption] Trying signer.nip04Encrypt...');
+
         const ciphertext = await signer.nip04Encrypt(recipient, plaintext);
         return { ciphertext, method: 'nip04' };
       } catch (e) {
@@ -274,7 +272,7 @@ export async function encrypt(
       throw new Error('Private key not found. Please log in again with your private key.');
     }
 
-    console.log('[Encryption] Private key signer detected, using nostr-tools directly');
+
     const method = preferredMethod || 'nip44';
     try {
       if (method === 'nip44') {
@@ -306,7 +304,7 @@ export async function encrypt(
   // Try direct encryption with private key if available (for cases where signer isn't set but key is stored)
   const privateKey = getPrivateKey();
   if (privateKey) {
-    console.log('[Encryption] No signer but private key found, using nostr-tools directly');
+
     const method = preferredMethod || 'nip44';
     try {
       if (method === 'nip44') {
@@ -329,12 +327,12 @@ export async function encrypt(
   // Last resort: Try window.nostr directly (for cases where signer type is unknown)
   const nostr = (window as any).nostr;
   if (nostr?.nip44?.encrypt && (!preferredMethod || preferredMethod === 'nip44')) {
-    console.log('[Encryption] Fallback: Trying window.nostr.nip44.encrypt...');
+
     const ciphertext = await nostr.nip44.encrypt(recipientPubkey, plaintext);
     return { ciphertext, method: 'nip44' };
   }
   if (nostr?.nip04?.encrypt) {
-    console.log('[Encryption] Fallback: Trying window.nostr.nip04.encrypt...');
+
     const ciphertext = await nostr.nip04.encrypt(recipientPubkey, plaintext);
     return { ciphertext, method: 'nip04' };
   }
@@ -376,12 +374,10 @@ export async function decrypt(
       // First try window.nostr (NIP-07) - this is the original working method
       const nostr = (window as any).nostr;
       if (tryMethod === 'nip44' && nostr?.nip44?.decrypt) {
-        console.log('[Encryption] Trying window.nostr.nip44.decrypt...');
         const result = await nostr.nip44.decrypt(senderPubkey, ciphertext);
         if (result) return result;
       }
       if (tryMethod === 'nip04' && nostr?.nip04?.decrypt) {
-        console.log('[Encryption] Trying window.nostr.nip04.decrypt...');
         const result = await nostr.nip04.decrypt(senderPubkey, ciphertext);
         if (result) return result;
       }
@@ -391,7 +387,6 @@ export async function decrypt(
       if (privateKey) {
         try {
           if (tryMethod === 'nip44') {
-            console.log('[Encryption] Trying direct nip44 decryption with private key...');
             // Convert hex private key to Uint8Array for NIP-44
             const privateKeyBytes = new Uint8Array(
               privateKey.match(/.{1,2}/g)!.map((byte) => parseInt(byte, 16))
@@ -403,7 +398,6 @@ export async function decrypt(
             const result = nip44.v2.decrypt(ciphertext, conversationKey);
             if (result) return result;
           } else if (tryMethod === 'nip04') {
-            console.log('[Encryption] Trying direct nip04 decryption with private key...');
             const result = await nip04.decrypt(privateKey, senderPubkey, ciphertext);
             if (result) return result;
           }
@@ -426,11 +420,9 @@ export async function decrypt(
         const sender = new NDKUser({ pubkey: senderPubkey });
 
         if (tryMethod === 'nip44' && typeof signer.nip44Decrypt === 'function') {
-          console.log('[Encryption] Trying NDK signer.nip44Decrypt...');
           const result = await signer.nip44Decrypt(sender, ciphertext);
           if (result) return result;
         } else if (tryMethod === 'nip04' && typeof signer.nip04Decrypt === 'function') {
-          console.log('[Encryption] Trying NDK signer.nip04Decrypt...');
           const result = await signer.nip04Decrypt(sender, ciphertext);
           if (result) return result;
         }

@@ -43,8 +43,22 @@ export interface Conversation {
 
 const conversations = writable<Map<string, Conversation>>(new Map());
 
-// Track seen message IDs for deduplication
+// Track seen message IDs for deduplication (capped to prevent unbounded memory growth)
 const seenMessageIds = new Set<string>();
+const SEEN_IDS_MAX = 10_000;
+
+function trackSeenId(id: string): boolean {
+	if (seenMessageIds.has(id)) return false;
+	if (seenMessageIds.size >= SEEN_IDS_MAX) {
+		// Prune oldest half
+		const ids = Array.from(seenMessageIds);
+		for (let i = 0; i < ids.length / 2; i++) {
+			seenMessageIds.delete(ids[i]);
+		}
+	}
+	seenMessageIds.add(id);
+	return true;
+}
 
 // Track which conversation is currently open (for unread management)
 const activeConversationPubkey = writable<string | null>(null);
@@ -85,9 +99,7 @@ export function getConversation(partnerPubkey: string) {
  * Handles deduplication and unread count management.
  */
 export function addMessage(message: DecryptedMessage, currentUserPubkey: string) {
-	// Deduplicate
-	if (seenMessageIds.has(message.id)) return;
-	seenMessageIds.add(message.id);
+	if (!trackSeenId(message.id)) return;
 
 	// Determine the conversation partner
 	const partnerPubkey =
@@ -142,33 +154,36 @@ export function addMessage(message: DecryptedMessage, currentUserPubkey: string)
 
 /**
  * Add multiple messages at once (used for historical message loading).
+ * Batches into a single store update to avoid N re-renders.
  */
 export function addMessages(messages: DecryptedMessage[], currentUserPubkey: string) {
-	for (const msg of messages) {
-		// For historical messages, mark all as read
-		if (seenMessageIds.has(msg.id)) continue;
-		seenMessageIds.add(msg.id);
+	// Filter to only new messages first
+	const newMessages = messages.filter((msg) => trackSeenId(msg.id));
 
-		const partnerPubkey =
-			msg.sender === currentUserPubkey
-				? getRecipientFromTags(msg.tags) || msg.sender
-				: msg.sender;
+	if (newMessages.length === 0) return;
 
-		if (!partnerPubkey) continue;
+	// Single store update for all messages
+	conversations.update(($convos) => {
+		for (const msg of newMessages) {
+			const partnerPubkey =
+				msg.sender === currentUserPubkey
+					? getRecipientFromTags(msg.tags) || msg.sender
+					: msg.sender;
 
-		const chatMessage: ChatMessage = {
-			id: msg.id,
-			sender: msg.sender,
-			content: msg.content,
-			tags: msg.tags,
-			created_at: msg.created_at,
-			protocol: msg.protocol
-		};
+			if (!partnerPubkey) continue;
 
-		conversations.update(($convos) => {
+			const chatMessage: ChatMessage = {
+				id: msg.id,
+				sender: msg.sender,
+				content: msg.content,
+				tags: msg.tags,
+				created_at: msg.created_at,
+				protocol: msg.protocol
+			};
+
 			const existing = $convos.get(partnerPubkey);
 			if (existing) {
-				if (!existing.messages.some((m) => m.id === msg.id)) {
+				if (!existing.messages.some((m) => m.id === chatMessage.id)) {
 					existing.messages.push(chatMessage);
 				}
 				existing.lastMessageAt = Math.max(existing.lastMessageAt, msg.created_at);
@@ -177,18 +192,16 @@ export function addMessages(messages: DecryptedMessage[], currentUserPubkey: str
 					pubkey: partnerPubkey,
 					messages: [chatMessage],
 					lastMessageAt: msg.created_at,
-					unreadCount: 0 // Historical messages are marked as read
+					unreadCount: 0
 				});
 			}
-			return new Map($convos);
-		});
-	}
+		}
 
-	// Sort all conversations' messages
-	conversations.update(($convos) => {
+		// Sort all conversations' messages
 		for (const convo of $convos.values()) {
 			convo.messages.sort((a, b) => a.created_at - b.created_at);
 		}
+
 		return new Map($convos);
 	});
 }
@@ -236,25 +249,12 @@ let activeNip04Sub: { stop: () => void } | null = null;
  * then loads historical messages in the background.
  */
 export async function initMessageSubscription(ndkInstance: NDK, userPubkey: string) {
-	console.log('[Messages] initMessageSubscription called', {
-		browser,
-		userPubkey: userPubkey?.slice(0, 8),
-		hasSigner: !!ndkInstance?.signer
-	});
-
 	if (!browser) return;
 	if (!userPubkey) return;
-
-	if (!hasEncryptionSupport()) {
-		console.log('[Messages] No encryption support available');
-		return;
-	}
+	if (!hasEncryptionSupport()) return;
 
 	// Prevent duplicate initialization
-	if (get(messagesInitialized) || get(messagesLoading)) {
-		console.log('[Messages] Already initialized or loading, skipping');
-		return;
-	}
+	if (get(messagesInitialized) || get(messagesLoading)) return;
 
 	// Stop any existing subscriptions
 	stopMessageSubscription();
@@ -266,11 +266,9 @@ export async function initMessageSubscription(ndkInstance: NDK, userPubkey: stri
 	try {
 		// 1. Start NIP-17 gift wrap subscription (if NIP-44 is available)
 		if (bestMethod === 'nip44') {
-			activeSub = subscribeToGiftWraps(ndkInstance, userPubkey, (message, giftWrapId) => {
-				console.log('[Messages] Live NIP-17 message received from', message.sender.slice(0, 8));
+			activeSub = subscribeToGiftWraps(ndkInstance, userPubkey, (message) => {
 				addMessage(message, userPubkey);
 			});
-			console.log('[Messages] NIP-17 live subscription active');
 		}
 
 		// 2. Start NIP-04 kind 4 subscription (received + sent)
@@ -292,7 +290,6 @@ export async function initMessageSubscription(ndkInstance: NDK, userPubkey: stri
 
 			const message = await decryptNip04Event(event, userPubkey);
 			if (message) {
-				console.log('[Messages] Live NIP-04 message from', message.sender.slice(0, 8));
 				addMessage(message, userPubkey);
 			}
 		};
@@ -307,7 +304,6 @@ export async function initMessageSubscription(ndkInstance: NDK, userPubkey: stri
 				nip04SeenIds.clear();
 			}
 		};
-		console.log('[Messages] NIP-04 live subscription active');
 
 		messagesInitialized.set(true);
 
@@ -319,28 +315,21 @@ export async function initMessageSubscription(ndkInstance: NDK, userPubkey: stri
 			historicalPromises.push(
 				fetchHistoricalMessages(ndkInstance, userPubkey, (message) => {
 					addMessage(message, userPubkey);
-				}).then((historical) => {
-					console.log('[Messages] NIP-17 historical load complete:', historical.length, 'messages');
-				})
+				}).then(() => {})
 			);
 		}
 
 		// NIP-04 historical
 		historicalPromises.push(
-			fetchHistoricalNip04Messages(ndkInstance, userPubkey).then((messages) => {
-				console.log('[Messages] NIP-04 historical load complete:', messages.length, 'messages');
-			})
+			fetchHistoricalNip04Messages(ndkInstance, userPubkey).then(() => {})
 		);
 
 		Promise.all(historicalPromises)
-			.catch((e) => {
-				console.warn('[Messages] Historical fetch failed:', e);
-			})
+			.catch(() => {})
 			.finally(() => {
 				messagesLoading.set(false);
 			});
-	} catch (e) {
-		console.error('[Messages] Failed to initialize:', e);
+	} catch {
 		messagesLoading.set(false);
 	}
 }
@@ -353,8 +342,6 @@ async function fetchHistoricalNip04Messages(
 	userPubkey: string
 ): Promise<DecryptedMessage[]> {
 	const sinceTimestamp = Math.round(Date.now() / 1000) - 3 * 24 * 60 * 60;
-
-	console.log('[NIP-04] Fetching historical messages since', new Date(sinceTimestamp * 1000).toISOString());
 
 	let receivedEvents: Set<import('@nostr-dev-kit/ndk').NDKEvent>;
 	let sentEvents: Set<import('@nostr-dev-kit/ndk').NDKEvent>;
@@ -374,11 +361,10 @@ async function fetchHistoricalNip04Messages(
 				})
 			]),
 			new Promise<[Set<import('@nostr-dev-kit/ndk').NDKEvent>, Set<import('@nostr-dev-kit/ndk').NDKEvent>]>((_, reject) =>
-				setTimeout(() => reject(new Error('NIP-04 fetch timeout after 15s')), 15000)
+				setTimeout(() => reject(new Error('NIP-04 fetch timeout')), 10000)
 			)
 		]);
-	} catch (e) {
-		console.warn('[NIP-04] Historical fetch timed out or failed:', e);
+	} catch {
 		return [];
 	}
 
@@ -386,23 +372,24 @@ async function fetchHistoricalNip04Messages(
 	for (const event of receivedEvents) allEvents.set(event.id, event);
 	for (const event of sentEvents) allEvents.set(event.id, event);
 
-	console.log('[NIP-04] Found', allEvents.size, 'kind 4 events');
-
 	const messages: DecryptedMessage[] = [];
+	const eventArray = Array.from(allEvents.values());
 
-	for (const event of allEvents.values()) {
-		try {
-			const message = await decryptNip04Event(event, userPubkey);
-			if (message) {
-				messages.push(message);
-				addMessage(message, userPubkey);
+	// Decrypt in batches of 5 to avoid blocking main thread
+	const BATCH_SIZE = 5;
+	for (let i = 0; i < eventArray.length; i += BATCH_SIZE) {
+		const batch = eventArray.slice(i, i + BATCH_SIZE);
+		const results = await Promise.allSettled(
+			batch.map((event) => decryptNip04Event(event, userPubkey))
+		);
+		for (const result of results) {
+			if (result.status === 'fulfilled' && result.value) {
+				messages.push(result.value);
+				addMessage(result.value, userPubkey);
 			}
-		} catch {
-			// Skip messages we can't decrypt
 		}
 	}
 
-	console.log('[NIP-04] Decrypted', messages.length, 'messages');
 	return messages;
 }
 
