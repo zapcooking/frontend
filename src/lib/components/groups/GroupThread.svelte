@@ -2,7 +2,8 @@
 	import { onMount, afterUpdate, createEventDispatcher } from 'svelte';
 	import { userPublickey } from '$lib/nostr';
 	import { getGroup, setActiveGroup, addGroupMessage } from '$lib/stores/groups';
-	import { sendGroupMessage } from '$lib/nip29';
+	import { sendGroupMessage, uploadGroupPicture } from '$lib/nip29';
+	import { copyToClipboard } from '$lib/utils/share';
 	import GroupMessage from './GroupMessage.svelte';
 	import AddMemberModal from './AddMemberModal.svelte';
 	import GroupMembersModal from './GroupMembersModal.svelte';
@@ -11,9 +12,14 @@
 	import PaperPlaneTiltIcon from 'phosphor-svelte/lib/PaperPlaneTilt';
 	import UserPlusIcon from 'phosphor-svelte/lib/UserPlus';
 	import LockIcon from 'phosphor-svelte/lib/Lock';
+	import ImageIcon from 'phosphor-svelte/lib/Image';
+	import LinkIcon from 'phosphor-svelte/lib/Link';
+	import CheckIcon from 'phosphor-svelte/lib/Check';
 
 	export let groupId: string;
 	export let hasActiveMembership: boolean = false;
+
+	const PANTRY_RELAY = 'wss://pantry.zap.cooking';
 
 	const dispatch = createEventDispatcher<{ back: void }>();
 
@@ -24,6 +30,9 @@
 	let shouldAutoScroll = true;
 	let showAddMember = false;
 	let showMembers = false;
+	let uploading = false;
+	let showCopied = false;
+	let fileInput: HTMLInputElement;
 
 	const MAX_VISIBLE_AVATARS = 5;
 
@@ -93,6 +102,45 @@
 			handleSend();
 		}
 	}
+
+	async function handleImageUpload(e: Event) {
+		const input = e.target as HTMLInputElement;
+		const file = input.files?.[0];
+		if (!file) return;
+
+		if (!file.type.startsWith('image/')) {
+			sendError = 'Please select an image file';
+			input.value = '';
+			return;
+		}
+
+		uploading = true;
+		sendError = '';
+
+		try {
+			const url = await uploadGroupPicture(file);
+			if (messageInput.trim()) {
+				messageInput = messageInput.trimEnd() + '\n' + url;
+			} else {
+				messageInput = url;
+			}
+		} catch (e) {
+			sendError = e instanceof Error ? e.message : 'Failed to upload image';
+			console.error('[Groups] Upload error:', e);
+		} finally {
+			uploading = false;
+			input.value = '';
+		}
+	}
+
+	async function handleShare() {
+		const shareUrl = `${PANTRY_RELAY}/${groupId}`;
+		const ok = await copyToClipboard(shareUrl);
+		if (ok) {
+			showCopied = true;
+			setTimeout(() => (showCopied = false), 2000);
+		}
+	}
 </script>
 
 <div class="flex flex-col h-full">
@@ -117,6 +165,14 @@
 					{$group.about}
 				</span>
 			{/if}
+			<button
+				class="text-[10px] truncate block cursor-pointer hover:underline"
+				style="color: var(--color-caption); opacity: 0.7;"
+				title="Copy relay URL"
+				on:click={() => copyToClipboard(PANTRY_RELAY)}
+			>
+				pantry.zap.cooking
+			</button>
 		</div>
 		{#if !isLockedOut && members.length > 0}
 			<button
@@ -142,6 +198,18 @@
 			</button>
 		{/if}
 		{#if !isLockedOut}
+			<button
+				class="p-1.5 rounded-lg transition-colors hover:bg-accent-gray cursor-pointer relative"
+				style="color: var(--color-text-primary);"
+				title={showCopied ? 'Copied!' : 'Share group link'}
+				on:click={handleShare}
+			>
+				{#if showCopied}
+					<CheckIcon size={20} weight="bold" />
+				{:else}
+					<LinkIcon size={20} />
+				{/if}
+			</button>
 			<button
 				class="p-1.5 rounded-lg transition-colors hover:bg-accent-gray cursor-pointer"
 				style="color: var(--color-text-primary);"
@@ -199,11 +267,33 @@
 		{/if}
 
 		<!-- Input -->
+		<input
+			bind:this={fileInput}
+			type="file"
+			accept="image/*"
+			class="hidden"
+			on:change={handleImageUpload}
+		/>
 		<div
 			class="p-3 border-t"
 			style="border-color: var(--color-input-border);"
 		>
 			<div class="flex items-end gap-2">
+				<button
+					on:click={() => fileInput?.click()}
+					disabled={uploading}
+					class="p-2.5 rounded-xl transition-colors cursor-pointer disabled:opacity-40"
+					style="color: var(--color-caption);"
+					title="Attach image"
+				>
+					{#if uploading}
+						<div
+							class="w-5 h-5 border-2 border-current border-t-transparent rounded-full animate-spin"
+						></div>
+					{:else}
+						<ImageIcon size={20} />
+					{/if}
+				</button>
 				<textarea
 					bind:value={messageInput}
 					on:keydown={handleKeyDown}
@@ -215,7 +305,7 @@
 				></textarea>
 				<button
 					on:click={handleSend}
-					disabled={!messageInput.trim() || sending}
+					disabled={(!messageInput.trim() && !uploading) || sending}
 					class="p-2.5 rounded-xl transition-colors cursor-pointer disabled:opacity-40"
 					style="background-color: var(--color-primary); color: #ffffff;"
 				>
