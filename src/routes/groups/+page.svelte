@@ -12,7 +12,6 @@
 	import GroupThread from '$lib/components/groups/GroupThread.svelte';
 	import CreateGroupModal from '$lib/components/groups/CreateGroupModal.svelte';
 	import LockIcon from 'phosphor-svelte/lib/Lock';
-	import CrownSimpleIcon from 'phosphor-svelte/lib/CrownSimple';
 
 	let selectedGroupId: string | null = null;
 	let createGroupOpen = false;
@@ -52,11 +51,12 @@
 		if (!browser) return;
 		if (!$userPublickey) return;
 
-		await checkMembership();
-
-		if (hasActiveMembership && !$groupsInitialized && !$groupsLoading) {
+		// Always fetch groups so non-members can see public groups
+		if (!$groupsInitialized && !$groupsLoading) {
 			await initGroupSubscription($ndk, $userPublickey);
 		}
+
+		await checkMembership();
 	});
 
 	onDestroy(() => {
@@ -103,32 +103,6 @@
 			Sign In
 		</a>
 	</div>
-{:else if checkingMembership}
-	<!-- Checking membership -->
-	<div class="flex items-center justify-center py-20">
-		<div
-			class="w-6 h-6 border-2 border-t-transparent rounded-full animate-spin"
-			style="border-color: var(--color-primary); border-top-color: transparent;"
-		></div>
-	</div>
-{:else if !hasActiveMembership}
-	<!-- No membership -->
-	<div class="flex flex-col items-center justify-center py-20 px-4 text-center">
-		<CrownSimpleIcon size={48} weight="light" style="color: var(--color-caption);" />
-		<h2 class="text-lg font-semibold mt-4" style="color: var(--color-text-primary);">
-			Members Only
-		</h2>
-		<p class="text-sm mt-2 max-w-sm" style="color: var(--color-caption);">
-			Group chat is available to Zap.Cooking members. Upgrade your membership to join group conversations.
-		</p>
-		<a
-			href="/membership"
-			class="mt-4 px-6 py-2.5 rounded-xl text-sm font-medium transition-colors"
-			style="background-color: var(--color-primary); color: #ffffff;"
-		>
-			View Membership Options
-		</a>
-	</div>
 {:else}
 	<!-- Groups UI -->
 	<div
@@ -144,6 +118,7 @@
 		>
 			<GroupList
 				{selectedGroupId}
+				{hasActiveMembership}
 				on:select={handleSelectGroup}
 				on:createGroup={handleCreateGroup}
 			/>
@@ -155,7 +130,7 @@
 			style="background-color: var(--color-bg-primary);"
 		>
 			{#if selectedGroupId}
-				<GroupThread groupId={selectedGroupId} on:back={handleBack} />
+				<GroupThread groupId={selectedGroupId} {hasActiveMembership} on:back={handleBack} />
 			{:else}
 				<div class="flex items-center justify-center h-full">
 					<p class="text-sm" style="color: var(--color-caption);">
@@ -166,6 +141,8 @@
 		</div>
 	</div>
 
-	<!-- Create group modal -->
-	<CreateGroupModal bind:open={createGroupOpen} on:created={handleGroupCreated} />
+	<!-- Create group modal (members only) -->
+	{#if hasActiveMembership}
+		<CreateGroupModal bind:open={createGroupOpen} on:created={handleGroupCreated} />
+	{/if}
 {/if}

@@ -38,7 +38,8 @@
 				picture: '',
 				about: about.trim(),
 				isPrivate: false,
-				isClosed: false
+				isClosed: false,
+				isRestricted: false
 			});
 
 			dispatch('created', { groupId });

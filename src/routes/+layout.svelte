@@ -16,7 +16,7 @@
   import WalletWelcomeModal from '../components/WalletWelcomeModal.svelte';
   import { createAuthManager, type AuthState } from '$lib/authManager';
   import { initMessageSubscription, stopMessageSubscription, clearMessages } from '$lib/stores/messages';
-  import { initGroupSubscription, stopGroupSubscription, clearGroups } from '$lib/stores/groups';
+  import { stopGroupSubscription, clearGroups } from '$lib/stores/groups';
   import type { LayoutData } from './$types';
   import ErrorBoundary from '../components/ErrorBoundary.svelte';
   import OfflineIndicator from '../components/OfflineIndicator.svelte';
@@ -218,8 +218,7 @@
           userPublickey.set(state.publicKey);
           // Initialize NIP-17 message subscription
           initMessageSubscription($ndk, state.publicKey);
-          // Initialize NIP-29 group subscription
-          initGroupSubscription($ndk, state.publicKey);
+          // NIP-29 groups init deferred to /groups page to avoid NIP-07 signing contention at startup
         } else {
           userPublickey.set('');
           stopMessageSubscription();
@@ -325,7 +324,9 @@
           <Footer />
         </div>
       </div>
-      <CreateMenuButton variant="floating" />
+      {#if !$page.url.pathname.startsWith('/messages') && !$page.url.pathname.startsWith('/groups')}
+        <CreateMenuButton variant="floating" />
+      {/if}
       <BottomNav />
       <CookingToolsWidget />
       <UserSidePanel />

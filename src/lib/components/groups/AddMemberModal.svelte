@@ -2,6 +2,7 @@
 	import Modal from '../../../components/Modal.svelte';
 	import { addGroupMember } from '$lib/nip29';
 	import { nip19 } from 'nostr-tools';
+	import CheckIcon from 'phosphor-svelte/lib/Check';
 
 	export let open = false;
 	export let groupId: string;
@@ -54,6 +55,7 @@
 			await addGroupMember(groupId, pubkey);
 			success = 'Member added successfully';
 			pubkeyInput = '';
+			setTimeout(() => { open = false; }, 1000);
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Failed to add member';
 			console.error('[Groups] Add member error:', e);
@@ -94,7 +96,10 @@
 		{/if}
 
 		{#if success}
-			<p class="text-xs" style="color: var(--color-primary);">{success}</p>
+			<p class="text-xs flex items-center gap-1 text-green-600">
+				<CheckIcon size={14} weight="bold" />
+				{success}
+			</p>
 		{/if}
 
 		<button

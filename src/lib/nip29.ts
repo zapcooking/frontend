@@ -29,6 +29,7 @@ export interface GroupMetadata {
 	about: string;
 	isPrivate: boolean;
 	isClosed: boolean;
+	isRestricted: boolean;
 }
 
 export interface GroupMessage {
@@ -52,27 +53,19 @@ let authPolicySet = false;
 let pantryAuthPromise: Promise<void> | null = null;
 let pantryAuthResolved = false;
 let resolveAuthPromise: (() => void) | null = null;
+let authedListenerAttached = false;
 
 function getPantryRelaySet(ndkInstance: NDK): NDKRelaySet {
 	return NDKRelaySet.fromRelayUrls([PANTRY_RELAY], ndkInstance, true);
 }
 
 /**
- * Get the pantry relay instance from a relay set.
+ * Get the pantry relay instance from NDK's pool.
  */
 function getPantryRelay(ndkInstance: NDK): any | null {
 	const relaySet = getPantryRelaySet(ndkInstance);
 	const relay = Array.from(relaySet.relays)[0];
 	return relay || null;
-}
-
-/**
- * Check if the pantry relay is connected.
- * Uses connectivity.status === 1 matching the rest of the codebase.
- */
-function isPantryConnected(ndkInstance: NDK): boolean {
-	const relay = getPantryRelay(ndkInstance);
-	return relay?.connectivity?.status === 1;
 }
 
 /**
@@ -90,46 +83,68 @@ function initAuthTracking(): void {
 }
 
 /**
- * Set NIP-42 auto-sign auth policy on the pantry relay.
- * Without this, NDK won't automatically respond to AUTH challenges,
- * and the relay will reject events with "auth-required".
+ * Set NIP-42 auto-sign auth policy on the NDK instance (global default).
  *
- * Also hooks the 'authed' event to resolve the global auth promise.
+ * We use ndk.relayAuthDefaultPolicy instead of relay.authPolicy because
+ * NDKRelaySet.fromRelayUrls() may trigger pool auto-connect, causing the
+ * AUTH challenge to arrive before we can set relay.authPolicy on the
+ * specific relay instance. The global default is checked as a fallback
+ * by NDK for all relays (see NDK source: onAuthRequested).
  */
-function ensureAuthPolicy(ndkInstance: NDK, relay: any): void {
+function ensureAuthPolicy(ndkInstance: NDK): void {
 	if (authPolicySet) return;
-
-	// Initialize auth tracking
 	initAuthTracking();
 
-	relay.authPolicy = async (rel: any, challenge: string) => {
-		console.log('[NIP-29] NIP-42 auth challenge received, signing...');
+	const existingPolicy = ndkInstance.relayAuthDefaultPolicy;
+	ndkInstance.relayAuthDefaultPolicy = async (relay: any, challenge: string) => {
+		const isPantry =
+			relay.url === PANTRY_RELAY ||
+			relay.url === PANTRY_RELAY + '/' ||
+			relay.url?.replace(/\/$/, '') === PANTRY_RELAY;
+
+		if (isPantry) {
+			console.log('[NIP-29] NIP-42 auth challenge received, signing...');
+		}
+
 		const event = new NDKEvent(ndkInstance);
 		event.kind = 22242;
 		event.tags = [
-			['relay', rel.url],
+			['relay', relay.url],
 			['challenge', challenge]
 		];
 		await event.sign();
-		console.log('[NIP-29] NIP-42 auth event signed');
+
+		if (isPantry) {
+			console.log('[NIP-29] NIP-42 auth event signed');
+		}
 		return event;
 	};
 
-	// Listen for auth completion to resolve the global promise
-	relay.on('authed', () => {
-		console.log('[NIP-29] NIP-42 auth completed (global)');
-		if (resolveAuthPromise) resolveAuthPromise();
-	});
+	// If there was an existing policy, we've replaced it with ours which
+	// handles all relays. This is fine — auto-signing AUTH is the standard
+	// NDK pattern (NDKRelayAuthPolicies.signIn).
 
 	authPolicySet = true;
 }
 
 /**
+ * Attach 'authed' event listener to the pantry relay instance.
+ * This resolves the global auth promise when auth completes.
+ */
+function attachAuthedListener(relay: any): void {
+	if (authedListenerAttached) return;
+	relay.on('authed', () => {
+		console.log('[NIP-29] NIP-42 auth completed');
+		if (resolveAuthPromise) resolveAuthPromise();
+	});
+	authedListenerAttached = true;
+}
+
+/**
  * Wait for NIP-42 auth to complete on the pantry relay.
  * Returns immediately if auth already completed.
- * Used by operations that require auth before proceeding.
  */
-async function waitForPantryAuth(timeoutMs = 30000): Promise<boolean> {
+async function waitForPantryAuth(timeoutMs = 15000): Promise<boolean> {
 	if (pantryAuthResolved) return true;
 	if (!pantryAuthPromise) return false;
 
@@ -147,12 +162,11 @@ async function waitForPantryAuth(timeoutMs = 30000): Promise<boolean> {
 }
 
 /**
- * Ensure the pantry relay is connected and ready.
- * Caches the connection promise so multiple callers share one connection attempt.
- * Does NOT block on NIP-42 auth — callers that need auth should use waitForPantryAuth().
+ * Ensure the pantry relay is connected and authenticated.
+ * Caches the connection promise so multiple callers share one attempt.
  */
 async function ensurePantryConnected(ndkInstance: NDK): Promise<void> {
-	// Reset if NDK instance changed (relay switch)
+	// Reset if NDK instance changed
 	if (connectedNdkInstance !== ndkInstance) {
 		pantryConnectionPromise = null;
 		connectedNdkInstance = null;
@@ -160,15 +174,9 @@ async function ensurePantryConnected(ndkInstance: NDK): Promise<void> {
 		pantryAuthPromise = null;
 		pantryAuthResolved = false;
 		resolveAuthPromise = null;
+		authedListenerAttached = false;
 	}
 
-	// Already connected
-	if (isPantryConnected(ndkInstance)) {
-		connectedNdkInstance = ndkInstance;
-		return;
-	}
-
-	// Reuse in-flight connection attempt
 	if (pantryConnectionPromise) {
 		return pantryConnectionPromise;
 	}
@@ -188,63 +196,95 @@ async function ensurePantryConnected(ndkInstance: NDK): Promise<void> {
 async function doPantryConnect(ndkInstance: NDK): Promise<void> {
 	console.log('[NIP-29] Connecting to pantry relay...');
 
+	// 1. Set global auth policy BEFORE getting the relay — this avoids the
+	//    race condition where the pool auto-connects the relay and the AUTH
+	//    challenge arrives before relay.authPolicy is set.
+	ensureAuthPolicy(ndkInstance);
+
+	// 2. Get (or create) the relay in NDK's pool
 	const relay = getPantryRelay(ndkInstance);
 	if (!relay) {
 		throw new Error('Could not create pantry relay instance');
 	}
 
-	// Set NIP-42 auth policy before connecting so AUTH challenges are handled
-	ensureAuthPolicy(ndkInstance, relay);
+	// 3. Attach 'authed' listener on the pool's relay instance
+	attachAuthedListener(relay);
 
-	// Trigger connection
-	try {
-		await relay.connect();
-	} catch {
-		// connect() may throw on immediate failure, we'll poll below
+	// 4. Check if relay already connected (pool may have auto-connected it)
+	const alreadyConnected = relay.connectivity?.status === 1;
+
+	if (alreadyConnected && !pantryAuthResolved) {
+		// Relay connected before our policy was set — AUTH challenge was likely
+		// dropped. Disconnect and reconnect to get a fresh AUTH challenge.
+		console.log('[NIP-29] Relay already connected without auth, reconnecting...');
+		try {
+			await relay.disconnect();
+		} catch {
+			// ignore disconnect errors
+		}
+		await new Promise((r) => setTimeout(r, 200));
 	}
 
-	// Wait for WebSocket connection only — auth is tracked separately
-	await new Promise<void>((resolve, reject) => {
-		const timeoutMs = 15000;
+	if (!alreadyConnected || !pantryAuthResolved) {
+		// Connect (or reconnect)
+		try {
+			await relay.connect();
+		} catch {
+			// connect() may throw, we'll poll below
+		}
 
-		const cleanup = () => {
-			clearTimeout(timer);
-			clearInterval(poller);
-			relay.removeListener('connect', onConnect);
-			relay.removeListener('ready', onConnect);
-		};
+		// Wait for WebSocket open
+		await new Promise<void>((resolve, reject) => {
+			const timeoutMs = 15000;
 
-		const onConnect = () => {
-			cleanup();
-			resolve();
-		};
+			const cleanup = () => {
+				clearTimeout(timer);
+				clearInterval(poller);
+				relay.removeListener('connect', onConnect);
+				relay.removeListener('ready', onConnect);
+			};
 
-		const timer = setTimeout(() => {
-			cleanup();
-			if (relay.connectivity?.status === 1) {
+			const onConnect = () => {
+				cleanup();
 				resolve();
-			} else {
-				reject(new Error('Pantry relay connection timed out'));
-			}
-		}, timeoutMs);
+			};
 
-		const poller = setInterval(() => {
+			const timer = setTimeout(() => {
+				cleanup();
+				if (relay.connectivity?.status === 1) {
+					resolve();
+				} else {
+					reject(new Error('Pantry relay connection timed out'));
+				}
+			}, timeoutMs);
+
+			const poller = setInterval(() => {
+				if (relay.connectivity?.status === 1) {
+					cleanup();
+					resolve();
+				}
+			}, 250);
+
+			relay.on('connect', onConnect);
+			relay.on('ready', onConnect);
+
 			if (relay.connectivity?.status === 1) {
 				cleanup();
 				resolve();
 			}
-		}, 250);
+		});
+	}
 
-		relay.on('connect', onConnect);
-		relay.on('ready', onConnect);
+	console.log('[NIP-29] Pantry relay connected, waiting for auth...');
 
-		if (relay.connectivity?.status === 1) {
-			cleanup();
-			resolve();
-		}
-	});
-
-	console.log('[NIP-29] Pantry relay WebSocket open (auth completing in background)');
+	// 5. Wait for NIP-42 auth to complete (should be fast now that
+	//    the global policy is in place and NIP-07 isn't contending)
+	const authed = await waitForPantryAuth(15000);
+	if (authed) {
+		console.log('[NIP-29] Pantry relay authenticated and ready');
+	} else {
+		console.warn('[NIP-29] Auth timeout — proceeding (operations may fail)');
+	}
 }
 
 /**
@@ -252,16 +292,6 @@ async function doPantryConnect(ndkInstance: NDK): Promise<void> {
  */
 async function ensurePantryAuthed(ndkInstance: NDK): Promise<void> {
 	await ensurePantryConnected(ndkInstance);
-
-	if (!pantryAuthResolved) {
-		console.log('[NIP-29] Waiting for NIP-42 auth to complete...');
-		const authed = await waitForPantryAuth(30000);
-		if (authed) {
-			console.log('[NIP-29] Pantry relay authenticated and ready');
-		} else {
-			console.warn('[NIP-29] Proceeding without confirmed auth (may fail)');
-		}
-	}
 }
 
 /**
@@ -274,6 +304,7 @@ export function resetPantryConnection() {
 	pantryAuthPromise = null;
 	pantryAuthResolved = false;
 	resolveAuthPromise = null;
+	authedListenerAttached = false;
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -328,6 +359,7 @@ function parseGroupMetadata(event: NDKEvent): GroupMetadata | null {
 	const aboutTag = event.tags.find((t) => t[0] === 'about');
 	const isPrivate = event.tags.some((t) => t[0] === 'private');
 	const isClosed = event.tags.some((t) => t[0] === 'closed');
+	const isRestricted = event.tags.some((t) => t[0] === 'restricted');
 
 	return {
 		id: dTag[1],
@@ -335,8 +367,52 @@ function parseGroupMetadata(event: NDKEvent): GroupMetadata | null {
 		picture: pictureTag?.[1] || '',
 		about: aboutTag?.[1] || '',
 		isPrivate,
-		isClosed
+		isClosed,
+		isRestricted
 	};
+}
+
+// ═══════════════════════════════════════════════════════════════
+// GROUP MEMBERS
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Fetch group members (kind 39002) for a specific group from the pantry relay.
+ * These events are signed by the relay and contain `p` tags with member pubkeys.
+ */
+export async function fetchGroupMembers(
+	ndkInstance: NDK,
+	groupId: string
+): Promise<string[]> {
+	await ensurePantryAuthed(ndkInstance);
+	const relaySet = getPantryRelaySet(ndkInstance);
+
+	return new Promise((resolve) => {
+		const members: string[] = [];
+		const timeoutId = setTimeout(() => {
+			sub.stop();
+			resolve(members);
+		}, 8000);
+
+		const sub = ndkInstance.subscribe(
+			{ kinds: [39002 as number], '#d': [groupId] },
+			{ closeOnEose: true },
+			relaySet
+		);
+
+		sub.on('event', (event: NDKEvent) => {
+			for (const tag of event.tags) {
+				if (tag[0] === 'p' && tag[1]) {
+					members.push(tag[1]);
+				}
+			}
+		});
+
+		sub.on('eose', () => {
+			clearTimeout(timeoutId);
+			resolve(members);
+		});
+	});
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -646,4 +722,118 @@ export async function joinGroup(groupId: string): Promise<void> {
 	await publishWithAuthRetry(event, relaySet, ndkInstance);
 
 	console.log('[NIP-29] Join request sent for group', groupId);
+}
+
+/**
+ * Edit group metadata via kind 9002 (edit-metadata).
+ * Supports updating name, about, and picture fields.
+ */
+export async function editGroupMetadata(
+	groupId: string,
+	fields: { name?: string; about?: string; picture?: string; visibility?: 'public' | 'members-only' }
+): Promise<void> {
+	const ndkInstance = get(ndk);
+	const senderPubkey = get(userPublickey);
+
+	if (!senderPubkey) throw new Error('Not logged in');
+
+	await ensurePantryAuthed(ndkInstance);
+
+	const event = new NDKEvent(ndkInstance);
+	event.kind = 9002;
+	event.content = '';
+	event.tags = [['h', groupId]];
+	if (fields.name !== undefined) event.tags.push(['name', fields.name]);
+	if (fields.about !== undefined) event.tags.push(['about', fields.about]);
+	if (fields.picture !== undefined) event.tags.push(['picture', fields.picture]);
+	if (fields.visibility === 'public') {
+		event.tags.push(['public']);
+		event.tags.push(['unrestricted']);
+	} else if (fields.visibility === 'members-only') {
+		event.tags.push(['private']);
+		event.tags.push(['restricted']);
+	}
+
+	await event.sign();
+
+	const relaySet = getPantryRelaySet(ndkInstance);
+	await publishWithAuthRetry(event, relaySet, ndkInstance);
+
+	console.log('[NIP-29] Group metadata updated for', groupId);
+}
+
+/**
+ * Delete a group by sending a kind 9008 (delete-group) event.
+ * Only group admins can delete groups.
+ */
+export async function deleteGroup(groupId: string): Promise<void> {
+	const ndkInstance = get(ndk);
+	const senderPubkey = get(userPublickey);
+
+	if (!senderPubkey) throw new Error('Not logged in');
+
+	await ensurePantryAuthed(ndkInstance);
+
+	const event = new NDKEvent(ndkInstance);
+	event.kind = 9008;
+	event.content = '';
+	event.tags = [['h', groupId]];
+
+	await event.sign();
+
+	const relaySet = getPantryRelaySet(ndkInstance);
+	await publishWithAuthRetry(event, relaySet, ndkInstance);
+
+	console.log('[NIP-29] Group deleted:', groupId);
+}
+
+/**
+ * Upload an image to nostr.build and return the URL.
+ * Uses NIP-98 HTTP Auth for authentication.
+ */
+export async function uploadGroupPicture(file: File): Promise<string> {
+	const ndkInstance = get(ndk);
+
+	if (!ndkInstance.signer) throw new Error('Not authenticated');
+
+	const url = 'https://nostr.build/api/v2/upload/files';
+
+	const template = new NDKEvent(ndkInstance);
+	template.kind = 27235;
+	template.created_at = Math.floor(Date.now() / 1000);
+	template.content = '';
+	template.tags = [
+		['u', url],
+		['method', 'POST']
+	];
+	await template.sign();
+
+	const authEvent = {
+		id: template.id,
+		pubkey: template.pubkey,
+		created_at: template.created_at,
+		kind: template.kind,
+		tags: template.tags,
+		content: template.content,
+		sig: template.sig
+	};
+
+	const body = new FormData();
+	body.append('file[]', file);
+
+	const response = await fetch(url, {
+		method: 'POST',
+		headers: {
+			Authorization: `Nostr ${btoa(JSON.stringify(authEvent))}`
+		},
+		body
+	});
+
+	if (!response.ok) throw new Error('Upload failed');
+
+	const result = await response.json();
+	const imageUrl = result?.data?.[0]?.url;
+	if (!imageUrl) throw new Error('No URL returned from upload');
+
+	return imageUrl;
 }

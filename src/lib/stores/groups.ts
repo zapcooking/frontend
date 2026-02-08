@@ -11,6 +11,7 @@ import type NDK from '@nostr-dev-kit/ndk';
 import type { GroupMetadata, GroupMessage } from '$lib/nip29';
 import {
 	fetchGroups,
+	fetchGroupMembers,
 	fetchGroupMessages,
 	subscribeToGroupMessages,
 	resetPantryConnection
@@ -27,7 +28,9 @@ export interface Group {
 	about: string;
 	isPrivate: boolean;
 	isClosed: boolean;
+	isRestricted: boolean;
 	messages: GroupMessage[];
+	members: string[];
 	lastMessageAt: number;
 }
 
@@ -88,7 +91,9 @@ export function addGroupMessage(message: GroupMessage) {
 				about: '',
 				isPrivate: false,
 				isClosed: false,
+				isRestricted: false,
 				messages: [message],
+				members: [],
 				lastMessageAt: message.created_at
 			});
 		}
@@ -110,14 +115,38 @@ export function setGroupMetadata(metadata: GroupMetadata) {
 			existing.about = metadata.about;
 			existing.isPrivate = metadata.isPrivate;
 			existing.isClosed = metadata.isClosed;
+			existing.isRestricted = metadata.isRestricted;
 		} else {
 			$groups.set(metadata.id, {
 				...metadata,
 				messages: [],
+				members: [],
 				lastMessageAt: 0
 			});
 		}
 
+		return new Map($groups);
+	});
+}
+
+/**
+ * Set group members list.
+ */
+export function setGroupMembers(groupId: string, members: string[]) {
+	groups.update(($groups) => {
+		const existing = $groups.get(groupId);
+		if (existing) {
+			existing.members = members;
+			return new Map($groups);
+		}
+		return $groups;
+	});
+}
+
+/** Remove a group from the store. */
+export function removeGroup(groupId: string) {
+	groups.update(($groups) => {
+		$groups.delete(groupId);
 		return new Map($groups);
 	});
 }
@@ -172,7 +201,18 @@ export async function initGroupSubscription(ndkInstance: NDK, userPubkey: string
 		groupsInitialized.set(true);
 		console.log('[Groups] Subscription active, fetched', groupList.length, 'groups');
 
-		// 3. Load historical messages for each group in background
+		// 3. Load members for each group in background
+		for (const meta of groupList) {
+			fetchGroupMembers(ndkInstance, meta.id)
+				.then((members) => {
+					setGroupMembers(meta.id, members);
+				})
+				.catch((e) => {
+					console.warn('[Groups] Failed to load members for group', meta.id, e);
+				});
+		}
+
+		// 4. Load historical messages for each group in background
 		for (const meta of groupList) {
 			fetchGroupMessages(ndkInstance, meta.id)
 				.then((messages) => {

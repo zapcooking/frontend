@@ -21,6 +21,7 @@
   import WalletIcon from 'phosphor-svelte/lib/Wallet';
 
   import { totalUnreadCount } from '$lib/stores/messages';
+  import { userSidePanelOpen } from '$lib/stores/userSidePanel';
 
   $: pathname = $page.url.pathname;
   $: resolvedTheme = $theme === 'system' ? theme.getResolvedTheme() : $theme;
@@ -132,9 +133,14 @@
       event.preventDefault();
     }
   }
+
 </script>
 
-<aside class="hidden lg:block lg:w-72 xl:w-80 fixed top-0 left-0 h-screen z-10">
+<aside
+  class="hidden lg:block lg:w-72 xl:w-80 fixed top-0 left-0 h-screen z-10 transition-opacity duration-300"
+  class:opacity-0={$userSidePanelOpen}
+  class:pointer-events-none={$userSidePanelOpen}
+>
   <div class="h-full overflow-y-auto p-3" style="background-color: var(--color-bg-primary);">
     <!-- Logo aligned with header position -->
     <a href="/community" class="block pl-2 py-3">
