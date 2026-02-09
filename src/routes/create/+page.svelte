@@ -102,8 +102,9 @@
       }, 2000);
     } else {
       // Draft not found: clear current draft state and URL param, and show an error message.
+      console.error(`[Create] Draft ${draftId} not found`);
       currentDraftId = null;
-      draftSaveMessage = 'Draft not found';
+      draftSaveMessage = 'Draft not found. It may have been deleted.';
       if (browser) {
         const url = new URL(window.location.href);
         url.searchParams.delete('draft');
@@ -111,7 +112,7 @@
       }
       setTimeout(() => {
         draftSaveMessage = '';
-      }, 2000);
+      }, 4000);
     }
   }
 
@@ -282,7 +283,7 @@
 
         await event.publish();
         resultMessage = 'Success! Redirecting to your recipe...';
-        
+
         const naddr = nip19.naddrEncode({
           identifier: title.toLowerCase().replaceAll(' ', '-'),
           pubkey: event.author.hexpubkey,
