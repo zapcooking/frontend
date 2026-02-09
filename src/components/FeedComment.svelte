@@ -457,7 +457,7 @@
     }
 
     const textBeforeCursor = getTextBeforeCursor(replyComposerEl);
-    const mentionMatch = textBeforeCursor.match(/@([^\s@]*)$/);
+    const mentionMatch = textBeforeCursor.match(/@([^@]*)$/);
 
     if (mentionMatch) {
       mentionQuery = mentionMatch[1] || '';
@@ -647,10 +647,23 @@
     const selection = window.getSelection();
     if (!selection || selection.rangeCount === 0) return;
     const textBeforeCursor = getTextBeforeCursor(replyComposerEl);
-    const mentionMatch = textBeforeCursor.match(/@([^\s@]*)$/);
+    const mentionMatch = textBeforeCursor.match(/@([^@]*)$/);
 
     if (mentionMatch?.[0]) {
       deleteCharsBeforeCursor(mentionMatch[0].length);
+    }
+
+    const textAfterDeletion = getTextBeforeCursor(replyComposerEl);
+    const needsLeadingSpace = textAfterDeletion.length > 0 && !/\s$/.test(textAfterDeletion);
+    
+    if (needsLeadingSpace) {
+      const spaceNode = document.createTextNode(' ');
+      const range = selection.getRangeAt(0);
+      range.insertNode(spaceNode);
+      range.setStartAfter(spaceNode);
+      range.collapse(true);
+      selection.removeAllRanges();
+      selection.addRange(range);
     }
 
     const mention = `nostr:${user.npub}`;
@@ -1423,7 +1436,7 @@
 
   .mention-dropdown {
     position: absolute;
-    z-index: 50;
+    z-index: 1000;
     top: 100%;
     left: 0;
     margin-top: 0.25rem;
