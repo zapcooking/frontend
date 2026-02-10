@@ -426,6 +426,7 @@
           <div class="text-sm text-caption italic">Loading membership status...</div>
         {:else if membershipData?.found && membershipData.member}
           {@const member = membershipData.member}
+          {@const validTier = (['open', 'cook', 'pro'].includes(member.tier) ? member.tier : 'cook')}
           {@const expiryDate = new Date(member.subscription_end)}
 
           <!-- Current Plan -->
@@ -434,7 +435,7 @@
             style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);"
           >
             <div class="flex items-center gap-3">
-              <MembershipBadge tier={member.tier} size="lg" showLabel />
+              <MembershipBadge tier={validTier} size="lg" showLabel />
               <div>
                 {#if membershipData.isActive}
                   <span
