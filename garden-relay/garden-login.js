@@ -169,9 +169,16 @@
     if (_nostrToolsP) return _nostrToolsP;
 
     _nostrToolsP = new Promise(function (resolve, reject) {
-      var s = document.createElement('script');
-      s.src =
+      // NOTE: If you change this URL or upgrade nostr-tools, update the SRI hash.
+      var NOSTR_TOOLS_CDN_SRC =
         'https://cdn.jsdelivr.net/npm/nostr-tools@1.17.0/lib/nostr.bundle.js';
+      var NOSTR_TOOLS_INTEGRITY =
+        'sha256-REPLACE_WITH_REAL_SRI_HASH_FOR_NOSTR_BUNDLE_JS';
+
+      var s = document.createElement('script');
+      s.src = NOSTR_TOOLS_CDN_SRC;
+      s.integrity = NOSTR_TOOLS_INTEGRITY;
+      s.crossOrigin = 'anonymous';
       s.onload = function () {
         window.NostrTools
           ? resolve(window.NostrTools)
