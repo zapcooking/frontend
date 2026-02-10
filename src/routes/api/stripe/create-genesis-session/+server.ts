@@ -33,7 +33,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 
   try {
     const body = await request.json();
-    const { successUrl, cancelUrl, customerEmail } = body;
+    const { successUrl, cancelUrl, customerEmail, pubkey } = body;
     
     if (!successUrl || !cancelUrl) {
       return json(
@@ -80,6 +80,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
       metadata: {
         tier: 'genesis_founder',
         type: 'lifetime',
+        ...(pubkey ? { pubkey } : {}),
       },
     });
     

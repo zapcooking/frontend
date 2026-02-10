@@ -54,6 +54,7 @@ export async function createCheckoutSession(params: {
   successUrl: string;
   cancelUrl: string;
   customerEmail?: string;
+  pubkey?: string;
 }): Promise<{ sessionId: string; url: string }> {
   const stripe = await getStripeInstance();
   
@@ -99,6 +100,7 @@ export async function createCheckoutSession(params: {
     metadata: {
       tier: params.tier,
       period: params.period,
+      ...(params.pubkey ? { pubkey: params.pubkey } : {}),
     },
   });
   

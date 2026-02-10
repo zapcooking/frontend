@@ -107,6 +107,7 @@
           successUrl,
           cancelUrl,
           customerEmail: undefined,
+          pubkey: $userPublickey,
         }),
       });
 
