@@ -28,12 +28,6 @@
       var raw = p.pop().split(';').shift();
       try {
         return decodeURIComponent(raw);
-      } catch (e) {
-        return raw;
-      }
-    }
-  }
-
   function setCookie(name, value) {
     var encodedValue = encodeURIComponent(value);
     var cookie = name + '=' + encodedValue + '; path=/; SameSite=Lax';
