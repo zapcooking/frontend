@@ -171,8 +171,10 @@ fi
 
 # Set permissions
 chown -R www-data:www-data "$WEB_ROOT"
-chmod -R 644 "$WEB_ROOT"/*
-chmod 755 "$WEB_ROOT" "$WEB_ROOT/fonts"
+# Set directory permissions (755 = rwxr-xr-x)
+find "$WEB_ROOT" -type d -exec chmod 755 {} +
+# Set file permissions (644 = rw-r--r--)
+find "$WEB_ROOT" -type f -exec chmod 644 {} +
 
 echo ""
 
