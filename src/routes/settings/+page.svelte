@@ -258,14 +258,14 @@
   }
 
   async function openCustomerPortal() {
-    if (!membershipData?.member?.payment_id) return;
+    if (!pk) return;
     portalLoading = true;
     try {
       const res = await fetch('/api/stripe/create-portal-session', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          sessionId: membershipData.member.payment_id,
+          pubkey: pk,
           returnUrl: window.location.href
         })
       });
