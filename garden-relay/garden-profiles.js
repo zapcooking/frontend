@@ -141,7 +141,7 @@
 
     // Update display name in the cloned link
     var clonedLink = wrapper.querySelector('a');
-    if (clonedLink && profile.display_name || profile.name) {
+    if (clonedLink && (profile.display_name || profile.name)) {
       var displayName = profile.display_name || profile.name;
       // Find the nostr-name in the cloned link and override its text
       var clonedNostrName = clonedLink.querySelector('nostr-name');
