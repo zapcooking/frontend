@@ -32,7 +32,7 @@
     }
   };
 
-  $: config = tierConfig[tier];
+  $: config = tierConfig[tier] || tierConfig.open;
   $: IconComponent = config.icon;
   $: sizeConfig = {
     sm: { iconSize: 12, text: 'text-[10px]', padding: 'p-0.5', gap: 'gap-0.5' },

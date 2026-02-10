@@ -36,7 +36,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
     const body = await request.json();
     
     // Validate required fields
-    const { tier, period, successUrl, cancelUrl, customerEmail } = body;
+    const { tier, period, successUrl, cancelUrl, customerEmail, pubkey } = body;
     
     if (!tier || !['cook', 'pro'].includes(tier)) {
       return json(
@@ -66,6 +66,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
       successUrl,
       cancelUrl,
       customerEmail,
+      pubkey,
     });
     
     return json({
@@ -76,15 +77,8 @@ export const POST: RequestHandler = async ({ request, platform }) => {
   } catch (error: any) {
     console.error('[Stripe API] Error creating checkout session:', error);
     
-    // Don't expose internal error details in production
     return json(
-      { 
-        error: error.message || 'Failed to create checkout session',
-        // Include helpful message if Stripe key is missing
-        ...(error.message?.includes('STRIPE_SECRET_KEY') 
-          ? { hint: 'Stripe secret key is not configured. Please set STRIPE_SECRET_KEY environment variable.' }
-          : {})
-      },
+      { error: 'Failed to create checkout session' },
       { status: 500 }
     );
   }

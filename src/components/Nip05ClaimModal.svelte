@@ -11,6 +11,7 @@
   export let pubkey: string;
   export let tier: 'cook' | 'pro';
   export let currentNip05: string | null = null; // If user already has a NIP-05
+  export let skipProfileUpdate: boolean = false; // If true, only claim without updating Nostr profile
 
   const dispatch = createEventDispatcher();
 
@@ -90,16 +91,22 @@
 
       claimedNip05 = result.nip05 || '';
 
-      // Update user's profile with NIP-05
-      const updated = await updateProfileWithNip05($ndk, pubkey, claimedNip05);
-      
-      if (!updated) {
-        error = 'NIP-05 claimed but failed to update profile. You can add it manually in settings.';
-        // Still show success since it was claimed
-        success = true;
-      } else {
+      if (skipProfileUpdate) {
+        // Only claim, let the parent handle profile update
         success = true;
         dispatch('claimed', { nip05: claimedNip05 });
+      } else {
+        // Update user's profile with NIP-05
+        const updated = await updateProfileWithNip05($ndk, pubkey, claimedNip05);
+
+        if (!updated) {
+          error = 'NIP-05 claimed but failed to update profile. You can add it manually in settings.';
+          // Still show success since it was claimed
+          success = true;
+        } else {
+          success = true;
+          dispatch('claimed', { nip05: claimedNip05 });
+        }
       }
     } catch (err) {
       error = 'Failed to claim NIP-05. Please try again.';

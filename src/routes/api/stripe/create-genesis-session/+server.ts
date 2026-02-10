@@ -33,7 +33,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 
   try {
     const body = await request.json();
-    const { successUrl, cancelUrl, customerEmail } = body;
+    const { successUrl, cancelUrl, customerEmail, pubkey } = body;
     
     if (!successUrl || !cancelUrl) {
       return json(
@@ -42,10 +42,11 @@ export const POST: RequestHandler = async ({ request, platform }) => {
       );
     }
     
-    const stripeKey = env.STRIPE_SECRET_KEY;
+    const stripeKey = platform?.env?.STRIPE_SECRET_KEY || env.STRIPE_SECRET_KEY;
     if (!stripeKey) {
+      console.error('[Genesis Stripe API] STRIPE_SECRET_KEY not configured');
       return json(
-        { error: 'STRIPE_SECRET_KEY not configured' },
+        { error: 'Payment service unavailable' },
         { status: 500 }
       );
     }
@@ -80,6 +81,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
       metadata: {
         tier: 'genesis_founder',
         type: 'lifetime',
+        ...(pubkey ? { pubkey } : {}),
       },
     });
     
@@ -96,9 +98,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
     console.error('[Genesis Stripe API] Error creating checkout session:', error);
     
     return json(
-      { 
-        error: error.message || 'Failed to create checkout session',
-      },
+      { error: 'Failed to create checkout session' },
       { status: 500 }
     );
   }
