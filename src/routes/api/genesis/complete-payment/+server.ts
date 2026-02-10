@@ -73,6 +73,14 @@ export const POST: RequestHandler = async ({ request, platform }) => {
       return json({ error: 'Pubkey does not match payment session' }, { status: 403 });
     }
 
+    // Ensure this Checkout Session is for the Genesis Founder tier
+    const EXPECTED_TIER = platform?.env?.GENESIS_TIER || env.GENESIS_TIER || 'genesis-founder';
+    if (!session.metadata || session.metadata.tier !== EXPECTED_TIER) {
+      return json(
+        { error: 'Payment session is not for the Genesis Founder tier' },
+        { status: 400 }
+      );
+    }
     // Get current founders to determine founder number
     const membersRes = await fetch('https://pantry.zap.cooking/api/members', {
       headers: {
