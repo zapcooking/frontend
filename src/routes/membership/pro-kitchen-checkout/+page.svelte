@@ -39,7 +39,7 @@
     const sessionId = $page.url.searchParams.get('session_id');
     
     if (paymentStatus === 'success' && sessionId) {
-      goto(`/membership/pro-kitchen-success?payment_method=stripe&session_id=${sessionId}`);
+      goto(`/membership/confirmation?tier=pro&payment_method=stripe&session_id=${sessionId}`);
     }
     
     // Fetch Bitcoin price quote
@@ -256,7 +256,7 @@
         if (data.nip05Username) {
           params.set('nip05_username', data.nip05Username);
         }
-        goto(`/membership/pro-kitchen-success?${params.toString()}`);
+        goto(`/membership/confirmation?${params.toString()}`);
       } else {
         throw new Error('Payment verification failed');
       }
@@ -691,7 +691,8 @@
   .payment-method-header {
     display: flex;
     align-items: center;
-    gap: 0.75rem;
+    gap: 0.5rem 0.75rem;
+    flex-wrap: wrap;
   }
 
   .payment-icon {
@@ -808,5 +809,27 @@
 
   html.dark .payment-method-option.selected {
     background: rgba(255, 87, 34, 0.15);
+  }
+
+  @media (max-width: 480px) {
+    .payment-method-option {
+      padding: 0.75rem;
+    }
+
+    .payment-method-option input[type="radio"] {
+      margin-right: 0.6rem;
+    }
+
+    .payment-icon {
+      font-size: 1.25rem;
+    }
+
+    .payment-name {
+      font-size: 0.9rem;
+    }
+
+    .discount-badge {
+      margin-left: 0;
+    }
   }
 </style>
