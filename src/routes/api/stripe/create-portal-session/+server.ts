@@ -8,7 +8,7 @@
  *
  * Body:
  * {
- *   sessionId: string,   // Original Stripe checkout session ID
+ *   pubkey: string,      // User's public key (used to find Stripe customer)
  *   returnUrl: string     // URL to redirect back to after portal
  * }
  *
@@ -30,20 +30,26 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 
   try {
     const body = await request.json();
-    const { sessionId, returnUrl } = body;
+    const { pubkey, returnUrl } = body;
 
-    if (!sessionId) {
-      return json({ error: 'sessionId is required' }, { status: 400 });
+    if (!pubkey) {
+      return json({ error: 'pubkey is required' }, { status: 400 });
     }
 
     if (!returnUrl) {
       return json({ error: 'returnUrl is required' }, { status: 400 });
     }
 
+    // Validate pubkey format
+    if (!/^[0-9a-fA-F]{64}$/.test(pubkey)) {
+      return json({ error: 'Invalid pubkey format' }, { status: 400 });
+    }
+
     // Get Stripe secret key
     const stripeKey = platform?.env?.STRIPE_SECRET_KEY || env.STRIPE_SECRET_KEY;
     if (!stripeKey) {
-      return json({ error: 'STRIPE_SECRET_KEY not configured' }, { status: 500 });
+      console.error('[Stripe Portal] STRIPE_SECRET_KEY not configured');
+      return json({ error: 'Payment service unavailable' }, { status: 500 });
     }
 
     // Dynamic import to avoid Cloudflare Workers build issues
@@ -53,19 +59,28 @@ export const POST: RequestHandler = async ({ request, platform }) => {
       typescript: true,
     });
 
-    // Retrieve the original checkout session to get the customer ID
-    const checkoutSession = await stripe.checkout.sessions.retrieve(sessionId);
+    // Find the customer by searching checkout sessions with this pubkey in metadata
+    const sessions = await stripe.checkout.sessions.list({
+      limit: 10,
+    });
 
-    if (!checkoutSession.customer) {
-      return json(
-        { error: 'No customer associated with this session' },
-        { status: 400 }
-      );
+    let customerId: string | null = null;
+
+    for (const session of sessions.data) {
+      if (session.metadata?.pubkey === pubkey && session.customer) {
+        customerId = typeof session.customer === 'string'
+          ? session.customer
+          : session.customer.id;
+        break;
+      }
     }
 
-    const customerId = typeof checkoutSession.customer === 'string'
-      ? checkoutSession.customer
-      : checkoutSession.customer.id;
+    if (!customerId) {
+      return json(
+        { error: 'No Stripe subscription found for this account' },
+        { status: 404 }
+      );
+    }
 
     // Create portal session
     const portalSession = await stripe.billingPortal.sessions.create({
@@ -78,7 +93,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
     console.error('[Stripe Portal] Error creating portal session:', error);
 
     return json(
-      { error: error.message || 'Failed to create portal session' },
+      { error: 'Failed to create portal session' },
       { status: 500 }
     );
   }

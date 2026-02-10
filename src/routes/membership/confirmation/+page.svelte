@@ -81,13 +81,15 @@
     if (!validation.valid) {
       validationError = validation.error || null;
       isAvailable = null;
+      isChecking = false;
     } else {
       validationError = null;
       isChecking = true;
+      const capturedUsername = username;
       checkTimeout = setTimeout(async () => {
-        const available = await checkUsernameAvailable(username);
-        // Only update if username hasn't changed during the check
-        if (username === username) {
+        const available = await checkUsernameAvailable(capturedUsername);
+        // Only update if username hasn't changed during the async check
+        if (username === capturedUsername) {
           isAvailable = available;
           isChecking = false;
           if (!available) {
@@ -121,6 +123,11 @@
     if (paymentMethod === 'lightning') {
       nip05 = nip05Param;
       nip05Username = nip05UsernameParam;
+      // If NIP-05 was already assigned during payment, show success state
+      if (nip05Username) {
+        chosenName = nip05Username;
+        confirmed = true;
+      }
       loading = false;
       setTimeout(() => { showContent = true; }, 100);
       initConfetti();
@@ -165,6 +172,11 @@
       nip05 = data.nip05 || null;
       nip05Username = data.nip05Username || null;
       if (data.founderNumber) founderNumber = data.founderNumber.toString();
+      // If NIP-05 was already assigned during payment, show success state
+      if (nip05Username) {
+        chosenName = nip05Username;
+        confirmed = true;
+      }
 
       loading = false;
       setTimeout(() => { showContent = true; }, 100);
@@ -243,7 +255,7 @@
   // --- Username claim ---
   function handleUsernameInput(e: Event) {
     const input = e.target as HTMLInputElement;
-    username = input.value.toLowerCase().replace(/[^a-z0-9_-]/g, '');
+    username = input.value.toLowerCase().replace(/[^a-z0-9_]/g, '');
   }
 
   async function claimUsername(name: string) {
@@ -380,6 +392,10 @@
               on:focus={() => (isFocused = true)}
               on:blur={() => (isFocused = false)}
               class="username-input"
+              autocapitalize="none"
+              autocorrect="off"
+              autocomplete="off"
+              spellcheck="false"
             />
             <span class="input-suffix">@zap.cooking</span>
           </div>

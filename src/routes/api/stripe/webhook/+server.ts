@@ -18,23 +18,6 @@ import { json, type RequestHandler } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
 import { registerMember } from '$lib/memberRegistration.server';
 
-/**
- * GET handler — endpoint health check
- */
-export const GET: RequestHandler = async () => {
-  return json({
-    status: 'ok',
-    endpoint: '/api/stripe/webhook',
-    description: 'Stripe webhook endpoint for membership payments',
-    method: 'POST',
-    events: [
-      'checkout.session.completed',
-      'customer.subscription.updated',
-      'customer.subscription.deleted',
-    ],
-  });
-};
-
 export const POST: RequestHandler = async ({ request, platform }) => {
   // Membership feature flag guard
   const MEMBERSHIP_ENABLED = platform?.env?.MEMBERSHIP_ENABLED || env.MEMBERSHIP_ENABLED;
@@ -47,14 +30,14 @@ export const POST: RequestHandler = async ({ request, platform }) => {
     const stripeKey = platform?.env?.STRIPE_SECRET_KEY || env.STRIPE_SECRET_KEY;
     if (!stripeKey) {
       console.error('[Stripe Webhook] STRIPE_SECRET_KEY not configured');
-      return json({ error: 'STRIPE_SECRET_KEY not configured' }, { status: 500 });
+      return json({ error: 'Payment service unavailable' }, { status: 500 });
     }
 
     // Get webhook signing secret
     const webhookSecret = platform?.env?.STRIPE_WEBHOOK_SECRET || env.STRIPE_WEBHOOK_SECRET;
     if (!webhookSecret) {
       console.error('[Stripe Webhook] STRIPE_WEBHOOK_SECRET not configured');
-      return json({ error: 'STRIPE_WEBHOOK_SECRET not configured' }, { status: 500 });
+      return json({ error: 'Payment service unavailable' }, { status: 500 });
     }
 
     // Read raw body for signature verification
@@ -123,7 +106,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
     return json({ received: true });
   } catch (error: any) {
     console.error('[Stripe Webhook] Error processing webhook:', error);
-    return json({ error: error.message || 'Webhook processing failed' }, { status: 500 });
+    return json({ error: 'Webhook processing failed' }, { status: 500 });
   }
 };
 

@@ -115,14 +115,32 @@ export async function registerMember(params: RegisterMemberParams): Promise<Regi
     throw new Error(errorData.error || `Failed to add member: ${addMemberRes.status}`);
   }
 
-  // Auto-claim NIP-05 for the new member
-  let nip05: string | null = null;
-  let nip05Username: string | null = null;
+  const { nip05, nip05Username } = await autoClaimNip05({ pubkey, tier, apiSecret });
+
+  return {
+    success: true,
+    alreadyExists: false,
+    subscriptionEnd: subscriptionEnd.toISOString(),
+    nip05,
+    nip05Username,
+  };
+}
+
+/**
+ * Auto-claim a NIP-05 identifier for a member.
+ *
+ * Tries pubkey prefix first, then a fallback with timestamp suffix.
+ * Never throws — returns nulls on failure so callers don't need to handle errors.
+ */
+export async function autoClaimNip05(params: {
+  pubkey: string;
+  tier: 'cook' | 'pro';
+  apiSecret: string;
+}): Promise<{ nip05: string | null; nip05Username: string | null }> {
+  const { pubkey, tier, apiSecret } = params;
 
   try {
     const suggestedUsername = pubkey.substring(0, 8).toLowerCase();
-
-    console.log('[registerMember] Auto-claiming NIP-05:', suggestedUsername);
 
     const nip05Res = await fetch('https://pantry.zap.cooking/api/nip05/claim', {
       method: 'POST',
@@ -133,49 +151,44 @@ export async function registerMember(params: RegisterMemberParams): Promise<Regi
       body: JSON.stringify({
         username: suggestedUsername,
         pubkey,
-        tier: tier as 'cook' | 'pro',
+        tier,
       }),
     });
 
     if (nip05Res.ok) {
-      nip05Username = suggestedUsername;
-      nip05 = `${suggestedUsername}@zap.cooking`;
-      console.log('[registerMember] NIP-05 claimed:', nip05);
-    } else {
-      // If default username fails, try with timestamp suffix
-      const fallbackUsername = `${pubkey.substring(0, 6)}${Date.now().toString(36).slice(-2)}`.toLowerCase();
-
-      const fallbackRes = await fetch('https://pantry.zap.cooking/api/nip05/claim', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${apiSecret}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          username: fallbackUsername,
-          pubkey,
-          tier: tier as 'cook' | 'pro',
-        }),
-      });
-
-      if (fallbackRes.ok) {
-        nip05Username = fallbackUsername;
-        nip05 = `${fallbackUsername}@zap.cooking`;
-        console.log('[registerMember] NIP-05 claimed (fallback):', nip05);
-      } else {
-        console.warn('[registerMember] Could not auto-claim NIP-05');
-      }
+      return {
+        nip05: `${suggestedUsername}@zap.cooking`,
+        nip05Username: suggestedUsername,
+      };
     }
-  } catch (nip05Error) {
-    // NIP-05 claim is optional — don't fail the registration
-    console.warn('[registerMember] NIP-05 auto-claim error:', nip05Error);
+
+    // If default username fails, try with timestamp suffix
+    const fallbackUsername = `${pubkey.substring(0, 6)}${Date.now().toString(36).slice(-2)}`.toLowerCase();
+
+    const fallbackRes = await fetch('https://pantry.zap.cooking/api/nip05/claim', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiSecret}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        username: fallbackUsername,
+        pubkey,
+        tier,
+      }),
+    });
+
+    if (fallbackRes.ok) {
+      return {
+        nip05: `${fallbackUsername}@zap.cooking`,
+        nip05Username: fallbackUsername,
+      };
+    }
+
+    console.warn('[autoClaimNip05] Could not auto-claim NIP-05');
+  } catch (err) {
+    console.warn('[autoClaimNip05] NIP-05 auto-claim error:', err);
   }
 
-  return {
-    success: true,
-    alreadyExists: false,
-    subscriptionEnd: subscriptionEnd.toISOString(),
-    nip05,
-    nip05Username,
-  };
+  return { nip05: null, nip05Username: null };
 }
