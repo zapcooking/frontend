@@ -43,6 +43,8 @@
   import BitcoinConnectLogo from '../../components/icons/BitcoinConnectLogo.svelte';
   import { onMount } from 'svelte';
   import { get } from 'svelte/store';
+  import MembershipBadge from '../../components/MembershipBadge.svelte';
+  import type { MembershipTier } from '$lib/membershipStore';
 
   // Relays state
   let relays: string[] = [];
@@ -176,6 +178,7 @@
   onMount(() => {
     updateConnectedRelays();
     fetchNIP65Relays();
+    fetchMembershipStatus();
     // Update connection status periodically
     const interval = setInterval(updateConnectedRelays, 5000);
     return () => clearInterval(interval);
@@ -202,6 +205,24 @@
   let showPrivkey = false;
   let copiedKey = '';
 
+  // Membership state
+  let membershipLoading = false;
+  let membershipData: {
+    found: boolean;
+    isActive?: boolean;
+    isExpired?: boolean;
+    member?: {
+      pubkey: string;
+      tier: MembershipTier;
+      status: string;
+      subscription_end: string;
+      subscription_start: string;
+      payment_id: string;
+      payment_method: string;
+    };
+  } | null = null;
+  let portalLoading = false;
+
   async function copyToClipboard(text: string, keyType: string) {
     if (browser) {
       try {
@@ -213,6 +234,49 @@
       } catch (err) {
         console.error('Failed to copy: ', err);
       }
+    }
+  }
+
+  // Membership functions
+  async function fetchMembershipStatus() {
+    if (!pk) return;
+    membershipLoading = true;
+    try {
+      const res = await fetch('/api/membership/check-status', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pubkey: pk })
+      });
+      if (res.ok) {
+        membershipData = await res.json();
+      }
+    } catch (error) {
+      console.error('Failed to fetch membership status:', error);
+    } finally {
+      membershipLoading = false;
+    }
+  }
+
+  async function openCustomerPortal() {
+    if (!membershipData?.member?.payment_id) return;
+    portalLoading = true;
+    try {
+      const res = await fetch('/api/stripe/create-portal-session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sessionId: membershipData.member.payment_id,
+          returnUrl: window.location.href
+        })
+      });
+      if (res.ok) {
+        const { url } = await res.json();
+        window.location.href = url;
+      }
+    } catch (error) {
+      console.error('Failed to open customer portal:', error);
+    } finally {
+      portalLoading = false;
     }
   }
 
@@ -352,6 +416,108 @@
             System
           </button>
         </div>
+      </div>
+    </Accordion>
+
+    <!-- Membership Section -->
+    <Accordion title="Membership" open={false}>
+      <div class="flex flex-col gap-4">
+        {#if membershipLoading}
+          <div class="text-sm text-caption italic">Loading membership status...</div>
+        {:else if membershipData?.found && membershipData.member}
+          {@const member = membershipData.member}
+          {@const expiryDate = new Date(member.subscription_end)}
+
+          <!-- Current Plan -->
+          <div
+            class="flex items-center justify-between p-4 rounded-xl"
+            style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);"
+          >
+            <div class="flex items-center gap-3">
+              <MembershipBadge tier={member.tier} size="lg" showLabel />
+              <div>
+                {#if membershipData.isActive}
+                  <span
+                    class="text-xs px-2 py-0.5 rounded-full bg-green-500/20 text-green-600 dark:text-green-400"
+                    >Active</span
+                  >
+                {:else if membershipData.isExpired}
+                  <span class="text-xs px-2 py-0.5 rounded-full bg-red-500/20 text-red-500"
+                    >Expired</span
+                  >
+                {/if}
+              </div>
+            </div>
+          </div>
+
+          <!-- Subscription Details -->
+          <div class="bg-secondary p-4 rounded-xl">
+            <div class="flex flex-col gap-2 text-sm">
+              <div class="flex justify-between">
+                <span class="text-caption">{membershipData.isExpired ? 'Expired' : 'Expires'}</span>
+                <span style="color: var(--color-text-primary)">
+                  {expiryDate.toLocaleDateString('en-US', {
+                    year: 'numeric',
+                    month: 'long',
+                    day: 'numeric'
+                  })}
+                </span>
+              </div>
+              <div class="flex justify-between">
+                <span class="text-caption">Payment</span>
+                <span style="color: var(--color-text-primary)">
+                  {member.payment_method === 'stripe'
+                    ? 'Credit Card'
+                    : member.payment_method === 'bitcoin'
+                      ? 'Bitcoin'
+                      : member.payment_method}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Actions -->
+          <div class="flex flex-col gap-2">
+            {#if member.payment_method === 'stripe' && membershipData.isActive}
+              <Button on:click={openCustomerPortal} disabled={portalLoading}>
+                {portalLoading ? 'Opening...' : 'Manage Subscription'}
+              </Button>
+            {/if}
+            {#if member.tier === 'cook' && membershipData.isActive}
+              <button
+                type="button"
+                class="w-full px-4 py-2 bg-secondary hover:bg-accent-gray rounded-lg text-sm font-medium transition-colors"
+                style="color: var(--color-text-primary)"
+                on:click={() => goto('/membership')}
+              >
+                Upgrade to Pro Kitchen
+              </button>
+            {/if}
+          </div>
+
+          {#if membershipData.isExpired}
+            <div
+              class="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-3"
+            >
+              <p class="text-xs text-red-700 dark:text-red-300">
+                Your membership has expired. Renew to keep your benefits.
+              </p>
+            </div>
+            <Button on:click={() => goto('/membership')}>Renew Membership</Button>
+          {/if}
+        {:else}
+          <!-- No membership / Free tier -->
+          <div
+            class="p-4 rounded-xl text-center"
+            style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);"
+          >
+            <p class="text-sm font-medium" style="color: var(--color-text-primary)">Welcome Table</p>
+            <p class="text-xs text-caption mt-1">
+              Free tier — browse, create, and share recipes.
+            </p>
+          </div>
+          <Button on:click={() => goto('/membership')}>Explore Membership Plans</Button>
+        {/if}
       </div>
     </Accordion>
 
