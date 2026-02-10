@@ -16,7 +16,7 @@
   let nip05: string | null = null;
   let nip05Username: string | null = null;
   let showNip05Modal = false;
-  let nip05UpdateStatus: 'pending' | 'updating' | 'success' | 'error' = 'pending';
+  let nip05UpdateStatus: 'pending' | 'updating' | 'success' | 'skipped' | 'error' = 'pending';
   let nip05Error: string | null = null;
 
   onMount(async () => {
@@ -35,11 +35,6 @@
       nip05 = nip05Param;
       nip05Username = nip05UsernameParam;
       loading = false;
-      
-      // Auto-update profile with NIP-05 if available
-      if (nip05 && $userPublickey) {
-        autoUpdateProfileNip05(nip05);
-      }
       return;
     }
 
@@ -87,11 +82,6 @@
       nip05 = data.nip05;
       nip05Username = data.nip05Username;
       loading = false;
-      
-      // Auto-update profile with NIP-05 if available
-      if (nip05 && $userPublickey) {
-        autoUpdateProfileNip05(nip05);
-      }
     } catch (err) {
       console.error('Payment completion error:', err);
       error = err instanceof Error ? err.message : 'Failed to complete payment';
@@ -135,7 +125,7 @@
   function handleNip05Claimed(event: CustomEvent) {
     showNip05Modal = false;
     nip05 = event.detail.nip05;
-    nip05UpdateStatus = 'success';
+    nip05UpdateStatus = 'pending';
   }
 
   function handleNip05Skipped() {
@@ -178,8 +168,24 @@
           </div>
         {/if}
 
-        <!-- NIP-05 Verification Badge Section -->
-        {#if nip05}
+        <!-- NIP-05 Identity Section -->
+        {#if !nip05}
+          <!-- No identity claimed yet -->
+          <div class="nip05-claim-section">
+            <p class="nip05-claim-title">Claim your verified identity</p>
+            <p class="nip05-claim-text">
+              Each member gets a unique <strong>@zap.cooking</strong> address
+            </p>
+            <button
+              type="button"
+              class="claim-nip05-button"
+              on:click={() => showNip05Modal = true}
+            >
+              Choose Username
+            </button>
+          </div>
+        {:else}
+          <!-- Identity claimed, show badge and actions -->
           <div class="nip05-badge-section">
             <div class="nip05-badge">
               <div class="badge-icon">✓</div>
@@ -188,33 +194,47 @@
                 <span class="badge-value">{nip05}</span>
               </div>
             </div>
-            {#if nip05UpdateStatus === 'updating'}
+            {#if nip05UpdateStatus === 'pending'}
+              <p class="nip05-prompt">Add this verified identity to your Nostr profile?</p>
+              <div class="nip05-actions">
+                <button
+                  type="button"
+                  class="add-to-profile-button"
+                  on:click={() => autoUpdateProfileNip05(nip05)}
+                >
+                  Add to Profile
+                </button>
+                <button
+                  type="button"
+                  class="change-username-button"
+                  on:click={() => showNip05Modal = true}
+                >
+                  Change Username
+                </button>
+                <button
+                  type="button"
+                  class="skip-button"
+                  on:click={() => nip05UpdateStatus = 'skipped'}
+                >
+                  Skip for now
+                </button>
+              </div>
+            {:else if nip05UpdateStatus === 'updating'}
               <p class="nip05-status updating">Updating your profile...</p>
             {:else if nip05UpdateStatus === 'success'}
               <p class="nip05-status success">✓ Your profile has been updated with your verified identity</p>
+              <button
+                type="button"
+                class="change-username-button"
+                on:click={() => showNip05Modal = true}
+              >
+                Change Username
+              </button>
+            {:else if nip05UpdateStatus === 'skipped'}
+              <p class="nip05-status skipped">You can add this to your profile later in settings.</p>
             {:else if nip05UpdateStatus === 'error'}
               <p class="nip05-status error">{nip05Error}</p>
             {/if}
-            <button 
-              type="button"
-              class="change-username-button"
-              on:click={() => showNip05Modal = true}
-            >
-              Change Username
-            </button>
-          </div>
-        {:else}
-          <div class="nip05-claim-section">
-            <p class="nip05-claim-text">
-              Claim your verified <strong>@zap.cooking</strong> identity
-            </p>
-            <button 
-              type="button"
-              class="claim-nip05-button"
-              on:click={() => showNip05Modal = true}
-            >
-              Claim NIP-05 Identity
-            </button>
           </div>
         {/if}
 
@@ -243,6 +263,7 @@
         pubkey={$userPublickey}
         tier="cook"
         currentNip05={nip05}
+        skipProfileUpdate={true}
         on:claimed={handleNip05Claimed}
         on:skipped={handleNip05Skipped}
       />
@@ -414,11 +435,14 @@
     border-radius: 50px;
     padding: 0.75rem 1.5rem;
     margin-bottom: 1rem;
+    max-width: 100%;
+    box-sizing: border-box;
   }
 
   .badge-icon {
     width: 28px;
     height: 28px;
+    min-width: 28px;
     background: linear-gradient(135deg, #22c55e, #10b981);
     border-radius: 50%;
     display: flex;
@@ -433,6 +457,7 @@
     display: flex;
     flex-direction: column;
     align-items: flex-start;
+    min-width: 0;
   }
 
   .badge-label {
@@ -447,6 +472,72 @@
     font-size: 1.1rem;
     font-weight: 700;
     color: #f3f4f6;
+    overflow-wrap: break-word;
+    word-break: break-all;
+  }
+
+  @media (max-width: 480px) {
+    .nip05-badge-section {
+      padding: 1rem;
+    }
+
+    .nip05-badge {
+      padding: 0.5rem 1rem;
+      gap: 0.5rem;
+      border-radius: 16px;
+    }
+
+    .badge-value {
+      font-size: 0.95rem;
+    }
+  }
+
+  .nip05-prompt {
+    font-size: 0.95rem;
+    color: #d1d5db;
+    margin: 0 0 0.75rem 0;
+  }
+
+  .nip05-actions {
+    display: flex;
+    gap: 0.75rem;
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+
+  .add-to-profile-button {
+    padding: 0.6rem 1.25rem;
+    background: linear-gradient(135deg, #22c55e, #10b981);
+    border: none;
+    border-radius: 8px;
+    color: white;
+    font-size: 0.875rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    box-shadow: 0 2px 8px rgba(34, 197, 94, 0.3);
+  }
+
+  .add-to-profile-button:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(34, 197, 94, 0.4);
+  }
+
+  .skip-button {
+    padding: 0.6rem 1.25rem;
+    background: transparent;
+    border: 1px solid rgba(156, 163, 175, 0.4);
+    border-radius: 8px;
+    color: #9ca3af;
+    font-size: 0.875rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+  }
+
+  .skip-button:hover {
+    border-color: rgba(156, 163, 175, 0.6);
+    color: #d1d5db;
   }
 
   .nip05-status {
@@ -460,6 +551,10 @@
 
   .nip05-status.success {
     color: #22c55e;
+  }
+
+  .nip05-status.skipped {
+    color: #9ca3af;
   }
 
   .nip05-status.error {
@@ -484,7 +579,7 @@
     border-color: #22c55e;
   }
 
-  /* NIP-05 Claim Section (when no auto-claim happened) */
+  /* NIP-05 Claim Section */
   .nip05-claim-section {
     background: rgba(59, 130, 246, 0.1);
     border: 2px solid rgba(59, 130, 246, 0.3);
@@ -494,10 +589,17 @@
     text-align: center;
   }
 
+  .nip05-claim-title {
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: #f3f4f6;
+    margin: 0 0 0.5rem 0;
+  }
+
   .nip05-claim-text {
     color: #d1d5db;
     margin: 0 0 1rem 0;
-    font-size: 1rem;
+    font-size: 0.95rem;
   }
 
   .nip05-claim-text strong {
