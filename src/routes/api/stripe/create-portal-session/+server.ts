@@ -21,6 +21,27 @@
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
 
+// Allowed return URL origins to prevent open redirect attacks
+// Parse these once rather than on every request
+const ALLOWED_ORIGINS = [
+  { hostname: 'zap.cooking', protocol: 'https:' },
+  { hostname: 'localhost', protocol: 'http:' },
+];
+
+/**
+ * Validates that the return URL is from an allowed origin
+ */
+function isValidReturnUrl(returnUrl: string): boolean {
+  try {
+    const url = new URL(returnUrl);
+    return ALLOWED_ORIGINS.some(
+      allowed => url.hostname === allowed.hostname && url.protocol === allowed.protocol
+    );
+  } catch {
+    return false;
+  }
+}
+
 export const POST: RequestHandler = async ({ request, platform }) => {
   // Membership feature flag guard
   const MEMBERSHIP_ENABLED = platform?.env?.MEMBERSHIP_ENABLED || env.MEMBERSHIP_ENABLED;
@@ -41,28 +62,11 @@ export const POST: RequestHandler = async ({ request, platform }) => {
     }
 
     // Validate returnUrl to prevent open redirect attacks
-    try {
-      const url = new URL(returnUrl);
-      const allowedOrigins = [
-        'https://zap.cooking',
-        'http://localhost:5173',
-        'http://localhost:4173',
-        'http://localhost:5174',
-      ];
-      
-      const isAllowed = allowedOrigins.some(origin => {
-        const allowedUrl = new URL(origin);
-        return url.hostname === allowedUrl.hostname && url.protocol === allowedUrl.protocol;
-      });
-      
-      if (!isAllowed) {
-        return json(
-          { error: 'Invalid returnUrl: only app domains are allowed' },
-          { status: 400 }
-        );
-      }
-    } catch (error) {
-      return json({ error: 'Invalid returnUrl format' }, { status: 400 });
+    if (!isValidReturnUrl(returnUrl)) {
+      return json(
+        { error: 'Invalid returnUrl: only app domains are allowed' },
+        { status: 400 }
+      );
     }
 
     // Validate pubkey format
