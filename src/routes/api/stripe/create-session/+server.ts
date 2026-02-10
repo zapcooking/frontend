@@ -36,7 +36,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
     const body = await request.json();
     
     // Validate required fields
-    const { tier, period, successUrl, cancelUrl, customerEmail } = body;
+    const { tier, period, successUrl, cancelUrl, customerEmail, pubkey } = body;
     
     if (!tier || !['cook', 'pro'].includes(tier)) {
       return json(
@@ -66,6 +66,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
       successUrl,
       cancelUrl,
       customerEmail,
+      pubkey,
     });
     
     return json({

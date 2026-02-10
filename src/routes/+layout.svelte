@@ -15,6 +15,8 @@
   import LongformEditorModal from '../components/reads/LongformEditorModal.svelte';
   import WalletWelcomeModal from '../components/WalletWelcomeModal.svelte';
   import { createAuthManager, type AuthState } from '$lib/authManager';
+  import { initMessageSubscription, stopMessageSubscription, clearMessages } from '$lib/stores/messages';
+  import { stopGroupSubscription, clearGroups } from '$lib/stores/groups';
   import type { LayoutData } from './$types';
   import ErrorBoundary from '../components/ErrorBoundary.svelte';
   import OfflineIndicator from '../components/OfflineIndicator.svelte';
@@ -214,8 +216,15 @@
         // Sync with legacy userPublickey store for compatibility
         if (state.isAuthenticated && state.publicKey) {
           userPublickey.set(state.publicKey);
+          // Initialize NIP-17 message subscription
+          initMessageSubscription($ndk, state.publicKey);
+          // NIP-29 groups init deferred to /groups page to avoid NIP-07 signing contention at startup
         } else {
           userPublickey.set('');
+          stopMessageSubscription();
+          clearMessages();
+          stopGroupSubscription();
+          clearGroups();
         }
 
         if (browser && state.isAuthenticated && state.publicKey) {
@@ -312,10 +321,14 @@
         </div>
         <div class="px-4 pb-16 lg:pb-8 min-w-0 max-w-full">
           <slot />
-          <Footer />
+          {#if !$page.url.pathname.startsWith('/messages')}
+            <Footer />
+          {/if}
         </div>
       </div>
-      <CreateMenuButton variant="floating" />
+      {#if !$page.url.pathname.startsWith('/messages') && !$page.url.pathname.startsWith('/groups')}
+        <CreateMenuButton variant="floating" />
+      {/if}
       <BottomNav />
       <CookingToolsWidget />
       <UserSidePanel />

@@ -314,6 +314,7 @@ export async function createStripeSession(params: {
   successUrl: string;
   cancelUrl: string;
   customerEmail?: string;
+  pubkey?: string;
 }): Promise<{ sessionId: string; url: string }> {
   if (!browser) {
     throw new Error('Stripe session creation requires browser environment');

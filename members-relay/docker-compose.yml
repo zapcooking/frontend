@@ -1,0 +1,139 @@
+version: "3.9"
+
+services:
+  # =============================================================================
+  # PostgreSQL Database
+  # Stores relay events + membership whitelist
+  # =============================================================================
+  postgres:
+    image: postgres:16-alpine
+    container_name: members-relay-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER:-relay}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
+      POSTGRES_DB: ${DB_NAME:-members_relay}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./db/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+      - ./db/seed.sql:/docker-entrypoint-initdb.d/02-seed.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-relay} -d ${DB_NAME:-members_relay}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - relay-network
+
+  # =============================================================================
+  # Membership API
+  # Handles whitelist management, called by zap.cooking backend
+  # =============================================================================
+  api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    container_name: members-relay-api
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: postgres://${DB_USER:-relay}:${DB_PASSWORD}@postgres:5432/${DB_NAME:-members_relay}?sslmode=disable
+      API_SECRET: ${API_SECRET:?API_SECRET is required}
+      RELAY_ADMIN_PUBKEY: ${RELAY_ADMIN_PUBKEY:?RELAY_ADMIN_PUBKEY is required}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - relay-network
+
+  # =============================================================================
+  # Nostr Relay (khatru-based)
+  # Custom relay with NIP-42 auth + NIP-29 groups
+  # =============================================================================
+  relay:
+    build:
+      context: ./relay
+      dockerfile: Dockerfile
+    container_name: members-relay-nostr
+    restart: unless-stopped
+    environment:
+      RELAY_NAME: "The Pantry"
+      RELAY_DESCRIPTION: "A quieter, subscriber-supported space for deeper conversation, early ideas, and shaping the future of Zap Cooking."
+      RELAY_PUBKEY: ${RELAY_ADMIN_PUBKEY}
+      RELAY_PRIVATE_KEY: ${RELAY_PRIVATE_KEY:-}
+      RELAY_CONTACT: ${RELAY_CONTACT:-support@zap.cooking}
+      RELAY_ICON: https://zap.cooking/assets/pantry-icon.png
+      ICON: https://zap.cooking/assets/pantry-icon.png
+      RELAY_INFO_ICON: https://zap.cooking/assets/pantry-icon.png
+      DATABASE_URL: postgres://${DB_USER:-relay}:${DB_PASSWORD}@postgres:5432/${DB_NAME:-members_relay}?sslmode=disable
+      RELAY_PORT: 3334
+    depends_on:
+      postgres:
+        condition: service_healthy
+      api:
+        condition: service_started
+    networks:
+      - relay-network
+
+  # =============================================================================
+  # Caddy Reverse Proxy
+  # Handles SSL termination + WebSocket proxy
+  # =============================================================================
+  caddy:
+    image: caddy:2-alpine
+    container_name: members-relay-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - relay
+      - api
+      - admin
+    networks:
+      - relay-network
+
+  # =============================================================================
+  # Cron Jobs
+  # Handles subscription expiry, cleanup, etc.
+  # =============================================================================
+  cron:
+    build:
+      context: ./api
+      dockerfile: Dockerfile.cron
+    container_name: members-relay-cron
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://${DB_USER:-relay}:${DB_PASSWORD}@postgres:5432/${DB_NAME:-members_relay}?sslmode=disable
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - relay-network
+
+  # =============================================================================
+  # Admin Web UI
+  # Static SPA served by nginx
+  # =============================================================================
+  admin:
+    build:
+      context: ./admin
+      dockerfile: Dockerfile
+    container_name: members-relay-admin
+    restart: unless-stopped
+    networks:
+      - relay-network
+
+volumes:
+  postgres_data:
+  caddy_data:
+  caddy_config:
+
+networks:
+  relay-network:
+    driver: bridge

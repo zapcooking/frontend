@@ -1306,9 +1306,26 @@
     <div class="flex-1 min-w-0 flex flex-col gap-2">
       <!-- Name Row with Action Buttons on Right -->
       <div class="flex items-start justify-between gap-3">
-        <button class="hover:opacity-80 transition-opacity" on:click={() => (qrModal = true)}>
-          <h1 class="text-xl font-bold truncate"><CustomName pubkey={hexpubkey || ''} /></h1>
-        </button>
+        <div class="flex items-center gap-3 min-w-0">
+          <button class="hover:opacity-80 transition-opacity" on:click={() => (qrModal = true)}>
+            <h1 class="text-xl font-bold truncate"><CustomName pubkey={hexpubkey || ''} /></h1>
+          </button>
+          {#if user?.npub}
+            <button
+              on:click={copyNpub}
+              class="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs transition-colors cursor-pointer flex-shrink-0 bg-input hover:bg-accent-gray"
+              style="color: var(--color-caption);"
+              title="Click to copy npub"
+            >
+              <span class="font-mono">{user.npub.slice(0, 8)}...{user.npub.slice(-4)}</span>
+              {#if npubCopied}
+                <CheckIcon size={12} weight="bold" class="text-green-500" />
+              {:else}
+                <CopyIcon size={12} />
+              {/if}
+            </button>
+          {/if}
+        </div>
 
         <!-- Action Buttons (right-aligned) -->
         <div class="flex items-center gap-2 flex-shrink-0">

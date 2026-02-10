@@ -54,13 +54,14 @@ export async function createCheckoutSession(params: {
   successUrl: string;
   cancelUrl: string;
   customerEmail?: string;
+  pubkey?: string;
 }): Promise<{ sessionId: string; url: string }> {
   const stripe = await getStripeInstance();
   
   // Pricing configuration (in cents for Stripe)
   const pricing = {
     cook: {
-      annual: 4900, // $49.00
+      annual: 100, // TEMP: $1.00 for live testing (was 4900 / $49.00)
       '2year': 8330, // $83.30
     },
     pro: {
@@ -99,6 +100,7 @@ export async function createCheckoutSession(params: {
     metadata: {
       tier: params.tier,
       period: params.period,
+      ...(params.pubkey ? { pubkey: params.pubkey } : {}),
     },
   });
   

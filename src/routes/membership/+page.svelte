@@ -4,6 +4,7 @@
   import { goto } from '$app/navigation';
   import { profileCacheManager } from '$lib/profileCache';
   import { userPublickey } from '$lib/nostr';
+  import { membershipStore, formatMembershipExpiry } from '$lib/membershipStore';
   import CustomAvatar from '../../components/CustomAvatar.svelte';
   import CustomName from '../../components/CustomName.svelte';
   import type { NDKUser } from '@nostr-dev-kit/ndk';
@@ -42,6 +43,50 @@
   $: spotsRemaining = TOTAL_GENESIS_SPOTS - spotsTaken;
   $: isSoldOut = spotsRemaining === 0;
   $: isLoggedIn = $userPublickey && $userPublickey.length > 0;
+
+  // Current user membership info
+  $: currentMembership = $userPublickey ? membershipStore.getMembership($userPublickey) : null;
+  $: hasActiveCardMembership = currentMembership
+    && currentMembership.paymentMethod === 'card'
+    && currentMembership.expiresAt > Date.now()
+    && currentMembership.invoiceId;
+
+  let managingSubscription = false;
+  let manageError: string | null = null;
+
+  async function handleManageSubscription() {
+    if (!currentMembership?.invoiceId || !browser) return;
+
+    managingSubscription = true;
+    manageError = null;
+
+    try {
+      const response = await fetch('/api/stripe/create-portal-session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sessionId: currentMembership.invoiceId,
+          returnUrl: window.location.href,
+        }),
+      });
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({ error: 'Failed to open subscription portal' }));
+        throw new Error(data.error || 'Failed to open subscription portal');
+      }
+
+      const { url } = await response.json();
+      if (url) {
+        window.location.href = url;
+      } else {
+        throw new Error('No portal URL returned');
+      }
+    } catch (err) {
+      console.error('[Membership] Portal error:', err);
+      manageError = err instanceof Error ? err.message : 'Failed to open subscription portal';
+      managingSubscription = false;
+    }
+  }
 
   // Blacklist of pubkeys to exclude (add specific pubkeys here if needed)
   const EXCLUDED_PUBKEYS = new Set<string>([
@@ -320,6 +365,40 @@
         {/each}
   </div>
     {/if}
+    </section>
+  {/if}
+
+  <!-- Active Membership Management -->
+  {#if hasActiveCardMembership && currentMembership}
+    <section class="active-membership">
+      <div class="active-membership-card">
+        <div class="active-membership-header">
+          <h3>Your Membership</h3>
+          <span class="active-badge">Active</span>
+        </div>
+        <div class="active-membership-details">
+          <p class="membership-tier-name">
+            {currentMembership.tier === 'cook' ? 'Cook+' : 'Pro Kitchen'}
+          </p>
+          <p class="membership-expiry">
+            Expires {formatMembershipExpiry(currentMembership.expiresAt)}
+          </p>
+        </div>
+        {#if manageError}
+          <div class="manage-error">{manageError}</div>
+        {/if}
+        <button
+          class="manage-subscription-button"
+          on:click={handleManageSubscription}
+          disabled={managingSubscription}
+        >
+          {#if managingSubscription}
+            Opening portal...
+          {:else}
+            Manage Subscription
+          {/if}
+        </button>
+      </div>
     </section>
   {/if}
 
@@ -1160,5 +1239,100 @@
 
   html.dark .tier-card.pro-kitchen {
     background: linear-gradient(180deg, #1f2937 0%, #111827 100%);
+  }
+
+  /* Active Membership Management */
+  .active-membership {
+    margin: 2rem 0 3rem 0;
+    max-width: 600px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+
+  .active-membership-card {
+    background: rgba(17, 24, 39, 0.6);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 2px solid rgba(34, 197, 94, 0.4);
+    border-radius: 16px;
+    padding: 2rem;
+  }
+
+  .active-membership-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 1rem;
+  }
+
+  .active-membership-header h3 {
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: #f3f4f6;
+    margin: 0;
+  }
+
+  .active-badge {
+    background: rgba(34, 197, 94, 0.2);
+    color: #22c55e;
+    padding: 0.25rem 0.75rem;
+    border-radius: 20px;
+    font-size: 0.8rem;
+    font-weight: 600;
+  }
+
+  .active-membership-details {
+    margin-bottom: 1.5rem;
+  }
+
+  .membership-tier-name {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: var(--color-primary);
+    margin: 0 0 0.25rem 0;
+  }
+
+  .membership-expiry {
+    color: #9ca3af;
+    font-size: 0.95rem;
+    margin: 0;
+  }
+
+  .manage-error {
+    background: rgba(220, 38, 38, 0.1);
+    border: 1px solid rgba(220, 38, 38, 0.3);
+    color: #ef4444;
+    padding: 0.75rem;
+    border-radius: 8px;
+    margin-bottom: 1rem;
+    font-size: 0.9rem;
+    text-align: center;
+  }
+
+  .manage-subscription-button {
+    width: 100%;
+    padding: 0.875rem 1.5rem;
+    background: transparent;
+    border: 2px solid var(--color-primary);
+    border-radius: 10px;
+    color: var(--color-primary);
+    font-size: 1rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+  }
+
+  .manage-subscription-button:hover:not(:disabled) {
+    background: var(--color-primary);
+    color: white;
+  }
+
+  .manage-subscription-button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  html.dark .active-membership-card {
+    background: rgba(31, 41, 55, 0.7);
   }
 </style>

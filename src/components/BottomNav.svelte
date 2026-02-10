@@ -6,8 +6,11 @@
   import BellIcon from 'phosphor-svelte/lib/Bell';
   import CompassIcon from 'phosphor-svelte/lib/Compass';
   import NewspaperIcon from 'phosphor-svelte/lib/Newspaper';
+  import EnvelopeSimpleIcon from 'phosphor-svelte/lib/EnvelopeSimple';
+  import UsersThreeIcon from 'phosphor-svelte/lib/UsersThree';
   import { page } from '$app/stores';
   import { unreadCount } from '$lib/notificationStore';
+  import { totalUnreadCount } from '$lib/stores/messages';
   import { triggerNotificationsNav } from '$lib/notificationsNav';
 
   $: pathname = $page.url.pathname;
@@ -48,7 +51,7 @@
 
 <nav
   bind:this={navEl}
-  class="lg:hidden bg-input w-full fixed left-0 right-0 z-40 grid grid-cols-5 text-center print:hidden bottom-nav-ios"
+  class="lg:hidden bg-input w-full fixed left-0 right-0 z-40 grid grid-cols-7 text-center print:hidden bottom-nav-ios"
   style="color: var(--color-text-primary); border-top: 1px solid var(--color-input-border);"
 >
   <a href="/community" class="flex flex-col items-center justify-center hover:text-primary">
@@ -66,6 +69,22 @@
   <a href="/reads" class="flex flex-col items-center justify-center hover:text-primary">
     <NewspaperIcon class="self-center" size={24} />
     <span class="sr-only">Reads</span>
+  </a>
+  <a href="/groups" class="flex flex-col items-center justify-center hover:text-primary">
+    <UsersThreeIcon class="self-center" size={24} />
+    <span class="sr-only">Groups</span>
+  </a>
+  <a href="/messages" class="flex flex-col items-center justify-center hover:text-primary">
+    <span class="relative self-center">
+      <EnvelopeSimpleIcon size={24} weight={$totalUnreadCount > 0 ? 'fill' : 'regular'} />
+      {#if $totalUnreadCount > 0}
+        <span
+          class="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-red-500 border-2 border-input"
+          aria-hidden="true"
+        ></span>
+      {/if}
+    </span>
+    <span class="sr-only">Messages</span>
   </a>
   <a
     href="/notifications"

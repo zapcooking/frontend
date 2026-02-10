@@ -1,0 +1,73 @@
+# =========================
+# Redirect old domain
+# =========================
+members.zap.cooking {
+  redir https://pantry.zap.cooking{uri} permanent
+}
+
+# =========================
+# Pantry relay
+# =========================
+pantry.zap.cooking {
+
+  # Websocket matcher
+  @websocket {
+    header Connection *Upgrade*
+    header Upgrade websocket
+  }
+
+  # NIP-11 matcher
+  @nip11 {
+    header Accept *application/nostr+json*
+  }
+
+  route {
+    # --- Websocket traffic ---
+    handle @websocket {
+      reverse_proxy relay:3334
+    }
+
+
+# --- NIP-11 ---
+header @nip11 Content-Type application/nostr+json
+header @nip11 Access-Control-Allow-Origin *
+respond @nip11 `{
+  "name":"The Pantry",
+  "description":"A quieter, subscriber-supported space for deeper conversation, early ideas, and shaping the future of Zap Cooking.",
+  "pubkey":"a723805cda67251191c8786f4da58f797e6977582301354ba8e91bcb0342dc9c",
+  "contact":"support@zap.cooking",
+  "supported_nips":[1,9,11,29,42],
+  "software":"khatru-members",
+  "version":"1.0.0",
+  "icon":"https://zap.cooking/assets/pantry-icon.png"
+}` 200
+
+
+
+    # --- NIP-05 verification ---
+    handle /.well-known/nostr.json {
+      reverse_proxy api:3000
+    }
+
+    # --- Admin UI ---
+    redir /admin /admin/ permanent
+    handle /admin/* {
+      reverse_proxy admin:80
+    }
+
+    # --- API endpoints ---
+    handle /api/* {
+      reverse_proxy api:3000
+    }
+
+    # --- Health check ---
+    handle /health {
+      respond "OK" 200
+    }
+
+    # --- Everything else goes to relay ---
+    handle {
+      reverse_proxy relay:3334
+    }
+  }
+}
