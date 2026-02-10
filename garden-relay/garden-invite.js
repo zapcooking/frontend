@@ -92,9 +92,17 @@
     if (_nostrToolsP) return _nostrToolsP;
 
     _nostrToolsP = new Promise(function (resolve, reject) {
-      var s = document.createElement('script');
-      s.src =
+      // Security: Using SRI (Subresource Integrity) to ensure CDN serves unmodified code
+      // If upgrading nostr-tools, update this hash by running: ./generate-sri-hash.sh
+      var NOSTR_TOOLS_CDN_SRC =
         'https://cdn.jsdelivr.net/npm/nostr-tools@1.17.0/lib/nostr.bundle.js';
+      var NOSTR_TOOLS_INTEGRITY =
+        'sha384-GwmNxV/GnZt+zRBR/Hhtu5D4MKfbxeJSApW44ARryGYtj3MFheHMFgiEZ7tVnrln';
+
+      var s = document.createElement('script');
+      s.src = NOSTR_TOOLS_CDN_SRC;
+      s.integrity = NOSTR_TOOLS_INTEGRITY;
+      s.crossOrigin = 'anonymous';
       s.onload = function () {
         window.NostrTools
           ? resolve(window.NostrTools)
