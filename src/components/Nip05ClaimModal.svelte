@@ -102,11 +102,9 @@
         if (!updated) {
           error = 'NIP-05 claimed but failed to update profile. You can add it manually in settings.';
           // Still show success since it was claimed
-          success = true;
-        } else {
-          success = true;
-          dispatch('claimed', { nip05: claimedNip05 });
         }
+        success = true;
+        dispatch('claimed', { nip05: claimedNip05 });
       }
     } catch (err) {
       error = 'Failed to claim NIP-05. Please try again.';
@@ -122,9 +120,7 @@
   }
 
   function handleClose() {
-    if (success) {
-      dispatch('claimed', { nip05: claimedNip05 });
-    } else {
+    if (!success) {
       dispatch('skipped');
     }
     open = false;
