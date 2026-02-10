@@ -11,7 +11,6 @@ SETTINGS="$PYRAMID_DIR/data/settings.json"
 SERVICE="/etc/systemd/system/pyramid.service"
 NGINX_CONF="/etc/nginx/sites-available/$DOMAIN"
 WEB_ROOT="/var/www/garden"
-FONT_CDN="https://cdn.jsdelivr.net/npm/geist@1.3.1/dist/fonts/geist-sans/Geist-Regular.woff2"
 
 echo "========================================"
 echo "  Garden Relay Restyling Deployment"
