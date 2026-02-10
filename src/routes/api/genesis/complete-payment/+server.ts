@@ -95,8 +95,11 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 
     const membersData = await membersRes.json();
 
+    // Normalize members array to handle unexpected API responses
+    const members = Array.isArray(membersData.members) ? membersData.members : [];
+
     // Check if this pubkey is already a founder (idempotency)
-    const existingFounder = membersData.members.find((m: any) => {
+    const existingFounder = members.find((m: any) => {
       const pid = m.payment_id?.toLowerCase() || '';
       return m.pubkey === pubkey && (pid.startsWith('genesis_') || pid.startsWith('founder'));
     });
@@ -114,7 +117,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
     }
 
     // Count all Genesis Founders to assign next number
-    const founders = membersData.members.filter((m: any) => {
+    const founders = members.filter((m: any) => {
       const pid = m.payment_id?.toLowerCase() || '';
       return pid.startsWith('genesis_') || pid.startsWith('founder');
     });
