@@ -61,7 +61,7 @@ export async function createCheckoutSession(params: {
   // Pricing configuration (in cents for Stripe)
   const pricing = {
     cook: {
-      annual: 4900, // $49.00
+      annual: 100, // TEMP: $1.00 for live testing (was 4900 / $49.00)
       '2year': 8330, // $83.30
     },
     pro: {
