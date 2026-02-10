@@ -24,11 +24,23 @@
   function getCookie(name) {
     var v = '; ' + document.cookie;
     var p = v.split('; ' + name + '=');
-    if (p.length === 2) return p.pop().split(';').shift();
+    if (p.length === 2) {
+      var raw = p.pop().split(';').shift();
+      try {
+        return decodeURIComponent(raw);
+      } catch (e) {
+        return raw;
+      }
+    }
   }
 
   function setCookie(name, value) {
-    document.cookie = name + '=' + value + '; path=/';
+    var encodedValue = encodeURIComponent(value);
+    var cookie = name + '=' + encodedValue + '; path=/; SameSite=Lax';
+    if (typeof location !== 'undefined' && location && location.protocol === 'https:') {
+      cookie += '; Secure';
+    }
+    document.cookie = cookie;
   }
 
   // ---------------------------------------------------------------------------
