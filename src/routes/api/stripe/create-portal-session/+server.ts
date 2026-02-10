@@ -40,6 +40,31 @@ export const POST: RequestHandler = async ({ request, platform }) => {
       return json({ error: 'returnUrl is required' }, { status: 400 });
     }
 
+    // Validate returnUrl to prevent open redirect attacks
+    try {
+      const url = new URL(returnUrl);
+      const allowedOrigins = [
+        'https://zap.cooking',
+        'http://localhost:5173',
+        'http://localhost:4173',
+        'http://localhost:5174',
+      ];
+      
+      const isAllowed = allowedOrigins.some(origin => {
+        const allowedUrl = new URL(origin);
+        return url.hostname === allowedUrl.hostname && url.protocol === allowedUrl.protocol;
+      });
+      
+      if (!isAllowed) {
+        return json(
+          { error: 'Invalid returnUrl: only app domains are allowed' },
+          { status: 400 }
+        );
+      }
+    } catch (error) {
+      return json({ error: 'Invalid returnUrl format' }, { status: 400 });
+    }
+
     // Validate pubkey format
     if (!/^[0-9a-fA-F]{64}$/.test(pubkey)) {
       return json({ error: 'Invalid pubkey format' }, { status: 400 });
