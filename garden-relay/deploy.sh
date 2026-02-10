@@ -44,6 +44,7 @@ echo "[2/7] Updating settings.json theme..."
 # Check if jq is available, install if needed
 if ! command -v jq &> /dev/null; then
     echo "  Installing jq..."
+    apt-get update -y -qq
     apt-get install -y -qq jq
 fi
 
