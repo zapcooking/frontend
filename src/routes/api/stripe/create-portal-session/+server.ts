@@ -21,6 +21,27 @@
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
 
+// Allowed return URL origins to prevent open redirect attacks
+// Parse these once rather than on every request
+const ALLOWED_ORIGINS = [
+  { hostname: 'zap.cooking', protocol: 'https:' },
+  { hostname: 'localhost', protocol: 'http:' },
+];
+
+/**
+ * Validates that the return URL is from an allowed origin
+ */
+function isValidReturnUrl(returnUrl: string): boolean {
+  try {
+    const url = new URL(returnUrl);
+    return ALLOWED_ORIGINS.some(
+      allowed => url.hostname === allowed.hostname && url.protocol === allowed.protocol
+    );
+  } catch {
+    return false;
+  }
+}
+
 export const POST: RequestHandler = async ({ request, platform }) => {
   // Membership feature flag guard
   const MEMBERSHIP_ENABLED = platform?.env?.MEMBERSHIP_ENABLED || env.MEMBERSHIP_ENABLED;
@@ -38,6 +59,14 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 
     if (!returnUrl) {
       return json({ error: 'returnUrl is required' }, { status: 400 });
+    }
+
+    // Validate returnUrl to prevent open redirect attacks
+    if (!isValidReturnUrl(returnUrl)) {
+      return json(
+        { error: 'Invalid returnUrl: only app domains are allowed' },
+        { status: 400 }
+      );
     }
 
     // Validate pubkey format
