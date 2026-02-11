@@ -64,7 +64,14 @@ export const load: PageServerLoad = async ({ fetch, platform }) => {
 
     // Helper to extract founder number from payment_id
     const extractFounderNumber = (paymentId: string): number => {
-      const match = paymentId?.match(/(?:genesis_|founder_?)(\d+)/i);
+      const normalized = paymentId?.toLowerCase() || '';
+
+      // Handle plain "founder" (with or without trailing underscore) explicitly
+      if (normalized === 'founder' || normalized === 'founder_') {
+        return 1;
+      }
+
+      const match = normalized.match(/(?:genesis_|founder_?)(\d+)/i);
       return match ? parseInt(match[1]) : 999;
     };
 
