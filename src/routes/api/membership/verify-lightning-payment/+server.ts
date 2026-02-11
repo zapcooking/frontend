@@ -71,8 +71,8 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 
     // Look up stored metadata to verify the request matches what was created
     const metadata = receiveRequestId
-      ? getInvoiceMetadata(receiveRequestId)
-      : getInvoiceMetadataByPaymentHash(paymentHash);
+      ? await getInvoiceMetadata(receiveRequestId, platform)
+      : await getInvoiceMetadataByPaymentHash(paymentHash, platform);
 
     if (!metadata) {
       return json(
