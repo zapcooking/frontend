@@ -153,6 +153,8 @@
       return;
     }
 
+    stopPaymentPolling();
+    paymentConfirmed = false;
     loading = true;
     error = null;
     lightningInvoice = null;
