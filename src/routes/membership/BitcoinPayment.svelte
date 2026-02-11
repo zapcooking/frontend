@@ -55,8 +55,8 @@
     stopPaymentPolling();
   });
 
-  async function verifyLightningPayment(_preimage: string) {
-    if (!receiveRequestId || !$userPublickey || !$paymentStore.selectedTier || !$paymentStore.selectedPeriod) {
+  async function verifyLightningPayment(preimage: string) {
+    if (!isPaymentInfoComplete()) {
       error = 'Missing payment information';
       return;
     }
@@ -64,7 +64,7 @@
     paymentStatus = 'confirming';
 
     try {
-      console.log('[PaymentModal] Verifying Lightning payment...');
+      console.log('[PaymentModal] Verifying Lightning payment with preimage...');
       const response = await fetch('/api/membership/verify-lightning-payment', {
         method: 'POST',
         headers: {
@@ -72,7 +72,7 @@
         },
         body: JSON.stringify({
           receiveRequestId,
-          paymentHash: $paymentStore.lightningInvoice ? extractPaymentHash($paymentStore.lightningInvoice) : null,
+          paymentHash: null, // Backend will look up by receiveRequestId
           pubkey: $userPublickey,
           tier: $paymentStore.selectedTier,
           period: $paymentStore.selectedPeriod,
@@ -118,7 +118,7 @@
 
   function startPaymentPolling(setPaid: (response: { preimage: string }) => void) {
     pollInterval = setInterval(async () => {
-      if (paymentConfirmed || !receiveRequestId || !$userPublickey || !$paymentStore.selectedTier || !$paymentStore.selectedPeriod) return;
+      if (paymentConfirmed || !isPaymentInfoComplete()) return;
 
       try {
         const response = await fetch('/api/membership/verify-lightning-payment', {
@@ -126,7 +126,7 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             receiveRequestId,
-            paymentHash: $paymentStore.lightningInvoice ? extractPaymentHash($paymentStore.lightningInvoice) : null,
+            paymentHash: null, // Backend will look up by receiveRequestId
             pubkey: $userPublickey,
             tier: $paymentStore.selectedTier,
             period: $paymentStore.selectedPeriod,
@@ -164,8 +164,9 @@
             console.error('Lightning payment verification failed with status', response.status);
           }
         }
-      } catch {
-        // Network error, keep polling
+      } catch (err) {
+        // Network error, keep polling but log for debugging
+        console.error('[PaymentModal] Network error during polling:', err);
       }
     }, 3000);
   }
@@ -177,11 +178,9 @@
     }
   }
 
-  // Helper function to extract payment hash from Lightning invoice
-  function extractPaymentHash(invoice: string): string | null {
-    // This is a simplified extraction - in production you'd use a proper BOLT11 decoder
-    // For now, we'll return null and let the backend handle it
-    return null;
+  // Helper function to check if all payment info is available
+  function isPaymentInfoComplete(): boolean {
+    return !!(receiveRequestId && $userPublickey && $paymentStore.selectedTier && $paymentStore.selectedPeriod);
   }
 
   async function copyInvoice() {
