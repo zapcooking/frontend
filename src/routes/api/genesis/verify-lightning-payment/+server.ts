@@ -140,7 +140,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
     });
 
     // Find the smallest available number from 1 to 21
-    let founderNumber = null;
+    let founderNumber: number | null = null;
     for (let i = 1; i <= 21; i++) {
       if (!assignedNumbers.has(i)) {
         founderNumber = i;
