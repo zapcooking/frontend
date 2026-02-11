@@ -71,8 +71,8 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 
     // Look up stored metadata to verify the request matches what was created
     const metadata = receiveRequestId
-      ? getInvoiceMetadata(receiveRequestId)
-      : getInvoiceMetadataByPaymentHash(paymentHash);
+      ? await getInvoiceMetadata(receiveRequestId, platform)
+      : await getInvoiceMetadataByPaymentHash(paymentHash, platform);
 
     if (!metadata) {
       return json(
@@ -85,6 +85,15 @@ export const POST: RequestHandler = async ({ request, platform }) => {
     if (metadata.pubkey !== pubkey) {
       return json(
         { error: 'Pubkey does not match the invoice creator' },
+        { status: 403 }
+      );
+    }
+
+    // Security: Reject requests where client-provided tier/period don't match stored metadata
+    // This prevents privilege escalation where a user pays for a cheaper tier but claims a higher one
+    if (metadata.tier !== tier || metadata.period !== period) {
+      return json(
+        { error: 'Tier or period does not match the invoice. Please create a new invoice for the desired subscription.' },
         { status: 403 }
       );
     }
@@ -104,8 +113,8 @@ export const POST: RequestHandler = async ({ request, platform }) => {
     console.log('[Verify Lightning] Payment confirmed via Strike API:', {
       receiveRequestId: lookupId,
       pubkey: pubkey.substring(0, 16) + '...',
-      tier,
-      period,
+      tier: metadata.tier,
+      period: metadata.period,
     });
 
     // Get API secret for relay API
@@ -118,10 +127,12 @@ export const POST: RequestHandler = async ({ request, platform }) => {
     }
 
     // Register member using shared idempotent logic
+    // Use metadata.tier and metadata.period (stored server-side) as source of truth
+    // to prevent privilege escalation attacks
     const result = await registerMember({
       pubkey,
-      tier: tier as 'cook' | 'pro',
-      period: period as 'annual' | '2year',
+      tier: metadata.tier,
+      period: metadata.period,
       paymentMethod: 'lightning_strike',
       apiSecret: API_SECRET,
     });
@@ -129,7 +140,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
     return json({
       success: true,
       subscriptionEnd: result.subscriptionEnd,
-      message: `${tier === 'cook' ? 'Cook+' : 'Pro Kitchen'} membership activated via Lightning`,
+      message: `${metadata.tier === 'cook' ? 'Cook+' : 'Pro Kitchen'} membership activated via Lightning`,
       nip05: result.nip05,
       nip05Username: result.nip05Username,
       alreadyExists: result.alreadyExists,

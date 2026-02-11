@@ -161,10 +161,11 @@ export const POST: RequestHandler = async ({ request, platform }) => {
     });
 
     // Store invoice metadata so webhook and verify endpoints can match payment to user
-    storeInvoiceMetadata(
+    await storeInvoiceMetadata(
       receiveRequestId,
       { pubkey, tier: tier as 'cook' | 'pro', period: period as 'annual' | '2year' },
-      paymentHash
+      paymentHash,
+      platform
     );
     
     return json({

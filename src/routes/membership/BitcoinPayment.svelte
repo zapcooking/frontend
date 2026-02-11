@@ -6,40 +6,182 @@
   import ArrowLeftIcon from 'phosphor-svelte/lib/ArrowLeft';
   import { paymentStore, currentPricing, formatSats } from './paymentStore';
   import { userPublickey } from '$lib/nostr';
+  import { lightningService } from '$lib/lightningService';
 
   $: invoice = $paymentStore.lightningInvoice;
   $: pricing = $currentPricing;
+  $: receiveRequestId = $paymentStore.invoiceId;
 
-  let countdown = 5; // Auto-complete after 5 seconds for demo
   let copied = false;
   let paymentStatus: 'waiting' | 'confirming' | 'complete' = 'waiting';
-  let countdownInterval: ReturnType<typeof setInterval>;
+  let pollInterval: ReturnType<typeof setInterval> | null = null;
+  let paymentConfirmed = false;
+  let error: string | null = null;
 
-  onMount(() => {
-    // Start countdown for mock payment completion
-    countdownInterval = setInterval(() => {
-      countdown--;
-      
-      if (countdown === 2) {
-        paymentStatus = 'confirming';
-      }
-      
-      if (countdown <= 0) {
-        clearInterval(countdownInterval);
-        paymentStatus = 'complete';
-        // Complete the payment after a short delay
-        setTimeout(() => {
-          paymentStore.completePayment('bitcoin', $userPublickey || null);
-        }, 500);
-      }
-    }, 1000);
+  onMount(async () => {
+    if (!invoice) {
+      error = 'No invoice available';
+      return;
+    }
+
+    // Launch payment modal via lightningService
+    try {
+      const { setPaid } = await lightningService.launchPayment({
+        invoice: invoice,
+        // No verify URL needed - we handle polling ourselves
+        onPaid: async (response) => {
+          stopPaymentPolling();
+          if (!paymentConfirmed) {
+            console.log('[PaymentModal] Lightning payment completed, verifying...');
+            await verifyLightningPayment();
+          }
+        },
+        onCancelled: () => {
+          stopPaymentPolling();
+          console.log('[PaymentModal] Lightning payment cancelled');
+          error = 'Payment cancelled';
+        }
+      });
+
+      // Start polling our verify endpoint to detect external wallet payments
+      startPaymentPolling(setPaid);
+    } catch (err) {
+      console.error('[PaymentModal] Error launching payment:', err);
+      error = err instanceof Error ? err.message : 'Failed to launch payment';
+    }
   });
 
   onDestroy(() => {
-    if (countdownInterval) {
-      clearInterval(countdownInterval);
-    }
+    stopPaymentPolling();
   });
+
+  async function verifyLightningPayment() {
+    if (!isPaymentInfoComplete()) {
+      error = 'Missing payment information';
+      return;
+    }
+
+    paymentStatus = 'confirming';
+
+    try {
+      console.log('[PaymentModal] Verifying Lightning payment...');
+      const response = await fetch('/api/membership/verify-lightning-payment', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          receiveRequestId,
+          pubkey: $userPublickey,
+          tier: $paymentStore.selectedTier,
+          period: $paymentStore.selectedPeriod,
+        }),
+      });
+
+      if (!response.ok) {
+        let errorMessage = 'Failed to verify payment';
+        try {
+          const data = await response.json();
+          errorMessage = data.error || errorMessage;
+        } catch (parseError) {
+          errorMessage = `Server error: ${response.status} ${response.statusText}`;
+        }
+        throw new Error(errorMessage);
+      }
+
+      const data = await response.json();
+      
+      if (data.success) {
+        paymentStatus = 'complete';
+        paymentConfirmed = true;
+        
+        // Complete payment with NIP-05 info if available
+        await paymentStore.completePayment(
+          'bitcoin',
+          $userPublickey,
+          {
+            nip05: data.nip05,
+            nip05Username: data.nip05Username
+          }
+        );
+      } else {
+        throw new Error('Payment verification failed');
+      }
+
+    } catch (err) {
+      console.error('[PaymentModal] Verification error:', err);
+      error = err instanceof Error ? err.message : 'Failed to verify payment. Please contact support.';
+      paymentStatus = 'waiting';
+    }
+  }
+
+  function startPaymentPolling(setPaid: (response: { preimage: string }) => void) {
+    pollInterval = setInterval(async () => {
+      if (paymentConfirmed || !isPaymentInfoComplete()) return;
+
+      try {
+        const response = await fetch('/api/membership/verify-lightning-payment', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            receiveRequestId,
+            pubkey: $userPublickey,
+            tier: $paymentStore.selectedTier,
+            period: $paymentStore.selectedPeriod,
+          }),
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          if (data.success) {
+            paymentStatus = 'complete';
+            paymentConfirmed = true;
+            stopPaymentPolling();
+            // Mark payment as paid in the lightning service
+            // Using placeholder since we verify via backend, not preimage
+            setPaid({ preimage: 'backend-verified' });
+            
+            // Complete payment with NIP-05 info
+            await paymentStore.completePayment(
+              'bitcoin',
+              $userPublickey,
+              {
+                nip05: data.nip05,
+                nip05Username: data.nip05Username
+              }
+            );
+          }
+        } else if (response.status === 402) {
+          // Payment still pending; keep polling
+          return;
+        } else {
+          // Terminal error: stop polling and log the error
+          stopPaymentPolling();
+          try {
+            const errorData = await response.json();
+            console.error('Lightning payment verification failed:', errorData);
+          } catch {
+            console.error('Lightning payment verification failed with status', response.status);
+          }
+        }
+      } catch (err) {
+        // Network error, keep polling but log for debugging
+        console.error('[PaymentModal] Network error during polling:', err);
+      }
+    }, 3000);
+  }
+
+  function stopPaymentPolling() {
+    if (pollInterval) {
+      clearInterval(pollInterval);
+      pollInterval = null;
+    }
+  }
+
+  // Helper function to check if all payment info is available
+  function isPaymentInfoComplete(): boolean {
+    return !!(receiveRequestId && $userPublickey && $paymentStore.selectedTier && $paymentStore.selectedPeriod);
+  }
 
   async function copyInvoice() {
     if (!invoice) return;
@@ -178,12 +320,14 @@
     </div>
   </div>
 
-  <!-- Demo Notice -->
-  <div class="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl p-4 mb-6">
-    <p class="text-center text-sm text-amber-800 dark:text-amber-200">
-      <strong>Demo Mode:</strong> Payment will auto-complete in <span class="font-bold">{countdown}</span> seconds
-    </p>
-  </div>
+  <!-- Error Message -->
+  {#if error}
+    <div class="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl p-4 mb-6">
+      <p class="text-center text-sm text-red-800 dark:text-red-200">
+        {error}
+      </p>
+    </div>
+  {/if}
 
   <!-- Invoice Copy Section -->
   {#if invoice && paymentStatus === 'waiting'}

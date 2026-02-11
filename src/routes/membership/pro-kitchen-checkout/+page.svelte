@@ -300,23 +300,42 @@
           }),
         });
 
-        if (response.ok) {
-          const data = await response.json();
-          if (data.success) {
-            paymentConfirmed = true;
-            stopPaymentPolling();
-            // Trigger modal's paid state, then redirect
-            setPaid({ preimage: 'strike-confirmed' });
-            const params = new URLSearchParams({
-              payment_method: 'lightning',
-              tier: 'pro'
-            });
-            if (data.nip05) params.set('nip05', data.nip05);
-            if (data.nip05Username) params.set('nip05_username', data.nip05Username);
-            goto(`/membership/confirmation?${params.toString()}`);
-          }
+        // 402 means payment required / not yet settled: keep polling
+        if (response.status === 402) {
+          return;
         }
-        // 402 = not yet paid, keep polling
+
+        // Any other non-OK status is treated as terminal: stop polling
+        if (!response.ok) {
+          let errorBody: unknown = null;
+          try {
+            errorBody = await response.text();
+          } catch {
+            // ignore parse errors
+          }
+          console.error('Failed to verify lightning payment', {
+            status: response.status,
+            statusText: response.statusText,
+            body: errorBody,
+          });
+          stopPaymentPolling();
+          return;
+        }
+
+        const data = await response.json();
+        if (data.success) {
+          paymentConfirmed = true;
+          stopPaymentPolling();
+          // Trigger modal's paid state, then redirect
+          setPaid({ preimage: 'strike-confirmed' });
+          const params = new URLSearchParams({
+            payment_method: 'lightning',
+            tier: 'pro'
+          });
+          if (data.nip05) params.set('nip05', data.nip05);
+          if (data.nip05Username) params.set('nip05_username', data.nip05Username);
+          goto(`/membership/confirmation?${params.toString()}`);
+        }
       } catch {
         // Network error, keep polling
       }

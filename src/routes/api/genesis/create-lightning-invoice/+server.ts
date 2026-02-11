@@ -118,10 +118,11 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 
     // Store metadata so webhook and verify endpoints can match payment to user
     // Genesis uses 'pro' tier internally for NIP-05 claiming
-    storeInvoiceMetadata(
+    await storeInvoiceMetadata(
       receiveRequestId,
       { pubkey, tier: 'pro', period: 'annual' },
-      paymentHash
+      paymentHash,
+      platform
     );
 
     return json({

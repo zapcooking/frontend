@@ -106,28 +106,36 @@ export const POST: RequestHandler = async ({ request, platform }) => {
       });
     }
 
-    // Find the highest existing founder number to assign the next one (exclude cancelled)
+    // Find active founder numbers (exclude cancelled)
     const founders = membersData.members.filter((m: any) => {
       if (m.status === 'cancelled') return false;
       const pid = m.payment_id?.toLowerCase() || '';
       return pid.startsWith('genesis_') || pid.startsWith('founder');
     });
 
-    let maxFounderNumber = 0;
+    // Collect all currently assigned founder numbers
+    const assignedNumbers = new Set<number>();
     founders.forEach((m: any) => {
       const pid = m.payment_id?.toLowerCase() || '';
       const match = pid.match(/(\d+)$/);
       if (match) {
         const num = parseInt(match[1], 10);
-        if (num > maxFounderNumber) maxFounderNumber = num;
+        assignedNumbers.add(num);
       } else if (pid === 'founder') {
-        maxFounderNumber = Math.max(maxFounderNumber, 1);
+        assignedNumbers.add(1);
       }
     });
 
-    const founderNumber = maxFounderNumber + 1;
+    // Find the smallest available number in 1..21
+    let founderNumber = null;
+    for (let i = 1; i <= 21; i++) {
+      if (!assignedNumbers.has(i)) {
+        founderNumber = i;
+        break;
+      }
+    }
 
-    if (founderNumber > 21) {
+    if (founderNumber === null) {
       return json({ error: 'All Genesis Founder spots are taken' }, { status: 400 });
     }
 
