@@ -14,7 +14,7 @@
 
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
-import { handleWebhook, getReceiveRequest, getReceiveRequestReceives } from '$lib/strikeService.server';
+import { handleWebhook, getReceiveRequestReceives } from '$lib/strikeService.server';
 import { registerMember } from '$lib/memberRegistration.server';
 import { getInvoiceMetadata } from '$lib/invoiceMetadataStore.server';
 
