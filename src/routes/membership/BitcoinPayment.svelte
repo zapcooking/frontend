@@ -33,7 +33,7 @@
           stopPaymentPolling();
           if (!paymentConfirmed) {
             console.log('[PaymentModal] Lightning payment completed, verifying...');
-            await verifyLightningPayment(response.preimage || '');
+            await verifyLightningPayment();
           }
         },
         onCancelled: () => {
@@ -55,7 +55,7 @@
     stopPaymentPolling();
   });
 
-  async function verifyLightningPayment(preimage: string) {
+  async function verifyLightningPayment() {
     if (!isPaymentInfoComplete()) {
       error = 'Missing payment information';
       return;
@@ -64,7 +64,7 @@
     paymentStatus = 'confirming';
 
     try {
-      console.log('[PaymentModal] Verifying Lightning payment with preimage...');
+      console.log('[PaymentModal] Verifying Lightning payment...');
       const response = await fetch('/api/membership/verify-lightning-payment', {
         method: 'POST',
         headers: {
@@ -72,7 +72,6 @@
         },
         body: JSON.stringify({
           receiveRequestId,
-          paymentHash: null, // Backend will look up by receiveRequestId
           pubkey: $userPublickey,
           tier: $paymentStore.selectedTier,
           period: $paymentStore.selectedPeriod,
@@ -126,7 +125,6 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             receiveRequestId,
-            paymentHash: null, // Backend will look up by receiveRequestId
             pubkey: $userPublickey,
             tier: $paymentStore.selectedTier,
             period: $paymentStore.selectedPeriod,
@@ -139,7 +137,7 @@
             paymentStatus = 'complete';
             paymentConfirmed = true;
             stopPaymentPolling();
-            setPaid({ preimage: 'strike-confirmed' });
+            setPaid({ preimage: 'polling-verified' });
             
             // Complete payment with NIP-05 info
             await paymentStore.completePayment(
