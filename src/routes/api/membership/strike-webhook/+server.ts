@@ -1,22 +1,25 @@
 /**
  * Strike Webhook Handler for Membership Payments
- * 
+ *
  * Receives webhook notifications from Strike API when payments are confirmed.
  * Activates membership after payment verification.
- * 
+ *
  * POST /api/membership/strike-webhook
- * 
- * This endpoint should be configured in Strike API webhook settings.
- * Strike will call this endpoint when invoice state changes (e.g., PAID).
+ *
+ * Configure in Strike Dashboard > Webhooks with event types:
+ *   - receive-request.receive-completed
+ *
+ * Strike webhooks contain only the entityId — full data is fetched via API.
  */
 
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
-import { handleWebhook, checkInvoiceStatus } from '$lib/strikeService.server';
+import { handleWebhook, getReceiveRequestReceives } from '$lib/strikeService.server';
+import { registerMember } from '$lib/memberRegistration.server';
+import { getInvoiceMetadata } from '$lib/invoiceMetadataStore.server';
 
 /**
  * GET handler - Returns info about the webhook endpoint
- * This is useful for verifying the endpoint is reachable
  */
 export const GET: RequestHandler = async () => {
   return json({
@@ -25,7 +28,7 @@ export const GET: RequestHandler = async () => {
     description: 'Strike webhook endpoint for membership payments',
     method: 'POST',
     note: 'This endpoint receives POST requests from Strike API when payments are confirmed. Configure this URL in your Strike Dashboard webhook settings.',
-    events: ['invoice.paid', 'invoice.state.changed']
+    events: ['receive-request.receive-completed']
   });
 };
 
@@ -37,261 +40,108 @@ export const POST: RequestHandler = async ({ request, platform }) => {
   }
 
   try {
-    // Get webhook signature from headers
-    const signature = request.headers.get('x-strike-signature') || request.headers.get('strike-signature') || '';
-    
+    // Get webhook signature from X-Webhook-Signature header
+    const signature = request.headers.get('x-webhook-signature') || '';
+
     // Read raw body for signature verification
     const rawBody = await request.text();
     const payload = JSON.parse(rawBody);
-    
-    console.log('[Membership Strike Webhook] Received webhook:', {
+
+    console.log('[Strike Webhook] Received:', {
       eventType: payload.eventType,
-      entityId: payload.entityId,
-      timestamp: payload.timestamp,
+      entityId: payload.data?.entityId,
     });
-    
+
     // Verify webhook signature
     try {
       await handleWebhook(rawBody, signature, platform);
-      console.log('[Membership Strike Webhook] Signature verified');
     } catch (verifyError) {
-      console.error('[Membership Strike Webhook] Signature verification failed:', verifyError);
-      // In development, you might want to allow unsigned webhooks
-      // In production, always verify signatures
+      console.error('[Strike Webhook] Signature verification failed:', verifyError);
       if (env.NODE_ENV === 'production') {
         return json({ error: 'Invalid webhook signature' }, { status: 401 });
       }
-      console.warn('[Membership Strike Webhook] Allowing unsigned webhook in development');
+      console.warn('[Strike Webhook] Allowing unsigned webhook in development');
     }
-    
-    // Handle different webhook event types
-    if (payload.eventType === 'invoice.state.changed' || payload.eventType === 'invoice.paid') {
-      const invoiceId = payload.entityId;
-      
-      if (!invoiceId) {
-        console.error('[Membership Strike Webhook] No invoice ID in webhook payload');
-        return json({ error: 'Missing invoice ID' }, { status: 400 });
+
+    // Handle receive-request events (incoming Lightning payments)
+    if (payload.eventType === 'receive-request.receive-completed') {
+      const receiveRequestId = payload.data?.entityId;
+
+      if (!receiveRequestId) {
+        console.error('[Strike Webhook] No entityId in webhook payload');
+        return json({ error: 'Missing entityId' }, { status: 400 });
       }
-      
-      // Check invoice status to confirm it's paid
-      console.log('[Membership Strike Webhook] Checking invoice status:', invoiceId);
-      const invoice = await checkInvoiceStatus(invoiceId, platform);
-      
-      if (invoice.state !== 'PAID') {
-        console.log('[Membership Strike Webhook] Invoice not paid yet, state:', invoice.state);
-        return json({ received: true, message: 'Invoice not paid' });
-      }
-      
-      console.log('[Membership Strike Webhook] Invoice is paid, processing membership activation...');
-      
-      // Extract membership details from invoice description
-      // New format: "zap.cooking {Tier} ({Period}) - ${USD} USD"
-      // Old format: "ZapCooking {Tier} {Period} Membership - {pubkey}"
-      const description = invoice.description || '';
-      
-      // Try new format first
-      let tier: 'cook' | 'pro';
-      let period: 'annual' | '2year';
-      let pubkey: string | null = null;
-      
-      // Match: "zap.cooking Cook+ (1 Year) - $46.55 USD" or "zap.cooking Pro Kitchen (2 Years) - $144.78 USD"
-      const newFormatMatch = description.match(/zap\.cooking\s+(Cook\+|Pro Kitchen)\s+\((\d+)\s*Years?\)(?:\s*-\s*\$[\d.]+\s*USD)?/i);
-      const oldFormatMatch = description.match(/ZapCooking\s+(Cook\+|Pro Kitchen)\s+(\d+yr)\s+Membership\s+-\s+([0-9a-fA-F]{64})/);
-      
-      if (newFormatMatch) {
-        const [, tierName, periodYears] = newFormatMatch;
-        tier = tierName.toLowerCase() === 'cook+' ? 'cook' : 'pro';
-        period = periodYears === '2' ? '2year' : 'annual';
-        
-        // New format doesn't include pubkey - webhook can't auto-activate
-        // Payment is verified client-side via verify-lightning-payment endpoint
-        console.log('[Membership Strike Webhook] New format invoice detected - pubkey not in description');
-        console.log('[Membership Strike Webhook] Payment will be verified client-side');
-        
-        return json({ 
-          received: true, 
-          message: 'Invoice paid - awaiting client-side verification',
-          invoiceId,
-          tier,
-          period,
-          note: 'Pubkey not in description - client will verify payment'
+
+      // Look up stored metadata for this receive request
+      const metadata = getInvoiceMetadata(receiveRequestId);
+
+      if (!metadata) {
+        console.warn('[Strike Webhook] No metadata found for receiveRequestId:', receiveRequestId);
+        // Payment may still be verified client-side via verify-lightning-payment
+        return json({
+          received: true,
+          message: 'No metadata found — awaiting client-side verification',
         });
-        
-      } else if (oldFormatMatch) {
-        const [, tierName, periodLabel, extractedPubkey] = oldFormatMatch;
-        tier = tierName === 'Cook+' ? 'cook' : 'pro';
-        period = periodLabel === '1yr' ? 'annual' : '2year';
-        pubkey = extractedPubkey;
-      } else {
-        console.error('[Membership Strike Webhook] Could not parse membership details from description:', description);
-        return json({ 
-          received: true, 
-          error: 'Could not extract membership details from invoice',
-          invoiceId 
-        }, { status: 400 });
       }
-      
-      // Validate pubkey format
-      if (!/^[0-9a-fA-F]{64}$/.test(pubkey)) {
-        console.error('[Membership Strike Webhook] Invalid pubkey format:', pubkey);
-        return json({ 
-          received: true, 
-          error: 'Invalid pubkey format in invoice description',
-          invoiceId 
-        }, { status: 400 });
+
+      // Verify payment is actually completed by fetching receives
+      const receives = await getReceiveRequestReceives(receiveRequestId, platform);
+      const completedReceive = receives.find(r => r.state === 'COMPLETED');
+
+      if (!completedReceive) {
+        console.log('[Strike Webhook] No completed receive found for:', receiveRequestId);
+        return json({ received: true, message: 'No completed receive found' });
       }
-      
-      console.log('[Membership Strike Webhook] Extracted membership details:', {
-        tier,
-        period,
-        pubkey: pubkey.substring(0, 16) + '...',
-        invoiceId,
+
+      console.log('[Strike Webhook] Payment confirmed, registering member:', {
+        receiveRequestId,
+        pubkey: metadata.pubkey.substring(0, 16) + '...',
+        tier: metadata.tier,
+        period: metadata.period,
       });
-      
+
       // Get API secret for relay API
       const API_SECRET = platform?.env?.RELAY_API_SECRET || env.RELAY_API_SECRET;
       if (!API_SECRET) {
-        console.error('[Membership Strike Webhook] RELAY_API_SECRET not configured');
-        return json({ 
-          received: true, 
-          error: 'RELAY_API_SECRET not configured',
-          invoiceId 
-        }, { status: 500 });
+        console.error('[Strike Webhook] RELAY_API_SECRET not configured');
+        return json({ received: true, error: 'RELAY_API_SECRET not configured' }, { status: 500 });
       }
-      
-      // Calculate subscription end date
-      const now = new Date();
-      const subscriptionMonths = period === 'annual' ? 12 : 24;
-      const subscriptionEnd = new Date(now);
-      subscriptionEnd.setMonth(now.getMonth() + subscriptionMonths);
-      
-      // Generate payment_id
-      const paymentId = `${tier}_strike_${Date.now()}`;
-      
-      console.log('[Membership Strike Webhook] Adding member to relay API...', {
-        pubkey: pubkey.substring(0, 16) + '...',
-        tier,
-        period,
-        subscriptionEnd: subscriptionEnd.toISOString()
-      });
-      
-      // Add member to relay API
-      const addMemberRes = await fetch('https://pantry.zap.cooking/api/members', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${API_SECRET}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          pubkey: pubkey,
-          subscription_months: subscriptionMonths,
-          payment_id: paymentId,
-          tier: 'standard', // Use 'standard' tier like existing members
-          subscription_end: subscriptionEnd.toISOString(),
-          payment_method: 'lightning_strike'
-        })
-      });
-      
-      if (!addMemberRes.ok) {
-        const responseText = await addMemberRes.text();
-        let errorData;
-        try {
-          errorData = JSON.parse(responseText);
-        } catch (e) {
-          errorData = { error: responseText };
-        }
-        console.error('[Membership Strike Webhook] Add member API returned error:', {
-          status: addMemberRes.status,
-          error: errorData
-        });
-        throw new Error(errorData.error || `Failed to add member: ${addMemberRes.status}`);
-      }
-      
-      // Auto-claim NIP-05 for the new member
-      let nip05: string | null = null;
-      let nip05Username: string | null = null;
-      
+
+      // Register member using shared idempotent logic
       try {
-        // Generate username from pubkey (first 8 chars)
-        const suggestedUsername = pubkey.substring(0, 8).toLowerCase();
-        
-        console.log('[Membership Strike Webhook] Auto-claiming NIP-05:', suggestedUsername);
-        
-        const nip05Res = await fetch('https://pantry.zap.cooking/api/nip05/claim', {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${API_SECRET}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            username: suggestedUsername,
-            pubkey,
-            tier: tier as 'cook' | 'pro'
-          })
+        const result = await registerMember({
+          pubkey: metadata.pubkey,
+          tier: metadata.tier,
+          period: metadata.period,
+          paymentMethod: 'lightning_strike',
+          apiSecret: API_SECRET,
         });
-        
-        if (nip05Res.ok) {
-          nip05Username = suggestedUsername;
-          nip05 = `${suggestedUsername}@zap.cooking`;
-          console.log('[Membership Strike Webhook] NIP-05 claimed:', nip05);
+
+        if (result.alreadyExists) {
+          console.log('[Strike Webhook] Member already registered (idempotent)');
         } else {
-          // If default username fails, try with timestamp suffix
-          const fallbackUsername = `${pubkey.substring(0, 6)}${Date.now().toString(36).slice(-2)}`.toLowerCase();
-          
-          const fallbackRes = await fetch('https://pantry.zap.cooking/api/nip05/claim', {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${API_SECRET}`,
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-              username: fallbackUsername,
-              pubkey,
-              tier: tier as 'cook' | 'pro'
-            })
+          console.log('[Strike Webhook] Member registered successfully:', {
+            subscriptionEnd: result.subscriptionEnd,
+            nip05: result.nip05,
           });
-          
-          if (fallbackRes.ok) {
-            nip05Username = fallbackUsername;
-            nip05 = `${fallbackUsername}@zap.cooking`;
-            console.log('[Membership Strike Webhook] NIP-05 claimed (fallback):', nip05);
-          } else {
-            console.warn('[Membership Strike Webhook] Could not auto-claim NIP-05');
-          }
         }
-      } catch (nip05Error) {
-        // NIP-05 claim is optional - don't fail the payment verification
-        console.warn('[Membership Strike Webhook] NIP-05 auto-claim error:', nip05Error);
+      } catch (regError: any) {
+        console.error('[Strike Webhook] Member registration failed:', regError.message);
+        // Don't throw — webhook should return 200 to prevent Strike retries.
+        // Client-side verify endpoint serves as fallback.
       }
-      
-      console.log('[Membership Strike Webhook] Membership activated successfully');
-      
-      return json({
-        received: true,
-        success: true,
-        message: `${tier === 'cook' ? 'Cook+' : 'Pro Kitchen'} membership activated via Strike`,
-        invoiceId,
-        pubkey: pubkey.substring(0, 16) + '...',
-        tier,
-        period,
-        subscriptionEnd: subscriptionEnd.toISOString(),
-        nip05,
-        nip05Username
-      });
-      
+
+      return json({ received: true });
+
+    } else if (payload.eventType === 'receive-request.receive-pending') {
+      console.log('[Strike Webhook] Receive pending for:', payload.data?.entityId);
+      return json({ received: true, message: 'Receive pending — waiting for completion' });
     } else {
-      console.log('[Membership Strike Webhook] Unhandled event type:', payload.eventType);
+      console.log('[Strike Webhook] Unhandled event type:', payload.eventType);
       return json({ received: true, message: 'Event type not handled' });
     }
-    
   } catch (error: any) {
-    console.error('[Membership Strike Webhook] Error processing webhook:', error);
-    
-    return json(
-      { 
-        error: error.message || 'Failed to process webhook',
-      },
-      { status: 500 }
-    );
+    console.error('[Strike Webhook] Error processing webhook:', error);
+    return json({ error: 'Webhook processing failed' }, { status: 500 });
   }
 };

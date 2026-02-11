@@ -31,16 +31,16 @@
 </script>
 
 <svelte:head>
-  <title>Genesis Founders - zap.cooking</title>
+  <title>Founders Club - zap.cooking</title>
   <meta
     name="description"
-    content="Meet the Genesis Founders - the first believers who made Zap Cooking possible."
+    content="Meet the Founders Club - the first believers who made Zap Cooking possible."
   />
 </svelte:head>
 
 <div class="founders-page">
   <section class="genesis-founders">
-    <h2>🔥 Genesis Founders</h2>
+    <h2>🔥 Founders Club</h2>
     <p class="subtitle">The first believers who made this possible</p>
 
     {#if founders.length === 0}
@@ -63,7 +63,7 @@
               </a>
             </div>
 
-            <div class="founder-badge">Genesis Founder</div>
+            <div class="founder-badge">Founder</div>
           </div>
         {/each}
       </div>

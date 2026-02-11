@@ -27,18 +27,20 @@
 
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
-import { convertUsdToSats, convertUsdToBtc, getDiscountedBitcoinPrice } from '$lib/bitcoinPrice.server';
+import { getBitcoinPrice } from '$lib/bitcoinPrice.server';
 import { createInvoice as createStrikeInvoice } from '$lib/strikeService.server';
+import { storeInvoiceMetadata } from '$lib/invoiceMetadataStore.server';
 
 // Pricing in USD
+// TODO: Restore production prices before launch (cook: 49/83.30, pro: 89/152.40)
 const PRICING_USD = {
   cook: {
-    annual: 49, // $49/year
-    '2year': 83.30, // $83.30/2years
+    annual: 1, // TEMP $1 for testing — production: $49/year
+    '2year': 1, // TEMP $1 for testing — production: $83.30/2years
   },
   pro: {
-    annual: 89, // $89/year
-    '2year': 152.40, // $152.40/2years
+    annual: 1, // TEMP $1 for testing — production: $89/year
+    '2year': 1, // TEMP $1 for testing — production: $152.40/2years
   },
 };
 
@@ -101,29 +103,16 @@ export const POST: RequestHandler = async ({ request, platform }) => {
       );
     }
     
-    // Get current Bitcoin spot price
-    console.log('[Membership Lightning] Fetching current Bitcoin price...');
-    const { price: currentPrice } = await getDiscountedBitcoinPrice(0, platform);
-    
+    // Fetch BTC price once and derive all amounts from it (avoids race condition)
+    const currentPrice = await getBitcoinPrice(platform);
+
     // Calculate discounted USD amount (5% off for Bitcoin payments)
     const discountedUsdAmount = usdAmount * (1 - BITCOIN_DISCOUNT_PERCENT / 100);
-    
-    // Convert discounted USD to BTC at current spot price
-    const btcAmount = await convertUsdToBtc(discountedUsdAmount, undefined, platform);
-    
-    // Convert discounted USD to sats at current spot price
-    const amountSats = await convertUsdToSats(discountedUsdAmount, undefined, platform);
-    
-    console.log('[Membership Lightning] Price calculation:', {
-      originalUsdPrice: usdAmount,
-      discountPercent: BITCOIN_DISCOUNT_PERCENT,
-      discountedUsdAmount: discountedUsdAmount.toFixed(2),
-      btcSpotPrice: currentPrice.toFixed(2),
-      btcAmount,
-      amountSats,
-      tier,
-      period,
-    });
+
+    // Convert using the single fetched price
+    const btcAmountNum = discountedUsdAmount / currentPrice;
+    const btcAmount = btcAmountNum.toFixed(8);
+    const amountSats = Math.round(btcAmountNum * 100_000_000);
     
     // Create invoice description with USD price for display
     // Note: Full pubkey is passed separately for payment verification
@@ -147,7 +136,6 @@ export const POST: RequestHandler = async ({ request, platform }) => {
     const invoice = bolt11Data?.invoice || strikeResponse.invoice;
     
     if (!invoice) {
-      console.error('[Membership Lightning] Unexpected Strike response structure:', strikeResponse);
       throw new Error('Strike API did not return a BOLT11 invoice');
     }
     
@@ -164,19 +152,20 @@ export const POST: RequestHandler = async ({ request, platform }) => {
       expiresAt = Math.floor(Date.now() / 1000) + 3600; // 1 hour default
     }
     
-    console.log('[Membership Lightning] Invoice created successfully:', {
+    console.log('[Membership Lightning] Invoice created:', {
       receiveRequestId,
-      invoiceLength: invoice.length,
-      paymentHash: paymentHash.substring(0, 16) + '...',
       amountSats,
       tier,
       period,
       pubkey: pubkey.substring(0, 16) + '...',
-      expiresAt: new Date(expiresAt * 1000).toISOString(),
     });
-    
-    // TODO: Store invoice metadata (receiveRequestId -> pubkey, tier, period) for webhook processing
-    // This could be stored in a database, cache, or passed via webhook URL metadata
+
+    // Store invoice metadata so webhook and verify endpoints can match payment to user
+    storeInvoiceMetadata(
+      receiveRequestId,
+      { pubkey, tier: tier as 'cook' | 'pro', period: period as 'annual' | '2year' },
+      paymentHash
+    );
     
     return json({
       invoice,

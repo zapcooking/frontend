@@ -36,6 +36,27 @@ export interface StrikeInvoice {
 	bolt11?: string;
 }
 
+export interface ReceiveRequest {
+	receiveRequestId: string;
+	created: string;
+	targetCurrency?: string;
+	bolt11?: {
+		invoice: string;
+		requestedAmount?: StrikeAmount;
+		btcAmount?: string;
+		description?: string;
+		paymentHash?: string;
+		expires?: string;
+	};
+}
+
+export interface Receive {
+	receiveId: string;
+	state: 'PENDING' | 'COMPLETED' | 'FAILED';
+	amount?: StrikeAmount;
+	completed?: string;
+}
+
 export interface CreateInvoiceResponse {
 	receiveRequestId: string;
 	created: string;
@@ -144,13 +165,12 @@ export async function createInvoice(
 	}
 
 	const data = await response.json();
-	console.log('[Strike API] Receive request response:', JSON.stringify(data, null, 2));
 	return data;
 }
 
 /**
- * Check invoice status
- * 
+ * Check invoice status (legacy - for outgoing invoices)
+ *
  * @param invoiceId - The invoice ID (UUID)
  * @param platform - Optional platform context for Cloudflare Workers
  * @returns Invoice details including current state
@@ -182,6 +202,72 @@ export async function checkInvoiceStatus(
 	}
 
 	return await response.json();
+}
+
+/**
+ * Get a receive request by ID
+ *
+ * @param receiveRequestId - The receive request ID (UUID)
+ * @param platform - Optional platform context for Cloudflare Workers
+ * @returns Receive request details
+ */
+export async function getReceiveRequest(
+	receiveRequestId: string,
+	platform?: any
+): Promise<ReceiveRequest> {
+	if (!receiveRequestId) {
+		throw new Error('Receive request ID is required');
+	}
+
+	const response = await strikeRequest(
+		`/v1/receive-requests/${receiveRequestId}`,
+		{ method: 'GET' },
+		platform
+	);
+
+	if (!response.ok) {
+		if (response.status === 404) {
+			throw new Error(`Receive request not found: ${receiveRequestId}`);
+		}
+		const errorText = await response.text();
+		throw new Error(
+			`Strike API error: ${response.status} ${response.statusText}. ${errorText}`
+		);
+	}
+
+	return await response.json();
+}
+
+/**
+ * Get receives (payments) for a receive request
+ *
+ * @param receiveRequestId - The receive request ID (UUID)
+ * @param platform - Optional platform context for Cloudflare Workers
+ * @returns Array of receives for the request
+ */
+export async function getReceiveRequestReceives(
+	receiveRequestId: string,
+	platform?: any
+): Promise<Receive[]> {
+	if (!receiveRequestId) {
+		throw new Error('Receive request ID is required');
+	}
+
+	const response = await strikeRequest(
+		`/v1/receive-requests/${receiveRequestId}/receives`,
+		{ method: 'GET' },
+		platform
+	);
+
+	if (!response.ok) {
+		const errorText = await response.text();
+		throw new Error(
+			`Strike API error: ${response.status} ${response.statusText}. ${errorText}`
+		);
+	}
+
+	const data = await response.json();
+	return Array.isArray(data) ? data : data.items || [];
 }
 
 /**
@@ -292,12 +378,10 @@ async function verifyWebhookSignature(
 	secret: string
 ): Promise<boolean> {
 	try {
-		// Import crypto for HMAC verification
 		const encoder = new TextEncoder();
 		const keyData = encoder.encode(secret);
 		const payloadData = encoder.encode(payload);
 
-		// Import the Web Crypto API key
 		const cryptoKey = await crypto.subtle.importKey(
 			'raw',
 			keyData,
@@ -306,21 +390,26 @@ async function verifyWebhookSignature(
 			['sign']
 		);
 
-		// Generate expected signature
 		const expectedSignature = await crypto.subtle.sign('HMAC', cryptoKey, payloadData);
+		const expectedBytes = new Uint8Array(expectedSignature);
 
-		// Convert to hex string for comparison
-		const expectedHex = Array.from(new Uint8Array(expectedSignature))
+		// Convert expected to hex for comparison with Strike's X-Webhook-Signature header
+		const expectedHex = Array.from(expectedBytes)
 			.map(b => b.toString(16).padStart(2, '0'))
 			.join('');
 
-		// Compare signatures (case-insensitive)
-		// Note: Strike may provide signature in different format (e.g., with prefix)
-		// Adjust comparison logic based on actual Strike API signature format
-		const providedSignature = signature.replace(/^.*\s+/, ''); // Remove any prefix like "sha256="
-		
-		return expectedHex.toLowerCase() === providedSignature.toLowerCase() ||
-		       signature.toLowerCase() === expectedHex.toLowerCase();
+		// Timing-safe comparison to prevent timing attacks
+		const a = encoder.encode(expectedHex.toLowerCase());
+		const b = encoder.encode(signature.toLowerCase());
+		if (a.byteLength !== b.byteLength) return false;
+
+		// Use subtle.verify as a timing-safe comparison (Web Crypto doesn't expose timingSafeEqual)
+		// Compare byte-by-byte with constant-time XOR
+		let result = 0;
+		for (let i = 0; i < a.byteLength; i++) {
+			result |= a[i] ^ b[i];
+		}
+		return result === 0;
 	} catch (error) {
 		console.error('Error verifying webhook signature:', error);
 		return false;

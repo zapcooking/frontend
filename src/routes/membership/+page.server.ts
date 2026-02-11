@@ -39,9 +39,10 @@ export const load: PageServerLoad = async ({ fetch, platform }) => {
 
     const data = await res.json();
 
-    // Filter for Genesis Founders (both 'genesis_' and 'founder' prefixes)
+    // Filter for active Genesis Founders (both 'genesis_' and 'founder' prefixes)
     const allFounders = data.members
       .filter((m: any) => {
+        if (m.status === 'cancelled') return false;
         const pid = m.payment_id?.toLowerCase() || '';
         return pid.startsWith('genesis_') || pid.startsWith('founder');
       })
@@ -87,15 +88,11 @@ export const load: PageServerLoad = async ({ fetch, platform }) => {
 
     // Sort priority founders by their index (0-3)
     priorityFoundersList.sort((a, b) => a.priorityIndex - b.priorityIndex);
-    
-    // Sort other founders by join date (oldest first, newest at end)
-    otherFoundersList.sort((a, b) => {
-      const dateA = new Date(a.joined || 0).getTime();
-      const dateB = new Date(b.joined || 0).getTime();
-      return dateA - dateB;
-    });
 
-    // Build final list: priority founders are #1-4, others are #5+
+    // Sort other founders by their stored number from payment_id (stable ordering)
+    otherFoundersList.sort((a, b) => a.originalNumber - b.originalNumber);
+
+    // Build final list: priority founders are #1-4, others keep their stored number
     const founders = [
       ...priorityFoundersList.map((f, idx) => ({
         number: idx + 1, // #1, #2, #3, #4
@@ -103,8 +100,8 @@ export const load: PageServerLoad = async ({ fetch, platform }) => {
         tier: f.tier,
         joined: f.joined
       })),
-      ...otherFoundersList.map((f, idx) => ({
-        number: priorityFoundersList.length + idx + 1, // #5, #6, #7...
+      ...otherFoundersList.map((f) => ({
+        number: f.originalNumber, // Use the number from payment_id (e.g. genesis_5 → #5)
         pubkey: f.pubkey,
         tier: f.tier,
         joined: f.joined
