@@ -1,13 +1,13 @@
 /**
- * Invoice Metadata Store (server-side, in-memory with TTL)
+ * Invoice Metadata Store (server-side, Cloudflare KV with TTL)
  *
  * Maps Strike receiveRequestId to membership metadata (pubkey, tier, period)
  * so that webhooks and verification endpoints can match payments to users.
  *
  * Entries expire after 2 hours (Lightning invoices typically expire in 1 hour).
  *
- * NOTE: This is an in-memory store. It works for single-instance deployments.
- * For multi-instance or serverless deployments, replace with a database or KV store.
+ * Uses Cloudflare KV for persistent storage across serverless instances.
+ * Falls back to in-memory storage for development/testing when KV is unavailable.
  */
 
 export interface InvoiceMetadata {
@@ -19,98 +19,171 @@ export interface InvoiceMetadata {
 }
 
 const ENTRY_TTL_MS = 2 * 60 * 60 * 1000; // 2 hours
-const CLEANUP_INTERVAL_MS = 10 * 60 * 1000; // Clean up every 10 minutes
+const ENTRY_TTL_SECONDS = Math.floor(ENTRY_TTL_MS / 1000); // For KV expirationTtl
 
-const store = new Map<string, InvoiceMetadata>();
+// In-memory fallback store for development (when KV is not available)
+const fallbackStore = new Map<string, InvoiceMetadata>();
+const fallbackPaymentHashIndex = new Map<string, string>();
 
-// Also index by paymentHash for client-side verification lookups
-const paymentHashIndex = new Map<string, string>(); // paymentHash -> receiveRequestId
-
-// Periodic cleanup of expired entries
-let cleanupTimer: ReturnType<typeof setInterval> | null = null;
-
-function ensureCleanupRunning() {
-  if (cleanupTimer) return;
-  cleanupTimer = setInterval(() => {
-    const now = Date.now();
-    for (const [id, entry] of store) {
-      if (now - entry.createdAt > ENTRY_TTL_MS) {
-        store.delete(id);
-      }
-    }
-    // Clean stale paymentHash index entries
-    for (const [hash, receiveId] of paymentHashIndex) {
-      if (!store.has(receiveId)) {
-        paymentHashIndex.delete(hash);
-      }
-    }
-  }, CLEANUP_INTERVAL_MS);
-  // Don't prevent process exit
-  if (cleanupTimer && typeof cleanupTimer === 'object' && 'unref' in cleanupTimer) {
-    cleanupTimer.unref();
-  }
-}
+// Type for platform with KV binding
+type PlatformWithKV = {
+  env?: {
+    INVOICE_METADATA?: {
+      get(key: string, type?: 'text' | 'json'): Promise<string | unknown | null>;
+      put(key: string, value: string, options?: { expirationTtl?: number }): Promise<void>;
+      delete(key: string): Promise<void>;
+    };
+  };
+};
 
 /**
  * Store metadata for a newly created invoice.
  * Call this when creating a Lightning invoice via Strike API.
  */
-export function storeInvoiceMetadata(
+export async function storeInvoiceMetadata(
   receiveRequestId: string,
   metadata: Omit<InvoiceMetadata, 'createdAt' | 'receiveRequestId'>,
-  paymentHash?: string
-): void {
-  ensureCleanupRunning();
-
+  paymentHash?: string,
+  platform?: PlatformWithKV
+): Promise<void> {
   const entry: InvoiceMetadata = {
     ...metadata,
     receiveRequestId,
     createdAt: Date.now(),
   };
-  store.set(receiveRequestId, entry);
 
-  if (paymentHash) {
-    paymentHashIndex.set(paymentHash, receiveRequestId);
+  const kv = platform?.env?.INVOICE_METADATA;
+
+  if (kv) {
+    // Store in Cloudflare KV with TTL
+    const key = `invoice:${receiveRequestId}`;
+    await kv.put(key, JSON.stringify(entry), { expirationTtl: ENTRY_TTL_SECONDS });
+
+    // Also create a paymentHash index entry if provided
+    if (paymentHash) {
+      const hashKey = `hash:${paymentHash}`;
+      await kv.put(hashKey, receiveRequestId, { expirationTtl: ENTRY_TTL_SECONDS });
+    }
+  } else {
+    // Fallback to in-memory store for development
+    console.warn('[InvoiceMetadataStore] KV not available, using in-memory fallback');
+    fallbackStore.set(receiveRequestId, entry);
+    if (paymentHash) {
+      fallbackPaymentHashIndex.set(paymentHash, receiveRequestId);
+    }
   }
 }
 
 /**
  * Look up metadata by receiveRequestId (used by webhooks).
  */
-export function getInvoiceMetadata(receiveRequestId: string): InvoiceMetadata | null {
-  const entry = store.get(receiveRequestId);
-  if (!entry) return null;
+export async function getInvoiceMetadata(
+  receiveRequestId: string,
+  platform?: PlatformWithKV
+): Promise<InvoiceMetadata | null> {
+  const kv = platform?.env?.INVOICE_METADATA;
 
-  // Check expiry
-  if (Date.now() - entry.createdAt > ENTRY_TTL_MS) {
-    store.delete(receiveRequestId);
-    return null;
+  if (kv) {
+    // Retrieve from Cloudflare KV
+    const key = `invoice:${receiveRequestId}`;
+    const value = await kv.get(key, 'text');
+    
+    if (!value) return null;
+    
+    try {
+      const entry = JSON.parse(value as string) as InvoiceMetadata;
+      
+      // KV automatically handles expiration via TTL, but double-check for safety
+      if (Date.now() - entry.createdAt > ENTRY_TTL_MS) {
+        await kv.delete(key);
+        return null;
+      }
+      
+      return entry;
+    } catch (error) {
+      console.error('[InvoiceMetadataStore] Error parsing KV entry:', error);
+      return null;
+    }
+  } else {
+    // Fallback to in-memory store
+    const entry = fallbackStore.get(receiveRequestId);
+    if (!entry) return null;
+
+    // Check expiry
+    if (Date.now() - entry.createdAt > ENTRY_TTL_MS) {
+      fallbackStore.delete(receiveRequestId);
+      return null;
+    }
+
+    return entry;
   }
-
-  return entry;
 }
 
 /**
  * Look up metadata by paymentHash (used by client-side verify endpoint).
  */
-export function getInvoiceMetadataByPaymentHash(paymentHash: string): InvoiceMetadata | null {
-  const receiveRequestId = paymentHashIndex.get(paymentHash);
-  if (!receiveRequestId) return null;
-  return getInvoiceMetadata(receiveRequestId);
+export async function getInvoiceMetadataByPaymentHash(
+  paymentHash: string,
+  platform?: PlatformWithKV
+): Promise<InvoiceMetadata | null> {
+  const kv = platform?.env?.INVOICE_METADATA;
+
+  if (kv) {
+    // Look up receiveRequestId from paymentHash index
+    const hashKey = `hash:${paymentHash}`;
+    const receiveRequestId = await kv.get(hashKey, 'text');
+    
+    if (!receiveRequestId) return null;
+    
+    return getInvoiceMetadata(receiveRequestId as string, platform);
+  } else {
+    // Fallback to in-memory store
+    const receiveRequestId = fallbackPaymentHashIndex.get(paymentHash);
+    if (!receiveRequestId) return null;
+    return getInvoiceMetadata(receiveRequestId, platform);
+  }
 }
 
 /**
  * Remove metadata after successful processing (optional cleanup).
  */
-export function removeInvoiceMetadata(receiveRequestId: string): void {
-  const entry = store.get(receiveRequestId);
-  if (entry) {
-    store.delete(receiveRequestId);
-    // Also clean paymentHash index
-    for (const [hash, id] of paymentHashIndex) {
-      if (id === receiveRequestId) {
-        paymentHashIndex.delete(hash);
-        break;
+export async function removeInvoiceMetadata(
+  receiveRequestId: string,
+  platform?: PlatformWithKV
+): Promise<void> {
+  const kv = platform?.env?.INVOICE_METADATA;
+
+  if (kv) {
+    // First, get the entry to find the paymentHash (if any)
+    const key = `invoice:${receiveRequestId}`;
+    const value = await kv.get(key, 'text');
+    
+    if (value) {
+      try {
+        const entry = JSON.parse(value as string) as InvoiceMetadata;
+        
+        // Delete the main entry
+        await kv.delete(key);
+        
+        // Note: We don't have the paymentHash readily available here.
+        // The hash index entries will expire automatically via TTL.
+        // In a production system, you might want to store the hash in the metadata
+        // or maintain a reverse index.
+      } catch (error) {
+        console.error('[InvoiceMetadataStore] Error parsing entry for deletion:', error);
+      }
+    }
+  } else {
+    // Fallback to in-memory store
+    const entry = fallbackStore.get(receiveRequestId);
+    if (entry) {
+      fallbackStore.delete(receiveRequestId);
+      // Clean paymentHash index
+      for (const [hash, id] of fallbackPaymentHashIndex) {
+        if (id === receiveRequestId) {
+          fallbackPaymentHashIndex.delete(hash);
+          break;
+        }
       }
     }
   }

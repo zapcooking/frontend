@@ -29,6 +29,12 @@ declare global {
             get(key: string, type?: 'text' | 'json'): Promise<string | unknown | null>;
             put(key: string, value: string, options?: { expirationTtl?: number; expiration?: number }): Promise<void>;
           };
+          /** KV namespace for Lightning invoice metadata (Cloudflare Pages: bind in dashboard as INVOICE_METADATA) */
+          INVOICE_METADATA?: {
+            get(key: string, type?: 'text' | 'json'): Promise<string | unknown | null>;
+            put(key: string, value: string, options?: { expirationTtl?: number; expiration?: number }): Promise<void>;
+            delete(key: string): Promise<void>;
+          };
           // Add other Cloudflare env vars here
         };
       }
