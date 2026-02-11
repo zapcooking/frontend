@@ -310,6 +310,18 @@
             if (data.nip05Username) params.set('nip05_username', data.nip05Username);
             goto(`/membership/confirmation?${params.toString()}`);
           }
+        } else if (response.status === 402) {
+          // Payment still pending; keep polling.
+          return;
+        } else {
+          // Terminal error: stop polling and log the error.
+          stopPaymentPolling();
+          try {
+            const errorData = await response.json();
+            console.error('Lightning payment verification failed:', errorData);
+          } catch {
+            console.error('Lightning payment verification failed with status', response.status);
+          }
         }
       } catch {
         // Network error, keep polling
