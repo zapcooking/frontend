@@ -28,7 +28,7 @@
     try {
       const { setPaid } = await lightningService.launchPayment({
         invoice: invoice,
-        verify: undefined,
+        // No verify URL needed - we handle polling ourselves
         onPaid: async (response) => {
           stopPaymentPolling();
           if (!paymentConfirmed) {
@@ -137,7 +137,9 @@
             paymentStatus = 'complete';
             paymentConfirmed = true;
             stopPaymentPolling();
-            setPaid({ preimage: 'polling-verified' });
+            // Mark payment as paid in the lightning service
+            // Using placeholder since we verify via backend, not preimage
+            setPaid({ preimage: 'backend-verified' });
             
             // Complete payment with NIP-05 info
             await paymentStore.completePayment(
