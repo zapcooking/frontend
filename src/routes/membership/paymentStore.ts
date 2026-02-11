@@ -104,15 +104,15 @@ function createPaymentStore() {
     },
 
     // Proceed to Bitcoin payment
-    proceedToBitcoin: async () => {
+    proceedToBitcoin: async (pubkey: string) => {
       update(state => ({ ...state, step: 'bitcoin' }));
-      
-      // Create mock Lightning invoice
-      const invoice = await createStrikeInvoice();
+
+      // Create real Lightning invoice via backend API
+      const invoice = await createLightningInvoice(pubkey);
       update(state => ({
         ...state,
-        invoiceId: invoice.id,
-        lightningInvoice: invoice.lnInvoice
+        invoiceId: invoice.receiveRequestId,
+        lightningInvoice: invoice.invoice,
       }));
     },
 
@@ -260,53 +260,56 @@ export const currentPricing = derived(
 );
 
 // ============================================
-// MOCK API FUNCTIONS
-// (Replace these with real API calls later)
+// API FUNCTIONS
 // ============================================
 
-interface MockInvoice {
-  id: string;
-  lnInvoice: string;
-  amountSats: number;
+export interface LightningInvoiceResponse {
+  invoice: string;
+  paymentHash: string;
+  receiveRequestId: string;
   expiresAt: number;
-}
-
-interface MockStripeSession {
-  id: string;
-  url: string;
-}
-
-// Generate a fake Lightning invoice (looks realistic)
-function generateFakeLightningInvoice(): string {
-  const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
-  let invoice = 'lnbc';
-  // Add amount indicator
-    invoice += '441000n'; // 44100 sats
-  // Add timestamp
-  invoice += '1p';
-  // Add random data
-  for (let i = 0; i < 200; i++) {
-    invoice += chars[Math.floor(Math.random() * chars.length)];
-  }
-  return invoice;
-}
-
-// Mock: Create a Strike/Lightning invoice
-export async function createStrikeInvoice(): Promise<MockInvoice> {
-  // Simulate API delay
-  await new Promise(resolve => setTimeout(resolve, 500));
-  
-  return {
-    id: `inv_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-    lnInvoice: generateFakeLightningInvoice(),
-    amountSats: 44100,
-    expiresAt: Date.now() + 15 * 60 * 1000 // 15 minutes
-  };
+  amountSats: number;
+  usdAmount: number;
+  discountedUsdAmount: number;
+  btcPrice: number;
+  discountPercent: number;
+  tier: string;
+  period: string;
 }
 
 /**
- * Create a Stripe checkout session
- * Calls the backend API to create a real Stripe checkout session
+ * Create a Lightning invoice via backend API (Strike)
+ */
+export async function createLightningInvoice(pubkey: string): Promise<LightningInvoiceResponse> {
+  if (!browser) {
+    throw new Error('Lightning invoice creation requires browser environment');
+  }
+
+  // Read current store state for tier/period
+  let tier: string = '';
+  let period: string = '';
+  paymentStore.subscribe(s => { tier = s.selectedTier || ''; period = s.selectedPeriod; })();
+
+  if (!tier || tier === 'open') {
+    throw new Error('No tier selected');
+  }
+
+  const response = await fetch('/api/membership/create-lightning-invoice', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ pubkey, tier, period }),
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Failed to create Lightning invoice' }));
+    throw new Error(error.error || `HTTP ${response.status}: Failed to create Lightning invoice`);
+  }
+
+  return await response.json();
+}
+
+/**
+ * Create a Stripe checkout session via backend API
  */
 export async function createStripeSession(params: {
   tier: 'cook' | 'pro';
@@ -319,33 +322,20 @@ export async function createStripeSession(params: {
   if (!browser) {
     throw new Error('Stripe session creation requires browser environment');
   }
-  
+
   const response = await fetch('/api/stripe/create-session', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(params),
   });
-  
+
   if (!response.ok) {
     const error = await response.json().catch(() => ({ error: 'Failed to create Stripe session' }));
     throw new Error(error.error || `HTTP ${response.status}: Failed to create Stripe session`);
   }
-  
-  const data = await response.json();
-  return {
-    sessionId: data.sessionId,
-    url: data.url,
-  };
-}
 
-// Mock: Check payment status (simulates polling)
-export async function checkPaymentStatus(invoiceId: string): Promise<'pending' | 'paid' | 'expired'> {
-  // In real implementation, this would poll the backend
-  // For mock, we'll just return 'pending' - the auto-complete handles success
-  await new Promise(resolve => setTimeout(resolve, 200));
-  return 'pending';
+  const data = await response.json();
+  return { sessionId: data.sessionId, url: data.url };
 }
 
 // Format sats with commas

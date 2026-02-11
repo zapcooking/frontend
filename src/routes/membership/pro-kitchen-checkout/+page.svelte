@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import { browser } from '$app/environment';
   import { goto } from '$app/navigation';
   import { userPublickey } from '$lib/nostr';
@@ -7,12 +7,15 @@
   import { lightningService } from '$lib/lightningService';
 
   type PaymentMethod = 'stripe' | 'lightning';
-  
+
   let paymentMethod: PaymentMethod = 'stripe';
   let loading = false;
   let error: string | null = null;
   let lightningInvoice: string | null = null;
   let paymentHash: string | null = null;
+  let receiveRequestId: string | null = null;
+  let pollInterval: ReturnType<typeof setInterval> | null = null;
+  let paymentConfirmed = false;
 
   $: isLoggedIn = $userPublickey && $userPublickey.length > 0;
   
@@ -154,6 +157,7 @@
     error = null;
     lightningInvoice = null;
     paymentHash = null;
+    receiveRequestId = null;
 
     try {
       console.log('[Pro Kitchen Checkout] Creating Lightning invoice...');
@@ -182,23 +186,31 @@
 
       const data = await response.json();
       console.log('[Pro Kitchen Checkout] Lightning invoice created');
-      
+
       lightningInvoice = data.invoice;
       paymentHash = data.paymentHash;
+      receiveRequestId = data.receiveRequestId;
 
-      await lightningService.launchPayment({
+      const { setPaid } = await lightningService.launchPayment({
         invoice: data.invoice,
         verify: undefined,
         onPaid: async (response) => {
-          console.log('[Pro Kitchen Checkout] Lightning payment completed, verifying...');
-          await verifyLightningPayment(response.preimage || '');
+          stopPaymentPolling();
+          if (!paymentConfirmed) {
+            console.log('[Pro Kitchen Checkout] Lightning payment completed, verifying...');
+            await verifyLightningPayment(response.preimage || '');
+          }
         },
         onCancelled: () => {
+          stopPaymentPolling();
           console.log('[Pro Kitchen Checkout] Lightning payment cancelled');
           loading = false;
           error = 'Payment cancelled';
         }
       });
+
+      // Start polling our verify endpoint to detect external wallet payments
+      startPaymentPolling(setPaid);
 
     } catch (err) {
       console.error('[Pro Kitchen Checkout] Error:', err);
@@ -207,8 +219,8 @@
     }
   }
 
-  async function verifyLightningPayment(preimage: string) {
-    if (!lightningInvoice || !paymentHash || !$userPublickey) {
+  async function verifyLightningPayment(_preimage: string) {
+    if (!receiveRequestId || !$userPublickey) {
       error = 'Missing payment information';
       loading = false;
       return;
@@ -222,12 +234,11 @@
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
+          receiveRequestId,
           paymentHash,
-          invoice: lightningInvoice,
           pubkey: $userPublickey,
           tier: 'pro',
           period: 'annual',
-          preimage,
         }),
       });
 
@@ -267,6 +278,57 @@
       loading = false;
     }
   }
+
+  function startPaymentPolling(setPaid: (response: { preimage: string }) => void) {
+    pollInterval = setInterval(async () => {
+      if (paymentConfirmed || !receiveRequestId || !$userPublickey) return;
+
+      try {
+        const response = await fetch('/api/membership/verify-lightning-payment', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            receiveRequestId,
+            paymentHash,
+            pubkey: $userPublickey,
+            tier: 'pro',
+            period: 'annual',
+          }),
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          if (data.success) {
+            paymentConfirmed = true;
+            stopPaymentPolling();
+            // Trigger modal's paid state, then redirect
+            setPaid({ preimage: 'strike-confirmed' });
+            const params = new URLSearchParams({
+              payment_method: 'lightning',
+              tier: 'pro'
+            });
+            if (data.nip05) params.set('nip05', data.nip05);
+            if (data.nip05Username) params.set('nip05_username', data.nip05Username);
+            goto(`/membership/confirmation?${params.toString()}`);
+          }
+        }
+        // 402 = not yet paid, keep polling
+      } catch {
+        // Network error, keep polling
+      }
+    }, 3000);
+  }
+
+  function stopPaymentPolling() {
+    if (pollInterval) {
+      clearInterval(pollInterval);
+      pollInterval = null;
+    }
+  }
+
+  onDestroy(() => {
+    stopPaymentPolling();
+  });
 </script>
 
 <svelte:head>

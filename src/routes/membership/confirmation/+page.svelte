@@ -262,7 +262,7 @@
     if (!$userPublickey || isClaiming) return;
     isClaiming = true;
 
-    const claimTier: 'cook' | 'pro' = tierKey === 'pro' ? 'pro' : 'cook';
+    const claimTier: 'cook' | 'pro' = (tierKey === 'pro' || tierKey === 'genesis') ? 'pro' : 'cook';
     const result = await claimNip05(name, $userPublickey, claimTier);
 
     if (result.success && result.nip05 && $ndk) {

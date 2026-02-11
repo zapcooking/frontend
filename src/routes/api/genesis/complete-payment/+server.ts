@@ -14,7 +14,7 @@
 
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
-import { autoClaimNip05 } from '$lib/memberRegistration.server';
+// autoClaimNip05 not used — NIP-05 claiming is handled by the confirmation page
 
 export const POST: RequestHandler = async ({ request, platform }) => {
   // Membership feature flag guard
@@ -87,8 +87,9 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 
     const membersData = await membersRes.json();
 
-    // Check if this pubkey is already a founder (idempotency)
+    // Check if this pubkey is already an active founder (idempotency)
     const existingFounder = membersData.members.find((m: any) => {
+      if (m.status === 'cancelled') return false;
       const pid = m.payment_id?.toLowerCase() || '';
       return m.pubkey === pubkey && (pid.startsWith('genesis_') || pid.startsWith('founder'));
     });
@@ -105,13 +106,26 @@ export const POST: RequestHandler = async ({ request, platform }) => {
       });
     }
 
-    // Count all Genesis Founders to assign next number
+    // Find the highest existing founder number to assign the next one (exclude cancelled)
     const founders = membersData.members.filter((m: any) => {
+      if (m.status === 'cancelled') return false;
       const pid = m.payment_id?.toLowerCase() || '';
       return pid.startsWith('genesis_') || pid.startsWith('founder');
     });
 
-    const founderNumber = founders.length + 1;
+    let maxFounderNumber = 0;
+    founders.forEach((m: any) => {
+      const pid = m.payment_id?.toLowerCase() || '';
+      const match = pid.match(/(\d+)$/);
+      if (match) {
+        const num = parseInt(match[1], 10);
+        if (num > maxFounderNumber) maxFounderNumber = num;
+      } else if (pid === 'founder') {
+        maxFounderNumber = Math.max(maxFounderNumber, 1);
+      }
+    });
+
+    const founderNumber = maxFounderNumber + 1;
 
     if (founderNumber > 21) {
       return json({ error: 'All Genesis Founder spots are taken' }, { status: 400 });
@@ -148,19 +162,14 @@ export const POST: RequestHandler = async ({ request, platform }) => {
       }
     }
 
-    // Auto-claim NIP-05 using shared logic
-    const { nip05, nip05Username } = await autoClaimNip05({
-      pubkey,
-      tier: 'pro',
-      apiSecret: API_SECRET,
-    });
-
+    // Don't auto-claim NIP-05 here — let the confirmation page
+    // show the username chooser so the user can pick their own name or skip
     return json({
       success: true,
       founderNumber,
       message: 'Genesis Founder membership activated',
-      nip05,
-      nip05Username
+      nip05: null,
+      nip05Username: null
     });
 
   } catch (error: any) {

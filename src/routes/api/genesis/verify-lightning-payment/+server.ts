@@ -1,28 +1,24 @@
 /**
  * Verify Lightning Payment for Genesis Founder
- * 
- * Verifies that a Lightning payment was completed and processes the membership.
- * This is a simulation endpoint - in production, this would verify with a Lightning node.
- * 
+ *
+ * Verifies that a Lightning payment was completed via Strike API
+ * and registers the Genesis Founder membership.
+ *
  * POST /api/genesis/verify-lightning-payment
- * 
+ *
  * Body:
  * {
- *   paymentHash: string,
- *   invoice: string,
+ *   receiveRequestId: string,  // Strike receive request ID
+ *   paymentHash: string,       // Payment hash (fallback lookup)
  *   pubkey: string,
- *   preimage?: string // Payment preimage for verification
- * }
- * 
- * Returns:
- * {
- *   verified: boolean,
- *   founderNumber?: number
  * }
  */
 
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
+import { getReceiveRequestReceives } from '$lib/strikeService.server';
+// autoClaimNip05 not used — NIP-05 claiming is handled by the confirmation page
+import { getInvoiceMetadata, getInvoiceMetadataByPaymentHash } from '$lib/invoiceMetadataStore.server';
 
 export const POST: RequestHandler = async ({ request, platform }) => {
   // Membership feature flag guard
@@ -33,199 +29,165 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 
   try {
     const body = await request.json();
-    const { paymentHash, invoice, pubkey, preimage } = body;
-    
-    if (!paymentHash || !invoice || !pubkey) {
+    const { receiveRequestId, paymentHash, pubkey } = body;
+
+    if (!pubkey) {
+      return json({ error: 'pubkey is required' }, { status: 400 });
+    }
+
+    if (!receiveRequestId && !paymentHash) {
       return json(
-        { error: 'paymentHash, invoice, and pubkey are required' },
+        { error: 'receiveRequestId or paymentHash is required' },
         { status: 400 }
       );
     }
-    
+
     // Validate pubkey format
     if (!/^[0-9a-fA-F]{64}$/.test(pubkey)) {
+      return json({ error: 'Invalid pubkey format' }, { status: 400 });
+    }
+
+    // Look up stored metadata to verify the request
+    const metadata = receiveRequestId
+      ? getInvoiceMetadata(receiveRequestId)
+      : getInvoiceMetadataByPaymentHash(paymentHash);
+
+    if (!metadata) {
       return json(
-        { error: 'Invalid pubkey format' },
-        { status: 400 }
+        { error: 'Invoice not found or expired. Please create a new invoice.' },
+        { status: 404 }
       );
     }
-    
-    // TODO: In production, verify payment with Lightning node
-    // For simulation, we'll accept any payment with valid format
-    // Real verification would:
-    // 1. Check payment hash against Lightning node
-    // 2. Verify preimage
-    // 3. Confirm invoice was paid
-    
-    console.log('[Genesis Lightning] Verifying payment (simulation):', {
-      paymentHash: paymentHash.substring(0, 16) + '...',
-      invoice: invoice.substring(0, 50) + '...',
-      pubkey: pubkey.substring(0, 16) + '...',
-      hasPreimage: !!preimage
-    });
-    
-    // For simulation, assume payment is verified if we have the required fields
-    // In production, this would actually check the Lightning node
-    const isSimulated = invoice.includes('simulated');
-    
-    if (isSimulated) {
-      console.log('[Genesis Lightning] Simulated payment - accepting for testing');
-    } else {
-      // In production, verify with Lightning node here
-      // For now, we'll require a preimage for non-simulated invoices
-      if (!preimage) {
-        return json(
-          { error: 'Payment verification required - please provide preimage' },
-          { status: 400 }
-        );
-      }
+
+    // Verify pubkey matches the one that created the invoice
+    if (metadata.pubkey !== pubkey) {
+      return json(
+        { error: 'Pubkey does not match the invoice creator' },
+        { status: 403 }
+      );
     }
-    
+
+    // Verify payment completion via Strike API
+    const lookupId = metadata.receiveRequestId;
+    const receives = await getReceiveRequestReceives(lookupId, platform);
+    const completedReceive = receives.find(r => r.state === 'COMPLETED');
+
+    if (!completedReceive) {
+      return json(
+        { error: 'Payment not yet completed', verified: false },
+        { status: 402 }
+      );
+    }
+
+    console.log('[Genesis Lightning] Payment confirmed via Strike API:', {
+      receiveRequestId: lookupId,
+      pubkey: pubkey.substring(0, 16) + '...',
+    });
+
     // Get API secret for members API
     const API_SECRET = platform?.env?.RELAY_API_SECRET || env.RELAY_API_SECRET;
     if (!API_SECRET) {
-      return json(
-        { error: 'RELAY_API_SECRET not configured' },
-        { status: 500 }
-      );
+      return json({ error: 'RELAY_API_SECRET not configured' }, { status: 500 });
     }
-    
+
     // Get current founders count
     const membersRes = await fetch('https://pantry.zap.cooking/api/members', {
-      headers: {
-        'Authorization': `Bearer ${API_SECRET}`
-      }
+      headers: { 'Authorization': `Bearer ${API_SECRET}` }
     });
-    
+
     if (!membersRes.ok) {
       throw new Error(`Failed to fetch members: ${membersRes.status}`);
     }
-    
+
     const membersData = await membersRes.json();
-    const founders = membersData.members.filter((m: any) => {
-      const paymentId = m.payment_id?.toLowerCase() || '';
-      return (paymentId.startsWith('genesis_') || paymentId.startsWith('founder')) && m.status === 'active';
+
+    // Check if this pubkey is already an active founder (idempotency)
+    const existingFounder = membersData.members.find((m: any) => {
+      if (m.status === 'cancelled') return false;
+      const pid = m.payment_id?.toLowerCase() || '';
+      return m.pubkey === pubkey && (pid.startsWith('genesis_') || pid.startsWith('founder'));
     });
-    
+
+    if (existingFounder) {
+      const match = existingFounder.payment_id?.match(/(\d+)$/);
+      const existingNumber = match ? parseInt(match[1], 10) : null;
+      return json({
+        verified: true,
+        founderNumber: existingNumber,
+        message: 'Genesis Founder membership already active',
+        nip05: null,
+        nip05Username: null
+      });
+    }
+
+    // Count active Genesis Founders and assign next number (exclude cancelled)
+    const founders = membersData.members.filter((m: any) => {
+      if (m.status === 'cancelled') return false;
+      const pid = m.payment_id?.toLowerCase() || '';
+      return pid.startsWith('genesis_') || pid.startsWith('founder');
+    });
+
     let maxFounderNumber = 0;
     founders.forEach((m: any) => {
-      const paymentId = m.payment_id?.toLowerCase() || '';
-      const match = paymentId.match(/(\d+)$/);
+      const pid = m.payment_id?.toLowerCase() || '';
+      const match = pid.match(/(\d+)$/);
       if (match) {
         const num = parseInt(match[1], 10);
         if (num > maxFounderNumber) maxFounderNumber = num;
-      } else if (paymentId === 'founder') {
+      } else if (pid === 'founder') {
         maxFounderNumber = Math.max(maxFounderNumber, 1);
       }
     });
-    
+
     const founderNumber = maxFounderNumber + 1;
-    
+
     if (founderNumber > 21) {
-      return json(
-        { error: 'All Genesis Founder spots are taken' },
-        { status: 400 }
-      );
+      return json({ error: 'All Genesis Founder spots are taken' }, { status: 400 });
     }
-    
+
     // Add member to relay API
-      const addMemberRes = await fetch('https://pantry.zap.cooking/api/members', {
+    const addMemberRes = await fetch('https://pantry.zap.cooking/api/members', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${API_SECRET}`,
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        pubkey: pubkey,
+        pubkey,
         subscription_months: 0,
         payment_id: `genesis_${founderNumber}`,
         tier: 'standard',
         subscription_end: '2099-12-31T23:59:59Z',
-        payment_method: 'lightning' // Mark as Lightning payment
+        payment_method: 'lightning_strike'
       })
     });
-    
+
     if (!addMemberRes.ok) {
-      const responseText = await addMemberRes.text();
-      let errorData;
-      try {
-        errorData = JSON.parse(responseText);
-      } catch (e) {
-        errorData = { error: responseText };
-      }
-      throw new Error(errorData.error || `Failed to add member: ${addMemberRes.status}`);
-    }
-    
-    // Auto-claim NIP-05 for the Genesis Founder
-    let nip05: string | null = null;
-    let nip05Username: string | null = null;
-    
-    try {
-      // Generate username from pubkey (first 8 chars)
-      const suggestedUsername = pubkey.substring(0, 8).toLowerCase();
-      
-      console.log('[Genesis Lightning] Auto-claiming NIP-05:', suggestedUsername);
-      
-      const nip05Res = await fetch('https://pantry.zap.cooking/api/nip05/claim', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${API_SECRET}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          username: suggestedUsername,
-          pubkey,
-          tier: 'pro'
-        })
-      });
-      
-      if (nip05Res.ok) {
-        nip05Username = suggestedUsername;
-        nip05 = `${suggestedUsername}@zap.cooking`;
-        console.log('[Genesis Lightning] NIP-05 claimed:', nip05);
+      const responseText = await addMemberRes.text().catch(() => '');
+      let errorData: any = {};
+      try { errorData = JSON.parse(responseText); } catch {}
+      if (addMemberRes.status === 409 || errorData.error?.includes('already exists')) {
+        // Member already exists — continue
       } else {
-        // If default username fails, try with timestamp suffix
-        const fallbackUsername = `${pubkey.substring(0, 6)}${Date.now().toString(36).slice(-2)}`.toLowerCase();
-        
-        const fallbackRes = await fetch('https://pantry.zap.cooking/api/nip05/claim', {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${API_SECRET}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            username: fallbackUsername,
-            pubkey,
-            tier: 'pro'
-          })
-        });
-        
-        if (fallbackRes.ok) {
-          nip05Username = fallbackUsername;
-          nip05 = `${fallbackUsername}@zap.cooking`;
-          console.log('[Genesis Lightning] NIP-05 claimed (fallback):', nip05);
-        } else {
-          console.warn('[Genesis Lightning] Could not auto-claim NIP-05');
-        }
+        throw new Error(errorData.error || `Failed to add member: ${addMemberRes.status}`);
       }
-    } catch (nip05Error) {
-      // NIP-05 claim is optional - don't fail the payment verification
-      console.warn('[Genesis Lightning] NIP-05 auto-claim error:', nip05Error);
     }
-    
+
+    // Don't auto-claim NIP-05 here — let the confirmation page
+    // show the username chooser so the user can pick their own name or skip
     return json({
       verified: true,
       founderNumber,
       message: 'Genesis Founder membership activated via Lightning',
-      nip05,
-      nip05Username
+      nip05: null,
+      nip05Username: null
     });
-    
+
   } catch (error: any) {
-    console.error('[Genesis Lightning] Error verifying payment:', error);
-    
+    console.error('[Genesis Lightning] Error:', error);
+
     return json(
-      { 
+      {
         error: error.message || 'Failed to verify payment',
         verified: false
       },

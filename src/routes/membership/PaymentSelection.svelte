@@ -3,6 +3,7 @@
   import CreditCardIcon from 'phosphor-svelte/lib/CreditCard';
   import CheckCircleIcon from 'phosphor-svelte/lib/CheckCircle';
   import { paymentStore, currentPricing, formatSats, formatUSD, type PaymentMethod, type Tier, type PricingPeriod } from './paymentStore';
+  import { userPublickey } from '$lib/nostr';
 
   let selectedMethod: PaymentMethod | null = null;
   let isLoading = false;
@@ -22,7 +23,7 @@
     isLoading = true;
     try {
       if (selectedMethod === 'bitcoin') {
-        await paymentStore.proceedToBitcoin();
+        await paymentStore.proceedToBitcoin($userPublickey || '');
       } else {
         // Pass tier and period to proceedToStripe
         await paymentStore.proceedToStripe(

@@ -47,9 +47,10 @@ export const load: PageServerLoad = async ({ fetch, platform }) => {
 
     const data = await res.json();
 
-    // Filter for Genesis Founders and get only priority ones
+    // Filter for active Genesis Founders and get only priority ones
     const allFounders = data.members
       .filter((m: any) => {
+        if (m.status === 'cancelled') return false;
         const pid = m.payment_id?.toLowerCase() || '';
         return pid.startsWith('genesis_') || pid.startsWith('founder');
       })
@@ -61,19 +62,65 @@ export const load: PageServerLoad = async ({ fetch, platform }) => {
         return acc;
       }, []);
 
-    // Build list with only priority founders in order
-    // Always return all 4 priority founders, even if not in API response
-    const founders = PRIORITY_FOUNDERS.map((pubkey, idx) => {
-      // Find this pubkey in the API response
-      const member = allFounders.find((m: any) => m.pubkey === pubkey);
+    // Helper to extract founder number from payment_id
+    const extractFounderNumber = (paymentId: string): number => {
+      const match = paymentId?.match(/(?:genesis_|founder_?)(\d+)/i);
+      return match ? parseInt(match[1]) : 999;
+    };
 
-      return {
-        number: idx + 1, // #1, #2, #3, #4
-        pubkey: pubkey,
-        tier: member?.tier || 'genesis_founder',
-        joined: member?.created_at || null
-      };
-    }).filter((f) => f && f.pubkey); // Filter out any that failed to decode
+    // Separate priority founders from others
+    const priorityFoundersList: any[] = [];
+    const otherFoundersList: any[] = [];
+
+    for (const member of allFounders) {
+      const priorityIndex = PRIORITY_FOUNDERS.indexOf(member.pubkey);
+
+      if (priorityIndex !== -1) {
+        priorityFoundersList.push({
+          priorityIndex,
+          pubkey: member.pubkey,
+          tier: member.tier || 'genesis_founder',
+          joined: member.created_at || null
+        });
+      } else {
+        otherFoundersList.push({
+          originalNumber: extractFounderNumber(member.payment_id),
+          pubkey: member.pubkey,
+          tier: member.tier,
+          joined: member.created_at
+        });
+      }
+    }
+
+    // Also include priority founders not yet in the API
+    for (let i = 0; i < PRIORITY_FOUNDERS.length; i++) {
+      if (!priorityFoundersList.find(f => f.pubkey === PRIORITY_FOUNDERS[i])) {
+        priorityFoundersList.push({
+          priorityIndex: i,
+          pubkey: PRIORITY_FOUNDERS[i],
+          tier: 'genesis_founder',
+          joined: null
+        });
+      }
+    }
+
+    priorityFoundersList.sort((a, b) => a.priorityIndex - b.priorityIndex);
+    otherFoundersList.sort((a, b) => a.originalNumber - b.originalNumber);
+
+    const founders = [
+      ...priorityFoundersList.map((f, idx) => ({
+        number: idx + 1,
+        pubkey: f.pubkey,
+        tier: f.tier,
+        joined: f.joined
+      })),
+      ...otherFoundersList.map((f) => ({
+        number: f.originalNumber,
+        pubkey: f.pubkey,
+        tier: f.tier,
+        joined: f.joined
+      }))
+    ];
 
     return { founders };
   } catch (err) {
