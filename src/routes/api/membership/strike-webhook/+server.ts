@@ -14,7 +14,7 @@
 
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
-import { handleWebhook, getReceiveRequest, getReceiveRequestReceives } from '$lib/strikeService.server';
+import { handleWebhook, getReceiveRequestReceives } from '$lib/strikeService.server';
 import { registerMember } from '$lib/memberRegistration.server';
 import { getInvoiceMetadata } from '$lib/invoiceMetadataStore.server';
 
@@ -57,10 +57,15 @@ export const POST: RequestHandler = async ({ request, platform }) => {
       await handleWebhook(rawBody, signature, platform);
     } catch (verifyError) {
       console.error('[Strike Webhook] Signature verification failed:', verifyError);
-      if (env.NODE_ENV === 'production') {
+      
+      // Check for explicit development override flag
+      const ALLOW_UNSIGNED = platform?.env?.ALLOW_UNSIGNED_WEBHOOKS || env.ALLOW_UNSIGNED_WEBHOOKS;
+      if (ALLOW_UNSIGNED?.toLowerCase() === 'true') {
+        console.warn('[Strike Webhook] Allowing unsigned webhook due to ALLOW_UNSIGNED_WEBHOOKS=true');
+      } else {
+        // Default to reject on signature verification failure (secure by default)
         return json({ error: 'Invalid webhook signature' }, { status: 401 });
       }
-      console.warn('[Strike Webhook] Allowing unsigned webhook in development');
     }
 
     // Handle receive-request events (incoming Lightning payments)

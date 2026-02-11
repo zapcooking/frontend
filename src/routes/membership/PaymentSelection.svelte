@@ -23,7 +23,11 @@
     isLoading = true;
     try {
       if (selectedMethod === 'bitcoin') {
-        await paymentStore.proceedToBitcoin($userPublickey || '');
+        // Require a valid user public key for Bitcoin payments to avoid invalid-pubkey backend errors.
+        if (!$userPublickey) {
+          return;
+        }
+        await paymentStore.proceedToBitcoin($userPublickey);
       } else {
         // Pass tier and period to proceedToStripe
         await paymentStore.proceedToStripe(

@@ -120,28 +120,35 @@ export const POST: RequestHandler = async ({ request, platform }) => {
       });
     }
 
-    // Count active Genesis Founders and assign next number (exclude cancelled)
+    // Count active Genesis Founders and find smallest available number (reuse cancelled spots)
     const founders = membersData.members.filter((m: any) => {
       if (m.status === 'cancelled') return false;
       const pid = m.payment_id?.toLowerCase() || '';
       return pid.startsWith('genesis_') || pid.startsWith('founder');
     });
 
-    let maxFounderNumber = 0;
+    // Collect all currently assigned founder numbers
+    const assignedNumbers = new Set<number>();
     founders.forEach((m: any) => {
       const pid = m.payment_id?.toLowerCase() || '';
       const match = pid.match(/(\d+)$/);
       if (match) {
-        const num = parseInt(match[1], 10);
-        if (num > maxFounderNumber) maxFounderNumber = num;
+        assignedNumbers.add(parseInt(match[1], 10));
       } else if (pid === 'founder') {
-        maxFounderNumber = Math.max(maxFounderNumber, 1);
+        assignedNumbers.add(1);
       }
     });
 
-    const founderNumber = maxFounderNumber + 1;
+    // Find the smallest available number from 1 to 21
+    let founderNumber: number | null = null;
+    for (let i = 1; i <= 21; i++) {
+      if (!assignedNumbers.has(i)) {
+        founderNumber = i;
+        break;
+      }
+    }
 
-    if (founderNumber > 21) {
+    if (founderNumber === null) {
       return json({ error: 'All Genesis Founder spots are taken' }, { status: 400 });
     }
 

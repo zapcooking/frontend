@@ -139,6 +139,10 @@
       return;
     }
 
+    // Stop any existing polling and reset payment state
+    stopPaymentPolling();
+    paymentConfirmed = false;
+
     loading = true;
     error = null;
     lightningInvoice = null;
