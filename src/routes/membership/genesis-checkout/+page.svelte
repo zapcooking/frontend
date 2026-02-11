@@ -139,7 +139,7 @@
       return;
     }
 
-    // Stop any existing polling and reset payment state
+    // Reset state from any previous attempts
     stopPaymentPolling();
     paymentConfirmed = false;
 
