@@ -156,7 +156,6 @@
     // Reset state from any previous attempts
     stopPaymentPolling();
     paymentConfirmed = false;
-
     loading = true;
     error = null;
     lightningInvoice = null;
