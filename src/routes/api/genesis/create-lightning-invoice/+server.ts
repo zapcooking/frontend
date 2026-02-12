@@ -31,8 +31,7 @@ import { createInvoice as createStrikeInvoice } from '$lib/strikeService.server'
 import { storeInvoiceMetadata } from '$lib/invoiceMetadataStore.server';
 
 // Founders Club pricing in USD (lifetime membership)
-// TODO: Restore production price before launch ($210)
-const FOUNDERS_CLUB_PRICE_USD = 1; // TEMP $1 for testing — production: $210
+const FOUNDERS_CLUB_PRICE_USD = 210; // $210
 
 // Discount percentage for Bitcoin payments
 const BITCOIN_DISCOUNT_PERCENT = 5;

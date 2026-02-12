@@ -59,15 +59,14 @@ export async function createCheckoutSession(params: {
   const stripe = await getStripeInstance();
   
   // Pricing configuration (in cents for Stripe)
-  // TODO: Restore production prices before launch (cook annual: 4900, pro annual: 8900)
   const pricing = {
     cook: {
-      annual: 100, // TEMP $1 for testing — production: $49.00 (4900)
-      '2year': 100, // TEMP $1 for testing — production: $83.30 (8330)
+      annual: 4900, // $49.00
+      '2year': 8330, // $83.30
     },
     pro: {
-      annual: 100, // TEMP $1 for testing — production: $89.00 (8900)
-      '2year': 100, // TEMP $1 for testing — production: $152.40 (15240)
+      annual: 8900, // $89.00
+      '2year': 15240, // $152.40
     },
   };
   
