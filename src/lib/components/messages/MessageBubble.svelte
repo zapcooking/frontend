@@ -72,6 +72,9 @@
   // Pill style adapts to bubble context
   $: pillClass = isMine ? 'msg-pill-sent' : 'msg-pill-received';
 
+  // Reactive HTML — re-renders when resolvedNames updates
+  $: renderedHtml = linkify(content, pillClass, resolvedNames);
+
   function renderNostrToken(raw: string, pillCls: string): string {
     const identifier = raw.startsWith('nostr:') ? raw.slice(6) : raw;
     try {
@@ -98,7 +101,7 @@
     return escapeHtml(raw);
   }
 
-  function linkify(text: string, pillCls: string): string {
+  function linkify(text: string, pillCls: string, _names: Record<string, string>): string {
     const parts = text.split(tokenRegex);
     return parts
       .map((part, i) => {
@@ -150,7 +153,7 @@
         ? 'background-color: rgba(124, 58, 237, 0.12); color: var(--color-text-primary);'
         : 'background-color: var(--color-input-bg); color: var(--color-text-primary);'}
   >
-    <p class="text-sm whitespace-pre-wrap break-words">{@html linkify(content, pillClass)}</p>
+    <p class="text-sm whitespace-pre-wrap break-words">{@html renderedHtml}</p>
     <p
       class="text-[10px] mt-1 {isMine ? 'text-right' : 'text-left'}"
       style={isMine ? 'color: rgba(255,255,255,0.7);' : 'color: var(--color-caption);'}
