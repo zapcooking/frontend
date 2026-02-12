@@ -1,5 +1,6 @@
 <script lang="ts">
   import { sortedConversations, messagesLoading } from '$lib/stores/messages';
+  import { mutedPubkeys } from '$lib/muteListStore';
   import { userPublickey } from '$lib/nostr';
   import CustomAvatar from '../../../components/CustomAvatar.svelte';
   import CustomName from '../../../components/CustomName.svelte';
@@ -12,6 +13,8 @@
   }>();
 
   export let selectedPubkey: string | null = null;
+
+  $: filteredConversations = $sortedConversations.filter((c) => !$mutedPubkeys.has(c.pubkey));
 
   function truncate(text: string, maxLen: number): string {
     if (!text) return '';
@@ -61,7 +64,7 @@
 
   <!-- Conversation list -->
   <div class="h-full overflow-y-auto pt-[68px]">
-    {#if $messagesLoading && $sortedConversations.length === 0}
+    {#if $messagesLoading && filteredConversations.length === 0}
       <!-- Loading indicator while fetching historical messages -->
       <div class="flex items-center gap-2 px-4 py-3" style="color: var(--color-caption);">
         <div
@@ -71,7 +74,7 @@
         <span class="text-xs">Loading messages...</span>
       </div>
     {/if}
-    {#if $sortedConversations.length === 0 && !$messagesLoading}
+    {#if filteredConversations.length === 0 && !$messagesLoading}
       <div class="flex flex-col items-center justify-center py-12 px-4 text-center">
         <p class="text-sm mb-1" style="color: var(--color-caption);">No messages yet</p>
         <p class="text-xs" style="color: var(--color-caption);">
@@ -79,7 +82,7 @@
         </p>
       </div>
     {:else}
-      {#each $sortedConversations as convo (convo.pubkey)}
+      {#each filteredConversations as convo (convo.pubkey)}
         <button
           class="w-full flex items-center gap-3 px-4 py-3 transition-colors cursor-pointer text-left"
           class:bg-input={selectedPubkey === convo.pubkey}
