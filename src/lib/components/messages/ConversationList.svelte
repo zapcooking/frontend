@@ -1,11 +1,15 @@
 <script lang="ts">
   import { sortedConversations, messagesLoading } from '$lib/stores/messages';
-  import { mutedPubkeys } from '$lib/muteListStore';
+  import { mutedPubkeys, muteListStore } from '$lib/muteListStore';
   import { userPublickey } from '$lib/nostr';
   import CustomAvatar from '../../../components/CustomAvatar.svelte';
   import CustomName from '../../../components/CustomName.svelte';
   import PencilSimpleIcon from 'phosphor-svelte/lib/PencilSimple';
-  import { createEventDispatcher } from 'svelte';
+  import { createEventDispatcher, onMount } from 'svelte';
+
+  onMount(() => {
+    muteListStore.load();
+  });
 
   const dispatch = createEventDispatcher<{
     select: { pubkey: string };
