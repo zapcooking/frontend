@@ -1,6 +1,7 @@
 <script lang="ts">
-  import { userPublickey } from '$lib/nostr';
+  import { userPublickey, ndk } from '$lib/nostr';
   import { nip19 } from 'nostr-tools';
+  import { resolveProfileByPubkey, getDisplayName, type ProfileData } from '$lib/profileResolver';
   import LockSimpleIcon from 'phosphor-svelte/lib/LockSimple';
   import LockSimpleOpenIcon from 'phosphor-svelte/lib/LockSimpleOpen';
 
@@ -27,31 +28,77 @@
     return id.length > 16 ? `${id.slice(0, 10)}...${id.slice(-6)}` : id;
   }
 
-  function renderNostrToken(raw: string): string {
+  // Profile resolution for npub/nprofile mentions
+  let resolvedNames: Record<string, string> = {};
+
+  function extractPubkeys(text: string): Array<{ pubkey: string; identifier: string }> {
+    const results: Array<{ pubkey: string; identifier: string }> = [];
+    const regex = new RegExp(tokenRegex.source, tokenRegex.flags);
+    let match;
+    while ((match = regex.exec(text)) !== null) {
+      const raw = match[0];
+      if (raw.startsWith('http')) continue;
+      const identifier = raw.startsWith('nostr:') ? raw.slice(6) : raw;
+      try {
+        const decoded = nip19.decode(identifier);
+        if (decoded.type === 'npub') results.push({ pubkey: decoded.data, identifier });
+        else if (decoded.type === 'nprofile')
+          results.push({ pubkey: decoded.data.pubkey, identifier });
+      } catch {}
+    }
+    return results;
+  }
+
+  async function resolveProfileNames(text: string) {
+    const entries = extractPubkeys(text);
+    if (entries.length === 0) return;
+    const names: Record<string, string> = {};
+    await Promise.all(
+      entries.map(async ({ pubkey, identifier }) => {
+        try {
+          const profile = await resolveProfileByPubkey(pubkey, $ndk);
+          const name = getDisplayName(profile);
+          if (name && name !== 'Anonymous') names[identifier] = name;
+        } catch {}
+      })
+    );
+    if (Object.keys(names).length > 0) {
+      resolvedNames = { ...resolvedNames, ...names };
+    }
+  }
+
+  $: resolveProfileNames(content);
+
+  // Pill style adapts to bubble context
+  $: pillClass = isMine ? 'msg-pill-sent' : 'msg-pill-received';
+
+  function renderNostrToken(raw: string, pillCls: string): string {
     const identifier = raw.startsWith('nostr:') ? raw.slice(6) : raw;
     try {
       const decoded = nip19.decode(identifier);
       if (decoded.type === 'npub' || decoded.type === 'nprofile') {
+        const name = resolvedNames[identifier];
         const label =
           '@' +
-          formatNpubShort(
-            identifier.startsWith('npub')
-              ? identifier
-              : nip19.npubEncode(decoded.type === 'nprofile' ? decoded.data.pubkey : decoded.data)
-          );
+          (name ||
+            formatNpubShort(
+              identifier.startsWith('npub')
+                ? identifier
+                : nip19.npubEncode(decoded.type === 'nprofile' ? decoded.data.pubkey : decoded.data)
+            ));
         const href = `/user/${identifier}`;
-        return `<a href="${href}" class="mention-pill" style="cursor: pointer; text-decoration: none;">${escapeHtml(label)}</a>`;
+        return `<a href="${href}" class="mention-pill ${pillCls}" style="cursor: pointer; text-decoration: none;">${escapeHtml(label)}</a>`;
       }
       if (decoded.type === 'note' || decoded.type === 'nevent' || decoded.type === 'naddr') {
         const label = formatNpubShort(identifier);
         const href = `/${identifier}`;
-        return `<a href="${href}" class="mention-pill" style="cursor: pointer; text-decoration: none;">${escapeHtml(label)}</a>`;
+        return `<a href="${href}" class="mention-pill ${pillCls}" style="cursor: pointer; text-decoration: none;">${escapeHtml(label)}</a>`;
       }
     } catch {}
     return escapeHtml(raw);
   }
 
-  function linkify(text: string): string {
+  function linkify(text: string, pillCls: string): string {
     const parts = text.split(tokenRegex);
     return parts
       .map((part, i) => {
@@ -60,7 +107,7 @@
             const escaped = escapeHtml(part);
             return `<a href="${escaped}" target="_blank" rel="noopener noreferrer" class="underline break-all" style="color: inherit;">${escaped}</a>`;
           }
-          return renderNostrToken(part);
+          return renderNostrToken(part, pillCls);
         }
         return escapeHtml(part);
       })
@@ -103,7 +150,7 @@
         ? 'background-color: rgba(124, 58, 237, 0.12); color: var(--color-text-primary);'
         : 'background-color: var(--color-input-bg); color: var(--color-text-primary);'}
   >
-    <p class="text-sm whitespace-pre-wrap break-words">{@html linkify(content)}</p>
+    <p class="text-sm whitespace-pre-wrap break-words">{@html linkify(content, pillClass)}</p>
     <p
       class="text-[10px] mt-1 {isMine ? 'text-right' : 'text-left'}"
       style={isMine ? 'color: rgba(255,255,255,0.7);' : 'color: var(--color-caption);'}
@@ -127,3 +174,12 @@
     </p>
   </div>
 </div>
+
+<style>
+  /* Sent bubble pills — white on translucent white */
+  :global(.msg-pill-sent) {
+    background: rgba(255, 255, 255, 0.2) !important;
+    color: #ffffff !important;
+  }
+  /* Received bubble pills — default orange mention-pill style (inherited from global) */
+</style>
