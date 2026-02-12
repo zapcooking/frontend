@@ -32,15 +32,14 @@ import { createInvoice as createStrikeInvoice } from '$lib/strikeService.server'
 import { storeInvoiceMetadata } from '$lib/invoiceMetadataStore.server';
 
 // Pricing in USD
-// TODO: Restore production prices before launch (cook: 49/83.30, pro: 89/152.40)
 const PRICING_USD = {
   cook: {
-    annual: 1, // TEMP $1 for testing — production: $49/year
-    '2year': 1, // TEMP $1 for testing — production: $83.30/2years
+    annual: 49, // $49/year
+    '2year': 83.30, // $83.30/2years
   },
   pro: {
-    annual: 1, // TEMP $1 for testing — production: $89/year
-    '2year': 1, // TEMP $1 for testing — production: $152.40/2years
+    annual: 89, // $89/year
+    '2year': 152.40, // $152.40/2years
   },
 };
 
