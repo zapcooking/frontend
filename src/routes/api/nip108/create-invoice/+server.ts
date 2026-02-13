@@ -22,6 +22,7 @@
 
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { dev } from '$app/environment';
+import { env } from '$env/dynamic/private';
 import { getGatedContent, type GatedKV } from '$lib/nip108/server-store';
 
 function getKV(platform: App.Platform | undefined): GatedKV {
@@ -93,6 +94,32 @@ async function fetchLnurlInvoice(
 
 export const POST: RequestHandler = async ({ request, platform }) => {
   const kv = getKV(platform);
+
+  // ── Authorization check ──
+  // Prevent abuse: only allow authorized callers (e.g., our own payment endpoint) to create invoices
+  const API_SECRET = platform?.env?.RELAY_API_SECRET || env.RELAY_API_SECRET;
+  const authHeader = request.headers.get('authorization');
+  
+  // Check if API_SECRET is defined and has a non-empty value
+  const hasApiSecret = API_SECRET && typeof API_SECRET === 'string' && API_SECRET.trim().length > 0;
+  
+  // In production, always require authorization. In dev, allow bypass if no secret is configured.
+  if (!dev || hasApiSecret) {
+    if (!authHeader) {
+      return json(
+        { error: 'Authorization required' },
+        { status: 401 }
+      );
+    }
+    
+    const expectedAuth = `Bearer ${API_SECRET?.trim()}`;
+    if (authHeader !== expectedAuth) {
+      return json(
+        { error: 'Unauthorized' },
+        { status: 403 }
+      );
+    }
+  }
 
   try {
     const body = await request.json();
