@@ -156,10 +156,11 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 
     // Register member using authoritative tier/period from invoice metadata
     // SECURITY: Only use metadata values, never client-supplied tier/period
+    // Type assertions are safe here because we validated the values above
     const result = await registerMember({
       pubkey,
-      tier: metadata.tier,
-      period: metadata.period,
+      tier: metadata.tier as 'cook' | 'pro',
+      period: metadata.period as 'annual' | 'monthly',
       paymentMethod: 'lightning_strike',
       apiSecret: API_SECRET,
     });
