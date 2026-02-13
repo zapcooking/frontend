@@ -292,12 +292,12 @@
     // Defense in depth: Check prerequisites even though button is disabled
     // This protects against programmatic calls or edge cases
     if (!$ndk || !$userPublickey || !chosenName) {
-      if (!$userPublickey) {
-        profileUpdateError = 'Unable to update profile. Please log in and try again.';
-      } else if (!chosenName) {
-        profileUpdateError = 'Unable to update profile. Please claim a username first.';
-      } else {
+      if (!$ndk) {
         profileUpdateError = 'Unable to update profile. Nostr connection not available.';
+      } else if (!$userPublickey) {
+        profileUpdateError = 'Unable to update profile. Please log in and try again.';
+      } else {
+        profileUpdateError = 'Unable to update profile. Please claim a username first.';
       }
       return;
     }
