@@ -172,6 +172,11 @@ export const POST: RequestHandler = async ({ request, platform }) => {
       );
     }
 
+    // Validate userPubkey format (64 hex characters) to keep behavior
+    // consistent with the GET handler and avoid malformed KV keys.
+    if (typeof userPubkey !== 'string' || !/^[0-9a-fA-F]{64}$/.test(userPubkey)) {
+      return json({ error: 'Invalid userPubkey format' }, { status: 400 });
+    }
     // Verify gated content exists
     const gatedContent = await getGatedContent(kv, gatedNoteId);
     if (!gatedContent) {
