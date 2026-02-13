@@ -375,7 +375,7 @@
               <li>
                 <span class="feature-icon">✨</span>
                 <div class="feature-content">
-                  <span class="feature-text">Sous Chef - Extract recipes from any link or photo instantly</span>
+                  <a href="/extract" class="feature-link">Sous Chef - Extract recipes from any link or photo instantly</a>
                   <span class="feature-subtext">Save time - let it do the work</span>
                 </div>
               </li>
@@ -475,7 +475,7 @@
             <ul class="benefit-list">
               <li>
                 <span class="checkmark">✓</span>
-                <span class="feature-text">Lightning-gated recipes</span>
+                <a href="/premium" class="feature-link">Lightning-gated recipes</a>
               </li>
               <li>
                 <span class="checkmark">✓</span>
@@ -497,7 +497,7 @@
               <li>
                 <span class="feature-icon">🤖</span>
                 <div class="feature-content">
-                  <span class="feature-text">Zappy - Kitchen assistant to scan your fridge, generate recipes, and recommend what to make tonight</span>
+                  <a href="/zappy" class="feature-link">Zappy - Kitchen assistant to scan your fridge, generate recipes, and recommend what to make tonight</a>
                   <span class="feature-subtext">Your personal kitchen companion</span>
                 </div>
               </li>
@@ -1109,6 +1109,16 @@
   .muted-text {
     color: var(--color-text-secondary);
     opacity: 0.8;
+  }
+
+  .feature-link {
+    color: var(--color-text-primary);
+    text-decoration: none;
+    line-height: 1.5;
+  }
+
+  .feature-link:hover {
+    text-decoration: underline;
   }
 
   .feature-subtext {

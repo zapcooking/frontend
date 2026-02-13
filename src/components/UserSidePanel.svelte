@@ -26,6 +26,7 @@
   import StorefrontIcon from 'phosphor-svelte/lib/Storefront';
   import TimerIcon from 'phosphor-svelte/lib/Timer';
   import LightningIcon from 'phosphor-svelte/lib/Lightning';
+  import CrownSimpleIcon from 'phosphor-svelte/lib/CrownSimple';
 
   // Components and stores
   import CustomAvatar from './CustomAvatar.svelte';
@@ -493,6 +494,16 @@
           >
             <GearIcon size={22} />
             <span class="font-medium">Settings</span>
+          </button>
+        </li>
+        <li>
+          <button
+            on:click={() => navigate('/membership')}
+            class="w-full flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-opacity-50 transition-colors cursor-pointer"
+            style="color: var(--color-text-primary);"
+          >
+            <CrownSimpleIcon size={22} weight="fill" class="text-primary" />
+            <span class="font-medium">Membership</span>
           </button>
         </li>
       </ul>
