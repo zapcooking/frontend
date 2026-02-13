@@ -18,9 +18,13 @@
   let paymentConfirmed = false;
 
   $: isLoggedIn = $userPublickey && $userPublickey.length > 0;
-  
-  // Pro Kitchen pricing
-  const PRO_KITCHEN_PRICE_USD = 89;
+
+  // Read billing period from URL query param
+  $: periodParam = $page.url.searchParams.get('period');
+  $: selectedPeriod = periodParam === 'monthly' ? 'monthly' as const : 'annual' as const;
+
+  // Pro Kitchen pricing (dynamic based on period)
+  $: PRO_KITCHEN_PRICE_USD = selectedPeriod === 'annual' ? 89 : 8.99;
   
   // Dynamic Bitcoin pricing (fetched from API)
   let bitcoinPriceLoading = true;
@@ -54,7 +58,7 @@
     bitcoinPriceError = null;
     
     try {
-      const response = await fetch('/api/membership/bitcoin-price-quote?tier=pro&period=annual');
+      const response = await fetch(`/api/membership/bitcoin-price-quote?tier=pro&period=${selectedPeriod}`);
       
       if (!response.ok) {
         const data = await response.json();
@@ -107,7 +111,7 @@
         },
         body: JSON.stringify({
           tier: 'pro',
-          period: 'annual',
+          period: selectedPeriod,
           successUrl,
           cancelUrl,
           customerEmail: undefined,
@@ -169,7 +173,7 @@
         body: JSON.stringify({
           pubkey: $userPublickey,
           tier: 'pro',
-          period: 'annual',
+          period: selectedPeriod,
         }),
       });
 
@@ -238,7 +242,7 @@
           paymentHash,
           pubkey: $userPublickey,
           tier: 'pro',
-          period: 'annual',
+          period: selectedPeriod,
         }),
       });
 
@@ -292,7 +296,7 @@
             paymentHash,
             pubkey: $userPublickey,
             tier: 'pro',
-            period: 'annual',
+            period: selectedPeriod,
           }),
         });
 
@@ -351,8 +355,8 @@
         <div class="checkout-price">
           <div class="popular-badge">Most Popular</div>
           <div class="price-container">
-            <span class="price">$89</span>
-            <span class="period">/year</span>
+            <span class="price">{selectedPeriod === 'annual' ? '$89' : '$8.99'}</span>
+            <span class="period">{selectedPeriod === 'annual' ? '/year' : '/mo'}</span>
           </div>
         </div>
       </div>

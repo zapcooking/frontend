@@ -81,7 +81,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
       return json({ error: 'Invalid tier in payment metadata' }, { status: 400 });
     }
 
-    if (!period || !['annual', '2year'].includes(period)) {
+    if (!period || !['annual', 'monthly'].includes(period)) {
       return json({ error: 'Invalid period in payment metadata' }, { status: 400 });
     }
 
@@ -89,7 +89,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
     const result = await registerMember({
       pubkey,
       tier: tier as 'cook' | 'pro',
-      period: period as 'annual' | '2year',
+      period: period as 'annual' | 'monthly',
       paymentMethod: 'stripe',
       apiSecret: API_SECRET,
     });

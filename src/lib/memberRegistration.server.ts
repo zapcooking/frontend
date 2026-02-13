@@ -14,7 +14,7 @@ import { lookupMember } from './membershipApi.server';
 export interface RegisterMemberParams {
   pubkey: string;
   tier: 'cook' | 'pro';
-  period: 'annual' | '2year';
+  period: 'annual' | 'monthly';
   paymentMethod: 'stripe' | 'lightning_strike';
   apiSecret: string;
 }
@@ -56,7 +56,7 @@ export async function registerMember(params: RegisterMemberParams): Promise<Regi
 
   // Calculate subscription end date
   const now = new Date();
-  const subscriptionMonths = period === 'annual' ? 12 : 24;
+  const subscriptionMonths = period === 'annual' ? 12 : 1;
   const subscriptionEnd = new Date(now);
   subscriptionEnd.setMonth(now.getMonth() + subscriptionMonths);
 
