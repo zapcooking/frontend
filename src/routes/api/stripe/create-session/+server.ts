@@ -59,24 +59,27 @@ export const POST: RequestHandler = async ({ request, platform }) => {
       );
     }
 
-    // Validate redirect URLs belong to the same origin
-    const requestOrigin = request.headers.get('origin');
-    if (requestOrigin) {
-      try {
-        const successOrigin = new URL(successUrl).origin;
-        const cancelOrigin = new URL(cancelUrl).origin;
-        if (successOrigin !== requestOrigin || cancelOrigin !== requestOrigin) {
-          return json(
-            { error: 'Redirect URLs must match the request origin' },
-            { status: 400 }
-          );
-        }
-      } catch {
+    // Validate redirect URLs belong to the same origin as the request
+    const requestUrl = new URL(request.url);
+    const allowedOrigin =
+      request.headers.get('origin') ?? `${requestUrl.protocol}//${requestUrl.host}`;
+
+    try {
+      // Support both absolute and relative redirect URLs by resolving against the allowed origin
+      const successTarget = new URL(successUrl, allowedOrigin);
+      const cancelTarget = new URL(cancelUrl, allowedOrigin);
+
+      if (successTarget.origin !== allowedOrigin || cancelTarget.origin !== allowedOrigin) {
         return json(
-          { error: 'Invalid redirect URL format' },
+          { error: 'Redirect URLs must match the request origin' },
           { status: 400 }
         );
       }
+    } catch {
+      return json(
+        { error: 'Invalid redirect URL format' },
+        { status: 400 }
+      );
     }
 
     // Create Stripe checkout session
