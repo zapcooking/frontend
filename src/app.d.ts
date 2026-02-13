@@ -29,7 +29,13 @@ declare global {
             get(key: string, type?: 'text' | 'json'): Promise<string | unknown | null>;
             put(key: string, value: string, options?: { expirationTtl?: number; expiration?: number }): Promise<void>;
           };
-          // Add other Cloudflare env vars here
+          /** KV namespace for NIP-108 lightning-gated recipe storage */
+          GATED_CONTENT?: {
+            get(key: string, type?: 'text' | 'json'): Promise<string | unknown | null>;
+            put(key: string, value: string, options?: { expirationTtl?: number }): Promise<void>;
+            delete(key: string): Promise<void>;
+            list(options?: { prefix?: string; limit?: number }): Promise<{ keys: { name: string }[] }>;
+          };
         };
       }
   }

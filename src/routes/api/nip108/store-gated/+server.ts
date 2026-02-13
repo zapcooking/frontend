@@ -21,9 +21,15 @@
  */
 
 import { json, type RequestHandler } from '@sveltejs/kit';
-import { getGatedContent, storeGatedContent, hasGatedContent } from '$lib/nip108/server-store';
+import { getGatedContent, storeGatedContent, hasGatedContent, updateGatedContentNaddr, type GatedKV } from '$lib/nip108/server-store';
 
-export const POST: RequestHandler = async ({ request }) => {
+function getKV(platform: App.Platform | undefined): GatedKV {
+  return (platform?.env?.GATED_CONTENT as GatedKV) || null;
+}
+
+export const POST: RequestHandler = async ({ request, platform }) => {
+  const kv = getKV(platform);
+
   try {
     const body = await request.json();
     const {
@@ -40,25 +46,39 @@ export const POST: RequestHandler = async ({ request }) => {
       naddr,
       image
     } = body;
-    
+
     // Validate required fields
-    if (!gatedNoteId || !encryptedContent || !iv || !secret || !costMsats || !authorPubkey) {
+    if (!gatedNoteId || !encryptedContent || !iv || !secret || !authorPubkey) {
       return json(
         { error: 'Missing required fields' },
         { status: 400 }
       );
     }
-    
+
+    if (typeof costMsats !== 'number' || costMsats <= 0) {
+      return json(
+        { error: 'costMsats must be a positive number' },
+        { status: 400 }
+      );
+    }
+
+    if (gatedNoteId.length > 200) {
+      return json(
+        { error: 'gatedNoteId too long' },
+        { status: 400 }
+      );
+    }
+
     // Check if gatedNoteId already exists
-    if (hasGatedContent(gatedNoteId)) {
+    if (await hasGatedContent(kv, gatedNoteId)) {
       return json(
         { error: 'Gated note ID already exists' },
         { status: 409 }
       );
     }
-    
+
     // Store the gated content
-    storeGatedContent(gatedNoteId, {
+    await storeGatedContent(kv, gatedNoteId, {
       encryptedContent,
       iv,
       secret,
@@ -71,14 +91,14 @@ export const POST: RequestHandler = async ({ request }) => {
       naddr: naddr || '',
       image: image || ''
     });
-    
+
     console.log(`[NIP-108] Stored gated content: ${gatedNoteId} (${title}) - ${costMsats} mSats`);
-    
+
     return json({
       success: true,
       gatedNoteId
     });
-    
+
   } catch (error) {
     console.error('[NIP-108 Store Gated] Error:', error);
     return json(
@@ -93,29 +113,28 @@ export const POST: RequestHandler = async ({ request }) => {
  * 
  * Update gated recipe metadata (e.g., add naddr after publishing)
  */
-export const PATCH: RequestHandler = async ({ request }) => {
+export const PATCH: RequestHandler = async ({ request, platform }) => {
+  const kv = getKV(platform);
+
   try {
     const body = await request.json();
     const { gatedNoteId, naddr } = body;
-    
+
     if (!gatedNoteId) {
       return json({ error: 'Missing gatedNoteId' }, { status: 400 });
     }
-    
-    const content = getGatedContent(gatedNoteId);
-    if (!content) {
-      return json({ error: 'Gated content not found' }, { status: 404 });
-    }
-    
-    // Update the naddr
+
     if (naddr) {
-      content.naddr = naddr;
+      const updated = await updateGatedContentNaddr(kv, gatedNoteId, naddr);
+      if (!updated) {
+        return json({ error: 'Gated content not found' }, { status: 404 });
+      }
     }
-    
+
     console.log(`[NIP-108] Updated gated content: ${gatedNoteId} with naddr: ${naddr}`);
-    
+
     return json({ success: true });
-    
+
   } catch (error) {
     console.error('[NIP-108 Update Gated] Error:', error);
     return json({ error: 'Failed to update gated content' }, { status: 500 });
@@ -127,19 +146,21 @@ export const PATCH: RequestHandler = async ({ request }) => {
  * 
  * Get public info about a gated recipe (for display before payment)
  */
-export const GET: RequestHandler = async ({ url }) => {
+export const GET: RequestHandler = async ({ url, platform }) => {
+  const kv = getKV(platform);
+
   try {
     const gatedNoteId = url.searchParams.get('id');
-    
+
     if (!gatedNoteId) {
       return json(
         { error: 'Missing gatedNoteId parameter' },
         { status: 400 }
       );
     }
-    
-    const content = getGatedContent(gatedNoteId);
-    
+
+    const content = await getGatedContent(kv, gatedNoteId);
+
     if (!content) {
       return json(
         { error: 'Gated content not found' },
