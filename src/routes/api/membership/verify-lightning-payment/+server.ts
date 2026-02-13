@@ -103,6 +103,29 @@ export const POST: RequestHandler = async ({ request, platform }) => {
       );
     }
 
+    // Validate metadata tier and period values (data integrity check)
+    if (!['cook', 'pro'].includes(metadata.tier)) {
+      console.error('[Verify Lightning] Invalid metadata tier:', {
+        receiveRequestId: metadata.receiveRequestId,
+        tier: metadata.tier,
+      });
+      return json(
+        { error: 'Invoice metadata is invalid. Please create a new invoice.' },
+        { status: 500 }
+      );
+    }
+
+    if (!['annual', 'monthly'].includes(metadata.period)) {
+      console.error('[Verify Lightning] Invalid metadata period:', {
+        receiveRequestId: metadata.receiveRequestId,
+        period: metadata.period,
+      });
+      return json(
+        { error: 'Invoice metadata is invalid. Please create a new invoice.' },
+        { status: 500 }
+      );
+    }
+
     // Verify payment completion via Strike API
     const lookupId = metadata.receiveRequestId;
     const receives = await getReceiveRequestReceives(lookupId, platform);
