@@ -89,6 +89,44 @@ export const POST: RequestHandler = async ({ request, platform }) => {
       );
     }
 
+    // Validate that metadata has required tier and period fields
+    // This is a data integrity check - metadata should always have these fields
+    if (metadata.tier === undefined || metadata.tier === null || 
+        metadata.period === undefined || metadata.period === null) {
+      console.error('[Verify Lightning] Invalid metadata - missing tier or period:', {
+        receiveRequestId: metadata.receiveRequestId,
+        tier: metadata.tier,
+        period: metadata.period,
+      });
+      return json(
+        { error: 'Invoice metadata is invalid. Please create a new invoice.' },
+        { status: 500 }
+      );
+    }
+
+    // Validate metadata tier and period values (data integrity check)
+    if (!['cook', 'pro'].includes(metadata.tier)) {
+      console.error('[Verify Lightning] Invalid metadata tier:', {
+        receiveRequestId: metadata.receiveRequestId,
+        tier: metadata.tier,
+      });
+      return json(
+        { error: 'Invoice metadata is invalid. Please create a new invoice.' },
+        { status: 500 }
+      );
+    }
+
+    if (!['annual', 'monthly'].includes(metadata.period)) {
+      console.error('[Verify Lightning] Invalid metadata period:', {
+        receiveRequestId: metadata.receiveRequestId,
+        period: metadata.period,
+      });
+      return json(
+        { error: 'Invoice metadata is invalid. Please create a new invoice.' },
+        { status: 500 }
+      );
+    }
+
     // Verify payment completion via Strike API
     const lookupId = metadata.receiveRequestId;
     const receives = await getReceiveRequestReceives(lookupId, platform);
@@ -118,10 +156,12 @@ export const POST: RequestHandler = async ({ request, platform }) => {
     }
 
     // Register member using authoritative tier/period from invoice metadata
+    // SECURITY: Only use metadata values, never client-supplied tier/period
+    // Type assertions are safe here because we validated the values above
     const result = await registerMember({
       pubkey,
-      tier: (metadata.tier || tier) as 'cook' | 'pro',
-      period: (metadata.period || period) as 'annual' | 'monthly',
+      tier: metadata.tier as 'cook' | 'pro',
+      period: metadata.period as 'annual' | 'monthly',
       paymentMethod: 'lightning_strike',
       apiSecret: API_SECRET,
     });
