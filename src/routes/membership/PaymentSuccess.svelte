@@ -17,7 +17,7 @@
   $: showNip05Offer = selectedTier === 'cook' || selectedTier === 'pro';
   $: nip05Tier = (selectedTier === 'cook' || selectedTier === 'pro') ? selectedTier as 'cook' | 'pro' : 'cook';
   let claimedNip05Address: string | null = null;
-  $: hasAutoAssignedNip05 = membershipDetails?.nip05 || claimedNip05Address;
+  $: hasAutoAssignedNip05 = !!(membershipDetails?.nip05 || claimedNip05Address);
   $: displayNip05 = claimedNip05Address || membershipDetails?.nip05 || '';
 
   let showNip05Modal = false;
