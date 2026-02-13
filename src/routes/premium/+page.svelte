@@ -194,7 +194,36 @@
 </svelte:head>
 
 <PullToRefresh bind:this={pullToRefreshEl} on:refresh={handleRefresh}>
-<div class="flex flex-col gap-6 max-w-full md:max-w-none">
+<div class="flex flex-col gap-4 max-w-full md:max-w-none">
+  <!-- Tabs (shared with /recent) -->
+  <div class="flex flex-col gap-3">
+    <div class="flex items-center justify-between gap-4">
+      <div class="flex gap-1 border-b" style="border-color: var(--color-input-border)">
+        <a
+          href="/recent"
+          class="px-4 py-2 text-sm font-medium transition-colors relative cursor-pointer"
+          style="color: var(--color-text-secondary)"
+        >
+          Recent
+        </a>
+        <a
+          href="/recent"
+          class="px-4 py-2 text-sm font-medium transition-colors relative cursor-pointer"
+          style="color: var(--color-text-secondary)"
+        >
+          All
+        </a>
+        <button
+          class="px-4 py-2 text-sm font-medium transition-colors relative cursor-pointer"
+          style="color: var(--color-text-primary)"
+        >
+          Premium ⚡️
+          <span class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-orange-500 to-amber-500"></span>
+        </button>
+      </div>
+    </div>
+  </div>
+
   <!-- Header -->
   <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
     <div class="flex items-center gap-3">
@@ -208,7 +237,7 @@
         </p>
       </div>
     </div>
-    
+
     {#if $userPublickey}
       <button
         on:click={() => goto('/create/gated')}
