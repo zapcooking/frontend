@@ -80,7 +80,7 @@
   // Pricing - use tierPricing for paid tiers
   $: isFree = tier === 'open';
   $: pricing = !isFree ? tierPricing[tier as 'cook' | 'pro'] : null;
-  $: currentPricing = pricing ? (period === 'annual' ? pricing.annual : pricing.twoYear) : null;
+  $: currentPricing = pricing ? (period === 'annual' ? pricing.annual : pricing.monthly) : null;
   
   // Pro tier specific
   $: isProTier = tier === 'pro';
@@ -178,11 +178,11 @@
           <span class="text-3xl font-bold text-orange-600 dark:text-orange-500">
             {formatSats(currentPricing.sats)}
           </span>
-          <span class="text-base text-gray-600 font-medium">sats{period === 'annual' ? '/year' : ''}</span>
+          <span class="text-base text-gray-600 font-medium">sats{period === 'annual' ? '/year' : '/mo'}</span>
         </div>
         <!-- USD Alternative -->
         <p class="text-sm text-gray-500">
-          or {formatUSD(currentPricing.usd)}{period === 'annual' ? '/year' : ' for 2 years'} via card
+          or {formatUSD(currentPricing.usd)}{period === 'annual' ? '/year' : '/mo'} via card
         </p>
       {/if}
     </div>

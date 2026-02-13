@@ -8,7 +8,7 @@
  * Body:
  * {
  *   tier: 'cook' | 'pro',
- *   period: 'annual' | '2year',
+ *   period: 'annual' | 'monthly',
  *   successUrl: string,
  *   cancelUrl: string,
  *   customerEmail?: string
@@ -45,9 +45,9 @@ export const POST: RequestHandler = async ({ request, platform }) => {
       );
     }
     
-    if (!period || !['annual', '2year'].includes(period)) {
+    if (!period || !['annual', 'monthly'].includes(period)) {
       return json(
-        { error: 'Invalid period. Must be "annual" or "2year"' },
+        { error: 'Invalid period. Must be "annual" or "monthly"' },
         { status: 400 }
       );
     }
@@ -58,7 +58,27 @@ export const POST: RequestHandler = async ({ request, platform }) => {
         { status: 400 }
       );
     }
-    
+
+    // Validate redirect URLs belong to the same origin
+    const requestOrigin = request.headers.get('origin');
+    if (requestOrigin) {
+      try {
+        const successOrigin = new URL(successUrl).origin;
+        const cancelOrigin = new URL(cancelUrl).origin;
+        if (successOrigin !== requestOrigin || cancelOrigin !== requestOrigin) {
+          return json(
+            { error: 'Redirect URLs must match the request origin' },
+            { status: 400 }
+          );
+        }
+      } catch {
+        return json(
+          { error: 'Invalid redirect URL format' },
+          { status: 400 }
+        );
+      }
+    }
+
     // Create Stripe checkout session
     const session = await createCheckoutSession({
       tier,

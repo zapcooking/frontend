@@ -3,11 +3,31 @@
   import { goto } from '$app/navigation';
   import { userPublickey } from '$lib/nostr';
   import { membershipStore, formatMembershipExpiry } from '$lib/membershipStore';
-  
+  import PricingToggle from './PricingToggle.svelte';
+
   export let data;
 
   let showFoundersList = false;
   let isCheckingOut = false;
+  let billingPeriod: 'annual' | 'monthly' = 'annual';
+
+  // Pricing data
+  const cookAnnualPrice = 49;
+  const cookMonthlyPrice = 4.99;
+  const proAnnualPrice = 89;
+  const proMonthlyPrice = 8.99;
+
+  $: cookMonthlyEquivalent = (cookAnnualPrice / 12).toFixed(2);
+  $: proMonthlyEquivalent = (proAnnualPrice / 12).toFixed(2);
+  $: savingsPercent = Math.round(((cookMonthlyPrice * 12 - cookAnnualPrice) / (cookMonthlyPrice * 12)) * 100);
+
+  function handlePeriodChange(newPeriod: 'annual' | 'monthly') {
+    billingPeriod = newPeriod;
+  }
+
+  function switchToAnnual() {
+    billingPeriod = 'annual';
+  }
 
   // Genesis founders constants
   const TOTAL_GENESIS_SPOTS = 21;
@@ -47,8 +67,8 @@
       });
 
       if (!response.ok) {
-        const data = await response.json().catch(() => ({ error: 'Failed to open subscription portal' }));
-        throw new Error(data.error || 'Failed to open subscription portal');
+        const errData = await response.json().catch(() => ({ error: 'Failed to open subscription portal' }));
+        throw new Error(errData.error || 'Failed to open subscription portal');
       }
 
       const { url } = await response.json();
@@ -91,11 +111,11 @@
   }
 
   function goToCookPlusCheckout() {
-    goto('/membership/cook-plus-checkout');
+    goto(`/membership/cook-plus-checkout?period=${billingPeriod}`);
   }
 
   function goToProKitchenCheckout() {
-    goto('/membership/pro-kitchen-checkout');
+    goto(`/membership/pro-kitchen-checkout?period=${billingPeriod}`);
   }
 </script>
 
@@ -105,8 +125,28 @@
 
 <div class="membership-page">
   <section class="hero">
-    <h1>Become a Founder</h1>
-    <p>Join the community building the future of food</p>
+    <h1>Your Kitchen, Supercharged</h1>
+    <p>AI-powered recipe tools, a private Nostr relay, and Bitcoin-native payments — all in one membership.</p>
+  </section>
+
+  <!-- Value Props Row -->
+  <section class="value-props">
+    <div class="value-prop">
+      <span class="value-prop-icon">✨</span>
+      <span class="value-prop-label">AI Recipe Tools</span>
+    </div>
+    <div class="value-prop">
+      <span class="value-prop-icon">📡</span>
+      <span class="value-prop-label">Private Relay</span>
+    </div>
+    <div class="value-prop">
+      <span class="value-prop-icon">⚡</span>
+      <span class="value-prop-label">Bitcoin Payments</span>
+    </div>
+    <div class="value-prop">
+      <span class="value-prop-icon">🔓</span>
+      <span class="value-prop-label">Own Your Data</span>
+    </div>
   </section>
 
   <!-- Founders Club Hero Section -->
@@ -156,7 +196,11 @@
             ></div>
           </div>
           <p class="progress-text">{spotsRemaining} spots remaining</p>
+          <p class="urgency-text">These spots won't last — claim yours before they're gone</p>
         </div>
+      {/if}
+      {#if !showFoundersList}
+        <p class="card-hint">Click to learn more</p>
       {/if}
     </div>
   </section>
@@ -292,15 +336,34 @@
   {/if}
 
   <!-- Membership Tiers Section -->
-  <section class="tiers">
-    <h2>Membership Tiers</h2>
-    
+  <section class="tiers" id="pricing">
+    <h2 class="section-label">Choose Your Plan</h2>
+
+    <PricingToggle
+      period={billingPeriod}
+      onPeriodChange={handlePeriodChange}
+      savingsPercent={savingsPercent}
+    />
+
     <div class="tiers-grid">
       <div class="tier-card cook-plus">
         <h3>Cook+</h3>
         <div class="price">
           <div class="price-container">
-            $49<span>/year</span>
+            {#if billingPeriod === 'annual'}
+              $49<span>/year</span>
+            {:else}
+              $4.99<span>/mo</span>
+            {/if}
+          </div>
+          <div class="price-subtext">
+            {#if billingPeriod === 'annual'}
+              That's just ${cookMonthlyEquivalent}/month
+            {:else}
+              <button class="annual-link" on:click={switchToAnnual}>
+                or $49/year — save with annual
+              </button>
+            {/if}
           </div>
         </div>
         
@@ -363,16 +426,32 @@
         </div>
         
         <button class="tier-button" on:click={goToCookPlusCheckout}>Join Cook+</button>
+        <div class="payment-indicators">
+          <span>⚡ Bitcoin</span>
+          <span class="separator">•</span>
+          <span>💳 Card accepted</span>
+        </div>
       </div>
 
       <div class="tier-card pro-kitchen">
-        <div class="tier-title-row">
-          <h3>Pro Kitchen</h3>
-          <div class="popular-badge">Most Popular</div>
-        </div>
+        <div class="popular-badge-floating">Most Popular</div>
+        <h3>Pro Kitchen</h3>
         <div class="price">
           <div class="price-container">
-            $89<span>/year</span>
+            {#if billingPeriod === 'annual'}
+              $89<span>/year</span>
+            {:else}
+              $8.99<span>/mo</span>
+            {/if}
+          </div>
+          <div class="price-subtext">
+            {#if billingPeriod === 'annual'}
+              That's just ${proMonthlyEquivalent}/month
+            {:else}
+              <button class="annual-link" on:click={switchToAnnual}>
+                or $89/year — save with annual
+              </button>
+            {/if}
           </div>
         </div>
         
@@ -432,6 +511,11 @@
         </div>
         
         <button class="tier-button primary" on:click={goToProKitchenCheckout}>Join Pro Kitchen</button>
+        <div class="payment-indicators">
+          <span>⚡ Bitcoin</span>
+          <span class="separator">•</span>
+          <span>💳 Card accepted</span>
+        </div>
       </div>
     </div>
   </section>
@@ -475,9 +559,13 @@
 
   .hero p {
     color: #9ca3af;
-    font-size: 1.2rem;
+    font-size: 1.15rem;
     font-weight: 400;
-    margin-top: 0.5rem;
+    margin-top: 0.75rem;
+    max-width: 600px;
+    margin-left: auto;
+    margin-right: auto;
+    line-height: 1.6;
   }
 
   /* Dark mode adjustments for hero */
@@ -610,8 +698,12 @@
     height: 100%;
     background: linear-gradient(90deg, var(--color-primary) 0%, #ff8c42 100%);
     border-radius: 2px;
-    transition: width 0.5s ease;
     box-shadow: 0 0 8px rgba(236, 71, 0, 0.4);
+    animation: fillProgress 1.2s ease-out;
+  }
+
+  @keyframes fillProgress {
+    from { width: 0; }
   }
 
   .progress-text {
@@ -837,10 +929,14 @@
     margin: 4rem 0;
   }
 
-  .tiers h2 {
+  .tiers .section-label {
     text-align: center;
     margin-bottom: 2rem;
-    color: var(--color-text-primary);
+    color: var(--color-text-secondary);
+    font-size: 0.875rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
   }
 
   .tiers-grid {
@@ -868,15 +964,10 @@
   }
 
   .tier-card.pro-kitchen {
-    border-color: var(--color-primary);
-    background: var(--color-bg-primary);
-  }
-
-  .tier-title-row {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-    margin-bottom: 0.5rem;
+    border: 2px solid transparent;
+    border-image: linear-gradient(135deg, #f59e0b, #d97706) 1;
+    background: rgba(245, 158, 11, 0.03);
+    overflow: visible;
   }
 
   .tier-card h3 {
@@ -885,19 +976,50 @@
     color: var(--color-text-primary);
   }
 
-  .popular-badge {
-    background: var(--color-primary);
+  .popular-badge-floating {
+    position: absolute;
+    top: -14px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: linear-gradient(135deg, #f59e0b, #d97706);
     color: white;
     font-size: 0.75rem;
-    font-weight: bold;
-    padding: 0.25rem 0.75rem;
-    border-radius: 20px;
+    font-weight: 700;
+    padding: 0.35rem 1.25rem;
+    border-radius: 9999px;
     white-space: nowrap;
+    z-index: 10;
+    box-shadow: 0 2px 8px rgba(245, 158, 11, 0.3);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
   }
 
   .price {
     position: relative;
     margin-bottom: 1.5rem;
+  }
+
+  .price-subtext {
+    font-size: 0.8rem;
+    color: var(--color-text-secondary);
+    opacity: 0.7;
+    font-weight: 400;
+    margin-top: 0.25rem;
+  }
+
+  .annual-link {
+    background: none;
+    border: none;
+    color: var(--color-primary);
+    cursor: pointer;
+    font-size: 0.875rem;
+    text-decoration: underline;
+    padding: 0;
+    font-family: inherit;
+  }
+
+  .annual-link:hover {
+    color: #d63a00;
   }
 
   .price-container {
@@ -914,27 +1036,6 @@
     font-size: 1rem;
     font-weight: normal;
     color: var(--color-text-secondary);
-  }
-
-  .tier-card ul {
-    list-style: none;
-    padding: 0;
-    margin-bottom: 2rem;
-  }
-
-  .tier-card li {
-    padding: 0.5rem 0;
-    padding-left: 1.5rem;
-    position: relative;
-    color: var(--color-text-primary);
-  }
-
-  .tier-card li::before {
-    content: '✓';
-    position: absolute;
-    left: 0;
-    color: #22c55e;
-    font-weight: bold;
   }
 
   /* Tier Benefits Styling */
@@ -977,12 +1078,7 @@
     align-items: flex-start;
     gap: 0.75rem;
     padding: 0.75rem 0;
-    padding-left: 0;
     color: var(--color-text-primary);
-  }
-
-  .benefit-list li::before {
-    display: none;
   }
 
   .checkmark {
@@ -1032,6 +1128,7 @@
     font-weight: 600;
     cursor: pointer;
     transition: all 0.2s;
+    margin-top: auto;
   }
 
   .tier-button:hover {
@@ -1050,13 +1147,27 @@
     border-color: #d63a00;
   }
 
+  .payment-indicators {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    margin-top: 0.75rem;
+    font-size: 0.8rem;
+    color: var(--color-text-secondary);
+  }
+
+  .payment-indicators .separator {
+    opacity: 0.5;
+  }
+
   /* Dark mode adjustments */
   html.dark .tier-card {
     background: var(--color-bg-secondary);
   }
 
   html.dark .tier-card.pro-kitchen {
-    background: linear-gradient(180deg, #1f2937 0%, #111827 100%);
+    background: linear-gradient(180deg, rgba(245, 158, 11, 0.08) 0%, rgba(17, 24, 39, 0.9) 100%);
   }
 
   /* Active Membership Management */
@@ -1152,5 +1263,63 @@
 
   html.dark .active-membership-card {
     background: rgba(31, 41, 55, 0.7);
+  }
+
+  /* Value Props Row */
+  .value-props {
+    display: flex;
+    justify-content: center;
+    gap: 2rem;
+    flex-wrap: wrap;
+    margin: -2rem 0 0 0;
+    padding-bottom: 1rem;
+  }
+
+  .value-prop {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .value-prop-icon {
+    font-size: 1.25rem;
+  }
+
+  .value-prop-label {
+    font-size: 0.95rem;
+    font-weight: 500;
+    color: var(--color-text-secondary);
+  }
+
+  /* Urgency text */
+  .urgency-text {
+    color: var(--color-primary);
+    font-size: 0.8rem;
+    font-weight: 500;
+    text-align: center;
+    margin: 0.5rem 0 0 0;
+    opacity: 0.9;
+  }
+
+  /* Card hint */
+  .card-hint {
+    color: #9ca3af;
+    font-size: 0.8rem;
+    text-align: center;
+    margin: 0.75rem 0 0 0;
+    opacity: 0.6;
+    position: relative;
+    z-index: 1;
+  }
+
+  @media (max-width: 640px) {
+    .value-props {
+      gap: 1rem;
+    }
+
+    .value-prop-label {
+      font-size: 0.85rem;
+    }
+
   }
 </style>

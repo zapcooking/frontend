@@ -10,7 +10,7 @@
  * {
  *   pubkey: string,
  *   tier: 'cook' | 'pro',
- *   period: 'annual' | '2year',
+ *   period: 'annual' | 'monthly',
  * }
  */
 
@@ -48,9 +48,9 @@ export const POST: RequestHandler = async ({ request, platform }) => {
       );
     }
     
-    if (!['annual', '2year'].includes(period)) {
+    if (!['annual', 'monthly'].includes(period)) {
       return json(
-        { error: 'Invalid period. Must be "annual" or "2year"' },
+        { error: 'Invalid period. Must be "annual" or "monthly"' },
         { status: 400 }
       );
     }
@@ -69,10 +69,10 @@ export const POST: RequestHandler = async ({ request, platform }) => {
       console.warn('[Simulate Payment] RELAY_API_SECRET not configured - skipping relay API call');
       // In dev mode without relay secret, just return success
       const now = new Date();
-      const subscriptionMonths = period === 'annual' ? 12 : 24;
+      const subscriptionMonths = period === 'annual' ? 12 : 1;
       const subscriptionEnd = new Date(now);
       subscriptionEnd.setMonth(now.getMonth() + subscriptionMonths);
-      
+
       return json({
         success: true,
         simulated: true,
@@ -88,7 +88,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
     
     // Calculate subscription end date
     const now = new Date();
-    const subscriptionMonths = period === 'annual' ? 12 : 24;
+    const subscriptionMonths = period === 'annual' ? 12 : 1;
     const subscriptionEnd = new Date(now);
     subscriptionEnd.setMonth(now.getMonth() + subscriptionMonths);
     
@@ -205,7 +205,7 @@ export const GET: RequestHandler = async () => {
     body: {
       pubkey: 'string (64 hex characters)',
       tier: 'cook | pro',
-      period: 'annual | 2year'
+      period: 'annual | monthly'
     }
   });
 };

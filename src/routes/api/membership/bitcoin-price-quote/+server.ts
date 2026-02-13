@@ -25,11 +25,11 @@ import { getDiscountedBitcoinPrice, convertUsdToSats } from '$lib/bitcoinPrice.s
 const PRICING_USD = {
   cook: {
     annual: 49,
-    '2year': 83.30,
+    monthly: 4.99,
   },
   pro: {
     annual: 89,
-    '2year': 152.40,
+    monthly: 8.99,
   },
   founders: {
     lifetime: 210,
@@ -54,7 +54,7 @@ export const GET: RequestHandler = async ({ url, platform }) => {
     if (!['cook', 'pro', 'founders'].includes(tier)) {
       return json({ error: 'Invalid tier' }, { status: 400 });
     }
-    if (!['annual', '2year', 'lifetime'].includes(period)) {
+    if (!['annual', 'monthly', 'lifetime'].includes(period)) {
       return json({ error: 'Invalid period' }, { status: 400 });
     }
     
@@ -64,7 +64,7 @@ export const GET: RequestHandler = async ({ url, platform }) => {
       usdAmount = PRICING_USD.founders.lifetime;
     } else {
       const tierPricing = PRICING_USD[tier as 'cook' | 'pro'];
-      usdAmount = tierPricing[period as 'annual' | '2year'];
+      usdAmount = tierPricing[period as 'annual' | 'monthly'];
     }
     
     // Get current Bitcoin price

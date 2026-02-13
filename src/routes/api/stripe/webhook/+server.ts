@@ -158,8 +158,8 @@ async function handleCheckoutCompleted(session: any, platform: any) {
     return;
   }
 
-  // Validate period
-  if (!period || !['annual', '2year'].includes(period)) {
+  // Validate period (accept '2year' for backward compatibility with existing subscriptions)
+  if (!period || !['annual', '2year', 'monthly'].includes(period)) {
     console.error('[Stripe Webhook] Invalid period in metadata:', period);
     return;
   }
@@ -171,11 +171,14 @@ async function handleCheckoutCompleted(session: any, platform: any) {
     return;
   }
 
+  // Normalize '2year' to 'annual' for backward compatibility with legacy subscriptions
+  const normalizedPeriod: 'annual' | 'monthly' = period === '2year' ? 'annual' : period as 'annual' | 'monthly';
+
   try {
     const result = await registerMember({
       pubkey,
       tier: tier as 'cook' | 'pro',
-      period: period as 'annual' | '2year',
+      period: normalizedPeriod,
       paymentMethod: 'stripe',
       apiSecret: API_SECRET,
     });

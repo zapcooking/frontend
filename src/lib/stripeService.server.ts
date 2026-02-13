@@ -50,7 +50,7 @@ const getStripeInstance = async () => {
  */
 export async function createCheckoutSession(params: {
   tier: 'cook' | 'pro';
-  period: 'annual' | '2year';
+  period: 'annual' | 'monthly';
   successUrl: string;
   cancelUrl: string;
   customerEmail?: string;
@@ -62,17 +62,17 @@ export async function createCheckoutSession(params: {
   const pricing = {
     cook: {
       annual: 4900, // $49.00
-      '2year': 8330, // $83.30
+      monthly: 499,  // $4.99
     },
     pro: {
       annual: 8900, // $89.00
-      '2year': 15240, // $152.40
+      monthly: 899,  // $8.99
     },
   };
   
   const amount = pricing[params.tier][params.period];
   const tierName = params.tier === 'cook' ? 'Cook+' : 'Pro Kitchen';
-  const periodLabel = params.period === 'annual' ? '1 year' : '2 years';
+  const periodLabel = params.period === 'annual' ? '1 year' : '1 month';
   
   // Create checkout session
   const session = await stripe.checkout.sessions.create({
@@ -86,9 +86,9 @@ export async function createCheckoutSession(params: {
             description: `Membership subscription for ${periodLabel}`,
           },
           unit_amount: amount,
-          recurring: params.period === 'annual' 
+          recurring: params.period === 'annual'
             ? { interval: 'year' }
-            : { interval: 'year', interval_count: 2 },
+            : { interval: 'month' },
         },
         quantity: 1,
       },

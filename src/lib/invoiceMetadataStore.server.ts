@@ -13,7 +13,7 @@
 export interface InvoiceMetadata {
   pubkey: string;
   tier: 'cook' | 'pro';
-  period: 'annual' | '2year';
+  period: 'annual' | 'monthly';
   receiveRequestId: string;
   createdAt: number;
 }

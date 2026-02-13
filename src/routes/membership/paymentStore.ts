@@ -3,7 +3,7 @@ import { browser } from '$app/environment';
 
 // Types
 export type Tier = 'open' | 'cook' | 'pro';
-export type PricingPeriod = 'annual' | '2year';
+export type PricingPeriod = 'annual' | 'monthly';
 export type PaymentMethod = 'bitcoin' | 'card';
 export type PaymentStep = 'closed' | 'selection' | 'bitcoin' | 'stripe' | 'success';
 
@@ -11,7 +11,7 @@ export interface TierPricing {
   name: string;
   description: string;
   annual: { sats: number; usd: number };
-  twoYear: { sats: number; usd: number };
+  monthly: { sats: number; usd: number };
 }
 
 export interface PaymentState {
@@ -38,22 +38,22 @@ export const tierPricing: Record<Exclude<Tier, 'open'>, TierPricing> = {
     name: 'Cook+',
     description: 'For supporters and active members',
     annual: { sats: 44100, usd: 49 },
-    twoYear: { sats: 75460, usd: 83.30 }
+    monthly: { sats: 4490, usd: 4.99 }
   },
   pro: {
     name: 'Pro Kitchen',
     description: 'For serious creators and founders',
     annual: { sats: 80100, usd: 89 },
-    twoYear: { sats: 137160, usd: 152.40 }
+    monthly: { sats: 8090, usd: 8.99 }
   }
 };
 
-// Calculate savings
-export function calculateSavings(tier: Exclude<Tier, 'open'>, period: PricingPeriod): number {
-  const pricing = tierPricing[tier][period === 'annual' ? 'annual' : 'twoYear'];
-  // Approximate sats to USD conversion (assuming ~2000 sats = $1 for display purposes)
-  const btcUsdEquivalent = Math.round(pricing.sats / 2000);
-  return pricing.usd - btcUsdEquivalent;
+// Calculate savings percentage (annual vs monthly)
+export function calculateSavings(tier: Exclude<Tier, 'open'>): number {
+  const monthly = tierPricing[tier].monthly;
+  const annual = tierPricing[tier].annual;
+  const monthlyAnnualized = monthly.usd * 12;
+  return Math.round(((monthlyAnnualized - annual.usd) / monthlyAnnualized) * 100);
 }
 
 // Initial state
@@ -174,9 +174,12 @@ function createPaymentStore() {
       update(state => {
         const tier = state.selectedTier;
         const period = state.selectedPeriod;
-        const years = period === 'annual' ? 1 : 2;
         const expiresAt = new Date();
-        expiresAt.setFullYear(expiresAt.getFullYear() + years);
+        if (period === 'monthly') {
+          expiresAt.setMonth(expiresAt.getMonth() + 1);
+        } else {
+          expiresAt.setFullYear(expiresAt.getFullYear() + 1);
+        }
 
         // Save membership to store if user is authenticated
         if (userPubkey && tier !== 'open') {
@@ -245,13 +248,13 @@ export const currentPricing = derived(
     const tier = $payment.selectedTier as Exclude<Tier, 'open'>;
     const period = $payment.selectedPeriod;
     const pricing = tierPricing[tier];
-    const priceData = period === 'annual' ? pricing.annual : pricing.twoYear;
-    const savings = calculateSavings(tier, period);
+    const priceData = period === 'annual' ? pricing.annual : pricing.monthly;
+    const savings = calculateSavings(tier);
 
     return {
       tierName: pricing.name,
-      period: period === 'annual' ? '1 year' : '2 years',
-      periodLabel: period === 'annual' ? '/year' : ' for 2 years',
+      period: period === 'annual' ? '1 year' : '1 month',
+      periodLabel: period === 'annual' ? '/year' : '/mo',
       sats: priceData.sats,
       usd: priceData.usd,
       savings
@@ -313,7 +316,7 @@ export async function createLightningInvoice(pubkey: string): Promise<LightningI
  */
 export async function createStripeSession(params: {
   tier: 'cook' | 'pro';
-  period: 'annual' | '2year';
+  period: 'annual' | 'monthly';
   successUrl: string;
   cancelUrl: string;
   customerEmail?: string;

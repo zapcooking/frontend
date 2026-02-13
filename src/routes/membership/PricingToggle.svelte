@@ -1,42 +1,85 @@
 <script lang="ts">
-  export let period: 'annual' | '2year';
-  export let onPeriodChange: (period: 'annual' | '2year') => void;
+  export let period: 'annual' | 'monthly';
+  export let onPeriodChange: (period: 'annual' | 'monthly') => void;
+  export let savingsPercent: number = 18;
 
-  function handleToggle(newPeriod: 'annual' | '2year') {
+  function handleToggle(newPeriod: 'annual' | 'monthly') {
     onPeriodChange(newPeriod);
   }
 </script>
 
-<!-- Mobile: Full-width stacked buttons, Desktop: Centered row -->
-<div class="flex flex-col sm:flex-row items-stretch sm:items-center justify-center gap-2 sm:gap-3 mb-6 sm:mb-8 px-2 sm:px-0">
+<div class="toggle-container">
   <button
+    class="toggle-option {period === 'annual' ? 'active' : ''}"
     on:click={() => handleToggle('annual')}
     type="button"
-    class="flex-1 sm:flex-none px-5 sm:px-6 py-3 sm:py-3 rounded-full font-semibold text-sm sm:text-base transition-all duration-300
-           focus:outline-none focus:ring-4 focus:ring-offset-2
-           {period === 'annual'
-             ? 'bg-primary text-white shadow-lg focus:ring-primary/50'
-             : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 focus:ring-gray-500/30'}"
     aria-pressed={period === 'annual'}
   >
     Annual
+    {#if savingsPercent > 0}
+      <span class="savings-badge">Save {savingsPercent}%</span>
+    {/if}
   </button>
-  
   <button
-    on:click={() => handleToggle('2year')}
+    class="toggle-option {period === 'monthly' ? 'active' : ''}"
+    on:click={() => handleToggle('monthly')}
     type="button"
-    class="flex-1 sm:flex-none px-5 sm:px-6 py-3 sm:py-3 rounded-full font-semibold text-sm sm:text-base transition-all duration-300
-           focus:outline-none focus:ring-4 focus:ring-offset-2
-           {period === '2year'
-             ? 'bg-primary text-white shadow-lg focus:ring-primary/50'
-             : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 focus:ring-gray-500/30'}"
-    aria-pressed={period === '2year'}
+    aria-pressed={period === 'monthly'}
   >
-    <span class="flex items-center justify-center gap-1.5 sm:gap-2">
-      <span>2-Year</span>
-      <span class="text-xs px-1.5 sm:px-2 py-0.5 rounded-full {period === '2year' ? 'bg-white/20' : 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400'}">
-        Save More
-      </span>
-    </span>
+    Monthly
   </button>
 </div>
+
+<style>
+  .toggle-container {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    margin-bottom: 2rem;
+  }
+
+  .toggle-option {
+    padding: 0.75rem 1.5rem;
+    border-radius: 9999px;
+    font-weight: 600;
+    font-size: 0.95rem;
+    border: 2px solid var(--color-input-border);
+    background: var(--color-bg-secondary);
+    color: var(--color-text-primary);
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .toggle-option:hover:not(.active) {
+    border-color: var(--color-text-secondary);
+  }
+
+  .toggle-option.active {
+    background: var(--color-primary);
+    color: white;
+    border-color: var(--color-primary);
+    box-shadow: 0 2px 8px rgba(236, 71, 0, 0.3);
+  }
+
+  .savings-badge {
+    background: #22c55e;
+    color: white;
+    font-size: 0.7rem;
+    font-weight: 700;
+    padding: 0.15rem 0.5rem;
+    border-radius: 10px;
+  }
+
+  @media (max-width: 480px) {
+    .toggle-option {
+      padding: 0.625rem 1rem;
+      font-size: 0.875rem;
+      flex: 1;
+      justify-content: center;
+    }
+  }
+</style>
