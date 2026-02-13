@@ -62,6 +62,9 @@
   let isClaiming = false;
   let confirmed = false;
   let chosenName = '';
+  let profileUpdated = false;
+  let isUpdatingProfile = false;
+  let profileUpdateError: string | null = null;
 
   // Confetti
   let canvasEl: HTMLCanvasElement;
@@ -265,8 +268,7 @@
     const claimTier: 'cook' | 'pro' = (tierKey === 'pro' || tierKey === 'genesis') ? 'pro' : 'cook';
     const result = await claimNip05(name, $userPublickey, claimTier);
 
-    if (result.success && result.nip05 && $ndk) {
-      await updateProfileWithNip05($ndk, $userPublickey, result.nip05);
+    if (result.success && result.nip05) {
       chosenName = name;
       confirmed = true;
     } else {
@@ -281,6 +283,25 @@
 
   function handleSkip() {
     claimUsername(pubkeyPrefix);
+  }
+
+  async function updateProfile() {
+    if (!$ndk || !$userPublickey || !chosenName || isUpdatingProfile) return;
+    isUpdatingProfile = true;
+    profileUpdateError = null;
+    try {
+      const nip05Address = `${chosenName}@zap.cooking`;
+      const success = await updateProfileWithNip05($ndk, $userPublickey, nip05Address);
+      if (success) {
+        profileUpdated = true;
+      } else {
+        profileUpdateError = 'Failed to update profile. You can add it manually in settings.';
+      }
+    } catch (err) {
+      console.error('Failed to update profile:', err);
+      profileUpdateError = 'Failed to update profile. You can add it manually in settings.';
+    }
+    isUpdatingProfile = false;
   }
 
   function formatDate(dateString: string): string {
@@ -435,13 +456,38 @@
           <div class="success-check">{'\u2713'}</div>
           <h3 class="success-heading">You're all set!</h3>
           <p class="success-nip05">{chosenName}@zap.cooking</p>
-          <p class="success-subtext">
-            Your verified identity has been added to your profile.<br />
-            Other Nostr clients can now verify you.
-          </p>
-          <button class="start-cooking-button" on:click={() => goto('/explore')}>
-            Start Cooking →
-          </button>
+          {#if profileUpdated}
+            <p class="success-subtext">
+              Your verified identity has been added to your profile.<br />
+              Other Nostr clients can now verify you.
+            </p>
+          {:else}
+            <p class="success-subtext">
+              Your identity has been claimed.<br />
+              Update your Nostr profile to make it visible to other clients.
+            </p>
+          {/if}
+          {#if profileUpdateError}
+            <p class="profile-update-error">{profileUpdateError}</p>
+          {/if}
+          <div class="success-buttons">
+            {#if !profileUpdated}
+              <button
+                class="update-profile-button"
+                on:click={updateProfile}
+                disabled={isUpdatingProfile}
+              >
+                {#if isUpdatingProfile}
+                  Updating Profile...
+                {:else}
+                  Update Profile
+                {/if}
+              </button>
+            {/if}
+            <button class="start-cooking-button" on:click={() => goto('/explore')}>
+              Start Cooking →
+            </button>
+          </div>
         </div>
       {/if}
     </div>
@@ -990,6 +1036,44 @@
   .start-cooking-button:hover {
     box-shadow: 0 6px 28px rgba(232, 101, 43, 0.4);
     transform: translateY(-1px);
+  }
+
+  .success-buttons {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .update-profile-button {
+    padding: 14px 36px;
+    border-radius: 14px;
+    border: none;
+    background: linear-gradient(135deg, #34D399 0%, #22C55E 50%, #16A34A 100%);
+    color: #fff;
+    font-family: 'DM Sans', sans-serif;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    box-shadow: 0 4px 20px rgba(34, 197, 94, 0.3);
+    transition: all 0.3s ease;
+  }
+
+  .update-profile-button:hover {
+    box-shadow: 0 6px 28px rgba(34, 197, 94, 0.4);
+    transform: translateY(-1px);
+  }
+
+  .update-profile-button:disabled {
+    opacity: 0.7;
+    cursor: not-allowed;
+    transform: none;
+  }
+
+  .profile-update-error {
+    font-family: 'DM Sans', sans-serif;
+    font-size: 13px;
+    color: #ef4444;
+    margin: 0 0 16px 0;
   }
 
   /* ===== Responsive ===== */
