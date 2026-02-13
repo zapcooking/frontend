@@ -89,6 +89,20 @@ export const POST: RequestHandler = async ({ request, platform }) => {
       );
     }
 
+    // Validate that metadata has required tier and period fields
+    // This is a data integrity check - metadata should always have these fields
+    if (!metadata.tier || !metadata.period) {
+      console.error('[Verify Lightning] Invalid metadata - missing tier or period:', {
+        receiveRequestId: metadata.receiveRequestId,
+        hasTier: !!metadata.tier,
+        hasPeriod: !!metadata.period,
+      });
+      return json(
+        { error: 'Invoice metadata is invalid. Please create a new invoice.' },
+        { status: 500 }
+      );
+    }
+
     // Verify payment completion via Strike API
     const lookupId = metadata.receiveRequestId;
     const receives = await getReceiveRequestReceives(lookupId, platform);
@@ -118,10 +132,11 @@ export const POST: RequestHandler = async ({ request, platform }) => {
     }
 
     // Register member using authoritative tier/period from invoice metadata
+    // SECURITY: Only use metadata values, never client-supplied tier/period
     const result = await registerMember({
       pubkey,
-      tier: (metadata.tier || tier) as 'cook' | 'pro',
-      period: (metadata.period || period) as 'annual' | 'monthly',
+      tier: metadata.tier,
+      period: metadata.period,
       paymentMethod: 'lightning_strike',
       apiSecret: API_SECRET,
     });
