@@ -197,13 +197,19 @@ export const POST: RequestHandler = async ({ request, platform }) => {
       );
     }
 
-    // If preimage is provided, verify it against the stored payment hash.
-    // Some wallets don't return the preimage, so we accept pending-record-only proof.
+    // In non-dev environments, require a valid preimage as cryptographic proof of payment.
+    if (!preimage && !dev) {
+      return json(
+        { error: 'Missing payment preimage; cannot verify payment without cryptographic proof' },
+        { status: 400 }
+      );
+    }
+
     if (preimage && !verifyPreimage(preimage, pending.paymentHash)) {
       return json({ error: 'Invalid payment preimage' }, { status: 403 });
     }
 
-    // Mark as paid and clean up
+    // Mark as paid and clean up. In dev, we still allow pending-record-only proof for easier testing.
     await markAsPaid(kv, gatedNoteId, userPubkey, preimage || '');
     await deletePendingPayment(kv, gatedNoteId, userPubkey);
 
