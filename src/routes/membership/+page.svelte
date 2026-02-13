@@ -427,7 +427,7 @@
         
         <button class="tier-button" on:click={goToCookPlusCheckout}>Join Cook+</button>
         <div class="payment-indicators">
-          <span>⚡ Bitcoin</span>
+          <span>⚡ Bitcoin preferred</span>
           <span class="separator">•</span>
           <span>💳 Card accepted</span>
         </div>
@@ -512,7 +512,7 @@
         
         <button class="tier-button primary" on:click={goToProKitchenCheckout}>Join Pro Kitchen</button>
         <div class="payment-indicators">
-          <span>⚡ Bitcoin</span>
+          <span>⚡ Bitcoin preferred</span>
           <span class="separator">•</span>
           <span>💳 Card accepted</span>
         </div>
