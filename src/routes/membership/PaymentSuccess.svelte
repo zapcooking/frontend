@@ -16,8 +16,10 @@
   $: selectedTier = $paymentStore.selectedTier;
   $: showNip05Offer = selectedTier === 'cook' || selectedTier === 'pro';
   $: nip05Tier = (selectedTier === 'cook' || selectedTier === 'pro') ? selectedTier as 'cook' | 'pro' : 'cook';
-  $: hasAutoAssignedNip05 = membershipDetails?.nip05;
-  
+  let claimedNip05Address: string | null = null;
+  $: hasAutoAssignedNip05 = membershipDetails?.nip05 || claimedNip05Address;
+  $: displayNip05 = claimedNip05Address || membershipDetails?.nip05 || '';
+
   let showNip05Modal = false;
   let nip05UpdateStatus: 'pending' | 'updating' | 'success' | 'error' = 'pending';
   let nip05Error: string | null = null;
@@ -38,8 +40,11 @@
 
   function handleNip05Claimed(event: CustomEvent) {
     showNip05Modal = false;
-    // NIP-05 is automatically added to profile by the modal
-    nip05UpdateStatus = 'success';
+    // NIP-05 claimed but profile not updated yet — user can click "Update Profile"
+    if (event.detail?.nip05) {
+      claimedNip05Address = event.detail.nip05;
+    }
+    nip05UpdateStatus = 'pending';
   }
 
   function handleNip05Skipped() {
@@ -67,10 +72,7 @@
   }
 
   onMount(() => {
-    // If we have an auto-assigned NIP-05, update the profile automatically
-    if (hasAutoAssignedNip05 && membershipDetails?.nip05 && $userPublickey) {
-      autoUpdateProfileNip05(membershipDetails.nip05);
-    } else if (showNip05Offer && $userPublickey && !hasAutoAssignedNip05) {
+    if (showNip05Offer && $userPublickey && !hasAutoAssignedNip05) {
       // Only show claim modal if no NIP-05 was auto-assigned
       setTimeout(() => {
         showNip05Modal = true;
@@ -164,7 +166,7 @@
   </div>
 
   <!-- NIP-05 Auto-Assigned Badge -->
-  {#if hasAutoAssignedNip05 && membershipDetails?.nip05}
+  {#if hasAutoAssignedNip05 && displayNip05}
     <div class="bg-green-50 dark:bg-green-900/20 border-2 border-green-200 dark:border-green-800 rounded-xl p-4 mb-6">
       <div class="flex items-start gap-3">
         <div class="w-10 h-10 rounded-full bg-green-500 flex items-center justify-center flex-shrink-0">
@@ -175,7 +177,7 @@
             Verified Identity Assigned
           </h4>
           <p class="text-lg font-bold text-green-600 dark:text-green-400 mb-2">
-            {membershipDetails.nip05}
+            {displayNip05}
           </p>
           {#if nip05UpdateStatus === 'updating'}
             <p class="text-sm text-yellow-600 dark:text-yellow-400">Updating your profile...</p>
@@ -183,14 +185,28 @@
             <p class="text-sm text-green-600 dark:text-green-400">✓ Your profile has been updated</p>
           {:else if nip05UpdateStatus === 'error'}
             <p class="text-sm text-red-600 dark:text-red-400">{nip05Error}</p>
+          {:else}
+            <p class="text-sm text-gray-600 dark:text-gray-400">Update your Nostr profile to make it visible to other clients.</p>
           {/if}
-          <button
-            type="button"
-            on:click={() => showNip05Modal = true}
-            class="mt-2 px-3 py-1.5 bg-transparent border border-green-500 text-green-600 dark:text-green-400 rounded-lg font-medium text-sm transition-colors hover:bg-green-50 dark:hover:bg-green-900/30"
-          >
-            Change Username
-          </button>
+          <div class="flex gap-2 mt-2">
+            {#if nip05UpdateStatus !== 'success'}
+              <button
+                type="button"
+                on:click={() => autoUpdateProfileNip05(displayNip05)}
+                disabled={nip05UpdateStatus === 'updating'}
+                class="px-3 py-1.5 bg-green-600 hover:bg-green-700 disabled:opacity-60 disabled:cursor-not-allowed text-white rounded-lg font-medium text-sm transition-colors"
+              >
+                Update Profile
+              </button>
+            {/if}
+            <button
+              type="button"
+              on:click={() => showNip05Modal = true}
+              class="px-3 py-1.5 bg-transparent border border-green-500 text-green-600 dark:text-green-400 rounded-lg font-medium text-sm transition-colors hover:bg-green-50 dark:hover:bg-green-900/30"
+            >
+              Change Username
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -249,7 +265,8 @@
     bind:open={showNip05Modal}
     pubkey={$userPublickey}
     tier={nip05Tier}
-    currentNip05={membershipDetails?.nip05 || null}
+    currentNip05={displayNip05 || null}
+    skipProfileUpdate={true}
     on:claimed={handleNip05Claimed}
     on:skipped={handleNip05Skipped}
   />
