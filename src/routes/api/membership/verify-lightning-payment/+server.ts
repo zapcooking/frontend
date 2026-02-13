@@ -91,11 +91,12 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 
     // Validate that metadata has required tier and period fields
     // This is a data integrity check - metadata should always have these fields
-    if (!metadata.tier || !metadata.period) {
+    if (metadata.tier === undefined || metadata.tier === null || 
+        metadata.period === undefined || metadata.period === null) {
       console.error('[Verify Lightning] Invalid metadata - missing tier or period:', {
         receiveRequestId: metadata.receiveRequestId,
-        hasTier: !!metadata.tier,
-        hasPeriod: !!metadata.period,
+        tier: metadata.tier,
+        period: metadata.period,
       });
       return json(
         { error: 'Invoice metadata is invalid. Please create a new invoice.' },
