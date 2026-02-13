@@ -90,7 +90,7 @@
         <button
           class="w-full flex items-center gap-3 px-4 py-3 transition-colors cursor-pointer text-left"
           class:bg-input={selectedPubkey === convo.pubkey}
-          style="border-bottom: 1px solid color-mix(in srgb, var(--color-text-primary) 8%, transparent);"
+          style="border-bottom: 1px solid rgba(0, 0, 0, 0.08); border-bottom: 1px solid color-mix(in srgb, var(--color-text-primary) 8%, transparent);"
           on:click={() => dispatch('select', { pubkey: convo.pubkey })}
         >
           <div class="flex-shrink-0">
