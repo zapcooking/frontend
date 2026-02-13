@@ -97,6 +97,24 @@
       </button>
     </div>
 
+    <!-- Sous Chef & Zappy icons (logged in) -->
+    {#if $userPublickey}
+      <a
+        href="/extract"
+        class="w-8 h-8 sm:w-9 sm:h-9 flex items-center justify-center rounded-full transition-colors cursor-pointer hover:bg-accent-gray"
+        aria-label="Sous Chef"
+      >
+        <SparkleIcon size={18} weight="fill" class="text-primary sm:w-5 sm:h-5" />
+      </a>
+      <a
+        href="/zappy"
+        class="w-8 h-8 sm:w-9 sm:h-9 flex items-center justify-center rounded-full transition-colors cursor-pointer hover:bg-accent-gray"
+        aria-label="Zappy"
+      >
+        <RobotIcon size={18} weight="fill" class="text-yellow-500 sm:w-5 sm:h-5" />
+      </a>
+    {/if}
+
     <!-- Cooking Tools toggle (timer + converter) -->
     <button
       on:click={toggleCookingTools}
@@ -120,24 +138,6 @@
         </span>
       {/if}
     </button>
-
-    <!-- Sous Chef & Zappy icons (mobile only, logged in) -->
-    {#if $userPublickey}
-      <a
-        href="/extract"
-        class="sm:hidden w-8 h-8 flex items-center justify-center rounded-full transition-colors cursor-pointer hover:bg-accent-gray"
-        aria-label="Sous Chef"
-      >
-        <SparkleIcon size={18} weight="fill" class="text-primary" />
-      </a>
-      <a
-        href="/zappy"
-        class="sm:hidden w-8 h-8 flex items-center justify-center rounded-full transition-colors cursor-pointer hover:bg-accent-gray"
-        aria-label="Zappy"
-      >
-        <RobotIcon size={18} weight="fill" class="text-yellow-500" />
-      </a>
-    {/if}
 
     <!-- Wallet button (mobile only) - shortcut to wallet page -->
     {#if $userPublickey}
