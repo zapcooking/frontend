@@ -103,12 +103,15 @@ export const POST: RequestHandler = async ({ request, platform }) => {
   // Check if API_SECRET is defined and has a non-empty value
   const hasApiSecret = API_SECRET && typeof API_SECRET === 'string' && API_SECRET.trim().length > 0;
   
-  // In production, always require authorization. In dev, allow bypass if no secret is configured.
+  // Authorization policy:
+  // - In production (!dev): always require authorization
+  // - In development (dev): require authorization only if API_SECRET is configured
+  // This allows local dev without secrets, but enforces security in production
   const requireAuth = !dev || hasApiSecret;
   
   if (requireAuth) {
     if (!hasApiSecret) {
-      // This should not happen in production if properly configured
+      // This should only happen in production if RELAY_API_SECRET is not configured
       console.error('[NIP-108 Create Invoice] RELAY_API_SECRET not configured');
       return json(
         { error: 'Server configuration error' },
