@@ -213,6 +213,13 @@
             <span class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-orange-500 to-amber-500"></span>
           {/if}
         </button>
+        <a
+          href="/premium"
+          class="px-4 py-2 text-sm font-medium transition-colors relative cursor-pointer"
+          style="color: var(--color-text-secondary)"
+        >
+          Premium ⚡️
+        </a>
       </div>
     </div>
 
