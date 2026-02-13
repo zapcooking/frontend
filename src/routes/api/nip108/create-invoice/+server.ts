@@ -104,7 +104,18 @@ export const POST: RequestHandler = async ({ request, platform }) => {
   const hasApiSecret = API_SECRET && typeof API_SECRET === 'string' && API_SECRET.trim().length > 0;
   
   // In production, always require authorization. In dev, allow bypass if no secret is configured.
-  if (!dev || hasApiSecret) {
+  const requireAuth = !dev || hasApiSecret;
+  
+  if (requireAuth) {
+    if (!hasApiSecret) {
+      // This should not happen in production if properly configured
+      console.error('[NIP-108 Create Invoice] RELAY_API_SECRET not configured');
+      return json(
+        { error: 'Server configuration error' },
+        { status: 500 }
+      );
+    }
+    
     if (!authHeader) {
       return json(
         { error: 'Authorization required' },
@@ -112,7 +123,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
       );
     }
     
-    const expectedAuth = `Bearer ${API_SECRET?.trim()}`;
+    const expectedAuth = `Bearer ${API_SECRET.trim()}`;
     if (authHeader !== expectedAuth) {
       return json(
         { error: 'Unauthorized' },
