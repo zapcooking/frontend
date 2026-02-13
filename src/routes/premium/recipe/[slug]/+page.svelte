@@ -160,13 +160,8 @@
       }
 
       if (paymentRequest.pr) {
-        // Check if it's a mock/test invoice (not a real Lightning invoice)
-        // Real Lightning invoices start with lnbc/lnbt and are typically 200+ chars
-        const invoice = paymentRequest.pr;
-        const isMockInvoice = invoice.includes('mock') || 
-                              invoice.includes('...') || 
-                              invoice.length < 100 ||
-                              !invoice.startsWith('lnbc');
+        // Detect mock invoice via server-provided flag
+        const isMockInvoice = (paymentRequest as Record<string, unknown>).isMock === true;
         
         let paymentPreimage = '';
         
@@ -192,19 +187,23 @@
           paymentPreimage = paymentResult.preimage || '';
         }
 
-        // Mark payment on server
+        // Mark payment on server (preimage optional — some wallets don't return it)
+        const markBody: Record<string, string> = {
+          gatedNoteId: gatedMetadata.gatedNoteId,
+          userPubkey: $userPublickey
+        };
+        if (paymentPreimage) {
+          markBody.preimage = paymentPreimage;
+        }
         const markResponse = await fetch('/api/nip108/payment', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            gatedNoteId: gatedMetadata.gatedNoteId,
-            userPubkey: $userPublickey,
-            preimage: paymentPreimage
-          })
+          body: JSON.stringify(markBody)
         });
 
         if (!markResponse.ok) {
-          throw new Error('Failed to record payment');
+          const markError = await markResponse.json().catch(() => ({ error: 'Unknown error' }));
+          throw new Error(markError.error || 'Failed to record payment');
         }
 
         // Refresh to get unlocked content

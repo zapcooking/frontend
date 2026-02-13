@@ -11,6 +11,10 @@
     {
       "binding": "SHORTLINKS",
       "id": "2ad4aaf7011543b7b70c8c46a14766e1"
+    },
+    {
+      "binding": "GATED_CONTENT",
+      "id": "PLACEHOLDER_RUN_wrangler_kv_namespace_create_GATED_CONTENT"
     }
   ]
 }

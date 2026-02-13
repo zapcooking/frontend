@@ -9,42 +9,51 @@
 
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { decrypt, hexToBuffer } from '$lib/nip108/encryption';
-import { getGatedContent, hasPaid } from '$lib/nip108/server-store';
+import { getGatedContent, hasPaid, type GatedKV } from '$lib/nip108/server-store';
 
-export const GET: RequestHandler = async ({ url }) => {
+function getKV(platform: App.Platform | undefined): GatedKV {
+  return (platform?.env?.GATED_CONTENT as GatedKV) || null;
+}
+
+export const GET: RequestHandler = async ({ url, platform }) => {
+  const kv = getKV(platform);
+
   try {
     const gatedNoteId = url.searchParams.get('g');
     const userPubkey = url.searchParams.get('p');
-    
+
     if (!gatedNoteId || !userPubkey) {
       return json(
         { error: 'Missing required parameters: g (gatedNoteId), p (userPubkey)' },
         { status: 400 }
       );
     }
-    
-    // Check if user has paid
-    if (!hasPaid(gatedNoteId, userPubkey)) {
-      return json({
-        hasAccess: false
-      });
-    }
-    
-    // Get the gated content
-    const content = getGatedContent(gatedNoteId);
-    
+
+    // Get the gated content (needed for both author check and decryption)
+    const content = await getGatedContent(kv, gatedNoteId);
+
     if (!content) {
       return json(
         { error: 'Gated content not found' },
         { status: 404 }
       );
     }
-    
+
+    // Author always has access to their own recipes
+    const isAuthor = content.authorPubkey === userPubkey;
+
+    // Check if user has paid (or is the author)
+    if (!isAuthor && !(await hasPaid(kv, gatedNoteId, userPubkey))) {
+      return json({
+        hasAccess: false
+      });
+    }
+
     // Decrypt the content for the user
     try {
       const secretKey = hexToBuffer(content.secret);
       const decryptedContent = decrypt(content.iv, content.encryptedContent, secretKey);
-      
+
       return json({
         hasAccess: true,
         decryptedContent
@@ -56,7 +65,7 @@ export const GET: RequestHandler = async ({ url }) => {
         { status: 500 }
       );
     }
-    
+
   } catch (error) {
     console.error('[NIP-108 Check Access] Error:', error);
     return json(

@@ -13,6 +13,7 @@
 import type { NDKEvent, NDK } from '@nostr-dev-kit/ndk';
 import { NDKEvent as NDKEventClass } from '@nostr-dev-kit/ndk';
 import { encrypt, generateSecretKey, bufferToHex } from './encryption';
+import { randomBytes } from '@noble/hashes/utils.js';
 import type { GatedRecipeMetadata, PaymentRequest, SecretResponse } from './types';
 import { nip04 } from 'nostr-tools';
 
@@ -70,8 +71,8 @@ export async function createGatedRecipe(
   const encrypted = encrypt(recipeJson, secretKeyBytes);
   
   // Generate a unique gated note ID (not published to relays)
-  // Use a hash of the encrypted content + timestamp for uniqueness
-  const gatedNoteId = `gated_${Date.now()}_${bufferToHex(secretKeyBytes).substring(0, 16)}`;
+  // Use random bytes for uniqueness — never leak the secret key in IDs
+  const gatedNoteId = `gated_${Date.now()}_${bufferToHex(randomBytes(8))}`;
   
   // Get recipe image if available
   const imageTag = recipeEvent.getMatchingTags('image')[0];
@@ -128,11 +129,8 @@ export async function checkIfGated(
   }
   
   const gatedNoteId = gatedTag[1];
-  const costRaw = parseInt(gatedTag[2], 10);
-  
-  // Detect if cost is in msats (old format) or sats (new format)
-  // If cost > 10000, it's likely msats from old format
-  const costSats = costRaw > 10000 ? Math.ceil(costRaw / 1000) : costRaw;
+  // Tag value is always in sats (set during recipe creation)
+  const costSats = parseInt(gatedTag[2], 10);
   
   // Fetch additional info from server
   try {

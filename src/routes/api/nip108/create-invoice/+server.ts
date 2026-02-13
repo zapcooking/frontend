@@ -21,7 +21,12 @@
  */
 
 import { json, type RequestHandler } from '@sveltejs/kit';
-import { getGatedContent } from '$lib/nip108/server-store';
+import { dev } from '$app/environment';
+import { getGatedContent, type GatedKV } from '$lib/nip108/server-store';
+
+function getKV(platform: App.Platform | undefined): GatedKV {
+  return (platform?.env?.GATED_CONTENT as GatedKV) || null;
+}
 
 /**
  * Resolve a Lightning address (lud16) to LNURL pay parameters
@@ -60,7 +65,9 @@ async function fetchLnurlInvoice(
   amountMsats: number, 
   comment?: string
 ): Promise<{ invoice: string; paymentHash?: string }> {
-  let url = `${callback}?amount=${amountMsats}`;
+  // Handle callbacks that may already contain query parameters
+  const separator = callback.includes('?') ? '&' : '?';
+  let url = `${callback}${separator}amount=${amountMsats}`;
   if (comment) {
     url += `&comment=${encodeURIComponent(comment)}`;
   }
@@ -84,18 +91,20 @@ async function fetchLnurlInvoice(
   };
 }
 
-export const POST: RequestHandler = async ({ request }) => {
+export const POST: RequestHandler = async ({ request, platform }) => {
+  const kv = getKV(platform);
+
   try {
     const body = await request.json();
     const { amountMsats, description, metadata } = body;
-    
+
     if (!amountMsats || !description) {
       return json(
         { error: 'amountMsats and description are required' },
         { status: 400 }
       );
     }
-    
+
     const gatedNoteId = metadata?.gatedNoteId;
     if (!gatedNoteId) {
       return json(
@@ -103,9 +112,9 @@ export const POST: RequestHandler = async ({ request }) => {
         { status: 400 }
       );
     }
-    
+
     // Get the gated content to find the author's Lightning address
-    const gatedContent = getGatedContent(gatedNoteId);
+    const gatedContent = await getGatedContent(kv, gatedNoteId);
     if (!gatedContent) {
       return json(
         { error: 'Gated content not found' },
@@ -116,22 +125,22 @@ export const POST: RequestHandler = async ({ request }) => {
     const authorLightningAddress = gatedContent.authorLightningAddress;
     
     if (!authorLightningAddress) {
-      // No Lightning address - return mock invoice for testing
-      console.log('[NIP-108] No Lightning address for author, using mock invoice');
-      
-      const paymentHash = Array.from(crypto.getRandomValues(new Uint8Array(32)))
-        .map(b => b.toString(16).padStart(2, '0'))
-        .join('');
-      
+      if (!dev) {
+        return json(
+          { error: 'Author has no Lightning address configured' },
+          { status: 400 }
+        );
+      }
+      // Dev-only: mock invoice when author has no Lightning address
+      const paymentHash = `mock_${Date.now()}`;
       return json({
-        invoice: `lnbc${Math.floor(amountMsats / 1000)}u1p${paymentHash.substring(0, 20)}...mock`,
+        invoice: `lnbc${Math.floor(amountMsats / 1000)}u1p...mock`,
         paymentHash,
         isMock: true
       });
     }
     
     // Resolve the Lightning address and create a real invoice
-    console.log(`[NIP-108] Creating invoice for ${amountMsats} msats to ${authorLightningAddress}`);
     
     try {
       const lnurlInfo = await resolveLightningAddress(authorLightningAddress);
@@ -160,8 +169,6 @@ export const POST: RequestHandler = async ({ request }) => {
       
       // Fetch the invoice
       const invoiceResult = await fetchLnurlInvoice(lnurlInfo.callback, amountMsats, comment);
-      
-      console.log(`[NIP-108] Created real invoice for ${authorLightningAddress}:`, invoiceResult.invoice.substring(0, 50) + '...');
       
       return json({
         invoice: invoiceResult.invoice,

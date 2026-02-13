@@ -7,12 +7,18 @@
  */
 
 import { json, type RequestHandler } from '@sveltejs/kit';
-import { getAllGatedContentMeta } from '$lib/nip108/server-store';
+import { getAllGatedContentMeta, type GatedKV } from '$lib/nip108/server-store';
 
-export const GET: RequestHandler = async () => {
+function getKV(platform: App.Platform | undefined): GatedKV {
+  return (platform?.env?.GATED_CONTENT as GatedKV) || null;
+}
+
+export const GET: RequestHandler = async ({ platform }) => {
+  const kv = getKV(platform);
+
   try {
-    const recipes = getAllGatedContentMeta();
-    
+    const recipes = await getAllGatedContentMeta(kv);
+
     return json({
       recipes,
       count: recipes.length
