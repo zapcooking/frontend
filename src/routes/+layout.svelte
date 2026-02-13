@@ -15,7 +15,11 @@
   import LongformEditorModal from '../components/reads/LongformEditorModal.svelte';
   import WalletWelcomeModal from '../components/WalletWelcomeModal.svelte';
   import { createAuthManager, type AuthState } from '$lib/authManager';
-  import { initMessageSubscription, stopMessageSubscription, clearMessages } from '$lib/stores/messages';
+  import {
+    initMessageSubscription,
+    stopMessageSubscription,
+    clearMessages
+  } from '$lib/stores/messages';
   import { stopGroupSubscription, clearGroups } from '$lib/stores/groups';
   import type { LayoutData } from './$types';
   import ErrorBoundary from '../components/ErrorBoundary.svelte';
@@ -319,7 +323,11 @@
         <div class="header-blur sticky top-0 z-20 py-3 px-4">
           <Header />
         </div>
-        <div class="px-4 pb-16 lg:pb-8 min-w-0 max-w-full">
+        <div
+          class="px-4 min-w-0 max-w-full {$page.url.pathname.startsWith('/messages')
+            ? ''
+            : 'pb-16 lg:pb-8'}"
+        >
           <slot />
           {#if !$page.url.pathname.startsWith('/messages')}
             <Footer />

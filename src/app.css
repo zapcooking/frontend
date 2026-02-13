@@ -107,8 +107,11 @@ html {
 }
 
 .input:focus {
-  --tw-ring-color: #ec4700;
+  --tw-ring-shadow: 0 0 0 0 transparent;
+  --tw-ring-offset-shadow: 0 0 0 0 transparent;
   border-color: #ec4700;
+  box-shadow: inset 0 0 0 1px #ec4700 !important;
+  outline: none;
 }
 
 /* Typography */

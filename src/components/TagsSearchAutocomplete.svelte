@@ -314,7 +314,7 @@
 
 <div class="relative flex-1 print:hidden">
   <form
-    class="flex rounded-xl shadow-sm bg-input"
+    class="flex"
     on:submit|preventDefault={() => {
       if (tagquery) {
         // If it's a note identifier, navigate directly

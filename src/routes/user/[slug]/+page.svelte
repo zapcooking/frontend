@@ -15,6 +15,7 @@
   import CopyIcon from 'phosphor-svelte/lib/Copy';
   import CheckIcon from 'phosphor-svelte/lib/Check';
   import UserPlusIcon from 'phosphor-svelte/lib/UserPlus';
+  import ChatCircleIcon from 'phosphor-svelte/lib/ChatCircle';
   import SpeakerSlashIcon from 'phosphor-svelte/lib/SpeakerSlash';
   import SpeakerSimpleSlashIcon from 'phosphor-svelte/lib/SpeakerSimpleSlash';
   import SealCheckIcon from 'phosphor-svelte/lib/SealCheck';
@@ -1198,6 +1199,19 @@
           </button>
         {/if}
 
+        <!-- DM Button -->
+        {#if $userPublickey && hexpubkey && !$mutedPubkeys.has(hexpubkey)}
+          <a
+            href="/messages?pubkey={hexpubkey}"
+            class="w-full flex items-center justify-center gap-2 px-4 py-2 rounded-lg font-medium text-sm transition-colors bg-input hover:bg-accent-gray"
+            style="color: var(--color-text-primary)"
+            on:click={() => (qrModal = false)}
+          >
+            <ChatCircleIcon size={18} weight="bold" />
+            <span>Message</span>
+          </a>
+        {/if}
+
         <!-- Follow Button with mute indicator -->
         {#if $userPublickey}
           <button
@@ -1352,6 +1366,16 @@
             {/if}
 
             {#if $userPublickey}
+              <!-- DM button -->
+              <a
+                href="/messages?pubkey={hexpubkey}"
+                class="h-9 w-9 p-2 rounded-full transition-colors bg-input hover:bg-accent-gray flex items-center justify-center"
+                style="color: var(--color-text-primary)"
+                aria-label="Send message"
+              >
+                <ChatCircleIcon size={20} weight="bold" />
+              </a>
+
               <button
                 on:click={toggleFollow}
                 disabled={followLoading}
