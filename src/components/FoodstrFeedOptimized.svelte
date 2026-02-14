@@ -1462,6 +1462,7 @@
         // Check for stale results after async operation
         if (isStaleResult(loadGeneration)) {
           console.log('[Feed] Discarding stale cache results');
+          loadInProgress = false;
           return;
         }
 
@@ -1489,6 +1490,7 @@
             } catch {
               // Non-critical
             }
+            loadInProgress = false;
             return;
           }
         }
@@ -1497,6 +1499,7 @@
       // Check for stale results before proceeding
       if (isStaleResult(loadGeneration)) {
         console.log('[Feed] Discarding stale results (before relay fetch)');
+        loadInProgress = false;
         return;
       }
 
@@ -1510,11 +1513,13 @@
         // Check for stale results after async operation
         if (isStaleResult(loadGeneration)) {
           console.log('[Feed] Discarding stale compressed cache results');
+          loadInProgress = false;
           return;
         }
         loading = false;
         error = false;
         setTimeout(() => fetchFreshData(), 100);
+        loadInProgress = false;
         return;
       }
 
@@ -1529,6 +1534,7 @@
         console.error('[Feed] NDK not initialized');
         loading = false;
         error = true;
+        loadInProgress = false;
         return;
       }
 
@@ -1539,12 +1545,14 @@
         console.error('[Feed] Failed to ensure NDK connection:', err);
         loading = false;
         error = true;
+        loadInProgress = false;
         return;
       }
 
       // Check for stale results after waiting for connection
       if (isStaleResult(loadGeneration)) {
         console.log('[Feed] Discarding stale results (after connection wait)');
+        loadInProgress = false;
         return;
       }
 
@@ -1558,6 +1566,7 @@
           loading = false;
           error = false;
           events = [];
+          loadInProgress = false;
           return;
         }
 
@@ -1616,6 +1625,7 @@
               // Check for stale results
               if (isStaleResult(loadGeneration)) {
                 console.log('[Feed] Discarding stale Primal results');
+                loadInProgress = false;
                 return;
               }
 
@@ -1641,6 +1651,7 @@
               supplementWithOutbox('following');
 
               console.log(`[Feed] Primal SUCCESS: ${events.length} events displayed`);
+              loadInProgress = false;
               return;
             } else {
               console.log('[Feed] Primal: Not enough food events, falling back to outbox');
@@ -1729,6 +1740,7 @@
         // Check for stale results before applying events
         if (isStaleResult(loadGeneration)) {
           console.log('[Feed] Discarding stale following results');
+          loadInProgress = false;
           return;
         }
 
@@ -1746,6 +1758,7 @@
         } catch {
           // Subscription setup failed - non-critical, events already loaded
         }
+        loadInProgress = false;
         return;
       }
 
@@ -1756,6 +1769,7 @@
           loading = false;
           error = false;
           events = [];
+          loadInProgress = false;
           return;
         }
 
@@ -1812,6 +1826,7 @@
               // Check for stale results
               if (isStaleResult(loadGeneration)) {
                 console.log('[Feed] Discarding stale Primal replies results');
+                loadInProgress = false;
                 return;
               }
 
@@ -1839,6 +1854,7 @@
               supplementWithOutbox('replies');
 
               console.log(`[Feed] Primal (replies) SUCCESS: ${events.length} events displayed`);
+              loadInProgress = false;
               return;
             } else {
               console.log(
@@ -1939,6 +1955,7 @@
         } catch {
           // Subscription setup failed - non-critical, events already loaded
         }
+        loadInProgress = false;
         return;
       }
 
@@ -1948,6 +1965,7 @@
           loading = false;
           error = false;
           events = [];
+          loadInProgress = false;
           return;
         }
 
@@ -1958,6 +1976,7 @@
           error = false;
           events = [];
           console.warn('[Feed] User does not have active membership');
+          loadInProgress = false;
           return;
         }
 
@@ -2022,6 +2041,7 @@
         // Check for stale results before applying events
         if (isStaleResult(loadGeneration)) {
           console.log('[Feed] Discarding stale members results');
+          loadInProgress = false;
           return;
         }
 
@@ -2039,6 +2059,7 @@
         } catch {
           // Subscription setup failed - non-critical, events already loaded
         }
+        loadInProgress = false;
         return;
       }
 
@@ -2084,6 +2105,7 @@
             // Check for stale results
             if (isStaleResult(loadGeneration)) {
               console.log('[Feed] Discarding stale garden cache results');
+              loadInProgress = false;
               return;
             }
 
@@ -2102,6 +2124,7 @@
               } catch {
                 // Non-critical
               }
+              loadInProgress = false;
               return;
             }
 
@@ -2133,6 +2156,7 @@
           } catch {
             // Non-critical
           }
+          loadInProgress = false;
           return;
         }
 
@@ -2167,6 +2191,7 @@
         if (isStaleResult(loadGeneration)) {
           console.log('[Feed] Discarding stale garden relay results');
           gardenCacheStatus.update((s) => ({ ...s, isLoading: false }));
+          loadInProgress = false;
           return;
         }
 
@@ -2222,6 +2247,7 @@
         } catch {
           // Subscription setup failed - non-critical, events already loaded
         }
+        loadInProgress = false;
         return;
       }
 
@@ -2290,6 +2316,7 @@
             // Check for stale results
             if (isStaleResult(loadGeneration)) {
               console.log('[Feed] Discarding stale Primal global results');
+              loadInProgress = false;
               return;
             }
 
@@ -2311,6 +2338,7 @@
             }
 
             console.log(`[Feed] Primal global SUCCESS: ${events.length} events displayed`);
+            loadInProgress = false;
             return;
           } else {
             console.log(
@@ -2420,6 +2448,7 @@
       // Check for stale results before applying events
       if (isStaleResult(loadGeneration)) {
         console.log('[Feed] Discarding stale global results');
+        loadInProgress = false;
         return;
       }
 

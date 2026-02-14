@@ -117,16 +117,20 @@
     }
     authorLightningCheckComplete = true;
 
-    // Check if recipe is gated
-    try {
-      checkingGated = true;
-      const metadata = await checkIfGated(event, $ndk);
-      if (metadata) {
-        gatedMetadata = metadata;
+    // Check if recipe is gated (skip if parent already handled access)
+    if (!isPremium) {
+      try {
+        checkingGated = true;
+        const metadata = await checkIfGated(event, $ndk);
+        if (metadata) {
+          gatedMetadata = metadata;
+        }
+      } catch (error) {
+        console.warn('Failed to check if recipe is gated:', error);
+      } finally {
+        checkingGated = false;
       }
-    } catch (error) {
-      console.warn('Failed to check if recipe is gated:', error);
-    } finally {
+    } else {
       checkingGated = false;
     }
   });
@@ -462,6 +466,10 @@
 
   let markdownBeforeDirections = '';
   let markdownAfterDirections = '';
+
+  // Parse markdown once and reuse in template (avoids 3x redundant parsing per section)
+  $: parsedBeforeDirections = markdownBeforeDirections ? parseMarkdown(markdownBeforeDirections) : '';
+  $: parsedAfterDirections = markdownAfterDirections ? parseMarkdown(markdownAfterDirections) : '';
 </script>
 
 <svelte:window on:keydown={handleImageModalKeydown} />
@@ -805,12 +813,12 @@
       {#if markdownBeforeDirections}
         <div class="prose">
           {#if $translateOption.lang}
-            {#await translate($translateOption, parseMarkdown(markdownBeforeDirections))}
+            {#await translate($translateOption, parsedBeforeDirections)}
               ...
             {:then result}
               {#if result !== ''}
                 {#if result.from.language.iso === $translateOption.lang}
-                  {@html parseMarkdown(markdownBeforeDirections)}
+                  {@html parsedBeforeDirections}
                 {:else}
                   <hr />
                   <p class="font-medium">
@@ -832,7 +840,7 @@
               </p>
             {/await}
           {:else}
-            {@html parseMarkdown(markdownBeforeDirections)}
+            {@html parsedBeforeDirections}
           {/if}
         </div>
       {/if}
@@ -846,12 +854,12 @@
       {#if markdownAfterDirections}
         <div class="prose">
           {#if $translateOption.lang}
-            {#await translate($translateOption, parseMarkdown(markdownAfterDirections))}
+            {#await translate($translateOption, parsedAfterDirections)}
               ...
             {:then result}
               {#if result !== ''}
                 {#if result.from.language.iso === $translateOption.lang}
-                  {@html parseMarkdown(markdownAfterDirections)}
+                  {@html parsedAfterDirections}
                 {:else}
                   <hr />
                   <p class="font-medium">
@@ -873,7 +881,7 @@
               </p>
             {/await}
           {:else}
-            {@html parseMarkdown(markdownAfterDirections)}
+            {@html parsedAfterDirections}
           {/if}
         </div>
       {/if}

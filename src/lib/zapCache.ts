@@ -15,6 +15,8 @@ export interface ZapCacheEntry {
   subscription: any;
 }
 
+const MAX_SUBSCRIPTIONS = 50;
+
 export class ZapCache {
   private cache = new Map<string, ZapCacheEntry>();
   private globalSubscription: any = null;
@@ -50,6 +52,11 @@ export class ZapCache {
       // Load existing zaps
       await this.loadExistingZaps(entry);
       
+      // Evict oldest entries if at capacity
+      if (this.cache.size > MAX_SUBSCRIPTIONS) {
+        this.evictOldest();
+      }
+
       // Subscribe to new zaps
       this.subscribeToNewZaps(entry);
     }
@@ -65,7 +72,7 @@ export class ZapCache {
       const subscription = this.ndk.subscribe({
         kinds: [9735],
         '#e': [entry.eventId]
-      }, { closeOnEose: false });
+      }, { closeOnEose: true });
 
       let zapCount = 0;
       let resolved = false;
@@ -149,6 +156,23 @@ export class ZapCache {
       }
     } catch (error) {
       console.error('Error decoding bolt11:', error);
+    }
+  }
+
+  /**
+   * Evict the oldest cache entry to stay within subscription limits
+   */
+  private evictOldest() {
+    let oldestId: string | null = null;
+    let oldestTime = Infinity;
+    for (const [id, entry] of this.cache.entries()) {
+      if (entry.data.lastUpdated < oldestTime) {
+        oldestTime = entry.data.lastUpdated;
+        oldestId = id;
+      }
+    }
+    if (oldestId) {
+      this.removeEvent(oldestId);
     }
   }
 

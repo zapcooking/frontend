@@ -281,12 +281,16 @@
         // Add NIP-89 client tag
         addClientTagToEvent(event);
 
-        await event.publish();
+        // Publish with timeout to avoid hanging if relays are down
+        const publishTimeout = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('Publish timed out after 15 seconds')), 15000)
+        );
+        await Promise.race([event.publish(), publishTimeout]);
         resultMessage = 'Success! Redirecting to your recipe...';
 
         const naddr = nip19.naddrEncode({
           identifier: title.toLowerCase().replaceAll(' ', '-'),
-          pubkey: event.author.hexpubkey,
+          pubkey: event.pubkey,
           kind: 30023
         });
 
