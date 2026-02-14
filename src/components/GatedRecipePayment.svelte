@@ -141,6 +141,35 @@
 {:else if hasAccess && unlockedRecipe}
   <!-- Recipe is unlocked - show it -->
   <slot name="unlocked" {unlockedRecipe} />
+{:else if gatedMetadata.serverHasData === false}
+  <!-- Server store unavailable - cannot process payment -->
+  <div
+    class="flex flex-col gap-4 p-6 rounded-xl border"
+    style="border-color: var(--color-input-border); background-color: var(--color-input-bg);"
+  >
+    <div class="flex items-center gap-3">
+      <LockIcon size={24} class="text-gray-400" />
+      <div class="flex-1">
+        <h3 class="font-semibold text-lg">Premium Recipe</h3>
+        <p class="text-sm text-caption">This recipe is gated behind a Lightning payment</p>
+      </div>
+    </div>
+
+    {#if gatedMetadata.preview}
+      <div class="p-4 rounded-lg bg-input">
+        <p class="text-sm text-caption italic">"{gatedMetadata.preview}"</p>
+      </div>
+    {/if}
+
+    <div
+      class="flex flex-col items-center gap-3 p-4 rounded-lg bg-gray-50 dark:bg-gray-900/20 border border-gray-200 dark:border-gray-800"
+    >
+      <p class="text-sm font-medium" style="color: var(--color-text-secondary);">Content Unavailable</p>
+      <p class="text-xs text-center" style="color: var(--color-text-secondary);">
+        The encrypted recipe data is currently unavailable on the server. Please try again later.
+      </p>
+    </div>
+  </div>
 {:else}
   <!-- Gated content - show payment UI -->
   <div

@@ -53,6 +53,7 @@
   import GatedRecipePayment from '../GatedRecipePayment.svelte';
   import { checkIfGated } from '$lib/nip108/client';
   import type { GatedRecipeMetadata } from '$lib/nip108/types';
+  import { GATED_RECIPE_KIND } from '$lib/consts';
 
   export let event: NDKEvent;
   export let isPremium = false;
@@ -124,9 +125,35 @@
         const metadata = await checkIfGated(event, $ndk);
         if (metadata) {
           gatedMetadata = metadata;
+        } else if (event.kind === GATED_RECIPE_KIND && event.getMatchingTags('gated').length > 0) {
+          // Kind 35000 event with a gated tag but checkIfGated failed (network error, etc.)
+          // Show a fallback gated state so the content isn't exposed
+          const gatedTag = event.getMatchingTags('gated')[0];
+          gatedMetadata = {
+            gatedNoteId: gatedTag[1] || '',
+            announcementNoteId: gatedTag[1] || '',
+            cost: parseInt(gatedTag[2] || '0', 10),
+            endpoint: '/api/nip108/payment',
+            iv: '',
+            authorPubkey: event.pubkey,
+            serverHasData: false
+          };
         }
       } catch (error) {
         console.warn('Failed to check if recipe is gated:', error);
+        // If this is a kind 35000 event with a gated tag, still show the paywall
+        if (event.kind === GATED_RECIPE_KIND && event.getMatchingTags('gated').length > 0) {
+          const gatedTag = event.getMatchingTags('gated')[0];
+          gatedMetadata = {
+            gatedNoteId: gatedTag[1] || '',
+            announcementNoteId: gatedTag[1] || '',
+            cost: parseInt(gatedTag[2] || '0', 10),
+            endpoint: '/api/nip108/payment',
+            iv: '',
+            authorPubkey: event.pubkey,
+            serverHasData: false
+          };
+        }
       } finally {
         checkingGated = false;
       }

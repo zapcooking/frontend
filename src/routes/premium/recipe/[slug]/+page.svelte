@@ -93,12 +93,8 @@
               hasAccess = true;
               unlockedRecipe = e;
             } else if (!metadata.serverHasData) {
-              // Server doesn't have the encrypted data (store was reset or
-              // recipe was never stored). The recipe content is already
-              // public on the relay, so show it directly rather than a
-              // non-functional paywall.
-              hasAccess = true;
-              unlockedRecipe = e;
+              // Server doesn't have the encrypted data - cannot unlock
+              // Keep gate shown, user will see locked state
             } else if ($userPublickey) {
               // Check if user has purchased access
               checkingAccess = true;
@@ -317,6 +313,24 @@
 
       <!-- Payment Section -->
       <div class="p-6">
+        {#if !gatedMetadata.serverHasData}
+          <!-- Server store unavailable -->
+          <div class="flex flex-col items-center gap-4 p-6 rounded-xl bg-gradient-to-br from-gray-500/10 to-gray-600/10 border border-gray-500/30">
+            <LockIcon size={32} class="text-gray-400" />
+            <div class="text-center">
+              <p class="font-semibold text-lg" style="color: var(--color-text-primary);">Content Unavailable</p>
+              <p class="text-sm mt-1" style="color: var(--color-text-secondary);">
+                The encrypted recipe data is currently unavailable. Please try again later.
+              </p>
+            </div>
+            <button
+              on:click={() => loadData()}
+              class="px-6 py-3 rounded-xl bg-gray-500 hover:bg-gray-600 text-white font-semibold transition-colors"
+            >
+              Try Again
+            </button>
+          </div>
+        {:else}
         <div class="flex flex-col md:flex-row items-center justify-between gap-6 p-6 rounded-xl bg-gradient-to-br from-amber-500/10 to-orange-500/10 border border-amber-500/30">
           <div class="text-center md:text-left">
             <p class="text-sm font-medium mb-1" style="color: var(--color-text-secondary);">
@@ -329,14 +343,14 @@
               </span>
             </div>
           </div>
-          
+
           <div class="flex flex-col gap-3 w-full md:w-auto">
             {#if purchaseError}
               <div class="px-4 py-2 rounded-lg bg-red-500/10 border border-red-500/30 text-red-600 dark:text-red-400 text-sm">
                 {purchaseError}
               </div>
             {/if}
-            
+
             <button
               on:click={handlePurchase}
               disabled={purchasing || !$userPublickey || checkingAccess}
@@ -355,10 +369,10 @@
                 <span>Pay & Unlock Recipe</span>
               {/if}
             </button>
-            
+
             {#if !$userPublickey}
-              <a 
-                href="/login" 
+              <a
+                href="/login"
                 class="text-center text-sm text-amber-600 dark:text-amber-400 hover:underline"
               >
                 Sign in with Nostr →
@@ -371,6 +385,7 @@
           <LockOpenIcon size={16} class="inline mr-1" />
           One-time payment. Permanent access to the full recipe.
         </p>
+        {/if}
       </div>
     </div>
 
