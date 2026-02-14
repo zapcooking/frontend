@@ -158,6 +158,7 @@ export const recipeTags: recipeTagSimple[] = [
   { title: 'Shrimp', emoji: '🦐' },
   { title: 'Side' },
   { title: 'Slowcooked', emoji: '⏳' },
+  { title: 'Smoothie', emoji: '🥤' },
   { title: 'Snack', emoji: '🍿' },
   { title: 'Somali', emoji: '🇸🇴' },
   { title: 'Soup', emoji: '🍲' },
