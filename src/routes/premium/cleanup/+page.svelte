@@ -3,7 +3,7 @@
   import type { NDKEvent, NDKFilter, NDKSubscription } from '@nostr-dev-kit/ndk';
   import { NDKEvent as NDKEventClass } from '@nostr-dev-kit/ndk';
   import { onMount, onDestroy } from 'svelte';
-  import { GATED_RECIPE_KIND, GATED_RECIPE_TAG } from '$lib/consts';
+  import { GATED_RECIPE_KIND } from '$lib/consts';
   import { goto } from '$app/navigation';
   import TrashIcon from 'phosphor-svelte/lib/Trash';
   import WarningIcon from 'phosphor-svelte/lib/Warning';
