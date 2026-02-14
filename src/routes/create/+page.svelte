@@ -282,10 +282,17 @@
         addClientTagToEvent(event);
 
         // Publish with timeout to avoid hanging if relays are down
-        const publishTimeout = new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('Publish timed out after 15 seconds')), 15000)
-        );
+        let publishTimeoutId: ReturnType<typeof setTimeout> | undefined;
+        const publishTimeout: Promise<never> = new Promise((_, reject) => {
+          publishTimeoutId = setTimeout(
+            () => reject(new Error('Publish timed out after 15 seconds')),
+            15000
+          );
+        });
         await Promise.race([event.publish(), publishTimeout]);
+        if (publishTimeoutId !== undefined) {
+          clearTimeout(publishTimeoutId);
+        }
         resultMessage = 'Success! Redirecting to your recipe...';
 
         const naddr = nip19.naddrEncode({
