@@ -67,7 +67,7 @@
       }
 
       if (paymentRequest.pr) {
-        // Detect mock invoice via server flag or heuristics
+        // Detect mock invoice via server-provided flag
         const isMockInvoice = (paymentRequest as Record<string, unknown>).isMock === true;
 
         let paymentPreimage = '';
