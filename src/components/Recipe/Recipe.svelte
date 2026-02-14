@@ -467,6 +467,8 @@
   let markdownBeforeDirections = '';
   let markdownAfterDirections = '';
 
+  let parsedBeforeDirections = '';
+  let parsedAfterDirections = '';
   // Parse markdown once and reuse in template (avoids 3x redundant parsing per section)
   $: parsedBeforeDirections = markdownBeforeDirections ? parseMarkdown(markdownBeforeDirections) : '';
   $: parsedAfterDirections = markdownAfterDirections ? parseMarkdown(markdownAfterDirections) : '';
