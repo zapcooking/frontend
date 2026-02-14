@@ -23,6 +23,7 @@
   let showNip05Modal = false;
   let nip05UpdateStatus: 'pending' | 'updating' | 'success' | 'error' = 'pending';
   let nip05Error: string | null = null;
+  $: canUpdateProfile = !!$userPublickey && !!$ndk;
 
   function handleClose() {
     paymentStore.close();
@@ -193,7 +194,7 @@
               <button
                 type="button"
                 on:click={() => autoUpdateProfileNip05(displayNip05)}
-                disabled={nip05UpdateStatus === 'updating'}
+                disabled={nip05UpdateStatus === 'updating' || !canUpdateProfile}
                 class="px-3 py-1.5 bg-green-600 hover:bg-green-700 disabled:opacity-60 disabled:cursor-not-allowed text-white rounded-lg font-medium text-sm transition-colors"
               >
                 Update Profile
