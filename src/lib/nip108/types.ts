@@ -42,6 +42,7 @@ export interface GatedRecipeMetadata {
   iv: string; // Initialization vector (hex)
   preview?: string; // Preview text from announcement
   authorPubkey?: string; // Author's public key for ownership check
+  serverHasData?: boolean; // Whether the server store has the encrypted content
 }
 
 /**

@@ -214,6 +214,7 @@ export const CURATED_TAGS: string[] = [
   'Dessert',
   'Snack',
   'Drinks',
+  'Smoothie',
   // Cuisines
   'American',
   'Asian',
@@ -372,7 +373,7 @@ export const CURATED_TAG_SECTIONS: TagSection[] = [
   {
     emoji: '🍳',
     title: 'Meals',
-    tags: ['Pizza', 'Pasta', 'Soup', 'Salad', 'Sandwich', 'Breakfast', 'Lunch', 'Supper']
+    tags: ['Pizza', 'Pasta', 'Soup', 'Salad', 'Sandwich', 'Smoothie', 'Breakfast', 'Lunch', 'Supper']
   },
   {
     emoji: '🔥',

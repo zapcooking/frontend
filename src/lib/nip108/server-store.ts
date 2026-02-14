@@ -43,10 +43,51 @@ export interface PendingPayment {
   createdAt: number;
 }
 
-// ── In-memory fallback stores (dev only) ──────────────────────────
+// ── File-persisted fallback stores (dev only) ────────────────────
+// Persists to .nip108-dev-store.json so data survives server restarts.
+import { readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+
+const DEV_STORE_PATH = join(process.cwd(), '.nip108-dev-store.json');
+
+interface DevStoreData {
+  recipes: Record<string, GatedContentRecord>;
+  purchases: Record<string, PurchaseRecord>;
+  pending: Record<string, PendingPayment>;
+}
+
+let devStoreLoaded = false;
 const memRecipes = new Map<string, GatedContentRecord>();
 const memPurchases = new Map<string, PurchaseRecord>(); // key: "{gatedNoteId}:{pubkey}"
 const memPending = new Map<string, PendingPayment>();   // key: "{gatedNoteId}:{pubkey}"
+
+function loadDevStore(): void {
+  if (devStoreLoaded) return;
+  devStoreLoaded = true;
+  try {
+    const raw = readFileSync(DEV_STORE_PATH, 'utf-8');
+    const data: DevStoreData = JSON.parse(raw);
+    for (const [k, v] of Object.entries(data.recipes || {})) memRecipes.set(k, v);
+    for (const [k, v] of Object.entries(data.purchases || {})) memPurchases.set(k, v);
+    for (const [k, v] of Object.entries(data.pending || {})) memPending.set(k, v);
+    console.log(`[NIP-108 Store] Loaded dev store: ${memRecipes.size} recipes, ${memPurchases.size} purchases`);
+  } catch {
+    // File doesn't exist yet — that's fine
+  }
+}
+
+function saveDevStore(): void {
+  try {
+    const data: DevStoreData = {
+      recipes: Object.fromEntries(memRecipes),
+      purchases: Object.fromEntries(memPurchases),
+      pending: Object.fromEntries(memPending)
+    };
+    writeFileSync(DEV_STORE_PATH, JSON.stringify(data, null, 2));
+  } catch (err) {
+    console.warn('[NIP-108 Store] Failed to persist dev store:', err);
+  }
+}
 
 // ── Recipe CRUD ───────────────────────────────────────────────────
 
@@ -66,7 +107,9 @@ export async function storeGatedContent(
       await kv.put('index:recipes', JSON.stringify(index));
     }
   } else {
+    loadDevStore();
     memRecipes.set(gatedNoteId, record);
+    saveDevStore();
   }
 
   console.log(`[NIP-108 Store] ✅ Stored recipe: ${data.title} (${gatedNoteId})`);
@@ -80,6 +123,7 @@ export async function getGatedContent(
     const data = await kv.get(`recipe:${gatedNoteId}`, 'json') as GatedContentRecord | null;
     return data;
   }
+  loadDevStore();
   return memRecipes.get(gatedNoteId) || null;
 }
 
@@ -91,6 +135,7 @@ export async function hasGatedContent(
     const data = await kv.get(`recipe:${gatedNoteId}`, 'text');
     return data !== null;
   }
+  loadDevStore();
   return memRecipes.has(gatedNoteId);
 }
 
@@ -125,7 +170,9 @@ export async function markAsPaid(
   if (kv) {
     await kv.put(key, JSON.stringify(record));
   } else {
+    loadDevStore();
     memPurchases.set(`${gatedNoteId}:${userPubkey}`, record);
+    saveDevStore();
   }
 
   console.log(`[NIP-108 Store] ✅ Marked as paid: ${gatedNoteId} for user ${userPubkey.substring(0, 8)}...`);
@@ -142,6 +189,7 @@ export async function hasPaid(
     const data = await kv.get(key, 'text');
     return data !== null;
   }
+  loadDevStore();
   return memPurchases.has(`${gatedNoteId}:${userPubkey}`);
 }
 
@@ -161,7 +209,9 @@ export async function storePendingPayment(
   if (kv) {
     await kv.put(key, JSON.stringify(record), { expirationTtl: PENDING_TTL });
   } else {
+    loadDevStore();
     memPending.set(`${gatedNoteId}:${userPubkey}`, record);
+    saveDevStore();
   }
 }
 
@@ -176,12 +226,14 @@ export async function getPendingPayment(
     return await kv.get(key, 'json') as PendingPayment | null;
   }
 
+  loadDevStore();
   const record = memPending.get(`${gatedNoteId}:${userPubkey}`);
   if (!record) return null;
 
   // Check expiry for in-memory (KV handles TTL automatically)
   if (Date.now() - record.createdAt > PENDING_TTL * 1000) {
     memPending.delete(`${gatedNoteId}:${userPubkey}`);
+    saveDevStore();
     return null;
   }
   return record;
@@ -197,7 +249,9 @@ export async function deletePendingPayment(
   if (kv) {
     await kv.delete(key);
   } else {
+    loadDevStore();
     memPending.delete(`${gatedNoteId}:${userPubkey}`);
+    saveDevStore();
   }
 }
 
@@ -208,6 +262,7 @@ async function getIndex(kv: GatedKV): Promise<string[]> {
     const data = await kv.get('index:recipes', 'json') as string[] | null;
     return data || [];
   }
+  loadDevStore();
   return Array.from(memRecipes.keys());
 }
 

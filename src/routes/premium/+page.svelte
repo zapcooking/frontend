@@ -12,6 +12,7 @@
   import PlusIcon from 'phosphor-svelte/lib/Plus';
   import CrownIcon from 'phosphor-svelte/lib/Crown';
   import { nip19 } from 'nostr-tools';
+  import CustomName from '../../components/CustomName.svelte';
 
   // Pull-to-refresh refs
   let pullToRefreshEl: PullToRefresh;
@@ -366,10 +367,13 @@
                 {summary}
               </p>
             {/if}
+            <p class="text-xs" style="color: var(--color-text-secondary)">
+              by <CustomName pubkey={event.pubkey} />
+            </p>
           </div>
         </a>
       {/each}
-      
+
       <!-- Server-stored recipes (not yet on relays) -->
       {#each sortedServerRecipes as recipe (recipe.gatedNoteId)}
         {@const recipeLink = recipe.naddr ? `/premium/recipe/${recipe.naddr}` : `/premium/recipe/${recipe.gatedNoteId}`}
@@ -417,6 +421,11 @@
             {#if recipe.preview}
               <p class="text-sm line-clamp-2" style="color: var(--color-text-secondary)">
                 {recipe.preview}
+              </p>
+            {/if}
+            {#if recipe.authorPubkey}
+              <p class="text-xs" style="color: var(--color-text-secondary)">
+                by <CustomName pubkey={recipe.authorPubkey} />
               </p>
             {/if}
           </div>

@@ -138,22 +138,23 @@ export async function checkIfGated(
     
     if (!response.ok) {
       console.warn('Failed to fetch gated content info:', response.status);
-      // Return basic info from tag (cost in sats)
+      // Return basic info from tag — server doesn't have the encrypted data
       return {
         gatedNoteId,
         announcementNoteId: gatedNoteId,
         cost: costSats,
         endpoint: '/api/nip108/payment',
         iv: '',
-        authorPubkey: recipeEvent.pubkey // Include author for ownership check
+        authorPubkey: recipeEvent.pubkey,
+        serverHasData: false
       };
     }
-    
+
     const data = await response.json();
-    
+
     // Server stores msats internally, convert to sats for display
     const serverCostSats = data.costMsats ? Math.ceil(data.costMsats / 1000) : costSats;
-    
+
     return {
       gatedNoteId,
       announcementNoteId: gatedNoteId,
@@ -161,18 +162,20 @@ export async function checkIfGated(
       endpoint: '/api/nip108/payment',
       preview: data.preview || '',
       iv: '',
-      authorPubkey: data.authorPubkey || recipeEvent.pubkey
+      authorPubkey: data.authorPubkey || recipeEvent.pubkey,
+      serverHasData: true
     };
   } catch (error) {
     console.warn('Error checking gated status:', error);
-    // Return basic info from tag (cost in sats)
+    // Return basic info from tag — server unreachable
     return {
       gatedNoteId,
       announcementNoteId: gatedNoteId,
       cost: costSats,
       endpoint: '/api/nip108/payment',
       iv: '',
-      authorPubkey: recipeEvent.pubkey
+      authorPubkey: recipeEvent.pubkey,
+      serverHasData: false
     };
   }
 }
