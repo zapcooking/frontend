@@ -6,7 +6,7 @@ export function lazyLoad(node: HTMLElement, params: { url: string }) {
     if (!url) return;
     const img = new Image();
     img.onload = () => {
-      node.style.backgroundImage = `url('${url}')`;
+      node.style.backgroundImage = `url("${url}")`;
       node.classList.add('image-loaded');
       node.classList.remove('image-error');
     };
