@@ -8,6 +8,13 @@ export function lazyLoad(node: HTMLElement, params: { url: string }) {
     img.onload = () => {
       node.style.backgroundImage = `url('${url}')`;
       node.classList.add('image-loaded');
+      node.classList.remove('image-error');
+    };
+    img.onerror = () => {
+      // Ensure the element does not remain in a "loading" state on error.
+      // Add a specific error class so callers can provide a visual fallback.
+      node.classList.add('image-error');
+      node.classList.add('image-loaded');
     };
     img.src = url;
   }
