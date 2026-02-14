@@ -555,6 +555,8 @@
                     class="rounded-3xl aspect-video object-cover w-full"
                     src={image[1]}
                     alt="Recipe image {i + 1}"
+                    loading={i === 0 ? 'eager' : 'lazy'}
+                    decoding="async"
                   />
                 </button>
               </div>
