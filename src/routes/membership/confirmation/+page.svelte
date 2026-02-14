@@ -74,6 +74,7 @@
   $: pubkeyPrefix = $userPublickey ? $userPublickey.substring(0, 8) : '00000000';
   $: displayName = username || pubkeyPrefix;
   $: hasCustomName = username.length > 0;
+  $: canUpdateProfile = !!$ndk && !!$userPublickey && !!chosenName;
 
   // Debounced availability check
   let checkTimeout: ReturnType<typeof setTimeout>;
@@ -286,7 +287,21 @@
   }
 
   async function updateProfile() {
-    if (!$ndk || !$userPublickey || !chosenName || isUpdatingProfile) return;
+    if (isUpdatingProfile) return;
+    
+    // Defense in depth: Check prerequisites even though button is disabled
+    // This protects against programmatic calls or edge cases
+    if (!$ndk || !$userPublickey || !chosenName) {
+      if (!$ndk) {
+        profileUpdateError = 'Unable to update profile. Nostr connection not available.';
+      } else if (!$userPublickey) {
+        profileUpdateError = 'Unable to update profile. Please log in and try again.';
+      } else {
+        profileUpdateError = 'Unable to update profile. Please claim a username first.';
+      }
+      return;
+    }
+    
     isUpdatingProfile = true;
     profileUpdateError = null;
     try {
@@ -475,7 +490,7 @@
               <button
                 class="update-profile-button"
                 on:click={updateProfile}
-                disabled={isUpdatingProfile}
+                disabled={isUpdatingProfile || !canUpdateProfile}
               >
                 {#if isUpdatingProfile}
                   Updating Profile...
