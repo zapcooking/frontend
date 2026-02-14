@@ -4,17 +4,14 @@
   import RecipeErrorBoundary from './RecipeErrorBoundary.svelte';
   import RecipeCardSkeleton from './RecipeCardSkeleton.svelte';
   import { getImageOrPlaceholder } from '$lib/placeholderImages';
+  import { lazyLoad } from '$lib/lazyLoad';
 
   export let event: NDKEvent;
   export let list = false;
 
-  // Removed debug logging for better performance
-
   let link = '';
   let imageUrl = '';
   let optimizedImageUrl = '';
-  let imageLoaded = false;
-  let imageError = false;
   let isLoading = true;
 
   // Simple reactive computations
@@ -50,20 +47,10 @@
     event?.tags.find((e) => e[0] == 'd')?.[1] ||
     '';
 
-  let imageElement: HTMLElement | null = null;
-
   // Set loading to false once we have the event data
   $: if (event && isLoading) {
     isLoading = false;
   }
-
-  // Simplified image loading - load immediately when element is available
-  $: if (imageElement && optimizedImageUrl && !imageLoaded && !imageError) {
-    imageElement.style.backgroundImage = `url('${optimizedImageUrl}')`;
-    imageLoaded = true;
-  }
-
-  // Removed onMount cleanup since we're not using IntersectionObserver
 </script>
 
 <RecipeErrorBoundary>
@@ -76,7 +63,7 @@
     >
       <div class="relative image-container image-placeholder">
         <div
-          bind:this={imageElement}
+          use:lazyLoad={{ url: optimizedImageUrl }}
           class="absolute inset-0 image hover:scale-105 transition-transform duration-700 ease-in-out"
         />
       </div>
@@ -100,5 +87,10 @@
   }
   .image {
     @apply w-full h-full cursor-pointer object-cover bg-cover bg-center;
+    opacity: 0;
+    transition: opacity 0.3s ease-in;
+  }
+  .image:global(.image-loaded) {
+    opacity: 1;
   }
 </style>

@@ -4,6 +4,7 @@
   import CustomAvatar from './CustomAvatar.svelte';
   import { goto } from '$app/navigation';
   import { getImageOrPlaceholder } from '$lib/placeholderImages';
+  import { lazyLoad } from '$lib/lazyLoad';
 
   export let event: NDKEvent | null = null;
 
@@ -58,8 +59,8 @@
   >
     <!-- Recipe Image -->
     <div
-      class="absolute inset-0"
-      style="background-image: url('{imageUrl}'); background-size: cover; background-position: center;"
+      class="absolute inset-0 trending-image"
+      use:lazyLoad={{ url: imageUrl }}
     >
       <div class="absolute inset-0 bg-black/20 group-hover:bg-black/10 transition-colors"></div>
     </div>
@@ -79,3 +80,15 @@
     </div>
   </button>
 {/if}
+
+<style>
+  .trending-image {
+    background-size: cover;
+    background-position: center;
+    opacity: 0;
+    transition: opacity 0.3s ease-in;
+  }
+  .trending-image:global(.image-loaded) {
+    opacity: 1;
+  }
+</style>
