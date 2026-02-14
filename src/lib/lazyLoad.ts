@@ -47,7 +47,9 @@ export function lazyLoad(node: HTMLElement, params: { url: string }) {
         currentUrl = newParams.url;
         node.classList.remove('image-loaded');
         node.style.backgroundImage = '';
-        loadImage(currentUrl);
+        // Restart observation so the new image is lazy-loaded when the node enters the viewport
+        observer.unobserve(node);
+        observer.observe(node);
       }
     },
     destroy() {
