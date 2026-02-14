@@ -184,7 +184,16 @@
     await loadExploreData();
 
     if (browser) {
-      const handleLayoutChange = () => syncTipPointer();
+      let ticking = false;
+      const handleLayoutChange = () => {
+        if (!ticking) {
+          ticking = true;
+          requestAnimationFrame(() => {
+            syncTipPointer();
+            ticking = false;
+          });
+        }
+      };
       const scrollContainer = document.getElementById('app-scroll');
       window.addEventListener('resize', handleLayoutChange);
       scrollContainer?.addEventListener('scroll', handleLayoutChange, { passive: true });
@@ -224,6 +233,10 @@
 
     return showAll ? allTags : allTags.slice(0, 10);
   }
+
+  $: allCultureTags = getCultureTags(true);
+  $: visibleCultureTags = cultureExpanded ? allCultureTags : allCultureTags.slice(0, 10);
+  $: hasMoreCultures = allCultureTags.length > 10;
 </script>
 
 <svelte:head>
@@ -424,7 +437,7 @@
                   <span>{cultureSection.title}</span>
                 </h2>
               </div>
-              {#if getCultureTags(false).length < getCultureTags(true).length}
+              {#if hasMoreCultures}
                 <button
                   on:click={() => (cultureExpanded = !cultureExpanded)}
                   type="button"
@@ -435,7 +448,7 @@
               {/if}
             </div>
             <div class="flex flex-wrap gap-2 transition-all duration-300">
-              {#each getCultureTags(cultureExpanded) as tag (tag.title)}
+              {#each visibleCultureTags as tag (tag.title)}
                 <TagChip {tag} onClick={() => navigateToTag(tag)} />
               {/each}
             </div>

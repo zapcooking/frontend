@@ -4439,6 +4439,14 @@
     // Clean up zap animation timeouts
     cleanupZapAnimationTimeouts();
 
+    // Clear pending cleanup timers to prevent stale callbacks after navigation
+    pendingCleanupTimers.forEach((timer) => clearTimeout(timer));
+    pendingCleanupTimers.clear();
+
+    // Unsubscribe all engagement store subscriptions
+    engagementSubscriptions.forEach((unsub) => unsub());
+    engagementSubscriptions.clear();
+
     cleanupInfiniteScroll();
     await cleanup();
   });

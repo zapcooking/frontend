@@ -14,8 +14,8 @@
   import LightningIcon from 'phosphor-svelte/lib/Lightning';
   import LockIcon from 'phosphor-svelte/lib/Lock';
   import LockOpenIcon from 'phosphor-svelte/lib/LockOpen';
-  import UserIcon from 'phosphor-svelte/lib/User';
-  import ClockIcon from 'phosphor-svelte/lib/Clock';
+  import CustomAvatar from '../../../../components/CustomAvatar.svelte';
+  import CustomName from '../../../../components/CustomName.svelte';
   import { requestPayment } from '$lib/nip108/client';
   import { sendPayment } from '$lib/wallet/walletManager';
 
@@ -32,7 +32,6 @@
   let purchasing = false;
   let purchaseError: string | null = null;
   let isAuthor = false;
-  let serverStoreAvailable = true;
 
   $: {
     if (browser && $page.params.slug) {
@@ -85,14 +84,21 @@
           const metadata = await checkIfGated(e, $ndk);
           if (metadata) {
             gatedMetadata = metadata;
-            
+
             // Check if current user is the author
             isAuthor = $userPublickey === e.pubkey;
-            
+
             // If user is the author, auto-unlock (they created it)
             if (isAuthor) {
               hasAccess = true;
-              unlockedRecipe = e; // Show their own recipe
+              unlockedRecipe = e;
+            } else if (!metadata.serverHasData) {
+              // Server doesn't have the encrypted data (store was reset or
+              // recipe was never stored). The recipe content is already
+              // public on the relay, so show it directly rather than a
+              // non-functional paywall.
+              hasAccess = true;
+              unlockedRecipe = e;
             } else if ($userPublickey) {
               // Check if user has purchased access
               checkingAccess = true;
@@ -107,14 +113,7 @@
               }
               checkingAccess = false;
             }
-            
-            // Check if server store is available for payments
-            try {
-              const storeCheck = await fetch(`/api/nip108/store-gated?id=${encodeURIComponent(metadata.gatedNoteId)}`);
-              serverStoreAvailable = storeCheck.ok;
-            } catch {
-              serverStoreAvailable = false;
-            }
+
           }
           
           loading = false;
@@ -263,7 +262,7 @@
           <img 
             src={recipeImage} 
             alt={recipeTitle}
-            class="w-full h-full object-cover blur-sm scale-105"
+            class="w-full h-full object-cover"
           />
           <div class="absolute inset-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent"></div>
         </div>
@@ -300,15 +299,20 @@
 
       <!-- Author Info -->
       <div class="p-6 border-b flex items-center gap-4" style="border-color: var(--color-input-border);">
-        <div class="w-12 h-12 rounded-full bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center">
-          <UserIcon size={24} class="text-white" />
-        </div>
-        <div>
-          <p class="text-sm" style="color: var(--color-text-secondary);">Created by</p>
-          <p class="font-medium" style="color: var(--color-text-primary);">
-            {authorPubkey ? nip19.npubEncode(authorPubkey).slice(0, 16) + '...' : 'Unknown'}
-          </p>
-        </div>
+        {#if authorPubkey}
+          <CustomAvatar pubkey={authorPubkey} size={48} />
+          <div>
+            <p class="text-sm" style="color: var(--color-text-secondary);">Created by</p>
+            <p class="font-medium" style="color: var(--color-text-primary);">
+              <CustomName pubkey={authorPubkey} />
+            </p>
+          </div>
+        {:else}
+          <div>
+            <p class="text-sm" style="color: var(--color-text-secondary);">Created by</p>
+            <p class="font-medium" style="color: var(--color-text-primary);">Unknown</p>
+          </div>
+        {/if}
       </div>
 
       <!-- Payment Section -->
@@ -333,31 +337,24 @@
               </div>
             {/if}
             
-            {#if !serverStoreAvailable}
-              <div class="px-4 py-3 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-700 dark:text-amber-400 text-sm">
-                <p class="font-medium">Payment temporarily unavailable</p>
-                <p class="text-xs mt-1 opacity-80">This recipe's payment data is being synced. Please try again later or contact the recipe author.</p>
-              </div>
-            {:else}
-              <button
-                on:click={handlePurchase}
-                disabled={purchasing || !$userPublickey || checkingAccess}
-                class="px-8 py-4 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white font-bold text-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-3 shadow-lg hover:shadow-xl"
-              >
-                {#if checkingAccess}
-                  <span>Checking access...</span>
-                {:else if purchasing}
-                  <div class="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent"></div>
-                  <span>Processing...</span>
-                {:else if !$userPublickey}
-                  <LockIcon size={22} />
-                  <span>Sign in to Unlock</span>
-                {:else}
-                  <LightningIcon size={22} weight="fill" />
-                  <span>Pay & Unlock Recipe</span>
-                {/if}
-              </button>
-            {/if}
+            <button
+              on:click={handlePurchase}
+              disabled={purchasing || !$userPublickey || checkingAccess}
+              class="px-8 py-4 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white font-bold text-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-3 shadow-lg hover:shadow-xl"
+            >
+              {#if checkingAccess}
+                <span>Checking access...</span>
+              {:else if purchasing}
+                <div class="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent"></div>
+                <span>Processing...</span>
+              {:else if !$userPublickey}
+                <LockIcon size={22} />
+                <span>Sign in to Unlock</span>
+              {:else}
+                <LightningIcon size={22} weight="fill" />
+                <span>Pay & Unlock Recipe</span>
+              {/if}
+            </button>
             
             {#if !$userPublickey}
               <a 
