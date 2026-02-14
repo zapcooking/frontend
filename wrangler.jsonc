@@ -11,6 +11,10 @@
     {
       "binding": "SHORTLINKS",
       "id": "2ad4aaf7011543b7b70c8c46a14766e1"
+    },
+    {
+      "binding": "GATED_CONTENT",
+      "id": "e373fff5cddb4db885eb4f027c307545"
     }
   ],
   // To use the GATED_CONTENT KV namespace, add an entry like the following

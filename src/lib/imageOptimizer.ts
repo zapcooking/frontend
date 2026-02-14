@@ -80,16 +80,19 @@ export function createProgressiveImage(
 }
 
 /**
- * Check if browser supports WebP
+ * Check if browser supports WebP (cached after first call)
  */
+let webPSupported: boolean | null = null;
 export function supportsWebP(): boolean {
+  if (webPSupported !== null) return webPSupported;
   if (typeof window === 'undefined') return false;
-  
+
   const canvas = document.createElement('canvas');
   canvas.width = 1;
   canvas.height = 1;
-  
-  return canvas.toDataURL('image/webp').indexOf('data:image/webp') === 0;
+
+  webPSupported = canvas.toDataURL('image/webp').indexOf('data:image/webp') === 0;
+  return webPSupported;
 }
 
 /**
