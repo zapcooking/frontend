@@ -81,7 +81,7 @@
           event = e;
           
           // Check if it's gated
-          const metadata = await checkIfGated(e, $ndk);
+          let metadata = await checkIfGated(e, $ndk);
           if (metadata) {
             gatedMetadata = metadata;
 
