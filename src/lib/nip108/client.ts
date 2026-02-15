@@ -304,6 +304,97 @@ export async function fetchSecret(
 }
 
 /**
+ * Backfill gated recipe data for old recipes where the server store is empty.
+ *
+ * This handles the case where a premium recipe was published before the KV
+ * binding was configured, so the encrypted content was never stored server-side.
+ * The author triggers this by visiting their own recipe — re-encrypts the relay
+ * content and stores it so the normal per-user payment flow works for everyone.
+ *
+ * @param recipeEvent - The recipe event from the relay (must have full content)
+ * @param ndk - NDK instance
+ * @param gatedNoteId - Existing gated note ID from the recipe's 'gated' tag
+ * @param costSats - Cost in sats from the recipe's 'gated' tag
+ * @returns Promise<boolean> true if backfill succeeded
+ */
+export async function backfillGatedRecipe(
+  recipeEvent: NDKEvent,
+  ndk: NDK,
+  gatedNoteId: string,
+  costSats: number
+): Promise<boolean> {
+  try {
+    const authorPubkey = recipeEvent.pubkey;
+
+    // Resolve author's lightning address for the payment flow
+    let authorLightningAddress = '';
+    try {
+      const profileEvent = await ndk.fetchEvent({
+        kinds: [0],
+        authors: [authorPubkey]
+      });
+      if (profileEvent) {
+        const profile = JSON.parse(profileEvent.content);
+        authorLightningAddress = profile.lud16 || '';
+      }
+    } catch {
+      // Non-critical — payments will use mock invoices in dev
+    }
+
+    // Generate new secret key for encryption
+    const secretKeyBytes = generateSecretKey();
+
+    // Serialize the full recipe event
+    const recipeJson = JSON.stringify({
+      kind: recipeEvent.kind,
+      content: recipeEvent.content,
+      tags: recipeEvent.tags,
+      created_at: recipeEvent.created_at || Math.floor(Date.now() / 1000),
+      pubkey: authorPubkey
+    });
+
+    // Encrypt
+    const encrypted = encrypt(recipeJson, secretKeyBytes);
+
+    // Extract metadata from event tags
+    const imageTag = recipeEvent.getMatchingTags('image')[0];
+    const preview = recipeEvent.tagValue('summary') || '';
+    const title = recipeEvent.tagValue('title') || 'Recipe';
+
+    // Store on server
+    const response = await fetch('/api/nip108/store-gated', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        gatedNoteId,
+        encryptedContent: encrypted.content,
+        iv: encrypted.iv,
+        secret: bufferToHex(secretKeyBytes),
+        costMsats: costSats * 1000,
+        endpoint: '/api/nip108/payment',
+        preview,
+        title,
+        authorPubkey,
+        authorLightningAddress,
+        image: imageTag ? imageTag[1] : ''
+      })
+    });
+
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({ error: 'Unknown' }));
+      console.warn('[NIP-108 Backfill] Failed:', response.status, err.error);
+      return false;
+    }
+
+    console.log('[NIP-108 Backfill] Successfully backfilled:', gatedNoteId);
+    return true;
+  } catch (err) {
+    console.error('[NIP-108 Backfill] Error:', err);
+    return false;
+  }
+}
+
+/**
  * Create key note (kind 56) after receiving secret
  * 
  * @param gatedNoteId - Event ID of gated note

@@ -51,7 +51,7 @@
   import DirectionsPhases from './DirectionsPhases.svelte';
   import AddToListModal from '../grocery/AddToListModal.svelte';
   import GatedRecipePayment from '../GatedRecipePayment.svelte';
-  import { checkIfGated } from '$lib/nip108/client';
+  import { checkIfGated, backfillGatedRecipe } from '$lib/nip108/client';
   import type { GatedRecipeMetadata } from '$lib/nip108/types';
   import { GATED_RECIPE_KIND } from '$lib/consts';
 
@@ -120,39 +120,96 @@
 
     // Check if recipe is gated (skip if parent already handled access)
     if (!isPremium) {
+      const isAuthorOfRecipe = $userPublickey && $userPublickey === event.author.pubkey;
+
       try {
         checkingGated = true;
-        const metadata = await checkIfGated(event, $ndk);
+        let metadata = await checkIfGated(event, $ndk);
+
+        // Backfill: if server store is empty but relay has full content,
+        // re-encrypt and store so the payment flow works for everyone
+        if (metadata && !metadata.serverHasData && event.content?.includes('## Ingredients')) {
+          const backfilled = await backfillGatedRecipe(event, $ndk, metadata.gatedNoteId, metadata.cost);
+          if (backfilled) {
+            const refreshed = await checkIfGated(event, $ndk);
+            if (refreshed && refreshed.serverHasData) {
+              metadata = refreshed;
+            }
+          }
+        }
+
         if (metadata) {
-          gatedMetadata = metadata;
+          // Author sees their own recipe without gating
+          if (isAuthorOfRecipe) {
+            // Don't set gatedMetadata — let recipe render normally
+          } else {
+            gatedMetadata = metadata;
+          }
         } else if (event.kind === GATED_RECIPE_KIND && event.getMatchingTags('gated').length > 0) {
-          // Kind 35000 event with a gated tag but checkIfGated failed (network error, etc.)
-          // Show a fallback gated state so the content isn't exposed
+          // Kind 35000 event with a gated tag but checkIfGated returned null
           const gatedTag = event.getMatchingTags('gated')[0];
-          gatedMetadata = {
-            gatedNoteId: gatedTag[1] || '',
-            announcementNoteId: gatedTag[1] || '',
-            cost: parseInt(gatedTag[2] || '0', 10),
-            endpoint: '/api/nip108/payment',
-            iv: '',
-            authorPubkey: event.pubkey,
-            serverHasData: false
-          };
+          const noteId = gatedTag[1] || '';
+          const cost = parseInt(gatedTag[2] || '0', 10);
+
+          // Try backfill if relay has full content
+          if (noteId && event.content?.includes('## Ingredients')) {
+            const backfilled = await backfillGatedRecipe(event, $ndk, noteId, cost);
+            if (backfilled) {
+              const refreshed = await checkIfGated(event, $ndk);
+              if (refreshed) {
+                if (!isAuthorOfRecipe) {
+                  gatedMetadata = refreshed;
+                }
+              }
+            }
+          }
+
+          // If backfill failed or no full content, show fallback gated state
+          if (!gatedMetadata && !isAuthorOfRecipe) {
+            gatedMetadata = {
+              gatedNoteId: noteId,
+              announcementNoteId: noteId,
+              cost,
+              endpoint: '/api/nip108/payment',
+              iv: '',
+              authorPubkey: event.pubkey,
+              serverHasData: false
+            };
+          }
         }
       } catch (error) {
         console.warn('Failed to check if recipe is gated:', error);
-        // If this is a kind 35000 event with a gated tag, still show the paywall
         if (event.kind === GATED_RECIPE_KIND && event.getMatchingTags('gated').length > 0) {
           const gatedTag = event.getMatchingTags('gated')[0];
-          gatedMetadata = {
-            gatedNoteId: gatedTag[1] || '',
-            announcementNoteId: gatedTag[1] || '',
-            cost: parseInt(gatedTag[2] || '0', 10),
-            endpoint: '/api/nip108/payment',
-            iv: '',
-            authorPubkey: event.pubkey,
-            serverHasData: false
-          };
+          const noteId = gatedTag[1] || '';
+          const cost = parseInt(gatedTag[2] || '0', 10);
+
+          // Try backfill even in error case
+          if (noteId && event.content?.includes('## Ingredients')) {
+            try {
+              const backfilled = await backfillGatedRecipe(event, $ndk, noteId, cost);
+              if (backfilled) {
+                const refreshed = await checkIfGated(event, $ndk);
+                if (refreshed && !isAuthorOfRecipe) {
+                  gatedMetadata = refreshed;
+                }
+              }
+            } catch {
+              // Backfill also failed
+            }
+          }
+
+          if (!gatedMetadata && !isAuthorOfRecipe) {
+            gatedMetadata = {
+              gatedNoteId: noteId,
+              announcementNoteId: noteId,
+              cost,
+              endpoint: '/api/nip108/payment',
+              iv: '',
+              authorPubkey: event.pubkey,
+              serverHasData: false
+            };
+          }
         }
       } finally {
         checkingGated = false;

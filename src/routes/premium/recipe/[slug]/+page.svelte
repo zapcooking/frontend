@@ -9,7 +9,7 @@
   import Recipe from '../../../../components/Recipe/Recipe.svelte';
   import PanLoader from '../../../../components/PanLoader.svelte';
   import { GATED_RECIPE_KIND } from '$lib/consts';
-  import { checkIfGated, checkAccess } from '$lib/nip108/client';
+  import { checkIfGated, checkAccess, backfillGatedRecipe } from '$lib/nip108/client';
   import type { GatedRecipeMetadata } from '$lib/nip108/types';
   import LightningIcon from 'phosphor-svelte/lib/Lightning';
   import LockIcon from 'phosphor-svelte/lib/Lock';
@@ -92,10 +92,39 @@
             if (isAuthor) {
               hasAccess = true;
               unlockedRecipe = e;
-            } else if (!metadata.serverHasData) {
-              // Server doesn't have the encrypted data - cannot unlock
-              // Keep gate shown, user will see locked state
-            } else if ($userPublickey) {
+            }
+
+            // Backfill: if server store is empty but relay has full content,
+            // re-encrypt and store so the payment flow works for everyone
+            if (!metadata.serverHasData && e.content && e.content.includes('## Ingredients')) {
+              const backfilled = await backfillGatedRecipe(e, $ndk, metadata.gatedNoteId, metadata.cost);
+              if (backfilled) {
+                // Re-fetch metadata now that server has the data
+                const refreshed = await checkIfGated(e, $ndk);
+                if (refreshed && refreshed.serverHasData) {
+                  gatedMetadata = refreshed;
+                  metadata = refreshed;
+                }
+              }
+            }
+
+            if (!isAuthor && !metadata.serverHasData) {
+              // Server store still unavailable after backfill attempt —
+              // try checkAccess defensively as a last resort
+              if ($userPublickey) {
+                checkingAccess = true;
+                try {
+                  const recipe = await checkAccess(metadata.gatedNoteId, $userPublickey, $ndk);
+                  if (recipe) {
+                    hasAccess = true;
+                    unlockedRecipe = recipe;
+                  }
+                } catch (err) {
+                  // Access check also failed — user will see locked state
+                }
+                checkingAccess = false;
+              }
+            } else if (!isAuthor && $userPublickey) {
               // Check if user has purchased access
               checkingAccess = true;
               try {
