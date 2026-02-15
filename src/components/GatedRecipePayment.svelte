@@ -67,31 +67,18 @@
       }
 
       if (paymentRequest.pr) {
-        // Detect mock invoice via server-provided flag
-        const isMockInvoice = (paymentRequest as Record<string, unknown>).isMock === true;
-
         let paymentPreimage = '';
 
-        if (isMockInvoice) {
-          const confirmed = confirm(
-            `Test Payment\n\nThis would charge ${formatCost(gatedMetadata.cost)} to unlock this recipe.\n\nClick OK to simulate successful payment.`
-          );
-          if (!confirmed) {
-            throw new Error('Payment cancelled');
-          }
-          paymentPreimage = `test_preimage_${Date.now()}`;
-        } else {
-          // Real Lightning invoice: pay using wallet
-          const paymentResult = await sendPayment(paymentRequest.pr, {
-            amount: gatedMetadata.cost, // cost is in sats
-            description: `Unlock gated recipe`
-          });
+        // Real Lightning invoice: pay using wallet
+        const paymentResult = await sendPayment(paymentRequest.pr, {
+          amount: gatedMetadata.cost, // cost is in sats
+          description: `Unlock gated recipe`
+        });
 
-          if (!paymentResult.success) {
-            throw new Error(paymentResult.error || 'Payment failed');
-          }
-          paymentPreimage = paymentResult.preimage || '';
+        if (!paymentResult.success) {
+          throw new Error(paymentResult.error || 'Payment failed');
         }
+        paymentPreimage = paymentResult.preimage || '';
 
         // Mark payment on server (preimage optional — some wallets don't return it)
         const markBody: Record<string, string> = {

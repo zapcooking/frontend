@@ -259,7 +259,12 @@ export async function requestPayment(
     // Already paid or free
     return await response.json();
   } else {
-    throw new Error(`Payment request failed: ${response.status} ${response.statusText}`);
+    const errorBody = await response.json().catch(() => null);
+    const detail =
+      errorBody && typeof errorBody.error === 'string' && errorBody.error.trim().length > 0
+        ? ` - ${errorBody.error}`
+        : '';
+    throw new Error(`Payment request failed: ${response.status} ${response.statusText}${detail}`);
   }
 }
 

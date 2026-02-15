@@ -21,8 +21,8 @@
  */
 
 import { json, type RequestHandler } from '@sveltejs/kit';
-import { dev } from '$app/environment';
 import { getGatedContent, type GatedKV } from '$lib/nip108/server-store';
+import { decode } from '@gandlaf21/bolt11-decode';
 
 function getKV(platform: App.Platform | undefined): GatedKV {
   return (platform?.env?.GATED_CONTENT as GatedKV) || null;
@@ -91,6 +91,22 @@ async function fetchLnurlInvoice(
   };
 }
 
+/**
+ * Some LNURL providers omit paymentHash in callback responses.
+ * Recover it from the BOLT11 invoice so downstream verification still works.
+ */
+function extractPaymentHashFromInvoice(invoice: string): string {
+  try {
+    const decoded = decode(invoice);
+    const paymentHashSection = decoded.sections?.find((section: { name?: string }) => section.name === 'payment_hash');
+    const value = paymentHashSection?.value;
+    return typeof value === 'string' ? value.toLowerCase() : '';
+  } catch (error) {
+    console.warn('[NIP-108] Failed to decode invoice for payment hash extraction:', error);
+    return '';
+  }
+}
+
 export const POST: RequestHandler = async ({ request, platform }) => {
   const kv = getKV(platform);
 
@@ -125,19 +141,9 @@ export const POST: RequestHandler = async ({ request, platform }) => {
     const authorLightningAddress = gatedContent.authorLightningAddress;
     
     if (!authorLightningAddress) {
-      if (!dev) {
-        return json(
-          { error: 'Author has no Lightning address configured' },
-          { status: 400 }
-        );
-      }
-      // Dev-only: mock invoice when author has no Lightning address
-      const paymentHash = `mock_${Date.now()}`;
       return json({
-        invoice: `lnbc${Math.floor(amountMsats / 1000)}u1p...mock`,
-        paymentHash,
-        isMock: true
-      });
+        error: 'Author has no Lightning address configured'
+      }, { status: 400 });
     }
     
     // Resolve the Lightning address and create a real invoice
@@ -169,10 +175,11 @@ export const POST: RequestHandler = async ({ request, platform }) => {
       
       // Fetch the invoice
       const invoiceResult = await fetchLnurlInvoice(lnurlInfo.callback, amountMsats, comment);
+      const paymentHash = (invoiceResult.paymentHash || extractPaymentHashFromInvoice(invoiceResult.invoice) || '').toLowerCase();
       
       return json({
         invoice: invoiceResult.invoice,
-        paymentHash: invoiceResult.paymentHash || '',
+        paymentHash,
         isMock: false
       });
       

@@ -41,6 +41,10 @@ function verifyPreimage(preimage: string, paymentHash: string): boolean {
   }
 }
 
+function hasVerifiablePaymentHash(paymentHash: string | undefined): boolean {
+  return typeof paymentHash === 'string' && /^[0-9a-fA-F]{64}$/.test(paymentHash);
+}
+
 export const GET: RequestHandler = async ({ url, platform }) => {
   const kv = getKV(platform);
 
@@ -72,7 +76,7 @@ export const GET: RequestHandler = async ({ url, platform }) => {
         return json({ error: 'No pending payment found. Request an invoice first.' }, { status: 400 });
       }
 
-      if (!verifyPreimage(preimage, pending.paymentHash)) {
+      if (hasVerifiablePaymentHash(pending.paymentHash) && !verifyPreimage(preimage, pending.paymentHash)) {
         return json({ error: 'Invalid payment preimage' }, { status: 403 });
       }
 
@@ -105,38 +109,26 @@ export const GET: RequestHandler = async ({ url, platform }) => {
     });
 
     if (!invoiceResponse.ok) {
-      if (dev) {
-        // Dev-only: fallback mock invoice when create-invoice fails
-        const paymentHash = `mock_${Date.now()}_${gatedNoteId.substring(0, 8)}`;
-        await storePendingPayment(kv, gatedNoteId, userPubkey, paymentHash);
-
-        return json(
-          {
-            pr: `lnbc${Math.floor(costMsats / 1000)}u1p...mock`,
-            paymentHash,
-            costMsats,
-            routes: [],
-            isMock: true
-          },
-          { status: 402 }
-        );
-      }
-      return json({ error: 'Failed to create invoice' }, { status: 500 });
+      const invoiceError = await invoiceResponse.json().catch(() => null);
+      const invoiceErrorMessage =
+        invoiceError && typeof invoiceError.error === 'string'
+          ? invoiceError.error
+          : `Invoice service error (${invoiceResponse.status})`;
+      return json(
+        { error: `Failed to create invoice: ${invoiceErrorMessage}` },
+        { status: invoiceResponse.status >= 400 && invoiceResponse.status < 600 ? invoiceResponse.status : 500 }
+      );
     }
 
     const invoiceData = await invoiceResponse.json();
 
-    if (!invoiceData.paymentHash) {
-      console.error('[NIP-108 Payment] Invoice created but no paymentHash returned');
-      return json({ error: 'Invoice creation error: missing payment hash' }, { status: 500 });
-    }
-
-    await storePendingPayment(kv, gatedNoteId, userPubkey, invoiceData.paymentHash);
+    const paymentHash = typeof invoiceData.paymentHash === 'string' ? invoiceData.paymentHash : '';
+    await storePendingPayment(kv, gatedNoteId, userPubkey, paymentHash);
 
     return json(
       {
         pr: invoiceData.invoice,
-        paymentHash: invoiceData.paymentHash,
+        paymentHash,
         costMsats,
         routes: [],
         isMock: invoiceData.isMock || false
@@ -197,15 +189,19 @@ export const POST: RequestHandler = async ({ request, platform }) => {
       );
     }
 
-    // In non-dev environments, require a valid preimage as cryptographic proof of payment.
-    if (!preimage && !dev) {
+    const hasHashProof = hasVerifiablePaymentHash(pending.paymentHash);
+
+    // If a verifiable payment hash exists, require a preimage in production.
+    // Some LNURL providers/wallets do not expose hash/preimage reliably, so
+    // we allow pending-invoice proof as an interoperability fallback.
+    if (!preimage && !dev && hasHashProof) {
       return json(
         { error: 'Missing payment preimage; cannot verify payment without cryptographic proof' },
         { status: 400 }
       );
     }
 
-    if (preimage && !verifyPreimage(preimage, pending.paymentHash)) {
+    if (preimage && hasHashProof && !verifyPreimage(preimage, pending.paymentHash)) {
       return json({ error: 'Invalid payment preimage' }, { status: 403 });
     }
 

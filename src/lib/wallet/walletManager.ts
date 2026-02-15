@@ -356,7 +356,9 @@ export async function sendPayment(
         // For Lightning addresses, amount and comment are passed via metadata
         // For invoices, amount is encoded in the invoice itself
         const payment = await sendZap(invoice, metadata?.amount || 0, metadata?.comment || '');
-        preimage = payment?.id || payment?.paymentHash || '';
+        // Spark may not always return a preimage. Never send payment hash/id as
+        // a preimage because NIP-108 server verification expects the true preimage.
+        preimage = payment?.preimage || payment?.paymentPreimage || '';
         break;
 
       default:
