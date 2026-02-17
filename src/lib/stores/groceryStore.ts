@@ -225,7 +225,7 @@ function createGroceryStore() {
       // Save to Nostr (immediately, no debounce for new lists)
       try {
         await saveGroceryList(newList);
-        update(s => ({ ...s, lastSaved: Date.now(), error: null }));
+        update(s => ({ ...s, lastSaved: Date.now() }));
       } catch (error) {
         console.error('[GroceryStore] Failed to save new list:', error);
         update(s => ({ 
