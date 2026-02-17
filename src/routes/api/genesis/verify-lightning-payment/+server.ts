@@ -49,6 +49,16 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 
     // Look up stored metadata to verify the request
     const kv = platform?.env?.GATED_CONTENT ?? null;
+    if (!kv && env.NODE_ENV === 'production') {
+      console.error('[Genesis Lightning] GATED_CONTENT KV binding is missing in production environment');
+      return json(
+        {
+          error: 'Service unavailable',
+          message: 'GATED_CONTENT KV namespace is not configured'
+        },
+        { status: 503 }
+      );
+    }
     const metadata = receiveRequestId
       ? await getInvoiceMetadata(kv, receiveRequestId)
       : await getInvoiceMetadataByPaymentHash(kv, paymentHash);
