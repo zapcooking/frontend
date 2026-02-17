@@ -65,6 +65,8 @@ export function memoize<T extends (...args: any[]) => any>(
 
 /**
  * Create a memoized reactive statement for Svelte
+ * Note: This function captures dependencies at creation time. For dynamic dependencies,
+ * recreate the memoized function when dependencies change.
  */
 export function createMemoizedReactive<T>(
   computeFn: () => T,
