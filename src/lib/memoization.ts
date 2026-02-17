@@ -71,11 +71,10 @@ export function createMemoizedReactive<T>(
   dependencies: any[],
   maxCacheSize: number = 50
 ): () => T {
-  void dependencies;
-  const memoized = memoize(computeFn, maxCacheSize);
+  const memoized = memoize((...deps: any[]) => computeFn(), maxCacheSize);
   
   return () => {
-    return memoized();
+    return memoized(...dependencies);
   };
 }
 
