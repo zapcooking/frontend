@@ -82,7 +82,13 @@ export async function getInvoiceMetadata(
   if (kv) {
     const raw = await kv.get(invKey(receiveRequestId), 'text') as string | null;
     if (!raw) return null;
-    return JSON.parse(raw) as InvoiceMetadata;
+    try {
+      return JSON.parse(raw) as InvoiceMetadata;
+    } catch {
+      // Treat invalid/corrupted data as a cache miss and clean up the bad key.
+      await kv.delete(invKey(receiveRequestId));
+      return null;
+    }
   }
 
   // Dev fallback

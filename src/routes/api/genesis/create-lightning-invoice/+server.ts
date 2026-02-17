@@ -118,6 +118,14 @@ export const POST: RequestHandler = async ({ request, platform }) => {
     // Store metadata so webhook and verify endpoints can match payment to user
     // Genesis uses 'pro' tier internally for NIP-05 claiming
     const kv = platform?.env?.GATED_CONTENT ?? null;
+    const isProd = env.NODE_ENV === 'production';
+    if (!kv && isProd) {
+      console.error('[Founders Club Lightning] GATED_CONTENT KV binding missing in production');
+      return json(
+        { error: 'Service temporarily unavailable' },
+        { status: 503 }
+      );
+    }
     await storeInvoiceMetadata(
       kv,
       receiveRequestId,
