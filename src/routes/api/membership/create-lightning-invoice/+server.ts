@@ -156,7 +156,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
       amountSats,
       tier,
       period,
-      pubkey,
+      pubkey: pubkey.substring(0, 16) + '...',
     });
 
     // Store invoice metadata so webhook and verify endpoints can match payment to user
