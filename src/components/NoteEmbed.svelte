@@ -276,7 +276,7 @@
       let totalAmount = 0;
 
       for (const zapEvent of zapEvents) {
-        const bolt11 = zapEvent.tags.find((tag) => tag[0] === 'bolt11')?.[1];
+        const bolt11 = zapEvent.tags.find((tag: string[]) => tag[0] === 'bolt11')?.[1];
         if (!bolt11) continue;
 
         try {

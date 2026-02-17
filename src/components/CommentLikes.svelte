@@ -19,7 +19,7 @@
       '#e': [event.id] // For comment likes, use the comment event ID
     }, { closeOnEose: true });
 
-    subscription.on('event', (e) => {
+    subscription.on('event', (e: NDKEvent) => {
       // Prevent counting the same event multiple times
       if (processedEvents.has(e.id)) return;
       processedEvents.add(e.id);

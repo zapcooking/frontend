@@ -11,7 +11,7 @@
   let loaded = false;
   let subscription: NDKSubscription | null = null;
   
-  $: isOwnProfile = $userPublickey && hexpubkey && $userPublickey === hexpubkey;
+  $: isOwnProfile = Boolean($userPublickey && hexpubkey && $userPublickey === hexpubkey);
 
   $: {
     if ($page.params.slug) {

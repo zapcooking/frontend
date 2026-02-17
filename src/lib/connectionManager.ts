@@ -51,9 +51,12 @@ export class ConnectionManager {
 
   private initializeRelayHealth() {
     // Initialize health tracking for all configured relays
+    const outboxRelayUrls: string[] = Array.isArray((this.ndkRef as any).outboxRelayUrls)
+      ? (this.ndkRef as any).outboxRelayUrls
+      : [];
     const relayUrls = [
       ...this.ndkRef.explicitRelayUrls || [],
-      ...this.ndkRef.outboxRelayUrls || []
+      ...outboxRelayUrls
     ];
 
     console.log('🔧 Initializing relay health for URLs:', relayUrls);
@@ -168,7 +171,7 @@ export class ConnectionManager {
       this.handleRelayDisconnect(relay);
     });
 
-    this.ndkRef.pool.on('relay:notice', (relay, notice) => {
+    (this.ndkRef.pool as any).on('relay:notice', (relay: { url: string }, notice: string) => {
       this.handleRelayNotice(relay, notice);
     });
   }

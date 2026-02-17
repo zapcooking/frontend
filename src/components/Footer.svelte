@@ -16,6 +16,17 @@
   let supportModalOpen = false;
   let zapModalOpen = false;
 
+  async function copySupportAddress(event: MouseEvent): Promise<void> {
+    await navigator.clipboard.writeText('ZapCooking@getalby.com');
+    const button = event.currentTarget;
+    if (!(button instanceof HTMLButtonElement)) return;
+    const originalText = button.textContent;
+    button.textContent = '✓';
+    setTimeout(() => {
+      button.textContent = originalText;
+    }, 1500);
+  }
+
   $: zapCookingUser = $ndk ? new NDKUser({ pubkey: ZAPCOOKING_PUBKEY }) : null;
 
   // Reactive resolved theme for logo switching (handles 'system' preference)
@@ -161,9 +172,7 @@
             use:qr={{
               data: 'lightning:ZapCooking@getalby.com',
               logo: 'https://zap.cooking/favicon.svg',
-              shape: 'circle',
-              width: 128,
-              height: 128
+              shape: 'circle'
             }}
           />
         </div>
@@ -181,15 +190,7 @@
             ZapCooking@getalby.com
           </div>
           <button
-            on:click={() => {
-              navigator.clipboard.writeText('ZapCooking@getalby.com');
-              const btn = event.target;
-              const originalText = btn.textContent;
-              btn.textContent = '✓';
-              setTimeout(() => {
-                btn.textContent = originalText;
-              }, 1500);
-            }}
+            on:click={copySupportAddress}
             class="bg-input hover:bg-accent-gray px-3 py-2 rounded-lg text-xs font-medium transition duration-200 flex-shrink-0"
             style="color: var(--color-text-primary);"
             title="Copy lightning address"

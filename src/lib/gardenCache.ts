@@ -120,7 +120,7 @@ class GardenCacheManager {
         resolve();
       };
 
-      request.onupgradeneeded = (event) => {
+      request.onupgradeneeded = (event: IDBVersionChangeEvent) => {
         const db = (event.target as IDBOpenDBRequest).result;
         console.log('[GardenCache] Creating database stores');
 

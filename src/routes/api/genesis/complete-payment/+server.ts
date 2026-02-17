@@ -58,7 +58,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 
     const Stripe = (await import('stripe')).default;
     const stripe = new Stripe(stripeKey, {
-      apiVersion: '2024-12-18.acacia',
+      apiVersion: '2025-12-15.clover',
       typescript: true,
     });
 
@@ -74,7 +74,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
     }
 
     // Ensure this Checkout Session is for the Genesis Founder tier
-    const EXPECTED_TIER = platform?.env?.GENESIS_TIER || env.GENESIS_TIER || 'genesis-founder';
+    const EXPECTED_TIER = (platform?.env as any)?.GENESIS_TIER || env.GENESIS_TIER || 'genesis-founder';
     if (!session.metadata || session.metadata.tier !== EXPECTED_TIER) {
       return json(
         { error: 'Payment session is not for the Genesis Founder tier' },

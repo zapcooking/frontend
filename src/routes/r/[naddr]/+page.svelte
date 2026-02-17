@@ -49,16 +49,16 @@
         });
         
         // Add timeout protection for recipe loading
-        const fetchPromise = $ndk.fetchEvent({
+        const fetchPromise: Promise<NDKEvent | null> = $ndk.fetchEvent({
           '#d': [b.identifier],
           authors: [b.pubkey],
           kinds: [recipeKind as number]
         });
-        const timeoutPromise = new Promise((_, reject) => 
+        const timeoutPromise = new Promise<never>((_, reject) =>
           setTimeout(() => reject(new Error('Recipe loading timeout - relays may be unreachable')), 10000)
         );
-        
-        let e = await Promise.race([fetchPromise, timeoutPromise]);
+
+        const e = await Promise.race<NDKEvent | null>([fetchPromise, timeoutPromise]);
         if (e) {
           event = e;
           loading = false;
@@ -180,6 +180,7 @@
     const sp = t.lastIndexOf(' ');
     return (sp > 80 ? t.slice(0, sp) : t) + '...';
   })();
+  $: publishedAt = event?.created_at ?? data?.ogMeta?.created_at ?? null;
 
   // Check if this is a longform article (not a recipe) to show "Back to Reads" link
   $: isLongformArticle = event && event.kind === 30023 && !event.tags.some(
@@ -199,8 +200,8 @@
   <meta property="og:image" content={og_image} />
   <meta property="og:image:secure_url" content={og_image} />
   <meta property="og:site_name" content="zap.cooking" />
-  {#if event?.created_at || data?.ogMeta?.created_at}
-    <meta property="article:published_time" content={new Date((event?.created_at || data?.ogMeta?.created_at) * 1000).toISOString()} />
+  {#if publishedAt !== null}
+    <meta property="article:published_time" content={new Date(publishedAt * 1000).toISOString()} />
   {/if}
   {#if event?.pubkey || data?.ogMeta?.pubkey}
     <meta property="article:author" content={`https://zap.cooking/p/${event?.pubkey || data?.ogMeta?.pubkey}`} />

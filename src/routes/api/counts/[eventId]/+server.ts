@@ -235,7 +235,7 @@ export const GET: RequestHandler = async ({ params, url, platform }) => {
   }
 
   // Check for Cloudflare KV cache first (if available)
-  const kvCache = platform?.env?.COUNT_CACHE;
+  const kvCache = (platform?.env as any)?.COUNT_CACHE;
   const cacheKey = `counts:${eventId}`;
 
   // Check in-memory cache

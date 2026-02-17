@@ -164,7 +164,7 @@ async function fetchUrlContent(url: string): Promise<{ text: string; imageUrls: 
 export const POST: RequestHandler = async ({ request, platform }) => {
   try {
     // Check for OpenAI API key
-    const OPENAI_API_KEY = platform?.env?.OPENAI_API_KEY || env.OPENAI_API_KEY;
+    const OPENAI_API_KEY = (platform?.env as any)?.OPENAI_API_KEY || env.OPENAI_API_KEY;
     if (!OPENAI_API_KEY) {
       return json(
         { success: false, error: 'OpenAI API key not configured' },

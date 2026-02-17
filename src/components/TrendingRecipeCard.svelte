@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
   import { nip19 } from 'nostr-tools';
-  import CustomAvatar from './CustomAvatar.svelte';
+  import Avatar from './Avatar.svelte';
   import { goto } from '$app/navigation';
   import { getImageOrPlaceholder } from '$lib/placeholderImages';
   import { lazyLoad } from '$lib/lazyLoad';
@@ -68,7 +68,7 @@
     <!-- Author Avatar Overlay -->
     {#if authorPubkey}
       <div class="absolute top-3 left-3">
-        <CustomAvatar pubkey={authorPubkey} size={32} className="ring-2 ring-white" />
+        <Avatar pubkey={authorPubkey} size={32} className="ring-2 ring-white" />
       </div>
     {/if}
 

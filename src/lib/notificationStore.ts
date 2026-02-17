@@ -1,6 +1,7 @@
 import { writable, derived, get } from 'svelte/store';
 import { browser } from '$app/environment';
-import type { NDK, NDKEvent, NDKSubscription } from '@nostr-dev-kit/ndk';
+import type NDK from '@nostr-dev-kit/ndk';
+import type { NDKEvent, NDKSubscription } from '@nostr-dev-kit/ndk';
 import { hellthreadThreshold } from '$lib/hellthreadFilterSettings';
 
 export interface Notification {

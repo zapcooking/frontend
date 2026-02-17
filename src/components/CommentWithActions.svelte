@@ -3,7 +3,7 @@
   import { nip19 } from 'nostr-tools';
   import { ndk } from '$lib/nostr';
   import { format as formatDate } from 'timeago.js';
-  import CustomAvatar from './CustomAvatar.svelte';
+  import Avatar from './Avatar.svelte';
   import { resolveProfileByPubkey, formatDisplayName } from '$lib/profileResolver';
   import CommentLikes from './CommentLikes.svelte';
   import CommentReplies from './CommentReplies.svelte';
@@ -33,7 +33,7 @@
 
 <div class="comment-row">
   <div class="comment-avatar">
-    <CustomAvatar
+    <Avatar
       className="flex-shrink-0"
       pubkey={event.pubkey}
       size={32}

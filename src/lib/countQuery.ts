@@ -277,7 +277,7 @@ export async function fetchCount(
     countCache.set(cacheKey, { result: successResult, timestamp: Date.now() });
   }
 
-  return successResult;
+  return successResult ?? null;
 }
 
 /**

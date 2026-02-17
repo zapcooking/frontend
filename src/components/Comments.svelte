@@ -12,7 +12,7 @@
   import { MentionComposerController, type MentionState } from '$lib/mentionComposer';
 
   export let event: NDKEvent;
-  let events = [];
+  let events: NDKEvent[] = [];
   let commentText = '';
   let commentComposerEl: HTMLDivElement;
   let lastRenderedComment = '';
@@ -58,7 +58,7 @@
     const filter = createCommentFilter(event);
     commentSubscription = $ndk.subscribe(filter, { closeOnEose: false });
 
-    commentSubscription.on('event', (e) => {
+    commentSubscription.on('event', (e: NDKEvent) => {
       // Prevent adding the same event multiple times
       if (processedEvents.has(e.id)) return;
       processedEvents.add(e.id);
@@ -108,10 +108,10 @@
 
     // Use shared utility to build NIP-22 or NIP-10 tags
     ev.tags = buildNip22CommentTags({
-      kind: event.kind,
+      kind: event.kind ?? 1,
       pubkey: event.author?.pubkey || event.pubkey,
       id: event.id,
-      tags: event.tags
+      tags: event.tags as string[][]
     });
 
     // Parse and add @ mention tags (p tags)
@@ -198,6 +198,7 @@
           class="comment-composer-input w-full px-4 py-3 text-base input rounded-lg"
           contenteditable="true"
           role="textbox"
+          tabindex="0"
           aria-multiline="true"
           data-placeholder="Share your thoughts..."
           on:input={() => mentionCtrl.handleInput()}

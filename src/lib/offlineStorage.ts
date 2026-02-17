@@ -165,15 +165,21 @@ class OfflineStorageManager {
 
       request.onsuccess = () => {
         this.db = request.result;
-        const storeNames = Array.from(this.db.objectStoreNames);
-        console.log('[OfflineStorage] Database initialized, version:', this.db.version, 'stores:', storeNames);
+        const db = this.db;
+        if (!db) {
+          this.dbReadyResolve();
+          resolve();
+          return;
+        }
+        const storeNames = Array.from(db.objectStoreNames);
+        console.log('[OfflineStorage] Database initialized, version:', db.version, 'stores:', storeNames);
         this.dbReadyResolve();
         resolve();
       };
 
-      request.onupgradeneeded = (event) => {
+      request.onupgradeneeded = (event: IDBVersionChangeEvent) => {
         const db = (event.target as IDBOpenDBRequest).result;
-        const oldVersion = (event as IDBVersionChangeEvent).oldVersion;
+        const oldVersion = event.oldVersion;
         console.log(`[OfflineStorage] Upgrading database from v${oldVersion} to v${DB_VERSION}`);
 
         // Create cookbooks store
@@ -431,6 +437,18 @@ class OfflineStorageManager {
       request.onsuccess = () => resolve(request.result || []);
       request.onerror = () => reject(request.error);
     });
+  }
+
+  /**
+   * Remove all queued operations for a cookbook list.
+   * pubkey is accepted for caller compatibility; queue entries are keyed by listId.
+   */
+  async deleteCookbookOperations(listId: string, _pubkey?: string): Promise<number> {
+    const operations = await this.getOperationsForList(listId);
+    for (const operation of operations) {
+      await this.removeOperation(operation.id);
+    }
+    return operations.length;
   }
 
   /**

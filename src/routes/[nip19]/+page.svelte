@@ -6,7 +6,7 @@
   import { mutedPubkeys, muteListStore } from '$lib/muteListStore';
   import { onMount, onDestroy } from 'svelte';
   import { get } from 'svelte/store';
-  import CustomAvatar from '../../components/CustomAvatar.svelte';
+  import Avatar from '../../components/Avatar.svelte';
   import CustomName from '../../components/CustomName.svelte';
   import AuthorName from '../../components/AuthorName.svelte';
   import { formatDistanceToNow } from 'date-fns';
@@ -103,7 +103,7 @@
 
         seenIds.add(parentId);
 
-        const parentNote = await $ndk.fetchEvent({ kinds: [1, 1111], ids: [parentId] });
+        const parentNote = await $ndk.fetchEvent({ kinds: [1, 1111] as any, ids: [parentId] });
         if (!parentNote) break;
 
         parents.unshift(parentNote); // Add to beginning for chronological order
@@ -293,10 +293,10 @@
 
       // Use shared utility to build NIP-22 or NIP-10 tags
       ev.tags = buildNip22CommentTags({
-        kind: event.kind,
+        kind: event.kind ?? 1,
         pubkey: event.pubkey,
         id: event.id,
-        tags: event.tags
+        tags: event.tags as string[][]
       });
 
       // Parse and add @ mention tags (p tags)
@@ -325,6 +325,7 @@
   // Filter to get only direct replies (not nested)
   $: directReplies = replies.filter((r) => {
     if (!event) return false;
+    const rootEvent = event;
 
     // For NIP-22 comments (kind 1111)
     if (r.kind === 1111) {
@@ -333,16 +334,16 @@
       const kTags = r.getMatchingTags('k');
 
       // Check if this comment's 'a' tag matches the root article address
-      const dTag = event.tags.find((t) => t[0] === 'd')?.[1];
+      const dTag = rootEvent.tags.find((t) => t[0] === 'd')?.[1];
       if (dTag) {
-        const rootAddress = `${event.kind}:${event.pubkey}:${dTag}`;
+        const rootAddress = `${rootEvent.kind}:${rootEvent.pubkey}:${dTag}`;
         const matchesRoot = aTags.some((tag) => tag[1] === rootAddress);
 
         // Check if parent 'e' tag points to root event (top-level comment)
         // and 'k' tag shows parent is the root kind (30023)
         const isTopLevel =
-          eTags.some((tag) => tag[1] === event.id) &&
-          kTags.some((tag) => tag[1] === String(event.kind));
+          eTags.some((tag) => tag[1] === rootEvent.id) &&
+          kTags.some((tag) => tag[1] === String(rootEvent.kind));
 
         return matchesRoot && isTopLevel;
       }
@@ -549,7 +550,7 @@
                       parentNote.author?.hexpubkey || parentNote.pubkey
                     )}"
                   >
-                    <CustomAvatar
+                    <Avatar
                       pubkey={parentNote.author?.hexpubkey || parentNote.pubkey}
                       size={40}
                     />
@@ -600,7 +601,7 @@
           href="/user/{nip19.npubEncode(event.author?.hexpubkey || event.pubkey)}"
           class="flex-shrink-0"
         >
-          <CustomAvatar
+          <Avatar
             className="cursor-pointer"
             pubkey={event.author?.hexpubkey || event.pubkey}
             size={40}
@@ -667,7 +668,7 @@
       {#if $userPublickey}
         <div class="mb-4 p-3 rounded-lg" style="background-color: var(--color-bg-secondary)">
           <div class="flex gap-3">
-            <CustomAvatar pubkey={$userPublickey} size={32} />
+            <Avatar pubkey={$userPublickey} size={32} />
             <div class="flex-1">
               <div class="relative">
                 <div
@@ -676,6 +677,7 @@
                   style="background-color: var(--color-bg-primary); border: 1px solid var(--color-input-border); color: var(--color-text-primary); min-height: 60px;"
                   contenteditable="true"
                   role="textbox"
+                  tabindex="0"
                   aria-multiline="true"
                   data-placeholder="Write a reply..."
                   on:input={() => mentionCtrl.handleInput()}
@@ -742,7 +744,7 @@
                       href="/user/{nip19.npubEncode(reply.author?.hexpubkey || reply.pubkey)}"
                       class="flex-shrink-0"
                     >
-                      <CustomAvatar pubkey={reply.author?.hexpubkey || reply.pubkey} size={32} />
+                      <Avatar pubkey={reply.author?.hexpubkey || reply.pubkey} size={32} />
                     </a>
                     <div class="flex-1 min-w-0">
                       <div class="flex items-center justify-between mb-1">
@@ -787,7 +789,7 @@
                             )}"
                             class="flex-shrink-0"
                           >
-                            <CustomAvatar
+                            <Avatar
                               pubkey={nestedReply.author?.hexpubkey || nestedReply.pubkey}
                               size={24}
                             />

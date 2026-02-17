@@ -55,9 +55,6 @@
       goto(`/grocery/${newList.id}`);
     } catch (error) {
       console.error('Failed to create list:', error);
-      groceryError.set(
-        `Failed to create list: ${error instanceof Error && error.message ? error.message : 'Unknown error'}`
-      );
     } finally {
       isCreating = false;
     }

@@ -47,19 +47,19 @@
         });
         
         // Add timeout protection for article loading
-        const fetchPromise = $ndk.fetchEvent({
+        const fetchPromise: Promise<NDKEvent | null> = $ndk.fetchEvent({
           '#d': [b.identifier],
           authors: [b.pubkey],
           kinds: [30023]
         });
-        const timeoutPromise = new Promise((_, reject) => 
+        const timeoutPromise = new Promise<never>((_, reject) =>
           setTimeout(() => reject(new Error('Article loading timeout - relays may be unreachable')), 10000)
         );
-        
-        let e = await Promise.race([fetchPromise, timeoutPromise]);
+
+        const e = await Promise.race<NDKEvent | null>([fetchPromise, timeoutPromise]);
         if (e) {
           // Verify it's an article (has zapreads tag)
-          const hasZapreadsTag = e.tags.some(t => t[0] === 't' && t[1] === ARTICLE_TAG);
+          const hasZapreadsTag = e.tags.some((t: string[]) => t[0] === 't' && t[1] === ARTICLE_TAG);
           if (!hasZapreadsTag) {
             throw new Error('This is not an article');
           }

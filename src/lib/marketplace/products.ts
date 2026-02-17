@@ -3,7 +3,8 @@
  * Functions to create, fetch, and parse product events (NIP-99 kind 30402)
  */
 
-import { NDKEvent, NDKRelaySet, type NDK, type NDKFilter } from '@nostr-dev-kit/ndk';
+import type NDK from '@nostr-dev-kit/ndk';
+import { NDKEvent, NDKRelaySet, type NDKFilter } from '@nostr-dev-kit/ndk';
 import {
 	PRODUCT_KIND,
 	PRODUCT_KIND_LEGACY,
@@ -197,7 +198,7 @@ export async function fetchProducts(
 		const allEvents = new Set<any>();
 		
 		const fetchPromise = new Promise<Set<any>>((resolve) => {
-			const sub = ndk.subscribe(filter, { closeOnEose: true, relaySet });
+			const sub = ndk.subscribe(filter, { closeOnEose: true, relaySet } as any);
 			
 			sub.on('event', (event: any) => {
 				allEvents.add(event);

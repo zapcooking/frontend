@@ -179,7 +179,9 @@
     }
   }
 
-  onMount(async () => {
+  onMount(() => {
+    let cleanup: (() => void) | undefined;
+    void (async () => {
     syncTipPointer();
     await loadExploreData();
 
@@ -202,6 +204,13 @@
         scrollContainer?.removeEventListener('scroll', handleLayoutChange);
       };
     }
+    })().then((result) => {
+      cleanup = result;
+    });
+
+    return () => {
+      cleanup?.();
+    };
   });
 
   function navigateToTag(tag: recipeTagSimple) {

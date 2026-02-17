@@ -16,7 +16,6 @@ import { get, writable } from 'svelte/store';
 import { ndk, userPublickey, ndkReady } from '$lib/nostr';
 // Note: ndkReady is a Promise, not a store - use await ndkReady, not get(ndkReady)
 import { NDKEvent } from '@nostr-dev-kit/ndk';
-import { getOutboxRelays } from '$lib/relayListCache';
 import { CLIENT_TAG_IDENTIFIER } from '$lib/consts';
 
 // ═══════════════════════════════════════════════════════════════
@@ -165,12 +164,9 @@ export async function saveTimerSettings(settings: TimerSettings): Promise<boolea
       ['client', CLIENT_TAG_IDENTIFIER],
     ];
 
-    // Get user's outbox relays
-    const outboxRelays = await getOutboxRelays(pubkey);
-
     // Sign and publish
     await event.sign();
-    await event.publish(outboxRelays);
+    await event.publish();
 
     console.log('[TimerSettings] Saved to relay:', settings);
     return true;

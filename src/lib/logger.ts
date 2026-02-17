@@ -227,7 +227,7 @@ export const error = (message: string, context?: string, data?: any) =>
   logger.error(message, context, data);
 
 export const performance = (action: string, duration: number, context?: string) => 
-  logger.performance(action, context, duration);
+  logger.performance(action, duration, context);
 
 export const userAction = (action: string, data?: any) => 
   logger.userAction(action, data);

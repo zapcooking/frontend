@@ -20,7 +20,8 @@
  */
 
 import { browser } from '$app/environment';
-import type { NDK, NDKEvent, NDKFilter } from '@nostr-dev-kit/ndk';
+import type NDK from '@nostr-dev-kit/ndk';
+import type { NDKEvent, NDKFilter } from '@nostr-dev-kit/ndk';
 import { NDKRelaySet } from '@nostr-dev-kit/ndk';
 import { relayListCache, type RelayList, normalizeRelayUrl } from './relayListCache';
 import { relaySelector, recordQuerySuccess, recordQueryFailure } from './relaySelector';
@@ -474,9 +475,13 @@ export class QueryBatcher {
               setTimeout(() => resolve(null), timeoutMs);
             });
             
-            const fetchPromise = this.ndk.fetchEvents(query.filter, undefined, relaySet);
-            
-            const result = await Promise.race([fetchPromise, timeoutPromise]);
+            const fetchPromise: Promise<Set<NDKEvent>> = this.ndk.fetchEvents(
+              query.filter,
+              undefined,
+              relaySet
+            ) as Promise<Set<NDKEvent>>;
+
+            const result = await Promise.race<Set<NDKEvent> | null>([fetchPromise, timeoutPromise]);
             
             const latencyMs = Date.now() - queryStart;
             
@@ -710,9 +715,13 @@ export class QueryBatcher {
           setTimeout(() => resolve(null), timeoutMs);
         });
         
-        const fetchPromise = this.ndk.fetchEvents(query.filter, undefined, relaySet);
-        
-        const result = await Promise.race([fetchPromise, timeoutPromise]);
+        const fetchPromise: Promise<Set<NDKEvent>> = this.ndk.fetchEvents(
+          query.filter,
+          undefined,
+          relaySet
+        ) as Promise<Set<NDKEvent>>;
+
+        const result = await Promise.race<Set<NDKEvent> | null>([fetchPromise, timeoutPromise]);
         
         const latencyMs = Date.now() - queryStart;
         

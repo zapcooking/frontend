@@ -1,4 +1,4 @@
-import { writable, derived, type Writable } from 'svelte/store';
+import { writable, derived, get, type Writable } from 'svelte/store';
 import { resolveProfile, resolveProfiles, formatDisplayName, type ProfileData } from './profileResolver';
 import { ndk } from './nostr';
 import type NDK from '@nostr-dev-kit/ndk';
@@ -30,11 +30,7 @@ export const profileActions = {
 
     try {
       // Get current NDK instance
-      let ndkInstance: NDK;
-      const unsubscribe = ndk.subscribe(value => {
-        ndkInstance = value;
-      });
-      unsubscribe();
+      const ndkInstance = get(ndk) as NDK | null;
       
       if (!ndkInstance) {
         throw new Error('NDK not available');
@@ -84,11 +80,7 @@ export const profileActions = {
 
     try {
       // Get current NDK instance
-      let ndkInstance: NDK;
-      const unsubscribe = ndk.subscribe(value => {
-        ndkInstance = value;
-      });
-      unsubscribe();
+      const ndkInstance = get(ndk) as NDK | null;
       
       if (!ndkInstance) {
         throw new Error('NDK not available');

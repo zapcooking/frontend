@@ -164,7 +164,7 @@
       if (!parentComment && $ndk) {
         try {
           const fetchPromise = $ndk.fetchEvent({
-            kinds: [1, 1111],
+            kinds: [1, 1111] as any,
             ids: [parentId]
           });
           const timeoutPromise = new Promise<null>((resolve) =>
@@ -196,7 +196,7 @@
       '#e': [event.id]
     });
 
-    likeSubscription.on('event', (e) => {
+    likeSubscription.on('event', (e: NDKEvent) => {
       if (processedLikes.has(e.id)) return;
       processedLikes.add(e.id);
       if (e.pubkey === $userPublickey) liked = true;
@@ -294,7 +294,17 @@
           ev.tags = buildNip22CommentTags(rootEventObj, parentEventObj);
         } else {
           // Fallback: treat parent as if it's the root
-          ev.tags = buildNip22CommentTags(parentEventObj, parentEventObj);
+          ev.tags = buildNip22CommentTags(
+            {
+              ...parentEventObj,
+              kind: parentEventObj.kind ?? 1,
+              tags: parentEventObj.tags as string[][]
+            },
+            {
+              ...parentEventObj,
+              tags: parentEventObj.tags as string[][]
+            }
+          );
         }
       } else {
         // For non-recipe replies, construct tags for standard note replies
@@ -456,6 +466,7 @@
                 class="reply-input"
                 contenteditable={!postingReply}
                 role="textbox"
+                tabindex="0"
                 aria-multiline="true"
                 data-placeholder="Add a reply..."
                 on:input={() => mentionCtrl.handleInput()}

@@ -7,6 +7,7 @@
   export let size: number = 40;
   export let className: string = '';
   export let imageUrl: string | null = null; // Optional override for profile picture
+  export let interactive: boolean = true;
   
   const dispatch = createEventDispatcher();
   
@@ -254,14 +255,19 @@
     color: white; 
     font-weight: bold; 
     font-size: {size * 0.4}px;
-    cursor: pointer;
+    cursor: {interactive ? 'pointer' : 'default'};
     overflow: hidden;
   "
-  on:click={() => dispatch('click')}
+  on:click={() => {
+    if (interactive) {
+      dispatch('click');
+    }
+  }}
   role="button"
-  tabindex="0"
+  tabindex={interactive ? 0 : -1}
+  aria-disabled={!interactive}
   on:keydown={(e) => {
-    if (e.key === 'Enter' || e.key === ' ') {
+    if (interactive && (e.key === 'Enter' || e.key === ' ')) {
       e.preventDefault();
       dispatch('click');
     }

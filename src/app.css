@@ -47,6 +47,7 @@ body {
 
 /* Define CSS custom properties for theme colors */
 :root {
+  --zap-orange: #ec4700;
   --color-primary: #ec4700;
   --color-input-bg: #f3f4f6;
   --color-input-border: #e5e7eb;
@@ -69,6 +70,7 @@ body {
 }
 
 html.dark {
+  --zap-orange: #ff7a3d;
   --color-primary: #ff5722;
   --color-input-bg: #374151;
   --color-input-border: #4b5563;

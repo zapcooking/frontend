@@ -10,7 +10,8 @@
  * - Handle payment and decryption server-side
  */
 
-import type { NDKEvent, NDK } from '@nostr-dev-kit/ndk';
+import type NDK from '@nostr-dev-kit/ndk';
+import type { NDKEvent } from '@nostr-dev-kit/ndk';
 import { NDKEvent as NDKEventClass } from '@nostr-dev-kit/ndk';
 import { encrypt, generateSecretKey, bufferToHex } from './encryption';
 import { randomBytes } from '@noble/hashes/utils.js';
@@ -418,7 +419,9 @@ export async function createKeyNote(
     throw new Error('NDK signer required to create key note');
   }
   
-  const privateKey = await ndk.signer.privateKey();
+  const signer = ndk.signer as any;
+  const privateKey =
+    typeof signer?.privateKey === 'function' ? await signer.privateKey() : null;
   if (!privateKey) {
     throw new Error('Private key not available');
   }

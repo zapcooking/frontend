@@ -50,7 +50,7 @@ function validateMnemonic(mnemonic: string): boolean {
   const validWordCounts = [12, 15, 18, 21, 24];
 
   if (!validWordCounts.includes(words.length)) {
-    logger.warn('[Spark] Invalid mnemonic word count:', words.length);
+    logger.warn('[Spark] Invalid mnemonic word count', 'spark', words.length);
     return false;
   }
 
@@ -152,7 +152,7 @@ async function initWasm(): Promise<void> {
     _wasmInitialized = true;
     logger.info('[Spark] WASM module initialized');
   } catch (error) {
-    logger.error('[Spark] Failed to initialize WASM:', error);
+    logger.error('[Spark] Failed to initialize WASM', 'spark', error);
     throw error;
   }
 }
@@ -1646,7 +1646,7 @@ export async function backupWalletToNostr(pubkey: string): Promise<any> {
     pubkey,
     mnemonic
   );
-  logger.info('[Spark] Encrypted with', encryptionMethod);
+  logger.info(`[Spark] Encrypted with ${encryptionMethod ?? 'nip44'}`);
 
   const walletId = getSparkWalletId(mnemonic);
 

@@ -18,6 +18,7 @@
 
   let zapModalOpen = false;
   let isZapping = false;
+  $: zapTarget = event ?? user;
 
   async function handleZapClick() {
     const target = event || user;
@@ -93,6 +94,6 @@
   {/if}
 </button>
 
-{#if zapModalOpen && (event || user)}
-  <ZapModal bind:open={zapModalOpen} event={event || user} on:zap-complete={handleZapComplete} />
+{#if zapModalOpen && zapTarget}
+  <ZapModal bind:open={zapModalOpen} event={zapTarget} on:zap-complete={handleZapComplete} />
 {/if}
