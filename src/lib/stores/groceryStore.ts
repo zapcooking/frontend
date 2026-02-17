@@ -218,15 +218,20 @@ function createGroceryStore() {
       // Add to local state immediately
       update(s => ({
         ...s,
-        lists: [newList, ...s.lists]
+        lists: [newList, ...s.lists],
+        error: null
       }));
 
       // Save to Nostr (immediately, no debounce for new lists)
       try {
         await saveGroceryList(newList);
-        update(s => ({ ...s, lastSaved: Date.now() }));
+        update(s => ({ ...s, lastSaved: Date.now(), error: null }));
       } catch (error) {
         console.error('[GroceryStore] Failed to save new list:', error);
+        update(s => ({ 
+          ...s, 
+          error: error instanceof Error ? error.message : 'Failed to create grocery list'
+        }));
         // Keep in local state even if save fails - will retry on next change
       }
 
