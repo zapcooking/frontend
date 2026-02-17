@@ -73,7 +73,8 @@ export const POST: RequestHandler = async ({ request, platform }) => {
       }
 
       // Look up stored metadata for this receive request
-      const metadata = getInvoiceMetadata(receiveRequestId);
+      const kv = platform?.env?.GATED_CONTENT ?? null;
+      const metadata = await getInvoiceMetadata(kv, receiveRequestId);
 
       if (!metadata) {
         console.warn('[Strike Webhook] No metadata found for receiveRequestId:', receiveRequestId);

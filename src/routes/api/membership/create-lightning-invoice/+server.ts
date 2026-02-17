@@ -156,11 +156,13 @@ export const POST: RequestHandler = async ({ request, platform }) => {
       amountSats,
       tier,
       period,
-      pubkey: pubkey.substring(0, 16) + '...',
+      pubkey,
     });
 
     // Store invoice metadata so webhook and verify endpoints can match payment to user
-    storeInvoiceMetadata(
+    const kv = platform?.env?.GATED_CONTENT ?? null;
+    await storeInvoiceMetadata(
+      kv,
       receiveRequestId,
       { pubkey, tier: tier as 'cook' | 'pro', period: period as 'annual' | 'monthly' },
       paymentHash
