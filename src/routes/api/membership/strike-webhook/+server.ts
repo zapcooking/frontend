@@ -73,7 +73,18 @@ export const POST: RequestHandler = async ({ request, platform }) => {
       }
 
       // Look up stored metadata for this receive request
-      const metadata = getInvoiceMetadata(receiveRequestId);
+      const kv = platform?.env?.GATED_CONTENT ?? null;
+      if (!kv && env.NODE_ENV === 'production') {
+        console.error('[Strike Webhook] GATED_CONTENT KV binding is missing in production environment');
+        return json(
+          {
+            error: 'Service unavailable',
+            message: 'GATED_CONTENT KV namespace is not configured'
+          },
+          { status: 503 }
+        );
+      }
+      const metadata = await getInvoiceMetadata(kv, receiveRequestId);
 
       if (!metadata) {
         console.warn('[Strike Webhook] No metadata found for receiveRequestId:', receiveRequestId);

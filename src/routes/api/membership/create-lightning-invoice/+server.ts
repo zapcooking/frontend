@@ -156,11 +156,21 @@ export const POST: RequestHandler = async ({ request, platform }) => {
       amountSats,
       tier,
       period,
-      pubkey: pubkey.substring(0, 16) + '...',
+      pubkey,
     });
 
     // Store invoice metadata so webhook and verify endpoints can match payment to user
-    storeInvoiceMetadata(
+    const kv = platform?.env?.GATED_CONTENT ?? null;
+    // In production, require the GATED_CONTENT KV binding to avoid falling back to in-memory storage
+    if (!kv && env.NODE_ENV === 'production') {
+      console.error('[Membership Lightning] GATED_CONTENT KV binding is missing in production');
+      return json(
+        { error: 'Service temporarily unavailable' },
+        { status: 503 }
+      );
+    }
+    await storeInvoiceMetadata(
+      kv,
       receiveRequestId,
       { pubkey, tier: tier as 'cook' | 'pro', period: period as 'annual' | 'monthly' },
       paymentHash
