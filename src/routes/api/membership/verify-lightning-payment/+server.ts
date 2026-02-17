@@ -71,6 +71,14 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 
     // Look up stored metadata to verify the request matches what was created
     const kv = platform?.env?.GATED_CONTENT ?? null;
+
+    // In production, missing KV binding is a misconfiguration, not a 404
+    if (!kv && env.NODE_ENV === 'production') {
+      return json(
+        { error: 'Service unavailable: GATED_CONTENT KV binding is missing' },
+        { status: 503 }
+      );
+    }
     const metadata = receiveRequestId
       ? await getInvoiceMetadata(kv, receiveRequestId)
       : await getInvoiceMetadataByPaymentHash(kv, paymentHash);
