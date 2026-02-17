@@ -191,7 +191,8 @@ function createNdk(mode: RelayMode, relayUrls: string[]): NDK {
     outboxRelayUrls: config.outboxRelayUrls,
     enableOutboxModel: config.enableOutboxModel,
     explicitRelayUrls: config.explicitRelayUrls,
-    cacheAdapter: dexieAdapter,
+    // Cast due transitive NDK minor type mismatch (2.10.0 vs 2.10.x) in installed deps.
+    cacheAdapter: dexieAdapter as any,
     autoConnectUserRelays: false
   });
 }

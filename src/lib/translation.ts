@@ -2,10 +2,20 @@ import { setCORS as googletranslate } from 'google-translate-api-browser';
 import type { TranslateOption } from './state';
 //import { translate as libretranslate } from 'libretranslate';
 
-export async function translate(translateOption: TranslateOption, string: string) {
+type TranslationResult = {
+  text: string;
+  from: { language: { iso: string } };
+};
+
+export async function translate(
+  translateOption: TranslateOption,
+  string: string
+): Promise<TranslationResult | ''> {
   if (translateOption.option == 'google') {
-    const gTranslate = googletranslate(translateOption.data);
-    // @ts-expect-error not my code, eslint got mad :(
+    const gTranslate = googletranslate(translateOption.data) as (
+      text: string,
+      options: { to: string }
+    ) => Promise<TranslationResult>;
     const e = await gTranslate(string, { to: translateOption.lang });
     return e;
   }

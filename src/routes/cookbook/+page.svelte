@@ -416,19 +416,20 @@
       
       if (success) {
         console.log('Cover recipe updated successfully');
+        const selectedListId = selectedList.id;
         
         // Clear cover image cache for this list
-        coverImages.delete(selectedList.id);
+        coverImages.delete(selectedListId);
         
         // Get updated list from store
         const updatedStoreState = get(cookbookStore);
-        const updatedList = updatedStoreState.lists.find(l => l.id === selectedList.id);
+        const updatedList = updatedStoreState.lists.find(l => l.id === selectedListId);
         
         if (updatedList) {
           // Reload cover image immediately with cache-busting
           const newCoverImage = await getCookbookCoverImage(updatedList, $ndk, true);
           if (newCoverImage) {
-            coverImages.set(selectedList.id, newCoverImage);
+            coverImages.set(selectedListId, newCoverImage);
             coverImages = new Map(coverImages); // Trigger reactivity
           }
         } else {

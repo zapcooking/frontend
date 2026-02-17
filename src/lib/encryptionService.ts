@@ -20,6 +20,14 @@ import { nip19 } from 'nostr-tools';
 
 export type EncryptionMethod = 'nip44' | 'nip04' | null;
 
+type SignerWithEncryption = {
+  nip44Encrypt?: (recipient: NDKUser, plaintext: string) => Promise<string>;
+  nip04Encrypt?: (recipient: NDKUser, plaintext: string) => Promise<string>;
+  nip44Decrypt?: (sender: NDKUser, ciphertext: string) => Promise<string>;
+  nip04Decrypt?: (sender: NDKUser, ciphertext: string) => Promise<string>;
+  constructor?: { name?: string };
+};
+
 /**
  * Get private key from localStorage if available
  */
@@ -55,7 +63,7 @@ export function hasEncryptionSupport(): boolean {
   if (!browser) return false;
 
   const ndkInstance = get(ndk);
-  const signer = ndkInstance.signer;
+  const signer = ndkInstance.signer as SignerWithEncryption | null | undefined;
   const signerName = signer?.constructor?.name || '';
 
   // Check by signer type (use includes() to handle minified class names like _NDKPrivateKeySigner)
@@ -113,7 +121,7 @@ export async function getEncryptionMethod(): Promise<EncryptionMethod> {
   if (!browser) return null;
 
   const ndkInstance = get(ndk);
-  const signer = ndkInstance.signer;
+  const signer = ndkInstance.signer as SignerWithEncryption | null | undefined;
 
   // If we have an NDK signer, it supports encryption via its interface
   if (signer) {
@@ -185,7 +193,7 @@ export async function encrypt(
   }
 
   const ndkInstance = get(ndk);
-  const signer = ndkInstance.signer;
+  const signer = ndkInstance.signer as SignerWithEncryption | null | undefined;
   const signerName = signer?.constructor?.name || '';
 
 
@@ -415,7 +423,7 @@ export async function decrypt(
 
       // Fallback to NDK signer (for NIP-46 remote signers, etc.)
       const ndkInstance = get(ndk);
-      const signer = ndkInstance.signer;
+      const signer = ndkInstance.signer as SignerWithEncryption | null | undefined;
       if (signer) {
         const sender = new NDKUser({ pubkey: senderPubkey });
 

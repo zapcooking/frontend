@@ -596,7 +596,7 @@
         <input
           type="text"
           inputmode="decimal"
-          pattern="\\d*(\\.\\d{(0, 1)})?"
+          pattern="\\d*(\\.\\d?)?"
           bind:value={quickMinutesInput}
           class="quick-minutes"
           on:input={handleMinutesInput}

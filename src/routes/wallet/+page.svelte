@@ -29,6 +29,8 @@
     isValidNwcUrl,
     getPaymentHistory,
     pendingTransactions,
+    addPendingTransaction,
+    updatePendingTransaction,
     removePendingTransaction,
     transactionsNeedRefresh,
     ensurePendingTransactionsLoaded,
@@ -439,6 +441,7 @@
     recipient?: string; // Lightning address or npub
     pubkey?: string; // Nostr pubkey for zap sender/recipient
     comment?: string; // Zap comment
+    txid?: string;
   }
 
   function getTransactionMetadata(txId: string): TransactionMetadata | null {
@@ -2338,7 +2341,7 @@
               <FiatBalance satoshis={$walletBalance} visible={$balanceVisible} />
             </div>
             <!-- Syncing indicator when Spark wallet balance is zero -->
-            {#if $activeWallet?.kind === 4 && $walletBalance === 0n && $sparkSyncing}
+            {#if $activeWallet?.kind === 4 && $walletBalance === 0 && $sparkSyncing}
               <div class="text-xs text-caption flex items-center gap-1 mt-1 ml-11">
                 <ArrowsClockwiseIcon size={12} class="animate-spin" />
                 Syncing wallet...
@@ -4242,7 +4245,7 @@
                     <!-- NWC wallet: Download works without encryption -->
                     <button
                       class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer bg-amber-500 hover:bg-amber-600 text-black"
-                      on:click={() => handleDownloadNwcBackup(walletToDelete)}
+                      on:click={() => walletToDelete && handleDownloadNwcBackup(walletToDelete)}
                       disabled={isBackingUp}
                     >
                       <DownloadSimpleIcon size={16} />
@@ -4253,9 +4256,11 @@
                     <button
                       class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer bg-black hover:bg-gray-800 text-white"
                       on:click={() =>
-                        walletToDelete.kind === 4
+                        walletToDelete?.kind === 4
                           ? handleBackupToNostr()
-                          : handleNwcBackupToNostr(walletToDelete)}
+                          : walletToDelete
+                            ? handleNwcBackupToNostr(walletToDelete)
+                            : undefined}
                       disabled={isBackingUp}
                     >
                       <CloudArrowUpIcon size={16} />
@@ -4599,7 +4604,7 @@
                   <div>
                     <div class="flex items-center justify-between mb-2">
                       <label class="block text-sm font-medium text-caption">Amount (sats)</label>
-                      {#if isBtcAddress && $activeWallet?.kind === 4 && $walletBalance !== null && $walletBalance > 0n}
+                      {#if isBtcAddress && $activeWallet?.kind === 4 && $walletBalance !== null && $walletBalance > 0}
                         <button
                           type="button"
                           class="text-xs text-amber-500 hover:text-amber-400 font-medium"
@@ -4984,9 +4989,7 @@
                       class="w-full"
                       use:qr={{
                         data: `bitcoin:${onchainAddress}`,
-                        shape: 'circle',
-                        width: 100,
-                        height: 100
+                        shape: 'circle'
                       }}
                     />
                   </div>
@@ -5354,9 +5357,7 @@
                         class="w-full"
                         use:qr={{
                           data: generatedInvoice,
-                          shape: 'circle',
-                          width: 100,
-                          height: 100
+                          shape: 'circle'
                         }}
                       />
                     </div>

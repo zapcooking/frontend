@@ -11,7 +11,7 @@
   import { GATED_RECIPE_KIND } from '$lib/consts';
 
   // Make data optional for static builds (Capacitor)
-  export let data: PageData = { ogMeta: null } as PageData;
+  export let data: PageData = { membershipEnabled: 'false', ogMeta: null } as unknown as PageData;
 
   let event: NDKEvent | null = null;
   let naddr: string = '';
@@ -48,16 +48,16 @@
         });
         
         // Add timeout protection for recipe loading
-        const fetchPromise = $ndk.fetchEvent({
+        const fetchPromise: Promise<NDKEvent | null> = $ndk.fetchEvent({
           '#d': [b.identifier],
           authors: [b.pubkey],
           kinds: [recipeKind as number]
         });
-        const timeoutPromise = new Promise((_, reject) => 
+        const timeoutPromise = new Promise<never>((_, reject) =>
           setTimeout(() => reject(new Error('Recipe loading timeout - relays may be unreachable')), 10000)
         );
         
-        let e = await Promise.race([fetchPromise, timeoutPromise]);
+        const e = await Promise.race<NDKEvent | null>([fetchPromise, timeoutPromise]);
         if (e) {
           event = e;
           loading = false;
@@ -67,12 +67,12 @@
         }
       } else {
         // Add timeout protection for direct event ID loading
-        const fetchPromise = $ndk.fetchEvent($page.params.slug);
-        const timeoutPromise = new Promise((_, reject) => 
+        const fetchPromise: Promise<NDKEvent | null> = $ndk.fetchEvent($page.params.slug);
+        const timeoutPromise = new Promise<never>((_, reject) =>
           setTimeout(() => reject(new Error('Recipe loading timeout - relays may be unreachable')), 10000)
         );
         
-        let e = await Promise.race([fetchPromise, timeoutPromise]);
+        const e = await Promise.race<NDKEvent | null>([fetchPromise, timeoutPromise]);
         if (e) {
           event = e;
           const id = e.tags.find((z: any) => z[0] == 'd')?.[1];
@@ -82,12 +82,12 @@
           naddr = nip19.naddrEncode({
             identifier: id,
             kind: e.kind,
-            pubkey: e.author.pubkey
+            pubkey: e.pubkey
           });
           const c = nip19.naddrEncode({
             identifier: id,
             kind: e.kind,
-            pubkey: e.author.pubkey
+            pubkey: e.pubkey
           });
           loading = false;
           goto(`/recipe/${c}`);
@@ -204,6 +204,7 @@
     const sp = t.lastIndexOf(' ');
     return (sp > 80 ? t.slice(0, sp) : t) + '...';
   })();
+  $: publishedAt = event?.created_at ?? data?.ogMeta?.created_at ?? null;
 </script>
 
 <svelte:head>
@@ -218,8 +219,8 @@
   <meta property="og:image" content={og_image} />
   <meta property="og:image:secure_url" content={og_image} />
   <meta property="og:site_name" content="zap.cooking" />
-  {#if event?.created_at || data?.ogMeta?.created_at}
-    <meta property="article:published_time" content={new Date((event?.created_at || data?.ogMeta?.created_at) * 1000).toISOString()} />
+  {#if publishedAt !== null}
+    <meta property="article:published_time" content={new Date(publishedAt * 1000).toISOString()} />
   {/if}
   {#if event?.pubkey || data?.ogMeta?.pubkey}
     <meta property="article:author" content={`https://zap.cooking/p/${event?.pubkey || data?.ogMeta?.pubkey}`} />

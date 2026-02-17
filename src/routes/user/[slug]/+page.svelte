@@ -8,7 +8,7 @@
   import { validateMarkdownTemplate } from '$lib/parser';
   import { goto } from '$app/navigation';
   import { page } from '$app/stores';
-  import CustomAvatar from '../../../components/CustomAvatar.svelte';
+  import Avatar from '../../../components/Avatar.svelte';
   import CustomName from '../../../components/CustomName.svelte';
   import Button from '../../../components/Button.svelte';
   import LightningIcon from 'phosphor-svelte/lib/Lightning';
@@ -87,8 +87,8 @@
 
   // Profile picture upload state
   let uploadingPicture = false;
-  let pictureInputEl: HTMLInputElement;
-  let avatarRefreshKey = 0; // Used to force CustomAvatar to remount after picture change
+  let pictureInputEl: HTMLInputElement | null = null;
+  let avatarRefreshKey = 0; // Used to force Avatar remount after picture change
 
   // Profile edit modal state
   let profileEditModal = false;
@@ -967,7 +967,7 @@
         userProfilePictureOverride.set(newPictureUrl);
         console.log('[Profile Upload] Store value after set:', $userProfilePictureOverride);
 
-        // Force CustomAvatar to remount with fresh data
+        // Force Avatar to remount with fresh data
         avatarRefreshKey++;
 
         // Reload profile data with force refresh
@@ -1169,7 +1169,7 @@
             >{profile.lud16 || profile.lud06}</span
           >
           <button
-            on:click={() => copyLightningAddress(profile.lud16 || profile.lud06)}
+            on:click={() => copyLightningAddress(profile?.lud16 || profile?.lud06 || '')}
             class="text-caption hover:text-primary transition-colors cursor-pointer flex-shrink-0"
             title="Copy lightning address"
           >
@@ -1300,11 +1300,11 @@
         title="View profile details"
       >
         {#key `${hexpubkey}-${avatarRefreshKey}`}
-          <CustomAvatar
+          <Avatar
             className="cursor-pointer"
             pubkey={hexpubkey || ''}
             size={80}
-            imageUrl={$userPublickey === hexpubkey ? $userProfilePictureOverride : null}
+            src={$userPublickey === hexpubkey ? $userProfilePictureOverride : null}
           />
         {/key}
       </button>

@@ -111,13 +111,13 @@
     <h3 class="text-lg font-semibold text-neutral-100">Relay Health Monitor</h3>
     <div class="flex gap-2">
       <button
-        onclick={logToConsole}
+        on:click={logToConsole}
         class="px-3 py-1 bg-neutral-800 hover:bg-neutral-700 rounded text-neutral-300 text-xs"
       >
         📊 Console
       </button>
       <button
-        onclick={resetAll}
+        on:click={resetAll}
         class="px-3 py-1 bg-red-900 hover:bg-red-800 rounded text-red-200 text-xs"
       >
         🗑️ Reset All
@@ -200,7 +200,7 @@
               </td>
               <td class="py-2">
                 <button
-                  onclick={() => resetRelay(stats.url)}
+                  on:click={() => resetRelay(stats.url)}
                   class="text-xs text-neutral-500 hover:text-neutral-300"
                   title="Reset stats"
                 >
@@ -216,7 +216,7 @@
     {#if healthStats.length > 20}
       <div class="mt-3 text-center">
         <button
-          onclick={() => showAll = !showAll}
+          on:click={() => showAll = !showAll}
           class="text-xs text-neutral-400 hover:text-neutral-200"
         >
           {showAll ? 'Show less' : `Show all ${healthStats.length} relays`}

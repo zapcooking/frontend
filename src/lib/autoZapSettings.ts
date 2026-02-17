@@ -14,7 +14,6 @@ import { writable, get } from 'svelte/store';
 import { browser } from '$app/environment';
 import { ndk, userPublickey, ndkReady } from '$lib/nostr';
 import { NDKEvent } from '@nostr-dev-kit/ndk';
-import { getOutboxRelays } from '$lib/relayListCache';
 import { CLIENT_TAG_IDENTIFIER } from '$lib/consts';
 
 // Storage keys
@@ -185,7 +184,7 @@ export async function loadOneTapZapSettings(): Promise<OneTapZapSettings> {
   lastLoadedPubkey = pubkey;
 
   try {
-    await get(ndkReady);
+    await ndkReady;
     const ndkInstance = get(ndk);
     if (!ndkInstance) return localSettings;
 
@@ -227,7 +226,7 @@ async function publishOneTapZapSettings(settings: OneTapZapSettings): Promise<bo
   }
 
   try {
-    await get(ndkReady);
+    await ndkReady;
     const ndkInstance = get(ndk);
     if (!ndkInstance) return false;
 
@@ -239,10 +238,9 @@ async function publishOneTapZapSettings(settings: OneTapZapSettings): Promise<bo
       ['client', CLIENT_TAG_IDENTIFIER]
     ];
 
-    const outboxRelays = await getOutboxRelays(pubkey);
-
     await event.sign();
-    await event.publish(outboxRelays);
+    // Publish via NDK defaults to avoid relay-set type mismatches across NDK versions.
+    await event.publish();
 
     console.log('[OneTapZap] Saved to relay:', settings);
     return true;

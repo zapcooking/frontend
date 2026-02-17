@@ -83,7 +83,8 @@ export class FeedCacheService {
     
     // Prevent multiple simultaneous refreshes for the same filter
     if (this.refreshPromises.has(cacheKey)) {
-      return this.refreshPromises.get(cacheKey);
+      await this.refreshPromises.get(cacheKey);
+      return;
     }
 
     const refreshPromise = this.performBackgroundRefresh(options);

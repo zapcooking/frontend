@@ -230,7 +230,6 @@ export function createBackgroundEngagementLoader(
   if (!browser) return () => {};
   
   let isRunning = true;
-  let subscription: NDKSubscription | null = null;
   
   async function loadLoop() {
     while (isRunning) {
@@ -262,9 +261,6 @@ export function createBackgroundEngagementLoader(
   
   return () => {
     isRunning = false;
-    if (subscription) {
-      subscription.stop();
-    }
   };
 }
 

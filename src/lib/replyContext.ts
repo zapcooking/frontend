@@ -5,7 +5,8 @@
  * This prevents the waterfall of individual fetches as replies render.
  */
 
-import type { NDK, NDKEvent } from '@nostr-dev-kit/ndk';
+import type NDK from '@nostr-dev-kit/ndk';
+import type { NDKEvent } from '@nostr-dev-kit/ndk';
 import { nip19 } from 'nostr-tools';
 
 // ═══════════════════════════════════════════════════════════════

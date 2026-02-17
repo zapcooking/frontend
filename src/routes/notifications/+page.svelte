@@ -10,7 +10,7 @@
   import { browser } from '$app/environment';
   import { formatDistanceToNow } from 'date-fns';
   import { nip19, nip21 } from 'nostr-tools';
-  import CustomAvatar from '../../components/CustomAvatar.svelte';
+  import Avatar from '../../components/Avatar.svelte';
   import CustomName from '../../components/CustomName.svelte';
   import { userPublickey, ndk } from '$lib/nostr';
   import { hellthreadThreshold } from '$lib/hellthreadFilterSettings';
@@ -667,7 +667,7 @@
               style="border-color: var(--color-input-border);"
             >
               <div class="relative flex-shrink-0">
-                <CustomAvatar pubkey={notification.fromPubkey} size={48} />
+                <Avatar pubkey={notification.fromPubkey} size={48} />
                 <span class="absolute -bottom-1 -right-1 text-lg">
                   {getIcon(notification.type)}
                 </span>
@@ -701,7 +701,7 @@
                       <div class="mt-1 h-3 bg-accent-gray rounded w-48 animate-pulse"></div>
                     {:else if refId && ctx}
                       <div class="flex items-center gap-2">
-                        <CustomAvatar pubkey={ctx.pubkey} size={18} />
+                        <Avatar pubkey={ctx.pubkey} size={18} />
                         <span
                           class="text-xs font-medium"
                           style="color: var(--color-text-secondary);"

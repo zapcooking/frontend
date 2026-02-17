@@ -1,4 +1,4 @@
-import { writable, type Writable } from 'svelte/store';
+import { writable, type Readable } from 'svelte/store';
 import { browser } from '$app/environment';
 
 export type Theme = 'light' | 'dark' | 'system';
@@ -36,7 +36,7 @@ function applyTheme(theme: 'light' | 'dark') {
 	}
 }
 
-function createThemeStore(): Writable<Theme> & {
+function createThemeStore(): Readable<Theme> & {
 	initialize: () => void;
 	setTheme: (theme: Theme) => void;
 	getResolvedTheme: () => 'light' | 'dark';

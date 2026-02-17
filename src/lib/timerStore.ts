@@ -94,7 +94,7 @@ async function initDatabase(): Promise<void> {
       resolve();
     };
 
-    request.onupgradeneeded = (event) => {
+    request.onupgradeneeded = (event: IDBVersionChangeEvent) => {
       const database = (event.target as IDBOpenDBRequest).result;
 
       // Create timers store

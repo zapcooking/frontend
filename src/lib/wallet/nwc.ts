@@ -117,7 +117,7 @@ function normalizeSecretKey(secret: string): string {
  */
 function getPublicKey(secret: string): string {
 	const secretHex = normalizeSecretKey(secret)
-	return nostrGetPublicKey(secretHex)
+	return nostrGetPublicKey(secretHex as any)
 }
 
 /**

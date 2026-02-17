@@ -32,6 +32,10 @@
   let drafts: RecipeDraft[] = [];
   let loaded = false;
 
+  function getDraftSyncStatus(draft: RecipeDraft): 'local' | 'syncing' | 'synced' | 'error' {
+    return ((draft as any).syncStatus ?? 'local') as 'local' | 'syncing' | 'synced' | 'error';
+  }
+
   async function handleRefresh() {
     try {
       if ($draftSyncState.syncAvailable) {
@@ -167,8 +171,7 @@
   {:else}
     <div class="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
       {#each drafts as draft (draft.id)}
-        {@const draftWithSync = /** @type {any} */ (draft)}
-        {@const syncStatus = draftWithSync.syncStatus}
+        {@const syncStatus = getDraftSyncStatus(draft)}
         {@const SyncIcon = getSyncIcon(syncStatus)}
         <div
           class="flex flex-col gap-3 p-4 rounded-xl transition-all hover:scale-[1.02]"

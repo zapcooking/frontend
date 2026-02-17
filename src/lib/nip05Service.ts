@@ -1,5 +1,5 @@
 import { browser } from '$app/environment';
-import type { NDK } from '@nostr-dev-kit/ndk';
+import type NDK from '@nostr-dev-kit/ndk';
 import { NDKEvent } from '@nostr-dev-kit/ndk';
 import { profileCacheManager } from './profileCache';
 
@@ -148,7 +148,7 @@ export async function updateProfileWithNip05(
     
     if (events.size > 0) {
       // Get the latest profile event
-      const latestEvent = Array.from(events).sort((a, b) =>
+      const latestEvent = (Array.from(events) as NDKEvent[]).sort((a, b) =>
         (b.created_at || 0) - (a.created_at || 0)
       )[0];
       

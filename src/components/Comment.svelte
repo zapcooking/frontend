@@ -3,7 +3,7 @@
   import { ndk, userPublickey } from '$lib/nostr';
   import { nip19 } from 'nostr-tools';
   import { format as formatDate } from 'timeago.js';
-  import CustomAvatar from './CustomAvatar.svelte';
+  import Avatar from './Avatar.svelte';
   import ZapModal from './ZapModal.svelte';
   import { resolveProfileByPubkey, formatDisplayName } from '$lib/profileResolver';
   import { formatAmount } from '$lib/utils';
@@ -127,7 +127,7 @@
       if (!parentComment && $ndk) {
         try {
           const fetchPromise = $ndk.fetchEvent({
-            kinds: [1, 1111],
+            kinds: [1, 1111] as any,
             ids: [parentId]
           });
           const timeoutPromise = new Promise<null>((resolve) =>
@@ -159,7 +159,7 @@
       '#e': [event.id]
     });
 
-    likeSubscription.on('event', (e) => {
+    likeSubscription.on('event', (e: NDKEvent) => {
       if (processedLikes.has(e.id)) return;
       processedLikes.add(e.id);
       if (e.pubkey === $userPublickey) liked = true;
@@ -285,10 +285,23 @@
         };
 
         // Use the utility with both root and parent event
-        ev.tags = buildNip22CommentTags(rootEventObj, parentEventObj);
+        ev.tags = buildNip22CommentTags(rootEventObj, {
+          ...parentEventObj,
+          tags: parentEventObj.tags as string[][]
+        });
       } else {
         // Fallback: treat parent as if it's the root
-        ev.tags = buildNip22CommentTags(parentEventObj, parentEventObj);
+        ev.tags = buildNip22CommentTags(
+          {
+            ...parentEventObj,
+            kind: parentEventObj.kind ?? 1,
+            tags: parentEventObj.tags as string[][]
+          },
+          {
+            ...parentEventObj,
+            tags: parentEventObj.tags as string[][]
+          }
+        );
       }
     } else {
       // For non-recipe replies, we still need to construct a root event object
@@ -367,7 +380,7 @@
   {#if !parentLoading && parentComment}
     <div class="parent-quote">
       <div class="parent-quote-header">
-        <CustomAvatar pubkey={parentComment.pubkey} size={16} />
+        <Avatar pubkey={parentComment.pubkey} size={16} />
         <span class="parent-quote-author">{parentDisplayName || 'Loading...'}</span>
       </div>
       <p class="parent-quote-content">{truncateContent(parentComment.content)}</p>
@@ -378,7 +391,7 @@
   <div class="comment-row">
     <!-- Avatar -->
     <a href="/user/{nip19.npubEncode(event.pubkey)}" class="comment-avatar">
-      <CustomAvatar className="rounded-full" pubkey={event.pubkey} size={40} />
+      <Avatar className="rounded-full" pubkey={event.pubkey} size={40} />
     </a>
 
     <!-- Content -->
@@ -453,6 +466,7 @@
               class="reply-input"
               contenteditable={!postingReply}
               role="textbox"
+              tabindex="0"
               aria-multiline="true"
               data-placeholder="Add a reply..."
               on:input={() => mentionCtrl.handleInput()}

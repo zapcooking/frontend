@@ -9,7 +9,8 @@
  * - Integration with RelayListCache for NIP-65 caching
  */
 
-import type { NDK, NDKEvent, NDKFilter } from '@nostr-dev-kit/ndk';
+import type NDK from '@nostr-dev-kit/ndk';
+import type { NDKEvent, NDKFilter } from '@nostr-dev-kit/ndk';
 import { NDKRelaySet } from '@nostr-dev-kit/ndk';
 import { relayListCache, type RelayList } from './relayListCache';
 import { relaySelector, recordQuerySuccess, recordQueryFailure } from './relaySelector';
@@ -233,8 +234,8 @@ export async function fetchFollowList(
     }
     
     const follows: FollowWithRelays[] = contactEvent.tags
-      .filter(tag => tag[0] === 'p' && tag[1])
-      .map(tag => ({
+      .filter((tag: string[]) => tag[0] === 'p' && tag[1])
+      .map((tag: string[]) => ({
         pubkey: tag[1],
         relayHints: tag[2] && isValidRelayUrl(tag[2]) 
           ? [normalizeRelayUrl(tag[2])] 

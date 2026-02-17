@@ -112,7 +112,7 @@ export async function getPrivateRelays(pubkey: string): Promise<string[]> {
 
     // Try to fetch kind 10013 event
     const filter: NDKFilter = {
-      kinds: [KIND_PRIVATE_RELAY_LIST],
+      kinds: [KIND_PRIVATE_RELAY_LIST as any],
       authors: [pubkey],
       limit: 1
     };

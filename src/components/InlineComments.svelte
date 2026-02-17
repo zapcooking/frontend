@@ -41,7 +41,7 @@
       const filter = createCommentFilter(event);
       commentSubscription = $ndk.subscribe(filter, { closeOnEose: true });
       
-      commentSubscription.on("event", (ev) => {
+      commentSubscription.on("event", (ev: NDKEvent) => {
         loading = false;
         comments.push(ev);
         comments = comments;
@@ -107,10 +107,10 @@
       
       // Use shared utility to build NIP-22 or NIP-10 tags
       commentEvent.tags = buildNip22CommentTags({
-        kind: event.kind,
+        kind: event.kind ?? 1,
         pubkey: event.pubkey,
         id: event.id,
-        tags: event.tags
+        tags: event.tags as string[][]
       });
       
       // Add NIP-89 client tag
@@ -156,10 +156,10 @@
           
           // Use shared utility to build NIP-22 or NIP-10 tags
           newCommentEvent.tags = buildNip22CommentTags({
-            kind: event.kind,
+            kind: event.kind ?? 1,
             pubkey: event.pubkey,
             id: event.id,
-            tags: event.tags
+            tags: event.tags as string[][]
           });
           
           // Add NIP-89 client tag

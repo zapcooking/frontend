@@ -403,7 +403,7 @@
           l.id === listId 
             ? { 
                 ...l, 
-                coverRecipeId: selectedCoverRecipeATag,
+                coverRecipeId: selectedCoverRecipeATag ?? undefined,
                 event: newEvent
               }
             : l

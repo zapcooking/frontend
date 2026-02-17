@@ -404,7 +404,7 @@ export async function getPendingNotifications(): Promise<number[]> {
   try {
     const LocalNotifications = await getLocalNotifications();
     const pending = await LocalNotifications.getPending();
-    return pending.notifications.map(n => n.id);
+    return pending.notifications.map((n: { id: number }) => n.id);
   } catch (error) {
     console.error('[Notifications] Error getting pending notifications:', error);
     return [];

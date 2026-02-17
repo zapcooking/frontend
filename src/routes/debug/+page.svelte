@@ -42,8 +42,8 @@
         setTimeout(() => reject(new Error('Timeout')), 10000)
       );
       
-      const events = await Promise.race([
-        $ndk.fetchEvents(testFilter, undefined, relaySet),
+      const events = await Promise.race<Set<NDKEvent>>([
+        $ndk.fetchEvents(testFilter, undefined, relaySet) as Promise<Set<NDKEvent>>,
         timeoutPromise
       ]);
       
@@ -145,12 +145,12 @@
           
           // Test basic connectivity with shorter timeout
           const filter = { kinds: [1], limit: 1 };
-          const fetchPromise = $ndk.fetchEvents(filter);
-          const timeoutPromise = new Promise((_, reject) => 
+          const fetchPromise: Promise<Set<NDKEvent>> = $ndk.fetchEvents(filter) as Promise<Set<NDKEvent>>;
+          const timeoutPromise = new Promise<never>((_, reject) =>
             setTimeout(() => reject(new Error('Connection timeout after 5 seconds')), 5000)
           );
-          
-          const events = await Promise.race([fetchPromise, timeoutPromise]);
+
+          const events = await Promise.race<Set<NDKEvent>>([fetchPromise, timeoutPromise]);
           
           debugInfo = `✅ Success! Found ${events.size} events. NDK is working.`;
           isConnected = true;
@@ -161,13 +161,14 @@
         debugInfo = '❌ NDK instance not found';
       }
     } catch (error) {
-      debugInfo = `❌ Error: ${error.message}`;
+      const message = error instanceof Error ? error.message : String(error);
+      debugInfo = `❌ Error: ${message}`;
       console.error('Debug error:', error);
       
       // Try to get more info about the error
-      if (error.message.includes('timeout')) {
+      if (message.includes('timeout')) {
         debugInfo += ' - This suggests the relays are not responding.';
-      } else if (error.message.includes('WebSocket')) {
+      } else if (message.includes('WebSocket')) {
         debugInfo += ' - WebSocket connection failed.';
       }
     }

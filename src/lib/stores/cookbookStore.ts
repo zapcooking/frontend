@@ -1118,7 +1118,7 @@ export async function getCookbookCoverImage(
         }, { groupable: false });
         
         if (recipeEvent) {
-          const image = recipeEvent.tags.find(t => t[0] === 'image')?.[1];
+          const image = recipeEvent.tags.find((t: string[]) => t[0] === 'image')?.[1];
           if (image) {
             return forceRefresh ? `${image}?t=${Date.now()}` : image;
           }
@@ -1141,7 +1141,7 @@ export async function getCookbookCoverImage(
           authors: [pubkey]
         });
         if (recipeEvent) {
-          const image = recipeEvent.tags.find(t => t[0] === 'image')?.[1];
+          const image = recipeEvent.tags.find((t: string[]) => t[0] === 'image')?.[1];
           if (image) {
             return forceRefresh ? `${image}?t=${Date.now()}` : image;
           }

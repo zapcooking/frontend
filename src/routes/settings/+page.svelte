@@ -342,7 +342,7 @@
   $: connectedRelaySet = new Set(connectedRelays.map(normalizeRelayUrl));
 
   // Wallet info
-  $: connectedWallets = $wallets.filter((w) => w.kind !== 0);
+  $: connectedWallets = $wallets;
   $: activeWallet = connectedWallets.find((w) => w.active);
   // Check if user has an in-app wallet (Spark kind=4 or NWC kind=3) for auto-zap
   $: hasInAppWallet = $wallets.some((w) => w.kind === 3 || w.kind === 4);

@@ -199,7 +199,7 @@
                 <button
                   type="button"
                   class="add-to-profile-button"
-                  on:click={() => autoUpdateProfileNip05(nip05)}
+                  on:click={() => nip05 && autoUpdateProfileNip05(nip05)}
                 >
                   Add to Profile
                 </button>

@@ -8,7 +8,8 @@
  * - Subscription reuse to prevent duplicate connections
  */
 
-import type { NDK, NDKEvent, NDKFilter, NDKSubscription } from '@nostr-dev-kit/ndk';
+import type NDK from '@nostr-dev-kit/ndk';
+import type { NDKEvent, NDKFilter, NDKSubscription } from '@nostr-dev-kit/ndk';
 
 // ═══════════════════════════════════════════════════════════════
 // TYPES

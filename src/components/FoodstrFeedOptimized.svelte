@@ -34,7 +34,7 @@
     isThreadMuted
   } from '$lib/mutableIntegration';
   import { formatDistanceToNow } from 'date-fns';
-  import CustomAvatar from './CustomAvatar.svelte';
+  import Avatar from './Avatar.svelte';
   import type { NDKEvent, NDKSubscription } from '@nostr-dev-kit/ndk';
   import { NDKSubscriptionCacheUsage } from '@nostr-dev-kit/ndk';
   import NoteTotalLikes from './NoteTotalLikes.svelte';
@@ -3369,6 +3369,16 @@
     loading = false;
   }
 
+  function unmuteAuthor(pubkey: string): void {
+    const mutedUsers = JSON.parse(localStorage.getItem('mutedUsers') || '[]') as string[];
+    const updated = mutedUsers.filter((pk) => pk !== pubkey);
+    localStorage.setItem('mutedUsers', JSON.stringify(updated));
+    invalidateMutedUsersCache();
+    muteListStore.invalidate();
+    muteListStore.load(true);
+    void retryWithDelay();
+  }
+
   // ═══════════════════════════════════════════════════════════════
   // CLEANUP
   // ═══════════════════════════════════════════════════════════════
@@ -4680,13 +4690,7 @@
             <button
               on:click={() => {
                 if (authorPubkey) {
-                  const mutedUsers = JSON.parse(localStorage.getItem('mutedUsers') || '[]');
-                  const updated = mutedUsers.filter((pk) => pk !== authorPubkey);
-                  localStorage.setItem('mutedUsers', JSON.stringify(updated));
-                  invalidateMutedUsersCache();
-                  muteListStore.invalidate();
-                  muteListStore.load(true);
-                  retryWithDelay();
+                  unmuteAuthor(authorPubkey);
                 }
               }}
               class="px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors"
@@ -4758,7 +4762,7 @@
                     href="/user/{nip19.npubEncode(event.author?.hexpubkey || event.pubkey)}"
                     class="flex-shrink-0"
                   >
-                    <CustomAvatar
+                    <Avatar
                       className="cursor-pointer"
                       pubkey={event.author?.hexpubkey || event.pubkey}
                       size={40}
@@ -4821,7 +4825,7 @@
                       >
                         <div class="parent-quote-header">
                           {#if context.authorPubkey}
-                            <CustomAvatar pubkey={context.authorPubkey} size={16} />
+                            <Avatar pubkey={context.authorPubkey} size={16} />
                           {/if}
                           <span class="parent-quote-author">
                             {#if context.error === 'deleted'}
@@ -4914,7 +4918,7 @@
                       >
                         <div class="parent-quote-header">
                           {#if context.authorPubkey}
-                            <CustomAvatar pubkey={context.authorPubkey} size={16} />
+                            <Avatar pubkey={context.authorPubkey} size={16} />
                           {/if}
                           <span class="parent-quote-author">
                             {#if context.error === 'deleted'}

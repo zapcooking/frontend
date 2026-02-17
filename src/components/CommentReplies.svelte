@@ -3,7 +3,7 @@
   import { ndk, userPublickey } from '$lib/nostr';
   import { NDKEvent } from '@nostr-dev-kit/ndk';
   import { mutedPubkeys } from '$lib/muteListStore';
-  import CustomAvatar from './CustomAvatar.svelte';
+  import Avatar from './Avatar.svelte';
   import CustomName from './CustomName.svelte';
   import { nip19 } from 'nostr-tools';
   import { format as formatDate } from 'timeago.js';
@@ -73,13 +73,13 @@
       // Use subscribe collection for more reliable reply loading
       replySubscription = $ndk.subscribe(
         {
-          kinds: [1, 1111],
+          kinds: [1, 1111] as any,
           '#e': [parentComment.id] // Replies that reference this comment
         },
         { closeOnEose: true }
       );
 
-      replySubscription.on('event', (ev) => {
+      replySubscription.on('event', (ev: NDKEvent) => {
         loading = false;
         replies.push(ev);
         replies = replies;
@@ -158,7 +158,17 @@
           replyEvent.tags = buildNip22CommentTags(rootEventObj, parentEventObj);
         } else {
           // Fallback: treat parent as if it's the root
-          replyEvent.tags = buildNip22CommentTags(parentEventObj, parentEventObj);
+          replyEvent.tags = buildNip22CommentTags(
+            {
+              ...parentEventObj,
+              kind: parentEventObj.kind ?? 1,
+              tags: parentEventObj.tags as string[][]
+            },
+            {
+              ...parentEventObj,
+              tags: parentEventObj.tags as string[][]
+            }
+          );
         }
       } else {
         // For non-recipe replies, use simplified tag structure
@@ -269,6 +279,7 @@
             class:cursor-not-allowed={!$ndk.signer || postingReply}
             contenteditable={$ndk.signer && !postingReply}
             role="textbox"
+            tabindex="0"
             aria-multiline="true"
             aria-disabled={!$ndk.signer || postingReply}
             data-placeholder={$ndk.signer ? 'Add a reply...' : 'Log in to reply...'}
@@ -309,7 +320,7 @@
             {#if !$mutedPubkeys.has(reply.pubkey)}
               <div class="reply-row">
                 <div class="reply-avatar">
-                  <CustomAvatar className="flex-shrink-0" pubkey={reply.pubkey} size={24} />
+                  <Avatar className="flex-shrink-0" pubkey={reply.pubkey} size={24} />
                 </div>
                 <div class="reply-content">
                   <div class="reply-header">

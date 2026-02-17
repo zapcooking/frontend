@@ -126,10 +126,11 @@
       additionalMarkdown
     };
     
-    currentDraftId = saveDraft(draftData, currentDraftId || undefined);
+    const saveResult = saveDraft(draftData, currentDraftId || undefined);
+    currentDraftId = saveResult.draftId;
     draftSaveMessage = 'Draft saved!';
     
-    if (browser) {
+    if (browser && currentDraftId) {
       const url = new URL(window.location.href);
       url.searchParams.set('draft', currentDraftId);
       window.history.replaceState({}, '', url.toString());

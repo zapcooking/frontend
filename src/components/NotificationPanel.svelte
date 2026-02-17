@@ -3,7 +3,7 @@
   import { goto } from '$app/navigation';
   import { formatDistanceToNow } from 'date-fns';
   import { nip19 } from 'nostr-tools';
-  import CustomAvatar from './CustomAvatar.svelte';
+  import Avatar from './Avatar.svelte';
   import CustomName from './CustomName.svelte';
   import { onMount } from 'svelte';
   
@@ -99,7 +99,7 @@
           class="w-full flex items-start gap-3 px-4 py-3 hover:bg-accent-gray transition-colors cursor-pointer text-left"
         >
           <div class="relative flex-shrink-0">
-            <CustomAvatar pubkey={notification.fromPubkey} size={40} />
+            <Avatar pubkey={notification.fromPubkey} size={40} />
             <span class="absolute -bottom-1 -right-1 text-sm">
               {getIcon(notification.type)}
             </span>

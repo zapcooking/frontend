@@ -41,8 +41,9 @@ export interface CacheMetrics {
   compressedSize: number;
 }
 
-export class CompressedCacheManager extends CacheManager {
+export class CompressedCacheManager {
   private static instance: CompressedCacheManager;
+  private readonly cacheManager: CacheManager;
   private metrics: CacheMetrics = {
     hits: 0,
     misses: 0,
@@ -57,7 +58,7 @@ export class CompressedCacheManager extends CacheManager {
   private compressionLevel: 'gzip' | 'deflate' | 'deflate-raw' = 'gzip';
 
   constructor() {
-    super();
+    this.cacheManager = CacheManager.getInstance();
     this.detectCompressionSupport();
   }
 
@@ -112,7 +113,7 @@ export class CompressedCacheManager extends CacheManager {
         data: processedData as T,
         timestamp: Date.now(),
         expiresAt: Date.now() + config.ttl,
-        version: config.version,
+        version: config.version || '1.0',
         metadata: {
           compressed,
           originalSize,
@@ -121,14 +122,14 @@ export class CompressedCacheManager extends CacheManager {
         }
       };
       
-      await super.set(config, cacheItem);
+      await this.cacheManager.set(config, cacheItem);
       
       console.log(`📦 Cached ${config.key}: ${originalSize} → ${compressedSize} bytes (${compressed ? 'compressed' : 'uncompressed'})`);
       
     } catch (error) {
       console.error('Failed to set compressed cache:', error);
       // Fallback to uncompressed
-      await super.set(config, data);
+      await this.cacheManager.set(config, data);
     }
   }
 
@@ -137,7 +138,7 @@ export class CompressedCacheManager extends CacheManager {
    */
   async get<T>(config: CompressedCacheConfig): Promise<T | null> {
     try {
-      const cacheItem = await super.get<CacheItem<T>>(config);
+      const cacheItem = await this.cacheManager.get<CacheItem<T>>(config);
       
       if (!cacheItem) {
         this.metrics.misses++;
@@ -281,6 +282,10 @@ export class CompressedCacheManager extends CacheManager {
     } catch (error) {
       console.error('Failed to invalidate cache pattern:', error);
     }
+  }
+
+  async delete(key: string): Promise<void> {
+    await this.cacheManager.delete(key);
   }
 
   /**

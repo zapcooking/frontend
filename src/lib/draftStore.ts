@@ -220,12 +220,7 @@ function mergeDrafts(
 
   // Add remote drafts first (they're authoritative if synced)
   for (const remote of remoteDrafts) {
-    merged.set(remote.id, {
-      ...remote.draft,
-      id: remote.id,
-      syncStatus: 'synced',
-      lastSyncedAt: remote.createdAt
-    });
+    merged.set(remote.id, normalizeRemoteDraft(remote));
   }
 
   // Merge local drafts
@@ -251,6 +246,29 @@ function mergeDrafts(
 
   // Sort by most recently updated
   return [...merged.values()].sort((a, b) => b.updatedAt - a.updatedAt);
+}
+
+function normalizeRemoteDraft(remote: RemoteDraft): DraftWithSyncState {
+  const draft = remote.draft as Partial<RecipeDraft>;
+  const now = Date.now();
+  return {
+    id: remote.id,
+    title: draft.title ?? '',
+    images: draft.images ?? [],
+    tags: draft.tags ?? [],
+    summary: draft.summary ?? '',
+    chefsnotes: draft.chefsnotes ?? '',
+    preptime: draft.preptime ?? '',
+    cooktime: draft.cooktime ?? '',
+    servings: draft.servings ?? '',
+    ingredients: draft.ingredients ?? [],
+    directions: draft.directions ?? [],
+    additionalMarkdown: draft.additionalMarkdown ?? '',
+    createdAt: draft.createdAt ?? remote.createdAt ?? now,
+    updatedAt: draft.updatedAt ?? remote.createdAt ?? now,
+    syncStatus: 'synced',
+    lastSyncedAt: remote.createdAt
+  };
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -743,12 +761,7 @@ export async function forceRefreshFromRemote(): Promise<void> {
     const remoteDrafts = await fetchRemoteDrafts();
 
     // Convert remote drafts to local format
-    const drafts: DraftWithSyncState[] = remoteDrafts.map((r) => ({
-      ...r.draft,
-      id: r.id,
-      syncStatus: 'synced' as const,
-      lastSyncedAt: r.createdAt
-    }));
+    const drafts: DraftWithSyncState[] = remoteDrafts.map((r) => normalizeRemoteDraft(r));
 
     // Sort by most recently updated
     drafts.sort((a, b) => b.updatedAt - a.updatedAt);

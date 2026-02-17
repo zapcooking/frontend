@@ -203,13 +203,14 @@
       if (!canvasEl) return;
       const ctx = canvasEl.getContext('2d');
       if (!ctx) return;
+      const context = ctx;
 
       const dpr = window.devicePixelRatio || 1;
       const w = canvasEl.offsetWidth;
       const h = canvasEl.offsetHeight;
       canvasEl.width = w * dpr;
       canvasEl.height = h * dpr;
-      ctx.scale(dpr, dpr);
+      context.scale(dpr, dpr);
 
       const accent = config.accent;
       const colors = ['#E8652B', '#F28C5A', '#FBBF24', '#F97316', '#FB923C', '#FCD34D', '#fff', accent];
@@ -233,7 +234,7 @@
         const elapsed = performance.now() - startTime;
         const fade = elapsed > duration ? Math.max(0, 1 - (elapsed - duration) / 1000) : 1;
 
-        ctx.clearRect(0, 0, w, h);
+        context.clearRect(0, 0, w, h);
         if (fade <= 0) return; // done
 
         pieces.forEach((p) => {
@@ -241,13 +242,13 @@
           p.x += p.drift;
           p.angle += p.spin;
           if (p.y > h + 20) { p.y = -20; p.x = Math.random() * w; }
-          ctx.save();
-          ctx.translate(p.x, p.y);
-          ctx.rotate(p.angle);
-          ctx.globalAlpha = p.opacity * fade;
-          ctx.fillStyle = p.color;
-          ctx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h);
-          ctx.restore();
+          context.save();
+          context.translate(p.x, p.y);
+          context.rotate(p.angle);
+          context.globalAlpha = p.opacity * fade;
+          context.fillStyle = p.color;
+          context.fillRect(-p.w / 2, -p.h / 2, p.w, p.h);
+          context.restore();
         });
         animFrame = requestAnimationFrame(animate);
       }

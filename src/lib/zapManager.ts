@@ -186,11 +186,12 @@ export class ZapManager {
       console.log('Attempting to sign zap request...');
       await zapRequest.sign();
       console.log('Zap request signed successfully');
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('Error signing zap request:', error);
+      const err = error instanceof Error ? error : new Error(String(error));
       
       // If signing fails, we might need to create an anonymous signer for the zap request
-      if (error.message.includes('signer') || error.message.includes('private key')) {
+      if (err.message.includes('signer') || err.message.includes('private key')) {
         console.log('Signing failed due to missing signer - creating anonymous zap request');
         // For zap requests, we might not need a signer if the LNURL endpoint doesn't require it
         // Let's try without signing first
@@ -201,7 +202,7 @@ export class ZapManager {
           console.error(`Couldn't post zap anon: ${ex}`)
         }
       } else {
-        throw new Error(`Failed to sign zap request: ${error}`);
+        throw new Error(`Failed to sign zap request: ${err.message}`);
       }
     }
 
@@ -254,14 +255,15 @@ export class ZapManager {
         routes: data.routes || [],
         verify: data.verify
       };
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('Error in callback request:', error);
+      const err = error instanceof Error ? error : new Error(String(error));
       
-      if (error.name === 'AbortError') {
+      if (err.name === 'AbortError') {
         throw new Error('Invoice request timed out after 15 seconds');
       }
       
-      throw new Error(`Failed to get invoice: ${error}`);
+      throw new Error(`Failed to get invoice: ${err.message}`);
     }
   }
 

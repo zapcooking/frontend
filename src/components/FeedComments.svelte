@@ -82,7 +82,7 @@
     const filter = createCommentFilter(event);
     feedCommentSubscription = $ndk.subscribe(filter, { closeOnEose: false });
 
-    feedCommentSubscription.on('event', (e) => {
+    feedCommentSubscription.on('event', (e: NDKEvent) => {
       if (processedEvents.has(e.id)) return;
       processedEvents.add(e.id);
       events.push(e);
@@ -118,7 +118,7 @@
 
       // Use shared utility to build NIP-22 or NIP-10 tags
       ev.tags = buildNip22CommentTags({
-        kind: event.kind,
+        kind: event.kind ?? 1,
         pubkey: event.pubkey,
         id: event.id,
         tags: event.tags
@@ -185,6 +185,7 @@
               style="border: 1px solid var(--color-input-border); color: var(--color-text-primary)"
               contenteditable="true"
               role="textbox"
+              tabindex="0"
               aria-multiline="true"
               data-placeholder="Add a comment..."
               on:input={() => mentionCtrl.handleInput()}

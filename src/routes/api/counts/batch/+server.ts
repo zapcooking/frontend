@@ -224,7 +224,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
     return json({ error: 'No valid event IDs provided' }, { status: 400 });
   }
 
-  const kvCache = platform?.env?.COUNT_CACHE;
+  const kvCache = (platform?.env as any)?.COUNT_CACHE;
   const response: BatchResponse = {
     counts: {},
     cached: [],

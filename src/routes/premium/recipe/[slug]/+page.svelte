@@ -67,16 +67,16 @@
         });
         
         // Fetch the recipe event
-        const fetchPromise = $ndk.fetchEvent({
+        const fetchPromise: Promise<NDKEvent | null> = $ndk.fetchEvent({
           '#d': [b.identifier],
           authors: [b.pubkey],
           kinds: [recipeKind as number]
         });
-        const timeoutPromise = new Promise((_, reject) => 
+        const timeoutPromise = new Promise<never>((_, reject) =>
           setTimeout(() => reject(new Error('Recipe loading timeout')), 10000)
         );
         
-        let e = await Promise.race([fetchPromise, timeoutPromise]);
+        const e = await Promise.race<NDKEvent | null>([fetchPromise, timeoutPromise]);
         if (e) {
           event = e;
           

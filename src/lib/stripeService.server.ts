@@ -35,9 +35,9 @@ const getStripeInstance = async () => {
   const Stripe = (await import('stripe')).default;
   
   // Initialize Stripe with the secret key from environment variable
-  // Using API version 2024-12-18.acacia (latest stable)
+  // Using pinned API version expected by installed Stripe typings
   return new Stripe(stripeKey, {
-    apiVersion: '2024-12-18.acacia',
+    apiVersion: '2025-12-15.clover',
     typescript: true,
   });
 };
