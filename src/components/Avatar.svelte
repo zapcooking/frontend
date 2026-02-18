@@ -33,17 +33,21 @@
   $: avatarSrc = src ?? imageUrl;
   $: status = membershipMap[normalizedPubkey];
   $: isActiveMember = Boolean(status?.active) && showRing;
-  $: ringTierClass =
-    status?.tier === 'pro_kitchen'
-      ? 'tier-pro-kitchen'
-      : status?.tier === 'founders'
-        ? 'tier-founders'
-        : status?.tier === 'cook_plus'
-          ? 'tier-cook-plus'
-          : 'tier-default';
-  $: ringPadding = isActiveMember ? 2.5 : 0;
-  $: innerSize = Math.max(16, Math.round(size - ringPadding * 2));
+  $: innerSize = size;
   $: tooltipLabel = getMembershipLabel(status?.tier || 'unknown');
+  $: glowStyle = (() => {
+    if (!isActiveMember) return '';
+    switch (status?.tier) {
+      case 'founders':
+        return 'box-shadow: 0 0 0 2px rgba(255,215,0,0.85), 0 0 12px 4px rgba(255,215,0,0.6), 0 0 24px 8px rgba(255,215,0,0.3);';
+      case 'pro_kitchen':
+        return 'box-shadow: 0 0 0 2px rgba(139,92,246,0.8), 0 0 12px 4px rgba(139,92,246,0.6), 0 0 24px 8px rgba(139,92,246,0.3);';
+      case 'cook_plus':
+        return 'box-shadow: 0 0 0 2px rgba(249,115,22,0.8), 0 0 12px 4px rgba(249,115,22,0.6), 0 0 24px 8px rgba(249,115,22,0.3);';
+      default:
+        return 'box-shadow: 0 0 0 2px rgba(249,115,22,0.8), 0 0 12px 4px rgba(249,115,22,0.6), 0 0 24px 8px rgba(249,115,22,0.3);';
+    }
+  })();
 
   $: if (normalizedPubkey) {
     queueMembershipLookup(normalizedPubkey);
@@ -120,8 +124,8 @@
 
 <div
   bind:this={wrapperEl}
-  class="avatar-wrapper {className} {isActiveMember ? `has-ring ${ringTierClass}` : ''}"
-  style="--avatar-size: {size}px; --ring-padding: {ringPadding}px;"
+  class="avatar-wrapper {className}"
+  style="--avatar-size: {size}px; {glowStyle}"
   role="button"
   tabindex="0"
   aria-label={alt}
@@ -148,10 +152,10 @@
     width: var(--avatar-size);
     height: var(--avatar-size);
     border-radius: 999px;
-    padding: var(--ring-padding);
     align-items: center;
     justify-content: center;
     flex-shrink: 0;
+    overflow: visible;
   }
 
   .avatar-inner {
@@ -159,23 +163,6 @@
     height: 100%;
     border-radius: 999px;
     overflow: hidden;
-  }
-
-  .has-ring {
-    border: 1px solid color-mix(in srgb, var(--zap-orange, #ec4700) 65%, transparent);
-  }
-
-  .tier-cook-plus {
-    border-width: 1px;
-  }
-
-  .tier-pro-kitchen {
-    border-width: 1.5px;
-  }
-
-  .tier-founders {
-    border-width: 1px;
-    box-shadow: 0 0 0 1px color-mix(in srgb, var(--zap-orange, #ec4700) 18%, transparent);
   }
 
   .membership-tooltip {

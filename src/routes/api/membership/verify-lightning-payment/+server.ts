@@ -71,11 +71,13 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 
     // Look up stored metadata to verify the request matches what was created
     const kv = platform?.env?.GATED_CONTENT ?? null;
-
-    // In production, missing KV binding is a misconfiguration, not a 404
     if (!kv && env.NODE_ENV === 'production') {
+      console.error('[Verify Lightning] GATED_CONTENT KV binding is missing in production environment');
       return json(
-        { error: 'Service unavailable: GATED_CONTENT KV binding is missing' },
+        {
+          error: 'Service unavailable',
+          message: 'GATED_CONTENT KV namespace is not configured'
+        },
         { status: 503 }
       );
     }

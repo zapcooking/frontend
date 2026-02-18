@@ -112,7 +112,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
     console.log('[Founders Club Lightning] Invoice created:', {
       receiveRequestId,
       amountSats,
-      pubkey,
+      pubkey: pubkey.substring(0, 16) + '...',
     });
 
     // Store metadata so webhook and verify endpoints can match payment to user
