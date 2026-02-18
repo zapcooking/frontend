@@ -37,6 +37,7 @@
   import { profileCacheManager } from '$lib/profileCache';
   import { RECIPE_TAGS } from '$lib/consts';
   import ArticleFeed from '../../../components/ArticleFeed.svelte';
+  import MembershipBeltBadge from '../../../components/MembershipBeltBadge.svelte';
 
   export const data: PageData = {} as PageData;
 
@@ -1322,7 +1323,10 @@
       <div class="flex items-start justify-between gap-3">
         <div class="flex items-center gap-3 min-w-0">
           <button class="hover:opacity-80 transition-opacity" on:click={() => (qrModal = true)}>
-            <h1 class="text-xl font-bold truncate"><CustomName pubkey={hexpubkey || ''} /></h1>
+            <h1 class="text-xl font-bold truncate flex items-center gap-1.5">
+              <CustomName pubkey={hexpubkey || ''} />
+              <MembershipBeltBadge pubkey={hexpubkey || ''} size={20} />
+            </h1>
           </button>
           {#if user?.npub}
             <button

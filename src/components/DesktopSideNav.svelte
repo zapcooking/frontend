@@ -11,6 +11,7 @@
   import ChatCircleDotsIcon from 'phosphor-svelte/lib/ChatCircleDots';
   import ForkKnifeIcon from 'phosphor-svelte/lib/ForkKnife';
   import CompassIcon from 'phosphor-svelte/lib/Compass';
+  import GraphIcon from 'phosphor-svelte/lib/Graph';
   import BellIcon from 'phosphor-svelte/lib/Bell';
   import NewspaperIcon from 'phosphor-svelte/lib/Newspaper';
   import EnvelopeSimpleIcon from 'phosphor-svelte/lib/EnvelopeSimple';
@@ -58,6 +59,12 @@
       label: 'Explore',
       icon: CompassIcon,
       match: (p) => p.startsWith('/explore')
+    },
+    {
+      href: '/mesh',
+      label: 'Culinary Mesh',
+      icon: GraphIcon,
+      match: (p) => p.startsWith('/mesh')
     },
     {
       href: '/reads',
