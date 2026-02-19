@@ -249,16 +249,19 @@
     {/each}
   </div>
 
+  <!-- Scrim for text readability over busy node imagery -->
+  <div class="hero-scrim" class:dark={isDarkMode}></div>
+
   <!-- Centered overlay content -->
   <div class="hero-overlay">
-    <h1 class="hero-title" style="color: {isDarkMode ? 'rgba(255,255,255,0.95)' : 'rgba(0,0,0,0.9)'};">
-      Culinary Mesh
+    <h1 class="hero-title" class:dark={isDarkMode}>
+      Culinary <span class="hero-title-accent">Mesh</span>
     </h1>
     <div class="hero-ctas">
       <a href="/mesh" class="hero-cta-primary">
         Explore the Mesh
       </a>
-      <button class="hero-cta-secondary" on:click={scrollToRecipes}>
+      <button class="hero-cta-secondary" class:dark={isDarkMode} on:click={scrollToRecipes}>
         I'm Hungry
       </button>
     </div>
@@ -347,6 +350,30 @@
     border-color: rgba(249, 115, 22, 0.2);
   }
 
+  /* Scrim — lightweight radial gradient overlay for text contrast.
+     No blur/backdrop-filter here; just a composited gradient (zero paint cost). */
+  .hero-scrim {
+    position: absolute;
+    inset: 0;
+    z-index: 3;
+    pointer-events: none;
+    background: radial-gradient(
+      ellipse at center,
+      rgba(255, 255, 255, 0.55) 0%,
+      rgba(255, 255, 255, 0.25) 50%,
+      transparent 80%
+    );
+  }
+
+  .hero-scrim.dark {
+    background: radial-gradient(
+      ellipse at center,
+      rgba(0, 0, 0, 0.5) 0%,
+      rgba(0, 0, 0, 0.2) 50%,
+      transparent 80%
+    );
+  }
+
   /* Overlay */
   .hero-overlay {
     position: absolute;
@@ -359,54 +386,109 @@
     pointer-events: none;
     text-align: center;
     padding: 1rem;
+    gap: 0.75rem;
   }
 
+  /* Title — uses the app's Geist display font via --font-display */
   .hero-title {
-    font-size: 2rem;
-    font-weight: 800;
-    letter-spacing: -0.02em;
-    text-shadow: 0 2px 20px rgba(0, 0, 0, 0.1);
+    font-family: var(--font-display, 'Geist', system-ui, -apple-system, sans-serif);
+    font-size: 1.75rem;
+    font-weight: 760;
+    letter-spacing: 0.03em;
+    color: rgba(0, 0, 0, 0.88);
+    text-shadow:
+      0 1px 2px rgba(255, 255, 255, 0.6),
+      0 0 20px rgba(255, 255, 255, 0.3);
+    line-height: 1.1;
   }
 
+  .hero-title.dark {
+    color: rgba(255, 255, 255, 0.94);
+    text-shadow:
+      0 1px 3px rgba(0, 0, 0, 0.5),
+      0 0 20px rgba(0, 0, 0, 0.2);
+  }
+
+  .hero-title-accent {
+    color: var(--color-primary);
+  }
+
+  .hero-title.dark .hero-title-accent {
+    color: var(--zap-orange, #ff7a3d);
+  }
+
+  /* CTAs */
   .hero-ctas {
     display: flex;
-    gap: 12px;
-    margin-top: 1.25rem;
+    gap: 10px;
     pointer-events: auto;
   }
 
   .hero-cta-primary {
-    padding: 10px 24px;
+    padding: 10px 22px;
     border-radius: 999px;
-    background-color: var(--color-primary);
+    background: linear-gradient(135deg, #f97316 0%, var(--color-primary) 100%);
     color: white;
-    font-weight: 600;
-    font-size: 14px;
+    font-family: var(--font-display, 'Geist', system-ui, sans-serif);
+    font-weight: 650;
+    font-size: 13px;
+    letter-spacing: 0.01em;
     text-decoration: none;
-    transition: opacity 0.15s;
-    box-shadow: 0 4px 12px rgba(249, 115, 22, 0.3);
+    border: none;
+    box-shadow:
+      0 2px 8px rgba(249, 115, 22, 0.35),
+      0 0 0 1px rgba(249, 115, 22, 0.1);
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
   }
 
   .hero-cta-primary:hover {
-    opacity: 0.9;
+    transform: translateY(-1px);
+    box-shadow:
+      0 4px 14px rgba(249, 115, 22, 0.4),
+      0 0 0 1px rgba(249, 115, 22, 0.15);
+  }
+
+  .hero-cta-primary:active {
+    transform: translateY(0);
+    box-shadow: 0 1px 4px rgba(249, 115, 22, 0.3);
   }
 
   .hero-cta-secondary {
-    padding: 10px 24px;
+    padding: 10px 22px;
     border-radius: 999px;
-    border: 1px solid var(--color-input-border);
-    background: rgba(255, 255, 255, 0.1);
-    backdrop-filter: blur(8px);
-    color: var(--color-text-primary);
+    border: 1px solid rgba(0, 0, 0, 0.12);
+    background: rgba(255, 255, 255, 0.45);
+    color: rgba(0, 0, 0, 0.75);
+    font-family: var(--font-display, 'Geist', system-ui, sans-serif);
     font-weight: 600;
-    font-size: 14px;
+    font-size: 13px;
+    letter-spacing: 0.01em;
     cursor: pointer;
-    transition: background-color 0.15s;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+    transition: background-color 0.15s ease, transform 0.15s ease;
+  }
+
+  .hero-cta-secondary.dark {
+    border-color: rgba(255, 255, 255, 0.15);
+    background: rgba(255, 255, 255, 0.08);
+    color: rgba(255, 255, 255, 0.8);
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
   }
 
   .hero-cta-secondary:hover {
-    background: rgba(255, 255, 255, 0.2);
+    background: rgba(255, 255, 255, 0.6);
+    transform: translateY(-1px);
   }
+
+  .hero-cta-secondary.dark:hover {
+    background: rgba(255, 255, 255, 0.14);
+  }
+
+  .hero-cta-secondary:active {
+    transform: translateY(0);
+  }
+
+  /* ── Mobile ──────────────────────────────────────────────── */
 
   @media (max-width: 640px) {
     .mesh-hero {
@@ -415,13 +497,24 @@
       border-radius: 12px;
     }
 
+    .hero-overlay {
+      gap: 0.5rem;
+      padding: 0.75rem;
+    }
+
     .hero-title {
-      font-size: 1.5rem;
+      font-size: 1.25rem;
+      letter-spacing: 0.025em;
     }
 
     .hero-ctas {
-      flex-direction: column;
       gap: 8px;
+    }
+
+    .hero-cta-primary,
+    .hero-cta-secondary {
+      padding: 8px 18px;
+      font-size: 12px;
     }
   }
 </style>
