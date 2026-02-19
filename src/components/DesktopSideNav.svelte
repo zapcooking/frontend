@@ -76,8 +76,7 @@
       href: '/groups',
       label: 'Groups',
       icon: UsersThreeIcon,
-      match: (p) => p.startsWith('/groups'),
-      badge: 'members'
+      match: (p) => p.startsWith('/groups')
     },
     {
       href: '/messages',
