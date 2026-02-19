@@ -445,9 +445,6 @@
             >
               <StorefrontIcon size={22} />
               <span class="font-medium">The Pantry</span>
-              <span class="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary font-medium"
-                >Members</span
-              >
             </button>
           </li>
         </ul>
