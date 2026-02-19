@@ -121,6 +121,28 @@
     return neighbors;
   }
 
+  // ── Center nodes within container ────────────────────────────────
+
+  function centerNodes() {
+    if (nodes.length === 0 || width === 0 || height === 0) return;
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    for (const n of nodes) {
+      if (n.x == null || n.y == null) continue;
+      if (n.x < minX) minX = n.x;
+      if (n.x > maxX) maxX = n.x;
+      if (n.y < minY) minY = n.y;
+      if (n.y > maxY) maxY = n.y;
+    }
+    if (minX === Infinity) return;
+    const ox = width / 2 - (minX + maxX) / 2;
+    const oy = height / 2 - (minY + maxY) / 2;
+    if (Math.abs(ox) < 1 && Math.abs(oy) < 1) return;
+    for (const n of nodes) {
+      if (n.x != null) n.x += ox;
+      if (n.y != null) n.y += oy;
+    }
+  }
+
   // ── Simulation ───────────────────────────────────────────────────
 
   function initSimulation() {
@@ -138,6 +160,8 @@
     if (cached) {
       const allApplied = applyCachedLayout(nodes, cached);
       if (allApplied) {
+        // Re-center cached positions to the current container
+        centerNodes();
         settled = true;
         nodeVersion++;
         dispatch('settled');
@@ -291,6 +315,7 @@
   }
 
   function finishSettle() {
+    centerNodes();
     setCachedLayout(nodes, edges.length);
     settled = true;
     nodeVersion++;
@@ -494,12 +519,24 @@
 
   // ── Lifecycle ─────────────────────────────────────────────────
 
+  let initAttempted = false;
+
+  function tryInit() {
+    if (initAttempted) return;
+    if (width > 0 && height > 0) {
+      initAttempted = true;
+      initSimulation();
+    }
+  }
+
   onMount(() => {
     resizeObserver = new ResizeObserver((entries) => {
       for (const entry of entries) {
         width = entry.contentRect.width;
         height = entry.contentRect.height;
       }
+      // Container may have just gained dimensions — try to init
+      tryInit();
     });
 
     if (containerEl) {
@@ -509,11 +546,8 @@
       containerEl.addEventListener('wheel', handleWheel, { passive: false });
     }
 
-    requestAnimationFrame(() => {
-      if (width > 0 && height > 0) {
-        initSimulation();
-      }
-    });
+    // Try immediately in case dimensions are already available
+    requestAnimationFrame(tryInit);
   });
 
   onDestroy(() => {
