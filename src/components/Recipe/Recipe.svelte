@@ -892,7 +892,7 @@
 
       <!-- Recipe Summary -->
       {#if event.tags.find((e) => e[0] === 'summary')?.[1]}
-        <p class="text-lg text-caption leading-relaxed">
+        <p class="text-lg text-caption leading-relaxed whitespace-pre-line">
           {event.tags.find((e) => e[0] === 'summary')?.[1]}
         </p>
       {/if}
