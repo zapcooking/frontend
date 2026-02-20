@@ -415,7 +415,7 @@
           <span>Popular Cooks</span>
         </h2>
         {#if loadingCooks}
-          <div class="flex gap-4 overflow-x-auto overflow-y-visible py-2 -mx-4 px-4">
+          <div class="flex gap-4 overflow-x-auto pt-8 pb-4 -mt-6 -mx-4 px-4">
             {#each Array(6) as _}
               <div class="flex-shrink-0 w-20 flex flex-col items-center gap-2">
                 <div class="w-16 h-16 rounded-full animate-pulse skeleton-bg"></div>
@@ -425,7 +425,7 @@
           </div>
         {:else if popularCooks.length > 0}
           <div
-            class="flex gap-4 overflow-x-auto overflow-y-visible py-2 -mx-4 px-4 scrollbar-hide touch-pan-x"
+            class="flex gap-4 overflow-x-auto pt-8 pb-4 -mt-6 -mx-4 px-4 scrollbar-hide touch-pan-x"
           >
             {#each popularCooks as cook}
               <ProfileAvatar pubkey={cook.pubkey} showZapIndicator={false} />
