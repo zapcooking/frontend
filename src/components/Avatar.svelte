@@ -9,6 +9,12 @@
     queueMembershipLookup,
     type MembershipStatus
   } from '$lib/stores/membershipStatus';
+  import {
+    warmthStatusMap,
+    queueWarmthLookup,
+    getWarmthBorderColor,
+    type WarmthStatus
+  } from '$lib/stores/warmthStatus';
 
   export let pubkey: string;
   export let src: string | null = null;
@@ -24,9 +30,13 @@
   let wrapperEl: HTMLDivElement | null = null;
   let openTooltip = false;
   let membershipMap: Record<string, MembershipStatus> = {};
+  let warmthMap: Record<string, WarmthStatus> = {};
 
-  const unsubscribe = membershipStatusMap.subscribe((value) => {
+  const unsubMembership = membershipStatusMap.subscribe((value) => {
     membershipMap = value;
+  });
+  const unsubWarmth = warmthStatusMap.subscribe((value) => {
+    warmthMap = value;
   });
 
   $: normalizedPubkey = String(pubkey || '').trim().toLowerCase();
@@ -49,13 +59,18 @@
     }
   })();
 
+  $: warmthStatus = warmthMap[normalizedPubkey];
+  $: warmthBorderColor = getWarmthBorderColor(warmthStatus?.level ?? 'cold');
+
   $: if (normalizedPubkey) {
     queueMembershipLookup(normalizedPubkey);
+    queueWarmthLookup(normalizedPubkey);
   }
 
   onMount(() => {
     if (normalizedPubkey) {
       void getMembership([normalizedPubkey]);
+      queueWarmthLookup(normalizedPubkey);
     }
   });
 
@@ -114,7 +129,8 @@
   }
 
   onDestroy(() => {
-    unsubscribe();
+    unsubMembership();
+    unsubWarmth();
     if (browser) {
       document.removeEventListener('click', handleDocumentClick);
       document.removeEventListener('keydown', handleDocumentKeydown);
@@ -133,7 +149,10 @@
   on:click={handleClick}
   on:keydown={handleKeydown}
 >
-  <div class="avatar-inner">
+  <div
+    class="avatar-inner"
+    style={warmthBorderColor ? `border-color: ${warmthBorderColor};` : ''}
+  >
     <CustomAvatar pubkey={pubkey} size={innerSize} imageUrl={avatarSrc} className="" interactive={false} />
   </div>
 
@@ -163,6 +182,9 @@
     height: 100%;
     border-radius: 999px;
     overflow: hidden;
+    box-sizing: border-box;
+    border: 2px solid transparent;
+    transition: border-color 0.6s ease;
   }
 
   .membership-tooltip {

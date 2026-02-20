@@ -3,6 +3,7 @@
   import type { SimulationNodeDatum } from 'd3-force';
   import { getViewportBounds, isInViewport } from '$lib/mesh/meshViewport';
   import { membershipStatusMap, queueMembershipLookup } from '$lib/stores/membershipStatus';
+  import { warmthStatusMap, queueWarmthLookup, getWarmthBorderColor } from '$lib/stores/warmthStatus';
   import Avatar from '../Avatar.svelte';
 
   export let nodes: (MeshNode & SimulationNodeDatum)[] = [];
@@ -26,21 +27,23 @@
   export let onNodeLeave: () => void = () => {};
 
   $: membershipMap = $membershipStatusMap;
+  $: warmthMap = $warmthStatusMap;
 
   // Compute visible nodes — depends on nodeVersion to pick up position changes
   // Using void to register nodeVersion as a dependency without triggering unused-expression errors
   $: bounds = (void nodeVersion, getViewportBounds(panX, panY, zoom, width, height));
   $: visibleNodes = (void nodeVersion, nodes.filter((node) => isInViewport(node, bounds)));
 
-  // Queue membership lookups only when nodes structurally change, not on every pan
-  let membershipQueued = new Set<string>();
+  // Queue membership + warmth lookups only when nodes structurally change, not on every pan
+  let lookupQueued = new Set<string>();
   $: {
     // Only react to node array identity changes, not viewport changes
     void nodes;
     for (const node of nodes) {
-      if (node.type === 'recipe' && node.pubkey && !membershipQueued.has(node.pubkey)) {
-        membershipQueued.add(node.pubkey);
+      if (node.type === 'recipe' && node.pubkey && !lookupQueued.has(node.pubkey)) {
+        lookupQueued.add(node.pubkey);
         queueMembershipLookup(node.pubkey);
+        queueWarmthLookup(node.pubkey);
       }
     }
   }
@@ -113,6 +116,15 @@
     return status.tier === 'founders' || status.tier === 'pro_kitchen';
   }
 
+  function getNodeWarmthBorder(node: MeshNode): string {
+    if (node.type !== 'recipe' || !node.pubkey) return '';
+    // Tier 1 heroes already have strong orange branding — skip warmth override
+    if (node.tier === 1) return '';
+    const status = warmthMap[node.pubkey];
+    if (!status || status.level === 'cold') return '';
+    return getWarmthBorderColor(status.level);
+  }
+
   $: isConstellation = visualTheme === 'constellation';
 </script>
 
@@ -122,6 +134,7 @@
       {@const size = nodeSize(node)}
       {@const half = nodeHalf(node)}
       {@const memberGlow = getMembershipGlow(node)}
+      {@const warmthBorder = getNodeWarmthBorder(node)}
       <a
         href={nodeHref(node)}
         class="mesh-recipe-node"
@@ -140,6 +153,7 @@
           opacity: {nodeOpacity(node)};
           pointer-events: auto;
           {memberGlow ? `box-shadow: ${memberGlow};` : ''}
+          {warmthBorder ? `border-color: ${warmthBorder};` : ''}
         "
         on:mousedown={(e) => onNodeMouseDown(node, e)}
         on:click={onNodeClick}
