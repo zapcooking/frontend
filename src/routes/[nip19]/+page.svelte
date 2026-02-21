@@ -27,7 +27,13 @@
   import MentionDropdown from '../../components/MentionDropdown.svelte';
   import { MentionComposerController, type MentionState } from '$lib/mentionComposer';
 
-  export const data: PageData = {} as PageData;
+  export let data: PageData;
+
+  // OG meta from server (for crawlers/SSR)
+  $: ogTitle = data?.ogMeta?.title || 'Note Thread - zap.cooking';
+  $: ogDescription = data?.ogMeta?.description || 'A note shared on zap.cooking - Food. Friends. Freedom.';
+  $: ogImage = data?.ogMeta?.image || 'https://zap.cooking/social-share.png';
+  $: ogCreatedAt = data?.ogMeta?.created_at ?? null;
 
   let decoded: any = null;
   let event: NDKEvent | null = null;
@@ -413,7 +419,25 @@
 </script>
 
 <svelte:head>
-  <title>Note Thread - zap.cooking</title>
+  <title>{ogTitle}</title>
+  <meta name="description" content={ogDescription} />
+
+  <!-- Open Graph -->
+  <meta property="og:type" content="article" />
+  <meta property="og:url" content={`https://zap.cooking/${$page.params.nip19}`} />
+  <meta property="og:title" content={ogTitle} />
+  <meta property="og:description" content={ogDescription} />
+  <meta property="og:image" content={ogImage} />
+  <meta property="og:site_name" content="zap.cooking" />
+  {#if ogCreatedAt}
+    <meta property="article:published_time" content={new Date(ogCreatedAt * 1000).toISOString()} />
+  {/if}
+
+  <!-- Twitter -->
+  <meta name="twitter:card" content={ogImage !== 'https://zap.cooking/social-share.png' ? 'summary_large_image' : 'summary'} />
+  <meta name="twitter:title" content={ogTitle} />
+  <meta name="twitter:description" content={ogDescription} />
+  <meta name="twitter:image" content={ogImage} />
 </svelte:head>
 
 <div class="max-w-2xl mx-auto px-4">
