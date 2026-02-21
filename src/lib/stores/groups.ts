@@ -227,8 +227,15 @@ export async function initGroupSubscription(ndkInstance: NDK, userPubkey: string
 			addGroupMessage(message);
 		}, liveSubSince);
 
-		groupsInitialized.set(true);
-		console.log('[Groups] Subscription active, fetched', groupCount, 'groups via single batch');
+		if (groupCount > 0) {
+			groupsInitialized.set(true);
+			console.log('[Groups] Subscription active, fetched', groupCount, 'groups via single batch');
+		} else {
+			// Don't mark as initialized when 0 groups were fetched — this
+			// may be caused by auth timeout and the relay returning nothing.
+			// Leaving groupsInitialized=false allows retrying on next navigation.
+			console.warn('[Groups] Fetched 0 groups — will allow retry on next navigation');
+		}
 	} catch (e) {
 		console.error('[Groups] Failed to initialize:', e);
 	} finally {
