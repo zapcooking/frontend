@@ -478,10 +478,10 @@ async function decryptWithPrivateKey(
           senderPubkey
         );
         const result = nip44.v2.decrypt(ciphertext, conversationKey);
-        if (result) return result;
+        if (result !== null && result !== undefined) return result;
       } else if (tryMethod === 'nip04') {
         const result = await nip04.decrypt(privateKey, senderPubkey, ciphertext);
-        if (result) return result;
+        if (result !== null && result !== undefined) return result;
       }
     } catch (e) {
       console.warn(`[Encryption] Direct ${tryMethod} decryption failed:`, (e as Error)?.message || e);
