@@ -61,19 +61,20 @@ function setCachedDecrypt(method: EncryptionMethod, senderPubkey: string, cipher
   decryptCache.set(getDecryptCacheKey(method, senderPubkey, ciphertext), plaintext);
 }
 
-/** Clear the decrypt cache and reset the circuit breaker (call on logout). */
-export function clearDecryptCache(): void {
-  decryptCache.clear();
-  signerDenialCount = 0;
-  signerCircuitBroken = false;
-}
-
 /**
  * Sequential queue for decrypt operations.
  * Browser signers (like Nostash) can only handle one request at a time.
  * Without this, parallel decrypt calls flood the signer with popups.
  */
 let decryptQueuePromise: Promise<void> = Promise.resolve();
+
+/** Clear the decrypt cache, reset the circuit breaker, and drain the queue (call on logout). */
+export function clearDecryptCache(): void {
+  decryptCache.clear();
+  signerDenialCount = 0;
+  signerCircuitBroken = false;
+  decryptQueuePromise = Promise.resolve();
+}
 
 function enqueueDecrypt<T>(fn: () => Promise<T>): Promise<T> {
   const result = decryptQueuePromise.then(fn, fn);
