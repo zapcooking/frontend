@@ -16,10 +16,11 @@
   import WalletWelcomeModal from '../components/WalletWelcomeModal.svelte';
   import { createAuthManager, type AuthState } from '$lib/authManager';
   import {
-    initMessageSubscription,
     stopMessageSubscription,
     clearMessages
   } from '$lib/stores/messages';
+  import { clearDecryptCache } from '$lib/encryptionService';
+  import { clearUnwrapCache } from '$lib/nip17';
   import { stopGroupSubscription, clearGroups } from '$lib/stores/groups';
   import type { LayoutData } from './$types';
   import ErrorBoundary from '../components/ErrorBoundary.svelte';
@@ -220,13 +221,15 @@
         // Sync with legacy userPublickey store for compatibility
         if (state.isAuthenticated && state.publicKey) {
           userPublickey.set(state.publicKey);
-          // Initialize NIP-17 message subscription
-          initMessageSubscription($ndk, state.publicKey);
+          // Message subscriptions are lazy — initialized when user navigates to /messages.
+          // This avoids flooding browser signers with NIP-44 decrypt requests on login.
           // NIP-29 groups init deferred to /groups page to avoid NIP-07 signing contention at startup
         } else {
           userPublickey.set('');
           stopMessageSubscription();
           clearMessages();
+          clearDecryptCache();
+          clearUnwrapCache();
           stopGroupSubscription();
           clearGroups();
         }

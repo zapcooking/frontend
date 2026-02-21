@@ -87,13 +87,13 @@
     };
 
     const handleUnhandledRejection = (event: PromiseRejectionEvent) => {
-      if (!error) { // Only handle if we don't already have an error
-        error = new Error(event.reason?.message || 'Unhandled Promise Rejection');
-        errorInfo = {
-          reason: event.reason,
-          type: 'unhandledRejection'
-        };
-      }
+      // Don't replace the entire page for background/network promise rejections.
+      // These are typically relay timeouts, fetch failures, or WebSocket errors
+      // that should be handled gracefully by the calling code, not by showing
+      // an error screen.  Only log them — the real fix is adding .catch() to
+      // the source promises.
+      const msg = event.reason?.message || String(event.reason || '');
+      console.warn('[ErrorBoundary] Unhandled rejection (suppressed):', msg);
     };
 
     window.addEventListener('error', handleUnhandledError);

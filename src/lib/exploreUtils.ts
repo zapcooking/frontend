@@ -1,4 +1,4 @@
-import { ndk } from './nostr';
+import { ndk, ndkConnected } from './nostr';
 import { get } from 'svelte/store';
 import type { NDKEvent, NDKFilter, NDKUser } from '@nostr-dev-kit/ndk';
 import { validateMarkdownTemplate } from './parser';
@@ -188,8 +188,8 @@ async function refreshPopularCooksCache(limit: number) {
 async function fetchPopularCooksFresh(limit: number): Promise<PopularCook[]> {
   try {
     const ndkInstance = get(ndk);
-    if (!ndkInstance) {
-      logger.warn('NDK not available', 'fetchPopularCooks');
+    if (!ndkInstance || !get(ndkConnected)) {
+      logger.warn('NDK not connected', 'fetchPopularCooks');
       return [];
     }
 
@@ -461,8 +461,8 @@ async function getRecipeZaps(recipe: NDKEvent, ndkInstance: any): Promise<number
 export async function fetchTrendingRecipes(limit: number = 12): Promise<NDKEvent[]> {
   try {
     const ndkInstance = get(ndk);
-    if (!ndkInstance) {
-      logger.warn('NDK not available', 'fetchTrendingRecipes');
+    if (!ndkInstance || !get(ndkConnected)) {
+      logger.warn('NDK not connected', 'fetchTrendingRecipes');
       return [];
     }
 
@@ -665,8 +665,8 @@ export async function fetchDiscoverRecipes(
 ): Promise<NDKEvent[]> {
   try {
     const ndkInstance = get(ndk);
-    if (!ndkInstance) {
-      logger.warn('NDK not available', 'fetchDiscoverRecipes');
+    if (!ndkInstance || !get(ndkConnected)) {
+      logger.warn('NDK not connected', 'fetchDiscoverRecipes');
       return [];
     }
 

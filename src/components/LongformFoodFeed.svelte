@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
-  import { ndk, userPublickey, getCurrentRelayGeneration } from '$lib/nostr';
+  import { ndk, userPublickey, getCurrentRelayGeneration, ndkConnected } from '$lib/nostr';
   import type { NDKEvent, NDKFilter, NDKSubscription } from '@nostr-dev-kit/ndk';
   import { nip19 } from 'nostr-tools';
   import ArticleFeed from './ArticleFeed.svelte';
@@ -399,8 +399,8 @@
   async function loadLongformArticles() {
     const startGeneration = getCurrentRelayGeneration();
     
-    if (!$ndk) {
-      console.warn('NDK not available');
+    if (!$ndk || !$ndkConnected) {
+      console.warn('NDK not connected');
       loading = false;
       return;
     }

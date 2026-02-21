@@ -1,4 +1,4 @@
-import { ndk } from '$lib/nostr';
+import { ndk, ndkConnected } from '$lib/nostr';
 import { get } from 'svelte/store';
 import type { NDKEvent, NDKFilter } from '@nostr-dev-kit/ndk';
 import { validateMarkdownTemplate } from '$lib/parser';
@@ -41,7 +41,7 @@ for (const t of recipeTags) {
 
 export async function fetchMeshRecipes(): Promise<NDKEvent[]> {
   const ndkInstance = get(ndk);
-  if (!ndkInstance) return [];
+  if (!ndkInstance || !get(ndkConnected)) return [];
 
   const filter: NDKFilter = {
     limit: 500,
@@ -85,7 +85,7 @@ export async function fetchMeshRecipes(): Promise<NDKEvent[]> {
 
 export async function fetchMeshEngagement(recipes: NDKEvent[]): Promise<EngagementMap> {
   const ndkInstance = get(ndk);
-  if (!ndkInstance) return new Map();
+  if (!ndkInstance || !get(ndkConnected)) return new Map();
 
   const aTagToEventId = new Map<string, string>();
   const allATags: string[] = [];
