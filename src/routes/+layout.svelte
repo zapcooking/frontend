@@ -331,12 +331,12 @@
           <Header />
         </div>
         <div
-          class="px-4 min-w-0 max-w-full {$page.url.pathname.startsWith('/messages')
+          class="px-4 min-w-0 max-w-full {$page.url.pathname.startsWith('/messages') || $page.url.pathname.startsWith('/groups')
             ? ''
             : 'pb-16 lg:pb-8'}"
         >
           <slot />
-          {#if !$page.url.pathname.startsWith('/messages')}
+          {#if !$page.url.pathname.startsWith('/messages') && !$page.url.pathname.startsWith('/groups')}
             <Footer />
           {/if}
         </div>
