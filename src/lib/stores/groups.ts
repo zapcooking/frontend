@@ -227,8 +227,17 @@ export async function initGroupSubscription(ndkInstance: NDK, userPubkey: string
 			addGroupMessage(message);
 		}, liveSubSince);
 
-		groupsInitialized.set(true);
-		console.log('[Groups] Subscription active, fetched', groupCount, 'groups via single batch');
+		if (groupCount > 0) {
+			groupsInitialized.set(true);
+			console.log('[Groups] Subscription active, fetched', groupCount, 'groups via single batch');
+		} else {
+			// 0 groups likely means auth failed and the relay returned nothing.
+			// Reset the connection so the next retry does a full reconnect + re-auth
+			// instead of reusing the failed auth state.
+			stopGroupSubscription();
+			resetPantryConnection();
+			console.warn('[Groups] Fetched 0 groups — connection reset, will retry on next navigation');
+		}
 	} catch (e) {
 		console.error('[Groups] Failed to initialize:', e);
 	} finally {

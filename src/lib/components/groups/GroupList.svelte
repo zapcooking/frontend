@@ -282,7 +282,7 @@
 			<div class="flex flex-col items-center justify-center py-12 px-4 text-center">
 				<p class="text-sm mb-1" style="color: var(--color-caption);">No groups yet</p>
 				<p class="text-xs" style="color: var(--color-caption);">
-					Create a group to start chatting with members.
+					Create a group to start chatting.
 				</p>
 			</div>
 		{:else}
