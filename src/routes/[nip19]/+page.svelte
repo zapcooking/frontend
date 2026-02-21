@@ -49,6 +49,7 @@
   let replies: NDKEvent[] = [];
   let loadingReplies = false;
   let commentText = '';
+  let postingReply = false;
   let processedReplies = new Set<string>();
 
   // Reply composer with mentions
@@ -279,8 +280,9 @@
 
   // Post a reply
   async function postReply() {
-    if (!commentText.trim() || !event) return;
+    if (!commentText.trim() || !event || postingReply) return;
 
+    postingReply = true;
     try {
       if (replyComposerEl) {
         commentText = mentionCtrl.extractText();
@@ -325,6 +327,8 @@
       mentionCtrl.resetMentionState();
     } catch {
       // Failed to post reply
+    } finally {
+      postingReply = false;
     }
   }
 
@@ -699,7 +703,7 @@
                   bind:this={replyComposerEl}
                   class="reply-composer-input w-full px-3 py-2 text-sm rounded-lg"
                   style="background-color: var(--color-bg-primary); border: 1px solid var(--color-input-border); color: var(--color-text-primary); min-height: 60px;"
-                  contenteditable="true"
+                  contenteditable={!postingReply}
                   role="textbox"
                   tabindex="0"
                   aria-multiline="true"
@@ -720,9 +724,9 @@
                   on:select={(e) => mentionCtrl.insertMention(e.detail)}
                 />
               </div>
-              {#if commentText.trim()}
+              {#if commentText.trim() || postingReply}
                 <div class="flex justify-end mt-2">
-                  <Button on:click={postReply} class="text-sm px-4 py-1.5">Reply</Button>
+                  <Button on:click={postReply} disabled={postingReply} class="text-sm px-4 py-1.5">{postingReply ? 'Posting...' : 'Reply'}</Button>
                 </div>
               {/if}
             </div>
