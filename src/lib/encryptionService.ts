@@ -507,11 +507,11 @@ async function decryptViaSigner(
       const nostr = (window as any).nostr;
       if (tryMethod === 'nip44' && nostr?.nip44?.decrypt) {
         const result = await nostr.nip44.decrypt(senderPubkey, ciphertext);
-        if (result) return result;
+        if (result != null) return result;
       }
       if (tryMethod === 'nip04' && nostr?.nip04?.decrypt) {
         const result = await nostr.nip04.decrypt(senderPubkey, ciphertext);
-        if (result) return result;
+        if (result != null) return result;
       }
 
       // Fallback to NDK signer (for NIP-46 remote signers, etc.)
@@ -522,10 +522,10 @@ async function decryptViaSigner(
 
         if (tryMethod === 'nip44' && typeof signer.nip44Decrypt === 'function') {
           const result = await signer.nip44Decrypt(sender, ciphertext);
-          if (result) return result;
+          if (result != null) return result;
         } else if (tryMethod === 'nip04' && typeof signer.nip04Decrypt === 'function') {
           const result = await signer.nip04Decrypt(sender, ciphertext);
-          if (result) return result;
+          if (result != null) return result;
         }
       }
     } catch (e) {
