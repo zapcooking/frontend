@@ -20,6 +20,23 @@ import { NDKEvent, NDKRelaySet } from '@nostr-dev-kit/ndk';
 
 const TWO_DAYS = 2 * 24 * 60 * 60;
 
+// ═══════════════════════════════════════════════════════════════
+// UNWRAP CACHE
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Cache unwrapped gift wraps by event ID.
+ * Each gift wrap needs 2 decrypt calls; caching avoids repeating them
+ * when the same event arrives from multiple relays or on re-mount.
+ */
+const unwrapCache = new Map<string, DecryptedMessage | null>();
+const UNWRAP_CACHE_MAX = 500;
+
+/** Clear unwrap cache (call on logout). */
+export function clearUnwrapCache(): void {
+  unwrapCache.clear();
+}
+
 const FALLBACK_DM_RELAYS = [
 	'wss://relay.damus.io',
 	'wss://nos.lol',
@@ -277,6 +294,11 @@ export async function sendDirectMessage(
  * Decrypts gift wrap → seal → rumor, with impersonation check.
  */
 export async function unwrapGiftWrap(event: NDKEvent): Promise<DecryptedMessage | null> {
+	// Check unwrap cache first — avoids 2 decrypt calls per cached hit
+	if (unwrapCache.has(event.id)) {
+		return unwrapCache.get(event.id) ?? null;
+	}
+
 	try {
 		// Step 1: Decrypt the gift wrap to get the seal
 		const sealJSON = await decrypt(event.pubkey, event.content, 'nip44');
@@ -297,7 +319,7 @@ export async function unwrapGiftWrap(event: NDKEvent): Promise<DecryptedMessage 
 			return null;
 		}
 
-		return {
+		const message: DecryptedMessage = {
 			id: rumor.id || event.id,
 			sender: rumor.pubkey,
 			content: rumor.content || '',
@@ -305,8 +327,17 @@ export async function unwrapGiftWrap(event: NDKEvent): Promise<DecryptedMessage 
 			created_at: rumor.created_at || event.created_at || now(),
 			protocol: 'nip17'
 		};
+
+		// Cache to avoid re-decrypting the same gift wrap
+		if (unwrapCache.size >= UNWRAP_CACHE_MAX) {
+			const keys = Array.from(unwrapCache.keys());
+			for (let i = 0; i < keys.length / 2; i++) unwrapCache.delete(keys[i]);
+		}
+		unwrapCache.set(event.id, message);
+		return message;
 	} catch (e) {
 		console.error('[NIP-17] Failed to unwrap gift wrap:', (e as Error)?.message || e);
+		unwrapCache.set(event.id, null); // Cache failures too to avoid retrying
 		return null;
 	}
 }
@@ -384,21 +415,22 @@ export async function fetchHistoricalMessages(
 	const seenRumorIds = new Set<string>();
 	const eventArray = Array.from(events);
 
-	// Decrypt in batches of 5 to avoid blocking main thread
-	const BATCH_SIZE = 5;
-	for (let i = 0; i < eventArray.length; i += BATCH_SIZE) {
-		const batch = eventArray.slice(i, i + BATCH_SIZE);
-		const results = await Promise.allSettled(
-			batch.map((event) => unwrapGiftWrap(event))
-		);
-		for (const result of results) {
-			if (result.status === 'fulfilled' && result.value && !seenRumorIds.has(result.value.id)) {
-				seenRumorIds.add(result.value.id);
-				messages.push(result.value);
+	// Decrypt sequentially — each unwrap needs 2 signer calls, and browser signers
+	// (Nostash, nos2x) can only handle one request at a time. The decrypt queue in
+	// encryptionService serializes signer calls, but processing one event at a time
+	// here keeps memory pressure low and gives the UI time to breathe.
+	for (const event of eventArray) {
+		try {
+			const message = await unwrapGiftWrap(event);
+			if (message && !seenRumorIds.has(message.id)) {
+				seenRumorIds.add(message.id);
+				messages.push(message);
 				if (onMessage) {
-					onMessage(result.value);
+					onMessage(message);
 				}
 			}
+		} catch {
+			// Individual failures don't stop the rest
 		}
 	}
 

@@ -20,6 +20,57 @@ import { nip19 } from 'nostr-tools';
 
 export type EncryptionMethod = 'nip44' | 'nip04' | null;
 
+// ═══════════════════════════════════════════════════════════════
+// DECRYPT CACHE & SEQUENTIAL QUEUE
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * In-memory cache for decrypted content.
+ * Prevents re-decrypting the same ciphertext (which hits browser signers).
+ * Keyed by "senderPubkey:ciphertext" (truncated for memory efficiency).
+ */
+const decryptCache = new Map<string, string>();
+const DECRYPT_CACHE_MAX = 500;
+
+function getDecryptCacheKey(senderPubkey: string, ciphertext: string): string {
+  // Use first 64 chars of ciphertext to keep keys manageable
+  return `${senderPubkey}:${ciphertext.slice(0, 64)}`;
+}
+
+function getCachedDecrypt(senderPubkey: string, ciphertext: string): string | undefined {
+  return decryptCache.get(getDecryptCacheKey(senderPubkey, ciphertext));
+}
+
+function setCachedDecrypt(senderPubkey: string, ciphertext: string, plaintext: string): void {
+  if (decryptCache.size >= DECRYPT_CACHE_MAX) {
+    // Evict oldest half
+    const keys = Array.from(decryptCache.keys());
+    for (let i = 0; i < keys.length / 2; i++) {
+      decryptCache.delete(keys[i]);
+    }
+  }
+  decryptCache.set(getDecryptCacheKey(senderPubkey, ciphertext), plaintext);
+}
+
+/** Clear the decrypt cache (call on logout). */
+export function clearDecryptCache(): void {
+  decryptCache.clear();
+}
+
+/**
+ * Sequential queue for decrypt operations.
+ * Browser signers (like Nostash) can only handle one request at a time.
+ * Without this, parallel decrypt calls flood the signer with popups.
+ */
+let decryptQueuePromise: Promise<void> = Promise.resolve();
+
+function enqueueDecrypt<T>(fn: () => Promise<T>): Promise<T> {
+  const result = decryptQueuePromise.then(fn, fn);
+  // Update the chain (swallow errors so the queue doesn't stall)
+  decryptQueuePromise = result.then(() => {}, () => {});
+  return result;
+}
+
 type SignerWithEncryption = {
   nip44Encrypt?: (recipient: NDKUser, plaintext: string) => Promise<string>;
   nip04Encrypt?: (recipient: NDKUser, plaintext: string) => Promise<string>;
@@ -359,6 +410,9 @@ export async function encrypt(
  * Decrypt data using the specified method, with fallback to alternative method.
  * Prioritizes window.nostr for NIP-07 extensions (more reliable across signers),
  * then falls back to NDK signer methods.
+ *
+ * Uses an in-memory cache so the same ciphertext is never sent to the signer twice,
+ * and a sequential queue so browser signers only see one request at a time.
  */
 export async function decrypt(
   senderPubkey: string,
@@ -373,7 +427,78 @@ export async function decrypt(
     throw new Error('Encryption method not specified');
   }
 
-  // Try primary method first, then fallback to alternative
+  // Check cache first — avoids hitting the signer entirely
+  const cached = getCachedDecrypt(senderPubkey, ciphertext);
+  if (cached !== undefined) {
+    return cached;
+  }
+
+  // Private-key decryption is local (no signer popup), skip the queue
+  const privateKey = getPrivateKey();
+  if (privateKey) {
+    const result = await decryptWithPrivateKey(privateKey, senderPubkey, ciphertext, method);
+    if (result !== null) {
+      setCachedDecrypt(senderPubkey, ciphertext, result);
+      return result;
+    }
+  }
+
+  // For signer-based decryption, queue sequentially to avoid flooding
+  return enqueueDecrypt(async () => {
+    // Re-check cache (another queued call may have populated it)
+    const cached2 = getCachedDecrypt(senderPubkey, ciphertext);
+    if (cached2 !== undefined) return cached2;
+
+    const result = await decryptViaSigner(senderPubkey, ciphertext, method);
+    setCachedDecrypt(senderPubkey, ciphertext, result);
+    return result;
+  });
+}
+
+/**
+ * Try decrypting with local private key (no signer interaction).
+ * Returns null if private key decryption isn't possible/fails.
+ */
+async function decryptWithPrivateKey(
+  privateKey: string,
+  senderPubkey: string,
+  ciphertext: string,
+  method: EncryptionMethod
+): Promise<string | null> {
+  const methods: EncryptionMethod[] = method === 'nip44' ? ['nip44', 'nip04'] : ['nip04', 'nip44'];
+
+  for (const tryMethod of methods) {
+    try {
+      if (tryMethod === 'nip44') {
+        const privateKeyBytes = new Uint8Array(
+          privateKey.match(/.{1,2}/g)!.map((byte) => parseInt(byte, 16))
+        );
+        const conversationKey = nip44.v2.utils.getConversationKey(
+          privateKeyBytes,
+          senderPubkey
+        );
+        const result = nip44.v2.decrypt(ciphertext, conversationKey);
+        if (result) return result;
+      } else if (tryMethod === 'nip04') {
+        const result = await nip04.decrypt(privateKey, senderPubkey, ciphertext);
+        if (result) return result;
+      }
+    } catch (e) {
+      console.warn(`[Encryption] Direct ${tryMethod} decryption failed:`, (e as Error)?.message || e);
+    }
+  }
+  return null;
+}
+
+/**
+ * Decrypt via browser signer (window.nostr) or NDK signer (NIP-46).
+ * Called inside the sequential queue so only one request hits the signer at a time.
+ */
+async function decryptViaSigner(
+  senderPubkey: string,
+  ciphertext: string,
+  method: EncryptionMethod
+): Promise<string> {
   const methods: EncryptionMethod[] = method === 'nip44' ? ['nip44', 'nip04'] : ['nip04', 'nip44'];
   let lastError: Error | null = null;
 
@@ -388,37 +513,6 @@ export async function decrypt(
       if (tryMethod === 'nip04' && nostr?.nip04?.decrypt) {
         const result = await nostr.nip04.decrypt(senderPubkey, ciphertext);
         if (result) return result;
-      }
-
-      // Try direct decryption with private key if available
-      const privateKey = getPrivateKey();
-      if (privateKey) {
-        try {
-          if (tryMethod === 'nip44') {
-            // Convert hex private key to Uint8Array for NIP-44
-            const privateKeyBytes = new Uint8Array(
-              privateKey.match(/.{1,2}/g)!.map((byte) => parseInt(byte, 16))
-            );
-            const conversationKey = nip44.v2.utils.getConversationKey(
-              privateKeyBytes,
-              senderPubkey
-            );
-            const result = nip44.v2.decrypt(ciphertext, conversationKey);
-            if (result) return result;
-          } else if (tryMethod === 'nip04') {
-            const result = await nip04.decrypt(privateKey, senderPubkey, ciphertext);
-            if (result) return result;
-          }
-        } catch (e) {
-          const errorMsg = e instanceof Error ? e.message : String(e);
-          const errorStack = e instanceof Error ? e.stack : undefined;
-          console.warn(`[Encryption] Direct ${tryMethod} decryption failed:`, {
-            message: errorMsg,
-            stack: errorStack,
-            error: e
-          });
-          // Continue to try NDK signer
-        }
       }
 
       // Fallback to NDK signer (for NIP-46 remote signers, etc.)
@@ -438,7 +532,6 @@ export async function decrypt(
     } catch (e) {
       console.warn(`[Encryption] ${tryMethod} decryption failed, trying next method...`, e);
       lastError = e instanceof Error ? e : new Error(String(e));
-      // Continue to next method
     }
   }
 

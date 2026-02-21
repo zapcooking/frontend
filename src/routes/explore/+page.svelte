@@ -21,7 +21,7 @@
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
   import { nip19 } from 'nostr-tools';
   import { init, markOnce } from '$lib/perf/explorePerf';
-  import { userPublickey } from '$lib/nostr';
+  import { userPublickey, ensureNdkConnected } from '$lib/nostr';
   import { fetchMeshRecipes, fetchMeshEngagement, buildMeshGraph, type EngagementMap } from '$lib/meshUtils';
   import type { MeshNode, MeshEdge } from '$lib/mesh/meshTypes';
   import { getCachedLayout, applyCachedLayout } from '$lib/mesh/meshLayout';
@@ -162,15 +162,23 @@
     collections = await fetchCollectionsWithImages();
     loadingCollections = false;
 
+    // Wait for at least one relay connection before firing subscription-based fetches.
+    // Without this gate, cold loads race against NDK connection and can throw.
+    await ensureNdkConnected();
+
     // Start discover recipes immediately (don't block on other data)
     fetchDiscoverRecipes(12).then((discoverData) => {
       discoverRecipes = discoverData;
+      loadingDiscover = false;
+    }).catch(() => {
       loadingDiscover = false;
     });
 
     // Load popular cooks (uses cache for instant load)
     fetchPopularCooks(12).then((cooksData) => {
       popularCooks = cooksData;
+      loadingCooks = false;
+    }).catch(() => {
       loadingCooks = false;
     });
 
@@ -183,6 +191,8 @@
           popularTagCounts.set(tag.title, tag.count);
         }
       });
+      loadingPopular = false;
+    }).catch(() => {
       loadingPopular = false;
     });
 

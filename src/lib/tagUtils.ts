@@ -6,7 +6,7 @@ import {
   RECIPE_TAG_PREFIX_NEW,
   RECIPE_TAG_PREFIX_LEGACY
 } from './consts';
-import { ndk } from './nostr';
+import { ndk, ndkConnected } from './nostr';
 import { get } from 'svelte/store';
 import type { NDKFilter } from '@nostr-dev-kit/ndk';
 import { markOnce } from './perf/explorePerf';
@@ -65,8 +65,8 @@ export async function computePopularTags(limit: number = 8): Promise<TagWithCoun
 
   try {
     const ndkInstance = get(ndk);
-    if (!ndkInstance) {
-      console.warn('NDK not available, using default popular tags');
+    if (!ndkInstance || !get(ndkConnected)) {
+      console.warn('NDK not connected, using default popular tags');
       return getTagsWithCounts(defaultPopular);
     }
 

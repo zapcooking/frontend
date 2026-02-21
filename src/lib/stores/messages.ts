@@ -375,18 +375,17 @@ async function fetchHistoricalNip04Messages(
 	const messages: DecryptedMessage[] = [];
 	const eventArray = Array.from(allEvents.values());
 
-	// Decrypt in batches of 5 to avoid blocking main thread
-	const BATCH_SIZE = 5;
-	for (let i = 0; i < eventArray.length; i += BATCH_SIZE) {
-		const batch = eventArray.slice(i, i + BATCH_SIZE);
-		const results = await Promise.allSettled(
-			batch.map((event) => decryptNip04Event(event, userPubkey))
-		);
-		for (const result of results) {
-			if (result.status === 'fulfilled' && result.value) {
-				messages.push(result.value);
-				addMessage(result.value, userPubkey);
+	// Decrypt sequentially — browser signers can only handle one request at a time.
+	// The decrypt queue in encryptionService serializes signer calls.
+	for (const event of eventArray) {
+		try {
+			const message = await decryptNip04Event(event, userPubkey);
+			if (message) {
+				messages.push(message);
+				addMessage(message, userPubkey);
 			}
+		} catch {
+			// Individual failures don't stop the rest
 		}
 	}
 
