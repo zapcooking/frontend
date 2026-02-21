@@ -143,11 +143,11 @@
 	}
 </script>
 
-<div class="flex flex-col h-full">
-	<!-- Header -->
+<div class="relative h-full overflow-hidden">
+	<!-- Header (frosted glass, floats over messages) -->
 	<div
-		class="flex items-center gap-3 p-4 border-b"
-		style="border-color: var(--color-input-border);"
+		class="absolute top-0 left-0 right-0 z-10 flex items-center gap-3 px-4 h-[68px]"
+		style="background-color: color-mix(in srgb, var(--color-bg-secondary) 70%, transparent); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);"
 	>
 		<button
 			class="lg:hidden p-1 rounded-lg transition-colors hover:bg-accent-gray cursor-pointer"
@@ -223,7 +223,7 @@
 
 	{#if isLockedOut}
 		<!-- Locked out: members-only group for non-members -->
-		<div class="flex-1 flex flex-col items-center justify-center px-4 text-center">
+		<div class="h-full flex flex-col items-center justify-center px-4 text-center pt-[68px]">
 			<LockIcon size={40} weight="light" style="color: var(--color-caption);" />
 			<p class="text-sm font-medium mt-3" style="color: var(--color-text-primary);">
 				Members Only
@@ -240,11 +240,11 @@
 			</a>
 		</div>
 	{:else}
-		<!-- Messages -->
+		<!-- Messages (full height, padded top/bottom for header/input) -->
 		<div
 			bind:this={scrollContainer}
 			on:scroll={handleScroll}
-			class="flex-1 overflow-y-auto px-4 py-3"
+			class="h-full overflow-y-auto px-4 pt-[84px] pb-[80px]"
 		>
 			{#if messages.length === 0}
 				<div class="flex items-center justify-center h-full">
@@ -259,14 +259,7 @@
 			{/if}
 		</div>
 
-		<!-- Error -->
-		{#if sendError}
-			<div class="px-4 py-2">
-				<p class="text-xs text-danger">{sendError}</p>
-			</div>
-		{/if}
-
-		<!-- Input -->
+		<!-- Input (frosted glass, floats over messages) -->
 		<input
 			bind:this={fileInput}
 			type="file"
@@ -275,14 +268,19 @@
 			on:change={handleImageUpload}
 		/>
 		<div
-			class="p-3 border-t"
-			style="border-color: var(--color-input-border);"
+			class="absolute bottom-0 left-0 right-0 z-10 p-3"
+			style="background-color: color-mix(in srgb, var(--color-bg-secondary) 70%, transparent); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);"
 		>
-			<div class="flex items-end gap-2">
+			{#if sendError}
+				<div class="pb-2">
+					<p class="text-xs text-danger">{sendError}</p>
+				</div>
+			{/if}
+			<div class="flex items-end">
 				<button
 					on:click={() => fileInput?.click()}
 					disabled={uploading}
-					class="p-2.5 rounded-xl transition-colors cursor-pointer disabled:opacity-40"
+					class="p-2.5 rounded-xl transition-colors cursor-pointer disabled:opacity-40 self-stretch"
 					style="color: var(--color-caption);"
 					title="Attach image"
 				>
@@ -300,13 +298,13 @@
 					placeholder="Type a message..."
 					rows="1"
 					class="input flex-1 resize-none text-sm min-h-[42px] max-h-32"
-					style="background-color: var(--color-input-bg);"
+					style="background-color: var(--color-input-bg); border-radius: 0.75rem 0 0 0.75rem; border: 1px solid rgba(249, 115, 22, 0.35); border-right: none;"
 					disabled={sending}
 				></textarea>
 				<button
 					on:click={handleSend}
 					disabled={(!messageInput.trim() && !uploading) || sending}
-					class="p-2.5 rounded-xl transition-colors cursor-pointer disabled:opacity-40"
+					class="p-2.5 rounded-l-none rounded-r-xl transition-colors cursor-pointer disabled:opacity-40 self-stretch"
 					style="background-color: var(--color-primary); color: #ffffff;"
 				>
 					{#if sending}
