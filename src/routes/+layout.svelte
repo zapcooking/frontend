@@ -53,9 +53,13 @@
   const ogImage = `${siteUrl}/social-share.png`;
   $: canonical = `${siteUrl}${$page.url.pathname === '/' ? '' : $page.url.pathname}`;
 
-  // Skip layout OG tags on pages that set their own (recipe pages)
+  // Skip layout OG tags on pages that set their own (recipe pages, note pages)
+  $: pathSegment = $page.url.pathname.split('/')[1] || '';
   $: hasCustomOgTags =
-    $page.url.pathname.startsWith('/recipe/') || $page.url.pathname.startsWith('/r/');
+    $page.url.pathname.startsWith('/recipe/') ||
+    $page.url.pathname.startsWith('/r/') ||
+    pathSegment.startsWith('note1') ||
+    pathSegment.startsWith('nevent1');
 
   let authManager: any = null;
   let authState: AuthState = {
