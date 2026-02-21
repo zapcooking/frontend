@@ -170,6 +170,7 @@
   let successMessage = '';
   let sparkMnemonic = '';
   let showMnemonic = false;
+  let mnemonicVisible = false;
 
   // Spark restore options
   let sparkRestoreMode: 'options' | 'mnemonic' | 'file' | 'nostr-select' = 'options';
@@ -1575,6 +1576,7 @@
       const mnemonic = await createSparkWallet($userPublickey, BREEZ_API_KEY);
       sparkMnemonic = mnemonic;
       showMnemonic = true;
+      mnemonicVisible = false;
       successMessage = 'Breez Spark wallet created! Please save your recovery phrase.';
 
       // Register in wallet store
@@ -1867,6 +1869,7 @@
   function closeMnemonicModal() {
     showMnemonic = false;
     sparkMnemonic = '';
+    mnemonicVisible = false;
     showAddWallet = false;
     selectedWalletType = null;
   }
@@ -1881,6 +1884,7 @@
       const mnemonic = await loadMnemonic($userPublickey);
       if (mnemonic) {
         revealedMnemonic = mnemonic;
+        mnemonicVisible = false;
       } else {
         errorMessage = 'Could not load recovery phrase';
       }
@@ -1891,6 +1895,7 @@
 
   function closeRevealMnemonicModal() {
     revealedMnemonic = null;
+    mnemonicVisible = false;
   }
 
   async function handleDownloadBackup() {
@@ -3978,10 +3983,26 @@
               to your wallet.
             </div>
             <div
-              class="p-4 rounded-lg mb-4 font-mono text-sm"
+              class="relative p-4 rounded-lg mb-4 font-mono text-sm"
               style="background-color: var(--color-input-bg); color: var(--color-text-primary);"
             >
-              {sparkMnemonic}
+              {#if mnemonicVisible}
+                <span class="select-all">{sparkMnemonic}</span>
+              {:else}
+                <span class="blur-sm select-none" aria-hidden="true">{sparkMnemonic}</span>
+              {/if}
+              <button
+                class="absolute top-3 right-3 p-1 rounded-lg opacity-70 hover:opacity-100 transition-opacity"
+                style="color: var(--color-text-primary);"
+                on:click={() => (mnemonicVisible = !mnemonicVisible)}
+                title={mnemonicVisible ? 'Hide recovery phrase' : 'Reveal recovery phrase'}
+              >
+                {#if mnemonicVisible}
+                  <EyeSlashIcon size={20} />
+                {:else}
+                  <EyeIcon size={20} />
+                {/if}
+              </button>
             </div>
             <Button on:click={closeMnemonicModal} class="w-full"
               >I've Saved My Recovery Phrase</Button
@@ -4013,10 +4034,26 @@
               Never share this phrase with anyone. Anyone with these words can access your funds.
             </div>
             <div
-              class="p-4 rounded-lg mb-4 font-mono text-sm select-all"
+              class="relative p-4 rounded-lg mb-4 font-mono text-sm"
               style="background-color: var(--color-input-bg); color: var(--color-text-primary);"
             >
-              {revealedMnemonic}
+              {#if mnemonicVisible}
+                <span class="select-all">{revealedMnemonic}</span>
+              {:else}
+                <span class="blur-sm select-none" aria-hidden="true">{revealedMnemonic}</span>
+              {/if}
+              <button
+                class="absolute top-3 right-3 p-1 rounded-lg opacity-70 hover:opacity-100 transition-opacity"
+                style="color: var(--color-text-primary);"
+                on:click={() => (mnemonicVisible = !mnemonicVisible)}
+                title={mnemonicVisible ? 'Hide recovery phrase' : 'Reveal recovery phrase'}
+              >
+                {#if mnemonicVisible}
+                  <EyeSlashIcon size={20} />
+                {:else}
+                  <EyeIcon size={20} />
+                {/if}
+              </button>
             </div>
             <Button on:click={closeRevealMnemonicModal} class="w-full">Close</Button>
           </div>
