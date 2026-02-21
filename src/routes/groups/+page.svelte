@@ -109,7 +109,7 @@
 {:else}
 	<!-- Groups UI -->
 	<div
-		class="flex h-[calc(100vh-8rem)] lg:h-[calc(100vh-6rem)] -mx-4 rounded-xl overflow-hidden border"
+		class="flex h-[calc(100vh-8rem)] lg:h-[calc(100vh-6rem)] rounded-xl overflow-hidden border"
 		style="border-color: var(--color-input-border); background-color: var(--color-bg-secondary);"
 	>
 		<!-- Group List (left panel) -->

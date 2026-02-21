@@ -69,12 +69,24 @@
 		return truncate(messages[messages.length - 1].content, 40);
 	}
 
+	let skipNextOutsideClose = false;
+
 	function toggleMenu(e: MouseEvent, groupId: string) {
 		e.stopPropagation();
-		openMenuId = openMenuId === groupId ? null : groupId;
+		if (openMenuId === groupId) {
+			openMenuId = null;
+		} else {
+			// Flag so the outgoing clickOutside from the previous menu doesn't reopen
+			skipNextOutsideClose = true;
+			openMenuId = groupId;
+		}
 	}
 
 	function closeMenu() {
+		if (skipNextOutsideClose) {
+			skipNextOutsideClose = false;
+			return;
+		}
 		openMenuId = null;
 	}
 
@@ -248,27 +260,27 @@
 	}
 </script>
 
-<div class="flex flex-col h-full">
-	<!-- Header -->
+<div class="relative h-full">
+	<!-- Header (frosted glass, floats over group list) -->
 	<div
-		class="flex items-center justify-between p-4 border-b"
-		style="border-color: var(--color-input-border);"
+		class="absolute top-0 left-0 right-0 z-10 flex items-center justify-between px-4 h-[68px]"
+		style="background-color: color-mix(in srgb, var(--color-bg-secondary) 70%, transparent); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);"
 	>
 		<h2 class="text-lg font-semibold" style="color: var(--color-text-primary);">Groups</h2>
 		{#if hasActiveMembership}
 			<button
-				class="p-2 rounded-xl transition-colors hover:bg-accent-gray cursor-pointer"
-				style="color: var(--color-text-primary);"
+				class="p-2 rounded-full transition-colors cursor-pointer"
+				style="background-color: var(--color-primary); color: #ffffff;"
 				on:click={() => dispatch('createGroup')}
 				title="Create group"
 			>
-				<PlusIcon size={20} />
+				<PlusIcon size={18} weight="bold" />
 			</button>
 		{/if}
 	</div>
 
 	<!-- Group list -->
-	<div class="flex-1 overflow-y-auto">
+	<div class="h-full overflow-y-auto pt-[68px]">
 		{#if $groupsLoading && $sortedGroups.length === 0}
 			<div class="flex items-center gap-2 px-4 py-3" style="color: var(--color-caption);">
 				<div
@@ -290,7 +302,7 @@
 				<div
 					class="relative flex items-start gap-3 px-4 py-3 transition-colors text-left"
 					class:bg-input={selectedGroupId === group.id}
-					style="border-bottom: 1px solid var(--color-input-border);"
+					style="border-bottom: 1px solid color-mix(in srgb, var(--color-text-primary) 8%, transparent);"
 				>
 					<button
 						class="flex items-start gap-3 flex-1 min-w-0 cursor-pointer text-left"
@@ -354,13 +366,13 @@
 
 						{#if openMenuId === group.id}
 							<div
-								class="absolute top-full right-0 mt-1 rounded-lg shadow-lg py-1 z-50 min-w-[150px]"
-								style="background-color: var(--color-input); border: 1px solid var(--color-input-border);"
+								class="absolute top-full right-0 mt-1 rounded-xl shadow-lg py-1 z-50 whitespace-nowrap"
+								style="background-color: var(--color-bg-secondary); border: 1px solid var(--color-input-border);"
 								use:clickOutside
 								on:click_outside={closeMenu}
 							>
 								<button
-									class="w-full px-4 py-2 text-left text-sm hover:bg-accent-gray flex items-center gap-2 cursor-pointer"
+									class="w-full px-4 py-2 text-left text-sm flex items-center gap-2 cursor-pointer transition-colors menu-item-hover"
 									style="color: var(--color-text-primary);"
 									on:click={(e) => openEdit(e, group.id, group.name)}
 								>
@@ -368,7 +380,7 @@
 									<span>Edit Name</span>
 								</button>
 								<button
-									class="w-full px-4 py-2 text-left text-sm hover:bg-accent-gray flex items-center gap-2 cursor-pointer"
+									class="w-full px-4 py-2 text-left text-sm flex items-center gap-2 cursor-pointer transition-colors menu-item-hover"
 									style="color: var(--color-text-primary);"
 									on:click={(e) => openPicture(e, group.id)}
 								>
@@ -376,7 +388,7 @@
 									<span>Picture</span>
 								</button>
 								<button
-									class="w-full px-4 py-2 text-left text-sm hover:bg-accent-gray flex items-center gap-2 cursor-pointer"
+									class="w-full px-4 py-2 text-left text-sm flex items-center gap-2 cursor-pointer transition-colors menu-item-hover"
 									style="color: var(--color-text-primary);"
 									disabled={togglingVisibility === group.id}
 									on:click={(e) => handleToggleVisibility(e, group)}
@@ -390,7 +402,7 @@
 									{/if}
 								</button>
 								<button
-									class="w-full px-4 py-2 text-left text-sm hover:bg-accent-gray flex items-center gap-2 cursor-pointer text-red-500"
+									class="w-full px-4 py-2 text-left text-sm flex items-center gap-2 cursor-pointer transition-colors text-red-500 menu-item-hover"
 									on:click={(e) => openDelete(e, group.id, group.name)}
 								>
 									<TrashIcon size={16} />
@@ -515,3 +527,9 @@
 		</div>
 	</div>
 </Modal>
+
+<style>
+	.menu-item-hover:hover {
+		background-color: color-mix(in srgb, var(--color-text-primary) 8%, transparent);
+	}
+</style>
