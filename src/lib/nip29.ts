@@ -144,7 +144,7 @@ function attachAuthedListener(relay: any): void {
  * Wait for NIP-42 auth to complete on the pantry relay.
  * Returns immediately if auth already completed.
  */
-async function waitForPantryAuth(timeoutMs = 15000): Promise<boolean> {
+async function waitForPantryAuth(timeoutMs = 8000): Promise<boolean> {
 	if (pantryAuthResolved) return true;
 	if (!pantryAuthPromise) return false;
 
@@ -235,7 +235,7 @@ async function doPantryConnect(ndkInstance: NDK): Promise<void> {
 
 		// Wait for WebSocket open
 		await new Promise<void>((resolve, reject) => {
-			const timeoutMs = 15000;
+			const timeoutMs = 8000;
 
 			const cleanup = () => {
 				clearTimeout(timer);
@@ -279,7 +279,7 @@ async function doPantryConnect(ndkInstance: NDK): Promise<void> {
 
 	// 5. Wait for NIP-42 auth to complete (should be fast now that
 	//    the global policy is in place and NIP-07 isn't contending)
-	const authed = await waitForPantryAuth(15000);
+	const authed = await waitForPantryAuth(8000);
 	if (authed) {
 		console.log('[NIP-29] Pantry relay authenticated and ready');
 	} else {
@@ -326,7 +326,7 @@ export async function fetchGroups(ndkInstance: NDK): Promise<GroupMetadata[]> {
 			console.log('[NIP-29] fetchGroups timeout, returning', groups.length, 'groups');
 			sub.stop();
 			resolve(groups);
-		}, 8000);
+		}, 4000);
 
 		const sub = ndkInstance.subscribe(
 			{ kinds: [39000 as number] },
@@ -343,6 +343,87 @@ export async function fetchGroups(ndkInstance: NDK): Promise<GroupMetadata[]> {
 			clearTimeout(timeoutId);
 			console.log('[NIP-29] Fetched', groups.length, 'groups');
 			resolve(groups);
+		});
+	});
+}
+
+/**
+ * Callbacks for progressive rendering of group data.
+ */
+export interface GroupDataCallbacks {
+	onMetadata: (meta: GroupMetadata) => void;
+	onMembers: (groupId: string, members: string[]) => void;
+	onMessage: (message: GroupMessage) => void;
+}
+
+/**
+ * Fetch all group data (metadata, members, recent messages) in a single
+ * batched subscription. Calls callbacks progressively as events arrive,
+ * so the UI updates incrementally instead of waiting for everything.
+ *
+ * Returns a promise that resolves on EOSE or timeout.
+ */
+export async function fetchAllGroupData(
+	ndkInstance: NDK,
+	callbacks: GroupDataCallbacks
+): Promise<void> {
+	await ensurePantryAuthed(ndkInstance);
+	const relaySet = getPantryRelaySet(ndkInstance);
+	const sevenDaysAgo = Math.floor(Date.now() / 1000) - 7 * 24 * 60 * 60;
+
+	return new Promise((resolve) => {
+		const timeoutId = setTimeout(() => {
+			console.log('[NIP-29] fetchAllGroupData timeout');
+			sub.stop();
+			resolve();
+		}, 4000);
+
+		// Track members per group with dedup (relay may send multiple 39002 events)
+		const membersByGroup = new Map<string, Set<string>>();
+
+		const sub = ndkInstance.subscribe(
+			[
+				{ kinds: [39000 as number] },
+				{ kinds: [39002 as number] },
+				{ kinds: [9 as number], since: sevenDaysAgo }
+			],
+			{ closeOnEose: true },
+			relaySet
+		);
+
+		sub.on('event', (event: NDKEvent) => {
+			if (event.kind === 39000) {
+				const meta = parseGroupMetadata(event);
+				if (meta) callbacks.onMetadata(meta);
+			} else if (event.kind === 39002) {
+				const dTag = event.tags.find((t) => t[0] === 'd');
+				if (!dTag?.[1]) return;
+				const groupId = dTag[1];
+				const existing = membersByGroup.get(groupId) || new Set<string>();
+				for (const tag of event.tags) {
+					if (tag[0] === 'p' && tag[1]) {
+						existing.add(tag[1]);
+					}
+				}
+				membersByGroup.set(groupId, existing);
+				callbacks.onMembers(groupId, Array.from(existing));
+			} else if (event.kind === 9) {
+				const hTag = event.tags.find((t) => t[0] === 'h');
+				if (!hTag?.[1]) return;
+				callbacks.onMessage({
+					id: event.id,
+					groupId: hTag[1],
+					sender: event.pubkey,
+					content: event.content,
+					created_at: event.created_at || 0
+				});
+			}
+		});
+
+		sub.on('eose', () => {
+			clearTimeout(timeoutId);
+			console.log('[NIP-29] fetchAllGroupData EOSE — all group data received');
+			resolve();
 		});
 	});
 }
@@ -392,7 +473,7 @@ export async function fetchGroupMembers(
 		const timeoutId = setTimeout(() => {
 			sub.stop();
 			resolve(members);
-		}, 8000);
+		}, 4000);
 
 		const sub = ndkInstance.subscribe(
 			{ kinds: [39002 as number], '#d': [groupId] },
@@ -470,7 +551,7 @@ export async function fetchGroupMessages(
 		const timeoutId = setTimeout(() => {
 			sub.stop();
 			resolve(messages);
-		}, 8000);
+		}, 4000);
 
 		const sub = ndkInstance.subscribe(
 			{ kinds: [9 as number], '#h': [groupId], since: sinceTimestamp },
@@ -508,17 +589,19 @@ export async function fetchGroupMessages(
  */
 export async function subscribeToGroupMessages(
 	ndkInstance: NDK,
-	onMessage: (message: GroupMessage) => void
+	onMessage: (message: GroupMessage) => void,
+	since?: number
 ): Promise<{ stop: () => void }> {
 	const seenIds = new Set<string>();
 
 	await ensurePantryAuthed(ndkInstance);
 	const relaySet = getPantryRelaySet(ndkInstance);
 
-	console.log('[NIP-29] Starting group message subscription');
+	const sinceTs = since ?? Math.floor(Date.now() / 1000);
+	console.log('[NIP-29] Starting group message subscription (since:', sinceTs, ')');
 
 	const sub = ndkInstance.subscribe(
-		{ kinds: [9 as number] },
+		{ kinds: [9 as number], since: sinceTs },
 		{ closeOnEose: false },
 		relaySet
 	);

@@ -10,9 +10,7 @@ import { browser } from '$app/environment';
 import type NDK from '@nostr-dev-kit/ndk';
 import type { GroupMetadata, GroupMessage } from '$lib/nip29';
 import {
-	fetchGroups,
-	fetchGroupMembers,
-	fetchGroupMessages,
+	fetchAllGroupData,
 	subscribeToGroupMessages,
 	resetPantryConnection
 } from '$lib/nip29';
@@ -137,9 +135,22 @@ export function setGroupMembers(groupId: string, members: string[]) {
 		const existing = $groups.get(groupId);
 		if (existing) {
 			existing.members = members;
-			return new Map($groups);
+		} else {
+			// Members arrived before metadata — create placeholder
+			$groups.set(groupId, {
+				id: groupId,
+				name: groupId,
+				picture: '',
+				about: '',
+				isPrivate: false,
+				isClosed: false,
+				isRestricted: false,
+				messages: [],
+				members,
+				lastMessageAt: 0
+			});
 		}
-		return $groups;
+		return new Map($groups);
 	});
 }
 
@@ -172,7 +183,8 @@ export function clearGroups() {
 let activeSub: { stop: () => void } | null = null;
 
 /**
- * Initialize group subscription: fetch metadata, load messages, start live sub.
+ * Initialize group subscription: fetch all data in one batch, start live sub.
+ * Uses a single subscription for metadata + members + messages (progressive rendering).
  */
 export async function initGroupSubscription(ndkInstance: NDK, userPubkey: string) {
 	if (!browser) return;
@@ -187,43 +199,36 @@ export async function initGroupSubscription(ndkInstance: NDK, userPubkey: string
 	groupsLoading.set(true);
 
 	try {
-		// 1. Fetch group metadata
-		const groupList = await fetchGroups(ndkInstance);
-		for (const meta of groupList) {
-			setGroupMetadata(meta);
-		}
+		let groupCount = 0;
 
-		// 2. Start live subscription for new messages
-		activeSub = await subscribeToGroupMessages(ndkInstance, (message) => {
-			addGroupMessage(message);
+		// Capture timestamp BEFORE batch fetch so live sub overlaps slightly,
+		// ensuring no messages are lost between batch EOSE and live sub start
+		const liveSubSince = Math.floor(Date.now() / 1000);
+
+		// 1. Fetch all group data in a single batched subscription
+		//    UI updates progressively as each event arrives
+		await fetchAllGroupData(ndkInstance, {
+			onMetadata: (meta) => {
+				setGroupMetadata(meta);
+				groupCount++;
+			},
+			onMembers: (groupId, members) => {
+				setGroupMembers(groupId, members);
+			},
+			onMessage: (message) => {
+				addGroupMessage(message);
+			}
 		});
 
+		// 2. Start live subscription for new messages
+		//    Uses liveSubSince (captured before batch) so there's no gap;
+		//    dedup in addGroupMessage handles any overlap
+		activeSub = await subscribeToGroupMessages(ndkInstance, (message) => {
+			addGroupMessage(message);
+		}, liveSubSince);
+
 		groupsInitialized.set(true);
-		console.log('[Groups] Subscription active, fetched', groupList.length, 'groups');
-
-		// 3. Load members for each group in background
-		for (const meta of groupList) {
-			fetchGroupMembers(ndkInstance, meta.id)
-				.then((members) => {
-					setGroupMembers(meta.id, members);
-				})
-				.catch((e) => {
-					console.warn('[Groups] Failed to load members for group', meta.id, e);
-				});
-		}
-
-		// 4. Load historical messages for each group in background
-		for (const meta of groupList) {
-			fetchGroupMessages(ndkInstance, meta.id)
-				.then((messages) => {
-					for (const msg of messages) {
-						addGroupMessage(msg);
-					}
-				})
-				.catch((e) => {
-					console.warn('[Groups] Failed to load messages for group', meta.id, e);
-				});
-		}
+		console.log('[Groups] Subscription active, fetched', groupCount, 'groups via single batch');
 	} catch (e) {
 		console.error('[Groups] Failed to initialize:', e);
 	} finally {
