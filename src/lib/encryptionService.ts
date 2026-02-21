@@ -32,6 +32,16 @@ export type EncryptionMethod = 'nip44' | 'nip04' | null;
 const decryptCache = new Map<string, string>();
 const DECRYPT_CACHE_MAX = 500;
 
+/** Sentinel stored in cache when the signer denied a decrypt request. */
+const DECRYPT_DENIED = '\x00__DENIED__';
+
+// ── Circuit breaker ──────────────────────────────────────────
+// After SIGNER_DENIAL_THRESHOLD consecutive user denials, stop
+// sending any further decrypt requests for the rest of the session.
+let signerDenialCount = 0;
+let signerCircuitBroken = false;
+const SIGNER_DENIAL_THRESHOLD = 2;
+
 function getDecryptCacheKey(method: EncryptionMethod, senderPubkey: string, ciphertext: string): string {
   return `${method}:${senderPubkey}:${ciphertext}`;
 }
@@ -51,9 +61,11 @@ function setCachedDecrypt(method: EncryptionMethod, senderPubkey: string, cipher
   decryptCache.set(getDecryptCacheKey(method, senderPubkey, ciphertext), plaintext);
 }
 
-/** Clear the decrypt cache (call on logout). */
+/** Clear the decrypt cache and reset the circuit breaker (call on logout). */
 export function clearDecryptCache(): void {
   decryptCache.clear();
+  signerDenialCount = 0;
+  signerCircuitBroken = false;
 }
 
 /**
@@ -68,6 +80,15 @@ function enqueueDecrypt<T>(fn: () => Promise<T>): Promise<T> {
   // Update the chain (swallow errors so the queue doesn't stall)
   decryptQueuePromise = result.then(() => {}, () => {});
   return result;
+}
+
+/**
+ * Detect whether a signer error is a user denial (clicked "No" / "Cancel").
+ * Browser signers throw with varied messages; match common patterns.
+ */
+function isUserDenial(error: unknown): boolean {
+  const msg = (error instanceof Error ? error.message : String(error)).toLowerCase();
+  return /reject|denied|cancel|refused|declined|abort|dismissed/.test(msg);
 }
 
 type SignerWithEncryption = {
@@ -429,6 +450,9 @@ export async function decrypt(
   // Check cache first — avoids hitting the signer entirely
   const cached = getCachedDecrypt(method, senderPubkey, ciphertext);
   if (cached !== undefined) {
+    if (cached === DECRYPT_DENIED) {
+      throw new Error('Decryption was previously denied by signer');
+    }
     return cached;
   }
 
@@ -442,15 +466,50 @@ export async function decrypt(
     }
   }
 
+  // Circuit breaker: stop sending requests after repeated user denials
+  if (signerCircuitBroken) {
+    throw new Error('Signer decrypt requests disabled after repeated denials');
+  }
+
   // For signer-based decryption, queue sequentially to avoid flooding
   return enqueueDecrypt(async () => {
     // Re-check cache (another queued call may have populated it)
     const cached2 = getCachedDecrypt(method, senderPubkey, ciphertext);
-    if (cached2 !== undefined) return cached2;
+    if (cached2 !== undefined) {
+      if (cached2 === DECRYPT_DENIED) {
+        throw new Error('Decryption was previously denied by signer');
+      }
+      return cached2;
+    }
 
-    const result = await decryptViaSigner(senderPubkey, ciphertext, method);
-    setCachedDecrypt(method, senderPubkey, ciphertext, result);
-    return result;
+    // Re-check circuit breaker (may have tripped while waiting in queue)
+    if (signerCircuitBroken) {
+      throw new Error('Signer decrypt requests disabled after repeated denials');
+    }
+
+    try {
+      const result = await decryptViaSigner(senderPubkey, ciphertext, method);
+      // Success resets the denial counter
+      signerDenialCount = 0;
+      setCachedDecrypt(method, senderPubkey, ciphertext, result);
+      return result;
+    } catch (e) {
+      if (isUserDenial(e)) {
+        // Cache the denial so this ciphertext is never retried
+        setCachedDecrypt(method, senderPubkey, ciphertext, DECRYPT_DENIED);
+        // Increment circuit breaker counter
+        signerDenialCount++;
+        if (signerDenialCount >= SIGNER_DENIAL_THRESHOLD) {
+          signerCircuitBroken = true;
+          console.warn(
+            '[Encryption] Circuit breaker tripped: signer denied',
+            signerDenialCount,
+            'consecutive decrypt requests. No further decrypt popups this session.'
+          );
+        }
+      }
+      throw e;
+    }
   });
 }
 
@@ -529,8 +588,12 @@ async function decryptViaSigner(
         }
       }
     } catch (e) {
-      console.warn(`[Encryption] ${tryMethod} decryption failed, trying next method...`, e);
       lastError = e instanceof Error ? e : new Error(String(e));
+      // If the user denied, don't try the fallback method — one popup is enough
+      if (isUserDenial(e)) {
+        throw lastError;
+      }
+      console.warn(`[Encryption] ${tryMethod} decryption failed, trying next method...`, e);
     }
   }
 
