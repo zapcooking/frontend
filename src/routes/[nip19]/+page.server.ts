@@ -28,6 +28,7 @@ const RELAYS = [
 
 // Image detection patterns (matching NoteContent.svelte)
 const IMAGE_EXTENSIONS = /\.(jpg|jpeg|png|gif|webp|svg|bmp|avif)(\?.*)?$/i;
+const VIDEO_EXTENSIONS = /\.(mp4|webm|mov|avi|mkv|ogv)(\?.*)?$/i;
 const IMAGE_HOSTS = [
 	'image.nostr.build',
 	'nostr.build',
@@ -45,6 +46,8 @@ function extractFirstImageUrl(content: string): string | null {
 	for (const url of urls) {
 		try {
 			const urlObj = new URL(url);
+			// Skip video URLs
+			if (VIDEO_EXTENSIONS.test(urlObj.pathname)) continue;
 			if (IMAGE_EXTENSIONS.test(urlObj.pathname)) return url;
 			if (IMAGE_HOSTS.some(host => urlObj.hostname.includes(host))) return url;
 		} catch {
@@ -54,10 +57,97 @@ function extractFirstImageUrl(content: string): string | null {
 	return null;
 }
 
-function cleanNoteContent(content: string): string {
-	let text = content
-		// Remove nostr: mentions
-		.replace(/nostr:[a-z0-9]+/gi, '')
+// Regex matching nostr:npub1... and nostr:nprofile1... mentions (bech32 charset)
+const MENTION_REGEX = /nostr:(npub1|nprofile1)([023456789acdefghjklmnpqrstuvwxyz]+)/g;
+const MAX_MENTION_RESOLVES = 5;
+
+/**
+ * Extract nostr:npub1/nprofile1 mentions from content, decode to pubkeys,
+ * fetch profiles, and return a map of original mention string -> @DisplayName.
+ */
+async function resolveMentions(content: string): Promise<Map<string, string>> {
+	const mentionMap = new Map<string, string>(); // full match -> pubkey
+	const seen = new Set<string>();
+
+	let match;
+	const regex = new RegExp(MENTION_REGEX);
+	while ((match = regex.exec(content)) !== null) {
+		const fullMatch = match[0]; // e.g. "nostr:npub1abc..."
+		if (mentionMap.has(fullMatch)) continue;
+
+		try {
+			const decoded = nip19.decode(fullMatch.replace('nostr:', ''));
+			let pubkey = '';
+			if (decoded.type === 'npub') {
+				pubkey = decoded.data as string;
+			} else if (decoded.type === 'nprofile') {
+				pubkey = (decoded.data as { pubkey: string }).pubkey;
+			}
+			if (pubkey && !seen.has(pubkey)) {
+				seen.add(pubkey);
+				mentionMap.set(fullMatch, pubkey);
+			}
+		} catch {
+			// Invalid nip19, skip
+		}
+
+		if (seen.size >= MAX_MENTION_RESOLVES) break;
+	}
+
+	if (mentionMap.size === 0) return new Map();
+
+	// Fetch all unique profiles in parallel
+	const pubkeys = [...new Set(mentionMap.values())];
+	const profileResults = await Promise.all(
+		pubkeys.map(async (pk) => {
+			try {
+				const timeout = new Promise<null>(resolve => setTimeout(() => resolve(null), 3000));
+				return { pk, profile: await Promise.race([fetchProfileMetadata(pk), timeout]) };
+			} catch {
+				return { pk, profile: null };
+			}
+		})
+	);
+
+	const profileMap = new Map<string, string>();
+	for (const { pk, profile } of profileResults) {
+		const name = profile?.display_name || profile?.name || null;
+		if (name) {
+			profileMap.set(pk, name);
+		} else {
+			// Fallback: truncated npub
+			try {
+				const npub = nip19.npubEncode(pk);
+				profileMap.set(pk, npub.slice(0, 8) + '...' + npub.slice(-4));
+			} catch {
+				profileMap.set(pk, 'unknown');
+			}
+		}
+	}
+
+	// Build final replacement map: full mention string -> @DisplayName
+	const result = new Map<string, string>();
+	for (const [mention, pubkey] of mentionMap) {
+		result.set(mention, '@' + (profileMap.get(pubkey) || 'unknown'));
+	}
+	return result;
+}
+
+function cleanNoteContent(content: string, mentionReplacements?: Map<string, string>): string {
+	let text = content;
+
+	// Replace nostr: mentions with @DisplayName (if resolved) or strip them
+	if (mentionReplacements && mentionReplacements.size > 0) {
+		for (const [mention, replacement] of mentionReplacements) {
+			text = text.replaceAll(mention, replacement);
+		}
+		// Strip any remaining unresolved nostr: references (notes, events, etc.)
+		text = text.replace(/nostr:[a-z0-9]+/gi, '');
+	} else {
+		text = text.replace(/nostr:[a-z0-9]+/gi, '');
+	}
+
+	text = text
 		// Remove image/video URLs
 		.replace(/https?:\/\/[^\s]+\.(jpg|jpeg|png|gif|webp|svg|bmp|avif|mp4|webm|mov)(\?[^\s]*)?/gi, '')
 		// Remove remaining standalone URLs
@@ -354,9 +444,17 @@ export const load: PageServerLoad = async ({ params, url }) => {
 			return { ogMeta: makeFallbackMeta() };
 		}
 
+		// Resolve @mentions in note content (parallel, with timeout)
+		let mentionReplacements: Map<string, string> | undefined;
+		try {
+			mentionReplacements = await resolveMentions(note.content);
+		} catch {
+			// Mention resolution failed, will fall back to stripping
+		}
+
 		const authorName = profile?.display_name || profile?.name || null;
 		const title = authorName ? `${authorName} on zap.cooking` : 'Note on zap.cooking';
-		const description = cleanNoteContent(note.content);
+		const description = cleanNoteContent(note.content, mentionReplacements);
 		const image = extractFirstImageUrl(note.content) || 'https://zap.cooking/social-share.png';
 
 		return {
