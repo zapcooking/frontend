@@ -197,6 +197,7 @@ export async function initGroupSubscription(ndkInstance: NDK, userPubkey: string
 	stopGroupSubscription();
 
 	groupsLoading.set(true);
+	const t0 = performance.now();
 
 	try {
 		let groupCount = 0;
@@ -220,6 +221,8 @@ export async function initGroupSubscription(ndkInstance: NDK, userPubkey: string
 			}
 		});
 
+		const t1 = performance.now();
+
 		// 2. Start live subscription for new messages
 		//    Uses liveSubSince (captured before batch) so there's no gap;
 		//    dedup in addGroupMessage handles any overlap
@@ -227,16 +230,18 @@ export async function initGroupSubscription(ndkInstance: NDK, userPubkey: string
 			addGroupMessage(message);
 		}, liveSubSince);
 
+		const t2 = performance.now();
+
 		if (groupCount > 0) {
 			groupsInitialized.set(true);
-			console.log('[Groups] Subscription active, fetched', groupCount, 'groups via single batch');
+			console.log(`[Groups] Ready in ${(t2 - t0).toFixed(0)}ms (batch: ${(t1 - t0).toFixed(0)}ms, live sub: ${(t2 - t1).toFixed(0)}ms, ${groupCount} groups)`);
 		} else {
 			// 0 groups likely means auth failed and the relay returned nothing.
 			// Reset the connection so the next retry does a full reconnect + re-auth
 			// instead of reusing the failed auth state.
 			stopGroupSubscription();
 			resetPantryConnection();
-			console.warn('[Groups] Fetched 0 groups — connection reset, will retry on next navigation');
+			console.warn(`[Groups] Fetched 0 groups in ${(t2 - t0).toFixed(0)}ms — connection reset, will retry on next navigation`);
 		}
 	} catch (e) {
 		console.error('[Groups] Failed to initialize:', e);

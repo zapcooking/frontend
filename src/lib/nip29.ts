@@ -106,6 +106,7 @@ function ensureAuthPolicy(ndkInstance: NDK): void {
 			console.log('[NIP-29] NIP-42 auth challenge received, signing...');
 		}
 
+		const signStart = performance.now();
 		const event = new NDKEvent(ndkInstance);
 		event.kind = 22242;
 		event.tags = [
@@ -115,7 +116,7 @@ function ensureAuthPolicy(ndkInstance: NDK): void {
 		await event.sign();
 
 		if (isPantry) {
-			console.log('[NIP-29] NIP-42 auth event signed');
+			console.log(`[NIP-29] NIP-42 auth event signed in ${(performance.now() - signStart).toFixed(0)}ms`);
 		}
 		return event;
 	};
@@ -144,7 +145,7 @@ function attachAuthedListener(relay: any): void {
  * Wait for NIP-42 auth to complete on the pantry relay.
  * Returns immediately if auth already completed.
  */
-async function waitForPantryAuth(timeoutMs = 8000): Promise<boolean> {
+async function waitForPantryAuth(timeoutMs = 5000): Promise<boolean> {
 	if (pantryAuthResolved) return true;
 	if (!pantryAuthPromise) return false;
 
@@ -194,6 +195,7 @@ async function ensurePantryConnected(ndkInstance: NDK): Promise<void> {
 }
 
 async function doPantryConnect(ndkInstance: NDK): Promise<void> {
+	const t0 = performance.now();
 	console.log('[NIP-29] Connecting to pantry relay...');
 
 	// 1. Set global auth policy BEFORE getting the relay — this avoids the
@@ -210,6 +212,8 @@ async function doPantryConnect(ndkInstance: NDK): Promise<void> {
 	// 3. Attach 'authed' listener on the pool's relay instance
 	attachAuthedListener(relay);
 
+	const t1 = performance.now();
+
 	// 4. Check if relay already connected (pool may have auto-connected it)
 	const alreadyConnected = relay.connectivity?.status === 1;
 
@@ -222,7 +226,7 @@ async function doPantryConnect(ndkInstance: NDK): Promise<void> {
 		} catch {
 			// ignore disconnect errors
 		}
-		await new Promise((r) => setTimeout(r, 200));
+		await new Promise((r) => setTimeout(r, 50));
 	}
 
 	if (!alreadyConnected || !pantryAuthResolved) {
@@ -263,7 +267,7 @@ async function doPantryConnect(ndkInstance: NDK): Promise<void> {
 					cleanup();
 					resolve();
 				}
-			}, 1000);
+			}, 100);
 
 			relay.on('connect', onConnect);
 			relay.on('ready', onConnect);
@@ -275,15 +279,17 @@ async function doPantryConnect(ndkInstance: NDK): Promise<void> {
 		});
 	}
 
-	console.log('[NIP-29] Pantry relay connected, waiting for auth...');
+	const t2 = performance.now();
+	console.log(`[NIP-29] WebSocket open (setup: ${(t1 - t0).toFixed(0)}ms, connect: ${(t2 - t1).toFixed(0)}ms)`);
 
 	// 5. Wait for NIP-42 auth to complete (should be fast now that
 	//    the global policy is in place and NIP-07 isn't contending)
-	const authed = await waitForPantryAuth(8000);
+	const authed = await waitForPantryAuth(5000);
+	const t3 = performance.now();
 	if (authed) {
-		console.log('[NIP-29] Pantry relay authenticated and ready');
+		console.log(`[NIP-29] Auth completed in ${(t3 - t2).toFixed(0)}ms (total: ${(t3 - t0).toFixed(0)}ms)`);
 	} else {
-		console.warn('[NIP-29] Auth timeout — proceeding (operations may fail)');
+		console.warn(`[NIP-29] Auth timeout after ${(t3 - t2).toFixed(0)}ms — proceeding (operations may fail)`);
 	}
 }
 
@@ -292,6 +298,18 @@ async function doPantryConnect(ndkInstance: NDK): Promise<void> {
  */
 async function ensurePantryAuthed(ndkInstance: NDK): Promise<void> {
 	await ensurePantryConnected(ndkInstance);
+}
+
+/**
+ * Pre-connect and authenticate to the pantry relay in the background.
+ * Call this early (e.g. after login) so the connection is ready by the
+ * time the user navigates to /groups. Safe to call multiple times —
+ * the connection promise is cached.
+ */
+export function preconnectPantry(ndkInstance: NDK): void {
+	ensurePantryConnected(ndkInstance).catch((e) => {
+		console.warn('[NIP-29] Background pre-connect failed:', e);
+	});
 }
 
 /**
@@ -367,31 +385,37 @@ export async function fetchAllGroupData(
 	ndkInstance: NDK,
 	callbacks: GroupDataCallbacks
 ): Promise<void> {
+	const t0 = performance.now();
 	await ensurePantryAuthed(ndkInstance);
+	const t1 = performance.now();
 	const relaySet = getPantryRelaySet(ndkInstance);
-	const sevenDaysAgo = Math.floor(Date.now() / 1000) - 7 * 24 * 60 * 60;
+	// 2 days of messages is enough for sidebar previews; threads can lazy-load more
+	const twoDaysAgo = Math.floor(Date.now() / 1000) - 2 * 24 * 60 * 60;
 
 	return new Promise((resolve) => {
 		const timeoutId = setTimeout(() => {
-			console.log('[NIP-29] fetchAllGroupData timeout');
+			const elapsed = performance.now() - t0;
+			console.log(`[NIP-29] fetchAllGroupData timeout after ${elapsed.toFixed(0)}ms (${eventCount} events)`);
 			sub.stop();
 			resolve();
 		}, 4000);
 
 		// Track members per group with dedup (relay may send multiple 39002 events)
 		const membersByGroup = new Map<string, Set<string>>();
+		let eventCount = 0;
 
 		const sub = ndkInstance.subscribe(
 			[
 				{ kinds: [39000 as number] },
 				{ kinds: [39002 as number] },
-				{ kinds: [9 as number], since: sevenDaysAgo }
+				{ kinds: [9 as number], since: twoDaysAgo, limit: 500 }
 			],
 			{ closeOnEose: true },
 			relaySet
 		);
 
 		sub.on('event', (event: NDKEvent) => {
+			eventCount++;
 			if (event.kind === 39000) {
 				const meta = parseGroupMetadata(event);
 				if (meta) callbacks.onMetadata(meta);
@@ -422,7 +446,8 @@ export async function fetchAllGroupData(
 
 		sub.on('eose', () => {
 			clearTimeout(timeoutId);
-			console.log('[NIP-29] fetchAllGroupData EOSE — all group data received');
+			const elapsed = performance.now() - t0;
+			console.log(`[NIP-29] fetchAllGroupData EOSE in ${elapsed.toFixed(0)}ms (auth: ${(t1 - t0).toFixed(0)}ms, data: ${(elapsed - (t1 - t0)).toFixed(0)}ms, ${eventCount} events)`);
 			resolve();
 		});
 	});
