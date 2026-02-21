@@ -27,21 +27,20 @@ export type EncryptionMethod = 'nip44' | 'nip04' | null;
 /**
  * In-memory cache for decrypted content.
  * Prevents re-decrypting the same ciphertext (which hits browser signers).
- * Keyed by "senderPubkey:ciphertext" (truncated for memory efficiency).
+ * Keyed by "method:senderPubkey:ciphertext" to avoid collisions across methods.
  */
 const decryptCache = new Map<string, string>();
 const DECRYPT_CACHE_MAX = 500;
 
-function getDecryptCacheKey(senderPubkey: string, ciphertext: string): string {
-  // Use first 64 chars of ciphertext to keep keys manageable
-  return `${senderPubkey}:${ciphertext.slice(0, 64)}`;
+function getDecryptCacheKey(method: EncryptionMethod, senderPubkey: string, ciphertext: string): string {
+  return `${method}:${senderPubkey}:${ciphertext}`;
 }
 
-function getCachedDecrypt(senderPubkey: string, ciphertext: string): string | undefined {
-  return decryptCache.get(getDecryptCacheKey(senderPubkey, ciphertext));
+function getCachedDecrypt(method: EncryptionMethod, senderPubkey: string, ciphertext: string): string | undefined {
+  return decryptCache.get(getDecryptCacheKey(method, senderPubkey, ciphertext));
 }
 
-function setCachedDecrypt(senderPubkey: string, ciphertext: string, plaintext: string): void {
+function setCachedDecrypt(method: EncryptionMethod, senderPubkey: string, ciphertext: string, plaintext: string): void {
   if (decryptCache.size >= DECRYPT_CACHE_MAX) {
     // Evict oldest half
     const keys = Array.from(decryptCache.keys());
@@ -49,7 +48,7 @@ function setCachedDecrypt(senderPubkey: string, ciphertext: string, plaintext: s
       decryptCache.delete(keys[i]);
     }
   }
-  decryptCache.set(getDecryptCacheKey(senderPubkey, ciphertext), plaintext);
+  decryptCache.set(getDecryptCacheKey(method, senderPubkey, ciphertext), plaintext);
 }
 
 /** Clear the decrypt cache (call on logout). */
@@ -428,7 +427,7 @@ export async function decrypt(
   }
 
   // Check cache first — avoids hitting the signer entirely
-  const cached = getCachedDecrypt(senderPubkey, ciphertext);
+  const cached = getCachedDecrypt(method, senderPubkey, ciphertext);
   if (cached !== undefined) {
     return cached;
   }
@@ -438,7 +437,7 @@ export async function decrypt(
   if (privateKey) {
     const result = await decryptWithPrivateKey(privateKey, senderPubkey, ciphertext, method);
     if (result !== null) {
-      setCachedDecrypt(senderPubkey, ciphertext, result);
+      setCachedDecrypt(method, senderPubkey, ciphertext, result);
       return result;
     }
   }
@@ -446,11 +445,11 @@ export async function decrypt(
   // For signer-based decryption, queue sequentially to avoid flooding
   return enqueueDecrypt(async () => {
     // Re-check cache (another queued call may have populated it)
-    const cached2 = getCachedDecrypt(senderPubkey, ciphertext);
+    const cached2 = getCachedDecrypt(method, senderPubkey, ciphertext);
     if (cached2 !== undefined) return cached2;
 
     const result = await decryptViaSigner(senderPubkey, ciphertext, method);
-    setCachedDecrypt(senderPubkey, ciphertext, result);
+    setCachedDecrypt(method, senderPubkey, ciphertext, result);
     return result;
   });
 }
