@@ -216,14 +216,19 @@ export function buildNip22CommentTags(
   if (event.kind !== 30023) {
     // For non-longform content, use standard NIP-10 structure
     if (parentEvent) {
-      // Reply to a comment
-      return [
+      // Reply to a comment — NIP-10 requires root + reply markers,
+      // plus p tags for both root author and parent author
+      const tags: string[][] = [
         ['e', event.id, '', 'root'],
         ['e', parentEvent.id, '', 'reply'],
-        ['p', parentEvent.pubkey]
+        ['p', event.pubkey]
       ];
+      if (parentEvent.pubkey !== event.pubkey) {
+        tags.push(['p', parentEvent.pubkey]);
+      }
+      return tags;
     } else {
-      // Direct reply to the event
+      // Direct reply to the root — NIP-10: single "root" marker
       return [
         ['e', event.id, '', 'root'],
         ['p', event.pubkey]
@@ -231,11 +236,11 @@ export function buildNip22CommentTags(
     }
   }
 
-  // NIP-22 structure for longform comments
+  // NIP-22 structure for longform comments (kind 1111 on kind 30023)
   const dTag = event.tags.find((t) => t[0] === 'd')?.[1];
 
   if (!dTag) {
-    // Fallback if no d tag - use simple structure
+    // Fallback if no d tag - use simple e-tag structure
     if (parentEvent) {
       return [
         ['e', event.id, '', event.pubkey],
@@ -254,97 +259,56 @@ export function buildNip22CommentTags(
   const addressTag = `${event.kind}:${event.pubkey}:${dTag}`;
   const relayHint = event.tags.find((t) => t[0] === 'relay')?.[1] || '';
 
-  function getRootEventIdFromTags(tags?: string[][]): string | undefined {
-    if (!tags) return undefined;
-    for (const tag of tags) {
-      if (tag[0] !== 'e' || !tag[1]) continue;
-      const marker = tag[3] || (tag[2] === 'root' ? tag[2] : undefined);
-      if (marker === 'root') {
-        return tag[1];
-      }
-    }
-    return undefined;
-  }
-
-  function appendUniqueTag(tags: string[][], tag: string[]) {
-    const exists = tags.some(
-      (existing) =>
-        existing.length === tag.length && existing.every((value, index) => value === tag[index])
-    );
-    if (!exists) {
-      tags.push(tag);
-    }
-  }
-
-  function addNip10ReplyTags(tags: string[][]) {
-    const rootId = event.id || getRootEventIdFromTags(parentEvent?.tags);
-    if (rootId) {
-      appendUniqueTag(tags, ['e', rootId, relayHint, 'root']);
-    }
-    if (parentEvent?.id) {
-      appendUniqueTag(tags, ['e', parentEvent.id, relayHint, 'reply']);
-    }
-
-    if (event.pubkey) {
-      appendUniqueTag(tags, ['p', event.pubkey]);
-    }
-    if (parentEvent?.pubkey && parentEvent.pubkey !== event.pubkey) {
-      appendUniqueTag(tags, ['p', parentEvent.pubkey]);
-    }
-  }
-
   if (parentEvent) {
-    // Nested reply to a comment - preserve root scope, update parent scope
-    // Try to get root scope from parent comment (if it exists)
+    // Nested reply to a comment — preserve root scope, update parent scope
     const parentATag = parentEvent.tags.find((t) => t[0] === 'A' || t[0] === 'a');
     const parentKTag = parentEvent.tags.find((t) => t[0] === 'K');
     const parentPTag = parentEvent.tags.find((t) => t[0] === 'P');
 
     if (parentATag && parentKTag && parentPTag) {
-      // Parent has proper NIP-22 structure, inherit root scope
-      const tags = [
-        // Root scope (uppercase) - inherited from parent
-        ['A', parentATag[1], relayHint, parentPTag[1]],
+      // Parent has proper NIP-22 structure — inherit root scope
+      // NIP-22: A/a tags get 3 elements (no pubkey), E/e tags get 4 (with pubkey)
+      return [
+        // Root scope (uppercase) — inherited from parent
+        ['A', parentATag[1], relayHint],
         ['K', parentKTag[1]],
-        ['P', parentPTag[1]],
-        // Parent scope (lowercase) - points to the comment being replied to
-        ['a', parentATag[1], relayHint, parentPTag[1]],
+        ['P', parentPTag[1], relayHint],
+        // Parent scope (lowercase) — points to the comment being replied to
         ['e', parentEvent.id, relayHint, parentEvent.pubkey],
-        ['k', '1111'], // Parent is a comment
-        ['p', parentEvent.pubkey]
+        ['k', '1111'],
+        ['p', parentEvent.pubkey, relayHint]
       ];
-      addNip10ReplyTags(tags);
-      return tags;
     } else {
-      // Parent doesn't have proper structure, build from scratch
-      const tags = [
+      // Parent doesn't have proper NIP-22 structure — build from scratch
+      return [
         // Root scope (uppercase)
-        ['A', addressTag, relayHint, event.pubkey],
+        ['A', addressTag, relayHint],
         ['K', String(event.kind)],
-        ['P', event.pubkey],
-        // Parent scope (lowercase) - points to the comment being replied to
-        ['a', addressTag, relayHint, event.pubkey],
+        ['P', event.pubkey, relayHint],
+        // Parent scope (lowercase) — points to the comment being replied to
         ['e', parentEvent.id, relayHint, parentEvent.pubkey],
-        ['k', '1111'], // Parent is a comment
-        ['p', parentEvent.pubkey]
+        ['k', '1111'],
+        ['p', parentEvent.pubkey, relayHint]
       ];
-      addNip10ReplyTags(tags);
-      return tags;
     }
   } else {
-    // Top-level comment - root and parent scope are the same
-    const tags = [
+    // Top-level comment — root and parent scope are the same
+    // NIP-22: A/a tags get 3 elements (no pubkey)
+    const tags: string[][] = [
       // Root scope (uppercase)
-      ['A', addressTag, relayHint, event.pubkey],
+      ['A', addressTag, relayHint],
       ['K', String(event.kind)],
-      ['P', event.pubkey],
-      // Parent scope (lowercase) - same as root for top-level comment
-      ['a', addressTag, relayHint, event.pubkey],
-      ['e', event.id, relayHint, event.pubkey],
+      ['P', event.pubkey, relayHint],
+      // Parent scope (lowercase) — same as root for top-level
+      ['a', addressTag, relayHint],
       ['k', String(event.kind)],
-      ['p', event.pubkey]
+      ['p', event.pubkey, relayHint]
     ];
-    addNip10ReplyTags(tags);
+    // For top-level comments on addressable events, also include an e tag
+    // referencing the root event's id (per NIP-22 spec example)
+    if (event.id) {
+      tags.push(['e', event.id, relayHint, event.pubkey]);
+    }
     return tags;
   }
 }

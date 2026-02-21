@@ -273,17 +273,21 @@
 
       // For recipe replies, we need to get the root event info from the parent's tags
       if (isRecipeReply) {
-        // Get root event info from parent comment's tags
+        // Get root event info from parent comment's NIP-22 tags
         const rootATag = event.getMatchingTags('A')[0] || event.getMatchingTags('a')[0];
 
         if (rootATag) {
           // Parse the address tag to extract root event info
           const [kind, pubkey, ...dTagParts] = rootATag[1].split(':');
           const dTag = dTagParts.join(':');
+          // Find the root event's actual ID from the parent's e tags (look for the
+          // e tag that references the root, not another comment)
+          const rootETag = event.getMatchingTags('E')[0] ||
+            event.getMatchingTags('e').find((t) => t[1] && t[1] !== event.id);
           const rootEventObj = {
             kind: parseInt(kind),
             pubkey: pubkey,
-            id: '', // We don't need the actual event ID for tag generation
+            id: rootETag?.[1] || '',
             tags: [
               ['d', dTag],
               ['relay', rootATag[2] || '']
@@ -293,7 +297,8 @@
           // Use the utility with both root and parent event
           ev.tags = buildNip22CommentTags(rootEventObj, parentEventObj);
         } else {
-          // Fallback: treat parent as if it's the root
+          // Fallback: parent lacks NIP-22 structure — build tags treating
+          // the parent as both root and parent (best effort)
           ev.tags = buildNip22CommentTags(
             {
               ...parentEventObj,
