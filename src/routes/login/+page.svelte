@@ -955,60 +955,35 @@
     </div>
   </Modal>
 
-  <!-- Main Login Page -->
-  <main
-    class="min-h-screen lightning-bg relative overflow-hidden"
-    aria-label="Zap Cooking login page"
-  >
-    <!-- Background Lightning Effects -->
+  <!-- Blur overlay (bottom layer) -->
+  <div class="login-blur-layer backdrop-brightness-50 backdrop-blur" aria-hidden="true"></div>
+
+  <!-- Animated elements (above blur) -->
+  <div class="login-viewport-anim pointer-events-none" aria-hidden="true">
     <div class="absolute inset-0 opacity-5">
       <div class="absolute top-10 left-10 text-6xl lightning-pulse">⚡</div>
-      <div class="absolute top-32 right-20 text-4xl lightning-pulse" style="animation-delay: 0.5s;">
-        ⚡
-      </div>
-      <div class="absolute bottom-20 left-32 text-5xl lightning-pulse" style="animation-delay: 1s;">
-        ⚡
-      </div>
-      <div
-        class="absolute bottom-40 right-10 text-3xl lightning-pulse"
-        style="animation-delay: 1.5s;"
-      >
-        ⚡
-      </div>
-      <div class="absolute top-1/2 left-10 text-4xl lightning-pulse" style="animation-delay: 2s;">
-        ⚡
-      </div>
+      <div class="absolute top-32 right-20 text-4xl lightning-pulse" style="animation-delay: 0.5s;">⚡</div>
+      <div class="absolute bottom-20 left-32 text-5xl lightning-pulse" style="animation-delay: 1s;">⚡</div>
+      <div class="absolute bottom-40 right-10 text-3xl lightning-pulse" style="animation-delay: 1.5s;">⚡</div>
+      <div class="absolute top-1/2 left-10 text-4xl lightning-pulse" style="animation-delay: 2s;">⚡</div>
     </div>
-
-    <!-- Floating Cooking Elements -->
-    <div class="absolute inset-0 opacity-10 pointer-events-none">
-      <div class="absolute top-20 left-1/4 text-3xl animate-bounce" style="animation-delay: 0.2s;">
-        🍳
-      </div>
-      <div class="absolute top-40 right-1/3 text-2xl animate-bounce" style="animation-delay: 0.8s;">
-        🥘
-      </div>
-      <div
-        class="absolute bottom-32 left-1/3 text-2xl animate-bounce"
-        style="animation-delay: 1.2s;"
-      >
-        👨‍🍳
-      </div>
-      <div
-        class="absolute bottom-20 right-1/4 text-3xl animate-bounce"
-        style="animation-delay: 0.6s;"
-      >
-        🍽️
-      </div>
+    <div class="absolute inset-0 opacity-10">
+      <div class="absolute top-20 left-1/4 text-3xl animate-bounce" style="animation-delay: 0.2s;">🍳</div>
+      <div class="absolute top-40 right-1/3 text-2xl animate-bounce" style="animation-delay: 0.8s;">🥘</div>
+      <div class="absolute bottom-32 left-1/3 text-2xl animate-bounce" style="animation-delay: 1.2s;">👨‍🍳</div>
+      <div class="absolute bottom-20 right-1/4 text-3xl animate-bounce" style="animation-delay: 0.6s;">🍽️</div>
     </div>
+  </div>
 
-    <div class="relative flex flex-col items-center min-h-screen px-4 pt-12 md:pt-20 pb-8">
-      <!-- Main Content Card -->
-      <section
-        class="glass-card rounded-2xl p-6 md:p-8 w-full mx-auto text-center"
-        style="max-width: 420px;"
-        aria-label="Authentication options"
-      >
+  <!-- Main Login Page (centered card, highest layer) -->
+  <main
+    class="login-viewport-center"
+    aria-label="Zap Cooking login page"
+  >
+    <section
+      class="glass-card absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 rounded-3xl p-6 md:p-8 w-[calc(100%-2rem)] md:w-[calc(100vw-4em)] max-w-xl max-h-[85vh] md:max-h-[90vh] overflow-y-auto text-center"
+      aria-label="Authentication options"
+    >
         <!-- Logo and Title -->
         <div class="mb-5">
           <img
@@ -1151,47 +1126,35 @@
           </div>
         </section>
       </section>
-    </div>
   </main>
 {/if}
 
 <style>
-  :global(.lightning-bg) {
-    background-color: var(--color-bg-primary);
-  }
-
   :global(.lightning-pulse) {
     animation: lightningPulse 2s ease-in-out infinite;
   }
 
-  :global(.electric-glow) {
-    box-shadow:
-      0 0 20px rgba(247, 147, 26, 0.2),
-      0 0 40px rgba(247, 147, 26, 0.1);
+  @keyframes lightningPulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.8; transform: scale(1.05); }
+  }
+
+  .login-blur-layer {
+    position: fixed;
+    inset: 0;
+    z-index: 29;
+  }
+
+  .login-viewport-anim {
+    position: fixed;
+    inset: 0;
+    z-index: 30;
   }
 
   :global(.glass-card) {
     background-color: var(--color-bg-secondary);
     border: 1px solid var(--color-input-border);
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
-  }
-
-  :global(.lightning-border) {
-    position: relative;
-    border: 2px solid #f7931a;
-    border-radius: 16px;
-  }
-
-  @keyframes lightningPulse {
-    0%,
-    100% {
-      opacity: 1;
-      transform: scale(1);
-    }
-    50% {
-      opacity: 0.8;
-      transform: scale(1.05);
-    }
   }
 
   :global(.qr-container) {
@@ -1211,5 +1174,13 @@
     display: block !important;
     width: 100%;
     height: 100%;
+  }
+
+  /* Break out of layout content area so login card is viewport-centered */
+  .login-viewport-center {
+    position: fixed;
+    inset: 0;
+    z-index: 31;
+    overflow-y: auto;
   }
 </style>
