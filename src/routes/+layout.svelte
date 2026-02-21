@@ -22,6 +22,7 @@
   import { clearDecryptCache } from '$lib/encryptionService';
   import { clearUnwrapCache } from '$lib/nip17';
   import { stopGroupSubscription, clearGroups } from '$lib/stores/groups';
+  import { preconnectPantry } from '$lib/nip29';
   import type { LayoutData } from './$types';
   import ErrorBoundary from '../components/ErrorBoundary.svelte';
   import OfflineIndicator from '../components/OfflineIndicator.svelte';
@@ -227,7 +228,9 @@
           userPublickey.set(state.publicKey);
           // Message subscriptions are lazy — initialized when user navigates to /messages.
           // This avoids flooding browser signers with NIP-44 decrypt requests on login.
-          // NIP-29 groups init deferred to /groups page to avoid NIP-07 signing contention at startup
+          // Pre-connect pantry relay shortly after login so groups load instantly
+          // when user navigates to /groups (auth signing is only ~35ms, no contention risk)
+          setTimeout(() => preconnectPantry($ndk), 1000);
         } else {
           userPublickey.set('');
           stopMessageSubscription();
