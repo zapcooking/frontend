@@ -45,15 +45,16 @@ export async function syncLightningAddressToProfile(
 	ndk: NDK
 ): Promise<boolean> {
 	const currentProfileEvent = await fetchCurrentProfileEvent(pubkey, ndk)
-	if (!currentProfileEvent) {
-		throw new Error('No existing profile found. Please set up your profile first before syncing lightning address.')
-	}
 
 	let oldProfileContent: Record<string, any>
-	try {
-		oldProfileContent = JSON.parse(currentProfileEvent.content || '{}')
-	} catch {
-		throw new Error('Failed to parse existing profile data')
+	if (currentProfileEvent) {
+		try {
+			oldProfileContent = JSON.parse(currentProfileEvent.content || '{}')
+		} catch {
+			throw new Error('Failed to parse existing profile data')
+		}
+	} else {
+		oldProfileContent = {}
 	}
 
 	if (oldProfileContent.lud16 === lightningAddress) return true
@@ -72,7 +73,7 @@ export async function syncLightningAddressToProfile(
 	const profileEvent = new NDKEvent(ndk)
 	profileEvent.kind = 0
 	profileEvent.content = JSON.stringify(newProfileContent)
-	profileEvent.tags = currentProfileEvent.tags || []
+	profileEvent.tags = currentProfileEvent?.tags || []
 
 	await profileEvent.sign()
 	await profileEvent.publish()
