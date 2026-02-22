@@ -9,8 +9,13 @@
   import CircleIcon from 'phosphor-svelte/lib/Circle';
   import BroadcastIcon from 'phosphor-svelte/lib/Broadcast';
   import PlugsIcon from 'phosphor-svelte/lib/Plugs';
+  import SignOutIcon from 'phosphor-svelte/lib/SignOut';
+  import ShieldCheckIcon from 'phosphor-svelte/lib/ShieldCheck';
+  import WarningIcon from 'phosphor-svelte/lib/Warning';
   import Button from '../../components/Button.svelte';
+  import Modal from '../../components/Modal.svelte';
   import Accordion from '../../components/Accordion.svelte';
+  import NostrBackupSection from '../../components/NostrBackupSection.svelte';
   import { nip19 } from 'nostr-tools';
   import { theme, type Theme } from '$lib/themeStore';
   import { displayCurrency, SUPPORTED_CURRENCIES, type CurrencyCode } from '$lib/currencyStore';
@@ -161,6 +166,8 @@
   let authMethod: string | null = null;
   let nip46Info: NIP46ConnectionInfo | null = null;
   let disconnectingBunker = false;
+  let disconnectingSession = false;
+  let showDisconnectConfirm = false;
   let privateKeyRevealed = false;
 
   if (browser) {
@@ -199,6 +206,24 @@
       console.error('Failed to disconnect bunker:', error);
     } finally {
       disconnectingBunker = false;
+    }
+  }
+
+  async function disconnectSession() {
+    if (!browser) return;
+    disconnectingSession = true;
+    try {
+      const authManager = getAuthManager();
+      if (authManager) {
+        await authManager.logout();
+      }
+      userPublickey.set('');
+      goto('/login');
+    } catch (error) {
+      console.error('Failed to disconnect session:', error);
+    } finally {
+      disconnectingSession = false;
+      showDisconnectConfirm = false;
     }
   }
 
@@ -988,6 +1013,11 @@
       </div>
     </Accordion>
 
+    <!-- Nostr Backup Section -->
+    <Accordion title="Nostr Backup" open={false}>
+      <NostrBackupSection />
+    </Accordion>
+
     <!-- Security Section -->
     <Accordion title="Security" open={false}>
       <div class="flex flex-col gap-5">
@@ -1097,9 +1127,36 @@
           </div>
         {:else if authMethod === 'nip46'}
           <div class="border-t border-[var(--color-input-border)] pt-5">
-            <p class="text-sm text-caption italic">
-              Using remote signer - no private key stored on this device
+            <div class="flex items-center gap-2 mb-2">
+              <ShieldCheckIcon size={18} class="text-green-500" weight="fill" />
+              <p class="text-sm font-medium" style="color: var(--color-text-primary)">
+                Remote Signer (NIP-46)
+              </p>
+            </div>
+            <p class="text-xs text-caption">
+              Your private key is securely held by your remote signer. It is never exposed to this app.
             </p>
+          </div>
+        {:else if pk}
+          <div class="border-t border-[var(--color-input-border)] pt-5">
+            <div class="flex items-center gap-2 mb-2">
+              <ShieldCheckIcon size={18} class="text-green-500" weight="fill" />
+              <p class="text-sm font-medium" style="color: var(--color-text-primary)">
+                Browser Extension (NIP-07)
+              </p>
+            </div>
+            <p class="text-xs text-caption mb-4">
+              Your private key is securely held by your browser extension. It is never exposed to this app.
+            </p>
+
+            <button
+              type="button"
+              on:click={() => (showDisconnectConfirm = true)}
+              class="flex items-center gap-1.5 px-4 py-2 bg-red-500/10 hover:bg-red-500/20 text-red-500 rounded-lg text-sm font-medium transition-colors"
+            >
+              <SignOutIcon size={16} />
+              Disconnect
+            </button>
           </div>
         {/if}
 
@@ -1107,7 +1164,7 @@
         {#if authMethod === 'nip46' && nip46Info}
           <div class="border-t border-[var(--color-input-border)] pt-5">
             <p class="text-sm font-medium mb-1" style="color: var(--color-text-primary)">
-              Remote Signer (NIP-46)
+              Bunker Connection
             </p>
             <div class="flex items-center gap-2 text-sm mb-3">
               <CircleIcon size={10} weight="fill" class="text-green-500" />
@@ -1131,10 +1188,11 @@
 
             <button
               type="button"
-              on:click={disconnectBunker}
+              on:click={() => (showDisconnectConfirm = true)}
               disabled={disconnectingBunker}
-              class="px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+              class="flex items-center gap-1.5 px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
             >
+              <SignOutIcon size={16} />
               {disconnectingBunker ? 'Disconnecting...' : 'Disconnect Bunker'}
             </button>
           </div>
@@ -1143,3 +1201,57 @@
     </Accordion>
   </div>
 </div>
+
+<!-- Disconnect Confirmation Modal -->
+<Modal bind:open={showDisconnectConfirm} cleanup={() => (showDisconnectConfirm = false)}>
+  <span slot="title">Disconnect Session</span>
+
+  <div class="flex flex-col gap-4">
+    <div
+      class="p-3 rounded-lg flex items-start gap-2 text-sm"
+      style="background-color: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3);"
+    >
+      <WarningIcon size={18} class="text-red-500 flex-shrink-0 mt-0.5" weight="fill" />
+      <div class="text-xs" style="color: var(--color-text-primary);">
+        <p class="font-medium text-red-500 mb-1">You will be signed out of zap.cooking</p>
+        <p class="text-caption">
+          {#if authMethod === 'nip46'}
+            Your private key remains safe in your remote signer. You can reconnect anytime.
+          {:else}
+            Your private key remains safe in your Nostr signer (for example, your browser extension). You can sign back in anytime.
+          {/if}
+        </p>
+      </div>
+    </div>
+
+    <div class="flex gap-2">
+      <button
+        type="button"
+        class="flex-1 px-4 py-2.5 rounded-xl text-sm font-medium transition-colors"
+        style="background-color: var(--color-bg-secondary); color: var(--color-text-primary); border: 1px solid var(--color-input-border);"
+        on:click={() => (showDisconnectConfirm = false)}
+      >
+        Cancel
+      </button>
+      <button
+        type="button"
+        class="flex-1 flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl text-sm font-medium transition-colors bg-red-500 hover:bg-red-600 text-white disabled:opacity-50"
+        disabled={disconnectingSession || disconnectingBunker}
+        on:click={async () => {
+          try {
+            if (authMethod === 'nip46') {
+              await disconnectBunker();
+            } else {
+              await disconnectSession();
+            }
+          } finally {
+            showDisconnectConfirm = false;
+          }
+        }}
+      >
+        <SignOutIcon size={16} />
+        {disconnectingSession || disconnectingBunker ? 'Disconnecting...' : 'Disconnect'}
+      </button>
+    </div>
+  </div>
+</Modal>
