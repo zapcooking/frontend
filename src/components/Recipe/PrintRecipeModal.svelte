@@ -19,8 +19,6 @@
     servings: string | null;
   };
   export let directionsPhases: DirectionPhase[];
-  export let markdownBeforeDirections: string;
-  export let markdownAfterDirections: string;
 
   // Toggle state — all default to true
   let showImage = true;
@@ -97,7 +95,7 @@
     return tags;
   })();
 
-  // Split markdownBeforeDirections into chef's notes and ingredients
+  // Extract chef's notes and ingredients from event content
   $: chefNotesHtml = (() => {
     const match = event.content.match(/## Chef's notes\s*\n([\s\S]*?)(?=\n## |$)/i);
     if (match) return parseMarkdown(`## Chef's notes\n${match[1].trim()}`);
