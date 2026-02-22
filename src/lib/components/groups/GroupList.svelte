@@ -11,6 +11,9 @@
 	import ImageIcon from 'phosphor-svelte/lib/Image';
 	import GlobeSimpleIcon from 'phosphor-svelte/lib/GlobeSimple';
 	import LockIcon from 'phosphor-svelte/lib/Lock';
+	import LinkSimpleIcon from 'phosphor-svelte/lib/LinkSimple';
+	import UsersThreeIcon from 'phosphor-svelte/lib/UsersThree';
+	import InviteLinkModal from './InviteLinkModal.svelte';
 	import { createEventDispatcher } from 'svelte';
 
 	const dispatch = createEventDispatcher<{
@@ -47,6 +50,10 @@
 	let deleteGroupName = '';
 	let deleteDeleting = false;
 	let deleteError = '';
+
+	// Invite link modal state
+	let inviteModalOpen = false;
+	let inviteGroupId = '';
 
 	function truncate(text: string, maxLen: number): string {
 		if (!text) return '';
@@ -230,16 +237,13 @@
 		}
 	}
 
-	// ── Visibility Toggle ──
+	// ── Visibility ──
 
-	async function handleToggleVisibility(e: MouseEvent, group: { id: string; name: string; picture: string; about: string; isPrivate: boolean; isClosed: boolean; isRestricted: boolean }) {
+	async function handleSetVisibility(e: MouseEvent, group: { id: string; name: string; picture: string; about: string; isPrivate: boolean; isClosed: boolean; isRestricted: boolean }, newVisibility: 'public' | 'members-only' | 'invite-only') {
 		e.stopPropagation();
 		closeMenu();
 		if (togglingVisibility) return;
 		togglingVisibility = group.id;
-
-		const isCurrentlyMembersOnly = group.isPrivate || group.isRestricted;
-		const newVisibility = isCurrentlyMembersOnly ? 'public' : 'members-only';
 
 		try {
 			await editGroupMetadata(group.id, { visibility: newVisibility });
@@ -249,14 +253,23 @@
 				picture: group.picture,
 				about: group.about,
 				isPrivate: newVisibility === 'members-only',
-				isClosed: group.isClosed,
-				isRestricted: newVisibility === 'members-only'
+				isClosed: newVisibility === 'invite-only',
+				isRestricted: newVisibility === 'members-only' || newVisibility === 'invite-only'
 			});
 		} catch (err) {
-			console.error('Failed to toggle group visibility:', err);
+			console.error('Failed to set group visibility:', err);
 		} finally {
 			togglingVisibility = null;
 		}
+	}
+
+	// ── Invite Link ──
+
+	function openInviteLink(e: MouseEvent, groupId: string) {
+		e.stopPropagation();
+		inviteGroupId = groupId;
+		inviteModalOpen = true;
+		closeMenu();
 	}
 </script>
 
@@ -291,11 +304,23 @@
 			</div>
 		{/if}
 		{#if $sortedGroups.length === 0 && !$groupsLoading}
-			<div class="flex flex-col items-center justify-center py-12 px-4 text-center">
-				<p class="text-sm mb-1" style="color: var(--color-caption);">No groups yet</p>
-				<p class="text-xs" style="color: var(--color-caption);">
-					Create a group to start chatting.
+			<div class="flex flex-col items-center justify-center py-16 px-6 text-center">
+				<div class="mb-4" style="color: var(--color-caption); opacity: 0.5;">
+					<UsersThreeIcon size={48} weight="light" />
+				</div>
+				<p class="text-base font-semibold mb-1" style="color: var(--color-text-primary);">Start a Conversation</p>
+				<p class="text-sm max-w-[240px]" style="color: var(--color-caption);">
+					Create a group to chat with friends, plan meals together, or share cooking tips.
 				</p>
+				{#if hasActiveMembership}
+					<button
+						class="mt-5 px-5 py-2.5 rounded-xl text-sm font-medium transition-colors cursor-pointer"
+						style="background-color: var(--color-primary); color: #ffffff;"
+						on:click={() => dispatch('createGroup')}
+					>
+						Create Group
+					</button>
+				{/if}
 			</div>
 		{:else}
 			{#each $sortedGroups as group (group.id)}
@@ -329,7 +354,12 @@
 									style="color: var(--color-text-primary);"
 								>
 									{group.name}
-									{#if group.isPrivate || group.isRestricted}
+									{#if group.isClosed && group.isRestricted}
+									{@const isMemberOfGroup = !!$userPublickey && group.members.includes($userPublickey)}
+										<span title="Invite only" style="color: {hasActiveMembership || isMemberOfGroup ? '#22c55e' : 'var(--color-caption)'};">
+											<LinkSimpleIcon size={12} />
+										</span>
+									{:else if group.isPrivate || group.isRestricted}
 									{@const isMemberOfGroup = !!$userPublickey && group.members.includes($userPublickey)}
 										<span title="Members only" style="color: {hasActiveMembership || isMemberOfGroup ? '#22c55e' : 'var(--color-caption)'};">
 											<LockIcon size={12} />
@@ -341,8 +371,15 @@
 									{/if}
 								</span>
 								{#if group.lastMessageAt}
-									<span class="text-xs flex-shrink-0 ml-2" style="color: var(--color-caption);">
+									<span class="text-xs flex-shrink-0 ml-2 flex items-center gap-1" style="color: var(--color-caption);">
 										{formatRelativeTime(group.lastMessageAt)}
+										{#if group.unreadCount > 0}
+											<span class="w-2.5 h-2.5 rounded-full bg-red-500 flex-shrink-0"></span>
+										{/if}
+									</span>
+								{:else if group.unreadCount > 0}
+									<span class="flex-shrink-0 ml-2">
+										<span class="w-2.5 h-2.5 rounded-full bg-red-500 flex-shrink-0 inline-block"></span>
 									</span>
 								{/if}
 							</div>
@@ -391,15 +428,36 @@
 									class="w-full px-4 py-2 text-left text-sm flex items-center gap-2 cursor-pointer transition-colors menu-item-hover"
 									style="color: var(--color-text-primary);"
 									disabled={togglingVisibility === group.id}
-									on:click={(e) => handleToggleVisibility(e, group)}
+									on:click={(e) => handleSetVisibility(e, group, 'public')}
 								>
-									{#if group.isPrivate || group.isRestricted}
-										<GlobeSimpleIcon size={16} />
-										<span>{togglingVisibility === group.id ? 'Updating...' : 'Make Public'}</span>
-									{:else}
-										<LockIcon size={16} />
-										<span>{togglingVisibility === group.id ? 'Updating...' : 'Make Members Only'}</span>
-									{/if}
+									<GlobeSimpleIcon size={16} />
+									<span>{togglingVisibility === group.id ? 'Updating...' : 'Make Public'}</span>
+								</button>
+								<button
+									class="w-full px-4 py-2 text-left text-sm flex items-center gap-2 cursor-pointer transition-colors menu-item-hover"
+									style="color: var(--color-text-primary);"
+									disabled={togglingVisibility === group.id}
+									on:click={(e) => handleSetVisibility(e, group, 'members-only')}
+								>
+									<LockIcon size={16} />
+									<span>{togglingVisibility === group.id ? 'Updating...' : 'Make Members Only'}</span>
+								</button>
+								<button
+									class="w-full px-4 py-2 text-left text-sm flex items-center gap-2 cursor-pointer transition-colors menu-item-hover"
+									style="color: var(--color-text-primary);"
+									disabled={togglingVisibility === group.id}
+									on:click={(e) => handleSetVisibility(e, group, 'invite-only')}
+								>
+									<LinkSimpleIcon size={16} />
+									<span>{togglingVisibility === group.id ? 'Updating...' : 'Make Invite Only'}</span>
+								</button>
+								<button
+									class="w-full px-4 py-2 text-left text-sm flex items-center gap-2 cursor-pointer transition-colors menu-item-hover"
+									style="color: var(--color-text-primary);"
+									on:click={(e) => openInviteLink(e, group.id)}
+								>
+									<LinkSimpleIcon size={16} />
+									<span>Invite Link</span>
 								</button>
 								<button
 									class="w-full px-4 py-2 text-left text-sm flex items-center gap-2 cursor-pointer transition-colors text-red-500 menu-item-hover"
@@ -527,6 +585,9 @@
 		</div>
 	</div>
 </Modal>
+
+<!-- Invite Link Modal -->
+<InviteLinkModal bind:open={inviteModalOpen} groupId={inviteGroupId} />
 
 <style>
 	.menu-item-hover:hover {

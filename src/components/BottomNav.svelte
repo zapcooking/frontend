@@ -11,6 +11,7 @@
   import { page } from '$app/stores';
   import { unreadCount } from '$lib/notificationStore';
   import { totalUnreadCount } from '$lib/stores/messages';
+  import { totalGroupUnreadCount } from '$lib/stores/groups';
   import { triggerNotificationsNav } from '$lib/notificationsNav';
 
   $: pathname = $page.url.pathname;
@@ -71,7 +72,15 @@
     <span class="sr-only">Reads</span>
   </a>
   <a href="/groups" class="flex flex-col items-center justify-center hover:text-primary">
-    <UsersThreeIcon class="self-center" size={24} />
+    <span class="relative self-center">
+      <UsersThreeIcon size={24} weight={$totalGroupUnreadCount > 0 ? 'fill' : 'regular'} />
+      {#if $totalGroupUnreadCount > 0}
+        <span
+          class="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-red-500 border-2 border-input"
+          aria-hidden="true"
+        ></span>
+      {/if}
+    </span>
     <span class="sr-only">Groups</span>
   </a>
   <a href="/messages" class="flex flex-col items-center justify-center hover:text-primary">

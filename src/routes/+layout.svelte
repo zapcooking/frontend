@@ -76,6 +76,7 @@
     error: null
   };
   let unsubscribe: (() => void) | null = null;
+  let feedInitialLoadTimeout: ReturnType<typeof setTimeout> | null = null;
   let walletWelcomeOpen = false;
   let walletWelcomeSeen = false;
   let walletWelcomeForce = false;
@@ -280,7 +281,7 @@
 
       // Safety timeout: if user never visits the feed (e.g. lands on /recipe/*),
       // ensure notifications and other deferred services still start after 10s
-      setTimeout(() => feedInitialLoadDone.set(true), 10000);
+      feedInitialLoadTimeout = setTimeout(() => feedInitialLoadDone.set(true), 10000);
 
       console.log('Layout mounted - auth manager initialized');
     } catch (error) {
@@ -291,6 +292,9 @@
   onDestroy(() => {
     if (unsubscribe) {
       unsubscribe();
+    }
+    if (feedInitialLoadTimeout !== null) {
+      clearTimeout(feedInitialLoadTimeout);
     }
   });
 
