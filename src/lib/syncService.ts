@@ -158,8 +158,7 @@ export async function clearOfflineData(): Promise<void> {
   console.log('[SyncService] Cleared offline data for user');
 }
 
-// Auto-initialize in browser
+// Auto-initialize in browser — deferred to avoid competing with feed load for relay bandwidth
 if (browser) {
-  // Initialize after a short delay to ensure other modules are loaded
-  setTimeout(initSyncService, 1000);
+  setTimeout(initSyncService, 5000);
 }

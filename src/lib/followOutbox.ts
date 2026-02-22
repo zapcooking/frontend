@@ -149,9 +149,9 @@ function loadRelayConfigsFromStorage(): Map<string, UserRelayConfig> | null {
     
     const { version, data, timestamp } = JSON.parse(stored);
     
-    // Check version and age (cache for 24 hours)
+    // Check version and age (cache for 7 days — matches IndexedDB HARD_EXPIRE_MS)
     if (version !== RELAY_CACHE_VERSION) return null;
-    if (Date.now() - timestamp > 24 * 60 * 60 * 1000) return null;
+    if (Date.now() - timestamp > 7 * 24 * 60 * 60 * 1000) return null;
     
     return new Map(Object.entries(data));
   } catch {

@@ -89,9 +89,10 @@ export class ConnectionManager {
       });
     });
 
-    // Run health checks in BACKGROUND - don't block connection
-    // Relays are usable as soon as WebSocket connects
-    this.runBackgroundHealthChecks();
+    // Run health checks in BACKGROUND after a 5s delay to avoid competing
+    // with feed subscriptions during the critical startup window.
+    // Relays are usable as soon as WebSocket connects.
+    setTimeout(() => this.runBackgroundHealthChecks(), 5000);
   }
 
   /**

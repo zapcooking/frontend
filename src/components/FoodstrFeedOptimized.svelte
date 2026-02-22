@@ -76,6 +76,9 @@
     type OutboxFetchResult
   } from '$lib/followOutbox';
 
+  // Startup coordination - signal when feed's initial load is done
+  import { feedInitialLoadDone } from '$lib/startupState';
+
   // Reply context prefetching for better UX
   import { prefetchReplyContexts } from '$lib/replyContext';
 
@@ -158,6 +161,7 @@
       hasMore = true;
       loadingMore = false;
       visibleNotes = new Set();
+      renderedNotes = new Set();
       followedPubkeysForRealtime = [];
 
       // Reload without cache
@@ -526,6 +530,9 @@
   // Lazy loading for engagement components
   let visibleNotes = new Set<string>();
 
+  // Lazy DOM rendering — only mount full component tree for items near the viewport
+  let renderedNotes = new Set<string>();
+
   // ═══════════════════════════════════════════════════════════════
   // STALE-WHILE-REVALIDATE STATE
   // ═══════════════════════════════════════════════════════════════
@@ -554,6 +561,50 @@
         observer.disconnect();
       }
     };
+  }
+
+  /**
+   * Render-zone action: tracks whether a post is near enough to the viewport
+   * to deserve full component rendering. Unlike lazyLoadAction, this does NOT
+   * disconnect — it watches enter AND leave so items scrolled far away get
+   * replaced with lightweight skeletons, freeing DOM nodes.
+   */
+  function renderZoneAction(node: HTMLElement, eventId: string) {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) {
+            if (!renderedNotes.has(eventId)) {
+              renderedNotes.add(eventId);
+              renderedNotes = renderedNotes; // trigger reactivity
+            }
+          } else {
+            if (renderedNotes.has(eventId)) {
+              renderedNotes.delete(eventId);
+              renderedNotes = renderedNotes; // trigger reactivity
+            }
+          }
+        }
+      },
+      { rootMargin: '2000px' } // Render items well before they scroll into view
+    );
+
+    observer.observe(node);
+
+    return {
+      destroy() {
+        observer.disconnect();
+      }
+    };
+  }
+
+  /** Pre-seed the first N items into renderedNotes to avoid initial skeleton flash */
+  function preseedRenderedNotes(count: number) {
+    const toSeed = events.slice(0, count);
+    for (const event of toSeed) {
+      renderedNotes.add(event.id);
+    }
+    renderedNotes = renderedNotes; // trigger reactivity
   }
 
   // Infinite scroll - automatically load more when user scrolls near bottom
@@ -668,6 +719,30 @@
     const content = event.content || '';
     const urls = content.match(URL_REGEX) || [];
     return urls.filter((url) => isImageUrl(url) || isVideoUrl(url));
+  }
+
+  // Memoized version of getImageUrls — avoids re-running regex extraction in template
+  const imageUrlCache = new Map<string, string[]>();
+  function getImageUrlsCached(event: NDKEvent): string[] {
+    const id = event.id;
+    if (id) {
+      const cached = imageUrlCache.get(id);
+      if (cached !== undefined) return cached;
+    }
+    const result = getImageUrls(event);
+    if (id) {
+      imageUrlCache.set(id, result);
+      if (imageUrlCache.size > 500) {
+        const toDelete = Math.max(1, Math.ceil(imageUrlCache.size * 0.1));
+        const iterator = imageUrlCache.keys();
+        for (let i = 0; i < toDelete; i++) {
+          const next = iterator.next();
+          if (next.done) break;
+          imageUrlCache.delete(next.value);
+        }
+      }
+    }
+    return result;
   }
 
   function getOptimizedImageUrl(url: string): string {
@@ -813,19 +888,40 @@
   // CONTENT FILTERING
   // ═══════════════════════════════════════════════════════════════
 
+  // Memoization cache for contentContainsFoodWords — avoids redundant regex on same content
+  // Bounded to 1000 entries to prevent unbounded memory growth
+  const foodWordResultCache = new Map<string, boolean>();
+
   function contentContainsFoodWords(content: string): boolean {
     if (!content) return false;
+
+    // Evict oldest entries in a small batch if cache is full to avoid frequent single-entry evictions
+    if (foodWordResultCache.size > 1000) {
+      const keys = foodWordResultCache.keys();
+      const targetSize = 900; // keep ~10% headroom under the max size
+      while (foodWordResultCache.size > targetSize) {
+        const next = keys.next();
+        if (next.done) break;
+        foodWordResultCache.delete(next.value);
+      }
+    }
+
+    // Check memoization cache first
+    const cached = foodWordResultCache.get(content);
+    if (cached !== undefined) return cached;
 
     // Normalize content - replace newlines/whitespace with single spaces for better matching
     const normalizedContent = content.replace(/\s+/g, ' ').trim();
 
     // Exclude posts containing "root" as a standalone word (not part of other words)
     if (/\broot\b/i.test(normalizedContent)) {
+      foodWordResultCache.set(content, false);
       return false;
     }
 
     // Check for food-related hashtags first (strong signal)
     if (FOOD_HASHTAG_REGEX.test(normalizedContent)) {
+      foodWordResultCache.set(content, true);
       return true;
     }
 
@@ -843,21 +939,25 @@
     if (MACRO_EXCLUDING_FOOD_ENERGY_REGEX.test(normalizedContent)) {
       // Only allow if there's a strong signal beyond just the word "food"
       if (hardCount === 0 && softCount < 2) {
+        foodWordResultCache.set(content, false);
         return false;
       }
     }
 
     // Include if at least 1 hard match
     if (hardCount >= 1) {
+      foodWordResultCache.set(content, true);
       return true;
     }
 
     // Include if at least 2 soft matches
     if (softCount >= 2) {
+      foodWordResultCache.set(content, true);
       return true;
     }
 
     // Not enough food signals
+    foodWordResultCache.set(content, false);
     return false;
   }
 
@@ -923,7 +1023,34 @@
     return mentionCount >= threshold;
   }
 
+  // Memoization cache for shouldIncludeEvent — keyed by event.id
+  // Cleared when mute list changes (see reactive block below)
+  const includeEventCache = new Map<string, boolean>();
+
   function shouldIncludeEvent(event: NDKEvent): boolean {
+    // Check memoization cache first (stable per event unless mute list changes)
+    const eventId = event.id;
+    if (eventId) {
+      const cached = includeEventCache.get(eventId);
+      if (cached !== undefined) return cached;
+    }
+
+    const result = _shouldIncludeEventUncached(event);
+
+    // Store in cache
+    if (eventId) {
+      includeEventCache.set(eventId, result);
+      // Prevent unbounded growth
+      if (includeEventCache.size > 2000) {
+        const firstKey = includeEventCache.keys().next().value;
+        if (firstKey) includeEventCache.delete(firstKey);
+      }
+    }
+
+    return result;
+  }
+
+  function _shouldIncludeEventUncached(event: NDKEvent): boolean {
     // Check muted users (both public and private lists)
     if ($userPublickey && $muteListStore.muteList) {
       const authorKey = event.author?.hexpubkey || event.pubkey;
@@ -1538,9 +1665,28 @@
         return;
       }
 
-      // Wait for NDK to be connected (don't call connect() directly - it causes WebSocket errors)
+      const timeWindow = calculateTimeWindow('initial');
+
+      // Start NDK connection in parallel with Primal fast-path fetch.
+      // Primal is HTTP-based and only needs the ndk reference (not a live connection),
+      // so we can overlap these to save 200-500ms on cold start.
+      const ndkConnectPromise = ensureNdkConnected();
+
+      // Kick off Primal pre-fetch for modes that use it (following, global)
+      // These run concurrently with NDK connection — we'll await them in the mode-specific blocks
+      let primalPrefetch: Promise<any> | null = null;
+      if (filterMode === 'following' && $userPublickey) {
+        primalPrefetch = fetchContactListFromPrimal($userPublickey).catch(() => null);
+      } else if (filterMode === 'global' && !authorPubkey) {
+        primalPrefetch = fetchGlobalFromPrimal($ndk, {
+          limit: 200,
+          since: sevenDaysAgo()
+        }).catch(() => null);
+      }
+
+      // Now await NDK connection (Primal fetch is running in parallel)
       try {
-        await ensureNdkConnected();
+        await ndkConnectPromise;
       } catch (err) {
         console.error('[Feed] Failed to ensure NDK connection:', err);
         loading = false;
@@ -1556,8 +1702,6 @@
         return;
       }
 
-      const timeWindow = calculateTimeWindow('initial');
-
       // Handle different filter modes
       if (filterMode === 'following') {
         // Following mode: only show notes (not replies) from followed users
@@ -1571,119 +1715,125 @@
         }
 
         // ═══════════════════════════════════════════════════════════════
-        // PRIMAL FAST PATH - Try Primal cache first for Following feed
+        // RACE: Primal fast path vs Outbox model (whichever returns first wins)
+        // Primal is HTTP-based (200-400ms when up, but has 3s timeout when down)
+        // Outbox uses cached follow list + relay queries (reliable but slower)
+        // Racing them avoids wasting 3s on Primal timeouts
         // ═══════════════════════════════════════════════════════════════
         let usedPrimal = false;
-        try {
-          const primalStartTime = performance.now();
 
-          // Get follows from Primal (much faster than fetching kind:3)
-          const primalFollows = await fetchContactListFromPrimal($userPublickey);
+        // Get followed pubkeys early — outbox module caches these, so this is near-instant
+        if (followedPubkeysForRealtime.length === 0) {
+          followedPubkeysForRealtime = await getFollowedPubkeys($ndk, $userPublickey);
+        }
 
-          if (primalFollows.length > 0) {
-            console.log(
-              `[Feed] Primal: Got ${primalFollows.length} follows in ${(performance.now() - primalStartTime).toFixed(0)}ms`
-            );
+        // Start Primal fetch (non-blocking)
+        const primalStartTime = performance.now();
+        const primalPromise = (async (): Promise<NDKEvent[] | null> => {
+          try {
+            const primalFollows = (primalPrefetch ? await primalPrefetch : null) || await fetchContactListFromPrimal($userPublickey);
+            primalPrefetch = null; // Consumed
 
-            // Cache followed pubkeys for real-time subscription
-            followedPubkeysForRealtime = primalFollows;
+            if (!primalFollows || primalFollows.length === 0) return null;
+
+            // Update followed pubkeys if Primal has fresher data
+            if (primalFollows.length > followedPubkeysForRealtime.length) {
+              followedPubkeysForRealtime = primalFollows;
+            }
 
             const { events: primalEvents } = await fetchFeedFromPrimal($ndk, primalFollows, {
-              limit: 300, // Increased from 100 for better initial load
+              limit: 300,
               since: sevenDaysAgo(),
               includeReplies: false
             });
 
-            console.log(
-              `[Feed] Primal: ${primalEvents.length} events in ${(performance.now() - primalStartTime).toFixed(0)}ms`
-            );
-
-            // Apply existing food filter and exclude replies
-            const beforeFilter = primalEvents.length;
             const foodEvents = primalEvents.filter((event) => {
-              // Exclude replies - only show top-level notes in Following
               if (isReply(event)) return false;
-
-              // Check muted users
               if ($userPublickey) {
                 const mutedUsers = getMutedUsers();
                 const authorKey = event.author?.hexpubkey || event.pubkey;
                 if (authorKey && mutedUsers.includes(authorKey)) return false;
               }
-
-              // Apply food filter only if enabled
               if (foodFilterEnabled) {
                 return shouldIncludeEvent(event);
               }
-
               return true;
             });
 
-            console.log(`[Feed] Primal: After food filter: ${foodEvents.length} / ${beforeFilter}`);
+            console.log(
+              `[Feed] Primal: ${foodEvents.length}/${primalEvents.length} events in ${(performance.now() - primalStartTime).toFixed(0)}ms`
+            );
 
-            if (foodEvents.length >= 10) {
-              // Check for stale results
-              if (isStaleResult(loadGeneration)) {
-                console.log('[Feed] Discarding stale Primal results');
-                loadInProgress = false;
-                return;
-              }
-
-              // Success - use Primal results
-              events = dedupeAndSort(foodEvents);
-              loading = false;
-              error = false;
-              usedPrimal = true;
-
-              if (events.length > 0) {
-                lastEventTime = Math.max(...events.map((e) => e.created_at || 0));
-                await cacheEvents();
-              }
-
-              // Start realtime subscription
-              try {
-                startRealtimeSubscription();
-              } catch {
-                // Non-critical
-              }
-
-              // Supplement with outbox in background (non-blocking)
-              supplementWithOutbox('following');
-
-              console.log(`[Feed] Primal SUCCESS: ${events.length} events displayed`);
-              loadInProgress = false;
-              return;
-            } else {
-              console.log('[Feed] Primal: Not enough food events, falling back to outbox');
-            }
+            return foodEvents.length >= 10 ? foodEvents : null;
+          } catch (err) {
+            console.log('[Feed] Primal failed:', err);
+            return null;
           }
-        } catch (err) {
-          console.log('[Feed] Primal unavailable, falling back to outbox model:', err);
-        }
+        })();
 
-        // ═══════════════════════════════════════════════════════════════
-        // OUTBOX MODEL FALLBACK - Use when Primal fails or returns too few
-        // ═══════════════════════════════════════════════════════════════
+        // Start outbox fetch concurrently (don't wait for Primal to fail)
         const outboxOptions: any = {
           since: timeWindow.since,
           kinds: [1],
-          limit: foodFilterEnabled ? 200 : 300, // Fetch more when showing all posts
+          limit: foodFilterEnabled ? 200 : 300,
           timeoutMs: 5000,
-          maxRelays: 10 // Top 10 relays by coverage
+          maxRelays: 10
         };
 
-        // Only add food hashtag filter when food filter is enabled
         if (foodFilterEnabled) {
           outboxOptions.additionalFilter = {
-            '#t': FOOD_HASHTAGS // Server-side food filtering!
+            '#t': FOOD_HASHTAGS
           };
         }
 
-        const result: OutboxFetchResult = await fetchFollowingEvents(
+        const outboxPromise = fetchFollowingEvents(
           $ndk,
           $userPublickey,
           outboxOptions
         );
+
+        // Race: use whichever resolves with good data first
+        // Primal is wrapped to resolve to null on failure, so it never rejects
+        const primalResult = await Promise.race([
+          primalPromise,
+          // If outbox finishes first, return null immediately to skip Primal and use outbox results
+          outboxPromise.then(() => null as NDKEvent[] | null)
+        ]);
+
+        if (primalResult && primalResult.length >= 10) {
+          // Primal won the race with sufficient results
+          if (isStaleResult(loadGeneration)) {
+            console.log('[Feed] Discarding stale Primal results');
+            loadInProgress = false;
+            return;
+          }
+
+          events = dedupeAndSort(primalResult);
+          loading = false;
+          error = false;
+          usedPrimal = true;
+
+          if (events.length > 0) {
+            lastEventTime = Math.max(...events.map((e) => e.created_at || 0));
+            await cacheEvents();
+          }
+
+          try {
+            startRealtimeSubscription();
+          } catch {
+            // Non-critical
+          }
+
+          supplementWithOutbox('following');
+
+          console.log(`[Feed] Primal SUCCESS: ${events.length} events displayed`);
+          loadInProgress = false;
+          return;
+        }
+
+        // Outbox path: either Primal failed/returned too few, or outbox finished first
+        // outboxPromise may already be resolved; if not, await it
+        const result: OutboxFetchResult = await outboxPromise;
 
         console.log('[Feed] Raw events from outbox:', result.events.length);
 
@@ -1774,121 +1924,115 @@
         }
 
         // ═══════════════════════════════════════════════════════════════
-        // PRIMAL FAST PATH - Try Primal cache first for Replies feed
+        // RACE: Primal vs Outbox for Replies feed (same pattern as following)
         // ═══════════════════════════════════════════════════════════════
-        try {
-          const primalStartTime = performance.now();
 
-          // Get follows from Primal (much faster than fetching kind:3)
-          const primalFollows = await fetchContactListFromPrimal($userPublickey);
+        // Get followed pubkeys early — outbox module caches these
+        if (followedPubkeysForRealtime.length === 0) {
+          followedPubkeysForRealtime = await getFollowedPubkeys($ndk, $userPublickey);
+        }
 
-          if (primalFollows.length > 0) {
-            console.log(
-              `[Feed] Primal (replies): Got ${primalFollows.length} follows in ${(performance.now() - primalStartTime).toFixed(0)}ms`
-            );
+        // Start Primal fetch (non-blocking)
+        const repliesPrimalPromise = (async (): Promise<NDKEvent[] | null> => {
+          try {
+            const primalStartTime = performance.now();
+            const primalFollows = await fetchContactListFromPrimal($userPublickey);
 
-            // Cache followed pubkeys for real-time subscription
-            followedPubkeysForRealtime = primalFollows;
+            if (!primalFollows || primalFollows.length === 0) return null;
+
+            if (primalFollows.length > followedPubkeysForRealtime.length) {
+              followedPubkeysForRealtime = primalFollows;
+            }
 
             const { events: primalEvents } = await fetchFeedFromPrimal($ndk, primalFollows, {
-              limit: 300, // Increased from 100 for better initial load
+              limit: 300,
               since: sevenDaysAgo(),
-              includeReplies: true // Include replies for this mode
+              includeReplies: true
             });
 
-            console.log(
-              `[Feed] Primal (replies): ${primalEvents.length} events in ${(performance.now() - primalStartTime).toFixed(0)}ms`
-            );
-
-            // Apply existing food filter (both notes AND replies allowed)
-            const beforeFilter = primalEvents.length;
             const foodEvents = primalEvents.filter((event) => {
-              // Check muted users
               if ($userPublickey) {
                 const mutedUsers = getMutedUsers();
                 const authorKey = event.author?.hexpubkey || event.pubkey;
                 if (authorKey && mutedUsers.includes(authorKey)) return false;
               }
-
-              // Apply food filter only if enabled
               if (foodFilterEnabled) {
                 return shouldIncludeEvent(event);
               }
-
               return true;
             });
 
             console.log(
-              `[Feed] Primal (replies): After food filter: ${foodEvents.length} / ${beforeFilter}`
+              `[Feed] Primal (replies): ${foodEvents.length}/${primalEvents.length} events in ${(performance.now() - primalStartTime).toFixed(0)}ms`
             );
 
-            if (foodEvents.length >= 10) {
-              // Check for stale results
-              if (isStaleResult(loadGeneration)) {
-                console.log('[Feed] Discarding stale Primal replies results');
-                loadInProgress = false;
-                return;
-              }
-
-              // Success - use Primal results
-              events = dedupeAndSort(foodEvents);
-              loading = false;
-              error = false;
-
-              if (events.length > 0) {
-                lastEventTime = Math.max(...events.map((e) => e.created_at || 0));
-                await cacheEvents();
-              }
-
-              // Prefetch reply contexts for better UX
-              prefetchReplyContexts($ndk, events.slice(0, 20)).catch(() => {});
-
-              // Start realtime subscription
-              try {
-                startRealtimeSubscription();
-              } catch {
-                // Non-critical
-              }
-
-              // Supplement with outbox in background (non-blocking)
-              supplementWithOutbox('replies');
-
-              console.log(`[Feed] Primal (replies) SUCCESS: ${events.length} events displayed`);
-              loadInProgress = false;
-              return;
-            } else {
-              console.log(
-                '[Feed] Primal (replies): Not enough food events, falling back to outbox'
-              );
-            }
+            return foodEvents.length >= 10 ? foodEvents : null;
+          } catch (err) {
+            console.log('[Feed] Primal (replies) failed:', err);
+            return null;
           }
-        } catch (err) {
-          console.log('[Feed] Primal (replies) unavailable, falling back to outbox model:', err);
-        }
+        })();
 
-        // ═══════════════════════════════════════════════════════════════
-        // OUTBOX MODEL FALLBACK - Use when Primal fails or returns too few
-        // ═══════════════════════════════════════════════════════════════
+        // Start outbox fetch concurrently
         const repliesOutboxOptions: any = {
           since: timeWindow.since,
           kinds: [1],
-          limit: foodFilterEnabled ? 200 : 300, // Fetch more when showing all posts
+          limit: foodFilterEnabled ? 200 : 300,
           timeoutMs: 5000,
-          maxRelays: 10 // Top 10 relays by coverage
+          maxRelays: 10
         };
 
-        // Only add food hashtag filter when food filter is enabled
         if (foodFilterEnabled) {
           repliesOutboxOptions.additionalFilter = {
-            '#t': FOOD_HASHTAGS // Server-side food filtering!
+            '#t': FOOD_HASHTAGS
           };
         }
 
-        const result: OutboxFetchResult = await fetchFollowingEvents(
+        const repliesOutboxPromise = fetchFollowingEvents(
           $ndk,
           $userPublickey,
           repliesOutboxOptions
         );
+
+        // Race: use whichever resolves with good data first
+        const repliesPrimalResult = await Promise.race([
+          repliesPrimalPromise,
+          repliesOutboxPromise.then(() => null as NDKEvent[] | null)
+        ]);
+
+        if (repliesPrimalResult && repliesPrimalResult.length >= 10) {
+          if (isStaleResult(loadGeneration)) {
+            console.log('[Feed] Discarding stale Primal replies results');
+            loadInProgress = false;
+            return;
+          }
+
+          events = dedupeAndSort(repliesPrimalResult);
+          loading = false;
+          error = false;
+
+          if (events.length > 0) {
+            lastEventTime = Math.max(...events.map((e) => e.created_at || 0));
+            await cacheEvents();
+          }
+
+          prefetchReplyContexts($ndk, events.slice(0, 20)).catch(() => {});
+
+          try {
+            startRealtimeSubscription();
+          } catch {
+            // Non-critical
+          }
+
+          supplementWithOutbox('replies');
+
+          console.log(`[Feed] Primal (replies) SUCCESS: ${events.length} events displayed`);
+          loadInProgress = false;
+          return;
+        }
+
+        // Outbox path
+        const result: OutboxFetchResult = await repliesOutboxPromise;
 
         console.log('[Feed] Raw events from outbox:', result.events.length);
 
@@ -2259,10 +2403,13 @@
         // Only use Primal for community global feed (not profile views)
         try {
           const primalStartTime = performance.now();
-          const { events: primalEvents } = await fetchGlobalFromPrimal($ndk, {
+          // Use pre-fetched result if available (started during NDK connect)
+          const primalResult = primalPrefetch ? await primalPrefetch : await fetchGlobalFromPrimal($ndk, {
             limit: 200,
             since: sevenDaysAgo()
           });
+          primalPrefetch = null; // Consumed
+          const { events: primalEvents }: { events: NDKEvent[] } = primalResult;
 
           console.log(
             `[Feed] Primal global: ${primalEvents.length} events in ${(performance.now() - primalStartTime).toFixed(0)}ms`
@@ -2373,30 +2520,23 @@
         hashtagFilter.authors = [authorPubkey];
       }
 
-      // Parallel fetch strategy:
+      // Fetch strategy:
       // 1. Primary: hashtag filter (fast, reliable) - your relay + fast fallback
-      // 2. Secondary: Client-side content filter (catches notes with food words but no hashtags) - only for community feed
-      const fetchPromises: Promise<NDKEvent[]>[] = [
-        // Primary: Your relay + fast fallback with hashtag filter
-        fetchFromRelays(hashtagFilter, [...RELAY_POOLS.recipes, ...RELAY_POOLS.fallback])
-      ];
+      // 2. Secondary (conditional): Client-side content filter — only if primary returns < 30 events
+      //    This avoids fetching+scanning 300 notes when we already have enough food content
+      const hashtagEvents = await fetchFromRelays(hashtagFilter, [...RELAY_POOLS.recipes, ...RELAY_POOLS.fallback]);
 
-      // Add client-side filtering for notes without hashtags (only for community feed)
-      // This discovers notes without food hashtags that contain food words
-      if (!authorPubkey) {
-        fetchPromises.push(fetchNotesWithoutHashtags(timeWindow.since));
-      }
+      const allFetchedEvents: NDKEvent[] = [...hashtagEvents];
 
-      const results = await Promise.allSettled(fetchPromises);
-
-      // Collect all events from successful fetches
-      const allFetchedEvents: NDKEvent[] = [];
-
-      results.forEach((result) => {
-        if (result.status === 'fulfilled') {
-          allFetchedEvents.push(...result.value);
+      // Only run expensive content-word scanning if hashtag results are insufficient
+      if (!authorPubkey && hashtagEvents.length < 30) {
+        try {
+          const contentEvents = await fetchNotesWithoutHashtags(timeWindow.since);
+          allFetchedEvents.push(...contentEvents);
+        } catch {
+          // Non-critical supplementary fetch
         }
-      });
+      }
 
       // Get followed users to exclude from Global feed (if logged in)
       let followedSet = new Set<string>();
@@ -2486,7 +2626,15 @@
   // REAL-TIME SUBSCRIPTION
   // ═══════════════════════════════════════════════════════════════
 
+  let realtimeStarted = false;
+
   async function startRealtimeSubscription() {
+    // On the very first call, defer to avoid competing with feed load for relay bandwidth
+    if (!realtimeStarted) {
+      realtimeStarted = true;
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+    }
+
     // Clean up any existing subscriptions
     stopSubscriptions();
 
@@ -3319,6 +3467,11 @@
 
       if (validOlder.length > 0) {
         validOlder.forEach((e) => seenEventIds.add(e.id));
+        // Pre-seed the first few new items so they render immediately (no skeleton flash)
+        for (const e of validOlder.slice(0, 10)) {
+          renderedNotes.add(e.id);
+        }
+        renderedNotes = renderedNotes;
         events = [...events, ...validOlder];
         // Continue fetching if we got events and we're still within time window
         // Check if we've reached the time limit (30 days back)
@@ -4071,27 +4224,34 @@
   // Reload mute list when user changes
   $: if ($userPublickey) {
     muteListStore.load();
+    // Invalidate shouldIncludeEvent cache when user (and thus mute list) changes
+    includeEventCache.clear();
   }
 
   // Cleanup subscriptions when events leave view
-  // Uses tracked timers to avoid duplicate cleanup attempts
-  $: {
-    // When visibleNotes changes, schedule cleanup for notes no longer visible
-    const visibleIds = new Set(events.map((e) => e.id).filter((id) => visibleNotes.has(id)));
-    for (const eventId of engagementSubscriptions.keys()) {
-      if (!visibleIds.has(eventId) && !pendingCleanupTimers.has(eventId)) {
-        // Schedule cleanup with grace period (in case user scrolls back)
-        const timer = setTimeout(() => {
-          pendingCleanupTimers.delete(eventId);
-          // Double-check still not visible before cleanup
-          if (!visibleNotes.has(eventId)) {
-            unsubscribeFromEngagement(eventId);
-            engagementGlowCache.delete(eventId);
-          }
-        }, 30000); // 30 second grace period
-        pendingCleanupTimers.set(eventId, timer);
+  // Debounced to avoid expensive Set creation on every scroll event
+  let engagementCleanupTimer: ReturnType<typeof setTimeout> | null = null;
+
+  $: if (visibleNotes && events.length > 0) {
+    // Debounce: run at most every 500ms instead of on every visibleNotes change
+    if (engagementCleanupTimer) clearTimeout(engagementCleanupTimer);
+    engagementCleanupTimer = setTimeout(() => {
+      const visibleIds = new Set(events.map((e) => e.id).filter((id) => visibleNotes.has(id)));
+      for (const eventId of engagementSubscriptions.keys()) {
+        if (!visibleIds.has(eventId) && !pendingCleanupTimers.has(eventId)) {
+          // Schedule cleanup with grace period (in case user scrolls back)
+          const timer = setTimeout(() => {
+            pendingCleanupTimers.delete(eventId);
+            // Double-check still not visible before cleanup
+            if (!visibleNotes.has(eventId)) {
+              unsubscribeFromEngagement(eventId);
+              engagementGlowCache.delete(eventId);
+            }
+          }, 30000); // 30 second grace period
+          pendingCleanupTimers.set(eventId, timer);
+        }
       }
-    }
+    }, 500);
   }
 
   // Zap animation state
@@ -4206,6 +4366,7 @@
           // Clearing here would wipe out cached data that loadFoodstrFeed loads
           // Just clear auxiliary state
           visibleNotes = new Set();
+          renderedNotes = new Set();
           followedPubkeysForRealtime = [];
 
           // Force reload without cache to ensure fresh data from target relay only
@@ -4221,6 +4382,7 @@
           // When leaving garden/members mode, use cache-first approach
           stopSubscriptions();
           visibleNotes = new Set();
+          renderedNotes = new Set();
 
           // Try instant cache first
           const cached = loadFromInstantCache(filterMode);
@@ -4231,6 +4393,7 @@
               seenEventIds.clear();
               hydratedEvents.forEach((e: any) => seenEventIds.add(e.id));
               events = hydratedEvents;
+              preseedRenderedNotes(20);
               loading = false;
               error = false;
               hasMore = true;
@@ -4248,6 +4411,7 @@
           // No cache - full load
           try {
             await loadFoodstrFeed(false);
+            preseedRenderedNotes(20);
             if (events.length > 0) {
               saveToInstantCache(filterMode, events);
             }
@@ -4261,6 +4425,7 @@
           // Switching between global/following/replies - use cache-first approach
           stopSubscriptions();
           visibleNotes = new Set();
+          renderedNotes = new Set();
 
           // Try instant cache first
           const cached = loadFromInstantCache(filterMode);
@@ -4271,6 +4436,7 @@
               seenEventIds.clear();
               hydratedEvents.forEach((e: any) => seenEventIds.add(e.id));
               events = hydratedEvents;
+              preseedRenderedNotes(20);
               loading = false;
               error = false;
               hasMore = true;
@@ -4290,6 +4456,7 @@
           events = [];
           try {
             await loadFoodstrFeed(false);
+            preseedRenderedNotes(20);
             if (events.length > 0) {
               saveToInstantCache(filterMode, events);
             }
@@ -4349,6 +4516,7 @@
     // Profile view needs fresh data specific to that user, not cached global feed
     if (filterMode === 'garden' || filterMode === 'members' || authorPubkey) {
       visibleNotes = new Set();
+      renderedNotes = new Set();
       seenEventIds.clear();
       events = [];
       loading = true;
@@ -4379,7 +4547,9 @@
         hydratedEvents.forEach((e: any) => seenEventIds.add(e.id));
 
         events = hydratedEvents;
+        preseedRenderedNotes(20);
         loading = false; // No loading spinner - we have content!
+        feedInitialLoadDone.set(true);
         error = false;
         hasMore = true;
         loadingMore = false;
@@ -4412,14 +4582,17 @@
 
     try {
       await retryWithDelay();
+      preseedRenderedNotes(20);
 
       // Save to instant cache for next session
       if (events.length > 0) {
         saveToInstantCache(filterMode, events);
       }
+      feedInitialLoadDone.set(true);
     } catch {
       loading = false;
       error = true;
+      feedInitialLoadDone.set(true);
     }
   });
 
@@ -4445,6 +4618,9 @@
     if (engagementPreloadTimeout) {
       clearTimeout(engagementPreloadTimeout);
     }
+    if (engagementCleanupTimer) {
+      clearTimeout(engagementCleanupTimer);
+    }
 
     // Clean up zap animation timeouts
     cleanupZapAnimationTimeouts();
@@ -4461,21 +4637,21 @@
     await cleanup();
   });
 
-  // Batched engagement fetching - preload ALL events immediately, then update on visibility
+  // Batched engagement fetching - preload rendered items, then update on visibility
   let engagementBatchTimeout: ReturnType<typeof setTimeout> | null = null;
   let lastBatchedIds = new Set<string>();
   let engagementPreloadTimeout: ReturnType<typeof setTimeout> | null = null;
 
-  // IMMEDIATE PRELOAD: When events are loaded, preload engagement for ALL events right away
-  $: if (typeof window !== 'undefined' && $ndk && $userPublickey && events.length > 0 && !loading) {
+  // Preload engagement only for rendered (near-viewport) events — not ALL events
+  $: if (typeof window !== 'undefined' && $ndk && $userPublickey && events.length > 0 && !loading && renderedNotes.size > 0) {
     // Clear any pending preload
     if (engagementPreloadTimeout) {
       clearTimeout(engagementPreloadTimeout);
     }
 
-    // Preload engagement for all events immediately (not just visible ones)
+    // Only preload engagement for items near the viewport (in renderedNotes)
     engagementPreloadTimeout = setTimeout(async () => {
-      const allEventIds = events.map((e) => e.id).filter(Boolean) as string[];
+      const allEventIds = events.map((e) => e.id).filter((id): id is string => Boolean(id) && renderedNotes.has(id));
 
       // Filter to only fetch events that aren't already fresh
       // Cached data loads instantly via getEngagementStore, so only preload if missing/stale
@@ -4730,6 +4906,7 @@
     {:else}
       <div class="space-y-0 w-full">
         {#each events as event (event.id)}
+          {#if renderedNotes.has(event.id)}
           <!-- Get engagement info - always check cache, subscribe only when visible -->
           {@const isVisible = visibleNotes.has(event.id)}
           {@const engagementInfo = getEngagementRenderInfo(event.id, isVisible)}
@@ -4746,6 +4923,7 @@
             comments: { count: engagementStoreValue.comments.count }
           }}
           <article
+            use:renderZoneAction={event.id}
             class="border-b py-4 sm:py-6 first:pt-0 w-full
                    {isPopular ? 'zap-popular-post' : ''}
                    {isZapAnimating ? 'zap-bolt-animation' : ''}
@@ -4968,8 +5146,8 @@
                 {/if}
               {/if}
 
-              {#if getImageUrls(event).length > 0}
-                {@const mediaUrls = getImageUrls(event)}
+              {#if getImageUrlsCached(event).length > 0}
+                {@const mediaUrls = getImageUrlsCached(event)}
 
                 <div class="mb-3">
                   <div class="relative rounded-lg overflow-hidden">
@@ -5130,6 +5308,15 @@
               </div>
             </div>
           </article>
+          {:else}
+            <div
+              use:renderZoneAction={event.id}
+              class="border-b py-4 sm:py-6"
+              style="border-color: var(--color-input-border); min-height: 380px;"
+            >
+              <FeedPostSkeleton />
+            </div>
+          {/if}
         {/each}
 
         <!-- Infinite scroll sentinel - triggers automatic loading -->
