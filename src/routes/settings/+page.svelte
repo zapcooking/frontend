@@ -1237,11 +1237,15 @@
         type="button"
         class="flex-1 flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl text-sm font-medium transition-colors bg-red-500 hover:bg-red-600 text-white disabled:opacity-50"
         disabled={disconnectingSession || disconnectingBunker}
-        on:click={() => {
-          if (authMethod === 'nip46') {
-            disconnectBunker();
-          } else {
-            disconnectSession();
+        on:click={async () => {
+          try {
+            if (authMethod === 'nip46') {
+              await disconnectBunker();
+            } else {
+              await disconnectSession();
+            }
+          } finally {
+            showDisconnectConfirm = false;
           }
         }}
       >
