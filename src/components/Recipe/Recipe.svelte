@@ -50,6 +50,7 @@
   import { buildCanonicalRecipeShareUrl } from '$lib/utils/share';
   import DirectionsPhases from './DirectionsPhases.svelte';
   import AddToListModal from '../grocery/AddToListModal.svelte';
+  import PrintRecipeModal from './PrintRecipeModal.svelte';
   import GatedRecipePayment from '../GatedRecipePayment.svelte';
   import { checkIfGated, backfillGatedRecipe } from '$lib/nip108/client';
   import type { GatedRecipeMetadata } from '$lib/nip108/types';
@@ -74,6 +75,7 @@
   let zapSuccessAmount = 0;
   let shareModal = false;
   let groceryModal = false;
+  let printModalOpen = false;
   let menuOpen = false;
   let deleteConfirmOpen = false;
   let isDeleting = false;
@@ -567,6 +569,15 @@
 <!-- Add to Grocery List Modal -->
 <AddToListModal bind:open={groceryModal} recipeEvent={event} />
 
+<!-- Print Recipe Modal -->
+<PrintRecipeModal
+  bind:open={printModalOpen}
+  {event}
+  images={uniqueImages.map((img) => img[1])}
+  {recipeDetails}
+  {directionsPhases}
+/>
+
 <!-- Delete Confirmation Modal -->
 <Modal bind:open={deleteConfirmOpen} noHeader>
   <div class="flex flex-col gap-3">
@@ -827,7 +838,7 @@
                   class="w-full flex items-center gap-3 px-4 py-2.5 text-left text-sm hover:bg-accent-gray transition-colors"
                   style="color: var(--color-text-primary);"
                   on:click={() => {
-                    window.print();
+                    printModalOpen = true;
                     menuOpen = false;
                   }}
                 >
