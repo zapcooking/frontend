@@ -350,7 +350,7 @@ html.dark .image-placeholder::before {
     color: #555;
   }
 
-  /* Hide URL in header/footer */
+  /* Adjust print margins to reduce header/footer area; actual headers/footers are controlled by the browser */
   @page {
     margin: 0.75in;
   }
