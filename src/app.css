@@ -227,3 +227,131 @@ html.dark .image-placeholder::before {
   user-drag: none;
   -webkit-touch-callout: none;
 }
+
+/* Print styles for #print-recipe */
+#print-recipe {
+  display: none;
+}
+
+@media print {
+  #print-recipe {
+    display: block !important;
+    font-family: Georgia, 'Times New Roman', serif;
+    color: #000;
+    max-width: 100%;
+    padding: 0;
+    margin: 0;
+  }
+
+  #print-recipe .print-title {
+    font-size: 24pt;
+    font-weight: 700;
+    margin-bottom: 12pt;
+    color: #000;
+  }
+
+  #print-recipe .print-image {
+    margin-bottom: 12pt;
+  }
+
+  #print-recipe .print-image img {
+    max-width: 100%;
+    max-height: 300pt;
+    height: auto;
+    object-fit: cover;
+    border-radius: 6pt;
+  }
+
+  #print-recipe .print-summary {
+    font-size: 11pt;
+    font-style: italic;
+    color: #444;
+    margin-bottom: 12pt;
+    line-height: 1.5;
+  }
+
+  #print-recipe .print-details {
+    font-family: 'Helvetica Neue', Arial, sans-serif;
+    font-size: 10pt;
+    color: #333;
+    padding: 8pt 0;
+    margin-bottom: 12pt;
+    border-top: 1px solid #ccc;
+    border-bottom: 1px solid #ccc;
+    display: flex;
+    gap: 12pt;
+  }
+
+  #print-recipe .print-detail-sep {
+    color: #999;
+  }
+
+  #print-recipe .print-section {
+    margin-bottom: 16pt;
+    break-inside: avoid;
+  }
+
+  #print-recipe .print-section h2 {
+    font-size: 14pt;
+    font-weight: 700;
+    margin-bottom: 6pt;
+    color: #000;
+  }
+
+  #print-recipe .print-section p,
+  #print-recipe .print-section li {
+    font-size: 11pt;
+    line-height: 1.6;
+    color: #222;
+  }
+
+  #print-recipe .print-section ul,
+  #print-recipe .print-section ol {
+    padding-left: 18pt;
+    margin: 4pt 0;
+  }
+
+  #print-recipe .print-directions {
+    list-style-type: decimal;
+    padding-left: 18pt;
+  }
+
+  #print-recipe .print-directions li {
+    font-size: 11pt;
+    line-height: 1.6;
+    margin-bottom: 4pt;
+    color: #222;
+  }
+
+  #print-recipe .print-phase-title {
+    list-style: none;
+    font-size: 12pt;
+    font-weight: 700;
+    margin-top: 10pt;
+    margin-bottom: 2pt;
+    color: #000;
+  }
+
+  #print-recipe .print-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6pt;
+    margin-top: 12pt;
+    padding-top: 8pt;
+    border-top: 1px solid #ccc;
+  }
+
+  #print-recipe .print-tag {
+    font-family: 'Helvetica Neue', Arial, sans-serif;
+    font-size: 9pt;
+    padding: 2pt 8pt;
+    border: 1px solid #ccc;
+    border-radius: 10pt;
+    color: #555;
+  }
+
+  /* Hide URL in header/footer */
+  @page {
+    margin: 0.75in;
+  }
+}
