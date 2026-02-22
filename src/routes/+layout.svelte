@@ -39,6 +39,10 @@
   import '$lib/syncService';
   // Import platform detection to initialize early
   import { detectPlatform } from '$lib/platform';
+  // Startup coordination — defer non-critical services until feed renders
+  import { feedInitialLoadDone } from '$lib/startupState';
+  // Prewarm outbox relay list cache early (on login, regardless of page)
+  import { prewarmOutboxCache } from '$lib/followOutbox';
 
   // Accept props from SvelteKit to prevent warnings
   export let data: LayoutData = {} as LayoutData;
@@ -231,6 +235,8 @@
           // Pre-connect pantry relay shortly after login so groups load instantly
           // when user navigates to /groups (auth signing is only ~35ms, no contention risk)
           setTimeout(() => preconnectPantry($ndk), 1000);
+          // Prewarm outbox relay list cache so feed loads faster regardless of which page user lands on
+          setTimeout(() => prewarmOutboxCache($ndk, state.publicKey).catch(() => {}), 2000);
         } else {
           userPublickey.set('');
           stopMessageSubscription();
@@ -244,7 +250,8 @@
         if (browser && state.isAuthenticated && state.publicKey) {
           if (oneTapZapLoadedForPubkey !== state.publicKey) {
             oneTapZapLoadedForPubkey = state.publicKey;
-            void loadOneTapZapSettings();
+            // Defer non-critical settings load to avoid competing with feed for relay bandwidth
+            setTimeout(() => loadOneTapZapSettings(), 3000);
           }
         } else {
           oneTapZapLoadedForPubkey = '';
@@ -270,6 +277,10 @@
 
       // Setup Capacitor deep link listeners
       setupCapacitorListeners();
+
+      // Safety timeout: if user never visits the feed (e.g. lands on /recipe/*),
+      // ensure notifications and other deferred services still start after 10s
+      setTimeout(() => feedInitialLoadDone.set(true), 10000);
 
       console.log('Layout mounted - auth manager initialized');
     } catch (error) {
@@ -320,7 +331,9 @@
   >
     <OfflineIndicator />
     <div class="flex flex-col h-full overflow-hidden">
-      <NotificationSubscriber />
+      {#if $feedInitialLoadDone}
+        <NotificationSubscriber />
+      {/if}
       <!-- Fixed sidebar -->
       <DesktopSideNav />
       <!-- Full-page scroll container: clip horizontal overflow to prevent Safari horizontal scroll/gap -->

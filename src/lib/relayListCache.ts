@@ -46,9 +46,9 @@ const CONFIG = {
   DB_VERSION: 1,
   STORE_NAME: 'relay-lists',
   
-  // TTL settings
-  TTL_MS: 60 * 60 * 1000,                  // 1 hour before stale
-  HARD_EXPIRE_MS: 24 * 60 * 60 * 1000,     // 24 hours before forced refresh
+  // TTL settings — relay lists (NIP-65) rarely change; SWR refreshes in background after TTL
+  TTL_MS: 6 * 60 * 60 * 1000,              // 6 hours before stale
+  HARD_EXPIRE_MS: 7 * 24 * 60 * 60 * 1000, // 7 days before forced refresh
   
   // Memory cache limits
   MAX_MEMORY_ENTRIES: 2000,
@@ -680,15 +680,26 @@ class RelayListCacheManager implements RelayListCache {
       }
     }
     
-    // 3. Batch fetch from network
+    // 3. Batch fetch from network — run up to 3 batches in parallel
     if (needsNetworkFetch.length > 0) {
-      // Fetch in batches to avoid overwhelming relays
+      const MAX_CONCURRENT = 3;
+      const batches: string[][] = [];
       for (let i = 0; i < needsNetworkFetch.length; i += CONFIG.BATCH_SIZE) {
-        const batch = needsNetworkFetch.slice(i, i + CONFIG.BATCH_SIZE);
-        const networkResults = await fetchFromNetwork(batch);
-        
-        for (const [pubkey, cached] of networkResults) {
-          results.set(pubkey, this.toRelayList(cached));
+        batches.push(needsNetworkFetch.slice(i, i + CONFIG.BATCH_SIZE));
+      }
+
+      for (let i = 0; i < batches.length; i += MAX_CONCURRENT) {
+        const concurrent = batches.slice(i, i + MAX_CONCURRENT);
+        const batchResults = await Promise.allSettled(
+          concurrent.map(batch => fetchFromNetwork(batch))
+        );
+
+        for (const result of batchResults) {
+          if (result.status === 'fulfilled') {
+            for (const [pubkey, cached] of result.value) {
+              results.set(pubkey, this.toRelayList(cached));
+            }
+          }
         }
       }
     }
