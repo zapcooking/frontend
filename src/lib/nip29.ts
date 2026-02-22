@@ -730,9 +730,39 @@ async function publishWithAuthRetry(
 // ═══════════════════════════════════════════════════════════════
 
 /**
+ * Create an invite code for a group (kind 9009).
+ * Returns the generated invite code.
+ */
+export async function createInvite(groupId: string): Promise<string> {
+	const ndkInstance = get(ndk);
+	const senderPubkey = get(userPublickey);
+
+	if (!senderPubkey) throw new Error('Not logged in');
+
+	await ensurePantryAuthed(ndkInstance);
+
+	const code = Array.from(crypto.getRandomValues(new Uint8Array(16)))
+		.map((b) => b.toString(16).padStart(2, '0'))
+		.join('');
+
+	const event = new NDKEvent(ndkInstance);
+	event.kind = 9009;
+	event.content = '';
+	event.tags = [['h', groupId], ['code', code]];
+
+	await event.sign();
+
+	const relaySet = getPantryRelaySet(ndkInstance);
+	await publishWithAuthRetry(event, relaySet, ndkInstance);
+
+	console.log('[NIP-29] Invite created for group', groupId);
+	return code;
+}
+
+/**
  * Create a new group by sending a kind 9007 event to the pantry relay.
  */
-export async function createGroup(name: string, about?: string): Promise<string> {
+export async function createGroup(name: string, about?: string, visibility?: 'public' | 'members-only' | 'invite-only'): Promise<string> {
 	const ndkInstance = get(ndk);
 	const senderPubkey = get(userPublickey);
 
@@ -770,6 +800,11 @@ export async function createGroup(name: string, about?: string): Promise<string>
 		await metaEvent.sign();
 		await publishWithAuthRetry(metaEvent, relaySet, ndkInstance);
 		console.log('[NIP-29] Group metadata set for', groupId);
+	}
+
+	// Set visibility if not public (default)
+	if (visibility && visibility !== 'public') {
+		await editGroupMetadata(groupId, { visibility });
 	}
 
 	return groupId;
@@ -810,8 +845,9 @@ export async function addGroupMember(
 
 /**
  * Send a join request (kind 9021) to a group.
+ * @param inviteCode - optional invite code for invite-only groups
  */
-export async function joinGroup(groupId: string): Promise<void> {
+export async function joinGroup(groupId: string, inviteCode?: string): Promise<void> {
 	const ndkInstance = get(ndk);
 	const senderPubkey = get(userPublickey);
 
@@ -823,6 +859,9 @@ export async function joinGroup(groupId: string): Promise<void> {
 	event.kind = 9021;
 	event.content = '';
 	event.tags = [['h', groupId]];
+	if (inviteCode) {
+		event.tags.push(['code', inviteCode]);
+	}
 
 	await event.sign();
 
@@ -838,7 +877,7 @@ export async function joinGroup(groupId: string): Promise<void> {
  */
 export async function editGroupMetadata(
 	groupId: string,
-	fields: { name?: string; about?: string; picture?: string; visibility?: 'public' | 'members-only' }
+	fields: { name?: string; about?: string; picture?: string; visibility?: 'public' | 'members-only' | 'invite-only' }
 ): Promise<void> {
 	const ndkInstance = get(ndk);
 	const senderPubkey = get(userPublickey);
@@ -859,6 +898,9 @@ export async function editGroupMetadata(
 		event.tags.push(['unrestricted']);
 	} else if (fields.visibility === 'members-only') {
 		event.tags.push(['private']);
+		event.tags.push(['restricted']);
+	} else if (fields.visibility === 'invite-only') {
+		event.tags.push(['closed']);
 		event.tags.push(['restricted']);
 	}
 

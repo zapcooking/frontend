@@ -30,6 +30,7 @@ export interface Group {
 	messages: GroupMessage[];
 	members: string[];
 	lastMessageAt: number;
+	unreadCount: number;
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -54,6 +55,13 @@ export const sortedGroups = derived(groups, ($groups) => {
 	return Array.from($groups.values()).sort((a, b) => b.lastMessageAt - a.lastMessageAt);
 });
 
+/** Total unread count across all groups. */
+export const totalGroupUnreadCount = derived(groups, ($groups) => {
+	let total = 0;
+	for (const group of $groups.values()) total += group.unreadCount;
+	return total;
+});
+
 /** Get a specific group reactively. */
 export function getGroup(groupId: string) {
 	return derived(groups, ($groups) => $groups.get(groupId) || null);
@@ -65,8 +73,9 @@ export function getGroup(groupId: string) {
 
 /**
  * Add a message to a group. Handles deduplication.
+ * @param isLive - true for messages from the live subscription (not batch-loaded)
  */
-export function addGroupMessage(message: GroupMessage) {
+export function addGroupMessage(message: GroupMessage, isLive = false) {
 	if (seenMessageIds.has(message.id)) return;
 	seenMessageIds.add(message.id);
 
@@ -80,6 +89,9 @@ export function addGroupMessage(message: GroupMessage) {
 			existing.messages.push(message);
 			existing.messages.sort((a, b) => a.created_at - b.created_at);
 			existing.lastMessageAt = Math.max(existing.lastMessageAt, message.created_at);
+			if (isLive && message.groupId !== get(activeGroupId)) {
+				existing.unreadCount++;
+			}
 		} else {
 			// Group not yet known — create a placeholder entry
 			$groups.set(message.groupId, {
@@ -92,7 +104,8 @@ export function addGroupMessage(message: GroupMessage) {
 				isRestricted: false,
 				messages: [message],
 				members: [],
-				lastMessageAt: message.created_at
+				lastMessageAt: message.created_at,
+				unreadCount: isLive ? 1 : 0
 			});
 		}
 
@@ -119,7 +132,8 @@ export function setGroupMetadata(metadata: GroupMetadata) {
 				...metadata,
 				messages: [],
 				members: [],
-				lastMessageAt: 0
+				lastMessageAt: 0,
+				unreadCount: 0
 			});
 		}
 
@@ -147,7 +161,8 @@ export function setGroupMembers(groupId: string, members: string[]) {
 				isRestricted: false,
 				messages: [],
 				members,
-				lastMessageAt: 0
+				lastMessageAt: 0,
+				unreadCount: 0
 			});
 		}
 		return new Map($groups);
@@ -162,9 +177,24 @@ export function removeGroup(groupId: string) {
 	});
 }
 
+/** Mark a group as read (reset unread count to 0). */
+export function markGroupAsRead(groupId: string) {
+	groups.update(($groups) => {
+		const existing = $groups.get(groupId);
+		if (existing && existing.unreadCount > 0) {
+			existing.unreadCount = 0;
+			return new Map($groups);
+		}
+		return $groups;
+	});
+}
+
 /** Set the active group. */
 export function setActiveGroup(groupId: string | null) {
 	activeGroupId.set(groupId);
+	if (groupId) {
+		markGroupAsRead(groupId);
+	}
 }
 
 /** Clear all group state (on logout). */
@@ -227,7 +257,7 @@ export async function initGroupSubscription(ndkInstance: NDK, userPubkey: string
 		//    Uses liveSubSince (captured before batch) so there's no gap;
 		//    dedup in addGroupMessage handles any overlap
 		activeSub = await subscribeToGroupMessages(ndkInstance, (message) => {
-			addGroupMessage(message);
+			addGroupMessage(message, true);
 		}, liveSubSince);
 
 		const t2 = performance.now();

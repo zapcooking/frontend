@@ -15,6 +15,7 @@
 	import ImageIcon from 'phosphor-svelte/lib/Image';
 	import LinkIcon from 'phosphor-svelte/lib/Link';
 	import CheckIcon from 'phosphor-svelte/lib/Check';
+	import ChatCircleDotsIcon from 'phosphor-svelte/lib/ChatCircleDots';
 
 	export let groupId: string;
 	export let hasActiveMembership: boolean = false;
@@ -134,7 +135,7 @@
 	}
 
 	async function handleShare() {
-		const shareUrl = `${PANTRY_RELAY}/${groupId}`;
+		const shareUrl = `${window.location.origin}/groups/join?group=${encodeURIComponent(groupId)}`;
 		const ok = await copyToClipboard(shareUrl);
 		if (ok) {
 			showCopied = true;
@@ -247,9 +248,15 @@
 			class="h-full overflow-y-auto px-4 pt-[84px] pb-[80px]"
 		>
 			{#if messages.length === 0}
-				<div class="flex items-center justify-center h-full">
-					<p class="text-sm" style="color: var(--color-caption);">
-						No messages yet. Say something!
+				<div class="flex flex-col items-center justify-center h-full text-center px-4">
+					<div class="mb-3" style="color: var(--color-caption); opacity: 0.4;">
+						<ChatCircleDotsIcon size={44} weight="light" />
+					</div>
+					<p class="text-sm font-medium" style="color: var(--color-text-primary);">
+						No messages yet — say hello!
+					</p>
+					<p class="text-xs mt-1 max-w-[220px]" style="color: var(--color-caption);">
+						Be the first to start the conversation in this group.
 					</p>
 				</div>
 			{:else}

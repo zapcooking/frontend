@@ -21,6 +21,7 @@
   import WalletIcon from 'phosphor-svelte/lib/Wallet';
 
   import { totalUnreadCount } from '$lib/stores/messages';
+  import { totalGroupUnreadCount } from '$lib/stores/groups';
   import { userSidePanelOpen } from '$lib/stores/userSidePanel';
 
   $: pathname = $page.url.pathname;
@@ -36,7 +37,7 @@
     label: string;
     icon: any;
     match?: (path: string) => boolean;
-    badge?: 'notificationsDot' | 'walletConnect' | 'members' | 'messagesDot';
+    badge?: 'notificationsDot' | 'walletConnect' | 'members' | 'messagesDot' | 'groupsDot';
     external?: boolean;
   };
 
@@ -76,7 +77,8 @@
       href: '/groups',
       label: 'Groups',
       icon: UsersThreeIcon,
-      match: (p) => p.startsWith('/groups')
+      match: (p) => p.startsWith('/groups'),
+      badge: 'groupsDot'
     },
     {
       href: '/messages',
@@ -176,7 +178,7 @@
                   <svelte:component
                     this={item.icon}
                     size={20}
-                    weight={(item.href === '/notifications' && $unreadCount > 0) || (item.href === '/messages' && $totalUnreadCount > 0) ? 'fill' : 'regular'}
+                    weight={(item.href === '/notifications' && $unreadCount > 0) || (item.href === '/messages' && $totalUnreadCount > 0) || (item.href === '/groups' && $totalGroupUnreadCount > 0) ? 'fill' : 'regular'}
                   />
                   {#if item.badge === 'notificationsDot' && $unreadCount > 0}
                     <span
@@ -186,6 +188,13 @@
                     ></span>
                   {/if}
                   {#if item.badge === 'messagesDot' && $totalUnreadCount > 0}
+                    <span
+                      class="absolute top-1.5 right-1.5 w-2.5 h-2.5 rounded-full bg-red-500 border-2"
+                      style="border-color: var(--color-bg-primary);"
+                      aria-hidden="true"
+                    ></span>
+                  {/if}
+                  {#if item.badge === 'groupsDot' && $totalGroupUnreadCount > 0}
                     <span
                       class="absolute top-1.5 right-1.5 w-2.5 h-2.5 rounded-full bg-red-500 border-2"
                       style="border-color: var(--color-bg-primary);"
