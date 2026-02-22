@@ -33,7 +33,6 @@
 	import ArrowClockwiseIcon from 'phosphor-svelte/lib/ArrowClockwise';
 	import ClockCounterClockwiseIcon from 'phosphor-svelte/lib/ClockCounterClockwise';
 	import WalletIcon from 'phosphor-svelte/lib/Wallet';
-	import { activeWallet } from '$lib/wallet/walletStore';
 	import { checkRelayBackups as checkSparkRelayBackups } from '$lib/spark';
 	import { checkRelayBackups as checkNwcRelayBackups } from '$lib/wallet/nwcBackup';
 
