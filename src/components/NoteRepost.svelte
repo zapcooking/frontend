@@ -45,12 +45,17 @@
         reposts: { count: s.reposts.count + 1, userReposted: true }
       }));
 
-      // Create kind 6 repost event
+      // Create kind 6 repost event (NIP-18)
       repostEvent = new NDKEvent($ndk);
       repostEvent.kind = 6;
       repostEvent.content = JSON.stringify(event.rawEvent());
+
+      // NIP-18: e tag MUST include a relay URL as its third entry
+      const relayUrl = event.relay?.url
+        || event.onRelays?.[0]?.url
+        || '';
       repostEvent.tags = [
-        ['e', event.id, '', 'mention'],
+        ['e', event.id, relayUrl],
         ['p', event.pubkey]
       ];
 
