@@ -12,8 +12,14 @@
 	let generating = false;
 	let error = '';
 	let copied = false;
+	let lastGeneratedGroupId = '';
 
 	$: if (open && groupId) {
+		if (groupId !== lastGeneratedGroupId) {
+			inviteLink = '';
+			copied = false;
+			error = '';
+		}
 		generateInvite();
 	}
 
@@ -22,16 +28,19 @@
 		generating = false;
 		error = '';
 		copied = false;
+		lastGeneratedGroupId = '';
 	}
 
 	async function generateInvite() {
 		if (generating || inviteLink) return;
 		generating = true;
 		error = '';
+		const currentGroupId = groupId;
 
 		try {
-			const code = await createInvite(groupId);
-			inviteLink = `${window.location.origin}/groups/join?group=${encodeURIComponent(groupId)}&code=${encodeURIComponent(code)}`;
+			const code = await createInvite(currentGroupId);
+			inviteLink = `${window.location.origin}/groups/join?group=${encodeURIComponent(currentGroupId)}&code=${encodeURIComponent(code)}`;
+			lastGeneratedGroupId = currentGroupId;
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Failed to generate invite';
 			console.error('[Groups] Invite error:', e);
