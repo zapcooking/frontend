@@ -153,21 +153,21 @@
 
     if (showDirections && hasDirections) {
       html += `<div class="print-section"><h2>Directions</h2>`;
-      if (directionsPhases.length === 1) {
-        html += `<ol class="print-directions">`;
-        for (const step of directionsPhases[0].steps) {
-          html += `<li>${escapeHtml(step.text)}</li>`;
-        }
-        html += `</ol>`;
-      } else {
+      if (directionsPhases.length > 1) {
         for (const phase of directionsPhases) {
-          html += `<h3 class="print-phase-title"><strong>${escapeHtml(phase.title)}</strong></h3>`;
+          html += `<div class="print-phase-title"><strong>${escapeHtml(phase.title)}</strong></div>`;
           html += `<ol class="print-directions">`;
           for (const step of phase.steps) {
             html += `<li>${escapeHtml(step.text)}</li>`;
           }
           html += `</ol>`;
         }
+      } else {
+        html += `<ol class="print-directions">`;
+        for (const step of directionsPhases[0].steps) {
+          html += `<li>${escapeHtml(step.text)}</li>`;
+        }
+        html += `</ol>`;
       }
       html += `</div>`;
     }
@@ -367,18 +367,24 @@
           {#if showDirections && hasDirections}
             <div class="mb-3">
               <h4 class="text-sm font-semibold mb-1" style="color: var(--color-text-primary);">Directions</h4>
-              <ol class="text-xs list-decimal list-inside space-y-1" style="color: var(--color-text-secondary);">
+              {#if directionsPhases.length > 1}
                 {#each directionsPhases as phase}
-                  {#if directionsPhases.length > 1}
-                    <li class="font-semibold list-none mt-2" style="color: var(--color-text-primary);">
-                      {phase.title}
-                    </li>
-                  {/if}
-                  {#each phase.steps as step}
+                  <h5 class="text-xs font-semibold mt-2 mb-0.5" style="color: var(--color-text-primary);">
+                    {phase.title}
+                  </h5>
+                  <ol class="text-xs list-decimal list-inside space-y-1" style="color: var(--color-text-secondary);">
+                    {#each phase.steps as step}
+                      <li>{step.text}</li>
+                    {/each}
+                  </ol>
+                {/each}
+              {:else}
+                <ol class="text-xs list-decimal list-inside space-y-1" style="color: var(--color-text-secondary);">
+                  {#each directionsPhases[0].steps as step}
                     <li>{step.text}</li>
                   {/each}
-                {/each}
-              </ol>
+                </ol>
+              {/if}
             </div>
           {/if}
 
