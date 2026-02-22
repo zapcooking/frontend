@@ -166,6 +166,7 @@
 
     const body = new FormData();
     body.append('file[]', file);
+    body.append('media_type', type === 'picture' ? 'avatar' : 'banner');
 
     const result = await Fetch.fetchJson(url, {
       body,
