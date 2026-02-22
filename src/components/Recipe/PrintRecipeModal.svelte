@@ -152,16 +152,24 @@
     }
 
     if (showDirections && hasDirections) {
-      html += `<div class="print-section"><h2>Directions</h2><ol class="print-directions">`;
-      for (const phase of directionsPhases) {
-        if (directionsPhases.length > 1) {
-          html += `<li class="print-phase-title"><strong>${escapeHtml(phase.title)}</strong></li>`;
-        }
-        for (const step of phase.steps) {
+      html += `<div class="print-section"><h2>Directions</h2>`;
+      if (directionsPhases.length === 1) {
+        html += `<ol class="print-directions">`;
+        for (const step of directionsPhases[0].steps) {
           html += `<li>${escapeHtml(step.text)}</li>`;
         }
+        html += `</ol>`;
+      } else {
+        for (const phase of directionsPhases) {
+          html += `<h3 class="print-phase-title"><strong>${escapeHtml(phase.title)}</strong></h3>`;
+          html += `<ol class="print-directions">`;
+          for (const step of phase.steps) {
+            html += `<li>${escapeHtml(step.text)}</li>`;
+          }
+          html += `</ol>`;
+        }
       }
-      html += `</ol></div>`;
+      html += `</div>`;
     }
 
     if (showTags && hasTags) {
