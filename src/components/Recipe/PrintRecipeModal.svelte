@@ -122,9 +122,9 @@
 
   function buildDetailsHtml(): string {
     const parts: string[] = [];
-    if (recipeDetails.prepTime) parts.push(`<span>Prep: ${recipeDetails.prepTime}</span>`);
-    if (recipeDetails.cookTime) parts.push(`<span>Cook: ${recipeDetails.cookTime}</span>`);
-    if (recipeDetails.servings) parts.push(`<span>Servings: ${recipeDetails.servings}</span>`);
+    if (recipeDetails.prepTime) parts.push(`<span>Prep: ${escapeHtml(recipeDetails.prepTime)}</span>`);
+    if (recipeDetails.cookTime) parts.push(`<span>Cook: ${escapeHtml(recipeDetails.cookTime)}</span>`);
+    if (recipeDetails.servings) parts.push(`<span>Servings: ${escapeHtml(recipeDetails.servings)}</span>`);
     return parts.join('<span class="print-detail-sep"> | </span>');
   }
 
