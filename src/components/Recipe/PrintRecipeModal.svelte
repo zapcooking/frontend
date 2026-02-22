@@ -367,18 +367,16 @@
           {#if showDirections && hasDirections}
             <div class="mb-3">
               <h4 class="text-sm font-semibold mb-1" style="color: var(--color-text-primary);">Directions</h4>
-              <ol class="text-xs list-decimal list-inside space-y-1" style="color: var(--color-text-secondary);">
-                {#each directionsPhases as phase}
-                  {#if directionsPhases.length > 1}
-                    <li class="font-semibold list-none mt-2" style="color: var(--color-text-primary);">
-                      {phase.title}
-                    </li>
-                  {/if}
+              {#each directionsPhases as phase}
+                {#if directionsPhases.length > 1}
+                  <p class="text-xs font-semibold mt-2 mb-0.5" style="color: var(--color-text-primary);">{phase.title}</p>
+                {/if}
+                <ol class="text-xs list-decimal list-inside space-y-1" style="color: var(--color-text-secondary);">
                   {#each phase.steps as step}
                     <li>{step.text}</li>
                   {/each}
-                {/each}
-              </ol>
+                </ol>
+              {/each}
             </div>
           {/if}
 
