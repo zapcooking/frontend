@@ -46,7 +46,10 @@ function extractFirstImageUrl(content: string): string | null {
 		try {
 			const urlObj = new URL(url);
 			if (IMAGE_EXTENSIONS.test(urlObj.pathname)) return url;
-			if (IMAGE_HOSTS.some(host => urlObj.hostname.includes(host))) return url;
+			if (IMAGE_HOSTS.some(host => urlObj.hostname.includes(host))) {
+				if (urlObj.hostname.includes('nostr.build') && !urlObj.pathname.includes('/i/')) continue;
+				return url;
+			}
 		} catch {
 			continue;
 		}
