@@ -895,10 +895,15 @@
   function contentContainsFoodWords(content: string): boolean {
     if (!content) return false;
 
-    // Evict oldest entries if cache is full
+    // Evict oldest entries in a small batch if cache is full to avoid frequent single-entry evictions
     if (foodWordResultCache.size > 1000) {
-      const firstKey = foodWordResultCache.keys().next().value;
-      if (firstKey) foodWordResultCache.delete(firstKey);
+      const keys = foodWordResultCache.keys();
+      const targetSize = 900; // keep ~10% headroom under the max size
+      while (foodWordResultCache.size > targetSize) {
+        const next = keys.next();
+        if (next.done) break;
+        foodWordResultCache.delete(next.value);
+      }
     }
 
     // Check memoization cache first
