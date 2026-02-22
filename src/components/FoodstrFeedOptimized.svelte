@@ -1791,7 +1791,7 @@
         // Primal is wrapped to resolve to null on failure, so it never rejects
         const primalResult = await Promise.race([
           primalPromise,
-          // If outbox finishes first, give Primal a tiny extra window then move on
+          // If outbox finishes first, return null immediately to skip Primal and use outbox results
           outboxPromise.then(() => null as NDKEvent[] | null)
         ]);
 
