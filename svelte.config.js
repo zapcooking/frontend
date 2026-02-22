@@ -3,11 +3,13 @@ import adapterVercel from '@sveltejs/adapter-vercel';
 import adapterStatic from '@sveltejs/adapter-static';
 import { vitePreprocess } from '@sveltejs/vite-plugin-svelte';
 
-// Use static adapter for mobile builds, Vercel for web deployment, Cloudflare as fallback
-const adapter = process.env.ADAPTER === 'static'
+// Use static adapter for mobile/Capacitor builds, Vercel for web deployment, Cloudflare as fallback
+const isCapacitor = process.env.CAPACITOR === 'true';
+const isStaticAdapter = process.env.ADAPTER === 'static';
+const adapter = (isCapacitor || isStaticAdapter)
   ? adapterStatic({
-      pages: 'build',
-      assets: 'build',
+      pages: isCapacitor ? 'dist' : 'build',
+      assets: isCapacitor ? 'dist' : 'build',
       fallback: 'index.html',
       precompress: false,
       strict: true,
