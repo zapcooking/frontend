@@ -733,8 +733,13 @@
     if (id) {
       imageUrlCache.set(id, result);
       if (imageUrlCache.size > 500) {
-        const firstKey = imageUrlCache.keys().next().value;
-        if (firstKey) imageUrlCache.delete(firstKey);
+        const toDelete = Math.max(1, Math.ceil(imageUrlCache.size * 0.1));
+        const iterator = imageUrlCache.keys();
+        for (let i = 0; i < toDelete; i++) {
+          const next = iterator.next();
+          if (next.done) break;
+          imageUrlCache.delete(next.value);
+        }
       }
     }
     return result;
