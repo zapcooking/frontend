@@ -1040,10 +1040,14 @@
     // Store in cache
     if (eventId) {
       includeEventCache.set(eventId, result);
-      // Prevent unbounded growth
+      // Prevent unbounded growth — when limit is exceeded, evict oldest 200
+      // entries in one batch so evictions are infrequent (~every 200 inserts).
       if (includeEventCache.size > 2000) {
-        const firstKey = includeEventCache.keys().next().value;
-        if (firstKey) includeEventCache.delete(firstKey);
+        const iter = includeEventCache.keys();
+        for (let i = 0; i < 200; i++) {
+          const key = iter.next().value;
+          if (key !== undefined) includeEventCache.delete(key);
+        }
       }
     }
 
