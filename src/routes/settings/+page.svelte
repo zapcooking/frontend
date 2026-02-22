@@ -1215,10 +1215,10 @@
       <div class="text-xs" style="color: var(--color-text-primary);">
         <p class="font-medium text-red-500 mb-1">You will be signed out of zap.cooking</p>
         <p class="text-caption">
-          {#if authMethod === 'nip07'}
-            Your private key remains safe in your browser extension. You can sign back in anytime.
-          {:else if authMethod === 'nip46'}
+          {#if authMethod === 'nip46'}
             Your private key remains safe in your remote signer. You can reconnect anytime.
+          {:else}
+            Your private key remains safe in your Nostr signer (for example, your browser extension). You can sign back in anytime.
           {/if}
         </p>
       </div>
