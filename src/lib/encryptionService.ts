@@ -66,6 +66,7 @@ export function clearDecryptCache(): void {
   decryptCache.clear();
   signerDenialCount = 0;
   signerCircuitBroken = false;
+  decryptQueuePromise = Promise.resolve();
 }
 
 /**

@@ -576,8 +576,6 @@
   images={uniqueImages.map((img) => img[1])}
   {recipeDetails}
   {directionsPhases}
-  {markdownBeforeDirections}
-  {markdownAfterDirections}
 />
 
 <!-- Delete Confirmation Modal -->

@@ -19,8 +19,6 @@
     servings: string | null;
   };
   export let directionsPhases: DirectionPhase[];
-  export let markdownBeforeDirections: string;
-  export let markdownAfterDirections: string;
 
   // Toggle state — all default to true
   let showImage = true;
@@ -97,7 +95,7 @@
     return tags;
   })();
 
-  // Split markdownBeforeDirections into chef's notes and ingredients
+  // Extract chef's notes and ingredients from event content
   $: chefNotesHtml = (() => {
     const match = event.content.match(/## Chef's notes\s*\n([\s\S]*?)(?=\n## |$)/i);
     if (match) return parseMarkdown(`## Chef's notes\n${match[1].trim()}`);
@@ -122,9 +120,9 @@
 
   function buildDetailsHtml(): string {
     const parts: string[] = [];
-    if (recipeDetails.prepTime) parts.push(`<span>Prep: ${recipeDetails.prepTime}</span>`);
-    if (recipeDetails.cookTime) parts.push(`<span>Cook: ${recipeDetails.cookTime}</span>`);
-    if (recipeDetails.servings) parts.push(`<span>Servings: ${recipeDetails.servings}</span>`);
+    if (recipeDetails.prepTime) parts.push(`<span>Prep: ${escapeHtml(recipeDetails.prepTime)}</span>`);
+    if (recipeDetails.cookTime) parts.push(`<span>Cook: ${escapeHtml(recipeDetails.cookTime)}</span>`);
+    if (recipeDetails.servings) parts.push(`<span>Servings: ${escapeHtml(recipeDetails.servings)}</span>`);
     return parts.join('<span class="print-detail-sep"> | </span>');
   }
 
@@ -153,21 +151,21 @@
 
     if (showDirections && hasDirections) {
       html += `<div class="print-section"><h2>Directions</h2>`;
-      if (directionsPhases.length === 1) {
-        html += `<ol class="print-directions">`;
-        for (const step of directionsPhases[0].steps) {
-          html += `<li>${escapeHtml(step.text)}</li>`;
-        }
-        html += `</ol>`;
-      } else {
+      if (directionsPhases.length > 1) {
         for (const phase of directionsPhases) {
-          html += `<h3 class="print-phase-title"><strong>${escapeHtml(phase.title)}</strong></h3>`;
+          html += `<div class="print-phase-title"><strong>${escapeHtml(phase.title)}</strong></div>`;
           html += `<ol class="print-directions">`;
           for (const step of phase.steps) {
             html += `<li>${escapeHtml(step.text)}</li>`;
           }
           html += `</ol>`;
         }
+      } else {
+        html += `<ol class="print-directions">`;
+        for (const step of directionsPhases[0].steps) {
+          html += `<li>${escapeHtml(step.text)}</li>`;
+        }
+        html += `</ol>`;
       }
       html += `</div>`;
     }
