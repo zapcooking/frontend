@@ -893,6 +893,7 @@
 
       const body = new FormData();
       body.append('file[]', file);
+      body.append('media_type', 'avatar');
 
       const result = await uploadProfilePicture(body);
       console.log('[Profile Upload] Upload complete, result:', result);
