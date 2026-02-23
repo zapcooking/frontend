@@ -1,9 +1,17 @@
 import { writable, type Writable, get } from 'svelte/store';
 import type { NDKEvent, NDKSubscription } from '@nostr-dev-kit/ndk';
-import type NDK from '@nostr-dev-kit/ndk';
+import NDK, { NDKRelaySet } from '@nostr-dev-kit/ndk';
 import { decode } from '@gandlaf21/bolt11-decode';
 import { browser } from '$app/environment';
 import { getEngagementCounts, batchFetchFromServerAPI } from './countQuery';
+
+// Aggregator relays that index zap receipts — LNURL providers publish kind:9735
+// to these relays, which may not overlap with the app's default relay set.
+const ZAP_AGGREGATOR_RELAYS = [
+  'wss://relay.damus.io',
+  'wss://nos.lol',
+  'wss://relay.primal.net'
+];
 
 // Individual zapper info
 export interface Zapper {
@@ -323,12 +331,38 @@ export async function fetchEngagement(
   
   // IMPORTANT: Reset counts to 0 before subscription to prevent double counting
   // The cache shows instant data, but subscription will provide accurate final counts
+  // Preserve any pending optimistic zap updates so they aren't wiped during re-fetch
+  let pendingOptimisticAmount = 0;
+  let pendingOptimisticCount = 0;
+  let pendingOptimisticZappers: Array<{ pubkey: string; amount: number; timestamp: number }> = [];
+  for (const [key, zap] of optimisticZaps.entries()) {
+    if (key.startsWith(`${eventId}:`)) {
+      pendingOptimisticAmount += zap.amountMillisats;
+      pendingOptimisticCount++;
+      const existingZapper = pendingOptimisticZappers.find(z => z.pubkey === zap.userPubkey);
+      if (existingZapper) {
+        existingZapper.amount += Math.floor(zap.amountMillisats / 1000);
+      } else {
+        pendingOptimisticZappers.push({
+          pubkey: zap.userPubkey,
+          amount: Math.floor(zap.amountMillisats / 1000),
+          timestamp: Math.floor(zap.timestamp / 1000)
+        });
+      }
+    }
+  }
   store.update(s => ({
     ...s,
     reactions: { count: 0, userReacted: false, groups: [], userReactions: new Set() },
     comments: { count: 0 },
     reposts: { count: 0, userReposted: false },
-    zaps: { ...s.zaps, count: 0, totalAmount: 0, topZappers: [] }, // Keep userZapped state
+    zaps: {
+      ...s.zaps,
+      count: pendingOptimisticCount,
+      totalAmount: pendingOptimisticAmount,
+      topZappers: pendingOptimisticZappers,
+      userZapped: s.zaps.userZapped || pendingOptimisticCount > 0
+    },
     loading: true
   }));
   
@@ -340,15 +374,39 @@ export async function fetchEngagement(
     kinds: [7, 6, 9735, 1],
     '#e': [eventId]
   };
-  
+
   let eoseReceived = false;
-  
+
+  // Pre-connect aggregator relays before subscribing.
+  // NDKRelaySet.fromRelayUrls creates temporary relays that connect asynchronously,
+  // so the subscription's initial REQ can miss them. By explicitly connecting first,
+  // we ensure the REQ reaches aggregator relays on the first try.
+  await Promise.all(
+    ZAP_AGGREGATOR_RELAYS.map(async (url) => {
+      try {
+        const relay = ndk.pool.getRelay(url, true, true);
+        if (relay.connectivity?.status !== 1) {
+          await relay.connect();
+        }
+      } catch {
+        // Non-fatal: subscription still works with other relays
+      }
+    })
+  );
+
+  // Build relay set: NDK's connected relays + zap aggregator relays
+  const relaySet = NDKRelaySet.fromRelayUrls(
+    [...(ndk.explicitRelayUrls || []), ...ZAP_AGGREGATOR_RELAYS],
+    ndk,
+    true // addConnectedRelays
+  );
+
   try {
     // Start subscription cleanup manager
     startSubscriptionCleanup();
-    
+
     // Create persistent subscription (stays open for real-time updates)
-    const sub = ndk.subscribe(filter, { closeOnEose: false });
+    const sub = ndk.subscribe(filter, { closeOnEose: false }, relaySet);
     
     // Register in persistent subscriptions map
     persistentSubscriptions.set(eventId, { sub, lastActivity: Date.now() });

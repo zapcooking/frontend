@@ -26,6 +26,7 @@
   import PostActionsMenu from '../../components/PostActionsMenu.svelte';
   import MentionDropdown from '../../components/MentionDropdown.svelte';
   import { MentionComposerController, type MentionState } from '$lib/mentionComposer';
+  import { fetchEngagement, optimisticZapUpdate } from '$lib/engagementCache';
 
   export let data: PageData;
 
@@ -887,7 +888,12 @@
 
 <!-- Zap Modal -->
 {#if zapModal && event}
-  <ZapModal {event} on:close={() => (zapModal = false)} />
+  <ZapModal {event} on:close={() => (zapModal = false)} on:zap-complete={(e) => {
+    if (event) {
+      optimisticZapUpdate(event.id, (e.detail.amount || 0) * 1000, $userPublickey);
+      fetchEngagement($ndk, event.id, $userPublickey);
+    }
+  }} />
 {/if}
 
 <style>
