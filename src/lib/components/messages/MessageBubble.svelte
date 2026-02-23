@@ -4,6 +4,8 @@
   import { resolveProfileByPubkey, getDisplayName, type ProfileData } from '$lib/profileResolver';
   import LockSimpleIcon from 'phosphor-svelte/lib/LockSimple';
   import LockSimpleOpenIcon from 'phosphor-svelte/lib/LockSimpleOpen';
+  import LinkPreview from '../../../components/LinkPreview.svelte';
+  import NoteEmbed from '../../../components/NoteEmbed.svelte';
 
   export let sender: string;
   export let content: string;
@@ -116,6 +118,25 @@
       })
       .join('');
   }
+  // Extract URLs and nostr note/event references for previews below message text
+  function extractPreviewUrls(text: string): string[] {
+    const regex = /https?:\/\/[^\s<]+/g;
+    return (text.match(regex) || []).filter(url => {
+      // Skip image/video URLs (they'd clutter the bubble)
+      const lower = url.toLowerCase();
+      const mediaExt = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.avif', '.svg', '.mp4', '.webm', '.mov'];
+      return !mediaExt.some(ext => lower.includes(ext));
+    });
+  }
+
+  function extractNostrEmbeds(text: string): string[] {
+    const regex = /nostr:(nevent1[023456789acdefghjklmnpqrstuvwxyz]+|note1[023456789acdefghjklmnpqrstuvwxyz]+|naddr1[023456789acdefghjklmnpqrstuvwxyz]+)/g;
+    return (text.match(regex) || []);
+  }
+
+  $: previewUrls = extractPreviewUrls(content);
+  $: nostrEmbeds = extractNostrEmbeds(content);
+
   $: protocolTip =
     protocol === 'nip17' ? 'Private — metadata hidden' : 'Compatible — metadata visible';
 
@@ -154,6 +175,16 @@
         : 'background-color: var(--color-input-bg); color: var(--color-text-primary);'}
   >
     <p class="text-sm whitespace-pre-wrap break-words">{@html renderedHtml}</p>
+    {#if nostrEmbeds.length > 0 || previewUrls.length > 0}
+      <div class="mt-1.5 flex flex-col gap-1.5">
+        {#each nostrEmbeds as nostrRef}
+          <NoteEmbed nostrString={nostrRef} depth={1} />
+        {/each}
+        {#each previewUrls as url}
+          <LinkPreview {url} />
+        {/each}
+      </div>
+    {/if}
     <p
       class="text-[10px] mt-1 {isMine ? 'text-right' : 'text-left'}"
       style={isMine ? 'color: rgba(255,255,255,0.7);' : 'color: var(--color-caption);'}
