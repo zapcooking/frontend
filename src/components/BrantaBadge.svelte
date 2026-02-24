@@ -23,6 +23,7 @@
   export let showUnverified: boolean = false;
 
   let verified: boolean | null = null;
+  let verifyLink: string | null = null;
   let loading = false;
   let error: string | null = null;
 
@@ -43,6 +44,7 @@
       }
 
       verified = data.verified === true;
+      verifyLink = data.verifyLink;
     } catch (e) {
       console.warn('[BrantaBadge] Verification failed:', e);
       verified = false;
@@ -74,7 +76,7 @@
   </div>
 {:else if verified === true}
   <a
-    href="https://branta.pro"
+    href={verifyLink || "https://branta.pro"}
     target="_blank"
     rel="noopener noreferrer"
     class="flex items-center gap-1.5 text-xs text-green-500 hover:text-green-400 transition-colors"

@@ -26,12 +26,13 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 		const result = await registerPayment(
 			paymentString,
 			{
+				destinations: [],
 				ttl: typeof ttl === 'number' ? ttl : undefined,
 				description: typeof description === 'string' ? description : undefined,
-				metadata: typeof metadata === 'object' ? metadata : undefined,
-				zk: typeof zk === 'boolean' ? zk : undefined
+				metadata: typeof metadata === 'object' ? metadata : undefined
 			},
-			platform
+			typeof zk === 'boolean' ? zk : undefined,
+			platform,
 		);
 
 		if (result.success) {

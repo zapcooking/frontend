@@ -1061,7 +1061,7 @@
       const result = await receiveOnchain();
       // Register with Branta for verification (zk: true for on-chain)
       // Await to ensure badge can verify after registration completes
-      await registerWithBranta(result.address, 'zap.cooking Bitcoin deposit address', true);
+      await registerWithBranta(result.address, 'zap.cooking Bitcoin deposit address', false);
       onchainAddress = result.address;
       // Also load any pending deposits
       await loadUnclaimedDeposits();
