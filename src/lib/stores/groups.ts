@@ -50,6 +50,7 @@ export const activeGroupId = writable<string | null>(null);
 export const groupsLoading = writable(false);
 export const groupsInitialized = writable(false);
 export const groupsSyncing = writable(false);
+export const groupsInitAnonymous = writable(false);
 
 // ═══════════════════════════════════════════════════════════════
 // DERIVED STORES
@@ -389,6 +390,7 @@ export function clearGroups() {
 	activeGroupId.set(null);
 	groupsInitialized.set(false);
 	groupsSyncing.set(false);
+	groupsInitAnonymous.set(false);
 	resetPantryConnection();
 	pantryManager.destroy();
 	clearZapReceipts();
@@ -420,10 +422,11 @@ export async function initGroupSubscription(ndkInstance: NDK, userPubkey?: strin
 		return;
 	}
 
-	console.log('[Groups] Initializing...');
+	console.log('[Groups] Initializing...', isAnonymous ? '(anonymous)' : '(authenticated)');
 	stopGroupSubscription();
 
 	groupsLoading.set(true);
+	groupsInitAnonymous.set(isAnonymous);
 	const t0 = performance.now();
 
 	try {

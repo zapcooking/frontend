@@ -7,7 +7,9 @@
 		groupsInitialized,
 		groupsLoading,
 		groupsSyncing,
-		setActiveGroup
+		groupsInitAnonymous,
+		setActiveGroup,
+		clearGroups
 	} from '$lib/stores/groups';
 	import GroupList from '$lib/components/groups/GroupList.svelte';
 	import GroupThread from '$lib/components/groups/GroupThread.svelte';
@@ -28,6 +30,12 @@
 			await initGroupSubscription($ndk, $userPublickey || undefined);
 		}
 	});
+
+	// Re-initialize when user logs in after anonymous browsing
+	$: if (browser && isLoggedIn && $groupsInitialized && $groupsInitAnonymous) {
+		clearGroups();
+		initGroupSubscription($ndk, $userPublickey!);
+	}
 
 	onDestroy(() => {
 		setActiveGroup(null);
