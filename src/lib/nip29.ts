@@ -38,6 +38,8 @@ export interface GroupMessage {
 	sender: string;
 	content: string;
 	created_at: number;
+	status?: 'pending' | 'confirmed' | 'failed';
+	tempId?: string;
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -383,14 +385,15 @@ export interface GroupDataCallbacks {
  */
 export async function fetchAllGroupData(
 	ndkInstance: NDK,
-	callbacks: GroupDataCallbacks
+	callbacks: GroupDataCallbacks,
+	since?: number
 ): Promise<void> {
 	const t0 = performance.now();
 	await ensurePantryAuthed(ndkInstance);
 	const t1 = performance.now();
 	const relaySet = getPantryRelaySet(ndkInstance);
-	// 2 days of messages is enough for sidebar previews; threads can lazy-load more
-	const twoDaysAgo = Math.floor(Date.now() / 1000) - 2 * 24 * 60 * 60;
+	// Use provided since (for incremental sync from cache), or default to 2 days
+	const messageSince = since || Math.floor(Date.now() / 1000) - 2 * 24 * 60 * 60;
 
 	return new Promise((resolve) => {
 		const timeoutId = setTimeout(() => {
@@ -408,7 +411,7 @@ export async function fetchAllGroupData(
 			[
 				{ kinds: [39000 as number] },
 				{ kinds: [39002 as number] },
-				{ kinds: [9 as number], since: twoDaysAgo, limit: 500 }
+				{ kinds: [9 as number], since: messageSince, limit: 500 }
 			],
 			{ closeOnEose: true },
 			relaySet
@@ -762,7 +765,7 @@ export async function createInvite(groupId: string): Promise<string> {
 /**
  * Create a new group by sending a kind 9007 event to the pantry relay.
  */
-export async function createGroup(name: string, about?: string, visibility?: 'public' | 'members-only' | 'invite-only'): Promise<string> {
+export async function createGroup(name: string, about?: string, visibility?: 'public' | 'private'): Promise<string> {
 	const ndkInstance = get(ndk);
 	const senderPubkey = get(userPublickey);
 
@@ -877,7 +880,7 @@ export async function joinGroup(groupId: string, inviteCode?: string): Promise<v
  */
 export async function editGroupMetadata(
 	groupId: string,
-	fields: { name?: string; about?: string; picture?: string; visibility?: 'public' | 'members-only' | 'invite-only' }
+	fields: { name?: string; about?: string; picture?: string; visibility?: 'public' | 'private' }
 ): Promise<void> {
 	const ndkInstance = get(ndk);
 	const senderPubkey = get(userPublickey);
@@ -896,11 +899,8 @@ export async function editGroupMetadata(
 	if (fields.visibility === 'public') {
 		event.tags.push(['public']);
 		event.tags.push(['unrestricted']);
-	} else if (fields.visibility === 'members-only') {
+	} else if (fields.visibility === 'private') {
 		event.tags.push(['private']);
-		event.tags.push(['restricted']);
-	} else if (fields.visibility === 'invite-only') {
-		event.tags.push(['closed']);
 		event.tags.push(['restricted']);
 	}
 

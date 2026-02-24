@@ -6,6 +6,7 @@
 		initGroupSubscription,
 		groupsInitialized,
 		groupsLoading,
+		groupsSyncing,
 		setActiveGroup
 	} from '$lib/stores/groups';
 	import GroupList from '$lib/components/groups/GroupList.svelte';
@@ -16,50 +17,18 @@
 	let selectedGroupId: string | null = null;
 	let createGroupOpen = false;
 
-	// Membership gate
-	let hasActiveMembership = false;
-	let checkingMembership = false;
-
 	// Mobile: show thread or list
 	$: showThread = selectedGroupId !== null;
 
 	$: isLoggedIn = !!$userPublickey;
 
-	async function checkMembership() {
-		if (!$userPublickey || checkingMembership) return;
-
-		checkingMembership = true;
-		try {
-			const res = await fetch('/api/membership/check-status', {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ pubkey: $userPublickey })
-			});
-
-			if (res.ok) {
-				const data = await res.json();
-				hasActiveMembership = data.isActive === true;
-			}
-		} catch (err) {
-			console.error('Failed to check membership:', err);
-		} finally {
-			checkingMembership = false;
-		}
-	}
-
 	onMount(async () => {
 		if (!browser) return;
 		if (!$userPublickey) return;
 
-		// Run group init and membership check in parallel — they are independent
-		const promises: Promise<void>[] = [];
-
 		if (!$groupsInitialized && !$groupsLoading) {
-			promises.push(initGroupSubscription($ndk, $userPublickey));
+			await initGroupSubscription($ndk, $userPublickey);
 		}
-		promises.push(checkMembership());
-
-		await Promise.all(promises);
 	});
 
 	onDestroy(() => {
@@ -121,7 +90,6 @@
 		>
 			<GroupList
 				{selectedGroupId}
-				{hasActiveMembership}
 				on:select={handleSelectGroup}
 				on:createGroup={handleCreateGroup}
 			/>
@@ -133,7 +101,7 @@
 			style="background-color: var(--color-bg-primary);"
 		>
 			{#if selectedGroupId}
-				<GroupThread groupId={selectedGroupId} {hasActiveMembership} on:back={handleBack} />
+				<GroupThread groupId={selectedGroupId} on:back={handleBack} />
 			{:else}
 				<div class="flex items-center justify-center h-full">
 					<p class="text-sm" style="color: var(--color-caption);">
@@ -144,8 +112,5 @@
 		</div>
 	</div>
 
-	<!-- Create group modal (members only) -->
-	{#if hasActiveMembership}
-		<CreateGroupModal bind:open={createGroupOpen} on:created={handleGroupCreated} />
-	{/if}
+	<CreateGroupModal bind:open={createGroupOpen} on:created={handleGroupCreated} />
 {/if}
