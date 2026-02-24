@@ -158,7 +158,6 @@ export async function verifyPayment(
       description: response[0].description
     };
   } catch (error) {
-    console.log('error', error)
     if (error instanceof Error && error.name === 'AbortError') {
       console.warn('[Branta] Verification request timed out');
       return { verified: false, error: 'Request timed out' };
