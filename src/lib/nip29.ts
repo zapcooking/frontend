@@ -38,6 +38,8 @@ export interface GroupMessage {
 	sender: string;
 	content: string;
 	created_at: number;
+	status?: 'pending' | 'confirmed' | 'failed';
+	tempId?: string;
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -102,23 +104,35 @@ function ensureAuthPolicy(ndkInstance: NDK): void {
 			relay.url === PANTRY_RELAY + '/' ||
 			relay.url?.replace(/\/$/, '') === PANTRY_RELAY;
 
+		if (!ndkInstance.signer) {
+			if (isPantry) console.log('[NIP-29] NIP-42 auth challenge received, skipping (no signer)');
+			if (resolveAuthPromise) resolveAuthPromise();
+			return undefined;
+		}
+
 		if (isPantry) {
 			console.log('[NIP-29] NIP-42 auth challenge received, signing...');
 		}
 
-		const signStart = performance.now();
-		const event = new NDKEvent(ndkInstance);
-		event.kind = 22242;
-		event.tags = [
-			['relay', relay.url],
-			['challenge', challenge]
-		];
-		await event.sign();
+		try {
+			const signStart = performance.now();
+			const event = new NDKEvent(ndkInstance);
+			event.kind = 22242;
+			event.tags = [
+				['relay', relay.url],
+				['challenge', challenge]
+			];
+			await event.sign();
 
-		if (isPantry) {
-			console.log(`[NIP-29] NIP-42 auth event signed in ${(performance.now() - signStart).toFixed(0)}ms`);
+			if (isPantry) {
+				console.log(`[NIP-29] NIP-42 auth event signed in ${(performance.now() - signStart).toFixed(0)}ms`);
+			}
+			return event;
+		} catch (e) {
+			console.warn('[NIP-29] NIP-42 auth signing failed:', e);
+			if (isPantry && resolveAuthPromise) resolveAuthPromise();
+			return undefined;
 		}
-		return event;
 	};
 
 	// If there was an existing policy, we've replaced it with ours which
@@ -196,7 +210,8 @@ async function ensurePantryConnected(ndkInstance: NDK): Promise<void> {
 
 async function doPantryConnect(ndkInstance: NDK): Promise<void> {
 	const t0 = performance.now();
-	console.log('[NIP-29] Connecting to pantry relay...');
+	const hasSigner = !!ndkInstance.signer;
+	console.log('[NIP-29] Connecting to pantry relay...', hasSigner ? '(authenticated)' : '(anonymous)');
 
 	// 1. Set global auth policy BEFORE getting the relay — this avoids the
 	//    race condition where the pool auto-connects the relay and the AUTH
@@ -217,7 +232,7 @@ async function doPantryConnect(ndkInstance: NDK): Promise<void> {
 	// 4. Check if relay already connected (pool may have auto-connected it)
 	const alreadyConnected = relay.connectivity?.status === 1;
 
-	if (alreadyConnected && !pantryAuthResolved) {
+	if (alreadyConnected && !pantryAuthResolved && hasSigner) {
 		// Relay connected before our policy was set — AUTH challenge was likely
 		// dropped. Disconnect and reconnect to get a fresh AUTH challenge.
 		console.log('[NIP-29] Relay already connected without auth, reconnecting...');
@@ -284,7 +299,7 @@ async function doPantryConnect(ndkInstance: NDK): Promise<void> {
 
 	// 5. Wait for NIP-42 auth to complete (should be fast now that
 	//    the global policy is in place and NIP-07 isn't contending)
-	const authed = await waitForPantryAuth(5000);
+	const authed = await waitForPantryAuth(hasSigner ? 5000 : 500);
 	const t3 = performance.now();
 	if (authed) {
 		console.log(`[NIP-29] Auth completed in ${(t3 - t2).toFixed(0)}ms (total: ${(t3 - t0).toFixed(0)}ms)`);
@@ -383,14 +398,15 @@ export interface GroupDataCallbacks {
  */
 export async function fetchAllGroupData(
 	ndkInstance: NDK,
-	callbacks: GroupDataCallbacks
+	callbacks: GroupDataCallbacks,
+	since?: number
 ): Promise<void> {
 	const t0 = performance.now();
 	await ensurePantryAuthed(ndkInstance);
 	const t1 = performance.now();
 	const relaySet = getPantryRelaySet(ndkInstance);
-	// 2 days of messages is enough for sidebar previews; threads can lazy-load more
-	const twoDaysAgo = Math.floor(Date.now() / 1000) - 2 * 24 * 60 * 60;
+	// Use provided since (for incremental sync from cache), or default to 2 days
+	const messageSince = since || Math.floor(Date.now() / 1000) - 2 * 24 * 60 * 60;
 
 	return new Promise((resolve) => {
 		const timeoutId = setTimeout(() => {
@@ -408,7 +424,7 @@ export async function fetchAllGroupData(
 			[
 				{ kinds: [39000 as number] },
 				{ kinds: [39002 as number] },
-				{ kinds: [9 as number], since: twoDaysAgo, limit: 500 }
+				{ kinds: [9 as number], since: messageSince, limit: 500 }
 			],
 			{ closeOnEose: true },
 			relaySet
@@ -762,7 +778,7 @@ export async function createInvite(groupId: string): Promise<string> {
 /**
  * Create a new group by sending a kind 9007 event to the pantry relay.
  */
-export async function createGroup(name: string, about?: string, visibility?: 'public' | 'members-only' | 'invite-only'): Promise<string> {
+export async function createGroup(name: string, about?: string, visibility?: 'public' | 'private'): Promise<string> {
 	const ndkInstance = get(ndk);
 	const senderPubkey = get(userPublickey);
 
@@ -877,7 +893,7 @@ export async function joinGroup(groupId: string, inviteCode?: string): Promise<v
  */
 export async function editGroupMetadata(
 	groupId: string,
-	fields: { name?: string; about?: string; picture?: string; visibility?: 'public' | 'members-only' | 'invite-only' }
+	fields: { name?: string; about?: string; picture?: string; visibility?: 'public' | 'private' }
 ): Promise<void> {
 	const ndkInstance = get(ndk);
 	const senderPubkey = get(userPublickey);
@@ -896,11 +912,8 @@ export async function editGroupMetadata(
 	if (fields.visibility === 'public') {
 		event.tags.push(['public']);
 		event.tags.push(['unrestricted']);
-	} else if (fields.visibility === 'members-only') {
+	} else if (fields.visibility === 'private') {
 		event.tags.push(['private']);
-		event.tags.push(['restricted']);
-	} else if (fields.visibility === 'invite-only') {
-		event.tags.push(['closed']);
 		event.tags.push(['restricted']);
 	}
 

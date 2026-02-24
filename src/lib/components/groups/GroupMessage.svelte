@@ -5,15 +5,21 @@
 	import NoteContent from '../../../components/NoteContent.svelte';
 	import ZapModal from '../../../components/ZapModal.svelte';
 	import LightningIcon from 'phosphor-svelte/lib/Lightning';
-	import { NDKEvent, NDKRelaySet } from '@nostr-dev-kit/ndk';
+	import { NDKEvent } from '@nostr-dev-kit/ndk';
 	import { ndk } from '$lib/nostr';
 	import { formatAmount } from '$lib/utils';
 	import { canOneTapZap, sendOneTapZap, getOneTapAmount } from '$lib/oneTapZap';
+	import { requestZapReceipts, zapReceiptStore } from '$lib/stores/groupZapReceipts';
+
+	import ArrowClockwiseIcon from 'phosphor-svelte/lib/ArrowClockwise';
 
 	export let id: string;
 	export let sender: string;
 	export let content: string;
 	export let created_at: number;
+	export let status: 'pending' | 'confirmed' | 'failed' | undefined = undefined;
+	export let tempId: string | undefined = undefined;
+	export let onRetry: ((tempId: string, content: string) => void) | undefined = undefined;
 
 	// Create an NDKEvent representing this message so the zap request
 	// includes an `e` tag per NIP-57 — linking the zap receipt to this message.
@@ -33,68 +39,20 @@
 	let zapModalOpen = false;
 	let isZapping = false;
 
-	// Zap counts loaded from relays
-	let loadedZapCount = 0;
-	let loadedZapAmount = 0; // sats
+	// Read zap data from batched store instead of per-message subscription
+	$: zapData = $zapReceiptStore.get(id);
+	$: loadedZapCount = zapData?.count || 0;
+	$: loadedZapAmount = zapData?.amount || 0;
 
 	// Combined display
 	$: totalAmount = loadedZapAmount + zappedAmount;
 	$: hasZaps = zapped || loadedZapCount > 0;
 
-	// Aggregator relays that index zap receipts (same ones the rest of the app uses)
-	const ZAP_RECEIPT_RELAYS = [
-		'wss://relay.damus.io',
-		'wss://nos.lol',
-		'wss://relay.primal.net'
-	];
-
-	// Fetch existing zap receipts for this message on mount
+	// Register for batched zap receipt fetch on mount
 	onMount(() => {
-		if (!$ndk || !id) return;
-
-		const processedIds = new Set<string>();
-
-		// Query aggregator relays explicitly — the outbox model won't route
-		// zap receipt queries correctly since they're published by LNURL providers.
-		const relaySet = NDKRelaySet.fromRelayUrls(ZAP_RECEIPT_RELAYS, $ndk, true);
-		const sub = $ndk.subscribe(
-			{ kinds: [9735 as number], '#e': [id] },
-			{ closeOnEose: true },
-			relaySet
-		);
-
-		const timeout = setTimeout(() => sub.stop(), 6000);
-
-		sub.on('event', (receipt: NDKEvent) => {
-			if (processedIds.has(receipt.id)) return;
-			processedIds.add(receipt.id);
-
-			loadedZapCount++;
-
-			// Extract amount: try `amount` tag first (millisats), then parse from description
-			const amountTag = receipt.tags.find((t: string[]) => t[0] === 'amount');
-			if (amountTag?.[1]) {
-				loadedZapAmount += Math.floor(parseInt(amountTag[1]) / 1000);
-			} else {
-				const descTag = receipt.tags.find((t: string[]) => t[0] === 'description');
-				if (descTag?.[1]) {
-					try {
-						const zapReq = JSON.parse(descTag[1]);
-						const reqAmount = zapReq.tags?.find((t: string[]) => t[0] === 'amount');
-						if (reqAmount?.[1]) {
-							loadedZapAmount += Math.floor(parseInt(reqAmount[1]) / 1000);
-						}
-					} catch {}
-				}
-			}
-		});
-
-		sub.on('eose', () => clearTimeout(timeout));
-
-		return () => {
-			sub.stop();
-			clearTimeout(timeout);
-		};
+		if (id && !id.startsWith('pending-')) {
+			requestZapReceipts(id);
+		}
 	});
 
 	async function handleZapClick() {
@@ -140,7 +98,11 @@
 	}
 </script>
 
-<div class="flex items-start gap-2.5 mb-3 px-1">
+<div
+	class="flex items-start gap-2.5 mb-3 px-1"
+	class:opacity-60={status === 'pending'}
+	style={status === 'failed' ? 'border-left: 3px solid #ef4444; padding-left: 8px;' : ''}
+>
 	<div class="flex-shrink-0 mt-0.5">
 		<CustomAvatar pubkey={sender} size={32} />
 	</div>
@@ -152,26 +114,49 @@
 			<span class="text-[10px] flex-shrink-0" style="color: var(--color-caption);">
 				{timeString}
 			</span>
-			<button
-				class="inline-flex items-center gap-0.5 rounded-full px-1 py-0.5 transition-colors
-					{hasZaps
-						? 'text-yellow-500'
-						: 'text-gray-400 hover:text-yellow-500 hover:bg-yellow-50'}"
-				class:opacity-50={isZapping}
-				class:cursor-wait={isZapping}
-				on:click={handleZapClick}
-				disabled={isZapping}
-				title={canOneTapZap() ? `Zap ${getOneTapAmount()} sats` : 'Send Lightning zap'}
-			>
-				<LightningIcon class="w-3 h-3 {isZapping ? 'animate-pulse' : ''}" weight={hasZaps ? 'fill' : 'regular'} />
-				{#if hasZaps}
-					<span class="text-[10px] font-medium">{formatAmount(totalAmount)}</span>
-				{/if}
-			</button>
+			{#if !status || status === 'confirmed'}
+				<button
+					class="inline-flex items-center gap-0.5 rounded-full px-1 py-0.5 transition-colors
+						{hasZaps
+							? 'text-yellow-500'
+							: 'text-gray-400 hover:text-yellow-500 hover:bg-yellow-50'}"
+					class:opacity-50={isZapping}
+					class:cursor-wait={isZapping}
+					on:click={handleZapClick}
+					disabled={isZapping}
+					title={canOneTapZap() ? `Zap ${getOneTapAmount()} sats` : 'Send Lightning zap'}
+				>
+					<LightningIcon class="w-3 h-3 {isZapping ? 'animate-pulse' : ''}" weight={hasZaps ? 'fill' : 'regular'} />
+					{#if hasZaps}
+						<span class="text-[10px] font-medium">{formatAmount(totalAmount)}</span>
+					{/if}
+				</button>
+			{/if}
 		</div>
 		<div class="text-sm mt-0.5" style="color: var(--color-text-primary);">
-			<NoteContent {content} collapsible={false} showLinkPreviews={false} />
+			<NoteContent {content} collapsible={false} showLinkPreviews={true} />
 		</div>
+		{#if status === 'pending'}
+			<span class="text-[10px] mt-0.5 block" style="color: var(--color-caption);">
+				Sending...
+			</span>
+		{:else if status === 'failed'}
+			<div class="flex items-center gap-2 mt-1">
+				<span class="text-[10px]" style="color: #ef4444;">
+					Failed to send
+				</span>
+				{#if onRetry && tempId}
+					<button
+						class="text-[10px] font-medium px-2 py-0.5 rounded transition-colors cursor-pointer inline-flex items-center gap-1"
+						style="color: var(--color-primary);"
+						on:click={() => onRetry?.(tempId ?? '', content)}
+					>
+						<ArrowClockwiseIcon size={10} />
+						Retry
+					</button>
+				{/if}
+			</div>
+		{/if}
 	</div>
 </div>
 

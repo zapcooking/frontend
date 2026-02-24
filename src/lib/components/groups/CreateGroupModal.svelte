@@ -5,7 +5,6 @@
 	import { createEventDispatcher } from 'svelte';
 	import GlobeSimpleIcon from 'phosphor-svelte/lib/GlobeSimple';
 	import LockIcon from 'phosphor-svelte/lib/Lock';
-	import LinkIcon from 'phosphor-svelte/lib/Link';
 
 	const dispatch = createEventDispatcher<{
 		created: { groupId: string };
@@ -15,7 +14,7 @@
 
 	let name = '';
 	let about = '';
-	let visibility: 'public' | 'members-only' | 'invite-only' = 'public';
+	let visibility: 'public' | 'private' = 'public';
 	let creating = false;
 	let error = '';
 
@@ -42,9 +41,9 @@
 				name: name.trim(),
 				picture: '',
 				about: about.trim(),
-				isPrivate: visibility === 'members-only',
-				isClosed: visibility === 'invite-only',
-				isRestricted: visibility === 'members-only' || visibility === 'invite-only'
+				isPrivate: visibility === 'private',
+				isClosed: false,
+				isRestricted: visibility === 'private'
 			});
 
 			dispatch('created', { groupId });
@@ -127,29 +126,15 @@
 
 				<label
 					class="flex items-center gap-3 p-2.5 rounded-xl cursor-pointer transition-colors"
-					style="border: 1px solid {visibility === 'members-only' ? 'var(--color-primary)' : 'var(--color-input-border)'}; background-color: {visibility === 'members-only' ? 'color-mix(in srgb, var(--color-primary) 8%, transparent)' : 'transparent'};"
+					style="border: 1px solid {visibility === 'private' ? 'var(--color-primary)' : 'var(--color-input-border)'}; background-color: {visibility === 'private' ? 'color-mix(in srgb, var(--color-primary) 8%, transparent)' : 'transparent'};"
 				>
-					<input type="radio" bind:group={visibility} value="members-only" class="sr-only" disabled={creating} />
-					<span style="color: {visibility === 'members-only' ? 'var(--color-primary)' : 'var(--color-caption)'};">
+					<input type="radio" bind:group={visibility} value="private" class="sr-only" disabled={creating} />
+					<span style="color: {visibility === 'private' ? 'var(--color-primary)' : 'var(--color-caption)'};">
 						<LockIcon size={18} />
 					</span>
 					<div class="flex-1 min-w-0">
-						<span class="text-sm font-medium block" style="color: var(--color-text-primary);">Members Only</span>
-						<span class="text-xs" style="color: var(--color-caption);">Anyone can read, only members can write</span>
-					</div>
-				</label>
-
-				<label
-					class="flex items-center gap-3 p-2.5 rounded-xl cursor-pointer transition-colors"
-					style="border: 1px solid {visibility === 'invite-only' ? 'var(--color-primary)' : 'var(--color-input-border)'}; background-color: {visibility === 'invite-only' ? 'color-mix(in srgb, var(--color-primary) 8%, transparent)' : 'transparent'};"
-				>
-					<input type="radio" bind:group={visibility} value="invite-only" class="sr-only" disabled={creating} />
-					<span style="color: {visibility === 'invite-only' ? 'var(--color-primary)' : 'var(--color-caption)'};">
-						<LinkIcon size={18} />
-					</span>
-					<div class="flex-1 min-w-0">
-						<span class="text-sm font-medium block" style="color: var(--color-text-primary);">Invite Only</span>
-						<span class="text-xs" style="color: var(--color-caption);">Only people with an invite link can join</span>
+						<span class="text-sm font-medium block" style="color: var(--color-text-primary);">Private</span>
+						<span class="text-xs" style="color: var(--color-caption);">Only invited members can join</span>
 					</div>
 				</label>
 			</div>

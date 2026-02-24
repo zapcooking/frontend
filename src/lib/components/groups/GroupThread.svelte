@@ -1,9 +1,21 @@
 <script lang="ts">
 	import { onMount, afterUpdate, createEventDispatcher } from 'svelte';
 	import { userPublickey } from '$lib/nostr';
-	import { getGroup, setActiveGroup, addGroupMessage } from '$lib/stores/groups';
+	import {
+		getGroup,
+		setActiveGroup,
+		addGroupMessage,
+		addOptimisticMessage,
+		confirmOptimisticMessage,
+		markMessageFailed,
+		removeOptimisticMessage,
+		groupsSyncing,
+		groupsLoading
+	} from '$lib/stores/groups';
 	import { sendGroupMessage, uploadGroupPicture } from '$lib/nip29';
 	import { copyToClipboard } from '$lib/utils/share';
+	import { groupCache } from '$lib/groupCacheStorage';
+	import { pantryConnectionStatus } from '$lib/pantryConnectionManager';
 	import GroupMessage from './GroupMessage.svelte';
 	import AddMemberModal from './AddMemberModal.svelte';
 	import GroupMembersModal from './GroupMembersModal.svelte';
@@ -11,14 +23,14 @@
 	import ArrowLeftIcon from 'phosphor-svelte/lib/ArrowLeft';
 	import PaperPlaneTiltIcon from 'phosphor-svelte/lib/PaperPlaneTilt';
 	import UserPlusIcon from 'phosphor-svelte/lib/UserPlus';
-	import LockIcon from 'phosphor-svelte/lib/Lock';
 	import ImageIcon from 'phosphor-svelte/lib/Image';
 	import LinkIcon from 'phosphor-svelte/lib/Link';
 	import CheckIcon from 'phosphor-svelte/lib/Check';
 	import ChatCircleDotsIcon from 'phosphor-svelte/lib/ChatCircleDots';
+	import LockIcon from 'phosphor-svelte/lib/Lock';
 
 	export let groupId: string;
-	export let hasActiveMembership: boolean = false;
+	export let isLoggedIn: boolean = false;
 
 	const PANTRY_RELAY = 'wss://pantry.zap.cooking';
 
@@ -43,9 +55,15 @@
 	$: members = $group?.members || [];
 	$: visibleMembers = members.slice(0, MAX_VISIBLE_AVATARS);
 	$: hiddenCount = Math.max(0, members.length - MAX_VISIBLE_AVATARS);
-	$: isMembersOnly = !!($group?.isPrivate || $group?.isRestricted);
-	$: isMemberOfGroup = !!$userPublickey && members.includes($userPublickey);
-	$: isLockedOut = isMembersOnly && !hasActiveMembership && !isMemberOfGroup;
+
+	// Connection status indicator color
+	$: dotColor =
+		$pantryConnectionStatus.state === 'ready'
+			? '#22c55e'
+			: $pantryConnectionStatus.state === 'connecting' ||
+				  $pantryConnectionStatus.state === 'authenticating'
+				? '#eab308'
+				: '#ef4444';
 
 	$: {
 		if (groupId) {
@@ -56,14 +74,37 @@
 	onMount(() => {
 		setActiveGroup(groupId);
 		scrollToBottom();
+
+		// Load pending messages from cache
+		loadPendingMessages();
+
 		return () => setActiveGroup(null);
 	});
 
+	let rafPending = false;
 	afterUpdate(() => {
-		if (shouldAutoScroll) {
-			scrollToBottom();
+		if (shouldAutoScroll && !rafPending) {
+			rafPending = true;
+			requestAnimationFrame(() => {
+				rafPending = false;
+				scrollToBottom();
+			});
 		}
 	});
+
+	async function loadPendingMessages() {
+		try {
+			const pending = await groupCache.getPendingMessages(groupId);
+			for (const pm of pending) {
+				addOptimisticMessage(groupId, pm.tempId, pm.content, $userPublickey || '');
+				if (pm.status === 'failed') {
+					markMessageFailed(groupId, pm.tempId);
+				}
+			}
+		} catch {
+			// ignore cache errors
+		}
+	}
 
 	function scrollToBottom() {
 		if (scrollContainer) {
@@ -84,17 +125,76 @@
 		sending = true;
 		sendError = '';
 
+		// Generate temp ID
+		const tempId = `pending-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
+
+		// 1. Add optimistic message immediately
+		addOptimisticMessage(groupId, tempId, text, $userPublickey || '');
+		messageInput = '';
+		shouldAutoScroll = true;
+
+		// 2. Save to pending cache
+		groupCache
+			.savePendingMessage({
+				tempId,
+				groupId,
+				content: text,
+				created_at: Math.floor(Date.now() / 1000),
+				status: 'pending',
+				retryCount: 0
+			})
+			.catch(() => {});
+
+		// 3. Send to relay with timeout
 		try {
-			const msg = await sendGroupMessage(groupId, text);
-			addGroupMessage(msg);
-			messageInput = '';
-			shouldAutoScroll = true;
+			const timeoutPromise = new Promise<never>((_, reject) =>
+				setTimeout(() => reject(new Error('Send timeout')), 10000)
+			);
+			const msg = await Promise.race([sendGroupMessage(groupId, text), timeoutPromise]);
+
+			// 4. On success: confirm and update cache
+			confirmOptimisticMessage(groupId, tempId, msg.id);
+			groupCache.removePendingMessage(tempId).catch(() => {});
+			groupCache
+				.saveMessages([
+					{
+						id: msg.id,
+						groupId: msg.groupId,
+						sender: msg.sender,
+						content: msg.content,
+						created_at: msg.created_at,
+						cachedAt: Date.now()
+					}
+				])
+				.catch(() => {});
 		} catch (e) {
+			// 5. On failure: mark as failed
+			markMessageFailed(groupId, tempId);
+			groupCache
+				.savePendingMessage({
+					tempId,
+					groupId,
+					content: text,
+					created_at: Math.floor(Date.now() / 1000),
+					status: 'failed',
+					retryCount: 0
+				})
+				.catch(() => {});
 			sendError = e instanceof Error ? e.message : 'Failed to send message';
 			console.error('[Groups] Send error:', e);
 		} finally {
 			sending = false;
 		}
+	}
+
+	async function handleRetry(retryTempId: string, content: string) {
+		// Remove failed message
+		removeOptimisticMessage(groupId, retryTempId);
+		groupCache.removePendingMessage(retryTempId).catch(() => {});
+
+		// Re-send as new optimistic message
+		messageInput = content;
+		await handleSend();
 	}
 
 	function handleKeyDown(e: KeyboardEvent) {
@@ -166,16 +266,23 @@
 					{$group.about}
 				</span>
 			{/if}
-			<button
-				class="text-[10px] truncate block cursor-pointer hover:underline"
-				style="color: var(--color-caption); opacity: 0.7;"
-				title="Copy relay URL"
-				on:click={() => copyToClipboard(PANTRY_RELAY)}
-			>
-				pantry.zap.cooking
-			</button>
+			<span class="flex items-center gap-1">
+				<span
+					class="inline-block w-2 h-2 rounded-full flex-shrink-0"
+					style="background-color: {dotColor};"
+					title="Relay: {$pantryConnectionStatus.state}"
+				></span>
+				<button
+					class="text-[10px] truncate cursor-pointer hover:underline"
+					style="color: var(--color-caption); opacity: 0.7;"
+					title="Copy relay URL"
+					on:click={() => copyToClipboard(PANTRY_RELAY)}
+				>
+					pantry.zap.cooking
+				</button>
+			</span>
 		</div>
-		{#if !isLockedOut && members.length > 0}
+		{#if members.length > 0}
 			<button
 				class="flex items-center gap-0.5 cursor-pointer rounded-lg p-1 hover:bg-accent-gray transition-colors"
 				title="{members.length} members"
@@ -198,19 +305,19 @@
 				{/if}
 			</button>
 		{/if}
-		{#if !isLockedOut}
-			<button
-				class="p-1.5 rounded-lg transition-colors hover:bg-accent-gray cursor-pointer relative"
-				style="color: var(--color-text-primary);"
-				title={showCopied ? 'Copied!' : 'Share group link'}
-				on:click={handleShare}
-			>
-				{#if showCopied}
-					<CheckIcon size={20} weight="bold" />
-				{:else}
-					<LinkIcon size={20} />
-				{/if}
-			</button>
+		<button
+			class="p-1.5 rounded-lg transition-colors hover:bg-accent-gray cursor-pointer relative"
+			style="color: var(--color-text-primary);"
+			title={showCopied ? 'Copied!' : 'Share group link'}
+			on:click={handleShare}
+		>
+			{#if showCopied}
+				<CheckIcon size={20} weight="bold" />
+			{:else}
+				<LinkIcon size={20} />
+			{/if}
+		</button>
+		{#if isLoggedIn}
 			<button
 				class="p-1.5 rounded-lg transition-colors hover:bg-accent-gray cursor-pointer"
 				style="color: var(--color-text-primary);"
@@ -222,51 +329,80 @@
 		{/if}
 	</div>
 
-	{#if isLockedOut}
-		<!-- Locked out: members-only group for non-members -->
-		<div class="h-full flex flex-col items-center justify-center px-4 text-center pt-[68px]">
-			<LockIcon size={40} weight="light" style="color: var(--color-caption);" />
-			<p class="text-sm font-medium mt-3" style="color: var(--color-text-primary);">
-				Members Only
-			</p>
-			<p class="text-xs mt-1 max-w-xs" style="color: var(--color-caption);">
-				This group is restricted to Zap.Cooking members. Upgrade your membership to view and participate in the conversation.
-			</p>
-			<a
-				href="/membership"
-				class="mt-4 px-5 py-2 rounded-xl text-sm font-medium transition-colors"
-				style="background-color: var(--color-primary); color: #ffffff;"
-			>
-				View Membership
-			</a>
-		</div>
-	{:else}
-		<!-- Messages (full height, padded top/bottom for header/input) -->
+	<!-- Syncing indicator -->
+	{#if $groupsSyncing}
 		<div
-			bind:this={scrollContainer}
-			on:scroll={handleScroll}
-			class="h-full overflow-y-auto px-4 pt-[84px] pb-[80px]"
+			class="absolute top-[68px] left-0 right-0 z-10 flex items-center gap-2 px-4 py-1.5"
+			style="background-color: color-mix(in srgb, var(--color-bg-secondary) 85%, transparent); backdrop-filter: blur(8px);"
 		>
-			{#if messages.length === 0}
-				<div class="flex flex-col items-center justify-center h-full text-center px-4">
-					<div class="mb-3" style="color: var(--color-caption); opacity: 0.4;">
-						<ChatCircleDotsIcon size={44} weight="light" />
-					</div>
+			<div
+				class="w-3 h-3 border-2 border-t-transparent rounded-full animate-spin flex-shrink-0"
+				style="border-color: var(--color-primary); border-top-color: transparent;"
+			></div>
+			<span class="text-[11px]" style="color: var(--color-caption);">Syncing...</span>
+		</div>
+	{/if}
+
+	<!-- Messages (full height, padded top/bottom for header/input) -->
+	<div
+		bind:this={scrollContainer}
+		on:scroll={handleScroll}
+		class="h-full overflow-y-auto px-4 {isLoggedIn ? 'pb-[80px]' : 'pb-4'}"
+		style="padding-top: {$groupsSyncing ? '100px' : '84px'};"
+	>
+		{#if !isLoggedIn && ($group?.isPrivate || $group?.isRestricted)}
+			<div class="flex flex-col items-center justify-center h-full text-center px-4">
+				<LockIcon size={44} weight="light" style="color: var(--color-caption); opacity: 0.4;" />
+				<p class="text-sm font-medium mt-3" style="color: var(--color-text-primary);">This is a private group</p>
+				<p class="text-xs mt-1 max-w-[220px]" style="color: var(--color-caption);">Sign in to view messages and participate.</p>
+				<a href="/login" class="mt-4 px-5 py-2 rounded-xl text-sm font-medium" style="background-color: var(--color-primary); color: #ffffff;">Sign In</a>
+			</div>
+		{:else if messages.length === 0 && !$groupsSyncing && !$groupsLoading}
+			<div class="flex flex-col items-center justify-center h-full text-center px-4">
+				<div class="mb-3" style="color: var(--color-caption); opacity: 0.4;">
+					<ChatCircleDotsIcon size={44} weight="light" />
+				</div>
+				{#if isLoggedIn}
 					<p class="text-sm font-medium" style="color: var(--color-text-primary);">
 						No messages yet — say hello!
 					</p>
 					<p class="text-xs mt-1 max-w-[220px]" style="color: var(--color-caption);">
 						Be the first to start the conversation in this group.
 					</p>
-				</div>
-			{:else}
-				{#each messages as msg (msg.id)}
-					<GroupMessage id={msg.id} sender={msg.sender} content={msg.content} created_at={msg.created_at} />
-				{/each}
-			{/if}
-		</div>
+				{:else}
+					<p class="text-sm font-medium" style="color: var(--color-text-primary);">
+						No messages yet
+					</p>
+					<p class="text-xs mt-1 max-w-[220px]" style="color: var(--color-caption);">
+						Sign in to participate in this group.
+					</p>
+					<a href="/login" class="mt-4 px-5 py-2 rounded-xl text-sm font-medium" style="background-color: var(--color-primary); color: #ffffff;">Sign In</a>
+				{/if}
+			</div>
+		{:else if messages.length === 0}
+			<div class="flex items-center justify-center h-full">
+				<div
+					class="w-6 h-6 border-2 border-t-transparent rounded-full animate-spin"
+					style="border-color: var(--color-primary); border-top-color: transparent;"
+				></div>
+			</div>
+		{:else}
+			{#each messages as msg (msg.id)}
+				<GroupMessage
+					id={msg.id}
+					sender={msg.sender}
+					content={msg.content}
+					created_at={msg.created_at}
+					status={msg.status}
+					tempId={msg.tempId}
+					onRetry={handleRetry}
+				/>
+			{/each}
+		{/if}
+	</div>
 
-		<!-- Input (frosted glass, floats over messages) -->
+	<!-- Input (frosted glass, floats over messages) -->
+	{#if isLoggedIn}
 		<input
 			bind:this={fileInput}
 			type="file"
@@ -327,5 +463,7 @@
 	{/if}
 </div>
 
-<AddMemberModal bind:open={showAddMember} {groupId} />
+{#if isLoggedIn}
+	<AddMemberModal bind:open={showAddMember} {groupId} />
+{/if}
 <GroupMembersModal bind:open={showMembers} {members} />

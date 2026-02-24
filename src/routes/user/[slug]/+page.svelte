@@ -39,7 +39,7 @@
   import ArticleFeed from '../../../components/ArticleFeed.svelte';
   import MembershipBeltBadge from '../../../components/MembershipBeltBadge.svelte';
 
-  export const data: PageData = {} as PageData;
+  export let data: PageData;
 
   let hexpubkey: string | undefined = undefined;
   let events: NDKEvent[] = [];
@@ -1012,10 +1012,15 @@
     ? profile.name || (user ? user.npub.slice(0, 10) + '...' : 'Unknown User')
     : 'Unknown User';
 
+  // OG meta: prefer server-provided data (for crawlers), fall back to client data when loaded
   $: og_meta = {
-    title: `${profileTitleBase} - zap.cooking`,
-    description: "View this user's recipes on zap.cooking",
-    image: profile ? profile.picture : 'https://zap.cooking/social-share.png'
+    title: loaded ? `${profileTitleBase} - zap.cooking` : (data?.ogMeta?.title || 'User Profile - zap.cooking'),
+    description: loaded
+      ? (profile?.about ? profile.about.slice(0, 155) : "View this user's recipes on zap.cooking")
+      : (data?.ogMeta?.description || "A user on zap.cooking - Food. Friends. Freedom."),
+    image: loaded
+      ? (profile?.picture || 'https://zap.cooking/social-share.png')
+      : (data?.ogMeta?.image || 'https://zap.cooking/social-share.png')
   };
 
   // Setup IntersectionObserver for infinite scroll
@@ -1116,22 +1121,20 @@
 
 <svelte:head>
   <title>{og_meta.title}</title>
+  <meta name="description" content={og_meta.description} />
 
-  {#if loaded}
-    <meta name="description" content={og_meta.description} />
-    <meta property="og:url" content={`https://zap.cooking/user/${$page.params.slug}`} />
-    <meta property="og:type" content="profile" />
-    <meta property="og:title" content={og_meta.title} />
-    <meta property="og:description" content={og_meta.description} />
-    <meta property="og:image" content={String(og_meta.image)} />
+  <meta property="og:url" content={`https://zap.cooking/user/${$page.params.slug}`} />
+  <meta property="og:type" content="profile" />
+  <meta property="og:title" content={og_meta.title} />
+  <meta property="og:description" content={og_meta.description} />
+  <meta property="og:image" content={String(og_meta.image)} />
 
-    <meta name="twitter:card" content="summary" />
-    <meta property="twitter:domain" content="zap.cooking" />
-    <meta property="twitter:url" content={`https://zap.cooking/user/${$page.params.slug}`} />
-    <meta name="twitter:title" content={og_meta.title} />
-    <meta name="twitter:description" content={og_meta.description} />
-    <meta name="twitter:image" content={String(og_meta.image)} />
-  {/if}
+  <meta name="twitter:card" content="summary" />
+  <meta property="twitter:domain" content="zap.cooking" />
+  <meta property="twitter:url" content={`https://zap.cooking/user/${$page.params.slug}`} />
+  <meta name="twitter:title" content={og_meta.title} />
+  <meta name="twitter:description" content={og_meta.description} />
+  <meta name="twitter:image" content={String(og_meta.image)} />
 </svelte:head>
 
 {#if user}
