@@ -22,6 +22,7 @@
 	}>();
 
 	export let selectedGroupId: string | null = null;
+	export let isLoggedIn: boolean = false;
 
 	// Menu state
 	let openMenuId: string | null = null;
@@ -279,14 +280,16 @@
 		style="background-color: color-mix(in srgb, var(--color-bg-secondary) 70%, transparent); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);"
 	>
 		<h2 class="text-lg font-semibold" style="color: var(--color-text-primary);">Groups</h2>
-		<button
-			class="p-2 rounded-full transition-colors cursor-pointer"
-			style="background-color: var(--color-primary); color: #ffffff;"
-			on:click={() => dispatch('createGroup')}
-			title="Create group"
-		>
-			<PlusIcon size={18} weight="bold" />
-		</button>
+		{#if isLoggedIn}
+			<button
+				class="p-2 rounded-full transition-colors cursor-pointer"
+				style="background-color: var(--color-primary); color: #ffffff;"
+				on:click={() => dispatch('createGroup')}
+				title="Create group"
+			>
+				<PlusIcon size={18} weight="bold" />
+			</button>
+		{/if}
 	</div>
 
 	<!-- Group list -->
@@ -314,17 +317,31 @@
 				<div class="mb-4" style="color: var(--color-caption); opacity: 0.5;">
 					<UsersThreeIcon size={48} weight="light" />
 				</div>
-				<p class="text-base font-semibold mb-1" style="color: var(--color-text-primary);">Start a Conversation</p>
-				<p class="text-sm max-w-[240px]" style="color: var(--color-caption);">
-					Create a group to chat with friends, plan meals together, or share cooking tips.
-				</p>
+				{#if isLoggedIn}
+					<p class="text-base font-semibold mb-1" style="color: var(--color-text-primary);">Start a Conversation</p>
+					<p class="text-sm max-w-[240px]" style="color: var(--color-caption);">
+						Create a group to chat with friends, plan meals together, or share cooking tips.
+					</p>
 					<button
-					class="mt-5 px-5 py-2.5 rounded-xl text-sm font-medium transition-colors cursor-pointer"
-					style="background-color: var(--color-primary); color: #ffffff;"
-					on:click={() => dispatch('createGroup')}
-				>
-					Create Group
-				</button>
+						class="mt-5 px-5 py-2.5 rounded-xl text-sm font-medium transition-colors cursor-pointer"
+						style="background-color: var(--color-primary); color: #ffffff;"
+						on:click={() => dispatch('createGroup')}
+					>
+						Create Group
+					</button>
+				{:else}
+					<p class="text-base font-semibold mb-1" style="color: var(--color-text-primary);">No Public Groups</p>
+					<p class="text-sm max-w-[240px]" style="color: var(--color-caption);">
+						There are no public groups available right now.
+					</p>
+					<a
+						href="/login"
+						class="mt-5 px-5 py-2.5 rounded-xl text-sm font-medium transition-colors"
+						style="background-color: var(--color-primary); color: #ffffff;"
+					>
+						Sign In
+					</a>
+				{/if}
 			</div>
 		{:else}
 			{#each $sortedGroups as group (group.id)}
@@ -387,6 +404,7 @@
 						</div>
 					</button>
 
+					{#if isLoggedIn}
 					<div class="relative flex-shrink-0">
 						<button
 							class="p-1 rounded-lg transition-colors hover:bg-accent-gray cursor-pointer"
@@ -456,6 +474,7 @@
 							</div>
 						{/if}
 					</div>
+					{/if}
 				</div>
 			{/each}
 			{#if $groupsLoading}

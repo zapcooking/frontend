@@ -410,9 +410,10 @@ let reconnectCleanup: (() => void) | null = null;
  * 3. Start live subscription
  * 4. Prune old messages
  */
-export async function initGroupSubscription(ndkInstance: NDK, userPubkey: string) {
+export async function initGroupSubscription(ndkInstance: NDK, userPubkey?: string) {
 	if (!browser) return;
-	if (!userPubkey) return;
+
+	const isAnonymous = !userPubkey;
 
 	if (get(groupsInitialized) || get(groupsLoading)) {
 		console.log('[Groups] Skipping init — already initialized or loading');
@@ -426,52 +427,54 @@ export async function initGroupSubscription(ndkInstance: NDK, userPubkey: string
 	const t0 = performance.now();
 
 	try {
-		// ── Phase 1: Load from IndexedDB ──
+		// ── Phase 1: Load from IndexedDB (skip for anonymous) ──
 		let cachedGroupCount = 0;
 		let latestTimestamp: number | null = null;
 
-		try {
-			const [cachedMetadata, cachedMembers] = await Promise.all([
-				groupCache.getAllMetadata(),
-				groupCache.getAllMembers()
-			]);
+		if (!isAnonymous) {
+			try {
+				const [cachedMetadata, cachedMembers] = await Promise.all([
+					groupCache.getAllMetadata(),
+					groupCache.getAllMembers()
+				]);
 
-			// Populate store with cached metadata
-			for (const meta of cachedMetadata) {
-				setGroupMetadata({
-					id: meta.id,
-					name: meta.name,
-					picture: meta.picture,
-					about: meta.about,
-					isPrivate: meta.isPrivate,
-					isClosed: meta.isClosed,
-					isRestricted: meta.isRestricted
-				});
-				cachedGroupCount++;
-			}
-
-			// Populate cached members
-			for (const cm of cachedMembers) {
-				setGroupMembers(cm.groupId, cm.members);
-			}
-
-			// Load cached messages for each group
-			for (const meta of cachedMetadata) {
-				const msgs = await groupCache.getMessages(meta.id);
-				for (const msg of msgs) {
-					addGroupMessage({
-						id: msg.id,
-						groupId: msg.groupId,
-						sender: msg.sender,
-						content: msg.content,
-						created_at: msg.created_at
+				// Populate store with cached metadata
+				for (const meta of cachedMetadata) {
+					setGroupMetadata({
+						id: meta.id,
+						name: meta.name,
+						picture: meta.picture,
+						about: meta.about,
+						isPrivate: meta.isPrivate,
+						isClosed: meta.isClosed,
+						isRestricted: meta.isRestricted
 					});
+					cachedGroupCount++;
 				}
-			}
 
-			latestTimestamp = await groupCache.getLatestTimestamp();
-		} catch (e) {
-			console.warn('[Groups] Cache load failed:', e);
+				// Populate cached members
+				for (const cm of cachedMembers) {
+					setGroupMembers(cm.groupId, cm.members);
+				}
+
+				// Load cached messages for each group
+				for (const meta of cachedMetadata) {
+					const msgs = await groupCache.getMessages(meta.id);
+					for (const msg of msgs) {
+						addGroupMessage({
+							id: msg.id,
+							groupId: msg.groupId,
+							sender: msg.sender,
+							content: msg.content,
+							created_at: msg.created_at
+						});
+					}
+				}
+
+				latestTimestamp = await groupCache.getLatestTimestamp();
+			} catch (e) {
+				console.warn('[Groups] Cache load failed:', e);
+			}
 		}
 
 		const t1 = performance.now();
@@ -499,31 +502,34 @@ export async function initGroupSubscription(ndkInstance: NDK, userPubkey: string
 				onMetadata: (meta) => {
 					setGroupMetadata(meta);
 					groupCount++;
-					// Cache metadata (fire-and-forget)
-					groupCache
-						.saveMetadata({
-							...meta,
-							updatedAt: Date.now()
-						})
-						.catch(() => {});
+					if (!isAnonymous) {
+						groupCache
+							.saveMetadata({
+								...meta,
+								updatedAt: Date.now()
+							})
+							.catch(() => {});
+					}
 				},
 				onMembers: (groupId, members) => {
 					setGroupMembers(groupId, members);
-					// Cache members (fire-and-forget)
-					groupCache.saveMembers(groupId, members).catch(() => {});
+					if (!isAnonymous) {
+						groupCache.saveMembers(groupId, members).catch(() => {});
+					}
 				},
 				onMessage: (message) => {
 					addGroupMessage(message);
 					pantryManager.markDataReceived();
-					// Buffer for batched IDB write
-					cacheBuffer.push({
-						id: message.id,
-						groupId: message.groupId,
-						sender: message.sender,
-						content: message.content,
-						created_at: message.created_at,
-						cachedAt: Date.now()
-					});
+					if (!isAnonymous) {
+						cacheBuffer.push({
+							id: message.id,
+							groupId: message.groupId,
+							sender: message.sender,
+							content: message.content,
+							created_at: message.created_at,
+							cachedAt: Date.now()
+						});
+					}
 				}
 			},
 			syncSince
@@ -540,15 +546,16 @@ export async function initGroupSubscription(ndkInstance: NDK, userPubkey: string
 			(message) => {
 				addGroupMessage(message, true);
 				pantryManager.markDataReceived();
-				// Buffer for batched IDB write
-				cacheBuffer.push({
-					id: message.id,
-					groupId: message.groupId,
-					sender: message.sender,
-					content: message.content,
-					created_at: message.created_at,
-					cachedAt: Date.now()
-				});
+				if (!isAnonymous) {
+					cacheBuffer.push({
+						id: message.id,
+						groupId: message.groupId,
+						sender: message.sender,
+						content: message.content,
+						created_at: message.created_at,
+						cachedAt: Date.now()
+					});
+				}
 			},
 			liveSubSince
 		);
@@ -560,6 +567,9 @@ export async function initGroupSubscription(ndkInstance: NDK, userPubkey: string
 			console.log(
 				`[Groups] Ready in ${(t3 - t0).toFixed(0)}ms (cache: ${(t1 - t0).toFixed(0)}ms, sync: ${(t2 - t1).toFixed(0)}ms, live: ${(t3 - t2).toFixed(0)}ms, ${groupCount} relay groups, ${cachedGroupCount} cached)`
 			);
+		} else if (isAnonymous) {
+			groupsInitialized.set(true);
+			console.log('[Groups] Anonymous: no public groups found');
 		} else {
 			// 0 groups from both cache and relay — likely auth failure
 			stopGroupSubscription();
@@ -574,10 +584,12 @@ export async function initGroupSubscription(ndkInstance: NDK, userPubkey: string
 		// with the initial AUTH handshake in nip29.ts.
 		pantryManager.init(ndkInstance);
 
-		// ── Phase 4: Prune old messages (fire-and-forget) ──
-		const groupIds = Array.from(get(groups).keys());
-		for (const gid of groupIds) {
-			groupCache.pruneMessages(gid, 1000).catch(() => {});
+		// ── Phase 4: Prune old messages (fire-and-forget, skip for anonymous) ──
+		if (!isAnonymous) {
+			const groupIds = Array.from(get(groups).keys());
+			for (const gid of groupIds) {
+				groupCache.pruneMessages(gid, 1000).catch(() => {});
+			}
 		}
 
 		// ── Phase 5: Register reconnect handler ──

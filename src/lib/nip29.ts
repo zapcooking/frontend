@@ -104,23 +104,35 @@ function ensureAuthPolicy(ndkInstance: NDK): void {
 			relay.url === PANTRY_RELAY + '/' ||
 			relay.url?.replace(/\/$/, '') === PANTRY_RELAY;
 
+		if (!ndkInstance.signer) {
+			if (isPantry) console.log('[NIP-29] NIP-42 auth challenge received, skipping (no signer)');
+			if (resolveAuthPromise) resolveAuthPromise();
+			return undefined;
+		}
+
 		if (isPantry) {
 			console.log('[NIP-29] NIP-42 auth challenge received, signing...');
 		}
 
-		const signStart = performance.now();
-		const event = new NDKEvent(ndkInstance);
-		event.kind = 22242;
-		event.tags = [
-			['relay', relay.url],
-			['challenge', challenge]
-		];
-		await event.sign();
+		try {
+			const signStart = performance.now();
+			const event = new NDKEvent(ndkInstance);
+			event.kind = 22242;
+			event.tags = [
+				['relay', relay.url],
+				['challenge', challenge]
+			];
+			await event.sign();
 
-		if (isPantry) {
-			console.log(`[NIP-29] NIP-42 auth event signed in ${(performance.now() - signStart).toFixed(0)}ms`);
+			if (isPantry) {
+				console.log(`[NIP-29] NIP-42 auth event signed in ${(performance.now() - signStart).toFixed(0)}ms`);
+			}
+			return event;
+		} catch (e) {
+			console.warn('[NIP-29] NIP-42 auth signing failed:', e);
+			if (isPantry && resolveAuthPromise) resolveAuthPromise();
+			return undefined;
 		}
-		return event;
 	};
 
 	// If there was an existing policy, we've replaced it with ours which
@@ -198,7 +210,8 @@ async function ensurePantryConnected(ndkInstance: NDK): Promise<void> {
 
 async function doPantryConnect(ndkInstance: NDK): Promise<void> {
 	const t0 = performance.now();
-	console.log('[NIP-29] Connecting to pantry relay...');
+	const hasSigner = !!ndkInstance.signer;
+	console.log('[NIP-29] Connecting to pantry relay...', hasSigner ? '(authenticated)' : '(anonymous)');
 
 	// 1. Set global auth policy BEFORE getting the relay — this avoids the
 	//    race condition where the pool auto-connects the relay and the AUTH
@@ -219,7 +232,7 @@ async function doPantryConnect(ndkInstance: NDK): Promise<void> {
 	// 4. Check if relay already connected (pool may have auto-connected it)
 	const alreadyConnected = relay.connectivity?.status === 1;
 
-	if (alreadyConnected && !pantryAuthResolved) {
+	if (alreadyConnected && !pantryAuthResolved && hasSigner) {
 		// Relay connected before our policy was set — AUTH challenge was likely
 		// dropped. Disconnect and reconnect to get a fresh AUTH challenge.
 		console.log('[NIP-29] Relay already connected without auth, reconnecting...');
@@ -286,7 +299,7 @@ async function doPantryConnect(ndkInstance: NDK): Promise<void> {
 
 	// 5. Wait for NIP-42 auth to complete (should be fast now that
 	//    the global policy is in place and NIP-07 isn't contending)
-	const authed = await waitForPantryAuth(5000);
+	const authed = await waitForPantryAuth(hasSigner ? 5000 : 500);
 	const t3 = performance.now();
 	if (authed) {
 		console.log(`[NIP-29] Auth completed in ${(t3 - t2).toFixed(0)}ms (total: ${(t3 - t0).toFixed(0)}ms)`);

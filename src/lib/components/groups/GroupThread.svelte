@@ -27,8 +27,10 @@
 	import LinkIcon from 'phosphor-svelte/lib/Link';
 	import CheckIcon from 'phosphor-svelte/lib/Check';
 	import ChatCircleDotsIcon from 'phosphor-svelte/lib/ChatCircleDots';
+	import LockIcon from 'phosphor-svelte/lib/Lock';
 
 	export let groupId: string;
+	export let isLoggedIn: boolean = false;
 
 	const PANTRY_RELAY = 'wss://pantry.zap.cooking';
 
@@ -315,14 +317,16 @@
 				<LinkIcon size={20} />
 			{/if}
 		</button>
-		<button
-			class="p-1.5 rounded-lg transition-colors hover:bg-accent-gray cursor-pointer"
-			style="color: var(--color-text-primary);"
-			title="Add member"
-			on:click={() => (showAddMember = true)}
-		>
-			<UserPlusIcon size={20} />
-		</button>
+		{#if isLoggedIn}
+			<button
+				class="p-1.5 rounded-lg transition-colors hover:bg-accent-gray cursor-pointer"
+				style="color: var(--color-text-primary);"
+				title="Add member"
+				on:click={() => (showAddMember = true)}
+			>
+				<UserPlusIcon size={20} />
+			</button>
+		{/if}
 	</div>
 
 	<!-- Syncing indicator -->
@@ -343,20 +347,37 @@
 	<div
 		bind:this={scrollContainer}
 		on:scroll={handleScroll}
-		class="h-full overflow-y-auto px-4 pb-[80px]"
+		class="h-full overflow-y-auto px-4 {isLoggedIn ? 'pb-[80px]' : 'pb-4'}"
 		style="padding-top: {$groupsSyncing ? '100px' : '84px'};"
 	>
-		{#if messages.length === 0 && !$groupsSyncing && !$groupsLoading}
+		{#if !isLoggedIn && ($group?.isPrivate || $group?.isRestricted)}
+			<div class="flex flex-col items-center justify-center h-full text-center px-4">
+				<LockIcon size={44} weight="light" style="color: var(--color-caption); opacity: 0.4;" />
+				<p class="text-sm font-medium mt-3" style="color: var(--color-text-primary);">This is a private group</p>
+				<p class="text-xs mt-1 max-w-[220px]" style="color: var(--color-caption);">Sign in to view messages and participate.</p>
+				<a href="/login" class="mt-4 px-5 py-2 rounded-xl text-sm font-medium" style="background-color: var(--color-primary); color: #ffffff;">Sign In</a>
+			</div>
+		{:else if messages.length === 0 && !$groupsSyncing && !$groupsLoading}
 			<div class="flex flex-col items-center justify-center h-full text-center px-4">
 				<div class="mb-3" style="color: var(--color-caption); opacity: 0.4;">
 					<ChatCircleDotsIcon size={44} weight="light" />
 				</div>
-				<p class="text-sm font-medium" style="color: var(--color-text-primary);">
-					No messages yet — say hello!
-				</p>
-				<p class="text-xs mt-1 max-w-[220px]" style="color: var(--color-caption);">
-					Be the first to start the conversation in this group.
-				</p>
+				{#if isLoggedIn}
+					<p class="text-sm font-medium" style="color: var(--color-text-primary);">
+						No messages yet — say hello!
+					</p>
+					<p class="text-xs mt-1 max-w-[220px]" style="color: var(--color-caption);">
+						Be the first to start the conversation in this group.
+					</p>
+				{:else}
+					<p class="text-sm font-medium" style="color: var(--color-text-primary);">
+						No messages yet
+					</p>
+					<p class="text-xs mt-1 max-w-[220px]" style="color: var(--color-caption);">
+						Sign in to participate in this group.
+					</p>
+					<a href="/login" class="mt-4 px-5 py-2 rounded-xl text-sm font-medium" style="background-color: var(--color-primary); color: #ffffff;">Sign In</a>
+				{/if}
 			</div>
 		{:else if messages.length === 0}
 			<div class="flex items-center justify-center h-full">
@@ -381,64 +402,68 @@
 	</div>
 
 	<!-- Input (frosted glass, floats over messages) -->
-	<input
-		bind:this={fileInput}
-		type="file"
-		accept="image/*"
-		class="hidden"
-		on:change={handleImageUpload}
-	/>
-	<div
-		class="absolute bottom-0 left-0 right-0 z-10 p-3"
-		style="background-color: color-mix(in srgb, var(--color-bg-secondary) 70%, transparent); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);"
-	>
-		{#if sendError}
-			<div class="pb-2">
-				<p class="text-xs text-danger">{sendError}</p>
+	{#if isLoggedIn}
+		<input
+			bind:this={fileInput}
+			type="file"
+			accept="image/*"
+			class="hidden"
+			on:change={handleImageUpload}
+		/>
+		<div
+			class="absolute bottom-0 left-0 right-0 z-10 p-3"
+			style="background-color: color-mix(in srgb, var(--color-bg-secondary) 70%, transparent); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);"
+		>
+			{#if sendError}
+				<div class="pb-2">
+					<p class="text-xs text-danger">{sendError}</p>
+				</div>
+			{/if}
+			<div class="flex items-end">
+				<button
+					on:click={() => fileInput?.click()}
+					disabled={uploading}
+					class="p-2.5 rounded-xl transition-colors cursor-pointer disabled:opacity-40 self-stretch"
+					style="color: var(--color-caption);"
+					title="Attach image"
+				>
+					{#if uploading}
+						<div
+							class="w-5 h-5 border-2 border-current border-t-transparent rounded-full animate-spin"
+						></div>
+					{:else}
+						<ImageIcon size={20} />
+					{/if}
+				</button>
+				<textarea
+					bind:value={messageInput}
+					on:keydown={handleKeyDown}
+					placeholder="Type a message..."
+					rows="1"
+					class="input flex-1 resize-none text-sm min-h-[42px] max-h-32"
+					style="background-color: var(--color-input-bg); border-radius: 0.75rem 0 0 0.75rem; border: 1px solid rgba(249, 115, 22, 0.35); border-right: none;"
+					disabled={sending}
+				></textarea>
+				<button
+					on:click={handleSend}
+					disabled={(!messageInput.trim() && !uploading) || sending}
+					class="p-2.5 rounded-l-none rounded-r-xl transition-colors cursor-pointer disabled:opacity-40 self-stretch"
+					style="background-color: var(--color-primary); color: #ffffff;"
+				>
+					{#if sending}
+						<div
+							class="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"
+						></div>
+					{:else}
+						<PaperPlaneTiltIcon size={20} weight="fill" />
+					{/if}
+				</button>
 			</div>
-		{/if}
-		<div class="flex items-end">
-			<button
-				on:click={() => fileInput?.click()}
-				disabled={uploading}
-				class="p-2.5 rounded-xl transition-colors cursor-pointer disabled:opacity-40 self-stretch"
-				style="color: var(--color-caption);"
-				title="Attach image"
-			>
-				{#if uploading}
-					<div
-						class="w-5 h-5 border-2 border-current border-t-transparent rounded-full animate-spin"
-					></div>
-				{:else}
-					<ImageIcon size={20} />
-				{/if}
-			</button>
-			<textarea
-				bind:value={messageInput}
-				on:keydown={handleKeyDown}
-				placeholder="Type a message..."
-				rows="1"
-				class="input flex-1 resize-none text-sm min-h-[42px] max-h-32"
-				style="background-color: var(--color-input-bg); border-radius: 0.75rem 0 0 0.75rem; border: 1px solid rgba(249, 115, 22, 0.35); border-right: none;"
-				disabled={sending}
-			></textarea>
-			<button
-				on:click={handleSend}
-				disabled={(!messageInput.trim() && !uploading) || sending}
-				class="p-2.5 rounded-l-none rounded-r-xl transition-colors cursor-pointer disabled:opacity-40 self-stretch"
-				style="background-color: var(--color-primary); color: #ffffff;"
-			>
-				{#if sending}
-					<div
-						class="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"
-					></div>
-				{:else}
-					<PaperPlaneTiltIcon size={20} weight="fill" />
-				{/if}
-			</button>
 		</div>
-	</div>
+	{/if}
 </div>
 
-<AddMemberModal bind:open={showAddMember} {groupId} />
+{#if isLoggedIn}
+	<AddMemberModal bind:open={showAddMember} {groupId} />
+{/if}
 <GroupMembersModal bind:open={showMembers} {members} />

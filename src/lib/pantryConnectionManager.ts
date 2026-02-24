@@ -106,7 +106,16 @@ class PantryConnectionManager {
 
 	private handleConnect = (): void => {
 		if (this.destroyed) return;
-		this.setState('authenticating');
+		if (this.ndkInstance?.signer) {
+			this.setState('authenticating');
+		} else {
+			this.setState('ready');
+			this.lastDataReceived = Date.now();
+			pantryConnectionStatus.update((s) => ({ ...s, reconnectAttempts: 0 }));
+			for (const cb of this.onReadyCallbacks) {
+				try { cb(); } catch (e) { console.error('[PantryManager] onReady callback error:', e); }
+			}
+		}
 	};
 
 	private handleDisconnect = (): void => {
