@@ -170,7 +170,7 @@
 			</button>
 		</div>
 		<div class="text-sm mt-0.5" style="color: var(--color-text-primary);">
-			<NoteContent {content} collapsible={false} showLinkPreviews={false} />
+			<NoteContent {content} collapsible={false} showLinkPreviews={true} />
 		</div>
 	</div>
 </div>

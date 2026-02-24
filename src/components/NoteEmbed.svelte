@@ -383,6 +383,7 @@
         }
         return url; // Keep other URLs (like marketplace links)
       })
+      .replace(/nostr:[^\s]+/g, '') // Remove nostr: references (shown as embeds or links, not raw text)
       .replace(/\s+/g, ' ')
       .trim(); // Clean up extra spaces
   }
