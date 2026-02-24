@@ -172,9 +172,11 @@
         if ('vibrate' in navigator) {
           navigator.vibrate([40, 50, 40]); // Two short pulses
         }
-        // The optimistic update already showed the zap, and the subscription will correct it
-        // when the real zap receipt arrives. No need to force refresh here.
         console.log('[NoteTotalZaps] One-tap zap completed successfully, amount:', result.amount);
+        // Re-fetch engagement to pick up the real zap receipt from relays
+        // (the optimistic update shows instantly, but this ensures the subscription
+        // is active and will reconcile with the actual zap receipt)
+        fetchEngagement($ndk, event.id, $userPublickey);
       } else {
         // Haptic feedback on failure - long vibration to indicate error
         if ('vibrate' in navigator) {
