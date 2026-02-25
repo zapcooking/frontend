@@ -19,20 +19,16 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 		const body = await request.json();
 		const { paymentString, ttl, description, metadata, zk } = body;
 
-		if (!paymentString || typeof paymentString !== 'string') {
+		if (!paymentString || typeof paymentString !== 'string' || paymentString.trim().length === 0) {
 			return json({ success: false, error: 'paymentString is required' }, { status: 400 });
 		}
 
 		const result = await registerPayment(
 			paymentString,
-			{
-				destinations: [],
-				ttl: typeof ttl === 'number' ? ttl : undefined,
-				description: typeof description === 'string' ? description : undefined,
-				metadata: typeof metadata === 'object' ? metadata : undefined
-			},
-			typeof zk === 'boolean' ? zk : undefined,
-			platform,
+			typeof ttl === 'number' ? ttl : undefined,
+			typeof description === 'string' ? description : undefined,
+			typeof metadata === 'object' ? metadata : undefined,
+			typeof zk === 'boolean' ? zk : undefined, platform
 		);
 
 		if (result.success) {

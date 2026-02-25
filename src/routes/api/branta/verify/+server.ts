@@ -30,7 +30,7 @@ export const GET: RequestHandler = async ({ url, platform }) => {
 			verified: result.verified,
 			registeredAt: result.registeredAt,
 			description: result.description,
-			verifyLink: config.baseUrl + "/v2/verify/" + paymentString
+			verifyLink: config.baseUrl + "/v2/verify/" + encodeURIComponent(paymentString)
 		});
 	} catch (error) {
 		console.error('[Branta API] Verification error:', error);

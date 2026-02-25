@@ -19,7 +19,6 @@ export interface RegisterPaymentResult {
   success: boolean;
   paymentId?: string;
   error?: string;
-  verifyLink?: string;
 }
 
 export interface VerifyPaymentResult {
@@ -65,7 +64,9 @@ export function isBrantaConfigured(platform?: any): boolean {
  */
 export async function registerPayment(
   paymentString: string,
-  options: Payment,
+  ttl: number | undefined,
+  description: string | undefined,
+  metadata: object | undefined,
   zk: boolean | undefined,
   platform?: any
 ): Promise<RegisterPaymentResult> {
@@ -73,10 +74,6 @@ export async function registerPayment(
 
   if (config === null) {
     return { success: false, error: 'Branta not configured' };
-  }
-
-  if (!paymentString || paymentString.trim().length === 0) {
-    return { success: false, error: 'Payment string is required' };
   }
 
   try {
@@ -92,16 +89,16 @@ export async function registerPayment(
 
     const body: Payment = {
       destinations: [destination],
-      ttl: options.ttl || 86400 // Default 24 hours
+      ttl: ttl || 86400 // Default 24 hours
     };
 
-    if (options.description) {
-      body.description = options.description;
+    if (description) {
+      body.description = description;
     }
 
     // metadata must be stringified JSON per API spec
-    if (options.metadata) {
-      body.metadata = options.metadata;
+    if (metadata) {
+      body.metadata = metadata as Record<string, string>;
     }
 
     const brantaClient = new V2BrantaClient(config);
@@ -143,13 +140,17 @@ export async function verifyPayment(
     return { verified: false, error: 'Payment string is required' };
   }
 
+  if (paymentString.length == 0) {
+    // Not found = not registered (not an error)
+    return { verified: false };
+  }
+
   try {
     const brantaClient = new V2BrantaClient(config);
 
     const response = await brantaClient.getPayments(paymentString.trim());
 
-    if (paymentString.length == 0) {
-      // Not found = not registered (not an error)
+    if (response.length === 0) {
       return { verified: false };
     }
 
