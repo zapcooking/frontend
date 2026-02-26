@@ -1013,8 +1013,8 @@
     return segments;
   }
 
-  // Register a payment address/invoice with Branta Guardrail (fire-and-forget)
-  // zk: true for on-chain Bitcoin addresses, false for Lightning invoices/addresses
+  // Register a payment address/invoice with Branta Guardrail
+  // zk: true enables zero-knowledge encryption (on-chain addresses), false for plaintext (Lightning)
   async function registerWithBranta(paymentString: string, description?: string, zk?: boolean) {
     try {
       await fetch('/api/branta/register', {
@@ -1059,7 +1059,7 @@
 
     try {
       const result = await receiveOnchain();
-      // Register with Branta for verification (zk: true for on-chain)
+      // Register with Branta for verification (plaintext for now, ZK in follow-up PR)
       // Await to ensure badge can verify after registration completes
       await registerWithBranta(result.address, 'zap.cooking Bitcoin deposit address', false);
       onchainAddress = result.address;

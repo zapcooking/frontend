@@ -8,6 +8,9 @@ importers:
 
   .:
     dependencies:
+      '@branta-ops/branta':
+        specifier: ^0.0.3
+        version: 0.0.3
       '@breeztech/breez-sdk-spark':
         specifier: 0.9.1
         version: 0.9.1
@@ -285,6 +288,9 @@ packages:
   '@babel/helper-validator-identifier@7.28.5':
     resolution: {integrity: sha512-qSs4ifwzKJSV39ucNjsvc6WVHs6b7S03sOh2OcHF9UHfVPqWWALUsNUVzhSBiItjRZoLHx7nIarVjqKVusUZ1Q==}
     engines: {node: '>=6.9.0'}
+
+  '@branta-ops/branta@0.0.3':
+    resolution: {integrity: sha512-BNiN8erGLVAVDC9laAgAkynsT/72dXFC1al9gnIJAvXC/F7wwLl4nsFYNVa/ys16RFmrwTUqx0M+oxrg+BSauw==}
 
   '@breeztech/breez-sdk-spark@0.9.1':
     resolution: {integrity: sha512-cPyW9WdMewM0q2aDO9ioSVn2ud4FDTXQeE1r4yQMMzjsdFT/WUihuvwKjCwEB+Ot4d3wpQU+WHPcfLwj08Wo4A==}
@@ -5136,6 +5142,8 @@ snapshots:
       picocolors: 1.1.1
 
   '@babel/helper-validator-identifier@7.28.5': {}
+
+  '@branta-ops/branta@0.0.3': {}
 
   '@breeztech/breez-sdk-spark@0.9.1':
     optionalDependencies:

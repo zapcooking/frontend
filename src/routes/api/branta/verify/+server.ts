@@ -7,13 +7,11 @@
 
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { verifyPayment, getBrantaConfig } from '$lib/brantaService.server';
+import { verifyPayment, isBrantaConfigured, getBrantaConfig } from '$lib/brantaService.server';
 
 export const GET: RequestHandler = async ({ url, platform }) => {
-	const config = getBrantaConfig(platform);
-
 	// Check if Branta is configured
-	if (config === null) {
+	if (!isBrantaConfigured(platform)) {
 		return json({ verified: false, error: 'Branta not configured' }, { status: 503 });
 	}
 
@@ -26,12 +24,19 @@ export const GET: RequestHandler = async ({ url, platform }) => {
 	try {
 		const result = await verifyPayment(paymentString, platform);
 
-		return json({
+		const response: Record<string, unknown> = {
 			verified: result.verified,
 			registeredAt: result.registeredAt,
-			description: result.description,
-			verifyLink: config.baseUrl + "/v2/verify/" + encodeURIComponent(paymentString)
-		});
+			description: result.description
+		};
+
+		// Only include verifyLink when verified
+		if (result.verified) {
+			const config = getBrantaConfig(platform);
+			response.verifyLink = config!.baseUrl + '/v2/verify/' + encodeURIComponent(paymentString);
+		}
+
+		return json(response);
 	} catch (error) {
 		console.error('[Branta API] Verification error:', error);
 		return json(

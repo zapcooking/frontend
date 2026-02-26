@@ -32,7 +32,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 		);
 
 		if (result.success) {
-			return json({ success: true, paymentId: result.paymentId });
+			return json({ success: true, verifyLink: result.verifyLink });
 		}
 
 		return json({ success: false, error: result.error }, { status: 500 });

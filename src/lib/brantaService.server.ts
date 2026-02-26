@@ -17,7 +17,8 @@ import { V2BrantaClient, type BrantaClientOptions, type Destination, type Paymen
 
 export interface RegisterPaymentResult {
   success: boolean;
-  paymentId?: string;
+  verifyLink?: string;
+  secret?: string;
   error?: string;
 }
 
@@ -103,9 +104,14 @@ export async function registerPayment(
 
     const brantaClient = new V2BrantaClient(config);
 
-    await brantaClient.addZKPayment(body);
-
-    return { success: true };
+    // Use ZK encryption for on-chain addresses, plaintext for Lightning
+    if (zk) {
+      const result = await brantaClient.addZKPayment(body);
+      return { success: true, verifyLink: result.verifyLink, secret: result.secret };
+    } else {
+      const result = await brantaClient.addPayment(body);
+      return { success: true, verifyLink: result.verifyLink };
+    }
   } catch (error) {
     if (error instanceof Error && error.name === 'AbortError') {
       console.warn('[Branta] Registration request timed out');
@@ -138,11 +144,6 @@ export async function verifyPayment(
 
   if (!paymentString || paymentString.trim().length === 0) {
     return { verified: false, error: 'Payment string is required' };
-  }
-
-  if (paymentString.length == 0) {
-    // Not found = not registered (not an error)
-    return { verified: false };
   }
 
   try {
