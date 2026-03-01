@@ -15,7 +15,6 @@
 	import { sendGroupMessage, uploadGroupPicture } from '$lib/nip29';
 	import { copyToClipboard } from '$lib/utils/share';
 	import { groupCache } from '$lib/groupCacheStorage';
-	import { pantryConnectionStatus } from '$lib/pantryConnectionManager';
 	import GroupMessage from './GroupMessage.svelte';
 	import AddMemberModal from './AddMemberModal.svelte';
 	import GroupMembersModal from './GroupMembersModal.svelte';
@@ -32,7 +31,6 @@
 	export let groupId: string;
 	export let isLoggedIn: boolean = false;
 
-	const PANTRY_RELAY = 'wss://pantry.zap.cooking';
 
 	const dispatch = createEventDispatcher<{ back: void }>();
 
@@ -55,15 +53,6 @@
 	$: members = $group?.members || [];
 	$: visibleMembers = members.slice(0, MAX_VISIBLE_AVATARS);
 	$: hiddenCount = Math.max(0, members.length - MAX_VISIBLE_AVATARS);
-
-	// Connection status indicator color
-	$: dotColor =
-		$pantryConnectionStatus.state === 'ready'
-			? '#22c55e'
-			: $pantryConnectionStatus.state === 'connecting' ||
-				  $pantryConnectionStatus.state === 'authenticating'
-				? '#eab308'
-				: '#ef4444';
 
 	$: {
 		if (groupId) {
@@ -266,21 +255,6 @@
 					{$group.about}
 				</span>
 			{/if}
-			<span class="flex items-center gap-1">
-				<span
-					class="inline-block w-2 h-2 rounded-full flex-shrink-0"
-					style="background-color: {dotColor};"
-					title="Relay: {$pantryConnectionStatus.state}"
-				></span>
-				<button
-					class="text-[10px] truncate cursor-pointer hover:underline"
-					style="color: var(--color-caption); opacity: 0.7;"
-					title="Copy relay URL"
-					on:click={() => copyToClipboard(PANTRY_RELAY)}
-				>
-					pantry.zap.cooking
-				</button>
-			</span>
 		</div>
 		{#if members.length > 0}
 			<button
