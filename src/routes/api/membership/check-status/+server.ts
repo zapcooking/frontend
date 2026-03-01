@@ -85,14 +85,24 @@ export const POST: RequestHandler = async ({ request, platform }) => {
       return json({ found: false });
     }
 
+    const tier = normalizeRelayTier(result.member.tier, result.member.payment_id);
+    const member = { ...result.member, tier };
+
+    // Founders get lifetime access — ensure expiry is at least 10 years out
+    if (tier === 'founders' && member.subscription_end) {
+      const tenYearsFromNow = new Date();
+      tenYearsFromNow.setFullYear(tenYearsFromNow.getFullYear() + 10);
+      const currentExpiry = new Date(member.subscription_end);
+      if (currentExpiry < tenYearsFromNow) {
+        member.subscription_end = tenYearsFromNow.toISOString();
+      }
+    }
+
     return json({
       found: true,
       isActive: result.isActive,
       isExpired: result.isExpired,
-      member: {
-        ...result.member,
-        tier: normalizeRelayTier(result.member.tier, result.member.payment_id)
-      }
+      member
     });
 
   } catch (error: any) {

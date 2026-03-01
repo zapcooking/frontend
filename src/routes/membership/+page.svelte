@@ -67,7 +67,11 @@
   function formatExpiresAt(expiresAt: string | undefined): string {
     if (!expiresAt) return '—';
     try {
-      return new Date(expiresAt).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+      const date = new Date(expiresAt);
+      // If expiry is 8+ years away, show "Lifetime" instead of a date
+      const yearsAway = (date.getTime() - Date.now()) / (1000 * 60 * 60 * 24 * 365);
+      if (yearsAway >= 8) return 'Lifetime';
+      return date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
     } catch {
       return '—';
     }

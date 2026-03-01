@@ -71,10 +71,23 @@ export const GET: RequestHandler = async ({ url, platform }) => {
           return;
         }
 
+        const tier = normalizeTier(lookup.member?.tier, lookup.member?.payment_id);
+
+        // Founders get lifetime access — ensure expiry is at least 10 years out
+        let expiresAt = lookup.member?.subscription_end || undefined;
+        if (tier === 'founders') {
+          const tenYearsFromNow = new Date();
+          tenYearsFromNow.setFullYear(tenYearsFromNow.getFullYear() + 10);
+          const currentExpiry = expiresAt ? new Date(expiresAt) : new Date(0);
+          if (currentExpiry < tenYearsFromNow) {
+            expiresAt = tenYearsFromNow.toISOString();
+          }
+        }
+
         results[pubkey] = {
           active: lookup.isActive,
-          tier: normalizeTier(lookup.member?.tier, lookup.member?.payment_id),
-          expiresAt: lookup.member?.subscription_end || undefined
+          tier,
+          expiresAt
         };
       } catch (error) {
         console.warn('[api/membership] Failed lookup for pubkey:', pubkey, error);
