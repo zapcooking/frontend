@@ -11,6 +11,7 @@ import type NDK from '@nostr-dev-kit/ndk';
 import type { GroupMetadata, GroupMessage } from '$lib/nip29';
 import {
 	fetchAllGroupData,
+	fetchExtendedMessages,
 	subscribeToGroupMessages,
 	resetPantryConnection
 } from '$lib/nip29';
@@ -587,7 +588,38 @@ export async function initGroupSubscription(ndkInstance: NDK, userPubkey?: strin
 		// with the initial AUTH handshake in nip29.ts.
 		pantryManager.init(ndkInstance);
 
-		// ── Phase 4: Prune old messages (fire-and-forget, skip for anonymous) ──
+		// ── Phase 4: Backfill extended message history (fire-and-forget) ──
+		// Initial sync fetches 3 days for speed; now backfill up to 40 days in the background.
+		// Always run: cached users may have gaps, and incremental sync only covers recent messages.
+		// Dedup in addGroupMessage ensures no duplicates.
+		if (groupCount > 0 || cachedGroupCount > 0) {
+			const extendedSince = Math.floor(Date.now() / 1000) - 40 * 24 * 60 * 60;
+			fetchExtendedMessages(
+				ndkInstance,
+				(message) => {
+					addGroupMessage(message);
+					if (!isAnonymous) {
+						cacheBuffer.push({
+							id: message.id,
+							groupId: message.groupId,
+							sender: message.sender,
+							content: message.content,
+							created_at: message.created_at,
+							cachedAt: Date.now()
+						});
+					}
+				},
+				extendedSince
+			).then(() => {
+				flushMessageBuffer();
+				console.log('[Groups] Extended message backfill complete');
+			}).catch((e) => {
+				console.warn('[Groups] Extended message backfill failed:', e);
+			});
+		}
+
+		// ── Phase 5: Prune old messages (fire-and-forget, skip for anonymous) ──
+		// Note: runs concurrently with Phase 4 backfill
 		if (!isAnonymous) {
 			const groupIds = Array.from(get(groups).keys());
 			for (const gid of groupIds) {
@@ -595,7 +627,7 @@ export async function initGroupSubscription(ndkInstance: NDK, userPubkey?: strin
 			}
 		}
 
-		// ── Phase 5: Register reconnect handler ──
+		// ── Phase 6: Register reconnect handler ──
 		reconnectCleanup = pantryManager.onReady(() => {
 			console.log('[Groups] Pantry reconnected, restarting live subscription...');
 			restartLiveSubscription(ndkInstance);

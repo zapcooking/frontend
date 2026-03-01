@@ -405,8 +405,8 @@ export async function fetchAllGroupData(
 	await ensurePantryAuthed(ndkInstance);
 	const t1 = performance.now();
 	const relaySet = getPantryRelaySet(ndkInstance);
-	// Use provided since (for incremental sync from cache), or default to 2 days
-	const messageSince = since || Math.floor(Date.now() / 1000) - 2 * 24 * 60 * 60;
+	// Use provided since (for incremental sync from cache), or default to 3 days
+	const messageSince = since || Math.floor(Date.now() / 1000) - 3 * 24 * 60 * 60;
 
 	return new Promise((resolve) => {
 		const timeoutId = setTimeout(() => {
@@ -585,14 +585,15 @@ export async function fetchGroupMessages(
 ): Promise<GroupMessage[]> {
 	await ensurePantryAuthed(ndkInstance);
 	const relaySet = getPantryRelaySet(ndkInstance);
-	const sinceTimestamp = since || Math.round(Date.now() / 1000) - 7 * 24 * 60 * 60;
+	const sinceTimestamp = since || Math.round(Date.now() / 1000) - 40 * 24 * 60 * 60;
 
 	return new Promise((resolve) => {
 		const messages: GroupMessage[] = [];
 		const timeoutId = setTimeout(() => {
 			sub.stop();
+			messages.sort((a, b) => a.created_at - b.created_at);
 			resolve(messages);
-		}, 4000);
+		}, 21000);
 
 		const sub = ndkInstance.subscribe(
 			{ kinds: [9 as number], '#h': [groupId], since: sinceTimestamp },
@@ -617,6 +618,57 @@ export async function fetchGroupMessages(
 			clearTimeout(timeoutId);
 			messages.sort((a, b) => a.created_at - b.created_at);
 			resolve(messages);
+		});
+	});
+}
+
+/**
+ * Fetch extended message history across all groups (background backfill).
+ * Uses a longer timeout since this runs after the initial fast load.
+ */
+export async function fetchExtendedMessages(
+	ndkInstance: NDK,
+	onMessage: (message: GroupMessage) => void,
+	since?: number
+): Promise<void> {
+	const t0 = performance.now();
+	await ensurePantryAuthed(ndkInstance);
+	const relaySet = getPantryRelaySet(ndkInstance);
+	const sinceTimestamp = since || Math.round(Date.now() / 1000) - 40 * 24 * 60 * 60;
+	let eventCount = 0;
+
+	return new Promise((resolve) => {
+		const timeoutId = setTimeout(() => {
+			const elapsed = performance.now() - t0;
+			console.log(`[NIP-29] fetchExtendedMessages timeout after ${elapsed.toFixed(0)}ms (${eventCount} events)`);
+			sub.stop();
+			resolve();
+		}, 21000);
+
+		const sub = ndkInstance.subscribe(
+			{ kinds: [9 as number], since: sinceTimestamp },
+			{ closeOnEose: true },
+			relaySet
+		);
+
+		sub.on('event', (event: NDKEvent) => {
+			eventCount++;
+			const hTag = event.tags.find((t) => t[0] === 'h');
+			if (!hTag?.[1]) return;
+			onMessage({
+				id: event.id,
+				groupId: hTag[1],
+				sender: event.pubkey,
+				content: event.content,
+				created_at: event.created_at || 0
+			});
+		});
+
+		sub.on('eose', () => {
+			clearTimeout(timeoutId);
+			const elapsed = performance.now() - t0;
+			console.log(`[NIP-29] fetchExtendedMessages EOSE in ${elapsed.toFixed(0)}ms (${eventCount} events)`);
+			resolve();
 		});
 	});
 }
