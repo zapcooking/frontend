@@ -205,7 +205,7 @@
       <div class="flex overflow-x-auto flex-nowrap scrollbar-hide">
         <button
           on:click={() => setTab('global')}
-          class="px-2.5 py-2 text-sm font-medium transition-colors relative flex-shrink-0"
+          class="flex-1 py-2 text-sm font-medium transition-colors relative text-center"
           style="color: {activeTab === 'global'
             ? 'var(--color-text-primary)'
             : 'var(--color-text-secondary)'}"
@@ -220,7 +220,7 @@
 
         <button
           on:click={() => setTab('following')}
-          class="px-2.5 py-2 text-sm font-medium transition-colors relative flex-shrink-0"
+          class="flex-1 py-2 text-sm font-medium transition-colors relative text-center"
           style="color: {activeTab === 'following'
             ? 'var(--color-text-primary)'
             : 'var(--color-text-secondary)'}"
@@ -239,7 +239,7 @@
 
         <button
           on:click={() => setTab('replies')}
-          class="px-2.5 py-2 text-sm font-medium transition-colors relative flex-shrink-0"
+          class="flex-1 py-2 text-sm font-medium transition-colors relative text-center"
           style="color: {activeTab === 'replies'
             ? 'var(--color-text-primary)'
             : 'var(--color-text-secondary)'}"
@@ -254,7 +254,7 @@
 
         <button
           on:click={() => setTab('members')}
-          class="px-2.5 py-2 text-sm font-medium transition-colors relative flex-shrink-0"
+          class="flex-1 py-2 text-sm font-medium transition-colors relative text-center"
           style="color: {activeTab === 'members'
             ? 'var(--color-text-primary)'
             : 'var(--color-text-secondary)'}"
@@ -269,7 +269,7 @@
 
         <button
           on:click={() => setTab('garden')}
-          class="px-2.5 py-2 text-sm font-medium transition-colors relative flex-shrink-0"
+          class="flex-1 py-2 text-sm font-medium transition-colors relative text-center"
           style="color: {activeTab === 'garden'
             ? 'var(--color-text-primary)'
             : 'var(--color-text-secondary)'}"

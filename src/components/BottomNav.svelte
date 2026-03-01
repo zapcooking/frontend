@@ -4,7 +4,6 @@
   import ForkKnifeIcon from 'phosphor-svelte/lib/ForkKnife';
   import ChatCircleDotsIcon from 'phosphor-svelte/lib/ChatCircleDots';
   import BellIcon from 'phosphor-svelte/lib/Bell';
-  import CompassIcon from 'phosphor-svelte/lib/Compass';
   import NewspaperIcon from 'phosphor-svelte/lib/Newspaper';
   import EnvelopeSimpleIcon from 'phosphor-svelte/lib/EnvelopeSimple';
   import UsersThreeIcon from 'phosphor-svelte/lib/UsersThree';
@@ -52,7 +51,7 @@
 
 <nav
   bind:this={navEl}
-  class="lg:hidden bg-input w-full fixed left-0 right-0 z-40 grid grid-cols-7 text-center print:hidden bottom-nav-ios"
+  class="lg:hidden bg-input w-full fixed left-0 right-0 z-40 grid grid-cols-6 text-center print:hidden bottom-nav-ios"
   style="color: var(--color-text-primary); border-top: 1px solid var(--color-input-border);"
 >
   <a href="/community" class="flex flex-col items-center justify-center hover:text-primary">
@@ -62,10 +61,6 @@
   <a href="/recent" class="flex flex-col items-center justify-center hover:text-primary">
     <ForkKnifeIcon class="self-center" size={24} />
     <span class="sr-only">Recipes</span>
-  </a>
-  <a href="/explore" class="flex flex-col items-center justify-center hover:text-primary">
-    <CompassIcon class="self-center" size={24} />
-    <span class="sr-only">Explore</span>
   </a>
   <a href="/reads" class="flex flex-col items-center justify-center hover:text-primary">
     <NewspaperIcon class="self-center" size={24} />

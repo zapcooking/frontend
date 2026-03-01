@@ -1,13 +1,14 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
+  import { page } from '$app/stores';
   import { userPublickey, userProfilePictureOverride } from '$lib/nostr';
+  import { triggerExploreNav } from '$lib/exploreNav';
   import SVGNostrCookingWithText from '../assets/nostr.cooking-withtext.svg';
   import SearchIcon from 'phosphor-svelte/lib/MagnifyingGlass';
   import CookingPotIcon from 'phosphor-svelte/lib/CookingPot';
   import SparkleIcon from 'phosphor-svelte/lib/Sparkle';
   import RobotIcon from 'phosphor-svelte/lib/Robot';
   import TagsSearchAutocomplete from './TagsSearchAutocomplete.svelte';
-  import { page } from '$app/stores';
   import CustomAvatar from './CustomAvatar.svelte';
   import { theme } from '$lib/themeStore';
   import WalletBalance from './WalletBalance.svelte';
@@ -63,17 +64,28 @@
   function toggleCookingTools() {
     cookingToolsStore.toggle();
   }
+
+  function handleLogoClick() {
+    if ($page.url.pathname === '/explore') {
+      triggerExploreNav();
+    } else {
+      goto('/explore');
+    }
+  }
 </script>
 
 <!-- Mobile-first layout -->
 <div class="relative flex gap-2 sm:gap-9 lg:gap-12 justify-between overflow-visible">
-  <a href="/recent" class="flex-none lg:hidden">
+  <button
+    on:click={handleLogoClick}
+    class="flex-none lg:hidden cursor-pointer transition-transform duration-150 active:scale-95 active:opacity-80"
+  >
     <img
       src={isDarkMode ? '/zap_cooking_logo_white.svg' : SVGNostrCookingWithText}
       class="w-28 sm:w-40 my-2 sm:my-3"
       alt="zap.cooking Logo With Text"
     />
-  </a>
+  </button>
 
   <div
     class="hidden sm:flex flex-1 self-center print:hidden max-w-2xl min-w-[280px] lg:min-w-[500px]"
