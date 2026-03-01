@@ -2,6 +2,8 @@
   import { page } from '$app/stores';
   import { unreadCount } from '$lib/notificationStore';
   import { triggerNotificationsNav } from '$lib/notificationsNav';
+  import { triggerExploreNav } from '$lib/exploreNav';
+  import { goto } from '$app/navigation';
   import { theme } from '$lib/themeStore';
   import SVGNostrCookingWithText from '../assets/nostr.cooking-withtext.svg';
   import { walletConnected } from '$lib/wallet';
@@ -129,9 +131,16 @@
 
   function handleNotificationsClick(event: MouseEvent, isActive: boolean) {
     triggerNotificationsNav();
-    // If we're already on the page, prevent navigation and just refresh/scroll
     if (isActive) {
       event.preventDefault();
+    }
+  }
+
+  function handleLogoClick() {
+    if ($page.url.pathname === '/explore') {
+      triggerExploreNav();
+    } else {
+      goto('/explore');
     }
   }
 
@@ -144,13 +153,16 @@
 >
   <div class="h-full overflow-y-auto p-3" style="background-color: var(--color-bg-primary);">
     <!-- Logo aligned with header position -->
-    <a href="/community" class="block pl-2 py-3">
+    <button
+      on:click={handleLogoClick}
+      class="block pl-2 py-3 cursor-pointer transition-transform duration-150 active:scale-95 active:opacity-80"
+    >
       <img
         src={isDarkMode ? '/zap_cooking_logo_white.svg' : SVGNostrCookingWithText}
         class="w-40"
         alt="Zap Cooking"
       />
-    </a>
+    </button>
     <nav class="flex flex-col gap-4 mt-4">
       <div>
         <h3

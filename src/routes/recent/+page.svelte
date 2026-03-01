@@ -6,8 +6,6 @@
   import PullToRefresh from '../../components/PullToRefresh.svelte';
   import { validateMarkdownTemplate } from '$lib/parser';
   import type { PageData } from './$types';
-  import TagsSearchAutocomplete from '../../components/TagsSearchAutocomplete.svelte';
-  import { goto } from '$app/navigation';
   import { RECIPE_TAGS } from '$lib/consts';
   import { feedCacheService } from '$lib/feedCache';
 
@@ -17,31 +15,18 @@
   let pullToRefreshEl: PullToRefresh;
   let subscription: NDKSubscription | null = null;
 
-  type TabType = 'recent' | 'all';
+  type TabType = 'recent';
   let activeTab: TabType = 'recent';
   let events: NDKEvent[] = [];
   let loaded = false;
-  let showSearch = false;
-  
+
   // Cache filter for consistent cache keys
   const cacheFilter = { kinds: [30023], '#t': RECIPE_TAGS };
 
   // Sort events by created_at descending (most recent first)
   $: sortedEvents = [...events].sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
-  
-  // For "All" tab, we show the same events but with search visible
-  $: displayEvents = sortedEvents;
 
-  function openTag(query: string) {
-    showSearch = false;
-    if (query.startsWith('npub')) {
-      goto(`/user/${query}`);
-    } else if (query.startsWith('naddr')) {
-      goto(`/recipe/${query}`);
-    } else {
-      goto(`/tag/${query}`);
-    }
-  }
+  $: displayEvents = sortedEvents;
 
   async function loadRecipes(skipCache = false) {
     const perfStart = performance.now();
@@ -191,57 +176,31 @@
   <!-- Header with toggle -->
   <div class="flex flex-col gap-3">
     <!-- Tabs -->
-    <div class="flex items-center justify-between gap-4">
-      <div class="flex gap-1 border-b" style="border-color: var(--color-input-border)">
-        <button
-          on:click={() => { activeTab = 'recent'; showSearch = false; }}
-          class="px-4 py-2 text-sm font-medium transition-colors relative cursor-pointer"
-          style="color: {activeTab === 'recent' ? 'var(--color-text-primary)' : 'var(--color-text-secondary)'}"
-        >
-          Recent
-          {#if activeTab === 'recent'}
-            <span class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-orange-500 to-amber-500"></span>
-          {/if}
-        </button>
-        <button
-          on:click={() => { activeTab = 'all'; showSearch = true; }}
-          class="px-4 py-2 text-sm font-medium transition-colors relative cursor-pointer"
-          style="color: {activeTab === 'all' ? 'var(--color-text-primary)' : 'var(--color-text-secondary)'}"
-        >
-          All
-          {#if activeTab === 'all'}
-            <span class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-orange-500 to-amber-500"></span>
-          {/if}
-        </button>
-        <a
-          href="/premium"
-          class="px-4 py-2 text-sm font-medium transition-colors relative cursor-pointer"
-          style="color: var(--color-text-secondary)"
-        >
-          Premium ⚡️
-        </a>
-      </div>
+    <div class="flex w-full border-b" style="border-color: var(--color-input-border)">
+      <button
+        on:click={() => { activeTab = 'recent'; }}
+        class="flex-1 py-2.5 text-sm font-medium transition-colors relative cursor-pointer text-center"
+        style="color: {activeTab === 'recent' ? 'var(--color-text-primary)' : 'var(--color-text-secondary)'}"
+      >
+        Recent
+        {#if activeTab === 'recent'}
+          <span class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-orange-500 to-amber-500"></span>
+        {/if}
+      </button>
+      <a
+        href="/premium"
+        class="flex-1 py-2.5 text-sm font-medium transition-colors relative cursor-pointer text-center"
+        style="color: var(--color-text-secondary)"
+      >
+        Premium ⚡️
+      </a>
     </div>
-
-    <!-- Search bar (shown on All tab) -->
-    {#if activeTab === 'all'}
-      <div class="max-w-md">
-        <TagsSearchAutocomplete
-          placeholderString={"Search recipes, tags, or users..."}
-          action={openTag}
-        />
-      </div>
-    {/if}
 
     <!-- Orientation text for signed-out users -->
     {#if $userPublickey === ''}
       <div class="pt-1">
         <p class="text-sm text-caption">
-          {#if activeTab === 'recent'}
-            Latest recipes, freshly published.
-          {:else}
-            All recipes, shared openly. Search by name, tag, or cook.
-          {/if}
+          Latest recipes, freshly published.
         </p>
       </div>
     {/if}

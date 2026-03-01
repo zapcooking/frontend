@@ -1,37 +1,29 @@
 <script lang="ts">
   import { notifications, unreadCount } from '$lib/notificationStore';
+  import { formatCompactTime } from '$lib/utils';
   import { goto } from '$app/navigation';
-  import { formatDistanceToNow } from 'date-fns';
   import { nip19 } from 'nostr-tools';
   import Avatar from './Avatar.svelte';
   import CustomName from './CustomName.svelte';
   import { onMount } from 'svelte';
-  
+  import HeartIcon from 'phosphor-svelte/lib/Heart';
+  import ChatCircleIcon from 'phosphor-svelte/lib/ChatCircle';
+  import ArrowsClockwiseIcon from 'phosphor-svelte/lib/ArrowsClockwise';
+  import LightningIcon from 'phosphor-svelte/lib/Lightning';
+  import AtIcon from 'phosphor-svelte/lib/At';
+
   export let onClose: () => void;
-  
+
   const MAX_PREVIEW = 8;
-  
-  // Auto-mark all as read when panel is opened
+
   onMount(() => {
     if ($unreadCount > 0) {
-      // Small delay to let user see unread indicators briefly
       setTimeout(() => {
         notifications.markAllAsRead();
       }, 500);
     }
   });
-  
-  function getIcon(type: string): string {
-    switch (type) {
-      case 'reaction': return '❤️';
-      case 'zap': return '⚡';
-      case 'comment': return '💬';
-      case 'mention': return '📣';
-      case 'repost': return '🔁';
-      default: return '🔔';
-    }
-  }
-  
+
   function getMessage(notification: any): string {
     switch (notification.type) {
       case 'reaction':
@@ -48,15 +40,10 @@
         return 'interacted with you';
     }
   }
-  
-  function formatTime(timestamp: number): string {
-    return formatDistanceToNow(timestamp * 1000, { addSuffix: true });
-  }
-  
+
   function handleNotificationClick(notification: any) {
     notifications.markAsRead(notification.id);
     onClose();
-    // Navigate to the event if we have an eventId
     if (notification.eventId) {
       const raw = String(notification.eventId).trim();
       if (!raw) return;
@@ -72,7 +59,7 @@
       }
     }
   }
-  
+
   function viewAll() {
     onClose();
     goto('/notifications');
@@ -96,13 +83,24 @@
       {#each $notifications.slice(0, MAX_PREVIEW) as notification (notification.id)}
         <button
           on:click={() => handleNotificationClick(notification)}
-          class="w-full flex items-start gap-3 px-4 py-3 hover:bg-accent-gray transition-colors cursor-pointer text-left"
+          class="w-full flex items-start gap-2.5 px-4 py-3 hover:bg-accent-gray transition-colors cursor-pointer text-left"
         >
-          <div class="relative flex-shrink-0">
-            <Avatar pubkey={notification.fromPubkey} size={40} />
-            <span class="absolute -bottom-1 -right-1 text-sm">
-              {getIcon(notification.type)}
-            </span>
+          <div class="flex-shrink-0 w-5 mt-0.5">
+            {#if notification.type === 'reaction'}
+              <HeartIcon size={16} weight="fill" color="#ef4444" />
+            {:else if notification.type === 'comment'}
+              <ChatCircleIcon size={16} weight="fill" color="#3b82f6" />
+            {:else if notification.type === 'repost'}
+              <ArrowsClockwiseIcon size={16} weight="bold" color="#22c55e" />
+            {:else if notification.type === 'zap'}
+              <LightningIcon size={16} weight="fill" color="#f59e0b" />
+            {:else if notification.type === 'mention'}
+              <AtIcon size={16} weight="bold" color="#a855f7" />
+            {/if}
+          </div>
+
+          <div class="flex-shrink-0">
+            <Avatar pubkey={notification.fromPubkey} size={32} />
           </div>
 
           <div class="flex-1 min-w-0">
@@ -113,12 +111,12 @@
               {' '}{getMessage(notification)}
             </p>
             {#if notification.content}
-              <p class="text-sm truncate mt-0.5" style="color: var(--color-text-secondary)">
-                "{notification.content}"
+              <p class="text-xs truncate mt-0.5" style="color: var(--color-text-secondary)">
+                {notification.content}
               </p>
             {/if}
-            <p class="text-xs mt-1" style="color: var(--color-text-secondary)">
-              {formatTime(notification.createdAt)}
+            <p class="text-xs mt-0.5" style="color: var(--color-text-secondary)">
+              {formatCompactTime(notification.createdAt)}
             </p>
           </div>
 
@@ -142,4 +140,3 @@
     </div>
   {/if}
 </div>
-

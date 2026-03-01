@@ -38,6 +38,7 @@
   import { cookingToolsOpen, cookingToolsStore } from '$lib/stores/cookingToolsWidget';
   import { browser } from '$app/environment';
   import type { PageData } from './$types';
+  import { exploreNavTick } from '$lib/exploreNav';
 
   // Accept SvelteKit props to prevent warnings
   export let data: PageData;
@@ -302,6 +303,18 @@
       cleanup?.();
     };
   });
+
+  // Logo tap while on /explore → scroll to top + refresh
+  let lastExploreTick = 0;
+  $: if ($exploreNavTick !== lastExploreTick) {
+    lastExploreTick = $exploreNavTick;
+    if (browser) {
+      const el = document.getElementById('app-scroll');
+      if (el) el.scrollTo({ top: 0, behavior: 'smooth' });
+      else window.scrollTo({ top: 0, behavior: 'smooth' });
+      void loadExploreData();
+    }
+  }
 
   function navigateToTag(tag: recipeTagSimple) {
     goto(`/tag/${tag.title}`);
