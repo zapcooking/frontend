@@ -6,8 +6,8 @@
   import { ndk, userPublickey } from '$lib/nostr';
   import { NDKEvent } from '@nostr-dev-kit/ndk';
   import { Fetch } from 'hurdak';
-  import { membershipStore, type MembershipTier } from '$lib/membershipStore';
   import { saveDraft } from '$lib/draftStore';
+  import { membershipStatusMap, queueMembershipLookup, type MembershipStatus } from '$lib/stores/membershipStatus';
   import { recipeTags, RECIPE_TAG_PREFIX_NEW, type recipeTagSimple } from '$lib/consts';
   import { createMarkdown, validateMarkdownTemplate } from '$lib/parser';
   import { addClientTagToEvent } from '$lib/nip89';
@@ -28,10 +28,15 @@
   import ImageIcon from 'phosphor-svelte/lib/Image';
   import FloppyDiskIcon from 'phosphor-svelte/lib/FloppyDisk';
 
+  // Membership gate
+  let membershipMap: Record<string, MembershipStatus> = {};
+  const unsubMembership = membershipStatusMap.subscribe((v) => { membershipMap = v; });
+  $: if ($userPublickey) queueMembershipLookup($userPublickey);
+  $: normalizedPk = String($userPublickey || '').trim().toLowerCase();
+  $: hasMembership = Boolean(membershipMap[normalizedPk]?.active);
+
   // State management
   let isLoading = true;
-  let hasMembership = true; // Membership check disabled for testing
-  let membershipTier: MembershipTier = 'pro';
   let errorMessage = '';
   
   // Input mode
@@ -75,14 +80,9 @@
   let directionsArray: Writable<string[]> = writable([]);
   let additionalMarkdown = '';
   
-  // Allow view/upload without login; gate only on Extract/Save (4.2 first-60-seconds improvement)
-  onMount(async () => {
-    if (!$userPublickey) {
-      isLoading = false;
-      return;
-    }
-    // Membership check disabled for testing - re-enable when ready
+  onMount(() => {
     isLoading = false;
+    return () => unsubMembership();
   });
   
   // Handle tab change

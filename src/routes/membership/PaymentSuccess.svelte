@@ -15,7 +15,7 @@
   $: membershipDetails = $paymentStore.membershipDetails;
   $: selectedTier = $paymentStore.selectedTier;
   $: showNip05Offer = selectedTier === 'cook' || selectedTier === 'pro';
-  $: nip05Tier = (selectedTier === 'cook' || selectedTier === 'pro') ? selectedTier as 'cook' | 'pro' : 'cook';
+  $: nip05Tier = selectedTier === 'pro' ? 'pro_kitchen' as const : 'cook_plus' as const;
   let claimedNip05Address: string | null = null;
   $: hasAutoAssignedNip05 = !!(membershipDetails?.nip05 || claimedNip05Address);
   $: displayNip05 = claimedNip05Address || membershipDetails?.nip05 || '';

@@ -11,7 +11,7 @@ import { profileCacheManager } from './profileCache';
 export interface Nip05Claim {
   username: string;
   pubkey: string;
-  tier: 'cook' | 'pro';
+  tier: 'cook_plus' | 'pro_kitchen' | 'founders';
   claimedAt: number;
 }
 
@@ -57,7 +57,7 @@ export async function checkUsernameAvailable(username: string): Promise<boolean>
 export async function claimNip05(
   username: string,
   pubkey: string,
-  tier: 'cook' | 'pro'
+  tier: 'cook_plus' | 'pro_kitchen' | 'founders'
 ): Promise<Nip05ClaimResult> {
   if (!browser) {
     return { success: false, error: 'Browser environment required' };

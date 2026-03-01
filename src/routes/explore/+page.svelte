@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, tick } from 'svelte';
+  import { onMount, onDestroy, tick } from 'svelte';
   import { goto } from '$app/navigation';
   import { recipeTags, CURATED_TAG_SECTIONS, type recipeTagSimple } from '$lib/consts';
   import { computePopularTags, type TagWithCount } from '$lib/tagUtils';
@@ -21,6 +21,7 @@
   import { nip19 } from 'nostr-tools';
   import { init, markOnce } from '$lib/perf/explorePerf';
   import { userPublickey, ensureNdkConnected } from '$lib/nostr';
+  import { membershipStatusMap, queueMembershipLookup, type MembershipStatus } from '$lib/stores/membershipStatus';
   import { cookingToolsOpen, cookingToolsStore } from '$lib/stores/cookingToolsWidget';
   import { browser } from '$app/environment';
   import type { PageData } from './$types';
@@ -252,6 +253,22 @@
     }
   }
 
+  // Membership status for teaser strip
+  let exploreMembershipMap: Record<string, MembershipStatus> = {};
+  const unsubExploreMembership = membershipStatusMap.subscribe((value) => {
+    exploreMembershipMap = value;
+  });
+
+  $: if ($userPublickey) {
+    queueMembershipLookup($userPublickey);
+  }
+
+  $: exploreMembershipStatus = $userPublickey ? exploreMembershipMap[$userPublickey.trim().toLowerCase()] : undefined;
+  // Only show teaser once lookup has resolved (avoid flash for members)
+  $: isNonMember = exploreMembershipStatus !== undefined && !exploreMembershipStatus.active;
+
+  onDestroy(() => { unsubExploreMembership(); });
+
   function navigateToTag(tag: recipeTagSimple) {
     goto(`/tag/${tag.title}`);
   }
@@ -322,8 +339,27 @@
       </div>
     {/if}
 
+    <!-- Membership teaser strip for logged-in non-members -->
+    {#if $userPublickey && isNonMember}
+      <div
+        class="rounded-xl px-4 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 text-sm"
+        style="background-color: var(--color-bg-secondary); border: 1px solid var(--color-input-border);"
+      >
+        <span style="color: var(--color-text-primary);">
+          ⚡ Cook+ members unlock AI tools, enhanced print layouts, and private groups.
+        </span>
+        <a
+          href="/membership"
+          class="font-medium whitespace-nowrap hover:opacity-80 transition-opacity"
+          style="color: var(--color-primary);"
+        >
+          Explore Membership →
+        </a>
+      </div>
+    {/if}
+
     <!-- Explore Content -->
-    <div class="flex flex-col gap-8">
+    <div class="flex flex-col gap-8 sm:gap-14">
       <!-- Membership Banner -->
       {#if showMembershipBanner}
         <section aria-label="Membership upgrade">

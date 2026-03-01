@@ -21,6 +21,7 @@
   import { weblnConnected } from '$lib/wallet/webln';
   import { bitcoinConnectEnabled, bitcoinConnectWalletInfo } from '$lib/wallet/bitcoinConnect';
   import { cookingToolsStore, cookingToolsOpen } from '$lib/stores/cookingToolsWidget';
+  import { membershipStatusMap, queueMembershipLookup, type MembershipStatus, type MembershipTier } from '$lib/stores/membershipStatus';
 
   let isLoading = true;
 
@@ -60,6 +61,41 @@
     $walletConnected ||
     $weblnConnected ||
     ($bitcoinConnectEnabled && $bitcoinConnectWalletInfo.connected);
+
+  // Membership status for header tier badge
+  let membershipMap: Record<string, MembershipStatus> = {};
+  const unsubMembership = membershipStatusMap.subscribe((value) => {
+    membershipMap = value;
+  });
+
+  $: if ($userPublickey) {
+    queueMembershipLookup($userPublickey);
+  }
+
+  $: userMembershipStatus = $userPublickey ? membershipMap[$userPublickey.trim().toLowerCase()] : undefined;
+  $: isActiveMember = Boolean(userMembershipStatus?.active);
+  $: membershipTier = userMembershipStatus?.tier;
+
+  function getTierLabel(tier: MembershipTier | undefined): string {
+    switch (tier) {
+      case 'cook_plus': return 'COOK+';
+      case 'pro_kitchen': return 'PRO';
+      case 'founders': return 'FOUNDER';
+      default: return '';
+    }
+  }
+
+  function getTierClasses(tier: MembershipTier | undefined): string {
+    switch (tier) {
+      case 'founders': return 'bg-amber-100 text-amber-700 border-amber-300 dark:bg-amber-900/30 dark:text-amber-300 dark:border-amber-700';
+      case 'pro_kitchen': return 'bg-violet-100 text-violet-700 border-violet-300 dark:bg-violet-900/30 dark:text-violet-300 dark:border-violet-700';
+      case 'cook_plus': return 'bg-orange-100 text-orange-700 border-orange-300 dark:bg-orange-900/30 dark:text-orange-300 dark:border-orange-700';
+      default: return '';
+    }
+  }
+
+  import { onDestroy } from 'svelte';
+  onDestroy(() => { unsubMembership(); });
 
   function toggleCookingTools() {
     cookingToolsStore.toggle();
@@ -123,7 +159,7 @@
         class="w-8 h-8 sm:w-9 sm:h-9 flex items-center justify-center rounded-full transition-colors cursor-pointer hover:bg-accent-gray"
         aria-label="Zappy"
       >
-        <RobotIcon size={18} weight="fill" class="text-yellow-500 sm:w-5 sm:h-5" />
+        <RobotIcon size={18} weight="regular" class="text-yellow-500/70 sm:w-5 sm:h-5" />
       </a>
     {/if}
 
@@ -179,6 +215,16 @@
           <span>Set up a Wallet</span>
         </a>
       {/if}
+    {/if}
+
+    <!-- Tier badge for active members -->
+    {#if $userPublickey && isActiveMember && getTierLabel(membershipTier)}
+      <a
+        href="/membership"
+        class="hidden sm:inline-flex px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wide border transition-colors hover:opacity-80 {getTierClasses(membershipTier)}"
+      >
+        {getTierLabel(membershipTier)}
+      </a>
     {/if}
 
     <!-- Sign in / User menu -->

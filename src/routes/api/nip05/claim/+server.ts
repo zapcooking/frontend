@@ -9,7 +9,7 @@
  * {
  *   username: string,
  *   pubkey: string,
- *   tier: 'cook' | 'pro'
+ *   tier: 'cook_plus' | 'pro_kitchen' | 'founders'
  * }
  * 
  * Returns:
@@ -77,7 +77,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
     }
     
     // Validate tier
-    if (tier && !['cook', 'pro'].includes(tier)) {
+    if (tier && !['cook', 'pro', 'cook_plus', 'pro_kitchen', 'founders'].includes(tier)) {
       return json(
         { success: false, error: 'Invalid tier' },
         { status: 400 }

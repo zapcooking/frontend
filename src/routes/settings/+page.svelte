@@ -451,7 +451,7 @@
           <div class="text-sm text-caption italic">Loading membership status...</div>
         {:else if membershipData?.found && membershipData.member}
           {@const member = membershipData.member}
-          {@const validTier = (['open', 'cook', 'pro'].includes(member.tier) ? member.tier : 'cook')}
+          {@const validTier = (['open', 'cook_plus', 'pro_kitchen', 'founders'].includes(member.tier) ? member.tier : 'cook_plus')}
           {@const expiryDate = new Date(member.subscription_end)}
 
           <!-- Current Plan -->
@@ -509,7 +509,7 @@
                 {portalLoading ? 'Opening...' : 'Manage Subscription'}
               </Button>
             {/if}
-            {#if member.tier === 'cook' && membershipData.isActive}
+            {#if member.tier === 'cook_plus' && membershipData.isActive}
               <button
                 type="button"
                 class="w-full px-4 py-2 bg-secondary hover:bg-accent-gray rounded-lg text-sm font-medium transition-colors"

@@ -2,7 +2,7 @@ import { writable, derived, get } from 'svelte/store';
 import { browser } from '$app/environment';
 import type { Tier } from '../routes/membership/paymentStore';
 
-export type MembershipTier = 'open' | 'cook' | 'pro';
+export type MembershipTier = 'open' | 'cook_plus' | 'pro_kitchen' | 'founders';
 
 export interface Membership {
   pubkey: string; // hex pubkey

@@ -186,7 +186,7 @@ function createPaymentStore() {
           import('$lib/membershipStore').then(({ membershipStore }) => {
             membershipStore.setMembership({
               pubkey: userPubkey,
-              tier: tier as 'cook' | 'pro',
+              tier: tier === 'pro' ? 'pro_kitchen' as const : 'cook_plus' as const,
               expiresAt: expiresAt.getTime(),
               purchasedAt: Date.now(),
               paymentMethod: method,
