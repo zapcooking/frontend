@@ -17,24 +17,10 @@
   import TrendingRecipeCard from '../../components/TrendingRecipeCard.svelte';
   import PullToRefresh from '../../components/PullToRefresh.svelte';
   import LongformFoodFeed from '../../components/LongformFoodFeed.svelte';
-  import MeshHeroOverlay from '../../components/mesh/MeshHeroOverlay.svelte';
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
   import { nip19 } from 'nostr-tools';
   import { init, markOnce } from '$lib/perf/explorePerf';
   import { userPublickey, ensureNdkConnected } from '$lib/nostr';
-  import { fetchMeshRecipes, fetchMeshEngagement, buildMeshGraph, type EngagementMap } from '$lib/meshUtils';
-  import type { MeshNode, MeshEdge } from '$lib/mesh/meshTypes';
-  import { getCachedLayout, applyCachedLayout } from '$lib/mesh/meshLayout';
-  import {
-    forceSimulation,
-    forceLink,
-    forceManyBody,
-    forceCenter,
-    forceCollide,
-    forceX,
-    forceY
-  } from 'd3-force';
-  import type { SimulationNodeDatum, SimulationLinkDatum } from 'd3-force';
   import { cookingToolsOpen, cookingToolsStore } from '$lib/stores/cookingToolsWidget';
   import { browser } from '$app/environment';
   import type { PageData } from './$types';
@@ -42,6 +28,21 @@
 
   // Accept SvelteKit props to prevent warnings
   export let data: PageData;
+
+  // Membership banner dismiss (re-shows after 7 days)
+  const MEMBERSHIP_BANNER_KEY = 'zapcooking_membership_banner_dismissed_at';
+  const MEMBERSHIP_BANNER_TTL = 7 * 24 * 60 * 60 * 1000;
+  let showMembershipBanner = true;
+  if (browser) {
+    const dismissedAt = localStorage.getItem(MEMBERSHIP_BANNER_KEY);
+    if (dismissedAt && Date.now() - Number(dismissedAt) < MEMBERSHIP_BANNER_TTL) {
+      showMembershipBanner = false;
+    }
+  }
+  function dismissMembershipBanner() {
+    showMembershipBanner = false;
+    if (browser) localStorage.setItem(MEMBERSHIP_BANNER_KEY, String(Date.now()));
+  }
 
   // One-time Cooking Tools tip (4.2 first-60-seconds improvement)
   const COOKING_TOOLS_TIP_KEY = 'zapcooking_cooking_tools_tip_seen';
@@ -129,11 +130,6 @@
   let loadingDiscover = true;
   let cultureExpanded = false;
 
-  // Mesh hero state
-  let heroNodes: MeshNode[] = [];
-  let heroEdges: MeshEdge[] = [];
-  let heroReady = false;
-
   // Compute section references reactively
   $: intentSection = CURATED_TAG_SECTIONS.find((s) => s.title === 'Why are you cooking?');
   $: cultureSection = CURATED_TAG_SECTIONS.find((s) => s.title === 'Explore by culture');
@@ -197,66 +193,6 @@
       loadingPopular = false;
     });
 
-    // Load mesh hero data (non-blocking, in parallel)
-    loadMeshHero();
-  }
-
-  async function loadMeshHero() {
-    try {
-      const meshRecipes = await fetchMeshRecipes();
-      if (meshRecipes.length === 0) return;
-
-      const meshEngagement = await fetchMeshEngagement(meshRecipes);
-
-      // Use a reduced set for the hero (top 40 recipes)
-      const topRecipes = meshRecipes.slice(0, 40);
-      const graph = buildMeshGraph(topRecipes, meshEngagement);
-
-      // Check for cached layout
-      const nodeIds = graph.nodes.map((n) => n.id);
-      const cached = getCachedLayout(nodeIds, graph.edges.length);
-      if (cached) {
-        applyCachedLayout(graph.nodes, cached);
-        heroNodes = graph.nodes;
-        heroEdges = graph.edges;
-        heroReady = true;
-        return;
-      }
-
-      // Quick simulation for hero positions — non-blocking
-      const simNodes = graph.nodes as (MeshNode & SimulationNodeDatum)[];
-      const sim = forceSimulation(simNodes)
-        .force('link', forceLink(graph.edges as any[]).id((d: any) => d.id).distance(70).strength(0.3))
-        .force('charge', forceManyBody().strength(-30))
-        .force('center', forceCenter(300, 250))
-        .force('collide', forceCollide().radius(25))
-        .stop();
-
-      // Settle in batches to avoid blocking the main thread
-      const BATCH = 50;
-      await new Promise<void>((resolve) => {
-        function tickBatch() {
-          let ticked = 0;
-          while (sim.alpha() > 0.001 && ticked < BATCH) {
-            sim.tick();
-            ticked++;
-          }
-          if (sim.alpha() > 0.001) {
-            setTimeout(tickBatch, 0);
-          } else {
-            resolve();
-          }
-        }
-        tickBatch();
-      });
-
-      heroNodes = simNodes;
-      heroEdges = graph.edges;
-      heroReady = true;
-    } catch (err) {
-      // Mesh hero is non-critical — if it fails, just don't show it
-      console.warn('[MeshHero] Failed to load:', err);
-    }
   }
 
   async function handleRefresh() {
@@ -388,14 +324,79 @@
 
     <!-- Explore Content -->
     <div class="flex flex-col gap-8">
-      <!-- Mesh Hero -->
-      {#if heroReady || heroNodes.length > 0}
-        <section>
-          <MeshHeroOverlay
-            nodes={heroNodes}
-            edges={heroEdges}
-            ready={heroReady}
-          />
+      <!-- Membership Banner -->
+      {#if showMembershipBanner}
+        <section aria-label="Membership upgrade">
+          <div class="membership-banner relative rounded-xl p-5 md:p-6 overflow-hidden">
+            <!-- Dismiss -->
+            <button
+              type="button"
+              on:click={dismissMembershipBanner}
+              class="absolute top-3 right-3 z-10 p-1.5 rounded-full transition-colors"
+              style="color: var(--color-text-secondary); background: transparent;"
+              aria-label="Dismiss membership banner"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+
+            <!-- Top: Headline + Subhead -->
+            <div class="mb-4 pr-8">
+              <h2 class="text-lg font-bold mb-1">
+                &#9889; Level up your kitchen
+              </h2>
+              <p class="text-sm" style="color: var(--color-caption);">
+                AI-powered tools and an exclusive community of cooks, built on Nostr.
+              </p>
+            </div>
+
+            <!-- Feature pills -->
+            <div class="flex flex-wrap gap-2 mb-5">
+              <span class="membership-pill">&#129302; Plan your week</span>
+              <span class="membership-pill">&#127859; Cook from what you have</span>
+              <span class="membership-pill">&#128722; One-tap grocery list</span>
+              <span class="membership-pill">&#129489;&#8205;&#127859; Members-only groups</span>
+              <span class="membership-pill">&#128274; Private relay access</span>
+            </div>
+
+            <!-- Pricing cards -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-5">
+              <!-- Cook+ -->
+              <div
+                class="rounded-lg px-4 py-3"
+                style="background-color: rgba(0,0,0,0.08); border: 1px solid var(--color-input-border);"
+              >
+                <p class="text-sm font-semibold">Cook+</p>
+                <p class="text-lg font-bold">$4.99<span class="text-xs font-normal" style="color: var(--color-caption);">/mo</span></p>
+                <p class="text-xs" style="color: var(--color-caption);">or $49/yr and save</p>
+              </div>
+              <!-- Pro Kitchen -->
+              <div
+                class="rounded-lg px-4 py-3 relative"
+                style="border: 1.5px solid var(--color-primary); background: rgba(236,71,0,0.06);"
+              >
+                <span
+                  class="absolute -top-2.5 right-3 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full"
+                  style="background-color: var(--color-primary); color: white;"
+                >Best value</span>
+                <p class="text-sm font-semibold">Pro Kitchen</p>
+                <p class="text-lg font-bold">$8.99<span class="text-xs font-normal" style="color: var(--color-caption);">/mo</span></p>
+                <p class="text-xs" style="color: var(--color-caption);">or $89/yr and save</p>
+              </div>
+            </div>
+
+            <!-- CTA + social proof -->
+            <div class="flex flex-col sm:flex-row sm:items-center gap-3">
+              <a
+                href="/membership"
+                class="membership-cta inline-flex items-center justify-center gap-1.5 text-sm font-semibold px-5 py-2.5 rounded-full transition-colors sm:w-auto w-full"
+              >
+                &#9889; Enter Pro Kitchen
+              </a>
+              <p class="text-xs" style="color: var(--color-caption);">
+                Join 200+ cooks building on Nostr
+              </p>
+            </div>
+          </div>
         </section>
       {/if}
 
@@ -714,5 +715,45 @@
   :global(html.dark) .cooking-tools-tip-wrapper {
     --tip-bg: var(--color-bg-secondary);
     --tip-border: var(--color-input-border);
+  }
+
+  /* Membership banner */
+  .membership-banner {
+    background-color: var(--color-bg-secondary);
+    border: 1px solid var(--color-input-border);
+    border-left: 3px solid var(--color-primary);
+    box-shadow: 0 0 24px -6px rgba(236, 71, 0, 0.08);
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .membership-banner {
+      box-shadow: 0 0 28px -4px rgba(236, 71, 0, 0.12);
+    }
+  }
+
+  .membership-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    font-size: 0.75rem;
+    font-weight: 500;
+    padding: 0.3rem 0.65rem;
+    border-radius: 9999px;
+    border: 1px solid var(--color-input-border);
+    white-space: nowrap;
+  }
+
+  .membership-cta {
+    background-color: var(--color-primary);
+    color: white;
+  }
+
+  .membership-cta:hover {
+    filter: brightness(1.1);
+  }
+
+  .membership-cta:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
   }
 </style>
