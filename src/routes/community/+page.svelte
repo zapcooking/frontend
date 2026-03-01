@@ -1,11 +1,23 @@
 <script lang="ts">
   import FoodstrFeedOptimized from '../../components/FoodstrFeedOptimized.svelte';
   import PullToRefresh from '../../components/PullToRefresh.svelte';
-  import { userPublickey } from '$lib/nostr';
+  import { ndk, userPublickey } from '$lib/nostr';
+  import { browser } from '$app/environment';
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
   import { onMount, onDestroy } from 'svelte';
   import type { PageData } from './$types';
+  import GroupList from '$lib/components/groups/GroupList.svelte';
+  import GroupThread from '$lib/components/groups/GroupThread.svelte';
+  import CreateGroupModal from '$lib/components/groups/CreateGroupModal.svelte';
+  import {
+    initGroupSubscription,
+    groupsInitialized,
+    groupsLoading,
+    groupsInitAnonymous,
+    setActiveGroup,
+    clearGroups
+  } from '$lib/stores/groups';
 
   // Pull-to-refresh refs
   let pullToRefreshEl: PullToRefresh;
@@ -36,6 +48,30 @@
 
   // Key to force component recreation
   let feedKey = 0;
+
+  // Groups state (for Pantry tab)
+  let selectedGroupId: string | null = null;
+  let createGroupOpen = false;
+
+  $: showThread = selectedGroupId !== null;
+  $: isLoggedIn = !!$userPublickey;
+
+  function handleSelectGroup(e: CustomEvent<{ groupId: string }>) {
+    selectedGroupId = e.detail.groupId;
+  }
+
+  function handleBack() {
+    selectedGroupId = null;
+    setActiveGroup(null);
+  }
+
+  function handleCreateGroup() {
+    createGroupOpen = true;
+  }
+
+  function handleGroupCreated(e: CustomEvent<{ groupId: string }>) {
+    selectedGroupId = e.detail.groupId;
+  }
 
   // Scroll-based fade state
   let tabsVisible = true;
@@ -133,6 +169,11 @@
       checkMembership();
     }
 
+    // Initialize group subscription for Pantry tab
+    if (browser && !$groupsInitialized && !$groupsLoading) {
+      initGroupSubscription($ndk, $userPublickey || undefined);
+    }
+
     // Setup scroll listener for tab fade
     if (typeof window !== 'undefined') {
       // Find the scrollable container (app-scroll from layout)
@@ -159,6 +200,12 @@
     }
   });
 
+  // Re-initialize groups when user logs in after anonymous browsing
+  $: if (browser && isLoggedIn && $groupsInitialized && $groupsInitAnonymous) {
+    clearGroups();
+    initGroupSubscription($ndk, $userPublickey!);
+  }
+
   onDestroy(() => {
     // Cleanup scroll listener and timeout
     if (scrollContainer && throttledScrollHandler) {
@@ -167,6 +214,7 @@
     if (scrollTimeout) {
       clearTimeout(scrollTimeout);
     }
+    setActiveGroup(null);
   });
 </script>
 
@@ -284,34 +332,47 @@
       </div>
     </div>
 
-    <!-- Pantry Coming Soon overlay -->
+    <!-- Pantry tab: Groups UI -->
     {#if activeTab === 'members'}
-      <div class="relative">
-        <!-- Coming Soon overlay -->
-        <div class="coming-soon-overlay">
-          <div class="coming-soon-card">
-            <span class="text-3xl mb-2">🏪</span>
-            <h3 class="text-xl font-bold mb-2" style="color: var(--color-text-primary)">
-              The Pantry
-            </h3>
-            <p class="text-sm mb-4" style="color: var(--color-caption)">
-              A members-only space for exclusive content and community discussions. Coming soon!
-            </p>
-            <a
-              href="/pantry"
-              class="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-primary text-white font-medium text-sm hover:opacity-90 transition-opacity"
-            >
-              Learn More
-            </a>
-          </div>
+      <div
+        class="flex rounded-xl overflow-hidden border"
+        style="height: calc(100vh - 10rem); border-color: var(--color-input-border); background-color: var(--color-bg-secondary);"
+      >
+        <!-- Group List (left panel) -->
+        <div
+          class="w-full lg:w-80 xl:w-96 flex-shrink-0 border-r {showThread
+            ? 'hidden lg:block'
+            : 'block'}"
+          style="border-color: var(--color-input-border); background-color: var(--color-bg-primary);"
+        >
+          <GroupList
+            {selectedGroupId}
+            {isLoggedIn}
+            on:select={handleSelectGroup}
+            on:createGroup={handleCreateGroup}
+          />
         </div>
-        <!-- Feed in background (blurred) -->
-        <div class="blur-sm opacity-30 pointer-events-none">
-          {#key feedKey}
-            <FoodstrFeedOptimized bind:this={feedComponent} filterMode={activeTab} />
-          {/key}
+
+        <!-- Group Thread (right panel) -->
+        <div
+          class="flex-1 min-w-0 {showThread ? 'block' : 'hidden lg:block'}"
+          style="background-color: var(--color-bg-primary);"
+        >
+          {#if selectedGroupId}
+            <GroupThread groupId={selectedGroupId} {isLoggedIn} on:back={handleBack} />
+          {:else}
+            <div class="flex items-center justify-center h-full">
+              <p class="text-sm" style="color: var(--color-caption);">
+                {isLoggedIn ? 'Select a group or create a new one.' : 'Select a group to view.'}
+              </p>
+            </div>
+          {/if}
         </div>
       </div>
+
+      {#if isLoggedIn}
+        <CreateGroupModal bind:open={createGroupOpen} on:created={handleGroupCreated} />
+      {/if}
     {:else}
       {#key feedKey}
         <FoodstrFeedOptimized bind:this={feedComponent} filterMode={activeTab} />
@@ -370,25 +431,4 @@
     display: none; /* Chrome, Safari, Opera */
   }
 
-  /* Coming Soon overlay */
-  .coming-soon-overlay {
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    z-index: 10;
-    display: flex;
-    justify-content: center;
-    padding-top: 4rem;
-  }
-
-  .coming-soon-card {
-    background: var(--color-bg-secondary);
-    border: 1px solid var(--color-input-border);
-    border-radius: 1rem;
-    padding: 2rem;
-    text-align: center;
-    max-width: 320px;
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
-  }
 </style>
