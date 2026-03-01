@@ -53,7 +53,7 @@ export function formatCompactTime(unixTimestamp: number): string {
   const weeks = Math.floor(days / 7);
   if (weeks < 5) return `${weeks}w`;
   const months = Math.floor(days / 30);
-  if (months < 12) return `${months}mo`;
-  const years = Math.floor(days / 365);
+  if (days < 365) return `${months}mo`;
+  const years = Math.max(1, Math.floor(days / 365));
   return `${years}y`;
 }
