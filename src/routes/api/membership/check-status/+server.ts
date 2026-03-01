@@ -29,6 +29,21 @@ import { json, type RequestHandler } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
 import { lookupMember } from '$lib/membershipApi.server';
 
+/**
+ * Normalize relay tier values to the canonical app tiers.
+ * Founders are stored as tier:'standard' with payment_id like 'genesis_1'.
+ */
+function normalizeRelayTier(tier: string | null | undefined, paymentId?: string | null): string {
+  const pid = String(paymentId || '').trim().toLowerCase();
+  if (pid.startsWith('genesis_') || pid.startsWith('founder')) return 'founders';
+
+  const value = String(tier || '').trim().toLowerCase();
+  if (value === 'cook_plus' || value === 'cook-plus' || value === 'cook plus' || value === 'cook') return 'cook_plus';
+  if (value === 'pro_kitchen' || value === 'pro-kitchen' || value === 'pro kitchen' || value === 'pro') return 'pro_kitchen';
+  if (value === 'founders' || value === 'founder' || value === 'genesis_founder' || value === 'genesis-founder') return 'founders';
+  return 'open';
+}
+
 export const POST: RequestHandler = async ({ request, platform }) => {
   // Membership feature flag guard
   const MEMBERSHIP_ENABLED = platform?.env?.MEMBERSHIP_ENABLED || env.MEMBERSHIP_ENABLED;
@@ -74,7 +89,10 @@ export const POST: RequestHandler = async ({ request, platform }) => {
       found: true,
       isActive: result.isActive,
       isExpired: result.isExpired,
-      member: result.member
+      member: {
+        ...result.member,
+        tier: normalizeRelayTier(result.member.tier, result.member.payment_id)
+      }
     });
 
   } catch (error: any) {

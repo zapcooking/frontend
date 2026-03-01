@@ -21,6 +21,8 @@
  */
 
 import { json, type RequestHandler } from '@sveltejs/kit';
+import { env } from '$env/dynamic/private';
+import { hasActiveMembership } from '$lib/membershipApi.server';
 import { getGatedContent, storeGatedContent, hasGatedContent, updateGatedContentNaddr, type GatedKV } from '$lib/nip108/server-store';
 
 function getKV(platform: App.Platform | undefined): GatedKV {
@@ -53,6 +55,19 @@ export const POST: RequestHandler = async ({ request, platform }) => {
         { error: 'Missing required fields' },
         { status: 400 }
       );
+    }
+
+    // Membership gate: only active members can create gated recipes
+    const API_SECRET = platform?.env?.RELAY_API_SECRET || env.RELAY_API_SECRET;
+    const MEMBERSHIP_ENABLED = String(platform?.env?.MEMBERSHIP_ENABLED || env.MEMBERSHIP_ENABLED || '').toLowerCase();
+    if (MEMBERSHIP_ENABLED === 'true' && API_SECRET) {
+      const isActive = await hasActiveMembership(authorPubkey, API_SECRET);
+      if (!isActive) {
+        return json(
+          { error: 'Active membership required to create gated recipes' },
+          { status: 403 }
+        );
+      }
     }
 
     if (typeof costMsats !== 'number' || costMsats <= 0) {

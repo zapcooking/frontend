@@ -39,13 +39,13 @@
     if (!isActiveMember) return '';
     switch (status?.tier) {
       case 'founders':
-        return 'box-shadow: 0 0 0 2px rgba(255,215,0,0.85), 0 0 12px 4px rgba(255,215,0,0.6), 0 0 24px 8px rgba(255,215,0,0.3);';
+        return 'box-shadow: 0 0 0 2px rgba(255,215,0,0.85), 0 0 10px 3px rgba(255,215,0,0.4), 0 0 20px 6px rgba(255,215,0,0.2);';
       case 'pro_kitchen':
-        return 'box-shadow: 0 0 0 2px rgba(139,92,246,0.8), 0 0 12px 4px rgba(139,92,246,0.6), 0 0 24px 8px rgba(139,92,246,0.3);';
+        return 'box-shadow: 0 0 0 2px rgba(139,92,246,0.8), 0 0 10px 3px rgba(139,92,246,0.4), 0 0 20px 6px rgba(139,92,246,0.2);';
       case 'cook_plus':
-        return 'box-shadow: 0 0 0 2px rgba(249,115,22,0.8), 0 0 12px 4px rgba(249,115,22,0.6), 0 0 24px 8px rgba(249,115,22,0.3);';
+        return 'box-shadow: 0 0 0 2px rgba(249,115,22,0.8), 0 0 10px 3px rgba(249,115,22,0.4), 0 0 20px 6px rgba(249,115,22,0.2);';
       default:
-        return 'box-shadow: 0 0 0 2px rgba(249,115,22,0.8), 0 0 12px 4px rgba(249,115,22,0.6), 0 0 24px 8px rgba(249,115,22,0.3);';
+        return 'box-shadow: 0 0 0 2px rgba(249,115,22,0.8), 0 0 10px 3px rgba(249,115,22,0.4), 0 0 20px 6px rgba(249,115,22,0.2);';
     }
   })();
 

@@ -250,7 +250,7 @@
       <Nip05ClaimModal
         bind:open={showNip05Modal}
         pubkey={$userPublickey}
-        tier="pro"
+        tier="founders"
         currentNip05={nip05}
         skipProfileUpdate={true}
         on:claimed={handleNip05Claimed}
