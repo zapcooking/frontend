@@ -2,12 +2,14 @@ import { env } from '$env/dynamic/private';
 import type { PageServerLoad } from './$types';
 import { nip19 } from 'nostr-tools';
 
-// Fixed order for first 4 Genesis Founders (npubs)
+// Fixed order for Genesis Founders (npubs)
 const PRIORITY_FOUNDER_NPUBS = [
   'npub15u3cqhx6vuj3rywg0ph5mfv009lxja6cyvqn2jagaydukq6zmjwqex05rq', // #1
   'npub1aeh2zw4elewy5682lxc6xnlqzjnxksq303gwu2npfaxd49vmde6qcq4nwx', // #2
   'npub1cgcwm56v5hyrrzl5ty4vq4kdud63n5u4czgycdl2r3jshzk55ufqe52ndy', // #3
-  'npub1chakany8dcz93clv4xgcudcvhnfhdyqutprq2yh72daydevv8zasmuhf02' // #4
+  'npub1chakany8dcz93clv4xgcudcvhnfhdyqutprq2yh72daydevv8zasmuhf02', // #4
+  'npub16e3vzr7dk2uepjcnl85nfare3kdapxge08gr42s99n9kg7xs8xhs90y9v6', // #5
+  'npub150eky5egxszxl7dw2kwn6mkmhag7d6e84eyls22dkjrmjsd89qtsqlve3l' // #6
 ];
 
 // Convert npubs to hex pubkeys

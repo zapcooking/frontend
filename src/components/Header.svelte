@@ -1,13 +1,14 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
+  import { page } from '$app/stores';
   import { userPublickey, userProfilePictureOverride } from '$lib/nostr';
+  import { triggerExploreNav } from '$lib/exploreNav';
   import SVGNostrCookingWithText from '../assets/nostr.cooking-withtext.svg';
   import SearchIcon from 'phosphor-svelte/lib/MagnifyingGlass';
   import CookingPotIcon from 'phosphor-svelte/lib/CookingPot';
   import SparkleIcon from 'phosphor-svelte/lib/Sparkle';
   import RobotIcon from 'phosphor-svelte/lib/Robot';
   import TagsSearchAutocomplete from './TagsSearchAutocomplete.svelte';
-  import { page } from '$app/stores';
   import CustomAvatar from './CustomAvatar.svelte';
   import { theme } from '$lib/themeStore';
   import WalletBalance from './WalletBalance.svelte';
@@ -20,6 +21,7 @@
   import { weblnConnected } from '$lib/wallet/webln';
   import { bitcoinConnectEnabled, bitcoinConnectWalletInfo } from '$lib/wallet/bitcoinConnect';
   import { cookingToolsStore, cookingToolsOpen } from '$lib/stores/cookingToolsWidget';
+  import { membershipStatusMap, queueMembershipLookup, type MembershipStatus, type MembershipTier } from '$lib/stores/membershipStatus';
 
   let isLoading = true;
 
@@ -60,20 +62,66 @@
     $weblnConnected ||
     ($bitcoinConnectEnabled && $bitcoinConnectWalletInfo.connected);
 
+  // Membership status for header tier badge
+  let membershipMap: Record<string, MembershipStatus> = {};
+  const unsubMembership = membershipStatusMap.subscribe((value) => {
+    membershipMap = value;
+  });
+
+  $: if ($userPublickey) {
+    queueMembershipLookup($userPublickey);
+  }
+
+  $: userMembershipStatus = $userPublickey ? membershipMap[$userPublickey.trim().toLowerCase()] : undefined;
+  $: isActiveMember = Boolean(userMembershipStatus?.active);
+  $: membershipTier = userMembershipStatus?.tier;
+
+  function getTierLabel(tier: MembershipTier | undefined): string {
+    switch (tier) {
+      case 'cook_plus': return 'COOK+';
+      case 'pro_kitchen': return 'PRO';
+      case 'founders': return 'FOUNDER';
+      default: return '';
+    }
+  }
+
+  function getTierClasses(tier: MembershipTier | undefined): string {
+    switch (tier) {
+      case 'founders': return 'bg-amber-100 text-amber-700 border-amber-300 dark:bg-amber-900/30 dark:text-amber-300 dark:border-amber-700';
+      case 'pro_kitchen': return 'bg-violet-100 text-violet-700 border-violet-300 dark:bg-violet-900/30 dark:text-violet-300 dark:border-violet-700';
+      case 'cook_plus': return 'bg-orange-100 text-orange-700 border-orange-300 dark:bg-orange-900/30 dark:text-orange-300 dark:border-orange-700';
+      default: return '';
+    }
+  }
+
+  import { onDestroy } from 'svelte';
+  onDestroy(() => { unsubMembership(); });
+
   function toggleCookingTools() {
     cookingToolsStore.toggle();
+  }
+
+  function handleLogoClick() {
+    if ($page.url.pathname === '/explore') {
+      triggerExploreNav();
+    } else {
+      goto('/explore');
+    }
   }
 </script>
 
 <!-- Mobile-first layout -->
 <div class="relative flex gap-2 sm:gap-9 lg:gap-12 justify-between overflow-visible">
-  <a href="/recent" class="flex-none lg:hidden">
+  <button
+    on:click={handleLogoClick}
+    class="flex-none lg:hidden cursor-pointer transition-transform duration-150 active:scale-95 active:opacity-80"
+  >
     <img
       src={isDarkMode ? '/zap_cooking_logo_white.svg' : SVGNostrCookingWithText}
       class="w-28 sm:w-40 my-2 sm:my-3"
       alt="zap.cooking Logo With Text"
     />
-  </a>
+  </button>
 
   <div
     class="hidden sm:flex flex-1 self-center print:hidden max-w-2xl min-w-[280px] lg:min-w-[500px]"
@@ -111,7 +159,7 @@
         class="w-8 h-8 sm:w-9 sm:h-9 flex items-center justify-center rounded-full transition-colors cursor-pointer hover:bg-accent-gray"
         aria-label="Zappy"
       >
-        <RobotIcon size={18} weight="fill" class="text-yellow-500 sm:w-5 sm:h-5" />
+        <RobotIcon size={18} weight="regular" class="text-yellow-500/70 sm:w-5 sm:h-5" />
       </a>
     {/if}
 
@@ -167,6 +215,16 @@
           <span>Set up a Wallet</span>
         </a>
       {/if}
+    {/if}
+
+    <!-- Tier badge for active members -->
+    {#if $userPublickey && isActiveMember && getTierLabel(membershipTier)}
+      <a
+        href="/membership"
+        class="hidden sm:inline-flex px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wide border transition-colors hover:opacity-80 {getTierClasses(membershipTier)}"
+      >
+        {getTierLabel(membershipTier)}
+      </a>
     {/if}
 
     <!-- Sign in / User menu -->

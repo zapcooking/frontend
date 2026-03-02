@@ -3,7 +3,7 @@
   import { browser } from '$app/environment';
   import { goto } from '$app/navigation';
   import { userPublickey } from '$lib/nostr';
-  import { membershipStore, type MembershipTier } from '$lib/membershipStore';
+  import { membershipStatusMap, queueMembershipLookup, type MembershipStatus } from '$lib/stores/membershipStatus';
   import { activeWallet, getWalletKindName } from '$lib/wallet';
   import { sendPayment } from '$lib/wallet/walletManager';
   import { lightningService } from '$lib/lightningService';
@@ -26,10 +26,15 @@
   // Zappy's lightning address
   const ZAPPY_LIGHTNING_ADDRESS = 'ZapCooking@getalby.com';
 
+  // Membership gate
+  let membershipMap: Record<string, MembershipStatus> = {};
+  const unsubMembership = membershipStatusMap.subscribe((v) => { membershipMap = v; });
+  $: if ($userPublickey) queueMembershipLookup($userPublickey);
+  $: normalizedPk = String($userPublickey || '').trim().toLowerCase();
+  $: hasMembership = Boolean(membershipMap[normalizedPk]?.active);
+
   // State management
   let isLoading = true;
-  let hasMembership = true; // Membership check disabled for testing
-  let membershipTier: MembershipTier = 'pro';
   
   // Form state
   let promptInput = '';
@@ -89,13 +94,12 @@
   $: hasInAppWallet = $activeWallet && ($activeWallet.kind === 3 || $activeWallet.kind === 4);
   
   // Check membership on mount
-  onMount(async () => {
+  onMount(() => {
     if (!$userPublickey) {
       goto('/login?redirect=/zappy');
       return;
     }
-    
-    // Membership check disabled for testing - re-enable when ready
+
     isLoading = false;
     
     // Start rotating placeholder examples
@@ -105,6 +109,7 @@
   });
   
   onDestroy(() => {
+    unsubMembership();
     if (placeholderInterval) clearInterval(placeholderInterval);
     if (copyTimeout) clearTimeout(copyTimeout);
     if (zapSuccessTimeout) clearTimeout(zapSuccessTimeout);

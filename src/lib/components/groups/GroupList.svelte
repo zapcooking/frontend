@@ -60,16 +60,6 @@
 		return text.length > maxLen ? text.slice(0, maxLen) + '...' : text;
 	}
 
-	function formatRelativeTime(ts: number): string {
-		if (!ts) return '';
-		const now = Date.now() / 1000;
-		const diff = now - ts;
-		if (diff < 60) return 'now';
-		if (diff < 3600) return `${Math.floor(diff / 60)}m`;
-		if (diff < 86400) return `${Math.floor(diff / 3600)}h`;
-		if (diff < 604800) return `${Math.floor(diff / 86400)}d`;
-		return new Date(ts * 1000).toLocaleDateString([], { month: 'short', day: 'numeric' });
-	}
 
 	function getLastMessagePreview(messages: { content: string }[]): string {
 		if (messages.length === 0) return '';
@@ -385,18 +375,6 @@
 										</span>
 									{/if}
 								</span>
-								{#if group.lastMessageAt}
-									<span class="text-xs flex-shrink-0 ml-2 flex items-center gap-1" style="color: var(--color-caption);">
-										{formatRelativeTime(group.lastMessageAt)}
-										{#if group.unreadCount > 0}
-											<span class="w-2.5 h-2.5 rounded-full bg-red-500 flex-shrink-0"></span>
-										{/if}
-									</span>
-								{:else if group.unreadCount > 0}
-									<span class="flex-shrink-0 ml-2">
-										<span class="w-2.5 h-2.5 rounded-full bg-red-500 flex-shrink-0 inline-block"></span>
-									</span>
-								{/if}
 							</div>
 							<p class="text-xs truncate mt-0.5" style="color: var(--color-caption);">
 								{getLastMessagePreview(group.messages) || group.about || ''}

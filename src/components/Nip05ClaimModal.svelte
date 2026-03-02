@@ -9,7 +9,7 @@
 
   export let open: boolean = false;
   export let pubkey: string;
-  export let tier: 'cook' | 'pro';
+  export let tier: 'cook_plus' | 'pro_kitchen' | 'founders';
   export let currentNip05: string | null = null; // If user already has a NIP-05
   export let skipProfileUpdate: boolean = false; // If true, only claim without updating Nostr profile
 
@@ -180,7 +180,7 @@
                 Current: <strong class="text-orange-500">{currentNip05}</strong><br/>
                 Choose a new username for your verified identity
               {:else}
-                Get a verified <strong>@zap.cooking</strong> identifier with your {tier === 'cook' ? 'Cook+' : 'Pro Kitchen'} membership
+                Get a verified <strong>@zap.cooking</strong> identifier with your {tier === 'cook_plus' ? 'Cook+' : tier === 'founders' ? 'Founders Club' : 'Pro Kitchen'} membership
               {/if}
             </p>
           </div>

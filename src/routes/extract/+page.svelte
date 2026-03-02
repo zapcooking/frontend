@@ -6,9 +6,11 @@
   import { ndk, userPublickey } from '$lib/nostr';
   import { NDKEvent } from '@nostr-dev-kit/ndk';
   import { Fetch } from 'hurdak';
-  import { membershipStore, type MembershipTier } from '$lib/membershipStore';
   import { saveDraft } from '$lib/draftStore';
-  import { recipeTags, type recipeTagSimple } from '$lib/consts';
+  import { membershipStatusMap, queueMembershipLookup, type MembershipStatus } from '$lib/stores/membershipStatus';
+  import { recipeTags, RECIPE_TAG_PREFIX_NEW, type recipeTagSimple } from '$lib/consts';
+  import { createMarkdown, validateMarkdownTemplate } from '$lib/parser';
+  import { addClientTagToEvent } from '$lib/nip89';
   import { nip19 } from 'nostr-tools';
   import Button from '../../components/Button.svelte';
   import Tabs from '../../components/Tabs.svelte';
@@ -26,10 +28,15 @@
   import ImageIcon from 'phosphor-svelte/lib/Image';
   import FloppyDiskIcon from 'phosphor-svelte/lib/FloppyDisk';
 
+  // Membership gate
+  let membershipMap: Record<string, MembershipStatus> = {};
+  const unsubMembership = membershipStatusMap.subscribe((v) => { membershipMap = v; });
+  $: if ($userPublickey) queueMembershipLookup($userPublickey);
+  $: normalizedPk = String($userPublickey || '').trim().toLowerCase();
+  $: hasMembership = Boolean(membershipMap[normalizedPk]?.active);
+
   // State management
   let isLoading = true;
-  let hasMembership = true; // Membership check disabled for testing
-  let membershipTier: MembershipTier = 'pro';
   let errorMessage = '';
   
   // Input mode
@@ -50,6 +57,10 @@
   let urlInput = '';
   let urlError = '';
   
+  // Publishing state
+  let isPublishing = false;
+  let publishError = '';
+
   // Extraction state
   let isExtracting = false;
   let extractionProgress = '';
@@ -69,14 +80,9 @@
   let directionsArray: Writable<string[]> = writable([]);
   let additionalMarkdown = '';
   
-  // Allow view/upload without login; gate only on Extract/Save (4.2 first-60-seconds improvement)
-  onMount(async () => {
-    if (!$userPublickey) {
-      isLoading = false;
-      return;
-    }
-    // Membership check disabled for testing - re-enable when ready
+  onMount(() => {
     isLoading = false;
+    return () => unsubMembership();
   });
   
   // Handle tab change
@@ -378,30 +384,102 @@
     }
   }
   
-  // Save as draft and open in editor to publish
-  function saveDraftAndPublish() {
+  // Publish recipe directly to relays
+  async function publishRecipe() {
     if (!$userPublickey) {
       goto('/login?redirect=/extract');
       return;
     }
-    const draftData = {
-      title,
-      images: $images,
-      tags: $selectedTags,
-      summary,
-      chefsnotes,
-      preptime,
-      cooktime,
-      servings,
-      ingredients: $ingredientsArray,
-      directions: $directionsArray,
-      additionalMarkdown
-    };
-    
-    const draftId = saveDraft(draftData);
-    
-    // Navigate directly to create page with draft ID
-    goto(`/create?draft=${draftId}`);
+
+    if (!title || $images.length === 0 || $selectedTags.length === 0 || $ingredientsArray.length === 0 || $directionsArray.length === 0) {
+      publishError = 'Please fill in all required fields (title, tags, ingredients, directions) and add at least one image.';
+      return;
+    }
+
+    isPublishing = true;
+    publishError = '';
+
+    try {
+      // Format ingredients/directions into markdown strings
+      let ingredients = '';
+      $ingredientsArray.forEach((e) => {
+        ingredients += `- ${e}\n`;
+      });
+      let directions = '';
+      let i = 0;
+      $directionsArray.forEach((e) => {
+        i++;
+        directions += `${i}. ${e}\n`;
+      });
+
+      const md = createMarkdown(
+        chefsnotes,
+        preptime,
+        cooktime,
+        servings,
+        ingredients,
+        directions,
+        additionalMarkdown
+      );
+      const va = validateMarkdownTemplate(md);
+      if (typeof va === 'string') {
+        publishError = va;
+        isPublishing = false;
+        return;
+      }
+
+      const event = new NDKEvent($ndk);
+      event.kind = 30023;
+      event.content = md;
+      event.tags.push(['d', title.toLowerCase().replaceAll(' ', '-')]);
+      event.tags.push(['title', title]);
+      event.tags.push(['t', RECIPE_TAG_PREFIX_NEW]);
+      event.tags.push([
+        't',
+        `${RECIPE_TAG_PREFIX_NEW}-${title.toLowerCase().replaceAll(' ', '-')}`
+      ]);
+      if (summary !== '') {
+        event.tags.push(['summary', summary]);
+      }
+      for (let j = 0; j < $images.length; j++) {
+        event.tags.push(['image', $images[j]]);
+      }
+      $selectedTags.forEach((t) => {
+        if (t.title) {
+          event.tags.push([
+            't',
+            `${RECIPE_TAG_PREFIX_NEW}-${t.title.toLowerCase().replaceAll(' ', '-')}`
+          ]);
+        }
+      });
+
+      addClientTagToEvent(event);
+
+      // Publish with timeout
+      let publishTimeoutId: ReturnType<typeof setTimeout> | undefined;
+      const publishTimeout: Promise<never> = new Promise((_, reject) => {
+        publishTimeoutId = setTimeout(
+          () => reject(new Error('Publish timed out after 15 seconds')),
+          15000
+        );
+      });
+      await Promise.race([event.publish(), publishTimeout]);
+      if (publishTimeoutId !== undefined) {
+        clearTimeout(publishTimeoutId);
+      }
+
+      const naddr = nip19.naddrEncode({
+        identifier: title.toLowerCase().replaceAll(' ', '-'),
+        pubkey: event.pubkey,
+        kind: 30023
+      });
+
+      goto(`/recipe/${naddr}`);
+    } catch (err) {
+      console.error('Error publishing recipe:', err);
+      publishError = 'Failed to publish: ' + String(err);
+      isPublishing = false;
+    }
   }
   
   // Cancel and go back
@@ -667,17 +745,29 @@
         
         <!-- Action Buttons -->
         <div class="flex flex-col gap-5 pt-6">
+          {#if publishError}
+            <div class="flex items-start gap-3 p-4 rounded-xl bg-red-500/10 border border-red-500/20">
+              <WarningIcon size={20} class="text-red-500 flex-shrink-0 mt-0.5" />
+              <p class="text-sm text-red-500">{publishError}</p>
+            </div>
+          {/if}
+
           <!-- Primary: Publish Recipe -->
           <button
             type="button"
-            on:click={saveDraftAndPublish}
-            disabled={!title || $ingredientsArray.length === 0 || $directionsArray.length === 0}
+            on:click={publishRecipe}
+            disabled={isPublishing || !title || $images.length === 0 || $selectedTags.length === 0 || $ingredientsArray.length === 0 || $directionsArray.length === 0}
             class="w-full flex items-center justify-center gap-2 px-6 py-3 rounded-full font-semibold transition-all disabled:opacity-50 disabled:cursor-not-allowed"
             style="background: linear-gradient(135deg, #f97316 0%, #fb923c 100%); color: white; box-shadow: 0 2px 8px rgba(249, 115, 22, 0.3);"
-            class:hover:shadow-lg={title && $ingredientsArray.length > 0 && $directionsArray.length > 0}
+            class:hover:shadow-lg={!isPublishing && title && $images.length > 0 && $selectedTags.length > 0 && $ingredientsArray.length > 0 && $directionsArray.length > 0}
           >
-            <PencilIcon size={18} weight="bold" />
-            Publish Recipe
+            {#if isPublishing}
+              <ArrowsClockwiseIcon size={18} class="animate-spin" />
+              Publishing...
+            {:else}
+              <PencilIcon size={18} weight="bold" />
+              Publish Recipe
+            {/if}
           </button>
           
           <!-- Secondary: Save Draft -->

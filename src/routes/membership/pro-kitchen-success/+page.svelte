@@ -260,7 +260,7 @@
       <Nip05ClaimModal
         bind:open={showNip05Modal}
         pubkey={$userPublickey}
-        tier="pro"
+        tier="pro_kitchen"
         currentNip05={nip05}
         skipProfileUpdate={true}
         on:claimed={handleNip05Claimed}

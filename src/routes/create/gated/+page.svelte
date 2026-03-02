@@ -14,13 +14,13 @@
   import { addClientTagToEvent } from '$lib/nip89';
   import Button from '../../../components/Button.svelte';
   import MarkdownEditor from '../../../components/MarkdownEditor.svelte';
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import { RECIPE_TAG_PREFIX_NEW, GATED_RECIPE_KIND, GATED_RECIPE_TAG } from '$lib/consts';
   import { saveDraft, getDraft, deleteDraft } from '$lib/draftStore';
   import FloppyDiskIcon from 'phosphor-svelte/lib/FloppyDisk';
   import GateRecipeToggle from '../../../components/GateRecipeToggle.svelte';
   import { createGatedRecipe } from '$lib/nip108/client';
-  import { membershipStore } from '$lib/membershipStore';
+  import { membershipStatusMap, queueMembershipLookup, type MembershipStatus } from '$lib/stores/membershipStatus';
   import { get } from 'svelte/store';
   import LightningIcon from 'phosphor-svelte/lib/Lightning';
   import { resolveProfileByPubkey } from '$lib/profileResolver';
@@ -49,9 +49,13 @@
   let gateCostSats = 100; // Cost in whole sats
   let gatePreview = '';
 
-  // Check Pro Kitchen membership
-  let isProKitchen = true; // Membership check disabled for testing
-  let membershipChecked = true;
+  // Membership gate
+  let membershipMap: Record<string, MembershipStatus> = {};
+  const unsubMembership = membershipStatusMap.subscribe((v) => { membershipMap = v; });
+  $: if ($userPublickey) queueMembershipLookup($userPublickey);
+  $: gatedNormalizedPk = String($userPublickey || '').trim().toLowerCase();
+  $: isProKitchen = Boolean(membershipMap[gatedNormalizedPk]?.active);
+  $: membershipChecked = gatedNormalizedPk ? gatedNormalizedPk in membershipMap : false;
   
   // Author's Lightning address for receiving payments
   let authorLightningAddress = '';
@@ -72,14 +76,15 @@
       // Profile fetch failed - payments will use test mode
     }
     
-    // Membership check disabled for now
-    // When re-enabling, check tier and redirect non-pro users to /membership
-
     // Check for draft ID in URL
     const draftId = $page.url.searchParams.get('draft');
     if (draftId) {
       loadDraftById(draftId);
     }
+  });
+
+  onDestroy(() => {
+    unsubMembership();
   });
 
   function loadDraftById(draftId: string) {

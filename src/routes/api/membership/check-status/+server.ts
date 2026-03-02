@@ -29,6 +29,21 @@ import { json, type RequestHandler } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
 import { lookupMember } from '$lib/membershipApi.server';
 
+/**
+ * Normalize relay tier values to the canonical app tiers.
+ * Founders are stored as tier:'standard' with payment_id like 'genesis_1'.
+ */
+function normalizeRelayTier(tier: string | null | undefined, paymentId?: string | null): string {
+  const pid = String(paymentId || '').trim().toLowerCase();
+  if (pid.startsWith('genesis_') || pid.startsWith('founder')) return 'founders';
+
+  const value = String(tier || '').trim().toLowerCase();
+  if (value === 'cook_plus' || value === 'cook-plus' || value === 'cook plus' || value === 'cook') return 'cook_plus';
+  if (value === 'pro_kitchen' || value === 'pro-kitchen' || value === 'pro kitchen' || value === 'pro') return 'pro_kitchen';
+  if (value === 'founders' || value === 'founder' || value === 'genesis_founder' || value === 'genesis-founder') return 'founders';
+  return 'open';
+}
+
 export const POST: RequestHandler = async ({ request, platform }) => {
   // Membership feature flag guard
   const MEMBERSHIP_ENABLED = platform?.env?.MEMBERSHIP_ENABLED || env.MEMBERSHIP_ENABLED;
@@ -70,11 +85,24 @@ export const POST: RequestHandler = async ({ request, platform }) => {
       return json({ found: false });
     }
 
+    const tier = normalizeRelayTier(result.member.tier, result.member.payment_id);
+    const member = { ...result.member, tier };
+
+    // Founders get lifetime access — ensure expiry is at least 10 years out
+    if (tier === 'founders' && member.subscription_end) {
+      const tenYearsFromNow = new Date();
+      tenYearsFromNow.setFullYear(tenYearsFromNow.getFullYear() + 10);
+      const currentExpiry = new Date(member.subscription_end);
+      if (currentExpiry < tenYearsFromNow) {
+        member.subscription_end = tenYearsFromNow.toISOString();
+      }
+    }
+
     return json({
       found: true,
       isActive: result.isActive,
       isExpired: result.isExpired,
-      member: result.member
+      member
     });
 
   } catch (error: any) {

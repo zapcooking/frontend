@@ -1,8 +1,12 @@
 <script lang="ts">
   import { browser } from '$app/environment';
   import { goto } from '$app/navigation';
+  import { onDestroy } from 'svelte';
   import { userPublickey } from '$lib/nostr';
   import { membershipStore, formatMembershipExpiry } from '$lib/membershipStore';
+  import { membershipStatusMap, queueMembershipLookup, type MembershipStatus } from '$lib/stores/membershipStatus';
+  import CustomAvatar from '../../components/CustomAvatar.svelte';
+  import CustomName from '../../components/CustomName.svelte';
   import PricingToggle from './PricingToggle.svelte';
 
   export let data;
@@ -46,6 +50,43 @@
     && currentMembership.paymentMethod === 'card'
     && currentMembership.expiresAt > Date.now()
     && currentMembership.invoiceId;
+
+  // --- API-based membership status (membershipStatusMap) ---
+  let membershipMap: Record<string, MembershipStatus> = {};
+  const unsubscribe = membershipStatusMap.subscribe((value) => {
+    membershipMap = value;
+  });
+  onDestroy(unsubscribe);
+
+  $: if ($userPublickey) queueMembershipLookup($userPublickey);
+
+  $: normalizedPubkey = String($userPublickey || '').trim().toLowerCase();
+  $: apiMembershipStatus = membershipMap[normalizedPubkey];
+  $: isActiveMemberApi = Boolean(apiMembershipStatus?.active);
+
+  function formatExpiresAt(expiresAt: string | undefined): string {
+    if (!expiresAt) return '—';
+    try {
+      const date = new Date(expiresAt);
+      // If expiry is 8+ years away, show "Lifetime" instead of a date
+      const yearsAway = (date.getTime() - Date.now()) / (1000 * 60 * 60 * 24 * 365);
+      if (yearsAway >= 8) return 'Lifetime';
+      return date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+    } catch {
+      return '—';
+    }
+  }
+
+  // Toggle for showing sales/pricing content when active member clicks "Upgrade"
+  let showUpgradeOptions = false;
+
+  function handleShowUpgrade() {
+    showUpgradeOptions = true;
+    // Scroll to pricing after DOM update
+    setTimeout(() => {
+      document.getElementById('pricing')?.scrollIntoView({ behavior: 'smooth' });
+    }, 50);
+  }
 
   let managingSubscription = false;
   let manageError: string | null = null;
@@ -124,6 +165,48 @@
 </svelte:head>
 
 <div class="membership-page">
+  {#if $userPublickey && isActiveMemberApi}
+    <section class="member-dashboard">
+      <div class="member-dashboard-header">
+        <div class="member-dashboard-identity">
+          <CustomAvatar pubkey={$userPublickey} size={48} interactive={false} />
+          <CustomName pubkey={$userPublickey} className="member-dashboard-display-name" />
+        </div>
+        <span class="member-dashboard-active-badge">Active</span>
+      </div>
+      <div class="member-dashboard-stats">
+        <div class="member-dashboard-stat">
+          <span class="member-dashboard-stat-value">{formatExpiresAt(apiMembershipStatus?.expiresAt)}</span>
+          <span class="member-dashboard-stat-label">Expires</span>
+        </div>
+      </div>
+      <div class="member-dashboard-actions">
+        {#if hasActiveCardMembership}
+          {#if manageError}
+            <div class="manage-error">{manageError}</div>
+          {/if}
+          <button
+            class="manage-subscription-button"
+            on:click={handleManageSubscription}
+            disabled={managingSubscription}
+          >
+            {#if managingSubscription}
+              Opening portal...
+            {:else}
+              Manage Subscription
+            {/if}
+          </button>
+        {/if}
+        {#if !showUpgradeOptions}
+          <button class="member-dashboard-upgrade-button" on:click={handleShowUpgrade}>
+            Upgrade Plan
+          </button>
+        {/if}
+      </div>
+    </section>
+  {/if}
+
+  {#if !isActiveMemberApi || showUpgradeOptions}
   <section class="hero">
     <h1>Your Kitchen, Supercharged</h1>
     <p>AI-powered recipe tools, a private Nostr relay, and Bitcoin-native payments — all in one membership.</p>
@@ -301,8 +384,8 @@
     </section>
   {/if}
 
-  <!-- Active Membership Management -->
-  {#if hasActiveCardMembership && currentMembership}
+  <!-- Active Membership Management (legacy card, hidden when API dashboard shows) -->
+  {#if hasActiveCardMembership && currentMembership && !isActiveMemberApi}
     <section class="active-membership">
       <div class="active-membership-card">
         <div class="active-membership-header">
@@ -311,7 +394,7 @@
         </div>
         <div class="active-membership-details">
           <p class="membership-tier-name">
-            {currentMembership.tier === 'cook' ? 'Cook+' : 'Pro Kitchen'}
+            {currentMembership.tier === 'cook_plus' ? 'Cook+' : currentMembership.tier === 'founders' ? 'Founders Club' : 'Pro Kitchen'}
           </p>
           <p class="membership-expiry">
             Expires {formatMembershipExpiry(currentMembership.expiresAt)}
@@ -519,9 +602,121 @@
       </div>
     </div>
   </section>
+  {/if}
 </div>
 
 <style>
+  /* Member Dashboard */
+  .member-dashboard {
+    background: var(--color-bg-secondary);
+    border: 1px solid var(--color-input-border);
+    border-left: 3px solid var(--color-primary);
+    border-radius: 12px;
+    padding: 1.5rem;
+    margin-bottom: 2rem;
+  }
+
+  .member-dashboard-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 1.25rem;
+  }
+
+  .member-dashboard-identity {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+  }
+
+  .member-dashboard :global(.member-dashboard-display-name) {
+    font-weight: 600;
+    font-size: 1.05rem;
+    color: var(--color-text-primary);
+    cursor: default;
+  }
+
+  .member-dashboard :global(.member-dashboard-display-name:hover) {
+    color: var(--color-text-primary);
+  }
+
+  .member-dashboard-active-badge {
+    background: rgba(34, 197, 94, 0.15);
+    color: #22c55e;
+    padding: 0.25rem 0.75rem;
+    border-radius: 9999px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    flex-shrink: 0;
+  }
+
+  .member-dashboard-stats {
+    margin-bottom: 1.25rem;
+    padding-top: 1.25rem;
+    border-top: 1px solid var(--color-input-border);
+  }
+
+  .member-dashboard-stat {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .member-dashboard-stat-value {
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: var(--color-text-primary);
+  }
+
+  .member-dashboard-stat-label {
+    font-size: 0.75rem;
+    color: var(--color-text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  .member-dashboard-actions {
+    display: flex;
+    gap: 0.75rem;
+  }
+
+  .member-dashboard-actions .manage-subscription-button {
+    flex: 1;
+  }
+
+  .member-dashboard-upgrade-button {
+    flex: 1;
+    padding: 0.875rem 1.5rem;
+    background: var(--color-primary);
+    border: 2px solid var(--color-primary);
+    border-radius: 10px;
+    color: white;
+    font-size: 1rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+  }
+
+  .member-dashboard-upgrade-button:hover {
+    background: #d63a00;
+    border-color: #d63a00;
+  }
+
+  .member-dashboard .manage-error {
+    margin-bottom: 0.75rem;
+  }
+
+  @media (max-width: 480px) {
+    .member-dashboard-header {
+      flex-wrap: wrap;
+      gap: 0.75rem;
+    }
+
+    .member-dashboard-actions {
+      flex-direction: column;
+    }
+  }
+
   .membership-page {
     max-width: 1200px;
     margin: 0 auto;

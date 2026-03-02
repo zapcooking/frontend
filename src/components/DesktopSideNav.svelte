@@ -2,6 +2,8 @@
   import { page } from '$app/stores';
   import { unreadCount } from '$lib/notificationStore';
   import { triggerNotificationsNav } from '$lib/notificationsNav';
+  import { triggerExploreNav } from '$lib/exploreNav';
+  import { goto } from '$app/navigation';
   import { theme } from '$lib/themeStore';
   import SVGNostrCookingWithText from '../assets/nostr.cooking-withtext.svg';
   import { walletConnected } from '$lib/wallet';
@@ -16,12 +18,11 @@
   import EnvelopeSimpleIcon from 'phosphor-svelte/lib/EnvelopeSimple';
 
   import CookbookIcon from 'phosphor-svelte/lib/BookOpen';
-  import UsersThreeIcon from 'phosphor-svelte/lib/UsersThree';
   import ShoppingCartIcon from 'phosphor-svelte/lib/ShoppingCart';
   import WalletIcon from 'phosphor-svelte/lib/Wallet';
+  import CrownSimpleIcon from 'phosphor-svelte/lib/CrownSimple';
 
   import { totalUnreadCount } from '$lib/stores/messages';
-  import { totalGroupUnreadCount } from '$lib/stores/groups';
   import { userSidePanelOpen } from '$lib/stores/userSidePanel';
 
   $: pathname = $page.url.pathname;
@@ -37,7 +38,7 @@
     label: string;
     icon: any;
     match?: (path: string) => boolean;
-    badge?: 'notificationsDot' | 'walletConnect' | 'members' | 'messagesDot' | 'groupsDot';
+    badge?: 'notificationsDot' | 'walletConnect' | 'members' | 'messagesDot';
     external?: boolean;
   };
 
@@ -74,13 +75,6 @@
       badge: 'notificationsDot'
     },
     {
-      href: '/groups',
-      label: 'Groups',
-      icon: UsersThreeIcon,
-      match: (p) => p.startsWith('/groups'),
-      badge: 'groupsDot'
-    },
-    {
       href: '/messages',
       label: 'Messages',
       icon: EnvelopeSimpleIcon,
@@ -108,6 +102,12 @@
       icon: WalletIcon,
       match: (p) => p.startsWith('/wallet'),
       badge: 'walletConnect'
+    },
+    {
+      href: '/membership',
+      label: 'Membership',
+      icon: CrownSimpleIcon,
+      match: (p) => p.startsWith('/membership')
     }
   ];
 
@@ -129,9 +129,16 @@
 
   function handleNotificationsClick(event: MouseEvent, isActive: boolean) {
     triggerNotificationsNav();
-    // If we're already on the page, prevent navigation and just refresh/scroll
     if (isActive) {
       event.preventDefault();
+    }
+  }
+
+  function handleLogoClick() {
+    if ($page.url.pathname === '/explore') {
+      triggerExploreNav();
+    } else {
+      goto('/explore');
     }
   }
 
@@ -144,13 +151,16 @@
 >
   <div class="h-full overflow-y-auto p-3" style="background-color: var(--color-bg-primary);">
     <!-- Logo aligned with header position -->
-    <a href="/community" class="block pl-2 py-3">
+    <button
+      on:click={handleLogoClick}
+      class="block pl-2 py-3 cursor-pointer transition-transform duration-150 active:scale-95 active:opacity-80"
+    >
       <img
         src={isDarkMode ? '/zap_cooking_logo_white.svg' : SVGNostrCookingWithText}
         class="w-40"
         alt="Zap Cooking"
       />
-    </a>
+    </button>
     <nav class="flex flex-col gap-4 mt-4">
       <div>
         <h3
@@ -178,7 +188,7 @@
                   <svelte:component
                     this={item.icon}
                     size={20}
-                    weight={(item.href === '/notifications' && $unreadCount > 0) || (item.href === '/messages' && $totalUnreadCount > 0) || (item.href === '/groups' && $totalGroupUnreadCount > 0) ? 'fill' : 'regular'}
+                    weight={(item.href === '/notifications' && $unreadCount > 0) || (item.href === '/messages' && $totalUnreadCount > 0) ? 'fill' : 'regular'}
                   />
                   {#if item.badge === 'notificationsDot' && $unreadCount > 0}
                     <span
@@ -188,13 +198,6 @@
                     ></span>
                   {/if}
                   {#if item.badge === 'messagesDot' && $totalUnreadCount > 0}
-                    <span
-                      class="absolute top-1.5 right-1.5 w-2.5 h-2.5 rounded-full bg-red-500 border-2"
-                      style="border-color: var(--color-bg-primary);"
-                      aria-hidden="true"
-                    ></span>
-                  {/if}
-                  {#if item.badge === 'groupsDot' && $totalGroupUnreadCount > 0}
                     <span
                       class="absolute top-1.5 right-1.5 w-2.5 h-2.5 rounded-full bg-red-500 border-2"
                       style="border-color: var(--color-bg-primary);"

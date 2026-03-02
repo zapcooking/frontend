@@ -35,7 +35,7 @@ function normalizeTier(tier: string | undefined): MembershipTier {
   const value = String(tier || '').trim().toLowerCase();
   if (value === 'cook_plus' || value === 'cook-plus' || value === 'cook plus') return 'cook_plus';
   if (value === 'pro_kitchen' || value === 'pro-kitchen' || value === 'pro kitchen') return 'pro_kitchen';
-  if (value === 'founders' || value === 'founder') return 'founders';
+  if (value === 'founders' || value === 'founder' || value === 'genesis_founder' || value === 'genesis-founder' || value === 'genesis founder') return 'founders';
   if (value === 'member') return 'member';
   return 'unknown';
 }
