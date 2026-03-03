@@ -8,7 +8,7 @@
   import FeedSection from '../../components/table/FeedSection.svelte';
   import PullToRefresh from '../../components/PullToRefresh.svelte';
   import {
-    ALL_ARTICLE_HASHTAGS,
+    TOP_RELAY_FOOD_HASHTAGS,
     isValidLongformArticle,
     isValidLongformArticleNoFoodFilter,
     eventToArticleData,
@@ -42,7 +42,9 @@
   let hasMoreArticles = true;
 
   // Cache freshness tracking
-  const CACHE_FRESHNESS_KEY = 'zapcooking_reads_last_fetch';
+  // Version key: bump when fetch strategy changes to invalidate stale cache
+  const CACHE_VERSION = 'v2'; // v2: optimized relay hashtags + dynamic food toggle
+  const CACHE_FRESHNESS_KEY = `zapcooking_reads_last_fetch_${CACHE_VERSION}`;
   const CACHE_FRESH_DURATION_MS = 3 * 60 * 1000; // 3 minutes - skip relay fetch if cache is this fresh
   const BACKGROUND_REFRESH_DELAY_MS = 5000; // Wait 5s after initial paint before background refresh
 
@@ -64,9 +66,8 @@
     if (browser) {
       localStorage.setItem(FOOD_ONLY_KEY, String(foodOnly));
     }
-    
-    // Re-curate cover based on new toggle state - no need to refetch!
-    // We already have all articles, just need to re-filter for the cover
+
+    // Re-curate cover based on new toggle state
     if (articles.length >= 1) {
       clearCoverCache();
       const coverArticles = foodOnly
@@ -75,10 +76,23 @@
       if (coverArticles.length >= 1) {
         cover = curateCover(coverArticles, true);
       } else if (foodOnly) {
-        // If foodOnly is on but no food articles, clear cover
         cover = null;
       }
     }
+
+    // When switching to "all topics", trigger a broader background fetch
+    // since previous fetches may have only used food hashtags
+    if (!foodOnly && browser) {
+      backgroundRefresh();
+    }
+  }
+
+  // Hashtags for relay queries: food-only uses food tags, all-topics omits #t entirely.
+  // Per NIP-01 filter spec, including #t limits results to events matching those tags.
+  // For "all topics" we send an empty array so articleOutbox omits #t from the filter,
+  // letting relays return ALL kind:30023 events (client-side quality filtering still applies).
+  function getRelayHashtags(): string[] {
+    return foodOnly ? TOP_RELAY_FOOD_HASHTAGS : [];
   }
 
   // Cover article IDs to exclude from feed
@@ -163,7 +177,7 @@
     }
 
     // Always fetch all articles - feed shows all, cover filtered by foodOnly
-    const cacheFilter = { kinds: [30023], hashtags: ALL_ARTICLE_HASHTAGS.slice(0, 40), limit: 500 };
+    const cacheFilter = { kinds: [30023], hashtags: getRelayHashtags(), limit: 500 };
 
     // Try to load from cache first for instant paint
     let cacheWasUsed = false;
@@ -239,7 +253,7 @@
     
     try {
       const newEvents = await backgroundArticleRefresh($ndk, seenEventIds, {
-        hashtags: ALL_ARTICLE_HASHTAGS.slice(0, 40),
+        hashtags: getRelayHashtags(),
         limit: 100 // Increased for better depth
       });
       
@@ -304,7 +318,7 @@
       const untilTime = oldestTimestamp ? oldestTimestamp - 1 : Math.floor(Date.now() / 1000);
       
       const { events, stats } = await fetchArticles($ndk, {
-        hashtags: ALL_ARTICLE_HASHTAGS.slice(0, 40),
+        hashtags: getRelayHashtags(),
         until: untilTime,
         limit: 300,
         skipPrimal: true
@@ -370,7 +384,7 @@
       // Use the article outbox - skip Primal cache (doesn't support kind:30023)
       // relay.primal.net is included in the relay list and works for articles
       const { events, stats } = await fetchArticles($ndk, {
-        hashtags: ALL_ARTICLE_HASHTAGS.slice(0, 40),
+        hashtags: getRelayHashtags(),
         limit: 2000, // Request lots of articles (no longer capped in articleOutbox)
         skipPrimal: true, // Skip Primal cache API (doesn't support kind:30023)
         onEvent: (event: NDKEvent) => {
@@ -489,17 +503,9 @@
   // Direct relay subscription fallback (old method)
   async function fetchFromRelaysDirect(forceRefresh: boolean, startGeneration: number) {
     try {
-      // Use top food hashtags for filtering (same as articleOutbox)
-      const TOP_FOOD_HASHTAGS = [
-        'food', 'foodstr', 'cooking', 'recipe', 'recipes', 'chef',
-        'farming', 'homesteading', 'gardening', 'foodie', 'homecooking',
-        'beef', 'chicken', 'breakfast', 'dinner', 'baking', 'bbq',
-        'vegan', 'keto', 'coffee'
-      ];
-      
       const filter: NDKFilter = {
         kinds: [30023],
-        '#t': TOP_FOOD_HASHTAGS,
+        '#t': getRelayHashtags(),
         limit: 200,
         since: Math.floor(Date.now() / 1000) - (90 * 24 * 60 * 60) // Last 90 days
       };
@@ -620,7 +626,7 @@
       
       // Use article outbox with 'until' for pagination
       const { events: moreEvents, stats } = await fetchArticles($ndk, {
-        hashtags: ALL_ARTICLE_HASHTAGS.slice(0, 40),
+        hashtags: getRelayHashtags(),
         until: oldestTimestamp - 1, // Get events older than our oldest
         limit: 50
       });

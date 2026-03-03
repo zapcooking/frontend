@@ -88,7 +88,34 @@ export const FOOD_LONGFORM_HASHTAGS = [
   // Health & wellness
   'health', 'wellness', 'wholefood', 'realfood', 'cleaneating',
   // Bitcoin/culture crossover
-  'bitcoin', 'carnivore', 'meatmafia', 'rawmilk'
+  'bitcoin', 'carnivore', 'meatmafia', 'rawmilk',
+  // World cuisines
+  'italian', 'mexican', 'thai', 'japanese', 'korean', 'indian',
+  'mediterranean', 'chinese', 'french', 'vietnamese', 'greek',
+  // Bread & baked goods
+  'bread', 'sourdough', 'breadmaking',
+  // Drinks
+  'wine', 'beer', 'cocktail', 'cocktails', 'tea', 'whiskey',
+  // More proteins & ingredients
+  'pork', 'seafood', 'fish', 'lamb', 'turkey', 'tofu',
+  'mushroom', 'mushrooms', 'chocolate', 'icecream',
+  // Noodles & dumplings
+  'ramen', 'noodles', 'dumplings', 'pho',
+  // Cooking methods
+  'grilling', 'roasting', 'braising', 'slowcooking',
+  // Food-adjacent
+  'foraging', 'wildcrafting', 'plantbased', 'organic'
+];
+
+// Top ~25 high-signal food hashtags for relay queries.
+// Most relays cap filters at 10-20 tags; sending the full list causes silent drops.
+// Use this for relay-side filtering, then apply FOOD_LONGFORM_HASHTAGS client-side.
+export const TOP_RELAY_FOOD_HASHTAGS = [
+  'food', 'foodstr', 'cooking', 'recipe', 'recipes', 'chef',
+  'farming', 'homesteading', 'gardening', 'foodie', 'homecooking',
+  'bread', 'sourdough', 'fermentation', 'homestead', 'carnivore',
+  'beef', 'chicken', 'breakfast', 'dinner', 'baking', 'bbq',
+  'vegan', 'keto', 'coffee'
 ];
 
 // Tag categories for filtering (ordered for UI display)
@@ -115,7 +142,20 @@ export const ARTICLE_TAG_CATEGORIES: Record<string, string[]> = {
     // Diets
     'vegan', 'vegetarian', 'keto', 'paleo', 'glutenfree', 'dairyfree', 'carnivore', 'carnivor', 'carnivorediet',
     // Restaurant
-    'restaurant', 'restaurants', 'dine', 'dining'
+    'restaurant', 'restaurants', 'dine', 'dining',
+    // Bread & baked goods
+    'bread', 'sourdough', 'breadmaking',
+    // World cuisines
+    'italian', 'mexican', 'thai', 'japanese', 'korean', 'indian',
+    'mediterranean', 'chinese', 'french', 'vietnamese', 'greek',
+    // More proteins
+    'pork', 'seafood', 'fish', 'lamb', 'turkey', 'tofu',
+    // Noodles & misc
+    'ramen', 'noodles', 'dumplings', 'pho', 'chocolate', 'icecream',
+    // More drinks
+    'tea', 'wine', 'beer', 'cocktail', 'whiskey',
+    // Methods
+    'grilling', 'roasting', 'braising', 'slowcooking', 'foraging'
   ],
   'Farming': [
     'farming', 'farm', 'farmer', 'farmers', 'agriculture', 'ag', 'agrarian',

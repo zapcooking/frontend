@@ -21,9 +21,10 @@ import {
   type PrimalArticleOptions 
 } from './primalCache';
 import { RELAY_SETS } from './relays/relaySets';
-import { 
+import {
   isValidLongformArticleNoFoodFilter,
-  ALL_ARTICLE_HASHTAGS
+  ALL_ARTICLE_HASHTAGS,
+  TOP_RELAY_FOOD_HASHTAGS
 } from './articleUtils';
 
 // ═══════════════════════════════════════════════════════════════
@@ -280,15 +281,15 @@ export async function fetchArticles(
       }
       if (until) filter.until = until;
       
-      // Use top food hashtags for relay filter (most relays limit to ~10-20 tags)
-      // This ensures we get food-related content from the relay
-      const TOP_FOOD_HASHTAGS = [
-        'food', 'foodstr', 'cooking', 'recipe', 'recipes', 'chef',
-        'farming', 'homesteading', 'gardening', 'foodie', 'homecooking',
-        'beef', 'chicken', 'breakfast', 'dinner', 'baking', 'bbq',
-        'vegan', 'keto', 'coffee'
-      ];
-      filter['#t'] = TOP_FOOD_HASHTAGS;
+      // Use hashtags for relay filter if provided, otherwise use top food hashtags.
+      // Most relays cap at ~20-25 tags; sending more causes silent drops.
+      // When hashtags is an empty array, omit #t entirely for broadest discovery.
+      if (hashtags.length > 0) {
+        filter['#t'] = hashtags.slice(0, 25);
+      } else {
+        // No hashtag filter — fetch all kind:30023 articles (for "all topics" mode)
+        // Quality filtering is still applied client-side via isValidLongformArticleNoFoodFilter
+      }
       
       // Log relay query info
       console.log(`[ArticleOutbox] Querying ${relaysToQuery.size} relays for kind:30023...`);
@@ -375,13 +376,15 @@ export function subscribeToArticles(
 ): NDKSubscription | null {
   if (!browser) return null;
   
-  const { hashtags = ALL_ARTICLE_HASHTAGS.slice(0, 40), onEvent, onEose } = options;
-  
+  const { hashtags = TOP_RELAY_FOOD_HASHTAGS, onEvent, onEose } = options;
+
   const filter: NDKFilter = {
     kinds: [30023],
-    '#t': hashtags,
     since: Math.floor(Date.now() / 1000) - 3600 // Last hour for real-time
   };
+  if (hashtags.length > 0) {
+    filter['#t'] = hashtags.slice(0, 25);
+  }
   
   // Use default + discovery relays
   const relays = [
@@ -421,7 +424,7 @@ export async function backgroundArticleRefresh(
     limit?: number;
   } = {}
 ): Promise<NDKEvent[]> {
-  const { hashtags = ALL_ARTICLE_HASHTAGS.slice(0, 40), limit = 50 } = options;
+  const { hashtags = TOP_RELAY_FOOD_HASHTAGS, limit = 50 } = options;
   
   const newEvents: NDKEvent[] = [];
   

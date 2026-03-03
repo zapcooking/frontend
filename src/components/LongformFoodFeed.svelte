@@ -2,194 +2,12 @@
   import { onMount, onDestroy } from 'svelte';
   import { ndk, userPublickey, getCurrentRelayGeneration, ndkConnected } from '$lib/nostr';
   import type { NDKEvent, NDKFilter, NDKSubscription } from '@nostr-dev-kit/ndk';
+  import { NDKRelaySet } from '@nostr-dev-kit/ndk';
   import { nip19 } from 'nostr-tools';
   import ArticleFeed from './ArticleFeed.svelte';
   import { RECIPE_TAGS } from '$lib/consts';
   import { validateMarkdownTemplate } from '$lib/parser';
-
-  // Expanded food-related hashtags including farming, homesteading, and related topics
-  // Note: 'zapcooking' and 'nostrcooking' are excluded as those are recipe tags
-  const FOOD_LONGFORM_HASHTAGS = [
-    // Original food tags
-    'foodstr',
-    'cook',
-    'cookstr',
-    'cooking',
-    'drinkstr',
-    'foodies',
-    'carnivor',
-    'carnivorediet',
-    'soup',
-    'soupstr',
-    'drink',
-    'eat',
-    'burger',
-    'steak',
-    'steakstr',
-    'dine',
-    'dinner',
-    'lunch',
-    'breakfast',
-    'supper',
-    'yum',
-    'snack',
-    'snackstr',
-    'dessert',
-    'beef',
-    'chicken',
-    'bbq',
-    'coffee',
-    'mealprep',
-    'meal',
-    'recipe',
-    'recipestr',
-    'recipes',
-    'food',
-    'foodie',
-    'foodporn',
-    'instafood',
-    'foodstagram',
-    'foodblogger',
-    'homecooking',
-    'fromscratch',
-    'baking',
-    'baker',
-    'pastry',
-    'chef',
-    'chefs',
-    'cuisine',
-    'gourmet',
-    'restaurant',
-    'restaurants',
-    'pasta',
-    'pizza',
-    'sushi',
-    'tacos',
-    'taco',
-    'burrito',
-    'sandwich',
-    'salad',
-    'stew',
-    'curry',
-    'stirfry',
-    'grill',
-    'grilled',
-    'roast',
-    'roasted',
-    'fried',
-    'baked',
-    'smoked',
-    'fermented',
-    'pickled',
-    'preserved',
-    'homemade',
-    'vegan',
-    'vegetarian',
-    'keto',
-    'paleo',
-    'glutenfree',
-    'dairyfree',
-    'healthy',
-    'nutrition',
-    'nutritionist',
-    'dietitian',
-    'mealplan',
-    'batchcooking',
-    // Farming and agriculture
-    'farming',
-    'farm',
-    'farmer',
-    'farmers',
-    'agriculture',
-    'ag',
-    'agrarian',
-    'sustainablefarming',
-    'organicfarming',
-    'regenerative',
-    'regenerativeagriculture',
-    'permaculture',
-    'biodynamic',
-    'crops',
-    'harvest',
-    'harvesting',
-    'growing',
-    'growyourown',
-    'growfood',
-    'foodproduction',
-    'foodsystem',
-    'foodsystems',
-    // Homesteading
-    'homesteading',
-    'homestead',
-    'homesteader',
-    'homesteaders',
-    'selfsufficient',
-    'selfsufficiency',
-    'offgrid',
-    'ruralliving',
-    'countryliving',
-    'simpleliving',
-    'backyardfarming',
-    'urbanfarming',
-    'urbanhomestead',
-    'urbanhomesteading',
-    // Gardening
-    'gardening',
-    'garden',
-    'gardener',
-    'growyourownfood',
-    'vegetablegarden',
-    'herbgarden',
-    'kitchengarden',
-    'raisedbeds',
-    'containergardening',
-    'composting',
-    'compost',
-    'soilhealth',
-    // Livestock and animals
-    'livestock',
-    'chickens',
-    'chickenkeeping',
-    'goats',
-    'goatkeeping',
-    'beekeeping',
-    'bees',
-    'honey',
-    'eggs',
-    'dairy',
-    'milking',
-    // Food preservation
-    'canning',
-    'preserving',
-    'fermentation',
-    'fermenting',
-    'dehydrating',
-    'dehydration',
-    'freezing',
-    'curing',
-    'smoking',
-    'cheesemaking',
-    'cheese',
-    // Food sourcing and sustainability
-    'localfood',
-    'locavore',
-    'farmtotable',
-    'farmtofork',
-    'seasonal',
-    'seasonaleating',
-    'sustainable',
-    'sustainability',
-    'foodsecurity',
-    'foodsovereignty',
-    'foodjustice',
-    // Traditional foodways
-    'traditional',
-    'traditionalfood',
-    'foodculture',
-    'culinaryheritage',
-    'foodhistory',
-    'foodtraditions'
-  ];
+  import { FOOD_LONGFORM_HASHTAGS, TOP_RELAY_FOOD_HASHTAGS } from '$lib/articleUtils';
 
   let events: NDKEvent[] = [];
   let loading = true;
@@ -416,14 +234,24 @@
     seenEventIds.clear();
 
     try {
-      // Query for kind 30023 (longform) with food-related hashtags
+      // Use the small relay-friendly tag set for the relay filter;
+      // full FOOD_LONGFORM_HASHTAGS list is applied client-side via shouldIncludeEvent.
       const filter: NDKFilter = {
         kinds: [30023],
-        '#t': FOOD_LONGFORM_HASHTAGS,
-        limit: 20
+        '#t': TOP_RELAY_FOOD_HASHTAGS,
+        limit: 50
       };
 
-      subscription = $ndk.subscribe(filter, { closeOnEose: true });
+      // Target article-optimized relays for better longform discovery
+      const articleRelays = [
+        'wss://relay.primal.net',
+        'wss://relay.damus.io',
+        'wss://nos.lol',
+        'wss://nostr.wine',
+        'wss://relay.nostr.band'
+      ];
+      const relaySet = NDKRelaySet.fromRelayUrls(articleRelays, $ndk, true);
+      subscription = $ndk.subscribe(filter, { closeOnEose: true }, relaySet);
       const fetchedEvents: NDKEvent[] = [];
 
       subscription.on('event', (event: NDKEvent) => {
