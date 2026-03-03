@@ -45,6 +45,45 @@
     if (browser) localStorage.setItem(MEMBERSHIP_BANNER_KEY, String(Date.now()));
   }
 
+  // Banner sats pricing (live from bitcoin-price-quote API — same source as checkout pages)
+  let cookSats: number | null = null;
+  let proSats: number | null = null;
+  let satsPricingLoading = true;
+  let satsPricingError = false;
+  let featuresExpanded = false;
+
+  function formatBannerSats(sats: number): string {
+    const rounded = Math.round(sats / 100) * 100;
+    return rounded.toLocaleString('en-US');
+  }
+
+  async function fetchBannerSatsPricing() {
+    if (!browser || !showMembershipBanner) return;
+    satsPricingLoading = true;
+    satsPricingError = false;
+    try {
+      const [cookRes, proRes] = await Promise.all([
+        fetch('/api/membership/bitcoin-price-quote?tier=cook&period=monthly'),
+        fetch('/api/membership/bitcoin-price-quote?tier=pro&period=monthly')
+      ]);
+      if (cookRes.ok) {
+        const data = await cookRes.json();
+        cookSats = data.amountSats;
+      }
+      if (proRes.ok) {
+        const data = await proRes.json();
+        proSats = data.amountSats;
+      }
+      if (!cookRes.ok && !proRes.ok) {
+        satsPricingError = true;
+      }
+    } catch {
+      satsPricingError = true;
+    } finally {
+      satsPricingLoading = false;
+    }
+  }
+
   // One-time Cooking Tools tip (4.2 first-60-seconds improvement)
   const COOKING_TOOLS_TIP_KEY = 'zapcooking_cooking_tools_tip_seen';
   let showCookingToolsTip = false;
@@ -211,6 +250,7 @@
     let cleanup: (() => void) | undefined;
     void (async () => {
     syncTipPointer();
+    if (showMembershipBanner) fetchBannerSatsPricing();
     await loadExploreData();
 
     if (browser) {
@@ -363,75 +403,107 @@
       <!-- Membership Banner -->
       {#if showMembershipBanner}
         <section aria-label="Membership upgrade">
-          <div class="membership-banner relative rounded-xl p-5 md:p-6 overflow-hidden">
-            <!-- Dismiss -->
+          <div class="membership-banner relative rounded-2xl p-5 md:p-6 overflow-hidden">
+            <!-- Dismiss (subtle) -->
             <button
               type="button"
               on:click={dismissMembershipBanner}
-              class="absolute top-3 right-3 z-10 p-1.5 rounded-full transition-colors"
-              style="color: var(--color-text-secondary); background: transparent;"
-              aria-label="Dismiss membership banner"
+              class="absolute top-3 right-3 z-10 p-1.5 rounded-full transition-opacity opacity-40 hover:opacity-70"
+              style="color: var(--color-text-secondary);"
+              aria-label="Dismiss"
             >
-              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
             </button>
 
-            <!-- Top: Headline + Subhead -->
-            <div class="mb-4 pr-8">
-              <h2 class="text-lg font-bold mb-1">
-                &#9889; Level up your kitchen
-              </h2>
-              <p class="text-sm" style="color: var(--color-caption);">
-                AI-powered tools and an exclusive community of cooks, built on Nostr.
+            <!-- Headline + subcopy -->
+            <div class="mb-3 pr-6">
+              <h2 class="text-lg font-bold leading-tight">&#9889; Level up your kitchen</h2>
+              <p class="text-[13px] mt-0.5" style="color: var(--color-caption);">
+                AI-powered tools and an exclusive community, built on Nostr.
               </p>
             </div>
 
-            <!-- Feature pills -->
-            <div class="flex flex-wrap gap-2 mb-5">
-              <span class="membership-pill">&#129302; Plan your week</span>
-              <span class="membership-pill">&#127859; Cook from what you have</span>
-              <span class="membership-pill">&#128722; One-tap grocery list</span>
-              <span class="membership-pill">&#129489;&#8205;&#127859; Members-only groups</span>
-              <span class="membership-pill">&#128274; Private relay access</span>
+            <!-- Features: accordion on mobile, pills on desktop -->
+            <div class="mb-4">
+              <button
+                type="button"
+                on:click={() => featuresExpanded = !featuresExpanded}
+                class="sm:hidden flex items-center gap-1.5 text-[13px] font-medium"
+                style="color: var(--color-primary);"
+                aria-expanded={featuresExpanded}
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24"
+                  fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"
+                  class="transition-transform duration-150 {featuresExpanded ? 'rotate-90' : ''}"
+                ><polyline points="9 18 15 12 9 6"/></svg>
+                See what's included
+              </button>
+              {#if featuresExpanded}
+                <ul class="sm:hidden mt-2 ml-0.5 space-y-1 text-[13px]" style="color: var(--color-text-secondary);">
+                  <li>&#10022; AI meal planning &amp; grocery lists</li>
+                  <li>&#10022; Cook from what you have</li>
+                  <li>&#10022; Enhanced print layouts</li>
+                  <li>&#10022; Members-only groups</li>
+                  <li>&#10022; Private relay access</li>
+                </ul>
+              {/if}
+
+              <div class="hidden sm:flex flex-wrap gap-2">
+                <span class="membership-pill">&#129302; Plan your week</span>
+                <span class="membership-pill">&#127859; Cook from what you have</span>
+                <span class="membership-pill">&#128722; One-tap grocery list</span>
+                <span class="membership-pill">&#129489;&#8205;&#127859; Members-only groups</span>
+                <span class="membership-pill">&#128274; Private relay access</span>
+              </div>
             </div>
 
             <!-- Pricing cards -->
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-5">
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
               <!-- Cook+ -->
-              <div
-                class="rounded-lg px-4 py-3"
-                style="background-color: rgba(0,0,0,0.08); border: 1px solid var(--color-input-border);"
-              >
-                <p class="text-sm font-semibold">Cook+</p>
-                <p class="text-lg font-bold">$4.99<span class="text-xs font-normal" style="color: var(--color-caption);">/mo</span></p>
-                <p class="text-xs" style="color: var(--color-caption);">or $49/yr and save</p>
+              <div class="membership-price-card rounded-xl px-4 py-3.5">
+                <p class="text-sm font-semibold mb-1.5">Cook+</p>
+                {#if !satsPricingLoading && cookSats != null}
+                  <div class="flex items-baseline gap-1.5">
+                    <span class="text-xl font-bold" style="color: var(--color-primary);">&#9889;&thinsp;{formatBannerSats(cookSats)}</span>
+                    <span class="text-xs font-semibold" style="color: var(--color-primary);">sats/mo</span>
+                  </div>
+                  <span class="membership-sats-badge">Save 5% with bitcoin</span>
+                {:else if satsPricingLoading}
+                  <div class="flex items-baseline gap-1.5 mb-1">
+                    <span class="text-base font-bold" style="color: var(--color-primary);">&#9889;</span>
+                    <span class="text-xs" style="color: var(--color-caption);">Loading rate&hellip;</span>
+                  </div>
+                {/if}
+                <p class="text-xs mt-1" style="color: var(--color-caption);">$4.99/mo &middot; or $49/yr</p>
+                <a href="/membership" class="membership-card-cta mt-3">Join Cook+</a>
               </div>
+
               <!-- Pro Kitchen -->
-              <div
-                class="rounded-lg px-4 py-3 relative"
-                style="border: 1.5px solid var(--color-primary); background: rgba(236,71,0,0.06);"
-              >
-                <span
-                  class="absolute -top-2.5 right-3 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full"
-                  style="background-color: var(--color-primary); color: white;"
-                >Best value</span>
-                <p class="text-sm font-semibold">Pro Kitchen</p>
-                <p class="text-lg font-bold">$8.99<span class="text-xs font-normal" style="color: var(--color-caption);">/mo</span></p>
-                <p class="text-xs" style="color: var(--color-caption);">or $89/yr and save</p>
+              <div class="membership-price-card membership-price-card--pro rounded-xl px-4 py-3.5 relative">
+                <span class="absolute -top-2 right-3 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full" style="background-color: var(--color-primary); color: white;">Best value</span>
+                <p class="text-sm font-semibold mb-1.5">Pro Kitchen</p>
+                {#if !satsPricingLoading && proSats != null}
+                  <div class="flex items-baseline gap-1.5">
+                    <span class="text-xl font-bold" style="color: var(--color-primary);">&#9889;&thinsp;{formatBannerSats(proSats)}</span>
+                    <span class="text-xs font-semibold" style="color: var(--color-primary);">sats/mo</span>
+                  </div>
+                  <span class="membership-sats-badge">Save 5% with bitcoin</span>
+                {:else if satsPricingLoading}
+                  <div class="flex items-baseline gap-1.5 mb-1">
+                    <span class="text-base font-bold" style="color: var(--color-primary);">&#9889;</span>
+                    <span class="text-xs" style="color: var(--color-caption);">Loading rate&hellip;</span>
+                  </div>
+                {/if}
+                <p class="text-xs mt-1" style="color: var(--color-caption);">$8.99/mo &middot; or $89/yr</p>
+                <a href="/membership" class="membership-card-cta membership-card-cta--pro mt-3">Enter Pro Kitchen</a>
               </div>
             </div>
 
-            <!-- CTA + social proof -->
-            <div class="flex flex-col sm:flex-row sm:items-center gap-3">
-              <a
-                href="/membership"
-                class="membership-cta inline-flex items-center justify-center gap-1.5 text-sm font-semibold px-5 py-2.5 rounded-full transition-colors sm:w-auto w-full"
-              >
-                &#9889; Enter Pro Kitchen
-              </a>
-              <p class="text-xs" style="color: var(--color-caption);">
-                Join 200+ cooks building on Nostr
-              </p>
-            </div>
+            <!-- Social proof -->
+            <p class="text-[11px] text-center" style="color: var(--color-caption);">
+              Join 200+ cooks building on Nostr
+            </p>
           </div>
         </section>
       {/if}
@@ -757,14 +829,6 @@
   .membership-banner {
     background-color: var(--color-bg-secondary);
     border: 1px solid var(--color-input-border);
-    border-left: 3px solid var(--color-primary);
-    box-shadow: 0 0 24px -6px rgba(236, 71, 0, 0.08);
-  }
-
-  @media (prefers-reduced-motion: no-preference) {
-    .membership-banner {
-      box-shadow: 0 0 28px -4px rgba(236, 71, 0, 0.12);
-    }
   }
 
   .membership-pill {
@@ -779,16 +843,74 @@
     white-space: nowrap;
   }
 
-  .membership-cta {
+  .membership-price-card {
+    background-color: rgba(0, 0, 0, 0.03);
+    border: 1px solid var(--color-input-border);
+  }
+
+  .membership-price-card--pro {
+    border: 1.5px solid var(--color-primary);
+    background: rgba(236, 71, 0, 0.04);
+  }
+
+  .membership-sats-badge {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 600;
+    padding: 1px 7px;
+    border-radius: 9999px;
+    background: rgba(34, 197, 94, 0.12);
+    color: #16a34a;
+    margin-top: 2px;
+    margin-bottom: 2px;
+  }
+
+  :global(html.dark) .membership-sats-badge {
+    background: rgba(34, 197, 94, 0.15);
+    color: #4ade80;
+  }
+
+  :global(html.dark) .membership-price-card {
+    background-color: rgba(255, 255, 255, 0.04);
+  }
+
+  :global(html.dark) .membership-price-card--pro {
+    background: rgba(236, 71, 0, 0.08);
+  }
+
+  .membership-card-cta {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    min-height: 40px;
+    padding: 8px 16px;
+    border-radius: 9999px;
+    font-size: 13px;
+    font-weight: 600;
+    border: 1.5px solid var(--color-input-border);
+    color: var(--color-text-primary);
+    text-decoration: none;
+    transition: border-color 0.15s, color 0.15s;
+  }
+
+  .membership-card-cta:hover {
+    border-color: var(--color-primary);
+    color: var(--color-primary);
+  }
+
+  .membership-card-cta--pro {
     background-color: var(--color-primary);
+    border-color: var(--color-primary);
     color: white;
   }
 
-  .membership-cta:hover {
+  .membership-card-cta--pro:hover {
     filter: brightness(1.1);
+    color: white;
   }
 
-  .membership-cta:focus-visible {
+  .membership-card-cta:focus-visible {
     outline: 2px solid var(--color-primary);
     outline-offset: 2px;
   }
