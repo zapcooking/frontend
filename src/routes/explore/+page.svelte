@@ -15,6 +15,7 @@
   import CollectionCard from '../../components/CollectionCard.svelte';
   import ProfileAvatar from '../../components/ProfileAvatar.svelte';
   import TrendingRecipeCard from '../../components/TrendingRecipeCard.svelte';
+  import BoostedRecipeCard from '../../components/BoostedRecipeCard.svelte';
   import PullToRefresh from '../../components/PullToRefresh.svelte';
   import LongformFoodFeed from '../../components/LongformFoodFeed.svelte';
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
@@ -165,6 +166,7 @@
   let collections: Collection[] = [];
   let popularCooks: PopularCook[] = [];
   let discoverRecipes: NDKEvent[] = [];
+  let boostedRecipes: { naddr: string; recipeTitle: string; recipeImage: string; authorPubkey: string; tier: string; expiresAt: number }[] = [];
   let loadingCollections = true;
   let loadingCooks = true;
   let loadingDiscover = true;
@@ -198,6 +200,16 @@
     // Load collections immediately (static data, no network)
     collections = await fetchCollectionsWithImages();
     loadingCollections = false;
+
+    // Fetch boosted recipes (no relay needed, hits our API)
+    fetch('/api/boost/active')
+      .then((r) => (r.ok ? r.json() : { boosts: [] }))
+      .then((data) => {
+        boostedRecipes = data.boosts || [];
+      })
+      .catch(() => {
+        boostedRecipes = [];
+      });
 
     // Wait for at least one relay connection before firing subscription-based fetches.
     // Without this gate, cold loads race against NDK connection and can throw.
@@ -522,6 +534,14 @@
           </div>
         {:else if discoverRecipes.length > 0}
           <div class="flex gap-4 overflow-x-auto pb-2 -mx-4 px-4 scrollbar-hide touch-pan-x">
+            {#each boostedRecipes as boost (boost.naddr)}
+              <BoostedRecipeCard
+                naddr={boost.naddr}
+                title={boost.recipeTitle}
+                imageUrl={boost.recipeImage}
+                authorPubkey={boost.authorPubkey}
+              />
+            {/each}
             {#each discoverRecipes.filter((r) => r && r.author?.pubkey) as recipe (recipe.id || recipe.created_at)}
               <TrendingRecipeCard event={recipe} />
             {/each}

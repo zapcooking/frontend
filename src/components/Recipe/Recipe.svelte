@@ -845,6 +845,17 @@
                   <PrinterIcon size={18} />
                   Print
                 </button>
+                <button
+                  class="w-full flex items-center gap-3 px-4 py-2.5 text-left text-sm hover:bg-accent-gray transition-colors"
+                  style="color: var(--color-text-primary);"
+                  on:click={() => {
+                    menuOpen = false;
+                    goto(`/boost?recipe=${computedNaddr}`);
+                  }}
+                >
+                  <LightningIcon size={18} />
+                  Boost this recipe
+                </button>
                 {#if isOwner}
                   <hr class="my-1 border-t" style="border-color: var(--color-input-border);" />
                   <button
