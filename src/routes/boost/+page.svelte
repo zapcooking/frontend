@@ -121,6 +121,7 @@
   }
 
   function resetRecipe() {
+    stopPaymentPolling();
     recipeNaddr = '';
     recipeTitle = '';
     recipeImage = '';
@@ -130,6 +131,9 @@
     error = null;
     paymentConfirmed = false;
     boostId = null;
+    receiveRequestId = null;
+    paymentHash = null;
+    loading = false;
   }
 
   // ── Step 4: Payment ───────────────────────────────────────────────

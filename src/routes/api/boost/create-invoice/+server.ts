@@ -19,7 +19,7 @@
  *   invoice: string,
  *   paymentHash: string,
  *   receiveRequestId: string,
- *   expiresAt: number,
+ *   invoiceExpiresAt: number,
  *   amountSats: number,
  * }
  */
@@ -86,12 +86,12 @@ export const POST: RequestHandler = async ({ request, platform }) => {
     const paymentHash = bolt11Data?.paymentHash || strikeResponse.paymentHash || '';
     const receiveRequestId = strikeResponse.receiveRequestId;
 
-    let expiresAt: number;
+    let invoiceExpiresAt: number; // invoice expiry in unix seconds (not boost duration)
     const expiresString = bolt11Data?.expires || strikeResponse.expires;
     if (expiresString) {
-      expiresAt = Math.floor(new Date(expiresString).getTime() / 1000);
+      invoiceExpiresAt = Math.floor(new Date(expiresString).getTime() / 1000);
     } else {
-      expiresAt = Math.floor(Date.now() / 1000) + 3600;
+      invoiceExpiresAt = Math.floor(Date.now() / 1000) + 3600;
     }
 
     // ── Store pending boost record ──────────────────────────────
@@ -135,7 +135,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
       invoice,
       paymentHash,
       receiveRequestId,
-      expiresAt,
+      invoiceExpiresAt,
       amountSats,
     });
   } catch (error: any) {

@@ -10,11 +10,18 @@
  */
 
 import { json, type RequestHandler } from '@sveltejs/kit';
+import { env } from '$env/dynamic/private';
 import { getActiveBoosts } from '$lib/boostStore.server';
 
 export const GET: RequestHandler = async ({ platform }) => {
   try {
     const kv = platform?.env?.GATED_CONTENT ?? null;
+
+    if (!kv && env.NODE_ENV === 'production') {
+      console.error('[Boost Active] GATED_CONTENT KV binding is missing in production');
+      return json({ boosts: [] }, { status: 503 });
+    }
+
     const boosts = await getActiveBoosts(kv);
 
     return json(
