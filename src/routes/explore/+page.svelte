@@ -16,6 +16,7 @@
   import ProfileAvatar from '../../components/ProfileAvatar.svelte';
   import TrendingRecipeCard from '../../components/TrendingRecipeCard.svelte';
   import BoostedRecipeCard from '../../components/BoostedRecipeCard.svelte';
+  import SponsorBanner from '../../components/SponsorBanner.svelte';
   import PullToRefresh from '../../components/PullToRefresh.svelte';
   import LongformFoodFeed from '../../components/LongformFoodFeed.svelte';
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
@@ -167,6 +168,7 @@
   let popularCooks: PopularCook[] = [];
   let discoverRecipes: NDKEvent[] = [];
   let boostedRecipes: { naddr: string; recipeTitle: string; recipeImage: string; authorPubkey: string; tier: string; expiresAt: number }[] = [];
+  let sponsorBanners: { id: string; title: string; description: string; imageUrl: string; linkUrl: string }[] = [];
   let loadingCollections = true;
   let loadingCooks = true;
   let loadingDiscover = true;
@@ -209,6 +211,16 @@
       })
       .catch(() => {
         boostedRecipes = [];
+      });
+
+    // Fetch headline sponsor banners
+    fetch('/api/sponsor/active?tier=headline')
+      .then((r) => (r.ok ? r.json() : { sponsors: [] }))
+      .then((data) => {
+        sponsorBanners = data.sponsors || [];
+      })
+      .catch(() => {
+        sponsorBanners = [];
       });
 
     // Wait for at least one relay connection before firing subscription-based fetches.
@@ -559,6 +571,29 @@
           </div>
         {/if}
       </section>
+
+      <!-- Sponsor Banners (between Fresh from the Kitchen and Popular Cooks) -->
+      {#if sponsorBanners.length === 1}
+        <SponsorBanner
+          title={sponsorBanners[0].title}
+          description={sponsorBanners[0].description}
+          imageUrl={sponsorBanners[0].imageUrl}
+          linkUrl={sponsorBanners[0].linkUrl}
+        />
+      {:else if sponsorBanners.length > 1}
+        <div class="flex gap-4 overflow-x-auto pb-2 -mx-4 px-4 scrollbar-hide touch-pan-x">
+          {#each sponsorBanners as sponsor (sponsor.id)}
+            <div class="flex-shrink-0 sponsor-scroll-item">
+              <SponsorBanner
+                title={sponsor.title}
+                description={sponsor.description}
+                imageUrl={sponsor.imageUrl}
+                linkUrl={sponsor.linkUrl}
+              />
+            </div>
+          {/each}
+        </div>
+      {/if}
 
       <!-- Popular Cooks -->
       <section class="flex flex-col gap-4">
@@ -933,5 +968,15 @@
   .membership-card-cta:focus-visible {
     outline: 2px solid var(--color-primary);
     outline-offset: 2px;
+  }
+
+  .sponsor-scroll-item {
+    width: 340px;
+  }
+
+  @media (max-width: 480px) {
+    .sponsor-scroll-item {
+      width: 280px;
+    }
   }
 </style>
