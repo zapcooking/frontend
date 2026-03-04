@@ -87,13 +87,13 @@
   </a>
 {:else if verified === false}
   <a
-    href="https://branta.pro"
+    href={verifyLink || "https://branta.pro"}
     target="_blank"
     rel="noopener noreferrer"
     class="flex items-center gap-1.5 text-xs text-caption hover:text-primary-color transition-colors"
     title="Verify this address at branta.pro"
   >
     <ShieldCheckIcon size={14} />
-    <span>Verify with Branta</span>
+    <span>Not verified by Branta</span>
   </a>
 {/if}

@@ -129,6 +129,7 @@
   import CustomAvatar from '../../components/CustomAvatar.svelte';
   import CustomName from '../../components/CustomName.svelte';
   import LifebuoyIcon from 'phosphor-svelte/lib/Lifebuoy';
+  import ShieldCheckIcon from 'phosphor-svelte/lib/ShieldCheck';
   import CloudCheckIcon from 'phosphor-svelte/lib/CloudCheck';
   import WalletRecoveryHelpModal from '../../components/WalletRecoveryHelpModal.svelte';
   import CheckRelayBackupsModal from '../../components/CheckRelayBackupsModal.svelte';
@@ -361,6 +362,7 @@
   let showSendModal = false;
   let showReceiveModal = false;
   let sendInput = ''; // Invoice or Lightning address
+  let brantaVerifyTriggered = false;
   let sendAmount = 0; // Amount for Lightning address sends
   let sendComment = ''; // Optional message for Lightning address sends
   let receiveAmount = 0;
@@ -4624,6 +4626,7 @@
                     on:input={() => {
                       // Reset on-chain state when input changes
                       sendingMaxBalance = false;
+                      brantaVerifyTriggered = false;
                       if (onchainFeeQuote) {
                         onchainFeeQuote = null;
                         onchainPrepareResponse = null;
@@ -4635,6 +4638,22 @@
                       ₿ Bitcoin address detected - on-chain payment
                     </div>
                   {/if}
+                  <div class="mt-1">
+                    {#if sendInput.trim()}
+                      {#if brantaVerifyTriggered}
+                        <BrantaBadge paymentString={sendInput.trim()} />
+                      {:else}
+                        <button
+                          type="button"
+                          class="flex items-center gap-1.5 text-xs px-2 py-1 rounded-lg border border-input text-caption hover:text-primary-color transition-colors"
+                          on:click={() => (brantaVerifyTriggered = true)}
+                        >
+                          <ShieldCheckIcon size={14} />
+                          Verify with Branta
+                        </button>
+                      {/if}
+                    {/if}
+                  </div>
                 </div>
 
                 {#if isLightningAddress || isBtcAddress}
