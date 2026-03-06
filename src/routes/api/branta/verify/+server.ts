@@ -30,11 +30,8 @@ export const GET: RequestHandler = async ({ url, platform }) => {
 			description: result.description
 		};
 
-		// Only include verifyLink when verified
-		if (result.verified) {
-			const config = getBrantaConfig(platform);
-			response.verifyLink = config!.baseUrl + '/v2/verify/' + encodeURIComponent(paymentString);
-		}
+		const config = getBrantaConfig(platform);
+		response.verifyLink = config!.baseUrl + '/v2/verify/' + encodeURIComponent(paymentString);
 
 		return json(response);
 	} catch (error) {
