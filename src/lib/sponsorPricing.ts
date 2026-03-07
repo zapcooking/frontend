@@ -18,17 +18,17 @@ export const SPONSOR_TIERS: { key: SponsorTier; label: string; description: stri
 
 export const SPONSOR_PRICING: Record<SponsorTier, Record<SponsorDurationKey, { sats: number; durationMs: number; label: string }>> = {
   headline: {
-    '24h': { sats: 10000, durationMs: 86400000, label: '24 Hours' },
-    '3d':  { sats: 25000, durationMs: 259200000, label: '3 Days' },
-    '7d':  { sats: 50000, durationMs: 604800000, label: '7 Days' },
-    '14d': { sats: 85000, durationMs: 1209600000, label: '14 Days' },
-    '30d': { sats: 150000, durationMs: 2592000000, label: '30 Days' },
+    '24h': { sats: 5000, durationMs: 86400000, label: '24 Hours' },
+    '3d':  { sats: 12500, durationMs: 259200000, label: '3 Days' },
+    '7d':  { sats: 25000, durationMs: 604800000, label: '7 Days' },
+    '14d': { sats: 42500, durationMs: 1209600000, label: '14 Days' },
+    '30d': { sats: 75000, durationMs: 2592000000, label: '30 Days' },
   },
   kitchen_card: {
-    '24h': { sats: 5000, durationMs: 86400000, label: '24 Hours' },
-    '3d':  { sats: 12000, durationMs: 259200000, label: '3 Days' },
-    '7d':  { sats: 25000, durationMs: 604800000, label: '7 Days' },
-    '14d': { sats: 42000, durationMs: 1209600000, label: '14 Days' },
-    '30d': { sats: 75000, durationMs: 2592000000, label: '30 Days' },
+    '24h': { sats: 2500, durationMs: 86400000, label: '24 Hours' },
+    '3d':  { sats: 6000, durationMs: 259200000, label: '3 Days' },
+    '7d':  { sats: 12500, durationMs: 604800000, label: '7 Days' },
+    '14d': { sats: 21000, durationMs: 1209600000, label: '14 Days' },
+    '30d': { sats: 37500, durationMs: 2592000000, label: '30 Days' },
   },
 };
