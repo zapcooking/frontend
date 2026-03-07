@@ -10,7 +10,7 @@
   <h1 class="text-3xl font-bold mb-8" style="color: var(--color-text-primary)">Privacy Policy</h1>
 
   <div class="flex flex-col gap-6 leading-relaxed" style="color: var(--color-text-primary)">
-    <p class="text-sm opacity-75">Last updated: December 26, 2025</p>
+    <p class="text-sm opacity-75">Last updated: March 7, 2026</p>
 
     <p>Zap Cooking ("Zap Cooking," "we," "our," or "us") respects your privacy and is committed to transparency. This Privacy Policy explains how information is handled when you use our website, mobile applications, and related services (collectively, the "Service").</p>
 
@@ -41,6 +41,7 @@
       <li>Enable community interaction and content sharing</li>
       <li>Maintain performance, reliability, and security</li>
       <li>Comply with applicable legal obligations</li>
+      <li>Process payments and fulfill sponsored placements, paid partnerships, and boosted content features</li>
     </ul>
 
     <p>Zap Cooking does not sell personal data and does not use data for targeted advertising or profiling.</p>
@@ -83,17 +84,31 @@
 
     <p>Zap Cooking is intended for users aged 18 and older and is not designed for children under the age of 13. We do not knowingly collect personal information from children.</p>
 
-    <h2 class="text-2xl font-bold mt-8 mb-4" style="color: var(--color-text-primary)">9. Changes to This Policy</h2>
+    <h2 class="text-2xl font-bold mt-8 mb-4" style="color: var(--color-text-primary)">9. Sponsored Placements and Boosted Content</h2>
+
+    <p>Zap Cooking may offer paid partnerships, sponsored placements, featured listings, and boosted recipe features within the Service.</p>
+
+    <p>These features allow creators, brands, builders, and other participants to pay for increased visibility in specific areas of the platform, such as the homepage, explore page, recipe surfaces, or sponsor directory.</p>
+
+    <p>Zap Cooking does not use personal data for targeted advertising or user profiling in connection with these features. Sponsored and boosted placements are based on purchased placement, timing, platform design, content category, and other non-personal factors.</p>
+
+    <p>If a payment is made through Lightning or another payment method, Zap Cooking may process limited transaction-related information necessary to confirm payment, fulfill placement, maintain internal records, prevent abuse, resolve disputes, and support operation of the Service.</p>
+
+    <p>Sponsored and boosted placements will be labeled using clear disclosure language such as "Paid Partnership," "Sponsored," or "Boosted," as applicable.</p>
+
+    <p>Zap Cooking does not provide sponsors with users' personal information for advertising purposes.</p>
+
+    <h2 class="text-2xl font-bold mt-8 mb-4" style="color: var(--color-text-primary)">10. Changes to This Policy</h2>
 
     <p>We may update this Privacy Policy from time to time. Any changes will be posted on this page with an updated effective date.</p>
 
-    <h2 class="text-2xl font-bold mt-8 mb-4" style="color: var(--color-text-primary)">10. Contact</h2>
+    <h2 class="text-2xl font-bold mt-8 mb-4" style="color: var(--color-text-primary)">11. Contact</h2>
 
     <p>If you have questions about this Privacy Policy or Zap Cooking's privacy practices, you can contact us at:</p>
 
     <ul class="list-none pl-0 space-y-2">
       <li>Website: <a href="https://zap.cooking" class="text-primary hover:underline">https://zap.cooking</a></li>
-      <li>Email: <a href="mailto:seth@zap.cooking" class="text-primary hover:underline">seth@zap.cooking</a></li>
+      <li>Email: <a href="mailto:support@zap.cooking" class="text-primary hover:underline">support@zap.cooking</a></li>
     </ul>
   </div>
 </article>
