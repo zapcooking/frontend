@@ -29,6 +29,7 @@
   let activeSponsors: ShowcaseSponsor[] = [];
   let loadingSponsors = true;
   let showForm = false;
+  let showInfoModal = false;
 
   $: headlineSponsors = activeSponsors.filter((s) => s.tier === 'headline');
   $: cardSponsors = activeSponsors.filter((s) => s.tier === 'kitchen_card');
@@ -263,49 +264,54 @@
 
 <svelte:head>
   <title>Kitchen Sponsors - zap.cooking</title>
-  <meta name="description" content="Zap Cooking is supported by aligned partners helping us build the future of food culture on the open web." />
+  <meta name="description" content="Get your brand in front of the Nostr food community. Direct sponsorship via Lightning — no tracking, no algorithms." />
 </svelte:head>
 
 <div class="sponsor-page">
   <!-- A. Hero Section -->
-  <div class="text-center mb-8">
-    <h1 class="text-3xl font-bold mb-2">Kitchen Sponsors</h1>
-    <p class="text-sm mb-3" style="color: var(--color-caption); max-width: 520px; margin-left: auto; margin-right: auto;">
-      Zap Cooking is building a new kind of food platform on Nostr. This work is supported by a small group of aligned partners and paid collaborations that help us grow the network, improve the product, and keep building in the open.
+  <div class="text-center mb-10">
+    <h1 class="text-3xl font-bold mb-3">Kitchen Sponsors</h1>
+    <p class="text-sm mb-2" style="color: var(--color-caption); max-width: 480px; margin-left: auto; margin-right: auto;">
+      Get your brand in front of the Nostr food community. Sponsor zap.cooking and align with an open, Bitcoin-native platform built by and for real people.
     </p>
-    <p class="text-xs mb-5" style="color: var(--color-caption); max-width: 480px; margin-left: auto; margin-right: auto;">
-      Interested in reaching the Nostr food community? Sponsorships are open to everyone.
+    <p class="text-xs mb-5" style="color: var(--color-caption); max-width: 440px; margin-left: auto; margin-right: auto;">
+      No tracking. No algorithms. Direct support for an open food network built on Nostr.
     </p>
     <button type="button" class="sponsor-btn sponsor-btn--pay" on:click={openForm}>
       &#9889; Sponsor Zap.Cooking
     </button>
-  </div>
-
-  <!-- B. Sponsor Showcase -->
-  {#if loadingSponsors}
-    <div class="showcase-loading">
-      <div class="showcase-skeleton"></div>
-      <div class="showcase-grid">
-        <div class="showcase-skeleton-card"></div>
-        <div class="showcase-skeleton-card"></div>
-      </div>
-    </div>
-  {:else if activeSponsors.length === 0}
-    <!-- Empty state -->
-    <div class="empty-state">
-      <p class="text-lg font-semibold mb-2">The kitchen is looking for sponsors!</p>
-      <p class="text-sm mb-4" style="color: var(--color-caption);">
-        Be the first to support zap.cooking and get your brand in front of the community.
-      </p>
-      <button type="button" class="sponsor-btn sponsor-btn--pay" on:click={openForm}>
-        &#9889; Sponsor Zap.Cooking
+    <div class="mt-3">
+      <button
+        type="button"
+        class="info-link"
+        on:click={() => { showInfoModal = true; }}
+      >
+        What do sponsors get?
       </button>
     </div>
-  {:else}
-    <!-- Headline sponsors — prominent, full-width -->
-    {#if headlineSponsors.length > 0}
-      <section class="showcase-section">
-        <div class="flex flex-col gap-3">
+  </div>
+
+  <!-- B. Current Sponsors -->
+  <section>
+    <h2 class="text-lg font-semibold mb-3">Current Sponsors</h2>
+    {#if loadingSponsors}
+      <div class="showcase-loading">
+        <div class="showcase-skeleton"></div>
+        <div class="showcase-grid">
+          <div class="showcase-skeleton-card"></div>
+          <div class="showcase-skeleton-card"></div>
+        </div>
+      </div>
+    {:else if activeSponsors.length === 0}
+      <div class="empty-state">
+        <span class="launching-badge">Launching Now</span>
+        <p class="text-sm mt-3" style="color: var(--color-caption); max-width: 360px; margin-left: auto; margin-right: auto;">
+          Be the first to support zap.cooking and get your brand in front of the community.
+        </p>
+      </div>
+    {:else}
+      {#if headlineSponsors.length > 0}
+        <div class="flex flex-col gap-3 mb-4">
           {#each headlineSponsors as sponsor (sponsor.id)}
             <SponsorBanner
               title={sponsor.title}
@@ -315,12 +321,9 @@
             />
           {/each}
         </div>
-      </section>
-    {/if}
+      {/if}
 
-    <!-- Kitchen Card sponsors — grid -->
-    {#if cardSponsors.length > 0}
-      <section class="showcase-section">
+      {#if cardSponsors.length > 0}
         <div class="showcase-grid">
           {#each cardSponsors as sponsor (sponsor.id)}
             <a
@@ -342,8 +345,59 @@
             </a>
           {/each}
         </div>
-      </section>
+      {/if}
     {/if}
+    <p class="text-xs mt-4" style="color: var(--color-caption);">
+      <a href="/disclosure" class="hover:underline" style="color: var(--color-caption);">Disclosure</a>
+      <span style="opacity: 0.4;"> &middot; </span>
+      <a href="/sponsor-terms" class="hover:underline" style="color: var(--color-caption);">Sponsor Terms</a>
+    </p>
+  </section>
+
+  <!-- B2. "What do sponsors get?" Modal -->
+  {#if showInfoModal}
+    <div class="info-overlay" on:click|self={() => { showInfoModal = false; }} on:keydown={(e) => { if (e.key === 'Escape') showInfoModal = false; }}>
+      <div class="info-panel">
+        <div class="info-panel-header">
+          <h2 class="text-lg font-bold">What do sponsors get?</h2>
+          <button type="button" class="form-close" on:click={() => { showInfoModal = false; }} aria-label="Close">
+            &times;
+          </button>
+        </div>
+        <div class="info-panel-body">
+          <ul class="info-list">
+            <li class="info-item">
+              <span class="info-icon">&#9889;</span>
+              <div>
+                <h3 class="info-item-title">Brand Placement</h3>
+                <p class="info-item-desc">Your logo and link visible to every visitor on the sponsors page and across the platform.</p>
+              </div>
+            </li>
+            <li class="info-item">
+              <span class="info-icon">&#127860;</span>
+              <div>
+                <h3 class="info-item-title">Community Feed Feature</h3>
+                <p class="info-item-desc">Highlighted to active community members who are passionate about food and open tech.</p>
+              </div>
+            </li>
+            <li class="info-item">
+              <span class="info-icon">&#8383;</span>
+              <div>
+                <h3 class="info-item-title">Bitcoin-Native Alignment</h3>
+                <p class="info-item-desc">Associate your brand with the values of the Nostr ecosystem — open, permissionless, sovereign.</p>
+              </div>
+            </li>
+            <li class="info-item">
+              <span class="info-icon">&#128279;</span>
+              <div>
+                <h3 class="info-item-title">No Middlemen</h3>
+                <p class="info-item-desc">Direct sponsorship via Lightning. No ad networks, no invoices, no tracking.</p>
+              </div>
+            </li>
+          </ul>
+        </div>
+      </div>
+    </div>
   {/if}
 
   <!-- C. Submission Form (expandable panel) -->
@@ -530,6 +584,18 @@
                 <section class="sponsor-section">
                   <h2 class="section-label">4. Pay with Lightning</h2>
 
+                  <div class="flow-disclosure">
+                    <p class="text-xs" style="color: var(--color-caption); line-height: 1.5;">
+                      Zap Cooking may feature paid partnerships, sponsored placements, and boosted recipes.
+                      We aim to label paid visibility clearly and keep the experience transparent, simple, and aligned with the community.
+                    </p>
+                    <p class="text-xs mt-1.5" style="color: var(--color-caption);">
+                      <a href="/disclosure" target="_blank" rel="noopener noreferrer" class="text-primary hover:underline">Disclosure</a>
+                      <span style="opacity: 0.5;"> &middot; </span>
+                      <a href="/sponsor-terms" target="_blank" rel="noopener noreferrer" class="text-primary hover:underline">Sponsor Terms</a>
+                    </p>
+                  </div>
+
                   {#if !isLoggedIn}
                     <p class="text-sm mb-3" style="color: var(--color-caption);">
                       Sign in with Nostr to continue.
@@ -569,11 +635,114 @@
     padding: 1.5rem 1rem 3rem;
   }
 
-  /* ── Showcase ──────────────────────────────────────────────────── */
+  /* ── Hero extras ──────────────────────────────────────────────── */
 
-  .showcase-section {
-    margin-bottom: 1.5rem;
+  .info-link {
+    background: none;
+    border: none;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    color: var(--color-primary);
+    cursor: pointer;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    padding: 0;
   }
+
+  .info-link:hover {
+    filter: brightness(1.15);
+  }
+
+  .launching-badge {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    padding: 3px 10px;
+    border-radius: 9999px;
+    background-color: var(--color-primary);
+    color: white;
+  }
+
+  /* ── Info modal ──────────────────────────────────────────────── */
+
+  .info-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    background: rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1rem;
+  }
+
+  .info-panel {
+    width: 100%;
+    max-width: 440px;
+    background-color: var(--color-bg-primary);
+    border-radius: 1rem;
+    border: 1px solid var(--color-input-border);
+    overflow: hidden;
+  }
+
+  .info-panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 1rem 1.25rem;
+    border-bottom: 1px solid var(--color-input-border);
+  }
+
+  .info-panel-body {
+    padding: 1.25rem;
+  }
+
+  .info-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+  }
+
+  .info-item {
+    display: flex;
+    gap: 0.875rem;
+    align-items: flex-start;
+  }
+
+  .info-icon {
+    flex-shrink: 0;
+    width: 2rem;
+    height: 2rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1rem;
+    border-radius: 0.5rem;
+    background: rgba(236, 71, 0, 0.1);
+  }
+
+  .info-item-title {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--color-text-primary);
+    margin: 0 0 0.125rem;
+  }
+
+  .info-item-desc {
+    font-size: 0.8125rem;
+    color: var(--color-caption);
+    line-height: 1.4;
+    margin: 0;
+  }
+
+  /* ── Showcase ──────────────────────────────────────────────────── */
 
   .showcase-grid {
     display: grid;
@@ -763,6 +932,16 @@
     padding: 1.25rem;
     overflow-y: auto;
     flex: 1;
+  }
+
+  /* ── Flow disclosure ──────────────────────────────────────────── */
+
+  .flow-disclosure {
+    padding: 0.75rem;
+    margin-bottom: 1rem;
+    border-radius: 0.5rem;
+    border: 1px solid var(--color-input-border);
+    background-color: var(--color-bg-secondary);
   }
 
   /* ── Shared form styles (same as before) ───────────────────────── */

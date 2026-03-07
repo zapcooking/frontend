@@ -126,6 +126,8 @@
         <span>|</span>
         <a href="/privacy" class="hover:text-primary transition-colors">Privacy</a>
         <span>|</span>
+        <a href="/disclosure" class="hover:text-primary transition-colors">Disclosure</a>
+        <span>|</span>
         <a
           href="https://github.com/zapcooking/frontend/blob/main/LICENSE"
           target="_blank"
