@@ -8,6 +8,7 @@
  *   sponsor:{id}                    → full SponsorRecord JSON       (TTL 35 days)
  *   sponsor-inv:{receiveRequestId}  → sponsor ID string             (TTL 35 days)
  *   sponsor-active-list             → JSON array of active sponsor IDs (no TTL, managed manually)
+ *   sponsor-hidden-list             → JSON array of hidden sponsor IDs (no TTL, managed manually)
  */
 
 import { SPONSOR_PRICING, type SponsorTier, type SponsorDurationKey } from '$lib/sponsorPricing';
@@ -25,7 +26,7 @@ export interface SponsorRecord {
   amountSats: number;
   receiveRequestId: string;
   paymentHash: string;
-  status: 'pending' | 'active' | 'expired';
+  status: 'pending' | 'active' | 'expired' | 'hidden';
   createdAt: number;
   activatedAt: number | null;
   expiresAt: number | null;
@@ -44,11 +45,13 @@ const KV_TTL_SECONDS = 35 * 24 * 60 * 60; // 35 days — enough headroom for 30-
 function sponsorKey(id: string) { return `sponsor:${id}`; }
 function sponsorInvKey(receiveRequestId: string) { return `sponsor-inv:${receiveRequestId}`; }
 const ACTIVE_LIST_KEY = 'sponsor-active-list';
+const HIDDEN_LIST_KEY = 'sponsor-hidden-list';
 
 // ── Dev-only in-memory fallback ──────────────────────────────────────
 const memSponsors = new Map<string, SponsorRecord>();
 const memInvIndex = new Map<string, string>(); // receiveRequestId → sponsor ID
 let memActiveList: string[] = [];
+let memHiddenList: string[] = [];
 
 /**
  * Store a pending sponsor record (called when invoice is created).
@@ -117,7 +120,7 @@ export async function activateSponsor(
 ): Promise<SponsorRecord | null> {
   const sponsor = await getSponsor(kv, sponsorId);
   if (!sponsor) return null;
-  if (sponsor.status === 'active') return sponsor; // idempotent
+  if (sponsor.status === 'active' || sponsor.status === 'hidden') return sponsor; // idempotent / don't override admin action
 
   const now = Date.now();
   const duration = SPONSOR_PRICING[sponsor.tier][sponsor.durationKey].durationMs;
@@ -207,4 +210,134 @@ export async function getActiveSponsors(kv: SponsorKV, tier?: SponsorTier): Prom
   }
 
   return active;
+}
+
+// ── Hidden list helpers ──────────────────────────────────────────────
+
+async function getHiddenSponsorIds(kv: SponsorKV): Promise<string[]> {
+  if (kv) {
+    const raw = await kv.get(HIDDEN_LIST_KEY, 'text') as string | null;
+    if (!raw) return [];
+    try {
+      return JSON.parse(raw) as string[];
+    } catch {
+      return [];
+    }
+  }
+  return [...memHiddenList];
+}
+
+/**
+ * Hide an active sponsor (soft-delete). Sets status to 'hidden',
+ * removes from active list, adds to hidden list.
+ */
+export async function hideSponsor(
+  kv: SponsorKV,
+  sponsorId: string,
+): Promise<SponsorRecord | null> {
+  const sponsor = await getSponsor(kv, sponsorId);
+  if (!sponsor) return null;
+
+  sponsor.status = 'hidden';
+  const opts = { expirationTtl: KV_TTL_SECONDS };
+
+  if (kv) {
+    await kv.put(sponsorKey(sponsorId), JSON.stringify(sponsor), opts);
+
+    // Remove from active list
+    const activeList = await getActiveSponsorIds(kv);
+    const cleanedActive = activeList.filter((id) => id !== sponsorId);
+    await kv.put(ACTIVE_LIST_KEY, JSON.stringify(cleanedActive));
+
+    // Add to hidden list
+    const hiddenList = await getHiddenSponsorIds(kv);
+    if (!hiddenList.includes(sponsorId)) {
+      hiddenList.push(sponsorId);
+      await kv.put(HIDDEN_LIST_KEY, JSON.stringify(hiddenList));
+    }
+  } else {
+    memSponsors.set(sponsorId, sponsor);
+    memActiveList = memActiveList.filter((id) => id !== sponsorId);
+    if (!memHiddenList.includes(sponsorId)) {
+      memHiddenList.push(sponsorId);
+    }
+  }
+
+  return sponsor;
+}
+
+/**
+ * Unhide a sponsor. Sets status back to 'active', removes from hidden list,
+ * adds back to active list. Only works if the sponsor hasn't expired.
+ */
+export async function unhideSponsor(
+  kv: SponsorKV,
+  sponsorId: string,
+): Promise<SponsorRecord | null> {
+  const sponsor = await getSponsor(kv, sponsorId);
+  if (!sponsor) return null;
+  if (sponsor.status !== 'hidden') return sponsor;
+
+  // Don't unhide if expired
+  if (sponsor.expiresAt && sponsor.expiresAt <= Date.now()) {
+    sponsor.status = 'expired';
+    const opts = { expirationTtl: KV_TTL_SECONDS };
+    if (kv) {
+      await kv.put(sponsorKey(sponsorId), JSON.stringify(sponsor), opts);
+    } else {
+      memSponsors.set(sponsorId, sponsor);
+    }
+    // Remove from hidden list
+    if (kv) {
+      const hiddenList = await getHiddenSponsorIds(kv);
+      await kv.put(HIDDEN_LIST_KEY, JSON.stringify(hiddenList.filter((id) => id !== sponsorId)));
+    } else {
+      memHiddenList = memHiddenList.filter((id) => id !== sponsorId);
+    }
+    return sponsor;
+  }
+
+  sponsor.status = 'active';
+  const opts = { expirationTtl: KV_TTL_SECONDS };
+
+  if (kv) {
+    await kv.put(sponsorKey(sponsorId), JSON.stringify(sponsor), opts);
+
+    // Remove from hidden list
+    const hiddenList = await getHiddenSponsorIds(kv);
+    await kv.put(HIDDEN_LIST_KEY, JSON.stringify(hiddenList.filter((id) => id !== sponsorId)));
+
+    // Add back to active list
+    const activeList = await getActiveSponsorIds(kv);
+    if (!activeList.includes(sponsorId)) {
+      activeList.push(sponsorId);
+      await kv.put(ACTIVE_LIST_KEY, JSON.stringify(activeList));
+    }
+  } else {
+    memSponsors.set(sponsorId, sponsor);
+    memHiddenList = memHiddenList.filter((id) => id !== sponsorId);
+    if (!memActiveList.includes(sponsorId)) {
+      memActiveList.push(sponsorId);
+    }
+  }
+
+  return sponsor;
+}
+
+/**
+ * Get ALL sponsors (active + hidden) for admin view.
+ */
+export async function getAllSponsors(kv: SponsorKV): Promise<SponsorRecord[]> {
+  const activeIds = await getActiveSponsorIds(kv);
+  const hiddenIds = await getHiddenSponsorIds(kv);
+  const allIds = [...new Set([...activeIds, ...hiddenIds])];
+
+  const sponsors: SponsorRecord[] = [];
+  for (const id of allIds) {
+    const sponsor = await getSponsor(kv, id);
+    if (sponsor) {
+      sponsors.push(sponsor);
+    }
+  }
+  return sponsors;
 }

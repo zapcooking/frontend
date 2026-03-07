@@ -3,6 +3,7 @@
   import { goto } from '$app/navigation';
   import { browser } from '$app/environment';
   import { userPublickey } from '$lib/nostr';
+  import { isAdmin } from '$lib/adminAuth';
   import { lightningService } from '$lib/lightningService';
   import {
     SPONSOR_PRICING,
@@ -24,25 +25,40 @@
     linkUrl: string;
     tier: string;
     expiresAt: number | null;
+    status?: string;
+    buyerPubkey?: string;
   };
 
   let activeSponsors: ShowcaseSponsor[] = [];
   let loadingSponsors = true;
   let showForm = false;
   let showInfoModal = false;
+  let adminActionLoading: string | null = null;
 
+  $: isAdminUser = isAdmin($userPublickey);
   $: headlineSponsors = activeSponsors.filter((s) => s.tier === 'headline');
   $: cardSponsors = activeSponsors.filter((s) => s.tier === 'kitchen_card');
 
+  let prevIsAdmin = false;
   onMount(() => {
     if (!browser) return;
     fetchActiveSponsors();
   });
 
+  // Re-fetch when admin status changes (e.g. user logs in)
+  $: if (browser && isAdminUser !== prevIsAdmin) {
+    prevIsAdmin = isAdminUser;
+    fetchActiveSponsors();
+  }
+
   async function fetchActiveSponsors() {
     loadingSponsors = true;
     try {
-      const res = await fetch('/api/sponsor/active');
+      let url = '/api/sponsor/active';
+      if (isAdminUser) {
+        url += `?admin=true&pubkey=${$userPublickey}`;
+      }
+      const res = await fetch(url);
       if (res.ok) {
         const data = await res.json();
         activeSponsors = data.sponsors || [];
@@ -51,6 +67,25 @@
       activeSponsors = [];
     } finally {
       loadingSponsors = false;
+    }
+  }
+
+  async function adminAction(sponsorId: string, action: 'hide' | 'unhide') {
+    if (action === 'hide' && !confirm('Hide this sponsor? It will be removed from public view.')) return;
+    adminActionLoading = sponsorId;
+    try {
+      const res = await fetch('/api/sponsor/admin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, sponsorId, adminPubkey: $userPublickey }),
+      });
+      if (res.ok) {
+        await fetchActiveSponsors();
+      }
+    } catch (err) {
+      console.error('[Sponsor Admin] Action failed:', err);
+    } finally {
+      adminActionLoading = null;
     }
   }
 
@@ -313,12 +348,40 @@
       {#if headlineSponsors.length > 0}
         <div class="flex flex-col gap-3 mb-4">
           {#each headlineSponsors as sponsor (sponsor.id)}
-            <SponsorBanner
-              title={sponsor.title}
-              description={sponsor.description}
-              imageUrl={sponsor.imageUrl}
-              linkUrl={sponsor.linkUrl}
-            />
+            <div class="admin-card-wrap" class:admin-hidden={sponsor.status === 'hidden'}>
+              {#if isAdminUser && sponsor.status === 'hidden'}
+                <span class="hidden-badge">Hidden</span>
+              {/if}
+              <SponsorBanner
+                title={sponsor.title}
+                description={sponsor.description}
+                imageUrl={sponsor.imageUrl}
+                linkUrl={sponsor.linkUrl}
+              />
+              {#if isAdminUser}
+                <div class="admin-controls">
+                  {#if sponsor.status === 'hidden'}
+                    <button
+                      type="button"
+                      class="admin-btn admin-btn--unhide"
+                      disabled={adminActionLoading === sponsor.id}
+                      on:click={() => adminAction(sponsor.id, 'unhide')}
+                    >
+                      {adminActionLoading === sponsor.id ? '...' : 'Unhide'}
+                    </button>
+                  {:else}
+                    <button
+                      type="button"
+                      class="admin-btn admin-btn--hide"
+                      disabled={adminActionLoading === sponsor.id}
+                      on:click={() => adminAction(sponsor.id, 'hide')}
+                    >
+                      {adminActionLoading === sponsor.id ? '...' : 'Hide'}
+                    </button>
+                  {/if}
+                </div>
+              {/if}
+            </div>
           {/each}
         </div>
       {/if}
@@ -326,23 +389,51 @@
       {#if cardSponsors.length > 0}
         <div class="showcase-grid">
           {#each cardSponsors as sponsor (sponsor.id)}
-            <a
-              href={sponsor.linkUrl}
-              target="_blank"
-              rel="noopener noreferrer sponsored"
-              class="showcase-card"
-            >
-              <div class="showcase-card-image">
-                <img src={sponsor.imageUrl} alt={sponsor.title} loading="lazy" />
-              </div>
-              <div class="showcase-card-body">
-                <span class="tier-badge">Kitchen Card</span>
-                <h3 class="showcase-card-title">{sponsor.title}</h3>
-                {#if sponsor.description}
-                  <p class="showcase-card-desc">{sponsor.description}</p>
-                {/if}
-              </div>
-            </a>
+            <div class="admin-card-wrap" class:admin-hidden={sponsor.status === 'hidden'}>
+              {#if isAdminUser && sponsor.status === 'hidden'}
+                <span class="hidden-badge">Hidden</span>
+              {/if}
+              <a
+                href={sponsor.linkUrl}
+                target="_blank"
+                rel="noopener noreferrer sponsored"
+                class="showcase-card"
+              >
+                <div class="showcase-card-image">
+                  <img src={sponsor.imageUrl} alt={sponsor.title} loading="lazy" />
+                </div>
+                <div class="showcase-card-body">
+                  <span class="tier-badge">Kitchen Card</span>
+                  <h3 class="showcase-card-title">{sponsor.title}</h3>
+                  {#if sponsor.description}
+                    <p class="showcase-card-desc">{sponsor.description}</p>
+                  {/if}
+                </div>
+              </a>
+              {#if isAdminUser}
+                <div class="admin-controls">
+                  {#if sponsor.status === 'hidden'}
+                    <button
+                      type="button"
+                      class="admin-btn admin-btn--unhide"
+                      disabled={adminActionLoading === sponsor.id}
+                      on:click={() => adminAction(sponsor.id, 'unhide')}
+                    >
+                      {adminActionLoading === sponsor.id ? '...' : 'Unhide'}
+                    </button>
+                  {:else}
+                    <button
+                      type="button"
+                      class="admin-btn admin-btn--hide"
+                      disabled={adminActionLoading === sponsor.id}
+                      on:click={() => adminAction(sponsor.id, 'hide')}
+                    >
+                      {adminActionLoading === sponsor.id ? '...' : 'Hide'}
+                    </button>
+                  {/if}
+                </div>
+              {/if}
+            </div>
           {/each}
         </div>
       {/if}
@@ -1112,5 +1203,68 @@
     border-radius: 1rem;
     border: 1px solid var(--color-input-border);
     background-color: var(--color-bg-secondary);
+  }
+
+  /* ── Admin moderation controls ──────────────────────────────────── */
+
+  .admin-card-wrap {
+    position: relative;
+  }
+
+  .admin-hidden {
+    opacity: 0.5;
+  }
+
+  .hidden-badge {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    z-index: 2;
+    font-size: 9px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 2px 8px;
+    border-radius: 9999px;
+    background: #ef4444;
+    color: white;
+  }
+
+  .admin-controls {
+    display: flex;
+    gap: 0.375rem;
+    margin-top: 0.375rem;
+  }
+
+  .admin-btn {
+    font-size: 0.6875rem;
+    font-weight: 600;
+    padding: 0.25rem 0.625rem;
+    border-radius: 9999px;
+    border: 1px solid var(--color-input-border);
+    background: var(--color-bg-secondary);
+    color: var(--color-text-secondary);
+    cursor: pointer;
+    transition: border-color 0.15s, color 0.15s;
+  }
+
+  .admin-btn:hover:not(:disabled) {
+    border-color: var(--color-primary);
+    color: var(--color-primary);
+  }
+
+  .admin-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .admin-btn--hide:hover:not(:disabled) {
+    border-color: #ef4444;
+    color: #ef4444;
+  }
+
+  .admin-btn--unhide:hover:not(:disabled) {
+    border-color: #22c55e;
+    color: #22c55e;
   }
 </style>

@@ -12,13 +12,33 @@
  */
 
 import { json, type RequestHandler } from '@sveltejs/kit';
-import { getActiveSponsors, type SponsorTier } from '$lib/sponsorStore.server';
+import { getActiveSponsors, getAllSponsors, type SponsorTier } from '$lib/sponsorStore.server';
+import { isAdmin } from '$lib/adminAuth';
 
 const VALID_TIERS: SponsorTier[] = ['headline', 'kitchen_card'];
 
 export const GET: RequestHandler = async ({ url, platform }) => {
   try {
     const kv = platform?.env?.GATED_CONTENT ?? null;
+
+    // Admin mode: return all sponsors (active + hidden) with full details
+    const adminParam = url.searchParams.get('admin');
+    const pubkeyParam = url.searchParams.get('pubkey');
+    if (adminParam === 'true' && isAdmin(pubkeyParam)) {
+      const allSponsors = await getAllSponsors(kv);
+      const adminSponsors = allSponsors.map((s) => ({
+        id: s.id,
+        title: s.title,
+        description: s.description,
+        imageUrl: s.imageUrl,
+        linkUrl: s.linkUrl,
+        tier: s.tier,
+        expiresAt: s.expiresAt,
+        status: s.status,
+        buyerPubkey: s.buyerPubkey,
+      }));
+      return json({ sponsors: adminSponsors });
+    }
 
     const tierParam = url.searchParams.get('tier');
     let tier: SponsorTier | undefined;
