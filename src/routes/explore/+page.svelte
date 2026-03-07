@@ -15,6 +15,8 @@
   import CollectionCard from '../../components/CollectionCard.svelte';
   import ProfileAvatar from '../../components/ProfileAvatar.svelte';
   import TrendingRecipeCard from '../../components/TrendingRecipeCard.svelte';
+  import BoostedRecipeCard from '../../components/BoostedRecipeCard.svelte';
+  import SponsorBanner from '../../components/SponsorBanner.svelte';
   import PullToRefresh from '../../components/PullToRefresh.svelte';
   import LongformFoodFeed from '../../components/LongformFoodFeed.svelte';
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
@@ -165,6 +167,8 @@
   let collections: Collection[] = [];
   let popularCooks: PopularCook[] = [];
   let discoverRecipes: NDKEvent[] = [];
+  let boostedRecipes: { naddr: string; recipeTitle: string; recipeImage: string; authorPubkey: string; tier: string; expiresAt: number }[] = [];
+  let sponsorBanners: { id: string; title: string; description: string; imageUrl: string; linkUrl: string }[] = [];
   let loadingCollections = true;
   let loadingCooks = true;
   let loadingDiscover = true;
@@ -198,6 +202,26 @@
     // Load collections immediately (static data, no network)
     collections = await fetchCollectionsWithImages();
     loadingCollections = false;
+
+    // Fetch boosted recipes (no relay needed, hits our API)
+    fetch('/api/boost/active')
+      .then((r) => (r.ok ? r.json() : { boosts: [] }))
+      .then((data) => {
+        boostedRecipes = data.boosts || [];
+      })
+      .catch(() => {
+        boostedRecipes = [];
+      });
+
+    // Fetch headline sponsor banners
+    fetch('/api/sponsor/active?tier=headline')
+      .then((r) => (r.ok ? r.json() : { sponsors: [] }))
+      .then((data) => {
+        sponsorBanners = data.sponsors || [];
+      })
+      .catch(() => {
+        sponsorBanners = [];
+      });
 
     // Wait for at least one relay connection before firing subscription-based fetches.
     // Without this gate, cold loads race against NDK connection and can throw.
@@ -508,6 +532,46 @@
         </section>
       {/if}
 
+      <!-- Supported by our partners -->
+      {#if sponsorBanners.length > 0}
+        <section class="flex flex-col gap-3" data-section="partners">
+          <div>
+            <h2 class="text-lg font-semibold" style="color: var(--color-text-primary);">Supported by our partners</h2>
+            <p class="text-xs mt-0.5" style="color: var(--color-caption);">
+              Zap Cooking is supported by a small group of aligned partners helping us build the future of food culture on the open web.
+            </p>
+          </div>
+          {#if sponsorBanners.length === 1}
+            <SponsorBanner
+              title={sponsorBanners[0].title}
+              description={sponsorBanners[0].description}
+              imageUrl={sponsorBanners[0].imageUrl}
+              linkUrl={sponsorBanners[0].linkUrl}
+            />
+          {:else}
+            <div class="flex gap-4 overflow-x-auto pb-2 -mx-4 px-4 scrollbar-hide touch-pan-x">
+              {#each sponsorBanners as sponsor (sponsor.id)}
+                <div class="flex-shrink-0 sponsor-scroll-item">
+                  <SponsorBanner
+                    title={sponsor.title}
+                    description={sponsor.description}
+                    imageUrl={sponsor.imageUrl}
+                    linkUrl={sponsor.linkUrl}
+                  />
+                </div>
+              {/each}
+            </div>
+          {/if}
+          <a
+            href="/sponsors"
+            class="text-xs font-medium transition-colors self-start"
+            style="color: var(--color-primary);"
+          >
+            View Sponsors &rarr;
+          </a>
+        </section>
+      {/if}
+
       <!-- Fresh from the Kitchen -->
       <section class="flex flex-col gap-4" data-section="fresh-kitchen">
         <h2 class="text-2xl font-bold flex items-center gap-2">
@@ -522,6 +586,14 @@
           </div>
         {:else if discoverRecipes.length > 0}
           <div class="flex gap-4 overflow-x-auto pb-2 -mx-4 px-4 scrollbar-hide touch-pan-x">
+            {#each boostedRecipes as boost (boost.naddr)}
+              <BoostedRecipeCard
+                naddr={boost.naddr}
+                title={boost.recipeTitle}
+                imageUrl={boost.recipeImage}
+                authorPubkey={boost.authorPubkey}
+              />
+            {/each}
             {#each discoverRecipes.filter((r) => r && r.author?.pubkey) as recipe (recipe.id || recipe.created_at)}
               <TrendingRecipeCard event={recipe} />
             {/each}
@@ -913,5 +985,15 @@
   .membership-card-cta:focus-visible {
     outline: 2px solid var(--color-primary);
     outline-offset: 2px;
+  }
+
+  .sponsor-scroll-item {
+    width: 340px;
+  }
+
+  @media (max-width: 480px) {
+    .sponsor-scroll-item {
+      width: 280px;
+    }
   }
 </style>

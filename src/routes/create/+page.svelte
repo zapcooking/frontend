@@ -48,6 +48,10 @@
   let resultMessage = ' ';
   let disablePublishButton = false;
   let currentDraftId: string | null = null;
+
+  // Post-publish state
+  let publishedNaddr: string | null = null;
+  let publishedTitle: string = '';
   let draftSaveMessage = '';
   let currentDraftSyncStatus: 'local' | 'syncing' | 'synced' | 'error' | undefined = undefined;
   let isSavingDraft = false;
@@ -293,7 +297,7 @@
         if (publishTimeoutId !== undefined) {
           clearTimeout(publishTimeoutId);
         }
-        resultMessage = 'Success! Redirecting to your recipe...';
+        resultMessage = 'Success!';
 
         const naddr = nip19.naddrEncode({
           identifier: title.toLowerCase().replaceAll(' ', '-'),
@@ -307,11 +311,10 @@
           currentDraftId = null;
         }
 
-        // Redirect to the recipe page
-        setTimeout(() => {
-          goto(`/recipe/${naddr}`);
-        }, 1500);
-        return; // Don't reset disablePublishButton - keep it disabled until redirect
+        // Show post-publish celebration screen
+        publishedNaddr = naddr;
+        publishedTitle = title;
+        return; // Don't reset disablePublishButton - keep it disabled
       }
     } catch (err) {
       console.error('error while publishing', err);
@@ -342,6 +345,44 @@
   <title>Create a Recipe - zap.cooking</title>
 </svelte:head>
 
+{#if publishedNaddr}
+  <!-- Post-publish celebration screen -->
+  <div class="flex flex-col items-center justify-center max-w-[480px] mx-auto py-12 px-4 text-center gap-6">
+    <div class="text-5xl">&#127881;</div>
+    <div>
+      <h1 class="text-2xl font-bold mb-2">Recipe Published!</h1>
+      <p class="text-sm" style="color: var(--color-caption);">
+        <strong>"{publishedTitle}"</strong> is live on zap.cooking.
+      </p>
+    </div>
+
+    <hr class="w-full border-t" style="border-color: var(--color-input-border);" />
+
+    <div>
+      <p class="text-sm font-semibold mb-1">Want more eyes on this?</p>
+      <p class="text-xs" style="color: var(--color-caption);">
+        Boost your recipe to get featured in the kitchen.
+      </p>
+    </div>
+
+    <div class="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
+      <a
+        href="/boost?recipe={publishedNaddr}"
+        class="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-full text-sm font-semibold text-white transition-all min-h-[44px]"
+        style="background-color: var(--color-primary);"
+      >
+        &#9889; Boost This Recipe
+      </a>
+      <a
+        href="/recipe/{publishedNaddr}"
+        class="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-full text-sm font-semibold transition-all min-h-[44px]"
+        style="border: 1.5px solid var(--color-input-border); color: var(--color-text-primary);"
+      >
+        View Recipe
+      </a>
+    </div>
+  </div>
+{:else}
 <form on:submit|preventDefault={publishRecipe} class="flex flex-col max-w-[760px] mx-auto gap-6">
   <div class="flex justify-between items-center">
     <h1>Create Recipe</h1>
@@ -485,6 +526,7 @@
     <Button disabled={disablePublishButton || !canPublish} type="submit">Publish Recipe</Button>
   </div>
 </form>
+{/if}
 
 <Modal bind:open={showCancelConfirm}>
   <svelte:fragment slot="title">Save draft before leaving?</svelte:fragment>

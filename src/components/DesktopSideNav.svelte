@@ -21,6 +21,7 @@
   import ShoppingCartIcon from 'phosphor-svelte/lib/ShoppingCart';
   import WalletIcon from 'phosphor-svelte/lib/Wallet';
   import CrownSimpleIcon from 'phosphor-svelte/lib/CrownSimple';
+  import HandshakeIcon from 'phosphor-svelte/lib/Handshake';
 
   import { totalUnreadCount } from '$lib/stores/messages';
   import { userSidePanelOpen } from '$lib/stores/userSidePanel';
@@ -108,6 +109,12 @@
       label: 'Membership',
       icon: CrownSimpleIcon,
       match: (p) => p.startsWith('/membership')
+    },
+    {
+      href: '/sponsors',
+      label: 'Sponsors',
+      icon: HandshakeIcon,
+      match: (p) => p.startsWith('/sponsors')
     }
   ];
 

@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
   import { browser } from '$app/environment';
   import { ndk, ndkReady, userPublickey } from '$lib/nostr';
   import { get } from 'svelte/store';
@@ -32,6 +31,7 @@
     activeTab = tab;
     feedKey++;
   }
+
 </script>
 
 <svelte:head>
