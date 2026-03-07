@@ -15,7 +15,7 @@
     <img src={imageUrl} alt={title} loading="lazy" />
   </div>
   <div class="sponsor-banner-content">
-    <span class="sponsor-label">Sponsored</span>
+    <span class="sponsor-label">Paid Partnership</span>
     <h3 class="sponsor-banner-title">{title}</h3>
     {#if description}
       <p class="sponsor-banner-desc">{description}</p>

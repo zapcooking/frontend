@@ -113,6 +113,8 @@
         <span>|</span>
         <a href="/founders" class="hover:text-primary transition-colors">Founders</a>
         <span>|</span>
+        <a href="/sponsors" class="hover:text-primary transition-colors">Sponsors</a>
+        <span>|</span>
         <a
           href="https://github.com/zapcooking/frontend/issues/new"
           target="_blank"

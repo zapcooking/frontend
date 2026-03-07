@@ -263,15 +263,18 @@
 
 <svelte:head>
   <title>Kitchen Sponsors - zap.cooking</title>
-  <meta name="description" content="These brands and builders support zap.cooking and the community." />
+  <meta name="description" content="Zap Cooking is supported by aligned partners helping us build the future of food culture on the open web." />
 </svelte:head>
 
 <div class="sponsor-page">
   <!-- A. Hero Section -->
   <div class="text-center mb-8">
     <h1 class="text-3xl font-bold mb-2">Kitchen Sponsors</h1>
-    <p class="text-sm mb-5" style="color: var(--color-caption);">
-      These brands and builders support zap.cooking and the community. Want to join them?
+    <p class="text-sm mb-3" style="color: var(--color-caption); max-width: 520px; margin-left: auto; margin-right: auto;">
+      Zap Cooking is building a new kind of food platform on Nostr. This work is supported by a small group of aligned partners and paid collaborations that help us grow the network, improve the product, and keep building in the open.
+    </p>
+    <p class="text-xs mb-5" style="color: var(--color-caption); max-width: 480px; margin-left: auto; margin-right: auto;">
+      Interested in reaching the Nostr food community? Sponsorships are open to everyone.
     </p>
     <button type="button" class="sponsor-btn sponsor-btn--pay" on:click={openForm}>
       &#9889; Sponsor Zap.Cooking

@@ -11,7 +11,7 @@ export type BoostDurationKey = '24h' | '7d' | '30d';
 export const BOOST_DURATION_KEYS: BoostDurationKey[] = ['24h', '7d', '30d'];
 
 export const BOOST_PRICING: Record<BoostDurationKey, { sats: number; durationMs: number; label: string }> = {
-  '24h': { sats: 2500, durationMs: 24 * 60 * 60 * 1000, label: '24 Hours' },
-  '7d':  { sats: 12000, durationMs: 7 * 24 * 60 * 60 * 1000, label: '7 Days' },
-  '30d': { sats: 35000, durationMs: 30 * 24 * 60 * 60 * 1000, label: '30 Days' },
+  '24h': { sats: 1250, durationMs: 24 * 60 * 60 * 1000, label: '24 Hours' },
+  '7d':  { sats: 6000, durationMs: 7 * 24 * 60 * 60 * 1000, label: '7 Days' },
+  '30d': { sats: 17500, durationMs: 30 * 24 * 60 * 60 * 1000, label: '30 Days' },
 };

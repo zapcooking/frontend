@@ -14,7 +14,7 @@
   >
     <!-- Sponsor label header -->
     <div class="sponsor-feed-header px-2 sm:px-0">
-      <span class="sponsor-label">Sponsored</span>
+      <span class="sponsor-label">Paid Partnership</span>
     </div>
 
     <!-- Image -->
