@@ -124,6 +124,8 @@
           Report a Bug
         </a>
         <span>|</span>
+        <a href="/terms" class="hover:text-primary transition-colors">Terms</a>
+        <span>|</span>
         <a href="/privacy" class="hover:text-primary transition-colors">Privacy</a>
         <span>|</span>
         <a href="/disclosure" class="hover:text-primary transition-colors">Disclosure</a>

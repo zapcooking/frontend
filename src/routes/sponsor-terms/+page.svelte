@@ -10,7 +10,7 @@
   <h1 class="text-3xl font-bold mb-8" style="color: var(--color-text-primary)">Sponsor Terms</h1>
 
   <div class="flex flex-col gap-6 leading-relaxed" style="color: var(--color-text-primary)">
-    <p class="text-sm opacity-75">Last updated: March 7, 2026</p>
+    <p class="text-sm opacity-75">Last updated: March 8, 2026</p>
 
     <p>These Sponsor Terms govern the purchase and placement of sponsored content, paid partnerships, featured listings, and other promotional placements on Zap Cooking.</p>
 
@@ -78,21 +78,44 @@
 
     <p>If a sponsorship is rejected before it goes live, Zap Cooking may issue a refund in its discretion.</p>
 
-    <h2 class="text-2xl font-bold mt-8 mb-4" style="color: var(--color-text-primary)">8. Right to Refuse or Remove</h2>
+    <p>If Zap Cooking removes a placement before the end of its purchased term, Zap Cooking may, in its discretion, reschedule the placement, provide replacement placement time, or issue a full or partial refund.</p>
 
-    <p>Zap Cooking reserves the right to refuse, suspend, or remove any sponsorship or placement at any time, including where the content or sponsor is inconsistent with platform values, creates legal or reputational risk, or materially harms user trust.</p>
+    <h2 class="text-2xl font-bold mt-8 mb-4" style="color: var(--color-text-primary)">8. Right to Review, Reject, Modify, or Remove</h2>
 
-    <h2 class="text-2xl font-bold mt-8 mb-4" style="color: var(--color-text-primary)">9. Limitation of Liability</h2>
+    <p>Zap Cooking reserves the right, in its sole discretion, to review, reject, suspend, relabel, modify, or remove any sponsored placement, boosted recipe, submitted creative, link, logo, image, headline, description, or partner listing at any time.</p>
+
+    <p>This includes cases where content or conduct is, or may be:</p>
+
+    <ul class="list-disc pl-6 space-y-2">
+      <li>misleading, deceptive, or inaccurate</li>
+      <li>unlawful or infringing</li>
+      <li>unsafe, malicious, or harmful</li>
+      <li>spammy, broken, low quality, or technically disruptive</li>
+      <li>inconsistent with required disclosure or transparency standards</li>
+      <li>inconsistent with the values, brand, integrity, or user trust of Zap Cooking</li>
+    </ul>
+
+    <p>Zap Cooking may also remove or modify a placement to correct labeling, disclosure, formatting, timing, or technical issues, or to preserve the quality and operation of the Service.</p>
+
+    <p>Unless otherwise required by law or expressly agreed in writing, removal or suspension of a placement for the reasons above does not create any obligation for Zap Cooking to continue the placement in its original form.</p>
+
+    <h2 class="text-2xl font-bold mt-8 mb-4" style="color: var(--color-text-primary)">9. Administrative Authority</h2>
+
+    <p>Sponsor placements, boosted content, and related promotional features may be created, approved, edited, labeled, scheduled, moderated, or removed by Zap Cooking through authorized platform accounts, administrative tools, designated operator keys, or official Zap Cooking-controlled identities.</p>
+
+    <p>Zap Cooking may use internal moderation, administrative systems, or platform-level controls to manage promotional content and maintain platform integrity, legal compliance, technical performance, disclosure standards, and community trust.</p>
+
+    <h2 class="text-2xl font-bold mt-8 mb-4" style="color: var(--color-text-primary)">10. Limitation of Liability</h2>
 
     <p>To the maximum extent permitted by law, Zap Cooking will not be liable for indirect, incidental, special, consequential, or lost-profit damages arising from or related to a sponsorship or promotional placement.</p>
 
     <p>Zap Cooking's total liability relating to a sponsorship will not exceed the amount actually paid for that placement.</p>
 
-    <h2 class="text-2xl font-bold mt-8 mb-4" style="color: var(--color-text-primary)">10. Changes</h2>
+    <h2 class="text-2xl font-bold mt-8 mb-4" style="color: var(--color-text-primary)">11. Changes</h2>
 
     <p>Zap Cooking may update these Sponsor Terms from time to time. Updated terms will be posted on this page with a revised effective date.</p>
 
-    <h2 class="text-2xl font-bold mt-8 mb-4" style="color: var(--color-text-primary)">11. Contact</h2>
+    <h2 class="text-2xl font-bold mt-8 mb-4" style="color: var(--color-text-primary)">12. Contact</h2>
 
     <p>If you have questions about these Sponsor Terms, contact us at:</p>
 
