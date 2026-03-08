@@ -1,7 +1,5 @@
 <script lang="ts">
 	import { nip19 } from 'nostr-tools';
-	import { NDKEvent } from '@nostr-dev-kit/ndk';
-	import { ndk } from '$lib/nostr';
 	import { browser } from '$app/environment';
 	import { onMount } from 'svelte';
 	import Modal from '../Modal.svelte';
@@ -16,17 +14,20 @@
 	import ChatCircleIcon from 'phosphor-svelte/lib/ChatCircle';
 	import PaperPlaneTiltIcon from 'phosphor-svelte/lib/PaperPlaneTilt';
 	import XIcon from 'phosphor-svelte/lib/X';
+	import LockSimpleIcon from 'phosphor-svelte/lib/LockSimple';
+	import LockSimpleOpenIcon from 'phosphor-svelte/lib/LockSimpleOpen';
+	import StorefrontIcon from 'phosphor-svelte/lib/Storefront';
+	import TrustBadge from './TrustBadge.svelte';
 	import type { Product } from '$lib/marketplace/types';
-	import { CATEGORY_LABELS, CATEGORY_EMOJIS } from '$lib/marketplace/types';
 	import { getImageOrPlaceholder } from '$lib/placeholderImages';
 	import { getInvoiceFromLightningAddress } from '$lib/marketplace/products';
 	import { activeWallet } from '$lib/wallet';
 	import { sendPayment } from '$lib/wallet/walletManager';
 	import { lightningService } from '$lib/lightningService';
 	import { userPublickey } from '$lib/nostr';
+	import { sendDirectMessage, sendNip04DirectMessage, isNip17Supported } from '$lib/nip17';
 
 	// Dynamic imports for browser-only modules
-	let encryptNip04: ((pubkey: string, plaintext: string) => Promise<string>) | null = null;
 	let hasEncryptionSupport: (() => boolean) | null = null;
 	let encryptionServiceLoaded = false;
 	let encryptionDebugInfo: { signerType: string; hasWindowNostr: boolean; hasPrivateKey: boolean; hasNip04: boolean; hasNip44: boolean } | null = null;
@@ -36,14 +37,14 @@
 		const encryptionService = await import('$lib/encryptionService');
 		hasEncryptionSupport = encryptionService.hasEncryptionSupport;
 		encryptionServiceLoaded = true;
-		
+
 		// Gather debug info for better error messages
 		const ndkInstance = (await import('$lib/nostr')).ndk;
 		const { get } = await import('svelte/store');
 		const ndk = get(ndkInstance);
 		const signer = ndk?.signer;
 		const nostr = (window as any).nostr;
-		
+
 		encryptionDebugInfo = {
 			signerType: signer?.constructor?.name || 'none',
 			hasWindowNostr: !!nostr,
@@ -51,19 +52,13 @@
 			hasNip04: !!(nostr?.nip04?.encrypt),
 			hasNip44: !!(nostr?.nip44?.encrypt)
 		};
-		
+
 		console.log('[DM] Encryption debug info:', encryptionDebugInfo);
-		
-		// For kind 4 DMs, we MUST use NIP-04 encryption (not NIP-44)
-		// NIP-04 format is: <encrypted_text>?iv=<initialization_vector>
-		encryptNip04 = async (pubkey: string, plaintext: string) => {
-			const result = await encryptionService.encrypt(pubkey, plaintext, 'nip04');
-			return result.ciphertext;
-		};
 	});
 
 	export let open = false;
 	export let product: Product;
+	export let trustRank: number | undefined = undefined;
 
 	// Copy states
 	let copiedLightning = false;
@@ -80,13 +75,21 @@
 	let sendingDm = false;
 	let dmSent = false;
 	let dmError = '';
+	let sendProtocol: 'nip04' | 'nip17' = 'nip04';
+
+	$: nip17Available = isNip17Supported().supported;
+
+	function toggleProtocol() {
+		sendProtocol = sendProtocol === 'nip04' ? 'nip17' : 'nip04';
+	}
 
 	$: npub = product?.pubkey ? nip19.npubEncode(product.pubkey) : '';
+	$: kitchenUrl = npub ? `/marketplace/kitchen/${npub}` : '';
 	$: imageUrl = product?.images?.[0]
 		? getImageOrPlaceholder(product.images[0], product.id)
 		: getImageOrPlaceholder(undefined, product.id);
 	$: hasInAppWallet = $activeWallet && ($activeWallet.kind === 3 || $activeWallet.kind === 4);
-	$: canSendDm = browser && $userPublickey && encryptionServiceLoaded && hasEncryptionSupport?.() && encryptNip04;
+	$: canSendDm = browser && $userPublickey && encryptionServiceLoaded && hasEncryptionSupport?.();
 
 	// Generate default DM template
 	$: defaultDmMessage = `Hi! I just purchased "${product?.title}" (${product?.priceSats?.toLocaleString()} sats).${product?.requiresShipping ? `\n\nMy shipping address:\n[Your address here]` : ''}\n\nThanks!`;
@@ -125,7 +128,7 @@
 
 	async function handlePayment() {
 		if (!product?.lightningAddress || !product?.priceSats) return;
-		
+
 		paymentState = 'loading';
 		paymentError = '';
 
@@ -180,44 +183,17 @@
 	}
 
 	async function sendDm() {
-		if (!product?.pubkey || !dmMessage.trim() || !$ndk || !encryptNip04) return;
+		if (!product?.pubkey || !dmMessage.trim()) return;
 
 		sendingDm = true;
 		dmError = '';
 
 		try {
-			// Encrypt the message using NIP-04 (required for kind 4 DMs)
-			// NIP-04 format: <encrypted_text>?iv=<initialization_vector>
-			console.log('[DM] Encrypting message for pubkey:', product.pubkey.substring(0, 16) + '...');
-			const ciphertext = await encryptNip04(product.pubkey, dmMessage.trim());
-			
-			// Verify NIP-04 format (must contain ?iv=)
-			if (!ciphertext.includes('?iv=')) {
-				console.error('[DM] Ciphertext is not in NIP-04 format (missing ?iv=):', ciphertext.substring(0, 50));
-				throw new Error('Encryption failed: invalid format. Your wallet may not support NIP-04 encryption.');
+			if (sendProtocol === 'nip17') {
+				await sendDirectMessage(product.pubkey, dmMessage.trim());
+			} else {
+				await sendNip04DirectMessage(product.pubkey, dmMessage.trim());
 			}
-			console.log('[DM] Ciphertext format valid (contains ?iv=)');
-
-			// Create DM event (kind 4)
-			const dmEvent = new NDKEvent($ndk);
-			dmEvent.kind = 4;
-			dmEvent.content = ciphertext;
-			dmEvent.tags = [['p', product.pubkey]];
-			dmEvent.created_at = Math.floor(Date.now() / 1000);
-
-			// Sign and publish
-			console.log('[DM] Signing event...');
-			await dmEvent.sign();
-			console.log('[DM] Event signed, publishing to relays...');
-			
-			// Publish and wait for confirmation
-			const publishedTo = await dmEvent.publish();
-			console.log('[DM] Published to', publishedTo?.size || 0, 'relays');
-
-			if (!publishedTo || publishedTo.size === 0) {
-				throw new Error('Failed to publish to any relays');
-			}
-
 			dmSent = true;
 			dmMessage = '';
 		} catch (e) {
@@ -239,14 +215,14 @@
 		// Re-import and re-check encryption support
 		const encryptionService = await import('$lib/encryptionService');
 		hasEncryptionSupport = encryptionService.hasEncryptionSupport;
-		
+
 		// Re-gather debug info
 		const ndkModule = await import('$lib/nostr');
 		const { get } = await import('svelte/store');
 		const ndkInstance = get(ndkModule.ndk);
 		const signer = ndkInstance?.signer;
 		const nostr = (window as any).nostr;
-		
+
 		encryptionDebugInfo = {
 			signerType: signer?.constructor?.name || 'none',
 			hasWindowNostr: !!nostr,
@@ -254,17 +230,11 @@
 			hasNip04: !!(nostr?.nip04?.encrypt),
 			hasNip44: !!(nostr?.nip44?.encrypt)
 		};
-		
+
 		console.log('[DM] Re-checked encryption support:', {
 			hasSupport: hasEncryptionSupport?.(),
 			debugInfo: encryptionDebugInfo
 		});
-		
-		// Re-create the encrypt function
-		encryptNip04 = async (pubkey: string, plaintext: string) => {
-			const result = await encryptionService.encrypt(pubkey, plaintext, 'nip04');
-			return result.ciphertext;
-		};
 	}
 </script>
 
@@ -279,10 +249,6 @@
 				alt={product?.title}
 				class="w-full h-full object-cover"
 			/>
-			<!-- Category badge -->
-			<span class="absolute top-3 right-3 text-sm font-medium px-3 py-1 rounded-full" style="background-color: rgba(0, 0, 0, 0.6); backdrop-filter: blur(4px); color: white;">
-				{CATEGORY_EMOJIS[product?.category || 'ingredients']} {CATEGORY_LABELS[product?.category || 'ingredients']}
-			</span>
 		</div>
 
 		<!-- Price & Shipping -->
@@ -309,10 +275,24 @@
 			<CustomAvatar pubkey={product?.pubkey || ''} size={40} className="flex-shrink-0" />
 			<div class="flex flex-col flex-1">
 				<span class="text-sm" style="color: var(--color-text-secondary)">Sold by</span>
-				<span class="font-semibold" style="color: var(--color-text-primary)">
+				<span class="flex items-center gap-1.5 font-semibold" style="color: var(--color-text-primary)">
 					<CustomName pubkey={product?.pubkey || ''} />
+					<TrustBadge rank={trustRank} />
 				</span>
 			</div>
+			<!-- Visit Kitchen link -->
+			{#if kitchenUrl}
+				<a
+					href={kitchenUrl}
+					on:click={() => (open = false)}
+					class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors hover:bg-white/10"
+					style="color: var(--color-text-secondary);"
+					title="Visit Store"
+				>
+					<StorefrontIcon size={16} />
+					<span class="hidden sm:inline">Store</span>
+				</a>
+			{/if}
 			<!-- Copy npub button -->
 			<button
 				type="button"
@@ -431,11 +411,66 @@
 						<span class="text-sm font-medium">Message sent to seller!</span>
 					</div>
 				{:else if canSendDm}
+					<!-- Protocol toggle -->
+					<div class="flex items-center justify-between px-0.5">
+						<div class="flex items-center gap-1.5">
+							{#if sendProtocol === 'nip17'}
+								<LockSimpleIcon
+									class="w-3 h-3 flex-shrink-0"
+									weight="bold"
+									style="color: rgba(167, 139, 250, 0.8);"
+								/>
+								<span class="text-[10px]" style="color: rgba(167, 139, 250, 0.8);">More private</span>
+							{:else}
+								<LockSimpleOpenIcon
+									class="w-3 h-3 flex-shrink-0"
+									weight="bold"
+									style="color: rgba(249, 115, 22, 0.6);"
+								/>
+								<span class="text-[10px]" style="color: rgba(249, 115, 22, 0.6);">More compatible</span>
+							{/if}
+						</div>
+						<div class="flex items-center gap-1.5">
+							<span
+								class="text-[8px] font-semibold uppercase tracking-[0.15em]"
+								style="color: var(--color-text-secondary); opacity: 0.7;">NIP</span
+							>
+							<button
+								type="button"
+								on:click|stopPropagation={toggleProtocol}
+								class="relative flex items-center w-[72px] h-7 rounded-full cursor-pointer transition-colors duration-200"
+								style={sendProtocol === 'nip17'
+									? 'background-color: rgba(124, 58, 237, 0.25);'
+									: 'background-color: rgba(249, 115, 22, 0.18);'}
+								title={sendProtocol === 'nip17'
+									? 'More private (less compatible)'
+									: 'More compatible (less private)'}
+								disabled={!nip17Available && sendProtocol === 'nip04'}
+							>
+								<span
+									class="absolute top-0.5 h-6 w-9 rounded-full transition-all duration-200 shadow-sm"
+									style="left: {sendProtocol === 'nip17' ? '33px' : '2px'};
+										background-color: {sendProtocol === 'nip17'
+										? 'rgba(124, 58, 237, 0.9)'
+										: 'rgba(249, 115, 22, 0.9)'};"
+								></span>
+								<span
+									class="relative z-10 w-1/2 text-center text-[9px] font-semibold transition-colors duration-200"
+									style="color: {sendProtocol === 'nip04' ? '#fff' : 'rgba(249, 115, 22, 0.6)'};">04</span
+								>
+								<span
+									class="relative z-10 w-1/2 text-center text-[9px] font-semibold transition-colors duration-200"
+									style="color: {sendProtocol === 'nip17' ? '#fff' : 'rgba(167, 139, 250, 0.6)'};"
+									>17</span
+								>
+							</button>
+						</div>
+					</div>
 					<textarea
 						bind:value={dmMessage}
 						rows="5"
-						class="w-full p-3 rounded-lg text-sm resize-none"
-						style="background-color: var(--color-bg-secondary); color: var(--color-text-primary);"
+						class="w-full p-3 rounded-lg text-sm resize-none transition-colors duration-200"
+						style="background-color: var(--color-bg-secondary); color: var(--color-text-primary); border: 1px solid {sendProtocol === 'nip17' ? 'rgba(124, 58, 237, 0.35)' : 'rgba(249, 115, 22, 0.35)'};"
 						placeholder="Write your message..."
 					/>
 					{#if dmError}

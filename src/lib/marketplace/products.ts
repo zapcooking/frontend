@@ -17,7 +17,7 @@ import {
 import { addClientTagToEvent } from '$lib/nip89';
 
 // Relays that index marketplace events
-const MARKETPLACE_RELAYS = [
+export const MARKETPLACE_RELAYS = [
 	'wss://kitchen.zap.cooking',
 	'wss://relay.damus.io',
 	'wss://nos.lol',
@@ -235,7 +235,7 @@ export async function fetchProducts(
 				pubkey: event.pubkey?.substring(0, 16)
 			});
 			const product = parseProductEvent(event);
-			if (product && product.status === 'active') {
+			if (product && product.status === 'active' && product.priceSats > 0 && product.images.length > 0) {
 				products.push(product);
 			}
 		}

@@ -5,7 +5,8 @@
 	import { ndk, userPublickey } from '$lib/nostr';
 	import type { NDKEvent } from '@nostr-dev-kit/ndk';
 	import { fetchSellerProducts, deleteProduct } from '$lib/marketplace/products';
-	import type { Product } from '$lib/marketplace/types';
+	import { fetchKitchenByPubkey } from '$lib/marketplace/kitchens';
+	import type { Product, Kitchen } from '$lib/marketplace/types';
 	import ProductCard from '../../components/marketplace/ProductCard.svelte';
 	import PanLoader from '../../components/PanLoader.svelte';
 	import Button from '../../components/Button.svelte';
@@ -13,12 +14,15 @@
 	import StorefrontIcon from 'phosphor-svelte/lib/Storefront';
 	import PlusIcon from 'phosphor-svelte/lib/Plus';
 	import LockIcon from 'phosphor-svelte/lib/Lock';
+	import PencilSimpleIcon from 'phosphor-svelte/lib/PencilSimple';
 
 	let products: NDKEvent[] = [];
 	let loading = true;
 	let checkingMembership = true;
 	let hasActiveMembership = false;
 	let membershipTier: string | undefined;
+	let existingKitchen: Kitchen | null = null;
+	let loadingKitchen = true;
 
 	// Delete confirmation state
 	let showDeleteModal = false;
@@ -37,7 +41,7 @@
 		await checkMembership();
 
 		if (hasActiveMembership) {
-			await loadProducts();
+			await Promise.all([loadProducts(), loadKitchen()]);
 		}
 	});
 
@@ -59,6 +63,17 @@
 			console.error('[MyStore] Failed to check membership:', e);
 		} finally {
 			checkingMembership = false;
+		}
+	}
+
+	async function loadKitchen() {
+		loadingKitchen = true;
+		try {
+			existingKitchen = await fetchKitchenByPubkey($ndk, $userPublickey);
+		} catch (e) {
+			console.error('[MyStore] Failed to load kitchen:', e);
+		} finally {
+			loadingKitchen = false;
 		}
 	}
 
@@ -161,6 +176,53 @@
 
 	<!-- Has membership - show dashboard -->
 	{:else}
+		<!-- Kitchen Section -->
+		<div class="mb-8">
+			<h2 class="text-lg font-semibold mb-3" style="color: var(--color-text-primary)">Store</h2>
+			{#if loadingKitchen}
+				<div class="p-6 rounded-2xl animate-pulse" style="background-color: var(--color-bg-secondary);">
+					<div class="h-4 w-1/3 rounded" style="background-color: var(--color-bg-tertiary, rgba(0,0,0,0.1));"></div>
+				</div>
+			{:else if existingKitchen}
+				<div class="p-4 rounded-2xl flex items-center justify-between" style="background-color: var(--color-bg-secondary);">
+					<div class="flex items-center gap-3">
+						{#if existingKitchen.avatar}
+							<img src={existingKitchen.avatar} alt="" class="w-10 h-10 rounded-full object-cover" />
+						{:else}
+							<div class="w-10 h-10 rounded-full flex items-center justify-center" style="background-color: var(--color-bg-tertiary, rgba(0,0,0,0.1));">
+								<StorefrontIcon size={20} class="opacity-50" />
+							</div>
+						{/if}
+						<div>
+							<p class="font-medium" style="color: var(--color-text-primary)">{existingKitchen.name}</p>
+							{#if existingKitchen.description}
+								<p class="text-sm line-clamp-1" style="color: var(--color-text-secondary)">{existingKitchen.description}</p>
+							{/if}
+						</div>
+					</div>
+					<a href="/my-store/kitchen" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors hover:bg-white/5" style="color: var(--color-text-secondary);">
+						<PencilSimpleIcon size={16} />
+						Edit
+					</a>
+				</div>
+			{:else}
+				<div class="p-6 rounded-2xl text-center" style="background-color: var(--color-bg-secondary);">
+					<p class="text-sm mb-3" style="color: var(--color-text-secondary)">
+						Set up your store to group your products and build your brand.
+					</p>
+					<a
+						href="/my-store/kitchen"
+						class="inline-flex items-center gap-2 px-4 py-2 rounded-lg font-medium text-sm transition-all hover:scale-105"
+						style="background: linear-gradient(135deg, #f97316, #ea580c); color: white;"
+					>
+						<PlusIcon size={16} weight="bold" />
+						Create Store
+					</a>
+				</div>
+			{/if}
+		</div>
+
+		<!-- Products Section -->
 		{#if loading}
 			<div class="flex justify-center py-12">
 				<PanLoader size="md" />
