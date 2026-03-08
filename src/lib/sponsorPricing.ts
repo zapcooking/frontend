@@ -16,6 +16,9 @@ export const SPONSOR_TIERS: { key: SponsorTier; label: string; description: stri
   { key: 'kitchen_card', label: 'Kitchen Card', description: 'Card on the sponsor feed' },
 ];
 
+/** Launch promo: 69% off — multiply base price by this factor */
+export const SPONSOR_PROMO_MULTIPLIER = 0.31;
+
 export const SPONSOR_PRICING: Record<SponsorTier, Record<SponsorDurationKey, { sats: number; durationMs: number; label: string }>> = {
   headline: {
     '24h': { sats: 5000, durationMs: 86400000, label: '24 Hours' },

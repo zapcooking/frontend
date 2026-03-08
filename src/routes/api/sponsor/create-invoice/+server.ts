@@ -35,6 +35,7 @@ import {
   type SponsorDurationKey,
   type SponsorRecord,
 } from '$lib/sponsorStore.server';
+import { SPONSOR_PROMO_MULTIPLIER } from '$lib/sponsorPricing';
 
 const HEX64_RE = /^[0-9a-fA-F]{64}$/;
 const VALID_TIERS: SponsorTier[] = ['headline', 'kitchen_card'];
@@ -85,7 +86,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 
     const pricing = SPONSOR_PRICING[tier as SponsorTier][durationKey as SponsorDurationKey];
     // Launch promo: 69% off all placements
-    const amountSats = Math.floor(pricing.sats * 0.31);
+    const amountSats = Math.floor(pricing.sats * SPONSOR_PROMO_MULTIPLIER);
 
     // Convert sats → BTC string for Strike API
     const btcAmount = (amountSats / 100_000_000).toFixed(8);

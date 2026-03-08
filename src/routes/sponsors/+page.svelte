@@ -9,6 +9,7 @@
     SPONSOR_PRICING,
     SPONSOR_DURATION_KEYS,
     SPONSOR_TIERS,
+    SPONSOR_PROMO_MULTIPLIER,
     type SponsorTier,
     type SponsorDurationKey,
   } from '$lib/sponsorPricing';
@@ -133,7 +134,7 @@
 
   // Launch promotional pricing — 69% off
   function promoPrice(sats: number): number {
-    return Math.floor(sats * 0.31);
+    return Math.floor(sats * SPONSOR_PROMO_MULTIPLIER);
   }
 
   onDestroy(() => {
