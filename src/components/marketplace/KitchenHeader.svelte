@@ -2,7 +2,6 @@
 	import { nip19 } from 'nostr-tools';
 	import type { KitchenDisplay } from '$lib/marketplace/types';
 	import CustomAvatar from '../CustomAvatar.svelte';
-	import CustomName from '../CustomName.svelte';
 	import MapPinIcon from 'phosphor-svelte/lib/MapPin';
 	import PencilSimpleIcon from 'phosphor-svelte/lib/PencilSimple';
 	import LightningIcon from 'phosphor-svelte/lib/Lightning';
@@ -51,7 +50,7 @@
 				</a>
 			{/if}
 			<a
-				href="/user/{npub}"
+				href={`/user/${npub}`}
 				class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors"
 				style="background-color: var(--color-bg-tertiary, rgba(0,0,0,0.1)); color: var(--color-text-primary);"
 			>

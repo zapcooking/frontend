@@ -21,9 +21,6 @@ import { profileCacheManager } from '$lib/profileCache';
 // NIP-85 Trusted Assertions — service relay for trust rank lookups
 const NIP85_RELAY = 'wss://nip85.nostr.band';
 const NIP85_KIND_USER = 30382;
-// Minimum rank to show a trust badge (0-100 scale, NIP-85 spec)
-const TRUST_BADGE_THRESHOLD = 20;
-
 // Known placeholder/default avatar patterns (same as exploreUtils.ts)
 const INVALID_IMAGE_PATTERNS = [
 	'placeholder',
@@ -220,6 +217,13 @@ export async function fetchKitchens(
 	const timeoutMs = options.timeoutMs || 15000;
 
 	try {
+		// Wait briefly if no relays are connected yet (same pattern as fetchProducts)
+		const connectedRelays = ndk.pool?.relays ?
+			Array.from(ndk.pool.relays.values()).filter(r => r.status === 1).length : 0;
+		if (connectedRelays === 0) {
+			await new Promise(resolve => setTimeout(resolve, 3000));
+		}
+
 		let relaySet: NDKRelaySet | undefined;
 		if (!options.author) {
 			try {
@@ -378,7 +382,7 @@ export async function buildImplicitKitchen(
 
 /**
  * Fetch NIP-85 trust ranks for a list of pubkeys from relay.nostr.band
- * Returns a map of pubkey → rank (0-1 float, higher = more trusted)
+ * Returns a map of pubkey → rank (0–100 integer, higher = more trusted)
  * Gracefully returns empty map on failure — this is an enhancement, not a requirement
  */
 export async function fetchTrustRanks(
@@ -499,7 +503,7 @@ export async function fetchAllKitchenDisplays(
 	// --- Profile quality gate ---
 	// Filter out stores whose owner has no valid profile picture or display name
 	const qualifiedDisplays = displays.filter((d) => {
-		// For explicit stalls: check stall avatar OR profile avatar
+		// For explicit stalls: check stall avatar
 		const avatarUrl = d.avatar;
 		const hasPfp = hasValidProfileImage(avatarUrl);
 		const hasName = hasValidDisplayName(d.name);

@@ -80,7 +80,7 @@ export interface Kitchen {
 	location?: string;
 	lightningAddress?: string;
 	productCount?: number; // computed client-side
-	trustRank?: number; // NIP-85 trust score 0-1 (computed)
+	trustRank?: number; // NIP-85 trust score 0-100 (computed)
 	createdAt: number;
 	event: NDKEvent;
 }
@@ -104,7 +104,7 @@ export interface ImplicitKitchen {
 	location?: string;
 	lightningAddress?: string;
 	productCount: number;
-	trustRank?: number; // NIP-85 trust score 0-1 (computed)
+	trustRank?: number; // NIP-85 trust score 0-100 (computed)
 	isImplicit: true;
 }
 

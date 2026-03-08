@@ -2,7 +2,6 @@
 	import { nip19 } from 'nostr-tools';
 	import type { KitchenDisplay } from '$lib/marketplace/types';
 	import CustomAvatar from '../CustomAvatar.svelte';
-	import CustomName from '../CustomName.svelte';
 	import MapPinIcon from 'phosphor-svelte/lib/MapPin';
 	import PackageIcon from 'phosphor-svelte/lib/Package';
 	import TrustBadge from './TrustBadge.svelte';

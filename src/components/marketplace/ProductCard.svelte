@@ -6,7 +6,7 @@
 	import CloudArrowDownIcon from 'phosphor-svelte/lib/CloudArrowDown';
 	import TrashIcon from 'phosphor-svelte/lib/Trash';
 	import { nip19 } from 'nostr-tools';
-	import { parseProductEvent, formatSatsPrice } from '$lib/marketplace/products';
+	import { parseProductEvent } from '$lib/marketplace/products';
 	import type { Product } from '$lib/marketplace/types';
 	import { getImageOrPlaceholder } from '$lib/placeholderImages';
 	import CustomAvatar from '../CustomAvatar.svelte';
@@ -20,8 +20,7 @@
 
 	const dispatch = createEventDispatcher<{ delete: { product: Product }; hide: void }>();
 
-	let imageElement: HTMLElement | null = null;
-	let imageLoaded = false;
+	let imageElement: HTMLImageElement | null = null;
 	let showDetailModal = false;
 	let hidden = false;
 
@@ -44,12 +43,6 @@
 		? getImageOrPlaceholder(product.images[0], event.id)
 		: getImageOrPlaceholder(undefined, event.id);
 
-	// Load image when element is available
-	$: if (imageElement && imageUrl && !imageLoaded) {
-		imageElement.style.backgroundImage = `url('${imageUrl}')`;
-		imageLoaded = true;
-	}
-
 	function openDetail() {
 		showDetailModal = true;
 	}
@@ -66,12 +59,13 @@
 <button type="button" class="product-card text-left w-full" on:click={openDetail}>
 	<!-- Image -->
 	<div class="relative image-container">
-		<div
+		<img
 			bind:this={imageElement}
-			class="absolute inset-0 image"
+			src={imageUrl}
+			alt={title}
+			class="absolute inset-0 image object-cover"
+			on:error={handleImageError}
 		/>
-		<!-- Hidden probe to detect broken images -->
-		<img src={imageUrl} alt="" class="hidden" on:error={handleImageError} />
 		<!-- Delete button (only shown for owner) -->
 		{#if showDelete}
 			<button
@@ -102,17 +96,19 @@
 
 		<!-- Seller -->
 		{#if sellerPubkey}
-			<a
-				href={kitchenUrl}
-				on:click|stopPropagation
-				class="flex items-center gap-2 hover:opacity-80 transition-opacity"
+			<span
+				role="link"
+				tabindex="-1"
+				on:click|stopPropagation={() => { window.location.href = kitchenUrl; }}
+				on:keydown|stopPropagation={(e) => { if (e.key === 'Enter') window.location.href = kitchenUrl; }}
+				class="flex items-center gap-2 hover:opacity-80 transition-opacity cursor-pointer"
 			>
 				<CustomAvatar pubkey={sellerPubkey} size={20} className="flex-shrink-0" interactive={false} />
 				<span class="text-xs truncate" style="color: var(--color-text-secondary)">
 					<CustomName pubkey={sellerPubkey} />
 				</span>
 				<TrustBadge rank={trustRank} />
-			</a>
+			</span>
 		{/if}
 
 		<!-- Shipping indicator -->
@@ -161,7 +157,7 @@
 	}
 
 	.image {
-		@apply w-full h-full bg-cover bg-center transition-transform duration-500;
+		@apply w-full h-full transition-transform duration-500;
 	}
 
 	.product-card:hover .image {

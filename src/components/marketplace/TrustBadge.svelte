@@ -21,11 +21,20 @@
 </script>
 
 {#if visible}
-	<!-- svelte-ignore a11y-no-static-element-interactions -->
 	<span
 		class="trust-badge trust-{level}"
+		tabindex="0"
+		role="button"
+		aria-label={`Trust score: ${label}${rank !== undefined ? ` (${rank}/100)` : ''}`}
+		aria-expanded={showTooltip}
 		on:mouseenter={() => (showTooltip = true)}
 		on:mouseleave={() => (showTooltip = false)}
+		on:focus={() => (showTooltip = true)}
+		on:blur={() => (showTooltip = false)}
+		on:click={() => (showTooltip = !showTooltip)}
+		on:keydown={(e) => {
+			if (e.key === 'Escape') showTooltip = false;
+		}}
 	>
 		<ShieldCheckIcon size={14} weight="fill" />
 		<span class="trust-label">{label}</span>

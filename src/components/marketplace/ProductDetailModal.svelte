@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { nip19 } from 'nostr-tools';
-	import { ndk } from '$lib/nostr';
 	import { browser } from '$app/environment';
 	import { onMount } from 'svelte';
 	import Modal from '../Modal.svelte';

@@ -9,7 +9,6 @@
 	import KitchenHeader from '../../../../components/marketplace/KitchenHeader.svelte';
 	import ProductCard from '../../../../components/marketplace/ProductCard.svelte';
 	import PanLoader from '../../../../components/PanLoader.svelte';
-	import StorefrontIcon from 'phosphor-svelte/lib/Storefront';
 	import PackageIcon from 'phosphor-svelte/lib/Package';
 	import ArrowLeftIcon from 'phosphor-svelte/lib/ArrowLeft';
 	import type { PageData } from './$types';
