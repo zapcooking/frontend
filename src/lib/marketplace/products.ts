@@ -199,7 +199,7 @@ export async function fetchProducts(
 		let timeoutId: ReturnType<typeof setTimeout>;
 
 		const fetchPromise = new Promise<Set<any>>((resolve) => {
-			const sub = ndk.subscribe(filter, { closeOnEose: true, relaySet } as any);
+			const sub = ndk.subscribe(filter, { closeOnEose: true }, relaySet);
 
 			sub.on('event', (event: any) => {
 				allEvents.add(event);

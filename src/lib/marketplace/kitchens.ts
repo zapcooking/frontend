@@ -17,6 +17,8 @@ import {
 import { MARKETPLACE_RELAYS } from './products';
 import { addClientTagToEvent } from '$lib/nip89';
 import { profileCacheManager } from '$lib/profileCache';
+import { getMembership } from '$lib/stores/membershipStatus';
+import type { MembershipTier } from '$lib/membershipStore';
 
 // NIP-85 Trusted Assertions — service relay for trust rank lookups
 const NIP85_RELAY = 'wss://nip85.nostr.band';
@@ -84,8 +86,20 @@ function hasValidDisplayName(name: string | undefined | null): boolean {
 }
 
 /**
- * Compute a quality score for a store display (0-100)
+ * Membership tier priority boost values
+ * Members get a significant quality score boost so their stores appear first
+ */
+const MEMBER_TIER_BOOST: Record<string, number> = {
+	founders: 50,
+	pro_kitchen: 40,
+	cook_plus: 30,
+	member: 25
+};
+
+/**
+ * Compute a quality score for a store display (0-150)
  * Used for sorting — higher score = better store
+ * Members get a boost so their stores are prioritized
  */
 function computeQualityScore(kitchen: KitchenDisplay, trustRank?: number): number {
 	let score = 0;
@@ -118,7 +132,12 @@ function computeQualityScore(kitchen: KitchenDisplay, trustRank?: number): numbe
 		score += Math.round((trustRank / 100) * 10);
 	}
 
-	return Math.min(score, 100);
+	// Membership tier boost (+25 to +50 depending on tier)
+	if (kitchen.memberTier) {
+		score += MEMBER_TIER_BOOST[kitchen.memberTier] || 0;
+	}
+
+	return score;
 }
 
 /**
@@ -244,7 +263,7 @@ export async function fetchKitchens(
 		let timeoutId: ReturnType<typeof setTimeout>;
 
 		const fetchPromise = new Promise<Set<NDKEvent>>((resolve) => {
-			const sub = ndk.subscribe(filter, { closeOnEose: true, relaySet } as any);
+			const sub = ndk.subscribe(filter, { closeOnEose: true }, relaySet);
 
 			sub.on('event', (event: NDKEvent) => {
 				allEvents.add(event);
@@ -416,7 +435,7 @@ export async function fetchTrustRanks(
 		const events = new Set<NDKEvent>();
 
 		const fetchPromise = new Promise<void>((resolve) => {
-			const sub = ndk.subscribe(filter, { closeOnEose: true, relaySet } as any);
+			const sub = ndk.subscribe(filter, { closeOnEose: true }, relaySet);
 
 			sub.on('event', (event: NDKEvent) => {
 				events.add(event);
@@ -463,6 +482,7 @@ export async function fetchAllKitchenDisplays(
 		timeoutMs?: number;
 		skipCache?: boolean;
 		onTrustRanksReady?: (ranks: Map<string, number>) => void;
+		onMembershipReady?: () => void;
 	} = {}
 ): Promise<KitchenDisplay[]> {
 	// Return cached data if fresh
@@ -529,7 +549,22 @@ export async function fetchAllKitchenDisplays(
 		return hasPfp && hasName;
 	});
 
-	// --- Quality scoring + sort (without trust ranks for speed) ---
+	// --- Fetch membership status for all sellers ---
+	const allSellerPubkeys = qualifiedDisplays.map((d) => d.pubkey);
+	try {
+		const membershipStatuses = await getMembership(allSellerPubkeys);
+		const validTiers: MembershipTier[] = ['cook_plus', 'pro_kitchen', 'founders'];
+		for (const d of qualifiedDisplays) {
+			const status = membershipStatuses[d.pubkey];
+			if (status?.active && validTiers.includes(status.tier as MembershipTier)) {
+				d.memberTier = status.tier as MembershipTier;
+			}
+		}
+	} catch (e) {
+		console.warn('[Kitchens] Membership lookup failed (non-critical):', e);
+	}
+
+	// --- Quality scoring + sort ---
 	const scored = qualifiedDisplays.map((d) => ({
 		display: d,
 		score: computeQualityScore(d)
@@ -599,7 +634,7 @@ async function fetchProductEvents(
 		let timeoutId: ReturnType<typeof setTimeout>;
 
 		const fetchPromise = new Promise<Set<NDKEvent>>((resolve) => {
-			const sub = ndk.subscribe(filter, { closeOnEose: true, relaySet } as any);
+			const sub = ndk.subscribe(filter, { closeOnEose: true }, relaySet);
 
 			sub.on('event', (event: NDKEvent) => {
 				allEvents.add(event);

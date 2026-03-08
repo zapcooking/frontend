@@ -22,8 +22,6 @@
   import WalletIcon from 'phosphor-svelte/lib/Wallet';
   import CrownSimpleIcon from 'phosphor-svelte/lib/CrownSimple';
   import HandshakeIcon from 'phosphor-svelte/lib/Handshake';
-  import StorefrontIcon from 'phosphor-svelte/lib/Storefront';
-
   import { totalUnreadCount } from '$lib/stores/messages';
   import { userSidePanelOpen } from '$lib/stores/userSidePanel';
 
@@ -64,12 +62,6 @@
       match: (p) => p.startsWith('/explore')
     },
     {
-      href: '/market',
-      label: 'The Market',
-      icon: StorefrontIcon,
-      match: (p) => p.startsWith('/market') && !p.startsWith('/my-store')
-    },
-    {
       href: '/reads',
       label: 'Reads',
       icon: NewspaperIcon,
@@ -103,12 +95,6 @@
       label: 'Grocery Lists',
       icon: ShoppingCartIcon,
       match: (p) => p.startsWith('/grocery')
-    },
-    {
-      href: '/my-store',
-      label: 'My Store',
-      icon: StorefrontIcon,
-      match: (p) => p.startsWith('/my-store')
     },
     {
       href: '/wallet',

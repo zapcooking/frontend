@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte';
 	import type { NDKEvent } from '@nostr-dev-kit/ndk';
-	import LightningIcon from 'phosphor-svelte/lib/Lightning';
+	import ChatCircleIcon from 'phosphor-svelte/lib/ChatCircle';
 	import PackageIcon from 'phosphor-svelte/lib/Package';
 	import CloudArrowDownIcon from 'phosphor-svelte/lib/CloudArrowDown';
 	import TrashIcon from 'phosphor-svelte/lib/Trash';
@@ -22,6 +22,7 @@
 
 	let imageElement: HTMLImageElement | null = null;
 	let showDetailModal = false;
+	let openWithDm = false;
 	let hidden = false;
 
 	function handleImageError() {
@@ -44,6 +45,13 @@
 		: getImageOrPlaceholder(undefined, event.id);
 
 	function openDetail() {
+		openWithDm = false;
+		showDetailModal = true;
+	}
+
+	function openDetailWithDm(e: Event) {
+		e.stopPropagation();
+		openWithDm = true;
 		showDetailModal = true;
 	}
 
@@ -122,17 +130,26 @@
 			{/if}
 		</div>
 
-		<!-- View Details Button -->
-		<div class="view-button w-full mt-2 py-2 rounded-lg font-semibold text-sm flex items-center justify-center gap-2">
-			<LightningIcon size={16} weight="fill" />
-			View Details
+		<!-- Action Buttons -->
+		<div class="flex gap-2 mt-2">
+			<div class="view-button flex-1 py-2 rounded-lg font-semibold text-sm flex items-center justify-center gap-1.5">
+				View Details
+			</div>
+			<button
+				type="button"
+				on:click={openDetailWithDm}
+				class="message-button flex-shrink-0 py-2 px-3 rounded-lg transition-all flex items-center justify-center"
+				title="Message Seller"
+			>
+				<ChatCircleIcon size={16} weight="fill" />
+			</button>
 		</div>
 	</div>
 </button>
 
 <!-- Product Detail Modal -->
 {#if product}
-	<ProductDetailModal bind:open={showDetailModal} {product} {trustRank} />
+	<ProductDetailModal bind:open={showDetailModal} {product} {trustRank} initialShowDm={openWithDm} />
 {/if}
 {/if}
 
@@ -182,5 +199,16 @@
 
 	.product-card:hover .view-button {
 		background-color: #ea580c;
+	}
+
+	.message-button {
+		background-color: var(--color-bg-tertiary, rgba(0, 0, 0, 0.1));
+		color: var(--color-accent);
+		border: 1px solid rgba(249, 115, 22, 0.3);
+	}
+
+	.message-button:hover {
+		background-color: rgba(249, 115, 22, 0.15);
+		border-color: rgba(249, 115, 22, 0.5);
 	}
 </style>

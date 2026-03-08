@@ -5,7 +5,6 @@
   import ChatCircleDotsIcon from 'phosphor-svelte/lib/ChatCircleDots';
   import BellIcon from 'phosphor-svelte/lib/Bell';
   import NewspaperIcon from 'phosphor-svelte/lib/Newspaper';
-  import StorefrontIcon from 'phosphor-svelte/lib/Storefront';
   import EnvelopeSimpleIcon from 'phosphor-svelte/lib/EnvelopeSimple';
   import { page } from '$app/stores';
   import { unreadCount } from '$lib/notificationStore';
@@ -50,7 +49,7 @@
 
 <nav
   bind:this={navEl}
-  class="lg:hidden bg-input w-full fixed left-0 right-0 z-40 grid grid-cols-6 text-center print:hidden bottom-nav-ios"
+  class="lg:hidden bg-input w-full fixed left-0 right-0 z-40 grid grid-cols-5 text-center print:hidden bottom-nav-ios"
   style="color: var(--color-text-primary); border-top: 1px solid var(--color-input-border);"
 >
   <a href="/community" class="nav-tab" class:active={pathname === '/' || pathname.startsWith('/community')}>
@@ -60,10 +59,6 @@
   <a href="/recent" class="nav-tab" class:active={pathname.startsWith('/recent')}>
     <ForkKnifeIcon class="self-center" size={22} />
     <span class="sr-only">Recipes</span>
-  </a>
-  <a href="/market" class="nav-tab" class:active={pathname.startsWith('/market')}>
-    <StorefrontIcon class="self-center" size={22} />
-    <span class="sr-only">The Market</span>
   </a>
   <a href="/reads" class="nav-tab" class:active={pathname.startsWith('/reads')}>
     <NewspaperIcon class="self-center" size={22} />
