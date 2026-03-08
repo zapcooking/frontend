@@ -18,7 +18,6 @@ import { addClientTagToEvent } from '$lib/nip89';
 
 // Relays that index marketplace events
 export const MARKETPLACE_RELAYS = [
-	'wss://kitchen.zap.cooking',
 	'wss://relay.damus.io',
 	'wss://nos.lol',
 	'wss://relay.nostr.band'
@@ -176,14 +175,14 @@ export async function fetchProducts(
 		filter['#t'] = [options.category];
 	}
 
-	const timeoutMs = options.timeoutMs || 15000; // 15 second default timeout
+	const timeoutMs = options.timeoutMs || 6000;
 
 	// Wait briefly if no relays are connected yet
 	const connectedRelays = ndk.pool?.relays ?
 		Array.from(ndk.pool.relays.values()).filter(r => r.status === 1).length : 0;
 
 	if (connectedRelays === 0) {
-		await new Promise(resolve => setTimeout(resolve, 3000));
+		await new Promise(resolve => setTimeout(resolve, 2000));
 	}
 
 	try {

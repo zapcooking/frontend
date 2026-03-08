@@ -223,26 +223,25 @@ export async function fetchKitchens(
 		filter.authors = [options.author];
 	}
 
-	const timeoutMs = options.timeoutMs || 15000;
+	const timeoutMs = options.timeoutMs || 6000;
 
 	try {
-		// Wait briefly if no relays are connected yet (same pattern as fetchProducts)
+		// Wait briefly if no relays are connected yet
 		const connectedRelays = ndk.pool?.relays ?
 			Array.from(ndk.pool.relays.values()).filter(r => r.status === 1).length : 0;
 		if (connectedRelays === 0) {
-			await new Promise(resolve => setTimeout(resolve, 3000));
+			await new Promise(resolve => setTimeout(resolve, 2000));
 		}
 
 		let relaySet: NDKRelaySet | undefined;
-		if (!options.author) {
-			try {
-				relaySet = NDKRelaySet.fromRelayUrls(MARKETPLACE_RELAYS, ndk);
-			} catch (e) {
-				console.warn('[Kitchens] Could not create relay set:', e);
-			}
+		try {
+			relaySet = NDKRelaySet.fromRelayUrls(MARKETPLACE_RELAYS, ndk);
+		} catch (e) {
+			console.warn('[Kitchens] Could not create relay set:', e);
 		}
 
 		const allEvents = new Set<NDKEvent>();
+		let timeoutId: ReturnType<typeof setTimeout>;
 
 		const fetchPromise = new Promise<Set<NDKEvent>>((resolve) => {
 			const sub = ndk.subscribe(filter, { closeOnEose: true, relaySet } as any);
@@ -252,16 +251,19 @@ export async function fetchKitchens(
 			});
 
 			sub.on('eose', () => {
+				clearTimeout(timeoutId);
 				resolve(allEvents);
 			});
 
 			sub.on('close', () => {
+				clearTimeout(timeoutId);
 				resolve(allEvents);
 			});
 		});
 
-		const timeoutPromise = new Promise<Set<NDKEvent>>((resolve) =>
-			setTimeout(() => resolve(allEvents), timeoutMs)
+		const timeoutPromise = new Promise<Set<NDKEvent>>((resolve) => {
+			timeoutId = setTimeout(() => resolve(allEvents), timeoutMs);
+		}
 		);
 
 		const events = await Promise.race([fetchPromise, timeoutPromise]);
@@ -457,14 +459,18 @@ export async function fetchTrustRanks(
  */
 export async function fetchAllKitchenDisplays(
 	ndk: NDK,
-	options: { timeoutMs?: number; skipCache?: boolean } = {}
+	options: {
+		timeoutMs?: number;
+		skipCache?: boolean;
+		onTrustRanksReady?: (ranks: Map<string, number>) => void;
+	} = {}
 ): Promise<KitchenDisplay[]> {
 	// Return cached data if fresh
 	if (!options.skipCache && kitchenDisplayCache && Date.now() - kitchenDisplayCache.timestamp < CACHE_TTL_MS) {
 		return kitchenDisplayCache.data;
 	}
 
-	const timeoutMs = options.timeoutMs || 15000;
+	const timeoutMs = options.timeoutMs || 6000;
 
 	// Fetch stalls and products in parallel
 	const [kitchens, productEvents] = await Promise.all([
@@ -517,42 +523,24 @@ export async function fetchAllKitchenDisplays(
 	displays.push(...implicitKitchens);
 
 	// --- Profile quality gate ---
-	// Filter out stores whose owner has no valid profile picture or display name
 	const qualifiedDisplays = displays.filter((d) => {
-		// For explicit stalls: check stall avatar
-		const avatarUrl = d.avatar;
-		const hasPfp = hasValidProfileImage(avatarUrl);
+		const hasPfp = hasValidProfileImage(d.avatar);
 		const hasName = hasValidDisplayName(d.name);
-
-		// Must have BOTH a valid profile picture and a real display name
 		return hasPfp && hasName;
 	});
 
-	// --- NIP-85 trust rank (async enhancement) ---
-	const allPubkeys = qualifiedDisplays.map((d) => d.pubkey);
-	const trustRanks = await fetchTrustRanks(ndk, allPubkeys);
-
-	// Attach trust ranks to display objects
-	for (const d of qualifiedDisplays) {
-		const rank = trustRanks.get(d.pubkey);
-		if (rank !== undefined) {
-			d.trustRank = rank;
-		}
-	}
-
-	// --- Quality scoring + sort ---
+	// --- Quality scoring + sort (without trust ranks for speed) ---
 	const scored = qualifiedDisplays.map((d) => ({
 		display: d,
-		score: computeQualityScore(d, trustRanks.get(d.pubkey))
+		score: computeQualityScore(d)
 	}));
 
-	// Sort by quality score descending, then product count as tiebreaker
 	scored.sort((a, b) => {
 		if (b.score !== a.score) return b.score - a.score;
 		return (b.display.productCount || 0) - (a.display.productCount || 0);
 	});
 
-	// Final safety dedup by pubkey (belt-and-suspenders for the keyed each block)
+	// Final safety dedup by pubkey
 	const finalPubkeys = new Set<string>();
 	const result = scored
 		.map((s) => s.display)
@@ -564,6 +552,22 @@ export async function fetchAllKitchenDisplays(
 
 	// Cache the result
 	kitchenDisplayCache = { data: result, timestamp: Date.now() };
+
+	// --- NIP-85 trust ranks (non-blocking background fetch) ---
+	const allPubkeys = result.map((d) => d.pubkey);
+	fetchTrustRanks(ndk, allPubkeys).then((ranks) => {
+		// Attach trust ranks to cached display objects
+		for (const d of result) {
+			const rank = ranks.get(d.pubkey);
+			if (rank !== undefined) {
+				d.trustRank = rank;
+			}
+		}
+		// Update cache with trust ranks
+		kitchenDisplayCache = { data: result, timestamp: Date.now() };
+		// Notify caller so UI can re-render with trust badges
+		options.onTrustRanksReady?.(ranks);
+	});
 
 	return result;
 }
@@ -581,7 +585,7 @@ async function fetchProductEvents(
 		limit: 200
 	};
 
-	const timeoutMs = options.timeoutMs || 15000;
+	const timeoutMs = options.timeoutMs || 6000;
 
 	try {
 		let relaySet: NDKRelaySet | undefined;
@@ -592,6 +596,7 @@ async function fetchProductEvents(
 		}
 
 		const allEvents = new Set<NDKEvent>();
+		let timeoutId: ReturnType<typeof setTimeout>;
 
 		const fetchPromise = new Promise<Set<NDKEvent>>((resolve) => {
 			const sub = ndk.subscribe(filter, { closeOnEose: true, relaySet } as any);
@@ -601,17 +606,19 @@ async function fetchProductEvents(
 			});
 
 			sub.on('eose', () => {
+				clearTimeout(timeoutId);
 				resolve(allEvents);
 			});
 
 			sub.on('close', () => {
+				clearTimeout(timeoutId);
 				resolve(allEvents);
 			});
 		});
 
-		const timeoutPromise = new Promise<Set<NDKEvent>>((resolve) =>
-			setTimeout(() => resolve(allEvents), timeoutMs)
-		);
+		const timeoutPromise = new Promise<Set<NDKEvent>>((resolve) => {
+			timeoutId = setTimeout(() => resolve(allEvents), timeoutMs);
+		});
 
 		const events = await Promise.race([fetchPromise, timeoutPromise]);
 

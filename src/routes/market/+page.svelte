@@ -35,7 +35,12 @@
 		error = null;
 
 		try {
-			allKitchens = await fetchAllKitchenDisplays($ndk, { timeoutMs: 15000 });
+			allKitchens = await fetchAllKitchenDisplays($ndk, {
+				onTrustRanksReady: () => {
+					// Trigger Svelte reactivity so trust badges appear
+					allKitchens = [...allKitchens];
+				}
+			});
 		} catch (e) {
 			console.error('[The Market] Failed to load kitchens:', e);
 			error = 'Failed to load stores. Please try again.';
