@@ -37,7 +37,7 @@
 		try {
 			allKitchens = await fetchAllKitchenDisplays($ndk, { timeoutMs: 15000 });
 		} catch (e) {
-			console.error('[Marketplace] Failed to load kitchens:', e);
+			console.error('[The Market] Failed to load kitchens:', e);
 			error = 'Failed to load stores. Please try again.';
 		} finally {
 			loading = false;
@@ -46,7 +46,7 @@
 </script>
 
 <svelte:head>
-	<title>Marketplace | zap.cooking</title>
+	<title>The Market | zap.cooking</title>
 	<meta name="description" content="Discover stores selling cooking goods with Bitcoin. Direct Lightning payments, no middleman." />
 </svelte:head>
 
@@ -56,7 +56,7 @@
 		<div class="flex items-center justify-between">
 			<div class="flex items-center gap-3">
 				<StorefrontIcon size={32} weight="duotone" class="text-orange-500" />
-				<h1 class="text-2xl font-bold" style="color: var(--color-text-primary)">Marketplace</h1>
+				<h1 class="text-2xl font-bold" style="color: var(--color-text-primary)">The Market</h1>
 			</div>
 			<div class="flex items-center gap-2">
 				{#if $userPublickey}
@@ -79,14 +79,14 @@
 	<!-- Navigation Tabs -->
 	<div class="flex gap-2 mb-6">
 		<a
-			href="/marketplace"
+			href="/market"
 			class="nav-tab active"
 		>
 			<StorefrontIcon size={16} />
 			Stores
 		</a>
 		<a
-			href="/marketplace/products"
+			href="/market/products"
 			class="nav-tab"
 		>
 			<PackageIcon size={16} />

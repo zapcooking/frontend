@@ -24,6 +24,19 @@ export const MARKETPLACE_RELAYS = [
 	'wss://relay.nostr.band'
 ];
 
+// --- In-memory cache for product listings ---
+const PRODUCT_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+const productCache = new Map<string, { data: Product[]; timestamp: number }>();
+
+function getProductCacheKey(options: { category?: ProductCategory; author?: string }): string {
+	return `${options.author || 'all'}:${options.category || 'all'}`;
+}
+
+/** Clear the product cache (call after publishing/deleting a product) */
+export function invalidateProductCache(): void {
+	productCache.clear();
+}
+
 /**
  * Parse an NDKEvent into a Product object
  */
@@ -142,6 +155,13 @@ export async function fetchProducts(
 		timeoutMs?: number;
 	} = {}
 ): Promise<Product[]> {
+	// Check cache first
+	const cacheKey = getProductCacheKey(options);
+	const cached = productCache.get(cacheKey);
+	if (cached && Date.now() - cached.timestamp < PRODUCT_CACHE_TTL_MS) {
+		return cached.data;
+	}
+
 	// Fetch both standard NIP-99 kind and legacy kind
 	const filter: NDKFilter = {
 		kinds: [PRODUCT_KIND, PRODUCT_KIND_LEGACY] as number[],
@@ -218,6 +238,9 @@ export async function fetchProducts(
 		// Sort by published date, newest first
 		products.sort((a, b) => b.publishedAt - a.publishedAt);
 
+		// Cache the result
+		productCache.set(cacheKey, { data: products, timestamp: Date.now() });
+
 		return products;
 	} catch (error) {
 		console.error('[Marketplace] Failed to fetch products:', error);
@@ -260,6 +283,7 @@ export async function publishProduct(
 			console.warn('[Marketplace] Could not publish to marketplace relays:', e);
 		}
 
+		invalidateProductCache();
 		return { success: true, event };
 	} catch (error) {
 		console.error('[Marketplace] Failed to publish product:', error);
@@ -308,7 +332,7 @@ export async function deleteProduct(
 			console.warn('[Marketplace] Could not publish deletion to marketplace relays:', e);
 		}
 		
-		console.log('[Marketplace] Product deleted:', product.id);
+		invalidateProductCache();
 		return { success: true };
 	} catch (error) {
 		console.error('[Marketplace] Failed to delete product:', error);

@@ -9,7 +9,7 @@
 	export let kitchen: KitchenDisplay;
 
 	$: npub = nip19.npubEncode(kitchen.pubkey);
-	$: kitchenUrl = `/marketplace/kitchen/${npub}`;
+	$: kitchenUrl = `/market/kitchen/${npub}`;
 	$: bannerUrl = kitchen.banner || undefined;
 	$: avatarUrl = kitchen.avatar || undefined;
 	$: productCount = kitchen.productCount || 0;

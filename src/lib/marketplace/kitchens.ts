@@ -21,6 +21,15 @@ import { profileCacheManager } from '$lib/profileCache';
 // NIP-85 Trusted Assertions — service relay for trust rank lookups
 const NIP85_RELAY = 'wss://nip85.nostr.band';
 const NIP85_KIND_USER = 30382;
+
+// --- In-memory cache for kitchen displays ---
+const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+let kitchenDisplayCache: { data: KitchenDisplay[]; timestamp: number } | null = null;
+
+/** Clear the kitchen display cache (call after publishing/deleting a kitchen) */
+export function invalidateKitchenCache(): void {
+	kitchenDisplayCache = null;
+}
 // Known placeholder/default avatar patterns (same as exploreUtils.ts)
 const INVALID_IMAGE_PATTERNS = [
 	'placeholder',
@@ -311,6 +320,7 @@ export async function publishKitchen(
 			console.warn('[Kitchens] Could not publish to marketplace relays:', e);
 		}
 
+		invalidateKitchenCache();
 		return { success: true, event };
 	} catch (error) {
 		console.error('[Kitchens] Failed to publish kitchen:', error);
@@ -347,6 +357,7 @@ export async function deleteKitchen(
 			console.warn('[Kitchens] Could not publish deletion to marketplace relays:', e);
 		}
 
+		invalidateKitchenCache();
 		return { success: true };
 	} catch (error) {
 		console.error('[Kitchens] Failed to delete kitchen:', error);
@@ -446,8 +457,13 @@ export async function fetchTrustRanks(
  */
 export async function fetchAllKitchenDisplays(
 	ndk: NDK,
-	options: { timeoutMs?: number } = {}
+	options: { timeoutMs?: number; skipCache?: boolean } = {}
 ): Promise<KitchenDisplay[]> {
+	// Return cached data if fresh
+	if (!options.skipCache && kitchenDisplayCache && Date.now() - kitchenDisplayCache.timestamp < CACHE_TTL_MS) {
+		return kitchenDisplayCache.data;
+	}
+
 	const timeoutMs = options.timeoutMs || 15000;
 
 	// Fetch stalls and products in parallel
@@ -538,13 +554,18 @@ export async function fetchAllKitchenDisplays(
 
 	// Final safety dedup by pubkey (belt-and-suspenders for the keyed each block)
 	const finalPubkeys = new Set<string>();
-	return scored
+	const result = scored
 		.map((s) => s.display)
 		.filter((d) => {
 			if (finalPubkeys.has(d.pubkey)) return false;
 			finalPubkeys.add(d.pubkey);
 			return true;
 		});
+
+	// Cache the result
+	kitchenDisplayCache = { data: result, timestamp: Date.now() };
+
+	return result;
 }
 
 /**

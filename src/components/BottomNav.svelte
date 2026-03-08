@@ -61,9 +61,9 @@
     <ForkKnifeIcon class="self-center" size={22} />
     <span class="sr-only">Recipes</span>
   </a>
-  <a href="/marketplace" class="nav-tab" class:active={pathname.startsWith('/marketplace')}>
+  <a href="/market" class="nav-tab" class:active={pathname.startsWith('/market')}>
     <StorefrontIcon class="self-center" size={22} />
-    <span class="sr-only">Marketplace</span>
+    <span class="sr-only">The Market</span>
   </a>
   <a href="/reads" class="nav-tab" class:active={pathname.startsWith('/reads')}>
     <NewspaperIcon class="self-center" size={22} />

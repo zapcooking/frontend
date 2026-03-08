@@ -64,10 +64,10 @@
       match: (p) => p.startsWith('/explore')
     },
     {
-      href: '/marketplace',
-      label: 'Marketplace',
+      href: '/market',
+      label: 'The Market',
       icon: StorefrontIcon,
-      match: (p) => p.startsWith('/marketplace')
+      match: (p) => p.startsWith('/market') && !p.startsWith('/my-store')
     },
     {
       href: '/reads',

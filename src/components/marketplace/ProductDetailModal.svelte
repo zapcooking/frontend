@@ -84,7 +84,7 @@
 	}
 
 	$: npub = product?.pubkey ? nip19.npubEncode(product.pubkey) : '';
-	$: kitchenUrl = npub ? `/marketplace/kitchen/${npub}` : '';
+	$: kitchenUrl = npub ? `/market/kitchen/${npub}` : '';
 	$: imageUrl = product?.images?.[0]
 		? getImageOrPlaceholder(product.images[0], product.id)
 		: getImageOrPlaceholder(undefined, product.id);

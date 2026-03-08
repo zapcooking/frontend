@@ -36,7 +36,7 @@
 	$: requiresShipping = product?.requiresShipping ?? true;
 	$: sellerPubkey = product?.pubkey || '';
 	$: sellerNpub = sellerPubkey ? nip19.npubEncode(sellerPubkey) : '';
-	$: kitchenUrl = sellerNpub ? `/marketplace/kitchen/${sellerNpub}` : '';
+	$: kitchenUrl = sellerNpub ? `/market/kitchen/${sellerNpub}` : '';
 
 	// Get primary image with placeholder fallback
 	$: imageUrl = product?.images?.[0]

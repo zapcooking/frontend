@@ -97,19 +97,19 @@
 		<meta name="twitter:description" content={data.ogMeta.description} />
 		<meta name="twitter:image" content={data.ogMeta.image} />
 	{:else}
-		<title>{kitchen?.name ? `${kitchen.name} | Marketplace` : 'Store'} | zap.cooking</title>
+		<title>{kitchen?.name ? `${kitchen.name} | The Market` : 'Store'} | zap.cooking</title>
 	{/if}
 </svelte:head>
 
 <div class="kitchen-page max-w-6xl mx-auto px-4 py-6">
 	<!-- Back link -->
 	<a
-		href="/marketplace"
+		href="/market"
 		class="inline-flex items-center gap-2 mb-6 text-sm hover:underline"
 		style="color: var(--color-text-secondary)"
 	>
 		<ArrowLeftIcon size={16} />
-		Back to Marketplace
+		Back to The Market
 	</a>
 
 	{#if loading}
@@ -119,7 +119,7 @@
 	{:else if error}
 		<div class="text-center py-12">
 			<p class="text-red-500 mb-4">{error}</p>
-			<a href="/marketplace" class="text-orange-500 hover:underline">Back to Marketplace</a>
+			<a href="/market" class="text-orange-500 hover:underline">Back to The Market</a>
 		</div>
 	{:else if kitchen}
 		<!-- Kitchen Header -->
