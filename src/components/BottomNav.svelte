@@ -55,19 +55,19 @@
 >
   <a href="/community" class="nav-tab" class:active={pathname === '/' || pathname.startsWith('/community')}>
     <ChatCircleDotsIcon class="self-center" size={22} />
-    <span class="nav-label">Feed</span>
+    <span class="sr-only">Community</span>
   </a>
   <a href="/recent" class="nav-tab" class:active={pathname.startsWith('/recent')}>
     <ForkKnifeIcon class="self-center" size={22} />
-    <span class="nav-label">Recipes</span>
+    <span class="sr-only">Recipes</span>
   </a>
   <a href="/marketplace" class="nav-tab" class:active={pathname.startsWith('/marketplace')}>
     <StorefrontIcon class="self-center" size={22} />
-    <span class="nav-label">Market</span>
+    <span class="sr-only">Marketplace</span>
   </a>
   <a href="/reads" class="nav-tab" class:active={pathname.startsWith('/reads')}>
     <NewspaperIcon class="self-center" size={22} />
-    <span class="nav-label">Reads</span>
+    <span class="sr-only">Reads</span>
   </a>
   <a href="/messages" class="nav-tab" class:active={pathname.startsWith('/messages')}>
     <span class="relative self-center">
@@ -79,7 +79,7 @@
         ></span>
       {/if}
     </span>
-    <span class="nav-label">DMs</span>
+    <span class="sr-only">Messages</span>
   </a>
   <a
     href="/notifications"
@@ -96,7 +96,7 @@
         ></span>
       {/if}
     </span>
-    <span class="nav-label">Alerts</span>
+    <span class="sr-only">Notifications</span>
   </a>
 </nav>
 
@@ -128,11 +128,5 @@
 
   .nav-tab.active {
     color: var(--color-accent, #f97316);
-  }
-
-  .nav-label {
-    font-size: 0.6rem;
-    font-weight: 500;
-    line-height: 1;
   }
 </style>
