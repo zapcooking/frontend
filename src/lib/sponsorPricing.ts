@@ -13,7 +13,7 @@ export const SPONSOR_DURATION_KEYS: SponsorDurationKey[] = ['24h', '3d', '7d', '
 
 export const SPONSOR_TIERS: { key: SponsorTier; label: string; description: string }[] = [
   { key: 'headline', label: 'Headline Banner', description: 'Full-width banner on the homepage' },
-  { key: 'kitchen_card', label: 'Kitchen Card', description: 'Card injected into the social feed' },
+  { key: 'kitchen_card', label: 'Kitchen Card', description: 'Card on the sponsor feed' },
 ];
 
 export const SPONSOR_PRICING: Record<SponsorTier, Record<SponsorDurationKey, { sats: number; durationMs: number; label: string }>> = {

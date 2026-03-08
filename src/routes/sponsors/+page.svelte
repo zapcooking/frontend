@@ -131,6 +131,11 @@
     (adDescription.length === 0 || adDescription.length <= 200);
   $: currentPricing = selectedTier ? SPONSOR_PRICING[selectedTier] : null;
 
+  // Launch promotional pricing — 69% off
+  function promoPrice(sats: number): number {
+    return Math.floor(sats * 0.31);
+  }
+
   onDestroy(() => {
     stopPaymentPolling();
   });
@@ -539,6 +544,7 @@
               <h2 class="section-label">1. Choose placement</h2>
               <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {#each SPONSOR_TIERS as tier}
+                  {@const tierStartPrice = promoPrice(SPONSOR_PRICING[tier.key]['24h'].sats)}
                   <button
                     type="button"
                     class="tier-card"
@@ -547,9 +553,38 @@
                   >
                     <span class="text-sm font-bold">{tier.label}</span>
                     <span class="text-xs" style="color: var(--color-caption);">{tier.description}</span>
+                    <span class="text-xs font-semibold mt-1" style="color: var(--color-primary);">
+                      From &#9889; {formatSats(tierStartPrice)} sats
+                    </span>
                   </button>
                 {/each}
               </div>
+
+              <!-- Pricing table for selected tier -->
+              {#if selectedTier && currentPricing}
+                <div class="pricing-table mt-4">
+                  <h3 class="text-xs font-semibold uppercase mb-2" style="color: var(--color-caption); letter-spacing: 0.06em;">
+                    {selectedTier === 'headline' ? 'Headline Banner' : 'Kitchen Card'} — Pricing
+                  </h3>
+                  <div class="pricing-grid">
+                    {#each SPONSOR_DURATION_KEYS as dKey}
+                      {@const pricing = currentPricing[dKey]}
+                      {#if pricing}
+                        <div class="pricing-row">
+                          <span class="text-sm" style="color: var(--color-text-primary);">{pricing.label}</span>
+                          <span class="pricing-price">
+                            <span class="pricing-original">{formatSats(pricing.sats)}</span>
+                            <span class="pricing-promo">&#9889; {formatSats(promoPrice(pricing.sats))} sats</span>
+                          </span>
+                        </div>
+                      {/if}
+                    {/each}
+                  </div>
+                  <p class="text-xs mt-2" style="color: var(--color-caption); opacity: 0.7;">
+                    Launch pricing — 69% off all placements
+                  </p>
+                </div>
+              {/if}
             </section>
 
             {#if selectedTier}
@@ -661,8 +696,9 @@
                           on:click={() => { selectedDuration = dKey; }}
                         >
                           <span class="text-sm font-bold">{pricing.label}</span>
+                          <span class="text-xs line-through" style="color: var(--color-caption);">{formatSats(pricing.sats)}</span>
                           <span class="text-lg font-bold" style="color: var(--color-primary);">
-                            &#9889; {formatSats(pricing.sats)}
+                            &#9889; {formatSats(promoPrice(pricing.sats))}
                           </span>
                           <span class="text-xs" style="color: var(--color-caption);">sats</span>
                         </button>
@@ -702,7 +738,7 @@
                     {#if loading}
                       Processing...
                     {:else if currentPricing}
-                      &#9889; Pay {formatSats(currentPricing[selectedDuration].sats)} sats
+                      &#9889; Pay {formatSats(promoPrice(currentPricing[selectedDuration].sats))} sats
                     {/if}
                   </button>
 
@@ -1129,6 +1165,52 @@
 
   :global(html.dark) .tier-card--selected {
     background: rgba(236, 71, 0, 0.12);
+  }
+
+  /* ── Pricing table ─────────────────────────────────────────── */
+
+  .pricing-table {
+    padding: 0.875rem;
+    border-radius: 0.75rem;
+    border: 1px solid var(--color-input-border);
+    background-color: var(--color-bg-secondary);
+  }
+
+  .pricing-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .pricing-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.375rem 0;
+    border-bottom: 1px solid var(--color-input-border);
+  }
+
+  .pricing-row:last-child {
+    border-bottom: none;
+  }
+
+  .pricing-price {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .pricing-original {
+    font-size: 0.8125rem;
+    color: var(--color-caption);
+    text-decoration: line-through;
+    opacity: 0.6;
+  }
+
+  .pricing-promo {
+    font-size: 0.875rem;
+    font-weight: 700;
+    color: var(--color-primary);
   }
 
   .duration-card {

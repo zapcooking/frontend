@@ -84,7 +84,8 @@ export const POST: RequestHandler = async ({ request, platform }) => {
     }
 
     const pricing = SPONSOR_PRICING[tier as SponsorTier][durationKey as SponsorDurationKey];
-    const amountSats = pricing.sats;
+    // Launch promo: 69% off all placements
+    const amountSats = Math.floor(pricing.sats * 0.31);
 
     // Convert sats → BTC string for Strike API
     const btcAmount = (amountSats / 100_000_000).toFixed(8);
