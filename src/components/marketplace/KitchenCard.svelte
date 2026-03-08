@@ -2,6 +2,7 @@
 	import { nip19 } from 'nostr-tools';
 	import type { KitchenDisplay } from '$lib/marketplace/types';
 	import CustomAvatar from '../CustomAvatar.svelte';
+	import MembershipBadge from '../MembershipBadge.svelte';
 	import MapPinIcon from 'phosphor-svelte/lib/MapPin';
 	import PackageIcon from 'phosphor-svelte/lib/Package';
 	import TrustBadge from './TrustBadge.svelte';
@@ -9,7 +10,7 @@
 	export let kitchen: KitchenDisplay;
 
 	$: npub = nip19.npubEncode(kitchen.pubkey);
-	$: kitchenUrl = `/marketplace/kitchen/${npub}`;
+	$: kitchenUrl = `/market/kitchen/${npub}`;
 	$: bannerUrl = kitchen.banner || undefined;
 	$: avatarUrl = kitchen.avatar || undefined;
 	$: productCount = kitchen.productCount || 0;
@@ -39,6 +40,9 @@
 			<h3 class="font-bold text-base leading-tight line-clamp-1" style="color: var(--color-text-primary)">
 				{kitchen.name}
 			</h3>
+			{#if kitchen.memberTier}
+				<MembershipBadge tier={kitchen.memberTier} size="sm" />
+			{/if}
 			<TrustBadge rank={kitchen.trustRank} />
 		</div>
 

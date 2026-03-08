@@ -52,24 +52,24 @@
   class="lg:hidden bg-input w-full fixed left-0 right-0 z-40 grid grid-cols-5 text-center print:hidden bottom-nav-ios"
   style="color: var(--color-text-primary); border-top: 1px solid var(--color-input-border);"
 >
-  <a href="/community" class="flex flex-col items-center justify-center hover:text-primary">
-    <ChatCircleDotsIcon class="self-center" size={24} />
+  <a href="/community" class="nav-tab" class:active={pathname === '/' || pathname.startsWith('/community')}>
+    <ChatCircleDotsIcon class="self-center" size={22} />
     <span class="sr-only">Community</span>
   </a>
-  <a href="/recent" class="flex flex-col items-center justify-center hover:text-primary">
-    <ForkKnifeIcon class="self-center" size={24} />
+  <a href="/recent" class="nav-tab" class:active={pathname.startsWith('/recent')}>
+    <ForkKnifeIcon class="self-center" size={22} />
     <span class="sr-only">Recipes</span>
   </a>
-  <a href="/reads" class="flex flex-col items-center justify-center hover:text-primary">
-    <NewspaperIcon class="self-center" size={24} />
+  <a href="/reads" class="nav-tab" class:active={pathname.startsWith('/reads')}>
+    <NewspaperIcon class="self-center" size={22} />
     <span class="sr-only">Reads</span>
   </a>
-  <a href="/messages" class="flex flex-col items-center justify-center hover:text-primary">
+  <a href="/messages" class="nav-tab" class:active={pathname.startsWith('/messages')}>
     <span class="relative self-center">
-      <EnvelopeSimpleIcon size={24} weight={$totalUnreadCount > 0 ? 'fill' : 'regular'} />
+      <EnvelopeSimpleIcon size={22} weight={$totalUnreadCount > 0 ? 'fill' : 'regular'} />
       {#if $totalUnreadCount > 0}
         <span
-          class="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-red-500 border-2 border-input"
+          class="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-red-500 border-2 border-input"
           aria-hidden="true"
         ></span>
       {/if}
@@ -78,14 +78,15 @@
   </a>
   <a
     href="/notifications"
-    class="flex flex-col items-center justify-center hover:text-primary"
+    class="nav-tab"
+    class:active={pathname.startsWith('/notifications')}
     on:click={handleNotificationsClick}
   >
     <span class="relative self-center">
-      <BellIcon size={24} weight={$unreadCount > 0 ? 'fill' : 'regular'} />
+      <BellIcon size={22} weight={$unreadCount > 0 ? 'fill' : 'regular'} />
       {#if $unreadCount > 0}
         <span
-          class="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-red-500 border-2 border-input"
+          class="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-red-500 border-2 border-input"
           aria-hidden="true"
         ></span>
       {/if}
@@ -98,9 +99,29 @@
   /* Fix to bottom of screen; fill safe area so no gap below nav on iOS */
   .bottom-nav-ios {
     bottom: 0;
-    padding: 0.5rem 0;
+    padding: 0.25rem 0;
     padding-left: env(safe-area-inset-left, 0px);
     padding-right: env(safe-area-inset-right, 0px);
-    padding-bottom: calc(0.5rem + env(safe-area-inset-bottom, 0px));
+    padding-bottom: calc(0.25rem + env(safe-area-inset-bottom, 0px));
+  }
+
+  .nav-tab {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.125rem;
+    padding: 0.25rem 0;
+    opacity: 0.55;
+    transition: opacity 0.15s ease;
+  }
+
+  .nav-tab:hover,
+  .nav-tab.active {
+    opacity: 1;
+  }
+
+  .nav-tab.active {
+    color: var(--color-accent, #f97316);
   }
 </style>

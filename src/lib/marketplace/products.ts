@@ -18,11 +18,23 @@ import { addClientTagToEvent } from '$lib/nip89';
 
 // Relays that index marketplace events
 export const MARKETPLACE_RELAYS = [
-	'wss://kitchen.zap.cooking',
 	'wss://relay.damus.io',
 	'wss://nos.lol',
 	'wss://relay.nostr.band'
 ];
+
+// --- In-memory cache for product listings ---
+const PRODUCT_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+const productCache = new Map<string, { data: Product[]; timestamp: number }>();
+
+function getProductCacheKey(options: { category?: ProductCategory; author?: string }): string {
+	return `${options.author || 'all'}:${options.category || 'all'}`;
+}
+
+/** Clear the product cache (call after publishing/deleting a product) */
+export function invalidateProductCache(): void {
+	productCache.clear();
+}
 
 /**
  * Parse an NDKEvent into a Product object
@@ -142,6 +154,13 @@ export async function fetchProducts(
 		timeoutMs?: number;
 	} = {}
 ): Promise<Product[]> {
+	// Check cache first
+	const cacheKey = getProductCacheKey(options);
+	const cached = productCache.get(cacheKey);
+	if (cached && Date.now() - cached.timestamp < PRODUCT_CACHE_TTL_MS) {
+		return cached.data;
+	}
+
 	// Fetch both standard NIP-99 kind and legacy kind
 	const filter: NDKFilter = {
 		kinds: [PRODUCT_KIND, PRODUCT_KIND_LEGACY] as number[],
@@ -156,94 +175,70 @@ export async function fetchProducts(
 		filter['#t'] = [options.category];
 	}
 
-	const timeoutMs = options.timeoutMs || 15000; // 15 second default timeout
+	const timeoutMs = options.timeoutMs || 6000;
 
-	console.log('[Marketplace] Fetching products with filter:', {
-		kinds: filter.kinds,
-		authors: filter.authors,
-		limit: filter.limit,
-		category: options.category,
-		timeoutMs
-	});
-
-	// Check if NDK has connected relays
-	const connectedRelays = ndk.pool?.relays ? 
+	// Wait briefly if no relays are connected yet
+	const connectedRelays = ndk.pool?.relays ?
 		Array.from(ndk.pool.relays.values()).filter(r => r.status === 1).length : 0;
-	console.log('[Marketplace] Connected relays:', connectedRelays);
 
 	if (connectedRelays === 0) {
-		console.warn('[Marketplace] No connected relays, waiting for connection...');
-		await new Promise(resolve => setTimeout(resolve, 3000));
-		const newConnectedRelays = ndk.pool?.relays ? 
-			Array.from(ndk.pool.relays.values()).filter(r => r.status === 1).length : 0;
-		console.log('[Marketplace] Connected relays after wait:', newConnectedRelays);
+		await new Promise(resolve => setTimeout(resolve, 2000));
 	}
 
 	try {
-		// For public marketplace queries (no author filter), use specific relays
-		// that are known to index all events by kind
+		// Use marketplace relays for all product queries
 		let relaySet: NDKRelaySet | undefined;
-		
-		if (!options.author) {
-			// Create relay set with marketplace-friendly relays
-			console.log('[Marketplace] No author filter, using marketplace relays:', MARKETPLACE_RELAYS);
-			try {
-				relaySet = NDKRelaySet.fromRelayUrls(MARKETPLACE_RELAYS, ndk);
-			} catch (e) {
-				console.warn('[Marketplace] Could not create relay set:', e);
-			}
+		try {
+			relaySet = NDKRelaySet.fromRelayUrls(MARKETPLACE_RELAYS, ndk);
+		} catch (e) {
+			console.warn('[Marketplace] Could not create relay set:', e);
 		}
 
 		// Use subscription-based fetch for better relay compatibility
 		const allEvents = new Set<any>();
-		
+		let timeoutId: ReturnType<typeof setTimeout>;
+
 		const fetchPromise = new Promise<Set<any>>((resolve) => {
-			const sub = ndk.subscribe(filter, { closeOnEose: true, relaySet } as any);
-			
+			const sub = ndk.subscribe(filter, { closeOnEose: true }, relaySet);
+
 			sub.on('event', (event: any) => {
 				allEvents.add(event);
 			});
-			
+
 			sub.on('eose', () => {
-				console.log('[Marketplace] EOSE received, events so far:', allEvents.size);
+				clearTimeout(timeoutId);
 				resolve(allEvents);
 			});
-			
-			// Also resolve on close
+
 			sub.on('close', () => {
+				clearTimeout(timeoutId);
 				resolve(allEvents);
 			});
 		});
 
-		const timeoutPromise = new Promise<Set<any>>((resolve) => 
-			setTimeout(() => {
+		const timeoutPromise = new Promise<Set<any>>((resolve) => {
+			timeoutId = setTimeout(() => {
 				console.warn('[Marketplace] Fetch timed out after', timeoutMs, 'ms, returning', allEvents.size, 'events');
 				resolve(allEvents);
-			}, timeoutMs)
-		);
+			}, timeoutMs);
+		});
 
 		const events = await Promise.race([fetchPromise, timeoutPromise]);
 
-		console.log('[Marketplace] Fetched', events.size, 'events from relays');
-		
 		const products: Product[] = [];
 
 		for (const event of events) {
-			console.log('[Marketplace] Processing event:', {
-				id: event.id?.substring(0, 16),
-				kind: event.kind,
-				pubkey: event.pubkey?.substring(0, 16)
-			});
 			const product = parseProductEvent(event);
 			if (product && product.status === 'active' && product.priceSats > 0 && product.images.length > 0) {
 				products.push(product);
 			}
 		}
 
-		console.log('[Marketplace] Parsed', products.length, 'active products');
-
 		// Sort by published date, newest first
 		products.sort((a, b) => b.publishedAt - a.publishedAt);
+
+		// Cache the result
+		productCache.set(cacheKey, { data: products, timestamp: Date.now() });
 
 		return products;
 	} catch (error) {
@@ -287,6 +282,7 @@ export async function publishProduct(
 			console.warn('[Marketplace] Could not publish to marketplace relays:', e);
 		}
 
+		invalidateProductCache();
 		return { success: true, event };
 	} catch (error) {
 		console.error('[Marketplace] Failed to publish product:', error);
@@ -335,7 +331,7 @@ export async function deleteProduct(
 			console.warn('[Marketplace] Could not publish deletion to marketplace relays:', e);
 		}
 		
-		console.log('[Marketplace] Product deleted:', product.id);
+		invalidateProductCache();
 		return { success: true };
 	} catch (error) {
 		console.error('[Marketplace] Failed to delete product:', error);

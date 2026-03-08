@@ -5,6 +5,7 @@
  */
 
 import type { NDKEvent } from '@nostr-dev-kit/ndk';
+import type { MembershipTier } from '$lib/membershipStore';
 
 // NIP-99 Classified Listings kind
 export const PRODUCT_KIND = 30402;
@@ -81,6 +82,7 @@ export interface Kitchen {
 	lightningAddress?: string;
 	productCount?: number; // computed client-side
 	trustRank?: number; // NIP-85 trust score 0-100 (computed)
+	memberTier?: MembershipTier; // zap.cooking membership tier
 	createdAt: number;
 	event: NDKEvent;
 }
@@ -105,6 +107,7 @@ export interface ImplicitKitchen {
 	lightningAddress?: string;
 	productCount: number;
 	trustRank?: number; // NIP-85 trust score 0-100 (computed)
+	memberTier?: MembershipTier; // zap.cooking membership tier
 	isImplicit: true;
 }
 
