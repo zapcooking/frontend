@@ -6,7 +6,6 @@
   export let setUrl: (url: string) => void;
   export let name = 'file';
   let input: HTMLInputElement;
-  let url = '';
   let uploading = false;
   let uploadError = '';
 
@@ -21,7 +20,6 @@
         const result = await uploadToNostrBuild(body);
         if (result && result.data && result.data[0].url) {
           setUrl(result.data[0].url);
-          url = result.data[0].url;
         } else {
           uploadError = 'Upload failed — no URL returned. Please try again.';
         }
@@ -54,13 +52,9 @@
 
     // Sign with a timeout — extension popups can get blocked in overlays
     const signResult = await Promise.race([
-      template.sign().then(() => true),
-      new Promise<false>((resolve) => setTimeout(() => resolve(false), 30000))
+      template.sign().then(() => true).catch(() => { throw new Error('Signing failed — are you signed in?'); }),
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Signing timed out — check your Nostr extension popup.')), 30000))
     ]);
-
-    if (!signResult) {
-      throw new Error('Signing timed out — check your Nostr extension popup.');
-    }
 
     // Ensure all fields are properly formatted according to NIP-98
     const authEvent = {
