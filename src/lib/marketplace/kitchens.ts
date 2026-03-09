@@ -482,6 +482,7 @@ export async function fetchAllKitchenDisplays(
 		timeoutMs?: number;
 		skipCache?: boolean;
 		onTrustRanksReady?: (ranks: Map<string, number>) => void;
+		onMembershipReady?: () => void;
 	} = {}
 ): Promise<KitchenDisplay[]> {
 	// Return cached data if fresh
