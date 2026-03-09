@@ -5,26 +5,24 @@
 
   export let setUrl: (url: string) => void;
   export let name = 'file';
-  let input: HTMLElement, listener;
+  let input: HTMLInputElement;
   let url = '';
 
-  $: {
-    if (input) {
-      input.addEventListener('change', async (e) => {
-        const target = e.target as HTMLInputElement;
-        console.log('attempted');
-        if (target.files && target.files?.length > 0) {
-          const body = new FormData();
-          body.append('file[]', target.files[0]);
-          const result = await uploadToNostrBuild(body);
-          console.log(result);
-          if (result && result.data && result.data[0].url) {
-            setUrl(result.data[0].url);
-            url = result.data[0].url;
-          }
-        }
-      });
+  async function handleFileChange(e: Event) {
+    const target = e.target as HTMLInputElement;
+    if (target.files && target.files.length > 0) {
+      const body = new FormData();
+      body.append('file[]', target.files[0]);
+      const result = await uploadToNostrBuild(body);
+      if (result && result.data && result.data[0].url) {
+        setUrl(result.data[0].url);
+        url = result.data[0].url;
+      }
     }
+  }
+
+  function triggerFileInput() {
+    input?.click();
   }
 
   export async function uploadToNostrBuild(body: any) {
@@ -66,14 +64,21 @@
   style="border-color: var(--color-input-border)"
 >
   <div class="text-center">
+    <input
+      bind:this={input}
+      type="file"
+      accept="image/jpeg,image/png,image/webp,image/gif"
+      on:change={handleFileChange}
+      class="hidden"
+    />
     <div class="flex gap-0.5 text-sm leading-6 items-center">
-      <label
-        for="file-upload"
-        class="relative cursor-pointer rounded-md font-semibold focus-within:outline-none focus-within:ring-2 focus-within:ring-blue-600 focus-within:ring-offset-2 hover:opacity-80"
+      <button
+        type="button"
+        on:click={triggerFileInput}
+        class="relative cursor-pointer rounded-md font-semibold focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 hover:opacity-80 text-primary"
       >
-        <span class="text-primary">Upload {name}</span>
-        <input id="file-upload" bind:this={input} type="file" class="sr-only" />
-      </label>
+        Upload {name}
+      </button>
       <p class="pl-1 text-caption">or drag and drop</p>
     </div>
     <p class="text-xs leading-5 text-caption">JPG, PNG, WEBP, or GIF</p>
