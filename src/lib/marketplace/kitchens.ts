@@ -598,6 +598,13 @@ export async function fetchAllKitchenDisplays(
 				d.trustRank = rank;
 			}
 		}
+		// Re-sort with trust ranks now available
+		result.sort((a, b) => {
+			const scoreA = computeQualityScore(a, a.trustRank);
+			const scoreB = computeQualityScore(b, b.trustRank);
+			if (scoreB !== scoreA) return scoreB - scoreA;
+			return (b.productCount || 0) - (a.productCount || 0);
+		});
 		// Update cache with trust ranks
 		kitchenDisplayCache = { data: result, timestamp: Date.now() };
 		// Notify caller so UI can re-render with trust badges

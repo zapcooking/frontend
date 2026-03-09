@@ -130,14 +130,14 @@
 
 	$: npub = product?.pubkey ? nip19.npubEncode(product.pubkey) : '';
 	$: kitchenUrl = npub ? `/market/kitchen/${npub}` : '';
+	let activeImageIndex = 0;
+
 	$: allImages = (product?.images || []).map((img, i) =>
 		getImageOrPlaceholder(img, `${product.id}-${i}`)
 	);
 	$: imageUrl = allImages.length > 0
 		? allImages[activeImageIndex] || allImages[0]
 		: getImageOrPlaceholder(undefined, product.id);
-
-	let activeImageIndex = 0;
 
 	// Reset image index when modal opens or product changes
 	$: if (open && product) {
