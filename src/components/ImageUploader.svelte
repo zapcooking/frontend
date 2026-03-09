@@ -7,37 +7,61 @@
   export let name = 'file';
   let input: HTMLInputElement;
   let url = '';
+  let uploading = false;
+  let uploadError = '';
 
   async function handleFileChange(e: Event) {
     const target = e.target as HTMLInputElement;
     if (target.files && target.files.length > 0) {
-      const body = new FormData();
-      body.append('file[]', target.files[0]);
-      const result = await uploadToNostrBuild(body);
-      if (result && result.data && result.data[0].url) {
-        setUrl(result.data[0].url);
-        url = result.data[0].url;
+      uploading = true;
+      uploadError = '';
+      try {
+        const body = new FormData();
+        body.append('file[]', target.files[0]);
+        const result = await uploadToNostrBuild(body);
+        if (result && result.data && result.data[0].url) {
+          setUrl(result.data[0].url);
+          url = result.data[0].url;
+        } else {
+          uploadError = 'Upload failed — no URL returned. Please try again.';
+        }
+      } catch (err: any) {
+        console.error('[ImageUploader] Upload failed:', err);
+        uploadError = err.message || 'Upload failed. Please try again.';
+      } finally {
+        uploading = false;
+        // Reset input so the same file can be re-selected
+        if (input) input.value = '';
       }
     }
   }
 
   function triggerFileInput() {
+    if (uploading) return;
     input?.click();
   }
 
   export async function uploadToNostrBuild(body: any) {
-    const url = 'https://nostr.build/api/v2/upload/files';
+    const uploadUrl = 'https://nostr.build/api/v2/upload/files';
     const template = new NDKEvent($ndk);
     template.kind = 27235;
     template.created_at = Math.floor(Date.now() / 1000);
     template.content = '';
     template.tags = [
-      ['u', url],
+      ['u', uploadUrl],
       ['method', 'POST']
     ];
 
-    await template.sign();
-    
+    // Sign with a timeout — extension popups can get blocked in overlays
+    const signResult = await Promise.race([
+      template.sign().then(() => true),
+      new Promise<false>((resolve) => setTimeout(() => resolve(false), 30000))
+    ]);
+
+    if (!signResult) {
+      throw new Error('Signing timed out — check your Nostr extension popup.');
+    }
+
     // Ensure all fields are properly formatted according to NIP-98
     const authEvent = {
       id: template.id,
@@ -49,7 +73,7 @@
       sig: template.sig
     };
 
-    return Fetch.fetchJson(url, {
+    return Fetch.fetchJson(uploadUrl, {
       body,
       method: 'POST',
       headers: {
@@ -71,16 +95,42 @@
       on:change={handleFileChange}
       class="hidden"
     />
-    <div class="flex gap-0.5 text-sm leading-6 items-center">
-      <button
-        type="button"
-        on:click={triggerFileInput}
-        class="relative cursor-pointer rounded-md font-semibold focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 hover:opacity-80 text-primary"
-      >
-        Upload {name}
-      </button>
-      <p class="pl-1 text-caption">or drag and drop</p>
-    </div>
-    <p class="text-xs leading-5 text-caption">JPG, PNG, WEBP, or GIF</p>
+    {#if uploading}
+      <div class="flex flex-col items-center gap-2 py-2">
+        <div class="upload-spinner"></div>
+        <p class="text-sm text-caption">Uploading...</p>
+        <p class="text-xs text-caption" style="opacity: 0.6;">Check for a signing popup from your Nostr extension</p>
+      </div>
+    {:else}
+      <div class="flex gap-0.5 text-sm leading-6 items-center">
+        <button
+          type="button"
+          on:click={triggerFileInput}
+          class="relative cursor-pointer rounded-md font-semibold focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 hover:opacity-80 text-primary"
+        >
+          Upload {name}
+        </button>
+        <p class="pl-1 text-caption">or drag and drop</p>
+      </div>
+      <p class="text-xs leading-5 text-caption">JPG, PNG, WEBP, or GIF</p>
+      {#if uploadError}
+        <p class="text-xs mt-2" style="color: #ef4444;">{uploadError}</p>
+      {/if}
+    {/if}
   </div>
 </div>
+
+<style>
+  .upload-spinner {
+    width: 24px;
+    height: 24px;
+    border: 2.5px solid var(--color-input-border);
+    border-top-color: var(--color-primary, #f97316);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+</style>
