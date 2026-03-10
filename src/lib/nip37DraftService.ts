@@ -46,9 +46,9 @@ const NETWORK_TIMEOUT_MS = 15000;
 
 // Default private relays (fallback if no kind:10013)
 const DEFAULT_PRIVATE_RELAYS = [
-  'wss://kitchen.zap.cooking',
-  'wss://relay.damus.io',
-  'wss://nos.lol'
+  'wss://nos.lol',
+  'wss://relay.primal.net',
+  'wss://eden.nostr.land'
 ];
 
 // ═══════════════════════════════════════════════════════════════
@@ -270,6 +270,18 @@ async function encryptArticleDraftContent(draft: ArticleDraft, pubkey: string): 
     hr: '---',
     bulletListMarker: '-',
     codeBlockStyle: 'fenced'
+  });
+
+  // Custom rule: convert mention spans to nostr:npub1... format
+  turndownService.addRule('mention', {
+    filter: (node: HTMLElement) => {
+      return node.nodeName === 'SPAN' && node.getAttribute('data-type') === 'mention';
+    },
+    replacement: (_content: string, node: Node) => {
+      const el = node as HTMLElement;
+      const id = el.getAttribute('data-id') || '';
+      return `nostr:${id}`;
+    }
   });
 
   // Create the unsigned event content that would be published as kind 30023
@@ -647,6 +659,8 @@ export async function fetchRemoteDrafts(): Promise<RemoteDraft[]> {
       // Process and deduplicate drafts
       const draftsMap = new Map<string, RemoteDraft>();
       const now = Date.now();
+      let skippedExpired = 0;
+      let skippedDeleted = 0;
 
       for (const event of events) {
         // Get d-tag (draft identifier)
@@ -658,13 +672,13 @@ export async function fetchRemoteDrafts(): Promise<RemoteDraft[]> {
         const expiresAt = expirationTag ? parseInt(expirationTag[1]) * 1000 : null;
 
         if (expiresAt && expiresAt < now) {
-          console.log(`[NIP-37] Skipping expired draft: ${dTag}`);
+          skippedExpired++;
           continue;
         }
 
         // Check if content is empty (deletion marker)
         if (!event.content || event.content.trim() === '') {
-          console.log(`[NIP-37] Skipping deleted draft: ${dTag}`);
+          skippedDeleted++;
           continue;
         }
 
@@ -696,6 +710,9 @@ export async function fetchRemoteDrafts(): Promise<RemoteDraft[]> {
       }
 
       const drafts = [...draftsMap.values()];
+      if (skippedDeleted > 0 || skippedExpired > 0) {
+        console.log(`[NIP-37] Skipped ${skippedDeleted} deleted, ${skippedExpired} expired drafts`);
+      }
       console.log(`[NIP-37] Processed ${drafts.length} unique drafts`);
 
       return drafts;
