@@ -72,6 +72,22 @@
 		codeBlockStyle: 'fenced'
 	});
 
+	// Custom rule: convert mention spans to nostr:npub1... format
+	turndownService.addRule('mention', {
+		filter: (node: HTMLElement) => {
+			return node.nodeName === 'SPAN' && node.getAttribute('data-type') === 'mention';
+		},
+		replacement: (_content: string, node: Node) => {
+			const el = node as HTMLElement;
+			const id = el.getAttribute('data-id') || '';
+			// id is the npub — output as nostr:npub1...
+			if (id.startsWith('npub1')) {
+				return `nostr:${id}`;
+			}
+			return `nostr:${id}`;
+		}
+	});
+
 	// Get editor instance reactively after component mounts
 	$: if (tiptapEditor && !showPreview) {
 		// Small delay to ensure editor is initialized
@@ -319,6 +335,24 @@
 				}
 			});
 			
+			// Extract mentioned pubkeys from content and add p tags (NIP-23/NIP-27)
+			const mentionMatches = markdownContent.match(/nostr:(npub1[023456789acdefghjklmnpqrstuvwxyz]{58})/g);
+			if (mentionMatches) {
+				const mentionedPubkeys = new Set<string>();
+				for (const match of mentionMatches) {
+					try {
+						const npub = match.replace('nostr:', '');
+						const decoded = nip19.decode(npub);
+						if (decoded.type === 'npub') {
+							mentionedPubkeys.add(decoded.data);
+						}
+					} catch {}
+				}
+				for (const pubkey of mentionedPubkeys) {
+					event.tags.push(['p', pubkey]);
+				}
+			}
+
 			// Add NIP-89 client tag
 			addClientTagToEvent(event);
 			

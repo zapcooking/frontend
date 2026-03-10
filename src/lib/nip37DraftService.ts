@@ -272,6 +272,18 @@ async function encryptArticleDraftContent(draft: ArticleDraft, pubkey: string): 
     codeBlockStyle: 'fenced'
   });
 
+  // Custom rule: convert mention spans to nostr:npub1... format
+  turndownService.addRule('mention', {
+    filter: (node: HTMLElement) => {
+      return node.nodeName === 'SPAN' && node.getAttribute('data-type') === 'mention';
+    },
+    replacement: (_content: string, node: Node) => {
+      const el = node as HTMLElement;
+      const id = el.getAttribute('data-id') || '';
+      return `nostr:${id}`;
+    }
+  });
+
   // Create the unsigned event content that would be published as kind 30023
   const unsignedEvent = {
     kind: 30023, // Same kind as recipes, but distinguished by tags

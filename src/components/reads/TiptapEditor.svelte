@@ -6,10 +6,12 @@
 	import Link from '@tiptap/extension-link';
 	import Placeholder from '@tiptap/extension-placeholder';
 	import CharacterCount from '@tiptap/extension-character-count';
+	import Mention from '@tiptap/extension-mention';
 	import { ndk } from '$lib/nostr';
 	import { NDKEvent } from '@nostr-dev-kit/ndk';
 	import { Fetch } from 'hurdak';
 	import EditorToolbar from './EditorToolbar.svelte';
+	import { mentionSuggestion } from './mentionSuggestion';
 
 	export let content: string = '';
 	export let placeholder: string = 'Start writing your article...';
@@ -49,6 +51,27 @@
 					openOnClick: false,
 					HTMLAttributes: {
 						class: 'article-link'
+					}
+				}),
+				Mention.configure({
+					HTMLAttributes: {
+						class: 'mention'
+					},
+					suggestion: mentionSuggestion,
+					renderText({ options, node }) {
+						return `${options.suggestion?.char ?? '@'}${node.attrs.label ?? node.attrs.id}`;
+					},
+					renderHTML({ options, node }) {
+						return [
+							'span',
+							{
+								class: 'mention',
+								'data-type': 'mention',
+								'data-id': node.attrs.id,
+								'data-label': node.attrs.label
+							},
+							`${options.suggestion?.char ?? '@'}${node.attrs.label ?? node.attrs.id}`
+						];
 					}
 				}),
 				Placeholder.configure({
@@ -514,5 +537,17 @@
 
 	.editor-content :global(s) {
 		text-decoration: line-through;
+	}
+
+	/* Mention pills */
+	.editor-content :global(.mention) {
+		background: var(--color-accent-gray, #f3f4f6);
+		color: var(--color-primary, #f97316);
+		border-radius: 0.25rem;
+		padding: 0.125rem 0.375rem;
+		font-weight: 500;
+		font-size: 0.9em;
+		white-space: nowrap;
+		cursor: default;
 	}
 </style>
