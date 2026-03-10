@@ -219,10 +219,11 @@ export async function syncDraftsFromRemote(): Promise<void> {
 		drafts.set(merged);
 		persistDrafts(merged);
 		
-		// Sync any local-only or newer drafts back to remote
+		// Sync any local-only drafts back to remote (skip drafts already on remote)
 		for (const draft of merged) {
 			const remote = articleDrafts.find(rd => rd.id === draft.id);
-			if (!remote || draft.updatedAt > remote.createdAt) {
+			if (!remote) {
+				// Draft only exists locally — push to remote
 				publishArticleDraftDebounced(draft);
 			}
 		}

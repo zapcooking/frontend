@@ -6,7 +6,7 @@
 	import { goto } from '$app/navigation';
 	import { nip19 } from 'nostr-tools';
 	import { NDKEvent, NDKRelaySet } from '@nostr-dev-kit/ndk';
-	import { ndk } from '$lib/nostr';
+	import { ndk, userPublickey } from '$lib/nostr';
 	import { addClientTagToEvent } from '$lib/nip89';
 	import { RELAY_SETS } from '$lib/relays/relaySets';
 	import { getOutboxRelays } from '$lib/relayListCache';
@@ -165,13 +165,14 @@
 		hasUnsavedChanges = false;
 	}
 
-	// Auto-save functionality
+	// Auto-save functionality — saves to localStorage only (no relay sync)
+	// Relay sync happens on manual save, close, or publish
 	function setupAutosave() {
 		if (autosaveTimer) clearInterval(autosaveTimer);
 
 		autosaveTimer = setInterval(() => {
 			if (hasUnsavedChanges && $longformEditorOpen) {
-				saveDraft(localDraft);
+				saveDraft(localDraft, false); // localStorage only, skip relay sync
 				lastSavedState = currentState;
 				hasUnsavedChanges = false;
 			}
@@ -240,7 +241,7 @@
 	
 	// Publish handler - creates a NIP-23 kind 30023 event
 	async function handlePublish() {
-		if (!$ndk || !$ndk.signer) {
+		if (!$ndk || !$ndk.signer || !$userPublickey) {
 			publishError = 'Please sign in to publish';
 			return;
 		}
@@ -329,7 +330,7 @@
 			}
 			// Add user's NIP-65 outbox relays so their followers can find the article
 			try {
-				const outbox = await getOutboxRelays(event.author.pubkey);
+				const outbox = await getOutboxRelays($userPublickey);
 				for (const r of outbox) {
 					articleRelayUrls.add(r);
 				}
@@ -350,7 +351,7 @@
 			// Generate naddr for the published article with relay hints for discoverability
 			const naddr = nip19.naddrEncode({
 				identifier: identifier,
-				pubkey: event.author.pubkey,
+				pubkey: $userPublickey,
 				kind: 30023,
 				relays: ['wss://relay.primal.net', 'wss://nos.lol', 'wss://relay.damus.io']
 			});
