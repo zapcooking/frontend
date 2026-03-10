@@ -5,9 +5,11 @@
 	import { portal } from '../Modal.svelte';
 	import { goto } from '$app/navigation';
 	import { nip19 } from 'nostr-tools';
-	import { NDKEvent } from '@nostr-dev-kit/ndk';
+	import { NDKEvent, NDKRelaySet } from '@nostr-dev-kit/ndk';
 	import { ndk } from '$lib/nostr';
 	import { addClientTagToEvent } from '$lib/nip89';
+	import { RELAY_SETS } from '$lib/relays/relaySets';
+	import { getOutboxRelays } from '$lib/relayListCache';
 	import TurndownService from 'turndown';
 	import DOMPurify from 'dompurify';
 	import XIcon from 'phosphor-svelte/lib/X';
@@ -319,19 +321,38 @@
 			// Add NIP-89 client tag
 			addClientTagToEvent(event);
 			
+			// Build relay set: article relays + user's outbox relays for maximum reach
+			const articleRelayUrls = new Set(RELAY_SETS.articles?.relays || []);
+			// Add default relays for kitchen.zap.cooking coverage
+			for (const r of RELAY_SETS.default?.relays || []) {
+				articleRelayUrls.add(r);
+			}
+			// Add user's NIP-65 outbox relays so their followers can find the article
+			try {
+				const outbox = await getOutboxRelays(event.author.pubkey);
+				for (const r of outbox) {
+					articleRelayUrls.add(r);
+				}
+			} catch {
+				// Non-fatal: continue with article relays
+			}
+
+			const publishRelaySet = NDKRelaySet.fromRelayUrls([...articleRelayUrls], $ndk, true);
+
 			// Publish to relays with timeout
-			const publishPromise = event.publish();
-			const timeoutPromise = new Promise((_, reject) => 
+			const publishPromise = event.publish(publishRelaySet);
+			const timeoutPromise = new Promise((_, reject) =>
 				setTimeout(() => reject(new Error('Publish timeout - please try again')), 30000)
 			);
-			
+
 			await Promise.race([publishPromise, timeoutPromise]);
 			
-			// Generate naddr for the published article
+			// Generate naddr for the published article with relay hints for discoverability
 			const naddr = nip19.naddrEncode({
 				identifier: identifier,
 				pubkey: event.author.pubkey,
-				kind: 30023
+				kind: 30023,
+				relays: ['wss://relay.primal.net', 'wss://nos.lol', 'wss://relay.damus.io']
 			});
 			
 			// Delete the draft since it's now published

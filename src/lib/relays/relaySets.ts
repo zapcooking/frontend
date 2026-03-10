@@ -70,7 +70,8 @@ export const RELAY_SETS: Record<string, RelaySet> = {
       'wss://relay.damus.io',        // Large general relay
       'wss://nostr.wine',            // Quality content focus
       'wss://purplepag.es',          // Good for content discovery
-      'wss://relay.nostr.band'       // Search-optimized
+      'wss://relay.nostr.band',      // Search-optimized
+      'wss://relay.noswhere.com'     // General relay with longform support
     ]
   }
 };

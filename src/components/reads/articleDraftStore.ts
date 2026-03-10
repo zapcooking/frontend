@@ -104,12 +104,11 @@ export function saveDraft(draft: ArticleDraft, syncToRelays: boolean = true): { 
 	});
 	
 	// Sync to relays if available and requested
+	// Use debounced publish only - the caller can use the returned promise
+	// for immediate sync if needed (avoids double-publishing)
 	let syncPromise: Promise<boolean> | undefined;
 	if (syncToRelays && isDraftSyncAvailable()) {
-		// Use debounced publish for auto-saves, immediate for manual saves
 		publishArticleDraftDebounced(updatedDraft);
-		// For immediate sync (manual save), return a promise
-		syncPromise = publishArticleDraft(updatedDraft);
 	}
 	
 	draftStatus.set('saved');

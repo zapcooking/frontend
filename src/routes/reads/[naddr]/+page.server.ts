@@ -19,7 +19,9 @@ interface ArticleMetadata {
 const RELAYS = [
 	'wss://relay.primal.net',
 	'wss://relay.damus.io',
-	'wss://nos.lol'
+	'wss://nos.lol',
+	'wss://nostr.wine',
+	'wss://relay.nostr.band'
 ];
 
 async function fetchFromRelay(relayUrl: string, identifier: string, pubkey: string, kind: number = 30023): Promise<ArticleMetadata | null> {
