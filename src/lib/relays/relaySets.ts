@@ -19,10 +19,10 @@ export const RELAY_SETS: Record<string, RelaySet> = {
     name: 'Default',
     description: 'Standard relay configuration for general use',
     relays: [
-      'wss://kitchen.zap.cooking',
       'wss://garden.zap.cooking',
       'wss://nos.lol',
-      'wss://relay.damus.io'
+      'wss://relay.damus.io',
+      'wss://relay.primal.net'
     ]
   },
   garden: {
@@ -69,8 +69,9 @@ export const RELAY_SETS: Record<string, RelaySet> = {
       'wss://nos.lol',               // Popular with good uptime
       'wss://relay.damus.io',        // Large general relay
       'wss://nostr.wine',            // Quality content focus
-      'wss://purplepag.es',          // Good for content discovery
-      'wss://relay.nostr.band'       // Search-optimized
+      'wss://eden.nostr.land',       // Reliable general relay
+      'wss://relay.nostr.band',      // Search-optimized
+      'wss://relay.noswhere.com'     // General relay with longform support
     ]
   }
 };

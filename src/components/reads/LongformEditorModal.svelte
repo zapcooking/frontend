@@ -5,8 +5,10 @@
 	import { portal } from '../Modal.svelte';
 	import { goto } from '$app/navigation';
 	import { nip19 } from 'nostr-tools';
-	import { NDKEvent } from '@nostr-dev-kit/ndk';
-	import { ndk } from '$lib/nostr';
+	import { NDKEvent, NDKRelaySet } from '@nostr-dev-kit/ndk';
+	import { ndk, userPublickey } from '$lib/nostr';
+	import { RELAY_SETS } from '$lib/relays/relaySets';
+	import { getOutboxRelays } from '$lib/relayListCache';
 	import { addClientTagToEvent } from '$lib/nip89';
 	import TurndownService from 'turndown';
 	import DOMPurify from 'dompurify';
@@ -68,6 +70,21 @@
 		hr: '---',
 		bulletListMarker: '-',
 		codeBlockStyle: 'fenced'
+	});
+
+	// Custom rule: convert mention spans to nostr:npub1... format
+	turndownService.addRule('mention', {
+		filter: (node: HTMLElement) => {
+			return node.nodeName === 'SPAN' && node.getAttribute('data-type') === 'mention';
+		},
+		replacement: (_content: string, node: Node) => {
+			const el = node as HTMLElement;
+			const id = el.getAttribute('data-id') || '';
+			if (id.startsWith('npub1')) {
+				return `nostr:${id}`;
+			}
+			return `nostr:${id}`;
+		}
 	});
 
 	// Get editor instance reactively after component mounts
@@ -163,13 +180,14 @@
 		hasUnsavedChanges = false;
 	}
 
-	// Auto-save functionality
+	// Auto-save functionality — saves to localStorage only (no relay sync)
+	// Relay sync happens on manual save, close, or publish
 	function setupAutosave() {
 		if (autosaveTimer) clearInterval(autosaveTimer);
 
 		autosaveTimer = setInterval(() => {
 			if (hasUnsavedChanges && $longformEditorOpen) {
-				saveDraft(localDraft);
+				saveDraft(localDraft, false); // localStorage only, skip relay sync
 				lastSavedState = currentState;
 				hasUnsavedChanges = false;
 			}
@@ -238,7 +256,7 @@
 	
 	// Publish handler - creates a NIP-23 kind 30023 event
 	async function handlePublish() {
-		if (!$ndk || !$ndk.signer) {
+		if (!$ndk || !$ndk.signer || !$userPublickey) {
 			publishError = 'Please sign in to publish';
 			return;
 		}
@@ -318,20 +336,60 @@
 			
 			// Add NIP-89 client tag
 			addClientTagToEvent(event);
-			
+
+			// Extract mentioned pubkeys from content and add p tags (NIP-23/NIP-27)
+			const mentionMatches = markdownContent.match(/nostr:(npub1[023456789acdefghjklmnpqrstuvwxyz]{58})/g);
+			if (mentionMatches) {
+				const mentionedPubkeys = new Set<string>();
+				for (const match of mentionMatches) {
+					try {
+						const npub = match.replace('nostr:', '');
+						const decoded = nip19.decode(npub);
+						if (decoded.type === 'npub') {
+							mentionedPubkeys.add(decoded.data);
+						}
+					} catch {}
+				}
+				for (const pubkey of mentionedPubkeys) {
+					event.tags.push(['p', pubkey]);
+				}
+			}
+
+			// Build relay set: article relays + user's outbox relays for maximum reach
+			const articleRelayUrls = new Set(RELAY_SETS.articles?.relays || []);
+			// Add default relays for broader coverage, excluding Garden which has issues with longform
+			for (const r of RELAY_SETS.default?.relays || []) {
+				if (r === 'wss://garden.zap.cooking') continue;
+				articleRelayUrls.add(r);
+			}
+			// Add user's NIP-65 outbox relays so their followers can find the article
+			try {
+				const outbox = await getOutboxRelays($userPublickey);
+				for (const r of outbox) {
+					articleRelayUrls.add(r);
+				}
+			} catch {
+				// Non-fatal: continue with article relays
+			}
+
+			const publishRelaySet = NDKRelaySet.fromRelayUrls([...articleRelayUrls], $ndk, true);
+
 			// Publish to relays with timeout
-			const publishPromise = event.publish();
-			const timeoutPromise = new Promise((_, reject) => 
+			console.log('[Publish] Publishing to relays:', [...articleRelayUrls]);
+			const publishPromise = event.publish(publishRelaySet);
+			const timeoutPromise = new Promise<never>((_, reject) =>
 				setTimeout(() => reject(new Error('Publish timeout - please try again')), 30000)
 			);
+
+			const relaysPublished = await Promise.race([publishPromise, timeoutPromise]);
+			console.log(`[Publish] Article accepted by ${relaysPublished instanceof Set ? relaysPublished.size : '?'} relay(s)`);
 			
-			await Promise.race([publishPromise, timeoutPromise]);
-			
-			// Generate naddr for the published article
+			// Generate naddr for the published article with relay hints for discoverability
 			const naddr = nip19.naddrEncode({
 				identifier: identifier,
-				pubkey: event.author.pubkey,
-				kind: 30023
+				pubkey: $userPublickey,
+				kind: 30023,
+				relays: ['wss://relay.primal.net', 'wss://nos.lol', 'wss://relay.damus.io']
 			});
 			
 			// Delete the draft since it's now published

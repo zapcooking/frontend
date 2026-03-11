@@ -13,7 +13,7 @@ const RELAY_SET_STORAGE_KEY = 'zap_active_relay_set';
 const dexieAdapter = browser ? new NDKCacheAdapterDexie({ dbName: 'zapcooking-ndk-cache-db' }) : undefined;
 
 // Default outbox relays (used in standard/default mode)
-const DEFAULT_OUTBOX_RELAY_URLS = ["wss://purplepag.es", "wss://kitchen.zap.cooking"];
+const DEFAULT_OUTBOX_RELAY_URLS = ["wss://purplepag.es", "wss://nos.lol"];
 
 // ═══════════════════════════════════════════════════════════════
 // RELAY GENERATION - Prevents stale async results from overriding state

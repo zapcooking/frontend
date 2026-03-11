@@ -31,6 +31,8 @@
   import FoodstrFeedOptimized from '../../../components/FoodstrFeedOptimized.svelte';
   import FloppyDiskIcon from 'phosphor-svelte/lib/FloppyDisk';
   import BookOpenIcon from 'phosphor-svelte/lib/BookOpen';
+  import ImageSquareIcon from 'phosphor-svelte/lib/ImageSquare';
+  import PlayIcon from 'phosphor-svelte/lib/Play';
   import type { PageData } from './$types';
   import { onMount, onDestroy } from 'svelte';
   import { Fetch } from 'hurdak';
@@ -49,9 +51,9 @@
   let zapModal = false;
   let isZapping = false;
 
-  // Tab state: 'recipes' | 'posts' | 'reads' | 'drafts'
+  // Tab state: 'recipes' | 'posts' | 'media' | 'reads' | 'drafts'
   // Default to 'posts' tab for a more social-first experience
-  let activeTab: 'recipes' | 'posts' | 'reads' | 'drafts' = 'posts';
+  let activeTab: 'recipes' | 'posts' | 'media' | 'reads' | 'drafts' = 'posts';
 
   // Reads tab state (longform articles)
   let readsEvents: NDKEvent[] = [];
@@ -60,6 +62,19 @@
   let hasMoreReads = true;
   let oldestReadsTime: number | null = null;
   let readsSentinel: HTMLElement;
+
+  // Media tab state
+  type MediaItem = {
+    event: NDKEvent;
+    url: string;
+    type: 'image' | 'video';
+  };
+  let mediaItems: MediaItem[] = [];
+  let mediaLoaded = false;
+  let loadingMoreMedia = false;
+  let hasMoreMedia = true;
+  let oldestMediaTime: number | null = null;
+  let mediaSentinel: HTMLElement;
 
   // Infinite scroll state for recipes
   let hasMoreRecipes = true;
@@ -71,6 +86,7 @@
   let recipeObserver: IntersectionObserver | null = null;
   let postsObserver: IntersectionObserver | null = null;
   let readsObserver: IntersectionObserver | null = null;
+  let mediaObserver: IntersectionObserver | null = null;
 
   // Bio expand/collapse state
   let bioExpanded = false;
@@ -104,7 +120,7 @@
   // Handle ?tab= query parameter for direct tab navigation
   $: {
     const tabParam = $page.url.searchParams.get('tab');
-    const allowedTabs = new Set(['recipes', 'posts', 'reads', 'drafts']);
+    const allowedTabs = new Set(['recipes', 'posts', 'media', 'reads', 'drafts']);
 
     if (tabParam && allowedTabs.has(tabParam)) {
       // Only allow "drafts" tab for the profile owner
@@ -144,6 +160,16 @@
       readsLoaded = false;
       hasMoreReads = true;
       oldestReadsTime = null;
+      // Reset media state
+      mediaItems = [];
+      mediaLoaded = false;
+      loadingMoreMedia = false;
+      hasMoreMedia = true;
+      oldestMediaTime = null;
+      if (mediaObserver) {
+        mediaObserver.disconnect();
+        mediaObserver = null;
+      }
       // Reset bio expanded state
       bioExpanded = false;
       // Reset mute state
@@ -213,6 +239,7 @@
         });
 
         subscription.on('eose', () => {
+          subscription.stop();
           loaded = true;
           // Sort events by created_at and set oldestRecipeTime for pagination
           if (events.length > 0) {
@@ -766,6 +793,226 @@
     loadReads();
   }
 
+  // ── Media tab ──────────────────────────────────────────────────
+  const IMAGE_EXTENSIONS = /\.(jpg|jpeg|png|gif|webp|svg|avif)(\?.*)?$/i;
+  const VIDEO_EXTENSIONS = /\.(mp4|webm|mov)(\?.*)?$/i;
+  const URL_REGEX = /https?:\/\/[^\s<)"\]]+/g;
+
+  function isMediaImageUrl(url: string): boolean {
+    try {
+      const u = new URL(url);
+      if (IMAGE_EXTENSIONS.test(u.pathname)) return true;
+      if (u.hostname.includes('image.nostr.build')) return true;
+      if (u.hostname.includes('nostr.build') && u.pathname.includes('/i/')) return true;
+      if (u.hostname.includes('imgur.com')) return true;
+      if (u.hostname.includes('primal.b-cdn.net')) return true;
+      if (u.hostname.includes('i.ibb.co')) return true;
+      if (u.hostname.includes('void.cat')) return true;
+      return false;
+    } catch { return false; }
+  }
+
+  function isMediaVideoUrl(url: string): boolean {
+    try {
+      return VIDEO_EXTENSIONS.test(new URL(url).pathname);
+    } catch { return false; }
+  }
+
+  function extractMediaFromEvent(event: NDKEvent): MediaItem[] {
+    const items: MediaItem[] = [];
+    const seen = new Set<string>();
+
+    // Check imeta tags first (NIP-92)
+    for (const tag of event.tags) {
+      if (tag[0] === 'imeta') {
+        for (const part of tag.slice(1)) {
+          if (part.startsWith('url ')) {
+            const url = part.substring(4).trim();
+            if (!seen.has(url)) {
+              seen.add(url);
+              items.push({ event, url, type: isMediaVideoUrl(url) ? 'video' : 'image' });
+            }
+          }
+        }
+      }
+    }
+
+    // Check image tags
+    for (const tag of event.tags) {
+      if (tag[0] === 'image' && tag[1] && !seen.has(tag[1])) {
+        seen.add(tag[1]);
+        items.push({ event, url: tag[1], type: 'image' });
+      }
+    }
+
+    // Parse content for media URLs
+    const urls = event.content?.match(URL_REGEX) || [];
+    for (const url of urls) {
+      const clean = url.replace(/[.,;:!?)]+$/, ''); // Strip trailing punctuation
+      if (seen.has(clean)) continue;
+      if (isMediaImageUrl(clean)) {
+        seen.add(clean);
+        items.push({ event, url: clean, type: 'image' });
+      } else if (isMediaVideoUrl(clean)) {
+        seen.add(clean);
+        items.push({ event, url: clean, type: 'video' });
+      }
+    }
+
+    return items;
+  }
+
+  async function loadMedia() {
+    if (!hexpubkey || mediaLoaded) return;
+
+    try {
+      const filter: NDKFilter = {
+        authors: [hexpubkey],
+        kinds: [1],
+        limit: 100
+      };
+
+      const subscription = $ndk.subscribe(filter);
+      const fetchedItems: MediaItem[] = [];
+      const seenEventIds = new Set<string>();
+      let latestOldest: number | null = null;
+
+      await new Promise<void>((resolve) => {
+        let resolved = false;
+
+        subscription.on('event', (ev: NDKEvent) => {
+          if (seenEventIds.has(ev.id)) return;
+          seenEventIds.add(ev.id);
+
+          const t = ev.created_at || 0;
+          if (latestOldest === null || t < latestOldest) latestOldest = t;
+          const items = extractMediaFromEvent(ev);
+          if (items.length > 0) {
+            fetchedItems.push(...items);
+          }
+        });
+
+        subscription.on('eose', () => {
+          if (!resolved) {
+            resolved = true;
+            subscription.stop();
+            mediaItems = fetchedItems.sort((a, b) => (b.event.created_at || 0) - (a.event.created_at || 0));
+            mediaLoaded = true;
+            oldestMediaTime = latestOldest;
+            hasMoreMedia = seenEventIds.size >= 100;
+            resolve();
+          }
+        });
+
+        setTimeout(() => {
+          if (!resolved) {
+            resolved = true;
+            subscription.stop();
+            mediaItems = fetchedItems.sort((a, b) => (b.event.created_at || 0) - (a.event.created_at || 0));
+            mediaLoaded = true;
+            oldestMediaTime = latestOldest;
+            hasMoreMedia = seenEventIds.size >= 100;
+            resolve();
+          }
+        }, 10000);
+      });
+    } catch (error) {
+      console.error('Error loading media:', error);
+      mediaLoaded = true;
+    }
+  }
+
+  async function loadMoreMedia() {
+    if (loadingMoreMedia || !hasMoreMedia || !hexpubkey || !oldestMediaTime) return;
+    loadingMoreMedia = true;
+
+    try {
+      const filter: NDKFilter = {
+        authors: [hexpubkey],
+        kinds: [1],
+        limit: 100,
+        until: oldestMediaTime - 1
+      };
+
+      const subscription = $ndk.subscribe(filter);
+      const newItems: MediaItem[] = [];
+      const existingUrls = new Set(mediaItems.map((m) => m.url));
+      let eventCount = 0;
+      let latestOldest: number | null = null;
+
+      await new Promise<void>((resolve) => {
+        let resolved = false;
+
+        subscription.on('event', (ev: NDKEvent) => {
+          eventCount++;
+          const items = extractMediaFromEvent(ev);
+          for (const item of items) {
+            if (!existingUrls.has(item.url)) {
+              newItems.push(item);
+              existingUrls.add(item.url);
+            }
+          }
+          const t = ev.created_at || 0;
+          if (latestOldest === null || t < latestOldest) latestOldest = t;
+        });
+
+        subscription.on('eose', () => {
+          if (!resolved) {
+            resolved = true;
+            subscription.stop();
+            if (newItems.length > 0) {
+              mediaItems = [...mediaItems, ...newItems].sort(
+                (a, b) => (b.event.created_at || 0) - (a.event.created_at || 0)
+              );
+              if (latestOldest !== null) oldestMediaTime = latestOldest;
+              hasMoreMedia = eventCount >= 100;
+            } else {
+              hasMoreMedia = false;
+            }
+            resolve();
+          }
+        });
+
+        setTimeout(() => {
+          if (!resolved) {
+            resolved = true;
+            subscription.stop();
+            if (newItems.length > 0) {
+              mediaItems = [...mediaItems, ...newItems].sort(
+                (a, b) => (b.event.created_at || 0) - (a.event.created_at || 0)
+              );
+              if (latestOldest !== null) oldestMediaTime = latestOldest;
+              hasMoreMedia = eventCount >= 100;
+            } else {
+              hasMoreMedia = false;
+            }
+            resolve();
+          }
+        }, 5000);
+      });
+    } catch (error) {
+      console.error('Error loading more media:', error);
+    } finally {
+      loadingMoreMedia = false;
+    }
+  }
+
+  function handleMediaImgError(e: Event) {
+    const el = e.target as HTMLElement;
+    const tile = el?.closest('.media-tile') as HTMLElement | null;
+    if (tile) tile.style.display = 'none';
+  }
+
+  function getMediaEventUrl(event: NDKEvent): string {
+    const nevent = nip19.neventEncode({ id: event.id, author: event.pubkey });
+    return `/${nevent}`;
+  }
+
+  // Load media when switching to media tab
+  $: if (activeTab === 'media' && hexpubkey && !mediaLoaded) {
+    loadMedia();
+  }
+
   let qrModal = false;
   let npubCopied = false;
   let lightningCopied = false;
@@ -1093,10 +1340,32 @@
       );
       readsObserver.observe(readsSentinel);
     }
+
+    // Observer for media tab
+    if (mediaObserver) {
+      mediaObserver.disconnect();
+      mediaObserver = null;
+    }
+    if (mediaSentinel && activeTab === 'media') {
+      mediaObserver = new IntersectionObserver(
+        (entries) => {
+          if (
+            entries[0].isIntersecting &&
+            activeTab === 'media' &&
+            hasMoreMedia &&
+            !loadingMoreMedia
+          ) {
+            loadMoreMedia();
+          }
+        },
+        { rootMargin: '200px' }
+      );
+      mediaObserver.observe(mediaSentinel);
+    }
   }
 
   // Reactive statement to setup observers when tab or sentinels change
-  $: if (recipeSentinel || postsSentinel || readsSentinel) {
+  $: if (recipeSentinel || postsSentinel || readsSentinel || mediaSentinel) {
     // Use setTimeout to ensure DOM is ready
     setTimeout(() => {
       setupObservers();
@@ -1115,6 +1384,10 @@
     if (readsObserver) {
       readsObserver.disconnect();
       readsObserver = null;
+    }
+    if (mediaObserver) {
+      mediaObserver.disconnect();
+      mediaObserver = null;
     }
   });
 </script>
@@ -1458,8 +1731,8 @@
   </div>
 
   <!-- Tabs -->
-  <div class="border-b mb-4" style="border-color: var(--color-input-border)">
-    <div class="flex gap-1">
+  <div class="border-b mb-4 overflow-x-auto scrollbar-hide" style="border-color: var(--color-input-border)">
+    <div class="flex gap-1 min-w-max">
       <button
         on:click={() => (activeTab = 'recipes')}
         class="px-4 py-2 text-sm font-medium transition-colors relative"
@@ -1483,6 +1756,20 @@
       >
         Posts
         {#if activeTab === 'posts'}
+          <span
+            class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-orange-500 to-amber-500"
+          ></span>
+        {/if}
+      </button>
+      <button
+        on:click={() => (activeTab = 'media')}
+        class="px-4 py-2 text-sm font-medium transition-colors relative"
+        style="color: {activeTab === 'media'
+          ? 'var(--color-text-primary)'
+          : 'var(--color-text-secondary)'}"
+      >
+        Media
+        {#if activeTab === 'media'}
           <span
             class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-orange-500 to-amber-500"
           ></span>
@@ -1569,6 +1856,58 @@
       <FoodstrFeedOptimized bind:this={foodstrFeedComponent} authorPubkey={hexpubkey} />
       <div bind:this={postsSentinel} class="py-4 text-center"></div>
     </div>
+  {:else if activeTab === 'media'}
+    {#if !mediaLoaded}
+      <!-- Skeleton grid -->
+      <div class="media-grid">
+        {#each Array(12) as _}
+          <div class="media-tile-skeleton animate-pulse"></div>
+        {/each}
+      </div>
+    {:else if mediaItems.length > 0}
+      <div class="media-grid">
+        {#each mediaItems as item}
+          <a href={getMediaEventUrl(item.event)} class="media-tile">
+            {#if item.type === 'video'}
+              <video
+                src={item.url}
+                class="media-tile-img"
+                on:error={handleMediaImgError}
+                playsinline
+                muted
+                loop
+              ></video>
+              <div class="media-video-badge">
+                <PlayIcon size={20} weight="fill" />
+              </div>
+            {:else}
+              <img
+                src={item.url}
+                alt=""
+                loading="lazy"
+                class="media-tile-img"
+                on:error={handleMediaImgError}
+              />
+            {/if}
+          </a>
+        {/each}
+      </div>
+      {#if hasMoreMedia}
+        <div bind:this={mediaSentinel} class="py-4 text-center">
+          {#if loadingMoreMedia}
+            <div class="text-gray-500 text-sm">Loading more media...</div>
+          {/if}
+        </div>
+      {/if}
+    {:else}
+      <div class="py-12 text-center">
+        <div class="max-w-sm mx-auto space-y-4" style="color: var(--color-caption)">
+          <ImageSquareIcon size={48} class="mx-auto opacity-50" />
+          <p class="text-lg font-medium">No media yet</p>
+          <p class="text-sm">This user hasn't posted any images or videos.</p>
+        </div>
+      </div>
+    {/if}
   {:else if activeTab === 'reads'}
     {#if hexpubkey && $mutedPubkeys.has(hexpubkey)}
       <!-- Muted user message for reads tab -->
@@ -1695,5 +2034,96 @@
     height: 400px;
     display: flex;
     flex-direction: column;
+  }
+
+  /* Media grid */
+  /* Mobile: tight square grid (Instagram-style) */
+  .media-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 3px;
+  }
+
+  .media-tile {
+    position: relative;
+    aspect-ratio: 1;
+    overflow: hidden;
+    background: var(--color-accent-gray, #f3f4f6);
+    border-radius: 2px;
+    display: block;
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+  }
+
+  .media-tile:hover {
+    opacity: 0.85;
+  }
+
+  .media-tile-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  .media-video-badge {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    background: rgba(0, 0, 0, 0.6);
+    color: white;
+    border-radius: 4px;
+    padding: 2px 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .media-tile-skeleton {
+    aspect-ratio: 1;
+    background: var(--color-accent-gray, #e5e7eb);
+    border-radius: 2px;
+  }
+
+  /* Desktop: thumbnail cards with rounded corners and spacing */
+  @media (min-width: 768px) {
+    .media-grid {
+      grid-template-columns: repeat(4, 1fr);
+      gap: 12px;
+    }
+
+    .media-tile {
+      border-radius: 0.75rem;
+      border: 1px solid var(--color-input-border, #e5e7eb);
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+    }
+
+    .media-tile:hover {
+      opacity: 1;
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    }
+
+    .media-tile-img {
+      border-radius: 0.75rem;
+    }
+
+    .media-tile-skeleton {
+      border-radius: 0.75rem;
+    }
+
+    .media-video-badge {
+      top: 8px;
+      right: 8px;
+      border-radius: 6px;
+      padding: 3px 6px;
+    }
+  }
+
+  /* Hide scrollbar on tab bar */
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
   }
 </style>
