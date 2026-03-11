@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
 	import type { SearchProfile } from '$lib/profileSearchService';
 	import { getDisplayName, formatNpub } from '$lib/profileSearchService';
 

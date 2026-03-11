@@ -3,7 +3,7 @@
  * Connects the @mention extension to Nostr profile search
  */
 
-import { searchProfiles, type SearchProfile } from '$lib/profileSearchService';
+import { searchProfiles } from '$lib/profileSearchService';
 import type { SuggestionOptions } from '@tiptap/suggestion';
 
 let component: any = null;
@@ -34,7 +34,6 @@ function destroyPopup() {
 		popup.remove();
 		popup = null;
 	}
-	pendingDestroy = false;
 }
 
 function updatePosition(props: any) {

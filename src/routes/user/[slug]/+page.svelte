@@ -163,8 +163,13 @@
       // Reset media state
       mediaItems = [];
       mediaLoaded = false;
+      loadingMoreMedia = false;
       hasMoreMedia = true;
       oldestMediaTime = null;
+      if (mediaObserver) {
+        mediaObserver.disconnect();
+        mediaObserver = null;
+      }
       // Reset bio expanded state
       bioExpanded = false;
       // Reset mute state
@@ -879,11 +884,11 @@
           if (seenEventIds.has(ev.id)) return;
           seenEventIds.add(ev.id);
 
+          const t = ev.created_at || 0;
+          if (latestOldest === null || t < latestOldest) latestOldest = t;
           const items = extractMediaFromEvent(ev);
           if (items.length > 0) {
             fetchedItems.push(...items);
-            const t = ev.created_at || 0;
-            if (latestOldest === null || t < latestOldest) latestOldest = t;
           }
         });
 
@@ -976,6 +981,7 @@
               mediaItems = [...mediaItems, ...newItems].sort(
                 (a, b) => (b.event.created_at || 0) - (a.event.created_at || 0)
               );
+              if (latestOldest !== null) oldestMediaTime = latestOldest;
               hasMoreMedia = eventCount >= 100;
             } else {
               hasMoreMedia = false;
@@ -1862,17 +1868,26 @@
       <div class="media-grid">
         {#each mediaItems as item}
           <a href={getMediaEventUrl(item.event)} class="media-tile">
-            <img
-              src={item.url}
-              alt=""
-              loading="lazy"
-              class="media-tile-img"
-              on:error={handleMediaImgError}
-            />
             {#if item.type === 'video'}
+              <video
+                src={item.url}
+                class="media-tile-img"
+                on:error={handleMediaImgError}
+                playsinline
+                muted
+                loop
+              ></video>
               <div class="media-video-badge">
                 <PlayIcon size={20} weight="fill" />
               </div>
+            {:else}
+              <img
+                src={item.url}
+                alt=""
+                loading="lazy"
+                class="media-tile-img"
+                on:error={handleMediaImgError}
+              />
             {/if}
           </a>
         {/each}
