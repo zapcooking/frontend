@@ -6,6 +6,7 @@
 	import { getMembership } from '$lib/stores/membershipStatus';
 	import type { Product } from '$lib/marketplace/types';
 	import ProductCard from '../../../components/marketplace/ProductCard.svelte';
+	import MarketBuyerBanner from '../../../components/marketplace/MarketBuyerBanner.svelte';
 	import StorefrontIcon from 'phosphor-svelte/lib/Storefront';
 	import PlusIcon from 'phosphor-svelte/lib/Plus';
 	import MagnifyingGlassIcon from 'phosphor-svelte/lib/MagnifyingGlass';
@@ -187,6 +188,9 @@
 			/>
 		</div>
 	</div>
+
+	<!-- Buyer Disclaimer Banner -->
+	<MarketBuyerBanner />
 
 	<!-- Content -->
 	{#if loading}

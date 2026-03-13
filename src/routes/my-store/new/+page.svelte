@@ -5,12 +5,16 @@
 	import { publishProduct } from '$lib/marketplace/products';
 	import type { ProductFormData } from '$lib/marketplace/types';
 	import ProductForm from '../../../components/marketplace/ProductForm.svelte';
+	import SellerAcknowledgmentModal from '../../../components/marketplace/SellerAcknowledgmentModal.svelte';
 	import PanLoader from '../../../components/PanLoader.svelte';
 	import ArrowLeftIcon from 'phosphor-svelte/lib/ArrowLeft';
 	import LockIcon from 'phosphor-svelte/lib/Lock';
 
+	const SELLER_ACK_KEY = 'zc_seller_ack';
+
 	let checkingMembership = true;
 	let hasActiveMembership = false;
+	let needsAcknowledgment = false;
 	let isSubmitting = false;
 	let error: string | null = null;
 
@@ -23,6 +27,14 @@
 
 		// Check membership status
 		await checkMembership();
+
+		// Check if seller has already acknowledged marketplace terms
+		if (hasActiveMembership) {
+			const ack = localStorage.getItem(SELLER_ACK_KEY);
+			if (!ack) {
+				needsAcknowledgment = true;
+			}
+		}
 	});
 
 	async function checkMembership() {
@@ -118,6 +130,13 @@
 		</div>
 
 	<!-- Has membership - show form -->
+	{:else if needsAcknowledgment}
+		<SellerAcknowledgmentModal on:accept={() => {
+			const record = JSON.stringify({ npub: $userPublickey, timestamp: Date.now() });
+			localStorage.setItem(SELLER_ACK_KEY, record);
+			needsAcknowledgment = false;
+		}} />
+
 	{:else}
 		{#if error}
 			<div class="mb-6 p-4 rounded-xl bg-red-500/10 border border-red-500/30">

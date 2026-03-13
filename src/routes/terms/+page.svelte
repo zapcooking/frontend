@@ -82,7 +82,7 @@
       <li>interfere with the operation, security, availability, or performance of the Service;</li>
       <li>impersonate any person or entity or misrepresent your affiliation, identity, qualifications, permits, licenses, or authority;</li>
       <li>engage in harassment, bullying, threats, hate, stalking, targeted abuse, or doxxing;</li>
-      <li>publish, request, promote, or distribute child sexual abuse material or engage in any form of child sexual abuse or exploitation;</li>
+      <li>publish, request, promote, or distribute child sexual abuse material or engage in any form of child sexual abuse or exploitation (see our <a href="/child-safety" class="text-primary hover:underline">Child Safety Standards</a>);</li>
       <li>use the Service for money laundering, sanctions evasion, fraud, unlawful financing, or other illegal financial activity;</li>
       <li>circumvent access controls, moderation tools, rate limits, security features, or eligibility restrictions applicable to Zap Cooking-operated components;</li>
       <li>use bots, scrapers, scripts, or automated means to access or interact with the Service in a way that imposes unreasonable load, extracts data at scale, or disrupts other users, unless expressly authorized in writing by Zap Cooking.</li>

@@ -4,6 +4,7 @@
 	import { fetchAllKitchenDisplays } from '$lib/marketplace/kitchens';
 	import type { KitchenDisplay } from '$lib/marketplace/types';
 	import KitchenCard from '../../components/marketplace/KitchenCard.svelte';
+	import MarketBuyerBanner from '../../components/marketplace/MarketBuyerBanner.svelte';
 	import StorefrontIcon from 'phosphor-svelte/lib/Storefront';
 	import PlusIcon from 'phosphor-svelte/lib/Plus';
 	import MagnifyingGlassIcon from 'phosphor-svelte/lib/MagnifyingGlass';
@@ -132,6 +133,9 @@
 			<span class="toggle-label">Members only</span>
 		</label>
 	</div>
+
+	<!-- Buyer Disclaimer Banner -->
+	<MarketBuyerBanner />
 
 	<!-- Content -->
 	{#if loading}
