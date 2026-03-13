@@ -65,6 +65,7 @@
   let wotMode: 'global' | 'custom' = 'global';
   let wotPubkey = '';
   let wotRelay = '';
+  let wotHasChanges: boolean = false;
 
   const KNOWN_WOT_PROVIDERS = [
     {

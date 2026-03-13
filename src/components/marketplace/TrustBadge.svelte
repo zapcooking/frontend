@@ -22,6 +22,7 @@
 
 	let showTooltip = false;
 	let hideTimeout: ReturnType<typeof setTimeout> | null = null;
+	const tooltipId = 'trust-badge-tooltip';
 
 	function show() {
 		if (hideTimeout) { clearTimeout(hideTimeout); hideTimeout = null; }
@@ -29,6 +30,7 @@
 	}
 
 	function scheduleHide() {
+		if (hideTimeout) { clearTimeout(hideTimeout); hideTimeout = null; }
 		hideTimeout = setTimeout(() => { showTooltip = false; }, 200);
 	}
 
@@ -43,6 +45,8 @@
 		tabindex="0"
 		role="button"
 		aria-label={`Trust score: ${label}${rank !== undefined ? ` (${rank}/100)` : ''}`}
+		aria-expanded={showTooltip}
+		aria-controls={tooltipId}
 		on:mouseenter={show}
 		on:mouseleave={scheduleHide}
 		on:focus={show}
@@ -58,6 +62,7 @@
 		{#if showTooltip}
 			<!-- svelte-ignore a11y-no-static-element-interactions -->
 			<div
+				id={tooltipId}
 				class="tooltip"
 				on:mouseenter={show}
 				on:mouseleave={scheduleHide}

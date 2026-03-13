@@ -440,14 +440,14 @@ export async function fetchUserTrustProvider(
 	try {
 		const filter: NDKFilter = {
 			kinds: [NIP85_KIND_PROVIDER_DECLARATION] as number[],
-			authors: [userPubkey],
-			limit: 1
+			authors: [userPubkey]
 		};
 
 		let providerEvent: NDKEvent | null = null;
+		let sub: ReturnType<typeof ndk.subscribe> | null = null;
 
 		const fetchPromise = new Promise<void>((resolve) => {
-			const sub = ndk.subscribe(filter, { closeOnEose: true });
+			sub = ndk.subscribe(filter, { closeOnEose: true });
 
 			sub.on('event', (event: NDKEvent) => {
 				if (!providerEvent || (event.created_at || 0) > (providerEvent.created_at || 0)) {
@@ -459,8 +459,19 @@ export async function fetchUserTrustProvider(
 			sub.on('close', () => resolve());
 		});
 
-		const timeout = new Promise<void>((resolve) => setTimeout(resolve, 4000));
+		const timeout = new Promise<void>((resolve) =>
+			setTimeout(() => {
+				if (sub && typeof sub.stop === 'function') {
+					try { sub.stop(); } catch { /* ignore cleanup errors */ }
+				}
+				resolve();
+			}, 4000)
+		);
 		await Promise.race([fetchPromise, timeout]);
+
+		if (sub && typeof (sub as any).stop === 'function') {
+			try { (sub as any).stop(); } catch { /* ignore cleanup errors */ }
+		}
 
 		if (!providerEvent) {
 			providerCache = { userPubkey, provider: null, timestamp: Date.now() };
@@ -612,7 +623,8 @@ export async function fetchTrustRanks(
 	}
 
 	try {
-		const relaySet = NDKRelaySet.fromRelayUrls([serviceRelay], ndk);
+		const relayUrls = serviceRelay === NIP85_RELAY ? [NIP85_RELAY] : [serviceRelay, NIP85_RELAY];
+		const relaySet = NDKRelaySet.fromRelayUrls(relayUrls, ndk);
 		const filter: NDKFilter = {
 			kinds: [NIP85_KIND_USER] as number[],
 			'#d': pubkeys,
