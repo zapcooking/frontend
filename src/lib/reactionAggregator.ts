@@ -33,11 +33,12 @@ export function aggregateReactions(
   userPubkey: string
 ): AggregatedReactions {
   const processedIds = new Set<string>();
+  const seenPubkeyEmoji = new Set<string>();
   const emojiCounts = new Map<string, { count: number; userReacted: boolean }>();
   const userReactions = new Set<string>();
 
   for (const event of events) {
-    // Skip duplicates
+    // Skip duplicate events
     if (!event.id || processedIds.has(event.id)) continue;
     processedIds.add(event.id);
 
@@ -45,6 +46,11 @@ export function aggregateReactions(
 
     // Skip custom emojis we can't render
     if (emoji === null) continue;
+
+    // Only count one reaction per user per emoji
+    const pairKey = `${event.pubkey}:${emoji}`;
+    if (seenPubkeyEmoji.has(pairKey)) continue;
+    seenPubkeyEmoji.add(pairKey);
 
     // Get or create the count entry
     const entry = emojiCounts.get(emoji) || { count: 0, userReacted: false };
