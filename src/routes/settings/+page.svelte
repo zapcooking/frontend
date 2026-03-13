@@ -40,6 +40,12 @@
     MAX_ONE_TAP_ZAP_AMOUNT
   } from '$lib/autoZapSettings';
   import { hellthreadThreshold } from '$lib/hellthreadFilterSettings';
+  import {
+    fetchUserTrustProvider,
+    publishTrustProvider,
+    clearTrustProvider,
+    type TrustProvider
+  } from '$lib/marketplace/kitchens';
   import LightningIcon from 'phosphor-svelte/lib/Lightning';
   import { getConnectionManager } from '$lib/connectionManager';
   import SparkLogo from '../../components/icons/SparkLogo.svelte';
@@ -50,6 +56,93 @@
   import { get } from 'svelte/store';
   import MembershipBadge from '../../components/MembershipBadge.svelte';
   import type { MembershipTier } from '$lib/membershipStore';
+
+  // Web of Trust state
+  let wotProvider: TrustProvider | null = null;
+  let wotLoading = false;
+  let wotSaving = false;
+  let wotMessage: { type: 'success' | 'error'; text: string } | null = null;
+  let wotMode: 'global' | 'custom' = 'global';
+  let wotPubkey = '';
+  let wotRelay = '';
+
+  const KNOWN_WOT_PROVIDERS = [
+    {
+      name: 'nostr.band',
+      description: 'Most widely used trust scoring service on Nostr',
+      pubkey: '6b37f2775a36575c1afe3e1399eb6b4a44793acca040685ac423e84be3aa0e16',
+      relay: 'wss://nip85.nostr.band'
+    }
+  ];
+
+  $: wotHasChanges = (() => {
+    if (wotMode === 'global') return wotProvider !== null;
+    if (!wotPubkey.trim()) return false;
+    if (!wotProvider) return true;
+    return wotProvider.servicePubkey !== wotPubkey.trim() || (wotProvider.relayHint || '') !== wotRelay.trim();
+  })();
+
+  async function loadWotProvider() {
+    if (!$userPublickey) return;
+    wotLoading = true;
+    try {
+      wotProvider = await fetchUserTrustProvider($ndk, $userPublickey);
+      if (wotProvider) {
+        wotMode = 'custom';
+        wotPubkey = wotProvider.servicePubkey;
+        wotRelay = wotProvider.relayHint || '';
+      } else {
+        wotMode = 'global';
+        wotPubkey = '';
+        wotRelay = '';
+      }
+    } catch (e) {
+      console.error('Failed to load WoT provider:', e);
+    } finally {
+      wotLoading = false;
+    }
+  }
+
+  function selectWotProvider(provider: typeof KNOWN_WOT_PROVIDERS[0]) {
+    wotMode = 'custom';
+    wotPubkey = provider.pubkey;
+    wotRelay = provider.relay;
+  }
+
+  async function saveWotProvider() {
+    wotSaving = true;
+    wotMessage = null;
+    try {
+      if (wotMode === 'global') {
+        const result = await clearTrustProvider($ndk);
+        if (result.success) {
+          wotProvider = null;
+          wotMessage = { type: 'success', text: 'Switched to global Web of Trust scoring' };
+        } else {
+          wotMessage = { type: 'error', text: result.error || 'Failed to save' };
+        }
+      } else {
+        const pubkey = wotPubkey.trim();
+        if (!pubkey || !/^[0-9a-f]{64}$/.test(pubkey)) {
+          wotMessage = { type: 'error', text: 'Invalid pubkey — must be 64 hex characters' };
+          wotSaving = false;
+          return;
+        }
+        const provider: TrustProvider = { servicePubkey: pubkey, relayHint: wotRelay.trim() || undefined };
+        const result = await publishTrustProvider($ndk, provider);
+        if (result.success) {
+          wotProvider = provider;
+          wotMessage = { type: 'success', text: 'Trust provider saved' };
+        } else {
+          wotMessage = { type: 'error', text: result.error || 'Failed to save' };
+        }
+      }
+    } catch {
+      wotMessage = { type: 'error', text: 'Something went wrong' };
+    } finally {
+      wotSaving = false;
+    }
+  }
 
   // Relays state
   let relays: string[] = [];
@@ -186,6 +279,7 @@
     updateConnectedRelays();
     fetchNIP65Relays();
     fetchMembershipStatus();
+    loadWotProvider();
     // Update connection status periodically
     const interval = setInterval(updateConnectedRelays, 5000);
     return () => clearInterval(interval);
@@ -1010,6 +1104,113 @@
             <span>Very strict</span>
           </div>
         </div>
+      </div>
+    </Accordion>
+
+    <!-- Web of Trust Section -->
+    <Accordion title="Web of Trust" open={false}>
+      <div class="flex flex-col gap-4">
+        <p class="text-xs" style="color: var(--color-caption)">
+          Trust scores help identify reputable sellers in The Market. Choose a provider
+          to personalize scores based on your social graph, or use the global default.
+          <a href="/market/trust" class="hover:underline" style="color: var(--color-accent)">Learn more</a>
+        </p>
+
+        {#if !$userPublickey}
+          <p class="text-sm" style="color: var(--color-text-secondary)">
+            Sign in to manage your trust provider.
+          </p>
+        {:else if wotLoading}
+          <p class="text-sm" style="color: var(--color-text-secondary)">Loading...</p>
+        {:else}
+          <!-- Current status -->
+          <div class="flex items-center gap-2 px-3 py-2 rounded-lg" style="background-color: var(--color-input-bg);">
+            {#if wotProvider}
+              <ShieldCheckIcon size={16} weight="fill" class="text-green-500" />
+              <span class="text-sm" style="color: var(--color-text-primary)">Personalized scoring active</span>
+            {:else}
+              <ShieldCheckIcon size={16} weight="fill" class="text-blue-400" />
+              <span class="text-sm" style="color: var(--color-text-primary)">Using global scores</span>
+            {/if}
+          </div>
+
+          <!-- Mode selection -->
+          <div class="flex flex-col gap-2">
+            <label class="flex items-start gap-3 p-3 rounded-lg cursor-pointer" style="background-color: var(--color-input-bg); border: 1px solid {wotMode === 'global' ? 'var(--color-accent)' : 'transparent'};">
+              <input type="radio" bind:group={wotMode} value="global" class="mt-1" style="accent-color: var(--color-accent);" />
+              <div>
+                <span class="block text-sm font-medium" style="color: var(--color-text-primary)">Global Web of Trust</span>
+                <span class="block text-xs" style="color: var(--color-caption)">Default scoring — same for everyone</span>
+              </div>
+            </label>
+
+            <label class="flex items-start gap-3 p-3 rounded-lg cursor-pointer" style="background-color: var(--color-input-bg); border: 1px solid {wotMode === 'custom' ? 'var(--color-accent)' : 'transparent'};">
+              <input type="radio" bind:group={wotMode} value="custom" class="mt-1" style="accent-color: var(--color-accent);" />
+              <div>
+                <span class="block text-sm font-medium" style="color: var(--color-text-primary)">Personalized</span>
+                <span class="block text-xs" style="color: var(--color-caption)">Scores based on your social graph</span>
+              </div>
+            </label>
+          </div>
+
+          <!-- Provider selection (when personalized) -->
+          {#if wotMode === 'custom'}
+            <div class="flex flex-col gap-2">
+              <label class="text-xs font-medium" style="color: var(--color-text-secondary)">Provider</label>
+              {#each KNOWN_WOT_PROVIDERS as provider}
+                <button
+                  type="button"
+                  class="flex items-center gap-2 p-3 rounded-lg text-left transition-colors"
+                  style="background-color: var(--color-input-bg); border: 1px solid {wotPubkey === provider.pubkey ? 'var(--color-accent)' : 'transparent'};"
+                  on:click={() => selectWotProvider(provider)}
+                >
+                  <ShieldCheckIcon size={16} weight="fill" class="text-green-500 flex-shrink-0" />
+                  <div>
+                    <span class="block text-sm font-medium" style="color: var(--color-text-primary)">{provider.name}</span>
+                    <span class="block text-xs" style="color: var(--color-caption)">{provider.description}</span>
+                  </div>
+                </button>
+              {/each}
+
+              <div class="flex flex-col gap-2 mt-1">
+                <label class="text-xs font-medium" style="color: var(--color-text-secondary)">Or enter a custom provider</label>
+                <input
+                  type="text"
+                  bind:value={wotPubkey}
+                  placeholder="Provider pubkey (64 hex characters)"
+                  class="w-full px-3 py-2 rounded-lg text-xs"
+                  style="background-color: var(--color-input-bg); color: var(--color-text-primary); border: 1px solid var(--color-input-border); font-family: monospace;"
+                />
+                <input
+                  type="text"
+                  bind:value={wotRelay}
+                  placeholder="Relay URL (optional, e.g. wss://...)"
+                  class="w-full px-3 py-2 rounded-lg text-xs"
+                  style="background-color: var(--color-input-bg); color: var(--color-text-primary); border: 1px solid var(--color-input-border); font-family: monospace;"
+                />
+              </div>
+            </div>
+          {/if}
+
+          <!-- Save -->
+          {#if wotHasChanges}
+            <button
+              type="button"
+              class="w-full py-2 rounded-lg font-medium text-sm transition-colors"
+              style="background-color: var(--color-accent); color: white;"
+              on:click={saveWotProvider}
+              disabled={wotSaving}
+            >
+              {wotSaving ? 'Saving...' : 'Save preference'}
+            </button>
+          {/if}
+
+          {#if wotMessage}
+            <p class="text-xs px-3 py-2 rounded-lg" style="color: {wotMessage.type === 'success' ? '#16a34a' : '#ef4444'}; background-color: {wotMessage.type === 'success' ? 'rgba(22,163,74,0.1)' : 'rgba(239,68,68,0.1)'};">
+              {wotMessage.text}
+            </p>
+          {/if}
+        {/if}
       </div>
     </Accordion>
 
