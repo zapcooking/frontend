@@ -20,6 +20,7 @@
 	let loading = true;
 	let error: string | null = null;
 	let activeTab: 'products' | 'about' = 'products';
+	let trustPersonalized = false;
 
 	$: pubkey = decodePubkey($page.params.npub || '');
 	$: isOwner = $userPublickey === pubkey;
@@ -69,11 +70,12 @@
 			}
 
 			// Fetch trust rank for this seller
-			fetchTrustRanks($ndk, [pubkey]).then((ranks) => {
+			fetchTrustRanks($ndk, [pubkey], $userPublickey || undefined).then(({ ranks, personalized }) => {
 				const rank = ranks.get(pubkey);
 				if (rank !== undefined && kitchen) {
 					kitchen = { ...kitchen, trustRank: rank };
 				}
+				trustPersonalized = personalized;
 			});
 		} catch (e) {
 			console.error('[Kitchen Page] Failed to load:', e);
@@ -123,7 +125,7 @@
 		</div>
 	{:else if kitchen}
 		<!-- Kitchen Header -->
-		<KitchenHeader {kitchen} {isOwner} />
+		<KitchenHeader {kitchen} {isOwner} personalized={trustPersonalized} />
 
 		<!-- Tabs -->
 		<div class="flex gap-2 mt-6 mb-6">
@@ -159,7 +161,7 @@
 			{:else}
 				<div class="products-grid">
 					{#each productEvents as event (event.id)}
-						<ProductCard {event} trustRank={kitchen?.trustRank} />
+						<ProductCard {event} trustRank={kitchen?.trustRank} personalized={trustPersonalized} />
 					{/each}
 				</div>
 			{/if}

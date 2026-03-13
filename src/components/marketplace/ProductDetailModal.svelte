@@ -61,6 +61,7 @@
 	export let open = false;
 	export let product: Product;
 	export let trustRank: number | undefined = undefined;
+	export let personalized: boolean = false;
 	export let initialShowDm = false;
 
 	// Resolved lightning address (from product tag or seller profile fallback)
@@ -384,7 +385,7 @@
 				<span class="text-sm" style="color: var(--color-text-secondary)">Sold by</span>
 				<span class="flex items-center gap-1.5 font-semibold" style="color: var(--color-text-primary)">
 					<CustomName pubkey={product?.pubkey || ''} />
-					<TrustBadge rank={trustRank} />
+					<TrustBadge rank={trustRank} {personalized} />
 				</span>
 			</div>
 			<!-- Visit Kitchen link -->
