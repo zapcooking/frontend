@@ -12,7 +12,8 @@
   let subscription: any = null;
 
   let processedEvents = new Set();
-  
+  let seenPubkeys = new Set<string>();
+
   onMount(() => {
     subscription = $ndk.subscribe({
       kinds: [7],
@@ -23,7 +24,11 @@
       // Prevent counting the same event multiple times
       if (processedEvents.has(e.id)) return;
       processedEvents.add(e.id);
-      
+
+      // Only count one reaction per user
+      if (seenPubkeys.has(e.pubkey)) return;
+      seenPubkeys.add(e.pubkey);
+
       if (e.pubkey == $userPublickey) liked = true;
       totalLikeAmount++;
       loading = false;
@@ -57,31 +62,28 @@
       return;
     }
     
+    // Optimistic update — show immediately
+    liked = true;
+    totalLikeAmount++;
+    seenPubkeys.add($userPublickey);
+
     try {
-      console.log('Attempting to like comment:', event.id);
-      
-      // Create a reaction event manually
       const reactionEvent = new NDKEvent($ndk);
-      reactionEvent.kind = 7; // Reaction kind
-      reactionEvent.content = '+'; // Reaction content
+      reactionEvent.kind = 7;
+      reactionEvent.content = '+';
       reactionEvent.tags = [
-        ['e', event.id, '', 'reply'], // Reference the comment event
-        ['p', event.pubkey] // Reference the comment author
+        ['e', event.id, '', 'reply'],
+        ['p', event.pubkey]
       ];
-      
-      // Add NIP-89 client tag
+
       addClientTagToEvent(reactionEvent);
-      
-      console.log('Publishing reaction:', reactionEvent);
       await reactionEvent.publish();
-      console.log('Successfully liked comment');
-      
-      // Update local state immediately for better UX (only liked, not count)
-      liked = true;
-      
     } catch (error) {
+      // Revert on failure
+      liked = false;
+      totalLikeAmount--;
+      seenPubkeys.delete($userPublickey);
       console.error('Error liking comment:', error);
-      // You could show a toast notification here
     }
   }
 </script>

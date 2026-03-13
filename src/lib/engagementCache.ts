@@ -65,6 +65,8 @@ interface CachedEngagement {
 const engagementStores = new Map<string, Writable<EngagementData>>();
 const activeSubscriptions = new Map<string, NDKSubscription[]>();
 const processedEventIds = new Map<string, Set<string>>();
+// Track (pubkey, emoji) pairs per target event to deduplicate reactions
+const processedReactionPairs = new Map<string, Set<string>>();
 // Track events that are being counted via subscription (to avoid NIP-45 race condition)
 const subscriptionCountingInProgress = new Set<string>();
 // Track optimistic zap updates to prevent double-counting when real zap arrives
@@ -315,11 +317,13 @@ export async function fetchEngagement(
     existingPersistent.sub.stop();
     persistentSubscriptions.delete(eventId);
     processedEventIds.delete(eventId); // Allow re-processing events
+    processedReactionPairs.delete(eventId);
   }
   
   // Initialize processed event tracking - MUST be fresh to avoid double counting
   // Clear any stale processed IDs and start fresh
   processedEventIds.set(eventId, new Set());
+  processedReactionPairs.set(eventId, new Set());
   const processed = processedEventIds.get(eventId)!;
   
   // Stop any old-style subscriptions
@@ -528,7 +532,19 @@ function processReaction(data: EngagementData, event: NDKEvent, userPublickey: s
       return;
     }
   }
-  
+
+  // Only count one reaction per user per emoji
+  if (targetEventId) {
+    const pairKey = `${event.pubkey}:${emoji}`;
+    let pairs = processedReactionPairs.get(targetEventId);
+    if (!pairs) {
+      pairs = new Set();
+      processedReactionPairs.set(targetEventId, pairs);
+    }
+    if (pairs.has(pairKey)) return;
+    pairs.add(pairKey);
+  }
+
   data.reactions.count++;
   
   // Track user reactions
@@ -718,6 +734,7 @@ export function cleanupEngagement(eventId: string): void {
   
   // Clear processed events tracking
   processedEventIds.delete(eventId);
+  processedReactionPairs.delete(eventId);
   
   // Clear counting in progress flag
   subscriptionCountingInProgress.delete(eventId);
@@ -803,6 +820,7 @@ export async function refreshEngagement(
 ): Promise<void> {
   // Clear processed events to allow re-processing
   processedEventIds.delete(eventId);
+  processedReactionPairs.delete(eventId);
   
   // Reset store to loading state but keep existing data
   const store = getEngagementStore(eventId);
@@ -885,6 +903,7 @@ export async function batchFetchEngagement(
   toFetch.forEach(id => {
     // Clear processed IDs to start fresh
     processedEventIds.set(id, new Set());
+    processedReactionPairs.set(id, new Set());
     
     // Mark that subscription counting is in progress
     subscriptionCountingInProgress.add(id);
@@ -1020,6 +1039,7 @@ export function clearAllEngagementCaches(): void {
   // Clear stores
   engagementStores.clear();
   processedEventIds.clear();
+  processedReactionPairs.clear();
   subscriptionCountingInProgress.clear();
   optimisticZaps.clear();
   optimisticReactions.clear();
