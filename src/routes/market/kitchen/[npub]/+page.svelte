@@ -8,6 +8,7 @@
 	import type { KitchenDisplay, Product } from '$lib/marketplace/types';
 	import KitchenHeader from '../../../../components/marketplace/KitchenHeader.svelte';
 	import ProductCard from '../../../../components/marketplace/ProductCard.svelte';
+	import MarketBuyerBanner from '../../../../components/marketplace/MarketBuyerBanner.svelte';
 	import PanLoader from '../../../../components/PanLoader.svelte';
 	import PackageIcon from 'phosphor-svelte/lib/Package';
 	import ArrowLeftIcon from 'phosphor-svelte/lib/ArrowLeft';
@@ -113,6 +114,9 @@
 		<ArrowLeftIcon size={16} />
 		Back to The Market
 	</a>
+
+	<!-- Buyer Disclaimer Banner -->
+	<MarketBuyerBanner />
 
 	{#if loading}
 		<div class="flex justify-center py-12">

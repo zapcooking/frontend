@@ -5,12 +5,16 @@
 	import { fetchKitchenByPubkey, publishKitchen } from '$lib/marketplace/kitchens';
 	import type { Kitchen, KitchenFormData } from '$lib/marketplace/types';
 	import KitchenForm from '../../../components/marketplace/KitchenForm.svelte';
+	import SellerAcknowledgmentModal from '../../../components/marketplace/SellerAcknowledgmentModal.svelte';
 	import PanLoader from '../../../components/PanLoader.svelte';
 	import ArrowLeftIcon from 'phosphor-svelte/lib/ArrowLeft';
 	import LockIcon from 'phosphor-svelte/lib/Lock';
 
+	const SELLER_ACK_KEY = 'zc_seller_ack';
+
 	let checkingMembership = true;
 	let hasActiveMembership = false;
+	let needsAcknowledgment = false;
 	let loadingKitchen = true;
 	let existingKitchen: Kitchen | null = null;
 	let isSubmitting = false;
@@ -25,6 +29,11 @@
 		await checkMembership();
 
 		if (hasActiveMembership) {
+			// Check if seller has already acknowledged marketplace terms (only for new stores)
+			const ack = localStorage.getItem(SELLER_ACK_KEY);
+			if (!ack) {
+				needsAcknowledgment = true;
+			}
 			await loadExistingKitchen();
 		}
 	});
@@ -142,6 +151,13 @@
 				View Membership Plans
 			</a>
 		</div>
+	{:else if needsAcknowledgment && !existingKitchen}
+		<SellerAcknowledgmentModal on:accept={() => {
+			const record = JSON.stringify({ npub: $userPublickey, timestamp: Date.now() });
+			localStorage.setItem(SELLER_ACK_KEY, record);
+			needsAcknowledgment = false;
+		}} />
+
 	{:else}
 		{#if error}
 			<div class="mb-6 p-4 rounded-xl bg-red-500/10 border border-red-500/30">
