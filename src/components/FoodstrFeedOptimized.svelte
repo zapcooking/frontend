@@ -4296,20 +4296,12 @@
   });
 
   // Get engagement info - reads from reactive cache
-  // Optimized: single code path, minimal allocations
+  // Glow disabled on community feed — skip subscription to save bandwidth
   function getEngagementRenderInfo(
-    eventId: string,
-    shouldSubscribe: boolean = true
+    _eventId: string,
+    _shouldSubscribe: boolean = true
   ): EngagementRenderInfo {
-    // Set up subscription if needed (this also populates cache)
-    if (shouldSubscribe && !engagementSubscriptions.has(eventId)) {
-      subscribeToEngagement(eventId);
-      // subscribeToEngagement populates the cache, so check it
-      return engagementGlowCache.get(eventId) || DEFAULT_ENGAGEMENT_INFO;
-    }
-
-    // Return cached info or default
-    return engagementGlowCache.get(eventId) || DEFAULT_ENGAGEMENT_INFO;
+    return DEFAULT_ENGAGEMENT_INFO;
   }
 
   // Reload mute list when user changes
@@ -5020,9 +5012,10 @@
           <!-- Get engagement info - always check cache, subscribe only when visible -->
           {@const isVisible = visibleNotes.has(event.id)}
           {@const engagementInfo = getEngagementRenderInfo(event.id, isVisible)}
-          {@const isPopular = engagementInfo.isZapPopular}
-          {@const isZapAnimating = zapAnimatingNotes.has(event.id)}
-          {@const zapGlowTier = engagementInfo.zapGlowTier}
+          <!-- Glow/animation disabled on community feed to reduce bandwidth -->
+          <!-- {@const isPopular = engagementInfo.isZapPopular} -->
+          <!-- {@const isZapAnimating = zapAnimatingNotes.has(event.id)} -->
+          <!-- {@const zapGlowTier = engagementInfo.zapGlowTier} -->
           {@const engagementStoreValue = get(getEngagementStore(event.id))}
           {@const engagementData = {
             zaps: {
@@ -5033,13 +5026,7 @@
             comments: { count: engagementStoreValue.comments.count }
           }}
           <article
-            class="w-full
-                   {isPopular ? 'zap-popular-post' : ''}
-                   {isZapAnimating ? 'zap-bolt-animation' : ''}
-                   {zapGlowTier !== 'none' ? `zap-glow-${zapGlowTier}` : ''}"
-            style="{isPopular
-              ? 'box-shadow: 0 0 20px rgba(251, 191, 36, 0.4), 0 0 40px rgba(251, 191, 36, 0.2); border-radius: 8px; border: 2px solid rgba(251, 191, 36, 0.6); padding: 1rem; margin-bottom: 1rem;'
-              : ''}"
+            class="w-full"
           >
             <!-- User header with avatar and name -->
             <div class="flex items-center justify-between mb-3 px-2 sm:px-0">
