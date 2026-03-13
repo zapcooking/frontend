@@ -8,6 +8,7 @@
 	import TrustBadge from './TrustBadge.svelte';
 
 	export let kitchen: KitchenDisplay;
+	export let personalized: boolean = false;
 
 	$: npub = nip19.npubEncode(kitchen.pubkey);
 	$: kitchenUrl = `/market/kitchen/${npub}`;
@@ -43,7 +44,7 @@
 			{#if kitchen.memberTier}
 				<MembershipBadge tier={kitchen.memberTier} size="sm" />
 			{/if}
-			<TrustBadge rank={kitchen.trustRank} />
+			<TrustBadge rank={kitchen.trustRank} {personalized} />
 		</div>
 
 		{#if kitchen.description}

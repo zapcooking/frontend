@@ -17,6 +17,7 @@
 	export let event: NDKEvent;
 	export let showDelete = false;
 	export let trustRank: number | undefined = undefined;
+	export let personalized: boolean = false;
 
 	const dispatch = createEventDispatcher<{ delete: { product: Product }; hide: void }>();
 
@@ -115,7 +116,7 @@
 				<span class="text-xs truncate" style="color: var(--color-text-secondary)">
 					<CustomName pubkey={sellerPubkey} />
 				</span>
-				<TrustBadge rank={trustRank} />
+				<TrustBadge rank={trustRank} {personalized} />
 			</span>
 		{/if}
 
@@ -149,7 +150,7 @@
 
 <!-- Product Detail Modal -->
 {#if product}
-	<ProductDetailModal bind:open={showDetailModal} {product} {trustRank} initialShowDm={openWithDm} />
+	<ProductDetailModal bind:open={showDetailModal} {product} {trustRank} {personalized} initialShowDm={openWithDm} />
 {/if}
 {/if}
 

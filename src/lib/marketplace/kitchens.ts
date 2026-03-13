@@ -23,10 +23,21 @@ import type { MembershipTier } from '$lib/membershipStore';
 // NIP-85 Trusted Assertions — service relay for trust rank lookups
 const NIP85_RELAY = 'wss://nip85.nostr.band';
 const NIP85_KIND_USER = 30382;
+const NIP85_KIND_PROVIDER_DECLARATION = 10040;
 
 // --- In-memory cache for kitchen displays ---
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
-let kitchenDisplayCache: { data: KitchenDisplay[]; timestamp: number } | null = null;
+let kitchenDisplayCache: { data: KitchenDisplay[]; timestamp: number; userPubkey?: string } | null = null;
+
+// Cache for user's trust provider declaration (Kind 10040)
+let providerCache: { userPubkey: string; provider: TrustProvider | null; timestamp: number } | null = null;
+const PROVIDER_CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
+
+/** Parsed NIP-85 trust provider from a Kind 10040 event */
+export interface TrustProvider {
+	servicePubkey: string;
+	relayHint?: string;
+}
 
 /** Clear the kitchen display cache (call after publishing/deleting a kitchen) */
 export function invalidateKitchenCache(): void {
@@ -413,24 +424,217 @@ export async function buildImplicitKitchen(
 }
 
 /**
- * Fetch NIP-85 trust ranks for a list of pubkeys from relay.nostr.band
- * Returns a map of pubkey → rank (0–100 integer, higher = more trusted)
- * Gracefully returns empty map on failure — this is an enhancement, not a requirement
+ * Fetch the signed-in user's NIP-85 trust provider declaration (Kind 10040)
+ * Looks for a `30382:rank` tag to find their declared trust assertion service
+ * Returns null if user has no declaration or is not signed in
+ */
+export async function fetchUserTrustProvider(
+	ndk: NDK,
+	userPubkey: string
+): Promise<TrustProvider | null> {
+	// Check cache first
+	if (providerCache && providerCache.userPubkey === userPubkey && Date.now() - providerCache.timestamp < PROVIDER_CACHE_TTL_MS) {
+		return providerCache.provider;
+	}
+
+	try {
+		const filter: NDKFilter = {
+			kinds: [NIP85_KIND_PROVIDER_DECLARATION] as number[],
+			authors: [userPubkey]
+		};
+
+		let providerEvent: NDKEvent | null = null;
+		let sub: ReturnType<typeof ndk.subscribe> | null = null;
+
+		const fetchPromise = new Promise<void>((resolve) => {
+			sub = ndk.subscribe(filter, { closeOnEose: true });
+
+			sub.on('event', (event: NDKEvent) => {
+				if (!providerEvent || (event.created_at || 0) > (providerEvent.created_at || 0)) {
+					providerEvent = event;
+				}
+			});
+
+			sub.on('eose', () => resolve());
+			sub.on('close', () => resolve());
+		});
+
+		const timeout = new Promise<void>((resolve) =>
+			setTimeout(() => {
+				if (sub && typeof sub.stop === 'function') {
+					try { sub.stop(); } catch { /* ignore cleanup errors */ }
+				}
+				resolve();
+			}, 4000)
+		);
+		await Promise.race([fetchPromise, timeout]);
+
+		if (sub && typeof (sub as any).stop === 'function') {
+			try { (sub as any).stop(); } catch { /* ignore cleanup errors */ }
+		}
+
+		if (!providerEvent) {
+			providerCache = { userPubkey, provider: null, timestamp: Date.now() };
+			return null;
+		}
+
+		// Parse 30382:rank tag: ["30382:rank", "<service_pubkey>", "<relay_hint>"]
+		const rankProviderTag = (providerEvent as NDKEvent).tags.find(
+			(t) => t[0] === '30382:rank'
+		);
+
+		if (!rankProviderTag || !rankProviderTag[1]) {
+			providerCache = { userPubkey, provider: null, timestamp: Date.now() };
+			return null;
+		}
+
+		const provider: TrustProvider = {
+			servicePubkey: rankProviderTag[1],
+			relayHint: rankProviderTag[2] || undefined
+		};
+
+		providerCache = { userPubkey, provider, timestamp: Date.now() };
+		console.log(`[Kitchens] Found NIP-85 trust provider for user: ${provider.servicePubkey.slice(0, 8)}...`);
+		return provider;
+	} catch (e) {
+		console.warn('[Kitchens] Failed to fetch user trust provider (non-critical):', e);
+		providerCache = { userPubkey, provider: null, timestamp: Date.now() };
+		return null;
+	}
+}
+
+/**
+ * Publish a Kind 10040 trust provider declaration for the signed-in user.
+ * This tells clients which NIP-85 service to use for personalized scores.
+ */
+export async function publishTrustProvider(
+	ndk: NDK,
+	provider: TrustProvider
+): Promise<{ success: boolean; error?: string }> {
+	try {
+		if (!ndk.signer) {
+			return { success: false, error: 'Not signed in' };
+		}
+
+		const event = new NDKEvent(ndk);
+		event.kind = NIP85_KIND_PROVIDER_DECLARATION;
+		event.content = '';
+		event.tags = [
+			['30382:rank', provider.servicePubkey, provider.relayHint || '']
+		];
+
+		addClientTagToEvent(event);
+		await event.sign();
+		await event.publish();
+
+		// Invalidate provider cache so next fetch picks up the change
+		providerCache = null;
+		// Invalidate kitchen display cache so scores refresh with new provider
+		kitchenDisplayCache = null;
+
+		console.log(`[Kitchens] Published NIP-85 trust provider: ${provider.servicePubkey.slice(0, 8)}...`);
+		return { success: true };
+	} catch (e) {
+		console.error('[Kitchens] Failed to publish trust provider:', e);
+		return {
+			success: false,
+			error: e instanceof Error ? e.message : 'Failed to publish trust provider'
+		};
+	}
+}
+
+/**
+ * Clear the user's trust provider declaration (publish empty Kind 10040).
+ * This reverts to using the global default provider.
+ */
+export async function clearTrustProvider(
+	ndk: NDK
+): Promise<{ success: boolean; error?: string }> {
+	try {
+		if (!ndk.signer) {
+			return { success: false, error: 'Not signed in' };
+		}
+
+		const event = new NDKEvent(ndk);
+		event.kind = NIP85_KIND_PROVIDER_DECLARATION;
+		event.content = '';
+		event.tags = [];
+
+		addClientTagToEvent(event);
+		await event.sign();
+		await event.publish();
+
+		// Invalidate caches
+		providerCache = null;
+		kitchenDisplayCache = null;
+
+		console.log('[Kitchens] Cleared NIP-85 trust provider (reverted to global)');
+		return { success: true };
+	} catch (e) {
+		console.error('[Kitchens] Failed to clear trust provider:', e);
+		return {
+			success: false,
+			error: e instanceof Error ? e.message : 'Failed to clear trust provider'
+		};
+	}
+}
+
+/** Result from fetchTrustRanks including whether scores are personalized */
+export interface TrustRankResult {
+	ranks: Map<string, number>;
+	personalized: boolean;
+}
+
+/**
+ * Fetch NIP-85 trust ranks for a list of pubkeys
+ * If userPubkey is provided, looks up their Kind 10040 declaration first
+ * to fetch personalized scores from their declared provider.
+ * Falls back to global wss://nip85.nostr.band if no provider declared.
+ * Returns ranks map + whether the result is personalized.
  */
 export async function fetchTrustRanks(
 	ndk: NDK,
-	pubkeys: string[]
-): Promise<Map<string, number>> {
+	pubkeys: string[],
+	userPubkey?: string
+): Promise<TrustRankResult> {
 	const ranks = new Map<string, number>();
-	if (pubkeys.length === 0) return ranks;
+	if (pubkeys.length === 0) return { ranks, personalized: false };
+
+	let personalized = false;
+	let serviceRelay = NIP85_RELAY;
+	let authorsFilter: string[] | undefined;
+
+	// If user is signed in, try to find their declared trust provider
+	if (userPubkey) {
+		try {
+			const provider = await fetchUserTrustProvider(ndk, userPubkey);
+			if (provider) {
+				// Use the provider's relay if specified, otherwise try the default
+				if (provider.relayHint) {
+					serviceRelay = provider.relayHint;
+				}
+				// Filter to only this provider's assertions
+				authorsFilter = [provider.servicePubkey];
+				personalized = true;
+			}
+		} catch (e) {
+			console.warn('[Kitchens] Provider lookup failed, falling back to global:', e);
+		}
+	}
 
 	try {
-		const relaySet = NDKRelaySet.fromRelayUrls([NIP85_RELAY], ndk);
+		const relayUrls = serviceRelay === NIP85_RELAY ? [NIP85_RELAY] : [serviceRelay, NIP85_RELAY];
+		const relaySet = NDKRelaySet.fromRelayUrls(relayUrls, ndk);
 		const filter: NDKFilter = {
 			kinds: [NIP85_KIND_USER] as number[],
 			'#d': pubkeys,
 			limit: pubkeys.length
 		};
+
+		// When personalized, filter by the declared service author
+		if (authorsFilter) {
+			filter.authors = authorsFilter;
+		}
 
 		const events = new Set<NDKEvent>();
 
@@ -462,14 +666,14 @@ export async function fetchTrustRanks(
 		}
 
 		if (ranks.size > 0) {
-			console.log(`[Kitchens] Fetched NIP-85 trust ranks for ${ranks.size}/${pubkeys.length} sellers`);
+			console.log(`[Kitchens] Fetched NIP-85 trust ranks for ${ranks.size}/${pubkeys.length} sellers (${personalized ? 'personalized' : 'global'})`);
 		}
 	} catch (e) {
 		// Silently fail — trust rank is an enhancement
 		console.warn('[Kitchens] NIP-85 trust rank fetch failed (non-critical):', e);
 	}
 
-	return ranks;
+	return { ranks, personalized };
 }
 
 /**
@@ -481,12 +685,13 @@ export async function fetchAllKitchenDisplays(
 	options: {
 		timeoutMs?: number;
 		skipCache?: boolean;
-		onTrustRanksReady?: (ranks: Map<string, number>) => void;
+		userPubkey?: string;
+		onTrustRanksReady?: (ranks: Map<string, number>, personalized: boolean) => void;
 		onMembershipReady?: () => void;
 	} = {}
 ): Promise<KitchenDisplay[]> {
-	// Return cached data if fresh
-	if (!options.skipCache && kitchenDisplayCache && Date.now() - kitchenDisplayCache.timestamp < CACHE_TTL_MS) {
+	// Return cached data if fresh and for the same user
+	if (!options.skipCache && kitchenDisplayCache && Date.now() - kitchenDisplayCache.timestamp < CACHE_TTL_MS && kitchenDisplayCache.userPubkey === (options.userPubkey || undefined)) {
 		return kitchenDisplayCache.data;
 	}
 
@@ -586,11 +791,11 @@ export async function fetchAllKitchenDisplays(
 		});
 
 	// Cache the result
-	kitchenDisplayCache = { data: result, timestamp: Date.now() };
+	kitchenDisplayCache = { data: result, timestamp: Date.now(), userPubkey: options.userPubkey || undefined };
 
 	// --- NIP-85 trust ranks (non-blocking background fetch) ---
 	const allPubkeys = result.map((d) => d.pubkey);
-	fetchTrustRanks(ndk, allPubkeys).then((ranks) => {
+	fetchTrustRanks(ndk, allPubkeys, options.userPubkey).then(({ ranks, personalized }) => {
 		// Attach trust ranks to cached display objects
 		for (const d of result) {
 			const rank = ranks.get(d.pubkey);
@@ -606,9 +811,9 @@ export async function fetchAllKitchenDisplays(
 			return (b.productCount || 0) - (a.productCount || 0);
 		});
 		// Update cache with trust ranks
-		kitchenDisplayCache = { data: result, timestamp: Date.now() };
+		kitchenDisplayCache = { data: result, timestamp: Date.now(), userPubkey: options.userPubkey || undefined };
 		// Notify caller so UI can re-render with trust badges
-		options.onTrustRanksReady?.(ranks);
+		options.onTrustRanksReady?.(ranks, personalized);
 	});
 
 	return result;

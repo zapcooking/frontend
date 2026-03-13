@@ -10,6 +10,7 @@
 
 	export let kitchen: KitchenDisplay;
 	export let isOwner = false;
+	export let personalized: boolean = false;
 
 	$: npub = nip19.npubEncode(kitchen.pubkey);
 	$: avatarUrl = kitchen.avatar || undefined;
@@ -65,7 +66,7 @@
 				<h1 class="text-2xl font-bold" style="color: var(--color-text-primary)">
 					{kitchen.name}
 				</h1>
-				<TrustBadge rank={kitchen.trustRank} />
+				<TrustBadge rank={kitchen.trustRank} {personalized} />
 			</div>
 
 			{#if kitchen.description}

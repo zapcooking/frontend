@@ -3,6 +3,7 @@
 	import { ndk, userPublickey } from '$lib/nostr';
 	import { fetchProducts } from '$lib/marketplace/products';
 	import { fetchTrustRanks } from '$lib/marketplace/kitchens';
+	import { getMembership } from '$lib/stores/membershipStatus';
 	import type { Product } from '$lib/marketplace/types';
 	import ProductCard from '../../../components/marketplace/ProductCard.svelte';
 	import StorefrontIcon from 'phosphor-svelte/lib/Storefront';
@@ -13,19 +14,27 @@
 
 	let allProducts: Product[] = [];
 	let trustRanks = new Map<string, number>();
+	let trustPersonalized = false;
+	let memberPubkeys = new Set<string>();
+	let membersOnly = false;
 	let loading = true;
 	let error: string | null = null;
 	let sortBy: 'latest' | 'price-low' | 'price-high' = 'latest';
 	let searchQuery = '';
 
-	$: filteredProducts = filterAndSortProducts(allProducts, sortBy, searchQuery);
+	$: filteredProducts = filterAndSortProducts(allProducts, sortBy, searchQuery, membersOnly);
 
 	function filterAndSortProducts(
 		products: Product[],
 		sort: string,
-		search: string
+		search: string,
+		filterMembers: boolean
 	) {
 		let filtered = products;
+
+		if (filterMembers) {
+			filtered = filtered.filter((p) => memberPubkeys.has(p.pubkey));
+		}
 
 		if (search.trim()) {
 			const q = search.toLowerCase();
@@ -64,10 +73,23 @@
 			const fetchedProducts = await fetchProducts($ndk, { limit: 100, timeoutMs: 15000 });
 			allProducts = fetchedProducts;
 
-			// Fetch trust ranks for all sellers in the background
 			const sellerPubkeys = [...new Set(fetchedProducts.map((p) => p.pubkey))];
-			fetchTrustRanks($ndk, sellerPubkeys).then((ranks) => {
+
+			// Fetch trust ranks and membership in parallel (both background, non-blocking)
+			fetchTrustRanks($ndk, sellerPubkeys, $userPublickey || undefined).then(({ ranks, personalized }) => {
 				trustRanks = ranks;
+				trustPersonalized = personalized;
+			});
+
+			getMembership(sellerPubkeys).then((statuses) => {
+				const validTiers = ['cook_plus', 'pro_kitchen', 'founders'];
+				const members = new Set<string>();
+				for (const [pubkey, status] of Object.entries(statuses)) {
+					if (status.active && validTiers.includes(status.tier)) {
+						members.add(pubkey);
+					}
+				}
+				memberPubkeys = members;
 			});
 		} catch (e) {
 			console.error('[Products Page] Failed to load products:', e);
@@ -131,9 +153,9 @@
 		</a>
 	</div>
 
-	<!-- Sort & Search Bar -->
+	<!-- Sort, Search & Filter Bar -->
 	<div class="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center justify-between mb-6">
-		<div class="flex gap-2">
+		<div class="flex gap-3 items-center">
 			<div class="relative">
 				<FunnelIcon size={16} class="absolute left-3 top-1/2 -translate-y-1/2 opacity-50" />
 				<select
@@ -145,6 +167,14 @@
 					<option value="price-high">Price: High to Low</option>
 				</select>
 			</div>
+
+			<label class="members-toggle">
+				<span class="toggle-track" class:active={membersOnly}>
+					<span class="toggle-thumb"></span>
+				</span>
+				<input type="checkbox" bind:checked={membersOnly} class="sr-only" />
+				<span class="toggle-label">Members only</span>
+			</label>
 		</div>
 
 		<div class="relative w-full sm:w-64">
@@ -217,7 +247,7 @@
 
 		<div class="products-grid">
 			{#each filteredProducts as event (event.id)}
-				<ProductCard {event} trustRank={trustRanks.get(event.pubkey)} on:hide={() => removeProduct(event.id)} />
+				<ProductCard {event} trustRank={trustRanks.get(event.pubkey)} personalized={trustPersonalized} on:hide={() => removeProduct(event.id)} />
 			{/each}
 		</div>
 	{/if}
@@ -271,6 +301,33 @@
 	.search-input:focus {
 		outline: none;
 		border-color: var(--color-accent);
+	}
+
+	.members-toggle {
+		@apply flex items-center gap-2 cursor-pointer flex-shrink-0;
+	}
+
+	.toggle-track {
+		@apply relative inline-flex w-9 h-5 rounded-full transition-colors;
+		background-color: var(--color-bg-tertiary, rgba(255, 255, 255, 0.1));
+	}
+
+	.toggle-track.active {
+		background-color: var(--color-accent, #f97316);
+	}
+
+	.toggle-thumb {
+		@apply absolute top-0.5 left-0.5 w-4 h-4 rounded-full transition-transform;
+		background-color: white;
+	}
+
+	.toggle-track.active .toggle-thumb {
+		transform: translateX(16px);
+	}
+
+	.toggle-label {
+		@apply text-sm font-medium;
+		color: var(--color-text-secondary);
 	}
 
 	.skeleton-card {

@@ -13,17 +13,28 @@
 	let loading = true;
 	let error: string | null = null;
 	let searchQuery = '';
+	let trustPersonalized = false;
+	let membersOnly = false;
 
-	$: filteredKitchens = filterKitchens(allKitchens, searchQuery);
+	$: filteredKitchens = filterKitchens(allKitchens, searchQuery, membersOnly);
 
-	function filterKitchens(kitchens: KitchenDisplay[], search: string) {
-		if (!search.trim()) return kitchens;
-		const q = search.toLowerCase();
-		return kitchens.filter(
-			(k) =>
-				k.name.toLowerCase().includes(q) ||
-				k.description.toLowerCase().includes(q)
-		);
+	function filterKitchens(kitchens: KitchenDisplay[], search: string, filterMembers: boolean) {
+		let filtered = kitchens;
+
+		if (filterMembers) {
+			filtered = filtered.filter((k) => !!k.memberTier);
+		}
+
+		if (search.trim()) {
+			const q = search.toLowerCase();
+			filtered = filtered.filter(
+				(k) =>
+					k.name.toLowerCase().includes(q) ||
+					k.description.toLowerCase().includes(q)
+			);
+		}
+
+		return filtered;
 	}
 
 	onMount(async () => {
@@ -36,7 +47,9 @@
 
 		try {
 			allKitchens = await fetchAllKitchenDisplays($ndk, {
-				onTrustRanksReady: () => {
+				userPubkey: $userPublickey || undefined,
+				onTrustRanksReady: (_ranks, personalized) => {
+					trustPersonalized = personalized;
 					// Trigger Svelte reactivity so trust badges appear
 					allKitchens = [...allKitchens];
 				}
@@ -99,8 +112,8 @@
 		</a>
 	</div>
 
-	<!-- Search -->
-	<div class="mb-6">
+	<!-- Search & Filters -->
+	<div class="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center justify-between mb-6">
 		<div class="relative w-full sm:w-64">
 			<MagnifyingGlassIcon size={16} class="absolute left-3 top-1/2 -translate-y-1/2 opacity-50" />
 			<input
@@ -110,6 +123,14 @@
 				class="search-input w-full pl-9 pr-4 py-2 rounded-lg text-sm"
 			/>
 		</div>
+
+		<label class="members-toggle">
+			<span class="toggle-track" class:active={membersOnly}>
+				<span class="toggle-thumb"></span>
+			</span>
+			<input type="checkbox" bind:checked={membersOnly} class="sr-only" />
+			<span class="toggle-label">Members only</span>
+		</label>
 	</div>
 
 	<!-- Content -->
@@ -176,7 +197,7 @@
 
 		<div class="kitchens-grid">
 			{#each filteredKitchens as kitchen (kitchen.pubkey)}
-				<KitchenCard {kitchen} />
+				<KitchenCard {kitchen} personalized={trustPersonalized} />
 			{/each}
 		</div>
 	{/if}
@@ -227,6 +248,33 @@
 	.search-input:focus {
 		outline: none;
 		border-color: var(--color-accent);
+	}
+
+	.members-toggle {
+		@apply flex items-center gap-2 cursor-pointer flex-shrink-0;
+	}
+
+	.toggle-track {
+		@apply relative inline-flex w-9 h-5 rounded-full transition-colors;
+		background-color: var(--color-bg-tertiary, rgba(255, 255, 255, 0.1));
+	}
+
+	.toggle-track.active {
+		background-color: var(--color-accent, #f97316);
+	}
+
+	.toggle-thumb {
+		@apply absolute top-0.5 left-0.5 w-4 h-4 rounded-full transition-transform;
+		background-color: white;
+	}
+
+	.toggle-track.active .toggle-thumb {
+		transform: translateX(16px);
+	}
+
+	.toggle-label {
+		@apply text-sm font-medium;
+		color: var(--color-text-secondary);
 	}
 
 	.skeleton-card {
