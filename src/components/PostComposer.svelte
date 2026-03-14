@@ -5,6 +5,8 @@
   import PencilSimpleIcon from 'phosphor-svelte/lib/PencilSimple';
   import ImageIcon from 'phosphor-svelte/lib/Image';
   import VideoIcon from 'phosphor-svelte/lib/Video';
+  import GifIcon from 'phosphor-svelte/lib/Gif';
+  import GifPicker from './GifPicker.svelte';
   import CustomAvatar from './CustomAvatar.svelte';
   import ProfileLink from './ProfileLink.svelte';
   import { nip19 } from 'nostr-tools';
@@ -15,6 +17,7 @@
   import { publishQueue, publishQueueState } from '$lib/publishQueue';
   import MentionDropdown from './MentionDropdown.svelte';
   import { MentionComposerController, type MentionState } from '$lib/mentionComposer';
+  import { uploadImage, uploadVideo } from '$lib/mediaUpload';
 
   // Clear stuck posts from the publish queue
   async function clearPendingQueue() {
@@ -51,6 +54,7 @@
   let imageInputEl: HTMLInputElement;
   let videoInputEl: HTMLInputElement;
   let quotedNote: { nevent: string; event: NDKEventType } | null = null;
+  let showGifPicker = false;
 
   // Mention autocomplete (shared controller)
   let mentionState: MentionState = {
@@ -159,61 +163,6 @@
     isComposerOpen = false;
   }
 
-  async function uploadToNostrBuild(body: FormData) {
-    const url = 'https://nostr.build/api/v2/upload/files';
-    const template = new NDKEvent($ndk);
-    template.kind = 27235;
-    template.created_at = Math.floor(Date.now() / 1000);
-    template.content = '';
-    template.tags = [
-      ['u', url],
-      ['method', 'POST']
-    ];
-
-    await template.sign();
-
-    const authEvent = {
-      id: template.id,
-      pubkey: template.pubkey,
-      created_at: template.created_at,
-      kind: template.kind,
-      tags: template.tags,
-      content: template.content,
-      sig: template.sig
-    };
-
-    try {
-      const response = await fetch(url, {
-        body,
-        method: 'POST',
-        headers: {
-          Authorization: `Nostr ${btoa(JSON.stringify(authEvent))}`
-        }
-      });
-
-      // Check if response is ok
-      if (!response.ok) {
-        const errorText = await response.text();
-        let errorData;
-        try {
-          errorData = JSON.parse(errorText);
-        } catch {
-          errorData = { message: errorText || `HTTP ${response.status}: ${response.statusText}` };
-        }
-        throw new Error(
-          errorData.message || errorData.error || `Upload failed with status ${response.status}`
-        );
-      }
-
-      const result = await response.json();
-      return result;
-    } catch (err: any) {
-      console.error('Upload error:', err);
-      error = err?.message || 'Upload failed. Please try again.';
-      throw err;
-    }
-  }
-
   async function handleImageUpload(e: Event) {
     const target = e.target as HTMLInputElement;
     const files = target.files;
@@ -224,34 +173,15 @@
 
     try {
       for (const file of Array.from(files)) {
-        if (file.size > 5 * 1024 * 1024) {
-          error = 'Image must be less than 5MB';
-          continue;
-        }
-
-        const body = new FormData();
-        body.append('file[]', file);
-
-        const result = await uploadToNostrBuild(body);
-
-        if (result && result.data && result.data[0]?.url) {
-          uploadedImages = [...uploadedImages, result.data[0].url];
-        } else {
-          const errorMsg = result?.message || result?.error || 'Unknown error';
-          console.error('Upload failed - response:', result);
-          error = `Failed to upload image${errorMsg !== 'Unknown error' ? `: ${errorMsg}` : ''}`;
-        }
+        const url = await uploadImage($ndk, file);
+        uploadedImages = [...uploadedImages, url];
       }
     } catch (err: any) {
       console.error('Error uploading image:', err);
-      const errorMsg =
-        err?.message || err?.response?.message || err?.response?.error || 'Unknown error';
-      error = `Failed to upload image${errorMsg !== 'Unknown error' ? `: ${errorMsg}` : '. Please try again.'}`;
+      error = err?.message || 'Failed to upload image. Please try again.';
     } finally {
       uploadingImage = false;
-      if (imageInputEl) {
-        imageInputEl.value = '';
-      }
+      if (imageInputEl) imageInputEl.value = '';
     }
   }
 
@@ -265,61 +195,15 @@
 
     try {
       for (const file of Array.from(files)) {
-        if (file.size > 50 * 1024 * 1024) {
-          error = 'Video must be less than 50MB';
-          continue;
-        }
-
-        // Validate video duration
-        let videoDuration = 0;
-        try {
-          const video = document.createElement('video');
-          video.preload = 'metadata';
-
-          await new Promise<void>((resolve, reject) => {
-            video.onloadedmetadata = () => {
-              videoDuration = video.duration;
-              resolve();
-            };
-            video.onerror = () => reject(new Error('Failed to load video metadata'));
-            video.src = URL.createObjectURL(file);
-          });
-
-          if (videoDuration > 0 && videoDuration > 60) {
-            error = 'Video must be less than 60 seconds';
-            continue;
-          }
-        } catch (metaError) {
-          console.warn('Could not read video metadata:', metaError);
-        }
-
-        console.log(
-          `Uploading video: ${file.name}, size: ${(file.size / 1024 / 1024).toFixed(2)}MB, type: ${file.type}, duration: ${videoDuration > 0 ? videoDuration.toFixed(1) + 's' : 'unknown'}`
-        );
-
-        const body = new FormData();
-        body.append('file[]', file);
-
-        const result = await uploadToNostrBuild(body);
-
-        if (result && result.data && result.data[0]?.url) {
-          uploadedVideos = [...uploadedVideos, result.data[0].url];
-        } else {
-          const errorMsg = result?.message || result?.error || 'Unknown error';
-          console.error('Upload failed - response:', result);
-          error = `Failed to upload video${errorMsg !== 'Unknown error' ? `: ${errorMsg}` : ''}`;
-        }
+        const url = await uploadVideo($ndk, file);
+        uploadedVideos = [...uploadedVideos, url];
       }
     } catch (err: any) {
       console.error('Error uploading video:', err);
-      const errorMsg =
-        err?.message || err?.response?.message || err?.response?.error || 'Unknown error';
-      error = `Failed to upload video${errorMsg !== 'Unknown error' ? `: ${errorMsg}` : '. Please try again.'}`;
+      error = err?.message || 'Failed to upload video. Please try again.';
     } finally {
       uploadingVideo = false;
-      if (videoInputEl) {
-        videoInputEl.value = '';
-      }
+      if (videoInputEl) videoInputEl.value = '';
     }
   }
 
@@ -732,6 +616,17 @@
                   />
                 </label>
 
+                <button
+                  on:click={() => (showGifPicker = true)}
+                  class="p-1.5 rounded-full hover:bg-accent-gray transition-colors"
+                  class:opacity-50={posting}
+                  class:cursor-not-allowed={posting}
+                  disabled={posting}
+                  title="Add GIF"
+                >
+                  <GifIcon size={18} class="text-caption" />
+                </button>
+
                 {#if uploadingImage}
                   <span class="text-xs text-caption">Uploading image...</span>
                 {:else if uploadingVideo}
@@ -798,6 +693,13 @@
     {/if}
   </div>
 {/if}
+
+<GifPicker
+  bind:open={showGifPicker}
+  on:select={(e) => {
+    uploadedImages = [...uploadedImages, e.detail.url];
+  }}
+/>
 
 <style>
   .composer-input {
