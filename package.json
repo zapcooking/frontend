@@ -1,7 +1,7 @@
 {
   "name": "zap.cooking",
   "license": "MIT",
-  "version": "4.2.48",
+  "version": "4.2.50",
   "private": true,
   "scripts": {
     "dev": "vite dev",
@@ -26,7 +26,7 @@
   },
   "dependencies": {
     "@branta-ops/branta": "^0.0.3",
-    "@breeztech/breez-sdk-spark": "0.9.1",
+    "@breeztech/breez-sdk-spark": "0.11.0",
     "@capacitor/android": "^8.0.0",
     "@capacitor/app": "^8.0.0",
     "@capacitor/cli": "^8.0.0",
