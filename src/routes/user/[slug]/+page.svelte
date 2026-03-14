@@ -286,8 +286,9 @@
         }
 
         // Fetch profile stats (follower/following counts) from Primal
-        fetchUserStatsFromPrimal(hexpubkey).then((stats) => {
-          if (stats) {
+        const requestedHexpubkey = hexpubkey;
+        fetchUserStatsFromPrimal(requestedHexpubkey).then((stats) => {
+          if (stats && requestedHexpubkey === hexpubkey) {
             profileStats = stats;
           }
         });
@@ -1051,9 +1052,30 @@
     loadFollowing();
   }
 
+  /** Fetch NDK events with a timeout that resolves to an empty set (no unhandled rejections) */
+  function fetchEventsWithTimeout(
+    filter: NDKFilter,
+    timeoutMs = 8000
+  ): Promise<Set<NDKEvent>> {
+    return new Promise<Set<NDKEvent>>((resolve, reject) => {
+      const timer = setTimeout(() => resolve(new Set<NDKEvent>()), timeoutMs);
+      $ndk
+        .fetchEvents(filter)
+        .then((result: Set<NDKEvent>) => {
+          clearTimeout(timer);
+          resolve(result);
+        })
+        .catch((error: unknown) => {
+          clearTimeout(timer);
+          reject(error);
+        });
+    });
+  }
+
   async function loadFollowing() {
     if (!hexpubkey || followingLoading) return;
 
+    const requestedPubkey = hexpubkey;
     followingLoading = true;
 
     try {
@@ -1063,21 +1085,19 @@
       const primal = getPrimalCache();
       if (primal) {
         try {
-          followPubkeys = await primal.fetchContactList(hexpubkey, 5000);
+          followPubkeys = await primal.fetchContactList(requestedPubkey, 5000);
         } catch (e) {
           console.debug('[Following] Primal contact list failed, trying NDK:', e);
         }
       }
 
       if (followPubkeys.length === 0) {
-        // NDK fallback with a timeout
+        // NDK fallback with a resolving timeout (empty set = timed out)
         try {
-          const contactEvents = await Promise.race([
-            $ndk.fetchEvents({ authors: [hexpubkey], kinds: [3], limit: 1 }),
-            new Promise<Set<NDKEvent>>((_, reject) =>
-              setTimeout(() => reject(new Error('timeout')), 8000)
-            )
-          ]);
+          const contactEvents = await fetchEventsWithTimeout(
+            { authors: [requestedPubkey], kinds: [3], limit: 1 },
+            8000
+          );
           const contactList = Array.from(contactEvents)[0];
           if (contactList) {
             followPubkeys = contactList.tags
@@ -1089,6 +1109,9 @@
         }
       }
 
+      // Bail if user navigated away
+      if (hexpubkey !== requestedPubkey) return;
+
       followingCount = followPubkeys.length;
 
       if (followPubkeys.length === 0) {
@@ -1098,20 +1121,21 @@
         return;
       }
 
-      // Step 2: Fetch profile metadata via NDK with timeouts per batch
+      // Step 2: Fetch profile metadata via NDK with resolving timeouts per batch
       const profiles: FollowingProfile[] = [];
       const resolvedPubkeys = new Set<string>();
       const batchSize = 100;
       for (let i = 0; i < followPubkeys.length; i += batchSize) {
         const batch = followPubkeys.slice(i, i + batchSize);
 
+        // Bail if user navigated away mid-batch
+        if (hexpubkey !== requestedPubkey) return;
+
         try {
-          const profileEvents = await Promise.race([
-            $ndk.fetchEvents({ kinds: [0], authors: batch }),
-            new Promise<Set<NDKEvent>>((_, reject) =>
-              setTimeout(() => reject(new Error('timeout')), 8000)
-            )
-          ]);
+          const profileEvents = await fetchEventsWithTimeout(
+            { kinds: [0], authors: batch },
+            8000
+          );
 
           for (const event of profileEvents) {
             try {
@@ -1135,9 +1159,12 @@
             }
           }
         } catch (e) {
-          console.debug('[Following] Profile batch timed out, continuing with what we have');
+          console.debug('[Following] Profile batch failed, continuing with what we have');
         }
       }
+
+      // Bail if user navigated away
+      if (hexpubkey !== requestedPubkey) return;
 
       // Add placeholder entries for pubkeys we couldn't resolve
       for (const pk of followPubkeys) {
@@ -1163,9 +1190,13 @@
       followingLoaded = true;
     } catch (error) {
       console.error('Error loading following list:', error);
-      followingLoaded = true;
+      if (hexpubkey === requestedPubkey) {
+        followingLoaded = true;
+      }
     } finally {
-      followingLoading = false;
+      if (hexpubkey === requestedPubkey) {
+        followingLoading = false;
+      }
     }
   }
 

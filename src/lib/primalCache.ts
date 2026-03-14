@@ -324,7 +324,7 @@ export class PrimalCacheService {
       }, timeoutMs);
 
       this.pendingRequests.set(requestId, {
-        resolve: resolve as (value: PrimalSearchResult | PrimalFeedResponse | string[]) => void,
+        resolve: (value) => resolve(value as string[]),
         reject,
         timeout,
         profiles: [],
@@ -395,7 +395,7 @@ export class PrimalCacheService {
       }, timeoutMs);
 
       this.pendingRequests.set(requestId, {
-        resolve: resolve as (value: PrimalSearchResult | PrimalFeedResponse | string[]) => void,
+        resolve: (value) => resolve(value as PrimalFeedResponse),
         reject,
         timeout,
         profiles: [],
@@ -459,7 +459,7 @@ export class PrimalCacheService {
       }, timeoutMs);
 
       this.pendingRequests.set(requestId, {
-        resolve: resolve as (value: PrimalSearchResult | PrimalFeedResponse | string[]) => void,
+        resolve: (value) => resolve(value as PrimalFeedResponse),
         reject,
         timeout,
         profiles: [],
@@ -529,7 +529,7 @@ export class PrimalCacheService {
       }, timeoutMs);
 
       this.pendingRequests.set(requestId, {
-        resolve: resolve as (value: PrimalSearchResult | PrimalFeedResponse | string[]) => void,
+        resolve: (value) => resolve(value as PrimalFeedResponse),
         reject,
         timeout,
         profiles: [],
@@ -590,7 +590,7 @@ export class PrimalCacheService {
       }, timeoutMs);
 
       this.pendingRequests.set(requestId, {
-        resolve: resolve as (value: PrimalSearchResult | PrimalFeedResponse | string[]) => void,
+        resolve: (value) => resolve(value as PrimalFeedResponse),
         reject,
         timeout,
         profiles: [],
@@ -686,7 +686,7 @@ export class PrimalCacheService {
       }, timeoutMs);
 
       this.pendingRequests.set(requestId, {
-        resolve: resolve as (value: PrimalSearchResult | PrimalFeedResponse | string[] | PrimalUserStats | null) => void,
+        resolve: (value) => resolve(value as PrimalUserStats | null),
         reject,
         timeout,
         profiles: [],
