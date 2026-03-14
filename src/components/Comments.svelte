@@ -10,6 +10,11 @@
   import { get } from 'svelte/store';
   import MentionDropdown from './MentionDropdown.svelte';
   import { MentionComposerController, type MentionState } from '$lib/mentionComposer';
+  import GifIcon from 'phosphor-svelte/lib/Gif';
+  import ImageIcon from 'phosphor-svelte/lib/Image';
+  import VideoIcon from 'phosphor-svelte/lib/Video';
+  import GifPicker from './GifPicker.svelte';
+  import { uploadImage, uploadVideo } from '$lib/mediaUpload';
 
   export let event: NDKEvent;
   let events: NDKEvent[] = [];
@@ -19,6 +24,14 @@
   let processedEvents = new Set();
   let subscribed = false;
   let commentSubscription: any = null;
+  let showGifPicker = false;
+  let uploadedImages: string[] = [];
+  let uploadedVideos: string[] = [];
+  let uploadingImage = false;
+  let uploadingVideo = false;
+  let uploadError = '';
+  let imageInputEl: HTMLInputElement;
+  let videoInputEl: HTMLInputElement;
 
   // Mention autocomplete
   let mentionState: MentionState = {
@@ -84,8 +97,54 @@
     // No-op: the subscription will automatically receive new events
   }
 
+  async function handleImageUpload(e: Event) {
+    const target = e.target as HTMLInputElement;
+    const files = target.files;
+    if (!files || files.length === 0) return;
+    uploadingImage = true;
+    uploadError = '';
+    try {
+      for (const file of Array.from(files)) {
+        const url = await uploadImage($ndk, file);
+        uploadedImages = [...uploadedImages, url];
+      }
+    } catch (err: any) {
+      uploadError = err?.message || 'Failed to upload image.';
+    } finally {
+      uploadingImage = false;
+      if (imageInputEl) imageInputEl.value = '';
+    }
+  }
+
+  async function handleVideoUpload(e: Event) {
+    const target = e.target as HTMLInputElement;
+    const files = target.files;
+    if (!files || files.length === 0) return;
+    uploadingVideo = true;
+    uploadError = '';
+    try {
+      for (const file of Array.from(files)) {
+        const url = await uploadVideo($ndk, file);
+        uploadedVideos = [...uploadedVideos, url];
+      }
+    } catch (err: any) {
+      uploadError = err?.message || 'Failed to upload video.';
+    } finally {
+      uploadingVideo = false;
+      if (videoInputEl) videoInputEl.value = '';
+    }
+  }
+
+  function removeImage(index: number) {
+    uploadedImages = uploadedImages.filter((_, i) => i !== index);
+  }
+
+  function removeVideo(index: number) {
+    uploadedVideos = uploadedVideos.filter((_, i) => i !== index);
+  }
+
   async function postComment() {
-    if (!commentText.trim()) {
+    if (!commentText.trim() && uploadedImages.length === 0 && uploadedVideos.length === 0) {
       return;
     }
 
@@ -103,7 +162,12 @@
     // Recipe replies should be kind 1111, not kind 1
     const isRecipe = event.kind === 30023;
     ev.kind = isRecipe ? 1111 : 1;
-    const commentContent = mentionCtrl.replacePlainMentions(commentText.trim());
+    let commentContent = mentionCtrl.replacePlainMentions(commentText.trim());
+    const mediaUrls = [...uploadedImages, ...uploadedVideos];
+    if (mediaUrls.length > 0) {
+      const mediaText = mediaUrls.join('\n');
+      commentContent = commentContent ? `${commentContent}\n\n${mediaText}` : mediaText;
+    }
     ev.content = commentContent;
 
     // Use shared utility to build NIP-22 or NIP-10 tags
@@ -154,9 +218,12 @@
         events = events; // Trigger reactivity
       }
 
-      // Clear the comment text
+      // Clear the comment text and media
       commentText = '';
       lastRenderedComment = '';
+      uploadedImages = [];
+      uploadedVideos = [];
+      uploadError = '';
       if (commentComposerEl) {
         commentComposerEl.innerHTML = '';
       }
@@ -216,21 +283,82 @@
           on:select={(e) => mentionCtrl.insertMention(e.detail)}
         />
       </div>
-      <Button
-        on:click={(e) => {
-          e.preventDefault?.();
-          postComment();
-        }}
-        disabled={!commentText.trim()}
-      >
-        Post Comment
-      </Button>
+      {#if uploadError}
+        <p class="text-red-500 text-xs">{uploadError}</p>
+      {/if}
+
+      {#if uploadedImages.length > 0}
+        <div class="flex flex-wrap gap-2">
+          {#each uploadedImages as imageUrl, index}
+            <div class="relative group">
+              <img src={imageUrl} alt="Upload preview" class="w-20 h-20 object-cover rounded-lg" style="border: 1px solid var(--color-input-border)" />
+              <button type="button" on:click={() => removeImage(index)} class="absolute -top-2 -right-2 bg-red-500 hover:bg-red-600 text-white rounded-full p-1 shadow-lg" aria-label="Remove image">
+                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            </div>
+          {/each}
+        </div>
+      {/if}
+
+      {#if uploadedVideos.length > 0}
+        <div class="flex flex-wrap gap-2">
+          {#each uploadedVideos as videoUrl, index}
+            <div class="relative group">
+              <video src={videoUrl} class="w-32 h-20 object-cover rounded-lg" style="border: 1px solid var(--color-input-border)" preload="metadata" muted />
+              <button type="button" on:click={() => removeVideo(index)} class="absolute -top-2 -right-2 bg-red-500 hover:bg-red-600 text-white rounded-full p-1 shadow-lg" aria-label="Remove video">
+                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            </div>
+          {/each}
+        </div>
+      {/if}
+
+      <div class="flex items-center gap-2">
+        <label class="btn-media" class:opacity-50={uploadingImage || uploadingVideo} title="Upload image">
+          <ImageIcon size={18} />
+          <input bind:this={imageInputEl} type="file" accept="image/*" class="sr-only" on:change={handleImageUpload} disabled={uploadingImage || uploadingVideo} />
+        </label>
+        <label class="btn-media" class:opacity-50={uploadingImage || uploadingVideo} title="Upload video">
+          <VideoIcon size={18} />
+          <input bind:this={videoInputEl} type="file" accept="video/*" class="sr-only" on:change={handleVideoUpload} disabled={uploadingImage || uploadingVideo} />
+        </label>
+        <button
+          on:click={() => (showGifPicker = true)}
+          class="btn-gif"
+          title="Add GIF"
+          disabled={uploadingImage || uploadingVideo}
+          class:opacity-50={uploadingImage || uploadingVideo}
+        >
+          <GifIcon size={18} />
+        </button>
+        {#if uploadingImage}
+          <span class="text-xs text-caption">Uploading image...</span>
+        {:else if uploadingVideo}
+          <span class="text-xs text-caption">Uploading video...</span>
+        {/if}
+        <Button
+          on:click={(e) => {
+            e.preventDefault?.();
+            postComment();
+          }}
+          disabled={uploadingImage || uploadingVideo || (!commentText.trim() && uploadedImages.length === 0 && uploadedVideos.length === 0)}
+        >
+          Post Comment
+        </Button>
+      </div>
     {:else}
       <p class="text-sm text-caption">Sign in to comment.</p>
       <a href="/login" class="text-sm underline hover:opacity-80">Sign in</a>
     {/if}
   </div>
 </div>
+
+<GifPicker
+  bind:open={showGifPicker}
+  on:select={(e) => {
+    uploadedImages = [...uploadedImages, e.detail.url];
+  }}
+/>
 
 <style>
   .comments-list {
@@ -248,5 +376,21 @@
     content: attr(data-placeholder);
     color: var(--color-caption);
     pointer-events: none;
+  }
+
+  .btn-gif,
+  .btn-media {
+    padding: 0.375rem;
+    color: var(--color-caption);
+    border-radius: 0.375rem;
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+    transition: opacity 0.15s;
+  }
+
+  .btn-gif:hover,
+  .btn-media:hover {
+    opacity: 0.7;
   }
 </style>

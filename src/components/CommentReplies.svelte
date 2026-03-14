@@ -15,10 +15,16 @@
   import { get } from 'svelte/store';
   import MentionDropdown from './MentionDropdown.svelte';
   import { MentionComposerController, type MentionState } from '$lib/mentionComposer';
+  import GifIcon from 'phosphor-svelte/lib/Gif';
+  import ImageIcon from 'phosphor-svelte/lib/Image';
+  import VideoIcon from 'phosphor-svelte/lib/Video';
+  import GifPicker from './GifPicker.svelte';
+  import { uploadImage, uploadVideo } from '$lib/mediaUpload';
 
   export let parentComment: NDKEvent;
 
   let showReplies = false;
+  let showGifPicker = false;
   let replies: NDKEvent[] = [];
   let loading = false;
   let replyText = '';
@@ -29,6 +35,12 @@
   let replyComposerEl: HTMLDivElement;
   let lastRenderedReply = '';
   let replySubscription: any = null;
+  let uploadedImages: string[] = [];
+  let uploadedVideos: string[] = [];
+  let uploadingImage = false;
+  let uploadingVideo = false;
+  let imageInputEl: HTMLInputElement;
+  let videoInputEl: HTMLInputElement;
 
   // Mention autocomplete
   let mentionState: MentionState = {
@@ -94,9 +106,57 @@
     }
   }
 
+  async function handleImageUpload(e: Event) {
+    const target = e.target as HTMLInputElement;
+    const files = target.files;
+    if (!files || files.length === 0) return;
+    uploadingImage = true;
+    errorMessage = '';
+    try {
+      for (const file of Array.from(files)) {
+        const url = await uploadImage($ndk, file);
+        uploadedImages = [...uploadedImages, url];
+      }
+    } catch (err: any) {
+      errorMessage = err?.message || 'Failed to upload image.';
+      setTimeout(() => errorMessage = '', 5000);
+    } finally {
+      uploadingImage = false;
+      if (imageInputEl) imageInputEl.value = '';
+    }
+  }
+
+  async function handleVideoUpload(e: Event) {
+    const target = e.target as HTMLInputElement;
+    const files = target.files;
+    if (!files || files.length === 0) return;
+    uploadingVideo = true;
+    errorMessage = '';
+    try {
+      for (const file of Array.from(files)) {
+        const url = await uploadVideo($ndk, file);
+        uploadedVideos = [...uploadedVideos, url];
+      }
+    } catch (err: any) {
+      errorMessage = err?.message || 'Failed to upload video.';
+      setTimeout(() => errorMessage = '', 5000);
+    } finally {
+      uploadingVideo = false;
+      if (videoInputEl) videoInputEl.value = '';
+    }
+  }
+
+  function removeImage(index: number) {
+    uploadedImages = uploadedImages.filter((_, i) => i !== index);
+  }
+
+  function removeVideo(index: number) {
+    uploadedVideos = uploadedVideos.filter((_, i) => i !== index);
+  }
+
   // Post a new reply
   async function postReply() {
-    if (!replyText.trim() || postingReply || !$ndk.signer) return;
+    if ((!replyText.trim() && uploadedImages.length === 0 && uploadedVideos.length === 0) || postingReply || !$ndk.signer) return;
 
     postingReply = true;
     errorMessage = '';
@@ -120,7 +180,12 @@
         (ATag && ATag[1]?.startsWith('30023:'));
       replyEvent.kind = isRecipeReply ? 1111 : 1;
 
-      const replyContent = mentionCtrl.replacePlainMentions(replyText.trim());
+      let replyContent = mentionCtrl.replacePlainMentions(replyText.trim());
+      const mediaUrls = [...uploadedImages, ...uploadedVideos];
+      if (mediaUrls.length > 0) {
+        const mediaText = mediaUrls.join('\n');
+        replyContent = replyContent ? `${replyContent}\n\n${mediaText}` : mediaText;
+      }
       replyEvent.content = replyContent;
 
       // Reconstruct a minimal event object for the parent comment
@@ -195,6 +260,8 @@
       // Clear the form and show success
       replyText = '';
       lastRenderedReply = '';
+      uploadedImages = [];
+      uploadedVideos = [];
       if (replyComposerEl) {
         replyComposerEl.innerHTML = '';
       }
@@ -298,10 +365,69 @@
             on:select={(e) => mentionCtrl.insertMention(e.detail)}
           />
         </div>
-        <div class="flex justify-end">
+        {#if uploadedImages.length > 0}
+          <div class="flex flex-wrap gap-2">
+            {#each uploadedImages as imageUrl, index}
+              <div class="relative group">
+                <img src={imageUrl} alt="Upload preview" class="w-16 h-16 object-cover rounded-lg" style="border: 1px solid var(--color-input-border)" />
+                <button type="button" on:click={() => removeImage(index)} class="absolute -top-2 -right-2 bg-red-500 hover:bg-red-600 text-white rounded-full p-0.5 shadow-lg" aria-label="Remove image">
+                  <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
+              </div>
+            {/each}
+          </div>
+        {/if}
+
+        {#if uploadedVideos.length > 0}
+          <div class="flex flex-wrap gap-2">
+            {#each uploadedVideos as videoUrl, index}
+              <div class="relative group">
+                <video src={videoUrl} class="w-24 h-16 object-cover rounded-lg" style="border: 1px solid var(--color-input-border)" preload="metadata" muted />
+                <button type="button" on:click={() => removeVideo(index)} class="absolute -top-2 -right-2 bg-red-500 hover:bg-red-600 text-white rounded-full p-0.5 shadow-lg" aria-label="Remove video">
+                  <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
+              </div>
+            {/each}
+          </div>
+        {/if}
+
+        <div class="flex justify-end items-center gap-2">
+          <label
+            class="p-1.5 rounded-full hover:bg-accent-gray transition-colors cursor-pointer"
+            style="color: var(--color-caption)"
+            title="Upload image"
+            class:opacity-40={postingReply || !$ndk.signer || uploadingImage || uploadingVideo}
+          >
+            <ImageIcon size={16} />
+            <input bind:this={imageInputEl} type="file" accept="image/*" class="sr-only" on:change={handleImageUpload} disabled={postingReply || !$ndk.signer || uploadingImage || uploadingVideo} />
+          </label>
+          <label
+            class="p-1.5 rounded-full hover:bg-accent-gray transition-colors cursor-pointer"
+            style="color: var(--color-caption)"
+            title="Upload video"
+            class:opacity-40={postingReply || !$ndk.signer || uploadingImage || uploadingVideo}
+          >
+            <VideoIcon size={16} />
+            <input bind:this={videoInputEl} type="file" accept="video/*" class="sr-only" on:change={handleVideoUpload} disabled={postingReply || !$ndk.signer || uploadingImage || uploadingVideo} />
+          </label>
+          <button
+            on:click={() => (showGifPicker = true)}
+            class="p-1.5 rounded-full hover:bg-accent-gray transition-colors"
+            style="color: var(--color-caption)"
+            title="Add GIF"
+            disabled={postingReply || !$ndk.signer || uploadingImage || uploadingVideo}
+            class:opacity-40={postingReply || !$ndk.signer || uploadingImage || uploadingVideo}
+          >
+            <GifIcon size={16} />
+          </button>
+          {#if uploadingImage}
+            <span class="text-xs text-caption">Uploading image...</span>
+          {:else if uploadingVideo}
+            <span class="text-xs text-caption">Uploading video...</span>
+          {/if}
           <Button
             on:click={postReply}
-            disabled={!replyText.trim() || postingReply || !$ndk.signer}
+            disabled={(!replyText.trim() && uploadedImages.length === 0 && uploadedVideos.length === 0) || postingReply || !$ndk.signer || uploadingImage || uploadingVideo}
             class="px-4 py-2 text-sm"
           >
             {postingReply ? 'Posting...' : $ndk.signer ? 'Post Reply' : 'Log in to reply'}
@@ -347,6 +473,13 @@
     </div>
   {/if}
 </div>
+
+<GifPicker
+  bind:open={showGifPicker}
+  on:select={(e) => {
+    uploadedImages = [...uploadedImages, e.detail.url];
+  }}
+/>
 
 <style>
   /* Replies list container */
