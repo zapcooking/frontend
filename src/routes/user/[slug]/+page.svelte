@@ -19,6 +19,7 @@
   import SpeakerSlashIcon from 'phosphor-svelte/lib/SpeakerSlash';
   import SpeakerSimpleSlashIcon from 'phosphor-svelte/lib/SpeakerSimpleSlash';
   import SealCheckIcon from 'phosphor-svelte/lib/SealCheck';
+  import UsersIcon from 'phosphor-svelte/lib/Users';
   import PencilSimpleIcon from 'phosphor-svelte/lib/PencilSimple';
   import SpinnerIcon from 'phosphor-svelte/lib/SpinnerGap';
   import { mutedPubkeys } from '$lib/muteListStore';
@@ -40,6 +41,7 @@
   import { RECIPE_TAGS } from '$lib/consts';
   import ArticleFeed from '../../../components/ArticleFeed.svelte';
   import MembershipBeltBadge from '../../../components/MembershipBeltBadge.svelte';
+  import { fetchUserStatsFromPrimal, getPrimalCache, type PrimalUserStats } from '$lib/primalCache';
 
   export let data: PageData;
 
@@ -51,9 +53,9 @@
   let zapModal = false;
   let isZapping = false;
 
-  // Tab state: 'recipes' | 'posts' | 'media' | 'reads' | 'drafts'
+  // Tab state: 'recipes' | 'posts' | 'media' | 'reads' | 'following' | 'drafts'
   // Default to 'posts' tab for a more social-first experience
-  let activeTab: 'recipes' | 'posts' | 'media' | 'reads' | 'drafts' = 'posts';
+  let activeTab: 'recipes' | 'posts' | 'media' | 'reads' | 'following' | 'drafts' = 'posts';
 
   // Reads tab state (longform articles)
   let readsEvents: NDKEvent[] = [];
@@ -75,6 +77,23 @@
   let hasMoreMedia = true;
   let oldestMediaTime: number | null = null;
   let mediaSentinel: HTMLElement;
+
+  // Profile stats from Primal
+  let profileStats: PrimalUserStats | null = null;
+
+  // Following tab state
+  type FollowingProfile = {
+    pubkey: string;
+    npub: string;
+    name: string;
+    picture?: string;
+    nip05?: string;
+    about?: string;
+  };
+  let followingProfiles: FollowingProfile[] = [];
+  let followingLoaded = false;
+  let followingLoading = false;
+  let followingCount: number | null = null;
 
   // Infinite scroll state for recipes
   let hasMoreRecipes = true;
@@ -120,7 +139,7 @@
   // Handle ?tab= query parameter for direct tab navigation
   $: {
     const tabParam = $page.url.searchParams.get('tab');
-    const allowedTabs = new Set(['recipes', 'posts', 'media', 'reads', 'drafts']);
+    const allowedTabs = new Set(['recipes', 'posts', 'media', 'reads', 'following', 'drafts']);
 
     if (tabParam && allowedTabs.has(tabParam)) {
       // Only allow "drafts" tab for the profile owner
@@ -172,6 +191,13 @@
       }
       // Reset bio expanded state
       bioExpanded = false;
+      // Reset profile stats
+      profileStats = null;
+      // Reset following tab state
+      followingProfiles = [];
+      followingLoaded = false;
+      followingLoading = false;
+      followingCount = null;
       // Reset mute state
       isMuted = false;
       mutedUsers = [];
@@ -258,6 +284,13 @@
           checkFollowStatus();
           checkMuteStatus();
         }
+
+        // Fetch profile stats (follower/following counts) from Primal
+        fetchUserStatsFromPrimal(hexpubkey).then((stats) => {
+          if (stats) {
+            profileStats = stats;
+          }
+        });
       }
     } catch (error) {
       console.error('Error in loadData:', error);
@@ -1013,9 +1046,133 @@
     loadMedia();
   }
 
+  // Load following list when switching to following tab
+  $: if (activeTab === 'following' && hexpubkey && !followingLoaded && !followingLoading) {
+    loadFollowing();
+  }
+
+  async function loadFollowing() {
+    if (!hexpubkey || followingLoading) return;
+
+    followingLoading = true;
+
+    try {
+      // Step 1: Get the followed pubkeys — try Primal first (fast), fall back to NDK
+      let followPubkeys: string[] = [];
+
+      const primal = getPrimalCache();
+      if (primal) {
+        try {
+          followPubkeys = await primal.fetchContactList(hexpubkey, 5000);
+        } catch (e) {
+          console.debug('[Following] Primal contact list failed, trying NDK:', e);
+        }
+      }
+
+      if (followPubkeys.length === 0) {
+        // NDK fallback with a timeout
+        try {
+          const contactEvents = await Promise.race([
+            $ndk.fetchEvents({ authors: [hexpubkey], kinds: [3], limit: 1 }),
+            new Promise<Set<NDKEvent>>((_, reject) =>
+              setTimeout(() => reject(new Error('timeout')), 8000)
+            )
+          ]);
+          const contactList = Array.from(contactEvents)[0];
+          if (contactList) {
+            followPubkeys = contactList.tags
+              .filter((t) => t[0] === 'p' && t[1])
+              .map((t) => t[1]);
+          }
+        } catch (e) {
+          console.debug('[Following] NDK contact list also failed:', e);
+        }
+      }
+
+      followingCount = followPubkeys.length;
+
+      if (followPubkeys.length === 0) {
+        followingProfiles = [];
+        followingLoaded = true;
+        followingLoading = false;
+        return;
+      }
+
+      // Step 2: Fetch profile metadata via NDK with timeouts per batch
+      const profiles: FollowingProfile[] = [];
+      const resolvedPubkeys = new Set<string>();
+      const batchSize = 100;
+      for (let i = 0; i < followPubkeys.length; i += batchSize) {
+        const batch = followPubkeys.slice(i, i + batchSize);
+
+        try {
+          const profileEvents = await Promise.race([
+            $ndk.fetchEvents({ kinds: [0], authors: batch }),
+            new Promise<Set<NDKEvent>>((_, reject) =>
+              setTimeout(() => reject(new Error('timeout')), 8000)
+            )
+          ]);
+
+          for (const event of profileEvents) {
+            try {
+              const profileData = JSON.parse(event.content);
+              resolvedPubkeys.add(event.pubkey);
+              profiles.push({
+                pubkey: event.pubkey,
+                npub: nip19.npubEncode(event.pubkey),
+                name: profileData.display_name || profileData.name || nip19.npubEncode(event.pubkey).slice(0, 12) + '...',
+                picture: profileData.picture,
+                nip05: profileData.nip05,
+                about: profileData.about
+              });
+            } catch (e) {
+              resolvedPubkeys.add(event.pubkey);
+              profiles.push({
+                pubkey: event.pubkey,
+                npub: nip19.npubEncode(event.pubkey),
+                name: nip19.npubEncode(event.pubkey).slice(0, 12) + '...'
+              });
+            }
+          }
+        } catch (e) {
+          console.debug('[Following] Profile batch timed out, continuing with what we have');
+        }
+      }
+
+      // Add placeholder entries for pubkeys we couldn't resolve
+      for (const pk of followPubkeys) {
+        if (!resolvedPubkeys.has(pk)) {
+          profiles.push({
+            pubkey: pk,
+            npub: nip19.npubEncode(pk),
+            name: nip19.npubEncode(pk).slice(0, 12) + '...'
+          });
+        }
+      }
+
+      // Sort: resolved names first, then truncated npubs at the end
+      profiles.sort((a, b) => {
+        const aIsNpub = a.name.startsWith('npub1');
+        const bIsNpub = b.name.startsWith('npub1');
+        if (aIsNpub && !bIsNpub) return 1;
+        if (!aIsNpub && bIsNpub) return -1;
+        return a.name.toLowerCase().localeCompare(b.name.toLowerCase());
+      });
+
+      followingProfiles = profiles;
+      followingLoaded = true;
+    } catch (error) {
+      console.error('Error loading following list:', error);
+      followingLoaded = true;
+    } finally {
+      followingLoading = false;
+    }
+  }
+
   let qrModal = false;
   let npubCopied = false;
   let lightningCopied = false;
+  let npubToast = false;
 
   function qrModalCleanup() {
     qrModal = false;
@@ -1043,8 +1200,12 @@
     if (user?.npub) {
       await navigator.clipboard.writeText(user.npub);
       npubCopied = true;
+      npubToast = true;
       setTimeout(() => {
         npubCopied = false;
+      }, 2000);
+      setTimeout(() => {
+        npubToast = false;
       }, 2000);
     }
   }
@@ -1605,7 +1766,7 @@
               <MembershipBeltBadge pubkey={hexpubkey || ''} size={20} />
             </h1>
           </button>
-          {#if user?.npub}
+          {#if user?.npub && hexpubkey === $userPublickey}
             <button
               on:click={copyNpub}
               class="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs transition-colors cursor-pointer flex-shrink-0 bg-input hover:bg-accent-gray"
@@ -1730,6 +1891,27 @@
     </div>
   </div>
 
+  <!-- Profile Stats -->
+  {#if profileStats}
+    <div class="flex items-center gap-5 pb-3">
+      <button
+        on:click={() => (activeTab = 'following')}
+        class="flex items-center gap-1.5 text-sm transition-colors hover:opacity-70"
+        style="color: var(--color-text-secondary)"
+      >
+        <span class="font-semibold" style="color: var(--color-text-primary)">{profileStats.follows_count.toLocaleString()}</span>
+        <span>Following</span>
+      </button>
+      <div
+        class="flex items-center gap-1.5 text-sm"
+        style="color: var(--color-text-secondary)"
+      >
+        <span class="font-semibold" style="color: var(--color-text-primary)">{profileStats.followers_count.toLocaleString()}</span>
+        <span>Followers</span>
+      </div>
+    </div>
+  {/if}
+
   <!-- Tabs -->
   <div class="border-b mb-4 overflow-x-auto scrollbar-hide" style="border-color: var(--color-input-border)">
     <div class="flex gap-1 min-w-max">
@@ -1777,14 +1959,27 @@
       </button>
       <button
         on:click={() => (activeTab = 'reads')}
-        class="px-4 py-2 text-sm font-medium transition-colors relative flex items-center gap-1"
+        class="px-4 py-2 text-sm font-medium transition-colors relative"
         style="color: {activeTab === 'reads'
           ? 'var(--color-text-primary)'
           : 'var(--color-text-secondary)'}"
       >
-        <BookOpenIcon size={16} />
         Reads
         {#if activeTab === 'reads'}
+          <span
+            class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-orange-500 to-amber-500"
+          ></span>
+        {/if}
+      </button>
+      <button
+        on:click={() => (activeTab = 'following')}
+        class="px-4 py-2 text-sm font-medium transition-colors relative"
+        style="color: {activeTab === 'following'
+          ? 'var(--color-text-primary)'
+          : 'var(--color-text-secondary)'}"
+      >
+        Following
+        {#if activeTab === 'following'}
           <span
             class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-orange-500 to-amber-500"
           ></span>
@@ -1980,6 +2175,44 @@
         </div>
       </div>
     {/if}
+  {:else if activeTab === 'following'}
+    {#if followingLoading && !followingLoaded}
+      <!-- Loading skeleton -->
+      <div class="flex flex-col gap-3">
+        {#each Array(6) as _}
+          <div class="flex items-center gap-3 p-3 rounded-xl animate-pulse" style="background: var(--color-bg-secondary)">
+            <div class="w-10 h-10 rounded-full" style="background: var(--color-accent-gray, #e5e7eb)"></div>
+            <div class="flex-1">
+              <div class="h-4 w-32 rounded" style="background: var(--color-accent-gray, #e5e7eb)"></div>
+              <div class="h-3 w-48 rounded mt-1.5" style="background: var(--color-accent-gray, #e5e7eb)"></div>
+            </div>
+          </div>
+        {/each}
+      </div>
+    {:else if followingProfiles.length === 0}
+      <div class="py-12 text-center">
+        <UsersIcon size={48} class="mx-auto mb-4 opacity-30" />
+        <p class="text-lg font-medium" style="color: var(--color-text-secondary)">Not following anyone yet</p>
+      </div>
+    {:else}
+      <div class="flex flex-col gap-1">
+        {#each followingProfiles as fp (fp.pubkey)}
+          <a
+            href="/user/{fp.npub}"
+            class="flex items-center gap-3 p-3 rounded-xl transition-colors hover:opacity-80"
+            style="background: var(--color-bg-secondary); border: 1px solid transparent;"
+          >
+            <Avatar pubkey={fp.pubkey} src={fp.picture || null} size={40} />
+            <div class="flex-1 min-w-0">
+              <div class="font-medium truncate" style="color: var(--color-text-primary)">{fp.name}</div>
+              {#if fp.nip05}
+                <div class="text-xs truncate" style="color: var(--color-text-secondary)">{fp.nip05}</div>
+              {/if}
+            </div>
+          </a>
+        {/each}
+      </div>
+    {/if}
   {:else if activeTab === 'drafts'}
     {#if $userPublickey === hexpubkey}
       <ProfileDrafts />
@@ -1995,6 +2228,14 @@
     {/if}
   {/if}
 </div>
+
+<!-- Toast for npub copied -->
+{#if npubToast}
+  <div class="npub-toast" role="status" aria-live="polite">
+    <CheckIcon size={16} weight="bold" class="text-green-500" />
+    <span>npub copied</span>
+  </div>
+{/if}
 
 <style>
   /* Ensure line-clamp works for bio text */
@@ -2125,5 +2366,44 @@
   }
   .scrollbar-hide::-webkit-scrollbar {
     display: none;
+  }
+
+  /* Toast notification */
+  .npub-toast {
+    position: fixed;
+    bottom: calc(80px + env(safe-area-inset-bottom, 0px));
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 10px 18px;
+    border-radius: 12px;
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--color-text-primary);
+    background: var(--color-bg-secondary);
+    border: 1px solid var(--color-input-border);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+    z-index: 100;
+    animation: toast-in 0.25s ease-out;
+    pointer-events: none;
+  }
+
+  @keyframes toast-in {
+    from {
+      opacity: 0;
+      transform: translateX(-50%) translateY(8px);
+    }
+    to {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
+  }
+
+  @media (min-width: 768px) {
+    .npub-toast {
+      bottom: 2rem;
+    }
   }
 </style>

@@ -42,14 +42,25 @@ interface PrimalFeedResponse {
   profiles: PrimalProfile[];
 }
 
+export interface PrimalUserStats {
+  followers_count: number;
+  follows_count: number;
+  note_count: number;
+  reply_count: number;
+  total_zap_count: number;
+  total_satszapped: number;
+  time_joined: number;
+}
+
 interface PendingRequest {
-  resolve: (value: PrimalSearchResult | PrimalFeedResponse | string[]) => void;
+  resolve: (value: PrimalSearchResult | PrimalFeedResponse | string[] | PrimalUserStats | null) => void;
   reject: (error: Error) => void;
   timeout: ReturnType<typeof setTimeout>;
   profiles: PrimalProfile[];
   events: PrimalEvent[];
   follows: string[];
-  type: 'search' | 'feed' | 'contacts' | 'global' | 'articles';
+  userStats: PrimalUserStats | null;
+  type: 'search' | 'feed' | 'contacts' | 'global' | 'articles' | 'user_stats';
 }
 
 export interface PrimalArticleOptions {
@@ -186,6 +197,22 @@ export class PrimalCacheService {
           .filter((tag: string[]) => tag[0] === 'p' && tag[1])
           .map((tag: string[]) => tag[1]);
         pending.follows.push(...follows);
+      } else if (event.kind === 10000105) {
+        // User stats (Primal-specific kind)
+        try {
+          const stats = JSON.parse(event.content);
+          pending.userStats = {
+            followers_count: stats.followers_count ?? 0,
+            follows_count: stats.follows_count ?? 0,
+            note_count: stats.note_count ?? 0,
+            reply_count: stats.reply_count ?? 0,
+            total_zap_count: stats.total_zap_count ?? 0,
+            total_satszapped: stats.total_satszapped ?? 0,
+            time_joined: stats.time_joined ?? 0
+          };
+        } catch (error) {
+          console.error('[PrimalCache] Error parsing user stats:', error);
+        }
       }
     } else if (messageType === 'EOSE' && requestId) {
       const pending = this.pendingRequests.get(requestId as string);
@@ -201,6 +228,8 @@ export class PrimalCacheService {
           });
         } else if (pending.type === 'contacts') {
           (pending.resolve as (value: string[]) => void)(pending.follows);
+        } else if (pending.type === 'user_stats') {
+          (pending.resolve as (value: PrimalUserStats | null) => void)(pending.userStats);
         }
         
         this.pendingRequests.delete(requestId as string);
@@ -249,6 +278,7 @@ export class PrimalCacheService {
         profiles: [],
         events: [],
         follows: [],
+        userStats: null,
         type: 'search'
       });
 
@@ -300,6 +330,7 @@ export class PrimalCacheService {
         profiles: [],
         events: [],
         follows: [],
+        userStats: null,
         type: 'contacts'
       });
 
@@ -370,6 +401,7 @@ export class PrimalCacheService {
         profiles: [],
         events: [],
         follows: [],
+        userStats: null,
         type: 'feed'
       });
 
@@ -433,6 +465,7 @@ export class PrimalCacheService {
         profiles: [],
         events: [],
         follows: [],
+        userStats: null,
         type: 'global'
       });
 
@@ -502,6 +535,7 @@ export class PrimalCacheService {
         profiles: [],
         events: [],
         follows: [],
+        userStats: null,
         type: 'articles'
       });
 
@@ -562,6 +596,7 @@ export class PrimalCacheService {
         profiles: [],
         events: [],
         follows: [],
+        userStats: null,
         type: 'articles'
       });
 
@@ -606,7 +641,59 @@ export class PrimalCacheService {
         profiles: [],
         events: [],
         follows: [],
+        userStats: null,
         type: 'search'
+      });
+
+      try {
+        this.ws!.send(JSON.stringify(request));
+      } catch (error) {
+        clearTimeout(timeout);
+        this.pendingRequests.delete(requestId);
+        reject(error as Error);
+      }
+    });
+  }
+
+  /**
+   * Fetch user profile stats (follower count, following count, etc.) from Primal cache
+   * Uses the user_profile cache endpoint which returns kind 10000105 events
+   */
+  public async fetchUserStats(pubkey: string, timeoutMs: number = 5000): Promise<PrimalUserStats | null> {
+    if (!pubkey) return null;
+
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      await this.connect();
+    }
+
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      throw new Error('WebSocket not connected');
+    }
+
+    const requestId = this.generateRequestId();
+    const request = [
+      'REQ',
+      requestId,
+      {
+        cache: ['user_profile', { pubkey }]
+      }
+    ];
+
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        this.pendingRequests.delete(requestId);
+        reject(new Error('User stats request timed out'));
+      }, timeoutMs);
+
+      this.pendingRequests.set(requestId, {
+        resolve: resolve as (value: PrimalSearchResult | PrimalFeedResponse | string[] | PrimalUserStats | null) => void,
+        reject,
+        timeout,
+        profiles: [],
+        events: [],
+        follows: [],
+        userStats: null,
+        type: 'user_stats'
       });
 
       try {
@@ -640,6 +727,22 @@ export const getPrimalCache = (): PrimalCacheService | null => {
   }
   return primalCache;
 };
+
+/**
+ * Fetch user profile stats (followers, following, etc.) from Primal cache
+ * Convenience wrapper that handles connection and errors
+ */
+export async function fetchUserStatsFromPrimal(pubkey: string): Promise<PrimalUserStats | null> {
+  const cache = getPrimalCache();
+  if (!cache) return null;
+
+  try {
+    return await cache.fetchUserStats(pubkey);
+  } catch (error) {
+    console.debug('[PrimalCache] Failed to fetch user stats:', error);
+    return null;
+  }
+}
 
 // ═══════════════════════════════════════════════════════════════
 // CONVENIENCE FUNCTIONS FOR FEED INTEGRATION
