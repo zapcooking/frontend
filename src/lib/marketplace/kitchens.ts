@@ -759,7 +759,7 @@ export async function fetchAllKitchenDisplays(
 	const allSellerPubkeys = qualifiedDisplays.map((d) => d.pubkey);
 	try {
 		const membershipStatuses = await getMembership(allSellerPubkeys);
-		const validTiers: MembershipTier[] = ['cook_plus', 'pro_kitchen', 'founders'];
+		const validTiers: MembershipTier[] = ['member', 'cook_plus', 'pro_kitchen', 'founders'];
 		for (const d of qualifiedDisplays) {
 			const status = membershipStatuses[d.pubkey];
 			if (status?.active && validTiers.includes(status.tier as MembershipTier)) {
