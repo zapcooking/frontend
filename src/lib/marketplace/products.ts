@@ -268,12 +268,20 @@ export async function fetchProducts(
 
 		const products: Product[] = [];
 
+		// Deduplicate by d-tag + pubkey (parameterized replaceable events).
+		// Keep the newest event when the same product appears from multiple relays.
+		const seen = new Map<string, Product>();
 		for (const event of events) {
 			const product = parseProductEvent(event);
 			if (product && product.status === 'active' && product.priceSats > 0 && product.images.length > 0) {
-				products.push(product);
+				const key = `${product.pubkey}:${product.id}`;
+				const existing = seen.get(key);
+				if (!existing || product.createdAt > existing.createdAt) {
+					seen.set(key, product);
+				}
 			}
 		}
+		products.push(...seen.values());
 
 		// Filter out stale listings older than MARKETPLACE_LISTING_MAX_AGE_DAYS
 		const { fresh, staleCount } = filterStaleListings(products);

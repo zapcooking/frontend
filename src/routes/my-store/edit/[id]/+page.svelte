@@ -3,7 +3,7 @@
 	import { goto } from '$app/navigation';
 	import { page } from '$app/stores';
 	import { ndk, userPublickey } from '$lib/nostr';
-	import { fetchSellerProducts, publishProduct } from '$lib/marketplace/products';
+	import { fetchSellerProducts, publishProduct, deleteProduct } from '$lib/marketplace/products';
 	import type { Product, ProductFormData } from '$lib/marketplace/types';
 	import ProductForm from '../../../../components/marketplace/ProductForm.svelte';
 	import PanLoader from '../../../../components/PanLoader.svelte';
@@ -68,6 +68,14 @@
 			const result = await publishProduct($ndk, formData, productId);
 
 			if (result.success) {
+				// Delete old event via NIP-09 so relays don't serve both
+				if (product) {
+					try {
+						await deleteProduct($ndk, product);
+					} catch {
+						// Best-effort; the new event replaces it via d-tag anyway
+					}
+				}
 				goto('/my-store');
 			} else {
 				error = result.error || 'Failed to update product';
