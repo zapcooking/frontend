@@ -10,6 +10,7 @@
 	import type { Product } from '$lib/marketplace/types';
 	import { getImageOrPlaceholder } from '$lib/placeholderImages';
 	import ArrowClockwiseIcon from 'phosphor-svelte/lib/ArrowClockwise';
+	import PencilSimpleIcon from 'phosphor-svelte/lib/PencilSimple';
 	import CustomAvatar from '../CustomAvatar.svelte';
 	import CustomName from '../CustomName.svelte';
 	import ProductDetailModal from './ProductDetailModal.svelte';
@@ -18,6 +19,7 @@
 	export let event: NDKEvent;
 	export let showDelete = false;
 	export let showRelist = false;
+	export let showEdit = false;
 	export let trustRank: number | undefined = undefined;
 	export let personalized: boolean = false;
 
@@ -71,6 +73,13 @@
 			dispatch('relist', { product });
 		}
 	}
+
+	function handleEdit(e: Event) {
+		e.stopPropagation();
+		if (product) {
+			window.location.href = `/my-store/edit/${product.id}`;
+		}
+	}
 </script>
 
 {#if !hidden}
@@ -85,8 +94,18 @@
 			on:error={handleImageError}
 		/>
 		<!-- Owner action buttons -->
-		{#if showDelete || showRelist}
+		{#if showDelete || showRelist || showEdit}
 			<div class="absolute top-2 left-2 flex gap-1.5">
+				{#if showEdit}
+					<button
+						type="button"
+						on:click={handleEdit}
+						class="p-2 rounded-full edit-button transition-all"
+						title="Edit product"
+					>
+						<PencilSimpleIcon size={16} weight="bold" />
+					</button>
+				{/if}
 				{#if showRelist}
 					<button
 						type="button"
@@ -203,6 +222,17 @@
 
 	.product-card:hover .image {
 		transform: scale(1.05);
+	}
+
+	.edit-button {
+		background-color: rgba(59, 130, 246, 0.9);
+		backdrop-filter: blur(4px);
+		color: white;
+	}
+
+	.edit-button:hover {
+		background-color: rgba(37, 99, 235, 1);
+		transform: scale(1.1);
 	}
 
 	.relist-button {

@@ -322,7 +322,7 @@
 			</div>
 			<div class="products-grid">
 				{#each products as event (event.id)}
-					<ProductCard {event} showDelete={true} showRelist={true} on:delete={handleDeleteRequest} on:relist={handleRelistRequest} />
+					<ProductCard {event} showDelete={true} showRelist={true} showEdit={true} on:delete={handleDeleteRequest} on:relist={handleRelistRequest} />
 				{/each}
 			</div>
 		{/if}
