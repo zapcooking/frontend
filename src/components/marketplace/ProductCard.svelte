@@ -9,6 +9,7 @@
 	import { parseProductEvent } from '$lib/marketplace/products';
 	import type { Product } from '$lib/marketplace/types';
 	import { getImageOrPlaceholder } from '$lib/placeholderImages';
+	import ArrowClockwiseIcon from 'phosphor-svelte/lib/ArrowClockwise';
 	import CustomAvatar from '../CustomAvatar.svelte';
 	import CustomName from '../CustomName.svelte';
 	import ProductDetailModal from './ProductDetailModal.svelte';
@@ -16,10 +17,11 @@
 
 	export let event: NDKEvent;
 	export let showDelete = false;
+	export let showRelist = false;
 	export let trustRank: number | undefined = undefined;
 	export let personalized: boolean = false;
 
-	const dispatch = createEventDispatcher<{ delete: { product: Product }; hide: void }>();
+	const dispatch = createEventDispatcher<{ delete: { product: Product }; relist: { product: Product }; hide: void }>();
 
 	let imageElement: HTMLImageElement | null = null;
 	let showDetailModal = false;
@@ -62,6 +64,13 @@
 			dispatch('delete', { product });
 		}
 	}
+
+	function handleRelist(e: Event) {
+		e.stopPropagation();
+		if (product) {
+			dispatch('relist', { product });
+		}
+	}
 </script>
 
 {#if !hidden}
@@ -75,16 +84,30 @@
 			class="absolute inset-0 image object-cover"
 			on:error={handleImageError}
 		/>
-		<!-- Delete button (only shown for owner) -->
-		{#if showDelete}
-			<button
-				type="button"
-				on:click={handleDelete}
-				class="absolute top-2 left-2 p-2 rounded-full delete-button transition-all"
-				title="Delete product"
-			>
-				<TrashIcon size={16} weight="bold" />
-			</button>
+		<!-- Owner action buttons -->
+		{#if showDelete || showRelist}
+			<div class="absolute top-2 left-2 flex gap-1.5">
+				{#if showRelist}
+					<button
+						type="button"
+						on:click={handleRelist}
+						class="p-2 rounded-full relist-button transition-all"
+						title="Relist product"
+					>
+						<ArrowClockwiseIcon size={16} weight="bold" />
+					</button>
+				{/if}
+				{#if showDelete}
+					<button
+						type="button"
+						on:click={handleDelete}
+						class="p-2 rounded-full delete-button transition-all"
+						title="Delete product"
+					>
+						<TrashIcon size={16} weight="bold" />
+					</button>
+				{/if}
+			</div>
 		{/if}
 	</div>
 
@@ -180,6 +203,17 @@
 
 	.product-card:hover .image {
 		transform: scale(1.05);
+	}
+
+	.relist-button {
+		background-color: rgba(249, 115, 22, 0.9);
+		backdrop-filter: blur(4px);
+		color: white;
+	}
+
+	.relist-button:hover {
+		background-color: rgba(234, 88, 12, 1);
+		transform: scale(1.1);
 	}
 
 	.delete-button {
