@@ -76,7 +76,7 @@
 			allProducts = result.products;
 			staleListingsHidden = result.staleCount;
 
-			const sellerPubkeys = [...new Set(fetchedProducts.map((p) => p.pubkey))];
+			const sellerPubkeys = [...new Set(result.products.map((p) => p.pubkey))];
 
 			// Fetch trust ranks and membership in parallel (both background, non-blocking)
 			fetchTrustRanks($ndk, sellerPubkeys, $userPublickey || undefined).then(({ ranks, personalized }) => {
