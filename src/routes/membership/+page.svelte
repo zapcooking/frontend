@@ -214,17 +214,31 @@
 <div class="membership-page">
   {#if $userPublickey && isActiveMemberApi}
     <section class="member-dashboard">
+      <h3 class="member-dashboard-title">Your Membership</h3>
       <div class="member-dashboard-header">
         <div class="member-dashboard-identity">
           <CustomAvatar pubkey={$userPublickey} size={48} interactive={false} />
-          <CustomName pubkey={$userPublickey} className="member-dashboard-display-name" />
+          <div class="member-dashboard-identity-text">
+            <CustomName pubkey={$userPublickey} className="member-dashboard-display-name" />
+            <span class="member-dashboard-tier">
+              {#if apiMembershipStatus?.tier === 'founders'}
+                Founders Club
+              {:else if apiMembershipStatus?.tier === 'pro_kitchen'}
+                Pro Kitchen
+              {:else if apiMembershipStatus?.tier === 'cook_plus'}
+                Cook+
+              {:else}
+                Member
+              {/if}
+            </span>
+          </div>
         </div>
         <span class="member-dashboard-active-badge">Active</span>
       </div>
       <div class="member-dashboard-stats">
         <div class="member-dashboard-stat">
-          <span class="member-dashboard-stat-value">{formatExpiresAt(apiMembershipStatus?.expiresAt)}</span>
           <span class="member-dashboard-stat-label">Expires</span>
+          <span class="member-dashboard-stat-value">{formatExpiresAt(apiMembershipStatus?.expiresAt)}</span>
         </div>
       </div>
       <div class="member-dashboard-actions">
@@ -692,6 +706,15 @@
     margin-bottom: 2rem;
   }
 
+  .member-dashboard-title {
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--color-text-secondary);
+    margin-bottom: 1rem;
+  }
+
   .member-dashboard-header {
     display: flex;
     align-items: center;
@@ -703,6 +726,18 @@
     display: flex;
     align-items: center;
     gap: 0.75rem;
+  }
+
+  .member-dashboard-identity-text {
+    display: flex;
+    flex-direction: column;
+    gap: 0.125rem;
+  }
+
+  .member-dashboard-tier {
+    font-size: 0.8rem;
+    color: var(--color-primary, #f97316);
+    font-weight: 500;
   }
 
   .member-dashboard :global(.member-dashboard-display-name) {
