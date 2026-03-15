@@ -42,9 +42,9 @@
 				</div>
 
 				<div>
-					<p class="font-semibold" style="color: var(--color-text-primary)">Only food and cooking-related goods are allowed.</p>
+					<p class="font-semibold" style="color: var(--color-text-primary)">All legal goods and services are welcome on the Market.</p>
 					<p class="text-sm" style="color: var(--color-text-secondary)">
-						The Market is limited to food products, cooking equipment, kitchenware, cookbooks, ingredients, and related items. Prohibited items include alcohol, tobacco, cannabis, CBD products, weapons, pharmaceuticals, and supplements with unapproved health claims. See our <a href="/terms" class="text-primary hover:underline">Terms of Service</a> for the full list.
+						Whether you're selling food products, handmade crafts, digital goods, equipment, or anything in between — if it's legal, you can list it. Prohibited items include alcohol, tobacco, cannabis, CBD products, weapons, firearms, pharmaceuticals, supplements with unapproved health claims, and any items that violate applicable laws. See our <a href="/terms" class="text-primary hover:underline">Terms of Service</a> for the full list.
 					</p>
 				</div>
 
