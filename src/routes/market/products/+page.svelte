@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { ndk, userPublickey } from '$lib/nostr';
-	import { fetchProducts } from '$lib/marketplace/products';
+	import { fetchProductsWithStaleCount } from '$lib/marketplace/products';
 	import { fetchTrustRanks } from '$lib/marketplace/kitchens';
 	import { getMembership } from '$lib/stores/membershipStatus';
 	import type { Product } from '$lib/marketplace/types';
@@ -14,6 +14,7 @@
 	import PackageIcon from 'phosphor-svelte/lib/Package';
 
 	let allProducts: Product[] = [];
+	let staleListingsHidden = 0;
 	let trustRanks = new Map<string, number>();
 	let trustPersonalized = false;
 	let memberPubkeys = new Set<string>();
@@ -71,8 +72,9 @@
 		error = null;
 
 		try {
-			const fetchedProducts = await fetchProducts($ndk, { limit: 100, timeoutMs: 15000 });
-			allProducts = fetchedProducts;
+			const result = await fetchProductsWithStaleCount($ndk, { limit: 100, timeoutMs: 15000 });
+			allProducts = result.products;
+			staleListingsHidden = result.staleCount;
 
 			const sellerPubkeys = [...new Set(fetchedProducts.map((p) => p.pubkey))];
 
@@ -223,16 +225,25 @@
 			<div class="empty-icon-wrap mx-auto mb-6">
 				<PackageIcon size={72} weight="thin" class="opacity-60" />
 			</div>
-			<h3 class="text-2xl font-semibold mb-2" style="color: var(--color-text-primary)">
-				No products found
-			</h3>
-			<p class="text-base mb-8 max-w-md mx-auto" style="color: var(--color-text-secondary)">
-				{#if searchQuery}
-					No products match your search. Try a different term.
-				{:else}
-					Be the first to list! Sell ingredients, tools, courses, and more.
-				{/if}
-			</p>
+			{#if staleListingsHidden > 0 && !searchQuery && !membersOnly}
+				<h3 class="text-2xl font-semibold mb-2" style="color: var(--color-text-primary)">
+					No recent products
+				</h3>
+				<p class="text-base mb-8 max-w-md mx-auto" style="color: var(--color-text-secondary)">
+					Some older listings have been hidden. Check back for fresh listings!
+				</p>
+			{:else}
+				<h3 class="text-2xl font-semibold mb-2" style="color: var(--color-text-primary)">
+					No products found
+				</h3>
+				<p class="text-base mb-8 max-w-md mx-auto" style="color: var(--color-text-secondary)">
+					{#if searchQuery}
+						No products match your search. Try a different term.
+					{:else}
+						Be the first to list! Sell ingredients, tools, courses, and more.
+					{/if}
+				</p>
+			{/if}
 			{#if $userPublickey}
 				<a
 					href="/my-store/new"
@@ -245,9 +256,16 @@
 			{/if}
 		</div>
 	{:else}
-		<p class="text-sm mb-4" style="color: var(--color-text-secondary)">
-			{filteredProducts.length} product{filteredProducts.length === 1 ? '' : 's'}
-		</p>
+		<div class="flex items-center gap-3 mb-4">
+			<p class="text-sm" style="color: var(--color-text-secondary)">
+				{filteredProducts.length} product{filteredProducts.length === 1 ? '' : 's'}
+			</p>
+			{#if staleListingsHidden > 0}
+				<p class="text-xs" style="color: var(--color-text-secondary); opacity: 0.7;">
+					Some older listings have been hidden
+				</p>
+			{/if}
+		</div>
 
 		<div class="products-grid">
 			{#each filteredProducts as event (event.id)}

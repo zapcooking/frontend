@@ -9,6 +9,7 @@ import {
 	PRODUCT_KIND,
 	PRODUCT_KIND_LEGACY,
 	PRODUCT_CATEGORIES,
+	MARKETPLACE_LISTING_MAX_AGE_DAYS,
 	type Product,
 	type ProductCategory,
 	type ProductFormData,
@@ -35,6 +36,47 @@ function getProductCacheKey(options: { category?: ProductCategory; author?: stri
 export function invalidateProductCache(): void {
 	productCache.clear();
 }
+
+/** Compute the Unix-second cutoff for stale listings */
+function getListingAgeCutoff(): number {
+	return Math.floor(Date.now() / 1000) - 60 * 60 * 24 * MARKETPLACE_LISTING_MAX_AGE_DAYS;
+}
+
+/**
+ * Filter out listings whose created_at is older than MARKETPLACE_LISTING_MAX_AGE_DAYS.
+ * Returns the filtered list and the count of removed stale items.
+ */
+export function filterStaleListings(products: Product[]): { fresh: Product[]; staleCount: number } {
+	const cutoff = getListingAgeCutoff();
+	const fresh: Product[] = [];
+	let staleCount = 0;
+	for (const p of products) {
+		if (p.createdAt < cutoff) {
+			staleCount++;
+		} else {
+			fresh.push(p);
+		}
+	}
+	return { fresh, staleCount };
+}
+
+/**
+ * Fetch products and return both the filtered results and how many stale
+ * listings were hidden. Wraps fetchProducts() with age-filter metadata.
+ */
+export async function fetchProductsWithStaleCount(
+	ndk: NDK,
+	options: Parameters<typeof fetchProducts>[1] = {}
+): Promise<{ products: Product[]; staleCount: number }> {
+	const products = await fetchProducts(ndk, options);
+	// fetchProducts already filters stale listings, so products are all fresh.
+	// To get the stale count we re-run the cutoff against the cache (pre-filter)
+	// or return 0 if we can't tell. We store the last stale count from fetchProducts.
+	return { products, staleCount: _lastStaleCount };
+}
+
+// Tracks the stale count from the most recent fetchProducts call
+let _lastStaleCount = 0;
 
 /**
  * Parse an NDKEvent into a Product object
@@ -234,13 +276,17 @@ export async function fetchProducts(
 			}
 		}
 
+		// Filter out stale listings older than MARKETPLACE_LISTING_MAX_AGE_DAYS
+		const { fresh, staleCount } = filterStaleListings(products);
+		_lastStaleCount = staleCount;
+
 		// Sort by published date, newest first
-		products.sort((a, b) => b.publishedAt - a.publishedAt);
+		fresh.sort((a, b) => b.publishedAt - a.publishedAt);
 
 		// Cache the result
-		productCache.set(cacheKey, { data: products, timestamp: Date.now() });
+		productCache.set(cacheKey, { data: fresh, timestamp: Date.now() });
 
-		return products;
+		return fresh;
 	} catch (error) {
 		console.error('[Marketplace] Failed to fetch products:', error);
 		return [];
