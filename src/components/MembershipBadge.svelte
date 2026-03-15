@@ -12,7 +12,14 @@
   const tierConfig = {
     open: {
       icon: ChefHatIcon,
-      name: 'Open Table',
+      name: 'Member',
+      color: 'text-emerald-600',
+      bgColor: 'bg-emerald-100 dark:bg-emerald-900/30',
+      borderColor: 'border-emerald-300 dark:border-emerald-700'
+    },
+    member: {
+      icon: ChefHatIcon,
+      name: 'Member',
       color: 'text-emerald-600',
       bgColor: 'bg-emerald-100 dark:bg-emerald-900/30',
       borderColor: 'border-emerald-300 dark:border-emerald-700'
@@ -49,7 +56,7 @@
   }[size];
 </script>
 
-{#if tier !== 'open'}
+{#if tier && tier !== 'open'}
   <div
     class="inline-flex items-center justify-center {sizeConfig.gap} {sizeConfig.padding} rounded-full {config.bgColor} {config.borderColor} border"
     title={config.name}

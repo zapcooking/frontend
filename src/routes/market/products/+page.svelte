@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { ndk, userPublickey } from '$lib/nostr';
-	import { fetchProducts } from '$lib/marketplace/products';
+	import { fetchProductsWithStaleCount } from '$lib/marketplace/products';
 	import { fetchTrustRanks } from '$lib/marketplace/kitchens';
 	import { getMembership } from '$lib/stores/membershipStatus';
 	import type { Product } from '$lib/marketplace/types';
@@ -14,6 +14,7 @@
 	import PackageIcon from 'phosphor-svelte/lib/Package';
 
 	let allProducts: Product[] = [];
+	let staleListingsHidden = 0;
 	let trustRanks = new Map<string, number>();
 	let trustPersonalized = false;
 	let memberPubkeys = new Set<string>();
@@ -71,10 +72,11 @@
 		error = null;
 
 		try {
-			const fetchedProducts = await fetchProducts($ndk, { limit: 100, timeoutMs: 15000 });
-			allProducts = fetchedProducts;
+			const result = await fetchProductsWithStaleCount($ndk, { limit: 100, timeoutMs: 15000 });
+			allProducts = result.products;
+			staleListingsHidden = result.staleCount;
 
-			const sellerPubkeys = [...new Set(fetchedProducts.map((p) => p.pubkey))];
+			const sellerPubkeys = [...new Set(result.products.map((p) => p.pubkey))];
 
 			// Fetch trust ranks and membership in parallel (both background, non-blocking)
 			fetchTrustRanks($ndk, sellerPubkeys, $userPublickey || undefined).then(({ ranks, personalized }) => {
@@ -83,7 +85,7 @@
 			});
 
 			getMembership(sellerPubkeys).then((statuses) => {
-				const validTiers = ['cook_plus', 'pro_kitchen', 'founders'];
+				const validTiers = ['member', 'cook_plus', 'pro_kitchen', 'founders'];
 				const members = new Set<string>();
 				for (const [pubkey, status] of Object.entries(statuses)) {
 					if (status.active && validTiers.includes(status.tier)) {
@@ -136,47 +138,42 @@
 		</p>
 	</div>
 
-	<!-- Navigation Tabs -->
-	<div class="flex gap-2 mb-6">
-		<a
-			href="/market"
-			class="nav-tab"
-		>
-			<StorefrontIcon size={16} />
-			Stores
-		</a>
-		<a
-			href="/market/products"
-			class="nav-tab active"
-		>
-			<PackageIcon size={16} />
-			Products
-		</a>
+	<!-- Navigation Tabs + Sort -->
+	<div class="flex items-center justify-between mb-6">
+		<div class="flex gap-2">
+			<a href="/market" class="nav-pill">
+				<StorefrontIcon size={16} />
+				Stores
+			</a>
+			<a href="/market/products" class="nav-pill active">
+				<PackageIcon size={16} />
+				Products
+			</a>
+		</div>
+
+		<div class="relative">
+			<FunnelIcon size={16} class="absolute left-3 top-1/2 -translate-y-1/2 opacity-50" />
+			<select
+				bind:value={sortBy}
+				class="sort-select pl-9 pr-4 py-2 rounded-lg text-sm"
+			>
+				<option value="latest">Latest</option>
+				<option value="price-low">Price: Low to High</option>
+				<option value="price-high">Price: High to Low</option>
+			</select>
+		</div>
 	</div>
 
-	<!-- Sort, Search & Filter Bar -->
+	<!-- Search & Filter Bar -->
 	<div class="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center justify-between mb-6">
-		<div class="flex gap-3 items-center">
-			<div class="relative">
-				<FunnelIcon size={16} class="absolute left-3 top-1/2 -translate-y-1/2 opacity-50" />
-				<select
-					bind:value={sortBy}
-					class="sort-select pl-9 pr-4 py-2 rounded-lg text-sm"
-				>
-					<option value="latest">Latest</option>
-					<option value="price-low">Price: Low to High</option>
-					<option value="price-high">Price: High to Low</option>
-				</select>
-			</div>
-
-			<label class="members-toggle">
-				<span class="toggle-track" class:active={membersOnly}>
-					<span class="toggle-thumb"></span>
-				</span>
-				<input type="checkbox" bind:checked={membersOnly} class="sr-only" />
-				<span class="toggle-label">Members only</span>
-			</label>
-		</div>
+		<button
+			type="button"
+			class="members-pill"
+			class:active={membersOnly}
+			on:click={() => (membersOnly = !membersOnly)}
+		>
+			Members only
+		</button>
 
 		<div class="relative w-full sm:w-64">
 			<MagnifyingGlassIcon size={16} class="absolute left-3 top-1/2 -translate-y-1/2 opacity-50" />
@@ -223,16 +220,25 @@
 			<div class="empty-icon-wrap mx-auto mb-6">
 				<PackageIcon size={72} weight="thin" class="opacity-60" />
 			</div>
-			<h3 class="text-2xl font-semibold mb-2" style="color: var(--color-text-primary)">
-				No products found
-			</h3>
-			<p class="text-base mb-8 max-w-md mx-auto" style="color: var(--color-text-secondary)">
-				{#if searchQuery}
-					No products match your search. Try a different term.
-				{:else}
-					Be the first to list! Sell ingredients, tools, courses, and more.
-				{/if}
-			</p>
+			{#if staleListingsHidden > 0 && !searchQuery && !membersOnly}
+				<h3 class="text-2xl font-semibold mb-2" style="color: var(--color-text-primary)">
+					No recent products
+				</h3>
+				<p class="text-base mb-8 max-w-md mx-auto" style="color: var(--color-text-secondary)">
+					Some older listings have been hidden. Check back for fresh listings!
+				</p>
+			{:else}
+				<h3 class="text-2xl font-semibold mb-2" style="color: var(--color-text-primary)">
+					No products found
+				</h3>
+				<p class="text-base mb-8 max-w-md mx-auto" style="color: var(--color-text-secondary)">
+					{#if searchQuery}
+						No products match your search. Try a different term.
+					{:else}
+						Be the first to list! Sell ingredients, tools, courses, and more.
+					{/if}
+				</p>
+			{/if}
 			{#if $userPublickey}
 				<a
 					href="/my-store/new"
@@ -245,9 +251,16 @@
 			{/if}
 		</div>
 	{:else}
-		<p class="text-sm mb-4" style="color: var(--color-text-secondary)">
-			{filteredProducts.length} product{filteredProducts.length === 1 ? '' : 's'}
-		</p>
+		<div class="flex items-center gap-3 mb-4">
+			<p class="text-sm" style="color: var(--color-text-secondary)">
+				{filteredProducts.length} product{filteredProducts.length === 1 ? '' : 's'}
+			</p>
+			{#if staleListingsHidden > 0}
+				<p class="text-xs" style="color: var(--color-text-secondary); opacity: 0.7;">
+					Some older listings have been hidden
+				</p>
+			{/if}
+		</div>
 
 		<div class="products-grid">
 			{#each filteredProducts as event (event.id)}
@@ -260,19 +273,24 @@
 <style lang="postcss">
 	@reference "../../../app.css";
 
-	.nav-tab {
-		@apply flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all;
+	.nav-pill {
+		@apply flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all cursor-pointer;
 		background-color: var(--color-bg-secondary);
 		color: var(--color-text-secondary);
+		border: 1.5px solid transparent;
+		text-decoration: none;
 	}
 
-	.nav-tab:hover {
+	.nav-pill:hover {
 		color: var(--color-text-primary);
+		border-color: var(--color-accent, #f97316);
 	}
 
-	.nav-tab.active {
-		background-color: var(--color-accent);
-		color: white;
+	.nav-pill.active {
+		background-color: rgba(249, 115, 22, 0.12);
+		color: #f97316;
+		border-color: #f97316;
+		box-shadow: 0 0 8px rgba(249, 115, 22, 0.25);
 	}
 
 	.products-grid {
@@ -307,31 +325,23 @@
 		border-color: var(--color-accent);
 	}
 
-	.members-toggle {
-		@apply flex items-center gap-2 cursor-pointer flex-shrink-0;
-	}
-
-	.toggle-track {
-		@apply relative inline-flex w-9 h-5 rounded-full transition-colors;
-		background-color: var(--color-bg-tertiary, rgba(255, 255, 255, 0.1));
-	}
-
-	.toggle-track.active {
-		background-color: var(--color-accent, #f97316);
-	}
-
-	.toggle-thumb {
-		@apply absolute top-0.5 left-0.5 w-4 h-4 rounded-full transition-transform;
-		background-color: white;
-	}
-
-	.toggle-track.active .toggle-thumb {
-		transform: translateX(16px);
-	}
-
-	.toggle-label {
-		@apply text-sm font-medium;
+	.members-pill {
+		@apply px-4 py-2 rounded-lg text-sm font-medium transition-all flex-shrink-0 cursor-pointer;
+		background-color: var(--color-bg-secondary);
 		color: var(--color-text-secondary);
+		border: 1.5px solid transparent;
+	}
+
+	.members-pill:hover {
+		color: var(--color-text-primary);
+		border-color: var(--color-accent, #f97316);
+	}
+
+	.members-pill.active {
+		background-color: rgba(249, 115, 22, 0.12);
+		color: #f97316;
+		border-color: #f97316;
+		box-shadow: 0 0 8px rgba(249, 115, 22, 0.25);
 	}
 
 	.skeleton-card {

@@ -4,7 +4,7 @@
 	import { nip19 } from 'nostr-tools';
 	import { ndk, userPublickey } from '$lib/nostr';
 	import { fetchKitchenByPubkey, buildImplicitKitchen, fetchTrustRanks } from '$lib/marketplace/kitchens';
-	import { fetchSellerProducts } from '$lib/marketplace/products';
+	import { fetchProductsWithStaleCount } from '$lib/marketplace/products';
 	import type { KitchenDisplay, Product } from '$lib/marketplace/types';
 	import KitchenHeader from '../../../../components/marketplace/KitchenHeader.svelte';
 	import ProductCard from '../../../../components/marketplace/ProductCard.svelte';
@@ -18,6 +18,7 @@
 
 	let kitchen: KitchenDisplay | null = null;
 	let products: Product[] = [];
+	let staleListingsHidden = 0;
 	let loading = true;
 	let error: string | null = null;
 	let activeTab: 'products' | 'about' = 'products';
@@ -58,10 +59,11 @@
 			// Fetch kitchen and products in parallel
 			const [kitchenResult, productsResult] = await Promise.all([
 				fetchKitchenByPubkey($ndk, pubkey),
-				fetchSellerProducts($ndk, pubkey)
+				fetchProductsWithStaleCount($ndk, { author: pubkey })
 			]);
 
-			products = productsResult;
+			products = productsResult.products;
+			staleListingsHidden = productsResult.staleCount;
 
 			if (kitchenResult) {
 				kitchen = { ...kitchenResult, productCount: products.length, isImplicit: false as const };
@@ -156,13 +158,22 @@
 				<div class="text-center py-12">
 					<PackageIcon size={64} weight="thin" class="mx-auto mb-4 opacity-50" />
 					<h3 class="text-lg font-medium mb-2" style="color: var(--color-text-primary)">
-						No products yet
+						{staleListingsHidden > 0 ? 'No recent products' : 'No products yet'}
 					</h3>
 					<p class="text-sm" style="color: var(--color-text-secondary)">
-						This store hasn't listed any products.
+						{#if staleListingsHidden > 0}
+							Some older listings have been hidden.
+						{:else}
+							This store hasn't listed any products.
+						{/if}
 					</p>
 				</div>
 			{:else}
+				{#if staleListingsHidden > 0}
+					<p class="text-xs mb-4" style="color: var(--color-text-secondary); opacity: 0.7;">
+						Some older listings have been hidden
+					</p>
+				{/if}
 				<div class="products-grid">
 					{#each productEvents as event (event.id)}
 						<ProductCard {event} trustRank={kitchen?.trustRank} personalized={trustPersonalized} />

@@ -5,10 +5,13 @@
 
 import type NDK from '@nostr-dev-kit/ndk';
 import { NDKEvent, NDKRelaySet, type NDKFilter } from '@nostr-dev-kit/ndk';
+import { browser } from '$app/environment';
 import {
 	PRODUCT_KIND,
 	PRODUCT_KIND_LEGACY,
 	PRODUCT_CATEGORIES,
+	MARKETPLACE_LISTING_MAX_AGE_DAYS,
+	RELIST_COOLDOWN_DAYS,
 	type Product,
 	type ProductCategory,
 	type ProductFormData,
@@ -25,7 +28,7 @@ export const MARKETPLACE_RELAYS = [
 
 // --- In-memory cache for product listings ---
 const PRODUCT_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
-const productCache = new Map<string, { data: Product[]; timestamp: number }>();
+const productCache = new Map<string, { data: Product[]; staleCount: number; timestamp: number }>();
 
 function getProductCacheKey(options: { category?: ProductCategory; author?: string }): string {
 	return `${options.author || 'all'}:${options.category || 'all'}`;
@@ -34,6 +37,44 @@ function getProductCacheKey(options: { category?: ProductCategory; author?: stri
 /** Clear the product cache (call after publishing/deleting a product) */
 export function invalidateProductCache(): void {
 	productCache.clear();
+}
+
+/** Compute the Unix-second cutoff for stale listings */
+function getListingAgeCutoff(): number {
+	return Math.floor(Date.now() / 1000) - 60 * 60 * 24 * MARKETPLACE_LISTING_MAX_AGE_DAYS;
+}
+
+/**
+ * Filter out listings whose created_at is older than MARKETPLACE_LISTING_MAX_AGE_DAYS.
+ * Returns the filtered list and the count of removed stale items.
+ */
+export function filterStaleListings(products: Product[]): { fresh: Product[]; staleCount: number } {
+	const cutoff = getListingAgeCutoff();
+	const fresh: Product[] = [];
+	let staleCount = 0;
+	for (const p of products) {
+		if (p.createdAt < cutoff) {
+			staleCount++;
+		} else {
+			fresh.push(p);
+		}
+	}
+	return { fresh, staleCount };
+}
+
+/**
+ * Fetch products and return both the filtered results and how many stale
+ * listings were hidden. Reads stale count from the per-key cache entry
+ * populated by fetchProducts().
+ */
+export async function fetchProductsWithStaleCount(
+	ndk: NDK,
+	options: Parameters<typeof fetchProducts>[1] = {}
+): Promise<{ products: Product[]; staleCount: number }> {
+	const products = await fetchProducts(ndk, options);
+	const cacheKey = getProductCacheKey(options);
+	const cached = productCache.get(cacheKey);
+	return { products, staleCount: cached?.staleCount ?? 0 };
 }
 
 /**
@@ -234,13 +275,16 @@ export async function fetchProducts(
 			}
 		}
 
+		// Filter out stale listings older than MARKETPLACE_LISTING_MAX_AGE_DAYS
+		const { fresh, staleCount } = filterStaleListings(products);
+
 		// Sort by published date, newest first
-		products.sort((a, b) => b.publishedAt - a.publishedAt);
+		fresh.sort((a, b) => b.publishedAt - a.publishedAt);
 
-		// Cache the result
-		productCache.set(cacheKey, { data: products, timestamp: Date.now() });
+		// Cache the result (including stale count for fetchProductsWithStaleCount)
+		productCache.set(cacheKey, { data: fresh, staleCount, timestamp: Date.now() });
 
-		return products;
+		return fresh;
 	} catch (error) {
 		console.error('[Marketplace] Failed to fetch products:', error);
 		return [];
@@ -338,6 +382,111 @@ export async function deleteProduct(
 		return {
 			success: false,
 			error: error instanceof Error ? error.message : 'Failed to delete product'
+		};
+	}
+}
+
+// --- Relist cooldown (localStorage) ---
+const RELIST_STORAGE_KEY = 'zc_relist_cooldowns';
+
+function getRelistCooldowns(): Record<string, number> {
+	if (!browser) return {};
+	try {
+		return JSON.parse(localStorage.getItem(RELIST_STORAGE_KEY) || '{}');
+	} catch {
+		return {};
+	}
+}
+
+function setRelistCooldown(productDTag: string): void {
+	if (!browser) return;
+	const cooldowns = getRelistCooldowns();
+	cooldowns[productDTag] = Date.now();
+	localStorage.setItem(RELIST_STORAGE_KEY, JSON.stringify(cooldowns));
+}
+
+/** Returns the remaining cooldown in ms, or 0 if relist is allowed. */
+export function getRelistCooldownRemaining(productDTag: string): number {
+	const cooldowns = getRelistCooldowns();
+	const lastRelist = cooldowns[productDTag];
+	if (!lastRelist) return 0;
+	const cooldownMs = RELIST_COOLDOWN_DAYS * 24 * 60 * 60 * 1000;
+	const remaining = lastRelist + cooldownMs - Date.now();
+	return Math.max(0, remaining);
+}
+
+/**
+ * Relist a product: publish a fresh event with updated timestamps,
+ * then delete the old event via NIP-09.
+ */
+export async function relistProduct(
+	ndk: NDK,
+	product: Product
+): Promise<{ success: boolean; event?: NDKEvent; error?: string }> {
+	// Check cooldown
+	const remaining = getRelistCooldownRemaining(product.id);
+	if (remaining > 0) {
+		const days = Math.ceil(remaining / (24 * 60 * 60 * 1000));
+		return { success: false, error: `You can relist this item again in ${days} day${days === 1 ? '' : 's'}` };
+	}
+
+	try {
+		// Build a new event from the existing product's data, keeping the same d-tag
+		const newEvent = new NDKEvent(ndk);
+		newEvent.kind = PRODUCT_KIND;
+		newEvent.content = product.description;
+
+		const now = Math.floor(Date.now() / 1000).toString();
+		newEvent.tags = [
+			['d', product.id],
+			['title', product.title],
+			['summary', product.summary],
+			['price', product.priceSats.toString(), 'SAT'],
+			['t', product.category],
+			['published_at', now],
+			['lightning', product.lightningAddress],
+			['shipping', product.requiresShipping ? 'true' : 'false'],
+			['status', 'active']
+		];
+
+		for (const imageUrl of product.images) {
+			if (imageUrl) newEvent.tags.push(['image', imageUrl]);
+		}
+		if (product.location) {
+			newEvent.tags.push(['location', product.location]);
+		}
+
+		addClientTagToEvent(newEvent);
+
+		await newEvent.sign();
+		await newEvent.publish();
+
+		// Also publish to marketplace relays
+		try {
+			const marketplaceRelaySet = NDKRelaySet.fromRelayUrls(MARKETPLACE_RELAYS, ndk);
+			await newEvent.publish(marketplaceRelaySet);
+		} catch {
+			// non-critical
+		}
+
+		// Delete the old event via NIP-09
+		try {
+			await deleteProduct(ndk, product);
+		} catch {
+			// Old event deletion is best-effort; the new event replaces it via d-tag anyway
+			console.warn('[Marketplace] Old event deletion failed (non-critical)');
+		}
+
+		// Record cooldown
+		setRelistCooldown(product.id);
+		invalidateProductCache();
+
+		return { success: true, event: newEvent };
+	} catch (error) {
+		console.error('[Marketplace] Failed to relist product:', error);
+		return {
+			success: false,
+			error: error instanceof Error ? error.message : 'Failed to relist product'
 		};
 	}
 }

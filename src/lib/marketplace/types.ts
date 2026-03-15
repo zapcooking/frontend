@@ -7,6 +7,12 @@
 import type { NDKEvent } from '@nostr-dev-kit/ndk';
 import type { MembershipTier } from '$lib/membershipStore';
 
+// Maximum age for marketplace listings (in days). Listings older than this are hidden.
+export const MARKETPLACE_LISTING_MAX_AGE_DAYS = 180;
+
+// Minimum days between relisting the same product.
+export const RELIST_COOLDOWN_DAYS = 7;
+
 // NIP-99 Classified Listings kind
 export const PRODUCT_KIND = 30402;
 // Legacy kind for backwards compatibility

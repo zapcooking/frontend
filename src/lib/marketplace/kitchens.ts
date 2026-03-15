@@ -9,6 +9,7 @@ import {
 	STALL_KIND,
 	PRODUCT_KIND,
 	PRODUCT_KIND_LEGACY,
+	MARKETPLACE_LISTING_MAX_AGE_DAYS,
 	type Kitchen,
 	type KitchenFormData,
 	type ImplicitKitchen,
@@ -758,7 +759,7 @@ export async function fetchAllKitchenDisplays(
 	const allSellerPubkeys = qualifiedDisplays.map((d) => d.pubkey);
 	try {
 		const membershipStatuses = await getMembership(allSellerPubkeys);
-		const validTiers: MembershipTier[] = ['cook_plus', 'pro_kitchen', 'founders'];
+		const validTiers: MembershipTier[] = ['member', 'cook_plus', 'pro_kitchen', 'founders'];
 		for (const d of qualifiedDisplays) {
 			const status = membershipStatuses[d.pubkey];
 			if (status?.active && validTiers.includes(status.tier as MembershipTier)) {
@@ -869,12 +870,16 @@ async function fetchProductEvents(
 
 		const events = await Promise.race([fetchPromise, timeoutPromise]);
 
-		// Dedup events by id, then filter to only active products with price and images
+		// Dedup events by id, then filter to only active products with price, images, and age
 		const seenIds = new Set<string>();
 		const validEvents: NDKEvent[] = [];
+		const ageCutoff = Math.floor(Date.now() / 1000) - 60 * 60 * 24 * MARKETPLACE_LISTING_MAX_AGE_DAYS;
 		for (const event of events) {
 			if (seenIds.has(event.id)) continue;
 			seenIds.add(event.id);
+
+			// Skip stale listings
+			if ((event.created_at || 0) < ageCutoff) continue;
 
 			const statusTag = event.tags.find((t) => t[0] === 'status')?.[1];
 			const priceTag = event.tags.find((t) => t[0] === 'price')?.[1];
