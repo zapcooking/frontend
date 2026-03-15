@@ -97,17 +97,11 @@
 
 	<!-- Navigation Tabs -->
 	<div class="flex gap-2 mb-6">
-		<a
-			href="/market"
-			class="nav-tab active"
-		>
+		<a href="/market" class="nav-pill active">
 			<StorefrontIcon size={16} />
 			Stores
 		</a>
-		<a
-			href="/market/products"
-			class="nav-tab"
-		>
+		<a href="/market/products" class="nav-pill">
 			<PackageIcon size={16} />
 			Products
 		</a>
@@ -115,16 +109,14 @@
 
 	<!-- Search & Filters -->
 	<div class="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center justify-between mb-6">
-		<div class="flex gap-3 items-center">
-			<button
-				type="button"
-				class="members-pill"
-				class:active={membersOnly}
-				on:click={() => (membersOnly = !membersOnly)}
-			>
-				Members only
-			</button>
-		</div>
+		<button
+			type="button"
+			class="members-pill"
+			class:active={membersOnly}
+			on:click={() => (membersOnly = !membersOnly)}
+		>
+			Members only
+		</button>
 
 		<div class="relative w-full sm:w-64">
 			<MagnifyingGlassIcon size={16} class="absolute left-3 top-1/2 -translate-y-1/2 opacity-50" />
@@ -213,19 +205,24 @@
 <style lang="postcss">
 	@reference "../../app.css";
 
-	.nav-tab {
-		@apply flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all;
+	.nav-pill {
+		@apply flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all cursor-pointer;
 		background-color: var(--color-bg-secondary);
 		color: var(--color-text-secondary);
+		border: 1.5px solid transparent;
+		text-decoration: none;
 	}
 
-	.nav-tab:hover {
+	.nav-pill:hover {
 		color: var(--color-text-primary);
+		border-color: var(--color-accent, #f97316);
 	}
 
-	.nav-tab.active {
-		background-color: var(--color-accent);
-		color: white;
+	.nav-pill.active {
+		background-color: rgba(249, 115, 22, 0.12);
+		color: #f97316;
+		border-color: #f97316;
+		box-shadow: 0 0 8px rgba(249, 115, 22, 0.25);
 	}
 
 	.kitchens-grid {
