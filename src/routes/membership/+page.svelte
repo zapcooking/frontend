@@ -52,7 +52,14 @@
     && currentMembership.invoiceId;
 
   $: isFoundersMember = apiMembershipStatus?.tier === 'founders';
-  $: isLifetimeMember = isFoundersMember || formatExpiresAt(apiMembershipStatus?.expiresAt) === 'Lifetime';
+  // Lifetime = founders or expiry 8+ years out (matches formatExpiresAt logic without coupling to its string)
+  $: isLifetimeMember = isFoundersMember || (() => {
+    if (!apiMembershipStatus?.expiresAt) return false;
+    try {
+      const yearsAway = (new Date(apiMembershipStatus.expiresAt).getTime() - Date.now()) / (1000 * 60 * 60 * 24 * 365);
+      return yearsAway >= 8;
+    } catch { return false; }
+  })();
 
   let cancellingMembership = false;
   let cancelError: string | null = null;
@@ -60,41 +67,46 @@
   async function handleCancelMembership() {
     if (!browser) return;
 
-    // Stripe card members: redirect to Stripe portal where they can cancel
-    if (hasActiveCardMembership) {
-      cancellingMembership = true;
-      cancelError = null;
+    cancellingMembership = true;
+    cancelError = null;
 
-      try {
-        const response = await fetch('/api/stripe/create-portal-session', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            pubkey: $userPublickey,
-            returnUrl: window.location.href,
-          }),
-        });
+    // Try Stripe portal first — works for any card member regardless of local state.
+    // Falls back to email if no Stripe subscription is found (404).
+    try {
+      const response = await fetch('/api/stripe/create-portal-session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          pubkey: $userPublickey,
+          returnUrl: window.location.href,
+        }),
+      });
 
-        if (!response.ok) {
-          const errData = await response.json().catch(() => ({ error: 'Failed to open cancellation portal' }));
-          throw new Error(errData.error || 'Failed to open cancellation portal');
-        }
-
+      if (response.ok) {
         const { url } = await response.json();
         if (url) {
           window.location.href = url;
-        } else {
-          throw new Error('No portal URL returned');
+          return;
         }
-      } catch (err) {
-        console.error('[Membership] Cancel error:', err);
-        cancelError = err instanceof Error ? err.message : 'Failed to open cancellation portal';
-        cancellingMembership = false;
       }
-      return;
+
+      // 404 = no Stripe subscription found → fall through to email
+      if (response.status !== 404) {
+        const errData = await response.json().catch(() => ({ error: 'Failed to open cancellation portal' }));
+        throw new Error(errData.error || 'Failed to open cancellation portal');
+      }
+    } catch (err) {
+      // If we got a real error (not a 404 fallthrough), show it and stop
+      if (err instanceof Error) {
+        console.error('[Membership] Cancel error:', err);
+        cancelError = err.message;
+        cancellingMembership = false;
+        return;
+      }
     }
 
-    // Lightning / other members: open email to support
+    // Fallback: Lightning / other members without Stripe subscription
+    cancellingMembership = false;
     window.location.href = 'mailto:support@zap.cooking?subject=Membership%20Cancellation%20Request&body=Hi%2C%20I%20would%20like%20to%20cancel%20my%20zap.cooking%20membership.%0A%0AMy%20pubkey%3A%20' + encodeURIComponent($userPublickey || '');
   }
 
