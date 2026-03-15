@@ -115,6 +115,17 @@
 
 	<!-- Search & Filters -->
 	<div class="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center justify-between mb-6">
+		<div class="flex gap-3 items-center">
+			<button
+				type="button"
+				class="members-pill"
+				class:active={membersOnly}
+				on:click={() => (membersOnly = !membersOnly)}
+			>
+				Members only
+			</button>
+		</div>
+
 		<div class="relative w-full sm:w-64">
 			<MagnifyingGlassIcon size={16} class="absolute left-3 top-1/2 -translate-y-1/2 opacity-50" />
 			<input
@@ -124,14 +135,6 @@
 				class="search-input w-full pl-9 pr-4 py-2 rounded-lg text-sm"
 			/>
 		</div>
-
-		<label class="members-toggle">
-			<span class="toggle-track" class:active={membersOnly}>
-				<span class="toggle-thumb"></span>
-			</span>
-			<input type="checkbox" bind:checked={membersOnly} class="sr-only" />
-			<span class="toggle-label">Members only</span>
-		</label>
 	</div>
 
 	<!-- Buyer Disclaimer Banner -->
@@ -254,31 +257,23 @@
 		border-color: var(--color-accent);
 	}
 
-	.members-toggle {
-		@apply flex items-center gap-2 cursor-pointer flex-shrink-0;
-	}
-
-	.toggle-track {
-		@apply relative inline-flex w-9 h-5 rounded-full transition-colors;
-		background-color: var(--color-bg-tertiary, rgba(255, 255, 255, 0.1));
-	}
-
-	.toggle-track.active {
-		background-color: var(--color-accent, #f97316);
-	}
-
-	.toggle-thumb {
-		@apply absolute top-0.5 left-0.5 w-4 h-4 rounded-full transition-transform;
-		background-color: white;
-	}
-
-	.toggle-track.active .toggle-thumb {
-		transform: translateX(16px);
-	}
-
-	.toggle-label {
-		@apply text-sm font-medium;
+	.members-pill {
+		@apply px-4 py-2 rounded-lg text-sm font-medium transition-all flex-shrink-0 cursor-pointer;
+		background-color: var(--color-bg-secondary);
 		color: var(--color-text-secondary);
+		border: 1.5px solid transparent;
+	}
+
+	.members-pill:hover {
+		color: var(--color-text-primary);
+		border-color: var(--color-accent, #f97316);
+	}
+
+	.members-pill.active {
+		background-color: rgba(249, 115, 22, 0.12);
+		color: #f97316;
+		border-color: #f97316;
+		box-shadow: 0 0 8px rgba(249, 115, 22, 0.25);
 	}
 
 	.skeleton-card {
