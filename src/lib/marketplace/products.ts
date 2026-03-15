@@ -26,7 +26,7 @@ export const MARKETPLACE_RELAYS = [
 
 // --- In-memory cache for product listings ---
 const PRODUCT_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
-const productCache = new Map<string, { data: Product[]; timestamp: number }>();
+const productCache = new Map<string, { data: Product[]; staleCount: number; timestamp: number }>();
 
 function getProductCacheKey(options: { category?: ProductCategory; author?: string }): string {
 	return `${options.author || 'all'}:${options.category || 'all'}`;
@@ -62,21 +62,18 @@ export function filterStaleListings(products: Product[]): { fresh: Product[]; st
 
 /**
  * Fetch products and return both the filtered results and how many stale
- * listings were hidden. Wraps fetchProducts() with age-filter metadata.
+ * listings were hidden. Reads stale count from the per-key cache entry
+ * populated by fetchProducts().
  */
 export async function fetchProductsWithStaleCount(
 	ndk: NDK,
 	options: Parameters<typeof fetchProducts>[1] = {}
 ): Promise<{ products: Product[]; staleCount: number }> {
 	const products = await fetchProducts(ndk, options);
-	// fetchProducts already filters stale listings, so products are all fresh.
-	// To get the stale count we re-run the cutoff against the cache (pre-filter)
-	// or return 0 if we can't tell. We store the last stale count from fetchProducts.
-	return { products, staleCount: _lastStaleCount };
+	const cacheKey = getProductCacheKey(options);
+	const cached = productCache.get(cacheKey);
+	return { products, staleCount: cached?.staleCount ?? 0 };
 }
-
-// Tracks the stale count from the most recent fetchProducts call
-let _lastStaleCount = 0;
 
 /**
  * Parse an NDKEvent into a Product object
@@ -278,13 +275,12 @@ export async function fetchProducts(
 
 		// Filter out stale listings older than MARKETPLACE_LISTING_MAX_AGE_DAYS
 		const { fresh, staleCount } = filterStaleListings(products);
-		_lastStaleCount = staleCount;
 
 		// Sort by published date, newest first
 		fresh.sort((a, b) => b.publishedAt - a.publishedAt);
 
-		// Cache the result
-		productCache.set(cacheKey, { data: fresh, timestamp: Date.now() });
+		// Cache the result (including stale count for fetchProductsWithStaleCount)
+		productCache.set(cacheKey, { data: fresh, staleCount, timestamp: Date.now() });
 
 		return fresh;
 	} catch (error) {
