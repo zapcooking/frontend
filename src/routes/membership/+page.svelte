@@ -51,6 +51,53 @@
     && currentMembership.expiresAt > Date.now()
     && currentMembership.invoiceId;
 
+  $: isFoundersMember = apiMembershipStatus?.tier === 'founders';
+  $: isLifetimeMember = isFoundersMember || formatExpiresAt(apiMembershipStatus?.expiresAt) === 'Lifetime';
+
+  let cancellingMembership = false;
+  let cancelError: string | null = null;
+
+  async function handleCancelMembership() {
+    if (!browser) return;
+
+    // Stripe card members: redirect to Stripe portal where they can cancel
+    if (hasActiveCardMembership) {
+      cancellingMembership = true;
+      cancelError = null;
+
+      try {
+        const response = await fetch('/api/stripe/create-portal-session', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            pubkey: $userPublickey,
+            returnUrl: window.location.href,
+          }),
+        });
+
+        if (!response.ok) {
+          const errData = await response.json().catch(() => ({ error: 'Failed to open cancellation portal' }));
+          throw new Error(errData.error || 'Failed to open cancellation portal');
+        }
+
+        const { url } = await response.json();
+        if (url) {
+          window.location.href = url;
+        } else {
+          throw new Error('No portal URL returned');
+        }
+      } catch (err) {
+        console.error('[Membership] Cancel error:', err);
+        cancelError = err instanceof Error ? err.message : 'Failed to open cancellation portal';
+        cancellingMembership = false;
+      }
+      return;
+    }
+
+    // Lightning / other members: open email to support
+    window.location.href = 'mailto:support@zap.cooking?subject=Membership%20Cancellation%20Request&body=Hi%2C%20I%20would%20like%20to%20cancel%20my%20zap.cooking%20membership.%0A%0AMy%20pubkey%3A%20' + encodeURIComponent($userPublickey || '');
+  }
+
   // --- API-based membership status (membershipStatusMap) ---
   let membershipMap: Record<string, MembershipStatus> = {};
   const unsubscribe = membershipStatusMap.subscribe((value) => {
@@ -167,17 +214,31 @@
 <div class="membership-page">
   {#if $userPublickey && isActiveMemberApi}
     <section class="member-dashboard">
+      <h3 class="member-dashboard-title">Your Membership</h3>
       <div class="member-dashboard-header">
         <div class="member-dashboard-identity">
           <CustomAvatar pubkey={$userPublickey} size={48} interactive={false} />
-          <CustomName pubkey={$userPublickey} className="member-dashboard-display-name" />
+          <div class="member-dashboard-identity-text">
+            <CustomName pubkey={$userPublickey} className="member-dashboard-display-name" />
+            <span class="member-dashboard-tier">
+              {#if apiMembershipStatus?.tier === 'founders'}
+                Founders Club
+              {:else if apiMembershipStatus?.tier === 'pro_kitchen'}
+                Pro Kitchen
+              {:else if apiMembershipStatus?.tier === 'cook_plus'}
+                Cook+
+              {:else}
+                Member
+              {/if}
+            </span>
+          </div>
         </div>
         <span class="member-dashboard-active-badge">Active</span>
       </div>
       <div class="member-dashboard-stats">
         <div class="member-dashboard-stat">
-          <span class="member-dashboard-stat-value">{formatExpiresAt(apiMembershipStatus?.expiresAt)}</span>
           <span class="member-dashboard-stat-label">Expires</span>
+          <span class="member-dashboard-stat-value">{formatExpiresAt(apiMembershipStatus?.expiresAt)}</span>
         </div>
       </div>
       <div class="member-dashboard-actions">
@@ -201,6 +262,35 @@
           <button class="member-dashboard-upgrade-button" on:click={handleShowUpgrade}>
             Upgrade Plan
           </button>
+        {/if}
+      </div>
+
+      <!-- Cancel Membership -->
+      <div class="member-dashboard-cancel">
+        {#if isLifetimeMember}
+          <p class="cancel-note">Your Founders Club membership is lifetime — no renewal or cancellation needed.</p>
+        {:else}
+          {#if cancelError}
+            <p class="cancel-error">{cancelError}</p>
+          {/if}
+          <button
+            class="cancel-membership-link"
+            on:click={handleCancelMembership}
+            disabled={cancellingMembership}
+          >
+            {#if cancellingMembership}
+              Opening cancellation portal...
+            {:else}
+              Cancel Membership
+            {/if}
+          </button>
+          <p class="cancel-note">
+            {#if hasActiveCardMembership}
+              You'll be redirected to our payment provider to complete cancellation.
+            {:else}
+              Contact support to cancel your membership. Your access continues until the expiration date.
+            {/if}
+          </p>
         {/if}
       </div>
     </section>
@@ -616,6 +706,15 @@
     margin-bottom: 2rem;
   }
 
+  .member-dashboard-title {
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--color-text-secondary);
+    margin-bottom: 1rem;
+  }
+
   .member-dashboard-header {
     display: flex;
     align-items: center;
@@ -627,6 +726,18 @@
     display: flex;
     align-items: center;
     gap: 0.75rem;
+  }
+
+  .member-dashboard-identity-text {
+    display: flex;
+    flex-direction: column;
+    gap: 0.125rem;
+  }
+
+  .member-dashboard-tier {
+    font-size: 0.8rem;
+    color: var(--color-primary, #f97316);
+    font-weight: 500;
   }
 
   .member-dashboard :global(.member-dashboard-display-name) {
@@ -715,6 +826,47 @@
     .member-dashboard-actions {
       flex-direction: column;
     }
+  }
+
+  .member-dashboard-cancel {
+    margin-top: 1.5rem;
+    padding-top: 1.25rem;
+    border-top: 1px solid var(--color-input-border);
+    text-align: center;
+  }
+
+  .cancel-membership-link {
+    font-size: 0.8rem;
+    color: var(--color-text-secondary);
+    text-decoration: underline;
+    cursor: pointer;
+    background: none;
+    border: none;
+    padding: 0;
+    transition: color 0.15s;
+  }
+
+  .cancel-membership-link:hover:not(:disabled) {
+    color: #ef4444;
+  }
+
+  .cancel-membership-link:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    text-decoration: none;
+  }
+
+  .cancel-note {
+    font-size: 0.75rem;
+    color: var(--color-text-secondary);
+    opacity: 0.7;
+    margin-top: 0.375rem;
+  }
+
+  .cancel-error {
+    font-size: 0.75rem;
+    color: #ef4444;
+    margin-bottom: 0.375rem;
   }
 
   .membership-page {
