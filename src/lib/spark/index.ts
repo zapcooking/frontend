@@ -181,6 +181,20 @@ async function setupEventListener(): Promise<void> {
         refreshBalanceInternal();
       }
 
+      if (event.type === 'lightningAddressChanged') {
+        const addr = event.lightningAddress;
+        if (addr) {
+          const address = typeof addr === 'string' ? addr : addr.address || null;
+          if (address) {
+            lightningAddress.set(address);
+            logger.info('[Spark] Lightning address changed:', address);
+          }
+        } else {
+          lightningAddress.set(null);
+          logger.info('[Spark] Lightning address removed');
+        }
+      }
+
       _eventCallbacks.forEach((callback) => {
         try {
           callback(event);
@@ -332,6 +346,7 @@ export async function initializeSdk(
     const config = defaultConfig('mainnet');
     config.apiKey = apiKey;
     config.privateEnabledDefault = true;
+    config.supportLnurlVerify = true; // Enable NIP-57 zap receipt metadata on received payments
 
     // Use sats.zap.cooking (subdomain) in production, breez.tips for local development
     // Strategy A: Subdomain approach - uses CNAME sats -> breez.tips in Cloudflare
@@ -546,10 +561,10 @@ export async function sendPayment(
     if (parsedInput.type === 'lightningAddress') {
       if (!amountSats) throw new Error('Amount is required for Lightning address payments');
       const payRequest = (parsedInput as any).payRequest;
-      const prepareResponse = await _sdkInstance.prepareLnurlPay({ payRequest, amountSats });
-      const lnurlPayRequest: any = { prepareResponse };
-      if (comment) lnurlPayRequest.comment = comment;
-      const payment = await _sdkInstance.lnurlPay(lnurlPayRequest);
+      const prepareRequest: any = { payRequest, amountSats };
+      if (comment) prepareRequest.comment = comment;
+      const prepareResponse = await _sdkInstance.prepareLnurlPay(prepareRequest);
+      const payment = await _sdkInstance.lnurlPay({ prepareResponse });
       await refreshBalanceInternal();
       return payment;
     }
@@ -557,16 +572,16 @@ export async function sendPayment(
     if (parsedInput.type === 'lnurlPay') {
       if (!amountSats) throw new Error('Amount is required for LNURL payments');
       const payRequest = (parsedInput as any).payRequest;
-      const prepareResponse = await _sdkInstance.prepareLnurlPay({ payRequest, amountSats });
-      const lnurlPayRequest: any = { prepareResponse };
-      if (comment) lnurlPayRequest.comment = comment;
-      const payment = await _sdkInstance.lnurlPay(lnurlPayRequest);
+      const prepareRequest: any = { payRequest, amountSats };
+      if (comment) prepareRequest.comment = comment;
+      const prepareResponse = await _sdkInstance.prepareLnurlPay(prepareRequest);
+      const payment = await _sdkInstance.lnurlPay({ prepareResponse });
       await refreshBalanceInternal();
       return payment;
     }
 
     const prepareRequest: any = { paymentRequest: destination };
-    if (amountSats) prepareRequest.amountSat = amountSats;
+    if (amountSats) prepareRequest.amount = BigInt(amountSats);
     const prepareResponse = await _sdkInstance.prepareSendPayment(prepareRequest);
     const payment = await _sdkInstance.sendPayment({ prepareResponse });
     await refreshBalanceInternal();
@@ -1147,6 +1162,54 @@ export async function syncWallet(): Promise<void> {
   } finally {
     sparkLoading.set(false);
     sparkSyncing.set(false);
+  }
+}
+
+/**
+ * Record NIP-57 zap metadata for a received payment.
+ * Associates a Nostr zap request (kind 9734) and zap receipt (kind 9735)
+ * with a Spark payment via the SDK's setLnurlMetadata API.
+ *
+ * This allows the SDK to store zap data alongside the payment record,
+ * so that payment history can show which payments were Nostr zaps.
+ *
+ * @param paymentHash The payment hash from the bolt11 invoice in the zap receipt
+ * @param zapRequest The serialized kind 9734 zap request event JSON
+ * @param zapReceipt The serialized kind 9735 zap receipt event JSON
+ * @param preimage Optional payment preimage
+ */
+export async function recordNip57ZapData(
+  paymentHash: string,
+  zapRequest: string,
+  zapReceipt: string,
+  preimage?: string
+): Promise<void> {
+  if (!_sdkInstance) {
+    logger.debug('[Spark] Cannot record zap data - SDK not initialized');
+    return;
+  }
+
+  try {
+    const metadataItem: {
+      paymentHash: string;
+      nostrZapRequest: string;
+      nostrZapReceipt: string;
+      preimage?: string;
+    } = {
+      paymentHash,
+      nostrZapRequest: zapRequest,
+      nostrZapReceipt: zapReceipt
+    };
+
+    if (preimage) {
+      metadataItem.preimage = preimage;
+    }
+
+    await _sdkInstance.setLnurlMetadata([metadataItem]);
+    logger.info('[Spark] NIP-57 zap data recorded for payment:', paymentHash.slice(0, 16) + '...');
+  } catch (error) {
+    // Non-fatal: zap data recording is best-effort
+    logger.warn('[Spark] Failed to record NIP-57 zap data:', String(error));
   }
 }
 

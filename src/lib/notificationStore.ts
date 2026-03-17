@@ -3,6 +3,7 @@ import { browser } from '$app/environment';
 import type NDK from '@nostr-dev-kit/ndk';
 import type { NDKEvent, NDKSubscription } from '@nostr-dev-kit/ndk';
 import { hellthreadThreshold } from '$lib/hellthreadFilterSettings';
+import { decode as decodeBolt11 } from '@gandlaf21/bolt11-decode';
 
 export interface Notification {
   id: string;
@@ -120,6 +121,54 @@ export const unreadCount = derived(
   ($notifications) => $notifications.filter((n) => !n.read).length
 );
 
+/**
+ * Record NIP-57 zap receipt data to Spark SDK.
+ * Extracts the payment hash from the bolt11 invoice in the zap receipt,
+ * then calls setLnurlMetadata to associate the zap request/receipt with the payment.
+ * This is best-effort and non-blocking.
+ */
+function recordZapToSparkSdk(event: NDKEvent): void {
+  try {
+    const bolt11Tag = event.tags.find((t) => t[0] === 'bolt11')?.[1];
+    const descTag = event.tags.find((t) => t[0] === 'description')?.[1];
+    const preimageTag = event.tags.find((t) => t[0] === 'preimage')?.[1];
+
+    if (!bolt11Tag) return;
+
+    // Extract payment hash from bolt11
+    let paymentHash: string | undefined;
+    try {
+      const decoded = decodeBolt11(bolt11Tag);
+      const hashSection = decoded.sections.find(
+        (s: { name: string; value?: unknown }) => s.name === 'payment_hash'
+      );
+      if (hashSection?.value) {
+        paymentHash = String(hashSection.value);
+      }
+    } catch {
+      // Failed to decode bolt11
+      return;
+    }
+
+    if (!paymentHash) return;
+
+    const zapReceiptJson = JSON.stringify(event.rawEvent());
+    const zapRequestJson = descTag || '';
+
+    // Fire-and-forget: import and call recordNip57ZapData
+    import('$lib/spark').then(({ recordNip57ZapData, walletInitialized }) => {
+      // Only record if Spark wallet is active
+      if (!get(walletInitialized)) return;
+
+      recordNip57ZapData(paymentHash!, zapRequestJson, zapReceiptJson, preimageTag).catch(
+        () => {} // Silently ignore errors
+      );
+    }).catch(() => {});
+  } catch {
+    // Non-fatal: best-effort recording
+  }
+}
+
 // Subscription manager
 let activeSubscription: NDKSubscription | null = null;
 
@@ -191,6 +240,11 @@ export function subscribeToNotifications(ndk: NDK, userPubkey: string, forceFull
 
       // Add to store
       notifications.add(notification);
+
+      // Record NIP-57 zap data to Spark SDK for received zaps
+      if (event.kind === 9735) {
+        recordZapToSparkSdk(event);
+      }
 
       // Send local notification if app is backgrounded and permissions are granted
       if (browser) {
@@ -301,6 +355,11 @@ function processCollectedEvents(events: NDKEvent[], userPubkey: string): number 
     const notification = parseNotification(event, userPubkey);
     if (notification) {
       newNotifications.push(notification);
+    }
+
+    // Record NIP-57 zap data to Spark SDK for received zaps
+    if (event.kind === 9735) {
+      recordZapToSparkSdk(event);
     }
   }
 

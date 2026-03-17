@@ -741,15 +741,49 @@ function mapSparkPayment(p: any): Transaction {
     }
   }
 
+  // Extract NIP-57 zap data from LnurlReceiveMetadata or LnurlPayInfo
+  let comment: string | undefined;
+  let pubkey: string | undefined;
+  const details = p.details;
+
+  if (details) {
+    // Incoming zaps: check lnurlReceiveMetadata for zap request data
+    if (details.lnurlReceiveMetadata) {
+      const meta = details.lnurlReceiveMetadata;
+      if (meta.senderComment) {
+        comment = meta.senderComment;
+      }
+      if (meta.nostrZapRequest) {
+        try {
+          const zapReq = JSON.parse(meta.nostrZapRequest);
+          if (zapReq.pubkey) pubkey = zapReq.pubkey;
+          if (!comment && zapReq.content) comment = zapReq.content;
+        } catch {
+          // Invalid zap request JSON
+        }
+      }
+    }
+    // Outgoing zaps: check lnurlPayInfo for comment
+    if (details.lnurlPayInfo?.comment && !comment) {
+      comment = details.lnurlPayInfo.comment;
+    }
+    // Get description from lightning invoice details
+    if (details.description && !comment) {
+      comment = details.description;
+    }
+  }
+
   return {
     id: p.id || p.paymentHash || p.payment_hash || txid || String(Math.random()),
     txid,
     type: isIncoming ? 'incoming' : ('outgoing' as 'incoming' | 'outgoing'),
     amount: Number(amountSat),
     description: p.description || p.memo || p.bolt11?.substring(0, 20),
+    comment,
     timestamp: timestamp || Math.floor(Date.now() / 1000),
     fees: feesSat,
-    status
+    status,
+    pubkey
   };
 }
 
