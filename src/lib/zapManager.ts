@@ -119,11 +119,9 @@ export class ZapManager {
       zapRequest.tags.push(['e', request.eventId]);
     }
 
-    // Add relays tag
+    // Add relays tag (NIP-57: single tag with all relay URLs as values)
     if (request.relays && request.relays.length > 0) {
-      request.relays.forEach(relay => {
-        zapRequest.tags.push(['relays', relay]);
-      });
+      zapRequest.tags.push(['relays', ...request.relays]);
     }
 
     // Add amount tag
@@ -400,12 +398,11 @@ export class ZapManager {
       return false;
     }
 
-    // Check for required tags
+    // Check for required tags (NIP-57: bolt11 and description are required, preimage is optional)
     const bolt11Tags = zapReceipt.tags.filter(tag => tag[0] === 'bolt11');
     const descriptionTags = zapReceipt.tags.filter(tag => tag[0] === 'description');
-    const preimageTags = zapReceipt.tags.filter(tag => tag[0] === 'preimage');
 
-    if (bolt11Tags.length === 0 || descriptionTags.length === 0 || preimageTags.length === 0) {
+    if (bolt11Tags.length === 0 || descriptionTags.length === 0) {
       return false;
     }
 
