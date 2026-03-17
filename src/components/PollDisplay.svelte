@@ -161,6 +161,9 @@
           <div class="poll-result-bar" class:poll-result-user={isUserChoice}>
             <div class="poll-result-fill" style="width: {pct}%"></div>
             <div class="poll-result-content">
+              {#if option.image}
+                <img src={option.image} alt={option.label} class="poll-option-thumb" />
+              {/if}
               <span class="poll-result-label">
                 {option.label}
                 {#if isUserChoice}
@@ -185,6 +188,9 @@
                 <span class="poll-checkbox" class:poll-checkbox-checked={isSelected}></span>
               {/if}
             </span>
+            {#if option.image}
+              <img src={option.image} alt={option.label} class="poll-option-thumb" />
+            {/if}
             <span>{option.label}</span>
           </button>
         {/if}
@@ -366,6 +372,14 @@
   .poll-result-pct {
     color: var(--color-caption);
     font-size: 0.8125rem;
+    flex-shrink: 0;
+  }
+
+  .poll-option-thumb {
+    width: 2.5rem;
+    height: 2.5rem;
+    object-fit: cover;
+    border-radius: 0.375rem;
     flex-shrink: 0;
   }
 </style>

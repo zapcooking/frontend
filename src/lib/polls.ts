@@ -14,6 +14,7 @@ import type { NDKEvent } from '@nostr-dev-kit/ndk';
 export interface PollOption {
   id: string;
   label: string;
+  image?: string; // Optional image URL for visual polls
 }
 
 export type PollType = 'singlechoice' | 'multiplechoice';
@@ -80,7 +81,7 @@ export function parsePollFromEvent(event: NDKEvent): PollData | null {
 
   for (const tag of event.tags) {
     if (tag[0] === 'option' && tag[1] && tag[2]) {
-      options.push({ id: tag[1], label: tag[2] });
+      options.push({ id: tag[1], label: tag[2], image: tag[3] || undefined });
     } else if (tag[0] === 'polltype' && tag[1]) {
       pollType = tag[1] === 'multiplechoice' ? 'multiplechoice' : 'singlechoice';
     } else if (tag[0] === 'endsAt' && tag[1]) {
@@ -114,7 +115,11 @@ export function buildPollTags(config: PollConfig): string[][] {
   const tags: string[][] = [];
 
   for (const option of config.options) {
-    tags.push(['option', option.id, option.label]);
+    if (option.image) {
+      tags.push(['option', option.id, option.label, option.image]);
+    } else {
+      tags.push(['option', option.id, option.label]);
+    }
   }
 
   tags.push(['polltype', config.pollType]);
