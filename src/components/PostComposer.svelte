@@ -6,7 +6,10 @@
   import ImageIcon from 'phosphor-svelte/lib/Image';
   import VideoIcon from 'phosphor-svelte/lib/Video';
   import GifIcon from 'phosphor-svelte/lib/Gif';
+  import ChartBarHorizontalIcon from 'phosphor-svelte/lib/ChartBarHorizontal';
   import GifPicker from './GifPicker.svelte';
+  import PollCreator from './PollCreator.svelte';
+  import { buildPollTags, type PollConfig } from '$lib/polls';
   import CustomAvatar from './CustomAvatar.svelte';
   import ProfileLink from './ProfileLink.svelte';
   import { nip19 } from 'nostr-tools';
@@ -55,6 +58,8 @@
   let videoInputEl: HTMLInputElement;
   let quotedNote: { nevent: string; event: NDKEventType } | null = null;
   let showGifPicker = false;
+  let showPollCreator = false;
+  let pollConfig: PollConfig | null = null;
 
   // Mention autocomplete (shared controller)
   let mentionState: MentionState = {
@@ -143,6 +148,7 @@
     uploadedImages = [];
     uploadedVideos = [];
     quotedNote = null;
+    pollConfig = null;
     if (composerEl) {
       composerEl.innerHTML = '';
     }
@@ -226,7 +232,8 @@
       !content.trim() &&
       !quotedNote &&
       uploadedImages.length === 0 &&
-      uploadedVideos.length === 0
+      uploadedVideos.length === 0 &&
+      !pollConfig
     ) {
       console.log('[PostComposer] No content to post');
       error = 'Please enter some content';
@@ -262,7 +269,7 @@
 
       console.log('[PostComposer] Creating NDKEvent...');
       const event = new NDKEvent($ndk);
-      event.kind = 1;
+      event.kind = pollConfig ? 1068 : 1;
 
       // Build content with text, image URLs, and video URLs
       let postContent = content.trim();
@@ -308,6 +315,10 @@
       }
 
       addClientTagToEvent(event);
+
+      if (pollConfig) {
+        event.tags.push(...buildPollTags(pollConfig));
+      }
 
       // Determine which relays to publish to
       // Priority: explicit selectedRelay prop (from modal) > activeTab (from feed context)
@@ -541,6 +552,25 @@
               </div>
             {/if}
 
+            {#if pollConfig}
+              <div class="mb-2 flex items-center gap-2 px-3 py-1.5 rounded-lg bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800">
+                <ChartBarHorizontalIcon size={14} class="text-orange-600 dark:text-orange-400" />
+                <span class="text-xs font-medium text-orange-700 dark:text-orange-300">
+                  Poll: {pollConfig.options.length} options
+                </span>
+                <button
+                  type="button"
+                  on:click={() => (pollConfig = null)}
+                  class="ml-auto text-orange-500 hover:text-orange-700 p-0.5"
+                  aria-label="Remove poll"
+                >
+                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            {/if}
+
             {#if activeTab === 'members' || selectedRelay === 'pantry'}
               <div
                 class="mb-2 px-3 py-1.5 rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800"
@@ -627,6 +657,17 @@
                   <GifIcon size={18} class="text-caption" />
                 </button>
 
+                <button
+                  on:click={() => (showPollCreator = true)}
+                  class="p-1.5 rounded-full hover:bg-accent-gray transition-colors"
+                  class:opacity-50={posting}
+                  class:cursor-not-allowed={posting}
+                  disabled={posting}
+                  title="Create poll"
+                >
+                  <ChartBarHorizontalIcon size={18} class={pollConfig ? 'text-primary' : 'text-caption'} />
+                </button>
+
                 {#if uploadingImage}
                   <span class="text-xs text-caption">Uploading image...</span>
                 {:else if uploadingVideo}
@@ -680,7 +721,8 @@
                     (!content.trim() &&
                       uploadedImages.length === 0 &&
                       uploadedVideos.length === 0 &&
-                      !quotedNote)}
+                      !quotedNote &&
+                      !pollConfig)}
                   class="px-4 py-1.5 text-xs font-medium text-white bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 rounded-full disabled:opacity-50 disabled:cursor-not-allowed transition-all"
                 >
                   {posting ? 'Posting...' : 'Post'}
@@ -698,6 +740,13 @@
   bind:open={showGifPicker}
   on:select={(e) => {
     uploadedImages = [...uploadedImages, e.detail.url];
+  }}
+/>
+
+<PollCreator
+  bind:open={showPollCreator}
+  on:create={(e) => {
+    pollConfig = e.detail;
   }}
 />
 

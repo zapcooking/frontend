@@ -15,6 +15,9 @@
   import ImageIcon from 'phosphor-svelte/lib/Image';
   import VideoIcon from 'phosphor-svelte/lib/Video';
   import GifPicker from './GifPicker.svelte';
+  import ChartBarHorizontalIcon from 'phosphor-svelte/lib/ChartBarHorizontal';
+  import PollCreator from './PollCreator.svelte';
+  import { buildPollTags, type PollConfig } from '$lib/polls';
   import { uploadImage, uploadVideo } from '$lib/mediaUpload';
 
   export let event: NDKEvent;
@@ -29,6 +32,8 @@
   let successMessage = '';
   let commentSubscription: any = null;
   let showGifPicker = false;
+  let showPollCreator = false;
+  let pollConfig: PollConfig | null = null;
   let uploadedImages: string[] = [];
   let uploadedVideos: string[] = [];
   let uploadingImage = false;
@@ -125,7 +130,7 @@
 
   // Post a new comment
   async function postComment() {
-    if ((!commentText.trim() && uploadedImages.length === 0 && uploadedVideos.length === 0) || postingComment) return;
+    if ((!commentText.trim() && uploadedImages.length === 0 && uploadedVideos.length === 0 && !pollConfig) || postingComment) return;
     
     // Check if user is authenticated
     if (!$ndk.signer) {
@@ -161,7 +166,7 @@
       // Check if replying to a recipe (kind 30023)
       // Recipe replies should be kind 1111, not kind 1
       const isRecipe = event.kind === 30023;
-      commentEvent.kind = isRecipe ? 1111 : 1;
+      commentEvent.kind = pollConfig ? 1068 : (isRecipe ? 1111 : 1);
       
       let commentContent = commentText.trim();
       const mediaUrls = [...uploadedImages, ...uploadedVideos];
@@ -181,6 +186,10 @@
       
       // Add NIP-89 client tag
       addClientTagToEvent(commentEvent);
+
+      if (pollConfig) {
+        commentEvent.tags.push(...buildPollTags(pollConfig));
+      }
 
       console.log('Created comment event:', commentEvent);
       console.log('Comment event tags:', commentEvent.tags);
@@ -254,6 +263,7 @@
       commentText = '';
       uploadedImages = [];
       uploadedVideos = [];
+      pollConfig = null;
 
       // Reload comments to show the new one
       console.log('Reloading comments...');
@@ -394,14 +404,30 @@
           >
             <GifIcon size={16} />
           </button>
+          <button
+            on:click={() => (showPollCreator = true)}
+            class="btn-gif"
+            title="Create poll"
+            disabled={postingComment}
+            class:opacity-50={postingComment}
+          >
+            <ChartBarHorizontalIcon size={16} class={pollConfig ? 'text-primary' : ''} />
+          </button>
           {#if uploadingImage}
             <span class="text-xs text-caption">Uploading image...</span>
           {:else if uploadingVideo}
             <span class="text-xs text-caption">Uploading video...</span>
           {/if}
+          {#if pollConfig}
+            <span class="text-xs text-orange-600 flex items-center gap-1">
+              <ChartBarHorizontalIcon size={12} />
+              Poll ({pollConfig.options.length})
+              <button type="button" on:click={() => (pollConfig = null)} class="hover:text-orange-800">×</button>
+            </span>
+          {/if}
           <Button
             on:click={postComment}
-            disabled={(!commentText.trim() && uploadedImages.length === 0 && uploadedVideos.length === 0) || postingComment || !$ndk.signer || uploadingImage || uploadingVideo}
+            disabled={(!commentText.trim() && uploadedImages.length === 0 && uploadedVideos.length === 0 && !pollConfig) || postingComment || !$ndk.signer || uploadingImage || uploadingVideo}
             class="px-4 py-2 text-sm"
           >
             {postingComment ? 'Posting...' : ($ndk.signer ? 'Post Comment' : 'Log in to comment')}
@@ -429,5 +455,12 @@
   bind:open={showGifPicker}
   on:select={(e) => {
     uploadedImages = [...uploadedImages, e.detail.url];
+  }}
+/>
+
+<PollCreator
+  bind:open={showPollCreator}
+  on:create={(e) => {
+    pollConfig = e.detail;
   }}
 />

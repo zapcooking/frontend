@@ -45,7 +45,7 @@ const CONFIG = {
   MAX_AUTHORS_PER_SUB: 500,
   
   // Default kinds for feed
-  DEFAULT_KINDS: [1, 6], // Notes + reposts
+  DEFAULT_KINDS: [1, 6, 1068], // Notes + reposts + polls
 };
 
 // ═══════════════════════════════════════════════════════════════
