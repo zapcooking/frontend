@@ -22,6 +22,9 @@
   import ImageIcon from 'phosphor-svelte/lib/Image';
   import VideoIcon from 'phosphor-svelte/lib/Video';
   import GifPicker from './GifPicker.svelte';
+  import ChartBarHorizontalIcon from 'phosphor-svelte/lib/ChartBarHorizontal';
+  import PollCreator from './PollCreator.svelte';
+  import { buildPollTags, type PollConfig } from '$lib/polls';
   import { uploadImage, uploadVideo } from '$lib/mediaUpload';
 
   export let event: NDKEvent;
@@ -41,6 +44,8 @@
   // Reply box state
   let showReplyBox = false;
   let showGifPicker = false;
+  let showPollCreator = false;
+  let pollConfig: PollConfig | null = null;
   let replyText = '';
   let postingReply = false;
   let replyComposerEl: HTMLDivElement;
@@ -304,7 +309,7 @@
 
   // Post reply
   async function postReply() {
-    if ((!replyText.trim() && uploadedImages.length === 0 && uploadedVideos.length === 0) || postingReply) return;
+    if ((!replyText.trim() && uploadedImages.length === 0 && uploadedVideos.length === 0 && !pollConfig) || postingReply) return;
 
     postingReply = true;
     try {
@@ -318,7 +323,7 @@
       // Check if this is a reply to a recipe comment (kind 1111)
       // If the parent comment is kind 1111, use kind 1111 for nested reply
       const isRecipeReply = event.kind === 1111;
-      ev.kind = isRecipeReply ? 1111 : 1;
+      ev.kind = pollConfig ? 1068 : (isRecipeReply ? 1111 : 1);
       let replyContent = mentionCtrl.replacePlainMentions(replyText.trim());
       const mediaUrls = [...uploadedImages, ...uploadedVideos];
       if (mediaUrls.length > 0) {
@@ -400,12 +405,16 @@
       }
 
       addClientTagToEvent(ev);
+      if (pollConfig) {
+        ev.tags.push(...buildPollTags(pollConfig));
+      }
       await ev.publish();
       replyText = '';
       lastRenderedReply = '';
       uploadedImages = [];
       uploadedVideos = [];
       uploadError = '';
+      pollConfig = null;
       if (replyComposerEl) {
         replyComposerEl.innerHTML = '';
       }
@@ -603,14 +612,30 @@
               >
                 <GifIcon size={16} />
               </button>
+              <button
+                on:click={() => (showPollCreator = true)}
+                class="btn-gif"
+                title="Create poll"
+                disabled={postingReply}
+                class:opacity-50={postingReply}
+              >
+                <ChartBarHorizontalIcon size={16} class={pollConfig ? 'text-primary' : ''} />
+              </button>
               {#if uploadingImage}
                 <span class="text-xs text-caption">Uploading image...</span>
               {:else if uploadingVideo}
                 <span class="text-xs text-caption">Uploading video...</span>
               {/if}
+              {#if pollConfig}
+                <span class="text-xs text-orange-600 flex items-center gap-1">
+                  <ChartBarHorizontalIcon size={12} />
+                  Poll ({pollConfig.options.length})
+                  <button type="button" on:click={() => (pollConfig = null)} class="hover:text-orange-800">×</button>
+                </span>
+              {/if}
               <button
                 on:click={postReply}
-                disabled={(!replyText.trim() && uploadedImages.length === 0 && uploadedVideos.length === 0) || postingReply || uploadingImage || uploadingVideo}
+                disabled={(!replyText.trim() && uploadedImages.length === 0 && uploadedVideos.length === 0 && !pollConfig) || postingReply || uploadingImage || uploadingVideo}
                 class="btn-post"
               >
                 {postingReply ? 'Posting...' : 'Post'}
@@ -649,6 +674,13 @@
   bind:open={showGifPicker}
   on:select={(e) => {
     uploadedImages = [...uploadedImages, e.detail.url];
+  }}
+/>
+
+<PollCreator
+  bind:open={showPollCreator}
+  on:create={(e) => {
+    pollConfig = e.detail;
   }}
 />
 

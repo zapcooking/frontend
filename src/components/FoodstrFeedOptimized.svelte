@@ -47,6 +47,7 @@
   import ShareModal from './ShareModal.svelte';
   import PostActionsMenu from './PostActionsMenu.svelte';
   import NoteContent from './NoteContent.svelte';
+  import PollDisplay from './PollDisplay.svelte';
   import VideoPreview from './VideoPreview.svelte';
   import AuthorName from './AuthorName.svelte';
   import {
@@ -1542,7 +1543,7 @@
   // This is a discovery function that benefits from temporary relay connections
   async function fetchNotesWithoutHashtags(sinceTimestamp: number): Promise<NDKEvent[]> {
     const filter = {
-      kinds: [1],
+      kinds: [1, 1068],
       limit: 300, // Increased limit for better discovery
       since: sinceTimestamp
     };
@@ -1659,7 +1660,7 @@
 
         // Build filter for cache lookup
         const cacheFilter: any = {
-          kinds: [1],
+          kinds: [1, 1068],
           since: timeWindow.since,
           limit: 50
         };
@@ -1862,7 +1863,7 @@
         // Start outbox fetch concurrently (don't wait for Primal to fail)
         const outboxOptions: any = {
           since: timeWindow.since,
-          kinds: [1],
+          kinds: [1, 1068],
           limit: foodFilterEnabled ? 200 : 300,
           timeoutMs: 5000,
           maxRelays: 10
@@ -2064,7 +2065,7 @@
         // Start outbox fetch concurrently
         const repliesOutboxOptions: any = {
           since: timeWindow.since,
-          kinds: [1],
+          kinds: [1, 1068],
           limit: foodFilterEnabled ? 200 : 300,
           timeoutMs: 5000,
           maxRelays: 10
@@ -2224,7 +2225,7 @@
         // Members feed should show everything from the members relay
         // NOTE: Members relay is private, so we use temporary relay set
         const memberFilter: any = {
-          kinds: [1],
+          kinds: [1, 1068],
           since: timeWindow.since,
           limit: 50
         };
@@ -2394,7 +2395,7 @@
 
         const now = Math.floor(Date.now() / 1000);
         const gardenFilter: any = {
-          kinds: [1],
+          kinds: [1, 1068],
           since: now - SEVEN_DAYS_SECONDS, // 7 days for garden relay
           limit: 100
         };
@@ -2592,7 +2593,7 @@
 
       // Build filters
       const hashtagFilter: any = {
-        kinds: [1],
+        kinds: [1, 1068],
         limit: authorPubkey && !foodFilterEnabled ? 100 : 50, // Fetch more for profile view when showing all posts
         since: timeWindow.since
       };
@@ -2745,7 +2746,7 @@
         const batch = followedPubkeysForRealtime.slice(i, i + 100);
 
         const filter: any = {
-          kinds: [1],
+          kinds: [1, 1068],
           authors: batch,
           since
         };
@@ -2784,7 +2785,7 @@
 
       // Subscribe to member relay - show ALL content (not just food-tagged)
       const memberFilter: any = {
-        kinds: [1],
+        kinds: [1, 1068],
         since
       };
 
@@ -2823,7 +2824,7 @@
     if (filterMode === 'garden') {
       // Subscribe to garden relay - content filtering controlled by foodFilterEnabled toggle
       const gardenFilter: any = {
-        kinds: [1],
+        kinds: [1, 1068],
         since
       };
 
@@ -2885,7 +2886,7 @@
     // Global mode / Profile view - default subscription
     // Single subscription for content (food-filtered or all posts based on context)
     const hashtagFilter: any = {
-      kinds: [1],
+      kinds: [1, 1068],
       since
     };
 
@@ -3009,7 +3010,7 @@
         // Build options - only include food filter when enabled
         const supplementOptions: any = {
           since: sevenDaysAgo(),
-          kinds: [1],
+          kinds: [1, 1068],
           limit: foodFilterEnabled ? 50 : 100, // Fetch more when showing all posts
           timeoutMs: 5000,
           maxRelays: 10
@@ -3290,7 +3291,7 @@
 
       const timeWindow = calculateTimeWindow('initial');
       const filter: any = {
-        kinds: [1],
+        kinds: [1, 1068],
         limit: authorPubkey && !foodFilterEnabled ? 100 : 50, // Fetch more for profile view when showing all posts
         since: timeWindow.since
       };
@@ -3391,7 +3392,7 @@
         const loadMoreOptions: any = {
           since: paginationWindow.since,
           until: paginationWindow.until,
-          kinds: [1],
+          kinds: [1, 1068],
           limit: foodFilterEnabled ? 100 : 150, // Fetch more when showing all posts
           timeoutMs: 5000,
           maxRelays: 10
@@ -3425,7 +3426,7 @@
 
         // Fetch older events from member relay (all content, not just food-tagged)
         const memberFilter: any = {
-          kinds: [1],
+          kinds: [1, 1068],
           since: paginationWindow.since,
           until: paginationWindow.until,
           limit: 100 // Increased from 20 for deeper pagination
@@ -3455,7 +3456,7 @@
         }
 
         const gardenFilter: any = {
-          kinds: [1],
+          kinds: [1, 1068],
           since: paginationWindow.since,
           until: paginationWindow.until,
           limit: 100 // Increased from 20 for deeper pagination
@@ -3472,7 +3473,7 @@
       } else {
         // Global mode / Profile view - use hashtag filter with timeboxing
         const filter: any = {
-          kinds: [1],
+          kinds: [1, 1068],
           since: paginationWindow.since,
           until: paginationWindow.until,
           limit: authorPubkey && !foodFilterEnabled ? 150 : 100 // Fetch more for profile view when showing all posts
@@ -3691,7 +3692,7 @@
   }
 
   function isReply(event: NDKEvent): boolean {
-    if (event.kind !== 1) return false;
+    if (event.kind !== 1 && event.kind !== 1068) return false;
 
     const eTags = event.tags.filter((tag) => Array.isArray(tag) && tag[0] === 'e' && tag[1]);
 
@@ -3772,7 +3773,7 @@
       try {
         // Fetch parent note
         const parentNote = await $ndk.fetchEvent({
-          kinds: [1],
+          kinds: [1, 1068 as number] as number[],
           ids: [eventId]
         });
 
@@ -5150,7 +5151,9 @@
               {/if}
 
               <!-- Content - strip quoted note reference if present to avoid bubble embed -->
-              {#if hasQuotedNote(event)}
+              {#if event.kind === 1068}
+                <PollDisplay {event} />
+              {:else if hasQuotedNote(event)}
                 {@const cleanContent = getContentWithoutMedia(
                   getContentWithoutQuote(event.content)
                 )}
