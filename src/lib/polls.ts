@@ -50,9 +50,18 @@ const ALPHANUMERIC = 'abcdefghijklmnopqrstuvwxyz0123456789';
 
 /** Generate a random 9-char alphanumeric string for option IDs */
 export function generateOptionId(): string {
+  const length = 9;
   let id = '';
-  for (let i = 0; i < 9; i++) {
-    id += ALPHANUMERIC[Math.floor(Math.random() * ALPHANUMERIC.length)];
+  if (typeof globalThis.crypto?.getRandomValues === 'function') {
+    const bytes = new Uint8Array(length);
+    globalThis.crypto.getRandomValues(bytes);
+    for (let i = 0; i < length; i++) {
+      id += ALPHANUMERIC[bytes[i] % ALPHANUMERIC.length];
+    }
+  } else {
+    for (let i = 0; i < length; i++) {
+      id += ALPHANUMERIC[Math.floor(Math.random() * ALPHANUMERIC.length)];
+    }
   }
   return id;
 }

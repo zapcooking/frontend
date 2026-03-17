@@ -33,7 +33,7 @@
 
   $: expired = pollData ? isPollExpired(pollData.endsAt) : false;
   $: userVoted = $userPublickey ? results.voters.has($userPublickey) : false;
-  $: displayResults = showResults || userVoted || expired || voted;
+  $: displayResults = showResults || userVoted || expired || voted || !$userPublickey;
   $: userSelectedOptions = $userPublickey
     ? results.votesByPubkey.get($userPublickey) || []
     : [];

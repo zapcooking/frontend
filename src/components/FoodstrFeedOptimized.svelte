@@ -3773,9 +3773,9 @@
       try {
         // Fetch parent note
         const parentNote = await $ndk.fetchEvent({
-          kinds: [1, 1068 as number],
+          kinds: [1, 1068 as number] as number[],
           ids: [eventId]
-        } as any);
+        });
 
         if (!parentNote) {
           const error = 'deleted';

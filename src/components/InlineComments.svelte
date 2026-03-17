@@ -226,9 +226,9 @@
           // Try creating a new event and publishing it
           const newCommentEvent = new NDKEvent($ndk);
           const isRecipe = event.kind === 30023;
-          newCommentEvent.kind = isRecipe ? 1111 : 1;
+          newCommentEvent.kind = pollConfig ? 1068 : (isRecipe ? 1111 : 1);
           newCommentEvent.content = commentText.trim();
-          
+
           // Use shared utility to build NIP-22 or NIP-10 tags
           newCommentEvent.tags = buildNip22CommentTags({
             kind: event.kind ?? 1,
@@ -236,9 +236,13 @@
             id: event.id,
             tags: event.tags as string[][]
           });
-          
+
           // Add NIP-89 client tag
           addClientTagToEvent(newCommentEvent);
+
+          if (pollConfig) {
+            newCommentEvent.tags.push(...buildPollTags(pollConfig));
+          }
           
           await newCommentEvent.sign();
           console.log('New event signed, attempting publish...');

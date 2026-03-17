@@ -95,8 +95,12 @@
           <span class="text-xs text-caption w-5 text-center flex-shrink-0">{index + 1}</span>
           <input
             type="text"
-            bind:value={option.label}
-            placeholder="Option {index + 1}"
+            value={option.label}
+            on:input={(e) => {
+              options[index] = { ...options[index], label: e.currentTarget.value };
+              options = options;
+            }}
+            placeholder={`Option ${index + 1}`}
             class="poll-option-input flex-1"
             maxlength="80"
           />
@@ -132,7 +136,7 @@
           type="datetime-local"
           bind:value={endsAtInput}
           class="poll-option-input mt-2 w-full"
-          min={new Date().toISOString().slice(0, 16)}
+          min={new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16)}
         />
       {/if}
     </div>
