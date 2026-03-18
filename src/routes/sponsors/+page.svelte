@@ -658,25 +658,32 @@
                 </div>
 
                 <!-- Live Preview -->
-                {#if adTitle.trim() && adImageUrl}
-                  <div class="mt-4">
+                {#if adTitle.trim() || adImageUrl || adDescription.trim()}
+                  <div class="mt-4 sponsor-preview-section">
                     <h3 class="text-xs font-semibold uppercase mb-2" style="color: var(--color-caption); letter-spacing: 0.06em;">
                       Preview
                     </h3>
-                    {#if selectedTier === 'headline'}
-                      <SponsorBanner
-                        title={adTitle}
-                        description={adDescription}
-                        imageUrl={adImageUrl}
-                        linkUrl={adLinkUrl || '#'}
-                      />
-                    {:else}
-                      <SponsorFeedCard
-                        title={adTitle}
-                        description={adDescription}
-                        imageUrl={adImageUrl}
-                        linkUrl={adLinkUrl || '#'}
-                      />
+                    <div class="sponsor-preview-box">
+                      {#if selectedTier === 'headline'}
+                        <SponsorBanner
+                          title={adTitle || 'Your ad headline'}
+                          description={adDescription || 'Short description of your ad'}
+                          imageUrl={adImageUrl || ''}
+                          linkUrl={adLinkUrl || '#'}
+                        />
+                      {:else}
+                        <SponsorFeedCard
+                          title={adTitle || 'Your ad headline'}
+                          description={adDescription || 'Short description of your ad'}
+                          imageUrl={adImageUrl || ''}
+                          linkUrl={adLinkUrl || '#'}
+                        />
+                      {/if}
+                    </div>
+                    {#if !adTitle.trim() || !adImageUrl || !adLinkUrl.trim()}
+                      <p class="text-xs mt-1.5" style="color: var(--color-caption); opacity: 0.6;">
+                        {#if !adTitle.trim()}Title required. {/if}{#if !adImageUrl}Image required. {/if}{#if !adLinkUrl.trim()}Link URL required.{/if}
+                      </p>
                     {/if}
                   </div>
                 {/if}
@@ -917,7 +924,7 @@
   .showcase-card-image img {
     width: 100%;
     height: 100%;
-    object-fit: cover;
+    object-fit: contain;
   }
 
   .showcase-card-body {
@@ -1139,6 +1146,17 @@
     max-height: 200px;
     border-radius: 0.5rem;
     object-fit: cover;
+  }
+
+  .sponsor-preview-section {
+    padding: 0.75rem;
+    border: 1px dashed var(--color-input-border);
+    border-radius: 0.75rem;
+    background: var(--color-bg-primary);
+  }
+
+  .sponsor-preview-box {
+    pointer-events: none;
   }
 
   .tier-card {
