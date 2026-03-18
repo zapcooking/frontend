@@ -172,7 +172,7 @@
             >
               <div class="poll-img-area">
                 {#if option.image}
-                  <img src={option.image} alt={option.label} class="poll-img" />
+                  <img src={option.image} alt={option.label || `Option ${i + 1}`} class="poll-img" />
                 {:else}
                   <div class="poll-img-placeholder"></div>
                 {/if}
@@ -202,10 +202,11 @@
               class:poll-img-card-last-odd={isLast}
               on:click={() => toggleOption(option.id)}
               disabled={expired || voting}
+              aria-label={option.label || `Option ${i + 1}`}
             >
               <div class="poll-img-area">
                 {#if option.image}
-                  <img src={option.image} alt={option.label} class="poll-img" />
+                  <img src={option.image} alt={option.label || `Option ${i + 1}`} class="poll-img" />
                 {:else}
                   <div class="poll-img-placeholder"></div>
                 {/if}

@@ -80,7 +80,7 @@ export function parsePollFromEvent(event: NDKEvent): PollData | null {
   let endsAt: number | undefined;
 
   for (const tag of event.tags) {
-    if (tag[0] === 'option' && tag[1] && tag[2]) {
+    if (tag[0] === 'option' && tag[1] && tag.length >= 3) {
       options.push({ id: tag[1], label: tag[2], image: tag[3] || undefined });
     } else if (tag[0] === 'polltype' && tag[1]) {
       pollType = tag[1] === 'multiplechoice' ? 'multiplechoice' : 'singlechoice';

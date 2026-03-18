@@ -26,12 +26,12 @@
   // Image upload state
   let uploadingIndex: number | null = null;
   let uploadError = '';
-  let fileInputs: Record<number, HTMLInputElement> = {};
+  let fileInputs: Record<number, HTMLInputElement | null> = {};
 
   $: validOptions = options.filter((o) => o.label.trim().length > 0 || o.image);
   $: canCreate = validOptions.length >= 2;
-  $: totalMinutes = days * 1440 + hours * 60 + minutes;
-  $: durationLabel = formatDuration(days, hours, minutes);
+  $: totalMinutes = Number(days) * 1440 + Number(hours) * 60 + Number(minutes);
+  $: durationLabel = formatDuration(Number(days), Number(hours), Number(minutes));
 
   function formatDuration(d: number, h: number, m: number): string {
     const parts: string[] = [];
