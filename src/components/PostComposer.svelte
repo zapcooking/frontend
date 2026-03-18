@@ -414,321 +414,325 @@
         <a href="/login" class="text-sm underline hover:opacity-80">Sign in</a>
       </div>
     {:else}
-      <div class={`p-3 ${variant === 'modal' ? 'flex-1 flex flex-col' : ''}`}>
-        <div class={`flex gap-3 ${variant === 'modal' ? 'flex-1' : ''}`}>
-          <CustomAvatar pubkey={$userPublickey} size={36} />
-          <div class={`flex-1 ${variant === 'modal' ? 'flex flex-col' : ''}`}>
-            <div class={`relative ${variant === 'modal' ? 'flex-1' : ''}`}>
-              <div
-                bind:this={composerEl}
-                class={`composer-input w-full min-h-[120px] sm:min-h-[100px] overflow-y-auto p-2 border-0 focus:outline-none focus:ring-0 bg-transparent ${variant === 'modal' ? 'max-h-[40vh]' : 'max-h-[50vh]'}`}
-                style="color: var(--color-text-primary); font-size: 16px;"
-                contenteditable={!posting}
-                role="textbox"
-                aria-multiline="true"
-                data-placeholder="What are you eating, cooking, or loving?"
-                on:keydown={handleKeydown}
-                on:input={() => mentionCtrl.handleInput()}
-                on:beforeinput={(e) => mentionCtrl.handleBeforeInput(e)}
-                on:paste={(e) => mentionCtrl.handlePaste(e)}
-              ></div>
+      <div class={`${variant === 'modal' ? 'flex-1 flex flex-col min-h-0' : 'p-3'}`}>
+        <!-- Scrollable content area -->
+        <div class={variant === 'modal' ? 'composer-scroll-area flex-1 overflow-y-auto min-h-0 p-3' : ''}>
+          <div class="flex gap-3">
+            <CustomAvatar pubkey={$userPublickey} size={36} />
+            <div class="flex-1">
+              <div class="relative">
+                <div
+                  bind:this={composerEl}
+                  class={`composer-input w-full overflow-y-auto p-2 border-0 focus:outline-none focus:ring-0 bg-transparent ${variant === 'modal' ? 'min-h-[80px] max-h-none' : 'min-h-[120px] sm:min-h-[100px] max-h-[50vh]'}`}
+                  style="color: var(--color-text-primary); font-size: 16px;"
+                  contenteditable={!posting}
+                  role="textbox"
+                  aria-multiline="true"
+                  data-placeholder="What are you eating, cooking, or loving?"
+                  on:keydown={handleKeydown}
+                  on:input={() => mentionCtrl.handleInput()}
+                  on:beforeinput={(e) => mentionCtrl.handleBeforeInput(e)}
+                  on:paste={(e) => mentionCtrl.handlePaste(e)}
+                ></div>
 
-              <MentionDropdown
-                show={mentionState.showMentionSuggestions}
-                suggestions={mentionState.mentionSuggestions}
-                selectedIndex={mentionState.selectedMentionIndex}
-                searching={mentionState.mentionSearching}
-                query={mentionState.mentionQuery}
-                on:select={(e) => mentionCtrl.insertMention(e.detail)}
-              />
-            </div>
+                <MentionDropdown
+                  show={mentionState.showMentionSuggestions}
+                  suggestions={mentionState.mentionSuggestions}
+                  selectedIndex={mentionState.selectedMentionIndex}
+                  searching={mentionState.mentionSearching}
+                  query={mentionState.mentionQuery}
+                  on:select={(e) => mentionCtrl.insertMention(e.detail)}
+                />
+              </div>
 
-            {#if error}
-              <p class="text-red-500 text-xs mb-2">{error}</p>
-            {/if}
-
-            {#if success}
-              {#if successQueued}
-                <p class="text-amber-600 text-xs mb-2">
-                  Post queued — will publish when connection improves
-                </p>
-              {:else}
-                <p class="text-green-600 text-xs mb-2">Posted!</p>
+              {#if error}
+                <p class="text-red-500 text-xs mb-2">{error}</p>
               {/if}
-            {/if}
 
-            {#if quotedNote}
-              <div class="quoted-note-embed mb-3">
-                <div class="quoted-note-header">
-                  <CustomAvatar pubkey={quotedNote.event.pubkey} size={16} />
-                  <span class="quoted-note-author">
-                    <ProfileLink
-                      nostrString={'nostr:' + nip19.npubEncode(quotedNote.event.pubkey)}
-                    />
+              {#if success}
+                {#if successQueued}
+                  <p class="text-amber-600 text-xs mb-2">
+                    Post queued — will publish when connection improves
+                  </p>
+                {:else}
+                  <p class="text-green-600 text-xs mb-2">Posted!</p>
+                {/if}
+              {/if}
+
+              {#if quotedNote}
+                <div class="quoted-note-embed mb-3">
+                  <div class="quoted-note-header">
+                    <CustomAvatar pubkey={quotedNote.event.pubkey} size={16} />
+                    <span class="quoted-note-author">
+                      <ProfileLink
+                        nostrString={'nostr:' + nip19.npubEncode(quotedNote.event.pubkey)}
+                      />
+                    </span>
+                    <button
+                      type="button"
+                      on:click={() => (quotedNote = null)}
+                      class="ml-auto text-caption hover:opacity-80 p-0.5 hover:bg-input rounded transition-colors"
+                      aria-label="Remove quote"
+                    >
+                      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          stroke-width="2"
+                          d="M6 18L18 6M6 6l12 12"
+                        />
+                      </svg>
+                    </button>
+                  </div>
+
+                  <div class="quoted-note-content">
+                    <NoteContent content={quotedNote.event.content || ''} />
+                  </div>
+                </div>
+              {/if}
+
+              {#if uploadedImages.length > 0}
+                <div class="mb-2 flex flex-wrap gap-2">
+                  {#each uploadedImages as imageUrl, index}
+                    <div class="relative group">
+                      <img
+                        src={imageUrl}
+                        alt="Upload preview"
+                        class="composer-img-preview object-cover rounded-lg"
+                        style="border: 1px solid var(--color-input-border)"
+                      />
+                      <button
+                        type="button"
+                        on:click={() => removeImage(index)}
+                        class="absolute -top-2 -right-2 bg-red-500 hover:bg-red-600 text-white rounded-full p-1 shadow-lg transition-all opacity-90 hover:opacity-100"
+                        disabled={posting}
+                        aria-label="Remove image"
+                      >
+                        <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                            stroke-width="2"
+                            d="M6 18L18 6M6 6l12 12"
+                          />
+                        </svg>
+                      </button>
+                    </div>
+                  {/each}
+                </div>
+              {/if}
+
+              {#if uploadedVideos.length > 0}
+                <div class="mb-2 flex flex-wrap gap-2">
+                  {#each uploadedVideos as videoUrl, index}
+                    <div class="relative group">
+                      <video
+                        src={videoUrl}
+                        class="w-32 h-20 object-cover rounded-lg"
+                        style="border: 1px solid var(--color-input-border)"
+                        preload="metadata"
+                        muted
+                      />
+                      <button
+                        type="button"
+                        on:click={() => removeVideo(index)}
+                        class="absolute -top-2 -right-2 bg-red-500 hover:bg-red-600 text-white rounded-full p-1 shadow-lg transition-all opacity-90 hover:opacity-100"
+                        disabled={posting}
+                        aria-label="Remove video"
+                      >
+                        <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                            stroke-width="2"
+                            d="M6 18L18 6M6 6l12 12"
+                          />
+                        </svg>
+                      </button>
+                    </div>
+                  {/each}
+                </div>
+              {/if}
+
+              {#if pollConfig}
+                <div class="mb-2 flex items-center gap-2 px-3 py-1.5 rounded-lg bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800">
+                  <ChartBarHorizontalIcon size={14} class="text-orange-600 dark:text-orange-400" />
+                  <span class="text-xs font-medium text-orange-700 dark:text-orange-300">
+                    Poll: {pollConfig.options.length} options
                   </span>
                   <button
                     type="button"
-                    on:click={() => (quotedNote = null)}
-                    class="ml-auto text-caption hover:opacity-80 p-0.5 hover:bg-input rounded transition-colors"
-                    aria-label="Remove quote"
+                    on:click={() => (pollConfig = null)}
+                    class="ml-auto text-orange-500 hover:text-orange-700 p-0.5"
+                    aria-label="Remove poll"
                   >
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        stroke-width="2"
-                        d="M6 18L18 6M6 6l12 12"
-                      />
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
                     </svg>
                   </button>
                 </div>
+              {/if}
 
-                <div class="quoted-note-content">
-                  <NoteContent content={quotedNote.event.content || ''} />
+              {#if activeTab === 'members' || selectedRelay === 'pantry'}
+                <div
+                  class="mb-2 px-3 py-1.5 rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800"
+                >
+                  <p class="text-xs font-medium text-blue-700 dark:text-blue-300">
+                    🏪 The Pantry — If you're seeing this, you're early.
+                  </p>
                 </div>
-              </div>
-            {/if}
-
-            {#if uploadedImages.length > 0}
-              <div class="mb-2 flex flex-wrap gap-2">
-                {#each uploadedImages as imageUrl, index}
-                  <div class="relative group">
-                    <img
-                      src={imageUrl}
-                      alt="Upload preview"
-                      class="w-20 h-20 object-cover rounded-lg"
-                      style="border: 1px solid var(--color-input-border)"
-                    />
-                    <button
-                      type="button"
-                      on:click={() => removeImage(index)}
-                      class="absolute -top-2 -right-2 bg-red-500 hover:bg-red-600 text-white rounded-full p-1 shadow-lg transition-all opacity-90 hover:opacity-100"
-                      disabled={posting}
-                      aria-label="Remove image"
-                    >
-                      <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path
-                          stroke-linecap="round"
-                          stroke-linejoin="round"
-                          stroke-width="2"
-                          d="M6 18L18 6M6 6l12 12"
-                        />
-                      </svg>
-                    </button>
-                  </div>
-                {/each}
-              </div>
-            {/if}
-
-            {#if uploadedVideos.length > 0}
-              <div class="mb-2 flex flex-wrap gap-2">
-                {#each uploadedVideos as videoUrl, index}
-                  <div class="relative group">
-                    <video
-                      src={videoUrl}
-                      class="w-32 h-20 object-cover rounded-lg"
-                      style="border: 1px solid var(--color-input-border)"
-                      preload="metadata"
-                      muted
-                    />
-                    <button
-                      type="button"
-                      on:click={() => removeVideo(index)}
-                      class="absolute -top-2 -right-2 bg-red-500 hover:bg-red-600 text-white rounded-full p-1 shadow-lg transition-all opacity-90 hover:opacity-100"
-                      disabled={posting}
-                      aria-label="Remove video"
-                    >
-                      <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path
-                          stroke-linecap="round"
-                          stroke-linejoin="round"
-                          stroke-width="2"
-                          d="M6 18L18 6M6 6l12 12"
-                        />
-                      </svg>
-                    </button>
-                  </div>
-                {/each}
-              </div>
-            {/if}
-
-            {#if pollConfig}
-              <div class="mb-2 flex items-center gap-2 px-3 py-1.5 rounded-lg bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800">
-                <ChartBarHorizontalIcon size={14} class="text-orange-600 dark:text-orange-400" />
-                <span class="text-xs font-medium text-orange-700 dark:text-orange-300">
-                  Poll: {pollConfig.options.length} options
-                </span>
-                <button
-                  type="button"
-                  on:click={() => (pollConfig = null)}
-                  class="ml-auto text-orange-500 hover:text-orange-700 p-0.5"
-                  aria-label="Remove poll"
+              {:else if activeTab === 'garden' || selectedRelay === 'garden'}
+                <div
+                  class="mb-2 px-3 py-1.5 rounded-lg bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800"
                 >
-                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
-              </div>
-            {/if}
-
-            {#if activeTab === 'members' || selectedRelay === 'pantry'}
-              <div
-                class="mb-2 px-3 py-1.5 rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800"
-              >
-                <p class="text-xs font-medium text-blue-700 dark:text-blue-300">
-                  🏪 The Pantry — If you're seeing this, you're early.
-                </p>
-              </div>
-            {:else if activeTab === 'garden' || selectedRelay === 'garden'}
-              <div
-                class="mb-2 px-3 py-1.5 rounded-lg bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800"
-              >
-                <p class="text-xs font-medium text-green-700 dark:text-green-300">
-                  🌱 Posting to: <span class="font-semibold">garden.zap.cooking</span>
-                </p>
-              </div>
-            {:else if selectedRelay === 'garden-pantry'}
-              <div
-                class="mb-2 px-3 py-1.5 rounded-lg bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800"
-              >
-                <p class="text-xs font-medium text-purple-700 dark:text-purple-300">
-                  🌱🏪 Posting to Garden + Pantry
-                </p>
-              </div>
-            {:else if selectedRelay === 'all'}
-              <div
-                class="mb-2 px-3 py-1.5 rounded-lg bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800"
-              >
-                <p class="text-xs font-medium text-orange-700 dark:text-orange-300">
-                  📡 Posting to: <span class="font-semibold">All connected relays</span>
-                </p>
-              </div>
-            {/if}
-
-            <div
-              class="flex items-center justify-between pt-2 border-t"
-              style="border-color: var(--color-input-border)"
-            >
-              <div class="flex items-center gap-3">
-                <label
-                  class="cursor-pointer p-1.5 rounded-full hover:bg-accent-gray transition-colors"
-                  class:opacity-50={posting || uploadingImage || uploadingVideo}
-                  class:cursor-not-allowed={posting || uploadingImage || uploadingVideo}
-                  aria-disabled={posting || uploadingImage}
-                  title="Upload image"
+                  <p class="text-xs font-medium text-green-700 dark:text-green-300">
+                    🌱 Posting to: <span class="font-semibold">garden.zap.cooking</span>
+                  </p>
+                </div>
+              {:else if selectedRelay === 'garden-pantry'}
+                <div
+                  class="mb-2 px-3 py-1.5 rounded-lg bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800"
                 >
-                  <ImageIcon size={18} class="text-caption" />
-                  <input
-                    bind:this={imageInputEl}
-                    type="file"
-                    accept="image/*"
-                    class="sr-only"
-                    on:change={handleImageUpload}
-                    disabled={posting || uploadingImage}
-                  />
-                </label>
-
-                <label
-                  class="cursor-pointer p-1.5 rounded-full hover:bg-accent-gray transition-colors"
-                  class:opacity-50={posting || uploadingVideo}
-                  class:cursor-not-allowed={posting || uploadingVideo}
-                  aria-disabled={posting || uploadingVideo}
-                  title="Upload video"
+                  <p class="text-xs font-medium text-purple-700 dark:text-purple-300">
+                    🌱🏪 Posting to Garden + Pantry
+                  </p>
+                </div>
+              {:else if selectedRelay === 'all'}
+                <div
+                  class="mb-2 px-3 py-1.5 rounded-lg bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800"
                 >
-                  <VideoIcon size={18} class="text-caption" />
-                  <input
-                    bind:this={videoInputEl}
-                    type="file"
-                    accept="video/*"
-                    class="sr-only"
-                    on:change={handleVideoUpload}
-                    disabled={posting || uploadingVideo}
-                  />
-                </label>
-
-                <button
-                  on:click={() => (showGifPicker = true)}
-                  class="p-1.5 rounded-full hover:bg-accent-gray transition-colors"
-                  class:opacity-50={posting}
-                  class:cursor-not-allowed={posting}
-                  disabled={posting}
-                  title="Add GIF"
-                >
-                  <GifIcon size={18} class="text-caption" />
-                </button>
-
-                <button
-                  on:click={() => (showPollCreator = true)}
-                  class="p-1.5 rounded-full hover:bg-accent-gray transition-colors"
-                  class:opacity-50={posting}
-                  class:cursor-not-allowed={posting}
-                  disabled={posting}
-                  title="Create poll"
-                >
-                  <ChartBarHorizontalIcon size={18} class={pollConfig ? 'text-primary' : 'text-caption'} />
-                </button>
-
-                {#if uploadingImage}
-                  <span class="text-xs text-caption">Uploading image...</span>
-                {:else if uploadingVideo}
-                  <span class="text-xs text-caption">Uploading video...</span>
-                {/if}
-              </div>
-
-              <div class="flex items-center gap-2">
-                {#if $publishQueueState.pending > 0}
-                  <span
-                    class="text-xs text-amber-600 flex items-center gap-1"
-                    title="Posts queued for retry"
-                  >
-                    <svg class="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24">
-                      <circle
-                        class="opacity-25"
-                        cx="12"
-                        cy="12"
-                        r="10"
-                        stroke="currentColor"
-                        stroke-width="4"
-                      ></circle>
-                      <path
-                        class="opacity-75"
-                        fill="currentColor"
-                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                      ></path>
-                    </svg>
-                    {$publishQueueState.pending} pending
-                  </span>
-                  <button
-                    on:click={clearPendingQueue}
-                    class="text-xs text-red-500 hover:text-red-600 underline"
-                    title="Clear stuck posts from queue"
-                  >
-                    clear
-                  </button>
-                {/if}
-                <button
-                  on:click={closeComposer}
-                  class="px-3 py-1.5 text-xs text-caption hover:opacity-80 transition-colors"
-                  disabled={posting}
-                >
-                  Cancel
-                </button>
-                <button
-                  on:click={postToFeed}
-                  disabled={posting ||
-                    uploadingImage ||
-                    uploadingVideo ||
-                    (!content.trim() &&
-                      uploadedImages.length === 0 &&
-                      uploadedVideos.length === 0 &&
-                      !quotedNote &&
-                      !pollConfig)}
-                  class="px-4 py-1.5 text-xs font-medium text-white bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 rounded-full disabled:opacity-50 disabled:cursor-not-allowed transition-all"
-                >
-                  {posting ? 'Posting...' : 'Post'}
-                </button>
-              </div>
+                  <p class="text-xs font-medium text-orange-700 dark:text-orange-300">
+                    📡 Posting to: <span class="font-semibold">All connected relays</span>
+                  </p>
+                </div>
+              {/if}
             </div>
+          </div>
+        </div>
+
+        <!-- Action bar — pinned at bottom in modal, inline otherwise -->
+        <div
+          class="flex items-center justify-between pt-2 {variant === 'modal' ? 'flex-shrink-0 px-3 pb-3' : ''}"
+          style="border-top: 1px solid var(--color-input-border)"
+        >
+          <div class="flex items-center gap-3">
+            <label
+              class="cursor-pointer p-1.5 rounded-full hover:bg-accent-gray transition-colors"
+              class:opacity-50={posting || uploadingImage || uploadingVideo}
+              class:cursor-not-allowed={posting || uploadingImage || uploadingVideo}
+              aria-disabled={posting || uploadingImage}
+              title="Upload image"
+            >
+              <ImageIcon size={18} class="text-caption" />
+              <input
+                bind:this={imageInputEl}
+                type="file"
+                accept="image/*"
+                class="sr-only"
+                on:change={handleImageUpload}
+                disabled={posting || uploadingImage}
+              />
+            </label>
+
+            <label
+              class="cursor-pointer p-1.5 rounded-full hover:bg-accent-gray transition-colors"
+              class:opacity-50={posting || uploadingVideo}
+              class:cursor-not-allowed={posting || uploadingVideo}
+              aria-disabled={posting || uploadingVideo}
+              title="Upload video"
+            >
+              <VideoIcon size={18} class="text-caption" />
+              <input
+                bind:this={videoInputEl}
+                type="file"
+                accept="video/*"
+                class="sr-only"
+                on:change={handleVideoUpload}
+                disabled={posting || uploadingVideo}
+              />
+            </label>
+
+            <button
+              on:click={() => (showGifPicker = true)}
+              class="p-1.5 rounded-full hover:bg-accent-gray transition-colors"
+              class:opacity-50={posting}
+              class:cursor-not-allowed={posting}
+              disabled={posting}
+              title="Add GIF"
+            >
+              <GifIcon size={18} class="text-caption" />
+            </button>
+
+            <button
+              on:click={() => (showPollCreator = true)}
+              class="p-1.5 rounded-full hover:bg-accent-gray transition-colors"
+              class:opacity-50={posting}
+              class:cursor-not-allowed={posting}
+              disabled={posting}
+              title="Create poll"
+            >
+              <ChartBarHorizontalIcon size={18} class={pollConfig ? 'text-primary' : 'text-caption'} />
+            </button>
+
+            {#if uploadingImage}
+              <span class="text-xs text-caption">Uploading image...</span>
+            {:else if uploadingVideo}
+              <span class="text-xs text-caption">Uploading video...</span>
+            {/if}
+          </div>
+
+          <div class="flex items-center gap-2">
+            {#if $publishQueueState.pending > 0}
+              <span
+                class="text-xs text-amber-600 flex items-center gap-1"
+                title="Posts queued for retry"
+              >
+                <svg class="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24">
+                  <circle
+                    class="opacity-25"
+                    cx="12"
+                    cy="12"
+                    r="10"
+                    stroke="currentColor"
+                    stroke-width="4"
+                  ></circle>
+                  <path
+                    class="opacity-75"
+                    fill="currentColor"
+                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                  ></path>
+                </svg>
+                {$publishQueueState.pending} pending
+              </span>
+              <button
+                on:click={clearPendingQueue}
+                class="text-xs text-red-500 hover:text-red-600 underline"
+                title="Clear stuck posts from queue"
+              >
+                clear
+              </button>
+            {/if}
+            <button
+              on:click={closeComposer}
+              class="px-3 py-1.5 text-xs text-caption hover:opacity-80 transition-colors"
+              disabled={posting}
+            >
+              Cancel
+            </button>
+            <button
+              on:click={postToFeed}
+              disabled={posting ||
+                uploadingImage ||
+                uploadingVideo ||
+                (!content.trim() &&
+                  uploadedImages.length === 0 &&
+                  uploadedVideos.length === 0 &&
+                  !quotedNote &&
+                  !pollConfig)}
+              class="px-4 py-1.5 text-xs font-medium text-white bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 rounded-full disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+            >
+              {posting ? 'Posting...' : 'Post'}
+            </button>
           </div>
         </div>
       </div>
@@ -754,6 +758,32 @@
   .composer-input {
     white-space: pre-wrap;
     word-break: break-word;
+  }
+
+  /* Scrollable content area for modal variant */
+  .composer-scroll-area {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-input-border) transparent;
+  }
+
+  .composer-scroll-area::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  .composer-scroll-area::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .composer-scroll-area::-webkit-scrollbar-thumb {
+    background: var(--color-input-border);
+    border-radius: 3px;
+  }
+
+  /* Constrain image preview size so they don't dominate the scroll area */
+  .composer-img-preview {
+    width: 5rem;
+    height: 5rem;
+    max-height: 200px;
   }
 
   /* Custom scrollbar for composer */
