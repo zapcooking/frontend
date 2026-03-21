@@ -423,7 +423,7 @@
               <div class="relative">
                 <div
                   bind:this={composerEl}
-                  class={`composer-input w-full overflow-y-auto p-2 border-0 focus:outline-none focus:ring-0 bg-transparent ${variant === 'modal' ? 'min-h-[80px] max-h-none' : 'min-h-[120px] sm:min-h-[100px] max-h-[50vh]'}`}
+                  class={`composer-input w-full overflow-y-auto p-2 border-0 focus:outline-none focus:ring-0 bg-transparent ${variant === 'modal' ? 'min-h-[80px] max-h-[40vh]' : 'min-h-[120px] sm:min-h-[100px] max-h-[50vh]'}`}
                   style="color: var(--color-text-primary); font-size: 16px;"
                   contenteditable={!posting}
                   role="textbox"

@@ -15,8 +15,8 @@
   }
 </script>
 
-<Modal bind:open allowOverflow={true} noHeader={true}>
-  <div class="flex flex-col gap-4 flex-1">
+<Modal bind:open allowOverflow={false} noHeader={true}>
+  <div class="flex flex-col gap-4 flex-1 min-h-0 overflow-hidden">
     <!-- Header: relay selector on left, X on right -->
     <div class="flex items-center justify-between">
       <div class="flex items-center gap-2">
