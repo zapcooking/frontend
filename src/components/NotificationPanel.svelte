@@ -60,20 +60,6 @@
     }
   }
 
-  // Clean nostr: references for compact panel display
-  function formatContent(content: string): string {
-    if (!content) return '';
-    return content
-      .replace(/nostr:(npub1|nprofile1)[a-z0-9]+/gi, '@someone')
-      .replace(/nostr:(nevent1|note1)[a-z0-9]+/gi, '[note]')
-      .replace(/nostr:(naddr1)[a-z0-9]+/gi, '[post]')
-      .replace(/\b(npub1|nprofile1)[a-z0-9]+\b/gi, '@someone')
-      .replace(/\b(nevent1|note1)[a-z0-9]+\b/gi, '[note]')
-      .replace(/\b(naddr1)[a-z0-9]+\b/gi, '[post]')
-      .replace(/\s+/g, ' ')
-      .trim();
-  }
-
   function viewAll() {
     onClose();
     goto('/notifications');
@@ -126,7 +112,7 @@
             </p>
             {#if notification.content}
               <p class="text-xs truncate mt-0.5" style="color: var(--color-text-secondary)">
-                {formatContent(notification.content)}
+                {notification.content}
               </p>
             {/if}
             <p class="text-xs mt-0.5" style="color: var(--color-text-secondary)">
