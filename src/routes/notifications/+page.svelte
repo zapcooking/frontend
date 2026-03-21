@@ -267,31 +267,34 @@
 
     refs.forEach((ref) => refsInFlight.add(ref));
 
+    const newResolved: Record<string, string> = {};
     await Promise.all(
       refs.map(async (ref) => {
         try {
           if (ref.startsWith('nevent1') || ref.startsWith('note1')) {
             const result = await resolveNote(ref, ndkInstance);
             if (result) {
-              resolvedRefs = { ...resolvedRefs, [ref]: result.title };
+              newResolved[ref] = result.title;
               return;
             }
           } else if (ref.startsWith('naddr1')) {
             const result = await resolveRecipe(ref, ndkInstance);
             if (result) {
-              resolvedRefs = { ...resolvedRefs, [ref]: result.title };
+              newResolved[ref] = result.title;
               return;
             }
           }
-          // Fallback if resolution failed
-          resolvedRefs = { ...resolvedRefs, [ref]: `${ref.slice(0, 12)}...` };
+          newResolved[ref] = `${ref.slice(0, 12)}...`;
         } catch {
-          resolvedRefs = { ...resolvedRefs, [ref]: `${ref.slice(0, 12)}...` };
+          newResolved[ref] = `${ref.slice(0, 12)}...`;
         } finally {
           refsInFlight.delete(ref);
         }
       })
     );
+    if (Object.keys(newResolved).length > 0) {
+      resolvedRefs = { ...resolvedRefs, ...newResolved };
+    }
   }
 
   function replaceNostrMentions(text: string): string {

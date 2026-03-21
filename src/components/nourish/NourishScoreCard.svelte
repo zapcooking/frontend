@@ -10,6 +10,7 @@
 	export let color: string = '#f97316';
 	export let borderTop: boolean = false;
 
+	const tooltipId = `nourish-tooltip-${label.toLowerCase().replace(/\s+/g, '-')}`;
 	let showTooltip = false;
 	let hideTimeout: ReturnType<typeof setTimeout> | null = null;
 
@@ -63,6 +64,7 @@
 				tabindex="0"
 				aria-label="Why this score"
 				aria-expanded={showTooltip}
+				aria-describedby={showTooltip ? tooltipId : undefined}
 				on:mouseenter={show}
 				on:mouseleave={scheduleHide}
 				on:focus={show}
@@ -79,6 +81,8 @@
 			{#if showTooltip}
 				<!-- svelte-ignore a11y-no-static-element-interactions -->
 				<div
+					id={tooltipId}
+					role="tooltip"
 					class="reason-tooltip"
 					on:mouseenter={show}
 					on:mouseleave={scheduleHide}

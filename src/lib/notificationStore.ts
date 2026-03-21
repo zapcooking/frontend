@@ -388,6 +388,8 @@ function cleanContentForPreview(content: string): string {
     // Remove image URLs (they don't render in text previews)
     .replace(/https?:\/\/[^\s]+\.(?:jpg|jpeg|png|gif|webp|svg|bmp|avif)(?:\?[^\s]*)?/gi, '')
     .replace(/https?:\/\/(?:i\.)?(?:nostr\.build|imgur\.com|primal\.b-cdn\.net|image\.nostr\.build|void\.cat|m\.primal\.net|cdn\.satellite\.earth)[^\s]*/gi, '')
+    // Remove standalone bech32 identifiers (without nostr: prefix) — display layer only resolves nostr: URIs
+    .replace(/\b(?:note1|nevent1|naddr1|npub1|nprofile1)[023456789ac-hj-np-z]{20,}\b/gi, ' ')
     // Clean up multiple spaces and newlines
     .replace(/\s+/g, ' ')
     .trim();
