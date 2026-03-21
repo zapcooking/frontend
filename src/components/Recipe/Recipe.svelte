@@ -45,7 +45,7 @@
     RECIPE_TAGS,
     RECIPE_TAG_PREFIX_NEW
   } from '$lib/consts';
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import { resolveProfileByPubkey } from '$lib/profileResolver';
   import { buildCanonicalRecipeShareUrl } from '$lib/utils/share';
   import DirectionsPhases from './DirectionsPhases.svelte';
@@ -55,6 +55,9 @@
   import { checkIfGated, backfillGatedRecipe } from '$lib/nip108/client';
   import type { GatedRecipeMetadata } from '$lib/nip108/types';
   import { GATED_RECIPE_KIND } from '$lib/consts';
+  import LeafIcon from 'phosphor-svelte/lib/Leaf';
+  import NourishModal from '../nourish/NourishModal.svelte';
+  import { membershipStatusMap, queueMembershipLookup, type MembershipStatus } from '$lib/stores/membershipStatus';
 
   export let event: NDKEvent;
   export let isPremium = false;
@@ -80,6 +83,14 @@
   let deleteConfirmOpen = false;
   let isDeleting = false;
   let isEditingRecipe = false;
+  let nourishModalOpen = false;
+
+  // Membership check for Nourish
+  let membershipMap: Record<string, MembershipStatus> = {};
+  const unsubMembership = membershipStatusMap.subscribe((v) => { membershipMap = v; });
+  $: if ($userPublickey) queueMembershipLookup($userPublickey);
+  $: normalizedPk = String($userPublickey || '').trim().toLowerCase();
+  $: hasMembership = Boolean(membershipMap[normalizedPk]?.active);
 
   // Check if current user owns this recipe
   $: isOwner = $userPublickey && $userPublickey === event.author.pubkey;
@@ -89,6 +100,8 @@
   $: isActualRecipe =
     event &&
     event.tags.some((tag) => tag[0] === 't' && RECIPE_TAGS.includes(tag[1]?.toLowerCase() || ''));
+
+  onDestroy(() => { unsubMembership(); });
 
   // Gated recipe state
   let gatedMetadata: GatedRecipeMetadata | null = null;
@@ -578,6 +591,9 @@
   {directionsPhases}
 />
 
+<!-- Nourish Modal -->
+<NourishModal bind:open={nourishModalOpen} {event} {hasMembership} />
+
 <!-- Delete Confirmation Modal -->
 <Modal bind:open={deleteConfirmOpen} noHeader>
   <div class="flex flex-col gap-3">
@@ -774,6 +790,18 @@
               {/if}
             </button>
           </div>
+          <div class="flex items-center gap-1">
+          <!-- Nourish button -->
+          {#if isActualRecipe}
+            <button
+              class="cursor-pointer hover:bg-input rounded p-1 transition duration-300 text-green-500"
+              on:click={() => { nourishModalOpen = true; }}
+              aria-label="Nourish scores"
+              title="Nourish"
+            >
+              <LeafIcon size={24} />
+            </button>
+          {/if}
           <!-- 3-dot menu for recipe actions -->
           <div class="relative">
             <button
@@ -871,6 +899,7 @@
                 {/if}
               </div>
             {/if}
+          </div>
           </div>
         </div>
       </div>
