@@ -380,15 +380,16 @@ function isHellthread(event: NDKEvent): boolean {
   return mentionCount >= threshold;
 }
 
-// Clean up content for preview by removing nostr: URIs and cleaning text
+// Clean up content for preview — preserve nostr: references for display-layer resolution
 function cleanContentForPreview(content: string): string {
   if (!content) return '';
 
   let cleaned = content
-    // Remove all nostr: URIs entirely (they don't add value in preview)
-    .replace(/nostr:[a-z0-9]+/gi, '')
-    // Also catch any standalone bech32 identifiers
-    .replace(/\b(npub1|note1|nevent1|naddr1|nprofile1)[a-z0-9]+\b/gi, '')
+    // Remove image URLs (they don't render in text previews)
+    .replace(/https?:\/\/[^\s]+\.(?:jpg|jpeg|png|gif|webp|svg|bmp|avif)(?:\?[^\s]*)?/gi, '')
+    .replace(/https?:\/\/(?:i\.)?(?:nostr\.build|imgur\.com|primal\.b-cdn\.net|image\.nostr\.build|void\.cat|m\.primal\.net|cdn\.satellite\.earth)[^\s]*/gi, '')
+    // Remove standalone bech32 identifiers (without nostr: prefix) — display layer only resolves nostr: URIs
+    .replace(/\b(?:note1|nevent1|naddr1|npub1|nprofile1)[023456789ac-hj-np-z]{20,}\b/gi, ' ')
     // Clean up multiple spaces and newlines
     .replace(/\s+/g, ' ')
     .trim();
@@ -398,7 +399,7 @@ function cleanContentForPreview(content: string): string {
     return '';
   }
 
-  return cleaned.slice(0, 100);
+  return cleaned.slice(0, 300);
 }
 
 function parseNotification(event: NDKEvent, userPubkey: string): Notification | null {

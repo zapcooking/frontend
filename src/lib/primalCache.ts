@@ -185,8 +185,8 @@ export class PrimalCacheService {
         } catch (error) {
           console.error('[PrimalCache] Error parsing profile metadata:', error);
         }
-      } else if (event.kind === 1) {
-        // Note event
+      } else if (event.kind === 1 || event.kind === 1068) {
+        // Note or poll event
         pending.events.push(event);
       } else if (event.kind === 30023) {
         // Longform article event
