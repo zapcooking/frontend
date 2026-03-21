@@ -23,6 +23,7 @@
   import { notificationsNavTick } from '$lib/notificationsNav';
   import { mutedPubkeys, muteListStore } from '$lib/muteListStore';
   import { resolveProfileByPubkey, getDisplayName } from '$lib/profileResolver';
+  import { resolveNote, resolveRecipe } from '$lib/utils/nostrRefs';
   import HeartIcon from 'phosphor-svelte/lib/Heart';
   import ChatCircleIcon from 'phosphor-svelte/lib/ChatCircle';
   import ArrowsClockwiseIcon from 'phosphor-svelte/lib/ArrowsClockwise';
@@ -59,8 +60,13 @@
   let resolvedNames: Record<string, string> = {};
   let namesInFlight = new Set<string>();
 
-  // Pattern to match nostr:npub mentions
+  // Map of nostr ref -> resolved preview text for notes/events/addresses
+  let resolvedRefs: Record<string, string> = {};
+  let refsInFlight = new Set<string>();
+
+  // Patterns to match nostr: mentions
   const NPUB_MENTION_PATTERN = /nostr:(npub1[a-z0-9]+)/gi;
+  const NOSTR_REF_PATTERN = /nostr:((nevent1|note1|naddr1)[a-z0-9]+)/gi;
 
   function scrollAppToTop() {
     if (!browser) return;
@@ -174,6 +180,15 @@
   // Build display items (grouped reactions / small zaps) from filtered notifications
   $: displayItems = buildDisplayItems(filteredNotifications);
 
+  // Resolve nostr: references in notification content
+  $: {
+    for (const n of filteredNotifications) {
+      if (n.content) {
+        void resolveNostrRefs(n.content);
+      }
+    }
+  }
+
   function getReferencedEventId(notification: Notification): string | null {
     if (
       notification.type === 'reaction' ||
@@ -233,14 +248,71 @@
     );
   }
 
-  function replaceNpubMentions(text: string): string {
+  async function resolveNostrRefs(text: string): Promise<void> {
+    if (!text) return;
+
+    const ndkInstance = get(ndk);
+    if (!ndkInstance) return;
+
+    const refs: string[] = [];
+    const matches = text.matchAll(NOSTR_REF_PATTERN);
+    for (const match of matches) {
+      const ref = match[1]; // e.g. nevent1abc... or naddr1abc...
+      if (ref && !resolvedRefs[ref] && !refsInFlight.has(ref)) {
+        refs.push(ref);
+      }
+    }
+
+    if (refs.length === 0) return;
+
+    refs.forEach((ref) => refsInFlight.add(ref));
+
+    await Promise.all(
+      refs.map(async (ref) => {
+        try {
+          if (ref.startsWith('nevent1') || ref.startsWith('note1')) {
+            const result = await resolveNote(ref, ndkInstance);
+            if (result) {
+              resolvedRefs = { ...resolvedRefs, [ref]: result.title };
+              return;
+            }
+          } else if (ref.startsWith('naddr1')) {
+            const result = await resolveRecipe(ref, ndkInstance);
+            if (result) {
+              resolvedRefs = { ...resolvedRefs, [ref]: result.title };
+              return;
+            }
+          }
+          // Fallback if resolution failed
+          resolvedRefs = { ...resolvedRefs, [ref]: `${ref.slice(0, 12)}...` };
+        } catch {
+          resolvedRefs = { ...resolvedRefs, [ref]: `${ref.slice(0, 12)}...` };
+        } finally {
+          refsInFlight.delete(ref);
+        }
+      })
+    );
+  }
+
+  function replaceNostrMentions(text: string): string {
     if (!text) return text;
 
-    return text.replace(NPUB_MENTION_PATTERN, (_match, npub) => {
-      const name = resolvedNames[npub];
-      if (name) return `@${name}`;
-      return `@${npub.slice(0, 12)}...`;
-    });
+    return text
+      .replace(NPUB_MENTION_PATTERN, (_match, npub) => {
+        const name = resolvedNames[npub];
+        if (name) return `@${name}`;
+        return `@${npub.slice(0, 12)}...`;
+      })
+      .replace(NOSTR_REF_PATTERN, (_match, ref) => {
+        const preview = resolvedRefs[ref];
+        if (preview) return `"${preview}"`;
+        return `${ref.slice(0, 12)}...`;
+      });
+  }
+
+  // Keep backward-compatible alias used in template
+  function replaceNpubMentions(text: string): string {
+    return replaceNostrMentions(text);
   }
 
   function cleanImageUrls(text: string): string {
@@ -291,6 +363,7 @@
       const extra = normalizeText(summary) || normalizeText(event.content || '');
       const preview = extra.slice(0, 500);
       void resolveNpubMentions(preview);
+      void resolveNostrRefs(preview);
       return {
         kind,
         pubkey,
@@ -304,6 +377,7 @@
     const image = extractFirstImage(rawContent);
     const preview = normalizeText(rawContent).slice(0, 500);
     void resolveNpubMentions(preview);
+    void resolveNostrRefs(preview);
     return { kind, pubkey, preview: preview || '(No text)', image };
   }
 
