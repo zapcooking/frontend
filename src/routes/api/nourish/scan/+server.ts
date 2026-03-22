@@ -7,7 +7,13 @@
  *
  * POST /api/nourish/scan
  *
- * Body: { pubkey: string, text: string, title?: string }
+ * Body:
+ * {
+ *   pubkey: string;
+ *   text?: string;        // Free-form food description (>= 3 chars if provided)
+ *   title?: string;       // Optional label
+ *   imageData?: string;   // Optional base64-encoded image for vision analysis (max ~20MB)
+ * }
  */
 
 import { json, type RequestHandler } from '@sveltejs/kit';
@@ -98,10 +104,26 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 		}
 
 		const body = await request.json();
-		const { pubkey, text, title, imageData } = body;
+		const { pubkey, text, imageData } = body;
 
 		const hasText = typeof text === 'string' && text.trim().length >= 3;
 		const hasImage = typeof imageData === 'string' && imageData.length > 0;
+
+		// Server-side image size limit (~20MB base64 ≈ ~27MB string)
+		if (hasImage && imageData.length > 28_000_000) {
+			return json(
+				{ success: false, error: 'Image is too large. Please use an image under 20MB.' },
+				{ status: 400 }
+			);
+		}
+
+		// Validate image format if provided
+		if (hasImage && !imageData.startsWith('data:image/')) {
+			return json(
+				{ success: false, error: 'Invalid image format.' },
+				{ status: 400 }
+			);
+		}
 
 		// Validate input — need at least text or image
 		if (!hasText && !hasImage) {

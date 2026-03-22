@@ -73,6 +73,7 @@
 </script>
 
 <Modal bind:open compact noHeader>
+	<h2 id="title" class="sr-only">Nourish analysis</h2>
 	{#if !hasMembership}
 		<!-- Lock state -->
 		<div class="lock-state">

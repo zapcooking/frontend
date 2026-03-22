@@ -48,9 +48,13 @@ const UPGRADE_RULES: Record<string, UpgradeRule[]> = {
 	]
 };
 
-/** Pick 1–2 random suggestions from a list. */
+/** Pick random suggestions from a list using Fisher-Yates shuffle. */
 function pickSuggestions(pool: string[], count: number): string[] {
-	const shuffled = [...pool].sort(() => Math.random() - 0.5);
+	const shuffled = [...pool];
+	for (let i = shuffled.length - 1; i > 0; i--) {
+		const j = Math.floor(Math.random() * (i + 1));
+		[shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+	}
 	return shuffled.slice(0, count);
 }
 

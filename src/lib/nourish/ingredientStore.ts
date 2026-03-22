@@ -40,7 +40,6 @@ class IngredientStoreManager {
 
 				request.onsuccess = () => {
 					this.db = request.result;
-					console.log('[IngredientStore] Database initialized');
 					resolve();
 				};
 

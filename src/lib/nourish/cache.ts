@@ -56,13 +56,15 @@ interface ScanCacheEntry {
 	version: string;
 }
 
-/** Simple string hash for cache key derivation. */
+/** Derive a cache key from text with extra entropy to reduce collisions. */
 function hashText(text: string): string {
+	const lengthPart = text.length.toString(36);
+	const prefixPart = text.slice(0, 32).replace(/[^a-zA-Z0-9]/g, '_');
 	let hash = 0;
 	for (let i = 0; i < text.length; i++) {
 		hash = ((hash << 5) - hash + text.charCodeAt(i)) | 0;
 	}
-	return `nourish_scan_${Math.abs(hash).toString(36)}`;
+	return `nourish_scan_${lengthPart}_${prefixPart}_${Math.abs(hash).toString(36)}`;
 }
 
 export function getScanResult(text: string): ScanResponse | null {

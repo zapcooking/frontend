@@ -4,7 +4,7 @@
   import { getScanResult, setScanResult } from '$lib/nourish/cache';
   import { generateSuggestions, mergeImprovements } from '$lib/nourish/suggestions';
   import { ingredientStore } from '$lib/nourish/ingredientStore';
-  import type { NourishScores, ScanResponse, IngredientSignal } from '$lib/nourish/types';
+  import type { ScanResponse } from '$lib/nourish/types';
   import NourishScoreCard from '../../components/nourish/NourishScoreCard.svelte';
   import Button from '../../components/Button.svelte';
   import LeafIcon from 'phosphor-svelte/lib/Leaf';
@@ -106,7 +106,7 @@
       if (!data.success) { scanError = data.error || 'Failed to analyze. Please try again.'; return; }
 
       scanResult = data;
-      setScanResult(text, data);
+      if (hasText) { setScanResult(text, data); }
       if (data.scores) { improvements = mergeImprovements(generateSuggestions(data.scores), data.improvements || []); }
       if (data.ingredient_signals?.length) { ingredientStore.saveIngredients(data.ingredient_signals, 'scan').catch(() => {}); }
     } catch { scanError = 'Could not connect. Please try again.'; }
