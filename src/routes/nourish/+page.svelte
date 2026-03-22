@@ -11,7 +11,9 @@
   import LockIcon from 'phosphor-svelte/lib/Lock';
   import SpinnerIcon from 'phosphor-svelte/lib/SpinnerGap';
   import ArrowLeftIcon from 'phosphor-svelte/lib/ArrowLeft';
+  import { clickOutside } from '$lib/clickOutside';
   import CameraIcon from 'phosphor-svelte/lib/Camera';
+  import UploadIcon from 'phosphor-svelte/lib/UploadSimple';
   import XCircleIcon from 'phosphor-svelte/lib/XCircle';
 
   // Membership check
@@ -30,6 +32,8 @@
   let imageData: string | null = null;
   let imagePreview: string | null = null;
   let fileInput: HTMLInputElement;
+  let cameraInput: HTMLInputElement;
+  let showPhotoMenu = false;
 
   const SCORE_COLORS = { gut: '#22c55e', protein: '#3b82f6', realFood: '#f97316' };
 
@@ -61,6 +65,21 @@
     imageData = null;
     imagePreview = null;
     if (fileInput) fileInput.value = '';
+    if (cameraInput) cameraInput.value = '';
+  }
+
+  function togglePhotoMenu() {
+    showPhotoMenu = !showPhotoMenu;
+  }
+
+  function openCamera() {
+    showPhotoMenu = false;
+    cameraInput?.click();
+  }
+
+  function openFilePicker() {
+    showPhotoMenu = false;
+    fileInput?.click();
   }
 
   async function handleScan() {
@@ -156,8 +175,7 @@
 
 <article class="max-w-2xl mx-auto">
   <a
-    href="javascript:void(0)"
-    on:click={() => history.back()}
+    href="/community"
     class="inline-flex items-center gap-2 mb-4 text-sm hover:underline"
     style="color: var(--color-text-secondary)"
   >
@@ -284,11 +302,19 @@
           style="background: var(--color-input-bg); border-color: var(--color-input-border); color: var(--color-text-primary);"
         ></textarea>
 
-        <!-- Image upload -->
+        <!-- Hidden file inputs -->
         <input
           bind:this={fileInput}
           type="file"
           accept="image/jpeg,image/png,image/webp,image/gif"
+          class="hidden"
+          on:change={handleFileSelect}
+        />
+        <input
+          bind:this={cameraInput}
+          type="file"
+          accept="image/jpeg,image/png,image/webp"
+          capture="environment"
           class="hidden"
           on:change={handleFileSelect}
         />
@@ -321,14 +347,29 @@
                 Scan
               </span>
             </Button>
-            <button
-              class="photo-btn"
-              on:click={() => fileInput?.click()}
-              aria-label="Upload a photo"
-              title="Scan a photo"
-            >
-              <CameraIcon size={20} />
-            </button>
+            <div class="relative" use:clickOutside on:click_outside={() => showPhotoMenu = false}>
+              <button
+                class="photo-btn"
+                on:click={togglePhotoMenu}
+                aria-label="Add a photo"
+                title="Add a photo"
+              >
+                <CameraIcon size={20} />
+              </button>
+
+              {#if showPhotoMenu}
+                <div class="photo-menu">
+                  <button class="photo-menu-item" on:click={openCamera}>
+                    <CameraIcon size={16} />
+                    Take Photo
+                  </button>
+                  <button class="photo-menu-item" on:click={openFilePicker}>
+                    <UploadIcon size={16} />
+                    Upload Image
+                  </button>
+                </div>
+              {/if}
+            </div>
           {/if}
         </div>
       {/if}
@@ -620,5 +661,22 @@
 
   .remove-image-btn:hover {
     opacity: 1;
+  }
+
+  .photo-menu {
+    @apply absolute bottom-full left-0 mb-2 rounded-xl py-1 z-50;
+    min-width: 160px;
+    background-color: var(--color-bg-primary);
+    border: 1px solid var(--color-input-border);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+  }
+
+  .photo-menu-item {
+    @apply w-full flex items-center gap-3 px-4 py-2.5 text-sm text-left transition-colors cursor-pointer;
+    color: var(--color-text-primary);
+  }
+
+  .photo-menu-item:hover {
+    background-color: var(--color-bg-tertiary, rgba(255, 255, 255, 0.05));
   }
 </style>
