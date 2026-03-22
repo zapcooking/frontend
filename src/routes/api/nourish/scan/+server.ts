@@ -98,12 +98,15 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 		}
 
 		const body = await request.json();
-		const { pubkey, text, title } = body;
+		const { pubkey, text, title, imageData } = body;
 
-		// Validate input
-		if (!text || typeof text !== 'string' || text.trim().length < 3) {
+		const hasText = typeof text === 'string' && text.trim().length >= 3;
+		const hasImage = typeof imageData === 'string' && imageData.length > 0;
+
+		// Validate input — need at least text or image
+		if (!hasText && !hasImage) {
 			return json(
-				{ success: false, error: 'Please enter some food text to analyze' },
+				{ success: false, error: 'Please enter some food text or upload an image to analyze' },
 				{ status: 400 }
 			);
 		}
@@ -112,8 +115,34 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 		const membershipError = await requireMembership(pubkey, platform);
 		if (membershipError) return membershipError;
 
-		// Build prompt
-		const prompt = SCAN_PROMPT.replace('{{text}}', text.trim().slice(0, 2000));
+		// Build messages for OpenAI
+		let messages: any[];
+
+		if (hasImage) {
+			// Vision mode: send image (with optional text context)
+			const userContent: any[] = [
+				{
+					type: 'text',
+					text: hasText
+						? `Analyze this food image and the following description:\n\n${text.trim().slice(0, 2000)}`
+						: 'Analyze this food image and identify the ingredients and dish.'
+				},
+				{
+					type: 'image_url',
+					image_url: {
+						url: imageData.startsWith('data:') ? imageData : `data:image/jpeg;base64,${imageData}`
+					}
+				}
+			];
+			messages = [
+				{ role: 'system', content: SCAN_PROMPT.replace('Food Description:\n{{text}}', 'Analyze the food shown in the image (and any text provided).') },
+				{ role: 'user', content: userContent }
+			];
+		} else {
+			// Text-only mode
+			const prompt = SCAN_PROMPT.replace('{{text}}', text.trim().slice(0, 2000));
+			messages = [{ role: 'system', content: prompt }];
+		}
 
 		// Call OpenAI
 		const openaiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -124,7 +153,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 			},
 			body: JSON.stringify({
 				model: 'gpt-4o-mini',
-				messages: [{ role: 'system', content: prompt }],
+				messages,
 				max_tokens: 1500,
 				temperature: 0.3
 			})

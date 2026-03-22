@@ -10,6 +10,9 @@
   import LeafIcon from 'phosphor-svelte/lib/Leaf';
   import LockIcon from 'phosphor-svelte/lib/Lock';
   import SpinnerIcon from 'phosphor-svelte/lib/SpinnerGap';
+  import ArrowLeftIcon from 'phosphor-svelte/lib/ArrowLeft';
+  import CameraIcon from 'phosphor-svelte/lib/Camera';
+  import XCircleIcon from 'phosphor-svelte/lib/XCircle';
 
   // Membership check
   let membershipMap: Record<string, MembershipStatus> = {};
@@ -24,39 +27,82 @@
   let scanError = '';
   let scanResult: ScanResponse | null = null;
   let improvements: string[] = [];
+  let imageData: string | null = null;
+  let imagePreview: string | null = null;
+  let fileInput: HTMLInputElement;
 
   const SCORE_COLORS = { gut: '#22c55e', protein: '#3b82f6', realFood: '#f97316' };
 
-  async function handleScan() {
-    const text = scanText.trim();
-    if (!text || text.length < 3) {
-      scanError = 'Please enter at least a few words to analyze.';
+  function handleFileSelect(e: Event) {
+    const target = e.target as HTMLInputElement;
+    if (!target.files?.length) return;
+    const file = target.files[0];
+
+    if (!file.type.startsWith('image/')) {
+      scanError = 'Please upload an image file (JPG, PNG, WEBP, or GIF)';
+      return;
+    }
+    if (file.size > 20 * 1024 * 1024) {
+      scanError = 'Image is too large. Please use an image under 20MB.';
       return;
     }
 
-    // Check cache first
-    const cached = getScanResult(text);
-    if (cached && cached.scores) {
-      scanResult = cached;
-      improvements = mergeImprovements(
-        generateSuggestions(cached.scores),
-        cached.improvements || []
-      );
+    const reader = new FileReader();
+    reader.onload = () => {
+      imageData = reader.result as string;
+      imagePreview = imageData;
+      scanError = '';
+    };
+    reader.onerror = () => { scanError = 'Failed to read image'; };
+    reader.readAsDataURL(file);
+  }
+
+  function removeImage() {
+    imageData = null;
+    imagePreview = null;
+    if (fileInput) fileInput.value = '';
+  }
+
+  async function handleScan() {
+    const text = scanText.trim();
+    const hasText = text.length >= 3;
+    const hasImage = !!imageData;
+
+    if (!hasText && !hasImage) {
+      scanError = 'Please enter some text or upload an image to analyze.';
       return;
+    }
+
+    // Check cache for text-only scans
+    if (hasText && !hasImage) {
+      const cached = getScanResult(text);
+      if (cached && cached.scores) {
+        scanResult = cached;
+        improvements = mergeImprovements(
+          generateSuggestions(cached.scores),
+          cached.improvements || []
+        );
+        return;
+      }
     }
 
     scanning = true;
     scanError = '';
 
     try {
+      const requestBody: any = {
+        pubkey: $userPublickey || '',
+        text: hasText ? text : '',
+        title: ''
+      };
+      if (hasImage) {
+        requestBody.imageData = imageData;
+      }
+
       const res = await fetch('/api/nourish/scan', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          pubkey: $userPublickey || '',
-          text,
-          title: ''
-        })
+        body: JSON.stringify(requestBody)
       });
 
       const data: ScanResponse = await res.json();
@@ -92,6 +138,8 @@
     scanResult = null;
     improvements = [];
     scanError = '';
+    removeImage();
+    scanText = '';
   }
 
   import { onDestroy } from 'svelte';
@@ -107,6 +155,16 @@
 </svelte:head>
 
 <article class="max-w-2xl mx-auto">
+  <a
+    href="javascript:void(0)"
+    on:click={() => history.back()}
+    class="inline-flex items-center gap-2 mb-4 text-sm hover:underline"
+    style="color: var(--color-text-secondary)"
+  >
+    <ArrowLeftIcon size={16} />
+    Back
+  </a>
+
   <h1 class="text-3xl font-bold mb-1" style="color: var(--color-text-primary)">
     Nourish
   </h1>
@@ -220,17 +278,35 @@
         <textarea
           bind:value={scanText}
           class="scan-input"
-          rows="5"
+          rows="4"
           placeholder="Paste ingredients, describe a dish, or type anything food-related..."
           disabled={scanning}
           style="background: var(--color-input-bg); border-color: var(--color-input-border); color: var(--color-text-primary);"
         ></textarea>
 
+        <!-- Image upload -->
+        <input
+          bind:this={fileInput}
+          type="file"
+          accept="image/jpeg,image/png,image/webp,image/gif"
+          class="hidden"
+          on:change={handleFileSelect}
+        />
+
+        {#if imagePreview}
+          <div class="image-preview-row">
+            <img src={imagePreview} alt="Upload preview" class="image-preview-thumb" />
+            <button class="remove-image-btn" on:click={removeImage} aria-label="Remove image">
+              <XCircleIcon size={18} />
+            </button>
+          </div>
+        {/if}
+
         {#if scanError}
           <p class="text-sm mt-2" style="color: #ef4444;">{scanError}</p>
         {/if}
 
-        <div class="mt-3">
+        <div class="mt-3 flex items-center gap-2">
           {#if scanning}
             <Button primary disabled>
               <span class="flex items-center gap-2">
@@ -239,12 +315,20 @@
               </span>
             </Button>
           {:else}
-            <Button primary on:click={handleScan} disabled={!scanText.trim()}>
+            <Button primary on:click={handleScan} disabled={!scanText.trim() && !imageData}>
               <span class="flex items-center gap-2">
                 <LeafIcon size={16} />
                 Scan
               </span>
             </Button>
+            <button
+              class="photo-btn"
+              on:click={() => fileInput?.click()}
+              aria-label="Upload a photo"
+              title="Scan a photo"
+            >
+              <CameraIcon size={20} />
+            </button>
           {/if}
         </div>
       {/if}
@@ -506,5 +590,35 @@
     outline: none;
     border-color: var(--color-accent, #f97316);
     box-shadow: 0 0 0 2px rgba(249, 115, 22, 0.2);
+  }
+
+  .photo-btn {
+    @apply p-2 rounded-lg transition-colors cursor-pointer;
+    color: var(--color-text-secondary);
+    background: var(--color-input-bg);
+    border: 1px solid var(--color-input-border);
+  }
+
+  .photo-btn:hover {
+    color: var(--color-text-primary);
+    background: var(--color-bg-tertiary, rgba(255, 255, 255, 0.08));
+  }
+
+  .image-preview-row {
+    @apply flex items-center gap-2 mt-2;
+  }
+
+  .image-preview-thumb {
+    @apply w-16 h-16 rounded-lg object-cover;
+  }
+
+  .remove-image-btn {
+    @apply cursor-pointer transition-opacity;
+    color: var(--color-text-secondary);
+    opacity: 0.6;
+  }
+
+  .remove-image-btn:hover {
+    opacity: 1;
   }
 </style>
