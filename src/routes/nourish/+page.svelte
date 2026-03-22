@@ -34,9 +34,6 @@
   let fileInput: HTMLInputElement;
   let cameraInput: HTMLInputElement;
   let showPhotoMenu = false;
-  let showCameraView = false;
-  let videoEl: HTMLVideoElement;
-  let cameraStream: MediaStream | null = null;
 
   const SCORE_COLORS = { gut: '#22c55e', protein: '#3b82f6', realFood: '#f97316' };
 
@@ -75,53 +72,9 @@
     showPhotoMenu = !showPhotoMenu;
   }
 
-  async function openCamera() {
+  function openCamera() {
     showPhotoMenu = false;
-
-    // On mobile, the capture attribute opens the native camera directly
-    // On desktop, try getUserMedia for a live camera view
-    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-    if (isMobile) {
-      cameraInput?.click();
-      return;
-    }
-
-    // Desktop: try live camera
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } }
-      });
-      cameraStream = stream;
-      showCameraView = true;
-      // Wait for DOM to render the video element
-      await new Promise((r) => setTimeout(r, 50));
-      if (videoEl) {
-        videoEl.srcObject = stream;
-        await videoEl.play();
-      }
-    } catch {
-      // Camera not available — fall back to file picker
-      cameraInput?.click();
-    }
-  }
-
-  function capturePhoto() {
-    if (!videoEl) return;
-    const canvas = document.createElement('canvas');
-    canvas.width = videoEl.videoWidth;
-    canvas.height = videoEl.videoHeight;
-    canvas.getContext('2d')?.drawImage(videoEl, 0, 0);
-    imageData = canvas.toDataURL('image/jpeg', 0.85);
-    imagePreview = imageData;
-    closeCameraView();
-  }
-
-  function closeCameraView() {
-    showCameraView = false;
-    if (cameraStream) {
-      cameraStream.getTracks().forEach((t) => t.stop());
-      cameraStream = null;
-    }
+    cameraInput?.click();
   }
 
   function openFilePicker() {
@@ -209,10 +162,7 @@
   }
 
   import { onDestroy } from 'svelte';
-  onDestroy(() => {
-    unsubMembership();
-    closeCameraView();
-  });
+  onDestroy(() => { unsubMembership(); });
 </script>
 
 <svelte:head>
@@ -342,25 +292,6 @@
           </button>
         </div>
       {:else}
-        <!-- Live camera view -->
-        {#if showCameraView}
-          <div class="camera-view">
-            <!-- svelte-ignore a11y-media-has-caption -->
-            <video bind:this={videoEl} autoplay playsinline class="camera-video"></video>
-            <div class="camera-controls">
-              <button class="camera-capture-btn" on:click={capturePhoto} aria-label="Take photo">
-                <div class="capture-ring"></div>
-              </button>
-              <button
-                class="camera-cancel-btn"
-                on:click={closeCameraView}
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        {/if}
-
         <!-- Input -->
         <textarea
           bind:value={scanText}
@@ -747,45 +678,5 @@
 
   .photo-menu-item:hover {
     background-color: var(--color-bg-tertiary, rgba(255, 255, 255, 0.05));
-  }
-
-  .camera-view {
-    @apply rounded-xl overflow-hidden mb-3;
-    background: #000;
-  }
-
-  .camera-video {
-    @apply w-full rounded-t-xl;
-    max-height: 300px;
-    object-fit: cover;
-  }
-
-  .camera-controls {
-    @apply flex items-center justify-center gap-6 py-3;
-    background: #000;
-  }
-
-  .camera-capture-btn {
-    @apply w-14 h-14 rounded-full bg-white flex items-center justify-center cursor-pointer;
-    border: 3px solid rgba(255, 255, 255, 0.3);
-  }
-
-  .capture-ring {
-    @apply w-10 h-10 rounded-full;
-    background: white;
-    border: 2px solid rgba(0, 0, 0, 0.1);
-  }
-
-  .camera-capture-btn:active .capture-ring {
-    @apply w-9 h-9;
-  }
-
-  .camera-cancel-btn {
-    @apply absolute right-4 text-sm text-white cursor-pointer;
-    opacity: 0.8;
-  }
-
-  .camera-cancel-btn:hover {
-    opacity: 1;
   }
 </style>
