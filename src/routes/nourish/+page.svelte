@@ -37,11 +37,20 @@
 
   const SCORE_COLORS = { gut: '#22c55e', protein: '#3b82f6', realFood: '#f97316' };
 
+  const EXAMPLES = [
+    'Greek yogurt, berries, walnuts, chia seeds',
+    'Chipotle bowl with rice, beans, chicken, salsa',
+    'Eggs, sourdough toast, avocado'
+  ];
+
+  function useExample(text: string) {
+    scanText = text;
+  }
+
   function handleFileSelect(e: Event) {
     const target = e.target as HTMLInputElement;
     if (!target.files?.length) return;
     const file = target.files[0];
-
     if (!file.type.startsWith('image/')) {
       scanError = 'Please upload an image file (JPG, PNG, WEBP, or GIF)';
       return;
@@ -50,13 +59,8 @@
       scanError = 'Image is too large. Please use an image under 20MB.';
       return;
     }
-
     const reader = new FileReader();
-    reader.onload = () => {
-      imageData = reader.result as string;
-      imagePreview = imageData;
-      scanError = '';
-    };
+    reader.onload = () => { imageData = reader.result as string; imagePreview = imageData; scanError = ''; };
     reader.onerror = () => { scanError = 'Failed to read image'; };
     reader.readAsDataURL(file);
   }
@@ -68,89 +72,45 @@
     if (cameraInput) cameraInput.value = '';
   }
 
-  function togglePhotoMenu() {
-    showPhotoMenu = !showPhotoMenu;
-  }
-
-  function openCamera() {
-    showPhotoMenu = false;
-    cameraInput?.click();
-  }
-
-  function openFilePicker() {
-    showPhotoMenu = false;
-    fileInput?.click();
-  }
+  function togglePhotoMenu() { showPhotoMenu = !showPhotoMenu; }
+  function openCamera() { showPhotoMenu = false; cameraInput?.click(); }
+  function openFilePicker() { showPhotoMenu = false; fileInput?.click(); }
 
   async function handleScan() {
     const text = scanText.trim();
     const hasText = text.length >= 3;
     const hasImage = !!imageData;
+    if (!hasText && !hasImage) { scanError = 'Please enter some text or upload an image to analyze.'; return; }
 
-    if (!hasText && !hasImage) {
-      scanError = 'Please enter some text or upload an image to analyze.';
-      return;
-    }
-
-    // Check cache for text-only scans
     if (hasText && !hasImage) {
       const cached = getScanResult(text);
       if (cached && cached.scores) {
         scanResult = cached;
-        improvements = mergeImprovements(
-          generateSuggestions(cached.scores),
-          cached.improvements || []
-        );
+        improvements = mergeImprovements(generateSuggestions(cached.scores), cached.improvements || []);
         return;
       }
     }
 
     scanning = true;
     scanError = '';
-
     try {
-      const requestBody: any = {
-        pubkey: $userPublickey || '',
-        text: hasText ? text : '',
-        title: ''
-      };
-      if (hasImage) {
-        requestBody.imageData = imageData;
-      }
+      const requestBody: any = { pubkey: $userPublickey || '', text: hasText ? text : '', title: '' };
+      if (hasImage) requestBody.imageData = imageData;
 
       const res = await fetch('/api/nourish/scan', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(requestBody)
       });
-
       const data: ScanResponse = await res.json();
-
-      if (!data.success) {
-        scanError = data.error || 'Failed to analyze. Please try again.';
-        return;
-      }
+      if (!data.success) { scanError = data.error || 'Failed to analyze. Please try again.'; return; }
 
       scanResult = data;
       setScanResult(text, data);
-
-      // Merge rule-based + LLM suggestions
-      if (data.scores) {
-        improvements = mergeImprovements(
-          generateSuggestions(data.scores),
-          data.improvements || []
-        );
-      }
-
-      // Fire-and-forget: save ingredient signals to IndexedDB
-      if (data.ingredient_signals && data.ingredient_signals.length > 0) {
-        ingredientStore.saveIngredients(data.ingredient_signals, 'scan').catch(() => {});
-      }
-    } catch {
-      scanError = 'Could not connect. Please try again.';
-    } finally {
-      scanning = false;
-    }
+      if (data.scores) { improvements = mergeImprovements(generateSuggestions(data.scores), data.improvements || []); }
+      if (data.ingredient_signals?.length) { ingredientStore.saveIngredients(data.ingredient_signals, 'scan').catch(() => {}); }
+    } catch { scanError = 'Could not connect. Please try again.'; }
+    finally { scanning = false; }
   }
 
   function resetScan() {
@@ -167,541 +127,347 @@
 
 <svelte:head>
   <title>Nourish — Recipe Intelligence - zap.cooking</title>
-  <meta
-    name="description"
-    content="Nourish looks at recipe ingredients and gives you three simple signals to help you make informed choices."
-  />
+  <meta name="description" content="Analyze any food with three simple signals: Real Food, Gut, and Protein." />
 </svelte:head>
 
 <article class="max-w-2xl mx-auto">
-  <a
-    href="/community"
-    class="inline-flex items-center gap-2 mb-4 text-sm hover:underline"
-    style="color: var(--color-text-secondary)"
-  >
+  <a href="/community" class="back-link">
     <ArrowLeftIcon size={16} />
     Back
   </a>
 
-  <h1 class="text-3xl font-bold mb-1" style="color: var(--color-text-primary)">
-    Nourish
-  </h1>
-  <p class="text-sm font-medium mb-6" style="color: var(--color-text-secondary)">
-    Recipe Intelligence
-  </p>
+  <!-- ════════════════════════════════════════════════════════════ -->
+  <!-- HERO -->
+  <!-- ════════════════════════════════════════════════════════════ -->
+  <div class="hero">
+    <div class="hero-title-row">
+      <LeafIcon size={28} weight="fill" class="text-green-500" />
+      <div>
+        <h1 class="text-2xl font-bold" style="color: var(--color-text-primary)">Nourish</h1>
+        <p class="text-xs font-medium" style="color: var(--color-text-secondary)">Recipe Intelligence</p>
+      </div>
+    </div>
+    <h2 class="hero-heading">Understand what your food leans toward.</h2>
+    <p class="hero-sub">Three simple signals to help you make informed choices: Real Food, Gut, and Protein.</p>
+    <p class="hero-muted">Not a grade. Just guidance.</p>
+  </div>
 
-  <div class="flex flex-col gap-6 leading-relaxed" style="color: var(--color-text-primary)">
-
-    <!-- 1. Intro -->
-    <p class="text-lg">
-      Understand what your food is doing for you.
-    </p>
-    <p>
-      Nourish looks at recipe ingredients and gives you three simple signals to help you make
-      informed choices — not perfect ones.
-    </p>
-
-    <!-- 2. Philosophy -->
-    <p class="text-sm italic" style="color: var(--color-text-secondary)">
-      Nourish helps you understand what a recipe leans toward — so you can adjust, not judge.
-    </p>
-
-    <!-- Scan Anything -->
-    <div class="scan-section">
-      <h2 class="section-heading" style="margin-top: 0;">Scan Anything</h2>
-      <p class="text-sm mb-3" style="color: var(--color-text-secondary);">
-        Paste an ingredient list, describe a restaurant dish, or type anything food-related.
-      </p>
-
-      {#if !hasMembership && !scanResult}
-        <!-- Membership lock -->
-        <div class="scan-lock">
-          <LockIcon size={20} class="text-orange-500" />
-          <div>
-            <p class="text-sm font-medium" style="color: var(--color-text-primary);">Members Only</p>
-            <p class="text-xs" style="color: var(--color-text-secondary);">Scan any food for instant Nourish scores.</p>
-          </div>
-          <a href="/membership">
-            <Button primary>Join</Button>
-          </a>
+  <!-- ════════════════════════════════════════════════════════════ -->
+  <!-- SCAN CARD -->
+  <!-- ════════════════════════════════════════════════════════════ -->
+  <div class="scan-card">
+    {#if !hasMembership && !scanResult}
+      <div class="scan-lock">
+        <LockIcon size={22} class="text-orange-500" />
+        <div class="flex-1">
+          <p class="text-sm font-semibold" style="color: var(--color-text-primary);">Members Only</p>
+          <p class="text-xs" style="color: var(--color-text-secondary);">Analyze any food for instant Nourish scores.</p>
         </div>
-      {:else if scanResult && scanResult.scores}
-        <!-- Results -->
-        <div class="scan-results">
-          {#if scanResult.quick_take}
-            <p class="text-sm font-medium mb-3" style="color: var(--color-text-primary);">
-              {scanResult.quick_take}
-            </p>
-          {/if}
+        <a href="/membership"><Button primary>Join</Button></a>
+      </div>
 
-          {#if scanResult.scores.overall}
-            <NourishScoreCard
-              label="Nourish Score"
-              subtitle="Overall food quality"
-              score={scanResult.scores.overall.score}
-              scoreLabel={scanResult.scores.overall.label}
-              reason={scanResult.scores.overall.reason}
-              color="#a855f7"
-            />
-          {/if}
+    {:else if scanResult && scanResult.scores}
+      <!-- ── Results ── -->
+      {#if scanResult.quick_take}
+        <p class="text-sm font-medium mb-4" style="color: var(--color-text-primary);">{scanResult.quick_take}</p>
+      {/if}
 
-          <div class="flex flex-col">
-            <NourishScoreCard
-              borderTop
-              label="Gut Score"
-              subtitle="Digestive health potential"
-              score={scanResult.scores.gut.score}
-              scoreLabel={scanResult.scores.gut.label}
-              reason={scanResult.scores.gut.reason}
-              color={SCORE_COLORS.gut}
-            />
-            <NourishScoreCard
-              borderTop
-              label="Protein Score"
-              subtitle="Protein source quality"
-              score={scanResult.scores.protein.score}
-              scoreLabel={scanResult.scores.protein.label}
-              reason={scanResult.scores.protein.reason}
-              color={SCORE_COLORS.protein}
-            />
-            <NourishScoreCard
-              borderTop
-              label="Real Food Score"
-              subtitle="Whole food ingredients"
-              score={scanResult.scores.realFood.score}
-              scoreLabel={scanResult.scores.realFood.label}
-              reason={scanResult.scores.realFood.reason}
-              color={SCORE_COLORS.realFood}
-            />
-          </div>
-
-          {#if scanResult.scores.summary}
-            <p
-              class="text-sm leading-relaxed mt-2 pt-3"
-              style="color: var(--color-text-secondary); border-top: 1px solid var(--color-bg-tertiary, rgba(255,255,255,0.08));"
-            >
-              {scanResult.scores.summary}
-            </p>
-          {/if}
-
-          {#if improvements.length > 0}
-            <div class="mt-3 pt-3" style="border-top: 1px solid var(--color-bg-tertiary, rgba(255,255,255,0.08));">
-              <p class="text-sm font-semibold mb-1" style="color: var(--color-text-primary);">Upgrade It</p>
-              <ul class="text-sm pl-4 list-disc" style="color: var(--color-text-secondary);">
-                {#each improvements as suggestion}
-                  <li class="py-0.5">{suggestion}</li>
-                {/each}
-              </ul>
-            </div>
-          {/if}
-
-          <button
-            class="mt-4 text-sm font-medium cursor-pointer"
-            style="color: var(--color-accent, #f97316);"
-            on:click={resetScan}
-          >
-            Scan something else
-          </button>
-        </div>
-      {:else}
-        <!-- Input -->
-        <textarea
-          bind:value={scanText}
-          class="scan-input"
-          rows="4"
-          placeholder="Paste ingredients, describe a dish, or type anything food-related..."
-          disabled={scanning}
-          style="background: var(--color-input-bg); border-color: var(--color-input-border); color: var(--color-text-primary);"
-        ></textarea>
-
-        <!-- Hidden file inputs -->
-        <input
-          bind:this={fileInput}
-          type="file"
-          accept="image/jpeg,image/png,image/webp,image/gif"
-          class="hidden"
-          on:change={handleFileSelect}
+      {#if scanResult.scores.overall}
+        <NourishScoreCard
+          label="Nourish Score"
+          subtitle="Overall food quality"
+          score={scanResult.scores.overall.score}
+          scoreLabel={scanResult.scores.overall.label}
+          reason={scanResult.scores.overall.reason}
+          color="#a855f7"
         />
-        <input
-          bind:this={cameraInput}
-          type="file"
-          accept="image/jpeg,image/png,image/webp"
-          capture="environment"
-          class="hidden"
-          on:change={handleFileSelect}
-        />
+      {/if}
 
-        {#if imagePreview}
-          <div class="image-preview-row">
-            <img src={imagePreview} alt="Upload preview" class="image-preview-thumb" />
-            <button class="remove-image-btn" on:click={removeImage} aria-label="Remove image">
-              <XCircleIcon size={18} />
-            </button>
-          </div>
-        {/if}
+      <div class="flex flex-col">
+        <NourishScoreCard borderTop label="Real Food" subtitle="Whole food ingredients" score={scanResult.scores.realFood.score} scoreLabel={scanResult.scores.realFood.label} reason={scanResult.scores.realFood.reason} color={SCORE_COLORS.realFood} />
+        <NourishScoreCard borderTop label="Gut" subtitle="Digestive health potential" score={scanResult.scores.gut.score} scoreLabel={scanResult.scores.gut.label} reason={scanResult.scores.gut.reason} color={SCORE_COLORS.gut} />
+        <NourishScoreCard borderTop label="Protein" subtitle="Protein source quality" score={scanResult.scores.protein.score} scoreLabel={scanResult.scores.protein.label} reason={scanResult.scores.protein.reason} color={SCORE_COLORS.protein} />
+      </div>
 
-        {#if scanError}
-          <p class="text-sm mt-2" style="color: #ef4444;">{scanError}</p>
-        {/if}
+      {#if scanResult.scores.summary}
+        <p class="result-summary">{scanResult.scores.summary}</p>
+      {/if}
 
-        <div class="mt-3 flex items-center gap-2">
-          {#if scanning}
-            <Button primary disabled>
-              <span class="flex items-center gap-2">
-                <SpinnerIcon size={16} class="animate-spin" />
-                Analyzing...
-              </span>
-            </Button>
-          {:else}
-            <Button primary on:click={handleScan} disabled={!scanText.trim() && !imageData}>
-              <span class="flex items-center gap-2">
-                <LeafIcon size={16} />
-                Scan
-              </span>
-            </Button>
-            <div class="relative" use:clickOutside on:click_outside={() => showPhotoMenu = false}>
-              <button
-                class="photo-btn"
-                on:click={togglePhotoMenu}
-                aria-label="Add a photo"
-                title="Add a photo"
-              >
-                <CameraIcon size={20} />
-              </button>
-
-              {#if showPhotoMenu}
-                <div class="photo-menu">
-                  <button class="photo-menu-item" on:click={openCamera}>
-                    <CameraIcon size={16} />
-                    Take Photo
-                  </button>
-                  <button class="photo-menu-item" on:click={openFilePicker}>
-                    <UploadIcon size={16} />
-                    Upload Image
-                  </button>
-                </div>
-              {/if}
-            </div>
-          {/if}
+      {#if improvements.length > 0}
+        <div class="result-upgrades">
+          <p class="text-sm font-semibold mb-1" style="color: var(--color-text-primary);">Upgrade It</p>
+          <ul class="text-sm pl-4 list-disc" style="color: var(--color-text-secondary);">
+            {#each improvements as s}<li class="py-0.5">{s}</li>{/each}
+          </ul>
         </div>
       {/if}
-    </div>
 
-    <!-- 3. How to Read Scores -->
-    <h2 class="section-heading">How to Read Scores</h2>
+      <button class="scan-again-btn" on:click={resetScan}>Analyze something else</button>
 
-    <p>Nourish scores are not grades. They help you understand what a recipe leans toward.</p>
+    {:else}
+      <!-- ── Input ── -->
+      <p class="input-helper">Paste ingredients, describe a dish, or type anything food-related.</p>
 
-    <ul class="insight-list">
-      <li>A high Gut Score may mean strong fiber and plant diversity</li>
-      <li>A high Protein Score may mean better support for a full meal</li>
-      <li>A high Real Food Score may mean simpler, less processed ingredients</li>
-    </ul>
+      <textarea
+        bind:value={scanText}
+        class="scan-input"
+        rows="4"
+        placeholder="e.g. chicken thighs, sweet potato, kale, olive oil, garlic..."
+        disabled={scanning}
+      ></textarea>
 
-    <p>Most recipes won't score high in everything — and that's normal.</p>
+      <!-- Hidden file inputs -->
+      <input bind:this={fileInput} type="file" accept="image/jpeg,image/png,image/webp,image/gif" class="hidden" on:change={handleFileSelect} />
+      <input bind:this={cameraInput} type="file" accept="image/jpeg,image/png,image/webp" capture="environment" class="hidden" on:change={handleFileSelect} />
 
-    <!-- 4. Example -->
-    <h2 class="section-heading">Example</h2>
-
-    <div class="example-card">
-      <div class="example-scores">
-        <span class="example-score" style="color: #22c55e;">Gut: 8</span>
-        <span class="example-score" style="color: #3b82f6;">Protein: 3</span>
-        <span class="example-score" style="color: #f97316;">Real Food: 9</span>
-      </div>
-
-      <div class="mt-3">
-        <p class="text-sm font-semibold" style="color: var(--color-text-primary)">Quick Take</p>
-        <p class="text-sm" style="color: var(--color-text-secondary)">
-          Light, gut-friendly, whole-food focused. Best as a side, not a full protein meal.
-        </p>
-      </div>
-
-      <div class="mt-3">
-        <p class="text-sm font-semibold" style="color: var(--color-text-primary)">Why</p>
-        <ul class="example-list">
-          <li>Fermented ingredients support gut health</li>
-          <li>Simple, minimally processed ingredients</li>
-          <li>Low protein density</li>
-        </ul>
-      </div>
-
-      <div class="mt-3">
-        <p class="text-sm font-semibold" style="color: var(--color-text-primary)">Upgrade It</p>
-        <ul class="example-list">
-          <li>Add chicken, eggs, or chickpeas for protein</li>
-        </ul>
-      </div>
-    </div>
-
-    <!-- 5. The Three Scores -->
-    <h2 class="section-heading">The Three Scores</h2>
-
-    <div class="flex flex-col gap-5">
-      <!-- Gut Score -->
-      <div class="score-explainer" style="border-left-color: #22c55e;">
-        <h3 class="text-lg font-bold" style="color: var(--color-text-primary)">Gut Score</h3>
-        <p class="text-sm mt-1" style="color: var(--color-text-secondary)">
-          Estimates how supportive a recipe may be for digestion and overall gut health.
-        </p>
-        <p class="text-sm font-medium mt-2" style="color: var(--color-text-primary)">Looks at:</p>
-        <ul class="detail-list">
-          <li>fiber-rich plants</li>
-          <li>plant diversity</li>
-          <li>fermented foods</li>
-          <li>prebiotic ingredients</li>
-        </ul>
-        <p class="text-xs mt-2" style="color: var(--color-text-secondary)">
-          Higher scores suggest more gut-supportive ingredients.
-        </p>
-      </div>
-
-      <!-- Protein Score -->
-      <div class="score-explainer" style="border-left-color: #3b82f6;">
-        <h3 class="text-lg font-bold" style="color: var(--color-text-primary)">Protein Score</h3>
-        <p class="text-sm mt-1" style="color: var(--color-text-secondary)">
-          Estimates how well a recipe contributes to your protein needs.
-        </p>
-        <p class="text-sm font-medium mt-2" style="color: var(--color-text-primary)">Looks at:</p>
-        <ul class="detail-list">
-          <li>protein-rich ingredients</li>
-          <li>overall protein presence</li>
-          <li>whether the recipe works as a main or a side</li>
-        </ul>
-        <p class="text-xs mt-2" style="color: var(--color-text-secondary)">
-          Some recipes are naturally lower in protein — that's okay.
-        </p>
-      </div>
-
-      <!-- Real Food Score -->
-      <div class="score-explainer" style="border-left-color: #f97316;">
-        <h3 class="text-lg font-bold" style="color: var(--color-text-primary)">Real Food Score</h3>
-        <p class="text-sm mt-1" style="color: var(--color-text-secondary)">
-          Estimates how close ingredients are to whole, minimally processed foods.
-        </p>
-        <p class="text-sm font-medium mt-2" style="color: var(--color-text-primary)">Looks at:</p>
-        <ul class="detail-list">
-          <li>whole ingredients</li>
-          <li>level of processing</li>
-          <li>refined or ultra-processed components</li>
-        </ul>
-        <p class="text-xs mt-2" style="color: var(--color-text-secondary)">
-          Higher scores suggest simpler, more recognizable ingredients.
-        </p>
-      </div>
-    </div>
-
-    <!-- Overall Score -->
-    <h2 class="section-heading">Overall Nourish Score</h2>
-
-    <p>
-      Each analysis includes an overall Nourish Score — a single 0–10 number that combines all three dimensions with transparent weighting:
-    </p>
-
-    <div class="scale-card" style="margin-top: 0.5rem;">
-      <div class="flex flex-col gap-2 text-sm">
-        <div class="flex justify-between">
-          <span style="color: var(--color-text-primary); font-weight: 600;">Real Food Score</span>
-          <span style="color: var(--color-text-secondary);">45%</span>
+      {#if imagePreview}
+        <div class="image-preview-row">
+          <img src={imagePreview} alt="Upload preview" class="image-preview-thumb" />
+          <button class="remove-image-btn" on:click={removeImage} aria-label="Remove image"><XCircleIcon size={18} /></button>
         </div>
-        <div class="flex justify-between">
-          <span style="color: var(--color-text-primary); font-weight: 600;">Gut Score</span>
-          <span style="color: var(--color-text-secondary);">35%</span>
-        </div>
-        <div class="flex justify-between">
-          <span style="color: var(--color-text-primary); font-weight: 600;">Protein Score</span>
-          <span style="color: var(--color-text-secondary);">20%</span>
+      {/if}
+
+      {#if scanError}
+        <p class="text-sm mt-2" style="color: #ef4444;">{scanError}</p>
+      {/if}
+
+      <!-- CTA row -->
+      <div class="cta-row">
+        {#if scanning}
+          <Button primary disabled>
+            <span class="flex items-center gap-2"><SpinnerIcon size={16} class="animate-spin" />Analyzing...</span>
+          </Button>
+        {:else}
+          <Button primary on:click={handleScan} disabled={!scanText.trim() && !imageData}>
+            <span class="flex items-center gap-2"><LeafIcon size={16} />Analyze with Nourish</span>
+          </Button>
+          <div class="relative" use:clickOutside on:click_outside={() => showPhotoMenu = false}>
+            <button class="photo-btn" on:click={togglePhotoMenu} aria-label="Add a photo" title="Add a photo">
+              <CameraIcon size={20} />
+            </button>
+            {#if showPhotoMenu}
+              <div class="photo-menu">
+                <button class="photo-menu-item" on:click={openCamera}><CameraIcon size={16} />Take Photo</button>
+                <button class="photo-menu-item" on:click={openFilePicker}><UploadIcon size={16} />Upload Image</button>
+              </div>
+            {/if}
+          </div>
+        {/if}
+      </div>
+
+      <!-- Example prompts -->
+      <div class="examples">
+        <p class="text-xs mb-2" style="color: var(--color-text-secondary);">Try an example:</p>
+        <div class="example-chips">
+          {#each EXAMPLES as ex}
+            <button class="example-chip" on:click={() => useExample(ex)}>{ex}</button>
+          {/each}
         </div>
       </div>
-      <p class="text-xs mt-3" style="color: var(--color-text-secondary);">
-        Real Food is weighted highest because ingredient quality is the foundation. Gut health is next because fiber, fermentation, and plant diversity are strong markers. Protein is weighted lower because many healthy meals are naturally lighter on protein.
-      </p>
-    </div>
+    {/if}
+  </div>
 
-    <!-- How it Works -->
-    <h2 class="section-heading">How it Works</h2>
-
-    <p>
-      Nourish reads the ingredient list of a recipe and uses AI to estimate three scores on a 0–10 scale, plus an overall weighted score.
-    </p>
-    <p>Each score includes a short explanation so you can see:</p>
-    <ul class="insight-list">
-      <li>what helped</li>
-      <li>what held it back</li>
-      <li>how to adjust if you want to</li>
-    </ul>
-    <p>
-      These are rough estimates designed to help you compare recipes and spot patterns over time.
-    </p>
-
-    <!-- Score Scale -->
-    <h2 class="section-heading">Score Scale</h2>
-
-    <div class="scale-card">
-      <div class="grid grid-cols-5 gap-2 text-center text-xs" style="color: var(--color-text-secondary);">
-        <div>
-          <div class="font-bold text-sm" style="color: var(--color-text-primary);">0–2</div>
-          Low
+  <!-- ════════════════════════════════════════════════════════════ -->
+  <!-- SCORE PREVIEW (static mock) -->
+  <!-- ════════════════════════════════════════════════════════════ -->
+  {#if !scanResult}
+    <div class="preview-section">
+      <p class="text-xs font-medium mb-3" style="color: var(--color-text-secondary);">What you'll see:</p>
+      <div class="preview-grid">
+        <div class="preview-item">
+          <span class="preview-dot" style="background: #f97316;"></span>
+          <span class="preview-label">Real Food</span>
+          <span class="preview-score">8</span>
         </div>
-        <div>
-          <div class="font-bold text-sm" style="color: var(--color-text-primary);">3–4</div>
-          Fair
+        <div class="preview-item">
+          <span class="preview-dot" style="background: #22c55e;"></span>
+          <span class="preview-label">Gut</span>
+          <span class="preview-score">6</span>
         </div>
-        <div>
-          <div class="font-bold text-sm" style="color: var(--color-text-primary);">5–6</div>
-          Moderate
+        <div class="preview-item">
+          <span class="preview-dot" style="background: #3b82f6;"></span>
+          <span class="preview-label">Protein</span>
+          <span class="preview-score">7</span>
         </div>
-        <div>
-          <div class="font-bold text-sm" style="color: var(--color-text-primary);">7–8</div>
-          Strong
-        </div>
-        <div>
-          <div class="font-bold text-sm" style="color: var(--color-text-primary);">9–10</div>
-          Excellent
+        <div class="preview-item">
+          <span class="preview-dot" style="background: #a855f7;"></span>
+          <span class="preview-label">Overall</span>
+          <span class="preview-score">7</span>
         </div>
       </div>
     </div>
+  {/if}
 
-    <!-- Availability -->
-    <h2 class="section-heading">Availability</h2>
+  <!-- ════════════════════════════════════════════════════════════ -->
+  <!-- SCORE CARDS -->
+  <!-- ════════════════════════════════════════════════════════════ -->
+  <div class="info-section">
+    <h2 class="info-heading">How Scores Work</h2>
+    <p class="info-muted">Scores help you understand what a recipe leans toward — so you can adjust, not judge.</p>
 
-    <p>Nourish is available to Zap Cooking members.</p>
-    <p>Open any recipe and tap <strong>Nourish</strong> to see what it's doing for you.</p>
-    <p>
-      <a href="/membership" class="font-semibold underline hover:no-underline" style="color: var(--color-accent, #f97316);">
-        View membership options
-      </a>
-    </p>
-
-    <!-- Notes -->
-    <div class="notes-card">
-      <h3 class="text-xs font-semibold mb-2" style="color: var(--color-text-primary)">Notes</h3>
-      <ul class="notes-list">
-        <li>Scores are estimates based on ingredients and recipe structure</li>
-        <li>Ingredient quality and preparation methods can change outcomes</li>
-        <li>Some benefits depend on specific product types (for example, whether fermented foods contain live cultures)</li>
-        <li>Nourish is for awareness, not diagnosis or treatment</li>
-      </ul>
+    <div class="score-cards-grid">
+      <div class="score-card-info" style="border-color: #f97316;">
+        <h3 class="score-card-title" style="color: #f97316;">Real Food</h3>
+        <p class="score-card-desc">How close a meal is to whole, recognizable ingredients.</p>
+        <p class="score-card-weight">45% of overall</p>
+      </div>
+      <div class="score-card-info" style="border-color: #22c55e;">
+        <h3 class="score-card-title" style="color: #22c55e;">Gut</h3>
+        <p class="score-card-desc">Fiber, plant diversity, fermented foods, and prebiotic support.</p>
+        <p class="score-card-weight">35% of overall</p>
+      </div>
+      <div class="score-card-info" style="border-color: #3b82f6;">
+        <h3 class="score-card-title" style="color: #3b82f6;">Protein</h3>
+        <p class="score-card-desc">Protein density and contribution to fullness and recovery.</p>
+        <p class="score-card-weight">20% of overall</p>
+      </div>
+      <div class="score-card-info" style="border-color: #a855f7;">
+        <h3 class="score-card-title" style="color: #a855f7;">Overall</h3>
+        <p class="score-card-desc">A weighted signal based on Real Food, Gut, and Protein.</p>
+        <p class="score-card-weight">0–10 scale</p>
+      </div>
     </div>
+
+    <!-- Scale -->
+    <div class="scale-row">
+      <div class="scale-item"><span class="scale-num">0–2</span><span class="scale-label">Low</span></div>
+      <div class="scale-item"><span class="scale-num">3–4</span><span class="scale-label">Fair</span></div>
+      <div class="scale-item"><span class="scale-num">5–6</span><span class="scale-label">Moderate</span></div>
+      <div class="scale-item"><span class="scale-num">7–8</span><span class="scale-label">Strong</span></div>
+      <div class="scale-item"><span class="scale-num">9–10</span><span class="scale-label">Excellent</span></div>
+    </div>
+  </div>
+
+  <!-- ════════════════════════════════════════════════════════════ -->
+  <!-- FOOTER -->
+  <!-- ════════════════════════════════════════════════════════════ -->
+  <div class="page-footer">
+    <p>Nourish is available to <a href="/membership" class="footer-link">Zap Cooking members</a>.</p>
+    <p class="footer-notes">Scores are estimates based on ingredients. Not medical advice. Nourish is for awareness, not diagnosis.</p>
   </div>
 </article>
 
 <style lang="postcss">
   @reference "../../app.css";
 
-  .section-heading {
-    @apply text-2xl font-bold mt-8;
+  /* ── Back link ── */
+  .back-link {
+    @apply inline-flex items-center gap-2 mb-6 text-sm;
+    color: var(--color-text-secondary);
+  }
+  .back-link:hover { text-decoration: underline; }
+
+  /* ── Hero ── */
+  .hero {
+    @apply mb-8;
+  }
+  .hero-title-row {
+    @apply flex items-center gap-3 mb-4;
+  }
+  .hero-heading {
+    @apply text-xl font-bold mb-2;
     color: var(--color-text-primary);
   }
-
-  .score-explainer {
-    @apply pl-4 py-2;
-    border-left-width: 3px;
-    border-left-style: solid;
-  }
-
-  .detail-list {
-    @apply text-sm mt-1 pl-4 list-disc;
+  .hero-sub {
+    @apply text-sm leading-relaxed mb-1;
     color: var(--color-text-secondary);
   }
-
-  .detail-list li {
-    @apply py-0.5;
-  }
-
-  .insight-list {
-    @apply pl-4 list-disc;
-    color: var(--color-text-primary);
-  }
-
-  .insight-list li {
-    @apply py-0.5;
-  }
-
-  .example-card {
-    @apply p-4 rounded-xl;
-    background-color: var(--color-bg-secondary);
-  }
-
-  .example-scores {
-    @apply flex gap-4 flex-wrap text-sm font-bold;
-  }
-
-  .example-list {
-    @apply text-sm mt-1 pl-4 list-disc;
+  .hero-muted {
+    @apply text-xs;
     color: var(--color-text-secondary);
+    opacity: 0.6;
   }
 
-  .example-list li {
-    @apply py-0.5;
-  }
-
-  .scale-card {
-    @apply p-4 rounded-xl;
+  /* ── Scan card ── */
+  .scan-card {
+    @apply p-5 rounded-2xl mb-8;
     background-color: var(--color-bg-secondary);
+    border: 1px solid var(--color-bg-tertiary, rgba(255, 255, 255, 0.06));
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.15);
   }
-
-  .notes-card {
-    @apply mt-4 p-4 rounded-xl text-xs leading-relaxed;
-    background-color: var(--color-bg-secondary);
-    color: var(--color-text-secondary);
-  }
-
-  .notes-list {
-    @apply pl-4 list-disc flex flex-col gap-1;
-  }
-
-  .scan-section {
-    @apply p-4 rounded-xl;
-    background-color: var(--color-bg-secondary);
-  }
-
   .scan-lock {
-    @apply flex items-center gap-3 p-3 rounded-lg;
-    background-color: var(--color-bg-tertiary, rgba(255, 255, 255, 0.05));
+    @apply flex items-center gap-4 p-4 rounded-xl;
+    background-color: var(--color-bg-tertiary, rgba(255, 255, 255, 0.04));
   }
-
+  .input-helper {
+    @apply text-sm mb-3;
+    color: var(--color-text-secondary);
+  }
   .scan-input {
-    @apply w-full rounded-lg p-3 text-sm border resize-none;
-    font-size: 16px; /* prevent iOS zoom */
+    @apply w-full rounded-xl p-4 text-sm border resize-none;
+    font-size: 16px;
+    background: var(--color-input-bg);
+    border-color: var(--color-input-border);
+    color: var(--color-text-primary);
   }
-
+  .scan-input::placeholder {
+    color: var(--color-text-secondary);
+    opacity: 0.5;
+  }
   .scan-input:focus {
     outline: none;
     border-color: var(--color-accent, #f97316);
-    box-shadow: 0 0 0 2px rgba(249, 115, 22, 0.2);
+    box-shadow: 0 0 0 2px rgba(249, 115, 22, 0.15);
   }
+  .cta-row {
+    @apply mt-4 flex items-center gap-2;
+  }
+  .scan-again-btn {
+    @apply mt-4 text-sm font-medium cursor-pointer;
+    color: var(--color-accent, #f97316);
+  }
+  .scan-again-btn:hover { text-decoration: underline; }
 
-  .photo-btn {
-    @apply p-2 rounded-lg transition-colors cursor-pointer;
+  .result-summary {
+    @apply text-sm leading-relaxed mt-3 pt-3;
     color: var(--color-text-secondary);
-    background: var(--color-input-bg);
-    border: 1px solid var(--color-input-border);
+    border-top: 1px solid var(--color-bg-tertiary, rgba(255, 255, 255, 0.08));
+  }
+  .result-upgrades {
+    @apply mt-3 pt-3;
+    border-top: 1px solid var(--color-bg-tertiary, rgba(255, 255, 255, 0.08));
   }
 
-  .photo-btn:hover {
+  /* ── Examples ── */
+  .examples {
+    @apply mt-4 pt-4;
+    border-top: 1px solid var(--color-bg-tertiary, rgba(255, 255, 255, 0.06));
+  }
+  .example-chips {
+    @apply flex flex-wrap gap-2;
+  }
+  .example-chip {
+    @apply text-xs px-3 py-1.5 rounded-full cursor-pointer transition-colors;
+    background-color: var(--color-bg-tertiary, rgba(255, 255, 255, 0.05));
+    color: var(--color-text-secondary);
+    border: 1px solid transparent;
+  }
+  .example-chip:hover {
     color: var(--color-text-primary);
-    background: var(--color-bg-tertiary, rgba(255, 255, 255, 0.08));
+    border-color: var(--color-input-border);
   }
 
-  .image-preview-row {
-    @apply flex items-center gap-2 mt-2;
-  }
-
-  .image-preview-thumb {
-    @apply w-16 h-16 rounded-lg object-cover;
-  }
-
+  /* ── Image ── */
+  .image-preview-row { @apply flex items-center gap-2 mt-3; }
+  .image-preview-thumb { @apply w-16 h-16 rounded-lg object-cover; }
   .remove-image-btn {
     @apply cursor-pointer transition-opacity;
     color: var(--color-text-secondary);
     opacity: 0.6;
   }
+  .remove-image-btn:hover { opacity: 1; }
 
-  .remove-image-btn:hover {
-    opacity: 1;
+  /* ── Photo menu ── */
+  .photo-btn {
+    @apply p-2.5 rounded-xl transition-colors cursor-pointer;
+    color: var(--color-text-secondary);
+    background: var(--color-input-bg);
+    border: 1px solid var(--color-input-border);
   }
-
+  .photo-btn:hover {
+    color: var(--color-text-primary);
+    background: var(--color-bg-tertiary, rgba(255, 255, 255, 0.08));
+  }
   .photo-menu {
     @apply absolute bottom-full left-0 mb-2 rounded-xl py-1 z-50;
     min-width: 160px;
@@ -709,13 +475,100 @@
     border: 1px solid var(--color-input-border);
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
   }
-
   .photo-menu-item {
     @apply w-full flex items-center gap-3 px-4 py-2.5 text-sm text-left transition-colors cursor-pointer;
     color: var(--color-text-primary);
   }
-
   .photo-menu-item:hover {
     background-color: var(--color-bg-tertiary, rgba(255, 255, 255, 0.05));
+  }
+
+  /* ── Preview ── */
+  .preview-section {
+    @apply mb-8;
+  }
+  .preview-grid {
+    @apply grid grid-cols-4 gap-3;
+  }
+  .preview-item {
+    @apply flex flex-col items-center gap-1 p-3 rounded-xl text-center;
+    background-color: var(--color-bg-secondary);
+  }
+  .preview-dot {
+    @apply w-2 h-2 rounded-full;
+  }
+  .preview-label {
+    @apply text-xs;
+    color: var(--color-text-secondary);
+  }
+  .preview-score {
+    @apply text-lg font-bold;
+    color: var(--color-text-primary);
+  }
+
+  /* ── Score info cards ── */
+  .info-section {
+    @apply mb-8;
+  }
+  .info-heading {
+    @apply text-lg font-bold mb-1;
+    color: var(--color-text-primary);
+  }
+  .info-muted {
+    @apply text-sm mb-5;
+    color: var(--color-text-secondary);
+  }
+  .score-cards-grid {
+    @apply grid grid-cols-2 gap-3 mb-5;
+  }
+  .score-card-info {
+    @apply p-4 rounded-xl;
+    background-color: var(--color-bg-secondary);
+    border-left: 3px solid;
+  }
+  .score-card-title {
+    @apply text-sm font-bold mb-1;
+  }
+  .score-card-desc {
+    @apply text-xs leading-relaxed;
+    color: var(--color-text-secondary);
+  }
+  .score-card-weight {
+    @apply text-xs mt-2 font-medium;
+    color: var(--color-text-secondary);
+    opacity: 0.6;
+  }
+
+  /* ── Scale ── */
+  .scale-row {
+    @apply grid grid-cols-5 gap-2 p-3 rounded-xl;
+    background-color: var(--color-bg-secondary);
+  }
+  .scale-item {
+    @apply flex flex-col items-center gap-0.5;
+  }
+  .scale-num {
+    @apply text-sm font-bold;
+    color: var(--color-text-primary);
+  }
+  .scale-label {
+    @apply text-xs;
+    color: var(--color-text-secondary);
+  }
+
+  /* ── Footer ── */
+  .page-footer {
+    @apply py-6 text-center text-xs;
+    color: var(--color-text-secondary);
+    opacity: 0.7;
+  }
+  .footer-link {
+    color: var(--color-accent, #f97316);
+    font-weight: 500;
+  }
+  .footer-link:hover { text-decoration: underline; }
+  .footer-notes {
+    @apply mt-1;
+    opacity: 0.6;
   }
 </style>
