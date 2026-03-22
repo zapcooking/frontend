@@ -450,6 +450,14 @@
                 <span class="checkmark">✓</span>
                 <span class="feature-text">Access to pantry.zap.cooking relay</span>
               </li>
+              <li>
+                <span class="checkmark">✓</span>
+                <span class="feature-text">Nourish recipe intelligence</span>
+              </li>
+              <li>
+                <span class="checkmark">✓</span>
+                <span class="feature-text">Buy and sell on the Market</span>
+              </li>
             </ul>
           </div>
         </div>
@@ -553,9 +561,9 @@
         </div>
         
         <div class="tier-benefits">
-          <!-- Premium Features -->
+          <!-- Premium Tools -->
           <div class="benefit-section">
-            <h4 class="section-header">Premium Features</h4>
+            <h4 class="section-header">Premium Tools</h4>
             <ul class="benefit-list">
               <li>
                 <span class="feature-icon">✨</span>
@@ -565,8 +573,11 @@
                 </div>
               </li>
               <li>
-                <span class="checkmark">✓</span>
-                <span class="feature-text">Verified @zap.cooking NIP-05 identity</span>
+                <span class="feature-icon">🌱</span>
+                <div class="feature-content">
+                  <a href="/nourish" class="feature-link">Nourish - Recipe intelligence scores for gut health, protein, and real food</a>
+                  <span class="feature-subtext">Understand what your food is doing for you</span>
+                </div>
               </li>
             </ul>
           </div>
@@ -579,7 +590,15 @@
             <ul class="benefit-list">
               <li>
                 <span class="checkmark">✓</span>
+                <span class="feature-text">Verified @zap.cooking NIP-05 identity</span>
+              </li>
+              <li>
+                <span class="checkmark">✓</span>
                 <span class="feature-text">Access to pantry.zap.cooking private relay</span>
+              </li>
+              <li>
+                <span class="checkmark">✓</span>
+                <a href="/market" class="feature-link">Buy and sell on the Market</a>
               </li>
               <li>
                 <span class="checkmark">✓</span>
@@ -647,7 +666,7 @@
             <ul class="benefit-list">
               <li>
                 <span class="checkmark">✓</span>
-                <span class="feature-text muted-text">Everything in Cook+ (Sous Chef, NIP-05 identity, pantry relay access, collections, badge, early access, voting)</span>
+                <span class="feature-text muted-text">Everything in Cook+ (Sous Chef, Nourish, NIP-05 identity, Market access, pantry relay, collections, badge, early access, voting)</span>
               </li>
             </ul>
           </div>
@@ -666,10 +685,6 @@
                 <span class="checkmark">✓</span>
                 <span class="feature-text">Priority recipe promotion</span>
               </li>
-              <li>
-                <span class="checkmark">✓</span>
-                <span class="feature-text">Access to sell on Marketplace (coming soon)</span>
-              </li>
             </ul>
           </div>
 
@@ -682,13 +697,21 @@
               <li>
                 <span class="feature-icon">🤖</span>
                 <div class="feature-content">
-                  <a href="/zappy" class="feature-link">Zappy - Kitchen assistant to scan your fridge, generate recipes, and recommend what to make tonight</a>
+                  <a href="/zappy" class="feature-link">Zappy - Scan your fridge, generate recipes, and plan what to make tonight</a>
                   <span class="feature-subtext">Your personal kitchen companion</span>
                 </div>
               </li>
               <li>
-                <span class="checkmark">✓</span>
-                <span class="feature-text">Sous Chef features</span>
+                <span class="feature-icon">✨</span>
+                <div class="feature-content">
+                  <span class="feature-text">Sous Chef features</span>
+                </div>
+              </li>
+              <li>
+                <span class="feature-icon">🌱</span>
+                <div class="feature-content">
+                  <span class="feature-text">Nourish recipe intelligence</span>
+                </div>
               </li>
             </ul>
           </div>

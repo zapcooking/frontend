@@ -272,7 +272,7 @@ export class MentionComposerController {
 		}
 	}
 
-	/** Handle paste event — strips HTML, inserts plain text */
+	/** Handle paste event — strips HTML, inserts plain text with proper line breaks */
 	handlePaste(event: ClipboardEvent): void {
 		event.preventDefault();
 		const plainText = event.clipboardData?.getData('text/plain');
@@ -283,10 +283,29 @@ export class MentionComposerController {
 		const range = selection.getRangeAt(0);
 
 		range.deleteContents();
-		const textNode = document.createTextNode(plainText);
-		range.insertNode(textNode);
-		range.setStartAfter(textNode);
-		range.collapse(true);
+
+		// Insert text with proper <br> elements for newlines instead of raw \n
+		// in text nodes. Raw \n inside contenteditable is handled inconsistently
+		// across browsers and can cause spacing mismatches between editing and posting.
+		const fragment = document.createDocumentFragment();
+		const lines = plainText.split('\n');
+		let lastNode: Node | null = null;
+		for (let i = 0; i < lines.length; i++) {
+			if (i > 0) {
+				lastNode = document.createElement('br');
+				fragment.appendChild(lastNode);
+			}
+			if (lines[i]) {
+				lastNode = document.createTextNode(lines[i]);
+				fragment.appendChild(lastNode);
+			}
+		}
+
+		range.insertNode(fragment);
+		if (lastNode) {
+			range.setStartAfter(lastNode);
+			range.collapse(true);
+		}
 		selection.removeAllRanges();
 		selection.addRange(range);
 
