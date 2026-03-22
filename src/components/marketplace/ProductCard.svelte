@@ -189,18 +189,16 @@
 		<!-- Action Buttons -->
 		<div class="flex gap-2 mt-2">
 			<div class="view-button flex-1 py-2 rounded-lg font-semibold text-sm flex items-center justify-center gap-1.5">
-				{stateConfig.primaryCta}
+				{isMessageFlow(commerceState) ? 'View details' : stateConfig.primaryCta}
 			</div>
-			{#if stateConfig.secondaryCta || !isMessageFlow(commerceState)}
-				<button
-					type="button"
-					on:click={openDetailWithDm}
-					class="message-button flex-shrink-0 py-2 px-3 rounded-lg transition-all flex items-center justify-center"
-					title="Message Seller"
-				>
-					<ChatCircleIcon size={16} weight="fill" />
-				</button>
-			{/if}
+			<button
+				type="button"
+				on:click={openDetailWithDm}
+				class="message-button flex-shrink-0 py-2 px-3 rounded-lg transition-all flex items-center justify-center"
+				title="Message Seller"
+			>
+				<ChatCircleIcon size={16} weight="fill" />
+			</button>
 		</div>
 	</div>
 </button>
