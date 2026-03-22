@@ -162,9 +162,22 @@
 			<Button primary={false} on:click={retry}>Try Again</Button>
 		</div>
 	{:else if scores}
-		<!-- Scores display -->
+		<!-- Overall score -->
+		{#if scores.overall}
+			<NourishScoreCard
+				label="Nourish Score"
+				subtitle="Overall food quality"
+				score={scores.overall.score}
+				scoreLabel={scores.overall.label}
+				reason={scores.overall.reason}
+				color="#a855f7"
+			/>
+		{/if}
+
+		<!-- Individual scores -->
 		<div class="flex flex-col">
 			<NourishScoreCard
+				borderTop
 				label="Gut Score"
 				subtitle="Digestive health potential"
 				score={scores.gut.score}

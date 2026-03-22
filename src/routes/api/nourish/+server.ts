@@ -26,7 +26,7 @@
 
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
-import { NOURISH_CACHE_VERSION } from '$lib/nourish/types';
+import { NOURISH_CACHE_VERSION, computeOverallScore } from '$lib/nourish/types';
 import { requireMembership } from './membershipCheck';
 
 const NOURISH_PROMPT = `You are a recipe analysis assistant for a cooking platform. Analyze the recipe below and return three food quality scores.
@@ -190,21 +190,31 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 		}
 
 		// Normalize and validate scores
+		const gutScore = clampScore(parsed.gut?.score);
+		const proteinScore = clampScore(parsed.protein?.score);
+		const realFoodScore = clampScore(parsed.realFood?.score);
+		const overall = computeOverallScore(gutScore, proteinScore, realFoodScore);
+
 		const scores = {
 			gut: {
-				score: clampScore(parsed.gut?.score),
+				score: gutScore,
 				label: validateLabel(parsed.gut?.label),
 				reason: String(parsed.gut?.reason || '')
 			},
 			protein: {
-				score: clampScore(parsed.protein?.score),
+				score: proteinScore,
 				label: validateLabel(parsed.protein?.label),
 				reason: String(parsed.protein?.reason || '')
 			},
 			realFood: {
-				score: clampScore(parsed.realFood?.score),
+				score: realFoodScore,
 				label: validateLabel(parsed.realFood?.label),
 				reason: String(parsed.realFood?.reason || '')
+			},
+			overall: {
+				score: overall.score,
+				label: overall.label,
+				reason: `Weighted: Real Food 45%, Gut 35%, Protein 20%`
 			},
 			summary: String(parsed.summary || ''),
 			version: NOURISH_CACHE_VERSION

@@ -234,8 +234,20 @@
             </p>
           {/if}
 
+          {#if scanResult.scores.overall}
+            <NourishScoreCard
+              label="Nourish Score"
+              subtitle="Overall food quality"
+              score={scanResult.scores.overall.score}
+              scoreLabel={scanResult.scores.overall.label}
+              reason={scanResult.scores.overall.reason}
+              color="#a855f7"
+            />
+          {/if}
+
           <div class="flex flex-col">
             <NourishScoreCard
+              borderTop
               label="Gut Score"
               subtitle="Digestive health potential"
               score={scanResult.scores.gut.score}
@@ -479,11 +491,38 @@
       </div>
     </div>
 
+    <!-- Overall Score -->
+    <h2 class="section-heading">Overall Nourish Score</h2>
+
+    <p>
+      Each analysis includes an overall Nourish Score — a single 0–10 number that combines all three dimensions with transparent weighting:
+    </p>
+
+    <div class="scale-card" style="margin-top: 0.5rem;">
+      <div class="flex flex-col gap-2 text-sm">
+        <div class="flex justify-between">
+          <span style="color: var(--color-text-primary); font-weight: 600;">Real Food Score</span>
+          <span style="color: var(--color-text-secondary);">45%</span>
+        </div>
+        <div class="flex justify-between">
+          <span style="color: var(--color-text-primary); font-weight: 600;">Gut Score</span>
+          <span style="color: var(--color-text-secondary);">35%</span>
+        </div>
+        <div class="flex justify-between">
+          <span style="color: var(--color-text-primary); font-weight: 600;">Protein Score</span>
+          <span style="color: var(--color-text-secondary);">20%</span>
+        </div>
+      </div>
+      <p class="text-xs mt-3" style="color: var(--color-text-secondary);">
+        Real Food is weighted highest because ingredient quality is the foundation. Gut health is next because fiber, fermentation, and plant diversity are strong markers. Protein is weighted lower because many healthy meals are naturally lighter on protein.
+      </p>
+    </div>
+
     <!-- How it Works -->
     <h2 class="section-heading">How it Works</h2>
 
     <p>
-      Nourish reads the ingredient list of a recipe and uses AI to estimate three scores on a 0–10 scale.
+      Nourish reads the ingredient list of a recipe and uses AI to estimate three scores on a 0–10 scale, plus an overall weighted score.
     </p>
     <p>Each score includes a short explanation so you can see:</p>
     <ul class="insight-list">

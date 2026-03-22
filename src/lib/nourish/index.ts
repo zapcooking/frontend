@@ -1,5 +1,7 @@
 export {
 	NOURISH_CACHE_VERSION,
+	NOURISH_WEIGHTS,
+	computeOverallScore,
 	type NourishRequest,
 	type NourishResponse,
 	type NourishScores,
