@@ -29,6 +29,7 @@
   import CrownSimpleIcon from 'phosphor-svelte/lib/CrownSimple';
   import HandshakeIcon from 'phosphor-svelte/lib/Handshake';
   import EnvelopeSimpleIcon from 'phosphor-svelte/lib/EnvelopeSimple';
+  import LeafIcon from 'phosphor-svelte/lib/Leaf';
 
   // Components and stores
   import CustomAvatar from './CustomAvatar.svelte';
@@ -337,6 +338,16 @@
             >
               <HandshakeIcon size={22} />
               <span class="font-medium">Sponsors</span>
+            </button>
+          </li>
+          <li>
+            <button
+              on:click={() => navigate('/nourish')}
+              class="w-full flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-opacity-50 transition-colors cursor-pointer"
+              style="color: var(--color-text-primary);"
+            >
+              <LeafIcon size={22} />
+              <span class="font-medium">Nourish</span>
             </button>
           </li>
           {#if SHOW_PRO_FEATURES}
