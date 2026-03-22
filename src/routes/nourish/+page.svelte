@@ -1,3 +1,103 @@
+<script lang="ts">
+  import { userPublickey } from '$lib/nostr';
+  import { membershipStatusMap, queueMembershipLookup, type MembershipStatus } from '$lib/stores/membershipStatus';
+  import { getScanResult, setScanResult } from '$lib/nourish/cache';
+  import { generateSuggestions, mergeImprovements } from '$lib/nourish/suggestions';
+  import { ingredientStore } from '$lib/nourish/ingredientStore';
+  import type { NourishScores, ScanResponse, IngredientSignal } from '$lib/nourish/types';
+  import NourishScoreCard from '../../components/nourish/NourishScoreCard.svelte';
+  import Button from '../../components/Button.svelte';
+  import LeafIcon from 'phosphor-svelte/lib/Leaf';
+  import LockIcon from 'phosphor-svelte/lib/Lock';
+  import SpinnerIcon from 'phosphor-svelte/lib/SpinnerGap';
+
+  // Membership check
+  let membershipMap: Record<string, MembershipStatus> = {};
+  const unsubMembership = membershipStatusMap.subscribe((v) => { membershipMap = v; });
+  $: if ($userPublickey) queueMembershipLookup($userPublickey);
+  $: normalizedPk = String($userPublickey || '').trim().toLowerCase();
+  $: hasMembership = Boolean(membershipMap[normalizedPk]?.active);
+
+  // Scan state
+  let scanText = '';
+  let scanning = false;
+  let scanError = '';
+  let scanResult: ScanResponse | null = null;
+  let improvements: string[] = [];
+
+  const SCORE_COLORS = { gut: '#22c55e', protein: '#3b82f6', realFood: '#f97316' };
+
+  async function handleScan() {
+    const text = scanText.trim();
+    if (!text || text.length < 3) {
+      scanError = 'Please enter at least a few words to analyze.';
+      return;
+    }
+
+    // Check cache first
+    const cached = getScanResult(text);
+    if (cached && cached.scores) {
+      scanResult = cached;
+      improvements = mergeImprovements(
+        generateSuggestions(cached.scores),
+        cached.improvements || []
+      );
+      return;
+    }
+
+    scanning = true;
+    scanError = '';
+
+    try {
+      const res = await fetch('/api/nourish/scan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          pubkey: $userPublickey || '',
+          text,
+          title: ''
+        })
+      });
+
+      const data: ScanResponse = await res.json();
+
+      if (!data.success) {
+        scanError = data.error || 'Failed to analyze. Please try again.';
+        return;
+      }
+
+      scanResult = data;
+      setScanResult(text, data);
+
+      // Merge rule-based + LLM suggestions
+      if (data.scores) {
+        improvements = mergeImprovements(
+          generateSuggestions(data.scores),
+          data.improvements || []
+        );
+      }
+
+      // Fire-and-forget: save ingredient signals to IndexedDB
+      if (data.ingredient_signals && data.ingredient_signals.length > 0) {
+        ingredientStore.saveIngredients(data.ingredient_signals, 'scan').catch(() => {});
+      }
+    } catch {
+      scanError = 'Could not connect. Please try again.';
+    } finally {
+      scanning = false;
+    }
+  }
+
+  function resetScan() {
+    scanResult = null;
+    improvements = [];
+    scanError = '';
+  }
+
+  import { onDestroy } from 'svelte';
+  onDestroy(() => { unsubMembership(); });
+</script>
+
 <svelte:head>
   <title>Nourish — Recipe Intelligence - zap.cooking</title>
   <meta
@@ -29,6 +129,126 @@
     <p class="text-sm italic" style="color: var(--color-text-secondary)">
       Nourish helps you understand what a recipe leans toward — so you can adjust, not judge.
     </p>
+
+    <!-- Scan Anything -->
+    <div class="scan-section">
+      <h2 class="section-heading" style="margin-top: 0;">Scan Anything</h2>
+      <p class="text-sm mb-3" style="color: var(--color-text-secondary);">
+        Paste an ingredient list, describe a restaurant dish, or type anything food-related.
+      </p>
+
+      {#if !hasMembership && !scanResult}
+        <!-- Membership lock -->
+        <div class="scan-lock">
+          <LockIcon size={20} class="text-orange-500" />
+          <div>
+            <p class="text-sm font-medium" style="color: var(--color-text-primary);">Members Only</p>
+            <p class="text-xs" style="color: var(--color-text-secondary);">Scan any food for instant Nourish scores.</p>
+          </div>
+          <a href="/membership">
+            <Button primary>Join</Button>
+          </a>
+        </div>
+      {:else if scanResult && scanResult.scores}
+        <!-- Results -->
+        <div class="scan-results">
+          {#if scanResult.quick_take}
+            <p class="text-sm font-medium mb-3" style="color: var(--color-text-primary);">
+              {scanResult.quick_take}
+            </p>
+          {/if}
+
+          <div class="flex flex-col">
+            <NourishScoreCard
+              label="Gut Score"
+              subtitle="Digestive health potential"
+              score={scanResult.scores.gut.score}
+              scoreLabel={scanResult.scores.gut.label}
+              reason={scanResult.scores.gut.reason}
+              color={SCORE_COLORS.gut}
+            />
+            <NourishScoreCard
+              borderTop
+              label="Protein Score"
+              subtitle="Protein source quality"
+              score={scanResult.scores.protein.score}
+              scoreLabel={scanResult.scores.protein.label}
+              reason={scanResult.scores.protein.reason}
+              color={SCORE_COLORS.protein}
+            />
+            <NourishScoreCard
+              borderTop
+              label="Real Food Score"
+              subtitle="Whole food ingredients"
+              score={scanResult.scores.realFood.score}
+              scoreLabel={scanResult.scores.realFood.label}
+              reason={scanResult.scores.realFood.reason}
+              color={SCORE_COLORS.realFood}
+            />
+          </div>
+
+          {#if scanResult.scores.summary}
+            <p
+              class="text-sm leading-relaxed mt-2 pt-3"
+              style="color: var(--color-text-secondary); border-top: 1px solid var(--color-bg-tertiary, rgba(255,255,255,0.08));"
+            >
+              {scanResult.scores.summary}
+            </p>
+          {/if}
+
+          {#if improvements.length > 0}
+            <div class="mt-3 pt-3" style="border-top: 1px solid var(--color-bg-tertiary, rgba(255,255,255,0.08));">
+              <p class="text-sm font-semibold mb-1" style="color: var(--color-text-primary);">Upgrade It</p>
+              <ul class="text-sm pl-4 list-disc" style="color: var(--color-text-secondary);">
+                {#each improvements as suggestion}
+                  <li class="py-0.5">{suggestion}</li>
+                {/each}
+              </ul>
+            </div>
+          {/if}
+
+          <button
+            class="mt-4 text-sm font-medium cursor-pointer"
+            style="color: var(--color-accent, #f97316);"
+            on:click={resetScan}
+          >
+            Scan something else
+          </button>
+        </div>
+      {:else}
+        <!-- Input -->
+        <textarea
+          bind:value={scanText}
+          class="scan-input"
+          rows="5"
+          placeholder="Paste ingredients, describe a dish, or type anything food-related..."
+          disabled={scanning}
+          style="background: var(--color-input-bg); border-color: var(--color-input-border); color: var(--color-text-primary);"
+        ></textarea>
+
+        {#if scanError}
+          <p class="text-sm mt-2" style="color: #ef4444;">{scanError}</p>
+        {/if}
+
+        <div class="mt-3">
+          {#if scanning}
+            <Button primary disabled>
+              <span class="flex items-center gap-2">
+                <SpinnerIcon size={16} class="animate-spin" />
+                Analyzing...
+              </span>
+            </Button>
+          {:else}
+            <Button primary on:click={handleScan} disabled={!scanText.trim()}>
+              <span class="flex items-center gap-2">
+                <LeafIcon size={16} />
+                Scan
+              </span>
+            </Button>
+          {/if}
+        </div>
+      {/if}
+    </div>
 
     <!-- 3. How to Read Scores -->
     <h2 class="section-heading">How to Read Scores</h2>
@@ -265,5 +485,26 @@
 
   .notes-list {
     @apply pl-4 list-disc flex flex-col gap-1;
+  }
+
+  .scan-section {
+    @apply p-4 rounded-xl;
+    background-color: var(--color-bg-secondary);
+  }
+
+  .scan-lock {
+    @apply flex items-center gap-3 p-3 rounded-lg;
+    background-color: var(--color-bg-tertiary, rgba(255, 255, 255, 0.05));
+  }
+
+  .scan-input {
+    @apply w-full rounded-lg p-3 text-sm border resize-none;
+    font-size: 16px; /* prevent iOS zoom */
+  }
+
+  .scan-input:focus {
+    outline: none;
+    border-color: var(--color-accent, #f97316);
+    box-shadow: 0 0 0 2px rgba(249, 115, 22, 0.2);
   }
 </style>

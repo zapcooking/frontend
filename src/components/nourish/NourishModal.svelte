@@ -9,6 +9,8 @@
 	import SpinnerIcon from 'phosphor-svelte/lib/SpinnerGap';
 	import { parseMarkdownForEditing } from '$lib/parser';
 	import { getNourishScores, setNourishScores } from '$lib/nourish/cache';
+	import { generateSuggestions, mergeImprovements } from '$lib/nourish/suggestions';
+	import { ingredientStore } from '$lib/nourish/ingredientStore';
 	import type { NourishScores } from '$lib/nourish/types';
 
 	export let open = false;
@@ -16,6 +18,7 @@
 	export let hasMembership = false;
 
 	let scores: NourishScores | null = null;
+	let improvements: string[] = [];
 	let loading = false;
 	let error = '';
 
@@ -89,6 +92,19 @@
 
 			scores = data.scores;
 			setNourishScores(event.id, data.scores);
+
+			// Build upgrade suggestions (rule-based + LLM)
+			if (data.scores) {
+				improvements = mergeImprovements(
+					generateSuggestions(data.scores),
+					data.improvements || []
+				);
+			}
+
+			// Fire-and-forget: save ingredient signals
+			if (data.ingredient_signals?.length > 0) {
+				ingredientStore.saveIngredients(data.ingredient_signals, 'recipe', event.id).catch(() => {});
+			}
 		} catch (err) {
 			console.error('[Nourish] Fetch error:', err);
 			error = 'Could not analyze this recipe. Please try again.';
@@ -182,6 +198,17 @@
 				>
 					{scores.summary}
 				</p>
+			{/if}
+
+			{#if improvements.length > 0}
+				<div class="mt-2 pt-3" style="border-top: 1px solid var(--color-bg-tertiary, rgba(255,255,255,0.08));">
+					<p class="text-sm font-semibold mb-1" style="color: var(--color-text-primary);">Upgrade It</p>
+					<ul class="text-sm pl-4 list-disc" style="color: var(--color-text-secondary);">
+						{#each improvements as suggestion}
+							<li class="py-0.5">{suggestion}</li>
+						{/each}
+					</ul>
+				</div>
 			{/if}
 		</div>
 
