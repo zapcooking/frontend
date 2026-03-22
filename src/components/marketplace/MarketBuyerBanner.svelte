@@ -66,6 +66,7 @@
 				class="disclosure-trigger"
 				aria-label="Market disclosure"
 				aria-expanded={showPopover}
+				aria-describedby={showPopover ? 'market-disclosure-popover' : undefined}
 				on:mouseenter={show}
 				on:mouseleave={scheduleHide}
 				on:focus={show}
@@ -80,6 +81,8 @@
 			{#if showPopover}
 				<!-- svelte-ignore a11y-no-static-element-interactions -->
 				<div
+					id="market-disclosure-popover"
+					role="tooltip"
 					class="disclosure-popover"
 					on:mouseenter={show}
 					on:mouseleave={scheduleHide}
