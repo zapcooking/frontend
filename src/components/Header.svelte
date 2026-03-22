@@ -8,6 +8,7 @@
   import CookingPotIcon from 'phosphor-svelte/lib/CookingPot';
   import SparkleIcon from 'phosphor-svelte/lib/Sparkle';
   import RobotIcon from 'phosphor-svelte/lib/Robot';
+  import LeafIcon from 'phosphor-svelte/lib/Leaf';
   import TagsSearchAutocomplete from './TagsSearchAutocomplete.svelte';
   import CustomAvatar from './CustomAvatar.svelte';
   import { theme } from '$lib/themeStore';
@@ -145,7 +146,7 @@
       </button>
     </div>
 
-    <!-- Sous Chef & Zappy icons (logged in) -->
+    <!-- Sous Chef, Zappy & Nourish icons (logged in) -->
     {#if $userPublickey}
       <a
         href="/extract"
@@ -160,6 +161,13 @@
         aria-label="Zappy"
       >
         <RobotIcon size={18} weight="regular" class="text-yellow-500/70 sm:w-5 sm:h-5" />
+      </a>
+      <a
+        href="/nourish"
+        class="w-8 h-8 sm:w-9 sm:h-9 flex items-center justify-center rounded-full transition-colors cursor-pointer hover:bg-accent-gray"
+        aria-label="Nourish"
+      >
+        <LeafIcon size={18} weight="fill" class="text-green-500/70 sm:w-5 sm:h-5" />
       </a>
     {/if}
 
