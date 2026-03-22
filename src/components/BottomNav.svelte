@@ -5,10 +5,9 @@
   import ChatCircleDotsIcon from 'phosphor-svelte/lib/ChatCircleDots';
   import BellIcon from 'phosphor-svelte/lib/Bell';
   import NewspaperIcon from 'phosphor-svelte/lib/Newspaper';
-  import EnvelopeSimpleIcon from 'phosphor-svelte/lib/EnvelopeSimple';
+  import StorefrontIcon from 'phosphor-svelte/lib/Storefront';
   import { page } from '$app/stores';
   import { unreadCount } from '$lib/notificationStore';
-  import { totalUnreadCount } from '$lib/stores/messages';
   import { triggerNotificationsNav } from '$lib/notificationsNav';
 
   $: pathname = $page.url.pathname;
@@ -60,21 +59,13 @@
     <ForkKnifeIcon class="self-center" size={22} />
     <span class="sr-only">Recipes</span>
   </a>
+  <a href="/market" class="nav-tab" class:active={pathname.startsWith('/market') || pathname.startsWith('/my-store')}>
+    <StorefrontIcon class="self-center" size={22} />
+    <span class="sr-only">Market</span>
+  </a>
   <a href="/reads" class="nav-tab" class:active={pathname.startsWith('/reads')}>
     <NewspaperIcon class="self-center" size={22} />
     <span class="sr-only">Reads</span>
-  </a>
-  <a href="/messages" class="nav-tab" class:active={pathname.startsWith('/messages')}>
-    <span class="relative self-center">
-      <EnvelopeSimpleIcon size={22} weight={$totalUnreadCount > 0 ? 'fill' : 'regular'} />
-      {#if $totalUnreadCount > 0}
-        <span
-          class="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-red-500 border-2 border-input"
-          aria-hidden="true"
-        ></span>
-      {/if}
-    </span>
-    <span class="sr-only">Messages</span>
   </a>
   <a
     href="/notifications"
