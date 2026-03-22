@@ -135,22 +135,34 @@ export function getCommerceConfig(state: CommerceState): CommerceStateConfig {
 /**
  * Resolve the commerce state for a product.
  *
- * If the product carries an explicit `commerceState` tag, use it.
- * Otherwise, infer the best state from the product's data:
+ * If the product carries an explicit `commerceState` tag, use it — but only
+ * when the product satisfies the invariants for that state. For example,
+ * `instant_buy` requires both a price and a lightning address; if either is
+ * missing the explicit tag is ignored and the state is inferred instead.
+ *
+ * Inference rules:
  *   - Has lightning address + price > 0 → instant_buy
  *   - Has price > 0 but no lightning address → message_to_order
  *   - Price is 0 → message_to_order (safest fallback)
  */
 export function resolveCommerceState(product: Product): CommerceState {
-	// Explicit tag wins
-	if (product.commerceState && COMMERCE_STATES.includes(product.commerceState)) {
-		return product.commerceState;
-	}
-
-	// Infer from available data
 	const hasPrice = product.priceSats > 0;
 	const hasLightning = !!product.lightningAddress;
 
+	// Explicit tag wins, but only when its invariants are met
+	if (product.commerceState && COMMERCE_STATES.includes(product.commerceState)) {
+		if (product.commerceState === 'instant_buy') {
+			// Only honor instant_buy when checkout is actually possible
+			if (hasPrice && hasLightning) {
+				return 'instant_buy';
+			}
+			// Fall through to inferred state
+		} else {
+			return product.commerceState;
+		}
+	}
+
+	// Infer from available data
 	if (hasPrice && hasLightning) {
 		return 'instant_buy';
 	}
@@ -186,53 +198,3 @@ export function isInstantCheckout(state: CommerceState): boolean {
 export function isMessageFlow(state: CommerceState): boolean {
 	return state === 'message_to_order' || state === 'price_varies' || state === 'custom_quote';
 }
-
-// ── Mock Data ───────────────────────────────────────────────────────
-
-/** Example product snippets for each commerce state (for testing/docs) */
-export const COMMERCE_STATE_EXAMPLES: Record<CommerceState, { title: string; priceSats: number; lightningAddress: string; commerceState: CommerceState; requiresShipping: boolean; location?: string }> = {
-	instant_buy: {
-		title: 'Smoked Chipotle Hot Sauce (5 oz)',
-		priceSats: 1400,
-		lightningAddress: 'seller@getalby.com',
-		commerceState: 'instant_buy',
-		requiresShipping: true,
-		location: 'Washington'
-	},
-	starting_at: {
-		title: 'Handmade Ceramic Ramen Bowl',
-		priceSats: 8500,
-		lightningAddress: 'potter@walletofsatoshi.com',
-		commerceState: 'starting_at',
-		requiresShipping: true
-	},
-	price_varies: {
-		title: 'Seasonal Spice Box (monthly)',
-		priceSats: 0,
-		lightningAddress: '',
-		commerceState: 'price_varies',
-		requiresShipping: true
-	},
-	message_to_order: {
-		title: 'Bulk Hatch Green Chile (10 lb)',
-		priceSats: 0,
-		lightningAddress: '',
-		commerceState: 'message_to_order',
-		requiresShipping: true,
-		location: 'New Mexico'
-	},
-	custom_quote: {
-		title: 'Custom Knife Commission',
-		priceSats: 0,
-		lightningAddress: 'bladesmith@strike.me',
-		commerceState: 'custom_quote',
-		requiresShipping: true
-	},
-	external_checkout: {
-		title: 'Japanese Knife Set — Tojiro DP Series',
-		priceSats: 0,
-		lightningAddress: '',
-		commerceState: 'external_checkout',
-		requiresShipping: true
-	}
-};

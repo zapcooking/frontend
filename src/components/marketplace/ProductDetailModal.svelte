@@ -21,7 +21,7 @@
 	import StorefrontIcon from 'phosphor-svelte/lib/Storefront';
 	import TrustBadge from './TrustBadge.svelte';
 	import { CATEGORY_LABELS, type Product } from '$lib/marketplace/types';
-	import { resolveCommerceState, getCommerceLabel, getCommerceConfig, getShippingText, isInstantCheckout, isMessageFlow } from '$lib/marketplace/commerceState';
+	import { resolveCommerceState, getCommerceLabel, getCommerceConfig, getShippingText, isInstantCheckout } from '$lib/marketplace/commerceState';
 	import { getImageOrPlaceholder } from '$lib/placeholderImages';
 	import { getInvoiceFromLightningAddress } from '$lib/marketplace/products';
 	import { activeWallet } from '$lib/wallet';
@@ -70,9 +70,8 @@
 	$: stateConfig = getCommerceConfig(commerceState);
 	$: commerceLabel = getCommerceLabel(commerceState, product?.priceSats || 0);
 	$: shippingText = getShippingText(product);
-	$: canInstantBuy = isInstantCheckout(commerceState);
-	$: primaryIsMessage = isMessageFlow(commerceState);
-
+	$: canInstantBuy =
+		isInstantCheckout(commerceState) || (!!product?.priceSats && !!resolvedLightningAddress);
 	// Resolved lightning address (from product tag or seller profile fallback)
 	let resolvedLightningAddress: string = '';
 	let resolvingLightning = false;
@@ -297,11 +296,12 @@
 	}
 
 	function handlePrimaryCta() {
-		if (primaryIsMessage) {
-			openDmForm();
-		} else if (canInstantBuy) {
+		if (canInstantBuy) {
 			handlePayment();
 		} else {
+			// All non-instant states (message_to_order, price_varies, custom_quote,
+			// starting_at, external_checkout) open the DM form as the safest action.
+			// When starting_at / external_checkout get dedicated flows, wire them here.
 			openDmForm();
 		}
 	}

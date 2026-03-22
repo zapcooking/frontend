@@ -9,7 +9,7 @@
 	import { nip19 } from 'nostr-tools';
 	import { parseProductEvent } from '$lib/marketplace/products';
 	import type { Product } from '$lib/marketplace/types';
-	import { resolveCommerceState, getCommerceLabel, getCommerceConfig, getShippingText, isMessageFlow } from '$lib/marketplace/commerceState';
+	import { resolveCommerceState, getCommerceLabel, getCommerceConfig, getShippingText } from '$lib/marketplace/commerceState';
 	import { getImageOrPlaceholder } from '$lib/placeholderImages';
 	import ArrowClockwiseIcon from 'phosphor-svelte/lib/ArrowClockwise';
 	import PencilSimpleIcon from 'phosphor-svelte/lib/PencilSimple';
@@ -189,7 +189,7 @@
 		<!-- Action Buttons -->
 		<div class="flex gap-2 mt-2">
 			<div class="view-button flex-1 py-2 rounded-lg font-semibold text-sm flex items-center justify-center gap-1.5">
-				{isMessageFlow(commerceState) ? 'View details' : stateConfig.primaryCta}
+				View details
 			</div>
 			<button
 				type="button"
