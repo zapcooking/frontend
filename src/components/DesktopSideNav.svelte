@@ -22,6 +22,8 @@
   import WalletIcon from 'phosphor-svelte/lib/Wallet';
   import CrownSimpleIcon from 'phosphor-svelte/lib/CrownSimple';
   import HandshakeIcon from 'phosphor-svelte/lib/Handshake';
+  import StorefrontIcon from 'phosphor-svelte/lib/Storefront';
+  import LeafIcon from 'phosphor-svelte/lib/Leaf';
   import { totalUnreadCount } from '$lib/stores/messages';
   import { userSidePanelOpen } from '$lib/stores/userSidePanel';
 
@@ -68,6 +70,12 @@
       match: (p) => p.startsWith('/reads')
     },
     {
+      href: '/market',
+      label: 'Market',
+      icon: StorefrontIcon,
+      match: (p) => p.startsWith('/market') || p.startsWith('/my-store')
+    },
+    {
       href: '/notifications',
       label: 'Notifications',
       icon: BellIcon,
@@ -102,6 +110,12 @@
       icon: WalletIcon,
       match: (p) => p.startsWith('/wallet'),
       badge: 'walletConnect'
+    },
+    {
+      href: '/nourish',
+      label: 'Nourish',
+      icon: LeafIcon,
+      match: (p) => p.startsWith('/nourish')
     },
     {
       href: '/membership',

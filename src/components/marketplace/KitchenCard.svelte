@@ -70,7 +70,7 @@
 		</div>
 
 		<div class="visit-button mt-1 py-2 rounded-lg font-semibold text-sm flex items-center justify-center">
-			Visit Store
+			Visit Shop
 		</div>
 	</div>
 </a>

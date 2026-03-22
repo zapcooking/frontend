@@ -143,7 +143,7 @@
 		<div class="flex gap-2">
 			<a href="/market" class="nav-pill">
 				<StorefrontIcon size={16} />
-				Stores
+				Shops
 			</a>
 			<a href="/market/products" class="nav-pill active">
 				<PackageIcon size={16} />

@@ -395,7 +395,7 @@
 					on:click={() => (open = false)}
 					class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors hover:bg-white/10"
 					style="color: var(--color-text-secondary);"
-					title="Visit Store"
+					title="Visit Shop"
 				>
 					<StorefrontIcon size={16} />
 					<span class="hidden sm:inline">Store</span>
