@@ -622,6 +622,17 @@
 		<!-- Primary + Secondary CTAs (idle state, not in DM form) -->
 		{#if paymentState !== 'success' && paymentState !== 'error'}
 			<div class="flex flex-col gap-3">
+				<!-- Trust reinforcement near CTA -->
+				{#if trustRank !== undefined && trustRank >= 20}
+					<div class="flex items-center justify-center gap-2 py-1.5">
+						<CustomAvatar pubkey={product?.pubkey || ''} size={18} className="flex-shrink-0" interactive={false} />
+						<span class="text-xs" style="color: var(--color-text-secondary)">
+							<CustomName pubkey={product?.pubkey || ''} />
+						</span>
+						<TrustBadge rank={trustRank} {personalized} />
+					</div>
+				{/if}
+
 				<!-- PRIMARY CTA — adapts to commerce state -->
 				{#if !showDmForm || canInstantBuy}
 					<Button
