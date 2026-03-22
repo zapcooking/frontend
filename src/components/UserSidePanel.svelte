@@ -452,16 +452,6 @@
         <ul class="flex flex-col gap-1">
           <li>
             <button
-              on:click={() => navigate('/kitchen')}
-              class="w-full flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-opacity-50 transition-colors cursor-pointer"
-              style="color: var(--color-text-primary);"
-            >
-              <FlameIcon size={22} />
-              <span class="font-medium">The Kitchen</span>
-            </button>
-          </li>
-          <li>
-            <button
               on:click={() => navigate('/garden')}
               class="w-full flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-opacity-50 transition-colors cursor-pointer"
               style="color: var(--color-text-primary);"
