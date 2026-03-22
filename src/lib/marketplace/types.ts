@@ -6,6 +6,7 @@
 
 import type { NDKEvent } from '@nostr-dev-kit/ndk';
 import type { MembershipTier } from '$lib/membershipStore';
+import type { CommerceState } from './commerceState';
 
 // Maximum age for marketplace listings (in days). Listings older than this are hidden.
 export const MARKETPLACE_LISTING_MAX_AGE_DAYS = 180;
@@ -58,6 +59,7 @@ export interface Product {
 	lightningAddress: string;
 	requiresShipping: boolean;
 	location?: string;
+	commerceState?: CommerceState;
 	publishedAt: number;
 	createdAt: number;
 	event: NDKEvent;
@@ -73,6 +75,7 @@ export interface ProductFormData {
 	lightningAddress: string;
 	requiresShipping: boolean;
 	location?: string;
+	commerceState?: CommerceState;
 }
 
 // Kitchen / Storefront types (NIP-15 stall)

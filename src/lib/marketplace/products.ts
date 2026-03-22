@@ -17,6 +17,7 @@ import {
 	type ProductFormData,
 	type ProductStatus
 } from './types';
+import { COMMERCE_STATES, type CommerceState } from './commerceState';
 import { addClientTagToEvent } from '$lib/nip89';
 
 // Relays that index marketplace events
@@ -111,6 +112,13 @@ export function parseProductEvent(event: NDKEvent): Product | null {
 		const location = getTag('location');
 		const publishedAt = parseInt(getTag('published_at') || '0', 10);
 
+		// Read commerce state tag (if seller has set one explicitly)
+		const commerceStateTag = getTag('commerce_state');
+		const commerceState: CommerceState | undefined =
+			commerceStateTag && COMMERCE_STATES.includes(commerceStateTag as CommerceState)
+				? (commerceStateTag as CommerceState)
+				: undefined;
+
 		return {
 			id,
 			pubkey: event.pubkey,
@@ -124,6 +132,7 @@ export function parseProductEvent(event: NDKEvent): Product | null {
 			lightningAddress,
 			requiresShipping,
 			location,
+			commerceState,
 			publishedAt: publishedAt || event.created_at || 0,
 			createdAt: event.created_at || 0,
 			event
@@ -171,6 +180,11 @@ export function createProductEvent(
 	// Add optional location
 	if (data.location) {
 		event.tags.push(['location', data.location]);
+	}
+
+	// Add commerce state tag (if seller has set one explicitly)
+	if (data.commerceState) {
+		event.tags.push(['commerce_state', data.commerceState]);
 	}
 
 	// Add client tag (NIP-89)
@@ -273,7 +287,7 @@ export async function fetchProducts(
 		const seen = new Map<string, Product>();
 		for (const event of events) {
 			const product = parseProductEvent(event);
-			if (product && product.status === 'active' && product.priceSats > 0 && product.images.length > 0) {
+			if (product && product.status === 'active' && product.images.length > 0) {
 				const key = `${product.pubkey}:${product.id}`;
 				const existing = seen.get(key);
 				if (!existing || product.createdAt > existing.createdAt) {
@@ -462,6 +476,9 @@ export async function relistProduct(
 		}
 		if (product.location) {
 			newEvent.tags.push(['location', product.location]);
+		}
+		if (product.commerceState) {
+			newEvent.tags.push(['commerce_state', product.commerceState]);
 		}
 
 		addClientTagToEvent(newEvent);

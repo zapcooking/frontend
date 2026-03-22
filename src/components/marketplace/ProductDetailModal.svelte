@@ -21,6 +21,7 @@
 	import StorefrontIcon from 'phosphor-svelte/lib/Storefront';
 	import TrustBadge from './TrustBadge.svelte';
 	import { CATEGORY_LABELS, type Product } from '$lib/marketplace/types';
+	import { resolveCommerceState, getCommerceLabel, getCommerceConfig, getShippingText, isInstantCheckout } from '$lib/marketplace/commerceState';
 	import { getImageOrPlaceholder } from '$lib/placeholderImages';
 	import { getInvoiceFromLightningAddress } from '$lib/marketplace/products';
 	import { activeWallet } from '$lib/wallet';
@@ -64,6 +65,13 @@
 	export let personalized: boolean = false;
 	export let initialShowDm = false;
 
+	// Commerce state
+	$: commerceState = resolveCommerceState(product);
+	$: stateConfig = getCommerceConfig(commerceState);
+	$: commerceLabel = getCommerceLabel(commerceState, product?.priceSats || 0);
+	$: shippingText = getShippingText(product);
+	$: canInstantBuy =
+		isInstantCheckout(commerceState) || (!!product?.priceSats && !!resolvedLightningAddress);
 	// Resolved lightning address (from product tag or seller profile fallback)
 	let resolvedLightningAddress: string = '';
 	let resolvingLightning = false;
@@ -287,6 +295,17 @@
 		}
 	}
 
+	function handlePrimaryCta() {
+		if (canInstantBuy) {
+			handlePayment();
+		} else {
+			// All non-instant states (message_to_order, price_varies, custom_quote,
+			// starting_at, external_checkout) open the DM form as the safest action.
+			// When starting_at / external_checkout get dedicated flows, wire them here.
+			openDmForm();
+		}
+	}
+
 	async function recheckEncryption() {
 		// Re-import and re-check encryption support
 		const encryptionService = await import('$lib/encryptionService');
@@ -343,24 +362,37 @@
 			</div>
 		{/if}
 
-		<!-- Price & Shipping -->
+		<!-- Commerce State & Shipping -->
 		<div class="flex items-center justify-between">
 			<div class="flex items-baseline gap-2">
-				<span class="text-3xl font-bold text-orange-500">
-					{product?.priceSats?.toLocaleString()}
-				</span>
-				<span class="text-base" style="color: var(--color-text-secondary)">sats</span>
+				{#if stateConfig.showPrice}
+					<span class="text-3xl font-bold {stateConfig.accentClass}">
+						{commerceLabel}
+					</span>
+					<LightningIcon size={18} weight="fill" class="text-orange-400 self-center" />
+				{:else}
+					<span class="text-lg font-semibold {stateConfig.accentClass}">
+						{commerceLabel}
+					</span>
+				{/if}
 			</div>
 			<div class="flex items-center gap-1.5 text-sm {product?.requiresShipping ? '' : 'text-emerald-400'}">
 				{#if product?.requiresShipping}
 					<PackageIcon size={18} />
-					<span style="color: var(--color-text-secondary)">Requires shipping</span>
+					<span style="color: var(--color-text-secondary)">{shippingText}</span>
 				{:else}
 					<CloudArrowDownIcon size={18} />
-					<span>Instant delivery</span>
+					<span>{shippingText}</span>
 				{/if}
 			</div>
 		</div>
+
+		<!-- Commerce State Subtext -->
+		{#if stateConfig.subtext}
+			<p class="text-xs -mt-3" style="color: var(--color-text-secondary); opacity: 0.8;">
+				{stateConfig.subtext}
+			</p>
+		{/if}
 
 		<!-- Category & Location -->
 		<div class="flex flex-wrap items-center gap-3 text-xs" style="color: var(--color-text-secondary)">
@@ -590,55 +622,68 @@
 		<!-- Primary + Secondary CTAs (idle state, not in DM form) -->
 		{#if paymentState !== 'success' && paymentState !== 'error'}
 			<div class="flex flex-col gap-3">
-				<!-- PRIMARY: Message Seller -->
-				{#if !showDmForm}
+				<!-- Trust reinforcement near CTA -->
+				{#if trustRank !== undefined && trustRank >= 20}
+					<div class="flex items-center justify-center gap-2 py-1.5">
+						<CustomAvatar pubkey={product?.pubkey || ''} size={18} className="flex-shrink-0" interactive={false} />
+						<span class="text-xs" style="color: var(--color-text-secondary)">
+							<CustomName pubkey={product?.pubkey || ''} />
+						</span>
+						<TrustBadge rank={trustRank} {personalized} />
+					</div>
+				{/if}
+
+				<!-- PRIMARY CTA — adapts to commerce state -->
+				{#if !showDmForm || canInstantBuy}
 					<Button
 						class="w-full py-3 text-lg"
-						on:click={openDmForm}
+						on:click={handlePrimaryCta}
+						disabled={canInstantBuy && (paymentState === 'loading' || resolvingLightning || !resolvedLightningAddress)}
 					>
 						<span class="flex items-center justify-center gap-2">
-							<ChatCircleIcon size={20} weight="fill" />
-							Message Seller
+							{#if canInstantBuy}
+								{#if resolvingLightning}
+									<svg class="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+										<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+										<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+									</svg>
+									Loading...
+								{:else if paymentState === 'loading'}
+									<svg class="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+										<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+										<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+									</svg>
+									Getting Invoice...
+								{:else}
+									<LightningIcon size={20} weight="fill" />
+									Pay {product?.priceSats?.toLocaleString()} sats
+								{/if}
+							{:else}
+								<ChatCircleIcon size={20} weight="fill" />
+								{stateConfig.primaryCta}
+							{/if}
 						</span>
 					</Button>
 				{/if}
 
-				<!-- SECONDARY: Pay Button (outlined/muted) -->
-				<button
-					type="button"
-					on:click={handlePayment}
-					disabled={paymentState === 'loading' || resolvingLightning || !resolvedLightningAddress}
-					class="w-full py-2.5 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
-					style="border: 1px solid var(--color-text-secondary); color: var(--color-text-secondary); background: transparent;"
-				>
-					{#if resolvingLightning}
-						<svg class="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-							<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-							<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-						</svg>
-						Loading...
-					{:else if !resolvedLightningAddress}
-						<LightningIcon size={16} weight="fill" />
-						No Lightning address
-					{:else if paymentState === 'loading'}
-						<svg class="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-							<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-							<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-						</svg>
-						Getting Invoice...
-					{:else}
-						<LightningIcon size={16} weight="fill" />
-						Pay {product?.priceSats?.toLocaleString()} sats
-					{/if}
-				</button>
-
-				<!-- Helper text -->
-				<p class="text-xs text-center" style="color: var(--color-text-secondary); opacity: 0.7;">
-					Message the seller to confirm details before paying
-				</p>
+				<!-- SECONDARY CTA — only when both flows genuinely apply -->
+				{#if canInstantBuy && !showDmForm}
+					<button
+						type="button"
+						on:click={openDmForm}
+						class="w-full py-2.5 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-2"
+						style="border: 1px solid var(--color-text-secondary); color: var(--color-text-secondary); background: transparent;"
+					>
+						<ChatCircleIcon size={16} weight="fill" />
+						Message seller first
+					</button>
+					<p class="text-xs text-center" style="color: var(--color-text-secondary); opacity: 0.7;">
+						Message the seller to confirm details before paying
+					</p>
+				{/if}
 
 				<!-- Copy Lightning address -->
-				{#if resolvedLightningAddress}
+				{#if resolvedLightningAddress && canInstantBuy}
 					<button
 						type="button"
 						on:click={copyLightning}

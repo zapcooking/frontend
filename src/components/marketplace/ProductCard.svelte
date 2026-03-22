@@ -2,12 +2,14 @@
 	import { createEventDispatcher } from 'svelte';
 	import type { NDKEvent } from '@nostr-dev-kit/ndk';
 	import ChatCircleIcon from 'phosphor-svelte/lib/ChatCircle';
+	import LightningIcon from 'phosphor-svelte/lib/Lightning';
 	import PackageIcon from 'phosphor-svelte/lib/Package';
 	import CloudArrowDownIcon from 'phosphor-svelte/lib/CloudArrowDown';
 	import TrashIcon from 'phosphor-svelte/lib/Trash';
 	import { nip19 } from 'nostr-tools';
 	import { parseProductEvent } from '$lib/marketplace/products';
 	import type { Product } from '$lib/marketplace/types';
+	import { resolveCommerceState, getCommerceLabel, getCommerceConfig, getShippingText } from '$lib/marketplace/commerceState';
 	import { getImageOrPlaceholder } from '$lib/placeholderImages';
 	import ArrowClockwiseIcon from 'phosphor-svelte/lib/ArrowClockwise';
 	import PencilSimpleIcon from 'phosphor-svelte/lib/PencilSimple';
@@ -39,10 +41,16 @@
 	$: product = parseProductEvent(event);
 	$: title = product?.title || '';
 	$: priceSats = product?.priceSats || 0;
-	$: requiresShipping = product?.requiresShipping ?? true;
 	$: sellerPubkey = product?.pubkey || '';
 	$: sellerNpub = sellerPubkey ? nip19.npubEncode(sellerPubkey) : '';
 	$: kitchenUrl = sellerNpub ? `/market/kitchen/${sellerNpub}` : '';
+
+	// Commerce state
+	$: commerceState = product ? resolveCommerceState(product) : 'message_to_order';
+	$: stateConfig = getCommerceConfig(commerceState);
+	$: commerceLabel = getCommerceLabel(commerceState, priceSats);
+	$: shippingText = product ? getShippingText(product) : '';
+	$: isDigital = !product?.requiresShipping;
 
 	// Get primary image with placeholder fallback
 	$: imageUrl = product?.images?.[0]
@@ -137,12 +145,18 @@
 			{title}
 		</h5>
 
-		<!-- Price -->
+		<!-- Commerce State Label -->
 		<div class="flex items-baseline gap-1.5">
-			<span class="text-xl font-bold text-orange-500">
-				{priceSats.toLocaleString()} sats
-			</span>
-			<span class="text-sm text-orange-400">&#9889;</span>
+			{#if stateConfig.showPrice}
+				<span class="text-xl font-bold {stateConfig.accentClass}">
+					{commerceLabel}
+				</span>
+				<LightningIcon size={14} weight="fill" class="text-orange-400 self-center" />
+			{:else}
+				<span class="text-sm font-semibold {stateConfig.accentClass}">
+					{commerceLabel}
+				</span>
+			{/if}
 		</div>
 
 		<!-- Seller -->
@@ -162,21 +176,20 @@
 			</span>
 		{/if}
 
-		<!-- Shipping indicator -->
-		<div class="flex items-center gap-1.5 text-xs {requiresShipping ? 'text-gray-400' : 'text-emerald-400'}">
-			{#if requiresShipping}
-				<PackageIcon size={14} />
-				<span>Requires shipping</span>
-			{:else}
+		<!-- Shipping / Delivery indicator -->
+		<div class="flex items-center gap-1.5 text-xs {isDigital ? 'text-emerald-400' : 'text-gray-400'}">
+			{#if isDigital}
 				<CloudArrowDownIcon size={14} />
-				<span>Instant delivery</span>
+			{:else}
+				<PackageIcon size={14} />
 			{/if}
+			<span>{shippingText}</span>
 		</div>
 
 		<!-- Action Buttons -->
 		<div class="flex gap-2 mt-2">
 			<div class="view-button flex-1 py-2 rounded-lg font-semibold text-sm flex items-center justify-center gap-1.5">
-				View Details
+				View details
 			</div>
 			<button
 				type="button"
