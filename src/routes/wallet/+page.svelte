@@ -130,6 +130,7 @@
   import CustomName from '../../components/CustomName.svelte';
   import LifebuoyIcon from 'phosphor-svelte/lib/Lifebuoy';
   import ShieldCheckIcon from 'phosphor-svelte/lib/ShieldCheck';
+  import PencilSimpleIcon from 'phosphor-svelte/lib/PencilSimple';
   import CloudCheckIcon from 'phosphor-svelte/lib/CloudCheck';
   import WalletRecoveryHelpModal from '../../components/WalletRecoveryHelpModal.svelte';
   import CheckRelayBackupsModal from '../../components/CheckRelayBackupsModal.svelte';
@@ -172,6 +173,11 @@
   let sparkMnemonic = '';
   let showMnemonic = false;
   let mnemonicVisible = false;
+
+  // Backup reminder state
+  let showBackupReminder = false;
+  let backupReminderDismissed = false;
+  let showPaperBackupInline = false;
 
   // Spark restore options
   let sparkRestoreMode: 'options' | 'mnemonic' | 'file' | 'nostr-select' = 'options';
@@ -616,6 +622,9 @@
     ndkReady.then(() => {
       checkEncryptionSupport();
     });
+
+    // Load backup status
+    loadBackupStatus();
 
     // Load transaction history if wallet is already connected (not for WebLN)
     if ($walletConnected && $activeWallet && $activeWallet.kind !== 1) {
@@ -1575,11 +1584,11 @@
     errorMessage = '';
 
     try {
-      const mnemonic = await createSparkWallet($userPublickey, BREEZ_API_KEY);
-      sparkMnemonic = mnemonic;
-      showMnemonic = true;
-      mnemonicVisible = false;
-      successMessage = 'Breez Spark wallet created! Please save your recovery phrase.';
+      await createSparkWallet($userPublickey, BREEZ_API_KEY);
+      successMessage = 'Spark wallet created!';
+      showBackupReminder = true;
+      showAddWallet = false;
+      selectedWalletType = null;
 
       // Register in wallet store
       await connectWallet(4, 'spark');
@@ -1955,11 +1964,53 @@
     try {
       await backupWalletToNostr($userPublickey);
       successMessage = 'Wallet backed up to Nostr relays!';
+      saveBackupStatus('nostr');
+      showBackupReminder = false;
     } catch (e) {
       errorMessage = getSignerErrorMessage(e, 'Failed to backup to Nostr');
     } finally {
       isBackingUp = false;
     }
+  }
+
+  // Backup reminder helpers
+  const BACKUP_STATUS_KEY = 'spark_backup_status';
+
+  function getBackupStatusKey(): string {
+    return `${BACKUP_STATUS_KEY}_${$userPublickey}`;
+  }
+
+  function loadBackupStatus() {
+    if (!browser || !$userPublickey) return;
+    const status = localStorage.getItem(getBackupStatusKey());
+    if (status) {
+      backupReminderDismissed = true;
+    }
+  }
+
+  function saveBackupStatus(method: string) {
+    if (!browser || !$userPublickey) return;
+    localStorage.setItem(getBackupStatusKey(), method);
+    backupReminderDismissed = true;
+  }
+
+  function dismissBackupReminder() {
+    showBackupReminder = false;
+    backupReminderDismissed = true;
+  }
+
+  function handleShowPaperBackup() {
+    showPaperBackupInline = true;
+    handleRevealMnemonic();
+  }
+
+  function handlePaperBackupDone() {
+    showPaperBackupInline = false;
+    revealedMnemonic = null;
+    mnemonicVisible = false;
+    saveBackupStatus('paper');
+    showBackupReminder = false;
+    successMessage = 'Recovery phrase backed up!';
   }
 
   async function handleNwcBackupToNostr(wallet: { data: string }) {
@@ -2242,17 +2293,19 @@
     <h1 class="text-2xl font-bold mb-6" style="color: var(--color-text-primary)">Wallet</h1>
 
     <!-- Error/Success Messages - Fixed at top, above all modals -->
-    {#if errorMessage}
-      <div
-        class="fixed top-4 left-4 right-4 max-w-2xl mx-auto p-4 rounded-lg flex items-center gap-3 shadow-xl border z-[100]"
-        style="background-color: var(--color-bg-primary); border-color: #ef4444; color: #ef4444;"
-      >
-        <WarningIcon size={20} class="flex-shrink-0" />
-        <span class="flex-1 text-sm">{errorMessage}</span>
-        <button
-          class="text-sm underline flex-shrink-0 hover:opacity-80"
-          on:click={() => (errorMessage = '')}>Dismiss</button
+    {#if errorMessage && portalTarget}
+      <div use:portal={portalTarget}>
+        <div
+          class="fixed top-4 left-4 right-4 max-w-2xl mx-auto p-4 rounded-lg flex items-center gap-3 shadow-xl border z-[9999]"
+          style="background-color: var(--color-bg-primary); border-color: #ef4444; color: #ef4444;"
         >
+          <WarningIcon size={20} class="flex-shrink-0" />
+          <span class="flex-1 text-sm">{errorMessage}</span>
+          <button
+            class="text-sm underline flex-shrink-0 hover:opacity-80"
+            on:click={() => (errorMessage = '')}>Dismiss</button
+          >
+        </div>
       </div>
     {/if}
 
@@ -2408,6 +2461,87 @@
             </button>
           </div>
         {/if}
+      </div>
+    {/if}
+
+    <!-- Backup Reminder Banner (Spark wallet only, after creation) -->
+    {#if showBackupReminder && !backupReminderDismissed && $activeWallet?.kind === 4}
+      <div
+        class="mb-4 p-4 rounded-2xl"
+        style="background-color: rgba(245, 158, 11, 0.08); border: 1px solid rgba(245, 158, 11, 0.3);"
+      >
+        <div class="flex items-start gap-3">
+          <ShieldCheckIcon size={22} class="text-amber-500 flex-shrink-0 mt-0.5" />
+          <div class="flex-1">
+            <p class="font-medium text-primary-color mb-1">Protect your wallet</p>
+            <p class="text-sm text-caption mb-3">
+              Choose a backup method to secure your funds.
+            </p>
+
+            {#if showPaperBackupInline && revealedMnemonic}
+              <div class="mb-3">
+                <div
+                  class="relative p-4 rounded-lg mb-3 font-mono text-sm"
+                  style="background-color: var(--color-input-bg); color: var(--color-text-primary);"
+                >
+                  {#if mnemonicVisible}
+                    <span class="select-all">{revealedMnemonic}</span>
+                  {:else}
+                    <span class="blur-sm select-none" aria-hidden="true">{revealedMnemonic}</span>
+                  {/if}
+                  <button
+                    class="absolute top-3 right-3 p-1 rounded-lg opacity-70 hover:opacity-100 transition-opacity"
+                    style="color: var(--color-text-primary);"
+                    on:click={() => (mnemonicVisible = !mnemonicVisible)}
+                    title={mnemonicVisible ? 'Hide' : 'Reveal'}
+                  >
+                    {#if mnemonicVisible}
+                      <EyeSlashIcon size={18} />
+                    {:else}
+                      <EyeIcon size={18} />
+                    {/if}
+                  </button>
+                </div>
+                <button
+                  class="w-full py-2 px-4 rounded-xl text-sm font-medium bg-amber-500 hover:bg-amber-600 text-white transition-colors"
+                  on:click={handlePaperBackupDone}
+                >
+                  I've written it down
+                </button>
+              </div>
+            {:else}
+              <div class="flex flex-col gap-2">
+                <button
+                  class="flex items-center gap-3 w-full py-2.5 px-4 rounded-xl text-sm font-medium text-left transition-colors hover:bg-white/5"
+                  style="border: 1px solid var(--color-input-border);"
+                  on:click={handleShowPaperBackup}
+                >
+                  <PencilSimpleIcon size={18} class="text-amber-500 flex-shrink-0" />
+                  <span class="text-primary-color">Write down recovery phrase</span>
+                </button>
+                <button
+                  class="flex items-center gap-3 w-full py-2.5 px-4 rounded-xl text-sm font-medium text-left transition-colors hover:bg-white/5 disabled:opacity-40"
+                  style="border: 1px solid var(--color-input-border);"
+                  on:click={handleBackupToNostr}
+                  disabled={isBackingUp || !encryptionSupported}
+                  title={!encryptionSupported ? 'Your signer does not support encryption' : ''}
+                >
+                  <CloudArrowUpIcon size={18} class="text-amber-500 flex-shrink-0" />
+                  <span class="text-primary-color">
+                    {isBackingUp ? 'Backing up...' : 'Backup to Nostr'}
+                  </span>
+                </button>
+              </div>
+            {/if}
+
+            <button
+              class="mt-3 text-xs text-caption hover:text-primary-color transition-colors cursor-pointer"
+              on:click={dismissBackupReminder}
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
       </div>
     {/if}
 
@@ -2770,6 +2904,14 @@
                   </div>
                   <div class="grid grid-cols-2 gap-2">
                     <button
+                      class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer"
+                      style="background-color: var(--color-bg-primary); border: 1px solid var(--color-input-border);"
+                      on:click={handleRevealMnemonic}
+                    >
+                      <KeyIcon size={16} />
+                      Recovery Phrase
+                    </button>
+                    <button
                       class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors"
                       class:cursor-pointer={encryptionSupported}
                       class:cursor-not-allowed={!encryptionSupported}
@@ -2783,35 +2925,6 @@
                       {isBackingUp ? 'Backing up...' : 'Backup to Nostr'}
                     </button>
                     <button
-                      class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors"
-                      class:cursor-pointer={encryptionSupported}
-                      class:cursor-not-allowed={!encryptionSupported}
-                      class:opacity-50={!encryptionSupported}
-                      style="background-color: var(--color-bg-primary); border: 1px solid var(--color-input-border);"
-                      on:click={handleDownloadBackup}
-                      disabled={isBackingUp || !encryptionSupported}
-                      title={!encryptionSupported ? 'Your signer does not support encryption' : ''}
-                    >
-                      <DownloadSimpleIcon size={16} />
-                      Download
-                    </button>
-                    <button
-                      class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer"
-                      style="background-color: var(--color-bg-primary); border: 1px solid var(--color-input-border);"
-                      on:click={handleRevealMnemonic}
-                    >
-                      <KeyIcon size={16} />
-                      Recovery Phrase
-                    </button>
-                    <button
-                      class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer"
-                      style="background-color: var(--color-bg-primary); border: 1px solid var(--color-input-border);"
-                      on:click={() => (showRecoveryHelpModal = true)}
-                    >
-                      <LifebuoyIcon size={16} />
-                      Recovery Help
-                    </button>
-                    <button
                       class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer"
                       style="background-color: var(--color-bg-primary); border: 1px solid var(--color-input-border);"
                       on:click={() => {
@@ -2821,6 +2934,14 @@
                     >
                       <CloudCheckIcon size={16} />
                       Check Backups
+                    </button>
+                    <button
+                      class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer"
+                      style="background-color: var(--color-bg-primary); border: 1px solid var(--color-input-border);"
+                      on:click={() => (showRecoveryHelpModal = true)}
+                    >
+                      <LifebuoyIcon size={16} />
+                      Recovery Help
                     </button>
                     <button
                       class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer text-red-500 hover:bg-red-500/10"
@@ -3827,48 +3948,6 @@
                     </div>
                   {:else}
                     <div class="space-y-3 mb-4">
-                      <div class="text-xs text-caption uppercase tracking-wide text-center">
-                        Restore existing wallet
-                      </div>
-                      <div class="space-y-2">
-                        {#if canCheckSparkBackup}
-                          <Button
-                            on:click={handleRestoreFromNostr}
-                            disabled={isConnecting}
-                            class="w-full"
-                          >
-                            <CloudArrowDownIcon size={16} />
-                            Restore from Nostr Backup
-                          </Button>
-                          {#if sparkBackupExists === false}
-                            <p class="text-xs text-caption text-center">
-                              No backup found on relays.
-                            </p>
-                          {/if}
-                        {/if}
-                        <Button
-                          on:click={() => fileInput?.click()}
-                          disabled={isConnecting}
-                          class="w-full"
-                        >
-                          Restore from Backup File
-                        </Button>
-                        <input
-                          type="file"
-                          accept=".json"
-                          class="hidden"
-                          bind:this={fileInput}
-                          on:change={handleFileSelect}
-                        />
-                        <Button
-                          on:click={() => (sparkRestoreMode = 'mnemonic')}
-                          disabled={isConnecting}
-                          class="w-full"
-                        >
-                          Restore from Recovery Phrase
-                        </Button>
-                      </div>
-                      <div class="border-t" style="border-color: var(--color-input-border);"></div>
                       <Button
                         on:click={handleSparkCreateRequest}
                         disabled={isConnecting}
@@ -3876,6 +3955,37 @@
                       >
                         Create New Wallet
                       </Button>
+                      <div class="border-t" style="border-color: var(--color-input-border);"></div>
+                      <div class="text-xs text-caption uppercase tracking-wide text-center">
+                        Restore existing wallet
+                      </div>
+                      <div class="space-y-2">
+                        {#if canCheckSparkBackup}
+                          <button
+                            class="flex items-center justify-center gap-2 w-full px-3 py-2.5 rounded-lg text-sm transition-colors cursor-pointer disabled:opacity-50"
+                            style="background-color: var(--color-bg-primary); border: 1px solid var(--color-input-border);"
+                            on:click={handleRestoreFromNostr}
+                            disabled={isConnecting}
+                          >
+                            <CloudArrowDownIcon size={16} />
+                            Restore from Nostr Backup
+                          </button>
+                        {/if}
+                        <button
+                          class="flex items-center justify-center gap-2 w-full px-3 py-2.5 rounded-lg text-sm transition-colors cursor-pointer disabled:opacity-50"
+                          style="background-color: var(--color-bg-primary); border: 1px solid var(--color-input-border);"
+                          on:click={() => (sparkRestoreMode = 'mnemonic')}
+                          disabled={isConnecting}
+                        >
+                          <KeyIcon size={16} />
+                          Restore from Recovery Phrase
+                        </button>
+                      </div>
+                      {#if canCheckSparkBackup && sparkBackupExists === false}
+                        <p class="text-xs text-caption text-center">
+                          No backup found on relays.
+                        </p>
+                      {/if}
                     </div>
                   {/if}
                 {:else if sparkRestoreMode === 'nostr-select'}
@@ -3962,57 +4072,7 @@
       </div>
     {/if}
 
-    <!-- Mnemonic Display Modal (after wallet creation) -->
-    {#if showMnemonic && sparkMnemonic && portalTarget}
-      <div use:portal={portalTarget}>
-        <div
-          class="fixed inset-0 bg-black/50 flex z-50 p-4"
-          style="display: flex; align-items: center; justify-content: center;"
-        >
-          <div
-            class="rounded-2xl p-6 max-w-md w-full max-h-[90vh] overflow-y-auto"
-            style="background-color: var(--color-bg-primary);"
-          >
-            <h2 class="text-xl font-bold mb-4" style="color: var(--color-text-primary)">
-              Save Your Recovery Phrase
-            </h2>
-            <div
-              class="mb-4 p-4 rounded-lg"
-              style="background-color: rgba(239, 68, 68, 0.1); color: #ef4444;"
-            >
-              <WarningIcon size={20} class="inline mr-2" />
-              Write down these 12 words and store them securely. If you lose them, you will lose access
-              to your wallet.
-            </div>
-            <div
-              class="relative p-4 rounded-lg mb-4 font-mono text-sm"
-              style="background-color: var(--color-input-bg); color: var(--color-text-primary);"
-            >
-              {#if mnemonicVisible}
-                <span class="select-all">{sparkMnemonic}</span>
-              {:else}
-                <span class="blur-sm select-none" aria-hidden="true">{sparkMnemonic}</span>
-              {/if}
-              <button
-                class="absolute top-3 right-3 p-1 rounded-lg opacity-70 hover:opacity-100 transition-opacity"
-                style="color: var(--color-text-primary);"
-                on:click={() => (mnemonicVisible = !mnemonicVisible)}
-                title={mnemonicVisible ? 'Hide recovery phrase' : 'Reveal recovery phrase'}
-              >
-                {#if mnemonicVisible}
-                  <EyeSlashIcon size={20} />
-                {:else}
-                  <EyeIcon size={20} />
-                {/if}
-              </button>
-            </div>
-            <Button on:click={closeMnemonicModal} class="w-full"
-              >I've Saved My Recovery Phrase</Button
-            >
-          </div>
-        </div>
-      </div>
-    {/if}
+    <!-- Mnemonic Display Modal removed - replaced by backup reminder banner -->
 
     <!-- Reveal Mnemonic Modal - higher z-index to appear above other modals -->
     {#if revealedMnemonic && portalTarget}
@@ -4260,26 +4320,14 @@
                   class:grid-cols-1={!encryptionSupported}
                 >
                   {#if walletToDelete.kind === 4}
-                    <!-- Spark wallet: Download JSON backup (encrypted) -->
-                    {#if encryptionSupported}
-                      <button
-                        class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer bg-amber-500 hover:bg-amber-600 text-black"
-                        on:click={handleDownloadBackup}
-                        disabled={isBackingUp}
-                      >
-                        <DownloadSimpleIcon size={16} />
-                        Download JSON
-                      </button>
-                    {:else}
-                      <!-- Fallback to Recovery Phrase if encryption not supported -->
-                      <button
-                        class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer bg-amber-500 hover:bg-amber-600 text-black"
-                        on:click={handleRevealMnemonic}
-                      >
-                        <KeyIcon size={16} />
-                        Recovery Phrase
-                      </button>
-                    {/if}
+                    <!-- Spark wallet: Recovery Phrase backup -->
+                    <button
+                      class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer bg-amber-500 hover:bg-amber-600 text-black"
+                      on:click={handleRevealMnemonic}
+                    >
+                      <KeyIcon size={16} />
+                      Recovery Phrase
+                    </button>
                   {:else}
                     <!-- NWC wallet: Download works without encryption -->
                     <button
