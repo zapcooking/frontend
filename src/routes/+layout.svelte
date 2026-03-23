@@ -27,7 +27,8 @@
   import ErrorBoundary from '../components/ErrorBoundary.svelte';
   import OfflineIndicator from '../components/OfflineIndicator.svelte';
   import { theme } from '$lib/themeStore';
-  import { initializeWalletManager, walletConnected } from '$lib/wallet';
+  import { initializeWalletManager, walletConnected, clearAllWallets } from '$lib/wallet';
+  import { disconnectWallet as disconnectSparkWallet, clearAllSparkWallets } from '$lib/spark';
   import { loadOneTapZapSettings } from '$lib/autoZapSettings';
   import { weblnConnected } from '$lib/wallet/webln';
   import { bitcoinConnectEnabled, bitcoinConnectWalletInfo } from '$lib/wallet/bitcoinConnect';
@@ -246,6 +247,9 @@
           clearUnwrapCache();
           stopGroupSubscription();
           clearGroups();
+          disconnectSparkWallet().catch(() => {});
+          clearAllWallets();
+          clearAllSparkWallets();
         }
 
         if (browser && state.isAuthenticated && state.publicKey) {
