@@ -4,6 +4,7 @@
 	import MediaUploader from '../MediaUploader.svelte';
 	import Button from '../Button.svelte';
 	import type { KitchenFormData } from '$lib/marketplace/types';
+	import { SUPPORTED_CURRENCIES, type CurrencyCode } from '$lib/currencyStore';
 
 	const dispatch = createEventDispatcher<{
 		submit: KitchenFormData;
@@ -17,6 +18,7 @@
 	let description = initialData.description || '';
 	let location = initialData.location || '';
 	let lightningAddress = initialData.lightningAddress || '';
+	let defaultCurrency: CurrencyCode = initialData.defaultCurrency || 'USD';
 
 	let bannerImages: Writable<string[]> = writable(initialData.banner ? [initialData.banner] : []);
 	let avatarImages: Writable<string[]> = writable(initialData.avatar ? [initialData.avatar] : []);
@@ -33,7 +35,8 @@
 			banner: $bannerImages[0] || undefined,
 			avatar: $avatarImages[0] || undefined,
 			location: location.trim() || undefined,
-			lightningAddress: lightningAddress.trim() || undefined
+			lightningAddress: lightningAddress.trim() || undefined,
+			defaultCurrency
 		};
 
 		dispatch('submit', formData);
@@ -121,6 +124,27 @@
 			placeholder="e.g., you@getalby.com"
 			class="input"
 		/>
+	</div>
+
+	<!-- Default Currency -->
+	<div class="flex flex-col gap-2">
+		<label for="kitchen-currency" class="font-medium" style="color: var(--color-text-primary)">
+			Default Currency <span class="text-xs font-normal" style="color: var(--color-text-secondary)">(for new products)</span>
+		</label>
+		<select
+			id="kitchen-currency"
+			bind:value={defaultCurrency}
+			class="input"
+		>
+			{#each SUPPORTED_CURRENCIES as cur}
+				<option value={cur.code}>
+					{cur.code === 'SATS' ? 'Satoshis (SATS)' : `${cur.name} (${cur.symbol})`}
+				</option>
+			{/each}
+		</select>
+		<span class="text-xs" style="color: var(--color-text-secondary)">
+			New products will default to this currency. Each product can override it.
+		</span>
 	</div>
 
 	<!-- Actions -->

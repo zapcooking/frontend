@@ -2,19 +2,16 @@
 	import { PRODUCT_CATEGORIES, CATEGORY_LABELS, CATEGORY_EMOJIS, type ProductCategory } from '$lib/marketplace/types';
 
 	export let selected: ProductCategory | null = null;
-	export let counts: Record<ProductCategory | 'all', number> = {
-		all: 0,
-		ingredients: 0,
-		tools: 0,
-		knowledge: 0,
-		merch: 0
-	};
+	export let counts: Partial<Record<ProductCategory | 'all', number>> = {};
 	export let onChange: (category: ProductCategory | null) => void = () => {};
 
 	function handleClick(category: ProductCategory | null) {
 		selected = category;
 		onChange(category);
 	}
+
+	// Only show categories that have products (plus always show "All")
+	$: visibleCategories = PRODUCT_CATEGORIES.filter((c) => (counts[c] || 0) > 0);
 </script>
 
 <div class="category-scroll flex gap-2 overflow-x-auto pb-2">
@@ -26,13 +23,13 @@
 	>
 		<span class="text-base">✨</span>
 		<span>All</span>
-		{#if counts.all > 0}
+		{#if counts.all}
 			<span class="count">{counts.all}</span>
 		{/if}
 	</button>
 
-	<!-- Category buttons -->
-	{#each PRODUCT_CATEGORIES as category}
+	<!-- Category buttons (only categories with products) -->
+	{#each visibleCategories as category}
 		<button
 			type="button"
 			on:click={() => handleClick(category)}
@@ -40,7 +37,7 @@
 		>
 			<span class="text-base">{CATEGORY_EMOJIS[category]}</span>
 			<span>{CATEGORY_LABELS[category]}</span>
-			{#if counts[category] > 0}
+			{#if counts[category]}
 				<span class="count">{counts[category]}</span>
 			{/if}
 		</button>

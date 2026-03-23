@@ -4,8 +4,9 @@
 	import { fetchProductsWithStaleCount } from '$lib/marketplace/products';
 	import { fetchTrustRanks } from '$lib/marketplace/kitchens';
 	import { getMembership } from '$lib/stores/membershipStatus';
-	import type { Product } from '$lib/marketplace/types';
+	import { PRODUCT_CATEGORIES, type Product, type ProductCategory } from '$lib/marketplace/types';
 	import ProductCard from '../../../components/marketplace/ProductCard.svelte';
+	import CategoryFilter from '../../../components/marketplace/CategoryFilter.svelte';
 	import MarketBuyerBanner from '../../../components/marketplace/MarketBuyerBanner.svelte';
 	import StorefrontIcon from 'phosphor-svelte/lib/Storefront';
 	import PlusIcon from 'phosphor-svelte/lib/Plus';
@@ -23,16 +24,35 @@
 	let error: string | null = null;
 	let sortBy: 'latest' | 'price-low' | 'price-high' = 'latest';
 	let searchQuery = '';
+	let selectedCategory: ProductCategory | null = null;
 
-	$: filteredProducts = filterAndSortProducts(allProducts, sortBy, searchQuery, membersOnly);
+	// Compute category counts from loaded products
+	$: categoryCounts = computeCategoryCounts(allProducts);
+
+	function computeCategoryCounts(products: Product[]): Partial<Record<ProductCategory | 'all', number>> {
+		const counts: Partial<Record<ProductCategory | 'all', number>> = { all: products.length };
+		for (const cat of PRODUCT_CATEGORIES) {
+			const n = products.filter((p) => p.category === cat).length;
+			if (n > 0) counts[cat] = n;
+		}
+		return counts;
+	}
+
+	$: filteredProducts = filterAndSortProducts(allProducts, sortBy, searchQuery, membersOnly, selectedCategory);
 
 	function filterAndSortProducts(
 		products: Product[],
 		sort: string,
 		search: string,
-		filterMembers: boolean
+		filterMembers: boolean,
+		category: ProductCategory | null
 	) {
 		let filtered = products;
+
+		// Category filter
+		if (category) {
+			filtered = filtered.filter((p) => p.category === category);
+		}
 
 		if (filterMembers) {
 			filtered = filtered.filter((p) => memberPubkeys.has(p.pubkey));
@@ -49,10 +69,10 @@
 
 		switch (sort) {
 			case 'price-low':
-				filtered = [...filtered].sort((a, b) => a.priceSats - b.priceSats);
+				filtered = [...filtered].sort((a, b) => a.price - b.price);
 				break;
 			case 'price-high':
-				filtered = [...filtered].sort((a, b) => b.priceSats - a.priceSats);
+				filtered = [...filtered].sort((a, b) => b.price - a.price);
 				break;
 			case 'latest':
 			default:
@@ -162,6 +182,15 @@
 				<option value="price-high">Price: High to Low</option>
 			</select>
 		</div>
+	</div>
+
+	<!-- Category Filter -->
+	<div class="mb-6">
+		<CategoryFilter
+			selected={selectedCategory}
+			counts={categoryCounts}
+			onChange={(cat) => (selectedCategory = cat)}
+		/>
 	</div>
 
 	<!-- Search & Filter Bar -->
