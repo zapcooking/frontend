@@ -10,7 +10,7 @@ import type { CommerceState } from './commerceState';
 import type { CurrencyCode } from '$lib/currencyStore';
 
 // Maximum age for marketplace listings (in days). Listings older than this are hidden.
-export const MARKETPLACE_LISTING_MAX_AGE_DAYS = 180;
+export const MARKETPLACE_LISTING_MAX_AGE_DAYS = 270;
 
 // Minimum days between relisting the same product.
 export const RELIST_COOLDOWN_DAYS = 7;
