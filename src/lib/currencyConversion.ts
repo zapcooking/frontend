@@ -59,32 +59,42 @@ export function formatSats(amount: number): string {
  * Fetch all BTC exchange rates from yadio.io in a single call.
  * Returns a map of currency code → fiat value of 1 BTC.
  * Caches the result for CACHE_DURATION.
+ * Uses an in-flight lock so concurrent callers share one request.
  */
+let inflightRatesFetch: Promise<boolean> | null = null;
+
 async function fetchAllRates(): Promise<boolean> {
 	if (isCacheValid() && rateCache.rates.size > 0) return true;
 
-	try {
-		const res = await fetch('https://api.yadio.io/exrates/BTC');
-		if (!res.ok) throw new Error(`yadio.io returned ${res.status}`);
-		const data = await res.json();
-		const btcRates: Record<string, number> = data.BTC || data;
+	// Deduplicate concurrent calls — all callers await the same promise
+	if (inflightRatesFetch) return inflightRatesFetch;
 
-		for (const [code, rate] of Object.entries(btcRates)) {
-			if (typeof rate === 'number' && rate > 0) {
-				rateCache.rates.set(code.toLowerCase(), rate);
+	inflightRatesFetch = (async () => {
+		try {
+			const res = await fetch('https://api.yadio.io/exrates/BTC');
+			if (!res.ok) throw new Error(`yadio.io returned ${res.status}`);
+			const data = await res.json();
+			const btcRates: Record<string, number> = data.BTC || data;
+
+			for (const [code, rate] of Object.entries(btcRates)) {
+				if (typeof rate === 'number' && rate > 0) {
+					rateCache.rates.set(code.toLowerCase(), rate);
+				}
 			}
+			// Hardcode SATS and BTC
+			rateCache.rates.set('sats', 100_000_000);
+			rateCache.rates.set('btc', 1);
+			rateCache.lastFetched = Date.now();
+			return true;
+		} catch (error) {
+			console.error('[Currency] Failed to fetch exchange rates from yadio.io:', error);
+			return false;
+		} finally {
+			inflightRatesFetch = null;
 		}
-		// Hardcode SATS and BTC
-		rateCache.rates.set('sats', 100_000_000);
-		rateCache.rates.set('btc', 1);
-		rateCache.lastFetched = Date.now();
-		return true;
-	} catch (error) {
-		console.error('[Currency] Failed to fetch exchange rates from yadio.io:', error);
+	})();
 
-		// Fallback: try @getalby/lightning-tools for the specific currency
-		return false;
-	}
+	return inflightRatesFetch;
 }
 
 /**

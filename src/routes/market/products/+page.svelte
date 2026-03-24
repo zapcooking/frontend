@@ -31,9 +31,8 @@
 
 	function computeCategoryCounts(products: Product[]): Partial<Record<ProductCategory | 'all', number>> {
 		const counts: Partial<Record<ProductCategory | 'all', number>> = { all: products.length };
-		for (const cat of PRODUCT_CATEGORIES) {
-			const n = products.filter((p) => p.category === cat).length;
-			if (n > 0) counts[cat] = n;
+		for (const product of products) {
+			counts[product.category] = (counts[product.category] ?? 0) + 1;
 		}
 		return counts;
 	}

@@ -94,7 +94,9 @@ export function parseProductEvent(event: NDKEvent): Product | null {
 		const title = getTag('title') || '';
 		const summary = getTag('summary') || '';
 		const priceTag = event.tags.find((t) => t[0] === 'price');
-		const priceValue = priceTag ? parseFloat(priceTag[1]) : 0;
+		const rawPrice = priceTag?.[1];
+		const parsedPrice = rawPrice != null ? parseFloat(rawPrice) : NaN;
+		const priceValue = Number.isFinite(parsedPrice) ? parsedPrice : 0;
 		// Read currency from price tag unit (3rd element). Normalize 'SAT' → 'SATS'.
 		const rawUnit = priceTag?.[2] || 'SAT';
 		const currencyUnit = rawUnit.toUpperCase() === 'SAT' ? 'SATS' : rawUnit.toUpperCase();

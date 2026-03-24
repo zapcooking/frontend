@@ -44,7 +44,7 @@
 					storeCurrency = kitchen.defaultCurrency;
 				}
 			} catch {
-				// Non-critical — default to SATS
+				// Non-critical — default to USD
 			}
 		}
 	});

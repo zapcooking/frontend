@@ -6,14 +6,6 @@
 	 * USD is always shown as the secondary line for consistency.
 	 * - Fiat-priced products: convert to sats (primary), show original fiat (secondary)
 	 * - SATS-priced products: show sats (primary), convert to USD (secondary)
-	 *
-	 * Display examples:
-	 *   <PriceDisplay price={18500} currency="SATS" />  →  18,500 sats
-	 *                                                       $18.50 USD
-	 *   <PriceDisplay price={24} currency="USD" />       →  28,500 sats
-	 *                                                       $24 USD
-	 *   <PriceDisplay price={8} currency="EUR" />        →  9,739 sats
-	 *                                                       €8 EUR
 	 */
 	import LightningIcon from 'phosphor-svelte/lib/Lightning';
 	import type { CurrencyCode } from '$lib/currencyStore';
@@ -27,30 +19,39 @@
 	let satsAmount: number | null = null;
 	let fiatDisplay: string | null = null;
 	let loading = false;
+	let requestId = 0;
 
-	$: if (price > 0 && currency === 'SATS') {
-		// SATS-priced: sats is known, convert to USD for secondary line
-		satsAmount = Math.round(price);
-		loading = false;
-		convertSatsToFiat(Math.round(price), 'USD').then((usdValue) => {
-			if (usdValue !== null) {
-				fiatDisplay = `$${usdValue < 0.01 ? usdValue.toFixed(4) : usdValue.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} USD`;
-			} else {
-				fiatDisplay = null;
-			}
-		});
-	} else if (price > 0) {
-		// Fiat-priced: convert to sats for primary, show original fiat as secondary
-		loading = true;
-		fiatDisplay = `${formatPrice(price, currency)} ${currency}`;
-		convertToSats(price, currency).then((result) => {
-			satsAmount = result;
+	$: {
+		// Bump request ID on every price/currency change to discard stale results
+		const thisRequest = ++requestId;
+
+		if (price > 0 && currency === 'SATS') {
+			// SATS-priced: sats is known, convert to USD for secondary line
+			satsAmount = Math.round(price);
 			loading = false;
-		});
-	} else {
-		satsAmount = null;
-		fiatDisplay = null;
-		loading = false;
+			convertSatsToFiat(Math.round(price), 'USD').then((usdValue) => {
+				if (thisRequest !== requestId) return;
+				if (usdValue !== null) {
+					fiatDisplay = `$${usdValue < 0.01 ? usdValue.toFixed(4) : usdValue.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} USD`;
+				} else {
+					fiatDisplay = null;
+				}
+			});
+		} else if (price > 0) {
+			// Fiat-priced: reset sats before async, show original fiat as secondary
+			satsAmount = null;
+			loading = true;
+			fiatDisplay = `${formatPrice(price, currency)} ${currency}`;
+			convertToSats(price, currency).then((result) => {
+				if (thisRequest !== requestId) return;
+				satsAmount = result;
+				loading = false;
+			});
+		} else {
+			satsAmount = null;
+			fiatDisplay = null;
+			loading = false;
+		}
 	}
 
 	// Size classes
@@ -71,9 +72,9 @@
 				</span>
 				<LightningIcon size={iconSize} weight="fill" class="text-orange-400" />
 			{:else}
-				<span class="{primaryClass} font-bold text-orange-500">
-					{formatPrice(price, currency)}
-				</span>
+				<!-- Rate unavailable — show placeholder, not fiat as primary -->
+				<span class="{primaryClass} font-bold text-orange-500">--</span>
+				<LightningIcon size={iconSize} weight="fill" class="text-orange-400 opacity-40" />
 			{/if}
 		</div>
 

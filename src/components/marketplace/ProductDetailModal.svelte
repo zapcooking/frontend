@@ -64,18 +64,28 @@
 
 	// Sats amount for payment
 	let paymentSats: number | null = null;
-	$: if (open && product && product.price > 0) {
-		if (product.currency === 'SATS') {
-			paymentSats = Math.round(product.price);
+	$: {
+		if (open && product && product.price > 0) {
+			if (product.currency === 'SATS') {
+				paymentSats = Math.round(product.price);
+			} else {
+				paymentSats = null;
+				convertToSats(product.price, product.currency).then((s) => {
+					paymentSats = s;
+				});
+			}
 		} else {
-			convertToSats(product.price, product.currency).then((s) => {
-				paymentSats = s;
-			});
+			paymentSats = null;
 		}
 	}
 
 	$: nativePriceDisplay = product ? formatPrice(product.price, product.currency) : '';
-	$: paymentLabel = paymentSats ? formatSats(paymentSats) : nativePriceDisplay;
+	$: paymentLabel =
+		paymentSats !== null
+			? formatSats(paymentSats)
+			: open && product && product.price > 0
+				? 'Calculating...'
+				: nativePriceDisplay;
 
 	// Lightning address resolution
 	let resolvedLightningAddress = '';

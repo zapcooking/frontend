@@ -32,6 +32,13 @@
 	let summary = initialData.summary || '';
 	let description = initialData.description || '';
 	let currency: CurrencyCode = initialData.currency || defaultCurrency;
+	let userChangedCurrency = false;
+
+	// Sync currency when defaultCurrency prop updates (async store fetch)
+	// but only if the user hasn't manually changed it and there's no initial value
+	$: if (!userChangedCurrency && !initialData.currency && defaultCurrency) {
+		currency = defaultCurrency;
+	}
 	let priceInput = initialData.price && initialData.price > 0 ? initialData.price.toString() : '';
 	let category: ProductCategory = initialData.category || 'other';
 	let lightningAddress = initialData.lightningAddress || '';
@@ -39,25 +46,38 @@
 	let location = initialData.location || '';
 	let images: Writable<string[]> = writable(initialData.images || []);
 
-	// Sats preview for fiat prices
+	// Sats preview for fiat prices (debounced to avoid excessive API calls)
 	let satsPreview: number | null = null;
 	let satsPreviewLoading = false;
+	let satsPreviewTimeout: ReturnType<typeof setTimeout> | null = null;
+	let satsPreviewRequestId = 0;
 
-	// Reactively compute sats preview when price or currency changes
-	$: if (priceInput && parseFloat(priceInput) > 0 && currency !== 'SATS') {
-		updateSatsPreview(parseFloat(priceInput), currency);
-	} else {
-		satsPreview = null;
+	$: {
+		if (satsPreviewTimeout) {
+			clearTimeout(satsPreviewTimeout);
+			satsPreviewTimeout = null;
+		}
+		const p = parseFloat(priceInput);
+		if (priceInput && !isNaN(p) && p > 0 && currency !== 'SATS') {
+			const rid = ++satsPreviewRequestId;
+			satsPreviewLoading = true;
+			satsPreviewTimeout = setTimeout(() => {
+				updateSatsPreview(p, currency, rid);
+			}, 300);
+		} else {
+			satsPreview = null;
+			satsPreviewLoading = false;
+		}
 	}
 
-	async function updateSatsPreview(price: number, curr: CurrencyCode) {
-		satsPreviewLoading = true;
+	async function updateSatsPreview(price: number, curr: CurrencyCode, rid: number) {
 		try {
-			satsPreview = await convertToSats(price, curr);
+			const result = await convertToSats(price, curr);
+			if (rid === satsPreviewRequestId) satsPreview = result;
 		} catch {
-			satsPreview = null;
+			if (rid === satsPreviewRequestId) satsPreview = null;
 		} finally {
-			satsPreviewLoading = false;
+			if (rid === satsPreviewRequestId) satsPreviewLoading = false;
 		}
 	}
 
@@ -183,6 +203,7 @@
 		<select
 			id="currency"
 			bind:value={currency}
+			on:change={() => (userChangedCurrency = true)}
 			class="input"
 		>
 			{#each PRICING_CURRENCIES as cur}
