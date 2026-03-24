@@ -11,7 +11,6 @@
 	import StorefrontIcon from 'phosphor-svelte/lib/Storefront';
 	import PlusIcon from 'phosphor-svelte/lib/Plus';
 	import MagnifyingGlassIcon from 'phosphor-svelte/lib/MagnifyingGlass';
-	import SlidersHorizontalIcon from 'phosphor-svelte/lib/SlidersHorizontal';
 	import PackageIcon from 'phosphor-svelte/lib/Package';
 	import XIcon from 'phosphor-svelte/lib/X';
 
@@ -41,7 +40,7 @@
 	$: filteredProducts = filterAndSortProducts(allProducts, sortBy, searchQuery, membersOnly, selectedCategory);
 
 	// Count active filters for the badge
-	$: activeFilterCount = (membersOnly ? 1 : 0) + (selectedCategory ? 1 : 0) + (searchQuery.trim() ? 1 : 0);
+	$: activeFilterCount = (membersOnly ? 1 : 0) + (selectedCategory ? 1 : 0) + (searchQuery.trim() ? 1 : 0) + (sortBy !== 'latest' ? 1 : 0);
 
 	function filterAndSortProducts(
 		products: Product[],
@@ -132,6 +131,7 @@
 		membersOnly = false;
 		searchQuery = '';
 		searchOpen = false;
+		sortBy = 'latest';
 	}
 </script>
 
@@ -216,7 +216,7 @@
 				aria-label="Search"
 			>
 				<MagnifyingGlassIcon size={14} />
-				<span class="hidden xs:inline">Search</span>
+				<span class="hidden sm:inline">Search</span>
 			</button>
 		{/if}
 
