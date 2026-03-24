@@ -170,6 +170,12 @@
 			<PackageIcon size={15} />
 			Products
 		</a>
+		{#if $userPublickey}
+			<a href="/my-store" class="nav-tab">
+				<StorefrontIcon size={15} />
+				My Store
+			</a>
+		{/if}
 	</div>
 
 	<!-- ═══ Row 2: Categories ═══ -->
