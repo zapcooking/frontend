@@ -9,9 +9,9 @@ import { browser } from '$app/environment';
 import {
 	PRODUCT_KIND,
 	PRODUCT_KIND_LEGACY,
-	PRODUCT_CATEGORIES,
 	MARKETPLACE_LISTING_MAX_AGE_DAYS,
 	RELIST_COOLDOWN_DAYS,
+	normalizeCategory,
 	type Product,
 	type ProductCategory,
 	type ProductFormData,
@@ -19,12 +19,14 @@ import {
 } from './types';
 import { COMMERCE_STATES, type CommerceState } from './commerceState';
 import { addClientTagToEvent } from '$lib/nip89';
+import { SUPPORTED_CURRENCIES, type CurrencyCode } from '$lib/currencyStore';
 
-// Relays that index marketplace events
+// Relays that index marketplace events (matches Plebeian Market's relay set)
 export const MARKETPLACE_RELAYS = [
 	'wss://relay.damus.io',
 	'wss://nos.lol',
-	'wss://relay.nostr.band'
+	'wss://relay.nostr.band',
+	'wss://relay.nostr.net'
 ];
 
 // --- In-memory cache for product listings ---
@@ -92,18 +94,26 @@ export function parseProductEvent(event: NDKEvent): Product | null {
 		const title = getTag('title') || '';
 		const summary = getTag('summary') || '';
 		const priceTag = event.tags.find((t) => t[0] === 'price');
-		const priceSats = priceTag ? parseInt(priceTag[1], 10) : 0;
+		const rawPrice = priceTag?.[1];
+		const parsedPrice = rawPrice != null ? parseFloat(rawPrice) : NaN;
+		const priceValue = Number.isFinite(parsedPrice) ? parsedPrice : 0;
+		// Read currency from price tag unit (3rd element). Normalize 'SAT' → 'SATS'.
+		const rawUnit = priceTag?.[2] || 'SAT';
+		const currencyUnit = rawUnit.toUpperCase() === 'SAT' ? 'SATS' : rawUnit.toUpperCase();
+		const currency: CurrencyCode = SUPPORTED_CURRENCIES.some((c) => c.code === currencyUnit)
+			? (currencyUnit as CurrencyCode)
+			: 'SATS';
+		// priceSats is derived: equals price when currency is SATS, otherwise 0
+		const priceSats = currency === 'SATS' ? Math.round(priceValue) : 0;
 
 		// Get all image tags
 		const images = event.tags.filter((t) => t[0] === 'image').map((t) => t[1]);
 
-		// Category from 't' tag
+		// Category from 't' tag (normalizes legacy values like 'ingredients' → 'food')
 		const categoryTag = getTag('t');
-		const category: ProductCategory = PRODUCT_CATEGORIES.includes(
-			categoryTag as ProductCategory
-		)
-			? (categoryTag as ProductCategory)
-			: 'ingredients';
+		const category: ProductCategory = categoryTag
+			? normalizeCategory(categoryTag)
+			: 'other';
 
 		const status: ProductStatus = (getTag('status') as ProductStatus) || 'active';
 		const lightningAddress = getTag('lightning') || '';
@@ -125,6 +135,8 @@ export function parseProductEvent(event: NDKEvent): Product | null {
 			title,
 			summary,
 			description: event.content,
+			price: priceValue,
+			currency,
 			priceSats,
 			images,
 			category,
@@ -162,7 +174,7 @@ export function createProductEvent(
 		['d', productId],
 		['title', data.title],
 		['summary', data.summary],
-		['price', data.priceSats.toString(), 'SAT'],
+		['price', data.price.toString(), data.currency],
 		['t', data.category],
 		['published_at', Math.floor(Date.now() / 1000).toString()],
 		['lightning', data.lightningAddress],
@@ -463,7 +475,7 @@ export async function relistProduct(
 			['d', product.id],
 			['title', product.title],
 			['summary', product.summary],
-			['price', product.priceSats.toString(), 'SAT'],
+			['price', product.price.toString(), product.currency],
 			['t', product.category],
 			['published_at', now],
 			['lightning', product.lightningAddress],
@@ -517,7 +529,8 @@ export async function relistProduct(
 }
 
 /**
- * Format price in sats with optional locale formatting
+ * Format price in sats with locale formatting.
+ * @deprecated Use formatSats() from currencyConversion.ts instead.
  */
 export function formatSatsPrice(sats: number): string {
 	return sats.toLocaleString() + ' sats';

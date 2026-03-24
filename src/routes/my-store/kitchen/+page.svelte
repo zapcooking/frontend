@@ -76,7 +76,8 @@
 				banner: existingKitchen.banner,
 				avatar: existingKitchen.avatar,
 				location: existingKitchen.location,
-				lightningAddress: existingKitchen.lightningAddress
+				lightningAddress: existingKitchen.lightningAddress,
+				defaultCurrency: existingKitchen.defaultCurrency
 			}
 		: {};
 

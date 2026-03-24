@@ -34,6 +34,8 @@
  */
 
 import type { Product } from './types';
+import type { CurrencyCode } from '$lib/currencyStore';
+import { formatPrice } from '$lib/currencyConversion';
 
 // ── Commerce State Enum ─────────────────────────────────────────────
 
@@ -52,8 +54,8 @@ export type CommerceState = (typeof COMMERCE_STATES)[number];
 
 export interface CommerceStateConfig {
 	/** Top label shown where the price used to be */
-	label: string | ((priceSats: number) => string);
-	/** Whether to display a numeric sats amount in the label */
+	label: string | ((price: number, currency: CurrencyCode) => string);
+	/** Whether to display a numeric price in the label */
 	showPrice: boolean;
 	/** Optional supporting subtext beneath the label */
 	subtext?: string;
@@ -69,7 +71,7 @@ export interface CommerceStateConfig {
 
 export const COMMERCE_STATE_CONFIG: Record<CommerceState, CommerceStateConfig> = {
 	instant_buy: {
-		label: (sats: number) => `${sats.toLocaleString()} sats`,
+		label: (price: number, currency: CurrencyCode) => formatPrice(price, currency),
 		showPrice: true,
 		subtext: 'Shipping calculated at checkout',
 		primaryCta: 'Pay now',
@@ -78,7 +80,7 @@ export const COMMERCE_STATE_CONFIG: Record<CommerceState, CommerceStateConfig> =
 		accentClass: 'text-orange-500'
 	},
 	starting_at: {
-		label: (sats: number) => `From ${sats.toLocaleString()} sats`,
+		label: (price: number, currency: CurrencyCode) => `From ${formatPrice(price, currency)}`,
 		showPrice: true,
 		subtext: 'Final price depends on options',
 		primaryCta: 'Choose options',
@@ -122,9 +124,9 @@ export const COMMERCE_STATE_CONFIG: Record<CommerceState, CommerceStateConfig> =
 // ── Helpers ─────────────────────────────────────────────────────────
 
 /** Get the resolved label string for a commerce state + price */
-export function getCommerceLabel(state: CommerceState, priceSats: number): string {
+export function getCommerceLabel(state: CommerceState, price: number, currency: CurrencyCode): string {
 	const cfg = COMMERCE_STATE_CONFIG[state];
-	return typeof cfg.label === 'function' ? cfg.label(priceSats) : cfg.label;
+	return typeof cfg.label === 'function' ? cfg.label(price, currency) : cfg.label;
 }
 
 /** Get the full config for a commerce state */
@@ -146,7 +148,7 @@ export function getCommerceConfig(state: CommerceState): CommerceStateConfig {
  *   - Price is 0 → message_to_order (safest fallback)
  */
 export function resolveCommerceState(product: Product): CommerceState {
-	const hasPrice = product.priceSats > 0;
+	const hasPrice = product.price > 0;
 	const hasLightning = !!product.lightningAddress;
 
 	// Explicit tag wins, but only when its invariants are met

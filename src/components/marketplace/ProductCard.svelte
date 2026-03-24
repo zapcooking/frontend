@@ -2,21 +2,22 @@
 	import { createEventDispatcher } from 'svelte';
 	import type { NDKEvent } from '@nostr-dev-kit/ndk';
 	import ChatCircleIcon from 'phosphor-svelte/lib/ChatCircle';
-	import LightningIcon from 'phosphor-svelte/lib/Lightning';
 	import PackageIcon from 'phosphor-svelte/lib/Package';
 	import CloudArrowDownIcon from 'phosphor-svelte/lib/CloudArrowDown';
 	import TrashIcon from 'phosphor-svelte/lib/Trash';
 	import { nip19 } from 'nostr-tools';
 	import { parseProductEvent } from '$lib/marketplace/products';
 	import type { Product } from '$lib/marketplace/types';
-	import { resolveCommerceState, getCommerceLabel, getCommerceConfig, getShippingText } from '$lib/marketplace/commerceState';
+	import { resolveCommerceState, getCommerceConfig, getShippingText, isInstantCheckout } from '$lib/marketplace/commerceState';
 	import { getImageOrPlaceholder } from '$lib/placeholderImages';
 	import ArrowClockwiseIcon from 'phosphor-svelte/lib/ArrowClockwise';
 	import PencilSimpleIcon from 'phosphor-svelte/lib/PencilSimple';
 	import CustomAvatar from '../CustomAvatar.svelte';
 	import CustomName from '../CustomName.svelte';
+	import ProductViewModal from './ProductViewModal.svelte';
 	import ProductDetailModal from './ProductDetailModal.svelte';
 	import TrustBadge from './TrustBadge.svelte';
+	import PriceDisplay from './PriceDisplay.svelte';
 
 	export let event: NDKEvent;
 	export let showDelete = false;
@@ -28,8 +29,8 @@
 	const dispatch = createEventDispatcher<{ delete: { product: Product }; relist: { product: Product }; hide: void }>();
 
 	let imageElement: HTMLImageElement | null = null;
-	let showDetailModal = false;
-	let openWithDm = false;
+	let showViewModal = false;
+	let showMessageModal = false;
 	let hidden = false;
 
 	function handleImageError() {
@@ -40,17 +41,16 @@
 	// Parse product data from event
 	$: product = parseProductEvent(event);
 	$: title = product?.title || '';
-	$: priceSats = product?.priceSats || 0;
 	$: sellerPubkey = product?.pubkey || '';
 	$: sellerNpub = sellerPubkey ? nip19.npubEncode(sellerPubkey) : '';
 	$: kitchenUrl = sellerNpub ? `/market/kitchen/${sellerNpub}` : '';
 
-	// Commerce state
+	// Commerce state (controls CTA behavior, NOT price visibility)
 	$: commerceState = product ? resolveCommerceState(product) : 'message_to_order';
 	$: stateConfig = getCommerceConfig(commerceState);
-	$: commerceLabel = getCommerceLabel(commerceState, priceSats);
 	$: shippingText = product ? getShippingText(product) : '';
 	$: isDigital = !product?.requiresShipping;
+	$: canInstantBuy = isInstantCheckout(commerceState);
 
 	// Get primary image with placeholder fallback
 	$: imageUrl = product?.images?.[0]
@@ -58,14 +58,12 @@
 		: getImageOrPlaceholder(undefined, event.id);
 
 	function openDetail() {
-		openWithDm = false;
-		showDetailModal = true;
+		showViewModal = true;
 	}
 
-	function openDetailWithDm(e: Event) {
-		e.stopPropagation();
-		openWithDm = true;
-		showDetailModal = true;
+	function openMessage(e?: Event) {
+		e?.stopPropagation();
+		showMessageModal = true;
 	}
 
 	function handleDelete(e: Event) {
@@ -145,19 +143,14 @@
 			{title}
 		</h5>
 
-		<!-- Commerce State Label -->
-		<div class="flex items-baseline gap-1.5">
-			{#if stateConfig.showPrice}
-				<span class="text-xl font-bold {stateConfig.accentClass}">
-					{commerceLabel}
-				</span>
-				<LightningIcon size={14} weight="fill" class="text-orange-400 self-center" />
-			{:else}
-				<span class="text-sm font-semibold {stateConfig.accentClass}">
-					{commerceLabel}
-				</span>
-			{/if}
-		</div>
+		<!-- Price (always shown when product has one) -->
+		{#if product && product.price > 0}
+			<PriceDisplay price={product.price} currency={product.currency} size="sm" />
+		{:else if !canInstantBuy}
+			<span class="text-sm font-semibold {stateConfig.accentClass}">
+				{stateConfig.primaryCta}
+			</span>
+		{/if}
 
 		<!-- Seller -->
 		{#if sellerPubkey}
@@ -193,7 +186,7 @@
 			</div>
 			<button
 				type="button"
-				on:click={openDetailWithDm}
+				on:click={openMessage}
 				class="message-button flex-shrink-0 py-2 px-3 rounded-lg transition-all flex items-center justify-center"
 				title="Message Seller"
 			>
@@ -203,9 +196,20 @@
 	</div>
 </button>
 
-<!-- Product Detail Modal -->
+<!-- Product View Modal (full details) -->
 {#if product}
-	<ProductDetailModal bind:open={showDetailModal} {product} {trustRank} {personalized} initialShowDm={openWithDm} />
+	<ProductViewModal
+		bind:open={showViewModal}
+		{product}
+		{trustRank}
+		{personalized}
+		on:message={() => { showViewModal = false; showMessageModal = true; }}
+	/>
+{/if}
+
+<!-- Message Seller Modal (messaging-first) -->
+{#if product}
+	<ProductDetailModal bind:open={showMessageModal} {product} {trustRank} {personalized} />
 {/if}
 {/if}
 

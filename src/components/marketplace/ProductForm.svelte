@@ -11,6 +11,12 @@
 		type ProductFormData,
 		isValidLightningAddress
 	} from '$lib/marketplace/types';
+	import { SUPPORTED_CURRENCIES, type CurrencyCode } from '$lib/currencyStore';
+	import { formatPrice, formatSats, convertToSats } from '$lib/currencyConversion';
+	import { checkForbiddenContent } from '$lib/marketplace/forbiddenWords';
+
+	// Currencies available for product pricing (exclude SATS from the full list position, put it first)
+	const PRICING_CURRENCIES = SUPPORTED_CURRENCIES;
 
 	const dispatch = createEventDispatcher<{
 		submit: ProductFormData;
@@ -19,18 +25,61 @@
 
 	// Form state
 	export let initialData: Partial<ProductFormData> = {};
+	export let defaultCurrency: CurrencyCode = 'USD';
 	export let isSubmitting = false;
 
 	let title = initialData.title || '';
 	let summary = initialData.summary || '';
 	let description = initialData.description || '';
-	let priceSats = initialData.priceSats || 0;
-	let priceInput = priceSats > 0 ? priceSats.toString() : '';
-	let category: ProductCategory = initialData.category || 'ingredients';
+	let currency: CurrencyCode = initialData.currency || defaultCurrency;
+	let userChangedCurrency = false;
+
+	// Sync currency when defaultCurrency prop updates (async store fetch)
+	// but only if the user hasn't manually changed it and there's no initial value
+	$: if (!userChangedCurrency && !initialData.currency && defaultCurrency) {
+		currency = defaultCurrency;
+	}
+	let priceInput = initialData.price && initialData.price > 0 ? initialData.price.toString() : '';
+	let category: ProductCategory = initialData.category || 'other';
 	let lightningAddress = initialData.lightningAddress || '';
 	let requiresShipping = initialData.requiresShipping ?? true;
 	let location = initialData.location || '';
 	let images: Writable<string[]> = writable(initialData.images || []);
+
+	// Sats preview for fiat prices (debounced to avoid excessive API calls)
+	let satsPreview: number | null = null;
+	let satsPreviewLoading = false;
+	let satsPreviewTimeout: ReturnType<typeof setTimeout> | null = null;
+	let satsPreviewRequestId = 0;
+
+	$: {
+		if (satsPreviewTimeout) {
+			clearTimeout(satsPreviewTimeout);
+			satsPreviewTimeout = null;
+		}
+		const p = parseFloat(priceInput);
+		if (priceInput && !isNaN(p) && p > 0 && currency !== 'SATS') {
+			const rid = ++satsPreviewRequestId;
+			satsPreviewLoading = true;
+			satsPreviewTimeout = setTimeout(() => {
+				updateSatsPreview(p, currency, rid);
+			}, 300);
+		} else {
+			satsPreview = null;
+			satsPreviewLoading = false;
+		}
+	}
+
+	async function updateSatsPreview(price: number, curr: CurrencyCode, rid: number) {
+		try {
+			const result = await convertToSats(price, curr);
+			if (rid === satsPreviewRequestId) satsPreview = result;
+		} catch {
+			if (rid === satsPreviewRequestId) satsPreview = null;
+		} finally {
+			if (rid === satsPreviewRequestId) satsPreviewLoading = false;
+		}
+	}
 
 	// Validation
 	let errors: Record<string, string> = {};
@@ -39,22 +88,33 @@
 		errors = {};
 		if (!title.trim()) errors.title = 'Title is required';
 		if (!summary.trim()) errors.summary = 'Summary is required';
-		if (!priceInput || parseInt(priceInput, 10) <= 0) errors.price = 'Price must be greater than 0';
+		if (!priceInput || parseFloat(priceInput) <= 0) errors.price = 'Price must be greater than 0';
 		if (!lightningAddress.trim()) {
 			errors.lightning = 'Lightning address is required';
 		} else if (!isValidLightningAddress(lightningAddress)) {
 			errors.lightning = 'Invalid Lightning address format';
 		}
 		if ($images.length === 0) errors.images = 'At least one image is required';
+
+		// Forbidden word check
+		const forbidden = checkForbiddenContent({
+			title: title.trim(),
+			summary: summary.trim(),
+			description: description.trim()
+		});
+		if (forbidden) {
+			errors[forbidden.field] = `"${forbidden.word}" is not allowed in ${forbidden.field}`;
+		}
 	}
 
 	$: canSubmit =
 		title.trim() &&
 		summary.trim() &&
-		parseInt(priceInput, 10) > 0 &&
+		parseFloat(priceInput) > 0 &&
 		lightningAddress.trim() &&
 		isValidLightningAddress(lightningAddress) &&
 		$images.length > 0 &&
+		!Object.keys(errors).length &&
 		!isSubmitting;
 
 	function handleSubmit() {
@@ -64,7 +124,8 @@
 			title: title.trim(),
 			summary: summary.trim(),
 			description: description.trim(),
-			priceSats: parseInt(priceInput, 10),
+			price: parseFloat(priceInput),
+			currency,
 			images: $images,
 			category,
 			lightningAddress: lightningAddress.trim(),
@@ -78,6 +139,10 @@
 	function handleCancel() {
 		dispatch('cancel');
 	}
+
+	$: currencySymbol = currency === 'SATS'
+		? 'sats'
+		: SUPPORTED_CURRENCIES.find((c) => c.code === currency)?.symbol || currency;
 </script>
 
 <form on:submit|preventDefault={handleSubmit} class="flex flex-col gap-6">
@@ -130,18 +195,38 @@
 		/>
 	</div>
 
+	<!-- Currency -->
+	<div class="flex flex-col gap-2">
+		<label for="currency" class="font-medium" style="color: var(--color-text-primary)">
+			Currency <span class="text-red-500">*</span>
+		</label>
+		<select
+			id="currency"
+			bind:value={currency}
+			on:change={() => (userChangedCurrency = true)}
+			class="input"
+		>
+			{#each PRICING_CURRENCIES as cur}
+				<option value={cur.code}>
+					{cur.code === 'SATS' ? 'Satoshis (SATS)' : `${cur.name} (${cur.symbol})`}
+				</option>
+			{/each}
+		</select>
+	</div>
+
 	<!-- Price -->
 	<div class="flex flex-col gap-2">
 		<label for="price" class="font-medium" style="color: var(--color-text-primary)">
-			Price (sats) <span class="text-red-500">*</span>
+			Price <span class="text-red-500">*</span>
 		</label>
 		<div class="relative">
 			<input
 				id="price"
 				type="number"
 				bind:value={priceInput}
-				placeholder="e.g., 5000"
-				min="1"
+				placeholder={currency === 'SATS' ? 'e.g., 5000' : 'e.g., 24.00'}
+				min={currency === 'SATS' ? '1' : '0.01'}
+				step={currency === 'SATS' ? '1' : '0.01'}
 				class="input pr-14"
 				class:input-error={errors.price}
 			/>
@@ -149,12 +234,36 @@
 				class="absolute right-3 top-1/2 -translate-y-1/2 text-sm"
 				style="color: var(--color-text-secondary)"
 			>
-				sats
+				{currencySymbol}
 			</span>
 		</div>
 		{#if errors.price}
 			<span class="text-xs text-red-500">{errors.price}</span>
 		{/if}
+
+		<!-- Price preview -->
+		{#if priceInput && parseFloat(priceInput) > 0}
+			<div class="flex flex-col gap-1 p-3 rounded-lg" style="background-color: var(--color-bg-tertiary, rgba(0,0,0,0.1));">
+				<span class="text-xs font-medium" style="color: var(--color-text-secondary)">Listing preview</span>
+				{#if currency === 'SATS'}
+					<span class="text-lg font-bold text-orange-500">
+						{formatSats(parseFloat(priceInput))}
+					</span>
+				{:else}
+					{#if satsPreviewLoading}
+						<span class="text-lg font-bold text-orange-500">...</span>
+					{:else if satsPreview !== null}
+						<span class="text-lg font-bold text-orange-500">
+							{formatSats(satsPreview)}
+						</span>
+					{/if}
+					<span class="text-xs" style="color: var(--color-text-secondary)">
+						{formatPrice(parseFloat(priceInput), currency)} {currency}
+					</span>
+				{/if}
+			</div>
+		{/if}
+
 		{#if requiresShipping}
 			<div class="flex items-start gap-2 p-2 rounded-lg" style="background-color: rgba(249, 115, 22, 0.1);">
 				<span class="text-orange-500 mt-0.5">💡</span>
@@ -167,21 +276,20 @@
 
 	<!-- Category -->
 	<div class="flex flex-col gap-2">
-		<label class="font-medium" style="color: var(--color-text-primary)">
+		<label for="category" class="font-medium" style="color: var(--color-text-primary)">
 			Category <span class="text-red-500">*</span>
 		</label>
-		<div class="flex flex-wrap gap-2">
+		<select
+			id="category"
+			bind:value={category}
+			class="input"
+		>
 			{#each PRODUCT_CATEGORIES as cat}
-				<button
-					type="button"
-					on:click={() => (category = cat)}
-					class="category-btn {category === cat ? 'active' : ''}"
-				>
-					<span>{CATEGORY_EMOJIS[cat]}</span>
-					<span>{CATEGORY_LABELS[cat]}</span>
-				</button>
+				<option value={cat}>
+					{CATEGORY_EMOJIS[cat]} {CATEGORY_LABELS[cat]}
+				</option>
 			{/each}
-		</div>
+		</select>
 	</div>
 
 	<!-- Images -->
@@ -289,20 +397,4 @@
 		border-color: #ef4444 !important;
 	}
 
-	.category-btn {
-		@apply flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-all;
-		background-color: var(--color-bg-secondary);
-		color: var(--color-text-secondary);
-		border: 1px solid transparent;
-	}
-
-	.category-btn:hover {
-		color: var(--color-text-primary);
-	}
-
-	.category-btn.active {
-		background-color: var(--color-accent);
-		color: white;
-		border-color: var(--color-accent);
-	}
 </style>

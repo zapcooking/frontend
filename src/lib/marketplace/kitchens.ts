@@ -20,6 +20,7 @@ import { addClientTagToEvent } from '$lib/nip89';
 import { profileCacheManager } from '$lib/profileCache';
 import { getMembership } from '$lib/stores/membershipStatus';
 import type { MembershipTier } from '$lib/membershipStore';
+import { SUPPORTED_CURRENCIES, type CurrencyCode } from '$lib/currencyStore';
 
 // NIP-85 Trusted Assertions — service relay for trust rank lookups
 const NIP85_RELAY = 'wss://nip85.nostr.band';
@@ -178,6 +179,15 @@ export function parseKitchenEvent(event: NDKEvent): Kitchen | null {
 		const location = getTag('location');
 		const lightningAddress = getTag('lightning');
 
+		// Read default currency from content JSON or tag.
+		// Normalize legacy 'SAT' → 'SATS'.
+		const rawCurrency = (contentData as any).currency || getTag('currency') || '';
+		const normalizedCurrency = rawCurrency.toUpperCase() === 'SAT' ? 'SATS' : rawCurrency.toUpperCase();
+		const defaultCurrency: CurrencyCode | undefined =
+			SUPPORTED_CURRENCIES.some((c) => c.code === normalizedCurrency)
+				? (normalizedCurrency as CurrencyCode)
+				: undefined;
+
 		return {
 			id,
 			pubkey: event.pubkey,
@@ -187,6 +197,7 @@ export function parseKitchenEvent(event: NDKEvent): Kitchen | null {
 			avatar,
 			location,
 			lightningAddress,
+			defaultCurrency,
 			createdAt: event.created_at || 0,
 			event
 		};
@@ -214,7 +225,7 @@ export function createKitchenEvent(
 		id: kitchenId,
 		name: data.name,
 		description: data.description || '',
-		currency: 'SAT',
+		currency: data.defaultCurrency || 'SATS',
 		shipping: []
 	});
 

@@ -7,9 +7,10 @@
 import type { NDKEvent } from '@nostr-dev-kit/ndk';
 import type { MembershipTier } from '$lib/membershipStore';
 import type { CommerceState } from './commerceState';
+import type { CurrencyCode } from '$lib/currencyStore';
 
 // Maximum age for marketplace listings (in days). Listings older than this are hidden.
-export const MARKETPLACE_LISTING_MAX_AGE_DAYS = 180;
+export const MARKETPLACE_LISTING_MAX_AGE_DAYS = 270;
 
 // Minimum days between relisting the same product.
 export const RELIST_COOLDOWN_DAYS = 7;
@@ -22,27 +23,72 @@ export const PRODUCT_KIND_LEGACY = 30018;
 export const STALL_KIND = 30017;
 
 export const PRODUCT_CATEGORIES = [
-	'ingredients',
-	'tools',
-	'knowledge',
-	'merch'
+	'bitcoin',
+	'art',
+	'clothing',
+	'food',
+	'kitchen',
+	'books',
+	'technology',
+	'digital',
+	'handmade',
+	'health',
+	'services',
+	'merch',
+	'other'
 ] as const;
 
 export type ProductCategory = (typeof PRODUCT_CATEGORIES)[number];
 
 export const CATEGORY_LABELS: Record<ProductCategory, string> = {
-	ingredients: 'Ingredients',
-	tools: 'Tools & Gear',
-	knowledge: 'Knowledge',
-	merch: 'Merch'
+	bitcoin: 'Bitcoin',
+	art: 'Art',
+	clothing: 'Clothing',
+	food: 'Food & Drink',
+	kitchen: 'Kitchen & Home',
+	books: 'Books & Education',
+	technology: 'Technology',
+	digital: 'Digital Goods',
+	handmade: 'Handmade',
+	health: 'Health & Beauty',
+	services: 'Services',
+	merch: 'Merch',
+	other: 'Other'
 };
 
 export const CATEGORY_EMOJIS: Record<ProductCategory, string> = {
-	ingredients: '🌶️',
-	tools: '🔪',
-	knowledge: '📚',
-	merch: '🎁'
+	bitcoin: '₿',
+	art: '🎨',
+	clothing: '👕',
+	food: '🍽️',
+	kitchen: '🔪',
+	books: '📚',
+	technology: '💻',
+	digital: '💾',
+	handmade: '🧶',
+	health: '🌿',
+	services: '🛠️',
+	merch: '🎁',
+	other: '📦'
 };
+
+/**
+ * Map legacy category tag values to their modern equivalents.
+ * Existing products with old tags will be normalized on parse.
+ */
+export const LEGACY_CATEGORY_MAP: Record<string, ProductCategory> = {
+	ingredients: 'food',
+	tools: 'kitchen',
+	knowledge: 'books'
+};
+
+/** Normalize a category tag value, mapping legacy values to modern ones. */
+export function normalizeCategory(raw: string): ProductCategory {
+	const lower = raw.toLowerCase();
+	if (LEGACY_CATEGORY_MAP[lower]) return LEGACY_CATEGORY_MAP[lower];
+	if (PRODUCT_CATEGORIES.includes(lower as ProductCategory)) return lower as ProductCategory;
+	return 'other';
+}
 
 export type ProductStatus = 'active' | 'sold';
 
@@ -52,7 +98,9 @@ export interface Product {
 	title: string;
 	summary: string;
 	description: string; // markdown content
-	priceSats: number;
+	price: number; // Source-of-truth price in native currency
+	currency: CurrencyCode; // Native/original currency code (e.g. 'USD', 'EUR', 'SATS')
+	priceSats: number; // Derived: equals price when currency is SATS, otherwise 0 (needs async conversion)
 	images: string[];
 	category: ProductCategory;
 	status: ProductStatus;
@@ -69,7 +117,8 @@ export interface ProductFormData {
 	title: string;
 	summary: string;
 	description: string;
-	priceSats: number;
+	price: number; // Price in native currency
+	currency: CurrencyCode; // Native currency code
 	images: string[];
 	category: ProductCategory;
 	lightningAddress: string;
@@ -89,6 +138,7 @@ export interface Kitchen {
 	avatar?: string;
 	location?: string;
 	lightningAddress?: string;
+	defaultCurrency?: CurrencyCode; // Default currency for new products in this store
 	productCount?: number; // computed client-side
 	trustRank?: number; // NIP-85 trust score 0-100 (computed)
 	memberTier?: MembershipTier; // zap.cooking membership tier
@@ -103,6 +153,7 @@ export interface KitchenFormData {
 	avatar?: string;
 	location?: string;
 	lightningAddress?: string;
+	defaultCurrency?: CurrencyCode; // Default currency for new products
 }
 
 // Implicit kitchen = seller with products but no stall event (derived from kind:0)
@@ -114,6 +165,7 @@ export interface ImplicitKitchen {
 	avatar?: string;
 	location?: string;
 	lightningAddress?: string;
+	defaultCurrency?: CurrencyCode;
 	productCount: number;
 	trustRank?: number; // NIP-85 trust score 0-100 (computed)
 	memberTier?: MembershipTier; // zap.cooking membership tier
