@@ -105,6 +105,12 @@
 			<PackageIcon size={16} />
 			Products
 		</a>
+		{#if $userPublickey}
+			<a href="/my-store" class="nav-pill">
+				<StorefrontIcon size={16} />
+				My Store
+			</a>
+		{/if}
 	</div>
 
 	<!-- Search & Filters -->
