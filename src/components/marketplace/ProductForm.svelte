@@ -13,6 +13,7 @@
 	} from '$lib/marketplace/types';
 	import { SUPPORTED_CURRENCIES, type CurrencyCode } from '$lib/currencyStore';
 	import { formatPrice, formatSats, convertToSats } from '$lib/currencyConversion';
+	import { checkForbiddenContent } from '$lib/marketplace/forbiddenWords';
 
 	// Currencies available for product pricing (exclude SATS from the full list position, put it first)
 	const PRICING_CURRENCIES = SUPPORTED_CURRENCIES;
@@ -74,6 +75,16 @@
 			errors.lightning = 'Invalid Lightning address format';
 		}
 		if ($images.length === 0) errors.images = 'At least one image is required';
+
+		// Forbidden word check
+		const forbidden = checkForbiddenContent({
+			title: title.trim(),
+			summary: summary.trim(),
+			description: description.trim()
+		});
+		if (forbidden) {
+			errors[forbidden.field] = `"${forbidden.word}" is not allowed in ${forbidden.field}`;
+		}
 	}
 
 	$: canSubmit =
@@ -83,6 +94,7 @@
 		lightningAddress.trim() &&
 		isValidLightningAddress(lightningAddress) &&
 		$images.length > 0 &&
+		!Object.keys(errors).length &&
 		!isSubmitting;
 
 	function handleSubmit() {

@@ -5,6 +5,7 @@
 	import Button from '../Button.svelte';
 	import type { KitchenFormData } from '$lib/marketplace/types';
 	import { SUPPORTED_CURRENCIES, type CurrencyCode } from '$lib/currencyStore';
+	import { checkForbiddenContent } from '$lib/marketplace/forbiddenWords';
 
 	const dispatch = createEventDispatcher<{
 		submit: KitchenFormData;
@@ -24,7 +25,21 @@
 	let avatarImages: Writable<string[]> = writable(initialData.avatar ? [initialData.avatar] : []);
 
 	// Validation
-	$: canSubmit = name.trim().length > 0 && !isSubmitting;
+	let errors: Record<string, string> = {};
+
+	$: {
+		errors = {};
+		if (!name.trim()) errors.name = 'Store name is required';
+		const forbidden = checkForbiddenContent({
+			name: name.trim(),
+			description: description.trim()
+		});
+		if (forbidden) {
+			errors[forbidden.field] = `"${forbidden.word}" is not allowed in ${forbidden.field}`;
+		}
+	}
+
+	$: canSubmit = name.trim().length > 0 && !Object.keys(errors).length && !isSubmitting;
 
 	function handleSubmit() {
 		if (!canSubmit) return;
@@ -60,6 +75,9 @@
 			placeholder="e.g., Chef Maria's Store"
 			class="input"
 		/>
+		{#if errors.name}
+			<span class="text-xs text-red-500">{errors.name}</span>
+		{/if}
 	</div>
 
 	<!-- Description -->
@@ -74,6 +92,9 @@
 			class="input min-h-[100px]"
 			rows="4"
 		/>
+		{#if errors.description}
+			<span class="text-xs text-red-500">{errors.description}</span>
+		{/if}
 	</div>
 
 	<!-- Banner Image -->
