@@ -1,7 +1,11 @@
 {
   "name": "zap.cooking",
   "license": "MIT",
+<<<<<<< feat/marketplace-commerce-state-v2
   "version": "4.2.99",
+=======
+  "version": "4.2.96",
+>>>>>>> main
   "private": true,
   "scripts": {
     "dev": "vite dev",

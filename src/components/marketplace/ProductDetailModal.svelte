@@ -60,6 +60,7 @@
 	// Commerce state
 	$: commerceState = resolveCommerceState(product);
 	$: stateConfig = getCommerceConfig(commerceState);
+<<<<<<< feat/marketplace-commerce-state-v2
 	$: canInstantBuy = isInstantCheckout(commerceState);
 
 	// Sats amount for payment
@@ -89,6 +90,18 @@
 
 	// Lightning address resolution
 	let resolvedLightningAddress = '';
+=======
+	$: commerceLabel = getCommerceLabel(commerceState, product?.priceSats || 0);
+	$: shippingText = getShippingText(product);
+	// canInstantBuy is strictly derived from commerce state.
+	// A seller's profile lightning address does NOT upgrade a message_to_order
+	// listing to instant checkout — the product must be explicitly configured
+	// with both a price and a lightning tag to qualify.
+	$: canInstantBuy = isInstantCheckout(commerceState);
+
+	// Resolved lightning address (from product tag or seller profile fallback)
+	let resolvedLightningAddress: string = '';
+>>>>>>> main
 	let resolvingLightning = false;
 
 	$: if (open && product) {
@@ -267,6 +280,16 @@
 		}
 	}
 
+<<<<<<< feat/marketplace-commerce-state-v2
+=======
+	function openDmForm() {
+		showDmForm = true;
+		if (!dmMessage) {
+			dmMessage = inquiryDmMessage;
+		}
+	}
+
+>>>>>>> main
 	async function recheckEncryption() {
 		const encryptionService = await import('$lib/encryptionService');
 		hasEncryptionSupport = encryptionService.hasEncryptionSupport;
@@ -470,6 +493,7 @@
 			</div>
 		{/if}
 
+<<<<<<< feat/marketplace-commerce-state-v2
 		<!-- ═══ View full details (expandable) ═══ -->
 		<button
 			type="button"
@@ -510,6 +534,223 @@
 
 				{#if product?.location}
 					<p class="text-xs" style="color: var(--color-text-secondary)">Ships from {product.location}</p>
+=======
+		<!-- DM Form (shown when expanded or after payment) -->
+		{#if showDmForm || paymentState === 'success'}
+			<div class="flex flex-col gap-3 p-4 rounded-xl" style="background-color: var(--color-bg-tertiary);">
+				<h3 class="font-semibold flex items-center gap-2" style="color: var(--color-text-primary)">
+					<ChatCircleIcon size={20} weight="fill" class="text-orange-500" />
+					{paymentState === 'success' ? 'Send Order Details to Seller' : 'Message Seller'}
+				</h3>
+
+				{#if dmSent}
+					<div class="flex items-center gap-2 p-3 rounded-lg bg-emerald-500/20 text-emerald-400">
+						<CheckIcon size={18} />
+						<span class="text-sm font-medium">Message sent to seller!</span>
+					</div>
+				{:else if canSendDm}
+					<!-- Protocol toggle -->
+					<div class="flex items-center justify-between px-0.5">
+						<div class="flex items-center gap-1.5">
+							{#if sendProtocol === 'nip17'}
+								<LockSimpleIcon
+									class="w-3 h-3 flex-shrink-0"
+									weight="bold"
+									style="color: rgba(167, 139, 250, 0.8);"
+								/>
+								<span class="text-[10px]" style="color: rgba(167, 139, 250, 0.8);">More private</span>
+							{:else}
+								<LockSimpleOpenIcon
+									class="w-3 h-3 flex-shrink-0"
+									weight="bold"
+									style="color: rgba(249, 115, 22, 0.6);"
+								/>
+								<span class="text-[10px]" style="color: rgba(249, 115, 22, 0.6);">More compatible</span>
+							{/if}
+						</div>
+						<div class="flex items-center gap-1.5">
+							<span
+								class="text-[8px] font-semibold uppercase tracking-[0.15em]"
+								style="color: var(--color-text-secondary); opacity: 0.7;">NIP</span
+							>
+							<button
+								type="button"
+								on:click|stopPropagation={toggleProtocol}
+								class="relative flex items-center w-[72px] h-7 rounded-full cursor-pointer transition-colors duration-200"
+								style={sendProtocol === 'nip17'
+									? 'background-color: rgba(124, 58, 237, 0.25);'
+									: 'background-color: rgba(249, 115, 22, 0.18);'}
+								title={sendProtocol === 'nip17'
+									? 'More private (less compatible)'
+									: 'More compatible (less private)'}
+								disabled={!nip17Available && sendProtocol === 'nip04'}
+							>
+								<span
+									class="absolute top-0.5 h-6 w-9 rounded-full transition-all duration-200 shadow-sm"
+									style="left: {sendProtocol === 'nip17' ? '33px' : '2px'};
+										background-color: {sendProtocol === 'nip17'
+										? 'rgba(124, 58, 237, 0.9)'
+										: 'rgba(249, 115, 22, 0.9)'};"
+								></span>
+								<span
+									class="relative z-10 w-1/2 text-center text-[9px] font-semibold transition-colors duration-200"
+									style="color: {sendProtocol === 'nip04' ? '#fff' : 'rgba(249, 115, 22, 0.6)'};">04</span
+								>
+								<span
+									class="relative z-10 w-1/2 text-center text-[9px] font-semibold transition-colors duration-200"
+									style="color: {sendProtocol === 'nip17' ? '#fff' : 'rgba(167, 139, 250, 0.6)'};"
+									>17</span
+								>
+							</button>
+						</div>
+					</div>
+					<textarea
+						bind:value={dmMessage}
+						rows="4"
+						class="w-full p-3 rounded-lg text-sm resize-none transition-colors duration-200"
+						style="background-color: var(--color-bg-secondary); color: var(--color-text-primary); border: 1px solid {sendProtocol === 'nip17' ? 'rgba(124, 58, 237, 0.35)' : 'rgba(249, 115, 22, 0.35)'};"
+						placeholder="Write your message..."
+					/>
+					{#if dmError}
+						<p class="text-xs text-red-400">{dmError}</p>
+					{/if}
+					<Button on:click={sendDm} disabled={sendingDm || !dmMessage.trim()}>
+						{#if sendingDm}
+							<span class="flex items-center gap-2">
+								<svg class="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+									<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+									<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+								</svg>
+								Sending...
+							</span>
+						{:else}
+							<span class="flex items-center gap-2">
+								<PaperPlaneTiltIcon size={16} weight="fill" />
+								Send Message
+							</span>
+						{/if}
+					</Button>
+				{:else}
+					<div class="text-sm" style="color: var(--color-text-secondary)">
+						{#if !$userPublickey}
+							<p>Log in to send a direct message to the seller.</p>
+						{:else if !encryptionServiceLoaded}
+							<p>Loading encryption service...</p>
+						{:else}
+							<p class="mb-2">Unable to send encrypted DM from this session.</p>
+							{#if encryptionDebugInfo}
+								{#if encryptionDebugInfo.signerType.includes('Nip07Signer') && !encryptionDebugInfo.hasNip04 && !encryptionDebugInfo.hasNip44}
+									<p class="text-xs mb-2">Your browser extension doesn't support encryption. Try unlocking it, then click retry.</p>
+								{:else if encryptionDebugInfo.signerType.includes('PrivateKeySigner') && !encryptionDebugInfo.hasPrivateKey}
+									<p class="text-xs mb-2">Private key not found. Try logging in again.</p>
+								{:else if encryptionDebugInfo.signerType === 'none' && !encryptionDebugInfo.hasPrivateKey}
+									<p class="text-xs mb-2">No signing method available. Try logging in again.</p>
+								{/if}
+							{/if}
+							<div class="flex flex-col gap-2 mt-3">
+								<button
+									type="button"
+									on:click={recheckEncryption}
+									class="text-xs text-orange-500 hover:text-orange-400 underline"
+								>
+									Retry encryption check
+								</button>
+								<p class="text-xs">Or copy the seller's npub above and message them using your preferred Nostr client.</p>
+							</div>
+						{/if}
+					</div>
+				{/if}
+			</div>
+		{/if}
+
+		<!-- Primary + Secondary CTAs (idle state) -->
+		{#if paymentState !== 'success' && paymentState !== 'error'}
+			<div class="flex flex-col gap-3">
+				<!-- Trust reinforcement near CTA -->
+				{#if trustRank !== undefined && trustRank >= 20}
+					<div class="flex items-center justify-center gap-2 py-1.5">
+						<CustomAvatar pubkey={product?.pubkey || ''} size={18} className="flex-shrink-0" interactive={false} />
+						<span class="text-xs" style="color: var(--color-text-secondary)">
+							<CustomName pubkey={product?.pubkey || ''} />
+						</span>
+						<TrustBadge rank={trustRank} {personalized} />
+					</div>
+				{/if}
+
+				{#if canInstantBuy}
+					<!-- ═══ Instant Checkout Flow ═══ -->
+					<Button
+						class="w-full py-3 text-lg"
+						on:click={handlePayment}
+						disabled={paymentState === 'loading' || resolvingLightning || !resolvedLightningAddress}
+					>
+						<span class="flex items-center justify-center gap-2">
+							{#if resolvingLightning}
+								<svg class="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+									<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+									<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+								</svg>
+								Loading...
+							{:else if paymentState === 'loading'}
+								<svg class="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+									<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+									<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+								</svg>
+								Getting Invoice...
+							{:else}
+								<LightningIcon size={20} weight="fill" />
+								Pay {product?.priceSats?.toLocaleString()} sats
+							{/if}
+						</span>
+					</Button>
+
+					{#if !showDmForm}
+						<button
+							type="button"
+							on:click={openDmForm}
+							class="w-full py-2.5 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-2"
+							style="border: 1px solid var(--color-text-secondary); color: var(--color-text-secondary); background: transparent;"
+						>
+							<ChatCircleIcon size={16} weight="fill" />
+							Message seller
+						</button>
+					{/if}
+
+					<!-- Copy Lightning address -->
+					{#if resolvedLightningAddress}
+						<button
+							type="button"
+							on:click={copyLightning}
+							class="flex items-center justify-center gap-2 p-2.5 rounded-lg text-xs transition-colors hover:bg-white/5"
+							style="color: var(--color-text-secondary);"
+						>
+							{#if copiedLightning}
+								<CheckIcon size={14} class="text-emerald-400" />
+								<span class="text-emerald-400">Copied!</span>
+							{:else}
+								<CopyIcon size={14} />
+								Copy Lightning address
+							{/if}
+						</button>
+					{/if}
+				{:else}
+					<!-- ═══ Message-First Flow ═══ -->
+					<!-- No payment UI. No sats button. No lightning copy. -->
+					{#if !showDmForm}
+						<Button
+							class="w-full py-3 text-lg"
+							on:click={openDmForm}
+						>
+							<span class="flex items-center justify-center gap-2">
+								<ChatCircleIcon size={20} weight="fill" />
+								Message seller
+							</span>
+						</Button>
+						<p class="text-xs text-center" style="color: var(--color-text-secondary); opacity: 0.7;">
+							Confirm price, shipping, and availability before purchase
+						</p>
+					{/if}
+>>>>>>> main
 				{/if}
 			</div>
 		{/if}
