@@ -151,6 +151,9 @@
 	// Post-purchase DM
 	$: postPurchaseDmMessage = `Hey! I just paid for "${product?.title}" (${paymentLabel}).${product?.requiresShipping ? '\n\nShipping address:\n[Your address here]' : ''}\n\nThanks!`;
 
+	// Track whether user has typed in the message box
+	let userEditedMessage = false;
+
 	// Reset / initialize on open/close
 	$: if (!open) {
 		paymentState = 'idle';
@@ -159,10 +162,10 @@
 		dmSent = false;
 		dmError = '';
 		showFullDetails = false;
-	} else if (open && !dmMessage) {
-		// Pre-fill with casual inquiry
-		dmMessage = `Hey \u2014 is "${product?.title}" still available?`;
-		// Autofocus the textarea after the modal renders
+		userEditedMessage = false;
+	} else if (open && product?.title && !userEditedMessage) {
+		// Pre-fill once the product title is available
+		dmMessage = `Hey \u2014 is "${product.title}" still available?`;
 		tick().then(() => {
 			messageInput?.focus();
 		});
@@ -334,6 +337,7 @@
 				<textarea
 					bind:this={messageInput}
 					bind:value={dmMessage}
+					on:input={() => (userEditedMessage = true)}
 					rows="3"
 					class="w-full p-3 rounded-xl text-sm resize-none"
 					style="background-color: var(--color-bg-secondary); color: var(--color-text-primary); border: 1px solid rgba(249, 115, 22, 0.25);"
