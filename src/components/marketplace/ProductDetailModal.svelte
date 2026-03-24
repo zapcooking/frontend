@@ -256,10 +256,11 @@
 		dmError = '';
 
 		try {
+			const fullMessage = dmMessage.trim() + '\n\nDiscovered on zap.cooking \uD83C\uDF73\u26A1\uFE0F';
 			if (sendProtocol === 'nip17') {
-				await sendDirectMessage(product.pubkey, dmMessage.trim());
+				await sendDirectMessage(product.pubkey, fullMessage);
 			} else {
-				await sendNip04DirectMessage(product.pubkey, dmMessage.trim());
+				await sendNip04DirectMessage(product.pubkey, fullMessage);
 			}
 			dmSent = true;
 			dmMessage = '';
