@@ -15,6 +15,7 @@
   import { theme } from '$lib/themeStore';
   import { platformIsIOS } from '$lib/platform';
   import LoginFormIOS from '../../components/LoginFormIOS.svelte';
+  import SuggestedFollowsModal from '../../components/SuggestedFollowsModal.svelte';
 
   // Dark mode detection for logo
   $: resolvedTheme =
@@ -74,6 +75,10 @@
   // File input reference
   let fileInput: HTMLInputElement;
 
+  // Suggested follows state
+  let showSuggestedFollows = false;
+  let newAccountPubkey = '';
+
   // Animation states
   let isHovered = false;
 
@@ -98,8 +103,8 @@
             userPublickey.set('');
           }
 
-          // Redirect to explore page if authenticated
-          if (state.isAuthenticated) {
+          // Redirect to explore page if authenticated (skip during signup flow)
+          if (state.isAuthenticated && !generateModal && !showSuggestedFollows) {
             goto('/explore');
           }
         });
@@ -238,10 +243,6 @@
     const profilePicture = newAccountPicture;
 
     try {
-      if (browser) {
-        localStorage.setItem('zapcooking_wallet_welcome_force', '1');
-      }
-
       // Convert Uint8Array to hex string for authentication
       const privateKeyHex = Array.from(generatedKeys.privateKey)
         .map((b) => b.toString(16).padStart(2, '0'))
@@ -288,6 +289,8 @@
       }
 
       generateModal = false;
+      newAccountPubkey = authState.publicKey || '';
+      showSuggestedFollows = true;
       generatedKeys = null;
       newAccountUsername = '';
       newAccountBio = '';
@@ -819,7 +822,7 @@
               class="w-full {!backupDownloaded ? 'opacity-50 cursor-not-allowed' : ''}"
               disabled={!backupDownloaded}
             >
-              Continue to Step 2
+              ⚡ Next
             </Button>
             {#if !backupDownloaded}
               <p class="text-xs text-caption text-center">Download the backup file to continue.</p>
@@ -954,6 +957,18 @@
       {/if}
     </div>
   </Modal>
+
+  <SuggestedFollowsModal
+    bind:open={showSuggestedFollows}
+    userPubkey={newAccountPubkey}
+    onComplete={() => {
+      showSuggestedFollows = false;
+      if (browser) {
+        localStorage.setItem('zapcooking_wallet_welcome_force', '1');
+      }
+      goto('/explore');
+    }}
+  />
 
   <!-- Blur overlay (bottom layer) -->
   <div class="login-blur-layer backdrop-brightness-50 backdrop-blur" aria-hidden="true"></div>

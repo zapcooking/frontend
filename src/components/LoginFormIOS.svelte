@@ -547,7 +547,7 @@
             class="w-full {!backupDownloaded ? 'opacity-50 cursor-not-allowed' : ''}"
             disabled={!backupDownloaded}
           >
-            Continue to Step 2
+            ⚡ Next
           </Button>
           {#if !backupDownloaded}
             <p class="text-xs text-caption text-center">Download the backup file to continue.</p>

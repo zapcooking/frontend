@@ -266,7 +266,8 @@
           walletWelcomeForce = localStorage.getItem(WALLET_WELCOME_FORCE_KEY) === '1';
         }
 
-        if (browser && state.isAuthenticated && state.publicKey && !hasWallet) {
+        const isOnboardingFlow = $page.url.pathname.startsWith('/login') || $page.url.pathname.startsWith('/onboarding');
+        if (browser && state.isAuthenticated && state.publicKey && !hasWallet && !isOnboardingFlow) {
           if (walletWelcomeForce || !walletWelcomeSeen) {
             walletWelcomeOpen = true;
             if (walletWelcomeForce) {
@@ -308,6 +309,20 @@
       walletWelcomeForce = localStorage.getItem(WALLET_WELCOME_FORCE_KEY) === '1';
     }
   });
+
+  // Show wallet welcome after leaving login/onboarding (e.g. after suggested follows completes)
+  $: {
+    const onboardingFlow = $page.url.pathname.startsWith('/login') || $page.url.pathname.startsWith('/onboarding');
+    if (browser && !walletWelcomeOpen && !onboardingFlow && authState.isAuthenticated && !hasWallet) {
+      const forceFlag = localStorage.getItem(WALLET_WELCOME_FORCE_KEY) === '1';
+      if (forceFlag || !walletWelcomeSeen) {
+        walletWelcomeOpen = true;
+        if (forceFlag) {
+          localStorage.removeItem(WALLET_WELCOME_FORCE_KEY);
+        }
+      }
+    }
+  }
 
   $: if (walletWelcomeOpen && hasWallet) {
     markWalletWelcomeSeen();
