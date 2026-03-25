@@ -11,22 +11,18 @@
   import AuthorName from '../../components/AuthorName.svelte';
   import { formatDistanceToNow } from 'date-fns';
   import NoteContent from '../../components/NoteContent.svelte';
-  import NoteTotalLikes from '../../components/NoteTotalLikes.svelte';
-  import NoteTotalComments from '../../components/NoteTotalComments.svelte';
-  import NoteTotalZaps from '../../components/NoteTotalZaps.svelte';
-  import ZapModal from '../../components/ZapModal.svelte';
+  import PollDisplay from '../../components/PollDisplay.svelte';
+  import NoteActionBar from '../../components/NoteActionBar.svelte';
   import Button from '../../components/Button.svelte';
   import { addClientTagToEvent } from '$lib/nip89';
   import { buildNip22CommentTags } from '$lib/tagUtils';
   import ClientAttribution from '../../components/ClientAttribution.svelte';
-  import ThreadCommentActions from '../../components/ThreadCommentActions.svelte';
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
   import type { PageData } from './$types';
   import { createCommentFilter } from '$lib/commentFilters';
   import PostActionsMenu from '../../components/PostActionsMenu.svelte';
   import MentionDropdown from '../../components/MentionDropdown.svelte';
   import { MentionComposerController, type MentionState } from '$lib/mentionComposer';
-  import { fetchEngagement, optimisticZapUpdate } from '$lib/engagementCache';
 
   export let data: PageData;
 
@@ -40,7 +36,6 @@
   let event: NDKEvent | null = null;
   let loading = true;
   let error = false;
-  let zapModal = false;
 
   // Thread hierarchy
   let parentThread: NDKEvent[] = []; // Parent notes above this one
@@ -111,7 +106,7 @@
 
         seenIds.add(parentId);
 
-        const parentNote = await $ndk.fetchEvent({ kinds: [1, 1111] as any, ids: [parentId] });
+        const parentNote = await $ndk.fetchEvent({ kinds: [1, 1068, 1111] as any, ids: [parentId] });
         if (!parentNote) break;
 
         parents.unshift(parentNote); // Add to beginning for chronological order
@@ -162,7 +157,6 @@
     replies = [];
     loading = true;
     error = false;
-    zapModal = false;
 
     if (!nip19Id) {
       error = true;
@@ -256,9 +250,6 @@
     return formatDistanceToNow(new Date(timestamp * 1000), { addSuffix: true });
   }
 
-  function openZapModal() {
-    zapModal = true;
-  }
 
   // Reactive statements for mention controller
   $: mentionCtrl.setComposerEl(replyComposerEl);
@@ -604,16 +595,20 @@
                     </div>
                     <PostActionsMenu event={parentNote} />
                   </div>
-                  <a
-                    href="/{nip19.noteEncode(parentNote.id)}"
-                    class="block text-sm leading-relaxed hover:opacity-80"
-                    style="color: var(--color-text-secondary)"
-                  >
-                    <NoteContent content={parentNote.content} />
-                  </a>
+                  {#if parentNote.kind === 1068}
+                    <PollDisplay event={parentNote} />
+                  {:else}
+                    <a
+                      href="/{nip19.noteEncode(parentNote.id)}"
+                      class="block text-sm leading-relaxed hover:opacity-80"
+                      style="color: var(--color-text-secondary)"
+                    >
+                      <NoteContent content={parentNote.content} />
+                    </a>
+                  {/if}
                   <!-- Parent note actions -->
                   <div class="mt-2">
-                    <ThreadCommentActions event={parentNote} compact={true} />
+                    <NoteActionBar event={parentNote} variant="compact" />
                   </div>
                 </div>
               </div>
@@ -654,24 +649,16 @@
                 <ClientAttribution tags={event.tags} enableEnrichment={true} />
               </div>
               <div class="text-sm leading-relaxed mb-3" style="color: var(--color-text-primary)">
-                <NoteContent content={event.content} />
-              </div>
-              <div
-                class="flex items-center space-x-4 text-sm"
-                style="color: var(--color-text-secondary)"
-              >
-                <NoteTotalLikes {event} />
-                <NoteTotalComments {event} />
-                <button
-                  class="cursor-pointer hover:bg-accent-gray rounded px-1 py-0.5 transition duration-200"
-                  on:click={openZapModal}
-                >
-                  <NoteTotalZaps {event} />
-                </button>
+                {#if event.kind === 1068}
+                  <PollDisplay {event} />
+                {:else}
+                  <NoteContent content={event.content} />
+                {/if}
               </div>
             </div>
             <PostActionsMenu {event} />
           </div>
+          <NoteActionBar {event} />
         </div>
       </div>
     </article>
@@ -796,11 +783,15 @@
                         class="text-sm leading-relaxed"
                         style="color: var(--color-text-secondary)"
                       >
-                        <NoteContent content={reply.content} />
+                        {#if reply.kind === 1068}
+                          <PollDisplay event={reply} />
+                        {:else}
+                          <NoteContent content={reply.content} />
+                        {/if}
                       </div>
                       <!-- Reply actions -->
                       <div class="mt-2">
-                        <ThreadCommentActions event={reply} compact={false} />
+                        <NoteActionBar event={reply} />
                       </div>
                     </div>
                   </div>
@@ -850,11 +841,15 @@
                               class="text-xs leading-relaxed"
                               style="color: var(--color-text-secondary)"
                             >
-                              <NoteContent content={nestedReply.content} />
+                              {#if nestedReply.kind === 1068}
+                                <PollDisplay event={nestedReply} />
+                              {:else}
+                                <NoteContent content={nestedReply.content} />
+                              {/if}
                             </div>
                             <!-- Nested reply actions -->
                             <div class="mt-1.5">
-                              <ThreadCommentActions event={nestedReply} compact={true} />
+                              <NoteActionBar event={nestedReply} variant="compact" />
                             </div>
                           </div>
                         </div>
@@ -886,15 +881,6 @@
   {/if}
 </div>
 
-<!-- Zap Modal -->
-{#if zapModal && event}
-  <ZapModal {event} on:close={() => (zapModal = false)} on:zap-complete={(e) => {
-    if (event) {
-      optimisticZapUpdate(event.id, (e.detail.amount || 0) * 1000, $userPublickey);
-      fetchEngagement($ndk, event.id, $userPublickey);
-    }
-  }} />
-{/if}
 
 <style>
   /* Thread page styles */

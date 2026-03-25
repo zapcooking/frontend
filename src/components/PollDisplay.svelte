@@ -227,16 +227,21 @@
         {/each}
       </div>
     {:else}
-      <!-- ═══ TEXT-ONLY LIST LAYOUT (unchanged) ═══ -->
-      <div class="space-y-2">
-        {#each pollData.options as option (option.id)}
+      <!-- ═══ TEXT GRID LAYOUT ═══ -->
+      <div class="poll-text-grid">
+        {#each pollData.options as option, i (option.id)}
           {@const voteCount = results.counts.get(option.id) || 0}
           {@const pct = results.totalVoters === 0 ? 0 : Math.round((voteCount / results.totalVoters) * 100)}
           {@const isUserChoice = userSelectedOptions.includes(option.id)}
           {@const isSelected = selectedOptions.has(option.id)}
+          {@const isLast = i === pollData.options.length - 1 && pollData.options.length % 2 !== 0}
 
           {#if displayResults}
-            <div class="poll-result-bar" class:poll-result-user={isUserChoice}>
+            <div
+              class="poll-result-bar"
+              class:poll-result-user={isUserChoice}
+              class:poll-text-card-last-odd={isLast}
+            >
               <div class="poll-result-fill" style="width: {pct}%"></div>
               <div class="poll-result-content">
                 <span class="poll-result-label">
@@ -245,13 +250,15 @@
                     <span class="poll-result-check">✓</span>
                   {/if}
                 </span>
-                <span class="poll-result-pct">{pct}% ({voteCount})</span>
+                <span class="poll-result-pct">{pct}%</span>
               </div>
+              <div class="poll-result-votes">{voteCount}</div>
             </div>
           {:else}
             <button
               class="poll-option-btn"
               class:poll-option-selected={isSelected}
+              class:poll-text-card-last-odd={isLast}
               on:click={() => toggleOption(option.id)}
               disabled={expired || voting}
             >
@@ -262,7 +269,7 @@
                   <span class="poll-checkbox" class:poll-checkbox-checked={isSelected}></span>
                 {/if}
               </span>
-              <span>{option.label}</span>
+              <span class="poll-option-label">{option.label}</span>
             </button>
           {/if}
         {/each}
@@ -514,24 +521,48 @@
   }
 
   /* ═══════════════════════════════════════════
-     TEXT-ONLY LIST LAYOUT
+     TEXT GRID LAYOUT
      ═══════════════════════════════════════════ */
+
+  .poll-text-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.5rem;
+  }
+
+  .poll-text-card-last-odd {
+    grid-column: 1 / -1;
+    max-width: 50%;
+    justify-self: center;
+  }
+
+  @media (max-width: 360px) {
+    .poll-text-grid {
+      grid-template-columns: 1fr;
+    }
+    .poll-text-card-last-odd {
+      max-width: 100%;
+    }
+  }
 
   /* Vote mode buttons */
   .poll-option-btn {
     display: flex;
+    flex-direction: column;
     align-items: center;
-    gap: 0.5rem;
+    justify-content: center;
+    gap: 0.375rem;
     width: 100%;
-    padding: 0.5rem 0.75rem;
-    border: 1px solid var(--color-input-border);
-    border-radius: 0.5rem;
+    padding: 0.75rem 0.5rem;
+    border: 2px solid var(--color-input-border);
+    border-radius: 0.625rem;
     background: transparent;
     color: var(--color-text-primary);
-    font-size: 0.875rem;
+    font-size: 0.8125rem;
     cursor: pointer;
     transition: all 0.15s;
-    text-align: left;
+    text-align: center;
+    min-height: 3.5rem;
   }
 
   .poll-option-btn:hover:not(:disabled) {
@@ -546,10 +577,16 @@
   .poll-option-selected {
     border-color: var(--color-primary, #f97316);
     background: rgba(249, 115, 22, 0.05);
+    box-shadow: 0 0 0 1px var(--color-primary, #f97316);
   }
 
   .poll-option-indicator {
     flex-shrink: 0;
+  }
+
+  .poll-option-label {
+    line-height: 1.3;
+    word-break: break-word;
   }
 
   .poll-radio,
@@ -583,10 +620,14 @@
   /* Results mode */
   .poll-result-bar {
     position: relative;
-    padding: 0.5rem 0.75rem;
-    border: 1px solid var(--color-input-border);
-    border-radius: 0.5rem;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: 0.625rem 0.5rem;
+    border: 2px solid var(--color-input-border);
+    border-radius: 0.625rem;
     overflow: hidden;
+    min-height: 3.5rem;
   }
 
   .poll-result-user {
@@ -607,7 +648,8 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
-    font-size: 0.875rem;
+    font-size: 0.8125rem;
+    line-height: 1.3;
   }
 
   .poll-result-label {
@@ -615,6 +657,8 @@
     display: flex;
     align-items: center;
     gap: 0.25rem;
+    word-break: break-word;
+    min-width: 0;
   }
 
   .poll-result-check {
@@ -624,7 +668,16 @@
 
   .poll-result-pct {
     color: var(--color-caption);
-    font-size: 0.8125rem;
+    font-size: 0.75rem;
     flex-shrink: 0;
+    font-weight: 600;
+  }
+
+  .poll-result-votes {
+    position: relative;
+    font-size: 0.6875rem;
+    color: var(--color-caption);
+    text-align: center;
+    margin-top: 0.125rem;
   }
 </style>
