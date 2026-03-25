@@ -314,6 +314,41 @@
 
     <!-- Explore Content -->
     <div class="flex flex-col gap-8 sm:gap-14">
+      <!-- Supported by our partners -->
+      {#if sponsorBanners.length > 0}
+        <section class="flex flex-col gap-3" data-section="partners">
+          <h2 class="text-lg font-semibold" style="color: var(--color-text-primary);">Supported by our partners</h2>
+          {#if sponsorBanners.length === 1}
+            <SponsorBanner
+              title={sponsorBanners[0].title}
+              description={sponsorBanners[0].description}
+              imageUrl={sponsorBanners[0].imageUrl}
+              linkUrl={sponsorBanners[0].linkUrl}
+            />
+          {:else}
+            <div class="flex gap-4 overflow-x-auto pb-2 -mx-4 px-4 scrollbar-hide touch-pan-x">
+              {#each sponsorBanners as sponsor (sponsor.id)}
+                <div class="flex-shrink-0 sponsor-scroll-item">
+                  <SponsorBanner
+                    title={sponsor.title}
+                    description={sponsor.description}
+                    imageUrl={sponsor.imageUrl}
+                    linkUrl={sponsor.linkUrl}
+                  />
+                </div>
+              {/each}
+            </div>
+          {/if}
+          <a
+            href="/sponsors"
+            class="text-xs font-medium transition-colors self-start"
+            style="color: var(--color-primary);"
+          >
+            View Sponsors &rarr;
+          </a>
+        </section>
+      {/if}
+
       <!-- Fresh from the Kitchen -->
       <section class="flex flex-col gap-4" data-section="fresh-kitchen">
         <h2 class="text-2xl font-bold flex items-center gap-2">
@@ -506,41 +541,6 @@
           {/each}
         </div>
       </section>
-
-      <!-- Supported by our partners -->
-      {#if sponsorBanners.length > 0}
-        <section class="flex flex-col gap-3" data-section="partners">
-          <h2 class="text-lg font-semibold" style="color: var(--color-text-primary);">Supported by our partners</h2>
-          {#if sponsorBanners.length === 1}
-            <SponsorBanner
-              title={sponsorBanners[0].title}
-              description={sponsorBanners[0].description}
-              imageUrl={sponsorBanners[0].imageUrl}
-              linkUrl={sponsorBanners[0].linkUrl}
-            />
-          {:else}
-            <div class="flex gap-4 overflow-x-auto pb-2 -mx-4 px-4 scrollbar-hide touch-pan-x">
-              {#each sponsorBanners as sponsor (sponsor.id)}
-                <div class="flex-shrink-0 sponsor-scroll-item">
-                  <SponsorBanner
-                    title={sponsor.title}
-                    description={sponsor.description}
-                    imageUrl={sponsor.imageUrl}
-                    linkUrl={sponsor.linkUrl}
-                  />
-                </div>
-              {/each}
-            </div>
-          {/if}
-          <a
-            href="/sponsors"
-            class="text-xs font-medium transition-colors self-start"
-            style="color: var(--color-primary);"
-          >
-            View Sponsors &rarr;
-          </a>
-        </section>
-      {/if}
 
       <!-- Explore by Culture -->
       {#if cultureSection}
