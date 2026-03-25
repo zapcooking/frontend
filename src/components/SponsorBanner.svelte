@@ -15,7 +15,6 @@
     <img src={imageUrl} alt={title} loading="lazy" />
   </div>
   <div class="sponsor-banner-content">
-    <span class="sponsor-label">Paid Partnership</span>
     <h3 class="sponsor-banner-title">{title}</h3>
     {#if description}
       <p class="sponsor-banner-desc">{description}</p>
@@ -63,15 +62,6 @@
     justify-content: center;
     min-width: 0;
     flex: 1;
-  }
-
-  .sponsor-label {
-    font-size: 10px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    color: var(--color-caption);
-    margin-bottom: 0.25rem;
   }
 
   .sponsor-banner-title {
