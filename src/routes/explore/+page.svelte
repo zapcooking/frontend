@@ -2,7 +2,6 @@
   import { onMount, onDestroy, tick } from 'svelte';
   import { goto } from '$app/navigation';
   import { recipeTags, CURATED_TAG_SECTIONS, type recipeTagSimple } from '$lib/consts';
-  import { computePopularTags, type TagWithCount } from '$lib/tagUtils';
   import {
     fetchCollectionsWithImages,
     fetchPopularCooks,
@@ -10,7 +9,6 @@
     type Collection,
     type PopularCook
   } from '$lib/exploreUtils';
-  import TagSectionCard from '../../components/TagSectionCard.svelte';
   import TagChip from '../../components/TagChip.svelte';
   import CollectionCard from '../../components/CollectionCard.svelte';
   import ProfileAvatar from '../../components/ProfileAvatar.svelte';
@@ -31,60 +29,6 @@
 
   // Accept SvelteKit props to prevent warnings
   export let data: PageData;
-
-  // Membership banner dismiss (re-shows after 7 days)
-  const MEMBERSHIP_BANNER_KEY = 'zapcooking_membership_banner_dismissed_at';
-  const MEMBERSHIP_BANNER_TTL = 7 * 24 * 60 * 60 * 1000;
-  let showMembershipBanner = true;
-  if (browser) {
-    const dismissedAt = localStorage.getItem(MEMBERSHIP_BANNER_KEY);
-    if (dismissedAt && Date.now() - Number(dismissedAt) < MEMBERSHIP_BANNER_TTL) {
-      showMembershipBanner = false;
-    }
-  }
-  function dismissMembershipBanner() {
-    showMembershipBanner = false;
-    if (browser) localStorage.setItem(MEMBERSHIP_BANNER_KEY, String(Date.now()));
-  }
-
-  // Banner sats pricing (live from bitcoin-price-quote API — same source as checkout pages)
-  let cookSats: number | null = null;
-  let proSats: number | null = null;
-  let satsPricingLoading = true;
-  let satsPricingError = false;
-  let featuresExpanded = false;
-
-  function formatBannerSats(sats: number): string {
-    const rounded = Math.round(sats / 100) * 100;
-    return rounded.toLocaleString('en-US');
-  }
-
-  async function fetchBannerSatsPricing() {
-    if (!browser || !showMembershipBanner) return;
-    satsPricingLoading = true;
-    satsPricingError = false;
-    try {
-      const [cookRes, proRes] = await Promise.all([
-        fetch('/api/membership/bitcoin-price-quote?tier=cook&period=monthly'),
-        fetch('/api/membership/bitcoin-price-quote?tier=pro&period=monthly')
-      ]);
-      if (cookRes.ok) {
-        const data = await cookRes.json();
-        cookSats = data.amountSats;
-      }
-      if (proRes.ok) {
-        const data = await proRes.json();
-        proSats = data.amountSats;
-      }
-      if (!cookRes.ok && !proRes.ok) {
-        satsPricingError = true;
-      }
-    } catch {
-      satsPricingError = true;
-    } finally {
-      satsPricingLoading = false;
-    }
-  }
 
   // One-time Cooking Tools tip (4.2 first-60-seconds improvement)
   const COOKING_TOOLS_TIP_KEY = 'zapcooking_cooking_tools_tip_seen';
@@ -159,9 +103,6 @@
   // t0_explore_nav_start: Earliest point for the Explore route
   init();
   markOnce('t0_explore_nav_start');
-  let popularTags: TagWithCount[] = [];
-  let loadingPopular = true;
-  let popularTagCounts = new Map<string, number>();
 
   // New data for Explore sections
   let collections: Collection[] = [];
@@ -174,12 +115,7 @@
   let loadingDiscover = true;
   let cultureExpanded = false;
 
-  // Compute section references reactively
-  $: intentSection = CURATED_TAG_SECTIONS.find((s) => s.title === 'Why are you cooking?');
   $: cultureSection = CURATED_TAG_SECTIONS.find((s) => s.title === 'Explore by culture');
-  $: collapsibleSections = CURATED_TAG_SECTIONS.filter(
-    (s) => s.title !== 'Why are you cooking?' && s.title !== 'Explore by culture'
-  );
 
   // t2_explore_first_content_rendered: When Explore renders its first recipe cards
   // Track when discoverRecipes first becomes non-empty (matches template condition)
@@ -197,8 +133,6 @@
     loadingCollections = true;
     loadingCooks = true;
     loadingDiscover = true;
-    loadingPopular = true;
-
     // Load collections immediately (static data, no network)
     collections = await fetchCollectionsWithImages();
     loadingCollections = false;
@@ -243,20 +177,6 @@
       loadingCooks = false;
     });
 
-    // Load popular tags (non-blocking)
-    computePopularTags(12).then((tags) => {
-      popularTags = tags;
-      popularTagCounts.clear();
-      popularTags.forEach((tag) => {
-        if (tag.count !== undefined) {
-          popularTagCounts.set(tag.title, tag.count);
-        }
-      });
-      loadingPopular = false;
-    }).catch(() => {
-      loadingPopular = false;
-    });
-
   }
 
   async function handleRefresh() {
@@ -274,7 +194,6 @@
     let cleanup: (() => void) | undefined;
     void (async () => {
     syncTipPointer();
-    if (showMembershipBanner) fetchBannerSatsPricing();
     await loadExploreData();
 
     if (browser) {
@@ -343,15 +262,6 @@
     }
   }
 
-  function getSectionTags(sectionTitle: string): recipeTagSimple[] {
-    const section = CURATED_TAG_SECTIONS.find((s) => s.title === sectionTitle);
-    if (!section) return [];
-
-    return section.tags
-      .map((tagName) => recipeTags.find((t) => t.title === tagName))
-      .filter((tag): tag is recipeTagSimple => tag !== undefined);
-  }
-
   function getCultureTags(showAll: boolean): recipeTagSimple[] {
     const cultureSection = CURATED_TAG_SECTIONS.find((s) => s.title === 'Explore by culture');
     if (!cultureSection) return [];
@@ -396,182 +306,14 @@
     <!-- Orientation text for signed-out users -->
     {#if $userPublickey === ''}
       <div class="mb-4 pt-1">
-        <p class="text-sm text-gray-400">Curated recipes and popular cooks.</p>
-        <p class="text-xs text-gray-300 mt-0.5">
-          A starting point for discovering people and ideas.
+        <p class="text-sm" style="color: var(--color-text-secondary);">
+          Recipes, ideas, and cooks from around the network.
         </p>
-      </div>
-    {/if}
-
-    <!-- Membership teaser strip for logged-in non-members -->
-    {#if $userPublickey && isNonMember}
-      <div
-        class="rounded-xl px-4 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 text-sm"
-        style="background-color: var(--color-bg-secondary); border: 1px solid var(--color-input-border);"
-      >
-        <span style="color: var(--color-text-primary);">
-          ⚡ Cook+ members unlock AI tools, enhanced print layouts, and private groups.
-        </span>
-        <a
-          href="/membership"
-          class="font-medium whitespace-nowrap hover:opacity-80 transition-opacity"
-          style="color: var(--color-primary);"
-        >
-          Explore Membership →
-        </a>
       </div>
     {/if}
 
     <!-- Explore Content -->
     <div class="flex flex-col gap-8 sm:gap-14">
-      <!-- Membership Banner -->
-      {#if showMembershipBanner}
-        <section aria-label="Membership upgrade">
-          <div class="membership-banner relative rounded-2xl p-5 md:p-6 overflow-hidden">
-            <!-- Dismiss (subtle) -->
-            <button
-              type="button"
-              on:click={dismissMembershipBanner}
-              class="absolute top-3 right-3 z-10 p-1.5 rounded-full transition-opacity opacity-40 hover:opacity-70"
-              style="color: var(--color-text-secondary);"
-              aria-label="Dismiss"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-            </button>
-
-            <!-- Headline + subcopy -->
-            <div class="mb-3 pr-6">
-              <h2 class="text-lg font-bold leading-tight">&#9889; Level up your kitchen</h2>
-              <p class="text-[13px] mt-0.5" style="color: var(--color-caption);">
-                AI-powered tools and an exclusive community, built on Nostr.
-              </p>
-            </div>
-
-            <!-- Features: accordion on mobile, pills on desktop -->
-            <div class="mb-4">
-              <button
-                type="button"
-                on:click={() => featuresExpanded = !featuresExpanded}
-                class="sm:hidden flex items-center gap-1.5 text-[13px] font-medium"
-                style="color: var(--color-primary);"
-                aria-expanded={featuresExpanded}
-              >
-                <svg
-                  xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24"
-                  fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"
-                  class="transition-transform duration-150 {featuresExpanded ? 'rotate-90' : ''}"
-                ><polyline points="9 18 15 12 9 6"/></svg>
-                See what's included
-              </button>
-              {#if featuresExpanded}
-                <ul class="sm:hidden mt-2 ml-0.5 space-y-1 text-[13px]" style="color: var(--color-text-secondary);">
-                  <li>&#10022; AI meal planning &amp; grocery lists</li>
-                  <li>&#10022; Cook from what you have</li>
-                  <li>&#10022; Enhanced print layouts</li>
-                  <li>&#10022; Members-only groups</li>
-                  <li>&#10022; Private relay access</li>
-                </ul>
-              {/if}
-
-              <div class="hidden sm:flex flex-wrap gap-2">
-                <span class="membership-pill">&#129302; Plan your week</span>
-                <span class="membership-pill">&#127859; Cook from what you have</span>
-                <span class="membership-pill">&#128722; One-tap grocery list</span>
-                <span class="membership-pill">&#129489;&#8205;&#127859; Members-only groups</span>
-                <span class="membership-pill">&#128274; Private relay access</span>
-              </div>
-            </div>
-
-            <!-- Pricing cards -->
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
-              <!-- Cook+ -->
-              <div class="membership-price-card rounded-xl px-4 py-3.5">
-                <p class="text-sm font-semibold mb-1.5">Cook+</p>
-                {#if !satsPricingLoading && cookSats != null}
-                  <div class="flex items-baseline gap-1.5">
-                    <span class="text-xl font-bold" style="color: var(--color-primary);">&#9889;&thinsp;{formatBannerSats(cookSats)}</span>
-                    <span class="text-xs font-semibold" style="color: var(--color-primary);">sats/mo</span>
-                  </div>
-                  <span class="membership-sats-badge">Save 5% with bitcoin</span>
-                {:else if satsPricingLoading}
-                  <div class="flex items-baseline gap-1.5 mb-1">
-                    <span class="text-base font-bold" style="color: var(--color-primary);">&#9889;</span>
-                    <span class="text-xs" style="color: var(--color-caption);">Loading rate&hellip;</span>
-                  </div>
-                {/if}
-                <p class="text-xs mt-1" style="color: var(--color-caption);">$4.99/mo &middot; or $49/yr</p>
-                <a href="/membership" class="membership-card-cta mt-3">Join Cook+</a>
-              </div>
-
-              <!-- Pro Kitchen -->
-              <div class="membership-price-card membership-price-card--pro rounded-xl px-4 py-3.5 relative">
-                <span class="absolute -top-2 right-3 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full" style="background-color: var(--color-primary); color: white;">Best value</span>
-                <p class="text-sm font-semibold mb-1.5">Pro Kitchen</p>
-                {#if !satsPricingLoading && proSats != null}
-                  <div class="flex items-baseline gap-1.5">
-                    <span class="text-xl font-bold" style="color: var(--color-primary);">&#9889;&thinsp;{formatBannerSats(proSats)}</span>
-                    <span class="text-xs font-semibold" style="color: var(--color-primary);">sats/mo</span>
-                  </div>
-                  <span class="membership-sats-badge">Save 5% with bitcoin</span>
-                {:else if satsPricingLoading}
-                  <div class="flex items-baseline gap-1.5 mb-1">
-                    <span class="text-base font-bold" style="color: var(--color-primary);">&#9889;</span>
-                    <span class="text-xs" style="color: var(--color-caption);">Loading rate&hellip;</span>
-                  </div>
-                {/if}
-                <p class="text-xs mt-1" style="color: var(--color-caption);">$8.99/mo &middot; or $89/yr</p>
-                <a href="/membership" class="membership-card-cta membership-card-cta--pro mt-3">Enter Pro Kitchen</a>
-              </div>
-            </div>
-
-            <!-- Social proof -->
-            <p class="text-[11px] text-center" style="color: var(--color-caption);">
-              Join 200+ cooks building on Nostr
-            </p>
-          </div>
-        </section>
-      {/if}
-
-      <!-- Supported by our partners -->
-      {#if sponsorBanners.length > 0}
-        <section class="flex flex-col gap-3" data-section="partners">
-          <div>
-            <h2 class="text-lg font-semibold" style="color: var(--color-text-primary);">Supported by our partners</h2>
-            <p class="text-xs mt-0.5" style="color: var(--color-caption);">
-              Zap Cooking is supported by a small group of aligned partners helping us build the future of food culture on the open web.
-            </p>
-          </div>
-          {#if sponsorBanners.length === 1}
-            <SponsorBanner
-              title={sponsorBanners[0].title}
-              description={sponsorBanners[0].description}
-              imageUrl={sponsorBanners[0].imageUrl}
-              linkUrl={sponsorBanners[0].linkUrl}
-            />
-          {:else}
-            <div class="flex gap-4 overflow-x-auto pb-2 -mx-4 px-4 scrollbar-hide touch-pan-x">
-              {#each sponsorBanners as sponsor (sponsor.id)}
-                <div class="flex-shrink-0 sponsor-scroll-item">
-                  <SponsorBanner
-                    title={sponsor.title}
-                    description={sponsor.description}
-                    imageUrl={sponsor.imageUrl}
-                    linkUrl={sponsor.linkUrl}
-                  />
-                </div>
-              {/each}
-            </div>
-          {/if}
-          <a
-            href="/sponsors"
-            class="text-xs font-medium transition-colors self-start"
-            style="color: var(--color-primary);"
-          >
-            View Sponsors &rarr;
-          </a>
-        </section>
-      {/if}
-
       <!-- Fresh from the Kitchen -->
       <section class="flex flex-col gap-4" data-section="fresh-kitchen">
         <h2 class="text-2xl font-bold flex items-center gap-2">
@@ -638,6 +380,30 @@
         {/if}
       </section>
 
+      <!-- Membership teaser — premium feel -->
+      {#if !$userPublickey || isNonMember}
+        <section class="membership-teaser" aria-label="Membership teaser">
+          <div class="membership-teaser-glow"></div>
+          <div class="relative z-10 text-center px-4 py-6">
+            <p class="text-xs uppercase tracking-widest font-semibold mb-2" style="color: rgba(249,115,22,0.9);">
+              Kitchen+
+            </p>
+            <h3 class="text-lg font-bold text-white">
+              Unlock your kitchen
+            </h3>
+            <p class="text-sm mt-1.5 text-gray-300">
+              AI tools, private groups, and more.
+            </p>
+            <a
+              href="/membership"
+              class="membership-teaser-cta"
+            >
+              Enter the Kitchen+
+            </a>
+          </div>
+        </section>
+      {/if}
+
       <!-- Food Stories & Articles -->
       <section class="flex flex-col gap-4">
         <div class="px-4 -mx-4 sm:px-0 sm:mx-0">
@@ -680,97 +446,127 @@
         {/if}
       </section>
 
-      <!-- Hot Tags -->
-      <section class="flex flex-col gap-4">
-        <h2 class="text-2xl font-bold flex items-center gap-2">
-          <span>⭐</span>
-          <span>Hot Tags</span>
+      <!-- What are you cooking? — Intent Cards -->
+      <section class="flex flex-col gap-3">
+        <h2 class="text-lg font-semibold" style="color: var(--color-text-primary);">
+          What are you cooking?
         </h2>
-        {#if loadingPopular}
-          <div class="flex flex-wrap gap-2">
-            {#each Array(10) as _}
-              <div class="h-9 w-24 rounded-full animate-pulse skeleton-bg"></div>
-            {/each}
-          </div>
-        {:else if popularTags.length > 0}
-          <div class="flex flex-wrap gap-2">
-            {#each popularTags.slice(0, 12) as tag}
-              <TagChip
-                {tag}
-                count={popularTagCounts.get(tag.title)}
-                onClick={() => navigateToTag(tag)}
-              />
-            {/each}
-          </div>
-        {/if}
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+          {#each [
+            { emoji: '⚡', label: 'Quick', sub: 'Ready in 20 min', tag: 'Quick' },
+            { emoji: '🌅', label: 'Breakfast', sub: 'Start your day right', tag: 'Breakfast' },
+            { emoji: '🍰', label: 'Dessert', sub: 'Something sweet', tag: 'Dessert' },
+            { emoji: '🍷', label: 'Drinks', sub: 'Something to sip', tag: 'Drinks' },
+            { emoji: '🥗', label: 'Easy', sub: 'Simple & satisfying', tag: 'Easy' },
+            { emoji: '🍜', label: 'Lunch', sub: 'Midday meals', tag: 'Lunch' },
+            { emoji: '🍽️', label: 'Supper', sub: 'End the day well', tag: 'Supper' },
+            { emoji: '🍿', label: 'Snack', sub: 'Quick bites', tag: 'Snack' }
+          ] as card}
+            <button
+              type="button"
+              class="intent-card"
+              on:click={() => goto(`/tag/${card.tag}`)}
+            >
+              <span class="text-2xl">{card.emoji}</span>
+              <span class="text-sm font-semibold" style="color: var(--color-text-primary);">{card.label}</span>
+              <span class="text-[11px] leading-tight" style="color: var(--color-text-secondary);">{card.sub}</span>
+            </button>
+          {/each}
+        </div>
       </section>
 
-      <!-- Explore More (Below the fold) -->
-      <div
-        class="flex flex-col gap-6 pt-4 border-t"
-        style="border-color: var(--color-input-border)"
-      >
-        <h2 class="text-2xl font-bold flex items-center gap-2">
-          <span>🔍</span>
-          <span>Explore More</span>
+      <!-- Browse by Category — visual horizontal scroll -->
+      <section class="flex flex-col gap-3">
+        <h2 class="text-lg font-semibold" style="color: var(--color-text-primary);">
+          Browse by category
         </h2>
+        <div class="flex gap-2.5 overflow-x-auto pb-2 -mx-4 px-4 scrollbar-hide touch-pan-x">
+          {#each [
+            { emoji: '🥩', label: 'Beef' },
+            { emoji: '🍗', label: 'Chicken' },
+            { emoji: '🐟', label: 'Fish' },
+            { emoji: '🌱', label: 'Vegan' },
+            { emoji: '🍝', label: 'Pasta' },
+            { emoji: '🍕', label: 'Pizza' },
+            { emoji: '🥘', label: 'Soup' },
+            { emoji: '🥪', label: 'Sandwich' },
+            { emoji: '🍚', label: 'Rice' },
+            { emoji: '🥚', label: 'Eggs' },
+            { emoji: '🥔', label: 'Potato' },
+            { emoji: '🧀', label: 'Cheese' }
+          ] as cat}
+            <button
+              type="button"
+              class="category-chip"
+              on:click={() => goto(`/tag/${cat.label}`)}
+            >
+              <span class="text-xl">{cat.emoji}</span>
+              <span class="text-xs font-medium" style="color: var(--color-text-primary);">{cat.label}</span>
+            </button>
+          {/each}
+        </div>
+      </section>
 
-        <!-- Intent Section -->
-        {#if intentSection}
-          <TagSectionCard
-            emoji={intentSection.emoji}
-            title={intentSection.title}
-            helperText="Browse by intention, not ingredients."
-            tags={getSectionTags(intentSection.title).slice(0, 8)}
-            alwaysExpanded={true}
-            previewCount={8}
-            onTagClick={navigateToTag}
-          />
-        {/if}
-
-        <!-- Culture Section -->
-        {#if cultureSection}
-          <div
-            class="rounded-xl shadow-sm p-5 md:p-6 transition-all duration-300"
-            style="border: 1px solid var(--color-input-border); background-color: var(--color-bg-secondary)"
-          >
-            <div class="flex items-start justify-between gap-4 mb-4">
-              <div class="flex-1">
-                <h2 class="text-2xl font-bold flex items-center gap-2 mb-1.5">
-                  <span>{cultureSection.emoji}</span>
-                  <span>{cultureSection.title}</span>
-                </h2>
-              </div>
-              {#if hasMoreCultures}
-                <button
-                  on:click={() => (cultureExpanded = !cultureExpanded)}
-                  type="button"
-                  class="flex-shrink-0 text-sm text-primary hover:text-[#d64000] transition-colors font-medium"
-                >
-                  {cultureExpanded ? 'Show less' : 'Show all cultures'}
-                </button>
-              {/if}
-            </div>
-            <div class="flex flex-wrap gap-2 transition-all duration-300">
-              {#each visibleCultureTags as tag (tag.title)}
-                <TagChip {tag} onClick={() => navigateToTag(tag)} />
+      <!-- Supported by our partners -->
+      {#if sponsorBanners.length > 0}
+        <section class="flex flex-col gap-3" data-section="partners">
+          <h2 class="text-lg font-semibold" style="color: var(--color-text-primary);">Supported by our partners</h2>
+          {#if sponsorBanners.length === 1}
+            <SponsorBanner
+              title={sponsorBanners[0].title}
+              description={sponsorBanners[0].description}
+              imageUrl={sponsorBanners[0].imageUrl}
+              linkUrl={sponsorBanners[0].linkUrl}
+            />
+          {:else}
+            <div class="flex gap-4 overflow-x-auto pb-2 -mx-4 px-4 scrollbar-hide touch-pan-x">
+              {#each sponsorBanners as sponsor (sponsor.id)}
+                <div class="flex-shrink-0 sponsor-scroll-item">
+                  <SponsorBanner
+                    title={sponsor.title}
+                    description={sponsor.description}
+                    imageUrl={sponsor.imageUrl}
+                    linkUrl={sponsor.linkUrl}
+                  />
+                </div>
               {/each}
             </div>
-          </div>
-        {/if}
+          {/if}
+          <a
+            href="/sponsors"
+            class="text-xs font-medium transition-colors self-start"
+            style="color: var(--color-primary);"
+          >
+            View Sponsors &rarr;
+          </a>
+        </section>
+      {/if}
 
-        <!-- Collapsible Sections -->
-        {#each collapsibleSections as section}
-          <TagSectionCard
-            emoji={section.emoji}
-            title={section.title}
-            tags={getSectionTags(section.title)}
-            alwaysExpanded={false}
-            previewCount={8}
-            onTagClick={navigateToTag}
-          />
-        {/each}
-      </div>
+      <!-- Explore by Culture -->
+      {#if cultureSection}
+        <section class="flex flex-col gap-3">
+          <div class="flex items-center justify-between">
+            <h2 class="text-lg font-semibold" style="color: var(--color-text-primary);">
+              Explore by culture
+            </h2>
+            {#if hasMoreCultures}
+              <button
+                on:click={() => (cultureExpanded = !cultureExpanded)}
+                type="button"
+                class="text-xs font-medium transition-colors"
+                style="color: var(--color-primary);"
+              >
+                {cultureExpanded ? 'Show less' : 'Show all'}
+              </button>
+            {/if}
+          </div>
+          <div class="flex flex-wrap gap-2">
+            {#each visibleCultureTags as tag (tag.title)}
+              <TagChip {tag} onClick={() => navigateToTag(tag)} />
+            {/each}
+          </div>
+        </section>
+      {/if}
     </div>
   </div>
 </PullToRefresh>
@@ -897,94 +693,90 @@
     --tip-border: var(--color-input-border);
   }
 
-  /* Membership banner */
-  .membership-banner {
-    background-color: var(--color-bg-secondary);
-    border: 1px solid var(--color-input-border);
-  }
-
-  .membership-pill {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.25rem;
-    font-size: 0.75rem;
-    font-weight: 500;
-    padding: 0.3rem 0.65rem;
-    border-radius: 9999px;
-    border: 1px solid var(--color-input-border);
-    white-space: nowrap;
-  }
-
-  .membership-price-card {
-    background-color: rgba(0, 0, 0, 0.03);
-    border: 1px solid var(--color-input-border);
-  }
-
-  .membership-price-card--pro {
-    border: 1.5px solid var(--color-primary);
-    background: rgba(236, 71, 0, 0.04);
-  }
-
-  .membership-sats-badge {
-    display: inline-block;
-    font-size: 10px;
-    font-weight: 600;
-    padding: 1px 7px;
-    border-radius: 9999px;
-    background: rgba(34, 197, 94, 0.12);
-    color: #16a34a;
-    margin-top: 2px;
-    margin-bottom: 2px;
-  }
-
-  :global(html.dark) .membership-sats-badge {
-    background: rgba(34, 197, 94, 0.15);
-    color: #4ade80;
-  }
-
-  :global(html.dark) .membership-price-card {
-    background-color: rgba(255, 255, 255, 0.04);
-  }
-
-  :global(html.dark) .membership-price-card--pro {
-    background: rgba(236, 71, 0, 0.08);
-  }
-
-  .membership-card-cta {
+  /* Intent cards */
+  .intent-card {
     display: flex;
+    flex-direction: column;
     align-items: center;
     justify-content: center;
-    width: 100%;
-    min-height: 40px;
-    padding: 8px 16px;
+    gap: 0.25rem;
+    padding: 0.875rem 0.5rem;
+    border-radius: 1rem;
+    border: 1px solid var(--color-input-border);
+    background-color: var(--color-bg-secondary);
+    cursor: pointer;
+    transition: border-color 0.15s, transform 0.1s;
+    min-height: 88px;
+  }
+
+  .intent-card:hover {
+    border-color: var(--color-primary, #f97316);
+    transform: translateY(-1px);
+  }
+
+  .intent-card:active {
+    transform: scale(0.97);
+  }
+
+  /* Category chips — horizontal scroll */
+  .category-chip {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 0.75rem 1rem;
+    border-radius: 1rem;
+    border: 1px solid var(--color-input-border);
+    background-color: var(--color-bg-secondary);
+    cursor: pointer;
+    flex-shrink: 0;
+    min-width: 72px;
+    transition: border-color 0.15s, transform 0.1s;
+  }
+
+  .category-chip:hover {
+    border-color: var(--color-primary, #f97316);
+    transform: translateY(-1px);
+  }
+
+  .category-chip:active {
+    transform: scale(0.96);
+  }
+
+  /* Membership teaser — premium night-sky feel */
+  .membership-teaser {
+    position: relative;
+    border-radius: 1.25rem;
+    overflow: hidden;
+    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+  }
+
+  .membership-teaser-glow {
+    position: absolute;
+    inset: 0;
+    background:
+      radial-gradient(ellipse at 30% 20%, rgba(249, 115, 22, 0.15) 0%, transparent 60%),
+      radial-gradient(ellipse at 70% 80%, rgba(249, 115, 22, 0.1) 0%, transparent 50%);
+    pointer-events: none;
+  }
+
+  .membership-teaser-cta {
+    display: inline-block;
+    margin-top: 1rem;
+    padding: 0.625rem 1.5rem;
     border-radius: 9999px;
-    font-size: 13px;
+    font-size: 0.875rem;
     font-weight: 600;
-    border: 1.5px solid var(--color-input-border);
-    color: var(--color-text-primary);
+    color: white;
+    background: linear-gradient(135deg, #f97316, #ea580c);
+    box-shadow: 0 0 20px rgba(249, 115, 22, 0.3);
+    transition: transform 0.15s, box-shadow 0.15s;
     text-decoration: none;
-    transition: border-color 0.15s, color 0.15s;
   }
 
-  .membership-card-cta:hover {
-    border-color: var(--color-primary);
-    color: var(--color-primary);
-  }
-
-  .membership-card-cta--pro {
-    background-color: var(--color-primary);
-    border-color: var(--color-primary);
-    color: white;
-  }
-
-  .membership-card-cta--pro:hover {
-    filter: brightness(1.1);
-    color: white;
-  }
-
-  .membership-card-cta:focus-visible {
-    outline: 2px solid var(--color-primary);
-    outline-offset: 2px;
+  .membership-teaser-cta:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 0 28px rgba(249, 115, 22, 0.45);
   }
 
   .sponsor-scroll-item {
