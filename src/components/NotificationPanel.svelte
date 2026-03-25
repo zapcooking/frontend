@@ -65,11 +65,11 @@
     if (!content) return '';
     return content
       .replace(/nostr:(npub1|nprofile1)[a-z0-9]+/gi, '@someone')
-      .replace(/nostr:(nevent1|note1)[a-z0-9]+/gi, '[note]')
-      .replace(/nostr:(naddr1)[a-z0-9]+/gi, '[post]')
+      .replace(/nostr:(nevent1|note1)[a-z0-9]+/gi, 'a post')
+      .replace(/nostr:(naddr1)[a-z0-9]+/gi, 'a recipe')
       .replace(/\b(npub1|nprofile1)[a-z0-9]+\b/gi, '@someone')
-      .replace(/\b(nevent1|note1)[a-z0-9]+\b/gi, '[note]')
-      .replace(/\b(naddr1)[a-z0-9]+\b/gi, '[post]')
+      .replace(/\b(nevent1|note1)[a-z0-9]+\b/gi, 'a post')
+      .replace(/\b(naddr1)[a-z0-9]+\b/gi, 'a recipe')
       .replace(/\s+/g, ' ')
       .trim();
   }
