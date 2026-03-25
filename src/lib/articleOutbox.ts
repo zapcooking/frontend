@@ -276,8 +276,8 @@ export async function fetchArticles(
       if (since) {
         filter.since = since;
       } else if (!until) {
-        // Default to last 90 days for recent articles
-        filter.since = Math.floor(Date.now() / 1000) - (90 * 24 * 60 * 60);
+        // Default to last 365 days for article discovery
+        filter.since = Math.floor(Date.now() / 1000) - (365 * 24 * 60 * 60);
       }
       if (until) filter.until = until;
       

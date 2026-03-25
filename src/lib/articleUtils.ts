@@ -3,7 +3,7 @@
  * Handles article processing, cover curation, and content extraction
  */
 
-import type { NDKEvent } from '@nostr-dev-kit/ndk';
+import { NDKArticle, type NDKEvent } from '@nostr-dev-kit/ndk';
 import { nip19 } from 'nostr-tools';
 import { RECIPE_TAGS } from './consts';
 import { validateMarkdownTemplate } from './parser';
@@ -273,18 +273,37 @@ export const FALLBACK_GRADIENTS = [
  * Extract the best image from an event
  * Priority: image tag → first content image → null
  */
+// Known broken image URL patterns that render error pages instead of images
+const BROKEN_IMAGE_PATTERNS = [
+  /^https?:\/\/[^/]*\/Ooops/i,
+  /placeholder\.(com|net)/i,
+  /via\.placeholder/i,
+  /placehold\.it/i,
+];
+
+function isValidImageUrl(url: string): boolean {
+  if (!url || url.trim().length === 0) return false;
+  // Must start with http(s)
+  if (!/^https?:\/\//i.test(url)) return false;
+  // Reject known broken patterns
+  for (const pattern of BROKEN_IMAGE_PATTERNS) {
+    if (pattern.test(url)) return false;
+  }
+  return true;
+}
+
 export function extractImage(event: NDKEvent): string | null {
   const content = event.content || '';
-  
+
   // Check for featured image tag
   const imageTag = event.tags.find((t) => t[0] === 'image' || t[0] === 'picture' || t[0] === 'thumb');
-  if (imageTag && imageTag[1]) {
+  if (imageTag && imageTag[1] && isValidImageUrl(imageTag[1])) {
     return imageTag[1];
   }
 
   // Extract first image URL from content
   const imageMatches = content.match(IMAGE_URL_REGEX);
-  if (imageMatches && imageMatches.length > 0) {
+  if (imageMatches && imageMatches.length > 0 && isValidImageUrl(imageMatches[0])) {
     return imageMatches[0];
   }
 
@@ -414,13 +433,12 @@ export function getArticleTags(event: NDKEvent, allTags: boolean = false): strin
     .filter((tag) => !RECIPE_TAGS.includes(tag)); // Always exclude recipe tags
 
   if (allTags) {
-    return tags.slice(0, 5); // Return all non-recipe tags
+    // Return ALL non-recipe tags (no limit — needed for category filtering)
+    return tags;
   }
 
   // Filter to only food-related tags
-  return tags
-    .filter((tag) => FOOD_LONGFORM_HASHTAGS.includes(tag))
-    .slice(0, 5);
+  return tags.filter((tag) => FOOD_LONGFORM_HASHTAGS.includes(tag));
 }
 
 /**
@@ -455,9 +473,14 @@ export function getArticleUrl(event: NDKEvent): string | null {
 // Quality thresholds
 const MIN_CONTENT_LENGTH = 300; // Minimum characters for articles
 const MIN_READ_TIME_CATEGORY = 1; // 1 minute for category-specific tabs
-const MIN_READ_TIME_ALL = 3; // 3 minutes for "All" tab (true longform)
+const MIN_READ_TIME_ALL = 1; // 1 minute for "All" tab (show everything that passes quality filters)
 const MIN_READ_TIME_COVER = 2; // 2 minutes for cover articles
 const MAX_ARTICLES_PER_AUTHOR = 3; // Limit articles per author in feed
+
+// Blacklisted pubkeys — known spammers filtered at quality-check level
+const BLACKLISTED_PUBKEYS = new Set<string>([
+  // Add known spammer hex pubkeys here
+]);
 
 // Spam title patterns (case-insensitive)
 const SPAM_TITLE_PATTERNS = [
@@ -469,6 +492,8 @@ const SPAM_TITLE_PATTERNS = [
   /^weekly\s+/i,                    // "Weekly X" automated posts
   /bank-exit/i,                     // Bank-exit spam
   /podcast/i,                       // Podcast episodes
+  /\btest\b/i,                      // Forbidden: "test" in title
+  /\btesting\b/i,                   // Forbidden: "testing" in title
 ];
 
 // Spam content patterns
@@ -483,9 +508,14 @@ const SPAM_CONTENT_PATTERNS = [
  * @param minReadTime - Minimum read time in minutes
  */
 function passesQualityFilters(event: NDKEvent, minReadTime: number): boolean {
+  // Check blacklisted authors
+  if (BLACKLISTED_PUBKEYS.has(event.pubkey)) {
+    return false;
+  }
+
   const content = event.content || '';
   const title = getTitle(event);
-  
+
   // Check minimum content length
   if (content.trim().length < MIN_CONTENT_LENGTH) {
     return false;
@@ -617,6 +647,28 @@ export function limitArticlesPerAuthor(articles: ArticleData[], maxPerAuthor: nu
 }
 
 /**
+ * Remove preview articles when the full version is also present.
+ * Some Nostr clients publish both a preview and a full article;
+ * the preview has a "full" tag pointing to the full version's tagId.
+ */
+export function deduplicatePreviewArticles(articles: ArticleData[]): ArticleData[] {
+  // Build set of all article tagIds (kind:pubkey:dTag) present in the list
+  const presentTagIds = new Set<string>();
+  for (const a of articles) {
+    const dTag = a.event.tags.find((t) => t[0] === 'd')?.[1];
+    if (dTag) {
+      presentTagIds.add(`30023:${a.author.pubkey}:${dTag}`);
+    }
+  }
+
+  return articles.filter((a) => {
+    const fullTag = a.event.tags.find((t) => t[0] === 'full')?.[1];
+    // Keep the article if it has no "full" tag, or the full version isn't in our set
+    return !fullTag || !presentTagIds.has(fullTag);
+  });
+}
+
+/**
  * Filter articles by category
  * "All" tab requires 3+ minute read time, other categories allow 1+ minute
  * Food category includes keyword matching in titles (similar to foodstr feed)
@@ -658,31 +710,34 @@ export function filterByCategory(articles: ArticleData[], category: string): Art
  */
 export function eventToArticleData(event: NDKEvent, skipFoodValidation: boolean = false): ArticleData | null {
   // Validate based on mode
-  const isValid = skipFoodValidation 
+  const isValid = skipFoodValidation
     ? isValidLongformArticleNoFoodFilter(event)
     : isValidLongformArticle(event);
-  
+
   if (!isValid) return null;
-  
+
   const articleUrl = getArticleUrl(event);
   if (!articleUrl) return null;
-  
+
+  // Use NDKArticle for typed property access (title, image, summary, published_at)
+  const article = NDKArticle.from(event);
   const pubkey = event.author?.hexpubkey || event.pubkey;
-  
+  const content = event.content || '';
+
   return {
     event,
     id: event.id,
-    title: getTitle(event),
-    content: event.content || '',
-    preview: generatePreview(event.content || ''),
+    title: article.title || getTitle(event),
+    content,
+    preview: article.summary || generatePreview(content),
     author: {
       pubkey,
       npub: nip19.npubEncode(pubkey)
     },
-    imageUrl: extractImage(event),
+    imageUrl: article.image || extractImage(event),
     tags: getArticleTags(event, skipFoodValidation),
-    publishedAt: event.created_at || 0,
-    readTimeMinutes: calculateReadTime(event.content || ''),
+    publishedAt: article.published_at || event.created_at || 0,
+    readTimeMinutes: calculateReadTime(content),
     articleUrl
   };
 }
@@ -800,6 +855,9 @@ function scoreForVisual(article: ArticleData): number {
  * Returns 6 unique authors: 1 hero, 3 secondary, 2 tertiary
  */
 export function curateCover(articles: ArticleData[], forceRefresh: boolean = false): CuratedCover | null {
+  // Cover requires real images — filter out articles without them
+  articles = articles.filter((a) => a.imageUrl);
+
   if (articles.length < 6) {
     // Not enough articles for full cover
     if (articles.length === 0) return null;
@@ -896,14 +954,17 @@ export function curateCover(articles: ArticleData[], forceRefresh: boolean = fal
 // SORTING
 // ═══════════════════════════════════════════════════════════════
 
-export type SortOption = 'newest' | 'oldest' | 'longest' | 'shortest';
+export type SortOption = 'newest' | 'oldest' | 'longest' | 'shortest' | 'foryou';
+
+const ONE_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 
 /**
  * Sort articles by criteria
+ * @param followedPubkeys - Set of followed author pubkeys (used for 'foryou' sort)
  */
-export function sortArticles(articles: ArticleData[], sortBy: SortOption): ArticleData[] {
+export function sortArticles(articles: ArticleData[], sortBy: SortOption, followedPubkeys?: Set<string>): ArticleData[] {
   const sorted = [...articles];
-  
+
   switch (sortBy) {
     case 'newest':
       return sorted.sort((a, b) => b.publishedAt - a.publishedAt);
@@ -913,6 +974,17 @@ export function sortArticles(articles: ArticleData[], sortBy: SortOption): Artic
       return sorted.sort((a, b) => b.readTimeMinutes - a.readTimeMinutes);
     case 'shortest':
       return sorted.sort((a, b) => a.readTimeMinutes - b.readTimeMinutes);
+    case 'foryou': {
+      const now = Date.now();
+      const follows = followedPubkeys || new Set<string>();
+      return sorted.sort((a, b) => {
+        const aAge = now - a.publishedAt * 1000;
+        const bAge = now - b.publishedAt * 1000;
+        const aScore = follows.has(a.author.pubkey) ? ONE_WEEK_MS - aAge : 0 - aAge;
+        const bScore = follows.has(b.author.pubkey) ? ONE_WEEK_MS - bAge : 0 - bAge;
+        return bScore - aScore;
+      });
+    }
     default:
       return sorted;
   }

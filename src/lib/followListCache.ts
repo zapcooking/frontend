@@ -198,6 +198,14 @@ export function searchCachedProfiles(query: string, limit: number = 10): CachedP
 }
 
 /**
+ * Get the set of followed pubkeys (without profile data).
+ * Returns empty set if not loaded yet.
+ */
+export function getFollowedPubkeys(): Set<string> {
+  return new Set(profileCache.keys());
+}
+
+/**
  * Check if cache is loaded
  */
 export function isCacheLoaded(): boolean {
