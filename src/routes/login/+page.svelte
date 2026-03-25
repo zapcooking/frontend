@@ -288,8 +288,10 @@
         await new Promise((resolve) => setTimeout(resolve, 2000));
       }
 
+      // Use fresh auth state snapshot (subscribed store may be stale)
+      const freshState = authManager.getState?.() ?? authState;
       generateModal = false;
-      newAccountPubkey = authState.publicKey || '';
+      newAccountPubkey = freshState.publicKey || '';
       showSuggestedFollows = true;
       generatedKeys = null;
       newAccountUsername = '';

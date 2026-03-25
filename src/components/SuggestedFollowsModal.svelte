@@ -1,7 +1,7 @@
 <script lang="ts">
   import { NDKEvent } from '@nostr-dev-kit/ndk';
   import { nip19 } from 'nostr-tools';
-  import { ndk } from '$lib/nostr';
+  import { ndk, ensureNdkConnected } from '$lib/nostr';
   import { profileCacheManager } from '$lib/profileCache';
   import { fetchPopularCooks } from '$lib/exploreUtils';
   import Modal from './Modal.svelte';
@@ -66,6 +66,9 @@
     selectedPubkeys = new Set();
 
     try {
+      // Ensure relay connections before fetching profiles and cooks
+      await ensureNdkConnected();
+
       // Fetch community profiles and active cooks in parallel
       const [communityProfiles, popularCooks] = await Promise.all([
         fetchProfiles(COMMUNITY_PUBKEYS.filter((pk) => pk !== userPubkey)),
@@ -81,11 +84,13 @@
           nip05: p!.nip05
         }));
 
-      // Active cooks — exclude community members and self
+      // Active cooks — exclude community members and self, dedupe
       const communityPubkeySet = new Set(COMMUNITY_PUBKEYS);
-      const cookPubkeys = popularCooks
-        .map((c) => c.pubkey)
-        .filter((pk) => !communityPubkeySet.has(pk) && pk !== userPubkey);
+      const cookPubkeys = [...new Set(
+        popularCooks
+          .map((c) => c.pubkey)
+          .filter((pk) => !communityPubkeySet.has(pk) && pk !== userPubkey)
+      )];
 
       // Fill up to 21 total
       const targetCooks = Math.max(0, 21 - communityUsers.length);
@@ -164,10 +169,35 @@
     publishing = true;
 
     try {
+      // Fetch existing contact list to preserve relay config and existing follows
+      const activePubkey = $ndk?.activeUser?.pubkey;
+      let existingContent = '';
+      let existingTags: string[][] = [];
+
+      if (activePubkey) {
+        const existing = await $ndk.fetchEvent({
+          kinds: [3],
+          authors: [activePubkey],
+          limit: 1
+        });
+        if (existing) {
+          existingContent = existing.content || '';
+          existingTags = existing.tags || [];
+        }
+      }
+
+      const existingPTags = existingTags.filter((t) => t[0] === 'p');
+      const otherTags = existingTags.filter((t) => t[0] !== 'p');
+      const existingPubkeys = existingPTags.map((t) => t[1]);
+      const mergedPubkeys = new Set([...existingPubkeys, ...Array.from(selectedPubkeys)]);
+
       const contactEvent = new NDKEvent($ndk);
       contactEvent.kind = 3;
-      contactEvent.content = '';
-      contactEvent.tags = Array.from(selectedPubkeys).map((pk) => ['p', pk]);
+      contactEvent.content = existingContent;
+      contactEvent.tags = [
+        ...otherTags,
+        ...Array.from(mergedPubkeys).map((pk) => ['p', pk])
+      ];
 
       await contactEvent.publish();
     } catch (error) {

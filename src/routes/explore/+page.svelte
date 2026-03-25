@@ -463,6 +463,7 @@
             { emoji: '🍿', label: 'Snack', sub: 'Quick bites', tag: 'Snack' }
           ] as card}
             <button
+              type="button"
               class="intent-card"
               on:click={() => goto(`/tag/${card.tag}`)}
             >
@@ -495,6 +496,7 @@
             { emoji: '🧀', label: 'Cheese' }
           ] as cat}
             <button
+              type="button"
               class="category-chip"
               on:click={() => goto(`/tag/${cat.label}`)}
             >
