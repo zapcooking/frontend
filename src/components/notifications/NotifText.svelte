@@ -15,8 +15,9 @@
     /https?:\/\/[^\s]+\.(?:jpg|jpeg|png|gif|webp|svg|bmp|avif)(?:\?[^\s]*)?/gi;
   const IMAGE_HOST_PATTERN =
     /https?:\/\/(?:i\.)?(?:nostr\.build|imgur\.com|primal\.b-cdn\.net|image\.nostr\.build|void\.cat|m\.primal\.net|cdn\.satellite\.earth)[^\s]*/gi;
+  // Negative lookbehind ensures we don't strip bech32 inside nostr: URIs
   const BARE_BECH32_PATTERN =
-    /\b(?:note1|nevent1|naddr1|npub1|nprofile1)[023456789ac-hj-np-z]{20,}\b/gi;
+    /(?<!nostr:)\b(?:note1|nevent1|naddr1|npub1|nprofile1)[023456789ac-hj-np-z]{20,}\b/gi;
 
   function decodePubkey(bech32: string): string | null {
     try {
@@ -40,7 +41,7 @@
 
     const segments: Segment[] = [];
     let lastIndex = 0;
-    let match;
+    let match: RegExpExecArray | null;
 
     // Reset regex state
     NOSTR_REF_PATTERN.lastIndex = 0;

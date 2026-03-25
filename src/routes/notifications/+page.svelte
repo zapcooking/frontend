@@ -246,7 +246,7 @@
             resolvedNames = { ...resolvedNames, [npub]: name };
           }
         } catch (e) {
-          resolvedNames = { ...resolvedNames, [npub]: '@someone' };
+          resolvedNames = { ...resolvedNames, [npub]: 'someone' };
         } finally {
           namesInFlight.delete(npub);
         }
@@ -290,9 +290,9 @@
               return;
             }
           }
-          newResolved[ref] = `${ref.slice(0, 12)}...`;
+          // Leave unresolved — display fallback in replaceNostrMentions handles it
         } catch {
-          newResolved[ref] = `${ref.slice(0, 12)}...`;
+          // Leave unresolved — display fallback handles it
         } finally {
           refsInFlight.delete(ref);
         }
@@ -637,13 +637,6 @@
     return text.replace(/\s+/g, ' ').trim();
   }
 
-  function formatContent(text: string): string {
-    if (!text) return '';
-    let cleaned = replaceNostrMentions(cleanImageUrls(text));
-    cleaned = cleaned.replace(/\b(?:note1|nevent1|naddr1|npub1|nprofile1)[023456789ac-hj-np-z]{20,}\b/gi, '');
-    return cleaned.replace(/\s+/g, ' ').trim();
-  }
-
   // --- Unified display helpers for notification template ---
 
   function getNotifType(item: NotificationDisplayItem): Notification['type'] {
@@ -703,6 +696,7 @@
     if (item.kind === 'single' && item.notification.type === 'reaction') {
       const emoji = item.notification.emoji;
       if (emoji && emoji !== '+') return ` ${emoji}`;
+      return ' ❤️';
     }
     return '';
   }
@@ -837,7 +831,7 @@
               <div class="notif-body">
                 <!-- Action line + timestamp -->
                 <div class="notif-header">
-                  <p class="notif-action"><strong><CustomName pubkey={leadPubkey} /></strong>{#if isGrouped && count === 2}{' '}and <strong><CustomName pubkey={getSecondPubkey(item)} /></strong>{:else if isGrouped && count > 2}{' '}and {count - 1} others{/if}{#if type === 'reaction'}{' '}reacted{getEmoji(item)} to your post{:else if type === 'zap'}{' '}zapped{#if !isGrouped} you{/if} <span class="zap-sats">{getZapAmount(item)} sats</span>{:else if type === 'comment'}{' '}replied{#if ctx && ctx.pubkey} to <strong><CustomName pubkey={ctx.pubkey} /></strong>{/if}{:else if type === 'repost'}{' '}reposted your note{:else if type === 'mention'}{' '}mentioned you{:else}{' '}interacted with you{/if}</p>
+                  <p class="notif-action"><strong><CustomName pubkey={leadPubkey} /></strong>{#if isGrouped && count === 2}{' '}and <strong><CustomName pubkey={getSecondPubkey(item)} /></strong>{:else if isGrouped && count > 2}{' '}and {count - 1} others{/if}{#if type === 'reaction'}{' '}reacted{getEmoji(item)} to your post{:else if type === 'zap'}{' '}zapped{#if !isGrouped} you{/if} <span class="zap-sats">{getZapAmount(item)} sats</span>{:else if type === 'comment'}{' '}replied to {#if ctx === undefined}…{:else if ctx && ctx.pubkey}<strong><CustomName pubkey={ctx.pubkey} /></strong>{:else}your post{/if}{:else if type === 'repost'}{' '}reposted your note{:else if type === 'mention'}{' '}mentioned you{:else}{' '}interacted with you{/if}</p>
                   <div class="notif-time-area">
                     <span class="notif-time">{formatCompactTime(timestamp)}</span>
                     {#if !isRead}
