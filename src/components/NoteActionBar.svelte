@@ -5,7 +5,8 @@
   import NoteRepost from './NoteRepost.svelte';
   import NoteTotalZaps from './NoteTotalZaps.svelte';
   import ZapModal from './ZapModal.svelte';
-  import { userPublickey } from '$lib/nostr';
+  import { ndk, userPublickey } from '$lib/nostr';
+  import { fetchEngagement, optimisticZapUpdate } from '$lib/engagementCache';
 
   export let event: NDKEvent;
 
@@ -34,6 +35,18 @@
     }
     zapModalOpen = true;
   }
+
+  function handleZapComplete(e: CustomEvent<{ amount: number }>) {
+    if (event) {
+      optimisticZapUpdate(event.id, (e.detail.amount || 0) * 1000, $userPublickey);
+      fetchEngagement($ndk, event.id, $userPublickey);
+    }
+  }
+
+  let isCompact: boolean;
+  let isFull: boolean;
+  let iconWrapClass: string;
+  let zapWrapClass: string;
 
   $: isCompact = variant === 'compact';
   $: isFull = variant === 'full';
@@ -84,7 +97,7 @@
 </div>
 
 {#if zapModalOpen}
-  <ZapModal bind:open={zapModalOpen} {event} />
+  <ZapModal bind:open={zapModalOpen} {event} on:zap-complete={handleZapComplete} />
 {/if}
 
 <style>

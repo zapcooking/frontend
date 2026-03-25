@@ -23,7 +23,6 @@
   import PostActionsMenu from '../../components/PostActionsMenu.svelte';
   import MentionDropdown from '../../components/MentionDropdown.svelte';
   import { MentionComposerController, type MentionState } from '$lib/mentionComposer';
-  import { fetchEngagement } from '$lib/engagementCache';
 
   export let data: PageData;
 
@@ -107,7 +106,7 @@
 
         seenIds.add(parentId);
 
-        const parentNote = await $ndk.fetchEvent({ kinds: [1, 1111] as any, ids: [parentId] });
+        const parentNote = await $ndk.fetchEvent({ kinds: [1, 1068, 1111] as any, ids: [parentId] });
         if (!parentNote) break;
 
         parents.unshift(parentNote); // Add to beginning for chronological order
@@ -596,17 +595,17 @@
                     </div>
                     <PostActionsMenu event={parentNote} />
                   </div>
-                  <a
-                    href="/{nip19.noteEncode(parentNote.id)}"
-                    class="block text-sm leading-relaxed hover:opacity-80"
-                    style="color: var(--color-text-secondary)"
-                  >
-                    {#if parentNote.kind === 1068}
-                      <PollDisplay event={parentNote} />
-                    {:else}
+                  {#if parentNote.kind === 1068}
+                    <PollDisplay event={parentNote} />
+                  {:else}
+                    <a
+                      href="/{nip19.noteEncode(parentNote.id)}"
+                      class="block text-sm leading-relaxed hover:opacity-80"
+                      style="color: var(--color-text-secondary)"
+                    >
                       <NoteContent content={parentNote.content} />
-                    {/if}
-                  </a>
+                    </a>
+                  {/if}
                   <!-- Parent note actions -->
                   <div class="mt-2">
                     <NoteActionBar event={parentNote} variant="compact" />
