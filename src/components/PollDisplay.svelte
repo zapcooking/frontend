@@ -241,9 +241,8 @@
         <span class="poll-meta-dot">&middot;</span>
         <span class:poll-meta-expired={expired}>{endDateText}</span>
       {/if}
-      {#if pollData.pollType === 'multiplechoice'}
-        <span class="poll-meta-dot">&middot;</span> Multiple choice
-      {/if}
+      <span class="poll-meta-dot">&middot;</span>
+      {pollData.pollType === 'multiplechoice' ? 'Multiple choice' : 'Single choice'}
     </span>
     <div class="poll-footer-actions">
       {#if !displayResults && !expired}
@@ -255,7 +254,7 @@
             {voting ? 'Voting...' : 'Vote'}
           </button>
         {/if}
-      {:else if displayResults && !userVoted && !expired && !voted}
+      {:else if displayResults && $userPublickey && !userVoted && !expired && !voted}
         <button class="poll-results-link" on:click={() => (showResults = false)}>
           Back to vote
         </button>
@@ -307,6 +306,10 @@
     width: 100%;
     color: inherit;
     font: inherit;
+    cursor: default;
+  }
+
+  button.poll-card {
     cursor: pointer;
   }
 
