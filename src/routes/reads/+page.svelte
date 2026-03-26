@@ -276,6 +276,8 @@
     if (!$ndk || !browser) return;
 
     try {
+      const newArticles: ArticleData[] = [];
+
       const { events } = await fetchArticles($ndk, {
         hashtags: [], // No hashtag filter — all topics
         limit: 500,
@@ -286,11 +288,7 @@
           seenEventIds.add(event.id);
 
           const articleData = eventToArticleData(event, true);
-          if (articleData) {
-            articles = [...articles, articleData]
-              .filter((a, i, arr) => arr.findIndex((x) => x.id === a.id) === i)
-              .sort((a, b) => b.publishedAt - a.publishedAt);
-          }
+          if (articleData) newArticles.push(articleData);
         }
       });
 
@@ -301,11 +299,12 @@
         seenEventIds.add(event.id);
 
         const articleData = eventToArticleData(event, true);
-        if (articleData) {
-          articles = [...articles, articleData]
-            .filter((a, i, arr) => arr.findIndex((x) => x.id === a.id) === i)
-            .sort((a, b) => b.publishedAt - a.publishedAt);
-        }
+        if (articleData) newArticles.push(articleData);
+      }
+
+      // Merge and sort once
+      if (newArticles.length > 0) {
+        articles = [...articles, ...newArticles].sort((a, b) => b.publishedAt - a.publishedAt);
       }
 
       // Cache the general articles too

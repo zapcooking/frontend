@@ -88,10 +88,10 @@
         if (seenEventIds.has(event.id)) return;
         seenEventIds.add(event.id);
 
+        if (!isValidLongformArticle(event)) return;
         const articleData = eventToArticleData(event, true);
-        if (articleData && isValidLongformArticle(event)) {
+        if (articleData) {
           localArticles = [...localArticles, articleData]
-            .filter((a, i, arr) => arr.findIndex((x) => x.id === a.id) === i)
             .sort((a, b) => b.publishedAt - a.publishedAt);
 
           // Also push to shared store so reads page benefits
