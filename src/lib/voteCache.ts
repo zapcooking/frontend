@@ -181,10 +181,6 @@ async function executeBatch(pollIds: Set<string>) {
   const idsToFetch = [...pollIds].filter((id) => !fetchedPolls.has(id));
   if (idsToFetch.length === 0) return;
 
-  // Capture start time BEFORE fetching so the live subscription doesn't
-  // miss votes that arrive between fetch-end and live-sub-start.
-  const fetchStartTime = Math.floor(Date.now() / 1000);
-
   // Ensure empty maps exist before events arrive
   for (const id of idsToFetch) {
     if (!voteEventsByPoll.has(id)) {
@@ -262,15 +258,14 @@ async function executeBatch(pollIds: Set<string>) {
   }
 
   // Phase 3: Start/update the single live subscription
-  // Use fetchStartTime so we don't miss votes that arrived during the fetch window
-  refreshLiveSubscription(fetchStartTime);
+  refreshLiveSubscription();
 }
 
 // ═══════════════════════════════════════════════════════════════
 // INTERNAL — live subscription
 // ═══════════════════════════════════════════════════════════════
 
-function refreshLiveSubscription(sinceTimestamp?: number) {
+function refreshLiveSubscription() {
   const ndkInstance = get(ndk);
   if (!ndkInstance) return;
 
@@ -298,7 +293,7 @@ function refreshLiveSubscription(sinceTimestamp?: number) {
     {
       kinds: [1018 as number],
       '#e': activePollIds,
-      since: sinceTimestamp ?? Math.floor(Date.now() / 1000)
+      since: Math.floor(Date.now() / 1000)
     },
     { closeOnEose: false }
   );
