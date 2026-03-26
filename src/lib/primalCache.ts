@@ -634,7 +634,7 @@ export class PrimalCacheService {
     const request = ['REQ', requestId, {
       kinds: [1018],
       '#e': pollIds,
-      limit: Math.min(pollIds.length * 100, 5000)
+      limit: Math.min(pollIds.length * 50, 2000)
     }];
 
     return new Promise((resolve, reject) => {
