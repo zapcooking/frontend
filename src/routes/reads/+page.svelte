@@ -25,9 +25,23 @@
   import ArrowClockwiseIcon from 'phosphor-svelte/lib/ArrowClockwise';
   import PencilSimpleLineIcon from 'phosphor-svelte/lib/PencilSimpleLine';
   import FolderIcon from 'phosphor-svelte/lib/Folder';
+  import { loadFollowListProfiles, getFollowedPubkeys, followListReady } from '$lib/followListCache';
+  import { articleStore, addArticles as addToSharedStore, refreshCover as refreshSharedCover } from '$lib/articleStore';
+  import { get } from 'svelte/store';
 
   $: isSignedIn = $userPublickey !== '';
   $: draftCount = $drafts.length;
+
+  // Load follows for "For You" ranking
+  let followedPubkeys: Set<string> = new Set();
+  $: if ($userPublickey) {
+    loadFollowListProfiles().then(() => {
+      followedPubkeys = getFollowedPubkeys();
+    });
+  }
+  $: if ($followListReady) {
+    followedPubkeys = getFollowedPubkeys();
+  }
 
   let articles: ArticleData[] = [];
   let cover: CuratedCover | null = null;
@@ -37,6 +51,22 @@
   let seenEventIds = new Set<string>();
   let pullToRefreshEl: PullToRefresh;
   
+  // Sync local articles to shared store (for explore page reuse)
+  // Only sync newly added articles to avoid rebuilding on every update
+  let lastSyncedArticleCount = 0;
+  $: {
+    if (articles.length > lastSyncedArticleCount) {
+      const newArticles = articles.slice(lastSyncedArticleCount);
+      if (newArticles.length > 0) {
+        addToSharedStore(newArticles);
+        refreshSharedCover();
+      }
+      lastSyncedArticleCount = articles.length;
+    } else if (articles.length === 0) {
+      lastSyncedArticleCount = 0;
+    }
+  }
+
   // Pagination tracking
   let oldestTimestamp: number | null = null;
   let hasMoreArticles = true;
@@ -48,51 +78,10 @@
   const CACHE_FRESH_DURATION_MS = 3 * 60 * 1000; // 3 minutes - skip relay fetch if cache is this fresh
   const BACKGROUND_REFRESH_DELAY_MS = 5000; // Wait 5s after initial paint before background refresh
 
-  // Food-only toggle (defaults to ON)
-  const FOOD_ONLY_KEY = 'zapcooking_reads_food_only';
-  let foodOnly = true;
-
-  // Load preference from localStorage on mount
-  function loadFoodOnlyPreference() {
-    if (browser) {
-      const stored = localStorage.getItem(FOOD_ONLY_KEY);
-      // Default to true if not set
-      foodOnly = stored === null ? true : stored === 'true';
-    }
-  }
-
-  function toggleFoodOnly() {
-    foodOnly = !foodOnly;
-    if (browser) {
-      localStorage.setItem(FOOD_ONLY_KEY, String(foodOnly));
-    }
-
-    // Re-curate cover based on new toggle state
-    if (articles.length >= 1) {
-      clearCoverCache();
-      const coverArticles = foodOnly
-        ? articles.filter(a => isValidLongformArticle(a.event))
-        : articles;
-      if (coverArticles.length >= 1) {
-        cover = curateCover(coverArticles, true);
-      } else if (foodOnly) {
-        cover = null;
-      }
-    }
-
-    // When switching to "all topics", trigger a broader background fetch
-    // since previous fetches may have only used food hashtags
-    if (!foodOnly && browser) {
-      backgroundRefresh();
-    }
-  }
-
-  // Hashtags for relay queries: food-only uses food tags, all-topics omits #t entirely.
-  // Per NIP-01 filter spec, including #t limits results to events matching those tags.
-  // For "all topics" we send an empty array so articleOutbox omits #t from the filter,
-  // letting relays return ALL kind:30023 events (client-side quality filtering still applies).
-  function getRelayHashtags(): string[] {
-    return foodOnly ? TOP_RELAY_FOOD_HASHTAGS : [];
+  // Primary fetch uses food hashtags to ensure cover + Food/Farming categories populate.
+  // A parallel general fetch (no hashtags) fills other categories.
+  function getFoodHashtags(): string[] {
+    return TOP_RELAY_FOOD_HASHTAGS;
   }
 
   // Cover article IDs to exclude from feed
@@ -105,7 +94,7 @@
     : [];
 
   // Process events into articles
-  // Feed shows ALL articles, cover is filtered by foodOnly toggle
+  // Feed shows ALL articles, cover is always food-editorial
   function processEvents(events: NDKEvent[], forceRefresh: boolean = false): void {
     for (const event of events) {
       if (seenEventIds.has(event.id)) continue;
@@ -123,9 +112,7 @@
 
           // Curate cover when we have enough articles (try to curate even with fewer articles)
           if (articles.length >= 1 && !cover) {
-            const coverArticles = foodOnly
-              ? articles.filter(a => isValidLongformArticle(a.event))
-              : articles;
+            const coverArticles = articles.filter(a => isValidLongformArticle(a.event));
             // Curate if we have at least 1 article (curateCover can work with fewer)
             if (coverArticles.length >= 1) {
               cover = curateCover(coverArticles, forceRefresh);
@@ -176,14 +163,40 @@
       hasMoreArticles = true;
     }
 
-    // Always fetch all articles - feed shows all, cover filtered by foodOnly
-    const cacheFilter = { kinds: [30023], hashtags: getRelayHashtags(), limit: 500 };
+    // Always fetch all articles - feed shows all, cover always food-editorial
+    const cacheFilter = { kinds: [30023], hashtags: getFoodHashtags(), limit: 500 };
 
-    // Try to load from cache first for instant paint
+    // Try to hydrate from shared store first (e.g. if user visited /explore first)
     let cacheWasUsed = false;
     let cacheSufficient = false;
-    
-    if (!forceRefresh && browser) {
+
+    if (!forceRefresh) {
+      const shared = get(articleStore);
+      if (shared.length > 0 && articles.length === 0) {
+        for (const article of shared) {
+          if (!seenEventIds.has(article.id)) {
+            seenEventIds.add(article.id);
+          }
+        }
+        articles = [...shared].sort((a, b) => b.publishedAt - a.publishedAt);
+        lastSyncedArticleCount = articles.length;
+
+        const coverArticles = articles.filter(a => isValidLongformArticle(a.event));
+        if (coverArticles.length >= 1) {
+          cover = curateCover(coverArticles, false);
+        }
+        loading = false;
+        cacheWasUsed = true;
+        cacheSufficient = true;
+
+        if (articles.length > 0) {
+          oldestTimestamp = Math.min(...articles.map(a => a.publishedAt));
+        }
+      }
+    }
+
+    // Try to load from IndexedDB cache for instant paint
+    if (!forceRefresh && !cacheSufficient && browser) {
       try {
         const cachedEvents = await loadCachedFeedEvents(cacheFilter);
         if (cachedEvents.length > 0) {
@@ -195,9 +208,7 @@
           
           // If we have cached data, show it immediately and curate cover
           if (articles.length >= 1) {
-            const coverArticles = foodOnly
-              ? articles.filter(a => isValidLongformArticle(a.event))
-              : articles;
+            const coverArticles = articles.filter(a => isValidLongformArticle(a.event));
             // Curate cover if we have at least 1 matching article
             if (coverArticles.length >= 1) {
               cover = curateCover(coverArticles, false);
@@ -216,20 +227,29 @@
       }
     }
 
-    // If cache is fresh and sufficient, skip network fetch entirely
-    // Schedule a background refresh for later instead
+    // If cache is fresh and sufficient, skip the primary food fetch
+    // but still run the general fetch + background refresh so non-food categories populate
     if (cacheSufficient && isCacheFresh() && !forceRefresh) {
       if (import.meta.env.DEV) {
-        console.log('[Reads] Cache is fresh, skipping network fetch');
+        console.log('[Reads] Cache is fresh, skipping primary food fetch');
       }
-      
-      // Schedule background refresh after delay (won't block UI)
+
+      const startGen = getCurrentRelayGeneration();
+
+      // General (all-topic) fetch so non-food categories aren't empty
+      setTimeout(() => {
+        if (getCurrentRelayGeneration() === startGen) {
+          fetchGeneralArticles(startGen);
+        }
+      }, 1000);
+
+      // Schedule background refresh after delay
       setTimeout(() => {
         if (browser) {
           backgroundRefresh();
         }
       }, BACKGROUND_REFRESH_DELAY_MS);
-      
+
       return;
     }
 
@@ -239,7 +259,62 @@
     }
 
     // Use the new article outbox strategy (Primal + relays)
+    // Primary: food-tagged articles for cover + Food/Farming categories
     fetchWithOutbox(forceRefresh, startGeneration);
+
+    // Secondary: general articles (no hashtag filter) for All/Bitcoin/Nostr/etc.
+    // Runs in parallel, slightly delayed so food articles paint first
+    setTimeout(() => {
+      if (getCurrentRelayGeneration() === startGeneration) {
+        fetchGeneralArticles(startGeneration);
+      }
+    }, 2000);
+  }
+
+  // Fetch general (all-topic) articles to fill non-food categories
+  async function fetchGeneralArticles(startGeneration: number) {
+    if (!$ndk || !browser) return;
+
+    try {
+      const { events } = await fetchArticles($ndk, {
+        hashtags: [], // No hashtag filter — all topics
+        limit: 500,
+        skipPrimal: true,
+        onEvent: (event: NDKEvent) => {
+          if (getCurrentRelayGeneration() !== startGeneration) return;
+          if (seenEventIds.has(event.id)) return;
+          seenEventIds.add(event.id);
+
+          const articleData = eventToArticleData(event, true);
+          if (articleData) {
+            articles = [...articles, articleData]
+              .filter((a, i, arr) => arr.findIndex((x) => x.id === a.id) === i)
+              .sort((a, b) => b.publishedAt - a.publishedAt);
+          }
+        }
+      });
+
+      // Process batch results
+      for (const event of events) {
+        if (getCurrentRelayGeneration() !== startGeneration) break;
+        if (seenEventIds.has(event.id)) continue;
+        seenEventIds.add(event.id);
+
+        const articleData = eventToArticleData(event, true);
+        if (articleData) {
+          articles = [...articles, articleData]
+            .filter((a, i, arr) => arr.findIndex((x) => x.id === a.id) === i)
+            .sort((a, b) => b.publishedAt - a.publishedAt);
+        }
+      }
+
+      // Cache the general articles too
+      if (events.length > 0 && browser) {
+        cacheFeedEvents(events).catch(() => {});
+      }
+    } catch (err) {
+      console.warn('[Reads] General article fetch error:', err);
+    }
   }
 
   // Background refresh using article outbox (Primal + relays)
@@ -253,7 +328,7 @@
     
     try {
       const newEvents = await backgroundArticleRefresh($ndk, seenEventIds, {
-        hashtags: getRelayHashtags(),
+        hashtags: getFoodHashtags(),
         limit: 100 // Increased for better depth
       });
       
@@ -289,9 +364,7 @@
       
       // Re-curate cover if we got new articles
       if (hasNewArticles && articles.length >= 1) {
-        const coverArticles = foodOnly
-          ? articles.filter(a => isValidLongformArticle(a.event))
-          : articles;
+        const coverArticles = articles.filter(a => isValidLongformArticle(a.event));
         if (coverArticles.length >= 1) {
           cover = curateCover(coverArticles, false);
         }
@@ -318,7 +391,7 @@
       const untilTime = oldestTimestamp ? oldestTimestamp - 1 : Math.floor(Date.now() / 1000);
       
       const { events, stats } = await fetchArticles($ndk, {
-        hashtags: getRelayHashtags(),
+        hashtags: getFoodHashtags(),
         until: untilTime,
         limit: 300,
         skipPrimal: true
@@ -359,14 +432,12 @@
       console.log(`[Reads] Deep fetch complete: ${addedCount} new articles, ${foodArticleCount} total food articles`);
       
       if (foodArticleCount >= 1) {
-        const coverArticles = foodOnly
-          ? articles.filter(a => isValidLongformArticle(a.event))
-          : articles;
+        const coverArticles = articles.filter(a => isValidLongformArticle(a.event));
         cover = curateCover(coverArticles, false);
       }
       
-      // If still not enough food articles, schedule another deep fetch
-      if (foodOnly && foodArticleCount < 10 && stats.totalEvents > 0) {
+      // If still not enough food articles for cover, schedule another deep fetch
+      if (foodArticleCount < 10 && stats.totalEvents > 0) {
         console.log('[Reads] Still need more food articles, scheduling another deep fetch...');
         setTimeout(() => deepBackgroundFetch(startGeneration), 5000);
       }
@@ -384,7 +455,7 @@
       // Use the article outbox - skip Primal cache (doesn't support kind:30023)
       // relay.primal.net is included in the relay list and works for articles
       const { events, stats } = await fetchArticles($ndk, {
-        hashtags: getRelayHashtags(),
+        hashtags: getFoodHashtags(),
         limit: 2000, // Request lots of articles (no longer capped in articleOutbox)
         skipPrimal: true, // Skip Primal cache API (doesn't support kind:30023)
         onEvent: (event: NDKEvent) => {
@@ -403,9 +474,7 @@
 
             // Curate cover when we have articles (try to curate even with fewer)
             if (articles.length >= 1 && !cover) {
-              const coverArticles = foodOnly
-                ? articles.filter(a => isValidLongformArticle(a.event))
-                : articles;
+              const coverArticles = articles.filter(a => isValidLongformArticle(a.event));
               if (coverArticles.length >= 1) {
                 cover = curateCover(coverArticles, forceRefresh);
               }
@@ -442,14 +511,10 @@
       
       // Always try to curate cover after fetch completes (even if already set, re-curate to ensure it's correct)
       if (articles.length > 0) {
-        const coverArticles = foodOnly
-          ? articles.filter(a => isValidLongformArticle(a.event))
-          : articles;
+        const coverArticles = articles.filter(a => isValidLongformArticle(a.event));
         if (coverArticles.length >= 1) {
-          // Always re-curate to ensure cover matches current foodOnly state
           cover = curateCover(coverArticles, forceRefresh);
-        } else if (foodOnly) {
-          // If foodOnly is on but no food articles, clear cover
+        } else {
           cover = null;
         }
       }
@@ -482,7 +547,7 @@
       
       // Check if we need more food articles for the cover
       const foodArticleCount = articles.filter(a => isValidLongformArticle(a.event)).length;
-      if (foodOnly && foodArticleCount < 10) {
+      if (foodArticleCount < 10) {
         console.log(`[Reads] Only ${foodArticleCount} food articles, starting deep fetch...`);
         // Schedule a deep fetch to get more articles
         setTimeout(() => deepBackgroundFetch(startGeneration), 2000);
@@ -505,9 +570,9 @@
     try {
       const filter: NDKFilter = {
         kinds: [30023],
-        '#t': getRelayHashtags(),
+        '#t': getFoodHashtags(),
         limit: 200,
-        since: Math.floor(Date.now() / 1000) - (90 * 24 * 60 * 60) // Last 90 days
+        since: Math.floor(Date.now() / 1000) - (365 * 24 * 60 * 60) // Last 365 days
       };
       
       // Use specific relays known to work well for articles
@@ -515,7 +580,8 @@
         'wss://relay.primal.net',
         'wss://nos.lol',
         'wss://relay.damus.io',
-        'wss://nostr.wine'
+        'wss://nostr.wine',
+        'wss://antiprimal.net'
       ];
       
       console.log('[Reads] Direct fallback: querying', articleRelays.join(', '));
@@ -542,9 +608,7 @@
 
             // Curate cover when we have articles (try to curate even with fewer)
             if (articles.length >= 1 && !cover) {
-              const coverArticles = foodOnly
-                ? articles.filter(a => isValidLongformArticle(a.event))
-                : articles;
+              const coverArticles = articles.filter(a => isValidLongformArticle(a.event));
               if (coverArticles.length >= 1) {
                 cover = curateCover(coverArticles, forceRefresh);
               }
@@ -564,14 +628,10 @@
         
         // Always try to curate cover after fetch completes (even if already set, re-curate to ensure it's correct)
         if (articles.length > 0) {
-          const coverArticles = foodOnly
-            ? articles.filter(a => isValidLongformArticle(a.event))
-            : articles;
+          const coverArticles = articles.filter(a => isValidLongformArticle(a.event));
           if (coverArticles.length >= 1) {
-            // Always re-curate to ensure cover matches current foodOnly state
             cover = curateCover(coverArticles, forceRefresh);
-          } else if (foodOnly) {
-            // If foodOnly is on but no food articles, clear cover
+          } else {
             cover = null;
           }
         }
@@ -593,9 +653,7 @@
             subscription = null;
           }
           if (articles.length > 0 && !cover) {
-            const coverArticles = foodOnly
-              ? articles.filter(a => isValidLongformArticle(a.event))
-              : articles;
+            const coverArticles = articles.filter(a => isValidLongformArticle(a.event));
             if (coverArticles.length >= 1) {
               cover = curateCover(coverArticles, forceRefresh);
             }
@@ -626,7 +684,7 @@
       
       // Use article outbox with 'until' for pagination
       const { events: moreEvents, stats } = await fetchArticles($ndk, {
-        hashtags: getRelayHashtags(),
+        hashtags: getFoodHashtags(),
         until: oldestTimestamp - 1, // Get events older than our oldest
         limit: 50
       });
@@ -704,7 +762,6 @@
   }
 
   onMount(() => {
-    loadFoodOnlyPreference();
     loadArticles();
   });
 
@@ -779,28 +836,6 @@
             </a>
           {/if}
 
-          <!-- Food Only Toggle (matches community feed style) -->
-          <div class="flex items-center gap-2">
-            {#if foodOnly}
-              <span class="text-sm">
-                🍳 <span class="text-caption">Only</span><span class="font-bold" style="color: var(--color-text-primary)">Food</span>
-              </span>
-            {:else}
-              <span class="text-sm text-caption">All topics</span>
-            {/if}
-            <button
-              on:click={toggleFoodOnly}
-              disabled={loading}
-              class="relative inline-flex h-6 w-11 items-center rounded-full transition-colors {foodOnly ? 'bg-primary' : 'bg-accent-gray'}"
-              aria-pressed={foodOnly}
-              aria-label="Toggle food-only filter"
-            >
-              <span
-                class="inline-block h-4 w-4 transform rounded-full bg-white transition-transform {foodOnly ? 'translate-x-6' : 'translate-x-1'}"
-              />
-            </button>
-          </div>
-
           <!-- Refresh Button -->
           <button
             class="refresh-button p-2 rounded-full transition-all duration-200 hover:bg-accent-gray {loading ? 'animate-spin' : ''}"
@@ -819,12 +854,13 @@
     <CoverSection {cover} {loading} />
 
     <!-- Feed Section -->
-    <FeedSection 
-      {articles} 
-      {loading} 
-      {coverArticleIds} 
-      {foodOnly}
+    <FeedSection
+      {articles}
+      {loading}
+      {coverArticleIds}
       {loadingMore}
+      {followedPubkeys}
+      {isSignedIn}
       on:loadMore={handleLoadMore}
     />
   </div>

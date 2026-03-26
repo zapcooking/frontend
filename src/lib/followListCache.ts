@@ -17,6 +17,8 @@ export interface CachedProfile {
 
 // Singleton cache
 const profileCache = new Map<string, CachedProfile>();
+/** Pubkeys derived exclusively from the kind:3 contact list (not from search/addToCache) */
+const followPubkeySet = new Set<string>();
 let isLoading = false;
 let isLoaded = false;
 let loadPromise: Promise<void> | null = null;
@@ -76,11 +78,17 @@ async function doLoadFollowList(): Promise<void> {
       return;
     }
     
-    // Extract all follow pubkeys
+    // Extract all follow pubkeys from the kind:3 contact list
     const followPubkeys = contactEvent.tags
       .filter(t => t[0] === 'p' && t[1])
       .map(t => t[1]);
-    
+
+    // Populate the authoritative follow set (independent of profile cache)
+    followPubkeySet.clear();
+    for (const pk of followPubkeys) {
+      followPubkeySet.add(pk);
+    }
+
     if (followPubkeys.length === 0) {
       isLoaded = true;
       followListReady.set(true);
@@ -198,6 +206,15 @@ export function searchCachedProfiles(query: string, limit: number = 10): CachedP
 }
 
 /**
+ * Get the set of followed pubkeys (derived from kind:3 contact list).
+ * Returns empty set if not loaded yet.
+ * This is independent of the profile cache — addToCache() does not affect it.
+ */
+export function getFollowedPubkeys(): Set<string> {
+  return new Set(followPubkeySet);
+}
+
+/**
  * Check if cache is loaded
  */
 export function isCacheLoaded(): boolean {
@@ -209,6 +226,7 @@ export function isCacheLoaded(): boolean {
  */
 export function resetCache(): void {
   profileCache.clear();
+  followPubkeySet.clear();
   isLoaded = false;
   isLoading = false;
   loadPromise = null;
