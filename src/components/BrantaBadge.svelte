@@ -1,67 +1,69 @@
 <!--
   Branta Verification Badge
 
-  Displays a "Verified by Branta" badge for payment addresses/invoices
+  Displays a Branta-verified platform card or a simple badge for payment addresses/invoices
   that are registered with Branta Guardrail.
 
   Usage:
     <BrantaBadge paymentString={invoiceOrAddress} />
+    <BrantaBadge paymentString={sendInput} rawQrText={rawQrText} />
 
   Props:
-    - paymentString: The address/invoice to verify
+    - paymentString: The address/invoice to verify (used when no rawQrText)
+    - rawQrText: Raw QR code text for QR-based verification (uses getPaymentsByQRCode)
     - autoVerify: Whether to verify on mount (default: true)
     - showUnverified: Whether to show badge when not verified (default: false)
 -->
 <script lang="ts">
   import { onMount } from 'svelte';
-  import CheckCircleIcon from 'phosphor-svelte/lib/CheckCircle';
   import ShieldCheckIcon from 'phosphor-svelte/lib/ShieldCheck';
   import CircleNotchIcon from 'phosphor-svelte/lib/CircleNotch';
 
   export let paymentString: string = '';
+  export let rawQrText: string = '';
   export let autoVerify: boolean = true;
   export let showUnverified: boolean = false;
 
   let verified: boolean | null = null;
-  let verifyLink: string | null = null;
+  let payment: Record<string, any> | null = null;
   let loading = false;
-  let error: string | null = null;
 
   async function verify() {
-    if (!paymentString || loading) return;
+    const input = rawQrText || paymentString;
+    if (!input || loading) return;
 
     loading = true;
-    error = null;
 
     try {
-      const res = await fetch(`/api/branta/verify?payment=${encodeURIComponent(paymentString)}`);
+      const param = rawQrText
+        ? `qr=${encodeURIComponent(rawQrText)}`
+        : `payment=${encodeURIComponent(paymentString)}`;
+      const res = await fetch(`/api/branta/verify?${param}`);
       const data = await res.json();
 
       if (res.status === 503) {
-        // Branta not configured - hide badge entirely
         verified = null;
         return;
       }
 
       verified = data.verified === true;
-      verifyLink = data.verifyLink;
+      payment = data.payment ?? null;
     } catch (e) {
       console.warn('[BrantaBadge] Verification failed:', e);
       verified = false;
-      error = e instanceof Error ? e.message : 'Verification failed';
     } finally {
       loading = false;
     }
   }
 
-  // Re-verify when paymentString changes
-  $: if (paymentString && autoVerify) {
+  $: if ((rawQrText || paymentString) && autoVerify) {
     verified = null;
+    payment = null;
     verify();
   }
 
   onMount(() => {
-    if (autoVerify && paymentString) {
+    if (autoVerify && (rawQrText || paymentString)) {
       verify();
     }
   });
@@ -74,9 +76,28 @@
     </span>
     <span>Verifying...</span>
   </div>
+{:else if verified === true && payment?.platform}
+  <a
+    href={payment.verify_url || 'https://branta.pro'}
+    target="_blank"
+    rel="noopener noreferrer"
+    class="flex items-center gap-2 px-3 py-2 rounded-lg border border-input hover:border-green-500/50 transition-colors w-fit"
+    title="Verified by Branta Guardrail"
+    style="width: 100%"
+  >
+    {#if payment.platform_logo_url}
+      <img src={payment.platform_logo_url} alt={payment.platform} class="w-10 h-10 rounded object-contain" />
+    {:else}
+      <ShieldCheckIcon size={16} weight="fill" class="text-green-500" />
+    {/if}
+    <div class="flex flex-col leading-tight">
+      <span class="text font-medium text-primary-color">{payment.platform}</span>
+      <span class="text-xs text-green-500">Verified by Branta</span>
+    </div>
+  </a>
 {:else if verified === true}
   <a
-    href={verifyLink || "https://branta.pro"}
+    href={payment?.verify_url || 'https://branta.pro'}
     target="_blank"
     rel="noopener noreferrer"
     class="flex items-center gap-1.5 text-xs text-green-500 hover:text-green-400 transition-colors"
@@ -85,9 +106,9 @@
     <ShieldCheckIcon size={14} weight="fill" />
     <span>Verified by Branta</span>
   </a>
-{:else if verified === false}
+{:else if verified === false && showUnverified}
   <a
-    href={verifyLink || "https://branta.pro"}
+    href="https://branta.pro"
     target="_blank"
     rel="noopener noreferrer"
     class="flex items-center gap-1.5 text-xs text-caption hover:text-primary-color transition-colors"

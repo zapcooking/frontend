@@ -1,6 +1,6 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
-  import { onMount } from 'svelte';
+  import { onMount, tick } from 'svelte';
   import { browser } from '$app/environment';
   import { userPublickey } from '$lib/nostr';
   import { portal } from '../../components/Modal.svelte';
@@ -119,6 +119,7 @@
   import CopyIcon from 'phosphor-svelte/lib/Copy';
   import InfoIcon from 'phosphor-svelte/lib/Info';
   import LinkIcon from 'phosphor-svelte/lib/Link';
+  import QrCodeIcon from 'phosphor-svelte/lib/QrCode';
   import CheckIcon from 'phosphor-svelte/lib/Check';
   import XIcon from 'phosphor-svelte/lib/X';
   import UserCirclePlusIcon from 'phosphor-svelte/lib/UserCirclePlus';
@@ -369,6 +370,7 @@
   let showReceiveModal = false;
   let sendInput = ''; // Invoice or Lightning address
   let brantaVerifyTriggered = false;
+  let rawQrText = ''; // Raw QR text for QR-based branta verification
   let sendAmount = 0; // Amount for Lightning address sends
   let sendComment = ''; // Optional message for Lightning address sends
   let receiveAmount = 0;
@@ -429,6 +431,14 @@
   let isSendingOnchain = false;
   let showOnchainConfirmation = false; // Show address verification step before sending
   let sendingMaxBalance = false; // Track if user wants to send full balance (fee will be deducted)
+
+  // QR scan state
+  let showQrCamera = false;
+  let qrVideoElement: HTMLVideoElement;
+  let qrCameraStream: MediaStream | null = null;
+  let qrAnimFrame: number | null = null;
+  let jsQRModule: typeof import('jsqr').default | null = null;
+  let qrScanError = '';
 
   // Check if send input is a Bitcoin address
   $: isBtcAddress = isBitcoinAddress(sendInput);
@@ -999,8 +1009,82 @@
     sendError = '';
     sendSuccess = '';
     isSending = false;
+    qrScanError = '';
+    stopQrCamera();
     // Reset on-chain state
     resetOnchainSendState();
+  }
+
+  async function startQrCamera() {
+    qrScanError = '';
+    showQrCamera = true;
+    await tick();
+    try {
+      if (!jsQRModule) jsQRModule = (await import('jsqr')).default;
+      qrCameraStream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'environment' }
+      });
+      qrVideoElement.srcObject = qrCameraStream;
+      await qrVideoElement.play();
+      scanQrFrame();
+    } catch {
+      stopQrCamera();
+      qrScanError = 'Camera access denied.';
+    }
+  }
+
+  let qrCanvas: HTMLCanvasElement | null = null;
+  let qrCtx: CanvasRenderingContext2D | null = null;
+
+  function scanQrFrame() {
+    if (!showQrCamera || !qrVideoElement || !jsQRModule) return;
+    if (qrVideoElement.readyState === qrVideoElement.HAVE_ENOUGH_DATA) {
+      const w = qrVideoElement.videoWidth;
+      const h = qrVideoElement.videoHeight;
+      if (!qrCanvas) {
+        qrCanvas = document.createElement('canvas');
+        qrCtx = qrCanvas.getContext('2d')!;
+      }
+      if (qrCanvas.width !== w) qrCanvas.width = w;
+      if (qrCanvas.height !== h) qrCanvas.height = h;
+      qrCtx!.drawImage(qrVideoElement, 0, 0);
+      const imageData = qrCtx!.getImageData(0, 0, w, h);
+      const result = jsQRModule(imageData.data, imageData.width, imageData.height);
+      if (result) {
+        const raw = result.data.trim();
+        let decoded = raw;
+        let shouldAutoVerify = false;
+
+        if (decoded.toLowerCase().startsWith('lightning:')) {
+          decoded = decoded.slice('lightning:'.length);
+          shouldAutoVerify = true;
+        } else if (decoded.toLowerCase().startsWith('bitcoin:')) {
+          const withoutPrefix = decoded.slice('bitcoin:'.length);
+          const params = new URLSearchParams(withoutPrefix.includes('?') ? withoutPrefix.split('?')[1] : '');
+          if (params.has('branta_id') && params.has('branta_secret')) {
+            shouldAutoVerify = true;
+          }
+          decoded = withoutPrefix.split('?')[0];
+        }
+
+        sendInput = decoded;
+        rawQrText = shouldAutoVerify ? raw : '';
+        sendingMaxBalance = false;
+        brantaVerifyTriggered = shouldAutoVerify;
+        if (onchainFeeQuote) { onchainFeeQuote = null; onchainPrepareResponse = null; }
+        stopQrCamera();
+        return;
+      }
+    }
+    qrAnimFrame = requestAnimationFrame(scanQrFrame);
+  }
+
+  function stopQrCamera() {
+    showQrCamera = false;
+    if (qrAnimFrame) { cancelAnimationFrame(qrAnimFrame); qrAnimFrame = null; }
+    if (qrCameraStream) { qrCameraStream.getTracks().forEach(t => t.stop()); qrCameraStream = null; }
+    qrCanvas = null;
+    qrCtx = null;
   }
 
   // Reset on-chain send state (defined above resetSendModal call)
@@ -4663,24 +4747,37 @@
                       Invoice or Lightning Address
                     {/if}
                   </label>
-                  <textarea
-                    bind:value={sendInput}
-                    placeholder={$activeWallet?.kind === 4
-                      ? 'lnbc..., user@example.com, or bc1...'
-                      : 'lnbc... or user@example.com'}
-                    class="w-full p-3 rounded-lg bg-input border border-input text-primary-color placeholder-caption resize-none focus:outline-none focus:ring-2 focus:ring-amber-500"
-                    rows="3"
-                    disabled={isSending || isSendingOnchain}
-                    on:input={() => {
-                      // Reset on-chain state when input changes
-                      sendingMaxBalance = false;
-                      brantaVerifyTriggered = false;
-                      if (onchainFeeQuote) {
-                        onchainFeeQuote = null;
-                        onchainPrepareResponse = null;
-                      }
-                    }}
-                  />
+                  <div class="relative">
+                    <textarea
+                      bind:value={sendInput}
+                      placeholder={$activeWallet?.kind === 4
+                        ? 'lnbc..., user@example.com, or bc1...'
+                        : 'lnbc... or user@example.com'}
+                      class="w-full p-3 pr-10 rounded-lg bg-input border border-input text-primary-color placeholder-caption resize-none focus:outline-none focus:ring-2 focus:ring-amber-500"
+                      rows="3"
+                      disabled={isSending || isSendingOnchain}
+                      on:input={() => {
+                        // Reset on-chain state when input changes
+                        sendingMaxBalance = false;
+                        brantaVerifyTriggered = false;
+                        rawQrText = '';
+                        if (onchainFeeQuote) {
+                          onchainFeeQuote = null;
+                          onchainPrepareResponse = null;
+                        }
+                      }}
+                    />
+                    <button
+                      type="button"
+                      class="absolute top-2 right-3.5 p-1 rounded text-caption hover:text-primary-color transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                      on:click={startQrCamera}
+                      disabled={isSending || isSendingOnchain || showQrCamera}
+                      title="Scan QR code"
+                      aria-label="Scan QR code"
+                    >
+                      <QrCodeIcon size={18} />
+                    </button>
+                  </div>
                   {#if isBtcAddress && $activeWallet?.kind === 4}
                     <div class="mt-1 text-xs text-amber-500 flex items-center gap-1">
                       ₿ Bitcoin address detected - on-chain payment
@@ -4689,7 +4786,7 @@
                   <div class="mt-1">
                     {#if sendInput.trim()}
                       {#if brantaVerifyTriggered}
-                        <BrantaBadge paymentString={sendInput.trim()} />
+                        <BrantaBadge paymentString={sendInput.trim()} rawQrText={rawQrText} />
                       {:else}
                         <button
                           type="button"
@@ -4702,6 +4799,12 @@
                       {/if}
                     {/if}
                   </div>
+                  {#if qrScanError}
+                    <div class="mt-1 text-xs text-red-400 flex items-center gap-1">
+                      <WarningIcon size={12} />
+                      {qrScanError}
+                    </div>
+                  {/if}
                 </div>
 
                 {#if isLightningAddress || isBtcAddress}
@@ -4926,8 +5029,23 @@
             </div>
           </div>
         </div>
-      </div>
-    {/if}
+      {#if showQrCamera}
+        <div class="fixed inset-0 bg-black z-[60] flex flex-col">
+          <div class="flex items-center justify-between p-4">
+            <span class="text-white text-sm font-medium">Point camera at QR code</span>
+            <button type="button" class="text-white p-1" on:click={stopQrCamera} aria-label="Close QR scanner">
+              <XIcon size={24} />
+            </button>
+          </div>
+          <div class="flex-1 flex items-center justify-center overflow-hidden">
+            <!-- svelte-ignore a11y-media-has-caption -->
+            <video bind:this={qrVideoElement} class="w-full h-full object-cover" playsinline />
+          </div>
+          <div class="p-4 text-center text-white/50 text-sm">Scanning for QR code...</div>
+        </div>
+      {/if}
+    </div>
+  {/if}
 
     <!-- Receive Modal -->
     {#if showReceiveModal && portalTarget}

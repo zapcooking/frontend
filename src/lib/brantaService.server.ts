@@ -15,17 +15,12 @@
 import { env } from '$env/dynamic/private';
 import { V2BrantaClient, type BrantaClientOptions, type Destination, type Payment } from '@branta-ops/branta';
 
+export type { Payment };
+
 export interface RegisterPaymentResult {
   success: boolean;
   verifyLink?: string;
   secret?: string;
-  error?: string;
-}
-
-export interface VerifyPaymentResult {
-  verified: boolean;
-  registeredAt?: string;
-  description?: string;
   error?: string;
 }
 
@@ -127,48 +122,43 @@ export async function registerPayment(
 }
 
 /**
- * Verify if a payment address/invoice is registered with Branta
- *
- * @param paymentString - The Bitcoin address, Lightning invoice, or Lightning address
- * @param platform - Optional platform object for Cloudflare Workers
+ * Get payment info for an address/invoice from Branta
  */
-export async function verifyPayment(
+export async function getPaymentInfo(
   paymentString: string,
   platform?: any
-): Promise<VerifyPaymentResult> {
+): Promise<Payment | null> {
   const config = getBrantaConfig(platform);
-
-  if (!config) {
-    return { verified: false, error: 'Branta not configured' };
-  }
-
-  if (!paymentString || paymentString.trim().length === 0) {
-    return { verified: false, error: 'Payment string is required' };
-  }
+  if (!config || !paymentString?.trim()) return null;
 
   try {
     const brantaClient = new V2BrantaClient(config);
-
     const response = await brantaClient.getPayments(paymentString.trim());
-
-    if (response.length === 0) {
-      return { verified: false };
-    }
-
-    return {
-      verified: true,
-      description: response[0].description
-    };
+    return response[0] ?? null;
   } catch (error) {
-    if (error instanceof Error && error.name === 'AbortError') {
-      console.warn('[Branta] Verification request timed out');
-      return { verified: false, error: 'Request timed out' };
-    }
-
-    console.warn('[Branta] Verification failed:', error);
-    return {
-      verified: false,
-      error: error instanceof Error ? error.message : 'Unknown error'
-    };
+    console.warn('[Branta] getPaymentInfo failed:', error);
+    return null;
   }
 }
+
+/**
+ * Get payment info from a raw QR code string using Branta
+ */
+export async function getPaymentInfoByQRCode(
+  qrText: string,
+  platform?: any
+): Promise<Payment | null> {
+  const config = getBrantaConfig(platform);
+  if (!config || !qrText?.trim()) return null;
+
+  try {
+    const brantaClient = new V2BrantaClient(config);
+    const response = await brantaClient.getPaymentsByQRCode(qrText.trim());
+
+    return response[0] ?? null;
+  } catch (error) {
+    console.warn('[Branta] getPaymentInfoByQRCode failed:', error);
+    return null;
+  }
+}
+
