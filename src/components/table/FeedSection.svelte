@@ -2,28 +2,31 @@
   import { createEventDispatcher, onMount, onDestroy } from 'svelte';
   import FilterBar from './FilterBar.svelte';
   import ArticleCard from '../ArticleCard.svelte';
-  import { filterByCategory, sortArticles, limitArticlesPerAuthor, type ArticleData, type SortOption } from '$lib/articleUtils';
+  import { filterByCategory, sortArticles, limitArticlesPerAuthor, deduplicatePreviewArticles, type ArticleData, type SortOption } from '$lib/articleUtils';
 
   export let articles: ArticleData[] = [];
   export let loading: boolean = false;
   export let loadingMore: boolean = false;
   export let coverArticleIds: string[] = []; // Exclude cover articles from feed
-  export let foodOnly: boolean = true; // Sync default category with toggle
+  export let followedPubkeys: Set<string> = new Set(); // For "For You" sort
+  export let isSignedIn: boolean = false;
 
   const dispatch = createEventDispatcher<{ loadMore: void }>();
 
-  // Default category based on foodOnly toggle
-  let selectedCategory = foodOnly ? 'Food' : 'All';
-  let selectedSort: SortOption = 'newest';
+  let selectedCategory = 'All';
+  let selectedSort: SortOption = isSignedIn ? 'foryou' : 'newest';
 
-  // Sync category when foodOnly changes
-  $: selectedCategory = foodOnly ? 'Food' : 'All';
+  // When user signs in, switch to "For You" if still on unsigned default
+  $: if (isSignedIn && selectedSort === 'newest') {
+    selectedSort = 'foryou';
+  }
 
-  // Filter out cover articles and apply filters
-  $: feedArticles = articles.filter((a) => !coverArticleIds.includes(a.id));
-  $: authorLimitedArticles = limitArticlesPerAuthor(feedArticles, 3); // Max 3 per author
+  // Filter out cover articles and articles without real images (no placeholders in reads)
+  $: feedArticles = articles.filter((a) => !coverArticleIds.includes(a.id) && a.imageUrl);
+  $: dedupedArticles = deduplicatePreviewArticles(feedArticles);
+  $: authorLimitedArticles = limitArticlesPerAuthor(dedupedArticles, 3); // Max 3 per author
   $: filteredArticles = filterByCategory(authorLimitedArticles, selectedCategory);
-  $: sortedArticles = sortArticles(filteredArticles, selectedSort);
+  $: sortedArticles = sortArticles(filteredArticles, selectedSort, followedPubkeys);
 
   // Pagination - show all filtered articles (infinite scroll handles fetching more)
   const ARTICLES_PER_PAGE = 12;
@@ -78,7 +81,7 @@
 
 <section class="feed-section">
   <!-- Filter Bar -->
-  <FilterBar bind:selectedCategory bind:selectedSort />
+  <FilterBar bind:selectedCategory bind:selectedSort showForYou={isSignedIn} />
 
   {#if loading}
     <!-- Loading Grid -->

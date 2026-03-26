@@ -27,7 +27,13 @@
     imageError = true;
   }
 
-  function handleImageLoad() {
+  function handleImageLoad(e: Event) {
+    const img = e.target as HTMLImageElement;
+    // Treat tiny images (likely error pages/placeholders) as broken
+    if (img.naturalWidth < 10 || img.naturalHeight < 10) {
+      imageError = true;
+      return;
+    }
     imageLoaded = true;
   }
 
