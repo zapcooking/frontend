@@ -1,6 +1,6 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
-  import { onMount } from 'svelte';
+  import { onMount, tick } from 'svelte';
   import { browser } from '$app/environment';
   import { userPublickey } from '$lib/nostr';
   import { portal } from '../../components/Modal.svelte';
@@ -119,7 +119,7 @@
   import CopyIcon from 'phosphor-svelte/lib/Copy';
   import InfoIcon from 'phosphor-svelte/lib/Info';
   import LinkIcon from 'phosphor-svelte/lib/Link';
-import QrCodeIcon from 'phosphor-svelte/lib/QrCode';
+  import QrCodeIcon from 'phosphor-svelte/lib/QrCode';
   import CheckIcon from 'phosphor-svelte/lib/Check';
   import XIcon from 'phosphor-svelte/lib/X';
   import UserCirclePlusIcon from 'phosphor-svelte/lib/UserCirclePlus';
@@ -1018,6 +1018,7 @@ import QrCodeIcon from 'phosphor-svelte/lib/QrCode';
   async function startQrCamera() {
     qrScanError = '';
     showQrCamera = true;
+    await tick();
     try {
       if (!jsQRModule) jsQRModule = (await import('jsqr')).default;
       qrCameraStream = await navigator.mediaDevices.getUserMedia({
@@ -1027,20 +1028,27 @@ import QrCodeIcon from 'phosphor-svelte/lib/QrCode';
       await qrVideoElement.play();
       scanQrFrame();
     } catch {
+      stopQrCamera();
       qrScanError = 'Camera access denied.';
-      showQrCamera = false;
     }
   }
+
+  let qrCanvas: HTMLCanvasElement | null = null;
+  let qrCtx: CanvasRenderingContext2D | null = null;
 
   function scanQrFrame() {
     if (!showQrCamera || !qrVideoElement || !jsQRModule) return;
     if (qrVideoElement.readyState === qrVideoElement.HAVE_ENOUGH_DATA) {
-      const canvas = document.createElement('canvas');
-      canvas.width = qrVideoElement.videoWidth;
-      canvas.height = qrVideoElement.videoHeight;
-      const ctx = canvas.getContext('2d')!;
-      ctx.drawImage(qrVideoElement, 0, 0);
-      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const w = qrVideoElement.videoWidth;
+      const h = qrVideoElement.videoHeight;
+      if (!qrCanvas) {
+        qrCanvas = document.createElement('canvas');
+        qrCtx = qrCanvas.getContext('2d')!;
+      }
+      if (qrCanvas.width !== w) qrCanvas.width = w;
+      if (qrCanvas.height !== h) qrCanvas.height = h;
+      qrCtx!.drawImage(qrVideoElement, 0, 0);
+      const imageData = qrCtx!.getImageData(0, 0, w, h);
       const result = jsQRModule(imageData.data, imageData.width, imageData.height);
       if (result) {
         const raw = result.data.trim();
@@ -1075,6 +1083,8 @@ import QrCodeIcon from 'phosphor-svelte/lib/QrCode';
     showQrCamera = false;
     if (qrAnimFrame) { cancelAnimationFrame(qrAnimFrame); qrAnimFrame = null; }
     if (qrCameraStream) { qrCameraStream.getTracks().forEach(t => t.stop()); qrCameraStream = null; }
+    qrCanvas = null;
+    qrCtx = null;
   }
 
   // Reset on-chain send state (defined above resetSendModal call)
@@ -4763,6 +4773,7 @@ import QrCodeIcon from 'phosphor-svelte/lib/QrCode';
                       on:click={startQrCamera}
                       disabled={isSending || isSendingOnchain || showQrCamera}
                       title="Scan QR code"
+                      aria-label="Scan QR code"
                     >
                       <QrCodeIcon size={18} />
                     </button>
@@ -5022,7 +5033,7 @@ import QrCodeIcon from 'phosphor-svelte/lib/QrCode';
         <div class="fixed inset-0 bg-black z-[60] flex flex-col">
           <div class="flex items-center justify-between p-4">
             <span class="text-white text-sm font-medium">Point camera at QR code</span>
-            <button type="button" class="text-white p-1" on:click={stopQrCamera}>
+            <button type="button" class="text-white p-1" on:click={stopQrCamera} aria-label="Close QR scanner">
               <XIcon size={24} />
             </button>
           </div>
