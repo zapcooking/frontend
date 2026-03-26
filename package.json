@@ -1,7 +1,7 @@
 {
   "name": "zap.cooking",
   "license": "MIT",
-  "version": "4.2.117",
+  "version": "4.2.118",
   "private": true,
   "scripts": {
     "dev": "vite dev",
@@ -66,6 +66,7 @@
     "google-translate-api-browser": "^3.0.1",
     "html2canvas": "^1.4.1",
     "hurdak": "^0.2.5",
+    "jsqr": "^1.4.0",
     "libretranslate": "^1.0.1",
     "light-bolt11-decoder": "^3.0.0",
     "markdown-it": "^13.0.1",
