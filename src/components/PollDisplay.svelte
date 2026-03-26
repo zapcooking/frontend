@@ -5,6 +5,7 @@
   import { addClientTagToEvent } from '$lib/nip89';
   import { publishQueue } from '$lib/publishQueue';
   import NoteContent from './NoteContent.svelte';
+  import { formatDistanceToNow } from 'date-fns';
   import {
     parsePollFromEvent,
     isPollExpired,
@@ -41,6 +42,11 @@
   $: maxVoteCount = pollData
     ? Math.max(...pollData.options.map((o) => results.counts.get(o.id) || 0), 0)
     : 0;
+  $: endDateText = pollData?.endsAt
+    ? expired
+      ? `Ended ${formatDistanceToNow(new Date(pollData.endsAt * 1000), { addSuffix: true })}`
+      : `Ends ${formatDistanceToNow(new Date(pollData.endsAt * 1000), { addSuffix: true })}`
+    : '';
 
   onMount(() => {
     pollData = parsePollFromEvent(event);
@@ -101,559 +107,521 @@
   }
 </script>
 
-<div class="poll-display mb-3">
-  {#if pollData}
-    <!-- Question text -->
-    {#if pollData.question}
-      <div class="text-sm leading-relaxed mb-3" style="color: var(--color-text-primary)">
-        <NoteContent content={pollData.question} />
-      </div>
-    {/if}
-
-    <!-- Badges -->
-    <div class="flex items-center gap-2 mb-2">
-      <span class="poll-badge">
-        {pollData.pollType === 'multiplechoice' ? 'Multiple choice' : 'Single choice'}
-      </span>
-      {#if pollData.endsAt}
-        <span class="poll-badge" class:poll-badge-expired={expired}>
-          {#if expired}
-            Ended
-          {:else}
-            Ends {new Date(pollData.endsAt * 1000).toLocaleDateString()}
-          {/if}
-        </span>
-      {/if}
+{#if pollData}
+  <!-- Question -->
+  {#if pollData.question}
+    <div class="poll-question">
+      <NoteContent content={pollData.question} />
     </div>
+  {/if}
 
-    <!-- Options: Image grid or text list -->
-    {#if hasImages}
-      <!-- ═══ IMAGE GRID LAYOUT ═══ -->
-      <div class="poll-img-grid" class:poll-img-grid-odd={pollData.options.length % 2 !== 0}>
-        {#each pollData.options as option, i (option.id)}
-          {@const voteCount = results.counts.get(option.id) || 0}
-          {@const pct = results.totalVoters === 0 ? 0 : Math.round((voteCount / results.totalVoters) * 100)}
-          {@const isUserChoice = userSelectedOptions.includes(option.id)}
-          {@const isSelected = selectedOptions.has(option.id)}
-          {@const isWinner = displayResults && voteCount > 0 && voteCount === maxVoteCount}
-          {@const isLast = i === pollData.options.length - 1 && pollData.options.length % 2 !== 0}
+  <!-- ═══ IMAGE POLL ═══ -->
+  {#if hasImages}
+    <div class="poll-grid">
+      {#each pollData.options as option, i (option.id)}
+        {@const voteCount = results.counts.get(option.id) || 0}
+        {@const pct = results.totalVoters === 0 ? 0 : Math.round((voteCount / results.totalVoters) * 100)}
+        {@const isUserChoice = userSelectedOptions.includes(option.id)}
+        {@const isSelected = selectedOptions.has(option.id)}
+        {@const isWinner = displayResults && voteCount > 0 && voteCount === maxVoteCount}
 
-          {#if displayResults}
-            <!-- Results card -->
-            <div
-              class="poll-img-card poll-img-card-results"
-              class:poll-img-card-winner={isWinner}
-              class:poll-img-card-user={isUserChoice}
-              class:poll-img-card-last-odd={isLast}
-            >
-              <div class="poll-img-area">
-                {#if option.image}
-                  <img src={option.image} alt={option.label || `Option ${i + 1}`} class="poll-img" />
-                {:else}
-                  <div class="poll-img-placeholder"></div>
+        {#if displayResults}
+          <div
+            class="poll-card"
+            class:poll-card-winner={isWinner}
+            class:poll-card-user={isUserChoice}
+          >
+            <div class="poll-card-img-wrap">
+              {#if option.image}
+                <img src={option.image} alt={option.label || `Option ${i + 1}`} class="poll-card-img" />
+              {:else}
+                <div class="poll-card-img-placeholder"></div>
+              {/if}
+              <div class="poll-card-overlay">
+                <span class="poll-card-pct">{pct}%</span>
+                {#if option.label}
+                  <span class="poll-card-label">{option.label}</span>
                 {/if}
-                <!-- Indicator overlay -->
-                <span class="poll-img-indicator" class:poll-indicator-checked={isUserChoice}>
-                  {#if pollData.pollType === 'singlechoice'}
-                    <span class="poll-radio poll-radio-img" class:poll-radio-checked={isUserChoice}></span>
-                  {:else}
-                    <span class="poll-checkbox poll-checkbox-img" class:poll-checkbox-checked={isUserChoice}></span>
-                  {/if}
-                </span>
-                <!-- Results overlay bar -->
-                <div class="poll-img-results-overlay">
-                  <div class="poll-img-results-fill" style="width: {pct}%"></div>
-                  <span class="poll-img-results-text">{pct}% ({voteCount})</span>
+                <div class="poll-card-bar">
+                  <div class="poll-card-bar-fill" style="width: {pct}%"></div>
                 </div>
               </div>
-              {#if option.label}
-                <div class="poll-img-label">{option.label}</div>
+              {#if isUserChoice}
+                <span class="poll-check-badge">
+                  <svg viewBox="0 0 12 12" fill="none">
+                    <path d="M2.5 6L5 8.5L9.5 4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                  </svg>
+                </span>
               {/if}
             </div>
-          {:else}
-            <!-- Vote card -->
-            <button
-              class="poll-img-card poll-img-card-vote"
-              class:poll-img-card-selected={isSelected}
-              class:poll-img-card-last-odd={isLast}
-              on:click={() => toggleOption(option.id)}
-              disabled={expired || voting}
-              aria-label={option.label || `Option ${i + 1}`}
-            >
-              <div class="poll-img-area">
-                {#if option.image}
-                  <img src={option.image} alt={option.label || `Option ${i + 1}`} class="poll-img" />
-                {:else}
-                  <div class="poll-img-placeholder"></div>
-                {/if}
-                <!-- Indicator overlay -->
-                <span class="poll-img-indicator" class:poll-indicator-checked={isSelected}>
-                  {#if pollData.pollType === 'singlechoice'}
-                    <span class="poll-radio poll-radio-img" class:poll-radio-checked={isSelected}></span>
-                  {:else}
-                    <span class="poll-checkbox poll-checkbox-img" class:poll-checkbox-checked={isSelected}></span>
-                  {/if}
-                </span>
-              </div>
-              {#if option.label}
-                <div class="poll-img-label">{option.label}</div>
-              {/if}
-            </button>
-          {/if}
-        {/each}
-      </div>
-    {:else}
-      <!-- ═══ TEXT GRID LAYOUT ═══ -->
-      <div class="poll-text-grid">
-        {#each pollData.options as option, i (option.id)}
-          {@const voteCount = results.counts.get(option.id) || 0}
-          {@const pct = results.totalVoters === 0 ? 0 : Math.round((voteCount / results.totalVoters) * 100)}
-          {@const isUserChoice = userSelectedOptions.includes(option.id)}
-          {@const isSelected = selectedOptions.has(option.id)}
-          {@const isLast = i === pollData.options.length - 1 && pollData.options.length % 2 !== 0}
-
-          {#if displayResults}
-            <div
-              class="poll-result-bar"
-              class:poll-result-user={isUserChoice}
-              class:poll-text-card-last-odd={isLast}
-            >
-              <div class="poll-result-fill" style="width: {pct}%"></div>
-              <div class="poll-result-content">
-                <span class="poll-result-label">
-                  {option.label}
-                  {#if isUserChoice}
-                    <span class="poll-result-check">✓</span>
-                  {/if}
-                </span>
-                <span class="poll-result-pct">{pct}%</span>
-              </div>
-              <div class="poll-result-votes">{voteCount}</div>
-            </div>
-          {:else}
-            <button
-              class="poll-option-btn"
-              class:poll-option-selected={isSelected}
-              class:poll-text-card-last-odd={isLast}
-              on:click={() => toggleOption(option.id)}
-              disabled={expired || voting}
-            >
-              <span class="poll-option-indicator">
-                {#if pollData.pollType === 'singlechoice'}
-                  <span class="poll-radio" class:poll-radio-checked={isSelected}></span>
-                {:else}
-                  <span class="poll-checkbox" class:poll-checkbox-checked={isSelected}></span>
-                {/if}
-              </span>
-              <span class="poll-option-label">{option.label}</span>
-            </button>
-          {/if}
-        {/each}
-      </div>
-    {/if}
-
-    <!-- Vote error -->
-    {#if voteError}
-      <p class="text-red-500 text-xs mt-1">{voteError}</p>
-    {/if}
-
-    <!-- Footer -->
-    <div class="flex items-center justify-between mt-2">
-      <span class="text-xs text-caption">
-        {results.totalVoters} vote{results.totalVoters !== 1 ? 's' : ''}
-      </span>
-
-      {#if !displayResults && !expired}
-        <div class="flex items-center gap-2">
+          </div>
+        {:else}
           <button
-            class="text-xs text-caption hover:underline"
-            on:click={() => (showResults = true)}
+            class="poll-card"
+            class:poll-card-selected={isSelected}
+            on:click={() => toggleOption(option.id)}
+            disabled={expired || voting}
+            aria-label={option.label || `Option ${i + 1}`}
           >
-            Show results
+            <div class="poll-card-img-wrap">
+              {#if option.image}
+                <img src={option.image} alt={option.label || `Option ${i + 1}`} class="poll-card-img" />
+              {:else}
+                <div class="poll-card-img-placeholder"></div>
+              {/if}
+              <div class="poll-card-overlay">
+                {#if option.label}
+                  <span class="poll-card-label">{option.label}</span>
+                {/if}
+              </div>
+              {#if isSelected}
+                <span class="poll-check-badge">
+                  <svg viewBox="0 0 12 12" fill="none">
+                    <path d="M2.5 6L5 8.5L9.5 4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                  </svg>
+                </span>
+              {/if}
+            </div>
           </button>
-          {#if $userPublickey && selectedOptions.size > 0}
-            <button
-              class="px-3 py-1 text-xs font-medium text-white bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 rounded-full disabled:opacity-50 transition-all"
-              disabled={voting}
-              on:click={submitVote}
-            >
-              {voting ? 'Voting...' : 'Vote'}
-            </button>
-          {/if}
-        </div>
-      {:else if displayResults && !userVoted && !expired && !voted}
-        <button
-          class="text-xs text-caption hover:underline"
-          on:click={() => (showResults = false)}
-        >
-          Hide results
+        {/if}
+      {/each}
+    </div>
+
+  <!-- ═══ TEXT POLL ═══ -->
+  {:else}
+    <div class="poll-list">
+      {#each pollData.options as option, i (option.id)}
+        {@const voteCount = results.counts.get(option.id) || 0}
+        {@const pct = results.totalVoters === 0 ? 0 : Math.round((voteCount / results.totalVoters) * 100)}
+        {@const isUserChoice = userSelectedOptions.includes(option.id)}
+        {@const isSelected = selectedOptions.has(option.id)}
+
+        {#if displayResults}
+          <div class="poll-row poll-row-result" class:poll-row-user={isUserChoice}>
+            <div class="poll-row-fill" style="width: {pct}%"></div>
+            <span class="poll-row-label">
+              {option.label}
+              {#if isUserChoice}
+                <svg class="poll-row-check" viewBox="0 0 12 12" fill="none">
+                  <path d="M2.5 6L5 8.5L9.5 4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              {/if}
+            </span>
+            <span class="poll-row-pct">{pct}%</span>
+          </div>
+        {:else}
+          <button
+            class="poll-row"
+            class:poll-row-selected={isSelected}
+            on:click={() => toggleOption(option.id)}
+            disabled={expired || voting}
+          >
+            <span class="poll-row-label">{option.label}</span>
+            {#if isSelected}
+              <svg class="poll-row-check" viewBox="0 0 12 12" fill="none">
+                <path d="M2.5 6L5 8.5L9.5 4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            {/if}
+          </button>
+        {/if}
+      {/each}
+    </div>
+  {/if}
+
+  <!-- Error -->
+  {#if voteError}
+    <p class="poll-error">{voteError}</p>
+  {/if}
+
+  <!-- Footer -->
+  <div class="poll-footer">
+    <span class="poll-meta">
+      {results.totalVoters} vote{results.totalVoters !== 1 ? 's' : ''}
+      {#if endDateText}
+        <span class="poll-meta-dot">&middot;</span>
+        <span class:poll-meta-expired={expired}>{endDateText}</span>
+      {/if}
+      <span class="poll-meta-dot">&middot;</span>
+      {pollData.pollType === 'multiplechoice' ? 'Multiple choice' : 'Single choice'}
+    </span>
+    <div class="poll-footer-actions">
+      {#if !displayResults && !expired}
+        <button class="poll-results-link" on:click={() => (showResults = true)}>
+          Results
+        </button>
+        {#if $userPublickey && selectedOptions.size > 0}
+          <button class="poll-vote-btn" disabled={voting} on:click={submitVote}>
+            {voting ? 'Voting...' : 'Vote'}
+          </button>
+        {/if}
+      {:else if displayResults && $userPublickey && !userVoted && !expired && !voted}
+        <button class="poll-results-link" on:click={() => (showResults = false)}>
+          Back to vote
         </button>
       {/if}
     </div>
-  {/if}
-</div>
+  </div>
+{/if}
 
 <style>
-  .poll-display {
-    padding: 0.75rem;
-    border: 1px solid var(--color-input-border);
-    border-radius: 0.75rem;
-    background: var(--color-bg-secondary);
-  }
+  /* ═══════════════════════════════════════════
+     QUESTION
+     ═══════════════════════════════════════════ */
 
-  .poll-badge {
-    font-size: 0.6875rem;
-    padding: 0.125rem 0.5rem;
-    border-radius: 9999px;
-    background: var(--color-accent-gray, #e5e7eb);
-    color: var(--color-caption);
-  }
-
-  .poll-badge-expired {
-    background: #fecaca;
-    color: #dc2626;
-  }
-
-  :global(.dark) .poll-badge-expired {
-    background: #7f1d1d;
-    color: #fca5a5;
+  .poll-question {
+    font-size: 0.9375rem;
+    font-weight: 500;
+    line-height: 1.5;
+    color: var(--color-text-primary);
+    margin-bottom: 0.75rem;
   }
 
   /* ═══════════════════════════════════════════
-     IMAGE GRID LAYOUT
+     IMAGE GRID
      ═══════════════════════════════════════════ */
 
-  .poll-img-grid {
+  .poll-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 0.5rem;
   }
 
-  /* Odd last item: centered at half width */
-  .poll-img-card-last-odd {
+  /* Center last odd image card at half width */
+  .poll-grid > :last-child:nth-child(odd) {
     grid-column: 1 / -1;
     max-width: 50%;
     justify-self: center;
   }
 
-  /* Card base */
-  .poll-img-card {
-    border: 2px solid var(--color-input-border);
-    border-radius: 0.625rem;
+  .poll-card {
+    position: relative;
+    border-radius: 0.75rem;
     overflow: hidden;
-    transition: border-color 0.15s, box-shadow 0.15s;
-  }
-
-  /* Vote card (button) */
-  .poll-img-card-vote {
-    cursor: pointer;
-    background: transparent;
+    border: 2px solid transparent;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    background: none;
     padding: 0;
+    margin: 0;
     text-align: left;
     width: 100%;
-    color: var(--color-text-primary);
-    font-size: inherit;
+    color: inherit;
+    font: inherit;
+    cursor: default;
   }
 
-  .poll-img-card-vote:hover:not(:disabled) {
-    border-color: var(--color-primary, #f97316);
+  button.poll-card {
+    cursor: pointer;
   }
 
-  .poll-img-card-vote:disabled {
+  button.poll-card:disabled {
     opacity: 0.5;
     cursor: not-allowed;
   }
 
-  .poll-img-card-selected {
-    border-color: var(--color-primary, #f97316);
-    box-shadow: 0 0 0 1px var(--color-primary, #f97316);
+  button.poll-card:hover:not(:disabled) {
+    border-color: var(--color-primary);
   }
 
-  /* Results card */
-  .poll-img-card-results {
-    background: transparent;
+  .poll-card-selected {
+    border-color: var(--color-primary);
+    box-shadow: 0 0 0 1px var(--color-primary), 0 0 12px rgba(249, 115, 22, 0.15);
   }
 
-  .poll-img-card-user {
-    border-color: var(--color-primary, #f97316);
+  .poll-card-user {
+    border-color: var(--color-primary);
   }
 
-  .poll-img-card-winner {
-    border-color: var(--color-primary, #f97316);
-    box-shadow: 0 0 0 1px var(--color-primary, #f97316);
+  .poll-card-winner {
+    border-color: var(--color-primary);
+    box-shadow: 0 0 0 1px var(--color-primary);
   }
 
-  /* Image area */
-  .poll-img-area {
+  .poll-card-img-wrap {
     position: relative;
     aspect-ratio: 1;
     overflow: hidden;
-    background: var(--color-accent-gray, #e5e7eb);
+    background: var(--color-accent-gray);
   }
 
-  .poll-img {
+  .poll-card-img {
     width: 100%;
     height: 100%;
     object-fit: cover;
     display: block;
   }
 
-  .poll-img-placeholder {
+  .poll-card-img-placeholder {
     width: 100%;
     height: 100%;
-    background: var(--color-accent-gray, #e5e7eb);
+    background: var(--color-accent-gray);
   }
 
-  /* Radio/checkbox indicator overlay — top right */
-  .poll-img-indicator {
-    position: absolute;
-    top: 0.375rem;
-    right: 0.375rem;
-    width: 1.5rem;
-    height: 1.5rem;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 9999px;
-    background: rgba(0, 0, 0, 0.4);
-    backdrop-filter: blur(4px);
-    transition: background 0.15s;
-  }
-
-  .poll-indicator-checked {
-    background: var(--color-primary, #f97316);
-  }
-
-  .poll-radio-img,
-  .poll-checkbox-img {
-    width: 12px;
-    height: 12px;
-    border-color: white;
-  }
-
-  .poll-radio-img.poll-radio-checked {
-    border-color: white;
-    background: white;
-    box-shadow: inset 0 0 0 2px var(--color-primary, #f97316);
-  }
-
-  .poll-checkbox-img.poll-checkbox-checked {
-    border-color: white;
-    background: white;
-  }
-
-  /* Results overlay bar at bottom of image */
-  .poll-img-results-overlay {
+  /* Bottom gradient overlay with label + results */
+  .poll-card-overlay {
     position: absolute;
     bottom: 0;
     left: 0;
     right: 0;
-    height: 1.75rem;
-    background: rgba(0, 0, 0, 0.55);
-    backdrop-filter: blur(4px);
+    padding: 1.5rem 0.625rem 0.5rem;
+    background: linear-gradient(to bottom, transparent 0%, rgba(0, 0, 0, 0.6) 100%);
     display: flex;
-    align-items: center;
-    justify-content: center;
+    flex-direction: column;
+    gap: 0.125rem;
   }
 
-  .poll-img-results-fill {
-    position: absolute;
-    top: 0;
-    left: 0;
-    bottom: 0;
-    background: rgba(249, 115, 22, 0.5);
-    transition: width 0.3s ease;
-  }
-
-  .poll-img-results-text {
-    position: relative;
-    font-size: 0.6875rem;
-    font-weight: 600;
+  .poll-card-pct {
+    font-size: 1.125rem;
+    font-weight: 700;
     color: white;
-    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+    line-height: 1.2;
   }
 
-  /* Label below image */
-  .poll-img-label {
-    padding: 0.375rem 0.5rem;
-    font-size: 0.8125rem;
-    text-align: center;
-    color: var(--color-text-primary);
+  .poll-card-label {
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: rgba(255, 255, 255, 0.92);
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
     line-height: 1.3;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 
-  /* Responsive: single column on very narrow screens */
+  .poll-card-bar {
+    height: 2px;
+    border-radius: 1px;
+    background: rgba(255, 255, 255, 0.2);
+    margin-top: 0.1875rem;
+  }
+
+  .poll-card-bar-fill {
+    height: 100%;
+    border-radius: 1px;
+    background: var(--color-primary);
+    animation: fillGrow 0.4s ease;
+    transition: width 0.3s ease;
+  }
+
+  /* Check badge (top-right corner) */
+  .poll-check-badge {
+    position: absolute;
+    top: 0.375rem;
+    right: 0.375rem;
+    width: 1.375rem;
+    height: 1.375rem;
+    border-radius: 50%;
+    background: var(--color-primary);
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+  }
+
+  .poll-check-badge svg {
+    width: 10px;
+    height: 10px;
+  }
+
   @media (max-width: 360px) {
-    .poll-img-grid {
+    .poll-grid {
       grid-template-columns: 1fr;
     }
-
-    .poll-img-card-last-odd {
+    .poll-grid > :last-child:nth-child(odd) {
       max-width: 100%;
     }
   }
 
   /* ═══════════════════════════════════════════
-     TEXT GRID LAYOUT
+     TEXT LIST
      ═══════════════════════════════════════════ */
 
-  .poll-text-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 0.5rem;
-  }
-
-  .poll-text-card-last-odd {
-    grid-column: 1 / -1;
-    max-width: 50%;
-    justify-self: center;
-  }
-
-  @media (max-width: 360px) {
-    .poll-text-grid {
-      grid-template-columns: 1fr;
-    }
-    .poll-text-card-last-odd {
-      max-width: 100%;
-    }
-  }
-
-  /* Vote mode buttons */
-  .poll-option-btn {
+  .poll-list {
     display: flex;
     flex-direction: column;
-    align-items: center;
-    justify-content: center;
     gap: 0.375rem;
+  }
+
+  .poll-row {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
     width: 100%;
-    padding: 0.75rem 0.5rem;
-    border: 2px solid var(--color-input-border);
+    padding: 0.625rem 0.75rem;
+    min-height: 2.75rem;
+    border: 1px solid var(--color-input-border);
     border-radius: 0.625rem;
     background: transparent;
     color: var(--color-text-primary);
-    font-size: 0.8125rem;
+    font-size: 0.875rem;
+    line-height: 1.4;
     cursor: pointer;
-    transition: all 0.15s;
-    text-align: center;
-    min-height: 3.5rem;
+    transition: border-color 0.15s ease, background-color 0.15s ease;
+    overflow: hidden;
+    text-align: left;
+    font: inherit;
   }
 
-  .poll-option-btn:hover:not(:disabled) {
-    border-color: var(--color-primary, #f97316);
+  button.poll-row:hover:not(:disabled) {
+    border-color: var(--color-primary);
+    background: rgba(249, 115, 22, 0.03);
   }
 
-  .poll-option-btn:disabled {
+  :global(.dark) button.poll-row:hover:not(:disabled) {
+    background: rgba(255, 122, 61, 0.05);
+  }
+
+  button.poll-row:disabled {
     opacity: 0.5;
     cursor: not-allowed;
   }
 
-  .poll-option-selected {
-    border-color: var(--color-primary, #f97316);
-    background: rgba(249, 115, 22, 0.05);
-    box-shadow: 0 0 0 1px var(--color-primary, #f97316);
+  .poll-row-selected {
+    border-color: var(--color-primary);
+    background: rgba(249, 115, 22, 0.06);
   }
 
-  .poll-option-indicator {
-    flex-shrink: 0;
+  :global(.dark) .poll-row-selected {
+    background: rgba(255, 122, 61, 0.08);
   }
 
-  .poll-option-label {
-    line-height: 1.3;
-    word-break: break-word;
+  .poll-row-result {
+    cursor: default;
   }
 
-  .poll-radio,
-  .poll-checkbox {
-    display: inline-block;
-    width: 16px;
-    height: 16px;
-    border: 2px solid var(--color-caption);
-    transition: all 0.15s;
+  .poll-row-user {
+    border-color: var(--color-primary);
   }
 
-  .poll-radio {
-    border-radius: 50%;
-  }
-
-  .poll-checkbox {
-    border-radius: 3px;
-  }
-
-  .poll-radio-checked {
-    border-color: var(--color-primary, #f97316);
-    background: var(--color-primary, #f97316);
-    box-shadow: inset 0 0 0 3px var(--color-bg-secondary);
-  }
-
-  .poll-checkbox-checked {
-    border-color: var(--color-primary, #f97316);
-    background: var(--color-primary, #f97316);
-  }
-
-  /* Results mode */
-  .poll-result-bar {
-    position: relative;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    padding: 0.625rem 0.5rem;
-    border: 2px solid var(--color-input-border);
-    border-radius: 0.625rem;
-    overflow: hidden;
-    min-height: 3.5rem;
-  }
-
-  .poll-result-user {
-    border-color: var(--color-primary, #f97316);
-  }
-
-  .poll-result-fill {
+  /* Animated fill bar behind content */
+  .poll-row-fill {
     position: absolute;
     top: 0;
     left: 0;
     bottom: 0;
-    background: rgba(249, 115, 22, 0.1);
+    background: rgba(249, 115, 22, 0.08);
+    animation: fillGrow 0.4s ease;
     transition: width 0.3s ease;
+    pointer-events: none;
   }
 
-  .poll-result-content {
+  :global(.dark) .poll-row-fill {
+    background: rgba(255, 122, 61, 0.12);
+  }
+
+  .poll-row-label {
     position: relative;
     display: flex;
-    justify-content: space-between;
     align-items: center;
-    font-size: 0.8125rem;
-    line-height: 1.3;
-  }
-
-  .poll-result-label {
-    color: var(--color-text-primary);
-    display: flex;
-    align-items: center;
-    gap: 0.25rem;
-    word-break: break-word;
+    gap: 0.375rem;
     min-width: 0;
+    word-break: break-word;
   }
 
-  .poll-result-check {
-    color: var(--color-primary, #f97316);
-    font-weight: 600;
-  }
-
-  .poll-result-pct {
-    color: var(--color-caption);
-    font-size: 0.75rem;
+  .poll-row-check {
     flex-shrink: 0;
-    font-weight: 600;
+    width: 14px;
+    height: 14px;
+    color: var(--color-primary);
   }
 
-  .poll-result-votes {
+  .poll-row-pct {
     position: relative;
-    font-size: 0.6875rem;
+    flex-shrink: 0;
+    font-size: 0.8125rem;
+    font-weight: 600;
     color: var(--color-caption);
-    text-align: center;
-    margin-top: 0.125rem;
+  }
+
+  /* ═══════════════════════════════════════════
+     FOOTER
+     ═══════════════════════════════════════════ */
+
+  .poll-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-top: 0.625rem;
+    gap: 0.5rem;
+  }
+
+  .poll-meta {
+    font-size: 0.75rem;
+    color: var(--color-caption);
+    line-height: 1.4;
+  }
+
+  .poll-meta-dot {
+    margin: 0 0.125rem;
+    opacity: 0.5;
+  }
+
+  .poll-meta-expired {
+    color: var(--color-danger);
+  }
+
+  .poll-footer-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.625rem;
+    flex-shrink: 0;
+  }
+
+  .poll-results-link {
+    font-size: 0.75rem;
+    color: var(--color-caption);
+    background: none;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+    transition: color 0.15s;
+    font: inherit;
+  }
+
+  .poll-results-link:hover {
+    color: var(--color-text-primary);
+  }
+
+  .poll-vote-btn {
+    padding: 0.3125rem 0.875rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: white;
+    background: linear-gradient(135deg, #f97316, #f59e0b);
+    border: none;
+    border-radius: 9999px;
+    cursor: pointer;
+    transition: opacity 0.15s;
+    font-family: inherit;
+  }
+
+  .poll-vote-btn:hover:not(:disabled) {
+    opacity: 0.9;
+  }
+
+  .poll-vote-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  /* ═══════════════════════════════════════════
+     ERROR
+     ═══════════════════════════════════════════ */
+
+  .poll-error {
+    font-size: 0.75rem;
+    color: var(--color-danger);
+    margin-top: 0.25rem;
+  }
+
+  /* ═══════════════════════════════════════════
+     ANIMATIONS
+     ═══════════════════════════════════════════ */
+
+  @keyframes fillGrow {
+    from { width: 0; }
   }
 </style>
