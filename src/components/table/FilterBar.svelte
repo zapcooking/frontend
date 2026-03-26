@@ -16,6 +16,7 @@
     { value: 'shortest', label: 'Shortest' }
   ];
 
+  let sortOptions: { value: SortOption; label: string }[] = baseSortOptions;
   $: sortOptions = showForYou
     ? [{ value: 'foryou' as SortOption, label: 'For You' }, ...baseSortOptions]
     : baseSortOptions;

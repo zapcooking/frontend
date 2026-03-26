@@ -106,7 +106,7 @@
   import {
     fetchFeedFromPrimal,
     fetchGlobalFromPrimal,
-    fetchContactListFromPrimal
+    fetchContactListFromPrimal,
   } from '$lib/primalCache';
 
   // Membership checking for member feed
@@ -455,8 +455,8 @@
   // NOTE: All URLs are normalized (no trailing slashes) to prevent duplicate connections
   const RELAY_POOLS = {
     recipes: ['wss://nos.lol', 'wss://relay.damus.io'], // General relays with recipe content
-    fallback: ['wss://relay.primal.net', 'wss://nostr.wine'], // Fast general relays for broader discovery
-    discovery: ['wss://nostr.wine', 'wss://relay.primal.net', 'wss://purplepag.es'], // Additional relays for discovery
+    fallback: ['wss://relay.primal.net', 'wss://nostr.wine', 'wss://antiprimal.net'], // Fast general relays for broader discovery
+    discovery: ['wss://nostr.wine', 'wss://relay.primal.net', 'wss://purplepag.es', 'wss://antiprimal.net'], // Additional relays for discovery
     profiles: ['wss://purplepag.es'], // Profile metadata (356ms, specialized for kind:0)
     members: ['wss://pantry.zap.cooking'], // Private member relay (The Pantry)
     garden: ['wss://garden.zap.cooking'] // Garden relay (no trailing slash!)
@@ -1761,7 +1761,7 @@
       // so we can overlap these to save 200-500ms on cold start.
       const ndkConnectPromise = ensureNdkConnected();
 
-      // Kick off Primal pre-fetch for modes that use it (following, global)
+      // Kick off Primal pre-fetch for modes that use it (following, global, polls)
       // These run concurrently with NDK connection — we'll await them in the mode-specific blocks
       let primalPrefetch: Promise<any> | null = null;
       if (filterMode === 'following' && $userPublickey) {
@@ -3292,7 +3292,7 @@
       const timeWindow = calculateTimeWindow('initial');
       const filter: any = {
         kinds: [1, 1068],
-        limit: authorPubkey && !foodFilterEnabled ? 100 : 50, // Fetch more for profile view when showing all posts
+        limit: authorPubkey && !foodFilterEnabled ? 100 : 50,
         since: timeWindow.since
       };
 

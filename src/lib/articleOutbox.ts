@@ -89,6 +89,7 @@ const CONFIG = {
     'wss://nostr.wine',              // Premium relay with quality content
     'wss://purplepag.es',            // Good for profile/content discovery
     'wss://relay.nostr.band',        // Search-optimized relay
+    'wss://antiprimal.net',          // Broad content discovery
   ],
   
   // Fallback relays if primary ones fail

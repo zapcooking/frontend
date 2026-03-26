@@ -20,6 +20,10 @@
   $: if (isSignedIn && selectedSort === 'newest') {
     selectedSort = 'foryou';
   }
+  // When user signs out, reset "For You" back to default
+  $: if (!isSignedIn && selectedSort === 'foryou') {
+    selectedSort = 'newest';
+  }
 
   // Filter out cover articles and articles without real images (no placeholders in reads)
   $: feedArticles = articles.filter((a) => !coverArticleIds.includes(a.id) && a.imageUrl);
