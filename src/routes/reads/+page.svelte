@@ -26,7 +26,8 @@
   import PencilSimpleLineIcon from 'phosphor-svelte/lib/PencilSimpleLine';
   import FolderIcon from 'phosphor-svelte/lib/Folder';
   import { loadFollowListProfiles, getFollowedPubkeys, followListReady } from '$lib/followListCache';
-  import { addArticles as addToSharedStore, refreshCover as refreshSharedCover } from '$lib/articleStore';
+  import { articleStore, addArticles as addToSharedStore, refreshCover as refreshSharedCover } from '$lib/articleStore';
+  import { get } from 'svelte/store';
 
   $: isSignedIn = $userPublickey !== '';
   $: draftCount = $drafts.length;
@@ -51,9 +52,19 @@
   let pullToRefreshEl: PullToRefresh;
   
   // Sync local articles to shared store (for explore page reuse)
-  $: if (articles.length > 0) {
-    addToSharedStore(articles);
-    refreshSharedCover();
+  // Only sync newly added articles to avoid rebuilding on every update
+  let lastSyncedArticleCount = 0;
+  $: {
+    if (articles.length > lastSyncedArticleCount) {
+      const newArticles = articles.slice(lastSyncedArticleCount);
+      if (newArticles.length > 0) {
+        addToSharedStore(newArticles);
+        refreshSharedCover();
+      }
+      lastSyncedArticleCount = articles.length;
+    } else if (articles.length === 0) {
+      lastSyncedArticleCount = 0;
+    }
   }
 
   // Pagination tracking
@@ -155,11 +166,37 @@
     // Always fetch all articles - feed shows all, cover always food-editorial
     const cacheFilter = { kinds: [30023], hashtags: getFoodHashtags(), limit: 500 };
 
-    // Try to load from cache first for instant paint
+    // Try to hydrate from shared store first (e.g. if user visited /explore first)
     let cacheWasUsed = false;
     let cacheSufficient = false;
-    
-    if (!forceRefresh && browser) {
+
+    if (!forceRefresh) {
+      const shared = get(articleStore);
+      if (shared.length > 0 && articles.length === 0) {
+        for (const article of shared) {
+          if (!seenEventIds.has(article.id)) {
+            seenEventIds.add(article.id);
+          }
+        }
+        articles = [...shared].sort((a, b) => b.publishedAt - a.publishedAt);
+        lastSyncedArticleCount = articles.length;
+
+        const coverArticles = articles.filter(a => isValidLongformArticle(a.event));
+        if (coverArticles.length >= 1) {
+          cover = curateCover(coverArticles, false);
+        }
+        loading = false;
+        cacheWasUsed = true;
+        cacheSufficient = true;
+
+        if (articles.length > 0) {
+          oldestTimestamp = Math.min(...articles.map(a => a.publishedAt));
+        }
+      }
+    }
+
+    // Try to load from IndexedDB cache for instant paint
+    if (!forceRefresh && !cacheSufficient && browser) {
       try {
         const cachedEvents = await loadCachedFeedEvents(cacheFilter);
         if (cachedEvents.length > 0) {
@@ -190,20 +227,29 @@
       }
     }
 
-    // If cache is fresh and sufficient, skip network fetch entirely
-    // Schedule a background refresh for later instead
+    // If cache is fresh and sufficient, skip the primary food fetch
+    // but still run the general fetch + background refresh so non-food categories populate
     if (cacheSufficient && isCacheFresh() && !forceRefresh) {
       if (import.meta.env.DEV) {
-        console.log('[Reads] Cache is fresh, skipping network fetch');
+        console.log('[Reads] Cache is fresh, skipping primary food fetch');
       }
-      
-      // Schedule background refresh after delay (won't block UI)
+
+      const startGen = getCurrentRelayGeneration();
+
+      // General (all-topic) fetch so non-food categories aren't empty
+      setTimeout(() => {
+        if (getCurrentRelayGeneration() === startGen) {
+          fetchGeneralArticles(startGen);
+        }
+      }, 1000);
+
+      // Schedule background refresh after delay
       setTimeout(() => {
         if (browser) {
           backgroundRefresh();
         }
       }, BACKGROUND_REFRESH_DELAY_MS);
-      
+
       return;
     }
 
@@ -534,7 +580,8 @@
         'wss://relay.primal.net',
         'wss://nos.lol',
         'wss://relay.damus.io',
-        'wss://nostr.wine'
+        'wss://nostr.wine',
+        'wss://antiprimal.net'
       ];
       
       console.log('[Reads] Direct fallback: querying', articleRelays.join(', '));

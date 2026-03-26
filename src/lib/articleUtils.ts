@@ -301,10 +301,12 @@ export function extractImage(event: NDKEvent): string | null {
     return imageTag[1];
   }
 
-  // Extract first image URL from content
+  // Extract first valid image URL from content
   const imageMatches = content.match(IMAGE_URL_REGEX);
-  if (imageMatches && imageMatches.length > 0 && isValidImageUrl(imageMatches[0])) {
-    return imageMatches[0];
+  if (imageMatches) {
+    for (const url of imageMatches) {
+      if (isValidImageUrl(url)) return url;
+    }
   }
 
   return null;
@@ -479,7 +481,7 @@ const MAX_ARTICLES_PER_AUTHOR = 3; // Limit articles per author in feed
 
 // Blacklisted pubkeys — known spammers filtered at quality-check level
 const BLACKLISTED_PUBKEYS = new Set<string>([
-  // Add known spammer hex pubkeys here
+  '73d9e19ef07e0d098fc0fc5fb75db0f854824e8b4e43905acce638ddf6469960', // npub1w0v7r8hs0cxsnr7ql30mwhdslp2gyn5tfepeqkkvucudmajxn9sqgz5svp
 ]);
 
 // Spam title patterns (case-insensitive)

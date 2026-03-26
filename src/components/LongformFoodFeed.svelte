@@ -7,11 +7,10 @@
   import {
     TOP_RELAY_FOOD_HASHTAGS,
     isValidLongformArticle,
-    isValidLongformArticleNoFoodFilter,
     eventToArticleData,
     type ArticleData
   } from '$lib/articleUtils';
-  import { articleStore, foodArticles, addArticles } from '$lib/articleStore';
+  import { foodArticles, addArticles } from '$lib/articleStore';
 
   let localArticles: ArticleData[] = [];
   let loading = true;

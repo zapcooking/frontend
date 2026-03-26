@@ -1,6 +1,6 @@
 /**
  * Shared article store — single source of truth for articles across reads and explore pages.
- * Articles are fetched once and cached in this store + IndexedDB.
+ * Articles are fetched once and kept in these Svelte stores (in-memory cache).
  */
 import { writable, derived, get } from 'svelte/store';
 import type { ArticleData, CuratedCover } from './articleUtils';

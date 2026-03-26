@@ -16,6 +16,11 @@
   let selectedCategory = 'All';
   let selectedSort: SortOption = isSignedIn ? 'foryou' : 'newest';
 
+  // When user signs in, switch to "For You" if still on unsigned default
+  $: if (isSignedIn && selectedSort === 'newest') {
+    selectedSort = 'foryou';
+  }
+
   // Filter out cover articles and articles without real images (no placeholders in reads)
   $: feedArticles = articles.filter((a) => !coverArticleIds.includes(a.id) && a.imageUrl);
   $: dedupedArticles = deduplicatePreviewArticles(feedArticles);
