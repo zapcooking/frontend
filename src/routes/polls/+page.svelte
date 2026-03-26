@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
-  import { ndk, userPublickey, ndkConnected, ensureNdkConnected } from '$lib/nostr';
+  import { ndk, ensureNdkConnected } from '$lib/nostr';
   import { NDKRelaySet } from '@nostr-dev-kit/ndk';
   import type { NDKEvent, NDKSubscription } from '@nostr-dev-kit/ndk';
   import PollDisplay from '../../components/PollDisplay.svelte';
@@ -25,10 +25,12 @@
 
   /** Returns true if the event should be filtered out by rate limit */
   function exceedsRateLimit(event: NDKEvent, existing: NDKEvent[]): boolean {
-    const oneHourAgo = (event.created_at || 0) - 3600;
-    const recentByAuthor = existing.filter(
-      (e) => e.pubkey === event.pubkey && (e.created_at || 0) > oneHourAgo
-    );
+    const createdAt = event.created_at || 0;
+    const windowStart = createdAt - 3600;
+    const recentByAuthor = existing.filter((e) => {
+      const eCreatedAt = e.created_at || 0;
+      return e.pubkey === event.pubkey && eCreatedAt > windowStart && eCreatedAt <= createdAt;
+    });
     return recentByAuthor.length >= MAX_POLLS_PER_HOUR;
   }
 

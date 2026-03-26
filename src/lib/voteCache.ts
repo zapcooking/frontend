@@ -19,8 +19,7 @@
 
 import { writable, type Readable } from 'svelte/store';
 import { get } from 'svelte/store';
-import { NDKEvent } from '@nostr-dev-kit/ndk';
-import type { NDKSubscription } from '@nostr-dev-kit/ndk';
+import type { NDKEvent, NDKSubscription } from '@nostr-dev-kit/ndk';
 import { ndk } from '$lib/nostr';
 import { countVotes, type PollResults, type PollType } from '$lib/polls';
 import { fetchVoteEventsFromPrimal } from '$lib/primalCache';
@@ -70,6 +69,7 @@ let liveSubPollIds = new Set<string>();
 
 const CLEANUP_DELAY_MS = 60_000;
 const RELAY_TIMEOUT_MS = 8_000;
+const BATCH_CHUNK_SIZE = 50;
 
 function emptyResults(): PollResults {
   return {
@@ -188,39 +188,72 @@ async function executeBatch(pollIds: Set<string>) {
     }
   }
 
-  // Phase 1: Primal cache (fast — typically <1s)
-  try {
-    const events = await fetchVoteEventsFromPrimal(ndkInstance, idsToFetch);
-    for (const event of events) {
-      routeVoteEvent(event);
+  // Chunk large batches to avoid relay rejections / oversized requests
+  const chunks: string[][] = [];
+  for (let i = 0; i < idsToFetch.length; i += BATCH_CHUNK_SIZE) {
+    chunks.push(idsToFetch.slice(i, i + BATCH_CHUNK_SIZE));
+  }
+
+  // Track which polls completed successfully for conditional marking
+  const succeededPolls = new Set<string>();
+
+  for (const chunk of chunks) {
+    // Phase 1: Primal cache (fast — typically <1s)
+    try {
+      const events = await fetchVoteEventsFromPrimal(ndkInstance, chunk);
+      for (const event of events) {
+        routeVoteEvent(event);
+      }
+    } catch (err) {
+      console.debug('[VoteCache] Primal cache fetch skipped:', err);
     }
-  } catch (err) {
-    console.debug('[VoteCache] Primal cache fetch skipped:', err);
+
+    // Phase 2: Relay fetch for completeness
+    let relaySuccess = false;
+    try {
+      await new Promise<void>((resolve) => {
+        const sub = ndkInstance.subscribe(
+          { kinds: [1018 as number], '#e': chunk },
+          { closeOnEose: true }
+        );
+
+        let settled = false;
+        let timeoutId: ReturnType<typeof setTimeout> | null = null;
+
+        const finish = () => {
+          if (settled) return;
+          settled = true;
+          if (timeoutId !== null) clearTimeout(timeoutId);
+          relaySuccess = true;
+          resolve();
+        };
+
+        sub.on('event', (e: NDKEvent) => routeVoteEvent(e));
+        sub.on('eose', finish);
+
+        timeoutId = setTimeout(() => {
+          try { sub.stop(); } catch {}
+          // Timeout — still resolve but don't mark as fully successful
+          if (!settled) {
+            settled = true;
+            resolve();
+          }
+        }, RELAY_TIMEOUT_MS);
+      });
+    } catch (err) {
+      console.debug('[VoteCache] Relay fetch failed:', err);
+    }
+
+    // Only mark polls as fetched if the relay phase completed (not timed out)
+    if (relaySuccess) {
+      for (const id of chunk) {
+        succeededPolls.add(id);
+      }
+    }
   }
 
-  // Phase 2: Relay fetch for completeness (single subscription for all polls)
-  try {
-    await new Promise<void>((resolve) => {
-      const sub = ndkInstance.subscribe(
-        { kinds: [1018 as number], '#e': idsToFetch },
-        { closeOnEose: true }
-      );
-
-      sub.on('event', (e: NDKEvent) => routeVoteEvent(e));
-      sub.on('eose', () => resolve());
-
-      // Safety timeout
-      setTimeout(() => {
-        try { sub.stop(); } catch {}
-        resolve();
-      }, RELAY_TIMEOUT_MS);
-    });
-  } catch (err) {
-    console.debug('[VoteCache] Relay fetch failed:', err);
-  }
-
-  // Mark as fetched so re-mounts don't re-fetch
-  for (const id of idsToFetch) {
+  // Mark successfully fetched polls so re-mounts don't re-fetch
+  for (const id of succeededPolls) {
     fetchedPolls.add(id);
   }
 
