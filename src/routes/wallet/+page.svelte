@@ -370,6 +370,7 @@ import QrCodeIcon from 'phosphor-svelte/lib/QrCode';
   let showReceiveModal = false;
   let sendInput = ''; // Invoice or Lightning address
   let brantaVerifyTriggered = false;
+  let rawQrText = ''; // Raw QR text for QR-based branta verification
   let sendAmount = 0; // Amount for Lightning address sends
   let sendComment = ''; // Optional message for Lightning address sends
   let receiveAmount = 0;
@@ -1042,12 +1043,26 @@ import QrCodeIcon from 'phosphor-svelte/lib/QrCode';
       const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
       const result = jsQRModule(imageData.data, imageData.width, imageData.height);
       if (result) {
-        let decoded = result.data.trim();
-        if (decoded.toLowerCase().startsWith('lightning:')) decoded = decoded.slice('lightning:'.length);
-        else if (decoded.toLowerCase().startsWith('bitcoin:')) decoded = decoded.slice('bitcoin:'.length).split('?')[0];
+        const raw = result.data.trim();
+        let decoded = raw;
+        let shouldAutoVerify = false;
+
+        if (decoded.toLowerCase().startsWith('lightning:')) {
+          decoded = decoded.slice('lightning:'.length);
+          shouldAutoVerify = true;
+        } else if (decoded.toLowerCase().startsWith('bitcoin:')) {
+          const withoutPrefix = decoded.slice('bitcoin:'.length);
+          const params = new URLSearchParams(withoutPrefix.includes('?') ? withoutPrefix.split('?')[1] : '');
+          if (params.has('branta_id') && params.has('branta_secret')) {
+            shouldAutoVerify = true;
+          }
+          decoded = withoutPrefix.split('?')[0];
+        }
+
         sendInput = decoded;
+        rawQrText = shouldAutoVerify ? raw : '';
         sendingMaxBalance = false;
-        brantaVerifyTriggered = false;
+        brantaVerifyTriggered = shouldAutoVerify;
         if (onchainFeeQuote) { onchainFeeQuote = null; onchainPrepareResponse = null; }
         stopQrCamera();
         return;
@@ -4735,6 +4750,7 @@ import QrCodeIcon from 'phosphor-svelte/lib/QrCode';
                         // Reset on-chain state when input changes
                         sendingMaxBalance = false;
                         brantaVerifyTriggered = false;
+                        rawQrText = '';
                         if (onchainFeeQuote) {
                           onchainFeeQuote = null;
                           onchainPrepareResponse = null;
@@ -4743,7 +4759,7 @@ import QrCodeIcon from 'phosphor-svelte/lib/QrCode';
                     />
                     <button
                       type="button"
-                      class="absolute top-2 right-2 p-1 rounded text-caption hover:text-primary-color transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                      class="absolute top-2 right-3.5 p-1 rounded text-caption hover:text-primary-color transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
                       on:click={startQrCamera}
                       disabled={isSending || isSendingOnchain || showQrCamera}
                       title="Scan QR code"
@@ -4759,7 +4775,7 @@ import QrCodeIcon from 'phosphor-svelte/lib/QrCode';
                   <div class="mt-1">
                     {#if sendInput.trim()}
                       {#if brantaVerifyTriggered}
-                        <BrantaBadge paymentString={sendInput.trim()} />
+                        <BrantaBadge paymentString={sendInput.trim()} rawQrText={rawQrText} />
                       {:else}
                         <button
                           type="button"
