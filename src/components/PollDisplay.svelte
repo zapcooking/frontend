@@ -8,11 +8,11 @@
   import {
     parsePollFromEvent,
     isPollExpired,
-    countVotes,
     buildVoteTags,
     type PollData,
     type PollResults
   } from '$lib/polls';
+  import { getVoteResults, type VoteHandle } from '$lib/voteCache';
 
   export let event: NDKEvent;
 
@@ -23,13 +23,13 @@
     voters: new Set(),
     votesByPubkey: new Map()
   };
-  let voteEvents: NDKEvent[] = [];
   let selectedOptions: Set<string> = new Set();
   let showResults = false;
   let voting = false;
   let voted = false;
   let voteError = '';
-  let voteSub: any = null;
+  let voteHandle: VoteHandle | null = null;
+  let unsubResults: (() => void) | null = null;
 
   $: expired = pollData ? isPollExpired(pollData.endsAt) : false;
   $: userVoted = $userPublickey ? results.voters.has($userPublickey) : false;
@@ -45,40 +45,17 @@
   onMount(() => {
     pollData = parsePollFromEvent(event);
     if (pollData) {
-      fetchVotes();
+      voteHandle = getVoteResults(event.id, pollData.pollType);
+      unsubResults = voteHandle.results.subscribe((r) => {
+        results = r;
+      });
     }
   });
 
   onDestroy(() => {
-    if (voteSub) {
-      try {
-        voteSub.stop();
-      } catch {}
-    }
+    if (unsubResults) unsubResults();
+    if (voteHandle) voteHandle.cleanup();
   });
-
-  function fetchVotes() {
-    if (!$ndk || !event.id) return;
-
-    const processedIds = new Set<string>();
-
-    voteSub = $ndk.subscribe(
-      { kinds: [1018 as number], '#e': [event.id] },
-      { closeOnEose: false }
-    );
-
-    voteSub.on('event', (e: NDKEvent) => {
-      if (processedIds.has(e.id)) return;
-      processedIds.add(e.id);
-      voteEvents = [...voteEvents, e];
-      recountVotes();
-    });
-  }
-
-  function recountVotes() {
-    if (!pollData) return;
-    results = countVotes(voteEvents, pollData.pollType);
-  }
 
   function toggleOption(optionId: string) {
     if (displayResults || voting || expired) return;
@@ -114,8 +91,7 @@
       await publishQueue.publishWithRetry(voteEvent, 'all');
 
       voted = true;
-      voteEvents = [...voteEvents, voteEvent];
-      recountVotes();
+      voteHandle?.addLocalVote(voteEvent);
     } catch (err) {
       console.error('[PollDisplay] Failed to vote:', err);
       voteError = 'Failed to submit vote. Please try again.';

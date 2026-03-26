@@ -185,8 +185,8 @@ export class PrimalCacheService {
         } catch (error) {
           console.error('[PrimalCache] Error parsing profile metadata:', error);
         }
-      } else if (event.kind === 1 || event.kind === 1068) {
-        // Note or poll event
+      } else if (event.kind === 1 || event.kind === 1068 || event.kind === 1018) {
+        // Note, poll, or vote event
         pending.events.push(event);
       } else if (event.kind === 30023) {
         // Longform article event
@@ -550,6 +550,121 @@ export class PrimalCacheService {
   }
 
   /**
+   * Fetch polls (kind 1068) from Primal cache
+   */
+  public async fetchPolls(
+    options: { limit?: number; since?: number; until?: number } = {},
+    timeoutMs: number = 8000
+  ): Promise<PrimalFeedResponse> {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      await this.connect();
+    }
+
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      throw new Error('WebSocket not connected');
+    }
+
+    const { limit = 100, since, until } = options;
+    const requestId = this.generateRequestId();
+
+    const cacheParams: Record<string, unknown> = {
+      limit,
+      kind: 1068
+    };
+
+    if (since) cacheParams.since = since;
+    if (until) cacheParams.until = until;
+
+    const request = [
+      'REQ',
+      requestId,
+      {
+        cache: ['explore_global_latest_with_filter', cacheParams]
+      }
+    ];
+
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        this.pendingRequests.delete(requestId);
+        reject(new Error('Poll fetch request timed out'));
+      }, timeoutMs);
+
+      this.pendingRequests.set(requestId, {
+        resolve: (value) => resolve(value as PrimalFeedResponse),
+        reject,
+        timeout,
+        profiles: [],
+        events: [],
+        follows: [],
+        userStats: null,
+        type: 'feed'
+      });
+
+      try {
+        this.ws!.send(JSON.stringify(request));
+      } catch (error) {
+        clearTimeout(timeout);
+        this.pendingRequests.delete(requestId);
+        reject(error as Error);
+      }
+    });
+  }
+
+  /**
+   * Batch-fetch vote events (kind:1018) for multiple polls via standard Nostr REQ.
+   * Returns raw PrimalEvent[] for all votes referencing the given poll IDs.
+   */
+  public async fetchVoteEvents(
+    pollIds: string[],
+    timeoutMs: number = 6000
+  ): Promise<PrimalFeedResponse> {
+    if (!pollIds || pollIds.length === 0) {
+      return { events: [], profiles: [] };
+    }
+
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      await this.connect();
+    }
+
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      throw new Error('WebSocket not connected');
+    }
+
+    const requestId = this.generateRequestId();
+    const request = ['REQ', requestId, {
+      kinds: [1018],
+      '#e': pollIds,
+      limit: Math.min(pollIds.length * 100, 5000)
+    }];
+
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        this.pendingRequests.delete(requestId);
+        reject(new Error('Vote fetch request timed out'));
+      }, timeoutMs);
+
+      this.pendingRequests.set(requestId, {
+        resolve: (value) => resolve(value as PrimalFeedResponse),
+        reject,
+        timeout,
+        profiles: [],
+        events: [],
+        follows: [],
+        userStats: null,
+        type: 'feed'
+      });
+
+      try {
+        this.ws!.send(JSON.stringify(request));
+      } catch (error) {
+        clearTimeout(timeout);
+        this.pendingRequests.delete(requestId);
+        reject(error as Error);
+      }
+    });
+  }
+
+  /**
    * Fetch articles by hashtags using standard Nostr REQ
    * Falls back to regular REQ if cache endpoints don't support articles
    */
@@ -839,6 +954,50 @@ export async function fetchGlobalFromPrimal(
   }
   
   return { events, profiles };
+}
+
+/**
+ * Fetch polls (kind 1068) from Primal cache
+ * Converts Primal events to NDKEvent format for compatibility
+ */
+export async function fetchPollsFromPrimal(
+  ndk: NDK,
+  options: { limit?: number; since?: number; until?: number } = {}
+): Promise<PrimalFeedResult> {
+  const cache = getPrimalCache();
+  if (!cache) {
+    throw new Error('Primal cache not available');
+  }
+
+  const { limit = 100, since, until } = options;
+
+  const response = await cache.fetchPolls({ limit, since, until });
+
+  const events = response.events.map(e => primalEventToNDKLike(e, ndk));
+
+  const profiles = new Map<string, PrimalProfile>();
+  for (const profile of response.profiles) {
+    profiles.set(profile.pubkey, profile);
+  }
+
+  return { events, profiles };
+}
+
+/**
+ * Batch-fetch vote events (kind:1018) for multiple polls from Primal cache.
+ * Returns NDKEvent[] for direct use in vote counting.
+ */
+export async function fetchVoteEventsFromPrimal(
+  ndk: NDK,
+  pollIds: string[]
+): Promise<NDKEvent[]> {
+  const cache = getPrimalCache();
+  if (!cache) {
+    throw new Error('Primal cache not available');
+  }
+
+  const response = await cache.fetchVoteEvents(pollIds);
+  return response.events.map(e => primalEventToNDKLike(e, ndk));
 }
 
 /**
