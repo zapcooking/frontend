@@ -47,7 +47,7 @@
 
   // Generate dynamic presets for zap polls — linear interpolation (matches Primal)
   function getZapPollPresets(min: number, max: number | undefined): { amount: number; label: string }[] {
-    const lo = min || 1;
+    const lo = min || 21;
     const hi = max && max > 0 ? max : 21_000;
     let count = 6;
     if (hi - lo < 6) count = hi - lo + 1;

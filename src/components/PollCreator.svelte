@@ -25,8 +25,8 @@
 
   // Zap poll state
   let isZapPoll = false;
-  let minSats = 1;
-  let maxSats = 0;
+  let minSats = 21;
+  let maxSats = 21000;
 
   // Image upload state
   let uploadingIndex: number | null = null;
@@ -124,8 +124,8 @@
     uploadError = '';
     fileInputs = {};
     isZapPoll = false;
-    minSats = 1;
-    maxSats = 0;
+    minSats = 21;
+    maxSats = 21000;
   }
 
   function setPreset(d: number, h: number, m: number) {
