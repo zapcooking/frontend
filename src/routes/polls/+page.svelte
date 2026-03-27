@@ -4,6 +4,7 @@
   import { NDKRelaySet } from '@nostr-dev-kit/ndk';
   import type { NDKEvent, NDKSubscription } from '@nostr-dev-kit/ndk';
   import PollDisplay from '../../components/PollDisplay.svelte';
+  import ZapPollDisplay from '../../components/ZapPollDisplay.svelte';
   import Avatar from '../../components/Avatar.svelte';
   import CustomName from '../../components/CustomName.svelte';
   import NoteActionBar from '../../components/NoteActionBar.svelte';
@@ -80,7 +81,7 @@
 
       subscription = $ndk.subscribe(
         {
-          kinds: [1068 as number],
+          kinds: [1068 as number, 6969 as number],
           limit: 200,
           since: Math.floor(Date.now() / 1000) - (365 * 24 * 60 * 60)
         },
@@ -95,9 +96,12 @@
         // Block known spammers
         if (BLACKLISTED_PUBKEYS.has(event.pubkey)) return;
 
-        // Must have option tags to be a valid poll
-        const hasOptions = event.tags.some((t) => t[0] === 'option');
-        if (!hasOptions) return;
+        // Validate: kind 1068 needs 'option' tags, kind 6969 needs 'poll_option' tags
+        if (event.kind === 1068) {
+          if (!event.tags.some((t) => t[0] === 'option')) return;
+        } else if (event.kind === 6969) {
+          if (!event.tags.some((t) => t[0] === 'poll_option')) return;
+        }
 
         // Rate limit: max 5 polls per hour per author
         if (exceedsRateLimit(event, polls)) return;
@@ -181,20 +185,26 @@
     <div>
       {#each polls as poll, i (poll.id)}
         {@const pubkey = poll.author?.hexpubkey || poll.pubkey}
-        <article class="poll-item" class:poll-item-border={i > 0}>
+        {@const isZapPoll = poll.kind === 6969}
+        <article class="poll-item" class:poll-item-border={i > 0} class:poll-item-zap={isZapPoll}>
           <!-- Author row -->
           <div class="flex items-center gap-3 mb-3">
             <a href="/user/{nip19.npubEncode(pubkey)}" class="flex-shrink-0">
               <Avatar {pubkey} size={40} />
             </a>
             <div class="flex-1 min-w-0">
-              <a
-                href="/user/{nip19.npubEncode(pubkey)}"
-                class="font-semibold text-sm hover:opacity-80 transition-opacity block"
-                style="color: var(--color-text-primary);"
-              >
-                <CustomName {pubkey} />
-              </a>
+              <div class="flex items-center gap-2">
+                <a
+                  href="/user/{nip19.npubEncode(pubkey)}"
+                  class="font-semibold text-sm hover:opacity-80 transition-opacity block"
+                  style="color: var(--color-text-primary);"
+                >
+                  <CustomName {pubkey} />
+                </a>
+                {#if isZapPoll}
+                  <span class="zap-poll-badge">⚡ Zap Poll</span>
+                {/if}
+              </div>
               <button
                 class="poll-time"
                 on:click={() => navigateToNote(poll)}
@@ -204,8 +214,12 @@
             </div>
           </div>
 
-          <!-- Poll content (flows directly into the feed item) -->
-          <PollDisplay event={poll} />
+          <!-- Poll content -->
+          {#if isZapPoll}
+            <ZapPollDisplay event={poll} />
+          {:else}
+            <PollDisplay event={poll} />
+          {/if}
 
           <!-- Actions -->
           <div class="mt-2">
@@ -249,5 +263,28 @@
   .poll-time:hover {
     text-decoration: underline;
     color: var(--color-text-primary);
+  }
+
+  .poll-item-zap {
+    background: rgba(250, 204, 21, 0.06);
+    border-left: 3px solid rgba(250, 204, 21, 0.5);
+    padding-left: 1rem;
+    border-radius: 0.5rem;
+    margin: 0.25rem 0;
+  }
+
+  :global(.dark) .poll-item-zap {
+    background: rgba(250, 204, 21, 0.04);
+    border-left-color: rgba(250, 204, 21, 0.3);
+  }
+
+  .zap-poll-badge {
+    font-size: 0.6875rem;
+    font-weight: 600;
+    color: #facc15;
+    background: rgba(250, 204, 21, 0.1);
+    padding: 0.0625rem 0.375rem;
+    border-radius: 9999px;
+    white-space: nowrap;
   }
 </style>

@@ -17,7 +17,7 @@
   import { displayCurrency } from '$lib/currencyStore';
   import { convertSatsToFiat, formatFiatValue } from '$lib/currencyConversion';
 
-  const dispatch = createEventDispatcher<{ 'zap-complete': { amount: number } }>();
+  const dispatch = createEventDispatcher<{ 'zap-complete': { amount: number; pollOptionId?: string } }>();
   import { activeWallet, getWalletKindName } from '$lib/wallet';
   import { sendPayment } from '$lib/wallet/walletManager';
 
@@ -37,8 +37,41 @@
 
   export let open = false;
   export let event: NDKEvent | NDKUser;
+  export let pollOptionId: string | undefined = undefined;
+  export let pollOptionLabel: string | undefined = undefined;
+  export let pollMinSats: number | undefined = undefined;
+  export let pollMaxSats: number | undefined = undefined;
+  export let pollEventKind: number | undefined = undefined;
 
   let amount: number = 21;
+
+  // Generate dynamic presets for zap polls — linear interpolation (matches Primal)
+  function getZapPollPresets(min: number, max: number | undefined): { amount: number; label: string }[] {
+    const lo = min || 21;
+    const hi = max && max > 0 ? max : 21_000;
+    let count = 6;
+    if (hi - lo < 6) count = hi - lo + 1;
+    if (count <= 0) count = 1;
+
+    const presets: number[] = count === 1
+      ? [lo]
+      : Array.from({ length: count }, (_, i) => Math.round(lo + (i * (hi - lo)) / (count - 1)));
+
+    return presets.map(a => ({
+      amount: a,
+      label: a >= 1_000_000 ? `${(a / 1_000_000).toFixed(1)}M`
+           : a >= 1_000 ? `${a % 1_000 === 0 ? `${a / 1_000}K` : a.toLocaleString()}`
+           : String(a)
+    }));
+  }
+
+  $: isPollMode = pollOptionId != null;
+  $: pollPresets = isPollMode ? getZapPollPresets(pollMinSats || 1, pollMaxSats) : [];
+
+  // Set default amount to min sats when entering poll mode
+  $: if (isPollMode && pollMinSats && amount === 21) {
+    amount = pollMinSats;
+  }
   let message: string = '';
 
   let state: 'pre' | 'pending' | 'success' | 'error' = 'pre';
@@ -130,11 +163,15 @@
       recipientPubkeyForDisplay = recipientPubkey;
 
       // Get the invoice from zapManager
+      const extraTags = pollOptionId
+        ? [['poll_option', pollOptionId], ...(pollEventKind ? [['k', String(pollEventKind)]] : [])]
+        : undefined;
       const zapResult = await zapManager.createZap(
         recipientPubkey,
         amount * 1000,
         message,
-        eventId
+        eventId,
+        extraTags
       );
 
       // Use the unified wallet manager to send payment (handles both Spark and NWC)
@@ -154,7 +191,7 @@
       hapticSuccess();
 
       // Notify parent that zap completed so it can refresh zap totals
-      dispatch('zap-complete', { amount });
+      dispatch('zap-complete', { amount, pollOptionId });
 
       // Auto-close modal after 2.5s; user can also tap anywhere to dismiss
       successTimeout = setTimeout(() => {
@@ -199,11 +236,15 @@
       recipientPubkeyForDisplay = recipientPubkey;
 
       // Get the invoice from zapManager
+      const extraTags = pollOptionId
+        ? [['poll_option', pollOptionId], ...(pollEventKind ? [['k', String(pollEventKind)]] : [])]
+        : undefined;
       const zapResult = await zapManager.createZap(
         recipientPubkey,
         amount * 1000,
         message,
-        eventId
+        eventId,
+        extraTags
       );
 
       isCreatingInvoice = false;
@@ -217,7 +258,7 @@
         invoice: zapResult.invoice,
         verify: zapResult.verify,
         onPaid: () => {
-          dispatch('zap-complete', { amount });
+          dispatch('zap-complete', { amount, pollOptionId });
         },
         onCancelled: () => {
           // User cancelled - reopen our modal
@@ -276,20 +317,49 @@
       </div>
     {:else if state == 'pre'}
       <div class="flex flex-col gap-3">
+        {#if pollOptionLabel}
+          <div class="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium" style="background: rgba(250, 204, 21, 0.1); color: var(--color-text-primary); border: 1px solid rgba(250, 204, 21, 0.3);">
+            <span>⚡</span>
+            <span>Voting for: <strong>{pollOptionLabel}</strong></span>
+          </div>
+          {#if pollMinSats || pollMaxSats}
+            <p class="text-xs text-caption px-1">
+              {#if pollMinSats}Min: {pollMinSats} sats{/if}
+              {#if pollMinSats && pollMaxSats} · {/if}
+              {#if pollMaxSats}Max: {pollMaxSats} sats{/if}
+            </p>
+          {/if}
+        {/if}
         <div class="grid grid-cols-4 gap-2">
-          {#each defaultZapSatsAmounts as zapOption}
-            <button
-              on:click={() => handlePresetClick(zapOption.amount)}
-              class="flex flex-col items-center justify-center py-3 px-2 rounded-xl transition-all duration-200 cursor-pointer
-                {amount === zapOption.amount
-                ? 'bg-gradient-to-r from-orange-500 to-amber-500 text-white shadow-md scale-105'
-                : 'bg-input hover:bg-accent-gray'}"
-              style={amount !== zapOption.amount ? 'color: var(--color-text-primary)' : ''}
-            >
-              <span class="text-xl">{zapOption.emoji}</span>
-              <span class="text-sm font-semibold">{zapOption.label}</span>
-            </button>
-          {/each}
+          {#if isPollMode && pollPresets.length > 0}
+            {#each pollPresets as preset}
+              <button
+                on:click={() => handlePresetClick(preset.amount)}
+                class="flex flex-col items-center justify-center py-3 px-2 rounded-xl transition-all duration-200 cursor-pointer
+                  {amount === preset.amount
+                  ? 'bg-gradient-to-r from-yellow-500 to-amber-500 text-white shadow-md scale-105'
+                  : 'bg-input hover:bg-accent-gray'}"
+                style={amount !== preset.amount ? 'color: var(--color-text-primary)' : ''}
+              >
+                <span class="text-xl">⚡</span>
+                <span class="text-sm font-semibold">{preset.label}</span>
+              </button>
+            {/each}
+          {:else}
+            {#each defaultZapSatsAmounts as zapOption}
+              <button
+                on:click={() => handlePresetClick(zapOption.amount)}
+                class="flex flex-col items-center justify-center py-3 px-2 rounded-xl transition-all duration-200 cursor-pointer
+                  {amount === zapOption.amount
+                  ? 'bg-gradient-to-r from-orange-500 to-amber-500 text-white shadow-md scale-105'
+                  : 'bg-input hover:bg-accent-gray'}"
+                style={amount !== zapOption.amount ? 'color: var(--color-text-primary)' : ''}
+              >
+                <span class="text-xl">{zapOption.emoji}</span>
+                <span class="text-sm font-semibold">{zapOption.label}</span>
+              </button>
+            {/each}
+          {/if}
         </div>
         <input type="text" class="input" bind:value={amount} />
         <textarea rows="2" class="input" bind:value={message} placeholder="Message (optional)" />
@@ -318,7 +388,7 @@
             <p class="text-xs text-caption mt-1">Scan QR code or connect wallet</p>
           </div>
         {/if}
-        <Button class="w-full py-3 text-lg" on:click={submitZap} disabled={isCreatingInvoice}>
+        <Button class="w-full py-3 text-lg" on:click={submitZap} disabled={isCreatingInvoice || (pollMinSats != null && amount < pollMinSats) || (pollMaxSats != null && pollMaxSats > 0 && amount > pollMaxSats)}>
           {#if isCreatingInvoice}
             <span class="flex items-center justify-center gap-2">
               <svg
@@ -344,7 +414,7 @@
               Creating Invoice...
             </span>
           {:else}
-            ⚡ Send {amount.toLocaleString()} sats
+            ⚡ {pollOptionId ? 'Zap Vote' : 'Send'} {amount.toLocaleString()} sats
           {/if}
         </Button>
       </div>
