@@ -5,6 +5,8 @@
   import { addClientTagToEvent } from '$lib/nip89';
   import { publishQueue } from '$lib/publishQueue';
   import NoteContent from './NoteContent.svelte';
+  import CustomAvatar from './CustomAvatar.svelte';
+  import CustomName from './CustomName.svelte';
   import { formatDistanceToNow } from 'date-fns';
   import {
     parsePollFromEvent,
@@ -31,6 +33,19 @@
   let voteError = '';
   let voteHandle: VoteHandle | null = null;
   let unsubResults: (() => void) | null = null;
+  let expandedOption: string | null = null;
+
+  function getVotersForOption(optionId: string): string[] {
+    const pubkeys: string[] = [];
+    for (const [pubkey, optionIds] of results.votesByPubkey) {
+      if (optionIds.includes(optionId)) pubkeys.push(pubkey);
+    }
+    return pubkeys;
+  }
+
+  function toggleVoterList(optionId: string) {
+    expandedOption = expandedOption === optionId ? null : optionId;
+  }
 
   $: expired = pollData ? isPollExpired(pollData.endsAt) : false;
   $: userVoted = $userPublickey ? results.voters.has($userPublickey) : false;
@@ -126,34 +141,50 @@
         {@const isWinner = displayResults && voteCount > 0 && voteCount === maxVoteCount}
 
         {#if displayResults}
-          <div
-            class="poll-card"
-            class:poll-card-winner={isWinner}
-            class:poll-card-user={isUserChoice}
-          >
-            <div class="poll-card-img-wrap">
-              {#if option.image}
-                <img src={option.image} alt={option.label || `Option ${i + 1}`} class="poll-card-img" />
-              {:else}
-                <div class="poll-card-img-placeholder"></div>
-              {/if}
-              <div class="poll-card-overlay">
-                <span class="poll-card-pct">{pct}%</span>
-                {#if option.label}
-                  <span class="poll-card-label">{option.label}</span>
+          {@const voters = getVotersForOption(option.id)}
+          {@const isExpanded = expandedOption === option.id}
+          <div class="poll-card-wrapper" class:poll-card-expanded={isExpanded}>
+            <button
+              class="poll-card"
+              class:poll-card-winner={isWinner}
+              class:poll-card-user={isUserChoice}
+              on:click={() => voters.length > 0 && toggleVoterList(option.id)}
+              disabled={voters.length === 0}
+            >
+              <div class="poll-card-img-wrap">
+                {#if option.image}
+                  <img src={option.image} alt={option.label || `Option ${i + 1}`} class="poll-card-img" />
+                {:else}
+                  <div class="poll-card-img-placeholder"></div>
                 {/if}
-                <div class="poll-card-bar">
-                  <div class="poll-card-bar-fill" style="width: {pct}%"></div>
+                <div class="poll-card-overlay">
+                  <span class="poll-card-pct">{pct}%</span>
+                  {#if option.label}
+                    <span class="poll-card-label">{option.label}</span>
+                  {/if}
+                  <div class="poll-card-bar">
+                    <div class="poll-card-bar-fill" style="width: {pct}%"></div>
+                  </div>
                 </div>
+                {#if isUserChoice}
+                  <span class="poll-check-badge">
+                    <svg viewBox="0 0 12 12" fill="none">
+                      <path d="M2.5 6L5 8.5L9.5 4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                  </span>
+                {/if}
               </div>
-              {#if isUserChoice}
-                <span class="poll-check-badge">
-                  <svg viewBox="0 0 12 12" fill="none">
-                    <path d="M2.5 6L5 8.5L9.5 4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                  </svg>
-                </span>
-              {/if}
-            </div>
+            </button>
+            {#if isExpanded && voters.length > 0}
+              <div class="poll-voters poll-voters-card">
+                {#each voters as pubkey (pubkey)}
+                  <a href="/user/{pubkey}" class="poll-voter">
+                    <CustomAvatar pubkey={pubkey} size={24} />
+                    <CustomName {pubkey} className="poll-voter-name" />
+                  </a>
+                {/each}
+              </div>
+            {/if}
           </div>
         {:else}
           <button
@@ -197,17 +228,37 @@
         {@const isSelected = selectedOptions.has(option.id)}
 
         {#if displayResults}
-          <div class="poll-row poll-row-result" class:poll-row-user={isUserChoice}>
-            <div class="poll-row-fill" style="width: {pct}%"></div>
-            <span class="poll-row-label">
-              {option.label}
-              {#if isUserChoice}
-                <svg class="poll-row-check" viewBox="0 0 12 12" fill="none">
-                  <path d="M2.5 6L5 8.5L9.5 4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                </svg>
-              {/if}
-            </span>
-            <span class="poll-row-pct">{pct}%</span>
+          {@const voters = getVotersForOption(option.id)}
+          {@const isExpanded = expandedOption === option.id}
+          <div>
+            <button
+              class="poll-row poll-row-result"
+              class:poll-row-user={isUserChoice}
+              class:poll-row-expanded={isExpanded}
+              on:click={() => voters.length > 0 && toggleVoterList(option.id)}
+              disabled={voters.length === 0}
+            >
+              <div class="poll-row-fill" style="width: {pct}%"></div>
+              <span class="poll-row-label">
+                {option.label}
+                {#if isUserChoice}
+                  <svg class="poll-row-check" viewBox="0 0 12 12" fill="none">
+                    <path d="M2.5 6L5 8.5L9.5 4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                  </svg>
+                {/if}
+              </span>
+              <span class="poll-row-pct">{pct}%</span>
+            </button>
+            {#if isExpanded && voters.length > 0}
+              <div class="poll-voters">
+                {#each voters as pubkey (pubkey)}
+                  <a href="/user/{pubkey}" class="poll-voter">
+                    <CustomAvatar pubkey={pubkey} size={24} />
+                    <CustomName {pubkey} className="poll-voter-name" />
+                  </a>
+                {/each}
+              </div>
+            {/if}
           </div>
         {:else}
           <button
@@ -255,7 +306,7 @@
           </button>
         {/if}
       {:else if displayResults && $userPublickey && !userVoted && !expired && !voted}
-        <button class="poll-results-link" on:click={() => (showResults = false)}>
+        <button class="poll-results-link" on:click={() => { showResults = false; expandedOption = null; }}>
           Back to vote
         </button>
       {/if}
@@ -488,7 +539,12 @@
     background: rgba(255, 122, 61, 0.08);
   }
 
-  .poll-row-result {
+  .poll-row-result:not(:disabled) {
+    cursor: pointer;
+  }
+
+  .poll-row-result:disabled {
+    opacity: 1;
     cursor: default;
   }
 
@@ -623,5 +679,75 @@
 
   @keyframes fillGrow {
     from { width: 0; }
+  }
+
+  /* ═══════════════════════════════════════════
+     VOTER LIST
+     ═══════════════════════════════════════════ */
+
+  .poll-row-expanded {
+    border-color: var(--color-primary);
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0;
+  }
+
+  .poll-voters {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--color-primary);
+    border-top: none;
+    border-radius: 0 0 0.625rem 0.625rem;
+    background: rgba(249, 115, 22, 0.03);
+    max-height: 11rem;
+    overflow-y: auto;
+  }
+
+  :global(.dark) .poll-voters {
+    background: rgba(255, 122, 61, 0.05);
+  }
+
+  .poll-voters-card {
+    border-radius: 0 0 0.75rem 0.75rem;
+  }
+
+  .poll-voter {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.25rem 0;
+    text-decoration: none;
+    color: var(--color-text-primary);
+    transition: opacity 0.15s;
+  }
+
+  .poll-voter:hover {
+    opacity: 0.8;
+  }
+
+  :global(.poll-voter-name) {
+    font-size: 0.8125rem;
+    font-weight: 500;
+  }
+
+  .poll-card-wrapper {
+    display: contents;
+  }
+
+  .poll-card-wrapper.poll-card-expanded {
+    display: flex;
+    flex-direction: column;
+    grid-column: 1 / -1;
+  }
+
+  .poll-card-wrapper.poll-card-expanded .poll-card {
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0;
+  }
+
+  .poll-card-wrapper button.poll-card:disabled {
+    opacity: 1;
+    cursor: default;
   }
 </style>
