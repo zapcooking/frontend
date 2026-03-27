@@ -4,13 +4,13 @@
   import PlusIcon from 'phosphor-svelte/lib/Plus';
   import TrashIcon from 'phosphor-svelte/lib/Trash';
   import ImageIcon from 'phosphor-svelte/lib/Image';
-  import { generateOptionId, type PollConfig, type PollOption, type PollType } from '$lib/polls';
+  import { generateOptionId, type PollConfig, type PollOption, type PollType, type ZapPollConfig, type ZapPollOption } from '$lib/polls';
   import { ndk } from '$lib/nostr';
   import { uploadImage } from '$lib/mediaUpload';
 
   export let open = false;
 
-  const dispatch = createEventDispatcher<{ create: PollConfig }>();
+  const dispatch = createEventDispatcher<{ create: PollConfig; createZapPoll: ZapPollConfig }>();
 
   let pollType: PollType = 'singlechoice';
   let options: PollOption[] = [
@@ -22,6 +22,11 @@
   let days = 1;
   let hours = 0;
   let minutes = 0;
+
+  // Zap poll state
+  let isZapPoll = false;
+  let minSats = 1;
+  let maxSats = 0;
 
   // Image upload state
   let uploadingIndex: number | null = null;
@@ -83,11 +88,21 @@
       endsAt = Math.floor(Date.now() / 1000) + totalMinutes * 60;
     }
 
-    dispatch('create', {
-      options: validOptions,
-      pollType,
-      endsAt
-    });
+    if (isZapPoll) {
+      dispatch('createZapPoll', {
+        options: validOptions.map(o => ({ id: o.id, label: o.label })),
+        pollType,
+        closedAt: endsAt,
+        valueMinimum: minSats,
+        ...(maxSats > 0 && { valueMaximum: maxSats })
+      });
+    } else {
+      dispatch('create', {
+        options: validOptions,
+        pollType,
+        endsAt
+      });
+    }
     close();
   }
 
@@ -108,6 +123,9 @@
     uploadingIndex = null;
     uploadError = '';
     fileInputs = {};
+    isZapPoll = false;
+    minSats = 1;
+    maxSats = 0;
   }
 
   function setPreset(d: number, h: number, m: number) {
@@ -137,6 +155,26 @@
       >
         Multiple choice
       </button>
+    </div>
+
+    <!-- Zap poll toggle -->
+    <div class="mb-4">
+      <label class="flex items-center gap-2 cursor-pointer">
+        <input type="checkbox" bind:checked={isZapPoll} style="accent-color: #facc15; width: 1rem; height: 1rem; cursor: pointer;" />
+        <span class="text-sm" style="color: var(--color-text-primary);">⚡ Zap Poll <span class="text-xs" style="color: var(--color-caption);">(vote with sats)</span></span>
+      </label>
+      {#if isZapPoll}
+        <div class="flex gap-3 mt-2 ml-6">
+          <div class="flex flex-col gap-1">
+            <label class="text-xs" style="color: var(--color-caption);">Min sats</label>
+            <input type="number" bind:value={minSats} min="1" class="poll-option-input" style="width: 5rem;" />
+          </div>
+          <div class="flex flex-col gap-1">
+            <label class="text-xs" style="color: var(--color-caption);">Max sats <span>(0 = no limit)</span></label>
+            <input type="number" bind:value={maxSats} min="0" class="poll-option-input" style="width: 5rem;" />
+          </div>
+        </div>
+      {/if}
     </div>
 
     <!-- Options -->

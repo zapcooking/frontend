@@ -12,6 +12,7 @@ export interface ZapRequest {
   amount: number; // in millisatoshis
   comment?: string;
   relays?: string[];
+  extraTags?: string[][];
 }
 
 export interface ZapReceipt {
@@ -111,12 +112,13 @@ export class ZapManager {
     zapRequest.kind = 9734;
     zapRequest.content = request.comment || '';
 
-    // Add p tag for recipient pubkey
-    zapRequest.tags.push(['p', request.pubkey]);
+    // Add p tag for recipient pubkey (with relay hint)
+    const relayHint = request.relays?.[0] || '';
+    zapRequest.tags.push(relayHint ? ['p', request.pubkey, relayHint] : ['p', request.pubkey]);
 
-    // Add e tag for event being zapped (if applicable)
+    // Add e tag for event being zapped (with relay hint)
     if (request.eventId) {
-      zapRequest.tags.push(['e', request.eventId]);
+      zapRequest.tags.push(relayHint ? ['e', request.eventId, relayHint] : ['e', request.eventId]);
     }
 
     // Add relays tag (NIP-57: single tag with all relay URLs as values)
@@ -129,6 +131,13 @@ export class ZapManager {
 
     // Add lnurl tag (will be populated when we get the LNURL)
     zapRequest.tags.push(['lnurl', '']);
+
+    // Add any extra tags (e.g., poll_option for zap polls)
+    if (request.extraTags) {
+      for (const tag of request.extraTags) {
+        zapRequest.tags.push(tag);
+      }
+    }
 
     // Add NIP-89 client tag
     zapRequest.tags = ensureClientTag(zapRequest.tags);
@@ -272,7 +281,8 @@ export class ZapManager {
     recipient: NDKUser | string,
     amount: number,
     comment?: string,
-    eventId?: string
+    eventId?: string,
+    extraTags?: string[][]
   ): Promise<{ invoice: string; verify?: string; zapRequest: NDKEvent; zapPubkey: string }> {
     // Check if user is authenticated (required for zap requests)
     if (!this.ndk.signer) {
@@ -355,7 +365,8 @@ export class ZapManager {
       pubkey,
       amount,
       comment,
-      relays: this.ndk.explicitRelayUrls || []
+      relays: this.ndk.explicitRelayUrls || [],
+      extraTags
     });
 
     // Get invoice

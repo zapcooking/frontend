@@ -9,7 +9,7 @@
   import ChartBarHorizontalIcon from 'phosphor-svelte/lib/ChartBarHorizontal';
   import GifPicker from './GifPicker.svelte';
   import PollCreator from './PollCreator.svelte';
-  import { buildPollTags, type PollConfig } from '$lib/polls';
+  import { buildPollTags, buildZapPollTags, type PollConfig, type ZapPollConfig } from '$lib/polls';
   import CustomAvatar from './CustomAvatar.svelte';
   import ProfileLink from './ProfileLink.svelte';
   import { nip19 } from 'nostr-tools';
@@ -60,6 +60,7 @@
   let showGifPicker = false;
   let showPollCreator = false;
   let pollConfig: PollConfig | null = null;
+  let zapPollConfig: ZapPollConfig | null = null;
 
   // Mention autocomplete (shared controller)
   let mentionState: MentionState = {
@@ -149,6 +150,7 @@
     uploadedVideos = [];
     quotedNote = null;
     pollConfig = null;
+    zapPollConfig = null;
     if (composerEl) {
       composerEl.innerHTML = '';
     }
@@ -233,7 +235,8 @@
       !quotedNote &&
       uploadedImages.length === 0 &&
       uploadedVideos.length === 0 &&
-      !pollConfig
+      !pollConfig &&
+      !zapPollConfig
     ) {
       console.log('[PostComposer] No content to post');
       error = 'Please enter some content';
@@ -269,7 +272,7 @@
 
       console.log('[PostComposer] Creating NDKEvent...');
       const event = new NDKEvent($ndk);
-      event.kind = pollConfig ? 1068 : 1;
+      event.kind = zapPollConfig ? 6969 : pollConfig ? 1068 : 1;
 
       // Build content with text, image URLs, and video URLs
       let postContent = content.trim();
@@ -316,7 +319,14 @@
 
       addClientTagToEvent(event);
 
-      if (pollConfig) {
+      if (zapPollConfig) {
+        // Zap polls need a p tag with creator's pubkey for Lightning routing
+        if ($userPublickey) {
+          const relay = $ndk.explicitRelayUrls?.[0] || '';
+          event.tags.push(relay ? ['p', $userPublickey, relay] : ['p', $userPublickey]);
+        }
+        event.tags.push(...buildZapPollTags(zapPollConfig));
+      } else if (pollConfig) {
         event.tags.push(...buildPollTags(pollConfig));
       }
 
@@ -554,15 +564,19 @@
                 </div>
               {/if}
 
-              {#if pollConfig}
+              {#if pollConfig || zapPollConfig}
                 <div class="mb-2 flex items-center gap-2 px-3 py-1.5 rounded-lg bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800">
                   <ChartBarHorizontalIcon size={14} class="text-orange-600 dark:text-orange-400" />
                   <span class="text-xs font-medium text-orange-700 dark:text-orange-300">
-                    Poll: {pollConfig.options.length} options
+                    {#if zapPollConfig}
+                      ⚡ Zap Poll: {zapPollConfig.options.length} options (min {zapPollConfig.valueMinimum} sats)
+                    {:else if pollConfig}
+                      Poll: {pollConfig.options.length} options
+                    {/if}
                   </span>
                   <button
                     type="button"
-                    on:click={() => (pollConfig = null)}
+                    on:click={() => { pollConfig = null; zapPollConfig = null; }}
                     class="ml-auto text-orange-500 hover:text-orange-700 p-0.5"
                     aria-label="Remove poll"
                   >
@@ -671,7 +685,7 @@
               disabled={posting}
               title="Create poll"
             >
-              <ChartBarHorizontalIcon size={18} class={pollConfig ? 'text-primary' : 'text-caption'} />
+              <ChartBarHorizontalIcon size={18} class={pollConfig || zapPollConfig ? 'text-primary' : 'text-caption'} />
             </button>
 
             {#if uploadingImage}
@@ -728,7 +742,8 @@
                   uploadedImages.length === 0 &&
                   uploadedVideos.length === 0 &&
                   !quotedNote &&
-                  !pollConfig)}
+                  !pollConfig &&
+                  !zapPollConfig)}
               class="px-4 py-1.5 text-xs font-medium text-white bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 rounded-full disabled:opacity-50 disabled:cursor-not-allowed transition-all"
             >
               {posting ? 'Posting...' : 'Post'}
@@ -751,6 +766,11 @@
   bind:open={showPollCreator}
   on:create={(e) => {
     pollConfig = e.detail;
+    zapPollConfig = null;
+  }}
+  on:createZapPoll={(e) => {
+    zapPollConfig = e.detail;
+    pollConfig = null;
   }}
 />
 
