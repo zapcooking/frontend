@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       '@branta-ops/branta':
-        specifier: ^0.0.9
-        version: 0.0.9
+        specifier: ^1.0.0
+        version: 1.0.0
       '@breeztech/breez-sdk-spark':
         specifier: 0.11.0
         version: 0.11.0
@@ -298,8 +298,8 @@ packages:
     resolution: {integrity: sha512-qSs4ifwzKJSV39ucNjsvc6WVHs6b7S03sOh2OcHF9UHfVPqWWALUsNUVzhSBiItjRZoLHx7nIarVjqKVusUZ1Q==}
     engines: {node: '>=6.9.0'}
 
-  '@branta-ops/branta@0.0.9':
-    resolution: {integrity: sha512-CLx8UUJQ5dLGWSUmxaFOBitw8C6DTNV0Hk/sm7jOhLOQPjgELLpcIwe/L2Tm3m9kkyKV8M9xdK9YClGRLf5Epw==}
+  '@branta-ops/branta@1.0.0':
+    resolution: {integrity: sha512-X11TSAk4lSGdk8nCjBgtfKWRuo5wKkX8Q5g4V/pJPPc3HEEZ+DB79JsNmQcRLutf+N6KOxgVW0x4rKg6zwZCUw==}
 
   '@breeztech/breez-sdk-spark@0.11.0':
     resolution: {integrity: sha512-wX8ZdFfnXN9t2AuLYlZxslmdHlxqnvkU8kAmIL1GuI3LNV8F7bxMGxLV/WTaQTgd7BGW/pcejpBcNPe7jjCdfA==}
@@ -5218,7 +5218,7 @@ snapshots:
 
   '@babel/helper-validator-identifier@7.28.5': {}
 
-  '@branta-ops/branta@0.0.9': {}
+  '@branta-ops/branta@1.0.0': {}
 
   '@breeztech/breez-sdk-spark@0.11.0':
     optionalDependencies:
