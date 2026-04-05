@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { createEventDispatcher } from 'svelte';
+	import { createEventDispatcher, tick } from 'svelte';
 	import CustomAvatar from './CustomAvatar.svelte';
 	import type { MentionSuggestion } from '$lib/mentionComposer';
 
@@ -10,10 +10,35 @@
 	export let query = '';
 
 	const dispatch = createEventDispatcher<{ select: MentionSuggestion }>();
+
+	let dropdownEl: HTMLDivElement;
+	let topOffset = 0;
+
+	// Capture caret position immediately when show changes (before focus is lost)
+	let caretBottom: number | null = null;
+	$: if (show) {
+		const sel = window.getSelection();
+		if (sel && sel.rangeCount) {
+			const rect = sel.getRangeAt(0).getBoundingClientRect();
+			caretBottom = rect.height > 0
+				? rect.bottom
+				: sel.anchorNode?.parentElement?.getBoundingClientRect().bottom ?? null;
+		}
+	}
+
+	// After DOM renders, compute offset relative to the positioned parent
+	$: if (show && caretBottom !== null) {
+		tick().then(() => {
+			if (dropdownEl?.offsetParent) {
+				const parentRect = (dropdownEl.offsetParent as HTMLElement).getBoundingClientRect();
+				topOffset = caretBottom! - parentRect.top + 4;
+			}
+		});
+	}
 </script>
 
 {#if show}
-	<div class="mention-dropdown" style="border-color: var(--color-input-border);">
+	<div bind:this={dropdownEl} class="mention-dropdown" style="border-color: var(--color-input-border); top: {topOffset}px;">
 		{#if suggestions.length > 0}
 			<div class="mention-dropdown-content">
 				{#each suggestions as suggestion, index}
@@ -47,9 +72,7 @@
 	.mention-dropdown {
 		position: absolute;
 		z-index: 1000;
-		top: 100%;
 		left: 0;
-		margin-top: 0.25rem;
 		width: 280px;
 		max-width: calc(100vw - 2rem);
 		background: var(--color-input-bg);

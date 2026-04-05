@@ -23,6 +23,8 @@
   import PostActionsMenu from '../../components/PostActionsMenu.svelte';
   import MentionDropdown from '../../components/MentionDropdown.svelte';
   import { MentionComposerController, type MentionState } from '$lib/mentionComposer';
+  import { fetchEngagement, optimisticZapUpdate } from '$lib/engagementCache';
+  import { detectHaiku } from '$lib/haiku';
 
   export let data: PageData;
 
@@ -30,7 +32,8 @@
   $: ogTitle = data?.ogMeta?.title || 'Note Thread - zap.cooking';
   $: ogDescription = data?.ogMeta?.description || 'A note shared on zap.cooking - Food. Friends. Freedom.';
   $: ogImage = data?.ogMeta?.image || 'https://zap.cooking/social-share.png';
-  $: ogCreatedAt = data?.ogMeta?.created_at ?? null;
+  $: ogCreatedAt =
+    data?.ogMeta && 'created_at' in data.ogMeta ? (data.ogMeta.created_at ?? null) : null;
 
   let decoded: any = null;
   let event: NDKEvent | null = null;
@@ -51,6 +54,7 @@
   // Reply composer with mentions
   let replyComposerEl: HTMLDivElement;
   let lastRenderedReply = '';
+  let haikuDetected = false;
 
   // @ mention autocomplete state (shared controller)
   let mentionState: MentionState = {
@@ -257,6 +261,7 @@
     mentionCtrl.syncContent(commentText);
     lastRenderedReply = commentText;
   }
+  $: haikuDetected = !!event && event.kind !== 30023 && detectHaiku(commentText);
 
   // Load mute list when user is logged in
   onMount(() => {
@@ -696,7 +701,10 @@
                   tabindex="0"
                   aria-multiline="true"
                   data-placeholder="Write a reply..."
-                  on:input={() => mentionCtrl.handleInput()}
+                  on:input={() => {
+                    commentText = mentionCtrl.handleInput();
+                    lastRenderedReply = commentText;
+                  }}
                   on:keydown={(e) => mentionCtrl.handleKeydown(e)}
                   on:beforeinput={(e) => mentionCtrl.handleBeforeInput(e)}
                   on:paste={(e) => mentionCtrl.handlePaste(e)}
@@ -712,6 +720,11 @@
                   on:select={(e) => mentionCtrl.insertMention(e.detail)}
                 />
               </div>
+              {#if haikuDetected}
+                <p class="px-1 pt-2 text-[11px] text-amber-600 dark:text-amber-400">
+                  🍃 This looks like a haiku. Expect a visit from the haiku bot.
+                </p>
+              {/if}
               {#if commentText.trim() || postingReply}
                 <div class="flex justify-end mt-2">
                   <Button on:click={postReply} disabled={postingReply} class="text-sm px-4 py-1.5">{postingReply ? 'Posting...' : 'Reply'}</Button>

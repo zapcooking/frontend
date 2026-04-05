@@ -21,6 +21,7 @@
   import MentionDropdown from './MentionDropdown.svelte';
   import { MentionComposerController, type MentionState } from '$lib/mentionComposer';
   import { uploadImage, uploadVideo } from '$lib/mediaUpload';
+  import { detectHaiku } from '$lib/haiku';
 
   // Clear stuck posts from the publish queue
   async function clearPendingQueue() {
@@ -61,6 +62,7 @@
   let showPollCreator = false;
   let pollConfig: PollConfig | null = null;
   let zapPollConfig: ZapPollConfig | null = null;
+  let haikuDetected = false;
 
   // Mention autocomplete (shared controller)
   let mentionState: MentionState = {
@@ -91,6 +93,8 @@
   $: if (variant === 'modal') {
     isComposerOpen = true;
   }
+
+  $: haikuDetected = detectHaiku(content);
 
   function focusComposer() {
     setTimeout(() => {
@@ -426,7 +430,7 @@
     {:else}
       <div class={`${variant === 'modal' ? 'flex-1 flex flex-col min-h-0' : 'p-3'}`}>
         <!-- Scrollable content area -->
-        <div class={variant === 'modal' ? 'composer-scroll-area flex-1 overflow-y-auto min-h-0 p-3' : ''}>
+        <div class={variant === 'modal' ? 'composer-scroll-area flex-1 overflow-visible min-h-0 p-3' : ''}>
           <div class="flex gap-3">
             <CustomAvatar pubkey={$userPublickey} size={36} />
             <div class="flex-1">
@@ -440,7 +444,10 @@
                   aria-multiline="true"
                   data-placeholder="What are you eating, cooking, or loving?"
                   on:keydown={handleKeydown}
-                  on:input={() => mentionCtrl.handleInput()}
+                  on:input={() => {
+                    content = mentionCtrl.handleInput();
+                    lastRenderedContent = content;
+                  }}
                   on:beforeinput={(e) => mentionCtrl.handleBeforeInput(e)}
                   on:paste={(e) => mentionCtrl.handlePaste(e)}
                 ></div>
@@ -569,7 +576,7 @@
                   <ChartBarHorizontalIcon size={14} class="text-orange-600 dark:text-orange-400" />
                   <span class="text-xs font-medium text-orange-700 dark:text-orange-300">
                     {#if zapPollConfig}
-                      ⚡ Zap Poll: {zapPollConfig.options.length} options (min {zapPollConfig.valueMinimum} sats)
+                      Zap Poll: {zapPollConfig.options.length} options (min {zapPollConfig.valueMinimum} sats)
                     {:else if pollConfig}
                       Poll: {pollConfig.options.length} options
                     {/if}
@@ -581,7 +588,12 @@
                     aria-label="Remove poll"
                   >
                     <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                      <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="2"
+                        d="M6 18L18 6M6 6l12 12"
+                      />
                     </svg>
                   </button>
                 </div>
@@ -626,9 +638,17 @@
 
         <!-- Action bar — pinned at bottom in modal, inline otherwise -->
         <div
-          class="flex items-center justify-between pt-2 {variant === 'modal' ? 'flex-shrink-0 px-3 pb-3' : ''}"
-          style="border-top: 1px solid var(--color-input-border)"
+          class="{variant === 'modal' ? 'flex-shrink-0 px-3 pb-3' : ''}"
         >
+          {#if haikuDetected}
+            <p class="pb-2 pt-2 text-[11px] text-amber-600 dark:text-amber-400">
+              🍃 This looks like a haiku. Expect a visit from the haiku bot.
+            </p>
+          {/if}
+          <div
+            class="flex items-center justify-between pt-2"
+            style="border-top: 1px solid var(--color-input-border)"
+          >
           <div class="flex items-center gap-3">
             <label
               class="cursor-pointer p-1.5 rounded-full hover:bg-accent-gray transition-colors"
@@ -748,6 +768,7 @@
             >
               {posting ? 'Posting...' : 'Post'}
             </button>
+          </div>
           </div>
         </div>
       </div>
