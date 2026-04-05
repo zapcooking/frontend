@@ -25,6 +25,7 @@
   import PollCreator from './PollCreator.svelte';
   import { buildPollTags, type PollConfig } from '$lib/polls';
   import { uploadImage, uploadVideo } from '$lib/mediaUpload';
+  import { detectHaiku } from '$lib/haiku';
 
   export let event: NDKEvent;
   export let allReplies: NDKEvent[] = []; // All replies for finding parent
@@ -55,6 +56,7 @@
   let uploadError = '';
   let imageInputEl: HTMLInputElement;
   let videoInputEl: HTMLInputElement;
+  let haikuDetected = false;
 
   // Mention autocomplete
   let mentionState: MentionState = {
@@ -80,6 +82,16 @@
   $: if (replyComposerEl && replyText !== lastRenderedReply) {
     mentionCtrl.syncContent(replyText);
     lastRenderedReply = replyText;
+  }
+
+  $: {
+    const aTag = event.getMatchingTags('a')[0];
+    const ATag = event.getMatchingTags('A')[0];
+    const isRecipeReply =
+      event.kind === 1111 ||
+      (aTag && aTag[1]?.startsWith('30023:')) ||
+      (ATag && ATag[1]?.startsWith('30023:'));
+    haikuDetected = !pollConfig && !isRecipeReply && detectHaiku(replyText);
   }
 
   // Like state
@@ -545,7 +557,10 @@
               tabindex="0"
               aria-multiline="true"
               data-placeholder="Add a reply..."
-              on:input={() => mentionCtrl.handleInput()}
+              on:input={() => {
+                replyText = mentionCtrl.handleInput();
+                lastRenderedReply = replyText;
+              }}
               on:keydown={(e) => mentionCtrl.handleKeydown(e)}
               on:beforeinput={(e) => mentionCtrl.handleBeforeInput(e)}
               on:paste={(e) => mentionCtrl.handlePaste(e)}
@@ -588,6 +603,12 @@
                 </div>
               {/each}
             </div>
+          {/if}
+
+          {#if haikuDetected}
+            <p class="px-1 text-[11px] text-amber-600 dark:text-amber-400">
+              🍃 This looks like a haiku. Expect a visit from the haiku bot.
+            </p>
           {/if}
 
           <div class="reply-buttons">

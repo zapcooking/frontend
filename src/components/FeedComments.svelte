@@ -18,6 +18,7 @@
   import PollCreator from './PollCreator.svelte';
   import { buildPollTags, type PollConfig } from '$lib/polls';
   import { uploadImage, uploadVideo } from '$lib/mediaUpload';
+  import { detectHaiku } from '$lib/haiku';
 
   export let event: NDKEvent;
   let events: NDKEvent[] = [];
@@ -38,6 +39,7 @@
   let uploadError = '';
   let imageInputEl: HTMLInputElement;
   let videoInputEl: HTMLInputElement;
+  let haikuDetected = false;
 
   // Mention autocomplete
   let mentionState: MentionState = {
@@ -64,6 +66,8 @@
     mentionCtrl.syncContent(commentText);
     lastRenderedComment = commentText;
   }
+
+  $: haikuDetected = event.kind !== 30023 && !pollConfig && detectHaiku(commentText);
 
   $: if ($userPublickey) {
     mentionCtrl.preloadFollowList();
@@ -265,7 +269,10 @@
               tabindex="0"
               aria-multiline="true"
               data-placeholder="Add a comment..."
-              on:input={() => mentionCtrl.handleInput()}
+              on:input={() => {
+                commentText = mentionCtrl.handleInput();
+                lastRenderedComment = commentText;
+              }}
               on:keydown={(e) => mentionCtrl.handleKeydown(e)}
               on:beforeinput={(e) => mentionCtrl.handleBeforeInput(e)}
               on:paste={(e) => mentionCtrl.handlePaste(e)}
@@ -308,6 +315,12 @@
                 </div>
               {/each}
             </div>
+          {/if}
+
+          {#if haikuDetected}
+            <p class="px-1 text-[11px] text-amber-600 dark:text-amber-400">
+              🍃 This looks like a haiku. Expect a visit from the haiku bot.
+            </p>
           {/if}
 
           <div class="flex justify-end items-center gap-2">

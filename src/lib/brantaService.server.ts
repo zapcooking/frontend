@@ -153,7 +153,7 @@ export async function getPaymentInfoByQRCode(
 
   try {
     const brantaClient = new V2BrantaClient(config);
-    const response = await brantaClient.getPaymentsByQRCode(qrText.trim());
+    const response = await brantaClient.getPayments(qrText.trim());
 
     return response[0] ?? null;
   } catch (error) {
@@ -161,4 +161,3 @@ export async function getPaymentInfoByQRCode(
     return null;
   }
 }
-

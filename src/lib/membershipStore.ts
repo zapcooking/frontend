@@ -2,7 +2,7 @@ import { writable, derived, get } from 'svelte/store';
 import { browser } from '$app/environment';
 import type { Tier } from '../routes/membership/paymentStore';
 
-export type MembershipTier = 'open' | 'cook_plus' | 'pro_kitchen' | 'founders';
+export type MembershipTier = 'open' | 'member' | 'cook_plus' | 'pro_kitchen' | 'founders';
 
 export interface Membership {
   pubkey: string; // hex pubkey
@@ -184,4 +184,3 @@ export function isMembershipExpiringSoon(timestamp: number): boolean {
   const sevenDays = 7 * 24 * 60 * 60 * 1000;
   return timestamp - Date.now() < sevenDays && timestamp > Date.now();
 }
-

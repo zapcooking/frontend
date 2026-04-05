@@ -23,6 +23,7 @@
   import PollCreator from './PollCreator.svelte';
   import { buildPollTags, type PollConfig } from '$lib/polls';
   import { uploadImage, uploadVideo } from '$lib/mediaUpload';
+  import { detectHaiku } from '$lib/haiku';
 
   export let parentComment: NDKEvent;
 
@@ -46,6 +47,7 @@
   let uploadingVideo = false;
   let imageInputEl: HTMLInputElement;
   let videoInputEl: HTMLInputElement;
+  let haikuDetected = false;
 
   // Mention autocomplete
   let mentionState: MentionState = {
@@ -71,6 +73,16 @@
   $: if (replyComposerEl && replyText !== lastRenderedReply) {
     mentionCtrl.syncContent(replyText);
     lastRenderedReply = replyText;
+  }
+
+  $: {
+    const aTag = parentComment.getMatchingTags('a')[0];
+    const ATag = parentComment.getMatchingTags('A')[0];
+    const isRecipeReply =
+      parentComment.kind === 1111 ||
+      (aTag && aTag[1]?.startsWith('30023:')) ||
+      (ATag && ATag[1]?.startsWith('30023:'));
+    haikuDetected = !pollConfig && !isRecipeReply && detectHaiku(replyText);
   }
 
   // Load replies for this comment
@@ -360,7 +372,10 @@
             aria-multiline="true"
             aria-disabled={!$ndk.signer || postingReply}
             data-placeholder={$ndk.signer ? 'Add a reply...' : 'Log in to reply...'}
-            on:input={() => mentionCtrl.handleInput()}
+            on:input={() => {
+              replyText = mentionCtrl.handleInput();
+              lastRenderedReply = replyText;
+            }}
             on:keydown={(e) => mentionCtrl.handleKeydown(e)}
             on:beforeinput={(e) => mentionCtrl.handleBeforeInput(e)}
             on:paste={(e) => mentionCtrl.handlePaste(e)}
@@ -399,6 +414,12 @@
               </div>
             {/each}
           </div>
+        {/if}
+
+        {#if haikuDetected}
+          <p class="px-1 text-[11px] text-amber-600 dark:text-amber-400">
+            🍃 This looks like a haiku. Expect a visit from the haiku bot.
+          </p>
         {/if}
 
         <div class="flex justify-end items-center gap-2">

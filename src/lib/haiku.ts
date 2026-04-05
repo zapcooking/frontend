@@ -1,3 +1,7 @@
+const EXACT_SYLLABLE_OVERRIDES: Record<string, number> = {
+  liked: 1
+};
+
 /**
  * Count syllables in an English word using a vowel-group heuristic.
  * Not perfect, but useful for detecting likely 5-7-5 structure.
@@ -5,6 +9,7 @@
 export function countSyllables(word: string): number {
   const normalized = word.toLowerCase().trim();
   if (!normalized) return 0;
+  if (normalized in EXACT_SYLLABLE_OVERRIDES) return EXACT_SYLLABLE_OVERRIDES[normalized];
   if (normalized.length <= 2) return 1;
 
   const vowels = 'aeiouy';
@@ -20,6 +25,18 @@ export function countSyllables(word: string): number {
   // Silent trailing e (e.g. "make")
   if (normalized.endsWith('e') && count > 1) count -= 1;
 
+  // Many past-tense words ending in -ed keep the "e" silent (e.g. "liked").
+  // Exclude cases where the ending is typically pronounced as its own syllable.
+  if (
+    normalized.endsWith('ed') &&
+    count > 1 &&
+    normalized.length > 3 &&
+    !normalized.endsWith('ted') &&
+    !normalized.endsWith('ded')
+  ) {
+    count -= 1;
+  }
+
   // -le ending counts as a syllable when preceded by a consonant (e.g. "little")
   if (
     normalized.endsWith('le') &&
@@ -33,7 +50,7 @@ export function countSyllables(word: string): number {
 }
 
 /**
- * Detects likely haiku text (5-7-5), English-only heuristic.
+ * Detects haiku text (5-7-5), English-only heuristic.
  * Supports both explicit 3-line format and single-line prose.
  */
 export function detectHaiku(text: string): boolean {
