@@ -23,7 +23,6 @@
   import PostActionsMenu from '../../components/PostActionsMenu.svelte';
   import MentionDropdown from '../../components/MentionDropdown.svelte';
   import { MentionComposerController, type MentionState } from '$lib/mentionComposer';
-  import { fetchEngagement, optimisticZapUpdate } from '$lib/engagementCache';
   import { detectHaiku } from '$lib/haiku';
 
   export let data: PageData;
