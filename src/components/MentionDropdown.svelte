@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { createEventDispatcher, tick } from 'svelte';
+	import { createEventDispatcher } from 'svelte';
 	import CustomAvatar from './CustomAvatar.svelte';
 	import type { MentionSuggestion } from '$lib/mentionComposer';
 
@@ -11,34 +11,28 @@
 
 	const dispatch = createEventDispatcher<{ select: MentionSuggestion }>();
 
-	let dropdownEl: HTMLDivElement;
-	let topOffset = 0;
+	// Capture caret viewport position when dropdown opens
+	let fixedTop = 0;
+	let fixedLeft = 0;
 
-	// Capture caret position immediately when show changes (before focus is lost)
-	let caretBottom: number | null = null;
 	$: if (show) {
 		const sel = window.getSelection();
 		if (sel && sel.rangeCount) {
 			const rect = sel.getRangeAt(0).getBoundingClientRect();
-			caretBottom = rect.height > 0
-				? rect.bottom
-				: sel.anchorNode?.parentElement?.getBoundingClientRect().bottom ?? null;
-		}
-	}
-
-	// After DOM renders, compute offset relative to the positioned parent
-	$: if (show && caretBottom !== null) {
-		tick().then(() => {
-			if (dropdownEl?.offsetParent) {
-				const parentRect = (dropdownEl.offsetParent as HTMLElement).getBoundingClientRect();
-				topOffset = caretBottom! - parentRect.top + 4;
+			if (rect.height > 0) {
+				fixedTop = rect.bottom + 4;
+				fixedLeft = rect.left;
+			} else {
+				const parentRect = sel.anchorNode?.parentElement?.getBoundingClientRect();
+				fixedTop = (parentRect?.bottom ?? 0) + 4;
+				fixedLeft = parentRect?.left ?? 0;
 			}
-		});
+		}
 	}
 </script>
 
 {#if show}
-	<div bind:this={dropdownEl} class="mention-dropdown" style="border-color: var(--color-input-border); top: {topOffset}px;">
+	<div class="mention-dropdown" style="border-color: var(--color-input-border); top: {fixedTop}px; left: {fixedLeft}px;">
 		{#if suggestions.length > 0}
 			<div class="mention-dropdown-content">
 				{#each suggestions as suggestion, index}
@@ -70,9 +64,8 @@
 <style>
 	/* PR #143 fix #3: z-index 50 -> 1000 */
 	.mention-dropdown {
-		position: absolute;
+		position: fixed;
 		z-index: 1000;
-		left: 0;
 		width: 280px;
 		max-width: calc(100vw - 2rem);
 		background: var(--color-input-bg);

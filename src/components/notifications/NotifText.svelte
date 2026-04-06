@@ -7,14 +7,16 @@
   type Segment =
     | { type: 'text'; value: string }
     | { type: 'mention'; pubkey: string }
-    | { type: 'ref'; label: string };
+    | { type: 'ref'; label: string }
+    | { type: 'url'; href: string };
 
   const NOSTR_REF_PATTERN = /nostr:((?:npub1|nprofile1|nevent1|note1|naddr1)[a-z0-9]+)/gi;
 
-  const IMAGE_URL_PATTERN =
-    /https?:\/\/[^\s]+\.(?:jpg|jpeg|png|gif|webp|svg|bmp|avif)(?:\?[^\s]*)?/gi;
-  const IMAGE_HOST_PATTERN =
-    /https?:\/\/(?:i\.)?(?:nostr\.build|imgur\.com|primal\.b-cdn\.net|image\.nostr\.build|void\.cat|m\.primal\.net|cdn\.satellite\.earth)[^\s]*/gi;
+  const MEDIA_URL_PATTERN =
+    /https?:\/\/[^\s]+\.(?:jpg|jpeg|png|gif|webp|svg|bmp|avif|mp4|webm|mov|ogg)(?:\?[^\s]*)?/gi;
+  const MEDIA_HOST_PATTERN =
+    /https?:\/\/(?:i\.)?(?:nostr\.build|imgur\.com|primal\.b-cdn\.net|image\.nostr\.build|void\.cat|m\.primal\.net|cdn\.satellite\.earth|v\.nostr\.build)[^\s]*/gi;
+  const URL_PATTERN = /https?:\/\/[^\s]+/g;
   // Negative lookbehind ensures we don't strip bech32 inside nostr: URIs
   const BARE_BECH32_PATTERN =
     /(?<!nostr:)\b(?:note1|nevent1|naddr1|npub1|nprofile1)[023456789ac-hj-np-z]{20,}\b/gi;
@@ -31,10 +33,10 @@
   function parse(input: string): Segment[] {
     if (!input) return [];
 
-    // Clean image URLs and bare bech32 before parsing
+    // Clean media URLs and bare bech32 before parsing
     let cleaned = input
-      .replace(IMAGE_URL_PATTERN, '')
-      .replace(IMAGE_HOST_PATTERN, '')
+      .replace(MEDIA_URL_PATTERN, '')
+      .replace(MEDIA_HOST_PATTERN, '')
       .replace(BARE_BECH32_PATTERN, '')
       .replace(/\s+/g, ' ')
       .trim();
@@ -72,13 +74,31 @@
       segments.push({ type: 'text', value: cleaned.substring(lastIndex) });
     }
 
-    return segments;
+    // Second pass: linkify URLs in text segments
+    return segments.flatMap((seg) => {
+      if (seg.type !== 'text') return [seg];
+      const result: Segment[] = [];
+      let pos = 0;
+      URL_PATTERN.lastIndex = 0;
+      let urlMatch: RegExpExecArray | null;
+      while ((urlMatch = URL_PATTERN.exec(seg.value)) !== null) {
+        if (urlMatch.index > pos) {
+          result.push({ type: 'text', value: seg.value.substring(pos, urlMatch.index) });
+        }
+        result.push({ type: 'url', href: urlMatch[0] });
+        pos = urlMatch.index + urlMatch[0].length;
+      }
+      if (pos < seg.value.length) {
+        result.push({ type: 'text', value: seg.value.substring(pos) });
+      }
+      return result.length > 0 ? result : [seg];
+    });
   }
 
   $: segments = parse(text);
 </script>
 
-{#each segments as seg, i (i)}{#if seg.type === 'text'}{seg.value}{:else if seg.type === 'mention'}<span class="notif-mention">@<CustomName pubkey={seg.pubkey} /></span>{:else if seg.type === 'ref'}<span class="notif-ref">{seg.label}</span>{/if}{/each}
+{#each segments as seg, i (i)}{#if seg.type === 'text'}{seg.value}{:else if seg.type === 'mention'}<span class="notif-mention">@<CustomName pubkey={seg.pubkey} /></span>{:else if seg.type === 'ref'}<span class="notif-ref">{seg.label}</span>{:else if seg.type === 'url'}<a href={seg.href} class="notif-link" target="_blank" rel="noopener noreferrer">{seg.href.replace(/^https?:\/\//, '').split('/')[0]}</a>{/if}{/each}
 
 <style>
   .notif-mention {
@@ -87,5 +107,14 @@
   }
   .notif-ref {
     font-style: italic;
+  }
+  .notif-link {
+    color: var(--color-link, #f7931a);
+    text-decoration: underline;
+    text-decoration-color: transparent;
+    transition: text-decoration-color 0.15s;
+  }
+  .notif-link:hover {
+    text-decoration-color: currentColor;
   }
 </style>

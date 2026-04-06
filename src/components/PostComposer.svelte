@@ -430,7 +430,7 @@
     {:else}
       <div class={`${variant === 'modal' ? 'flex-1 flex flex-col min-h-0' : 'p-3'}`}>
         <!-- Scrollable content area -->
-        <div class={variant === 'modal' ? 'composer-scroll-area flex-1 overflow-visible min-h-0 p-3' : ''}>
+        <div class={variant === 'modal' ? 'composer-scroll-area flex-1 overflow-y-auto min-h-0 p-3' : ''}>
           <div class="flex gap-3">
             <CustomAvatar pubkey={$userPublickey} size={36} />
             <div class="flex-1">

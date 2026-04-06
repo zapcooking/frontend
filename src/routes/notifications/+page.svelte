@@ -31,7 +31,6 @@
   import LightningIcon from 'phosphor-svelte/lib/Lightning';
   import AtIcon from 'phosphor-svelte/lib/At';
   import BellIcon from 'phosphor-svelte/lib/Bell';
-  import NoteContent from '../../components/NoteContent.svelte';
   import VideoIcon from 'phosphor-svelte/lib/Video';
 
   // Pull-to-refresh ref
@@ -325,7 +324,7 @@
   function cleanMediaUrls(text: string): string {
     if (!text) return text;
     const mediaUrlPattern =
-      /https?:\/\/[^\s]+\.(?:jpg|jpeg|png|gif|webp|svg|bmp|avif|mp4|webm|mov|ogg|mp3|wav|m4a)(?:\?[^\s]*)?/gi;
+      /https?:\/\/[^\s]+\.(?:jpg|jpeg|png|gif|webp|svg|bmp|avif|mp4|webm|mov|ogg)(?:\?[^\s]*)?/gi;
     const mediaHostPattern =
       /https?:\/\/(?:i\.)?(?:nostr\.build|imgur\.com|primal\.b-cdn\.net|image\.nostr\.build|void\.cat|m\.primal\.net|cdn\.satellite\.earth|v\.nostr\.build)[^\s]*/gi;
 
