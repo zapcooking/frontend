@@ -30,6 +30,8 @@
   import ArrowsClockwiseIcon from 'phosphor-svelte/lib/ArrowsClockwise';
   import LightningIcon from 'phosphor-svelte/lib/Lightning';
   import AtIcon from 'phosphor-svelte/lib/At';
+  import BellIcon from 'phosphor-svelte/lib/Bell';
+  import VideoIcon from 'phosphor-svelte/lib/Video';
 
   // Pull-to-refresh ref
   let pullToRefreshEl: PullToRefresh;
@@ -46,6 +48,7 @@
     title?: string;
     preview: string;
     image?: string;
+    hasVideo?: boolean;
   } | null;
 
   // Map of referenced eventId -> preview data (null = failed to load)
@@ -139,11 +142,11 @@
 
   let activeTab: TabType = 'all';
 
-  const tabs: { id: TabType; label: string }[] = [
-    { id: 'all', label: 'All' },
-    { id: 'zaps', label: 'Zaps' },
-    { id: 'replies', label: 'Replies' },
-    { id: 'mentions', label: 'Mentions' }
+  const tabs: { id: TabType; label: string; icon: typeof BellIcon }[] = [
+    { id: 'all', label: 'All', icon: BellIcon },
+    { id: 'zaps', label: 'Zaps', icon: LightningIcon },
+    { id: 'replies', label: 'Replies', icon: ChatCircleIcon },
+    { id: 'mentions', label: 'Mentions', icon: AtIcon }
   ];
 
   // Local muted users set - populated from localStorage immediately
@@ -318,16 +321,16 @@
       });
   }
 
-  function cleanImageUrls(text: string): string {
+  function cleanMediaUrls(text: string): string {
     if (!text) return text;
-    const imageUrlPattern =
-      /https?:\/\/[^\s]+\.(?:jpg|jpeg|png|gif|webp|svg|bmp|avif)(?:\?[^\s]*)?/gi;
-    const imageHostPattern =
-      /https?:\/\/(?:i\.)?(?:nostr\.build|imgur\.com|primal\.b-cdn\.net|image\.nostr\.build|void\.cat|m\.primal\.net|cdn\.satellite\.earth)[^\s]*/gi;
+    const mediaUrlPattern =
+      /https?:\/\/[^\s]+\.(?:jpg|jpeg|png|gif|webp|svg|bmp|avif|mp4|webm|mov|ogg)(?:\?[^\s]*)?/gi;
+    const mediaHostPattern =
+      /https?:\/\/(?:i\.)?(?:nostr\.build|imgur\.com|primal\.b-cdn\.net|image\.nostr\.build|void\.cat|m\.primal\.net|cdn\.satellite\.earth|v\.nostr\.build)[^\s]*/gi;
 
     return text
-      .replace(imageUrlPattern, '')
-      .replace(imageHostPattern, '')
+      .replace(mediaUrlPattern, '')
+      .replace(mediaHostPattern, '')
       .replace(/\s{2,}/g, ' ')
       .trim();
   }
@@ -354,6 +357,12 @@
     return match?.[0];
   }
 
+  function hasVideoUrl(content: string): boolean {
+    if (!content) return false;
+    return /https?:\/\/[^\s]+\.(?:mp4|webm|mov|ogg)(?:\?[^\s]*)?/i.test(content) ||
+      /https?:\/\/v\.nostr\.build\/[^\s]*/i.test(content);
+  }
+
   function buildContextPreview(event: NDKEvent): ContextPreview {
     const kind = event.kind || 1;
     const pubkey = event.pubkey;
@@ -378,10 +387,11 @@
 
     const rawContent = event.content || '';
     const image = extractFirstImage(rawContent);
+    const video = !image && hasVideoUrl(rawContent);
     const preview = normalizeText(rawContent).slice(0, 500);
     void resolveNpubMentions(preview);
     void resolveNostrRefs(preview);
-    return { kind, pubkey, preview: preview || '(No text)', image };
+    return { kind, pubkey, preview: preview || '(No text)', image, hasVideo: video };
   }
 
   async function runWithConcurrency(
@@ -632,7 +642,7 @@
   }
 
   function formatPreview(preview: string): string {
-    let text = replaceNostrMentions(cleanImageUrls(preview));
+    let text = replaceNostrMentions(cleanMediaUrls(preview));
     text = text.replace(/\b(?:note1|nevent1|naddr1|npub1|nprofile1)[023456789ac-hj-np-z]{20,}\b/gi, '');
     return text.replace(/\s+/g, ' ').trim();
   }
@@ -740,16 +750,17 @@
       </div>
     {:else}
       <!-- Tabs -->
-      <div class="mb-6 border-b" style="border-color: var(--color-input-border)">
-        <div class="flex overflow-x-auto scrollbar-hide">
+      <div class="mb-6">
+        <div class="flex overflow-x-auto scrollbar-hide pb-0 border-b border-solid" style="border-color: var(--color-input-border); background: none; border-radius: 0; border-top: none; border-left: none; border-right: none;">
           {#each tabs as tab}
             <button
               on:click={() => (activeTab = tab.id)}
-              class="flex-1 py-2 text-sm font-medium transition-colors relative cursor-pointer whitespace-nowrap text-center"
+              class="flex-1 py-2 text-sm font-medium transition-colors relative cursor-pointer whitespace-nowrap text-center flex items-center justify-center gap-1.5"
               style="color: {activeTab === tab.id
                 ? 'var(--color-text-primary)'
                 : 'var(--color-text-secondary)'}"
             >
+              <svelte:component this={tab.icon} size={16} />
               {tab.label}
               {#if activeTab === tab.id}
                 <span
@@ -856,6 +867,8 @@
                     </div>
                     {#if ctx.image}
                       <img src={ctx.image} alt="" class="ctx-thumb" loading="lazy" />
+                    {:else if ctx.hasVideo}
+                      <div class="ctx-thumb ctx-video-placeholder"><VideoIcon size={20} /></div>
                     {/if}
                   </div>
                 {:else if type !== 'comment' && contextId && ctx === undefined}
@@ -938,6 +951,7 @@
     align-items: center;
     gap: 0.375rem;
     flex-shrink: 0;
+    width: 72px;
   }
   .notif-icon {
     flex-shrink: 0;
@@ -948,6 +962,7 @@
   .notif-body {
     flex: 1;
     min-width: 0;
+    width: 100%;
   }
 
   /* --- Header: action text + time --- */
@@ -1041,6 +1056,13 @@
     border-radius: 0.375rem;
     object-fit: cover;
     flex-shrink: 0;
+  }
+  .ctx-video-placeholder {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--color-accent-gray);
+    color: var(--color-text-secondary);
   }
   .ctx-loading {
     height: 0.75rem;
