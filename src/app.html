@@ -3,6 +3,15 @@
   <head>
     <meta charset="utf-8" />
 
+    <!-- Apply dark mode before first paint to prevent flash -->
+    <script>
+      (function () {
+        var theme = localStorage.getItem('nostrcooking_theme') || 'system';
+        var dark = theme === 'dark' || (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+        if (dark) document.documentElement.classList.add('dark');
+      })();
+    </script>
+
     <!-- Override fetch BEFORE anything else loads to intercept __data.json requests in static builds -->
     <script>
       (function () {

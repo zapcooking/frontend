@@ -34,7 +34,7 @@
 
   function handleClick() {
     if (!canPublishReaction($ndk, $userPublickey)) {
-      window.location.href = '/login';
+      window.location.href = '/login?redirect=' + encodeURIComponent(window.location.pathname);
       return;
     }
     showPicker = !showPicker;
@@ -45,7 +45,7 @@
     showFullPicker = false;
 
     if (!canPublishReaction($ndk, $userPublickey)) {
-      window.location.href = '/login';
+      window.location.href = '/login?redirect=' + encodeURIComponent(window.location.pathname);
       return;
     }
 

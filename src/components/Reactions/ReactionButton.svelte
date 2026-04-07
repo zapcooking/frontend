@@ -105,7 +105,7 @@
     showFullPicker = false;
 
     if (!canPublishReaction($ndk, $userPublickey)) {
-      window.location.href = '/login';
+      window.location.href = '/login?redirect=' + encodeURIComponent(window.location.pathname);
       return;
     }
 
@@ -155,7 +155,7 @@
 
   function handleAddClick() {
     if (!canPublishReaction($ndk, $userPublickey)) {
-      window.location.href = '/login';
+      window.location.href = '/login?redirect=' + encodeURIComponent(window.location.pathname);
       return;
     }
     showPicker = !showPicker;

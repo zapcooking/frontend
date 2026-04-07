@@ -244,7 +244,7 @@
       <!-- Comments List - flat list with embedded parent quotes -->
       <div class="comments-list">
         {#if sortedComments.length === 0}
-          <p class="text-sm text-caption">No comments yet. Be the first to comment!</p>
+          <p class="text-sm text-caption">No comments yet. {#if !$userPublickey}<a href="/login?redirect={encodeURIComponent(window.location.pathname)}" class="underline hover:opacity-80">Sign in</a> to comment!{:else}Be the first to comment!{/if}</p>
         {:else}
           {#each sortedComments as comment (comment.id)}
             <FeedComment event={comment} allComments={events} {refresh} mainEventId={event.id} />

@@ -23,7 +23,7 @@
 
 	// Redirect if not signed in
 	$: if (!isSignedIn && typeof window !== 'undefined') {
-		goto('/');
+		goto('/login?redirect=/drafts');
 	}
 
 	onMount(() => {
