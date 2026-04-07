@@ -3,6 +3,7 @@
   import { ndk, userPublickey } from '$lib/nostr';
   import { browser } from '$app/environment';
   import { goto } from '$app/navigation';
+  import { page } from '$app/stores';
   import Modal from '../../components/Modal.svelte';
   import type { PageData } from './$types';
   import QRCode from 'svelte-qrcode';
@@ -103,9 +104,10 @@
             userPublickey.set('');
           }
 
-          // Redirect to explore page if authenticated (skip during signup flow)
+          // Redirect after authenticated (skip during signup flow)
           if (state.isAuthenticated && !generateModal && !showSuggestedFollows) {
-            goto('/explore');
+            const redirectTo = $page.url.searchParams.get('redirect') || '/explore';
+            goto(redirectTo);
           }
         });
 
@@ -968,7 +970,8 @@
       if (browser) {
         localStorage.setItem('zapcooking_wallet_welcome_force', '1');
       }
-      goto('/explore');
+      const redirectTo = $page.url.searchParams.get('redirect') || '/explore';
+      goto(redirectTo);
     }}
   />
 

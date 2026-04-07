@@ -756,7 +756,7 @@
         </div>
       {:else if directReplies.length === 0}
         <p class="text-sm py-4 text-center" style="color: var(--color-caption)">
-          No replies yet. Be the first to reply!
+          No replies yet. {#if !$userPublickey}<a href="/login?redirect={encodeURIComponent($page.url.pathname)}" class="underline hover:opacity-80" style="color: var(--color-primary)">Sign in</a> to reply!{:else}Be the first to reply!{/if}
         </p>
       {:else}
         <div class="space-y-0">

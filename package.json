@@ -1,7 +1,7 @@
 {
   "name": "zap.cooking",
   "license": "MIT",
-  "version": "4.2.139",
+  "version": "4.2.172",
   "private": true,
   "scripts": {
     "dev": "vite dev",
@@ -79,6 +79,7 @@
     "svelte-qrcode": "^1.0.0",
     "svelte-tags-input": "^5.0.0",
     "svelte-tiptap": "^3.0.1",
+    "syllable": "^5.0.1",
     "timeago.js": "^4.0.2",
     "turndown": "^7.2.2",
     "webln": "^0.3.2",

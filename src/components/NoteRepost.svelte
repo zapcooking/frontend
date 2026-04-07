@@ -30,7 +30,7 @@
     }
 
     if (!$userPublickey || !$ndk.signer) {
-      window.location.href = '/login';
+      window.location.href = '/login?redirect=' + encodeURIComponent(window.location.pathname);
       return;
     }
 
@@ -81,7 +81,7 @@
     showMenu = false;
 
     if (!$userPublickey) {
-      window.location.href = '/login';
+      window.location.href = '/login?redirect=' + encodeURIComponent(window.location.pathname);
       return;
     }
 

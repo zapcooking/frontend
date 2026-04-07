@@ -51,14 +51,14 @@
     // Check if user is authenticated
     if (!$userPublickey) {
       console.log('User not authenticated - redirecting to login');
-      window.location.href = '/login';
+      window.location.href = '/login?redirect=' + encodeURIComponent(window.location.pathname);
       return;
     }
     
     // Check if NDK has a signer
     if (!$ndk.signer) {
       console.log('No signer available - redirecting to login');
-      window.location.href = '/login';
+      window.location.href = '/login?redirect=' + encodeURIComponent(window.location.pathname);
       return;
     }
     

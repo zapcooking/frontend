@@ -118,8 +118,13 @@
     class="flex-none lg:hidden cursor-pointer transition-transform duration-150 active:scale-95 active:opacity-80"
   >
     <img
-      src={isDarkMode ? '/zap_cooking_logo_white.svg' : SVGNostrCookingWithText}
-      class="w-28 sm:w-40 my-2 sm:my-3"
+      src={SVGNostrCookingWithText}
+      class="w-28 sm:w-40 my-2 sm:my-3 dark:hidden"
+      alt="zap.cooking Logo With Text"
+    />
+    <img
+      src="/zap_cooking_logo_white.svg"
+      class="w-28 sm:w-40 my-2 sm:my-3 hidden dark:block"
       alt="zap.cooking Logo With Text"
     />
   </button>

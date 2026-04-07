@@ -169,8 +169,13 @@
       class="block pl-2 py-2 cursor-pointer transition-transform duration-150 active:scale-95 active:opacity-80"
     >
       <img
-        src={isDarkMode ? '/zap_cooking_logo_white.svg' : SVGNostrCookingWithText}
-        class="w-40"
+        src={SVGNostrCookingWithText}
+        class="w-40 dark:hidden"
+        alt="Zap Cooking"
+      />
+      <img
+        src="/zap_cooking_logo_white.svg"
+        class="w-40 hidden dark:block"
         alt="Zap Cooking"
       />
     </button>

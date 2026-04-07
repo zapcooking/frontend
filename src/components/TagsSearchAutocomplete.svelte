@@ -15,6 +15,12 @@
   let tagquery = '';
   let showAutocomplete = false;
   let inputFocused = false;
+  let inputEl: HTMLInputElement;
+
+  // Auto-focus on mount for mobile overlays where HTML autofocus is unreliable
+  $: if (autofocus && inputEl) {
+    inputEl.focus();
+  }
 
   // Multi-type search state
   let searchResults: {
@@ -348,13 +354,13 @@
   >
     <div class="flex mx-0.5 items-stretch flex-grow focus-within:z-10">
       <input
+        bind:this={inputEl}
         bind:value={tagquery}
         on:input={handleInputChange}
         on:focus={handleInputFocus}
         on:blur={handleInputBlur}
         class="block w-full input"
         placeholder={placeholderString}
-        {autofocus}
       />
     </div>
     <input type="submit" class="hidden" />

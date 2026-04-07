@@ -136,6 +136,75 @@
     }
   }
 
+  // --- Member stats ---
+  import { ndk } from '$lib/nostr';
+  import { onMount } from 'svelte';
+  import CookingPotIcon from 'phosphor-svelte/lib/CookingPot';
+  import StarIcon from 'phosphor-svelte/lib/Star';
+  import ShieldCheckIcon from 'phosphor-svelte/lib/ShieldCheck';
+  import LightningIcon from 'phosphor-svelte/lib/Lightning';
+  import RobotIcon from 'phosphor-svelte/lib/Robot';
+  import StorefrontIcon from 'phosphor-svelte/lib/Storefront';
+  import CrownIcon from 'phosphor-svelte/lib/Crown';
+
+  let recipeCount: number | null = null;
+  let memberSince: string | null = null;
+
+  // Compute member since date from founders data or API status
+  $: if (apiMembershipStatus && data.founders) {
+    const founderRecord = data.founders.find((f: any) => f.pubkey === normalizedPubkey);
+    if (founderRecord?.joined) {
+      memberSince = new Date(founderRecord.joined).toLocaleDateString(undefined, { year: 'numeric', month: 'long' });
+    } else {
+      memberSince = null;
+    }
+  }
+
+  // Fetch recipe count for the user (kind 30023 = long-form recipes)
+  onMount(async () => {
+    if (!$userPublickey || !$ndk) return;
+    try {
+      const events = await $ndk.fetchEvents({
+        kinds: [30023],
+        authors: [$userPublickey]
+      });
+      recipeCount = events.size;
+    } catch (e) {
+      console.warn('[Membership] Failed to fetch recipe count:', e);
+    }
+  });
+
+  // Perks by tier
+  const TIER_PERKS: Record<string, { icon: typeof CookingPotIcon; label: string }[]> = {
+    cook_plus: [
+      { icon: RobotIcon, label: 'AI Recipe Extraction' },
+      { icon: ShieldCheckIcon, label: 'Verified NIP-05 Identity' },
+      { icon: StorefrontIcon, label: 'Market Access' },
+      { icon: StarIcon, label: 'Priority Relay Access' },
+    ],
+    pro_kitchen: [
+      { icon: RobotIcon, label: 'AI Recipe Extraction' },
+      { icon: LightningIcon, label: 'Lightning-Gated Recipes' },
+      { icon: ShieldCheckIcon, label: 'Verified NIP-05 Identity' },
+      { icon: StorefrontIcon, label: 'Market Access' },
+      { icon: StarIcon, label: 'Priority Relay Access' },
+      { icon: CookingPotIcon, label: 'Zappy AI Assistant' },
+    ],
+    founders: [
+      { icon: CrownIcon, label: 'Lifetime Access — All Features' },
+      { icon: RobotIcon, label: 'AI Recipe Extraction' },
+      { icon: LightningIcon, label: 'Lightning-Gated Recipes' },
+      { icon: ShieldCheckIcon, label: 'Verified NIP-05 Identity' },
+      { icon: StorefrontIcon, label: 'Market Access' },
+      { icon: StarIcon, label: 'Priority Relay Access' },
+      { icon: CookingPotIcon, label: 'Zappy AI Assistant' },
+    ],
+  };
+
+  $: currentPerks = isFoundersMember
+    ? TIER_PERKS['founders']
+    : TIER_PERKS[apiMembershipStatus?.tier || ''] || TIER_PERKS['cook_plus'];
+
   // Toggle for showing sales/pricing content when active member clicks "Upgrade"
   let showUpgradeOptions = false;
 
@@ -226,10 +295,12 @@
 <div class="membership-page">
   {#if $userPublickey && isActiveMemberApi}
     <section class="member-dashboard">
-      <h3 class="member-dashboard-title">Your Membership</h3>
+      <!-- Header with identity and badge -->
       <div class="member-dashboard-header">
         <div class="member-dashboard-identity">
-          <CustomAvatar pubkey={$userPublickey} size={48} interactive={false} />
+          <div class="member-avatar-glow" class:founders-glow={isFoundersMember}>
+            <CustomAvatar pubkey={$userPublickey} size={56} interactive={false} />
+          </div>
           <div class="member-dashboard-identity-text">
             <CustomName pubkey={$userPublickey} className="member-dashboard-display-name" />
             <span class="member-dashboard-tier">
@@ -247,12 +318,45 @@
         </div>
         <span class="member-dashboard-active-badge">Active</span>
       </div>
+
+      <!-- Stats row -->
       <div class="member-dashboard-stats">
         <div class="member-dashboard-stat">
           <span class="member-dashboard-stat-label">Expires</span>
           <span class="member-dashboard-stat-value">{formatExpiresAt(apiMembershipStatus?.expiresAt)}</span>
         </div>
+        {#if memberSince}
+          <div class="member-dashboard-stat">
+            <span class="member-dashboard-stat-label">Member Since</span>
+            <span class="member-dashboard-stat-value">{memberSince}</span>
+          </div>
+        {/if}
+        <div class="member-dashboard-stat">
+          <span class="member-dashboard-stat-label">Recipes Published</span>
+          <span class="member-dashboard-stat-value">
+            {#if recipeCount !== null}
+              {recipeCount}
+            {:else}
+              ...
+            {/if}
+          </span>
+        </div>
       </div>
+
+      <!-- Perks -->
+      <div class="member-dashboard-perks">
+        <h4 class="member-dashboard-perks-title">Your Perks</h4>
+        <div class="member-dashboard-perks-grid">
+          {#each currentPerks as perk}
+            <div class="member-dashboard-perk">
+              <svelte:component this={perk.icon} size={16} weight="bold" />
+              <span>{perk.label}</span>
+            </div>
+          {/each}
+        </div>
+      </div>
+
+      <!-- Actions -->
       <div class="member-dashboard-actions">
         {#if hasActiveCardMembership}
           {#if manageError}
@@ -270,7 +374,7 @@
             {/if}
           </button>
         {/if}
-        {#if !showUpgradeOptions}
+        {#if !showUpgradeOptions && !isLifetimeMember}
           <button class="member-dashboard-upgrade-button" on:click={handleShowUpgrade}>
             Upgrade Plan
           </button>
@@ -735,19 +839,10 @@
   .member-dashboard {
     background: var(--color-bg-secondary);
     border: 1px solid var(--color-input-border);
-    border-left: 3px solid var(--color-primary);
-    border-radius: 12px;
-    padding: 1.5rem;
+    border-radius: 16px;
+    padding: 1.75rem;
     margin-bottom: 2rem;
-  }
-
-  .member-dashboard-title {
-    font-size: 0.75rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    color: var(--color-text-secondary);
-    margin-bottom: 1rem;
+    background-image: linear-gradient(135deg, rgba(249, 115, 22, 0.05) 0%, transparent 60%);
   }
 
   .member-dashboard-header {
@@ -761,6 +856,15 @@
     display: flex;
     align-items: center;
     gap: 0.75rem;
+  }
+
+  .member-avatar-glow {
+    border-radius: 9999px;
+    box-shadow: 0 0 12px rgba(245, 158, 11, 0.4), 0 0 24px rgba(249, 115, 22, 0.15);
+  }
+
+  .member-avatar-glow.founders-glow {
+    box-shadow: 0 0 14px rgba(245, 158, 11, 0.5), 0 0 28px rgba(249, 115, 22, 0.25), 0 0 48px rgba(249, 115, 22, 0.1);
   }
 
   .member-dashboard-identity-text {
@@ -797,15 +901,21 @@
   }
 
   .member-dashboard-stats {
-    margin-bottom: 1.25rem;
-    padding-top: 1.25rem;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+    padding: 1rem 0;
     border-top: 1px solid var(--color-input-border);
+    border-bottom: 1px solid var(--color-input-border);
   }
 
   .member-dashboard-stat {
     display: flex;
+    flex-direction: column;
     align-items: center;
-    gap: 0.5rem;
+    gap: 0.25rem;
+    text-align: center;
   }
 
   .member-dashboard-stat-value {
@@ -815,10 +925,48 @@
   }
 
   .member-dashboard-stat-label {
-    font-size: 0.75rem;
+    font-size: 0.7rem;
     color: var(--color-text-secondary);
     text-transform: uppercase;
     letter-spacing: 0.5px;
+  }
+
+  .member-dashboard-perks {
+    margin-bottom: 1.5rem;
+  }
+
+  .member-dashboard-perks-title {
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--color-text-secondary);
+    margin-bottom: 0.75rem;
+    text-align: center;
+  }
+
+  .member-dashboard-perks-grid {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 0.5rem;
+  }
+
+  .member-dashboard-perk {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.8rem;
+    color: var(--color-text-primary);
+    padding: 0.5rem 0.75rem;
+    border-radius: 8px;
+    background: rgba(249, 115, 22, 0.06);
+    border: 1px solid rgba(249, 115, 22, 0.12);
+  }
+
+  .member-dashboard-perk :global(svg) {
+    color: #f59e0b;
+    flex-shrink: 0;
   }
 
   .member-dashboard-actions {

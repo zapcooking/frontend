@@ -30,7 +30,7 @@
 
   function openZapModal() {
     if (!$userPublickey) {
-      window.location.href = '/login';
+      window.location.href = '/login?redirect=' + encodeURIComponent(window.location.pathname);
       return;
     }
     zapModalOpen = true;

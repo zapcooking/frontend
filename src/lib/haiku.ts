@@ -1,62 +1,24 @@
-const EXACT_SYLLABLE_OVERRIDES: Record<string, number> = {
-  liked: 1
+import { syllable } from 'syllable';
+
+// Overrides for words the syllable library miscounts
+const OVERRIDES: Record<string, number> = {
+  poem: 2,
+  poems: 2,
+  poet: 2,
+  poets: 2,
+  poetry: 3,
+  fluid: 2
 };
 
 /**
- * Count syllables in an English word using a vowel-group heuristic.
- * Not perfect, but useful for detecting likely 5-7-5 structure.
+ * Count syllables in an English word using the `syllable` library
+ * with overrides for known miscounts.
  */
 export function countSyllables(word: string): number {
   const normalized = word.toLowerCase().trim();
   if (!normalized) return 0;
-  if (normalized in EXACT_SYLLABLE_OVERRIDES) return EXACT_SYLLABLE_OVERRIDES[normalized];
-  if (normalized.length <= 2) return 1;
-
-  const vowels = 'aeiouy';
-  let count = 0;
-  let prevVowel = false;
-
-  for (const char of normalized) {
-    const isVowel = vowels.includes(char);
-    if (isVowel && !prevVowel) count += 1;
-    prevVowel = isVowel;
-  }
-
-  // Silent trailing e (e.g. "make", "rice")
-  if (normalized.endsWith('e') && count > 1) count -= 1;
-
-  // Plural -es is often silent (e.g. "leaves", "waves") but pronounced as
-  // a syllable after sibilants (e.g. "roses", "changes", "boxes").
-  if (
-    normalized.endsWith('es') &&
-    count > 1 &&
-    !/(?:sh|ch|[szxgc])es$/i.test(normalized)
-  ) {
-    count -= 1;
-  }
-
-  // Many past-tense words ending in -ed keep the "e" silent (e.g. "liked").
-  // Exclude cases where the ending is typically pronounced as its own syllable.
-  if (
-    normalized.endsWith('ed') &&
-    count > 1 &&
-    normalized.length > 3 &&
-    !normalized.endsWith('ted') &&
-    !normalized.endsWith('ded')
-  ) {
-    count -= 1;
-  }
-
-  // -le ending counts as a syllable when preceded by a consonant (e.g. "little")
-  if (
-    normalized.endsWith('le') &&
-    normalized.length > 2 &&
-    !vowels.includes(normalized[normalized.length - 3])
-  ) {
-    count += 1;
-  }
-
-  return Math.max(count, 1);
+  if (normalized in OVERRIDES) return OVERRIDES[normalized];
+  return Math.max(syllable(normalized), 1);
 }
 
 /**

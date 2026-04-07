@@ -16,7 +16,7 @@
 <script lang="ts">
   import { blur, scale } from 'svelte/transition';
   import CloseIcon from 'phosphor-svelte/lib/XCircle';
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
 
   export let open = false;
   export let cleanup: (() => void) | null = null;
@@ -29,6 +29,25 @@
 
   onMount(() => {
     portalTarget = document.body;
+  });
+
+  // Close on Escape key
+  function handleKeydown(e: KeyboardEvent) {
+    if (e.key === 'Escape' && open) close();
+  }
+
+  $: if (typeof window !== 'undefined') {
+    if (open) {
+      window.addEventListener('keydown', handleKeydown);
+    } else {
+      window.removeEventListener('keydown', handleKeydown);
+    }
+  }
+
+  onDestroy(() => {
+    if (typeof window !== 'undefined') {
+      window.removeEventListener('keydown', handleKeydown);
+    }
   });
 
   // if some variables need to be erased when it's closed, we can do that here.

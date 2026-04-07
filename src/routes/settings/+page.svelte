@@ -549,31 +549,17 @@
           {@const validTier = (['open', 'cook_plus', 'pro_kitchen', 'founders'].includes(member.tier) ? member.tier : 'cook_plus')}
           {@const expiryDate = new Date(member.subscription_end)}
 
-          <!-- Current Plan -->
-          <div
-            class="flex items-center justify-between p-4 rounded-xl"
-            style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);"
-          >
-            <div class="flex items-center gap-3">
-              <MembershipBadge tier={validTier} size="lg" showLabel />
-              <div>
-                {#if membershipData.isActive}
-                  <span
-                    class="text-xs px-2 py-0.5 rounded-full bg-green-500/20 text-green-600 dark:text-green-400"
-                    >Active</span
-                  >
-                {:else if membershipData.isExpired}
-                  <span class="text-xs px-2 py-0.5 rounded-full bg-red-500/20 text-red-500"
-                    >Expired</span
-                  >
-                {/if}
-              </div>
-            </div>
+          <!-- Current Plan + Details -->
+          <div class="flex items-center gap-3 mb-2">
+            <MembershipBadge tier={validTier} size="lg" showLabel />
+            {#if membershipData.isActive}
+              <span class="text-xs px-2 py-0.5 rounded-full bg-green-500/20 text-green-600 dark:text-green-400">Active</span>
+            {:else if membershipData.isExpired}
+              <span class="text-xs px-2 py-0.5 rounded-full bg-red-500/20 text-red-500">Expired</span>
+            {/if}
           </div>
 
-          <!-- Subscription Details -->
-          <div class="bg-secondary p-4 rounded-xl">
-            <div class="flex flex-col gap-2 text-sm">
+          <div class="flex flex-col gap-2 text-sm">
               <div class="flex justify-between">
                 <span class="text-caption">{membershipData.isExpired ? 'Expired' : 'Expires'}</span>
                 <span style="color: var(--color-text-primary)">
@@ -587,15 +573,14 @@
               <div class="flex justify-between">
                 <span class="text-caption">Payment</span>
                 <span style="color: var(--color-text-primary)">
-                  {member.payment_method === 'stripe'
+                  {member.payment_method === 'stripe' || member.payment_method === 'card'
                     ? 'Credit Card'
                     : member.payment_method === 'bitcoin'
                       ? 'Bitcoin'
-                      : member.payment_method}
+                      : member.payment_method || 'None'}
                 </span>
               </div>
             </div>
-          </div>
 
           <!-- Actions -->
           <div class="flex flex-col gap-2">
@@ -630,7 +615,7 @@
           <!-- No membership / Free tier -->
           <div
             class="p-4 rounded-xl text-center"
-            style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);"
+            style="border: 1px solid var(--color-input-border);"
           >
             <p class="text-sm font-medium" style="color: var(--color-text-primary)">Welcome Table</p>
             <p class="text-xs text-caption mt-1">
@@ -791,8 +776,8 @@
             <input
               bind:value={newRelay}
               placeholder="wss://relay.example.com"
-              class="flex-1 p-3 bg-secondary rounded-lg border-none text-sm"
-              style="color: var(--color-text-primary);"
+              class="flex-1 p-3 rounded-lg text-sm"
+              style="background-color: var(--color-input-bg); color: var(--color-text-primary); border: 1px solid var(--color-input-border);"
               on:keydown={(e) => e.key === 'Enter' && addRelay()}
             />
             <button
@@ -831,7 +816,7 @@
         {#if $weblnConnected}
           <div
             class="flex items-center gap-4 p-4 rounded-xl"
-            style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);"
+            style="border: 1px solid var(--color-input-border);"
           >
             <div
               class="w-10 h-10 rounded-full bg-gradient-to-br from-orange-500 to-amber-500 flex items-center justify-center flex-shrink-0"
@@ -857,7 +842,7 @@
             {#each connectedWallets as wallet}
               <div
                 class="flex items-center gap-4 p-4 rounded-xl"
-                style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);"
+                style="border: 1px solid var(--color-input-border);"
               >
                 {#if wallet.kind === 4}
                   <div
@@ -900,7 +885,7 @@
         {:else if $bitcoinConnectEnabled && !$weblnConnected}
           <div
             class="flex items-center gap-4 p-4 rounded-xl"
-            style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);"
+            style="border: 1px solid var(--color-input-border);"
           >
             <div class="w-10 h-10 rounded-full bg-orange-500 flex items-center justify-center">
               <BitcoinConnectLogo size={20} className="text-white" />
@@ -917,7 +902,7 @@
         {:else if !$weblnConnected}
           <div
             class="p-4 rounded-xl text-center"
-            style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);"
+            style="border: 1px solid var(--color-input-border);"
           >
             <p class="text-sm text-caption">No wallets connected</p>
           </div>
@@ -925,7 +910,7 @@
 
         <div
           class="p-4 rounded-xl {!hasNavWallet ? 'opacity-50' : ''}"
-          style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);"
+          style="border: 1px solid var(--color-input-border);"
         >
           <div class="flex items-center justify-between">
             <div class="flex-1">
@@ -967,7 +952,7 @@
         <!-- One-Tap Zap Toggle -->
         <div
           class="p-4 rounded-xl {!hasInAppWallet ? 'opacity-50' : ''}"
-          style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);"
+          style="border: 1px solid var(--color-input-border);"
         >
           <div class="flex items-center justify-between">
             <div class="flex-1">
@@ -1125,7 +1110,7 @@
           <p class="text-sm" style="color: var(--color-text-secondary)">Loading...</p>
         {:else}
           <!-- Current status -->
-          <div class="flex items-center gap-2 px-3 py-2 rounded-lg" style="background-color: var(--color-input-bg);">
+          <div class="flex items-center gap-2 px-3 py-2 rounded-lg" style="border: 1px solid var(--color-input-border);">
             {#if wotProvider}
               <ShieldCheckIcon size={16} weight="fill" class="text-green-500" />
               <span class="text-sm" style="color: var(--color-text-primary)">Personalized scoring active</span>
@@ -1137,7 +1122,7 @@
 
           <!-- Mode selection -->
           <div class="flex flex-col gap-2">
-            <label class="flex items-start gap-3 p-3 rounded-lg cursor-pointer" style="background-color: var(--color-input-bg); border: 1px solid {wotMode === 'global' ? 'var(--color-accent)' : 'transparent'};">
+            <label class="flex items-start gap-3 p-3 rounded-lg cursor-pointer">
               <input type="radio" bind:group={wotMode} value="global" class="mt-1" style="accent-color: var(--color-accent);" />
               <div>
                 <span class="block text-sm font-medium" style="color: var(--color-text-primary)">Global Web of Trust</span>
@@ -1145,7 +1130,7 @@
               </div>
             </label>
 
-            <label class="flex items-start gap-3 p-3 rounded-lg cursor-pointer" style="background-color: var(--color-input-bg); border: 1px solid {wotMode === 'custom' ? 'var(--color-accent)' : 'transparent'};">
+            <label class="flex items-start gap-3 p-3 rounded-lg cursor-pointer">
               <input type="radio" bind:group={wotMode} value="custom" class="mt-1" style="accent-color: var(--color-accent);" />
               <div>
                 <span class="block text-sm font-medium" style="color: var(--color-text-primary)">Personalized</span>
