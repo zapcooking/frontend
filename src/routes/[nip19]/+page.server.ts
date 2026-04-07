@@ -392,7 +392,11 @@ export const load: PageServerLoad = async ({ params, url }) => {
 	if (!isNip19 && nip19Id && /^[a-zA-Z0-9_]{3,20}$/.test(nip19Id)) {
 		// Try resolving as a zap.cooking NIP-05 username
 		try {
-			const res = await fetch('https://zap.cooking/.well-known/nostr.json?name=' + encodeURIComponent(nip19Id.toLowerCase()));
+			const nostrJsonUrl = new URL('/.well-known/nostr.json?name=' + encodeURIComponent(nip19Id.toLowerCase()), url.origin);
+			const controller = new AbortController();
+			const timeout = setTimeout(() => controller.abort(), 5000);
+			const res = await fetch(nostrJsonUrl.toString(), { signal: controller.signal });
+			clearTimeout(timeout);
 			if (res.ok) {
 				const data = await res.json();
 				const pubkey = data?.names?.[nip19Id.toLowerCase()];

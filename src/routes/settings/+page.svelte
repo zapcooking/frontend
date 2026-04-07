@@ -1147,7 +1147,7 @@
                 <button
                   type="button"
                   class="flex items-center gap-2 p-3 rounded-lg text-left transition-colors"
-                  style=""
+                  style="background-color: var(--color-input-bg); border: 1px solid {wotPubkey === provider.pubkey ? 'var(--color-accent)' : 'transparent'};"
                   on:click={() => selectWotProvider(provider)}
                 >
                   <ShieldCheckIcon size={16} weight="fill" class="text-green-500 flex-shrink-0" />

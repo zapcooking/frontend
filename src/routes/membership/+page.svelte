@@ -153,8 +153,10 @@
   // Compute member since date from founders data or API status
   $: if (apiMembershipStatus && data.founders) {
     const founderRecord = data.founders.find((f: any) => f.pubkey === normalizedPubkey);
-    if (founderRecord?.created_at) {
-      memberSince = new Date(founderRecord.created_at).toLocaleDateString(undefined, { year: 'numeric', month: 'long' });
+    if (founderRecord?.joined) {
+      memberSince = new Date(founderRecord.joined).toLocaleDateString(undefined, { year: 'numeric', month: 'long' });
+    } else {
+      memberSince = null;
     }
   }
 
