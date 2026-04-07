@@ -386,6 +386,26 @@ export const load: PageServerLoad = async ({ params, url }) => {
 		throw redirect(301, `/${nip19Id}`);
 	}
 
+	// Check if this is a plain username (not a NIP-19 identifier)
+	// NIP-19 identifiers start with: npub1, nprofile1, note1, nevent1, naddr1
+	const isNip19 = /^(?:npub1|nprofile1|note1|nevent1|naddr1)/.test(nip19Id || '');
+	if (!isNip19 && nip19Id && /^[a-zA-Z0-9_]{3,20}$/.test(nip19Id)) {
+		// Try resolving as a zap.cooking NIP-05 username
+		try {
+			const res = await fetch('https://zap.cooking/.well-known/nostr.json?name=' + encodeURIComponent(nip19Id.toLowerCase()));
+			if (res.ok) {
+				const data = await res.json();
+				const pubkey = data?.names?.[nip19Id.toLowerCase()];
+				if (pubkey) {
+					const npub = nip19.npubEncode(pubkey);
+					throw redirect(302, `/user/${npub}`);
+				}
+			}
+		} catch (e) {
+			if (e && typeof e === 'object' && 'status' in e) throw e; // re-throw redirect
+		}
+	}
+
 	// Only handle note1/nevent1 identifiers for OG tags
 	if (!nip19Id?.startsWith('note1') && !nip19Id?.startsWith('nevent1')) {
 		return { ogMeta: null };
