@@ -12,6 +12,7 @@
   import { formatDistanceToNow } from 'date-fns';
   import { nip19 } from 'nostr-tools';
   import { goto } from '$app/navigation';
+  import PostActionsMenu from '../../components/PostActionsMenu.svelte';
 
   let polls: NDKEvent[] = [];
   let loading = true;
@@ -205,12 +206,15 @@
                   <span class="zap-poll-badge">⚡ Zap Poll</span>
                 {/if}
               </div>
-              <button
-                class="poll-time"
-                on:click={() => navigateToNote(poll)}
-              >
-                {poll.created_at ? formatTime(poll.created_at) : ''}
-              </button>
+              <div class="flex items-center gap-2">
+                <button
+                  class="poll-time"
+                  on:click={() => navigateToNote(poll)}
+                >
+                  {poll.created_at ? formatTime(poll.created_at) : ''}
+                </button>
+                <PostActionsMenu event={poll} />
+              </div>
             </div>
           </div>
 
