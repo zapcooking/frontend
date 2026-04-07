@@ -2,9 +2,9 @@
   import { onMount, onDestroy } from 'svelte';
   import { browser } from '$app/environment';
   import ForkKnifeIcon from 'phosphor-svelte/lib/ForkKnife';
-  import ChatCircleDotsIcon from 'phosphor-svelte/lib/ChatCircleDots';
+  import FlameIcon from 'phosphor-svelte/lib/Flame';
   import BellIcon from 'phosphor-svelte/lib/Bell';
-  import NewspaperIcon from 'phosphor-svelte/lib/Newspaper';
+  import ChartBarHorizontalIcon from 'phosphor-svelte/lib/ChartBarHorizontal';
   import StorefrontIcon from 'phosphor-svelte/lib/Storefront';
   import { page } from '$app/stores';
   import { unreadCount } from '$lib/notificationStore';
@@ -52,8 +52,8 @@
   style="color: var(--color-text-primary); border-top: 1px solid var(--color-input-border);"
 >
   <a href="/community" class="nav-tab" class:active={pathname === '/' || pathname.startsWith('/community')}>
-    <ChatCircleDotsIcon class="self-center" size={22} />
-    <span class="sr-only">Community</span>
+    <FlameIcon class="self-center" size={22} />
+    <span class="sr-only">Feed</span>
   </a>
   <a href="/recent" class="nav-tab" class:active={pathname.startsWith('/recent')}>
     <ForkKnifeIcon class="self-center" size={22} />
@@ -63,9 +63,9 @@
     <StorefrontIcon class="self-center" size={22} />
     <span class="sr-only">Market</span>
   </a>
-  <a href="/reads" class="nav-tab" class:active={pathname.startsWith('/reads')}>
-    <NewspaperIcon class="self-center" size={22} />
-    <span class="sr-only">Reads</span>
+  <a href="/polls" class="nav-tab" class:active={pathname.startsWith('/polls')}>
+    <ChartBarHorizontalIcon class="self-center" size={22} />
+    <span class="sr-only">Polls</span>
   </a>
   <a
     href="/notifications"

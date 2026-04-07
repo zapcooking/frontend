@@ -10,11 +10,10 @@
   import { weblnConnected } from '$lib/wallet/webln';
   import { bitcoinConnectEnabled, bitcoinConnectWalletInfo } from '$lib/wallet/bitcoinConnect';
 
-  import ChatCircleDotsIcon from 'phosphor-svelte/lib/ChatCircleDots';
   import ForkKnifeIcon from 'phosphor-svelte/lib/ForkKnife';
-  import CompassIcon from 'phosphor-svelte/lib/Compass';
+  import ChartBarHorizontalIcon from 'phosphor-svelte/lib/ChartBarHorizontal';
+  import FlameIcon from 'phosphor-svelte/lib/Flame';
   import BellIcon from 'phosphor-svelte/lib/Bell';
-  import NewspaperIcon from 'phosphor-svelte/lib/Newspaper';
   import EnvelopeSimpleIcon from 'phosphor-svelte/lib/EnvelopeSimple';
 
   import CookbookIcon from 'phosphor-svelte/lib/BookOpen';
@@ -47,8 +46,8 @@
   const primary: NavItem[] = [
     {
       href: '/community',
-      label: 'Community',
-      icon: ChatCircleDotsIcon,
+      label: 'Feed',
+      icon: FlameIcon,
       match: (p) => p === '/' || p.startsWith('/community')
     },
     {
@@ -58,16 +57,10 @@
       match: (p) => p.startsWith('/recent')
     },
     {
-      href: '/explore',
-      label: 'Explore',
-      icon: CompassIcon,
-      match: (p) => p.startsWith('/explore')
-    },
-    {
-      href: '/reads',
-      label: 'Reads',
-      icon: NewspaperIcon,
-      match: (p) => p.startsWith('/reads')
+      href: '/polls',
+      label: 'Polls',
+      icon: ChartBarHorizontalIcon,
+      match: (p) => p.startsWith('/polls')
     },
     {
       href: '/market',

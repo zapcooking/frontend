@@ -29,6 +29,7 @@
   import CrownSimpleIcon from 'phosphor-svelte/lib/CrownSimple';
   import HandshakeIcon from 'phosphor-svelte/lib/Handshake';
   import EnvelopeSimpleIcon from 'phosphor-svelte/lib/EnvelopeSimple';
+  import NewspaperIcon from 'phosphor-svelte/lib/Newspaper';
   import LeafIcon from 'phosphor-svelte/lib/Leaf';
 
   // Components and stores
@@ -283,6 +284,16 @@
             >
               <EnvelopeSimpleIcon size={22} />
               <span class="font-medium">Messages</span>
+            </button>
+          </li>
+          <li>
+            <button
+              on:click={() => navigate('/reads')}
+              class="w-full flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-opacity-50 transition-colors cursor-pointer"
+              style="color: var(--color-text-primary);"
+            >
+              <NewspaperIcon size={22} />
+              <span class="font-medium">Reads</span>
             </button>
           </li>
           <li>
