@@ -378,7 +378,7 @@
             <li>
               <span class="feature-icon">✨</span>
               <div class="feature-content">
-                <span class="feature-text">Sous Chef - Extract recipes from any link or photo instantly</span>
+                <span class="feature-text">Sous Chef - Extract recipes from any link, photo, or pasted text instantly</span>
                 <span class="feature-subtext">Save time - let it do the work</span>
               </div>
             </li>

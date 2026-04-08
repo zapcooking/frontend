@@ -138,6 +138,15 @@ export const POST: RequestHandler = async ({ request, platform }) => {
     const body = await request.json();
     const { prompt, mode = 'prompt', pubkey } = body;
     
+    // Validate mode
+    const supportedModes = ['prompt', 'hungry', 'format'];
+    if (!supportedModes.includes(mode)) {
+      return json(
+        { ok: false, error: 'Invalid mode' },
+        { status: 400 }
+      );
+    }
+
     // Validate request
     if ((mode === 'prompt' || mode === 'format') && (!prompt || typeof prompt !== 'string')) {
       return json(

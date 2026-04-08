@@ -200,14 +200,14 @@ export const POST: RequestHandler = async ({ request, platform }) => {
       );
     }
 
-    if (type === 'text' && !body.textData) {
+    if (type === 'text' && (typeof body.textData !== 'string' || body.textData.trim().length === 0)) {
       return json(
         { success: false, error: 'Recipe text is required' },
         { status: 400 }
       );
     }
 
-    if (type === 'text' && body.textData && body.textData.length > 10000) {
+    if (type === 'text' && typeof body.textData === 'string' && body.textData.length > 10000) {
       return json(
         { success: false, error: 'Recipe text is too long (max 10,000 characters)' },
         { status: 400 }
