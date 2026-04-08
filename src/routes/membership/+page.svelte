@@ -672,7 +672,7 @@
               <li>
                 <span class="feature-icon">✨</span>
                 <div class="feature-content">
-                  <a href="/extract" class="feature-link">Sous Chef - Extract recipes from any link or photo instantly</a>
+                  <a href="/souschef" class="feature-link">Sous Chef - Extract recipes from any link or photo instantly</a>
                   <span class="feature-subtext">Save time - let it do the work</span>
                 </div>
               </li>

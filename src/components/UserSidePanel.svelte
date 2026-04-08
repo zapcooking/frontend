@@ -364,7 +364,7 @@
           {#if SHOW_PRO_FEATURES}
             <li>
               <button
-                on:click={() => navigate('/extract')}
+                on:click={() => navigate('/souschef')}
                 class="w-full flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-opacity-50 transition-colors cursor-pointer"
                 style="color: var(--color-text-primary);"
               >
