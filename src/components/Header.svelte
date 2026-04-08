@@ -154,7 +154,7 @@
     <!-- Sous Chef, Zappy & Nourish icons (logged in) -->
     {#if $userPublickey}
       <a
-        href="/extract"
+        href="/souschef"
         class="w-8 h-8 sm:w-9 sm:h-9 flex items-center justify-center rounded-full transition-colors cursor-pointer hover:bg-accent-gray"
         aria-label="Sous Chef"
       >

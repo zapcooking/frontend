@@ -179,23 +179,37 @@ export const POST: RequestHandler = async ({ request, platform }) => {
     const { type, imageData, url, pubkey } = body;
     
     // Validate request
-    if (!type || (type !== 'image' && type !== 'url')) {
+    if (!type || (type !== 'image' && type !== 'url' && type !== 'text')) {
       return json(
-        { success: false, error: 'Invalid type. Must be "image" or "url"' },
+        { success: false, error: 'Invalid type. Must be "image", "url", or "text"' },
         { status: 400 }
       );
     }
-    
+
     if (type === 'image' && !imageData) {
       return json(
         { success: false, error: 'Image data is required for image extraction' },
         { status: 400 }
       );
     }
-    
+
     if (type === 'url' && !url) {
       return json(
         { success: false, error: 'URL is required for URL extraction' },
+        { status: 400 }
+      );
+    }
+
+    if (type === 'text' && (typeof body.textData !== 'string' || body.textData.trim().length === 0)) {
+      return json(
+        { success: false, error: 'Recipe text is required' },
+        { status: 400 }
+      );
+    }
+
+    if (type === 'text' && typeof body.textData === 'string' && body.textData.length > 10000) {
+      return json(
+        { success: false, error: 'Recipe text is too long (max 10,000 characters)' },
         { status: 400 }
       );
     }
@@ -241,6 +255,12 @@ export const POST: RequestHandler = async ({ request, platform }) => {
             }
           }
         ]
+      });
+    } else if (type === 'text') {
+      // For text extraction, send the pasted text directly
+      messages.push({
+        role: 'user',
+        content: `Extract the recipe information from this text:\n\n${body.textData}`
       });
     } else {
       // For URL extraction, fetch the content first

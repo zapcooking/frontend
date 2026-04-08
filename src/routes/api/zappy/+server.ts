@@ -78,6 +78,49 @@ You are Lightning-native. If a recipe is zapped, respond with a short, genuine t
 
 Above all: make cooking feel easier, lighter, and more fun.`;
 
+// System instruction for formatting pasted recipes
+const FORMAT_SYSTEM_INSTRUCTION = `You are Zappy, the friendly kitchen companion inside Zap Cooking. A user has pasted a recipe from an external source. Your job is to reformat it cleanly into the standard Zap Cooking format.
+
+ALWAYS format the recipe exactly like this:
+
+# [Recipe Title]
+
+[1-2 sentence summary describing the dish]
+
+## Time
+- Prep: [time]
+- Cook: [time]
+- Total: [time]
+
+## Servings
+[number] servings
+
+## Ingredients
+- [ingredient 1]
+- [ingredient 2]
+- [ingredient 3]
+...
+
+## Steps
+1. [Step 1]
+2. [Step 2]
+3. [Step 3]
+...
+
+## Notes (optional)
+- [Any helpful tips, substitutions, or variations from the original recipe]
+
+Rules:
+- Extract ALL information from the pasted recipe accurately
+- Clean up formatting: fix capitalization, remove unnecessary characters, standardize measurements
+- If prep/cook time isn't specified, estimate reasonable times based on the recipe
+- If servings aren't specified, estimate based on ingredient quantities
+- Keep ingredient quantities and measurements as provided
+- Make directions clear and concise
+- Include any tips, variations, or notes from the original
+- Do NOT add commentary or explanation outside the recipe format
+- Do NOT invent ingredients or steps that aren't in the original`;
+
 // Random recipe prompt for "Surprise Me" mode
 const HUNGRY_PROMPT = `Surprise me with a random recipe! It could be any cuisine, any meal type - breakfast, lunch, dinner, snack, or dessert. Make it practical, achievable for a home cook, and use ingredients most people have or can easily get. Let's cook something fun.`;
 
@@ -95,18 +138,28 @@ export const POST: RequestHandler = async ({ request, platform }) => {
     const body = await request.json();
     const { prompt, mode = 'prompt', pubkey } = body;
     
-    // Validate request
-    if (mode === 'prompt' && (!prompt || typeof prompt !== 'string')) {
+    // Validate mode
+    const supportedModes = ['prompt', 'hungry', 'format'];
+    if (!supportedModes.includes(mode)) {
       return json(
-        { ok: false, error: 'Prompt is required' },
+        { ok: false, error: 'Invalid mode' },
         { status: 400 }
       );
     }
-    
-    // Limit prompt length (prevent abuse)
-    if (prompt && prompt.length > 2000) {
+
+    // Validate request
+    if ((mode === 'prompt' || mode === 'format') && (!prompt || typeof prompt !== 'string')) {
       return json(
-        { ok: false, error: 'Prompt is too long (max 2000 characters)' },
+        { ok: false, error: mode === 'format' ? 'Recipe text is required' : 'Prompt is required' },
+        { status: 400 }
+      );
+    }
+
+    // Limit prompt length (format mode allows longer input for pasted recipes)
+    const maxPromptLength = mode === 'format' ? 10000 : 2000;
+    if (prompt && prompt.length > maxPromptLength) {
+      return json(
+        { ok: false, error: `Input is too long (max ${maxPromptLength} characters)` },
         { status: 400 }
       );
     }
@@ -132,9 +185,12 @@ export const POST: RequestHandler = async ({ request, platform }) => {
       }
     }
     
-    // Determine the user prompt based on mode
-    const userPrompt = mode === 'hungry' ? HUNGRY_PROMPT : prompt;
-    
+    // Determine the user prompt and system instruction based on mode
+    const isFormatMode = mode === 'format';
+    const userPrompt = mode === 'hungry' ? HUNGRY_PROMPT :
+                       isFormatMode ? `Please reformat this recipe:\n\n${prompt}` : prompt;
+    const systemInstruction = isFormatMode ? FORMAT_SYSTEM_INSTRUCTION : SYSTEM_INSTRUCTION;
+
     // Call OpenAI API
     const openaiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -145,11 +201,11 @@ export const POST: RequestHandler = async ({ request, platform }) => {
       body: JSON.stringify({
         model: 'gpt-4.1-mini',
         messages: [
-          { role: 'system', content: SYSTEM_INSTRUCTION },
+          { role: 'system', content: systemInstruction },
           { role: 'user', content: userPrompt }
         ],
         max_tokens: 2048,
-        temperature: 0.8
+        temperature: isFormatMode ? 0.3 : 0.8
       })
     });
     

@@ -40,13 +40,17 @@
   let errorMessage = '';
   
   // Input mode
-  type InputMode = 'image' | 'url';
-  let inputMode: InputMode = 'image';
+  type InputMode = 'image' | 'url' | 'text';
+  let inputMode: InputMode = 'text';
   const tabs = [
     { id: 'image', label: 'Upload Image' },
-    { id: 'url', label: 'Paste URL' }
+    { id: 'url', label: 'Paste URL' },
+    { id: 'text', label: 'Paste Text' }
   ];
-  
+
+  // Text input state
+  let textInput = '';
+
   // Image upload state
   let fileInput: HTMLInputElement;
   let isDragging = false;
@@ -97,6 +101,7 @@
     uploadedImagePreview = null;
     urlInput = '';
     urlError = '';
+    textInput = '';
     extractionError = '';
     extractionSuccess = false;
   }
@@ -174,9 +179,11 @@
   }
   
   // Check if we can extract
-  $: canExtract = inputMode === 'image' 
-    ? !!uploadedImageData 
-    : (!!urlInput && !urlError);
+  $: canExtract = inputMode === 'image'
+    ? !!uploadedImageData
+    : inputMode === 'url'
+      ? (!!urlInput && !urlError)
+      : !!textInput.trim();
   
   // Upload image to nostr.build
   async function uploadToNostrBuild(file: File): Promise<string | null> {
@@ -254,7 +261,7 @@
   // Extract recipe (requires login; redirect so reviewer can see upload UI first)
   async function extractRecipe() {
     if (!$userPublickey) {
-      goto('/login?redirect=/extract');
+      goto('/login?redirect=/souschef');
       return;
     }
     if (!canExtract || isExtracting) return;
@@ -272,6 +279,9 @@
       if (inputMode === 'image') {
         requestBody.imageData = uploadedImageData;
         extractionProgress = 'Extracting recipe from image...';
+      } else if (inputMode === 'text') {
+        requestBody.textData = textInput.trim();
+        extractionProgress = 'Formatting your recipe...';
       } else {
         requestBody.url = urlInput;
         extractionProgress = 'Fetching and extracting recipe from URL...';
@@ -359,7 +369,7 @@
   // Save as draft and navigate to drafts page
   function saveDraftOnly() {
     if (!$userPublickey) {
-      goto('/login?redirect=/extract');
+      goto('/login?redirect=/souschef');
       return;
     }
     const draftData = {
@@ -387,7 +397,7 @@
   // Publish recipe directly to relays
   async function publishRecipe() {
     if (!$userPublickey) {
-      goto('/login?redirect=/extract');
+      goto('/login?redirect=/souschef');
       return;
     }
 
@@ -503,7 +513,7 @@
       <h1>Sous Chef</h1>
     </div>
     <p class="text-caption">
-      Turn photos or links into ready-to-post recipes.
+      Turn photos, links, or pasted text into ready-to-post recipes.
     </p>
     <p class="text-caption">
       A little extra help in the kitchen.
@@ -594,7 +604,7 @@
               </div>
             {/if}
           </div>
-        {:else}
+        {:else if inputMode === 'url'}
           <!-- URL Input -->
           <div class="flex flex-col gap-2">
             <div class="flex items-center gap-2">
@@ -612,6 +622,22 @@
             {/if}
             <p class="text-xs text-caption">
               Paste a URL from any recipe website. The AI will extract the recipe details.
+            </p>
+          </div>
+        {:else}
+          <!-- Text Input -->
+          <div class="flex flex-col gap-2">
+            <label for="text-input" class="text-sm text-caption">Drop a recipe in here</label>
+            <textarea
+              id="text-input"
+              bind:value={textInput}
+              placeholder="Paste a URL, copy from a website, type it out, screenshot text — whatever you've got, Sous Chef will handle it."
+              rows="10"
+              class="input resize-none text-base"
+              disabled={isExtracting}
+            />
+            <p class="text-xs text-caption">
+              Paste any recipe text and Sous Chef will format it for zap.cooking.
             </p>
           </div>
         {/if}
