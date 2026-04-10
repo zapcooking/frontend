@@ -1,12 +1,14 @@
 <script lang="ts">
   import {
     notifications,
+    visibleNotifications,
     unreadCount,
     subscribeToNotifications,
     fetchOlderNotifications,
     type Notification
   } from '$lib/notificationStore';
   import { buildDisplayItems, type NotificationDisplayItem } from '$lib/groupedNotifications';
+  import { isHellthread, stripMediaAndBech32 } from '$lib/notificationUtils';
   import { formatCompactTime } from '$lib/utils';
   import { goto } from '$app/navigation';
   import { browser } from '$app/environment';
@@ -16,13 +18,12 @@
   import NotifText from '../../components/notifications/NotifText.svelte';
   import CustomName from '../../components/CustomName.svelte';
   import { userPublickey, ndk } from '$lib/nostr';
-  import { hellthreadThreshold } from '$lib/hellthreadFilterSettings';
   import { onMount } from 'svelte';
   import PullToRefresh from '../../components/PullToRefresh.svelte';
   import { get } from 'svelte/store';
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
   import { notificationsNavTick } from '$lib/notificationsNav';
-  import { mutedPubkeys, muteListStore } from '$lib/muteListStore';
+  import { muteListStore } from '$lib/muteListStore';
   import { resolveProfileByPubkey, getDisplayName } from '$lib/profileResolver';
   import { resolveNote, resolveRecipe } from '$lib/utils/nostrRefs';
   import HeartIcon from 'phosphor-svelte/lib/Heart';
@@ -149,28 +150,8 @@
     { id: 'mentions', label: 'Mentions', icon: AtIcon }
   ];
 
-  // Local muted users set - populated from localStorage immediately
-  let localMutedUsers: Set<string> = new Set();
-
-  if (browser) {
-    try {
-      const stored = localStorage.getItem('mutedUsers');
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        localMutedUsers = new Set(parsed);
-      }
-    } catch (e) {
-      console.error('[Notifications] Error parsing localStorage:', e);
-    }
-  }
-
-  // Combined muted users from store + localStorage
-  $: combinedMutedPubkeys = new Set([...$mutedPubkeys, ...localMutedUsers]);
-
-  $: filteredNotifications = $notifications.filter((n) => {
-    const isMuted = n.fromPubkey && combinedMutedPubkeys.has(n.fromPubkey);
-    if (isMuted) return false;
-
+  // visibleNotifications already excludes muted users (handled in notificationStore)
+  $: filteredNotifications = $visibleNotifications.filter((n) => {
     const refId = getReferencedEventId(n);
     if (refId && hellthreadEventIds.has(refId)) return false;
 
@@ -321,31 +302,7 @@
       });
   }
 
-  function cleanMediaUrls(text: string): string {
-    if (!text) return text;
-    const mediaUrlPattern =
-      /https?:\/\/[^\s]+\.(?:jpg|jpeg|png|gif|webp|svg|bmp|avif|mp4|webm|mov|ogg)(?:\?[^\s]*)?/gi;
-    const mediaHostPattern =
-      /https?:\/\/(?:i\.)?(?:nostr\.build|imgur\.com|primal\.b-cdn\.net|image\.nostr\.build|void\.cat|m\.primal\.net|cdn\.satellite\.earth|v\.nostr\.build)[^\s]*/gi;
-
-    return text
-      .replace(mediaUrlPattern, '')
-      .replace(mediaHostPattern, '')
-      .replace(/\s{2,}/g, ' ')
-      .trim();
-  }
-
-  function isHellthread(event: NDKEvent): boolean {
-    const threshold = get(hellthreadThreshold);
-    if (threshold === 0) return false;
-
-    if (!event.tags || !Array.isArray(event.tags)) return false;
-
-    const mentionCount = event.tags.filter(
-      (tag: string[]) => Array.isArray(tag) && tag[0] === 'p'
-    ).length;
-    return mentionCount >= threshold;
-  }
+  // cleanMediaUrls consolidated into notificationUtils.stripMediaAndBech32
 
   function extractFirstImage(content: string): string | undefined {
     if (!content) return undefined;
@@ -469,9 +426,14 @@
       muteListStore.load();
       lastNavTick = $notificationsNavTick;
       void refreshAndResetView();
-      if ($unreadCount > 0) {
+      // Snapshot-based: mark only currently-unread items as read after a short delay,
+      // so notifications that stream in after mount don't get silently marked read.
+      const unreadIds = $visibleNotifications.filter((n) => !n.read).map((n) => n.id);
+      if (unreadIds.length > 0) {
         setTimeout(() => {
-          notifications.markAllAsRead();
+          for (const id of unreadIds) {
+            notifications.markAsRead(id);
+          }
         }, 500);
       }
     }
@@ -642,9 +604,7 @@
   }
 
   function formatPreview(preview: string): string {
-    let text = replaceNostrMentions(cleanMediaUrls(preview));
-    text = text.replace(/\b(?:note1|nevent1|naddr1|npub1|nprofile1)[023456789ac-hj-np-z]{20,}\b/gi, '');
-    return text.replace(/\s+/g, ' ').trim();
+    return replaceNostrMentions(stripMediaAndBech32(preview));
   }
 
   // --- Unified display helpers for notification template ---
@@ -690,7 +650,8 @@
   function getNotifContent(item: NotificationDisplayItem): string | undefined {
     if (item.kind !== 'single') return undefined;
     const n = item.notification;
-    if (n.type === 'comment' || n.type === 'mention') return n.content;
+    // Show content for replies, mentions, and zaps with comments (NIP-57)
+    if (n.type === 'comment' || n.type === 'mention' || n.type === 'zap') return n.content;
     return undefined;
   }
 
@@ -772,7 +733,7 @@
         </div>
       </div>
 
-      {#if $notifications.length === 0}
+      {#if $visibleNotifications.length === 0}
       <div class="text-center py-12 text-caption">
         <span class="text-5xl">🔔</span>
         <p class="mt-4 text-lg">No notifications yet</p>
