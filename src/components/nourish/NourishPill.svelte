@@ -2,17 +2,11 @@
   /**
    * NourishPill — strengths-focused nutrition profile for recipe cards and headers.
    *
-   * Design philosophy:
-   *   - No judgment — no red/yellow/green, no "low/high" labels
-   *   - Highlight what a recipe brings to the table, not what it lacks
-   *   - Encourage curiosity, not evaluation
-   *   - "Nourish Profile" framing, not "Nourish Score"
-   *
-   * Compact by default, expands inline to show what this recipe is rich in.
+   * Hover/focus reveals the inline profile preview.
+   * Click opens the full Nourish modal.
    */
 
   import LeafIcon from 'phosphor-svelte/lib/Leaf';
-  import CaretRightIcon from 'phosphor-svelte/lib/CaretRight';
 
   export let overall: number | null = null;
   export let gut: number | null = null;
@@ -21,22 +15,18 @@
   export let compact: boolean = false;
   export let onClick: (() => void) | undefined = undefined;
 
-  let expanded = false;
-
-  // Nourish brand color — consistent, non-judgmental
-  const NOURISH_COLOR = '#22c55e';
+  let hovered = false;
+  let focused = false;
+  let hideTimeout: ReturnType<typeof setTimeout> | null = null;
 
   /**
    * Describe what this recipe is rich in — strengths only.
-   * Returns up to 2 short positive descriptors.
    */
   function getStrengths(gut: number, protein: number, realFood: number): string[] {
     const strengths: string[] = [];
-    // Only highlight dimensions that are genuinely strong (7+)
     if (realFood >= 7) strengths.push('Whole foods');
     if (gut >= 7) strengths.push('Gut-friendly');
     if (protein >= 7) strengths.push('Protein-rich');
-    // If nothing hits 7+, mention whatever is highest as a softer positive
     if (strengths.length === 0) {
       const best = Math.max(gut, protein, realFood);
       if (best >= 5) {
@@ -48,7 +38,6 @@
     return strengths.slice(0, 2);
   }
 
-  /** Dimension label for the expanded profile view. */
   const DIMENSIONS = [
     { key: 'realFood', label: 'Real Food', icon: '🥬' },
     { key: 'gut',      label: 'Gut Health', icon: '🌱' },
@@ -62,46 +51,51 @@
     return 0;
   }
 
-  function handlePillClick() {
-    if (!compact) {
-      expanded = !expanded;
-    }
+  function handleClick() {
     if (onClick) onClick();
   }
 
-  function handleKeydown(e: KeyboardEvent) {
-    if (e.key === 'Enter' || e.key === ' ') {
-      e.preventDefault();
-      handlePillClick();
-    }
+  function showPreview() {
+    if (hideTimeout) { clearTimeout(hideTimeout); hideTimeout = null; }
+    hovered = true;
   }
 
+  function scheduleHide() {
+    hideTimeout = setTimeout(() => { hovered = false; }, 200);
+  }
+
+  $: showProfile = !compact && (hovered || focused);
   $: hasSubscores = gut !== null && protein !== null && realFood !== null;
   $: strengths = hasSubscores ? getStrengths(gut!, protein!, realFood!) : [];
 </script>
 
 {#if overall !== null}
-  <div class="nourish-wrapper">
+  <!-- svelte-ignore a11y-no-static-element-interactions -->
+  <div
+    class="nourish-wrapper"
+    on:mouseenter={showPreview}
+    on:mouseleave={scheduleHide}
+  >
     <button
       class="nourish-pill"
-      on:click={handlePillClick}
-      on:keydown={handleKeydown}
-      aria-label="Nourish Profile{strengths.length > 0 ? ` — ${strengths.join(', ')}` : ''}"
-      aria-expanded={!compact ? expanded : undefined}
+      on:click={handleClick}
+      on:focus={() => { focused = true; }}
+      on:blur={() => { focused = false; }}
+      aria-label="Nourish Profile — click for details{strengths.length > 0 ? `. ${strengths.join(', ')}` : ''}"
     >
       <span class="pill-leaf"><LeafIcon size={14} weight="fill" /></span>
       <span class="pill-name">Nourish</span>
-      {#if !compact}
-        <span class="pill-caret" class:expanded>
-          <CaretRightIcon size={10} weight="bold" />
-        </span>
-      {/if}
     </button>
 
-    <!-- Expanded: strengths-focused profile -->
-    {#if !compact && expanded && hasSubscores}
-      <div class="nourish-profile" role="region" aria-label="Nourish Profile">
-        <!-- Strength tags -->
+    <!-- Hover/focus preview — positioned as a floating card -->
+    {#if showProfile && hasSubscores}
+      <!-- svelte-ignore a11y-no-static-element-interactions -->
+      <div
+        class="nourish-profile"
+        role="tooltip"
+        on:mouseenter={showPreview}
+        on:mouseleave={scheduleHide}
+      >
         {#if strengths.length > 0}
           <div class="profile-strengths">
             {#each strengths as s}
@@ -110,7 +104,6 @@
           </div>
         {/if}
 
-        <!-- Dimension bars — neutral presentation, no color-coding by value -->
         <div class="profile-dims">
           {#each DIMENSIONS as dim}
             {@const val = getDimensionValue(dim.key)}
@@ -124,8 +117,7 @@
           {/each}
         </div>
 
-        <!-- Invite to learn more -->
-        <button class="profile-details" on:click={() => { if (onClick) onClick(); }}>
+        <button class="profile-details" on:click={handleClick}>
           See full profile
         </button>
       </div>
@@ -135,9 +127,8 @@
 
 <style>
   .nourish-wrapper {
+    position: relative;
     display: inline-flex;
-    flex-direction: column;
-    gap: 0.375rem;
   }
 
   /* ── Pill ── */
@@ -175,28 +166,29 @@
     color: #22c55e;
     letter-spacing: 0.01em;
   }
-  .pill-caret {
-    display: flex;
-    color: #22c55e;
-    opacity: 0.4;
-    transition: transform 200ms ease;
-  }
-  .pill-caret.expanded {
-    transform: rotate(90deg);
-    opacity: 0.7;
-  }
 
-  /* ── Expanded profile ── */
+  /* ── Floating profile card ── */
   .nourish-profile {
+    position: absolute;
+    right: 0;
+    top: calc(100% + 6px);
+    z-index: 30;
     display: flex;
     flex-direction: column;
     gap: 0.5rem;
     padding: 0.625rem 0.75rem;
     border-radius: 0.625rem;
-    background: var(--color-input-bg, rgba(255, 255, 255, 0.04));
-    border: 1px solid var(--color-input-border, rgba(255, 255, 255, 0.06));
+    background: var(--color-input-bg, #1a1a2e);
+    border: 1px solid var(--color-input-border, rgba(255, 255, 255, 0.08));
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
     min-width: 180px;
     max-width: 220px;
+    animation: nourish-fade-in 150ms ease-out;
+  }
+
+  @keyframes nourish-fade-in {
+    from { opacity: 0; transform: translateY(-4px); }
+    to   { opacity: 1; transform: translateY(0); }
   }
 
   /* Strength tags */
@@ -266,7 +258,7 @@
     border: none;
     background: none;
     font-family: inherit;
-    transition: opacity 150ms;
+    transition: opacity 150ms, color 150ms;
   }
   .profile-details:hover {
     opacity: 1;
