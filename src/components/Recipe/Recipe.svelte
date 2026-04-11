@@ -827,7 +827,7 @@
             </button>
           </div>
           <div class="flex items-center gap-2">
-          <!-- Nourish pill — first-class product layer, visually separated from actions -->
+          <!-- Nourish — first-class product layer, visually separated from actions -->
           {#if isActualRecipe}
             {#if nourishPreviewScore !== null}
               <NourishPill
@@ -835,14 +835,13 @@
                 gut={nourishGut}
                 protein={nourishProtein}
                 realFood={nourishRealFood}
-                mode="expand"
                 onClick={() => { nourishModalOpen = true; }}
               />
             {:else}
               <button
                 class="nourish-btn-empty"
                 on:click={() => { nourishModalOpen = true; }}
-                aria-label="Nourish — analyze this recipe"
+                aria-label="Nourish — explore this recipe's profile"
                 title="Nourish"
               >
                 <LeafIcon size={18} weight="regular" />
