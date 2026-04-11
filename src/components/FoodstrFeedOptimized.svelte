@@ -448,6 +448,7 @@
   const SUBSCRIPTION_TIMEOUT_MS = 4000;
   const PRIVATE_RELAY_TIMEOUT_MS = 15000; // Longer timeout for garden/members relays (15 seconds)
   const ONE_DAY_SECONDS = 24 * 60 * 60;
+  const THREE_DAYS_SECONDS = 3 * 24 * 60 * 60;
   const SEVEN_DAYS_SECONDS = 7 * 24 * 60 * 60;
 
   // Relay pools by purpose - optimized based on speed test results
@@ -759,21 +760,24 @@
 
     switch (mode) {
       case 'initial':
-        // Initial load: last 7 days for better content discovery
+        // Following/Replies: 3 days is plenty for active follows (halves relay data).
+        // Global/Garden/Members: keep 7 days for broader discovery.
+        if (filterMode === 'following' || filterMode === 'replies') {
+          return { since: now - THREE_DAYS_SECONDS };
+        }
         return { since: now - SEVEN_DAYS_SECONDS };
 
-      case 'pagination':
+      case 'pagination': {
         // Pagination: larger window based on oldest event
         const oldestTime = events[events.length - 1]?.created_at || now;
-        // Extend to 30 days max for deeper pagination
         const THIRTY_DAYS_SECONDS = 30 * 24 * 60 * 60;
         return {
-          since: Math.max(oldestTime - SEVEN_DAYS_SECONDS, now - THIRTY_DAYS_SECONDS), // Max 30 days back
+          since: Math.max(oldestTime - SEVEN_DAYS_SECONDS, now - THIRTY_DAYS_SECONDS),
           until: oldestTime - 1
         };
+      }
 
       case 'realtime':
-        // Real-time: since last event (or last hour if no events)
         return { since: lastEventTime > 0 ? lastEventTime + 1 : now - 3600 };
 
       default:
@@ -1794,7 +1798,6 @@
       // Handle different filter modes
       if (filterMode === 'following') {
         // Following mode: only show notes (not replies) from followed users
-        // Try Primal first (fast path - 200-400ms vs 5-10s)
         if (!$userPublickey) {
           loading = false;
           error = false;
@@ -1805,11 +1808,10 @@
 
         // ═══════════════════════════════════════════════════════════════
         // RACE: Primal fast path vs Outbox model (whichever returns first wins)
-        // Primal is HTTP-based (200-400ms when up, but has 3s timeout when down)
-        // Outbox uses cached follow list + relay queries (reliable but slower)
-        // Racing them avoids wasting 3s on Primal timeouts
+        // Both start concurrently. The winner's results are shown immediately.
+        // The loser's promise is kept alive — when it resolves, any new events
+        // are merged in the background (no redundant supplementWithOutbox call).
         // ═══════════════════════════════════════════════════════════════
-        let usedPrimal = false;
 
         // Get followed pubkeys early — outbox module caches these, so this is near-instant
         if (followedPubkeysForRealtime.length === 0) {
@@ -1817,7 +1819,6 @@
         }
 
         // Start Primal fetch (non-blocking)
-        const primalStartTime = performance.now();
         const primalPromise = (async (): Promise<NDKEvent[] | null> => {
           try {
             const primalFollows = (primalPrefetch ? await primalPrefetch : null) || await fetchContactListFromPrimal($userPublickey);
@@ -1836,31 +1837,13 @@
               includeReplies: false
             });
 
-            const foodEvents = primalEvents.filter((event) => {
-              if (isReply(event)) return false;
-              if ($userPublickey) {
-                const mutedUsers = getMutedUsers();
-                const authorKey = event.author?.hexpubkey || event.pubkey;
-                if (authorKey && mutedUsers.includes(authorKey)) return false;
-              }
-              if (foodFilterEnabled) {
-                return shouldIncludeEvent(event);
-              }
-              return true;
-            });
-
-            console.log(
-              `[Feed] Primal: ${foodEvents.length}/${primalEvents.length} events in ${(performance.now() - primalStartTime).toFixed(0)}ms`
-            );
-
-            return foodEvents.length >= 10 ? foodEvents : null;
-          } catch (err) {
-            console.log('[Feed] Primal failed:', err);
+            return filterFollowingEvents(primalEvents);
+          } catch {
             return null;
           }
         })();
 
-        // Start outbox fetch concurrently (don't wait for Primal to fail)
+        // Start outbox fetch concurrently
         const outboxOptions: any = {
           since: timeWindow.since,
           kinds: [1, 1068],
@@ -1882,17 +1865,14 @@
         );
 
         // Race: use whichever resolves with good data first
-        // Primal is wrapped to resolve to null on failure, so it never rejects
         const primalResult = await Promise.race([
           primalPromise,
-          // If outbox finishes first, return null immediately to skip Primal and use outbox results
           outboxPromise.then(() => null as NDKEvent[] | null)
         ]);
 
         if (primalResult && primalResult.length >= 10) {
-          // Primal won the race with sufficient results
+          // Primal won — show results immediately
           if (isStaleResult(loadGeneration)) {
-            console.log('[Feed] Discarding stale Primal results');
             loadInProgress = false;
             return;
           }
@@ -1900,7 +1880,6 @@
           events = dedupeAndSort(primalResult);
           loading = false;
           error = false;
-          usedPrimal = true;
 
           if (events.length > 0) {
             lastEventTime = Math.max(...events.map((e) => e.created_at || 0));
@@ -1913,72 +1892,24 @@
             // Non-critical
           }
 
-          supplementWithOutbox('following');
+          // Reuse the already-running outbox promise for background merge
+          // (instead of launching a redundant supplementWithOutbox fetch)
+          mergeOutboxInBackground(outboxPromise, 'following');
 
-          console.log(`[Feed] Primal SUCCESS: ${events.length} events displayed`);
           loadInProgress = false;
           return;
         }
 
         // Outbox path: either Primal failed/returned too few, or outbox finished first
-        // outboxPromise may already be resolved; if not, await it
         const result: OutboxFetchResult = await outboxPromise;
 
-        console.log('[Feed] Raw events from outbox:', result.events.length);
-
-        console.log(
-          `[Feed] Outbox fetch (${foodFilterEnabled ? 'food-filtered' : 'all posts'}): ${result.events.length} events from ${result.queriedRelays.length} relays in ${result.timing.totalMs}ms`
-        );
-
-        if (result.failedRelays.length > 0) {
-          console.warn(`[Feed] Failed relays:`, result.failedRelays);
-        }
-
-        // Cache followed pubkeys for real-time subscription (if not already from Primal)
         if (followedPubkeysForRealtime.length === 0) {
           followedPubkeysForRealtime = await getFollowedPubkeys($ndk, $userPublickey);
         }
 
-        // Filter for food-related content AND exclude replies (only top-level notes)
-        const beforeFilter = result.events.length;
-        const validEvents = result.events.filter((event) => {
-          // Exclude replies - only show top-level notes in Following
-          if (isReply(event)) return false;
+        const validEvents = filterFollowingEvents(result.events);
 
-          // Check muted users
-          if ($userPublickey) {
-            const mutedUsers = getMutedUsers();
-            const authorKey = event.author?.hexpubkey || event.pubkey;
-            if (authorKey && mutedUsers.includes(authorKey)) return false;
-          }
-
-          // Apply food filter only if enabled
-          if (foodFilterEnabled) {
-            return shouldIncludeEvent(event);
-          }
-
-          return true;
-        });
-
-        console.log('[Feed] After food filter:', validEvents.length, '/', beforeFilter);
-
-        // Show what's being filtered out (sample)
-        const rejected = result.events
-          .filter((e) => {
-            return isReply(e) || !shouldIncludeEvent(e);
-          })
-          .slice(0, 5);
-        console.log(
-          '[Feed] Sample rejected:',
-          rejected.map((e) => ({
-            content: e.content?.slice(0, 100),
-            tags: e.tags.filter((t) => t[0] === 't').map((t) => t[1])
-          }))
-        );
-
-        // Check for stale results before applying events
         if (isStaleResult(loadGeneration)) {
-          console.log('[Feed] Discarding stale following results');
           loadInProgress = false;
           return;
         }
@@ -1995,15 +1926,14 @@
         try {
           startRealtimeSubscription();
         } catch {
-          // Subscription setup failed - non-critical, events already loaded
+          // Non-critical
         }
         loadInProgress = false;
         return;
       }
 
       if (filterMode === 'replies') {
-        // Notes & Replies mode: show ALL food-related content from followed users (both notes and replies)
-        // Try Primal first (fast path - 200-400ms vs 5-10s)
+        // Notes & Replies mode: show ALL food-related content from followed users
         if (!$userPublickey) {
           loading = false;
           error = false;
@@ -2016,48 +1946,32 @@
         // RACE: Primal vs Outbox for Replies feed (same pattern as following)
         // ═══════════════════════════════════════════════════════════════
 
-        // Get followed pubkeys early — outbox module caches these
         if (followedPubkeysForRealtime.length === 0) {
           followedPubkeysForRealtime = await getFollowedPubkeys($ndk, $userPublickey);
         }
 
-        // Start Primal fetch (non-blocking)
+        // Start Primal fetch (non-blocking) — reuse followedPubkeysForRealtime
         const repliesPrimalPromise = (async (): Promise<NDKEvent[] | null> => {
           try {
-            const primalStartTime = performance.now();
-            const primalFollows = await fetchContactListFromPrimal($userPublickey);
+            // Use already-cached follow list instead of re-fetching from Primal
+            const follows = followedPubkeysForRealtime.length > 0
+              ? followedPubkeysForRealtime
+              : await fetchContactListFromPrimal($userPublickey);
 
-            if (!primalFollows || primalFollows.length === 0) return null;
+            if (!follows || follows.length === 0) return null;
 
-            if (primalFollows.length > followedPubkeysForRealtime.length) {
-              followedPubkeysForRealtime = primalFollows;
+            if (follows.length > followedPubkeysForRealtime.length) {
+              followedPubkeysForRealtime = follows;
             }
 
-            const { events: primalEvents } = await fetchFeedFromPrimal($ndk, primalFollows, {
+            const { events: primalEvents } = await fetchFeedFromPrimal($ndk, follows, {
               limit: 300,
               since: sevenDaysAgo(),
               includeReplies: true
             });
 
-            const foodEvents = primalEvents.filter((event) => {
-              if ($userPublickey) {
-                const mutedUsers = getMutedUsers();
-                const authorKey = event.author?.hexpubkey || event.pubkey;
-                if (authorKey && mutedUsers.includes(authorKey)) return false;
-              }
-              if (foodFilterEnabled) {
-                return shouldIncludeEvent(event);
-              }
-              return true;
-            });
-
-            console.log(
-              `[Feed] Primal (replies): ${foodEvents.length}/${primalEvents.length} events in ${(performance.now() - primalStartTime).toFixed(0)}ms`
-            );
-
-            return foodEvents.length >= 10 ? foodEvents : null;
-          } catch (err) {
-            console.log('[Feed] Primal (replies) failed:', err);
+            return filterRepliesEvents(primalEvents);
+          } catch {
             return null;
           }
         })();
@@ -2091,7 +2005,6 @@
 
         if (repliesPrimalResult && repliesPrimalResult.length >= 10) {
           if (isStaleResult(loadGeneration)) {
-            console.log('[Feed] Discarding stale Primal replies results');
             loadInProgress = false;
             return;
           }
@@ -2113,9 +2026,9 @@
             // Non-critical
           }
 
-          supplementWithOutbox('replies');
+          // Reuse the already-running outbox promise for background merge
+          mergeOutboxInBackground(repliesOutboxPromise, 'replies');
 
-          console.log(`[Feed] Primal (replies) SUCCESS: ${events.length} events displayed`);
           loadInProgress = false;
           return;
         }
@@ -2123,46 +2036,11 @@
         // Outbox path
         const result: OutboxFetchResult = await repliesOutboxPromise;
 
-        console.log('[Feed] Raw events from outbox:', result.events.length);
-
-        console.log(
-          `[Feed] Outbox fetch (${foodFilterEnabled ? 'food-filtered' : 'all'} replies): ${result.events.length} events from ${result.queriedRelays.length} relays in ${result.timing.totalMs}ms`
-        );
-
-        // Cache followed pubkeys for real-time subscription (if not already from Primal)
         if (followedPubkeysForRealtime.length === 0) {
           followedPubkeysForRealtime = await getFollowedPubkeys($ndk, $userPublickey);
         }
 
-        // Filter for food-related content (both notes AND replies)
-        const beforeFilter = result.events.length;
-        const foodEvents = result.events.filter((event) => {
-          // Check muted users
-          if ($userPublickey) {
-            const mutedUsers = getMutedUsers();
-            const authorKey = event.author?.hexpubkey || event.pubkey;
-            if (authorKey && mutedUsers.includes(authorKey)) return false;
-          }
-
-          // Apply food filter only if enabled
-          if (foodFilterEnabled) {
-            return shouldIncludeEvent(event);
-          }
-
-          return true;
-        });
-
-        console.log('[Feed] After food filter:', foodEvents.length, '/', beforeFilter);
-
-        // Show what's being filtered out (sample)
-        const rejected = result.events.filter((e) => !shouldIncludeEvent(e)).slice(0, 5);
-        console.log(
-          '[Feed] Sample rejected:',
-          rejected.map((e) => ({
-            content: e.content?.slice(0, 100),
-            tags: e.tags.filter((t) => t[0] === 't').map((t) => t[1])
-          }))
-        );
+        const foodEvents = filterRepliesEvents(result.events);
 
         events = dedupeAndSort(foodEvents);
         loading = false;
@@ -2173,20 +2051,15 @@
           await cacheEvents();
         }
 
-        // Prefetch reply contexts for better UX (batch fetch parent notes)
-        prefetchReplyContexts($ndk, events.slice(0, 20)).catch(() => {
-          // Non-critical - individual contexts will be fetched as needed
-        });
+        prefetchReplyContexts($ndk, events.slice(0, 20)).catch(() => {});
 
-        // Prefetch relay lists for all visible authors (non-blocking)
-        // This improves outbox model performance for subsequent fetches
         const authorPubkeys = [...new Set(events.slice(0, 50).map((e) => e.pubkey))];
         prefetchRelayLists(authorPubkeys);
 
         try {
           startRealtimeSubscription();
         } catch {
-          // Subscription setup failed - non-critical, events already loaded
+          // Non-critical
         }
         loadInProgress = false;
         return;
@@ -2734,42 +2607,30 @@
     if (filterMode === 'following' || filterMode === 'replies') {
       if (!$userPublickey) return;
 
-      // Get followed pubkeys for subscription (may already be cached)
       if (followedPubkeysForRealtime.length === 0) {
         followedPubkeysForRealtime = await getFollowedPubkeys($ndk, $userPublickey);
       }
 
       if (followedPubkeysForRealtime.length === 0) return;
 
-      // Subscribe in batches of 100 (Nostr relay limit)
-      for (let i = 0; i < followedPubkeysForRealtime.length; i += 100) {
-        const batch = followedPubkeysForRealtime.slice(i, i + 100);
-
-        const filter: any = {
+      // Single subscription — NDK handles splitting large author lists into
+      // relay-appropriate REQs internally. This replaces N/100 open subs.
+      const sub = $ndk.subscribe(
+        {
           kinds: [1, 1068],
-          authors: batch,
+          authors: followedPubkeysForRealtime,
           since
-        };
+        },
+        { closeOnEose: false }
+      );
 
-        const sub = $ndk.subscribe(filter, { closeOnEose: false });
+      sub.on('event', (event: NDKEvent) => {
+        if (filterMode === 'following' && isReply(event)) return;
+        if (foodFilterEnabled && !shouldIncludeEvent(event)) return;
+        handleRealtimeEvent(event);
+      });
 
-        sub.on('event', (event: NDKEvent) => {
-          // For Following mode, exclude replies
-          if (filterMode === 'following' && isReply(event)) {
-            return;
-          }
-
-          // Apply food filter only when enabled (for following/replies modes)
-          if (foodFilterEnabled && !shouldIncludeEvent(event)) {
-            return;
-          }
-
-          handleRealtimeEvent(event);
-        });
-
-        activeSubscriptions.push(sub);
-      }
-
+      activeSubscriptions.push(sub);
       return;
     }
 
@@ -2995,85 +2856,72 @@
   // BACKGROUND REFRESH
   // ═══════════════════════════════════════════════════════════════
 
-  /**
-   * Supplement Primal results with outbox model fetch (non-blocking)
-   * This catches any events Primal might have missed
-   */
-  async function supplementWithOutbox(mode: 'following' | 'replies') {
-    if (!$userPublickey) return;
+  // ─── Shared event filters for Following / Replies ────────────
 
-    // Run in background after short delay to not compete with initial render
+  /** Filter events for Following mode (top-level notes only, mute + food checks) */
+  function filterFollowingEvents(rawEvents: NDKEvent[]): NDKEvent[] {
+    return rawEvents.filter((event) => {
+      if (isReply(event)) return false;
+      if ($userPublickey) {
+        const mutedUsers = getMutedUsers();
+        const authorKey = event.author?.hexpubkey || event.pubkey;
+        if (authorKey && mutedUsers.includes(authorKey)) return false;
+      }
+      if (foodFilterEnabled) return shouldIncludeEvent(event);
+      return true;
+    });
+  }
+
+  /** Filter events for Replies mode (notes + replies, mute + food checks) */
+  function filterRepliesEvents(rawEvents: NDKEvent[]): NDKEvent[] {
+    return rawEvents.filter((event) => {
+      if ($userPublickey) {
+        const mutedUsers = getMutedUsers();
+        const authorKey = event.author?.hexpubkey || event.pubkey;
+        if (authorKey && mutedUsers.includes(authorKey)) return false;
+      }
+      if (foodFilterEnabled) return shouldIncludeEvent(event);
+      return true;
+    });
+  }
+
+  /**
+   * Reuse an already-running outbox promise to merge its results in the background.
+   * Replaces the old supplementWithOutbox() which launched a *new* outbox fetch,
+   * effectively tripling network work when Primal won the race.
+   */
+  function mergeOutboxInBackground(
+    outboxPromise: Promise<OutboxFetchResult>,
+    mode: 'following' | 'replies'
+  ) {
+    // Small delay to let the initial render settle
     setTimeout(async () => {
       try {
-        const supplementStartTime = performance.now();
+        const result = await outboxPromise;
+        const filterFn = mode === 'following' ? filterFollowingEvents : filterRepliesEvents;
+        const filtered = filterFn(result.events);
 
-        // Build options - only include food filter when enabled
-        const supplementOptions: any = {
-          since: sevenDaysAgo(),
-          kinds: [1, 1068],
-          limit: foodFilterEnabled ? 50 : 100, // Fetch more when showing all posts
-          timeoutMs: 5000,
-          maxRelays: 10
-        };
-
-        if (foodFilterEnabled) {
-          supplementOptions.additionalFilter = {
-            '#t': FOOD_HASHTAGS
-          };
-        }
-
-        const result = await fetchFollowingEvents($ndk, $userPublickey, supplementOptions);
-
-        // Filter based on mode
-        const newEvents = result.events.filter((e) => {
-          // Skip already seen
-          if (seenEventIds.has(e.id)) return false;
-
-          // For Following mode, exclude replies
-          if (mode === 'following' && isReply(e)) return false;
-
-          // Check muted users
-          if ($userPublickey) {
-            const mutedUsers = getMutedUsers();
-            const authorKey = e.author?.hexpubkey || e.pubkey;
-            if (authorKey && mutedUsers.includes(authorKey)) return false;
-          }
-
-          // Apply food filter
-          if (foodFilterEnabled && !shouldIncludeEvent(e)) return false;
-
-          return true;
-        });
+        // Only keep events we haven't already shown
+        const newEvents = filtered.filter((e) => !seenEventIds.has(e.id));
 
         if (newEvents.length > 0) {
-          console.log(
-            `[Feed] Outbox supplement: +${newEvents.length} events in ${(performance.now() - supplementStartTime).toFixed(0)}ms`
-          );
-
-          // Add to seen set
           for (const e of newEvents) {
             seenEventIds.add(e.id);
           }
 
-          // Merge with existing events
           events = dedupeAndSort([...events, ...newEvents]);
 
-          // Update last event time
           const maxTime = Math.max(...newEvents.map((e) => e.created_at || 0));
           if (maxTime > lastEventTime) {
             lastEventTime = maxTime;
           }
 
-          // Cache updated events
           await cacheEvents();
-        } else {
-          console.log(`[Feed] Outbox supplement: No new events found`);
         }
-      } catch (err) {
-        // Silent fail - this is just supplemental
-        console.log('[Feed] Outbox supplement failed:', err);
+      } catch {
+        // Background merge is non-critical
       }
-    }, 500); // 500ms delay to let UI settle first
+    }, 300);
   }
 
   // ═══════════════════════════════════════════════════════════════
@@ -3100,15 +2948,14 @@
       if (startMode === 'following' || startMode === 'replies') {
         if (!$userPublickey) return;
 
-        // Get follows from Primal (fast)
-        const follows = await fetchContactListFromPrimal($userPublickey);
+        // Reuse cached follow list — avoid redundant Primal call
+        const follows = followedPubkeysForRealtime.length > 0
+          ? followedPubkeysForRealtime
+          : await fetchContactListFromPrimal($userPublickey);
 
-        // Check if user switched tabs during fetch
         if (filterMode !== startMode) return;
-
         if (follows.length === 0) return;
 
-        // Cache for realtime subscription
         followedPubkeysForRealtime = follows;
 
         const { events: primalEvents } = await fetchFeedFromPrimal($ndk, follows, {
@@ -3117,39 +2964,27 @@
           includeReplies: startMode === 'replies'
         });
 
-        // Check again after async fetch
         if (filterMode !== startMode) return;
 
-        // Apply food filter
-        freshEvents = primalEvents.filter((event) => {
-          // For Following mode, exclude replies
-          if (startMode === 'following' && isReply(event)) return false;
-
-          // Check muted users
-          if ($userPublickey) {
-            const mutedUsers = getMutedUsers();
-            const authorKey = event.author?.hexpubkey || event.pubkey;
-            if (authorKey && mutedUsers.includes(authorKey)) return false;
-          }
-
-          // Apply food filter only if enabled
-          if (foodFilterEnabled && !shouldIncludeEvent(event)) return false;
-
-          return true;
-        });
+        const filterFn = startMode === 'following' ? filterFollowingEvents : filterRepliesEvents;
+        freshEvents = filterFn(primalEvents);
       } else if (startMode === 'global') {
         // Get followed users to exclude (if logged in)
         let followedSet = new Set<string>();
         if ($userPublickey) {
-          try {
-            const follows = await fetchContactListFromPrimal($userPublickey);
-            followedSet = new Set(follows);
-            followedPubkeysForRealtime = follows;
-          } catch {
-            // Fall back to NDK
-            const follows = await getFollowedPubkeys($ndk, $userPublickey);
-            followedSet = new Set(follows);
-            followedPubkeysForRealtime = follows;
+          // Reuse cached follow list
+          if (followedPubkeysForRealtime.length > 0) {
+            followedSet = new Set(followedPubkeysForRealtime);
+          } else {
+            try {
+              const follows = await fetchContactListFromPrimal($userPublickey);
+              followedSet = new Set(follows);
+              followedPubkeysForRealtime = follows;
+            } catch {
+              const follows = await getFollowedPubkeys($ndk, $userPublickey);
+              followedSet = new Set(follows);
+              followedPubkeysForRealtime = follows;
+            }
           }
         }
 
