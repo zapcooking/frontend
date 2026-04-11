@@ -1,4 +1,27 @@
 export const NOURISH_CACHE_VERSION = '1.1';
+export const NOURISH_PROMPT_VERSION = '1';
+
+/**
+ * Public key of the Zap Cooking service account that publishes Nourish analysis events.
+ * Derived from NOTIFICATION_PRIVATE_KEY. Clients use this to filter relay queries
+ * so only official Zap Cooking analyses are trusted.
+ *
+ * This must match the pubkey derived from the NOTIFICATION_PRIVATE_KEY env var.
+ * To find this value: new NDKPrivateKeySigner(hexKey).user().then(u => u.pubkey)
+ */
+export const NOURISH_SERVICE_PUBKEY = 'fdd263f69f9e95a2a0a58ec3e7e8053011214fa66007d93b26d2f4717d31917b';
+
+/** Result from querying the pantry relay for an existing Nourish analysis event. */
+export interface NourishRelayResult {
+  scores: NourishScores;
+  improvements: string[];
+  ingredientSignals: IngredientSignal[];
+  contentHash: string;
+  promptVersion: string;
+  nourishVersion: string;
+  createdAt: number;
+  eventId: string;
+}
 
 // ─── Recipe scoring (existing) ───────────────────────────────
 

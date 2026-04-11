@@ -107,7 +107,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 		}
 
 		const body = await request.json();
-		const { pubkey, eventId, title, ingredients, tags, servings } = body;
+		const { pubkey, eventId, title, ingredients, tags, servings, recipePubkey, recipeDTag, contentHash } = body;
 
 		// Validate request
 		if (!ingredients || !Array.isArray(ingredients) || ingredients.length === 0) {
@@ -238,6 +238,39 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 							: 'neutral'
 					}))
 			: [];
+
+		// Publish Nourish event to pantry relay.
+		// Uses waitUntil on Cloudflare Workers so the promise survives past the response.
+		const HEX_64_RE = /^[a-fA-F0-9]{64}$/;
+		const validRecipePubkey = typeof recipePubkey === 'string' && HEX_64_RE.test(recipePubkey.trim());
+		const validContentHash = typeof contentHash === 'string' && HEX_64_RE.test(contentHash.trim());
+		const validRecipeDTag = typeof recipeDTag === 'string' && recipeDTag.trim().length > 0 && recipeDTag.trim().length <= 200;
+
+		if (validRecipePubkey && validRecipeDTag && validContentHash) {
+			const NOTIFICATION_PRIVATE_KEY = (platform?.env as any)?.NOTIFICATION_PRIVATE_KEY || env.NOTIFICATION_PRIVATE_KEY;
+			if (NOTIFICATION_PRIVATE_KEY) {
+				const publishPromise = import('$lib/nourish/nourishPublisher.server')
+					.then(({ publishNourishEvent }) =>
+						publishNourishEvent({
+							privateKey: NOTIFICATION_PRIVATE_KEY,
+							recipePubkey: recipePubkey.trim(),
+							recipeDTag: recipeDTag.trim(),
+							contentHash: contentHash.trim(),
+							scores,
+							improvements,
+							ingredientSignals: ingredient_signals
+						})
+					)
+					.catch((err) => {
+						console.error('[Nourish] Failed to publish event:', err);
+					});
+
+				// Cloudflare Workers: register with waitUntil so the promise survives past response
+				if ((platform as any)?.context?.waitUntil) {
+					(platform as any).context.waitUntil(publishPromise);
+				}
+			}
+		}
 
 		return json({ success: true, scores, improvements, ingredient_signals });
 	} catch (error: any) {

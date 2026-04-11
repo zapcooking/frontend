@@ -1,5 +1,6 @@
 <script lang="ts">
   import { NDKEvent } from '@nostr-dev-kit/ndk';
+  import { browser } from '$app/environment';
   import TagLinks from './TagLinks.svelte';
   import { ndk, userPublickey } from '$lib/nostr';
   import BookmarkIcon from 'phosphor-svelte/lib/BookmarkSimple';
@@ -57,6 +58,9 @@
   import { GATED_RECIPE_KIND } from '$lib/consts';
   import LeafIcon from 'phosphor-svelte/lib/Leaf';
   import NourishModal from '../nourish/NourishModal.svelte';
+  import NourishPill from '../nourish/NourishPill.svelte';
+  import { fetchNourishEvent } from '$lib/nourish/nourishRelay';
+  import { getNourishCache } from '$lib/nourish/cache';
   import { membershipStatusMap, queueMembershipLookup, type MembershipStatus } from '$lib/stores/membershipStatus';
 
   export let event: NDKEvent;
@@ -84,6 +88,54 @@
   let isDeleting = false;
   let isEditingRecipe = false;
   let nourishModalOpen = false;
+  let nourishPreviewScore: number | null = null;
+  let nourishGut: number | null = null;
+  let nourishProtein: number | null = null;
+  let nourishRealFood: number | null = null;
+
+  // Load Nourish score preview (non-blocking, client-only)
+  let lastNourishEventId: string | null = null;
+
+  $: if (browser && event && isActualRecipe) {
+    loadNourishPreview();
+  }
+
+  function applyNourishScores(scores: import('$lib/nourish/types').NourishScores) {
+    nourishPreviewScore = scores.overall.score;
+    nourishGut = scores.gut.score;
+    nourishProtein = scores.protein.score;
+    nourishRealFood = scores.realFood.score;
+  }
+
+  function loadNourishPreview() {
+    // Reset when event changes (e.g., recipe prop swap) to avoid showing stale scores
+    if (lastNourishEventId !== event.id) {
+      lastNourishEventId = event.id;
+      nourishPreviewScore = null;
+      nourishGut = null;
+      nourishProtein = null;
+      nourishRealFood = null;
+    }
+
+    const targetEventId = event.id;
+
+    // Check localStorage first (instant)
+    const cached = getNourishCache(targetEventId);
+    if (cached) {
+      applyNourishScores(cached.scores);
+      return;
+    }
+    // Check relay in background
+    const recipePubkey = event.author?.hexpubkey || event.pubkey;
+    const recipeDTag = event.tags.find((t: string[]) => t[0] === 'd')?.[1] || '';
+    if (recipePubkey && recipeDTag && $ndk) {
+      fetchNourishEvent($ndk, recipePubkey, recipeDTag).then((result) => {
+        // Ignore stale result if event changed while fetching
+        if (event.id !== targetEventId) return;
+        if (result) applyNourishScores(result.scores);
+      }).catch(() => {});
+    }
+  }
 
   // Membership check for Nourish
   let membershipMap: Record<string, MembershipStatus> = {};
@@ -790,17 +842,27 @@
               {/if}
             </button>
           </div>
-          <div class="flex items-center gap-1">
-          <!-- Nourish button -->
+          <div class="flex items-center gap-2">
+          <!-- Nourish — first-class product layer, visually separated from actions -->
           {#if isActualRecipe}
-            <button
-              class="cursor-pointer hover:bg-input rounded p-1 transition duration-300 text-green-500"
-              on:click={() => { nourishModalOpen = true; }}
-              aria-label="Nourish scores"
-              title="Nourish"
-            >
-              <LeafIcon size={24} />
-            </button>
+            {#if nourishPreviewScore !== null}
+              <NourishPill
+                overall={nourishPreviewScore}
+                gut={nourishGut}
+                protein={nourishProtein}
+                realFood={nourishRealFood}
+                onClick={() => { nourishModalOpen = true; }}
+              />
+            {:else}
+              <button
+                class="nourish-btn-empty"
+                on:click={() => { nourishModalOpen = true; }}
+                aria-label="Nourish — explore this recipe's profile"
+                title="Nourish"
+              >
+                <LeafIcon size={18} weight="regular" />
+              </button>
+            {/if}
           {/if}
           <!-- 3-dot menu for recipe actions -->
           <div class="relative">
@@ -1124,6 +1186,24 @@
 </article>
 
 <style>
+  /* Nourish empty state — subtle leaf for un-analyzed recipes */
+  .nourish-btn-empty {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    padding: 0.25rem;
+    border-radius: 0.375rem;
+    transition: background-color 150ms, color 150ms;
+    color: var(--color-text-secondary);
+    opacity: 0.5;
+  }
+  .nourish-btn-empty:hover {
+    background-color: var(--color-input-bg);
+    color: #22c55e;
+    opacity: 1;
+  }
+
   /* Dark mode support for prose content */
   :global(.prose) {
     color: var(--color-text-primary);
