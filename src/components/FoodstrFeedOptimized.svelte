@@ -1833,7 +1833,7 @@
 
             const { events: primalEvents } = await fetchFeedFromPrimal($ndk, primalFollows, {
               limit: 300,
-              since: sevenDaysAgo(),
+              since: timeWindow.since,
               includeReplies: false
             });
 
@@ -1867,7 +1867,10 @@
         // Race: use whichever resolves with good data first
         const primalResult = await Promise.race([
           primalPromise,
-          outboxPromise.then(() => null as NDKEvent[] | null)
+          outboxPromise.then(
+            () => null as NDKEvent[] | null,
+            () => null as NDKEvent[] | null
+          )
         ]);
 
         if (primalResult && primalResult.length >= 10) {
@@ -1966,7 +1969,7 @@
 
             const { events: primalEvents } = await fetchFeedFromPrimal($ndk, follows, {
               limit: 300,
-              since: sevenDaysAgo(),
+              since: timeWindow.since,
               includeReplies: true
             });
 
@@ -2000,7 +2003,10 @@
         // Race: use whichever resolves with good data first
         const repliesPrimalResult = await Promise.race([
           repliesPrimalPromise,
-          repliesOutboxPromise.then(() => null as NDKEvent[] | null)
+          repliesOutboxPromise.then(
+            () => null as NDKEvent[] | null,
+            () => null as NDKEvent[] | null
+          )
         ]);
 
         if (repliesPrimalResult && repliesPrimalResult.length >= 10) {
@@ -2880,14 +2886,26 @@
     outboxPromise: Promise<OutboxFetchResult>,
     mode: 'following' | 'replies'
   ) {
+    // Capture state at schedule time so we can detect stale results
+    const scheduledGeneration = getCurrentRelayGeneration();
+    const scheduledMode = filterMode;
+
     // Small delay to let the initial render settle
     setTimeout(async () => {
       try {
+        // Don't merge if component was destroyed or user switched tabs/relays
+        if (isDestroyed) return;
+        if (filterMode !== scheduledMode) return;
+        if (isStaleResult(scheduledGeneration)) return;
+
         const result = await outboxPromise;
+
+        // Re-check after await — mode or generation could have changed
+        if (isDestroyed || filterMode !== scheduledMode) return;
+
         const filterFn = mode === 'following' ? filterFollowingEvents : filterRepliesEvents;
         const filtered = filterFn(result.events);
 
-        // Only keep events we haven't already shown
         const newEvents = filtered.filter((e) => !seenEventIds.has(e.id));
 
         if (newEvents.length > 0) {
