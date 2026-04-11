@@ -11,6 +11,7 @@
   import LeafIcon from 'phosphor-svelte/lib/Leaf';
   import LockIcon from 'phosphor-svelte/lib/Lock';
   import SpinnerIcon from 'phosphor-svelte/lib/SpinnerGap';
+  import SparkleIcon from 'phosphor-svelte/lib/Sparkle';
 
   // Membership check
   let membershipMap: Record<string, MembershipStatus> = {};
@@ -124,7 +125,7 @@
       <LeafIcon size={24} weight="fill" />
     </div>
     <h1 class="hero-title">Nourish</h1>
-    <p class="hero-subtitle">See what your food brings to the table.</p>
+    <p class="hero-subtitle">Get nutrition insights from your ingredients.</p>
     <p class="hero-note">Not a grade. Just guidance.</p>
   </div>
 
@@ -172,18 +173,22 @@
         <SpinnerIcon size={18} class="animate-spin" />
         Looking at your food...
       {:else}
-        <LeafIcon size={18} weight="fill" />
+        <SparkleIcon size={18} weight="fill" />
         See what's inside
       {/if}
     </button>
   {/if}
 
-  <!-- Footer -->
+  <!-- Member banner + disclaimer -->
+  {#if !hasMembership}
+    <div class="member-banner">
+      <LockIcon size={14} weight="fill" />
+      <span>Nourish is for <a href="/membership" class="banner-link">Zap Cooking members</a>.</span>
+      <a href="/membership" class="banner-cta">Join</a>
+    </div>
+  {/if}
   <div class="page-footer">
-    <p>
-      Nourish is for <a href="/membership" class="footer-link">Zap Cooking members</a>.
-      Profiles are estimates based on ingredients. Not medical advice.
-    </p>
+    <p>Profiles are estimates based on ingredients. Not medical advice.</p>
   </div>
 </div>
 
@@ -191,23 +196,23 @@
   .nourish-page {
     max-width: 480px;
     margin: 0 auto;
-    padding: 2rem 1rem 3rem;
+    padding: 1.5rem 1rem 2.5rem;
     display: flex;
     flex-direction: column;
-    gap: 1.5rem;
+    gap: 1rem;
   }
 
-  /* Hero */
+  /* Hero — tighter spacing */
   .hero {
     display: flex;
     flex-direction: column;
     align-items: center;
     text-align: center;
-    gap: 0.25rem;
+    gap: 0.125rem;
   }
   .hero-icon {
     color: #22c55e;
-    margin-bottom: 0.25rem;
+    margin-bottom: 0.125rem;
   }
   .hero-title {
     font-size: 1.5rem;
@@ -290,22 +295,50 @@
     cursor: not-allowed;
   }
 
+  /* Member banner */
+  .member-banner {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.625rem 0.75rem;
+    border-radius: 0.5rem;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    font-size: 0.75rem;
+    color: var(--color-text-secondary);
+  }
+  .banner-link {
+    color: #22c55e;
+    text-decoration: none;
+  }
+  .banner-link:hover {
+    text-decoration: underline;
+  }
+  .banner-cta {
+    margin-left: auto;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: #22c55e;
+    text-decoration: none;
+    padding: 0.25rem 0.625rem;
+    border-radius: 9999px;
+    border: 1px solid rgba(34, 197, 94, 0.3);
+    transition: background 150ms;
+    white-space: nowrap;
+  }
+  .banner-cta:hover {
+    background: rgba(34, 197, 94, 0.1);
+  }
+
   /* Footer */
   .page-footer {
     text-align: center;
-    padding-top: 1rem;
+    padding-top: 0.5rem;
   }
   .page-footer p {
     font-size: 0.6875rem;
     color: var(--color-text-secondary);
-    opacity: 0.5;
+    opacity: 0.4;
     margin: 0;
-  }
-  .footer-link {
-    color: #22c55e;
-    text-decoration: none;
-  }
-  .footer-link:hover {
-    text-decoration: underline;
   }
 </style>
