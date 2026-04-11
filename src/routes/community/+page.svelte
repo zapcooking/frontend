@@ -40,7 +40,8 @@
   type FilterMode = 'global' | 'following' | 'replies' | 'members' | 'garden';
 
   // Local state for immediate UI updates
-  let activeTab: FilterMode = 'following';
+  // Default to global — faster load, more variety on login
+  let activeTab: FilterMode = 'global';
 
   // Check if user has active membership (for Pantry tab)
   let hasActiveMembership = false;

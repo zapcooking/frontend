@@ -305,14 +305,25 @@ export async function fetchRelayLists(
   }
   
   console.log(`[Outbox] Fetching relay lists for ${pubkeys.length} users via cache`);
-  
+
   try {
-    // Use the centralized relay list cache
-    const relayLists = await relayListCache.getMany(pubkeys);
-    
+    // Cap relay list resolution at 4 seconds — for large follow lists (1000+)
+    // the network fetch can take 15s+ on a cold cache. Better to proceed with
+    // partial results and use fallback relays for uncovered authors.
+    const RELAY_LIST_TIMEOUT_MS = 4000;
+    const relayLists = await Promise.race([
+      relayListCache.getMany(pubkeys),
+      new Promise<Map<string, RelayList>>((resolve) =>
+        setTimeout(() => {
+          console.log(`[Outbox] Relay list fetch timed out after ${RELAY_LIST_TIMEOUT_MS}ms, using partial results`);
+          resolve(new Map());
+        }, RELAY_LIST_TIMEOUT_MS)
+      )
+    ]);
+
     for (const [pubkey, relayList] of relayLists) {
       const config = relayListToUserConfig(pubkey, relayList);
-      
+
       // Only include if has write relays
       if (config.writeRelays.length > 0) {
         results.set(pubkey, config);
@@ -320,7 +331,7 @@ export async function fetchRelayLists(
         userRelayCache.set(pubkey, config);
       }
     }
-    
+
     // Cache empty results for pubkeys without relay lists
     const now = Date.now();
     for (const pubkey of pubkeys) {
@@ -333,7 +344,7 @@ export async function fetchRelayLists(
         });
       }
     }
-    
+
     console.log(`[Outbox] Got relay configs for ${results.size}/${pubkeys.length} users`);
   } catch (err) {
     console.warn('[Outbox] Failed to fetch relay lists:', err);
@@ -386,13 +397,14 @@ export function buildQueryPlan(
     }
   }
   
-  // Add fallback users to fallback relays
+  // Add fallback users to fallback relays.
+  // Spread them across relays so the coverage-dedup step doesn't collapse to 1 relay.
   if (usersNeedingFallback.length > 0) {
-    for (const relay of CONFIG.FALLBACK_RELAYS) {
+    const fallbackCount = CONFIG.FALLBACK_RELAYS.length;
+    for (let i = 0; i < usersNeedingFallback.length; i++) {
+      const relay = CONFIG.FALLBACK_RELAYS[i % fallbackCount];
       const existing = relayToAuthors.get(relay) || new Set();
-      for (const pubkey of usersNeedingFallback) {
-        existing.add(pubkey);
-      }
+      existing.add(usersNeedingFallback[i]);
       relayToAuthors.set(relay, existing);
     }
   }
