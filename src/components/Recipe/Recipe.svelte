@@ -57,6 +57,8 @@
   import { GATED_RECIPE_KIND } from '$lib/consts';
   import LeafIcon from 'phosphor-svelte/lib/Leaf';
   import NourishModal from '../nourish/NourishModal.svelte';
+  import { fetchNourishEvent } from '$lib/nourish/nourishRelay';
+  import { getNourishCache } from '$lib/nourish/cache';
   import { membershipStatusMap, queueMembershipLookup, type MembershipStatus } from '$lib/stores/membershipStatus';
 
   export let event: NDKEvent;
@@ -84,6 +86,29 @@
   let isDeleting = false;
   let isEditingRecipe = false;
   let nourishModalOpen = false;
+  let nourishPreviewScore: number | null = null;
+
+  // Load Nourish score preview (non-blocking)
+  $: if (event && isActualRecipe) {
+    loadNourishPreview();
+  }
+
+  function loadNourishPreview() {
+    // Check localStorage first (instant)
+    const cached = getNourishCache(event.id);
+    if (cached) {
+      nourishPreviewScore = cached.scores.overall.score;
+      return;
+    }
+    // Check relay in background
+    const recipePubkey = event.author?.hexpubkey || event.pubkey;
+    const recipeDTag = event.tags.find((t: string[]) => t[0] === 'd')?.[1] || '';
+    if (recipePubkey && recipeDTag && $ndk) {
+      fetchNourishEvent($ndk, recipePubkey, recipeDTag).then((result) => {
+        if (result) nourishPreviewScore = result.scores.overall.score;
+      }).catch(() => {});
+    }
+  }
 
   // Membership check for Nourish
   let membershipMap: Record<string, MembershipStatus> = {};
@@ -791,15 +816,18 @@
             </button>
           </div>
           <div class="flex items-center gap-1">
-          <!-- Nourish button -->
+          <!-- Nourish button with score preview -->
           {#if isActualRecipe}
             <button
-              class="cursor-pointer hover:bg-input rounded p-1 transition duration-300 text-green-500"
+              class="nourish-btn"
               on:click={() => { nourishModalOpen = true; }}
               aria-label="Nourish scores"
-              title="Nourish"
+              title={nourishPreviewScore !== null ? `Nourish ${nourishPreviewScore}/10` : 'Nourish'}
             >
               <LeafIcon size={24} />
+              {#if nourishPreviewScore !== null}
+                <span class="nourish-badge">{nourishPreviewScore}</span>
+              {/if}
             </button>
           {/if}
           <!-- 3-dot menu for recipe actions -->
@@ -1124,6 +1152,39 @@
 </article>
 
 <style>
+  /* Nourish button with score badge */
+  .nourish-btn {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    padding: 0.25rem;
+    border-radius: 0.375rem;
+    transition: background-color 300ms;
+    color: #22c55e;
+  }
+  .nourish-btn:hover {
+    background-color: var(--color-input-bg);
+  }
+  .nourish-badge {
+    position: absolute;
+    bottom: -2px;
+    right: -4px;
+    font-size: 0.625rem;
+    font-weight: 700;
+    line-height: 1;
+    min-width: 14px;
+    height: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 9999px;
+    background: #22c55e;
+    color: white;
+    pointer-events: none;
+  }
+
   /* Dark mode support for prose content */
   :global(.prose) {
     color: var(--color-text-primary);
