@@ -2357,123 +2357,19 @@
         return;
       }
 
-      // Global mode (default) - existing logic
       // ═══════════════════════════════════════════════════════════════
-      // PRIMAL FAST PATH - Try Primal cache first for Global feed
-      // ═══════════════════════════════════════════════════════════════
-      if (!authorPubkey) {
-        // Only use Primal for community global feed (not profile views)
-        try {
-          const primalStartTime = performance.now();
-          // Use pre-fetched result if available (started during NDK connect)
-          const primalResult = primalPrefetch ? await primalPrefetch : await fetchGlobalFromPrimal($ndk, {
-            limit: 200,
-            since: sevenDaysAgo()
-          });
-          primalPrefetch = null; // Consumed
-          const { events: primalEvents }: { events: NDKEvent[] } = primalResult;
-
-          console.log(
-            `[Feed] Primal global: ${primalEvents.length} events in ${(performance.now() - primalStartTime).toFixed(0)}ms`
-          );
-
-          // Get followed users to exclude from Global feed (if logged in)
-          let followedSet = new Set<string>();
-          if ($userPublickey) {
-            try {
-              const primalFollows = await fetchContactListFromPrimal($userPublickey);
-              followedSet = new Set(primalFollows);
-              followedPubkeysForRealtime = primalFollows;
-            } catch {
-              // Fall back to NDK method
-              const followed = await getFollowedPubkeys($ndk, $userPublickey);
-              followedSet = new Set(followed);
-              followedPubkeysForRealtime = followed;
-            }
-          }
-
-          // Apply food content filter
-          const beforeFilter = primalEvents.length;
-          const foodEvents = primalEvents.filter((event) => {
-            // Check muted users
-            if ($userPublickey) {
-              const mutedUsers = getMutedUsers();
-              const authorKey = event.author?.hexpubkey || event.pubkey;
-              if (authorKey && mutedUsers.includes(authorKey)) return false;
-            }
-
-            // Exclude replies
-            if (isReply(event)) return false;
-
-            // Apply food filter
-            if (!shouldIncludeEvent(event)) return false;
-
-            // Exclude posts from followed users (they go in Following feed)
-            if (followedSet.size > 0) {
-              const authorKey = event.author?.hexpubkey || event.pubkey;
-              if (authorKey && followedSet.has(authorKey)) return false;
-            }
-
-            return true;
-          });
-
-          console.log(
-            `[Feed] Primal global: After food filter: ${foodEvents.length} / ${beforeFilter}`
-          );
-
-          if (foodEvents.length >= 15) {
-            // Check for stale results
-            if (isStaleResult(loadGeneration)) {
-              console.log('[Feed] Discarding stale Primal global results');
-              loadInProgress = false;
-              return;
-            }
-
-            // Success - use Primal results
-            events = dedupeAndSort(foodEvents);
-            loading = false;
-            error = false;
-
-            if (events.length > 0) {
-              lastEventTime = Math.max(...events.map((e) => e.created_at || 0));
-              await cacheEvents();
-            }
-
-            // Start realtime subscription
-            try {
-              startRealtimeSubscription();
-            } catch {
-              // Non-critical
-            }
-
-            console.log(`[Feed] Primal global SUCCESS: ${events.length} events displayed`);
-            loadInProgress = false;
-            return;
-          } else {
-            console.log(
-              '[Feed] Primal global: Not enough food events, supplementing with relay pools'
-            );
-            // Continue to relay pools fetch to supplement
-          }
-        } catch (err) {
-          console.log('[Feed] Primal global failed, using relay pools:', err);
-        }
-      }
-
-      // ═══════════════════════════════════════════════════════════════
-      // RELAY POOLS FALLBACK - Use when Primal fails or returns too few
+      // GLOBAL MODE: Race Primal against relay pools (not sequential)
+      // Both start concurrently. Whichever returns good data first wins.
+      // This eliminates the 3-5s delay when Primal times out.
       // ═══════════════════════════════════════════════════════════════
 
-      // Build filters
+      // Build relay pool filter (always needed as backup, starts immediately)
       const hashtagFilter: any = {
         kinds: [1, 1068],
-        limit: authorPubkey && !foodFilterEnabled ? 100 : 50, // Fetch more for profile view when showing all posts
+        limit: authorPubkey && !foodFilterEnabled ? 100 : 50,
         since: timeWindow.since
       };
 
-      // Only add food hashtag filter when needed
-      // For profile view: respect the toggle
-      // For global feed: always filter for food content
       if (!authorPubkey || foodFilterEnabled) {
         hashtagFilter['#t'] = FOOD_HASHTAGS;
       }
@@ -2482,11 +2378,101 @@
         hashtagFilter.authors = [authorPubkey];
       }
 
-      // Fetch strategy:
-      // 1. Primary: hashtag filter (fast, reliable) - your relay + fast fallback
-      // 2. Secondary (conditional): Client-side content filter — only if primary returns < 30 events
-      //    This avoids fetching+scanning 300 notes when we already have enough food content
-      const hashtagEvents = await fetchFromRelays(hashtagFilter, [...RELAY_POOLS.recipes, ...RELAY_POOLS.fallback]);
+      // Start relay pool fetch immediately (runs in parallel with Primal)
+      const relayPoolPromise = fetchFromRelays(hashtagFilter, [...RELAY_POOLS.recipes, ...RELAY_POOLS.fallback]);
+
+      // Start Primal fetch concurrently (only for community global, not profile views)
+      let primalGlobalResult: NDKEvent[] | null = null;
+      if (!authorPubkey) {
+        try {
+          // Race: Primal vs relay pools — use whichever finishes with good data first
+          const primalPromise = (async (): Promise<NDKEvent[] | null> => {
+            try {
+              const result = primalPrefetch ? await primalPrefetch : await fetchGlobalFromPrimal($ndk, {
+                limit: 200,
+                since: sevenDaysAgo()
+              });
+              primalPrefetch = null;
+              if (!result) return null;
+              const { events: primalEvents } = result;
+
+              // Get followed users to exclude from Global feed
+              let followedSet = new Set<string>();
+              if ($userPublickey) {
+                if (followedPubkeysForRealtime.length > 0) {
+                  followedSet = new Set(followedPubkeysForRealtime);
+                } else {
+                  try {
+                    const follows = await fetchContactListFromPrimal($userPublickey);
+                    followedSet = new Set(follows);
+                    followedPubkeysForRealtime = follows;
+                  } catch {
+                    const follows = await getFollowedPubkeys($ndk, $userPublickey);
+                    followedSet = new Set(follows);
+                    followedPubkeysForRealtime = follows;
+                  }
+                }
+              }
+
+              const foodEvents = primalEvents.filter((event) => {
+                if ($userPublickey) {
+                  const mutedUsers = getMutedUsers();
+                  const authorKey = event.author?.hexpubkey || event.pubkey;
+                  if (authorKey && mutedUsers.includes(authorKey)) return false;
+                }
+                if (isReply(event)) return false;
+                if (!shouldIncludeEvent(event)) return false;
+                if (followedSet.size > 0) {
+                  const authorKey = event.author?.hexpubkey || event.pubkey;
+                  if (authorKey && followedSet.has(authorKey)) return false;
+                }
+                return true;
+              });
+
+              return foodEvents.length >= 15 ? foodEvents : null;
+            } catch {
+              return null;
+            }
+          })();
+
+          // Race: if Primal returns good data before relay pools, use it
+          primalGlobalResult = await Promise.race([
+            primalPromise,
+            relayPoolPromise.then(() => null as NDKEvent[] | null)
+          ]);
+
+          if (primalGlobalResult && primalGlobalResult.length >= 15) {
+            if (isStaleResult(loadGeneration)) {
+              loadInProgress = false;
+              return;
+            }
+
+            events = dedupeAndSort(primalGlobalResult);
+            loading = false;
+            error = false;
+
+            if (events.length > 0) {
+              lastEventTime = Math.max(...events.map((e) => e.created_at || 0));
+              await cacheEvents();
+            }
+
+            try {
+              startRealtimeSubscription();
+            } catch {
+              // Non-critical
+            }
+
+            loadInProgress = false;
+            return;
+          }
+        } catch {
+          primalPrefetch = null;
+        }
+      }
+
+      // Relay pools path (either Primal failed/insufficient, or this is a profile view)
+      // relayPoolPromise is already running — just await it
+      const hashtagEvents = await relayPoolPromise;
 
       const allFetchedEvents: NDKEvent[] = [...hashtagEvents];
 

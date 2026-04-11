@@ -397,13 +397,14 @@ export function buildQueryPlan(
     }
   }
   
-  // Add fallback users to fallback relays
+  // Add fallback users to fallback relays.
+  // Spread them across relays so the coverage-dedup step doesn't collapse to 1 relay.
   if (usersNeedingFallback.length > 0) {
-    for (const relay of CONFIG.FALLBACK_RELAYS) {
+    const fallbackCount = CONFIG.FALLBACK_RELAYS.length;
+    for (let i = 0; i < usersNeedingFallback.length; i++) {
+      const relay = CONFIG.FALLBACK_RELAYS[i % fallbackCount];
       const existing = relayToAuthors.get(relay) || new Set();
-      for (const pubkey of usersNeedingFallback) {
-        existing.add(pubkey);
-      }
+      existing.add(usersNeedingFallback[i]);
       relayToAuthors.set(relay, existing);
     }
   }
