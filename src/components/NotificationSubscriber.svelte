@@ -2,6 +2,7 @@
   import { onDestroy } from 'svelte';
   import { ndk, userPublickey } from '$lib/nostr';
   import { subscribeToNotifications, unsubscribeFromNotifications } from '$lib/notificationStore';
+  import { muteListStore } from '$lib/muteListStore';
 
   let lastSubscribedPubkey: string | null = null;
 
@@ -17,6 +18,8 @@
   $: if (isValidPubkey($userPublickey) && $ndk && $userPublickey !== lastSubscribedPubkey) {
     lastSubscribedPubkey = $userPublickey;
     subscribeToNotifications($ndk, $userPublickey);
+    // Ensure mute list is loaded early so unreadCount excludes muted users
+    muteListStore.load();
   } else if (!isValidPubkey($userPublickey) && lastSubscribedPubkey) {
     lastSubscribedPubkey = null;
     unsubscribeFromNotifications();
