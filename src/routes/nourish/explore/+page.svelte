@@ -12,7 +12,8 @@
   } from '$lib/nourish/nourishDiscovery';
 
   let recipes: NourishRankedRecipe[] = [];
-  let loading = true;
+  let loading = false;
+  let loadStarted = false;
   let error = false;
   let sortBy: SortDimension = 'overall';
 
@@ -24,8 +25,9 @@
   ];
 
   async function loadRecipes() {
-    if (!$ndk) return;
+    if (!$ndk || loading) return;
     loading = true;
+    loadStarted = true;
     error = false;
 
     try {
@@ -50,8 +52,8 @@
     }
   });
 
-  // Reload when NDK becomes available
-  $: if (browser && $ndk && loading && recipes.length === 0 && !error) {
+  // Reload when NDK becomes available (if onMount fired before connection)
+  $: if (browser && $ndk && !loadStarted && !error) {
     loadRecipes();
   }
 </script>

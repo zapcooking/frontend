@@ -41,6 +41,14 @@ export const POST: RequestHandler = async ({ request, platform }) => {
       return json({ success: false, error: 'Missing required fields' }, { status: 400 });
     }
 
+    const HEX_64_RE = /^[a-fA-F0-9]{64}$/;
+    if (!HEX_64_RE.test(recipePubkey)) {
+      return json({ success: false, error: 'Invalid recipePubkey format' }, { status: 400 });
+    }
+    if (!HEX_64_RE.test(contentHash)) {
+      return json({ success: false, error: 'Invalid contentHash format' }, { status: 400 });
+    }
+
     const { publishNourishEvent } = await import('$lib/nourish/nourishPublisher.server');
     const published = await publishNourishEvent({
       privateKey: NOTIFICATION_PRIVATE_KEY,

@@ -123,15 +123,21 @@ export async function fetchNourishRankedRecipes(
   // Take top N
   const topAnalyses = analyses.slice(0, limit);
 
-  // Step 4: Batch-fetch recipe events
+  // Step 4: Batch-fetch only the specific recipe events we need
+  const uniqueDTags = [...new Set(topAnalyses.map((a) => a.recipeDTag))];
   const recipeFilter = {
     kinds: [30023 as number],
     authors: [...new Set(topAnalyses.map((a) => a.recipePubkey))],
+    '#d': uniqueDTags
   };
 
   let recipeEvents: Set<NDKEvent>;
   try {
-    recipeEvents = await ndk.fetchEvents(recipeFilter);
+    const fetchPromise = ndk.fetchEvents(recipeFilter);
+    const timeoutPromise = new Promise<Set<NDKEvent>>((resolve) =>
+      setTimeout(() => resolve(new Set()), FETCH_TIMEOUT_MS)
+    );
+    recipeEvents = await Promise.race([fetchPromise, timeoutPromise]);
   } catch {
     return [];
   }
