@@ -57,6 +57,7 @@
   import { GATED_RECIPE_KIND } from '$lib/consts';
   import LeafIcon from 'phosphor-svelte/lib/Leaf';
   import NourishModal from '../nourish/NourishModal.svelte';
+  import NourishPill from '../nourish/NourishPill.svelte';
   import { fetchNourishEvent } from '$lib/nourish/nourishRelay';
   import { getNourishCache } from '$lib/nourish/cache';
   import { membershipStatusMap, queueMembershipLookup, type MembershipStatus } from '$lib/stores/membershipStatus';
@@ -87,17 +88,27 @@
   let isEditingRecipe = false;
   let nourishModalOpen = false;
   let nourishPreviewScore: number | null = null;
+  let nourishGut: number | null = null;
+  let nourishProtein: number | null = null;
+  let nourishRealFood: number | null = null;
 
   // Load Nourish score preview (non-blocking)
   $: if (event && isActualRecipe) {
     loadNourishPreview();
   }
 
+  function applyNourishScores(scores: import('$lib/nourish/types').NourishScores) {
+    nourishPreviewScore = scores.overall.score;
+    nourishGut = scores.gut.score;
+    nourishProtein = scores.protein.score;
+    nourishRealFood = scores.realFood.score;
+  }
+
   function loadNourishPreview() {
     // Check localStorage first (instant)
     const cached = getNourishCache(event.id);
     if (cached) {
-      nourishPreviewScore = cached.scores.overall.score;
+      applyNourishScores(cached.scores);
       return;
     }
     // Check relay in background
@@ -105,7 +116,7 @@
     const recipeDTag = event.tags.find((t: string[]) => t[0] === 'd')?.[1] || '';
     if (recipePubkey && recipeDTag && $ndk) {
       fetchNourishEvent($ndk, recipePubkey, recipeDTag).then((result) => {
-        if (result) nourishPreviewScore = result.scores.overall.score;
+        if (result) applyNourishScores(result.scores);
       }).catch(() => {});
     }
   }
@@ -815,20 +826,28 @@
               {/if}
             </button>
           </div>
-          <div class="flex items-center gap-1">
-          <!-- Nourish button with score preview -->
+          <div class="flex items-center gap-2">
+          <!-- Nourish pill — first-class product layer, visually separated from actions -->
           {#if isActualRecipe}
-            <button
-              class="nourish-btn"
-              on:click={() => { nourishModalOpen = true; }}
-              aria-label="Nourish scores"
-              title={nourishPreviewScore !== null ? `Nourish ${nourishPreviewScore}/10` : 'Nourish'}
-            >
-              <LeafIcon size={24} />
-              {#if nourishPreviewScore !== null}
-                <span class="nourish-badge">{nourishPreviewScore}</span>
-              {/if}
-            </button>
+            {#if nourishPreviewScore !== null}
+              <NourishPill
+                overall={nourishPreviewScore}
+                gut={nourishGut}
+                protein={nourishProtein}
+                realFood={nourishRealFood}
+                mode="expand"
+                onClick={() => { nourishModalOpen = true; }}
+              />
+            {:else}
+              <button
+                class="nourish-btn-empty"
+                on:click={() => { nourishModalOpen = true; }}
+                aria-label="Nourish — analyze this recipe"
+                title="Nourish"
+              >
+                <LeafIcon size={18} weight="regular" />
+              </button>
+            {/if}
           {/if}
           <!-- 3-dot menu for recipe actions -->
           <div class="relative">
@@ -1152,37 +1171,22 @@
 </article>
 
 <style>
-  /* Nourish button with score badge */
-  .nourish-btn {
-    position: relative;
+  /* Nourish empty state — subtle leaf for un-analyzed recipes */
+  .nourish-btn-empty {
     display: inline-flex;
     align-items: center;
     justify-content: center;
     cursor: pointer;
     padding: 0.25rem;
     border-radius: 0.375rem;
-    transition: background-color 300ms;
-    color: #22c55e;
+    transition: background-color 150ms, color 150ms;
+    color: var(--color-text-secondary);
+    opacity: 0.5;
   }
-  .nourish-btn:hover {
+  .nourish-btn-empty:hover {
     background-color: var(--color-input-bg);
-  }
-  .nourish-badge {
-    position: absolute;
-    bottom: -2px;
-    right: -4px;
-    font-size: 0.625rem;
-    font-weight: 700;
-    line-height: 1;
-    min-width: 14px;
-    height: 14px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 9999px;
-    background: #22c55e;
-    color: white;
-    pointer-events: none;
+    color: #22c55e;
+    opacity: 1;
   }
 
   /* Dark mode support for prose content */
