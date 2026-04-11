@@ -453,8 +453,10 @@ function parseNotification(event: NDKEvent, userPubkey: string): Notification | 
               (s: { name: string; value?: unknown }) => s.name === 'amount'
             );
             if (amountSection?.value) {
-              // bolt11-decode returns amount in millisats
-              zapAmount = Math.floor(Number(amountSection.value) / 1000);
+              const decodedAmount = Number(amountSection.value);
+              if (Number.isFinite(decodedAmount)) {
+                zapAmount = Math.floor(decodedAmount);
+              }
             }
           }
         } catch {

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { notifications, visibleNotifications, unreadCount } from '$lib/notificationStore';
+  import { notifications, visibleNotifications } from '$lib/notificationStore';
   import { buildDisplayItems, type NotificationDisplayItem } from '$lib/groupedNotifications';
   import { formatContentForPanel } from '$lib/notificationUtils';
   import { formatCompactTime } from '$lib/utils';
@@ -19,8 +19,10 @@
 
   const MAX_PREVIEW = 8;
 
-  // Group and slice for compact display
-  $: displayItems = buildDisplayItems($visibleNotifications).slice(0, MAX_PREVIEW);
+  // Limit source size so grouping work stays bounded as the store grows
+  const MAX_PREVIEW_SOURCE = MAX_PREVIEW * 4;
+  $: previewNotifications = $visibleNotifications.slice(0, MAX_PREVIEW_SOURCE);
+  $: displayItems = buildDisplayItems(previewNotifications).slice(0, MAX_PREVIEW);
 
   // Snapshot unread IDs at mount time, then mark only those read after a short delay
   let unreadSnapshot: string[] = [];
@@ -50,10 +52,11 @@
     const type = getItemType(item);
     if (item.kind !== 'single') {
       const count = item.notifications.length;
-      if (type === 'reaction') return `and ${count - 1} others reacted to your post`;
+      const othersText = count === 2 ? 'and 1 other' : `and ${count - 1} others`;
+      if (type === 'reaction') return `${othersText} reacted to your post`;
       if (type === 'zap') {
         const total = (item as Extract<NotificationDisplayItem, { kind: 'grouped-zaps' }>).totalAmount;
-        return `and ${count - 1} others zapped ${total.toLocaleString()} sats`;
+        return `${othersText} zapped ${total.toLocaleString()} sats`;
       }
     }
     const n = (item as Extract<NotificationDisplayItem, { kind: 'single' }>).notification;

@@ -33,8 +33,9 @@ const MEDIA_URL_PATTERN =
 const MEDIA_HOST_PATTERN =
   /https?:\/\/(?:i\.)?(?:nostr\.build|imgur\.com|primal\.b-cdn\.net|image\.nostr\.build|void\.cat|m\.primal\.net|cdn\.satellite\.earth|v\.nostr\.build)[^\s]*/gi;
 
+// Negative lookbehind ensures we don't strip bech32 inside nostr: URIs
 const BARE_BECH32_PATTERN =
-  /\b(?:note1|nevent1|naddr1|npub1|nprofile1)[023456789ac-hj-np-z]{20,}\b/gi;
+  /(?<!nostr:)(?:note1|nevent1|naddr1|npub1|nprofile1)[023456789ac-hj-np-z]{20,}/gi;
 
 /**
  * Strip media URLs, image-host URLs, and bare bech32 identifiers from text.

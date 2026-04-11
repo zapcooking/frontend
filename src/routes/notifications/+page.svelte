@@ -2,7 +2,6 @@
   import {
     notifications,
     visibleNotifications,
-    unreadCount,
     subscribeToNotifications,
     fetchOlderNotifications,
     type Notification
@@ -421,9 +420,11 @@
     void refreshAndResetView();
   }
 
-  onMount(() => {
+  onMount(async () => {
     if ($userPublickey) {
-      muteListStore.load();
+      // Ensure mute list is loaded before snapshotting unread IDs,
+      // so muted items aren't unintentionally marked as read.
+      await muteListStore.load();
       lastNavTick = $notificationsNavTick;
       void refreshAndResetView();
       // Snapshot-based: mark only currently-unread items as read after a short delay,
