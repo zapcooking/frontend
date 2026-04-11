@@ -1,16 +1,18 @@
 <script lang="ts">
 	import type { NDKEvent } from '@nostr-dev-kit/ndk';
-	import { userPublickey } from '$lib/nostr';
+	import { ndk, userPublickey } from '$lib/nostr';
 	import Modal from '../Modal.svelte';
 	import Button from '../Button.svelte';
 	import LeafIcon from 'phosphor-svelte/lib/Leaf';
 	import LockIcon from 'phosphor-svelte/lib/Lock';
 	import SpinnerIcon from 'phosphor-svelte/lib/SpinnerGap';
 	import CaretDownIcon from 'phosphor-svelte/lib/CaretDown';
+	import ArrowClockwiseIcon from 'phosphor-svelte/lib/ArrowClockwise';
 	import { parseMarkdownForEditing } from '$lib/parser';
-	import { getNourishScores, setNourishScores } from '$lib/nourish/cache';
+	import { getNourishCache, setNourishScores } from '$lib/nourish/cache';
 	import { generateSuggestions, mergeImprovements } from '$lib/nourish/suggestions';
 	import { ingredientStore } from '$lib/nourish/ingredientStore';
+	import { fetchNourishEvent, isNourishStale, computeContentHash } from '$lib/nourish/nourishRelay';
 	import type { NourishScores } from '$lib/nourish/types';
 
 	export let open = false;
@@ -20,22 +22,89 @@
 	let scores: NourishScores | null = null;
 	let improvements: string[] = [];
 	let loading = false;
+	let checking = false;
+	let stale = false;
+	let analyzedAt = 0;
 	let error = '';
 	let expandedScore: string | null = null;
 
-	$: if (open && hasMembership && !scores && !loading) { fetchScores(); }
-	$: if (!open) { error = ''; expandedScore = null; }
+	// Open modal: anyone can VIEW existing scores, only members can GENERATE new ones
+	$: if (open && !scores && !loading && !checking) { fetchScores(); }
+	$: if (!open) { error = ''; expandedScore = null; stale = false; }
 
 	function toggleExpand(key: string) {
 		expandedScore = expandedScore === key ? null : key;
 	}
 
-	async function fetchScores() {
-		const cached = getNourishScores(event.id);
-		if (cached) { scores = cached; buildImprovements(cached); return; }
+	function getRecipeCoordinates() {
+		const recipePubkey = event.author?.hexpubkey || event.pubkey;
+		const recipeDTag = event.tags.find((t) => t[0] === 'd')?.[1] || '';
+		return { recipePubkey, recipeDTag };
+	}
 
+	async function fetchScores() {
+		// 1. Check localStorage cache (instant)
+		const cached = getNourishCache(event.id);
+		if (cached) {
+			scores = cached.scores;
+			improvements = [];
+			buildImprovements(cached.scores, cached.improvements);
+			// Check staleness against current content if we have a hash
+			if (cached.contentHash) {
+				computeContentHash(event.content || '').then((currentHash) => {
+					if (currentHash !== cached.contentHash) {
+						stale = true;
+					}
+				}).catch(() => {});
+			}
+			analyzedAt = cached.timestamp ? Math.floor(cached.timestamp / 1000) : 0;
+			return;
+		}
+
+		// 2. Check pantry relay for existing analysis (fast, ~200ms)
+		checking = true;
+		error = '';
+		try {
+			const { recipePubkey, recipeDTag } = getRecipeCoordinates();
+			if (recipePubkey && recipeDTag && $ndk) {
+				const relayResult = await fetchNourishEvent($ndk, recipePubkey, recipeDTag);
+				if (relayResult) {
+					scores = relayResult.scores;
+					buildImprovements(relayResult.scores, relayResult.improvements);
+					analyzedAt = relayResult.createdAt;
+
+					// Cache locally for next time
+					setNourishScores(event.id, relayResult.scores, {
+						contentHash: relayResult.contentHash,
+						improvements: relayResult.improvements,
+						ingredientSignals: relayResult.ingredientSignals
+					});
+
+					// Check staleness
+					const isStale = await isNourishStale(relayResult, event.content || '');
+					stale = isStale;
+
+					checking = false;
+					return;
+				}
+			}
+		} catch {
+			// Relay query failed — fall through to API
+		}
+		checking = false;
+
+		// 3. No existing analysis — call API (requires membership)
+		if (!hasMembership) {
+			// No cached score and no membership — show lock state
+			return;
+		}
+		await analyzeRecipe();
+	}
+
+	async function analyzeRecipe() {
 		loading = true;
 		error = '';
+		stale = false;
 		try {
 			const title = event.tags.find((t) => t[0] === 'title')?.[1] || event.tags.find((t) => t[0] === 'd')?.[1] || '';
 			const tags = event.tags.filter((t) => t[0] === 't' && t[1]).map((t) => t[1]);
@@ -44,16 +113,35 @@
 
 			if (info.ingredients.length === 0) { error = 'No ingredients found in this recipe.'; loading = false; return; }
 
+			// Compute content hash for staleness tracking
+			const contentHash = await computeContentHash(event.content || '');
+			const { recipePubkey, recipeDTag } = getRecipeCoordinates();
+
 			const res = await fetch('/api/nourish', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ pubkey: $userPublickey || '', eventId: event.id, title, ingredients: info.ingredients, tags, servings })
+				body: JSON.stringify({
+					pubkey: $userPublickey || '',
+					eventId: event.id,
+					title,
+					ingredients: info.ingredients,
+					tags,
+					servings,
+					recipePubkey,
+					recipeDTag,
+					contentHash
+				})
 			});
 			const data = await res.json();
 			if (!data.success) { error = data.error || 'Failed to analyze recipe.'; return; }
 
 			scores = data.scores;
-			setNourishScores(event.id, data.scores);
+			analyzedAt = Math.floor(Date.now() / 1000);
+			setNourishScores(event.id, data.scores, {
+				contentHash,
+				improvements: data.improvements,
+				ingredientSignals: data.ingredient_signals
+			});
 			buildImprovements(data.scores, data.improvements);
 
 			if (data.ingredient_signals?.length > 0) {
@@ -69,13 +157,24 @@
 		improvements = mergeImprovements(generateSuggestions(s), llm || []);
 	}
 
-	function retry() { scores = null; fetchScores(); }
+	function retry() { scores = null; analyzeRecipe(); }
+
+	function reanalyze() { scores = null; stale = false; analyzeRecipe(); }
+
+	function formatAnalyzedAt(ts: number): string {
+		if (!ts) return '';
+		const diff = Math.floor(Date.now() / 1000) - ts;
+		if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+		if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+		if (diff < 604800) return `${Math.floor(diff / 86400)}d ago`;
+		return new Date(ts * 1000).toLocaleDateString();
+	}
 </script>
 
 <Modal bind:open compact noHeader>
 	<h2 id="title" class="sr-only">Nourish analysis</h2>
-	{#if !hasMembership}
-		<!-- Lock state -->
+	{#if !hasMembership && !scores && !checking}
+		<!-- Lock state — only shown if no existing scores exist -->
 		<div class="lock-state">
 			<div class="lock-icon-wrap">
 				<LockIcon size={24} weight="fill" class="text-orange-500" />
@@ -83,6 +182,12 @@
 			<h3 class="lock-title">Unlock Nourish</h3>
 			<p class="lock-desc">See how this recipe scores for gut health, protein, and real food quality.</p>
 			<a href="/membership" class="w-full"><Button primary>View Membership</Button></a>
+		</div>
+
+	{:else if checking}
+		<div class="loading-state">
+			<SpinnerIcon size={28} class="animate-spin text-green-500" />
+			<p class="loading-text">Checking for analysis...</p>
 		</div>
 
 	{:else if loading}
@@ -98,6 +203,19 @@
 		</div>
 
 	{:else if scores}
+		<!-- ── Stale banner ── -->
+		{#if stale}
+			<div class="stale-banner">
+				<p class="stale-text">Recipe updated since this analysis</p>
+				{#if hasMembership}
+					<button class="stale-refresh" on:click={reanalyze}>
+						<ArrowClockwiseIcon size={14} />
+						Re-analyze
+					</button>
+				{/if}
+			</div>
+		{/if}
+
 		<!-- ── Hero: Overall Score ── -->
 		<div class="hero-score">
 			<div class="hero-icon">
@@ -159,6 +277,9 @@
 			<p class="footer-philosophy">Nourish helps you understand what a meal leans toward — so you can adjust, not judge.</p>
 			<p class="footer-disclaimer">
 				Estimates based on ingredients. Not medical advice.
+				{#if analyzedAt}
+					Analyzed {formatAnalyzedAt(analyzedAt)}.
+				{/if}
 				<a href="/nourish" class="footer-link">Learn more</a>
 			</p>
 		</div>
@@ -176,6 +297,21 @@
 	}
 	.lock-title { @apply text-lg font-semibold; color: var(--color-text-primary); }
 	.lock-desc { @apply text-sm; color: var(--color-text-secondary); }
+
+	/* ── Stale banner ── */
+	.stale-banner {
+		@apply flex items-center justify-between gap-2 px-3 py-2 rounded-lg mb-3 text-xs;
+		background-color: rgba(234, 179, 8, 0.1);
+		border: 1px solid rgba(234, 179, 8, 0.2);
+	}
+	.stale-text { color: var(--color-text-secondary); }
+	.stale-refresh {
+		@apply inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium cursor-pointer whitespace-nowrap;
+		color: #eab308;
+		background: rgba(234, 179, 8, 0.1);
+		border: none;
+	}
+	.stale-refresh:hover { background: rgba(234, 179, 8, 0.2); }
 
 	/* ── Loading / Error ── */
 	.loading-state { @apply flex flex-col items-center gap-3 py-8; }

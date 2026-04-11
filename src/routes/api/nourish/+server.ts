@@ -107,7 +107,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 		}
 
 		const body = await request.json();
-		const { pubkey, eventId, title, ingredients, tags, servings } = body;
+		const { pubkey, eventId, title, ingredients, tags, servings, recipePubkey, recipeDTag, contentHash } = body;
 
 		// Validate request
 		if (!ingredients || !Array.isArray(ingredients) || ingredients.length === 0) {
@@ -238,6 +238,30 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 							: 'neutral'
 					}))
 			: [];
+
+		// Publish Nourish event to pantry relay (fire-and-forget).
+		// If publishing fails, the analysis is still returned to the client —
+		// the next viewer will trigger a fresh analysis if no relay event is found.
+		if (recipePubkey && recipeDTag && contentHash) {
+			const NOTIFICATION_PRIVATE_KEY = (platform?.env as any)?.NOTIFICATION_PRIVATE_KEY || env.NOTIFICATION_PRIVATE_KEY;
+			if (NOTIFICATION_PRIVATE_KEY) {
+				import('$lib/nourish/nourishPublisher.server').then(({ publishNourishEvent }) => {
+					publishNourishEvent({
+						privateKey: NOTIFICATION_PRIVATE_KEY,
+						recipePubkey,
+						recipeDTag,
+						contentHash,
+						scores,
+						improvements,
+						ingredientSignals: ingredient_signals
+					}).catch((err) => {
+						console.error('[Nourish] Failed to publish event:', err);
+					});
+				}).catch((err) => {
+					console.error('[Nourish] Failed to import publisher:', err);
+				});
+			}
+		}
 
 		return json({ success: true, scores, improvements, ingredient_signals });
 	} catch (error: any) {

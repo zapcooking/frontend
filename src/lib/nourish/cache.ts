@@ -9,13 +9,16 @@ interface CacheEntry {
 	scores: NourishScores;
 	timestamp: number;
 	version: string;
+	contentHash?: string;
+	improvements?: string[];
+	ingredientSignals?: import('./types').IngredientSignal[];
 }
 
 function cacheKey(eventId: string): string {
 	return `nourish_${eventId}`;
 }
 
-export function getNourishScores(eventId: string): NourishScores | null {
+export function getNourishCache(eventId: string): CacheEntry | null {
 	if (!browser) return null;
 
 	try {
@@ -27,20 +30,32 @@ export function getNourishScores(eventId: string): NourishScores | null {
 		if (entry.version !== NOURISH_CACHE_VERSION) return null;
 		if (Date.now() - entry.timestamp > CACHE_TTL_MS) return null;
 
-		return entry.scores;
+		return entry;
 	} catch {
 		return null;
 	}
 }
 
-export function setNourishScores(eventId: string, scores: NourishScores): void {
+/** @deprecated Use getNourishCache for full entry with contentHash */
+export function getNourishScores(eventId: string): NourishScores | null {
+	return getNourishCache(eventId)?.scores ?? null;
+}
+
+export function setNourishScores(
+	eventId: string,
+	scores: NourishScores,
+	extra?: { contentHash?: string; improvements?: string[]; ingredientSignals?: import('./types').IngredientSignal[] }
+): void {
 	if (!browser) return;
 
 	try {
 		const entry: CacheEntry = {
 			scores,
 			timestamp: Date.now(),
-			version: NOURISH_CACHE_VERSION
+			version: NOURISH_CACHE_VERSION,
+			contentHash: extra?.contentHash,
+			improvements: extra?.improvements,
+			ingredientSignals: extra?.ingredientSignals
 		};
 		localStorage.setItem(cacheKey(eventId), JSON.stringify(entry));
 	} catch {
