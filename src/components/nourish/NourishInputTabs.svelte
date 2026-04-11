@@ -18,7 +18,7 @@
 
   const TABS: { id: TabId; label: string }[] = [
     { id: 'ingredients', label: 'Ingredients' },
-    { id: 'describe', label: 'Describe' },
+    { id: 'describe', label: 'Describe a Meal' },
     { id: 'photo', label: 'Photo' }
   ];
 
@@ -42,8 +42,20 @@
     photo: []
   };
 
+  let textareaEl: HTMLTextAreaElement;
+
   function useExample(example: string) {
     text = example;
+    // Trigger auto-resize after example is set
+    requestAnimationFrame(() => autoResize());
+  }
+
+  function autoResize() {
+    if (!textareaEl) return;
+    textareaEl.style.height = 'auto';
+    const lineHeight = 24; // ~1.5rem at 16px
+    const maxHeight = lineHeight * 5; // 5 lines
+    textareaEl.style.height = Math.min(textareaEl.scrollHeight, maxHeight) + 'px';
   }
 
   $: currentExamples = EXAMPLES[activeTab];
@@ -74,9 +86,11 @@
     {:else}
       <textarea
         class="nit-textarea"
+        bind:this={textareaEl}
         bind:value={text}
+        on:input={autoResize}
         placeholder={PLACEHOLDERS[activeTab]}
-        rows={4}
+        rows={2}
         {disabled}
       />
     {/if}
@@ -149,7 +163,7 @@
     background: rgba(255, 255, 255, 0.03);
   }
 
-  /* Textarea */
+  /* Textarea — auto-grows from 2 lines to max 5, then scrolls */
   .nit-textarea {
     width: 100%;
     padding: 0.75rem;
@@ -160,7 +174,10 @@
     font-size: 1rem; /* 16px prevents iOS zoom */
     font-family: inherit;
     line-height: 1.5;
-    resize: vertical;
+    resize: none;
+    overflow-y: auto;
+    min-height: calc(1.5rem * 2 + 1.5rem); /* 2 lines + padding */
+    max-height: calc(1.5rem * 5 + 1.5rem); /* 5 lines + padding */
     transition: border-color 150ms;
   }
   .nit-textarea::placeholder {
@@ -190,17 +207,21 @@
     font-size: 0.75rem;
     padding: 0.25rem 0.625rem;
     border-radius: 9999px;
-    border: 1px solid var(--color-input-border, rgba(255, 255, 255, 0.08));
-    background: var(--color-input-bg, rgba(255, 255, 255, 0.02));
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    background: rgba(255, 255, 255, 0.04);
     color: var(--color-text-secondary);
     cursor: pointer;
     font-family: inherit;
-    transition: background 150ms, border-color 150ms, color 150ms;
+    transition: background 150ms, border-color 150ms, color 150ms, transform 100ms;
     white-space: nowrap;
   }
   .nit-example:hover {
-    background: rgba(34, 197, 94, 0.06);
-    border-color: rgba(34, 197, 94, 0.2);
+    background: rgba(34, 197, 94, 0.08);
+    border-color: rgba(34, 197, 94, 0.3);
     color: #22c55e;
+  }
+  .nit-example:active {
+    transform: scale(0.97);
+    background: rgba(34, 197, 94, 0.12);
   }
 </style>
