@@ -843,27 +843,6 @@
             </button>
           </div>
           <div class="flex items-center gap-2">
-          <!-- Nourish — first-class product layer, visually separated from actions -->
-          {#if isActualRecipe}
-            {#if nourishPreviewScore !== null}
-              <NourishPill
-                overall={nourishPreviewScore}
-                gut={nourishGut}
-                protein={nourishProtein}
-                realFood={nourishRealFood}
-                onClick={() => { nourishModalOpen = true; }}
-              />
-            {:else}
-              <button
-                class="nourish-btn-empty"
-                on:click={() => { nourishModalOpen = true; }}
-                aria-label="Nourish — explore this recipe's profile"
-                title="Nourish"
-              >
-                <LeafIcon size={18} weight="regular" />
-              </button>
-            {/if}
-          {/if}
           <!-- 3-dot menu for recipe actions -->
           <div class="relative">
             <button
@@ -1008,6 +987,29 @@
         <p class="text-lg text-caption leading-relaxed whitespace-pre-line">
           {event.tags.find((e) => e[0] === 'summary')?.[1]}
         </p>
+      {/if}
+
+      <!-- Nourish Section — recipe intelligence, part of the recipe body -->
+      {#if isActualRecipe}
+        <div class="nourish-section print:hidden">
+          {#if nourishPreviewScore !== null}
+            <NourishPill
+              overall={nourishPreviewScore}
+              gut={nourishGut}
+              protein={nourishProtein}
+              realFood={nourishRealFood}
+              onClick={() => { nourishModalOpen = true; }}
+            />
+          {:else}
+            <button
+              class="nourish-empty-prompt"
+              on:click={() => { nourishModalOpen = true; }}
+            >
+              <LeafIcon size={16} weight="regular" />
+              <span>Nourish — explore this recipe's profile</span>
+            </button>
+          {/if}
+        </div>
       {/if}
 
       <!-- Content before Directions -->
@@ -1186,22 +1188,31 @@
 </article>
 
 <style>
-  /* Nourish empty state — subtle leaf for un-analyzed recipes */
-  .nourish-btn-empty {
+  /* Nourish section — sits in recipe body between summary and ingredients */
+  .nourish-section {
+    padding: 0.5rem 0;
+  }
+
+  /* Empty state — subtle prompt for un-analyzed recipes */
+  .nourish-empty-prompt {
     display: inline-flex;
     align-items: center;
-    justify-content: center;
-    cursor: pointer;
-    padding: 0.25rem;
-    border-radius: 0.375rem;
-    transition: background-color 150ms, color 150ms;
+    gap: 0.375rem;
+    padding: 0.375rem 0.75rem;
+    border-radius: 9999px;
+    border: 1px dashed var(--color-input-border, rgba(255, 255, 255, 0.1));
+    background: transparent;
     color: var(--color-text-secondary);
     opacity: 0.5;
+    font-size: 0.75rem;
+    font-family: inherit;
+    cursor: pointer;
+    transition: opacity 150ms, border-color 150ms, color 150ms;
   }
-  .nourish-btn-empty:hover {
-    background-color: var(--color-input-bg);
-    color: #22c55e;
+  .nourish-empty-prompt:hover {
     opacity: 1;
+    border-color: rgba(34, 197, 94, 0.3);
+    color: #22c55e;
   }
 
   /* Dark mode support for prose content */
