@@ -2482,13 +2482,25 @@
 
       const allFetchedEvents: NDKEvent[] = [...hashtagEvents];
 
-      // Only run expensive content-word scanning if hashtag results are insufficient
-      if (!authorPubkey && hashtagEvents.length < 30) {
-        try {
-          const contentEvents = await fetchNotesWithoutHashtags(timeWindow.since);
-          allFetchedEvents.push(...contentEvents);
-        } catch {
-          // Non-critical supplementary fetch
+      // Run content-word scanning if hashtag results are insufficient OR stale.
+      // Many food posts don't use hashtags, so hashtag-only results can have a
+      // freshness gap (e.g., newest is 3+ hours old while unhashtagged food posts
+      // exist from minutes ago).
+      if (!authorPubkey) {
+        const newestHashtagTime = hashtagEvents.length > 0
+          ? Math.max(...hashtagEvents.map((e) => e.created_at || 0))
+          : 0;
+        const THIRTY_MINUTES = 30 * 60;
+        const now = Math.floor(Date.now() / 1000);
+        const resultsAreStale = newestHashtagTime > 0 && (now - newestHashtagTime) > THIRTY_MINUTES;
+
+        if (hashtagEvents.length < 30 || resultsAreStale) {
+          try {
+            const contentEvents = await fetchNotesWithoutHashtags(timeWindow.since);
+            allFetchedEvents.push(...contentEvents);
+          } catch {
+            // Non-critical supplementary fetch
+          }
         }
       }
 
@@ -2780,6 +2792,75 @@
     });
 
     activeSubscriptions.push(hashtagSub);
+
+    // For Global mode: start periodic content-scan to catch food posts without hashtags.
+    // The realtime subscription only sees hashtagged posts; this fills the gap.
+    if (!authorPubkey && filterMode === 'global') {
+      startPeriodicContentRefresh();
+    }
+  }
+
+  // ─── Periodic content refresh for Global feed ───────────────
+  let contentRefreshTimer: ReturnType<typeof setInterval> | null = null;
+  const CONTENT_REFRESH_INTERVAL_MS = 60_000; // every 60s
+
+  function startPeriodicContentRefresh() {
+    stopPeriodicContentRefresh();
+    contentRefreshTimer = setInterval(runContentRefresh, CONTENT_REFRESH_INTERVAL_MS);
+  }
+
+  function stopPeriodicContentRefresh() {
+    if (contentRefreshTimer) {
+      clearInterval(contentRefreshTimer);
+      contentRefreshTimer = null;
+    }
+  }
+
+  async function runContentRefresh() {
+    if (isDestroyed || filterMode !== 'global' || !$ndk) return;
+
+    try {
+      // Fetch recent notes (last 10 minutes) and client-side filter for food content
+      const tenMinutesAgo = Math.floor(Date.now() / 1000) - 600;
+      const since = Math.max(tenMinutesAgo, lastEventTime + 1);
+      const contentEvents = await fetchNotesWithoutHashtags(since);
+
+      if (isDestroyed || filterMode !== 'global') return;
+
+      // Get followed users to exclude from Global feed
+      const followedSet = new Set(followedPubkeysForRealtime);
+
+      const newEvents = contentEvents.filter((e) => {
+        if (seenEventIds.has(e.id)) return false;
+        if (isReply(e)) return false;
+        if (!shouldIncludeEvent(e)) return false;
+        if (followedSet.size > 0) {
+          const authorKey = e.author?.hexpubkey || e.pubkey;
+          if (authorKey && followedSet.has(authorKey)) return false;
+        }
+        return true;
+      });
+
+      if (newEvents.length > 0) {
+        for (const e of newEvents) {
+          seenEventIds.add(e.id);
+        }
+
+        if (isScrolledToTop) {
+          events = dedupeAndSort([...newEvents, ...events]);
+        } else {
+          pendingNewEvents = [...pendingNewEvents, ...newEvents];
+          showNewPostsButton = true;
+        }
+
+        const maxTime = Math.max(...newEvents.map((e) => e.created_at || 0));
+        if (maxTime > lastEventTime) lastEventTime = maxTime;
+
+        await cacheEvents();
+      }
+    } catch {
+      // Non-critical background refresh
+    }
   }
 
   function handleRealtimeEvent(event: NDKEvent) {
@@ -3477,6 +3558,7 @@
       }
     }
     activeSubscriptions = [];
+    stopPeriodicContentRefresh();
   }
 
   async function cleanup() {
