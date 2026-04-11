@@ -9,7 +9,7 @@ export const NOURISH_PROMPT_VERSION = '1';
  * This must match the pubkey derived from the NOTIFICATION_PRIVATE_KEY env var.
  * To find this value: new NDKPrivateKeySigner(hexKey).user().then(u => u.pubkey)
  */
-export const NOURISH_SERVICE_PUBKEY = '2cb95c7e3b3757e79b3fec757b92e1b8b2279a7f3b1a3d3b3f5a5e89c5e9f0a1';
+export const NOURISH_SERVICE_PUBKEY = 'fdd263f69f9e95a2a0a58ec3e7e8053011214fa66007d93b26d2f4717d31917b';
 
 /** Result from querying the pantry relay for an existing Nourish analysis event. */
 export interface NourishRelayResult {
