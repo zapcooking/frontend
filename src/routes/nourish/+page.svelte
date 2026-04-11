@@ -127,6 +127,9 @@
     <h1 class="hero-title">Nourish</h1>
     <p class="hero-subtitle">Get nutrition insights from your ingredients.</p>
     <p class="hero-note">Not a grade. Just guidance.</p>
+    <a href="/nourish/explore" class="explore-link">
+      Browse analyzed recipes
+    </a>
   </div>
 
   {#if !hasMembership && !scanResult}
@@ -230,6 +233,21 @@
     color: var(--color-text-secondary);
     opacity: 0.5;
     margin: 0;
+  }
+  .explore-link {
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: #22c55e;
+    text-decoration: none;
+    margin-top: 0.25rem;
+    padding: 0.25rem 0.625rem;
+    border-radius: 9999px;
+    border: 1px solid rgba(34, 197, 94, 0.2);
+    transition: background 150ms, border-color 150ms;
+  }
+  .explore-link:hover {
+    background: rgba(34, 197, 94, 0.08);
+    border-color: rgba(34, 197, 94, 0.35);
   }
 
   /* Lock */

@@ -239,8 +239,10 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 					}))
 			: [];
 
-		// Publish Nourish event to pantry relay.
-		// Uses waitUntil on Cloudflare Workers so the promise survives past the response.
+		// Publish Nourish event to relay (awaited — not fire-and-forget).
+		// On CF Workers, background WebSocket tasks die after response. We await
+		// the publish before returning so it actually completes. Adds ~1-2s to
+		// the response, but GPT already takes 2-5s so this is acceptable.
 		const HEX_64_RE = /^[a-fA-F0-9]{64}$/;
 		const validRecipePubkey = typeof recipePubkey === 'string' && HEX_64_RE.test(recipePubkey.trim());
 		const validContentHash = typeof contentHash === 'string' && HEX_64_RE.test(contentHash.trim());
@@ -249,25 +251,20 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 		if (validRecipePubkey && validRecipeDTag && validContentHash) {
 			const NOTIFICATION_PRIVATE_KEY = (platform?.env as any)?.NOTIFICATION_PRIVATE_KEY || env.NOTIFICATION_PRIVATE_KEY;
 			if (NOTIFICATION_PRIVATE_KEY) {
-				const publishPromise = import('$lib/nourish/nourishPublisher.server')
-					.then(({ publishNourishEvent }) =>
-						publishNourishEvent({
-							privateKey: NOTIFICATION_PRIVATE_KEY,
-							recipePubkey: recipePubkey.trim(),
-							recipeDTag: recipeDTag.trim(),
-							contentHash: contentHash.trim(),
-							scores,
-							improvements,
-							ingredientSignals: ingredient_signals
-						})
-					)
-					.catch((err) => {
-						console.error('[Nourish] Failed to publish event:', err);
+				try {
+					const { publishNourishEvent } = await import('$lib/nourish/nourishPublisher.server');
+					const published = await publishNourishEvent({
+						privateKey: NOTIFICATION_PRIVATE_KEY,
+						recipePubkey: recipePubkey.trim(),
+						recipeDTag: recipeDTag.trim(),
+						contentHash: contentHash.trim(),
+						scores,
+						improvements,
+						ingredientSignals: ingredient_signals
 					});
-
-				// Cloudflare Workers: register with waitUntil so the promise survives past response
-				if ((platform as any)?.context?.waitUntil) {
-					(platform as any).context.waitUntil(publishPromise);
+					console.log(`[Nourish] Publish ${published ? 'succeeded' : 'failed'} for ${recipeDTag}`);
+				} catch (err) {
+					console.error('[Nourish] Failed to publish event:', err);
 				}
 			}
 		}
