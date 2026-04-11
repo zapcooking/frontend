@@ -6,7 +6,7 @@
  * work reliably on Cloudflare Workers — direct WebSocket publish does.
  */
 
-import { nip19, getPublicKey, finalizeEvent } from 'nostr-tools';
+import { nip19, finalizeEvent } from 'nostr-tools';
 import {
   NOURISH_CACHE_VERSION,
   NOURISH_PROMPT_VERSION,
@@ -49,7 +49,12 @@ function publishToRelay(relayUrl: string, event: any): Promise<boolean> {
       }, PUBLISH_TIMEOUT_MS);
 
       ws.onopen = () => {
-        ws.send(JSON.stringify(['EVENT', event]));
+        if (settled) return;
+        try {
+          ws.send(JSON.stringify(['EVENT', event]));
+        } catch {
+          if (!settled) { settled = true; clearTimeout(timer); ws.close(); resolve(false); }
+        }
       };
 
       ws.onmessage = (msg: MessageEvent) => {
@@ -63,6 +68,10 @@ function publishToRelay(relayUrl: string, event: any): Promise<boolean> {
       };
 
       ws.onerror = () => {
+        if (!settled) { settled = true; clearTimeout(timer); try { ws.close(); } catch {} resolve(false); }
+      };
+
+      ws.onclose = () => {
         if (!settled) { settled = true; clearTimeout(timer); resolve(false); }
       };
     } catch {
