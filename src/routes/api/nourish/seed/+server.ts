@@ -37,24 +37,31 @@ export const POST: RequestHandler = async ({ request, platform }) => {
     const body = await request.json();
     const { recipePubkey, recipeDTag, contentHash, scores, improvements, ingredientSignals } = body;
 
-    if (!recipePubkey || !recipeDTag || !contentHash || !scores) {
+    const normalizedPubkey = typeof recipePubkey === 'string' ? recipePubkey.trim() : '';
+    const normalizedDTag = typeof recipeDTag === 'string' ? recipeDTag.trim() : '';
+    const normalizedHash = typeof contentHash === 'string' ? contentHash.trim() : '';
+
+    if (!normalizedPubkey || !normalizedDTag || !normalizedHash || !scores) {
       return json({ success: false, error: 'Missing required fields' }, { status: 400 });
     }
 
     const HEX_64_RE = /^[a-fA-F0-9]{64}$/;
-    if (!HEX_64_RE.test(recipePubkey)) {
+    if (!HEX_64_RE.test(normalizedPubkey)) {
       return json({ success: false, error: 'Invalid recipePubkey format' }, { status: 400 });
     }
-    if (!HEX_64_RE.test(contentHash)) {
+    if (!HEX_64_RE.test(normalizedHash)) {
       return json({ success: false, error: 'Invalid contentHash format' }, { status: 400 });
+    }
+    if (normalizedDTag.length > 200) {
+      return json({ success: false, error: 'recipeDTag too long' }, { status: 400 });
     }
 
     const { publishNourishEvent } = await import('$lib/nourish/nourishPublisher.server');
     const published = await publishNourishEvent({
       privateKey: NOTIFICATION_PRIVATE_KEY,
-      recipePubkey,
-      recipeDTag,
-      contentHash,
+      recipePubkey: normalizedPubkey,
+      recipeDTag: normalizedDTag,
+      contentHash: normalizedHash,
       scores,
       improvements: improvements || [],
       ingredientSignals: ingredientSignals || []

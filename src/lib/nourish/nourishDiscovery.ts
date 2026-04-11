@@ -9,7 +9,7 @@
 import type NDK from '@nostr-dev-kit/ndk';
 import type { NDKEvent } from '@nostr-dev-kit/ndk';
 import { NDKRelaySet } from '@nostr-dev-kit/ndk';
-import { NOURISH_SERVICE_PUBKEY, type NourishScores } from './types';
+import { NOURISH_SERVICE_PUBKEY } from './types';
 import { parseNourishEvent, type NourishRelayResult } from './nourishRelay';
 
 const PANTRY_RELAY = 'wss://pantry.zap.cooking';
@@ -61,30 +61,26 @@ export async function fetchNourishRankedRecipes(
   };
 
   let nourishEvents = new Set<NDKEvent>();
-  try {
-    // Try pantry relay
-    const relaySet = NDKRelaySet.fromRelayUrls([PANTRY_RELAY], ndk, true);
-    const fetchPromise = ndk.fetchEvents(filter, undefined, relaySet);
-    const timeoutPromise = new Promise<Set<NDKEvent>>((resolve) =>
+
+  // Try pantry relay first
+  const relaySet = NDKRelaySet.fromRelayUrls([PANTRY_RELAY], ndk, true);
+  const fetchPromise = ndk.fetchEvents(filter, undefined, relaySet);
+  const timeoutPromise = new Promise<Set<NDKEvent>>((resolve) =>
+    setTimeout(() => resolve(new Set()), FETCH_TIMEOUT_MS)
+  );
+  nourishEvents = await Promise.race([fetchPromise, timeoutPromise]);
+
+  // If pantry returned nothing, try all connected relays
+  if (nourishEvents.size === 0) {
+    console.log('[Nourish Explore] No events on pantry, trying all relays...');
+    const broadFetch = ndk.fetchEvents(filter);
+    const broadTimeout = new Promise<Set<NDKEvent>>((resolve) =>
       setTimeout(() => resolve(new Set()), FETCH_TIMEOUT_MS)
     );
-    nourishEvents = await Promise.race([fetchPromise, timeoutPromise]);
-
-    // If pantry returned nothing, try all connected relays
-    if (nourishEvents.size === 0) {
-      console.log('[Nourish Explore] No events on pantry, trying all relays...');
-      const broadFetch = ndk.fetchEvents(filter);
-      const broadTimeout = new Promise<Set<NDKEvent>>((resolve) =>
-        setTimeout(() => resolve(new Set()), FETCH_TIMEOUT_MS)
-      );
-      nourishEvents = await Promise.race([broadFetch, broadTimeout]);
-    }
-
-    console.log(`[Nourish Explore] Found ${nourishEvents.size} Nourish events`);
-  } catch (err) {
-    console.error('[Nourish Explore] Fetch failed:', err);
-    return [];
+    nourishEvents = await Promise.race([broadFetch, broadTimeout]);
   }
+
+  console.log(`[Nourish Explore] Found ${nourishEvents.size} Nourish events`);
 
   if (nourishEvents.size === 0) return [];
 
@@ -107,7 +103,17 @@ export async function fetchNourishRankedRecipes(
     const recipePubkey = parts[1];
     const recipeDTag = parts.slice(2).join(':'); // d-tag may contain colons
 
-    analyses.push({ parsed, recipePubkey, recipeDTag });
+    // Deduplicate by recipe coordinate — keep the newest analysis
+    const key = `${recipePubkey}:${recipeDTag}`;
+    const existing = analyses.find((a) => `${a.recipePubkey}:${a.recipeDTag}` === key);
+    if (existing) {
+      if (parsed.createdAt > existing.parsed.createdAt) {
+        const idx = analyses.indexOf(existing);
+        analyses[idx] = { parsed, recipePubkey, recipeDTag };
+      }
+    } else {
+      analyses.push({ parsed, recipePubkey, recipeDTag });
+    }
   }
 
   if (analyses.length === 0) return [];
@@ -132,15 +138,11 @@ export async function fetchNourishRankedRecipes(
   };
 
   let recipeEvents: Set<NDKEvent>;
-  try {
-    const fetchPromise = ndk.fetchEvents(recipeFilter);
-    const timeoutPromise = new Promise<Set<NDKEvent>>((resolve) =>
-      setTimeout(() => resolve(new Set()), FETCH_TIMEOUT_MS)
-    );
-    recipeEvents = await Promise.race([fetchPromise, timeoutPromise]);
-  } catch {
-    return [];
-  }
+  const recipeFetch = ndk.fetchEvents(recipeFilter);
+  const recipeTimeout = new Promise<Set<NDKEvent>>((resolve) =>
+    setTimeout(() => resolve(new Set()), FETCH_TIMEOUT_MS)
+  );
+  recipeEvents = await Promise.race([recipeFetch, recipeTimeout]);
 
   // Index recipes by coordinate
   const recipeMap = new Map<string, NDKEvent>();

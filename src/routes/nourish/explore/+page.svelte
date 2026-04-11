@@ -7,11 +7,13 @@
   import NourishRecipeCard from '../../../components/nourish/NourishRecipeCard.svelte';
   import {
     fetchNourishRankedRecipes,
+    getDimensionScore,
     type NourishRankedRecipe,
     type SortDimension
   } from '$lib/nourish/nourishDiscovery';
 
-  let recipes: NourishRankedRecipe[] = [];
+  // All fetched recipes (unsorted cache) — fetched once, sorted client-side
+  let allRecipes: NourishRankedRecipe[] = [];
   let loading = false;
   let loadStarted = false;
   let error = false;
@@ -24,6 +26,14 @@
     { id: 'protein', label: 'Protein', icon: '💪' }
   ];
 
+  // Re-sort client-side when dimension changes (no refetch)
+  $: recipes = [...allRecipes].sort((a, b) => {
+    const scoreA = getDimensionScore(a.nourish, sortBy);
+    const scoreB = getDimensionScore(b.nourish, sortBy);
+    if (scoreB !== scoreA) return scoreB - scoreA;
+    return b.nourish.createdAt - a.nourish.createdAt;
+  });
+
   async function loadRecipes() {
     if (!$ndk || loading) return;
     loading = true;
@@ -32,7 +42,7 @@
 
     try {
       await ensureNdkConnected();
-      recipes = await fetchNourishRankedRecipes($ndk, sortBy, 40);
+      allRecipes = await fetchNourishRankedRecipes($ndk, 'overall', 40);
     } catch (err) {
       console.error('[Nourish Explore] Failed to load:', err);
       error = true;
@@ -43,7 +53,6 @@
 
   function handleSort(dim: SortDimension) {
     sortBy = dim;
-    loadRecipes();
   }
 
   onMount(() => {

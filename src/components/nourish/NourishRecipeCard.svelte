@@ -9,11 +9,9 @@
   import { nip19 } from 'nostr-tools';
   import Avatar from '../Avatar.svelte';
   import CustomName from '../CustomName.svelte';
-  import LeafIcon from 'phosphor-svelte/lib/Leaf';
   import { getImageOrPlaceholder } from '$lib/placeholderImages';
   import { lazyLoad } from '$lib/lazyLoad';
   import type { NourishRankedRecipe, SortDimension } from '$lib/nourish/nourishDiscovery';
-  import { getDimensionScore } from '$lib/nourish/nourishDiscovery';
 
   export let item: NourishRankedRecipe;
   export let highlightDimension: SortDimension = 'overall';
@@ -29,7 +27,6 @@
   })();
 
   $: imageUrl = getImageOrPlaceholder(item.image, item.recipe.id);
-  $: highlightScore = getDimensionScore(item.nourish, highlightDimension);
 
   const DIMS = [
     { key: 'realFood' as const, label: 'Real Food', icon: '🥬' },
