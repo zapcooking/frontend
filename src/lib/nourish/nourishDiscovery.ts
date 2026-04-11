@@ -52,23 +52,37 @@ export async function fetchNourishRankedRecipes(
   sortBy: SortDimension = 'overall',
   limit: number = 50
 ): Promise<NourishRankedRecipe[]> {
-  const relaySet = NDKRelaySet.fromRelayUrls([PANTRY_RELAY], ndk, true);
-
   // Step 1: Fetch all Nourish analysis events
+  // Try pantry relay first, fall back to all connected relays
   const filter = {
     kinds: [30078 as number],
     authors: [NOURISH_SERVICE_PUBKEY],
     limit: 200
   };
 
-  let nourishEvents: Set<NDKEvent>;
+  let nourishEvents = new Set<NDKEvent>();
   try {
+    // Try pantry relay
+    const relaySet = NDKRelaySet.fromRelayUrls([PANTRY_RELAY], ndk, true);
     const fetchPromise = ndk.fetchEvents(filter, undefined, relaySet);
     const timeoutPromise = new Promise<Set<NDKEvent>>((resolve) =>
       setTimeout(() => resolve(new Set()), FETCH_TIMEOUT_MS)
     );
     nourishEvents = await Promise.race([fetchPromise, timeoutPromise]);
-  } catch {
+
+    // If pantry returned nothing, try all connected relays
+    if (nourishEvents.size === 0) {
+      console.log('[Nourish Explore] No events on pantry, trying all relays...');
+      const broadFetch = ndk.fetchEvents(filter);
+      const broadTimeout = new Promise<Set<NDKEvent>>((resolve) =>
+        setTimeout(() => resolve(new Set()), FETCH_TIMEOUT_MS)
+      );
+      nourishEvents = await Promise.race([broadFetch, broadTimeout]);
+    }
+
+    console.log(`[Nourish Explore] Found ${nourishEvents.size} Nourish events`);
+  } catch (err) {
+    console.error('[Nourish Explore] Fetch failed:', err);
     return [];
   }
 
