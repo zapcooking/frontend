@@ -106,6 +106,7 @@ export async function publishNourishEvent(opts: {
       ['nourish_protein', String(scores.protein.score)],
       ['nourish_realfood', String(scores.realFood.score)]
     ];
+    event.created_at = Math.floor(Date.now() / 1000);
 
     await event.sign(signer);
 

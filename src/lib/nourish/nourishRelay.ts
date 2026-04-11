@@ -8,6 +8,7 @@
 
 import type NDK from '@nostr-dev-kit/ndk';
 import type { NDKEvent } from '@nostr-dev-kit/ndk';
+import { NDKRelaySet } from '@nostr-dev-kit/ndk';
 import {
   NOURISH_SERVICE_PUBKEY,
   NOURISH_CACHE_VERSION,
@@ -61,8 +62,11 @@ export async function fetchNourishEvent(
       '#d': [dTag]
     };
 
+    // Query the pantry relay specifically (where Nourish events are published)
+    const relaySet = NDKRelaySet.fromRelayUrls([PANTRY_RELAY], ndk, true);
+
     // Race against timeout
-    const eventPromise = ndk.fetchEvent(filter);
+    const eventPromise = ndk.fetchEvent(filter, undefined, relaySet);
     const timeoutPromise = new Promise<null>((resolve) =>
       setTimeout(() => resolve(null), QUERY_TIMEOUT_MS)
     );

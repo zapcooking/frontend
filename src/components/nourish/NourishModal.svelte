@@ -76,9 +76,13 @@
 					// Cache locally for next time
 					setNourishScores(event.id, relayResult.scores, {
 						contentHash: relayResult.contentHash,
-						improvements: relayResult.improvements,
-						ingredientSignals: relayResult.ingredientSignals
+						improvements: relayResult.improvements
 					});
+
+					// Populate ingredient store from relay data (build dataset over time)
+					if (relayResult.ingredientSignals.length > 0) {
+						ingredientStore.saveIngredients(relayResult.ingredientSignals, 'recipe', event.id).catch(() => {});
+					}
 
 					// Check staleness
 					const isStale = await isNourishStale(relayResult, event.content || '');

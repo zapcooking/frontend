@@ -1,5 +1,6 @@
 <script lang="ts">
   import { NDKEvent } from '@nostr-dev-kit/ndk';
+  import { browser } from '$app/environment';
   import TagLinks from './TagLinks.svelte';
   import { ndk, userPublickey } from '$lib/nostr';
   import BookmarkIcon from 'phosphor-svelte/lib/BookmarkSimple';
@@ -92,8 +93,10 @@
   let nourishProtein: number | null = null;
   let nourishRealFood: number | null = null;
 
-  // Load Nourish score preview (non-blocking)
-  $: if (event && isActualRecipe) {
+  // Load Nourish score preview (non-blocking, client-only)
+  let lastNourishEventId: string | null = null;
+
+  $: if (browser && event && isActualRecipe) {
     loadNourishPreview();
   }
 
@@ -105,8 +108,19 @@
   }
 
   function loadNourishPreview() {
+    // Reset when event changes (e.g., recipe prop swap) to avoid showing stale scores
+    if (lastNourishEventId !== event.id) {
+      lastNourishEventId = event.id;
+      nourishPreviewScore = null;
+      nourishGut = null;
+      nourishProtein = null;
+      nourishRealFood = null;
+    }
+
+    const targetEventId = event.id;
+
     // Check localStorage first (instant)
-    const cached = getNourishCache(event.id);
+    const cached = getNourishCache(targetEventId);
     if (cached) {
       applyNourishScores(cached.scores);
       return;
@@ -116,6 +130,8 @@
     const recipeDTag = event.tags.find((t: string[]) => t[0] === 'd')?.[1] || '';
     if (recipePubkey && recipeDTag && $ndk) {
       fetchNourishEvent($ndk, recipePubkey, recipeDTag).then((result) => {
+        // Ignore stale result if event changed while fetching
+        if (event.id !== targetEventId) return;
         if (result) applyNourishScores(result.scores);
       }).catch(() => {});
     }

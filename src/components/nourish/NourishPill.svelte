@@ -64,6 +64,10 @@
     hideTimeout = setTimeout(() => { hovered = false; }, 200);
   }
 
+  let showProfile = false;
+  let hasSubscores = false;
+  let strengths: string[] = [];
+
   $: showProfile = !compact && (hovered || focused);
   $: hasSubscores = gut !== null && protein !== null && realFood !== null;
   $: strengths = hasSubscores ? getStrengths(gut!, protein!, realFood!) : [];

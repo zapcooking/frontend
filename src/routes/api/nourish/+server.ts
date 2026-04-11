@@ -239,27 +239,36 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 					}))
 			: [];
 
-		// Publish Nourish event to pantry relay (fire-and-forget).
-		// If publishing fails, the analysis is still returned to the client —
-		// the next viewer will trigger a fresh analysis if no relay event is found.
-		if (recipePubkey && recipeDTag && contentHash) {
+		// Publish Nourish event to pantry relay.
+		// Uses waitUntil on Cloudflare Workers so the promise survives past the response.
+		const HEX_64_RE = /^[a-fA-F0-9]{64}$/;
+		const validRecipePubkey = typeof recipePubkey === 'string' && HEX_64_RE.test(recipePubkey.trim());
+		const validContentHash = typeof contentHash === 'string' && HEX_64_RE.test(contentHash.trim());
+		const validRecipeDTag = typeof recipeDTag === 'string' && recipeDTag.trim().length > 0 && recipeDTag.trim().length <= 200;
+
+		if (validRecipePubkey && validRecipeDTag && validContentHash) {
 			const NOTIFICATION_PRIVATE_KEY = (platform?.env as any)?.NOTIFICATION_PRIVATE_KEY || env.NOTIFICATION_PRIVATE_KEY;
 			if (NOTIFICATION_PRIVATE_KEY) {
-				import('$lib/nourish/nourishPublisher.server').then(({ publishNourishEvent }) => {
-					publishNourishEvent({
-						privateKey: NOTIFICATION_PRIVATE_KEY,
-						recipePubkey,
-						recipeDTag,
-						contentHash,
-						scores,
-						improvements,
-						ingredientSignals: ingredient_signals
-					}).catch((err) => {
+				const publishPromise = import('$lib/nourish/nourishPublisher.server')
+					.then(({ publishNourishEvent }) =>
+						publishNourishEvent({
+							privateKey: NOTIFICATION_PRIVATE_KEY,
+							recipePubkey: recipePubkey.trim(),
+							recipeDTag: recipeDTag.trim(),
+							contentHash: contentHash.trim(),
+							scores,
+							improvements,
+							ingredientSignals: ingredient_signals
+						})
+					)
+					.catch((err) => {
 						console.error('[Nourish] Failed to publish event:', err);
 					});
-				}).catch((err) => {
-					console.error('[Nourish] Failed to import publisher:', err);
-				});
+
+				// Cloudflare Workers: register with waitUntil so the promise survives past response
+				if ((platform as any)?.context?.waitUntil) {
+					(platform as any).context.waitUntil(publishPromise);
+				}
 			}
 		}
 
