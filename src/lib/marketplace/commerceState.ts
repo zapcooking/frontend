@@ -33,22 +33,15 @@
  * - External store links (Shopify, etc.) → external_checkout
  */
 
-import type { Product } from './types';
+import { COMMERCE_STATES, type CommerceState, type Product } from './types';
 import type { CurrencyCode } from '$lib/currencyStore';
 import { formatPrice } from '$lib/currencyConversion';
 
-// ── Commerce State Enum ─────────────────────────────────────────────
-
-export const COMMERCE_STATES = [
-	'instant_buy',
-	'starting_at',
-	'price_varies',
-	'message_to_order',
-	'custom_quote',
-	'external_checkout'
-] as const;
-
-export type CommerceState = (typeof COMMERCE_STATES)[number];
+// ── Commerce State Enum (re-exported from ./types) ──────────────────
+// Declared in types.ts to avoid a module cycle; re-exported here so existing
+// `import { COMMERCE_STATES, type CommerceState } from './commerceState'`
+// callers keep working.
+export { COMMERCE_STATES, type CommerceState };
 
 // ── Per-State Display Configuration ─────────────────────────────────
 
