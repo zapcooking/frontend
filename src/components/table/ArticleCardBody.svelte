@@ -130,7 +130,7 @@
 </div>
 
 <!-- Content Section -->
-<div class={classes.contentWrapper[size]}>
+<div class="{classes.contentWrapper[size]} article-card-body">
   <!-- Title -->
   <svelte:element
     this={headingTag}
@@ -244,7 +244,7 @@
 </div>
 
 <style>
-  :global(.line-clamp-1) {
+  .article-card-body :global(.line-clamp-1) {
     display: -webkit-box;
     -webkit-line-clamp: 1;
     line-clamp: 1;
@@ -252,7 +252,7 @@
     overflow: hidden;
   }
 
-  :global(.line-clamp-2) {
+  .article-card-body :global(.line-clamp-2) {
     display: -webkit-box;
     -webkit-line-clamp: 2;
     line-clamp: 2;
@@ -260,7 +260,7 @@
     overflow: hidden;
   }
 
-  :global(.line-clamp-3) {
+  .article-card-body :global(.line-clamp-3) {
     display: -webkit-box;
     -webkit-line-clamp: 3;
     line-clamp: 3;
