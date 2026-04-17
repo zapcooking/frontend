@@ -3,6 +3,7 @@
   import type { NDKEvent, NDKSubscription } from '@nostr-dev-kit/ndk';
   import { onMount, onDestroy } from 'svelte';
   import { formatAmount } from '$lib/utils';
+  import { extractZapAmountSats } from '$lib/zapAmount';
   import LightningIcon from 'phosphor-svelte/lib/Lightning';
   import { browser } from '$app/environment';
 
@@ -25,27 +26,6 @@
     'wss://offchain.pub',
     'wss://relay.snort.social'
   ];
-
-  // Extract zap amount from bolt11 invoice
-  function extractAmountFromBolt11(bolt11: string): number | null {
-    // Format: lnbc[amount][unit] where unit determines multiplier
-    // m = milli (0.001), u = micro (0.000001), n = nano (0.000000001), p = pico
-    const match = bolt11.match(/^lnbc(\d+)([munp]?)/i);
-    if (!match) return null;
-
-    let amount = parseInt(match[1]);
-    const unit = match[2]?.toLowerCase() || '';
-
-    // Convert to millisats based on unit
-    // Note: BOLT11 amounts are in BTC units with multipliers
-    if (unit === 'p') amount = Math.floor(amount / 10); // pico-BTC to msat
-    else if (unit === 'n') amount = amount * 100; // nano-BTC to msat
-    else if (unit === 'u') amount = amount * 100000; // micro-BTC to msat
-    else if (unit === 'm') amount = amount * 100000000; // milli-BTC to msat
-    else amount = amount * 100000000000; // BTC to msat
-
-    return amount;
-  }
 
   // Fetch zaps directly from relays using raw WebSocket (similar to Habla.news approach)
   async function fetchZapsFromRelays(eventId: string): Promise<{ totalSats: number; zapCount: number; zapperPubkeys: string[] }> {
@@ -107,26 +87,22 @@
       if (!zapEvent.id || processedZapIds.has(zapEvent.id)) continue;
       processedZapIds.add(zapEvent.id);
 
-      const bolt11Tag = zapEvent.tags?.find((t: string[]) => t[0] === 'bolt11');
-      const bolt11 = bolt11Tag?.[1];
-      if (!bolt11) continue;
+      const { sats } = extractZapAmountSats(zapEvent);
+      if (sats <= 0) continue;
 
-      const amountMsats = extractAmountFromBolt11(bolt11);
-      if (amountMsats && amountMsats > 0) {
-        result.totalSats += Math.floor(amountMsats / 1000);
-        result.zapCount++;
+      result.totalSats += sats;
+      result.zapCount++;
 
-        // Extract sender from description tag (contains zap request)
-        const descTag = zapEvent.tags?.find((t: string[]) => t[0] === 'description');
-        if (descTag?.[1]) {
-          try {
-            const zapRequest = JSON.parse(descTag[1]);
-            if (zapRequest.pubkey) {
-              result.zapperPubkeys.push(zapRequest.pubkey);
-            }
-          } catch (e) {
-            // Ignore parse errors
+      // Extract sender from description tag (contains zap request)
+      const descTag = zapEvent.tags?.find((t: string[]) => t[0] === 'description');
+      if (descTag?.[1]) {
+        try {
+          const zapRequest = JSON.parse(descTag[1]);
+          if (zapRequest.pubkey) {
+            result.zapperPubkeys.push(zapRequest.pubkey);
           }
+        } catch (e) {
+          // Ignore parse errors
         }
       }
     }
@@ -172,17 +148,10 @@
         subscription = $ndk.subscribe(filters);
 
         subscription.on('event', (zapEvent: NDKEvent) => {
-          // For new zaps, try to extract amount from bolt11
-          if (!processedZapIds.has(zapEvent.id)) {
-            processedZapIds.add(zapEvent.id);
-            const bolt11 = zapEvent.tags.find((tag) => tag[0] === 'bolt11')?.[1];
-            if (bolt11) {
-              const amountMsats = extractAmountFromBolt11(bolt11);
-              if (amountMsats && amountMsats > 0) {
-                totalZapAmount += Math.floor(amountMsats / 1000); // Convert to sats
-              }
-            }
-          }
+          if (processedZapIds.has(zapEvent.id)) return;
+          processedZapIds.add(zapEvent.id);
+          const { sats } = extractZapAmountSats(zapEvent);
+          if (sats > 0) totalZapAmount += sats;
         });
       }
 

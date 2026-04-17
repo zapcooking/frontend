@@ -15,7 +15,7 @@
   import { buildNip22CommentTags } from '$lib/tagUtils';
   import { onMount, onDestroy } from 'svelte';
   import { get } from 'svelte/store';
-  import { decode } from '@gandlaf21/bolt11-decode';
+  import { extractZapAmountSats } from '$lib/zapAmount';
   import MentionDropdown from './MentionDropdown.svelte';
   import { MentionComposerController, type MentionState } from '$lib/mentionComposer';
   import GifIcon from 'phosphor-svelte/lib/Gif';
@@ -131,26 +131,14 @@
     zapSubscription.on('event', (zapEvent: NDKEvent) => {
       if (!zapEvent.sig || processedZaps.has(zapEvent.sig)) return;
 
-      const bolt11 = zapEvent.tags.find((tag) => tag[0] === 'bolt11')?.[1];
-      if (!bolt11) return;
+      const { sats } = extractZapAmountSats(zapEvent);
+      if (sats <= 0) return;
 
-      try {
-        const decoded = decode(bolt11);
-        const amountSection = decoded.sections.find((section: any) => section.name === 'amount');
+      totalZapAmount += sats;
+      processedZaps.add(zapEvent.sig);
 
-        if (amountSection && amountSection.value) {
-          const amount = Number(amountSection.value);
-          if (!isNaN(amount) && amount > 0) {
-            totalZapAmount += amount;
-            processedZaps.add(zapEvent.sig);
-
-            if (zapEvent.tags.some((tag) => tag[0] === 'P' && tag[1] === $userPublickey)) {
-              hasUserZapped = true;
-            }
-          }
-        }
-      } catch (error) {
-        console.debug('Error decoding bolt11:', error);
+      if (zapEvent.tags.some((tag) => tag[0] === 'P' && tag[1] === $userPublickey)) {
+        hasUserZapped = true;
       }
     });
   }
@@ -510,14 +498,14 @@
             >
               <LightningIcon size={14} weight={hasUserZapped ? 'fill' : 'regular'} />
               {#if totalZapAmount > 0}
-                <span>{formatAmount(totalZapAmount / 1000)}</span>
+                <span>{formatAmount(totalZapAmount)}</span>
               {/if}
             </button>
           {:else}
             <span class="action-btn zap-display">
               <LightningIcon size={14} class={totalZapAmount > 0 ? 'text-yellow-500' : ''} />
               {#if totalZapAmount > 0}
-                <span>{formatAmount(totalZapAmount / 1000)}</span>
+                <span>{formatAmount(totalZapAmount)}</span>
               {/if}
             </span>
           {/if}

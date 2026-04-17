@@ -5,6 +5,7 @@ import type { NDKEvent, NDKSubscription } from '@nostr-dev-kit/ndk';
 import { mutedPubkeys } from '$lib/muteListStore';
 import { isHellthread } from '$lib/notificationUtils';
 import { decode as decodeBolt11 } from '@gandlaf21/bolt11-decode';
+import { extractZapAmountSats } from '$lib/zapAmount';
 
 export interface Notification {
   id: string;
@@ -415,25 +416,18 @@ function parseNotification(event: NDKEvent, userPubkey: string): Notification | 
     case 9735: { // Zap receipt
       // The zap receipt is published by the zapper service (e.g., Alby)
       // The actual sender info is in the embedded zap request in the 'description' tag
-      let zapAmount = 0;
       let zapSenderPubkey = event.pubkey; // fallback to zapper if we can't parse
       let zapComment = '';
       try {
         const descTag = event.tags.find((t) => t[0] === 'description')?.[1];
         if (descTag) {
           const zapRequest = JSON.parse(descTag);
-          // The sender's pubkey is in the zap request
           if (zapRequest.pubkey) {
             zapSenderPubkey = zapRequest.pubkey;
           }
           // NIP-57: zap request content is an optional message from the sender
           if (zapRequest.content) {
             zapComment = cleanContentForPreview(zapRequest.content);
-          }
-          // Amount is in the zap request tags as 'amount' (in millisats)
-          const amountTag = zapRequest.tags?.find((t: string[]) => t[0] === 'amount');
-          if (amountTag && amountTag[1]) {
-            zapAmount = Math.floor(parseInt(amountTag[1], 10) / 1000); // msats to sats
           }
         }
       } catch (e) {
@@ -443,26 +437,7 @@ function parseNotification(event: NDKEvent, userPubkey: string): Notification | 
       // Skip self-zaps (user zapping their own content or someone else)
       if (zapSenderPubkey === userPubkey) return null;
 
-      // Fallback: extract amount from bolt11 using the decoder library
-      if (zapAmount === 0) {
-        try {
-          const bolt11Tag = event.tags.find((t) => t[0] === 'bolt11')?.[1];
-          if (bolt11Tag) {
-            const decoded = decodeBolt11(bolt11Tag);
-            const amountSection = decoded.sections.find(
-              (s: { name: string; value?: unknown }) => s.name === 'amount'
-            );
-            if (amountSection?.value) {
-              const decodedAmount = Number(amountSection.value);
-              if (Number.isFinite(decodedAmount)) {
-                zapAmount = Math.floor(decodedAmount);
-              }
-            }
-          }
-        } catch {
-          // bolt11 decode failed — amount stays 0
-        }
-      }
+      const zapAmount = extractZapAmountSats(event).sats;
 
       const zappedEventId = event.tags.find((t) => t[0] === 'e')?.[1];
       return {

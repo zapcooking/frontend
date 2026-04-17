@@ -11,6 +11,7 @@ import { browser } from '$app/environment';
 import { NDKEvent, NDKRelaySet } from '@nostr-dev-kit/ndk';
 import type NDK from '@nostr-dev-kit/ndk';
 import { ndk } from '$lib/nostr';
+import { extractZapAmountSats } from '$lib/zapAmount';
 
 const ZAP_RECEIPT_RELAYS = [
 	'wss://relay.damus.io',
@@ -95,25 +96,9 @@ function fetchZapReceiptsForIds(ndkInstance: NDK, messageIds: string[]): void {
 		if (!eTag?.[1]) return;
 		const targetMessageId = eTag[1];
 
-		// Extract amount
-		let sats = 0;
-		const amountTag = receipt.tags.find((t: string[]) => t[0] === 'amount');
-		if (amountTag?.[1]) {
-			sats = Math.floor(parseInt(amountTag[1]) / 1000);
-		} else {
-			const descTag = receipt.tags.find((t: string[]) => t[0] === 'description');
-			if (descTag?.[1]) {
-				try {
-					const zapReq = JSON.parse(descTag[1]);
-					const reqAmount = zapReq.tags?.find((t: string[]) => t[0] === 'amount');
-					if (reqAmount?.[1]) {
-						sats = Math.floor(parseInt(reqAmount[1]) / 1000);
-					}
-				} catch {
-					// ignore parse errors
-				}
-			}
-		}
+		const { sats } = extractZapAmountSats(receipt);
+		// Skip undecodable/empty receipts — otherwise we'd inflate count with 0-sat phantoms
+		if (sats <= 0) return;
 
 		// Update the store
 		zapReceiptStore.update((store) => {
