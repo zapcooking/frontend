@@ -6,8 +6,21 @@
 
 import type { NDKEvent } from '@nostr-dev-kit/ndk';
 import type { MembershipTier } from '$lib/membershipStore';
-import type { CommerceState } from './commerceState';
 import type { CurrencyCode } from '$lib/currencyStore';
+
+// Commerce state enum lives here (instead of commerceState.ts) so that the
+// Product / ProductFormData types can reference it without creating a module
+// cycle. commerceState.ts re-exports these for backward-compatible imports.
+export const COMMERCE_STATES = [
+	'instant_buy',
+	'starting_at',
+	'price_varies',
+	'message_to_order',
+	'custom_quote',
+	'external_checkout'
+] as const;
+
+export type CommerceState = (typeof COMMERCE_STATES)[number];
 
 // Maximum age for marketplace listings (in days). Listings older than this are hidden.
 export const MARKETPLACE_LISTING_MAX_AGE_DAYS = 270;
