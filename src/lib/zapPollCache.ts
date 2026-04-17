@@ -13,7 +13,7 @@
 import { writable, get, type Readable } from 'svelte/store';
 import type { NDKEvent, NDKSubscription } from '@nostr-dev-kit/ndk';
 import { ndk } from '$lib/nostr';
-import { decode } from '@gandlaf21/bolt11-decode';
+import { extractZapAmountSats } from '$lib/zapAmount';
 import { countZapVotes, type ZapPollResults, type ParsedZapVote } from '$lib/polls';
 
 // ═══════════════════════════════════════════════════════════════
@@ -105,19 +105,7 @@ export function getZapPollResults(pollId: string): ZapPollHandle {
 // ═══════════════════════════════════════════════════════════════
 
 function parseZapReceipt(event: NDKEvent): ParsedZapVote | null {
-  const bolt11 = event.tags.find(t => t[0] === 'bolt11')?.[1];
-  if (!bolt11) return null;
-
-  let amountSats = 0;
-  try {
-    const decoded = decode(bolt11);
-    const amountSection = decoded.sections.find((s: { name: string }) => s.name === 'amount');
-    if (amountSection?.value) {
-      amountSats = Math.floor(Number(amountSection.value) / 1000);
-    }
-  } catch {
-    return null;
-  }
+  const { sats: amountSats } = extractZapAmountSats(event);
   if (amountSats <= 0) return null;
 
   const descTag = event.tags.find(t => t[0] === 'description')?.[1];

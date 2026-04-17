@@ -1,5 +1,5 @@
 import { NDKEvent } from '@nostr-dev-kit/ndk';
-import { decode } from '@gandlaf21/bolt11-decode';
+import { extractZapAmountSats } from './zapAmount';
 
 export interface ZapData {
   totalAmount: number;
@@ -129,34 +129,19 @@ export class ZapCache {
       return;
     }
 
-    const bolt11 = zapEvent.tags.find((tag) => tag[0] === 'bolt11')?.[1];
-    if (!bolt11) {
-      return;
+    const { sats } = extractZapAmountSats(zapEvent);
+    if (sats <= 0) return;
+
+    entry.data.totalAmount += sats;
+    entry.data.count += 1;
+    entry.data.lastUpdated = Date.now();
+    entry.processedEvents.add(zapEvent.sig);
+
+    if (zapEvent.tags.some(tag => tag[0] === 'P' && tag[1] === this.userPublickey)) {
+      entry.data.userHasZapped = true;
     }
 
-    try {
-      const decoded = decode(bolt11);
-      const amountSection = decoded.sections.find((section) => section.name === 'amount');
-      
-      if (amountSection && amountSection.value) {
-        const amount = Number(amountSection.value);
-        if (!isNaN(amount) && amount > 0) {
-          entry.data.totalAmount += amount;
-          entry.data.count += 1;
-          entry.data.lastUpdated = Date.now();
-          entry.processedEvents.add(zapEvent.sig);
-
-          // Check if current user zapped
-          if (zapEvent.tags.some(tag => tag[0] === 'P' && tag[1] === this.userPublickey)) {
-            entry.data.userHasZapped = true;
-          }
-
-          console.log(`Processed zap: ${amount} sats, total: ${entry.data.totalAmount}`);
-        }
-      }
-    } catch (error) {
-      console.error('Error decoding bolt11:', error);
-    }
+    console.log(`Processed zap: ${sats} sats, total: ${entry.data.totalAmount}`);
   }
 
   /**
