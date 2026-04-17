@@ -1,7 +1,5 @@
 <script lang="ts">
-  import HeroArticle from './HeroArticle.svelte';
-  import SecondaryArticle from './SecondaryArticle.svelte';
-  import TertiaryArticle from './TertiaryArticle.svelte';
+  import ArticleCard from './ArticleCard.svelte';
   import type { CuratedCover } from '$lib/articleUtils';
 
   export let cover: CuratedCover | null = null;
@@ -73,14 +71,14 @@
     <div class="flex flex-col gap-8">
       <!-- Hero Article -->
       {#if cover.hero}
-        <HeroArticle article={cover.hero} />
+        <ArticleCard size="hero" article={cover.hero} />
       {/if}
 
       <!-- Secondary Articles (3 columns) -->
       {#if cover.secondary && cover.secondary.length > 0}
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {#each cover.secondary as article (article.id)}
-            <SecondaryArticle {article} />
+            <ArticleCard size="secondary" {article} />
           {/each}
         </div>
       {/if}
@@ -89,7 +87,7 @@
       {#if cover.tertiary && cover.tertiary.length > 0}
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
           {#each cover.tertiary as article (article.id)}
-            <TertiaryArticle {article} />
+            <ArticleCard size="tertiary" {article} />
           {/each}
         </div>
       {/if}
