@@ -1,9 +1,9 @@
 import { writable, type Writable, get } from 'svelte/store';
 import type { NDKEvent, NDKSubscription } from '@nostr-dev-kit/ndk';
 import NDK, { NDKRelaySet } from '@nostr-dev-kit/ndk';
-import { decode } from '@gandlaf21/bolt11-decode';
 import { browser } from '$app/environment';
 import { getEngagementCounts, batchFetchFromServerAPI } from './countQuery';
+import { extractZapAmountSats } from './zapAmount';
 
 // Aggregator relays that index zap receipts — LNURL providers publish kind:9735
 // to these relays, which may not overlap with the app's default relay set.
@@ -341,15 +341,16 @@ export async function fetchEngagement(
   let pendingOptimisticZappers: Array<{ pubkey: string; amount: number; timestamp: number }> = [];
   for (const [key, zap] of optimisticZaps.entries()) {
     if (key.startsWith(`${eventId}:`)) {
-      pendingOptimisticAmount += zap.amountMillisats;
+      const zapSats = Math.floor(zap.amountMillisats / 1000);
+      pendingOptimisticAmount += zapSats;
       pendingOptimisticCount++;
       const existingZapper = pendingOptimisticZappers.find(z => z.pubkey === zap.userPubkey);
       if (existingZapper) {
-        existingZapper.amount += Math.floor(zap.amountMillisats / 1000);
+        existingZapper.amount += zapSats;
       } else {
         pendingOptimisticZappers.push({
           pubkey: zap.userPubkey,
-          amount: Math.floor(zap.amountMillisats / 1000),
+          amount: zapSats,
           timestamp: Math.floor(zap.timestamp / 1000)
         });
       }
@@ -580,103 +581,79 @@ function processRepost(data: EngagementData, event: NDKEvent, userPublickey: str
 }
 
 function processZap(data: EngagementData, event: NDKEvent, userPublickey: string, eventId?: string): void {
-  const bolt11 = event.tags.find(t => t[0] === 'bolt11')?.[1];
-  if (!bolt11) return;
-  
+  const { sats: amountSats } = extractZapAmountSats(event);
+  if (amountSats <= 0) return;
+
+  // Extract zapper info from the zap request in the description tag
+  let zapperPubkey = event.pubkey; // fallback to zapper service pubkey
   try {
-    const decoded = decode(bolt11);
-    const amountSection = decoded.sections.find(s => s.name === 'amount');
-    
-    if (amountSection?.value) {
-      const amountMillisats = Number(amountSection.value);
-      if (!isNaN(amountMillisats) && amountMillisats > 0) {
-        const amountSats = Math.floor(amountMillisats / 1000); // Convert millisats to sats
-        
-        // Extract zapper info from the zap request in the description tag
-        let zapperPubkey = event.pubkey; // fallback to zapper service pubkey
-        try {
-          const descTag = event.tags.find(t => t[0] === 'description')?.[1];
-          if (descTag) {
-            const zapRequest = JSON.parse(descTag);
-            if (zapRequest.pubkey) {
-              zapperPubkey = zapRequest.pubkey; // The actual sender
-            }
-          }
-        } catch {
-          // Failed to parse description, use event pubkey
-        }
-        
-        // Check if this matches an optimistic zap we already added
-        // Look for optimistic zap with matching user, similar amount, and recent timestamp
-        let matchedOptimistic = false;
-        let matchedOptimisticAmount = 0;
-        if (eventId && zapperPubkey === userPublickey) {
-          const now = Date.now();
-          const fiveMinutesAgo = now - 5 * 60 * 1000; // 5 minute window
-          
-          for (const [key, optimistic] of optimisticZaps.entries()) {
-            // Match if same event, same user, amount within 10% (to account for rounding), and recent
-            const amountDiff = Math.abs(optimistic.amountMillisats - amountMillisats);
-            const amountMatch = amountDiff < optimistic.amountMillisats * 0.1 || amountDiff < 1000; // Within 10% or 1 sat
-            const timeMatch = optimistic.timestamp > fiveMinutesAgo;
-            
-            if (key.startsWith(`${eventId}:${zapperPubkey}:`) && amountMatch && timeMatch) {
-              // This matches our optimistic zap - don't double count
-              matchedOptimistic = true;
-              matchedOptimisticAmount = optimistic.amountMillisats;
-              optimisticZaps.delete(key); // Remove from tracking
-              break;
-            }
-          }
-        }
-        
-        // Only add to count if this isn't matching an optimistic zap we already added
-        if (!matchedOptimistic) {
-          data.zaps.totalAmount += amountMillisats;
-          data.zaps.count++;
-        } else {
-          // This matches our optimistic zap - replace optimistic amount with real amount for accuracy
-          // Adjust totalAmount: subtract optimistic amount, add real amount
-          data.zaps.totalAmount = data.zaps.totalAmount - matchedOptimisticAmount + amountMillisats;
-          // Don't increment count since we already did optimistically
-        }
-        
-        // Check if current user zapped
-        if (zapperPubkey === userPublickey) {
-          data.zaps.userZapped = true;
-        }
-        
-        // Add or update zapper in the list
-        // Use event timestamp, falling back to current time if missing
-        const zapTimestamp = event.created_at && event.created_at > 1000000000 
-          ? event.created_at 
-          : Math.floor(Date.now() / 1000);
-        
-        const existingZapper = data.zaps.topZappers.find(z => z.pubkey === zapperPubkey);
-        if (existingZapper) {
-          // If we matched optimistic, the amount was already added optimistically, so just update timestamp
-          // Otherwise, add the amount
-          if (!matchedOptimistic) {
-            existingZapper.amount += amountSats;
-          }
-          existingZapper.timestamp = Math.max(existingZapper.timestamp, zapTimestamp);
-        } else {
-          data.zaps.topZappers.push({
-            pubkey: zapperPubkey,
-            amount: amountSats,
-            timestamp: zapTimestamp
-          });
-        }
-        
-        // Sort by amount descending, keep top 10 for efficiency
-        data.zaps.topZappers.sort((a, b) => b.amount - a.amount);
-        if (data.zaps.topZappers.length > 10) {
-          data.zaps.topZappers = data.zaps.topZappers.slice(0, 10);
-        }
+    const descTag = event.tags.find(t => t[0] === 'description')?.[1];
+    if (descTag) {
+      const zapRequest = JSON.parse(descTag);
+      if (zapRequest.pubkey) {
+        zapperPubkey = zapRequest.pubkey;
       }
     }
   } catch {
-    // Invalid bolt11 - skip
+    // Failed to parse description, use event pubkey
+  }
+
+  // Check if this matches an optimistic zap we already added
+  let matchedOptimistic = false;
+  let matchedOptimisticSats = 0;
+  if (eventId && zapperPubkey === userPublickey) {
+    const now = Date.now();
+    const fiveMinutesAgo = now - 5 * 60 * 1000;
+
+    for (const [key, optimistic] of optimisticZaps.entries()) {
+      const optimisticSats = Math.floor(optimistic.amountMillisats / 1000);
+      const amountDiff = Math.abs(optimisticSats - amountSats);
+      // Within 10% or 1 sat to account for rounding
+      const amountMatch = amountDiff < optimisticSats * 0.1 || amountDiff < 1;
+      const timeMatch = optimistic.timestamp > fiveMinutesAgo;
+
+      if (key.startsWith(`${eventId}:${zapperPubkey}:`) && amountMatch && timeMatch) {
+        matchedOptimistic = true;
+        matchedOptimisticSats = optimisticSats;
+        optimisticZaps.delete(key);
+        break;
+      }
+    }
+  }
+
+  if (!matchedOptimistic) {
+    data.zaps.totalAmount += amountSats;
+    data.zaps.count++;
+  } else {
+    // Replace optimistic amount with real amount for accuracy
+    data.zaps.totalAmount = data.zaps.totalAmount - matchedOptimisticSats + amountSats;
+  }
+
+  if (zapperPubkey === userPublickey) {
+    data.zaps.userZapped = true;
+  }
+
+  const zapTimestamp = event.created_at && event.created_at > 1000000000
+    ? event.created_at
+    : Math.floor(Date.now() / 1000);
+
+  const existingZapper = data.zaps.topZappers.find(z => z.pubkey === zapperPubkey);
+  if (existingZapper) {
+    if (!matchedOptimistic) {
+      existingZapper.amount += amountSats;
+    }
+    existingZapper.timestamp = Math.max(existingZapper.timestamp, zapTimestamp);
+  } else {
+    data.zaps.topZappers.push({
+      pubkey: zapperPubkey,
+      amount: amountSats,
+      timestamp: zapTimestamp
+    });
+  }
+
+  data.zaps.topZappers.sort((a, b) => b.amount - a.amount);
+  if (data.zaps.topZappers.length > 10) {
+    data.zaps.topZappers = data.zaps.topZappers.slice(0, 10);
   }
 }
 
@@ -782,7 +759,7 @@ export function optimisticZapUpdate(eventId: string, amountMillisats: number, us
     const updated = { ...s };
     
     // Optimistically add the zap amount and count
-    updated.zaps.totalAmount += amountMillisats;
+    updated.zaps.totalAmount += amountSats;
     updated.zaps.count += 1;
     updated.zaps.userZapped = true;
     

@@ -12,6 +12,7 @@
   import ClientAttribution from './ClientAttribution.svelte';
   import LightningIcon from 'phosphor-svelte/lib/Lightning';
   import { decode } from '@gandlaf21/bolt11-decode';
+  import { extractZapAmountSats } from '$lib/zapAmount';
   import { formatAmount } from '$lib/utils';
   import NoteContent from './NoteContent.svelte';
 
@@ -276,21 +277,8 @@
       let totalAmount = 0;
 
       for (const zapEvent of zapEvents) {
-        const bolt11 = zapEvent.tags.find((tag: string[]) => tag[0] === 'bolt11')?.[1];
-        if (!bolt11) continue;
-
-        try {
-          const decoded = decode(bolt11);
-          const amountSection = decoded.sections.find((section) => section.name === 'amount');
-          if (amountSection?.value) {
-            const amount = Number(amountSection.value);
-            if (!isNaN(amount) && amount > 0) {
-              totalAmount += amount / 1000; // Convert millisats to sats
-            }
-          }
-        } catch {
-          // Ignore decode errors
-        }
+        const { sats } = extractZapAmountSats(zapEvent);
+        if (sats > 0) totalAmount += sats;
       }
 
       if (totalAmount > 0) {

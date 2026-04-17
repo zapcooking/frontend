@@ -3,6 +3,7 @@
   import { userPublickey } from '$lib/nostr';
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
   import { formatAmount } from '$lib/utils';
+  import { extractZapAmountSats } from '$lib/zapAmount';
   import CustomAvatar from '../CustomAvatar.svelte';
   import LightningIcon from 'phosphor-svelte/lib/Lightning';
 
@@ -28,22 +29,6 @@
   ];
 
   const MAX_VISIBLE = 5;
-
-  function extractAmountFromBolt11(bolt11: string): number | null {
-    const match = bolt11.match(/^lnbc(\d+)([munp]?)/i);
-    if (!match) return null;
-
-    let amount = parseInt(match[1]);
-    const unit = match[2]?.toLowerCase() || '';
-
-    if (unit === 'p') amount = Math.floor(amount / 10);
-    else if (unit === 'n') amount = amount * 100;
-    else if (unit === 'u') amount = amount * 100000;
-    else if (unit === 'm') amount = amount * 100000000;
-    else amount = amount * 100000000000;
-
-    return amount;
-  }
 
   async function fetchTopZappers(eventId: string): Promise<ZapperInfo[]> {
     const zapperMap = new Map<string, number>();
@@ -106,14 +91,8 @@
       if (!zapEvent.id || processedIds.has(zapEvent.id)) continue;
       processedIds.add(zapEvent.id);
 
-      const bolt11Tag = zapEvent.tags?.find((t: string[]) => t[0] === 'bolt11');
-      const bolt11 = bolt11Tag?.[1];
-      if (!bolt11) continue;
-
-      const amountMsats = extractAmountFromBolt11(bolt11);
-      if (!amountMsats || amountMsats <= 0) continue;
-
-      const amountSats = Math.floor(amountMsats / 1000);
+      const { sats: amountSats } = extractZapAmountSats(zapEvent);
+      if (amountSats <= 0) continue;
 
       // Extract sender from description tag
       const descTag = zapEvent.tags?.find((t: string[]) => t[0] === 'description');
