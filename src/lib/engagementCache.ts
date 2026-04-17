@@ -341,8 +341,9 @@ export async function fetchEngagement(
   let pendingOptimisticZappers: Array<{ pubkey: string; amount: number; timestamp: number }> = [];
   for (const [key, zap] of optimisticZaps.entries()) {
     if (key.startsWith(`${eventId}:`)) {
+      // totalAmount is stored in millisats; topZappers.amount is sats
       const zapSats = Math.floor(zap.amountMillisats / 1000);
-      pendingOptimisticAmount += zapSats;
+      pendingOptimisticAmount += zap.amountMillisats;
       pendingOptimisticCount++;
       const existingZapper = pendingOptimisticZappers.find(z => z.pubkey === zap.userPubkey);
       if (existingZapper) {
@@ -583,6 +584,10 @@ function processRepost(data: EngagementData, event: NDKEvent, userPublickey: str
 function processZap(data: EngagementData, event: NDKEvent, userPublickey: string, eventId?: string): void {
   const { sats: amountSats } = extractZapAmountSats(event);
   if (amountSats <= 0) return;
+  // Keep data.zaps.totalAmount in millisats for backward compatibility with
+  // callers that divide by 1000 at display time (NoteTotalZaps, ShareNoteImageCard,
+  // ThreadCommentActions, shareNoteImage, FoodstrFeedOptimized glow tier).
+  const amountMillisats = amountSats * 1000;
 
   // Extract zapper info from the zap request in the description tag
   let zapperPubkey = event.pubkey; // fallback to zapper service pubkey
@@ -600,21 +605,20 @@ function processZap(data: EngagementData, event: NDKEvent, userPublickey: string
 
   // Check if this matches an optimistic zap we already added
   let matchedOptimistic = false;
-  let matchedOptimisticSats = 0;
+  let matchedOptimisticMillisats = 0;
   if (eventId && zapperPubkey === userPublickey) {
     const now = Date.now();
     const fiveMinutesAgo = now - 5 * 60 * 1000;
 
     for (const [key, optimistic] of optimisticZaps.entries()) {
-      const optimisticSats = Math.floor(optimistic.amountMillisats / 1000);
-      const amountDiff = Math.abs(optimisticSats - amountSats);
-      // Within 10% or 1 sat to account for rounding
-      const amountMatch = amountDiff < optimisticSats * 0.1 || amountDiff < 1;
+      const amountDiff = Math.abs(optimistic.amountMillisats - amountMillisats);
+      // Within 10% or 1 sat (1000 msat) to account for rounding
+      const amountMatch = amountDiff < optimistic.amountMillisats * 0.1 || amountDiff < 1000;
       const timeMatch = optimistic.timestamp > fiveMinutesAgo;
 
       if (key.startsWith(`${eventId}:${zapperPubkey}:`) && amountMatch && timeMatch) {
         matchedOptimistic = true;
-        matchedOptimisticSats = optimisticSats;
+        matchedOptimisticMillisats = optimistic.amountMillisats;
         optimisticZaps.delete(key);
         break;
       }
@@ -622,11 +626,11 @@ function processZap(data: EngagementData, event: NDKEvent, userPublickey: string
   }
 
   if (!matchedOptimistic) {
-    data.zaps.totalAmount += amountSats;
+    data.zaps.totalAmount += amountMillisats;
     data.zaps.count++;
   } else {
     // Replace optimistic amount with real amount for accuracy
-    data.zaps.totalAmount = data.zaps.totalAmount - matchedOptimisticSats + amountSats;
+    data.zaps.totalAmount = data.zaps.totalAmount - matchedOptimisticMillisats + amountMillisats;
   }
 
   if (zapperPubkey === userPublickey) {
@@ -757,9 +761,10 @@ export function optimisticZapUpdate(eventId: string, amountMillisats: number, us
   
   store.update(s => {
     const updated = { ...s };
-    
+
     // Optimistically add the zap amount and count
-    updated.zaps.totalAmount += amountSats;
+    // totalAmount is stored in millisats (consumers divide by 1000 at display)
+    updated.zaps.totalAmount += amountMillisats;
     updated.zaps.count += 1;
     updated.zaps.userZapped = true;
     

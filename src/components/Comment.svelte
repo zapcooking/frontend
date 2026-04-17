@@ -503,14 +503,14 @@
           >
             <LightningIcon size={16} weight={hasUserZapped ? 'fill' : 'regular'} />
             {#if totalZapAmount > 0}
-              <span>{formatAmount(totalZapAmount / 1000)}</span>
+              <span>{formatAmount(totalZapAmount)}</span>
             {/if}
           </button>
         {:else}
           <span class="action-btn zap-display">
             <LightningIcon size={16} class={totalZapAmount > 0 ? 'text-yellow-500' : ''} />
             {#if totalZapAmount > 0}
-              <span>{formatAmount(totalZapAmount / 1000)}</span>
+              <span>{formatAmount(totalZapAmount)}</span>
             {/if}
           </span>
         {/if}

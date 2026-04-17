@@ -97,6 +97,8 @@ function fetchZapReceiptsForIds(ndkInstance: NDK, messageIds: string[]): void {
 		const targetMessageId = eTag[1];
 
 		const { sats } = extractZapAmountSats(receipt);
+		// Skip undecodable/empty receipts — otherwise we'd inflate count with 0-sat phantoms
+		if (sats <= 0) return;
 
 		// Update the store
 		zapReceiptStore.update((store) => {
