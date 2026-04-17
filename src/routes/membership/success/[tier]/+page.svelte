@@ -5,40 +5,46 @@
   import { page } from '$app/stores';
   import { userPublickey, ndk } from '$lib/nostr';
   import { updateProfileWithNip05 } from '$lib/nip05Service';
-  import Nip05ClaimModal from '../../../components/Nip05ClaimModal.svelte';
+  import Nip05ClaimModal from '../../../../components/Nip05ClaimModal.svelte';
+  import { TIER_CONFIGS, type PaymentData } from '$lib/membership/tiers';
+
+  export let data: import('./$types').PageData;
+  $: tier = TIER_CONFIGS[data.tierSlug];
 
   let loading = true;
-  let subscriptionEnd: string | null = null;
   let error: string | null = null;
   let paymentMethod: string | null = null;
-  
-  // NIP-05 state
-  let nip05: string | null = null;
-  let nip05Username: string | null = null;
+
+  let paymentData: PaymentData = {
+    subscriptionEnd: null,
+    founderNumber: null,
+    nip05: null,
+    nip05Username: null
+  };
+
   let showNip05Modal = false;
   let nip05UpdateStatus: 'pending' | 'updating' | 'success' | 'skipped' | 'error' = 'pending';
   let nip05Error: string | null = null;
 
+  $: successReady =
+    !loading && !error && (tier.successGuard === 'always' || tier.successGuard(paymentData));
+
   onMount(async () => {
     if (!browser) return;
-    
+
     const paymentMethodParam = $page.url.searchParams.get('payment_method');
     const sessionId = $page.url.searchParams.get('session_id');
-    const nip05Param = $page.url.searchParams.get('nip05');
-    const nip05UsernameParam = $page.url.searchParams.get('nip05_username');
 
-    paymentMethod = paymentMethodParam || 'stripe';
+    paymentMethod = tier.defaultPaymentMethodToStripe
+      ? paymentMethodParam || 'stripe'
+      : paymentMethodParam;
 
-    // If coming from Lightning payment, NIP-05 info might be in URL
     if (paymentMethod === 'lightning') {
-      // For Lightning, membership should already be activated
-      nip05 = nip05Param;
-      nip05Username = nip05UsernameParam;
+      paymentData = { ...paymentData, ...tier.parseLightningParams($page.url.searchParams) };
       loading = false;
       return;
     }
 
-    // Otherwise, verify Stripe payment
     if (!sessionId) {
       error = 'No session ID provided';
       loading = false;
@@ -52,35 +58,34 @@
     }
 
     try {
-      const response = await fetch('/api/membership/complete-payment', {
+      const response = await fetch(tier.completePaymentEndpoint, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
+          'Content-Type': 'application/json'
         },
         body: JSON.stringify({
           sessionId,
-          pubkey: $userPublickey,
-        }),
+          pubkey: $userPublickey
+        })
       });
 
       const responseText = await response.text();
-      
+
       if (!response.ok) {
         let errorMessage = `Failed to complete payment (${response.status} ${response.statusText})`;
         try {
-          const data = JSON.parse(responseText);
-          errorMessage = data.error || errorMessage;
-          console.error('[Cook+ Success] Error response:', data);
+          const d = JSON.parse(responseText);
+          errorMessage = d.error || errorMessage;
+          console.error(`${tier.logPrefix} Error response:`, d);
         } catch (parseError) {
-          console.error('[Cook+ Success] Error response (text):', responseText);
+          console.error(`${tier.logPrefix} Error response (text):`, responseText);
+          errorMessage = tier.parseErrorFallback(response.status, response.statusText);
         }
         throw new Error(errorMessage);
       }
 
-      const data = JSON.parse(responseText);
-      subscriptionEnd = data.subscriptionEnd;
-      nip05 = data.nip05;
-      nip05Username = data.nip05Username;
+      const json = JSON.parse(responseText);
+      paymentData = { ...paymentData, ...tier.parsePaymentResponse(json) };
       loading = false;
     } catch (err) {
       console.error('Payment completion error:', err);
@@ -91,19 +96,19 @@
 
   async function autoUpdateProfileNip05(nip05Address: string) {
     if (!$userPublickey || !$ndk) return;
-    
+
     nip05UpdateStatus = 'updating';
     try {
       const success = await updateProfileWithNip05($ndk, $userPublickey, nip05Address);
       if (success) {
         nip05UpdateStatus = 'success';
-        console.log('[Cook+ Success] Profile updated with NIP-05:', nip05Address);
+        console.log(`${tier.logPrefix} Profile updated with NIP-05:`, nip05Address);
       } else {
         nip05UpdateStatus = 'error';
         nip05Error = 'Could not update profile automatically. You can add it manually in settings.';
       }
     } catch (err) {
-      console.error('[Cook+ Success] Failed to update profile with NIP-05:', err);
+      console.error(`${tier.logPrefix} Failed to update profile with NIP-05:`, err);
       nip05UpdateStatus = 'error';
       nip05Error = 'Could not update profile automatically. You can add it manually in settings.';
     }
@@ -115,16 +120,16 @@
 
   function formatDate(dateString: string): string {
     const date = new Date(dateString);
-    return date.toLocaleDateString('en-US', { 
-      year: 'numeric', 
-      month: 'long', 
-      day: 'numeric' 
+    return date.toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric'
     });
   }
 
   function handleNip05Claimed(event: CustomEvent) {
     showNip05Modal = false;
-    nip05 = event.detail.nip05;
+    paymentData = { ...paymentData, nip05: event.detail.nip05 };
     nip05UpdateStatus = 'pending';
   }
 
@@ -134,10 +139,10 @@
 </script>
 
 <svelte:head>
-  <title>Welcome to Cook+! - zap.cooking</title>
+  <title>{tier.pageTitle}</title>
 </svelte:head>
 
-<div class="success-page">
+<div class="success-page tier-{tier.slug}">
   <div class="success-container">
     {#if loading}
       <div class="loading-state">
@@ -148,29 +153,33 @@
       <div class="error-state">
         <h1>❌ Error</h1>
         <p>{error}</p>
-        <button class="back-button" on:click={goToMembership}>
-          Back to Membership
-        </button>
+        <button class="back-button" on:click={goToMembership}> Back to Membership </button>
       </div>
-    {:else}
+    {:else if successReady}
       <div class="success-state">
         <div class="success-icon">🎉</div>
-        <h1>Welcome to Cook+!</h1>
+        <h1>{tier.heading(paymentData)}</h1>
         <p class="success-message">
-          Your Cook+ membership is now active.
+          {tier.successMessage}
         </p>
-        
-        {#if subscriptionEnd}
+
+        {#if tier.heroExtra.kind === 'subscription-date' && paymentData.subscriptionEnd}
           <div class="subscription-info">
             <p class="subscription-date">
-              Your membership is active until <strong>{formatDate(subscriptionEnd)}</strong>
+              Your membership is active until <strong
+                >{formatDate(paymentData.subscriptionEnd)}</strong
+              >
             </p>
+          </div>
+        {:else if tier.heroExtra.kind === 'founder-badge' && paymentData.founderNumber != null}
+          <div class="founder-badge">
+            <div class="badge-number">#{paymentData.founderNumber}</div>
+            <div class="badge-text">Founders Club</div>
           </div>
         {/if}
 
         <!-- NIP-05 Identity Section -->
-        {#if !nip05}
-          <!-- No identity claimed yet -->
+        {#if !paymentData.nip05}
           <div class="nip05-claim-section">
             <p class="nip05-claim-title">Claim your verified identity</p>
             <p class="nip05-claim-text">
@@ -179,19 +188,18 @@
             <button
               type="button"
               class="claim-nip05-button"
-              on:click={() => showNip05Modal = true}
+              on:click={() => (showNip05Modal = true)}
             >
               Choose Username
             </button>
           </div>
         {:else}
-          <!-- Identity claimed, show badge and actions -->
           <div class="nip05-badge-section">
             <div class="nip05-badge">
               <div class="badge-icon">✓</div>
               <div class="badge-content">
                 <span class="badge-label">Verified Identity</span>
-                <span class="badge-value">{nip05}</span>
+                <span class="badge-value">{paymentData.nip05}</span>
               </div>
             </div>
             {#if nip05UpdateStatus === 'pending'}
@@ -200,21 +208,21 @@
                 <button
                   type="button"
                   class="add-to-profile-button"
-                  on:click={() => nip05 && autoUpdateProfileNip05(nip05)}
+                  on:click={() => paymentData.nip05 && autoUpdateProfileNip05(paymentData.nip05)}
                 >
                   Add to Profile
                 </button>
                 <button
                   type="button"
                   class="change-username-button"
-                  on:click={() => showNip05Modal = true}
+                  on:click={() => (showNip05Modal = true)}
                 >
                   Change Username
                 </button>
                 <button
                   type="button"
                   class="skip-button"
-                  on:click={() => nip05UpdateStatus = 'skipped'}
+                  on:click={() => (nip05UpdateStatus = 'skipped')}
                 >
                   Skip for now
                 </button>
@@ -222,16 +230,20 @@
             {:else if nip05UpdateStatus === 'updating'}
               <p class="nip05-status updating">Updating your profile...</p>
             {:else if nip05UpdateStatus === 'success'}
-              <p class="nip05-status success">✓ Your profile has been updated with your verified identity</p>
+              <p class="nip05-status success">
+                ✓ Your profile has been updated with your verified identity
+              </p>
               <button
                 type="button"
                 class="change-username-button"
-                on:click={() => showNip05Modal = true}
+                on:click={() => (showNip05Modal = true)}
               >
                 Change Username
               </button>
             {:else if nip05UpdateStatus === 'skipped'}
-              <p class="nip05-status skipped">You can add this to your profile later in settings.</p>
+              <p class="nip05-status skipped">
+                You can add this to your profile later in settings.
+              </p>
             {:else if nip05UpdateStatus === 'error'}
               <p class="nip05-status error">{nip05Error}</p>
             {/if}
@@ -241,28 +253,22 @@
         <div class="success-benefits">
           <h2>Your membership includes:</h2>
           <ul>
-            <li>✓ Custom Lightning address (you@zap.cooking)</li>
-            <li>✓ Verified NIP-05 identity</li>
-            <li>✓ Access to pantry.zap.cooking relay</li>
-            <li>✓ Recipe collections</li>
-            <li>✓ Member badge</li>
-            <li>✓ Vote on features</li>
+            {#each tier.features as feature}
+              <li>{feature}</li>
+            {/each}
           </ul>
         </div>
 
-        <button class="continue-button" on:click={goToMembership}>
-          Continue to Membership
-        </button>
+        <button class="continue-button" on:click={goToMembership}> Continue to Membership </button>
       </div>
     {/if}
 
-    <!-- NIP-05 Claim Modal -->
     {#if $userPublickey}
       <Nip05ClaimModal
         bind:open={showNip05Modal}
         pubkey={$userPublickey}
-        tier="cook_plus"
-        currentNip05={nip05}
+        tier={tier.internalId}
+        currentNip05={paymentData.nip05}
         skipProfileUpdate={true}
         on:claimed={handleNip05Claimed}
         on:skipped={handleNip05Skipped}
@@ -301,7 +307,9 @@
   }
 
   @keyframes spin {
-    to { transform: rotate(360deg); }
+    to {
+      transform: rotate(360deg);
+    }
   }
 
   .error-state {
@@ -363,6 +371,30 @@
     font-weight: 700;
   }
 
+  .founder-badge {
+    background: linear-gradient(135deg, var(--color-primary) 0%, #ff6b00 100%);
+    border-radius: 16px;
+    padding: 2rem;
+    margin: 2rem auto;
+    max-width: 300px;
+    box-shadow: 0 8px 32px rgba(236, 71, 0, 0.3);
+  }
+
+  .founder-badge .badge-number {
+    font-size: 4rem;
+    font-weight: 900;
+    color: white;
+    margin-bottom: 0.5rem;
+  }
+
+  .founder-badge .badge-text {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: white;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+  }
+
   .success-benefits {
     background: rgba(17, 24, 39, 0.6);
     backdrop-filter: blur(12px);
@@ -370,6 +402,10 @@
     padding: 2rem;
     margin: 2rem 0;
     text-align: left;
+  }
+
+  :global(html.dark) .tier-genesis .success-benefits {
+    background: rgba(31, 41, 55, 0.7);
   }
 
   .success-benefits h2 {
@@ -439,7 +475,7 @@
     box-sizing: border-box;
   }
 
-  .badge-icon {
+  .nip05-badge .badge-icon {
     width: 28px;
     height: 28px;
     min-width: 28px;
@@ -453,14 +489,14 @@
     font-size: 1rem;
   }
 
-  .badge-content {
+  .nip05-badge .badge-content {
     display: flex;
     flex-direction: column;
     align-items: flex-start;
     min-width: 0;
   }
 
-  .badge-label {
+  .nip05-badge .badge-label {
     font-size: 0.75rem;
     color: #22c55e;
     font-weight: 600;
@@ -468,7 +504,7 @@
     letter-spacing: 0.5px;
   }
 
-  .badge-value {
+  .nip05-badge .badge-value {
     font-size: 1.1rem;
     font-weight: 700;
     color: #f3f4f6;
@@ -487,7 +523,7 @@
       border-radius: 16px;
     }
 
-    .badge-value {
+    .nip05-badge .badge-value {
       font-size: 0.95rem;
     }
   }
@@ -623,6 +659,4 @@
     transform: translateY(-2px);
     box-shadow: 0 6px 20px rgba(59, 130, 246, 0.4);
   }
-
 </style>
-
