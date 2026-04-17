@@ -6,10 +6,10 @@
   import { userPublickey, ndk } from '$lib/nostr';
   import { updateProfileWithNip05 } from '$lib/nip05Service';
   import Nip05ClaimModal from '../../../../components/Nip05ClaimModal.svelte';
-  import type { PaymentData } from '$lib/membership/tiers';
+  import { TIER_CONFIGS, type PaymentData } from '$lib/membership/tiers';
 
   export let data: import('./$types').PageData;
-  $: tier = data.tier;
+  $: tier = TIER_CONFIGS[data.tierSlug];
 
   let loading = true;
   let error: string | null = null;
