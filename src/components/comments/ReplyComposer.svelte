@@ -20,7 +20,7 @@
 	 */
 	import { NDKEvent } from '@nostr-dev-kit/ndk';
 	import { ndk, userPublickey } from '$lib/nostr';
-	import { createEventDispatcher } from 'svelte';
+	import { createEventDispatcher, onDestroy } from 'svelte';
 	import MentionDropdown from '../MentionDropdown.svelte';
 	import { MentionComposerController, type MentionState } from '$lib/mentionComposer';
 	import GifIcon from 'phosphor-svelte/lib/Gif';
@@ -117,6 +117,12 @@
 	$: if ($userPublickey) {
 		mentionCtrl.preloadFollowList();
 	}
+
+	onDestroy(() => {
+		// Clears any pending mention-search timeout so it can't fire after
+		// unmount and trigger state updates on a destroyed component.
+		mentionCtrl.destroy();
+	});
 
 	async function handleImageUpload(e: Event) {
 		const target = e.target as HTMLInputElement;
@@ -258,6 +264,7 @@
 			role="textbox"
 			tabindex="0"
 			aria-multiline="true"
+			aria-label={placeholder}
 			data-placeholder={placeholder}
 			on:input={() => mentionCtrl.handleInput()}
 			on:keydown={(e) => mentionCtrl.handleKeydown(e)}
@@ -351,6 +358,7 @@
 			class="btn-media"
 			class:opacity-50={uploadingImage || uploadingVideo || posting}
 			title="Upload image"
+			aria-label="Upload image"
 		>
 			<ImageIcon size={compact ? 16 : 18} />
 			<input
@@ -366,6 +374,7 @@
 			class="btn-media"
 			class:opacity-50={uploadingImage || uploadingVideo || posting}
 			title="Upload video"
+			aria-label="Upload video"
 		>
 			<VideoIcon size={compact ? 16 : 18} />
 			<input
@@ -382,6 +391,7 @@
 			on:click={() => (showGifPicker = true)}
 			class="btn-gif"
 			title="Add GIF"
+			aria-label="Add GIF"
 			disabled={posting || uploadingImage || uploadingVideo}
 			class:opacity-50={uploadingImage || uploadingVideo}
 		>
@@ -392,6 +402,7 @@
 			on:click={() => (showPollCreator = true)}
 			class="btn-gif"
 			title="Create poll"
+			aria-label="Create poll"
 			disabled={posting || uploadingImage || uploadingVideo}
 			class:opacity-50={posting || uploadingImage || uploadingVideo}
 		>
