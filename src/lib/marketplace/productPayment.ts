@@ -66,8 +66,9 @@ export interface ProductPaymentController {
    * changes — the controller itself has no hooks into the component's
    * reactivity graph. Behaviour:
    *  - Recomputes `paymentSats` based on the product's price/currency.
-   *  - On open (transition false → true), resolves the seller's lightning
-   *    address if not already cached.
+   *  - When `open && product`, resolves the seller's lightning address. There
+   *    is no caching; resolution fires on every such invocation (matching the
+   *    pre-refactor behaviour of the two modals).
    *  - On close (transition true → false), resets paymentState + paymentError.
    */
   sync(product: Product | null, open: boolean): void;
@@ -101,7 +102,6 @@ export function createProductPaymentController(): ProductPaymentController {
     ($activeWallet) => !!$activeWallet && ($activeWallet.kind === 3 || $activeWallet.kind === 4)
   );
 
-  let lastProductId: string | null = null;
   let lastOpen = false;
 
   function recomputeSats(product: Product | null, open: boolean) {
@@ -150,7 +150,6 @@ export function createProductPaymentController(): ProductPaymentController {
       paymentError.set('');
     }
 
-    lastProductId = product?.id ?? null;
     lastOpen = open;
   }
 
