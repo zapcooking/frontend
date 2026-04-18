@@ -16,12 +16,14 @@
  * NIP-32 tag structure (logged-in):
  *   L = "cooking.zap.nourish-flag"
  *   l = "<too-high|too-low>:<dimension>"    ← colon per NIP-73 precedent
- *   target = ["a", "30023:<pk>:<d>", <relay>] + ["e", <nourishId>, <relay>]
- *            OR ["scan-hash", <contentHash>]
+ *   target = ["a", "30023:<pk>:<d>", <relay>] + optional ["e", <nourishId>, <relay>]
+ *            OR ["i", "nourish-scan:<contentHash>"] + ["k", "nourish-scan"]
+ *            per NIP-73; single-letter `i` lets us query with a `#i` filter,
+ *            which Nostr requires for tag-based filtering.
  *   score snapshot + model version for triage context.
  */
 
-import { NDKEvent } from '@nostr-dev-kit/ndk';
+import { NDKEvent, NDKRelaySet } from '@nostr-dev-kit/ndk';
 import { get, type Readable } from 'svelte/store';
 import { ndk, userPublickey } from '$lib/nostr';
 import { addClientTagToEvent } from '$lib/nip89';
@@ -29,6 +31,10 @@ import { addClientTagToEvent } from '$lib/nip89';
 export const NOURISH_FLAG_NAMESPACE = 'cooking.zap.nourish-flag';
 export const NOURISH_FLAG_KIND = 1985;
 export const PANTRY_RELAY = 'wss://pantry.zap.cooking';
+/** NIP-73 `i` tag identifier for scan-target flags. Single-letter `i`
+ *  lets us filter via `#i`, which Nostr requires for tag-based queries. */
+export const SCAN_I_TAG_PREFIX = 'nourish-scan:';
+export const SCAN_K_TAG_VALUE = 'nourish-scan';
 
 export type NourishDimension = 'gut' | 'protein' | 'realFood' | 'overall';
 export type FlagDirection = 'too-high' | 'too-low';
@@ -154,12 +160,22 @@ export async function hasPriorSignedFlag(
       (filter as Record<string, string[]>)['#a'] = [target.aTag];
     }
   } else {
-    (filter as Record<string, string[]>)['#scan-hash'] = [target.contentHash];
+    // NIP-73: external content ID encoded in an `i` tag — single-letter so
+    // `#i` filtering works at the relay layer. Multi-letter filters like
+    // `#scan-hash` are not supported by Nostr.
+    (filter as Record<string, string[]>)['#i'] = [
+      `${SCAN_I_TAG_PREFIX}${target.contentHash}`
+    ];
   }
+
+  // Query the pantry relay specifically — that's where signed Nourish
+  // flags live. The app's default relay set doesn't include pantry, so
+  // omitting this would silently miss existing flags and re-post duplicates.
+  const relaySet = NDKRelaySet.fromRelayUrls([PANTRY_RELAY], ndkInstance, true);
 
   try {
     const results = await Promise.race([
-      ndkInstance.fetchEvents(filter as never),
+      ndkInstance.fetchEvents(filter as never, undefined, relaySet),
       new Promise<Set<NDKEvent>>((resolve) => setTimeout(() => resolve(new Set()), 3000))
     ]);
     return results.size > 0;
@@ -222,14 +238,22 @@ async function submitSignedFlag(
       ev.tags.push(['e', target.nourishEventId, PANTRY_RELAY]);
     }
   } else {
-    ev.tags.push(['scan-hash', target.contentHash]);
+    // NIP-73 external content id — single-letter tag so relay `#i`
+    // filtering works.
+    ev.tags.push(['i', `${SCAN_I_TAG_PREFIX}${target.contentHash}`]);
+    ev.tags.push(['k', SCAN_K_TAG_VALUE]);
   }
 
   addClientTagToEvent(ev);
 
+  // Publish to the pantry relay specifically — that's where admin
+  // aggregation queries look for signed flags. Publishing to the app's
+  // default relay set would route flags to the wrong place.
+  const relaySet = NDKRelaySet.fromRelayUrls([PANTRY_RELAY], ndkInstance, true);
+
   try {
     await ev.sign();
-    await ev.publish();
+    await ev.publish(relaySet);
     return { ok: true, source: 'nostr' };
   } catch (err) {
     console.error('[nourish-flag] publish failed:', err);

@@ -93,6 +93,27 @@ export async function getTodaySalt(kv: NourishFlagsKV): Promise<string> {
   return salt;
 }
 
+/**
+ * Look up the salt for a prior day (within SALT_RETENTION_DAYS). Returns
+ * null if the salt has aged out. Used by dedup to recompute yesterday's
+ * ipHash so a flag made at 23:59 UTC still deduplicates at 00:01 UTC.
+ */
+export async function getSaltForDay(
+  kv: NourishFlagsKV,
+  day: string
+): Promise<string | null> {
+  const key = `config:ip-salt:${day}`;
+  const existing = (await kv.get(key)) as string | null;
+  return existing ?? null;
+}
+
+/** YYYY-MM-DD of N days ago (UTC). */
+export function utcDayOffset(daysAgo: number): string {
+  const d = new Date();
+  d.setUTCDate(d.getUTCDate() - daysAgo);
+  return d.toISOString().slice(0, 10);
+}
+
 export async function hashIp(ip: string, salt: string): Promise<string> {
   return sha256Hex(`${ip}:${salt}`);
 }
@@ -172,17 +193,39 @@ export async function checkAndIncrementRateLimit(
  * Dedup grain: one anon flag per (ipHash × target × dimension × direction)
  * per 24 hours. Returns true if a prior flag exists (caller should
  * respond 200-no-op with {duplicate: true}).
+ *
+ * Midnight-race fix: the salt rotates daily, so the same IP produces a
+ * different `ipHash` across days. A naive lookup under today's ipHash
+ * alone would miss a flag made moments before UTC midnight. We therefore
+ * check dedup under today's AND yesterday's ipHash. Yesterday's salt is
+ * retained (SALT_RETENTION_DAYS) for exactly this.
  */
 export async function checkDedup(
   kv: NourishFlagsKV,
-  ipHash: string,
+  ip: string,
   target: string,
   dimension: string,
   direction: string
-): Promise<boolean> {
-  const key = `dedup:${ipHash}:${target}:${dimension}:${direction}`;
-  const existing = await kv.get(key);
-  return existing !== null;
+): Promise<{ hit: boolean; todayIpHash: string }> {
+  const todaySalt = await getTodaySalt(kv);
+  const todayIpHash = await hashIp(ip, todaySalt);
+
+  const todayKey = `dedup:${todayIpHash}:${target}:${dimension}:${direction}`;
+  if ((await kv.get(todayKey)) !== null) {
+    return { hit: true, todayIpHash };
+  }
+
+  // Also check yesterday's ipHash (if the salt is still in retention).
+  const yesterdaySalt = await getSaltForDay(kv, utcDayOffset(1));
+  if (yesterdaySalt) {
+    const yesterdayIpHash = await hashIp(ip, yesterdaySalt);
+    const yesterdayKey = `dedup:${yesterdayIpHash}:${target}:${dimension}:${direction}`;
+    if ((await kv.get(yesterdayKey)) !== null) {
+      return { hit: true, todayIpHash };
+    }
+  }
+
+  return { hit: false, todayIpHash };
 }
 
 export async function markDedup(

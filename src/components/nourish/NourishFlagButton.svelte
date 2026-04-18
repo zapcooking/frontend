@@ -13,8 +13,6 @@
    * clicking is a no-op. Prevents opening a popover the user can't
    * meaningfully submit through.
    */
-  import { onMount } from 'svelte';
-  import { get } from 'svelte/store';
   import FlagIcon from 'phosphor-svelte/lib/Flag';
   import Modal from '../Modal.svelte';
   import Button from '../Button.svelte';
@@ -44,8 +42,12 @@
   /** Icon size in px. Default 14 (matches NourishDimensionBar size scale). */
   export let iconSize = 14;
 
-  /** For aria-label + popover dim name. Default derived from dimension. */
-  export let dimensionLabel: string = defaultDimensionLabel(dimension);
+  /**
+   * Optional human-readable dimension name override. When unset, derived
+   * reactively from `dimension` (so it stays in sync even if `dimension`
+   * arrives after component init, which is the common case).
+   */
+  export let dimensionLabel: string | undefined = undefined;
 
   function defaultDimensionLabel(d: NourishDimension): string {
     if (d === 'gut') return 'gut-health';
@@ -54,35 +56,42 @@
     return 'overall';
   }
 
+  $: resolvedDimensionLabel = dimensionLabel ?? defaultDimensionLabel(dimension);
+
+  // Unique id per instance so <label for="…"> never collides when the
+  // page renders multiple flag buttons (one per dimension bar).
+  const reasonInputId = `flag-reason-${Math.random().toString(36).slice(2, 10)}`;
+
   let popoverOpen = false;
   let submitting = false;
   let selectedDirection: FlagDirection | null = null;
   let reason = '';
 
-  // Filled state — user has previously flagged this.
+  // Filled state — user has previously flagged this. Reactive so that it
+  // re-runs when $userPublickey / target / dimension change (a common
+  // pattern: pubkey arrives after mount).
   let alreadyFlagged = false;
+  $: refreshFilledState($userPublickey, target, dimension);
 
-  async function refreshFilledState() {
-    const pubkey = get(userPublickey);
+  async function refreshFilledState(
+    pubkey: string | null,
+    t: FlagTarget,
+    dim: NourishDimension
+  ) {
     if (pubkey) {
       // Check signed flags for both directions; any prior flag fills the icon.
-      const high = await hasPriorSignedFlag(pubkey, target, dimension, 'too-high');
+      const high = await hasPriorSignedFlag(pubkey, t, dim, 'too-high');
       if (high) {
         alreadyFlagged = true;
         return;
       }
-      const low = await hasPriorSignedFlag(pubkey, target, dimension, 'too-low');
+      const low = await hasPriorSignedFlag(pubkey, t, dim, 'too-low');
       alreadyFlagged = low;
       return;
     }
     alreadyFlagged =
-      hasAnonFlagStamp(target, dimension, 'too-high') ||
-      hasAnonFlagStamp(target, dimension, 'too-low');
+      hasAnonFlagStamp(t, dim, 'too-high') || hasAnonFlagStamp(t, dim, 'too-low');
   }
-
-  onMount(() => {
-    refreshFilledState();
-  });
 
   function handleIconClick() {
     if (alreadyFlagged) return; // no-op: no popover for already-flagged
@@ -133,8 +142,8 @@
   class="flag-btn"
   class:filled={alreadyFlagged}
   aria-label={alreadyFlagged
-    ? `You flagged the ${dimensionLabel} score`
-    : `Flag the ${dimensionLabel} score`}
+    ? `You flagged the ${resolvedDimensionLabel} score`
+    : `Flag the ${resolvedDimensionLabel} score`}
   title={alreadyFlagged ? 'You flagged this' : 'Flag this score'}
   on:click|stopPropagation={handleIconClick}
 >
@@ -146,7 +155,7 @@
 
   <div class="popover-body">
     <p class="subhead">
-      The {dimensionLabel} score seems…
+      The {resolvedDimensionLabel} score seems…
     </p>
 
     <div class="direction-row">
@@ -168,9 +177,9 @@
       </button>
     </div>
 
-    <label class="reason-label" for="flag-reason">Tell us more (optional)</label>
+    <label class="reason-label" for={reasonInputId}>Tell us more (optional)</label>
     <textarea
-      id="flag-reason"
+      id={reasonInputId}
       bind:value={reason}
       rows="3"
       maxlength="500"

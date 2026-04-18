@@ -37,14 +37,27 @@
   // Flag target — text scans can be referenced by content hash. Image-only
   // scans don't have a stable identifier, so the flag affordance is
   // suppressed there.
+  //
+  // `computeContentHash` is async, and `scanText` can change before a
+  // prior hash resolves. The request-seq guard + text re-check discard
+  // any resolution that's no longer current — otherwise a slow earlier
+  // hash would overwrite a fast newer one with a stale value.
   let flagTarget: FlagTarget | null = null;
+  let flagTargetRequestSeq = 0;
   $: updateFlagTarget(scanResult, scanText);
   async function updateFlagTarget(_result: ScanResponse | null, text: string) {
-    if (!_result?.scores || !text.trim()) {
+    const trimmed = text.trim();
+    const seq = ++flagTargetRequestSeq;
+
+    if (!_result?.scores || !trimmed) {
       flagTarget = null;
       return;
     }
-    const hash = await computeContentHash(text.trim());
+
+    const hash = await computeContentHash(trimmed);
+    // If a newer request started while we were hashing, or the text has
+    // changed, drop this result.
+    if (seq !== flagTargetRequestSeq || trimmed !== scanText.trim()) return;
     flagTarget = { kind: 'scan', contentHash: hash };
   }
 

@@ -29,7 +29,16 @@
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { ADMIN_PUBKEY } from '$lib/adminAuth';
 
-const LIST_PAGE_LIMIT = 1000; // KV list per-call cap; plenty for v1 volume.
+const LIST_PAGE_LIMIT = 1000; // KV list per-call cap.
+const GET_CONCURRENCY = 16; // max in-flight kv.get calls — bounds memory + CPU.
+
+// KV list response shape — extends what we declared in app.d.ts with the
+// pagination fields that actually ship.
+interface KvListResult {
+  keys: Array<{ name: string }>;
+  list_complete?: boolean;
+  cursor?: string;
+}
 
 export const GET: RequestHandler = async ({ request, platform }) => {
   const adminPubkey = request.headers.get('x-admin-pubkey');
@@ -43,17 +52,39 @@ export const GET: RequestHandler = async ({ request, platform }) => {
   }
 
   try {
-    const { keys } = await kv.list({ prefix: 'flag:', limit: LIST_PAGE_LIMIT });
+    // Page through all flag:* keys via cursor so volume past 1000 entries
+    // doesn't silently truncate the admin view.
+    const allKeys: Array<{ name: string }> = [];
+    let cursor: string | undefined;
+    do {
+      const page = (await (kv.list as (opts?: unknown) => Promise<KvListResult>)({
+        prefix: 'flag:',
+        limit: LIST_PAGE_LIMIT,
+        cursor
+      })) as KvListResult;
+      allKeys.push(...page.keys);
+      cursor = page.list_complete === false ? page.cursor : undefined;
+    } while (cursor);
+
+    // Parallelize KV reads in bounded batches. Sequential awaiting (the
+    // prior implementation) scales linearly with flag count and is the
+    // dominant latency for the admin page at higher volumes.
     const flags: unknown[] = [];
-    for (const { name } of keys) {
-      const raw = (await kv.get(name)) as string | null;
-      if (!raw) continue;
-      try {
-        flags.push(JSON.parse(raw));
-      } catch {
-        // Skip malformed entries; admin surface just shows what parses.
+    for (let i = 0; i < allKeys.length; i += GET_CONCURRENCY) {
+      const batch = allKeys.slice(i, i + GET_CONCURRENCY);
+      const results = await Promise.all(
+        batch.map((k) => kv.get(k.name) as Promise<string | null>)
+      );
+      for (const raw of results) {
+        if (!raw) continue;
+        try {
+          flags.push(JSON.parse(raw));
+        } catch {
+          // Skip malformed entries; admin surface just shows what parses.
+        }
       }
     }
+
     return json({ flags, count: flags.length });
   } catch (err) {
     console.error('[admin/nourish-flags] KV list failed:', err);

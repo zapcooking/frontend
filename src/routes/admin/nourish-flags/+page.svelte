@@ -18,8 +18,13 @@
   import { onMount } from 'svelte';
   import { ndk, userPublickey } from '$lib/nostr';
   import { isAdmin } from '$lib/adminAuth';
-  import { NOURISH_FLAG_KIND, NOURISH_FLAG_NAMESPACE } from '$lib/nourish/flagSubmit';
-  import type { NDKEvent } from '@nostr-dev-kit/ndk';
+  import {
+    NOURISH_FLAG_KIND,
+    NOURISH_FLAG_NAMESPACE,
+    PANTRY_RELAY,
+    SCAN_I_TAG_PREFIX
+  } from '$lib/nourish/flagSubmit';
+  import { NDKRelaySet, type NDKEvent } from '@nostr-dev-kit/ndk';
 
   interface AnonFlag {
     target: string;
@@ -69,11 +74,18 @@
 
   async function loadSigned() {
     if (!$ndk) return;
+    // Signed flags live on the pantry relay. The default relay set
+    // doesn't include pantry, so we target it explicitly.
+    const relaySet = NDKRelaySet.fromRelayUrls([PANTRY_RELAY], $ndk, true);
     const events = await Promise.race([
-      $ndk.fetchEvents({
-        kinds: [NOURISH_FLAG_KIND],
-        '#L': [NOURISH_FLAG_NAMESPACE]
-      } as never),
+      $ndk.fetchEvents(
+        {
+          kinds: [NOURISH_FLAG_KIND],
+          '#L': [NOURISH_FLAG_NAMESPACE]
+        } as never,
+        undefined,
+        relaySet
+      ),
       new Promise<Set<NDKEvent>>((resolve) =>
         setTimeout(() => resolve(new Set()), 6000)
       )
@@ -93,7 +105,10 @@
     if (!direction || !dimension) return null;
 
     const aTag = ev.tags.find((t) => t[0] === 'a')?.[1];
-    const scanHash = ev.tags.find((t) => t[0] === 'scan-hash')?.[1];
+    // NIP-73 `i` tag with "nourish-scan:<hash>" prefix.
+    const iTag = ev.tags
+      .find((t) => t[0] === 'i' && typeof t[1] === 'string' && t[1].startsWith(SCAN_I_TAG_PREFIX))?.[1];
+    const scanHash = iTag ? iTag.slice(SCAN_I_TAG_PREFIX.length) : undefined;
     const target = aTag ? `a:${aTag}` : scanHash ? `scan:${scanHash}` : '';
     if (!target) return null;
 
@@ -211,7 +226,9 @@
         f.dimension,
         f.direction,
         'signed',
-        `npub:${f.pubkey.slice(0, 8)}…`,
+        // Truncated hex pubkey — labelling as "pubkey" honestly rather than
+        // "npub" which would require nip19 encoding. Admin view.
+        `pubkey:${f.pubkey.slice(0, 8)}…`,
         f.reason,
         f.createdAt
       );

@@ -36,8 +36,6 @@ import { json, type RequestHandler } from '@sveltejs/kit';
 import {
   checkAndIncrementRateLimit,
   checkDedup,
-  getTodaySalt,
-  hashIp,
   markDedup
 } from '$lib/nourish/flagRateLimit.server';
 
@@ -94,12 +92,17 @@ export const POST: RequestHandler = async ({ request, getClientAddress, platform
     ip = '127.0.0.1';
   }
 
-  const salt = await getTodaySalt(kv);
-  const ipHash = await hashIp(ip, salt);
-
-  // Dedup pre-check. Duplicate is a 200 no-op so the client UI can show the
-  // "you've already flagged this" state without surfacing an error toast.
-  const already = await checkDedup(kv, ipHash, target, dimension, direction);
+  // Dedup pre-check — spans yesterday + today so a flag made just before
+  // UTC midnight still deduplicates the minute after. Duplicate is a 200
+  // no-op so the client UI can show the "you've already flagged this"
+  // state without surfacing an error toast.
+  const { hit: already, todayIpHash: ipHash } = await checkDedup(
+    kv,
+    ip,
+    target,
+    dimension,
+    direction
+  );
   if (already) {
     return json({ ok: true, duplicate: true });
   }
