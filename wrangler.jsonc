@@ -17,11 +17,8 @@
       "id": "e373fff5cddb4db885eb4f027c307545"
     },
     {
-      // Anon Nourish-score flag submissions + rate-limit buckets + daily IP-hash salts.
-      // TODO(deploy): replace `id` with the production namespace id created via
-      // `wrangler kv:namespace create NOURISH_FLAGS`, then remove this comment.
       "binding": "NOURISH_FLAGS",
-      "id": "REPLACE_ME_WITH_PRODUCTION_KV_ID"
+      "id": "3f66fd6ea3304241b93584e284e36738"
     }
   ]
 }
