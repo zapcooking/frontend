@@ -8,7 +8,7 @@
   import Avatar from '../../components/Avatar.svelte';
   import CustomName from '../../components/CustomName.svelte';
   import NoteActionBar from '../../components/NoteActionBar.svelte';
-  import FeedComments from '../../components/FeedComments.svelte';
+  import CommentThread from '../../components/comments/CommentThread.svelte';
   import { formatDistanceToNow } from 'date-fns';
   import { nip19 } from 'nostr-tools';
   import { goto } from '$app/navigation';
@@ -231,7 +231,7 @@
           </div>
 
           <!-- Comments -->
-          <FeedComments event={poll} />
+          <CommentThread variant="feed" event={poll} />
         </article>
       {/each}
     </div>

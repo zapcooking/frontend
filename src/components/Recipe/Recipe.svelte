@@ -31,7 +31,7 @@
   import TotalComments from './TotalComments.svelte';
   import { getPlaceholderImage } from '$lib/placeholderImages';
   import NoteRepost from '../NoteRepost.svelte';
-  import Comments from '../Comments.svelte';
+  import CommentThread from '../comments/CommentThread.svelte';
   import RecipeReactionPills from './RecipeReactionPills.svelte';
   import TopZappers from './TopZappers.svelte';
   import ZapModal from '../ZapModal.svelte';
@@ -1088,7 +1088,7 @@
           {/if}
         </div>
       {/if}
-      <Comments {event} />
+      <CommentThread variant="recipe" {event} />
     </div>
 
     <!-- Image Lightbox Modal -->

@@ -32,6 +32,7 @@
 	import { buildPollTags, type PollConfig } from '$lib/polls';
 	import { uploadImage, uploadVideo } from '$lib/mediaUpload';
 	import { postComment as postCommentLib } from '$lib/comments/postComment';
+	import { showToast } from '$lib/toast';
 
 	/**
 	 * Root event for NIP-22 / NIP-10 tag-building. Passed verbatim to
@@ -54,12 +55,6 @@
 
 	/** Show a Cancel button next to Submit (inline-reply composers). */
 	export let showCancel = false;
-
-	/** Signing strategy passed through to `postComment`. Stage 5 unifies. */
-	export let signingStrategy: 'explicit-with-timeout' | 'implicit' = 'explicit-with-timeout';
-
-	/** Error surface preserved per caller. Stage 5 unifies. */
-	export let onErrorStrategy: 'alert' | 'silent' = 'alert';
 
 	/** Compact variant — smaller padding/font for inline-reply composers. */
 	export let compact = false;
@@ -228,18 +223,15 @@
 				content,
 				extraTags,
 				contentKind: pollConfig ? 1068 : undefined,
-				signingStrategy
+				signingStrategy: 'explicit-with-timeout'
 			});
 
 			clearState();
 			onPosted?.(posted);
 		} catch (error) {
-			if (onErrorStrategy === 'alert') {
-				console.error('Error posting comment:', error);
-				const errorMsg = error instanceof Error ? error.message : String(error);
-				alert('Error posting comment: ' + errorMsg);
-			}
-			// 'silent' — swallow. Stage 5 unifies to inline toast.
+			// Technical details to console; human-friendly message to the user.
+			console.error('[ReplyComposer] post failed:', error);
+			showToast('error', "Couldn't post comment — please try again.");
 		} finally {
 			posting = false;
 		}

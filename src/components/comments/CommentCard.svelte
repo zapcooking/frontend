@@ -15,6 +15,7 @@
    * that's already spec-compliant.
    */
   import { NDKEvent } from '@nostr-dev-kit/ndk';
+  import { page } from '$app/stores';
   import { ndk, userPublickey } from '$lib/nostr';
   import { mutedPubkeys } from '$lib/muteListStore';
   import { nip19 } from 'nostr-tools';
@@ -59,12 +60,6 @@
    * actual event without a network fetch when possible.
    */
   export let allComments: NDKEvent[] = [];
-
-  /**
-   * Called after a successful inline reply post. Vestigial — Stage 5
-   * removes the prop when the containers merge.
-   */
-  export let refresh: () => void = () => {};
 
   // Variant-indexed scalar props (passed as JS numbers, not CSS).
   const sizes = {
@@ -243,18 +238,19 @@
       liked = true;
       likeCount++;
     } catch {
-      // Failed to like — swallow, matching feed variant's pre-Stage-4 behaviour.
-      // Recipe variant previously let the error propagate; moving to a silent
-      // catch here aligns with how ReplyComposer handles reply publish errors
-      // (alert vs silent per signingStrategy, not per reaction) and avoids
-      // uncaught-promise warnings in the recipe flow.
+      // Failed to like — swallow. Reactions never surface errors to the user
+      // in this app; only comment-post errors do (via ReplyComposer's toast).
     }
   }
 
   function handleReplyPosted() {
     showReplyBox = false;
-    refresh();
   }
+
+  // Anon users see a "Sign in to reply" link styled as the Reply button.
+  // Preserves redirect-to-thread post-login.
+  let loginRedirectHref = '';
+  $: loginRedirectHref = `/login?redirect=${encodeURIComponent($page.url.pathname)}`;
 
   function openZapModal() {
     zapModalOpen = true;
@@ -362,14 +358,16 @@
             </span>
           {/if}
 
-          <!-- Reply Button — recipe always shows; feed only when logged in. -->
-          {#if variant === 'recipe' || $userPublickey}
+          <!-- Reply button (signed in) or sign-in link (anon) — both variants. -->
+          {#if $userPublickey}
             <button
               on:click={() => (showReplyBox = !showReplyBox)}
               class="action-btn action-btn-text"
             >
               {showReplyBox ? 'Cancel' : 'Reply'}
             </button>
+          {:else}
+            <a href={loginRedirectHref} class="action-btn action-btn-text">Sign in to reply</a>
           {/if}
         </div>
 
@@ -379,8 +377,6 @@
             parentEvent={rootEvent}
             replyTo={event}
             placeholder="Add a reply..."
-            signingStrategy={variant === 'recipe' ? 'explicit-with-timeout' : 'implicit'}
-            onErrorStrategy={variant === 'recipe' ? 'alert' : 'silent'}
             compact
             showCancel
             onPosted={handleReplyPosted}

@@ -42,7 +42,7 @@
   import NoteTotalComments from './NoteTotalComments.svelte';
   import NoteTotalZaps from './NoteTotalZaps.svelte';
   import NoteRepost from './NoteRepost.svelte';
-  import FeedComments from './FeedComments.svelte';
+  import CommentThread from './comments/CommentThread.svelte';
   import ZapModal from './ZapModal.svelte';
   import ShareModal from './ShareModal.svelte';
   import PostActionsMenu from './PostActionsMenu.svelte';
@@ -5323,7 +5323,7 @@
 
               <div class="px-2 sm:px-0">
                 {#if visibleNotes.has(event.id)}
-                  <FeedComments {event} />
+                  <CommentThread variant="feed" {event} />
                 {/if}
               </div>
             </div>
