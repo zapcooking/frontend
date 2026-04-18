@@ -2,12 +2,8 @@
   import { ndk, userPublickey } from '$lib/nostr';
   import { NDKEvent } from '@nostr-dev-kit/ndk';
   import Button from './Button.svelte';
-  import { addClientTagToEvent } from '$lib/nip89';
-  import { buildNip22CommentTags } from '$lib/tagUtils';
   import Comment from './Comment.svelte';
   import { onDestroy } from 'svelte';
-  import { createCommentFilter } from '$lib/commentFilters';
-  import { get } from 'svelte/store';
   import MentionDropdown from './MentionDropdown.svelte';
   import { MentionComposerController, type MentionState } from '$lib/mentionComposer';
   import GifIcon from 'phosphor-svelte/lib/Gif';
@@ -18,15 +14,18 @@
   import PollCreator from './PollCreator.svelte';
   import { buildPollTags, type PollConfig } from '$lib/polls';
   import { uploadImage, uploadVideo } from '$lib/mediaUpload';
+  import { writable, type Readable } from 'svelte/store';
+  import {
+    createCommentSubscription,
+    type CommentSubscription
+  } from '$lib/comments/subscription';
+  import { postComment as postCommentLib, PostCommentError } from '$lib/comments/postComment';
 
   export let event: NDKEvent;
-  let events: NDKEvent[] = [];
+  let sub: CommentSubscription | null = null;
   let commentText = '';
   let commentComposerEl: HTMLDivElement;
   let lastRenderedComment = '';
-  let processedEvents = new Set();
-  let subscribed = false;
-  let commentSubscription: any = null;
   let showGifPicker = false;
   let showPollCreator = false;
   let pollConfig: PollConfig | null = null;
@@ -69,37 +68,28 @@
     mentionCtrl.preloadFollowList();
   }
 
-  // Create subscription once when ndk is ready
-  $: if ($ndk && !subscribed) {
-    subscribed = true;
-
-    const filter = createCommentFilter(event);
-    commentSubscription = $ndk.subscribe(filter, { closeOnEose: false });
-
-    commentSubscription.on('event', (e: NDKEvent) => {
-      // Prevent adding the same event multiple times
-      if (processedEvents.has(e.id)) return;
-      processedEvents.add(e.id);
-
-      events.push(e);
-      events = events;
+  // Create subscription once ndk is ready. `sub` is nulled in onDestroy so
+  // reconnection paths (if $ndk ever becomes null → non-null) re-subscribe.
+  let events: Readable<NDKEvent[]> = writable([]);
+  $: if ($ndk && !sub) {
+    sub = createCommentSubscription($ndk, event, {
+      closeOnEose: false,
+      applyMuteFilter: false
     });
-
-    commentSubscription.on('eose', () => {
-      // End of stored events
-    });
+    events = sub.events;
   }
 
   onDestroy(() => {
     mentionCtrl.destroy();
-    if (commentSubscription) {
-      commentSubscription.stop();
-    }
+    sub?.stop();
+    sub = null;
   });
 
-  // Dummy refresh function for Comment component - not needed since subscription stays open
+  // Refresh hook passed to child Comment components. No-op: the subscription
+  // stays open and automatically delivers new events (including replies posted
+  // from within a Comment's inline composer).
   function refresh() {
-    // No-op: the subscription will automatically receive new events
+    // intentionally empty
   }
 
   async function handleImageUpload(e: Event) {
@@ -163,71 +153,38 @@
       return;
     }
 
-    const ev = new NDKEvent($ndk);
-    // Recipe replies should be kind 1111, not kind 1
-    const isRecipe = event.kind === 30023;
-    ev.kind = pollConfig ? 1068 : (isRecipe ? 1111 : 1);
+    // Compose content: mention substitution + media URL append.
     let commentContent = mentionCtrl.replacePlainMentions(commentText.trim());
     const mediaUrls = [...uploadedImages, ...uploadedVideos];
     if (mediaUrls.length > 0) {
       const mediaText = mediaUrls.join('\n');
       commentContent = commentContent ? `${commentContent}\n\n${mediaText}` : mediaText;
     }
-    ev.content = commentContent;
 
-    // Use shared utility to build NIP-22 or NIP-10 tags
-    ev.tags = buildNip22CommentTags({
-      kind: event.kind ?? 1,
-      pubkey: event.author?.pubkey || event.pubkey,
-      id: event.id,
-      tags: event.tags as string[][]
-    });
-
-    // Parse and add @ mention tags (p tags)
+    // Collect @-mention p-tags + optional poll tags to merge into the event.
+    const extraTags: string[][] = [];
     const mentions = mentionCtrl.parseMentions(commentContent);
     for (const pubkey of mentions.values()) {
-      if (!ev.tags.some((t) => t[0] === 'p' && t[1] === pubkey)) {
-        ev.tags.push(['p', pubkey]);
-      }
+      extraTags.push(['p', pubkey]);
     }
-    // Add NIP-89 client tag
-    addClientTagToEvent(ev);
-
-      if (pollConfig) {
-        ev.tags.push(...buildPollTags(pollConfig));
-      }
+    if (pollConfig) {
+      extraTags.push(...buildPollTags(pollConfig));
+    }
 
     try {
-      // Ensure created_at is set before signing
-      if (!ev.created_at) {
-        ev.created_at = Math.floor(Date.now() / 1000);
-      }
+      const { event: posted } = await postCommentLib($ndk, {
+        parentEvent: event,
+        content: commentContent,
+        extraTags,
+        contentKind: pollConfig ? 1068 : undefined,
+        signingStrategy: 'explicit-with-timeout'
+      });
 
-      // Sign the event - NIP-07 extension should prompt user
-      // Don't timeout signing - let the extension handle it naturally
-      // Users may need time to approve in their extension
-      await ev.sign();
+      // Optimistic add — recipe comments want the new entry visible
+      // immediately rather than waiting for the subscription round-trip.
+      sub?.addLocal(posted);
 
-      if (!ev.id) {
-        throw new Error('Event was not signed - no ID generated');
-      }
-
-      // Publish the event with a reasonable timeout
-      await Promise.race([
-        ev.publish(),
-        new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('Publishing timeout after 30 seconds')), 30000)
-        )
-      ]);
-
-      // Immediately add to local events array so it appears right away
-      if (!processedEvents.has(ev.id)) {
-        processedEvents.add(ev.id);
-        events.push(ev);
-        events = events; // Trigger reactivity
-      }
-
-      // Clear the comment text and media
+      // Clear the composer
       commentText = '';
       lastRenderedComment = '';
       uploadedImages = [];
@@ -240,14 +197,15 @@
       mentionCtrl.resetMentionState();
     } catch (error) {
       console.error('Error posting comment:', error);
-      console.error('Error stack:', error instanceof Error ? error.stack : 'No stack trace');
+      if (error instanceof PostCommentError && error.cause instanceof Error) {
+        console.error('Error stack:', error.cause.stack);
+      } else if (error instanceof Error) {
+        console.error('Error stack:', error.stack);
+      }
       const errorMsg = error instanceof Error ? error.message : String(error);
       alert('Error posting comment: ' + errorMsg);
     }
   }
-
-  // Sort all comments chronologically (oldest first)
-  $: sortedComments = [...events].sort((a, b) => (a.created_at || 0) - (b.created_at || 0));
 </script>
 
 <div id="comments-section" class="space-y-6">
@@ -255,11 +213,11 @@
 
   <!-- Comments List - flat with embedded parent quotes -->
   <div class="comments-list">
-    {#if sortedComments.length === 0}
+    {#if $events.length === 0}
       <p class="text-caption">No comments yet. Be the first to comment!</p>
     {:else}
-      {#each sortedComments as comment (comment.id)}
-        <Comment event={comment} allReplies={events} {refresh} />
+      {#each $events as comment (comment.id)}
+        <Comment event={comment} allReplies={$events} {refresh} />
       {/each}
     {/if}
   </div>
