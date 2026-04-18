@@ -3,7 +3,7 @@
   import { page } from '$app/stores';
   import { ndk, userPublickey } from '$lib/nostr';
   import { NDKEvent } from '@nostr-dev-kit/ndk';
-  import FeedComment from './FeedComment.svelte';
+  import CommentCard from './comments/CommentCard.svelte';
   import ReplyComposer from './comments/ReplyComposer.svelte';
   import { writable, type Readable } from 'svelte/store';
   import {
@@ -68,12 +68,12 @@
           <p class="text-sm text-caption">No comments yet. {#if !$userPublickey}<a href="/login?redirect={encodeURIComponent($page.url.pathname)}" class="underline hover:opacity-80">Sign in</a> to comment!{:else}Be the first to comment!{/if}</p>
         {:else}
           {#each $events as comment (comment.id)}
-            <FeedComment
+            <CommentCard
+              variant="feed"
               event={comment}
               allComments={$events}
-              {refresh}
-              mainEventId={event.id}
               rootEvent={event}
+              {refresh}
             />
           {/each}
         {/if}
