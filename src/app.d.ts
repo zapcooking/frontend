@@ -36,6 +36,13 @@ declare global {
             delete(key: string): Promise<void>;
             list(options?: { prefix?: string; limit?: number }): Promise<{ keys: { name: string }[] }>;
           };
+          /** KV namespace for anon Nourish-score flag submissions, rate-limit buckets, and daily IP-hash salts. */
+          NOURISH_FLAGS?: {
+            get(key: string, type?: 'text' | 'json'): Promise<string | unknown | null>;
+            put(key: string, value: string, options?: { expirationTtl?: number }): Promise<void>;
+            delete(key: string): Promise<void>;
+            list(options?: { prefix?: string; limit?: number }): Promise<{ keys: { name: string }[] }>;
+          };
         };
       }
   }
