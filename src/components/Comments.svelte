@@ -2,7 +2,7 @@
   import { ndk } from '$lib/nostr';
   import { NDKEvent } from '@nostr-dev-kit/ndk';
   import Button from './Button.svelte';
-  import Comment from './Comment.svelte';
+  import CommentCard from './comments/CommentCard.svelte';
   import ReplyComposer from './comments/ReplyComposer.svelte';
   import { onDestroy } from 'svelte';
   import { writable, type Readable } from 'svelte/store';
@@ -53,7 +53,13 @@
       <p class="text-caption">No comments yet. Be the first to comment!</p>
     {:else}
       {#each $events as comment (comment.id)}
-        <Comment event={comment} allReplies={$events} {refresh} rootEvent={event} />
+        <CommentCard
+          variant="recipe"
+          event={comment}
+          allComments={$events}
+          rootEvent={event}
+          {refresh}
+        />
       {/each}
     {/if}
   </div>
