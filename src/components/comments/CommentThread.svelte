@@ -91,6 +91,7 @@
     if (variant === 'recipe') sub?.addLocal(posted);
   }
 
+  let loginRedirectHref = '';
   $: loginRedirectHref = `/login?redirect=${encodeURIComponent($page.url.pathname)}`;
 </script>
 

@@ -249,6 +249,7 @@
 
   // Anon users see a "Sign in to reply" link styled as the Reply button.
   // Preserves redirect-to-thread post-login.
+  let loginRedirectHref = '';
   $: loginRedirectHref = `/login?redirect=${encodeURIComponent($page.url.pathname)}`;
 
   function openZapModal() {

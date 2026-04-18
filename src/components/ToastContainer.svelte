@@ -13,7 +13,13 @@
   import Toast from './Toast.svelte';
 </script>
 
-<div class="toast-container" aria-live="polite">
+<!--
+  Container intentionally has no aria-live. Each <Toast> sets its own
+  aria-live per variant (assertive for errors, polite for info/success);
+  nested live regions produce inconsistent announcements across screen
+  readers, so urgency lives on the individual toast, not the wrapper.
+-->
+<div class="toast-container">
   {#each $toasts as toast (toast.id)}
     <Toast {toast} />
   {/each}
