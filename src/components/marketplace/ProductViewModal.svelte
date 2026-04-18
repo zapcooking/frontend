@@ -8,29 +8,23 @@
 	 */
 	import { nip19 } from 'nostr-tools';
 	import Modal from '../Modal.svelte';
-	import Button from '../Button.svelte';
-	import CustomAvatar from '../CustomAvatar.svelte';
-	import CustomName from '../CustomName.svelte';
-	import LightningIcon from 'phosphor-svelte/lib/Lightning';
-	import CopyIcon from 'phosphor-svelte/lib/Copy';
-	import CheckIcon from 'phosphor-svelte/lib/Check';
 	import PackageIcon from 'phosphor-svelte/lib/Package';
 	import CloudArrowDownIcon from 'phosphor-svelte/lib/CloudArrowDown';
 	import MapPinIcon from 'phosphor-svelte/lib/MapPin';
 	import TagIcon from 'phosphor-svelte/lib/Tag';
 	import ChatCircleIcon from 'phosphor-svelte/lib/ChatCircle';
-	import XIcon from 'phosphor-svelte/lib/X';
 	import StorefrontIcon from 'phosphor-svelte/lib/Storefront';
+	import CustomAvatar from '../CustomAvatar.svelte';
+	import CustomName from '../CustomName.svelte';
 	import TrustBadge from './TrustBadge.svelte';
 	import PriceDisplay from './PriceDisplay.svelte';
+	import PaymentActionPanel from './PaymentActionPanel.svelte';
+	import Button from '../Button.svelte';
 	import { CATEGORY_LABELS, type Product } from '$lib/marketplace/types';
 	import { resolveCommerceState, getShippingText, isInstantCheckout } from '$lib/marketplace/commerceState';
 	import { getImageOrPlaceholder } from '$lib/placeholderImages';
-	import { getInvoiceFromLightningAddress } from '$lib/marketplace/products';
-	import { formatSats, convertToSats } from '$lib/currencyConversion';
-	import { activeWallet } from '$lib/wallet';
-	import { sendPayment } from '$lib/wallet/walletManager';
-	import { lightningService } from '$lib/lightningService';
+	import { formatSats } from '$lib/currencyConversion';
+	import { createProductPaymentController } from '$lib/marketplace/productPayment';
 	import { createEventDispatcher } from 'svelte';
 
 	const dispatch = createEventDispatcher<{ message: void }>();
@@ -40,76 +34,28 @@
 	export let trustRank: number | undefined = undefined;
 	export let personalized: boolean = false;
 
-	// Commerce state
+	const payment = createProductPaymentController();
+	const { paymentSats, paymentState, paymentError, resolvingLightning, resolvedLightningAddress, copiedLightning } = payment;
+
 	$: commerceState = resolveCommerceState(product);
 	$: canInstantBuy = isInstantCheckout(commerceState);
 	$: shippingText = getShippingText(product);
 
-	// Sats amount for payment
-	let paymentSats: number | null = null;
-	$: {
-		if (open && product && product.price > 0) {
-			if (product.currency === 'SATS') {
-				paymentSats = Math.round(product.price);
-			} else {
-				paymentSats = null;
-				convertToSats(product.price, product.currency).then((s) => {
-					paymentSats = s;
-				});
-			}
-		} else {
-			paymentSats = null;
-		}
-	}
+	// Drive controller sync reactively from props.
+	$: payment.sync(product, open);
+
 	$: paymentLabel =
-		paymentSats !== null
-			? formatSats(paymentSats)
+		$paymentSats !== null
+			? formatSats($paymentSats)
 			: open && product && product.price > 0
 				? 'Calculating...'
 				: '';
-
-	// Lightning address resolution
-	let resolvedLightningAddress = '';
-	let resolvingLightning = false;
-
-	$: if (open && product) {
-		resolveLightningAddress(product);
-	}
-
-	async function resolveLightningAddress(p: Product) {
-		if (p.lightningAddress) {
-			resolvedLightningAddress = p.lightningAddress;
-			return;
-		}
-		resolvingLightning = true;
-		try {
-			const ndkModule = await import('$lib/nostr');
-			const { get } = await import('svelte/store');
-			const ndkInstance = get(ndkModule.ndk);
-			const user = ndkInstance.getUser({ pubkey: p.pubkey });
-			const profile = await user.fetchProfile();
-			resolvedLightningAddress = profile?.lud16 || '';
-		} catch {
-			resolvedLightningAddress = '';
-		} finally {
-			resolvingLightning = false;
-		}
-	}
-
-	// Copy
-	let copiedLightning = false;
-
-	// Payment
-	type PaymentState = 'idle' | 'loading' | 'success' | 'error';
-	let paymentState: PaymentState = 'idle';
-	let paymentError = '';
 
 	// Image gallery
 	let activeImageIndex = 0;
 
 	$: npub = product?.pubkey ? nip19.npubEncode(product.pubkey) : '';
 	$: kitchenUrl = npub ? `/market/kitchen/${npub}` : '';
-	$: hasInAppWallet = $activeWallet && ($activeWallet.kind === 3 || $activeWallet.kind === 4);
 
 	$: allImages = (product?.images || []).map((img, i) =>
 		getImageOrPlaceholder(img, `${product.id}-${i}`)
@@ -122,76 +68,18 @@
 		activeImageIndex = 0;
 	}
 
-	$: if (!open) {
-		paymentState = 'idle';
-		paymentError = '';
-	}
-
-	async function copyLightning() {
-		if (!resolvedLightningAddress) return;
-		try {
-			await navigator.clipboard.writeText(resolvedLightningAddress);
-			copiedLightning = true;
-			setTimeout(() => (copiedLightning = false), 2000);
-		} catch {
-			window.open(`lightning:${resolvedLightningAddress}`, '_blank');
-		}
-	}
-
-	async function handlePayment() {
-		if (!resolvedLightningAddress) {
-			paymentError = 'No lightning address available';
-			paymentState = 'error';
-			return;
-		}
-		if (!product?.price) {
-			paymentError = 'No price set';
-			paymentState = 'error';
-			return;
-		}
-
-		paymentState = 'loading';
-		paymentError = '';
-
-		try {
-			let amountSats: number;
-			if (paymentSats) {
-				amountSats = paymentSats;
-			} else {
-				const converted = await convertToSats(product.price, product.currency);
-				if (!converted) throw new Error('Unable to convert price to sats.');
-				amountSats = converted;
-			}
-
-			const { invoice, verify } = await getInvoiceFromLightningAddress(
-				resolvedLightningAddress,
-				amountSats
-			);
-
-			if (hasInAppWallet) {
-				const result = await sendPayment(invoice, {
-					amount: amountSats,
-					description: `Purchase: ${product.title}`,
-					pubkey: product.pubkey
-				});
-				if (result.success) {
-					paymentState = 'success';
-				} else {
-					throw new Error(result.error || 'Payment failed');
-				}
-			} else {
+	function handlePayClick() {
+		payment.handlePayment(product, {
+			onExternalLaunch: () => {
 				open = false;
-				await lightningService.launchPayment({
-					invoice,
-					verify,
-					onPaid: () => { open = true; paymentState = 'success'; },
-					onCancelled: () => { open = true; paymentState = 'idle'; }
-				});
+			},
+			onExternalPaid: () => {
+				open = true;
+			},
+			onExternalCancelled: () => {
+				open = true;
 			}
-		} catch (e) {
-			paymentError = e instanceof Error ? e.message : 'Payment failed';
-			paymentState = 'error';
-		}
+		});
 	}
 
 	function openMessageModal() {
@@ -294,66 +182,44 @@
 
 		<!-- ═══ Actions ═══ -->
 
-		{#if paymentState === 'success'}
-			<div class="flex flex-col items-center gap-3 py-4 rounded-xl" style="background-color: var(--color-bg-tertiary);">
-				<div class="w-12 h-12 rounded-full flex items-center justify-center bg-emerald-500/20">
-					<CheckIcon size={24} weight="bold" class="text-emerald-400" />
-				</div>
-				<p class="text-sm font-medium" style="color: var(--color-text-primary)">Payment sent!</p>
-				<p class="text-xs" style="color: var(--color-text-secondary)">{paymentLabel}</p>
-				<!-- After payment, prompt to message seller -->
-				<Button on:click={openMessageModal} class="w-full mt-2">
+		{#if $paymentState === 'success' || $paymentState === 'error'}
+			<PaymentActionPanel
+				{canInstantBuy}
+				paymentState={$paymentState}
+				paymentError={$paymentError}
+				{paymentLabel}
+				resolvingLightning={$resolvingLightning}
+				resolvedLightningAddress={$resolvedLightningAddress}
+				copiedLightning={$copiedLightning}
+				loadingText="Getting Invoice..."
+				payButtonClass="w-full py-3 text-lg"
+				on:pay={handlePayClick}
+				on:copy={() => payment.copyLightning()}
+				on:retry={() => payment.reset()}
+			>
+				<Button on:click={openMessageModal} class="w-full mt-2" slot="success-extra">
 					<span class="flex items-center justify-center gap-2">
 						<ChatCircleIcon size={18} weight="fill" />
 						Message seller with order details
 					</span>
 				</Button>
-			</div>
-		{:else if paymentState === 'error'}
-			<div class="flex flex-col items-center gap-3 py-4 rounded-xl" style="background-color: rgba(239, 68, 68, 0.1);">
-				<XIcon size={24} weight="bold" class="text-red-400" />
-				<p class="text-sm text-red-400">{paymentError}</p>
-				<Button on:click={() => (paymentState = 'idle')}>Try Again</Button>
-			</div>
+			</PaymentActionPanel>
 		{:else}
 			<div class="flex flex-col gap-3">
-				{#if canInstantBuy}
-					<Button
-						class="w-full py-3 text-lg"
-						on:click={handlePayment}
-						disabled={paymentState === 'loading' || resolvingLightning || !resolvedLightningAddress}
-					>
-						<span class="flex items-center justify-center gap-2">
-							{#if resolvingLightning || paymentState === 'loading'}
-								<svg class="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-									<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-									<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-								</svg>
-								Getting Invoice...
-							{:else}
-								<LightningIcon size={20} weight="fill" />
-								Pay {paymentLabel}
-							{/if}
-						</span>
-					</Button>
-
-					{#if resolvedLightningAddress}
-						<button
-							type="button"
-							on:click={copyLightning}
-							class="flex items-center justify-center gap-2 py-1.5 text-xs transition-colors hover:opacity-80"
-							style="color: var(--color-text-secondary);"
-						>
-							{#if copiedLightning}
-								<CheckIcon size={12} class="text-emerald-400" />
-								<span class="text-emerald-400">Copied!</span>
-							{:else}
-								<CopyIcon size={12} />
-								Copy Lightning address
-							{/if}
-						</button>
-					{/if}
-				{/if}
+				<PaymentActionPanel
+					{canInstantBuy}
+					paymentState={$paymentState}
+					paymentError={$paymentError}
+					{paymentLabel}
+					resolvingLightning={$resolvingLightning}
+					resolvedLightningAddress={$resolvedLightningAddress}
+					copiedLightning={$copiedLightning}
+					loadingText="Getting Invoice..."
+					payButtonClass="w-full py-3 text-lg"
+					on:pay={handlePayClick}
+					on:copy={() => payment.copyLightning()}
+					on:retry={() => payment.reset()}
+				/>
 
 				<!-- Message seller (always at bottom) -->
 				<button

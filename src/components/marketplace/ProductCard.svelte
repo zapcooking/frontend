@@ -15,7 +15,7 @@
 	import CustomAvatar from '../CustomAvatar.svelte';
 	import CustomName from '../CustomName.svelte';
 	import ProductViewModal from './ProductViewModal.svelte';
-	import ProductDetailModal from './ProductDetailModal.svelte';
+	import MessageSellerModal from './MessageSellerModal.svelte';
 	import TrustBadge from './TrustBadge.svelte';
 	import PriceDisplay from './PriceDisplay.svelte';
 
@@ -209,7 +209,7 @@
 
 <!-- Message Seller Modal (messaging-first) -->
 {#if product}
-	<ProductDetailModal bind:open={showMessageModal} {product} {trustRank} {personalized} />
+	<MessageSellerModal bind:open={showMessageModal} {product} {trustRank} {personalized} />
 {/if}
 {/if}
 
