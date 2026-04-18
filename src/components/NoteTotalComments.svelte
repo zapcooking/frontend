@@ -21,13 +21,14 @@
   class="flex items-center gap-1.5 hover:bg-input rounded px-0.5 transition duration-300 cursor-pointer"
   style="color: var(--color-text-primary)"
   on:click={() => {
-    // Find the InlineComments component for this event and trigger toggleComments
-    const inlineCommentsComponent = document
+    // Find the FeedComments container for this event and trigger its toggle.
+    // FeedComments.svelte roots render with class="inline-comments" + data-event-id;
+    // it listens for a 'toggleComments' CustomEvent in its onMount.
+    const feedCommentsEl = document
       .querySelector(`[data-event-id="${event.id}"]`)
       ?.closest('.inline-comments');
-    if (inlineCommentsComponent) {
-      // Dispatch a custom event to trigger the toggleComments function
-      inlineCommentsComponent.dispatchEvent(new CustomEvent('toggleComments'));
+    if (feedCommentsEl) {
+      feedCommentsEl.dispatchEvent(new CustomEvent('toggleComments'));
     }
   }}
   title="View comments"
