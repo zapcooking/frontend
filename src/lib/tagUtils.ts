@@ -214,8 +214,11 @@ export function buildNip22CommentTags(
 ): string[][] {
   // NIP-22 addressable-root structure applies when the root is an
   // addressable event (parameterized replaceable, kind range 30000–39999
-  // per NIP-01) with a `d` tag. Everything else falls through to NIP-10.
-  const isAddressable = event.kind >= 30000 && event.kind < 40000;
+  // per NIP-01) WITH a `d` tag. An event in the addressable kind range
+  // that lacks a `d` tag is malformed; fall through to NIP-10 rather
+  // than emit the non-canonical d-less fallback tags.
+  const hasDTag = event.tags.some((tag) => tag[0] === 'd');
+  const isAddressable = event.kind >= 30000 && event.kind < 40000 && hasDTag;
   if (!isAddressable) {
     // For non-addressable content, use standard NIP-10 structure
     if (parentEvent) {

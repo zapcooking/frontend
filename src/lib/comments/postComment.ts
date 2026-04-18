@@ -18,9 +18,10 @@
  */
 
 import type NDK from '@nostr-dev-kit/ndk';
-import { NDKEvent } from '@nostr-dev-kit/ndk';
+import { NDKEvent, type NDKRelay } from '@nostr-dev-kit/ndk';
 import { buildNip22CommentTags } from '$lib/tagUtils';
 import { addClientTagToEvent } from '$lib/nip89';
+import { isAddressableRoot } from '$lib/commentFilters';
 
 export type SigningStrategy = 'explicit-with-timeout' | 'implicit';
 
@@ -113,15 +114,34 @@ export interface PostCommentResult {
 const DEFAULT_PUBLISH_TIMEOUT_MS = 30_000;
 
 function deriveKind(parent: NDKEvent, replyTo: NDKEvent | undefined): number {
-  // Addressable parent → NIP-22 comment.
-  const parentKind = parent.kind ?? 1;
-  const isAddressable = parentKind >= 30000 && parentKind < 40000;
-  if (isAddressable) return 1111;
+  // Addressable root (with `d` tag per NIP-01) → NIP-22 comment.
+  // The `isAddressableRoot` predicate is shared with `createCommentFilter`
+  // so the published kind always matches what the subscription will fetch.
+  if (isAddressableRoot(parent)) return 1111;
   // Parent is itself a NIP-22 comment → reply stays kind 1111.
   if (replyTo && replyTo.kind === 1111) return 1111;
-  if (!replyTo && parentKind === 1111) return 1111;
+  if (!replyTo && parent.kind === 1111) return 1111;
   // Otherwise plain NIP-10 kind-1 reply.
   return 1;
+}
+
+/**
+ * Normalize the `ev.publish()` return into a plain `string[]` of relay URLs.
+ * NDK's current typing is `Promise<Set<NDKRelay>>`, but we defend against
+ * future return-shape changes (string elements, undefined, etc.) to keep
+ * the public `PostCommentResult.publishedRelays` contract stable.
+ */
+function extractRelayUrls(relaySet: Set<NDKRelay> | undefined): string[] {
+  if (!relaySet) return [];
+  const urls: string[] = [];
+  for (const entry of relaySet) {
+    if (typeof entry === 'string') {
+      urls.push(entry);
+    } else if (entry && typeof (entry as NDKRelay).url === 'string') {
+      urls.push((entry as NDKRelay).url);
+    }
+  }
+  return urls;
 }
 
 function mergeExtraTags(base: string[][], extras: string[][] | undefined): string[][] {
@@ -190,7 +210,7 @@ export async function postComment(
       throw new PostCommentError('sign-failed', 'Event was not signed — no id');
     }
 
-    let relaySet;
+    let relaySet: Set<NDKRelay> | undefined;
     try {
       relaySet = await Promise.race([
         ev.publish(),
@@ -210,19 +230,13 @@ export async function postComment(
       );
     }
 
-    const publishedRelays = relaySet
-      ? Array.from(relaySet).map((r: any) => r.url as string)
-      : [];
-    return { event: ev, publishedRelays };
+    return { event: ev, publishedRelays: extractRelayUrls(relaySet) };
   }
 
   // 'implicit' — no explicit sign, no timeout. NDK signs internally.
   try {
     const relaySet = await ev.publish();
-    const publishedRelays = relaySet
-      ? Array.from(relaySet).map((r: any) => r.url as string)
-      : [];
-    return { event: ev, publishedRelays };
+    return { event: ev, publishedRelays: extractRelayUrls(relaySet) };
   } catch (e) {
     throw new PostCommentError('publish-failed', 'Publish failed', {
       cause: e,
