@@ -28,9 +28,9 @@ The following files have been updated to include client tags:
 - ✅ `src/components/PostModal.svelte` - Post creation
 - ✅ `src/components/NoteTotalLikes.svelte` - Reactions/likes
 - ✅ `src/components/NoteRepost.svelte` - Reposts (kind 6)
-- ✅ `src/components/InlineComments.svelte` - Comments/replies
-- ✅ `src/components/CommentReplies.svelte` - Reply threads
-- ✅ `src/components/CommentLikes.svelte` - Comment reactions
+- ~~`src/components/InlineComments.svelte` - Comments/replies~~ _(removed 2026-04; unused dead code)_
+- ~~`src/components/CommentReplies.svelte` - Reply threads~~ _(removed 2026-04; unused dead code)_
+- ~~`src/components/CommentLikes.svelte` - Comment reactions~~ _(removed 2026-04; unused dead code)_
 - ✅ `src/components/Comments.svelte` - Comment posting
 - ✅ `src/components/Comment.svelte` - Individual comment actions
 - ✅ `src/components/FeedComments.svelte` - Feed comments

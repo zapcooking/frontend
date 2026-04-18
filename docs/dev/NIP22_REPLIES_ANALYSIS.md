@@ -239,6 +239,15 @@ $: directReplies = replies.filter((r) => {
 
 ## Fixes Implemented
 
+> **Note (2026-04):** `InlineComments.svelte`, `CommentReplies.svelte`, and
+> the related `CommentWithActions.svelte`/`CommentLikes.svelte` components
+> were deleted during the comment-system refactor (Task 6 / Stage 1), having
+> been unused since an earlier migration. The references below describe the
+> repository state at the time of this analysis and are preserved for
+> historical context — the live call sites after deletion are
+> `Comments.svelte` + `Comment.svelte` (recipe pages) and
+> `FeedComments.svelte` + `FeedComment.svelte` (feed + polls).
+
 ✅ **All issues have been resolved:**
 
 1. ✅ **Updated all reply posting functions** to use proper NIP-22 tag structure
@@ -246,15 +255,15 @@ $: directReplies = replies.filter((r) => {
    - `src/components/Comments.svelte` - `postComment()`
    - `src/components/Comment.svelte` - `postReply()`
    - `src/components/FeedComments.svelte` - `postComment()`
-   - `src/components/InlineComments.svelte` - `postComment()`
+   - ~~`src/components/InlineComments.svelte` - `postComment()`~~ _(file deleted)_
    - `src/components/FeedComment.svelte` - `postReply()`
-   - `src/components/CommentReplies.svelte` - reply posting
+   - ~~`src/components/CommentReplies.svelte` - reply posting~~ _(file deleted)_
 
 2. ✅ **Updated reply fetching** to use `'#A'` filter for longform comments
    - `src/routes/[nip19]/+page.svelte` - `fetchReplies()`
    - `src/components/Comments.svelte` - subscription filter
    - `src/components/FeedComments.svelte` - subscription filter
-   - `src/components/InlineComments.svelte` - subscription filter
+   - ~~`src/components/InlineComments.svelte` - subscription filter~~ _(file deleted)_
 
 3. ✅ **Updated reply filtering** to check `A`/`a` tags instead of `'reply'` markers
    - `src/routes/[nip19]/+page.svelte` - `directReplies` and `getNestedReplies()`
