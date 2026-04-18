@@ -212,12 +212,21 @@ export function buildNip22CommentTags(
   event: { kind: number; pubkey: string; id: string; tags: string[][] },
   parentEvent?: { id: string; pubkey: string; tags: string[][] }
 ): string[][] {
-  // Only apply NIP-22 structure for longform content (kind 30023)
-  if (event.kind !== 30023) {
-    // For non-longform content, use standard NIP-10 structure
+  // NIP-22 addressable-root structure applies when the root is an
+  // addressable event (parameterized replaceable, kind range 30000–39999
+  // per NIP-01) with a `d` tag. Everything else falls through to NIP-10.
+  const isAddressable = event.kind >= 30000 && event.kind < 40000;
+  if (!isAddressable) {
+    // For non-addressable content, use standard NIP-10 structure
     if (parentEvent) {
       // Reply to a comment — NIP-10 requires root + reply markers,
-      // plus p tags for both root author and parent author
+      // plus p tags for both root author and parent author.
+      // TODO(nip-10): per spec, reply's p tags SHOULD include ALL of the
+      // parent event's p tags (in addition to the parent's own pubkey),
+      // so every participant in the thread keeps getting notifications.
+      // The current implementation only forwards root + parent pubkeys,
+      // which under-notifies on deep threads. Fixing widens notification
+      // traffic (visible behavior change) so it belongs in its own commit.
       const tags: string[][] = [
         ['e', event.id, '', 'root'],
         ['e', parentEvent.id, '', 'reply'],
@@ -236,7 +245,7 @@ export function buildNip22CommentTags(
     }
   }
 
-  // NIP-22 structure for longform comments (kind 1111 on kind 30023)
+  // NIP-22 structure for addressable-root comments (kind 1111)
   const dTag = event.tags.find((t) => t[0] === 'd')?.[1];
 
   if (!dTag) {

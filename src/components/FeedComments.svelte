@@ -4,11 +4,7 @@
   import { ndk, userPublickey } from '$lib/nostr';
   import { NDKEvent } from '@nostr-dev-kit/ndk';
   import Button from './Button.svelte';
-  import { addClientTagToEvent } from '$lib/nip89';
-  import { buildNip22CommentTags } from '$lib/tagUtils';
   import FeedComment from './FeedComment.svelte';
-  import { createCommentFilter } from '$lib/commentFilters';
-  import { mutedPubkeys } from '$lib/muteListStore';
   import MentionDropdown from './MentionDropdown.svelte';
   import { MentionComposerController, type MentionState } from '$lib/mentionComposer';
   import GifIcon from 'phosphor-svelte/lib/Gif';
@@ -19,16 +15,19 @@
   import PollCreator from './PollCreator.svelte';
   import { buildPollTags, type PollConfig } from '$lib/polls';
   import { uploadImage, uploadVideo } from '$lib/mediaUpload';
+  import { writable, type Readable } from 'svelte/store';
+  import {
+    createCommentSubscription,
+    type CommentSubscription
+  } from '$lib/comments/subscription';
+  import { postComment as postCommentLib } from '$lib/comments/postComment';
 
   export let event: NDKEvent;
-  let events: NDKEvent[] = [];
+  let sub: CommentSubscription | null = null;
   let commentText = '';
-  let processedEvents = new Set();
-  let subscribed = false;
   let showComments = false;
   let commentComposerEl: HTMLDivElement;
   let lastRenderedComment = '';
-  let feedCommentSubscription: any = null;
   let showGifPicker = false;
   let showPollCreator = false;
   let pollConfig: PollConfig | null = null;
@@ -89,31 +88,25 @@
 
   onDestroy(() => {
     mentionCtrl.destroy();
-    if (feedCommentSubscription) {
-      feedCommentSubscription.stop();
-    }
+    sub?.stop();
+    sub = null;
   });
 
-  // Create subscription once when ndk is ready
-  $: if ($ndk && !subscribed && showComments) {
-    subscribed = true;
-
-    const filter = createCommentFilter(event);
-    feedCommentSubscription = $ndk.subscribe(filter, { closeOnEose: false });
-
-    feedCommentSubscription.on('event', (e: NDKEvent) => {
-      if (processedEvents.has(e.id)) return;
-      processedEvents.add(e.id);
-      events.push(e);
-      events = events;
+  // Lazy subscription — only when the comments panel is open. `sub` is nulled
+  // in onDestroy so reconnect paths re-subscribe correctly.
+  let events: Readable<NDKEvent[]> = writable([]);
+  $: if ($ndk && !sub && showComments) {
+    sub = createCommentSubscription($ndk, event, {
+      closeOnEose: false,
+      applyMuteFilter: true
     });
-
-    feedCommentSubscription.on('eose', () => {});
+    events = sub.events;
   }
 
-  // Dummy refresh function for FeedComment component - not needed since subscription stays open
+  // Refresh hook passed to child FeedComment components. No-op: the
+  // subscription stays open and delivers new events automatically.
   function refresh() {
-    // No-op: the subscription will automatically receive new events
+    // intentionally empty
   }
 
   async function handleImageUpload(e: Event) {
@@ -171,46 +164,32 @@
         lastRenderedComment = commentText;
       }
 
-      const ev = new NDKEvent($ndk);
-
-      // Check if replying to a recipe (kind 30023)
-      // Recipe replies should be kind 1111, not kind 1
-      const isRecipe = event.kind === 30023;
-      ev.kind = pollConfig ? 1068 : (isRecipe ? 1111 : 1);
-
+      // Compose content: mention substitution + media URL append.
       let commentContent = mentionCtrl.replacePlainMentions(commentText);
       const mediaUrls = [...uploadedImages, ...uploadedVideos];
       if (mediaUrls.length > 0) {
         const mediaText = mediaUrls.join('\n');
         commentContent = commentContent ? `${commentContent}\n\n${mediaText}` : mediaText;
       }
-      ev.content = commentContent;
 
-      // Use shared utility to build NIP-22 or NIP-10 tags
-      ev.tags = buildNip22CommentTags({
-        kind: event.kind ?? 1,
-        pubkey: event.pubkey,
-        id: event.id,
-        tags: event.tags
-      });
-
-      // Parse and add @ mention tags (p tags)
+      // Collect @-mention p-tags + optional poll tags.
+      const extraTags: string[][] = [];
       const mentions = mentionCtrl.parseMentions(commentContent);
       for (const pubkey of mentions.values()) {
-        // Avoid duplicate p tags
-        if (!ev.tags.some((t) => t[0] === 'p' && t[1] === pubkey)) {
-          ev.tags.push(['p', pubkey]);
-        }
+        extraTags.push(['p', pubkey]);
       }
-
-      // Add NIP-89 client tag
-      addClientTagToEvent(ev);
-
       if (pollConfig) {
-        ev.tags.push(...buildPollTags(pollConfig));
+        extraTags.push(...buildPollTags(pollConfig));
       }
 
-      await ev.publish();
+      await postCommentLib($ndk, {
+        parentEvent: event,
+        content: commentContent,
+        extraTags,
+        contentKind: pollConfig ? 1068 : undefined,
+        signingStrategy: 'implicit'
+      });
+
       commentText = '';
       lastRenderedComment = '';
       uploadedImages = [];
@@ -222,21 +201,14 @@
       }
       mentionCtrl.resetMentionState();
     } catch {
-      // Failed to post comment
+      // Failed to post comment — feed context swallows silently today.
+      // Stage 5 will unify to explicit + toast surface.
     }
   }
 
   function toggleComments() {
     showComments = !showComments;
   }
-
-  // Sort all comments chronologically (oldest first for thread view) and filter muted users
-  $: sortedComments = [...events]
-    .filter((comment) => {
-      const authorKey = comment.author?.hexpubkey || comment.pubkey;
-      return !authorKey || !$mutedPubkeys.has(authorKey);
-    })
-    .sort((a, b) => (a.created_at || 0) - (b.created_at || 0));
 </script>
 
 <div class="inline-comments" data-event-id={event.id}>
@@ -244,11 +216,11 @@
     <div class="mt-3 space-y-4 pt-3" style="border-top: 1px solid var(--color-input-border)">
       <!-- Comments List - flat list with embedded parent quotes -->
       <div class="comments-list">
-        {#if sortedComments.length === 0}
+        {#if $events.length === 0}
           <p class="text-sm text-caption">No comments yet. {#if !$userPublickey}<a href="/login?redirect={encodeURIComponent($page.url.pathname)}" class="underline hover:opacity-80">Sign in</a> to comment!{:else}Be the first to comment!{/if}</p>
         {:else}
-          {#each sortedComments as comment (comment.id)}
-            <FeedComment event={comment} allComments={events} {refresh} mainEventId={event.id} />
+          {#each $events as comment (comment.id)}
+            <FeedComment event={comment} allComments={$events} {refresh} mainEventId={event.id} />
           {/each}
         {/if}
       </div>
