@@ -38,8 +38,14 @@ export type FlagTarget =
       kind: 'recipe';
       /** NIP-01 addressable tag value: "<kind>:<pubkey>:<d>" */
       aTag: string;
-      /** The kind 30078 Nourish event's id. */
-      nourishEventId: string;
+      /**
+       * The kind 30078 Nourish event's id, when the caller knows it.
+       * Optional because the recipe UI doesn't always track it today — the
+       * a-tag is the primary identifier for admin aggregation and the
+       * e-tag is auxiliary triage context (pinpoints the exact scoring
+       * event version that was flagged).
+       */
+      nourishEventId?: string;
     }
   | {
       kind: 'scan';
@@ -139,7 +145,14 @@ export async function hasPriorSignedFlag(
     '#l': [labelValue]
   };
   if (target.kind === 'recipe') {
-    (filter as Record<string, string[]>)['#e'] = [target.nourishEventId];
+    // Prefer the precise Nourish-event id when known; else fall back to
+    // matching by recipe address (a-tag). Either uniquely identifies a
+    // prior flag by this author for this dim/dir.
+    if (target.nourishEventId) {
+      (filter as Record<string, string[]>)['#e'] = [target.nourishEventId];
+    } else {
+      (filter as Record<string, string[]>)['#a'] = [target.aTag];
+    }
   } else {
     (filter as Record<string, string[]>)['#scan-hash'] = [target.contentHash];
   }
@@ -205,7 +218,9 @@ async function submitSignedFlag(
 
   if (target.kind === 'recipe') {
     ev.tags.push(['a', target.aTag, PANTRY_RELAY]);
-    ev.tags.push(['e', target.nourishEventId, PANTRY_RELAY]);
+    if (target.nourishEventId) {
+      ev.tags.push(['e', target.nourishEventId, PANTRY_RELAY]);
+    }
   } else {
     ev.tags.push(['scan-hash', target.contentHash]);
   }

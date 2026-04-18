@@ -9,6 +9,7 @@
   import NourishDimensionBar from './NourishDimensionBar.svelte';
   import LeafIcon from 'phosphor-svelte/lib/Leaf';
   import type { NourishScores, IngredientSignal } from '$lib/nourish/types';
+  import type { FlagTarget } from '$lib/nourish/flagSubmit';
 
   export let scores: NourishScores;
   export let quickTake: string = '';
@@ -16,6 +17,16 @@
   export let ingredientSignals: IngredientSignal[] = [];
   export let onReset: (() => void) | undefined = undefined;
   export let compact: boolean = false;
+
+  /**
+   * When provided, each NourishDimensionBar renders a flag affordance in
+   * its expanded detail area. Pass from the surrounding context (recipe
+   * modal or /nourish scan page). Null/undefined → no flag UI.
+   */
+  export let flagTarget: FlagTarget | null = null;
+
+  /** Nourish model/prompt version for the flag snapshot. */
+  export let nourishVer: string = '';
 
   /**
    * Derive strength tags from scores — only highlight genuinely strong dimensions.
@@ -76,9 +87,33 @@
   <div class="nr-section">
     <p class="nr-section-label">Nourish Profile</p>
     <div class="nr-dims">
-      <NourishDimensionBar icon="🥬" label="Real Food" score={scores.realFood.score} reason={scores.realFood.reason} />
-      <NourishDimensionBar icon="🌱" label="Gut Health" score={scores.gut.score} reason={scores.gut.reason} />
-      <NourishDimensionBar icon="💪" label="Protein" score={scores.protein.score} reason={scores.protein.reason} />
+      <NourishDimensionBar
+        icon="🥬"
+        label="Real Food"
+        score={scores.realFood.score}
+        reason={scores.realFood.reason}
+        {flagTarget}
+        flagDimension={flagTarget ? 'realFood' : null}
+        {nourishVer}
+      />
+      <NourishDimensionBar
+        icon="🌱"
+        label="Gut Health"
+        score={scores.gut.score}
+        reason={scores.gut.reason}
+        {flagTarget}
+        flagDimension={flagTarget ? 'gut' : null}
+        {nourishVer}
+      />
+      <NourishDimensionBar
+        icon="💪"
+        label="Protein"
+        score={scores.protein.score}
+        reason={scores.protein.reason}
+        {flagTarget}
+        flagDimension={flagTarget ? 'protein' : null}
+        {nourishVer}
+      />
     </div>
   </div>
 
