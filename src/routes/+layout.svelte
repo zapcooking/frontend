@@ -14,6 +14,7 @@
   import PostModal from '../components/PostModal.svelte';
   import LongformEditorModal from '../components/reads/LongformEditorModal.svelte';
   import WalletWelcomeModal from '../components/WalletWelcomeModal.svelte';
+  import ToastContainer from '../components/ToastContainer.svelte';
   import { createAuthManager, type AuthState } from '$lib/authManager';
   import {
     stopMessageSubscription,
@@ -390,6 +391,7 @@
       <PostModal bind:open={$postComposerOpen} />
       <LongformEditorModal />
       <WalletWelcomeModal bind:open={walletWelcomeOpen} onDismiss={markWalletWelcomeSeen} />
+      <ToastContainer />
     </div>
   </div>
 </ErrorBoundary>
