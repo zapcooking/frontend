@@ -50,6 +50,7 @@
   import { resolveProfileByPubkey } from '$lib/profileResolver';
   import { buildCanonicalRecipeShareUrl } from '$lib/utils/share';
   import DirectionsPhases from './DirectionsPhases.svelte';
+  import Ingredients from './Ingredients.svelte';
   import AddToListModal from '../grocery/AddToListModal.svelte';
   import PrintRecipeModal from './PrintRecipeModal.svelte';
   import GatedRecipePayment from '../GatedRecipePayment.svelte';
@@ -609,12 +610,32 @@
     // Match "## Details" followed by content until next "##" heading or end
     const detailsSectionRegex = /## Details\s*\n[\s\S]*?(?=\n## |$)/i;
     if (detailsSectionRegex.test(beforeDirections)) {
-      markdownBeforeDirections = beforeDirections.replace(detailsSectionRegex, '').trim();
+      beforeDirections = beforeDirections.replace(detailsSectionRegex, '').trim();
+    }
+
+    // Extract the Ingredients list so it can render as a checkbox component
+    // outside the prose markdown. Strip the section from the prose-rendered
+    // chunk so we don't get a duplicate bullet list.
+    const ingredientsSectionRegex = /## Ingredients\s*\n([\s\S]*?)(?=\n## |$)/i;
+    const ingredientsMatch = beforeDirections.match(ingredientsSectionRegex);
+    if (ingredientsMatch) {
+      const items: string[] = [];
+      const lines = ingredientsMatch[1].split('\n');
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (trimmed.startsWith('- ')) items.push(trimmed.substring(2).trim());
+        else if (trimmed.startsWith('* ')) items.push(trimmed.substring(2).trim());
+        else if (trimmed && !trimmed.startsWith('#')) items.push(trimmed);
+      }
+      ingredientItems = items;
+      markdownBeforeDirections = beforeDirections.replace(ingredientsSectionRegex, '').trim();
     } else {
+      ingredientItems = [];
       markdownBeforeDirections = beforeDirections;
     }
   }
 
+  let ingredientItems: string[] = [];
   let markdownBeforeDirections = '';
   let markdownAfterDirections = '';
 
@@ -968,16 +989,9 @@
           }
         }}
         scrollToIngredients={() => {
-          // Try to find Ingredients section and scroll to it
           setTimeout(() => {
-            const headings = document.querySelectorAll('article .prose h2');
-            for (const heading of headings) {
-              const text = heading.textContent?.trim().toLowerCase();
-              if (text === 'ingredients') {
-                heading.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                break;
-              }
-            }
+            const el = document.getElementById('ingredients-section');
+            if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
           }, 100);
         }}
       />
@@ -1048,9 +1062,15 @@
         </div>
       {/if}
 
-      <!-- Collapsible Directions -->
+      <!-- Ingredients with checkboxes — persisted per recipe so checks
+           survive reloads while cooking -->
+      {#if ingredientItems.length > 0}
+        <Ingredients items={ingredientItems} recipeId={event.id} />
+      {/if}
+
+      <!-- Directions with checkboxes -->
       {#if directionsPhases.length > 0}
-        <DirectionsPhases phases={directionsPhases} />
+        <DirectionsPhases phases={directionsPhases} recipeId={event.id} />
       {/if}
 
       <!-- Content after Directions -->
