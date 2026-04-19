@@ -95,6 +95,11 @@
 		videoInputEl?.click();
 	}
 
+	// Close the media menu if posting / upload starts while it's open.
+	$: if (showMediaMenu && (posting || uploadingImage || uploadingVideo)) {
+		showMediaMenu = false;
+	}
+
 	let mentionState: MentionState = {
 		mentionQuery: '',
 		showMentionSuggestions: false,

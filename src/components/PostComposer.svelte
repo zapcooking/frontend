@@ -69,6 +69,11 @@
     showMediaMenu = false;
     videoInputEl?.click();
   }
+
+  // Close the media menu if posting / upload starts while it's open.
+  $: if (showMediaMenu && (posting || uploadingImage || uploadingVideo)) {
+    showMediaMenu = false;
+  }
   let quotedNote: { nevent: string; event: NDKEventType } | null = null;
   let showGifPicker = false;
   let showPollCreator = false;
@@ -675,6 +680,7 @@
                 disabled={posting || uploadingImage || uploadingVideo}
                 aria-haspopup="menu"
                 aria-expanded={showMediaMenu}
+                aria-label="Upload photo or video"
                 title="Upload photo or video"
                 on:click={() => (showMediaMenu = !showMediaMenu)}
               >
@@ -708,7 +714,7 @@
                 accept="image/*"
                 class="sr-only"
                 on:change={handleImageUpload}
-                disabled={posting || uploadingImage}
+                disabled={posting || uploadingImage || uploadingVideo}
               />
               <input
                 bind:this={videoInputEl}
@@ -716,7 +722,7 @@
                 accept="video/*"
                 class="sr-only"
                 on:change={handleVideoUpload}
-                disabled={posting || uploadingVideo}
+                disabled={posting || uploadingImage || uploadingVideo}
               />
             </div>
 
