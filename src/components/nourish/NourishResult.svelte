@@ -25,8 +25,12 @@
    */
   export let flagTarget: FlagTarget | null = null;
 
-  /** Nourish model/prompt version for the flag snapshot. */
-  export let nourishVer: string = '';
+  /**
+   * PromptVersion for the flag snapshot — the version that produced
+   * the scores being rendered, so flag events carry the right
+   * version when the constant has since bumped.
+   */
+  export let promptVersion: string = '';
 
   /**
    * Derive strength tags from scores — only highlight genuinely strong dimensions.
@@ -94,7 +98,7 @@
         reason={scores.realFood.reason}
         {flagTarget}
         flagDimension={flagTarget ? 'realFood' : null}
-        {nourishVer}
+        {promptVersion}
       />
       <NourishDimensionBar
         icon="🌱"
@@ -103,7 +107,7 @@
         reason={scores.gut.reason}
         {flagTarget}
         flagDimension={flagTarget ? 'gut' : null}
-        {nourishVer}
+        {promptVersion}
       />
       <NourishDimensionBar
         icon="💪"
@@ -112,7 +116,7 @@
         reason={scores.protein.reason}
         {flagTarget}
         flagDimension={flagTarget ? 'protein' : null}
-        {nourishVer}
+        {promptVersion}
       />
     </div>
   </div>

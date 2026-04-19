@@ -172,7 +172,7 @@
       ingredientSignals={scanResult.ingredient_signals || []}
       onReset={resetScan}
       {flagTarget}
-      nourishVer={NOURISH_PROMPT_VERSION}
+      promptVersion={scanResult.promptVersion ?? NOURISH_PROMPT_VERSION}
     />
 
   {:else}

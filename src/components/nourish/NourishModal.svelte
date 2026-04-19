@@ -47,6 +47,12 @@
 	let stale = false;
 	let analyzedAt = 0;
 	let error = '';
+	// PromptVersion that produced the currently-rendered score. Passed
+	// to NourishResult → NourishDimensionBar → NourishFlagButton so flag
+	// events carry the score's actual version, not the global constant
+	// at render time (closes 1c gap #3 from Phase 1 Stability). Defaults
+	// to the current constant; overwritten on hit + API-success paths.
+	let resolvedPromptVersion: string = NOURISH_PROMPT_VERSION;
 	// Pantry-timeout state — set when resolveScore returns
 	// { status: 'timeout' } (drift #1 fix: no more silent compute on
 	// pantry failure). Retry UI consumes attemptCount to decide when
@@ -90,6 +96,7 @@
 		pantryTimeout = false;
 		attemptCount = 0;
 		fetched = false;
+		resolvedPromptVersion = NOURISH_PROMPT_VERSION;
 	}
 
 	function getRecipeCoordinates() {
@@ -131,6 +138,7 @@
 			improvements = [];
 			buildImprovements(result.entry.scores, result.entry.improvements);
 			analyzedAt = result.entry.createdAt;
+			resolvedPromptVersion = result.entry.promptVersion;
 
 			// Preserve the original ingredient-store semantics: save only on
 			// a pantry hit (first-time surfacing of this event in a session).
@@ -212,6 +220,7 @@
 
 			scores = data.scores;
 			analyzedAt = data.createdAt ?? Math.floor(Date.now() / 1000);
+			resolvedPromptVersion = data.promptVersion ?? NOURISH_PROMPT_VERSION;
 			const writeKey = toCacheKey(recipePubkey, recipeDTag);
 			if (writeKey) {
 				setNourishScores(
@@ -280,6 +289,7 @@
 				// pantry query.
 				scores = pantry.result.scores;
 				analyzedAt = pantry.result.createdAt;
+				resolvedPromptVersion = pantry.result.promptVersion;
 				buildImprovements(pantry.result.scores, pantry.result.improvements);
 				setNourishScores(
 					{ ...key, promptVersion: pantry.result.promptVersion },
@@ -363,7 +373,7 @@
 			{scores}
 			{improvements}
 			{flagTarget}
-			nourishVer={NOURISH_PROMPT_VERSION}
+			promptVersion={resolvedPromptVersion}
 			compact
 		/>
 
