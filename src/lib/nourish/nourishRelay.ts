@@ -82,6 +82,7 @@ export async function queryNourishEvent(
 ): Promise<{ status: 'hit'; result: NourishRelayResult } | { status: 'miss' }> {
   const dTag = buildNourishDTag(recipePubkey, recipeDTag);
 
+  let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
   try {
     const filter = {
       kinds: [30078 as number],
@@ -92,9 +93,9 @@ export async function queryNourishEvent(
     const relaySet = NDKRelaySet.fromRelayUrls([PANTRY_RELAY], ndk, true);
 
     const eventPromise = ndk.fetchEvent(filter, undefined, relaySet);
-    const timeoutPromise = new Promise<null>((resolve) =>
-      setTimeout(() => resolve(null), timeoutMs)
-    );
+    const timeoutPromise = new Promise<null>((resolve) => {
+      timeoutHandle = setTimeout(() => resolve(null), timeoutMs);
+    });
 
     const event = await Promise.race([eventPromise, timeoutPromise]);
     if (!event) return { status: 'miss' };
@@ -105,6 +106,10 @@ export async function queryNourishEvent(
     return { status: 'hit', result: parsed };
   } catch {
     return { status: 'miss' };
+  } finally {
+    // Clear the pending timer on the winning branch so long-lived
+    // sessions don't accumulate dead setTimeout handles.
+    if (timeoutHandle !== undefined) clearTimeout(timeoutHandle);
   }
 }
 

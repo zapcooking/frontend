@@ -13,7 +13,7 @@
 	import { generateSuggestions, mergeImprovements } from '$lib/nourish/suggestions';
 	import { ingredientStore } from '$lib/nourish/ingredientStore';
 	import { computeContentHash } from '$lib/nourish/nourishRelay';
-	import { resolveScore } from '$lib/nourish/scoreResolver';
+	import { resolveScore, type ResolveResult } from '$lib/nourish/scoreResolver';
 	import type { NourishScores } from '$lib/nourish/types';
 	import { NOURISH_PROMPT_VERSION } from '$lib/nourish/types';
 	import type { FlagTarget } from '$lib/nourish/flagSubmit';
@@ -73,7 +73,7 @@
 
 		checking = true;
 		error = '';
-		let result;
+		let result: ResolveResult = { status: 'miss' };
 		try {
 			result = await resolveScore($ndk, key);
 		} finally {

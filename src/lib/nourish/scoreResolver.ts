@@ -62,12 +62,17 @@ const inflight = new Map<string, Promise<ResolveResult>>();
 const memory = new Map<string, ResolvedEntry>();
 
 /**
- * Drop an L2 memory entry. Used by admin-triggered rescore (PR 4)
- * to force the next resolve to re-query lower layers. Exported now
- * so PR 4 has a stable hook.
+ * Drop ephemeral cache entries for a key. Used by admin-triggered
+ * rescore (PR 4) to force the next resolve to re-query lower layers.
+ *
+ * Clears both the L1 in-flight Promise and the L2 memory entry. If
+ * only L2 were cleared, an in-flight resolve from just before the
+ * purge could repopulate memory with the stale result on resolution.
  */
 export function purgeMemory(key: NourishCacheKey): void {
-  memory.delete(toMapKey(key));
+  const mapKey = toMapKey(key);
+  inflight.delete(mapKey);
+  memory.delete(mapKey);
 }
 
 // ─── Attempt counter (commit 3 activates) ───────────────────
