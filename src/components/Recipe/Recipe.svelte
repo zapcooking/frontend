@@ -60,8 +60,7 @@
   import LeafIcon from 'phosphor-svelte/lib/Leaf';
   import NourishModal from '../nourish/NourishModal.svelte';
   import NourishPill from '../nourish/NourishPill.svelte';
-  import { fetchNourishEvent } from '$lib/nourish/nourishRelay';
-  import { getNourishCache } from '$lib/nourish/cache';
+  import { resolveScore } from '$lib/nourish/scoreResolver';
   import { NOURISH_PROMPT_VERSION } from '$lib/nourish/types';
   import { membershipStatusMap, queueMembershipLookup, type MembershipStatus } from '$lib/stores/membershipStatus';
 
@@ -123,24 +122,17 @@
     const recipePubkey = event.author?.hexpubkey || event.pubkey;
     const recipeDTag = event.tags.find((t: string[]) => t[0] === 'd')?.[1] || '';
 
-    // Check localStorage first (instant)
-    if (recipePubkey && recipeDTag) {
-      const cached = getNourishCache({
+    // Resolver walks L2 → L3 → L4 and returns a miss for invalid keys.
+    // Write-through on pantry hit is handled inside the resolver, so
+    // subsequent mounts of the same recipe skip the pantry query.
+    if ($ndk) {
+      resolveScore($ndk, {
         recipePubkey,
         recipeDTag,
         promptVersion: NOURISH_PROMPT_VERSION
-      });
-      if (cached) {
-        applyNourishScores(cached.scores);
-        return;
-      }
-    }
-    // Check relay in background
-    if (recipePubkey && recipeDTag && $ndk) {
-      fetchNourishEvent($ndk, recipePubkey, recipeDTag).then((result) => {
-        // Ignore stale result if event changed while fetching
+      }).then((result) => {
         if (event.id !== targetEventId) return;
-        if (result) applyNourishScores(result.scores);
+        if (result.status === 'hit') applyNourishScores(result.entry.scores);
       }).catch(() => {});
     }
   }

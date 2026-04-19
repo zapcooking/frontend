@@ -9,10 +9,11 @@
 	// CaretDownIcon no longer needed — NourishResult handles expand
 	import ArrowClockwiseIcon from 'phosphor-svelte/lib/ArrowClockwise';
 	import { parseMarkdownForEditing } from '$lib/parser';
-	import { getNourishCache, setNourishScores } from '$lib/nourish/cache';
+	import { setNourishScores, type NourishCacheKey } from '$lib/nourish/cache';
 	import { generateSuggestions, mergeImprovements } from '$lib/nourish/suggestions';
 	import { ingredientStore } from '$lib/nourish/ingredientStore';
-	import { fetchNourishEvent, isNourishStale, computeContentHash } from '$lib/nourish/nourishRelay';
+	import { computeContentHash } from '$lib/nourish/nourishRelay';
+	import { resolveScore } from '$lib/nourish/scoreResolver';
 	import type { NourishScores } from '$lib/nourish/types';
 	import { NOURISH_PROMPT_VERSION } from '$lib/nourish/types';
 	import type { FlagTarget } from '$lib/nourish/flagSubmit';
@@ -52,11 +53,10 @@
 		return { recipePubkey, recipeDTag };
 	}
 
-	// Cache key, or null when the event lacks the coordinates we need to
-	// build a unique key. Empty recipeDTag would collapse keys across
-	// recipes from the same author, so we skip the cache entirely rather
-	// than collide. Hex-validity check on recipePubkey matches the
-	// server-side guard in /api/nourish.
+	// The resolver (scoreResolver.ts) owns the hex-64 + non-empty-d-tag
+	// guard on read paths. analyzeRecipe's post-API write still needs a
+	// local guard so a malformed recipe event doesn't write a colliding
+	// localStorage key.
 	const HEX_64_RE = /^[a-fA-F0-9]{64}$/;
 	function toCacheKey(recipePubkey: string, recipeDTag: string) {
 		if (!recipeDTag || !HEX_64_RE.test(recipePubkey)) return null;
@@ -65,88 +65,60 @@
 
 	async function fetchScores() {
 		const { recipePubkey, recipeDTag } = getRecipeCoordinates();
-		const cacheKey = toCacheKey(recipePubkey, recipeDTag);
+		const key: NourishCacheKey = {
+			recipePubkey,
+			recipeDTag,
+			promptVersion: NOURISH_PROMPT_VERSION
+		};
 
-		// 1. Check localStorage cache (instant)
-		const cached = cacheKey ? getNourishCache(cacheKey) : null;
-		if (cached) {
-			scores = cached.scores;
-			improvements = [];
-			buildImprovements(cached.scores, cached.improvements);
-			// Check staleness against current content if we have a hash
-			if (cached.contentHash) {
-				computeContentHash(event.content || '').then((currentHash) => {
-					if (currentHash !== cached.contentHash) {
-						stale = true;
-					}
-				}).catch(() => {});
-			}
-			// Prefer the score's createdAt (when analysis actually ran) over
-			// the cache's timestamp (when localStorage last wrote). They
-			// diverge across reloads, and createdAt is the one users see in
-			// the "analyzed at" label.
-			analyzedAt = cached.createdAt ?? (cached.timestamp ? Math.floor(cached.timestamp / 1000) : 0);
-			return;
-		}
-
-		// 2. Check pantry relay for existing analysis (fast, ~200ms)
 		checking = true;
 		error = '';
+		let result;
 		try {
-			if (recipePubkey && recipeDTag && $ndk) {
-				const relayResult = await fetchNourishEvent($ndk, recipePubkey, recipeDTag);
-				if (relayResult) {
-					scores = relayResult.scores;
-					buildImprovements(relayResult.scores, relayResult.improvements);
-					analyzedAt = relayResult.createdAt;
-
-					// Cache locally for next time, keyed under the relay event's
-					// own prompt version so a v1 hit doesn't collide with v2.
-					// Guarded by toCacheKey — if coordinates are incomplete we
-					// skip the write rather than produce a colliding key.
-					const writeKey = toCacheKey(recipePubkey, recipeDTag);
-					if (writeKey) {
-						setNourishScores(
-							{ ...writeKey, promptVersion: relayResult.promptVersion },
-							relayResult.scores,
-							{
-								contentHash: relayResult.contentHash,
-								createdAt: relayResult.createdAt,
-								improvements: relayResult.improvements
-							}
-						);
-					}
-
-					// Populate ingredient store from relay data (build dataset over time)
-					if (relayResult.ingredientSignals.length > 0) {
-						ingredientStore
-							.saveIngredients(
-								relayResult.ingredientSignals,
-								'recipe',
-								event.id,
-								relayResult.promptVersion
-							)
-							.catch(() => {});
-					}
-
-					// Check staleness
-					const isStale = await isNourishStale(relayResult, event.content || '');
-					stale = isStale;
-
-					checking = false;
-					return;
-				}
-			}
-		} catch {
-			// Relay query failed — fall through to API
+			result = await resolveScore($ndk, key);
+		} finally {
+			checking = false;
 		}
-		checking = false;
 
-		// 3. No existing analysis — call API (requires membership)
-		if (!hasMembership) {
-			// No cached score and no membership — show lock state
+		if (result.status === 'hit') {
+			scores = result.entry.scores;
+			improvements = [];
+			buildImprovements(result.entry.scores, result.entry.improvements);
+			analyzedAt = result.entry.createdAt;
+
+			// Preserve the original ingredient-store semantics: save only on
+			// a pantry hit (first-time surfacing of this event in a session).
+			// L2/memory and L3/localStorage hits were written from a prior
+			// pantry hit that already saved the signals.
+			if (result.source === 'pantry' && result.entry.ingredientSignals?.length) {
+				ingredientStore
+					.saveIngredients(
+						result.entry.ingredientSignals,
+						'recipe',
+						event.id,
+						result.entry.promptVersion
+					)
+					.catch(() => {});
+			}
+
+			// Preserve the original blocking-vs-nonblocking staleness pattern:
+			// pantry hit awaits the content-hash comparison (so stale renders
+			// before the modal settles); L2/L3 hits fire-and-forget (so the
+			// score displays immediately and the stale badge lights up after).
+			if (result.entry.contentHash) {
+				const pending = computeContentHash(event.content || '').then((currentHash) => {
+					if (currentHash !== result.entry.contentHash) stale = true;
+				}).catch(() => {});
+				if (result.source === 'pantry') await pending;
+			}
 			return;
 		}
+
+		// Miss — no score anywhere. Membership-gated compute is the only
+		// way forward today. Commit 4 replaces the silent fall-through on
+		// pantry timeout with an explicit retry UI; for now this branch
+		// preserves current behavior.
+		if (!hasMembership) return;
 		await analyzeRecipe();
 	}
 
