@@ -1,7 +1,6 @@
 <script lang="ts">
   import { userPublickey } from '$lib/nostr';
   import { membershipStatusMap, queueMembershipLookup, type MembershipStatus } from '$lib/stores/membershipStatus';
-  import { getScanResult, setScanResult } from '$lib/nourish/cache';
   import { generateSuggestions, mergeImprovements } from '$lib/nourish/suggestions';
   import { ingredientStore } from '$lib/nourish/ingredientStore';
   import type { ScanResponse } from '$lib/nourish/types';
@@ -71,16 +70,10 @@
       return;
     }
 
-    // Check scan cache (text-only, not images)
-    if (text && !imageData) {
-      const cached = getScanResult(text);
-      if (cached?.scores) {
-        scanResult = cached;
-        buildImprovements(cached);
-        return;
-      }
-    }
-
+    // Scan results are no longer cached locally (PR 3 commit 6).
+    // Scans are per-user and often personal; cross-user caching via a
+    // weak text hash was a privacy + staleness risk. Every scan now
+    // fires a fresh compute.
     scanning = true;
     scanError = '';
 
@@ -109,11 +102,6 @@
 
       scanResult = data;
       buildImprovements(data);
-
-      // Cache text-based results (not image-based — different images same text)
-      if (text && !imageData) {
-        setScanResult(text, data);
-      }
 
       // Save ingredient signals to build dataset over time
       if (data.ingredient_signals?.length) {
@@ -184,7 +172,7 @@
       ingredientSignals={scanResult.ingredient_signals || []}
       onReset={resetScan}
       {flagTarget}
-      nourishVer={NOURISH_PROMPT_VERSION}
+      promptVersion={scanResult.promptVersion ?? NOURISH_PROMPT_VERSION}
     />
 
   {:else}

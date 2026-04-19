@@ -1,5 +1,5 @@
 import { browser } from '$app/environment';
-import { NOURISH_CACHE_VERSION, type NourishScores, type ScanResponse } from './types';
+import { NOURISH_CACHE_VERSION, type NourishScores } from './types';
 
 const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
@@ -53,6 +53,20 @@ export function getNourishCache(key: NourishCacheKey): CacheEntry | null {
 	}
 }
 
+/**
+ * Remove a single Nourish cache entry. Used by the stale-refresh flow
+ * to invalidate L3 state before re-querying pantry + optionally
+ * computing fresh, so we don't carry a known-stale blob forward.
+ */
+export function clearNourishCache(key: NourishCacheKey): void {
+	if (!browser) return;
+	try {
+		localStorage.removeItem(cacheKey(key));
+	} catch {
+		// localStorage unavailable — ignore
+	}
+}
+
 export function setNourishScores(
 	key: NourishCacheKey,
 	scores: NourishScores,
@@ -82,54 +96,7 @@ export function setNourishScores(
 	}
 }
 
-// ─── Scan result cache (keyed by content hash) ──────────────
-
-interface ScanCacheEntry {
-	data: ScanResponse;
-	timestamp: number;
-	cacheVersion: string;
-}
-
-/** Derive a cache key from text with extra entropy to reduce collisions. */
-function hashText(text: string): string {
-	const lengthPart = text.length.toString(36);
-	const prefixPart = text.slice(0, 32).replace(/[^a-zA-Z0-9]/g, '_');
-	let hash = 0;
-	for (let i = 0; i < text.length; i++) {
-		hash = ((hash << 5) - hash + text.charCodeAt(i)) | 0;
-	}
-	return `nourish_scan_${lengthPart}_${prefixPart}_${Math.abs(hash).toString(36)}`;
-}
-
-export function getScanResult(text: string): ScanResponse | null {
-	if (!browser) return null;
-
-	try {
-		const raw = localStorage.getItem(hashText(text));
-		if (!raw) return null;
-
-		const entry: ScanCacheEntry = JSON.parse(raw);
-
-		if (entry.cacheVersion !== NOURISH_CACHE_VERSION) return null;
-		if (Date.now() - entry.timestamp > CACHE_TTL_MS) return null;
-
-		return entry.data;
-	} catch {
-		return null;
-	}
-}
-
-export function setScanResult(text: string, data: ScanResponse): void {
-	if (!browser) return;
-
-	try {
-		const entry: ScanCacheEntry = {
-			data,
-			timestamp: Date.now(),
-			cacheVersion: NOURISH_CACHE_VERSION
-		};
-		localStorage.setItem(hashText(text), JSON.stringify(entry));
-	} catch {
-		// localStorage full — silently ignore
-	}
-}
+// Scan result caching was removed in PR 3 commit 6. Scans are per-user
+// and often personal; cross-user caching via a weak text hash was a
+// privacy + staleness risk. See src/lib/nourish/scanCacheCleanup.ts
+// for the one-shot cleanup of legacy `nourish_scan_*` entries.

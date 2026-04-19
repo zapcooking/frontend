@@ -36,8 +36,15 @@
   /** Score at flag time (0..10). Stored in the flag record for admin triage. */
   export let score: number;
 
-  /** Nourish model/prompt version (from $lib/nourish/types). */
-  export let nourishVer: string;
+  /**
+   * The promptVersion that produced the score being flagged. Pulled
+   * from the ResolvedEntry that rendered the score, NOT from the
+   * global NOURISH_PROMPT_VERSION constant — so flags against a cached
+   * v1 score record v1 even after the constant bumps to v2. The
+   * on-wire flag tag name (`nourish-ver`) stays unchanged; only the
+   * prop renamed for clarity.
+   */
+  export let promptVersion: string;
 
   /** Icon size in px. Default 14 (matches NourishDimensionBar size scale). */
   export let iconSize = 14;
@@ -113,7 +120,10 @@
       dimension,
       direction: selectedDirection,
       score,
-      nourishVer,
+      // submitFlag's internal contract still uses `nourishVer` (it's
+      // the field name on the on-wire flag event tag and the admin
+      // aggregator reads it). Map the prop through unchanged.
+      nourishVer: promptVersion,
       reason: reason.trim() || undefined
     });
 

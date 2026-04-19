@@ -7,11 +7,15 @@
 	import LockIcon from 'phosphor-svelte/lib/Lock';
 	import ArrowClockwiseIcon from 'phosphor-svelte/lib/ArrowClockwise';
 	import { parseMarkdownForEditing } from '$lib/parser';
-	import { setNourishScores, type NourishCacheKey } from '$lib/nourish/cache';
+	import {
+		setNourishScores,
+		clearNourishCache,
+		type NourishCacheKey
+	} from '$lib/nourish/cache';
 	import { generateSuggestions, mergeImprovements } from '$lib/nourish/suggestions';
 	import { ingredientStore } from '$lib/nourish/ingredientStore';
-	import { computeContentHash } from '$lib/nourish/nourishRelay';
-	import { resolveScore, type ResolveResult } from '$lib/nourish/scoreResolver';
+	import { computeContentHash, queryNourishEvent } from '$lib/nourish/nourishRelay';
+	import { resolveScore, purgeMemory, type ResolveResult } from '$lib/nourish/scoreResolver';
 	import type { NourishScores } from '$lib/nourish/types';
 	import { NOURISH_PROMPT_VERSION } from '$lib/nourish/types';
 	import type { FlagTarget } from '$lib/nourish/flagSubmit';
@@ -43,6 +47,12 @@
 	let stale = false;
 	let analyzedAt = 0;
 	let error = '';
+	// PromptVersion that produced the currently-rendered score. Passed
+	// to NourishResult → NourishDimensionBar → NourishFlagButton so flag
+	// events carry the score's actual version, not the global constant
+	// at render time (closes 1c gap #3 from Phase 1 Stability). Defaults
+	// to the current constant; overwritten on hit + API-success paths.
+	let resolvedPromptVersion: string = NOURISH_PROMPT_VERSION;
 	// Pantry-timeout state — set when resolveScore returns
 	// { status: 'timeout' } (drift #1 fix: no more silent compute on
 	// pantry failure). Retry UI consumes attemptCount to decide when
@@ -86,6 +96,7 @@
 		pantryTimeout = false;
 		attemptCount = 0;
 		fetched = false;
+		resolvedPromptVersion = NOURISH_PROMPT_VERSION;
 	}
 
 	function getRecipeCoordinates() {
@@ -127,6 +138,7 @@
 			improvements = [];
 			buildImprovements(result.entry.scores, result.entry.improvements);
 			analyzedAt = result.entry.createdAt;
+			resolvedPromptVersion = result.entry.promptVersion;
 
 			// Preserve the original ingredient-store semantics: save only on
 			// a pantry hit (first-time surfacing of this event in a session).
@@ -208,6 +220,7 @@
 
 			scores = data.scores;
 			analyzedAt = data.createdAt ?? Math.floor(Date.now() / 1000);
+			resolvedPromptVersion = data.promptVersion ?? NOURISH_PROMPT_VERSION;
 			const writeKey = toCacheKey(recipePubkey, recipeDTag);
 			if (writeKey) {
 				setNourishScores(
@@ -240,7 +253,64 @@
 
 	function retry() { scores = null; analyzeRecipe(); }
 
-	function reanalyze() { scores = null; stale = false; analyzeRecipe(); }
+	// Refresh the stale banner's score without unconditionally burning
+	// an LLM call. Flow:
+	//   1. Purge local cache under the current key (L2 + L3)
+	//   2. Query pantry directly — skipping resolveScore avoids a
+	//      speculative write-through of whatever pantry returns, since
+	//      we only want to cache a score whose contentHash matches the
+	//      recipe as it exists NOW.
+	//   3. If pantry has a fresh-hash version (e.g. another client
+	//      already rescored), use it + write through.
+	//   4. Otherwise fall through to analyzeRecipe — this path was
+	//      always the old behavior; it's the expensive fallback.
+	// Closes drift source #5 (refresh button unconditionally computes).
+	async function reanalyze() {
+		scores = null;
+		stale = false;
+
+		const { recipePubkey, recipeDTag } = getRecipeCoordinates();
+		const key: NourishCacheKey = {
+			recipePubkey,
+			recipeDTag,
+			promptVersion: NOURISH_PROMPT_VERSION
+		};
+
+		purgeMemory(key);
+		clearNourishCache(key);
+
+		checking = true;
+		try {
+			const currentHash = await computeContentHash(event.content || '');
+			const pantry = await queryNourishEvent($ndk, recipePubkey, recipeDTag);
+			if (pantry.status === 'hit' && pantry.result.contentHash === currentHash) {
+				// Pantry already has the fresh-hash version — use it, no
+				// LLM call. Write-through so subsequent mounts skip the
+				// pantry query.
+				scores = pantry.result.scores;
+				analyzedAt = pantry.result.createdAt;
+				resolvedPromptVersion = pantry.result.promptVersion;
+				buildImprovements(pantry.result.scores, pantry.result.improvements);
+				setNourishScores(
+					{ ...key, promptVersion: pantry.result.promptVersion },
+					pantry.result.scores,
+					{
+						contentHash: pantry.result.contentHash,
+						createdAt: pantry.result.createdAt,
+						improvements: pantry.result.improvements,
+						ingredientSignals: pantry.result.ingredientSignals
+					}
+				);
+				return;
+			}
+		} finally {
+			checking = false;
+		}
+
+		// Pantry miss, timeout, or pantry's version still carries the
+		// old (stale) content hash → compute fresh.
+		await analyzeRecipe();
+	}
 
 	// Retry-UI handlers. handleRetry re-runs the resolver (next pantry
 	// query); handleAnalyze commits to an explicit compute. The "Score
@@ -303,7 +373,7 @@
 			{scores}
 			{improvements}
 			{flagTarget}
-			nourishVer={NOURISH_PROMPT_VERSION}
+			promptVersion={resolvedPromptVersion}
 			compact
 		/>
 

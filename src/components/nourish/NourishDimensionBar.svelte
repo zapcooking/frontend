@@ -33,8 +33,13 @@
    */
   export let flagDimension: NourishDimension | null = null;
 
-  /** Nourish model/prompt version snapshot — required when flagTarget is set. */
-  export let nourishVer: string = '';
+  /**
+   * The promptVersion that produced this score — required when
+   * flagTarget is set. Passed through to NourishFlagButton so the
+   * flag event records the score's actual version, not the current
+   * NOURISH_PROMPT_VERSION constant at render time.
+   */
+  export let promptVersion: string = '';
 
   let expanded = false;
 
@@ -42,7 +47,7 @@
     if (reason) expanded = !expanded;
   }
 
-  $: canFlag = !!flagTarget && !!flagDimension && !!nourishVer;
+  $: canFlag = !!flagTarget && !!flagDimension && !!promptVersion;
 </script>
 
 <button
@@ -75,7 +80,7 @@
           target={flagTarget}
           dimension={flagDimension}
           {score}
-          {nourishVer}
+          {promptVersion}
           iconSize={12}
           dimensionLabel={label.toLowerCase()}
         />
