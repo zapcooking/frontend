@@ -8,6 +8,7 @@
   import ImageIcon from 'phosphor-svelte/lib/Image';
   import UploadIcon from 'phosphor-svelte/lib/UploadSimple';
   import ArrowsClockwiseIcon from 'phosphor-svelte/lib/ArrowsClockwise';
+  import CaretDownIcon from 'phosphor-svelte/lib/CaretDown';
 
   export let uploadedImages: Writable<string[]>;
   export let limit = 0; // 0 = unlimited
@@ -16,6 +17,49 @@
   let isDragging = false;
   let isUploading = false;
   let uploadProgress = '';
+
+  let urlInput = '';
+  let urlError = '';
+  let urlSectionOpen = false;
+
+  function addByUrl() {
+    urlError = '';
+    const value = urlInput.trim();
+    if (!value) return;
+
+    let parsed: URL;
+    try {
+      parsed = new URL(value);
+    } catch {
+      urlError = 'Enter a valid URL (including https://).';
+      return;
+    }
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      urlError = 'URL must start with http:// or https://.';
+      return;
+    }
+    // Normalize via URL so `example.com` vs `example.com/` (or different
+    // casing/encoding) collapse to the same entry for the dedupe check.
+    const normalizedUrl = parsed.toString();
+    if (limit > 0 && $uploadedImages.length >= limit) {
+      urlError = `Limit of ${limit} media reached.`;
+      return;
+    }
+    if ($uploadedImages.includes(normalizedUrl)) {
+      urlError = 'That URL is already added.';
+      return;
+    }
+
+    uploadedImages.update((imgs) => [...imgs, normalizedUrl]);
+    urlInput = '';
+  }
+
+  function handleUrlKeydown(e: KeyboardEvent) {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      addByUrl();
+    }
+  }
 
   // Check if URL is a video
   function isVideo(url: string): boolean {
@@ -302,5 +346,49 @@
       Add photos and videos to showcase your recipe
     </p>
   {/if}
+
+  <!-- Subtle: add media by URL -->
+  <div>
+    <button
+      type="button"
+      class="flex items-center gap-1 text-xs text-caption hover:opacity-80 transition-opacity cursor-pointer"
+      aria-expanded={urlSectionOpen}
+      aria-controls="media-url-panel"
+      on:click={() => (urlSectionOpen = !urlSectionOpen)}
+    >
+      <CaretDownIcon
+        size={12}
+        class="transition-transform duration-200 {urlSectionOpen ? 'rotate-180' : ''}"
+      />
+      <span>Add images by URL</span>
+    </button>
+
+    {#if urlSectionOpen}
+      <div id="media-url-panel" class="flex flex-col gap-1.5 mt-2">
+        <div class="flex flex-col sm:flex-row gap-2">
+          <input
+            type="url"
+            bind:value={urlInput}
+            on:keydown={handleUrlKeydown}
+            placeholder="https://example.com/photo.jpg"
+            class="flex-1 rounded-md px-2.5 py-1.5 text-xs border focus:outline-none focus:ring-1 focus:ring-primary/40"
+            style="background-color: var(--color-input-bg); color: var(--color-text-primary); border-color: var(--color-input-border)"
+          />
+          <button
+            type="button"
+            class="px-3 py-1.5 rounded-md text-xs font-medium border hover:bg-accent-gray disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
+            style="color: var(--color-text-primary); border-color: var(--color-input-border)"
+            disabled={!urlInput.trim()}
+            on:click={addByUrl}
+          >
+            Add
+          </button>
+        </div>
+        {#if urlError}
+          <p class="text-xs text-red-500">{urlError}</p>
+        {/if}
+      </div>
+    {/if}
+  </div>
 </div>
 

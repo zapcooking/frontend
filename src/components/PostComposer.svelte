@@ -461,10 +461,7 @@
                   aria-multiline="true"
                   data-placeholder="What are you eating, cooking, or loving?"
                   on:keydown={handleKeydown}
-                  on:input={() => {
-                    content = mentionCtrl.handleInput();
-                    lastRenderedContent = content;
-                  }}
+                  on:input={() => mentionCtrl.handleInput()}
                   on:beforeinput={(e) => mentionCtrl.handleBeforeInput(e)}
                   on:paste={(e) => mentionCtrl.handlePaste(e)}
                 ></div>

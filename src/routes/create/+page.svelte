@@ -14,7 +14,7 @@
   import { addClientTagToEvent } from '$lib/nip89';
   import Button from '../../components/Button.svelte';
   import MarkdownEditor from '../../components/MarkdownEditor.svelte';
-  import { onMount, onDestroy } from 'svelte';
+  import { onMount, onDestroy, tick } from 'svelte';
   import { RECIPE_TAG_PREFIX_NEW } from '$lib/consts';
   import {
     saveDraft,
@@ -60,7 +60,13 @@
 
   let cancelListenerAttached = false;
 
-  onMount(() => {
+  // Auto-save state
+  let autoSaveTimer: ReturnType<typeof setTimeout> | null = null;
+  let initialLoadComplete = false;
+  let lastSavedSignature = '';
+  const AUTO_SAVE_DEBOUNCE_MS = 2000;
+
+  onMount(async () => {
     if ($userPublickey == '') goto('/login');
 
     // Initialize draft store
@@ -76,13 +82,87 @@
       window.addEventListener('create-cancel-requested', handleCancelRequest);
       cancelListenerAttached = true;
     }
+
+    // Compute the baseline signature immediately (bypassing the debounced
+    // reactive) so the first edit after load is detected correctly.
+    await tick();
+    if (draftSignatureTimer) {
+      clearTimeout(draftSignatureTimer);
+      draftSignatureTimer = null;
+    }
+    recomputeDraftSignature();
+    lastSavedSignature = draftSignature;
+    initialLoadComplete = true;
   });
 
   onDestroy(() => {
     if (browser && cancelListenerAttached) {
       window.removeEventListener('create-cancel-requested', handleCancelRequest);
     }
+    if (autoSaveTimer) {
+      clearTimeout(autoSaveTimer);
+      autoSaveTimer = null;
+    }
+    if (draftSignatureTimer) {
+      clearTimeout(draftSignatureTimer);
+      draftSignatureTimer = null;
+    }
   });
+
+  function scheduleAutoSave() {
+    if (autoSaveTimer) clearTimeout(autoSaveTimer);
+    autoSaveTimer = setTimeout(runAutoSave, AUTO_SAVE_DEBOUNCE_MS);
+  }
+
+  function runAutoSave() {
+    autoSaveTimer = null;
+    // Defer to a manual save in flight; retry once it completes
+    if (isSavingDraft) {
+      scheduleAutoSave();
+      return;
+    }
+    // Flush any pending debounced signature computation so we compare against
+    // the latest typed state, not the previous tick's.
+    if (draftSignatureTimer) {
+      clearTimeout(draftSignatureTimer);
+      draftSignatureTimer = null;
+      recomputeDraftSignature();
+    }
+    // Skip the very first save when the composer is empty and there's no
+    // existing draft — no point creating an empty draft entry. But once a
+    // draft exists, always persist subsequent changes (including clearing
+    // all fields) so the "I deleted everything" state is saved too.
+    if (!hasDraftContent && !currentDraftId) return;
+    if (draftSignature === lastSavedSignature) return;
+
+    const signatureAtSave = draftSignature;
+    const draftData = {
+      title,
+      images: $images,
+      tags: $selectedTags,
+      summary,
+      chefsnotes,
+      preptime,
+      cooktime,
+      servings,
+      ingredients: $ingredientsArray,
+      directions: $directionsArray,
+      additionalMarkdown
+    };
+    const { draftId } = saveDraft(draftData, currentDraftId || undefined, false);
+
+    // Only rewrite the URL when the draft id first gets assigned — avoids
+    // thrashing $page and causing the editor to jump while typing.
+    if (browser && currentDraftId !== draftId) {
+      const url = new URL(window.location.href);
+      url.searchParams.set('draft', draftId);
+      window.history.replaceState({}, '', url.toString());
+    }
+    currentDraftId = draftId;
+    lastSavedSignature = signatureAtSave;
+    // No isSavingDraft toggle and no status message — keep auto-save silent
+    // so it doesn't mutate UI that's in the user's field of view.
+  }
 
   function loadDraftById(draftId: string) {
     const draft = getDraftWithSyncState(draftId);
@@ -209,6 +289,7 @@
       draftSaveMessage = 'Saved locally';
     }
 
+    lastSavedSignature = draftSignature;
     isSavingDraft = false;
     setTimeout(() => {
       draftSaveMessage = '';
@@ -339,6 +420,65 @@
     $ingredientsArray.length > 0 ||
     $directionsArray.length > 0 ||
     Boolean(additionalMarkdown.trim());
+
+  // Serialized form of all draft fields — drives change detection for
+  // auto-save. Declared explicitly (and the compute debounced via the
+  // reactive below) so TS knows the var exists before onMount reads it,
+  // and so we don't re-JSON.stringify the entire draft on every keystroke
+  // for recipes with long ingredient/direction lists.
+  let draftSignature = '';
+  let draftSignatureTimer: ReturnType<typeof setTimeout> | null = null;
+
+  function recomputeDraftSignature() {
+    draftSignature = JSON.stringify([
+      title,
+      $images,
+      $selectedTags,
+      summary,
+      chefsnotes,
+      preptime,
+      cooktime,
+      servings,
+      $ingredientsArray,
+      $directionsArray,
+      additionalMarkdown
+    ]);
+  }
+
+  $: {
+    // Touch every draft field so Svelte tracks it as a dep.
+    title;
+    $images;
+    $selectedTags;
+    summary;
+    chefsnotes;
+    preptime;
+    cooktime;
+    servings;
+    $ingredientsArray;
+    $directionsArray;
+    additionalMarkdown;
+    if (!browser) {
+      recomputeDraftSignature();
+    } else {
+      if (draftSignatureTimer) clearTimeout(draftSignatureTimer);
+      draftSignatureTimer = setTimeout(() => {
+        draftSignatureTimer = null;
+        recomputeDraftSignature();
+      }, 250);
+    }
+  }
+
+  // Schedule an auto-save whenever the draft changes (post-load). We also
+  // allow the save-through-empty case when a draft already exists so that
+  // clearing all fields on an existing draft is persisted.
+  $: if (
+    initialLoadComplete &&
+    (hasDraftContent || currentDraftId) &&
+    draftSignature !== lastSavedSignature
+  ) {
+    scheduleAutoSave();
+  }
 </script>
 
 <svelte:head>

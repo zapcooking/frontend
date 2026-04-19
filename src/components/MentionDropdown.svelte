@@ -1,3 +1,19 @@
+<script context="module" lang="ts">
+	// Portal action — mounts the node directly to document.body so the
+	// dropdown's position:fixed is viewport-relative (otherwise a
+	// transform on the containing modal would scope it to the modal box).
+	function portal(node: HTMLElement) {
+		document.body.appendChild(node);
+		return {
+			destroy() {
+				if (node.parentNode === document.body) {
+					document.body.removeChild(node);
+				}
+			}
+		};
+	}
+</script>
+
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte';
 	import CustomAvatar from './CustomAvatar.svelte';
@@ -32,7 +48,11 @@
 </script>
 
 {#if show}
-	<div class="mention-dropdown" style="border-color: var(--color-input-border); top: {fixedTop}px; left: {fixedLeft}px;">
+	<div
+		use:portal
+		class="mention-dropdown"
+		style="border-color: var(--color-input-border); top: {fixedTop}px; left: {fixedLeft}px;"
+	>
 		{#if suggestions.length > 0}
 			<div class="mention-dropdown-content">
 				{#each suggestions as suggestion, index}
