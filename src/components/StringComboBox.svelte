@@ -19,6 +19,7 @@
   // Drag state
   let draggedIndex: number | null = null;
   let dragOverIndex: number | null = null;
+  let dragOverPosition: 'before' | 'after' = 'before';
 
   function removeTag(index: number) {
     let nSelected = $selected;
@@ -86,25 +87,34 @@
       e.dataTransfer.dropEffect = 'move';
     }
     dragOverIndex = index;
+    // Determine whether the cursor is in the top or bottom half of the
+    // target. This lets users drop past the last item (cursor below midpoint
+    // of the final row = "after"), which was previously impossible.
+    const target = e.currentTarget as HTMLElement;
+    const rect = target.getBoundingClientRect();
+    dragOverPosition = e.clientY < rect.top + rect.height / 2 ? 'before' : 'after';
   }
 
   function handleDrop(e: DragEvent, index: number) {
     e.preventDefault();
 
-    if (draggedIndex === null || draggedIndex === index) {
+    if (draggedIndex === null) {
       resetDragState();
       return;
     }
 
-    let nSelected = [...$selected];
-    const draggedItem = nSelected[draggedIndex];
-
-    // Remove from old position
-    nSelected.splice(draggedIndex, 1);
-
-    // Insert at new position
-    const insertIndex = draggedIndex < index ? index - 1 : index;
-    nSelected.splice(insertIndex, 0, draggedItem);
+    // Convert drop-target + before/after into an absolute destination index,
+    // then account for the dragged item being removed from an earlier slot.
+    let destIndex = dragOverPosition === 'after' ? index + 1 : index;
+    const nSelected = [...$selected];
+    const [draggedItem] = nSelected.splice(draggedIndex, 1);
+    if (draggedIndex < destIndex) destIndex--;
+    if (destIndex === draggedIndex) {
+      // No-op reorder — restore and bail
+      resetDragState();
+      return;
+    }
+    nSelected.splice(destIndex, 0, draggedItem);
 
     selected.set(nSelected);
     resetDragState();
@@ -117,12 +127,13 @@
   function resetDragState() {
     draggedIndex = null;
     dragOverIndex = null;
+    dragOverPosition = 'before';
   }
 </script>
 
 <div class="mb-0">
   {#if $selected.length > 0}
-    <ul class="flex flex-col gap-2 mb-2">
+    <ul class="flex flex-col mb-2">
       {#each $selected as tag, index (tag + index)}
         <li
           draggable={editingIndex !== index}
@@ -131,12 +142,16 @@
           on:drop={(e) => handleDrop(e, index)}
           on:dragend={handleDragEnd}
           on:dragleave={() => { if (dragOverIndex === index) dragOverIndex = null; }}
-          class="flex items-center gap-2 input transition-all duration-150
-            {dragOverIndex === index && draggedIndex !== index ? 'border-primary border-2' : ''}
-            {draggedIndex === index ? 'opacity-50' : ''}
-            {editingIndex === index ? 'ring-2 ring-primary border-primary' : ''}"
+          class="py-1 first:pt-0 last:pb-0"
           transition:slide|global={{ duration: 300 }}
         >
+          <div
+            class="flex items-center gap-2 input transition-all duration-150
+              {dragOverIndex === index && draggedIndex !== index && dragOverPosition === 'before' ? 'drop-indicator-top' : ''}
+              {dragOverIndex === index && draggedIndex !== index && dragOverPosition === 'after' ? 'drop-indicator-bottom' : ''}
+              {draggedIndex === index ? 'opacity-50' : ''}
+              {editingIndex === index ? 'ring-2 ring-primary border-primary' : ''}"
+          >
           <!-- Grip handle -->
           <button
             type="button"
@@ -200,6 +215,7 @@
               <TrashIcon size={16} />
             </button>
           </div>
+          </div>
         </li>
       {/each}
     </ul>
@@ -210,3 +226,13 @@
   <input bind:value={inputNewThing} class="input grow" {placeholder} />
   <Button on:click={addTag} primary={false}>Add</Button>
 </form>
+
+<style>
+  /* Drop-position indicators — use box-shadow so they don't shift layout */
+  :global(.drop-indicator-top) {
+    box-shadow: inset 0 3px 0 0 var(--color-primary);
+  }
+  :global(.drop-indicator-bottom) {
+    box-shadow: inset 0 -3px 0 0 var(--color-primary);
+  }
+</style>
