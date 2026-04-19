@@ -14,7 +14,7 @@
   import { addClientTagToEvent } from '$lib/nip89';
   import Button from '../../components/Button.svelte';
   import MarkdownEditor from '../../components/MarkdownEditor.svelte';
-  import { onMount, onDestroy } from 'svelte';
+  import { onMount, onDestroy, tick } from 'svelte';
   import { RECIPE_TAG_PREFIX_NEW } from '$lib/consts';
   import {
     saveDraft,
@@ -60,7 +60,13 @@
 
   let cancelListenerAttached = false;
 
-  onMount(() => {
+  // Auto-save state
+  let autoSaveTimer: ReturnType<typeof setTimeout> | null = null;
+  let initialLoadComplete = false;
+  let lastSavedSignature = '';
+  const AUTO_SAVE_DEBOUNCE_MS = 2000;
+
+  onMount(async () => {
     if ($userPublickey == '') goto('/login');
 
     // Initialize draft store
@@ -76,13 +82,71 @@
       window.addEventListener('create-cancel-requested', handleCancelRequest);
       cancelListenerAttached = true;
     }
+
+    // Wait for reactive statements to populate draftSignature, then arm auto-save
+    await tick();
+    lastSavedSignature = draftSignature;
+    initialLoadComplete = true;
   });
 
   onDestroy(() => {
     if (browser && cancelListenerAttached) {
       window.removeEventListener('create-cancel-requested', handleCancelRequest);
     }
+    if (autoSaveTimer) {
+      clearTimeout(autoSaveTimer);
+      autoSaveTimer = null;
+    }
   });
+
+  function scheduleAutoSave() {
+    if (autoSaveTimer) clearTimeout(autoSaveTimer);
+    autoSaveTimer = setTimeout(runAutoSave, AUTO_SAVE_DEBOUNCE_MS);
+  }
+
+  async function runAutoSave() {
+    autoSaveTimer = null;
+    // If a manual save is in flight, wait and retry
+    if (isSavingDraft) {
+      scheduleAutoSave();
+      return;
+    }
+    if (!hasDraftContent) return;
+    if (draftSignature === lastSavedSignature) return;
+
+    const signatureAtSave = draftSignature;
+    isSavingDraft = true;
+    try {
+      const draftData = {
+        title,
+        images: $images,
+        tags: $selectedTags,
+        summary,
+        chefsnotes,
+        preptime,
+        cooktime,
+        servings,
+        ingredients: $ingredientsArray,
+        directions: $directionsArray,
+        additionalMarkdown
+      };
+      const { draftId } = saveDraft(draftData, currentDraftId || undefined, false);
+      currentDraftId = draftId;
+      if (browser) {
+        const url = new URL(window.location.href);
+        url.searchParams.set('draft', currentDraftId);
+        window.history.replaceState({}, '', url.toString());
+      }
+      lastSavedSignature = signatureAtSave;
+      if (currentDraftSyncStatus === undefined) currentDraftSyncStatus = 'local';
+      draftSaveMessage = 'Draft auto-saved';
+      setTimeout(() => {
+        if (draftSaveMessage === 'Draft auto-saved') draftSaveMessage = '';
+      }, 1500);
+    } finally {
+      isSavingDraft = false;
+    }
+  }
 
   function loadDraftById(draftId: string) {
     const draft = getDraftWithSyncState(draftId);
@@ -209,6 +273,7 @@
       draftSaveMessage = 'Saved locally';
     }
 
+    lastSavedSignature = draftSignature;
     isSavingDraft = false;
     setTimeout(() => {
       draftSaveMessage = '';
@@ -339,6 +404,30 @@
     $ingredientsArray.length > 0 ||
     $directionsArray.length > 0 ||
     Boolean(additionalMarkdown.trim());
+
+  // Serialized form of all draft fields — drives change detection for auto-save
+  $: draftSignature = JSON.stringify([
+    title,
+    $images,
+    $selectedTags,
+    summary,
+    chefsnotes,
+    preptime,
+    cooktime,
+    servings,
+    $ingredientsArray,
+    $directionsArray,
+    additionalMarkdown
+  ]);
+
+  // Schedule an auto-save whenever the draft changes (post-load)
+  $: if (
+    initialLoadComplete &&
+    hasDraftContent &&
+    draftSignature !== lastSavedSignature
+  ) {
+    scheduleAutoSave();
+  }
 </script>
 
 <svelte:head>
