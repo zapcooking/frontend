@@ -311,6 +311,15 @@
     }
   });
 
+  // One-shot pass to clear legacy nourish_scan_* localStorage entries
+  // left behind when scan caching was removed in PR 3 commit 6. Runs
+  // via requestIdleCallback so it doesn't block initial paint; sentinel
+  // flag ensures single-run per browser.
+  onMount(async () => {
+    const { cleanupLegacyScanCache } = await import('$lib/nourish/scanCacheCleanup');
+    cleanupLegacyScanCache();
+  });
+
   // Show wallet welcome after leaving login/onboarding (e.g. after suggested follows completes)
   $: {
     const onboardingFlow = $page.url.pathname.startsWith('/login') || $page.url.pathname.startsWith('/onboarding');
