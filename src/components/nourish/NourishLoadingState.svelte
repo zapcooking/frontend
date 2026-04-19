@@ -30,6 +30,7 @@
   // window. Gating it on membership prevents non-members from bypassing
   // the paywall via the retry flow — the underlying analyzeRecipe path
   // already enforces this, but hiding the button is the cleaner UX.
+  let canEscape = false;
   $: canEscape = attemptCount >= 3 && hasMembership;
 
   const dispatch = createEventDispatcher<{

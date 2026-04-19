@@ -122,9 +122,12 @@
     const recipePubkey = event.author?.hexpubkey || event.pubkey;
     const recipeDTag = event.tags.find((t: string[]) => t[0] === 'd')?.[1] || '';
 
-    // Resolver walks L2 → L3 → L4 and returns a miss for invalid keys.
-    // Write-through on pantry hit is handled inside the resolver, so
-    // subsequent mounts of the same recipe skip the pantry query.
+    // Resolver walks L2 → L3 → L4 gathering every candidate and picks
+    // the max-createdAt winner (write-through across layers handled
+    // internally). Invalid keys return a miss + emit a warn. Every
+    // call still awaits the pantry query in order to reconcile local
+    // state against the authoritative source — L2/L3 hits don't
+    // short-circuit the pantry read in commit 3's algorithm.
     if ($ndk) {
       resolveScore($ndk, {
         recipePubkey,

@@ -204,25 +204,33 @@ function pickWinner(candidates: Candidate[]): Candidate {
 // an older createdAt. Keyed under the winner's promptVersion (which
 // may differ from the requested key's when pantry has an event tagged
 // with a different version — strict version partitioning preserved).
-function writeThrough(
-  requestedKey: NourishCacheKey,
-  winner: Candidate,
-  existing: {
-    l2Hit: ResolvedEntry | undefined;
-    l3HitCreatedAt: number; // 0 when no L3 entry exists
-  }
-): void {
+//
+// Crucially, the existence check must be re-run under the WRITE key,
+// not the requested key. When winner.promptVersion !== requestedKey
+// .promptVersion, the requested-key L2/L3 lookups say nothing about
+// what's stored under writeKey — and blindly writing there could
+// overwrite a newer entry (e.g., localStorage has a fresh v1 entry,
+// pantry returns an older v1 event while the caller asked for v2:
+// the requested-key L3 hit is `undefined`, but the write-key L3 hit
+// is the newer v1 entry we must not clobber).
+function writeThrough(requestedKey: NourishCacheKey, winner: Candidate): void {
   const writeKey: NourishCacheKey = {
     recipePubkey: requestedKey.recipePubkey,
     recipeDTag: requestedKey.recipeDTag,
     promptVersion: winner.entry.promptVersion
   };
+  const writeMapKey = toMapKey(writeKey);
 
-  if (!existing.l2Hit || existing.l2Hit.createdAt < winner.entry.createdAt) {
-    memory.set(toMapKey(writeKey), winner.entry);
+  const existingL2 = memory.get(writeMapKey);
+  if (!existingL2 || existingL2.createdAt < winner.entry.createdAt) {
+    memory.set(writeMapKey, winner.entry);
   }
 
-  if (existing.l3HitCreatedAt < winner.entry.createdAt) {
+  const existingL3 = getNourishCache(writeKey);
+  const existingL3CreatedAt =
+    existingL3?.createdAt ??
+    (existingL3?.timestamp ? Math.floor(existingL3.timestamp / 1000) : 0);
+  if (existingL3CreatedAt < winner.entry.createdAt) {
     setNourishScores(writeKey, winner.entry.scores, {
       contentHash: winner.entry.contentHash,
       createdAt: winner.entry.createdAt,
@@ -298,10 +306,7 @@ async function doResolve(ndk: NDK, key: NourishCacheKey): Promise<ResolveResult>
 
   const winner = pickWinner(candidates);
 
-  writeThrough(key, winner, {
-    l2Hit,
-    l3HitCreatedAt: l3Hit?.createdAt ?? (l3Hit?.timestamp ? Math.floor(l3Hit.timestamp / 1000) : 0)
-  });
+  writeThrough(key, winner);
 
   // Winner isn't pantry AND pantry confirmed miss → our local cache
   // has a score pantry doesn't know about. Republish it so the next
