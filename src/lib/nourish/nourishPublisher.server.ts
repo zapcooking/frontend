@@ -97,11 +97,12 @@ export async function publishNourishEvent(opts: {
   try {
     const privKeyBytes = resolvePrivateKey(privateKey);
     const dTag = buildNourishDTag(recipePubkey, recipeDTag);
+    const createdAt = Math.floor(Date.now() / 1000);
 
     // Build and sign event using nostr-tools (works on CF Workers)
     const event = finalizeEvent({
       kind: 30078,
-      created_at: Math.floor(Date.now() / 1000),
+      created_at: createdAt,
       tags: [
         ['d', dTag],
         ['client', 'zap.cooking'],
@@ -123,7 +124,13 @@ export async function publishNourishEvent(opts: {
         summary: scores.summary,
         improvements,
         ingredient_signals: ingredientSignals,
-        version: scores.version
+        cacheVersion: scores.cacheVersion,
+        // Mirror identity fields into content so the payload is self-
+        // describing (tags already carry them; content duplication lets
+        // downstream consumers read either location).
+        promptVersion: NOURISH_PROMPT_VERSION,
+        contentHash,
+        createdAt
       })
     }, privKeyBytes);
 

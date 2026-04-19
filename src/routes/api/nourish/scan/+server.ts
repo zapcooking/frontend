@@ -14,11 +14,28 @@
  *   title?: string;       // Optional label
  *   imageData?: string;   // Optional base64-encoded image for vision analysis (max ~20MB)
  * }
+ *
+ * Success response:
+ * {
+ *   success: true,
+ *   scores: NourishScores,              // includes cacheVersion
+ *   quick_take: string,                 // one-line narrative
+ *   improvements: string[],             // up to 5
+ *   ingredient_signals: IngredientSignal[],
+ *   promptVersion: string,              // model/prompt identity
+ *   createdAt: number                   // unix seconds
+ * }
+ *
+ * Error response:
+ * {
+ *   success: false,
+ *   error: string
+ * }
  */
 
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
-import { NOURISH_CACHE_VERSION, computeOverallScore } from '$lib/nourish/types';
+import { NOURISH_CACHE_VERSION, NOURISH_PROMPT_VERSION, computeOverallScore } from '$lib/nourish/types';
 import { requireMembership } from '../membershipCheck';
 
 const SCAN_PROMPT = `You are a food analysis assistant for a cooking platform. Analyze the following food description and return quality scores.
@@ -240,7 +257,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 				reason: `Weighted: Real Food 45%, Gut 35%, Protein 20%`
 			},
 			summary: String(parsed.summary || ''),
-			version: NOURISH_CACHE_VERSION
+			cacheVersion: NOURISH_CACHE_VERSION
 		};
 
 		// Parse optional fields gracefully
@@ -267,7 +284,12 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 			scores,
 			quick_take,
 			improvements,
-			ingredient_signals
+			ingredient_signals,
+			// Identity fields — scans have no durable pantry cache, but
+			// response shape stays consistent with /api/nourish so clients
+			// can reconcile by promptVersion / createdAt.
+			promptVersion: NOURISH_PROMPT_VERSION,
+			createdAt: Math.floor(Date.now() / 1000)
 		});
 	} catch (error: any) {
 		console.error('[Nourish Scan] Error:', error);

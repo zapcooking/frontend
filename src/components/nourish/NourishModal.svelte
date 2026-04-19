@@ -52,9 +52,23 @@
 		return { recipePubkey, recipeDTag };
 	}
 
+	// Cache key, or null when the event lacks the coordinates we need to
+	// build a unique key. Empty recipeDTag would collapse keys across
+	// recipes from the same author, so we skip the cache entirely rather
+	// than collide. Hex-validity check on recipePubkey matches the
+	// server-side guard in /api/nourish.
+	const HEX_64_RE = /^[a-fA-F0-9]{64}$/;
+	function toCacheKey(recipePubkey: string, recipeDTag: string) {
+		if (!recipeDTag || !HEX_64_RE.test(recipePubkey)) return null;
+		return { recipePubkey, recipeDTag, promptVersion: NOURISH_PROMPT_VERSION };
+	}
+
 	async function fetchScores() {
+		const { recipePubkey, recipeDTag } = getRecipeCoordinates();
+		const cacheKey = toCacheKey(recipePubkey, recipeDTag);
+
 		// 1. Check localStorage cache (instant)
-		const cached = getNourishCache(event.id);
+		const cached = cacheKey ? getNourishCache(cacheKey) : null;
 		if (cached) {
 			scores = cached.scores;
 			improvements = [];
@@ -67,7 +81,11 @@
 					}
 				}).catch(() => {});
 			}
-			analyzedAt = cached.timestamp ? Math.floor(cached.timestamp / 1000) : 0;
+			// Prefer the score's createdAt (when analysis actually ran) over
+			// the cache's timestamp (when localStorage last wrote). They
+			// diverge across reloads, and createdAt is the one users see in
+			// the "analyzed at" label.
+			analyzedAt = cached.createdAt ?? (cached.timestamp ? Math.floor(cached.timestamp / 1000) : 0);
 			return;
 		}
 
@@ -75,7 +93,6 @@
 		checking = true;
 		error = '';
 		try {
-			const { recipePubkey, recipeDTag } = getRecipeCoordinates();
 			if (recipePubkey && recipeDTag && $ndk) {
 				const relayResult = await fetchNourishEvent($ndk, recipePubkey, recipeDTag);
 				if (relayResult) {
@@ -83,15 +100,33 @@
 					buildImprovements(relayResult.scores, relayResult.improvements);
 					analyzedAt = relayResult.createdAt;
 
-					// Cache locally for next time
-					setNourishScores(event.id, relayResult.scores, {
-						contentHash: relayResult.contentHash,
-						improvements: relayResult.improvements
-					});
+					// Cache locally for next time, keyed under the relay event's
+					// own prompt version so a v1 hit doesn't collide with v2.
+					// Guarded by toCacheKey — if coordinates are incomplete we
+					// skip the write rather than produce a colliding key.
+					const writeKey = toCacheKey(recipePubkey, recipeDTag);
+					if (writeKey) {
+						setNourishScores(
+							{ ...writeKey, promptVersion: relayResult.promptVersion },
+							relayResult.scores,
+							{
+								contentHash: relayResult.contentHash,
+								createdAt: relayResult.createdAt,
+								improvements: relayResult.improvements
+							}
+						);
+					}
 
 					// Populate ingredient store from relay data (build dataset over time)
 					if (relayResult.ingredientSignals.length > 0) {
-						ingredientStore.saveIngredients(relayResult.ingredientSignals, 'recipe', event.id).catch(() => {});
+						ingredientStore
+							.saveIngredients(
+								relayResult.ingredientSignals,
+								'recipe',
+								event.id,
+								relayResult.promptVersion
+							)
+							.catch(() => {});
 					}
 
 					// Check staleness
@@ -150,16 +185,26 @@
 			if (!data.success) { error = data.error || 'Failed to analyze recipe.'; return; }
 
 			scores = data.scores;
-			analyzedAt = Math.floor(Date.now() / 1000);
-			setNourishScores(event.id, data.scores, {
-				contentHash,
-				improvements: data.improvements,
-				ingredientSignals: data.ingredient_signals
-			});
+			analyzedAt = data.createdAt ?? Math.floor(Date.now() / 1000);
+			const writeKey = toCacheKey(recipePubkey, recipeDTag);
+			if (writeKey) {
+				setNourishScores(
+					{ ...writeKey, promptVersion: data.promptVersion ?? NOURISH_PROMPT_VERSION },
+					data.scores,
+					{
+						contentHash,
+						createdAt: data.createdAt,
+						improvements: data.improvements,
+						ingredientSignals: data.ingredient_signals
+					}
+				);
+			}
 			buildImprovements(data.scores, data.improvements);
 
 			if (data.ingredient_signals?.length > 0) {
-				ingredientStore.saveIngredients(data.ingredient_signals, 'recipe', event.id).catch(() => {});
+				ingredientStore
+					.saveIngredients(data.ingredient_signals, 'recipe', event.id, data.promptVersion)
+					.catch(() => {});
 			}
 		} catch (err) {
 			console.error('[Nourish] Fetch error:', err);

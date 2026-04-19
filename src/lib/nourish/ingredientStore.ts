@@ -60,7 +60,8 @@ class IngredientStoreManager {
 	async saveIngredients(
 		signals: IngredientSignal[],
 		source: 'recipe' | 'scan',
-		sourceId?: string
+		sourceId?: string,
+		promptVersion?: string
 	): Promise<void> {
 		if (!browser || signals.length === 0) return;
 		await this.dbReady;
@@ -79,7 +80,8 @@ class IngredientStoreManager {
 					contribution: signal.contribution,
 					source,
 					sourceId,
-					createdAt: now
+					createdAt: now,
+					promptVersion
 				};
 				store.put(record);
 			}

@@ -12,7 +12,8 @@ export {
 	type IngredientRecord
 } from './types';
 
-export { getNourishScores, setNourishScores, getScanResult, setScanResult } from './cache';
+export { getNourishCache, setNourishScores, getScanResult, setScanResult } from './cache';
+export type { NourishCacheKey } from './cache';
 
 export { generateSuggestions, mergeImprovements } from './suggestions';
 

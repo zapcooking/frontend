@@ -115,7 +115,9 @@ export function parseNourishEvent(event: NDKEvent): NourishRelayResult | null {
         reason: content.overall?.reason || `Weighted: Real Food 45%, Gut 35%, Protein 20%`
       },
       summary: content.summary || '',
-      version: content.version || NOURISH_CACHE_VERSION
+      // Accept both the new `cacheVersion` and the legacy `version` field
+      // so pre-2.0 events in the wild still parse.
+      cacheVersion: content.cacheVersion || content.version || NOURISH_CACHE_VERSION
     };
 
     const improvements: string[] = Array.isArray(content.improvements)
@@ -126,9 +128,11 @@ export function parseNourishEvent(event: NDKEvent): NourishRelayResult | null {
       ? content.ingredient_signals.filter((i: any) => i && typeof i.name === 'string')
       : [];
 
-    // Extract metadata from tags
+    // Extract metadata from tags. Untagged legacy events surface as
+    // 'unknown' so the admin rescore-candidates view can triage them,
+    // rather than being silently mislabelled as v1.
     const contentHash = event.tags.find((t) => t[0] === 'content_hash')?.[1] || '';
-    const promptVersion = event.tags.find((t) => t[0] === 'prompt_version')?.[1] || '1';
+    const promptVersion = event.tags.find((t) => t[0] === 'prompt_version')?.[1] || 'unknown';
     const nourishVersion = event.tags.find((t) => t[0] === 'nourish_version')?.[1] || NOURISH_CACHE_VERSION;
 
     return {

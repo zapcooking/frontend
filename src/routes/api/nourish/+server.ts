@@ -13,20 +13,33 @@
  *   title: string,
  *   ingredients: string[],
  *   tags: string[],
- *   servings: string
+ *   servings: string,
+ *   recipePubkey?: string,     // hex — required for pantry publish
+ *   recipeDTag?: string,       // required for pantry publish
+ *   contentHash?: string       // SHA-256 hex — required for pantry publish
  * }
  *
- * Returns:
+ * Success response:
  * {
- *   success: boolean,
- *   scores?: NourishScores,
- *   error?: string
+ *   success: true,
+ *   scores: NourishScores,              // includes cacheVersion
+ *   improvements: string[],             // up to 5
+ *   ingredient_signals: IngredientSignal[],
+ *   promptVersion: string,              // model/prompt identity
+ *   contentHash?: string,               // echoed when valid
+ *   createdAt: number                   // unix seconds
+ * }
+ *
+ * Error response:
+ * {
+ *   success: false,
+ *   error: string
  * }
  */
 
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
-import { NOURISH_CACHE_VERSION, computeOverallScore } from '$lib/nourish/types';
+import { NOURISH_CACHE_VERSION, NOURISH_PROMPT_VERSION, computeOverallScore } from '$lib/nourish/types';
 import { requireMembership } from './membershipCheck';
 
 const NOURISH_PROMPT = `You are a recipe analysis assistant for a cooking platform. Analyze the recipe below and return three food quality scores.
@@ -217,7 +230,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 				reason: `Weighted: Real Food 45%, Gut 35%, Protein 20%`
 			},
 			summary: String(parsed.summary || ''),
-			version: NOURISH_CACHE_VERSION
+			cacheVersion: NOURISH_CACHE_VERSION
 		};
 
 		// Parse optional new fields gracefully (backward compatible)
@@ -269,7 +282,17 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 			}
 		}
 
-		return json({ success: true, scores, improvements, ingredient_signals });
+		return json({
+			success: true,
+			scores,
+			improvements,
+			ingredient_signals,
+			// Identity fields — let clients cache/reconcile by promptVersion
+			// + contentHash + createdAt instead of inferring from cacheVersion.
+			promptVersion: NOURISH_PROMPT_VERSION,
+			contentHash: validContentHash ? contentHash.trim() : undefined,
+			createdAt: Math.floor(Date.now() / 1000)
+		});
 	} catch (error: any) {
 		console.error('[Nourish] Error:', error);
 		return json(
