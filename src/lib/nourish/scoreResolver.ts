@@ -10,15 +10,14 @@
  *   L3 localStorage      — 7d TTL (via cache.ts)
  *   L4 pantry relay      — durable, authoritative source
  *
- * Commit 2 introduced L1 + L2 with a simple "first non-null in L2 →
- * L3 → L4" rule. Commit 3 (this commit) upgrades that to a full
- * createdAt-based winner with write-through reconciliation across
- * layers: gather all candidates, pick the max-createdAt one (tiebreak:
- * pantry > local > memory), write-through to any layer that's missing
- * or carrying an older entry, and call scheduleOpportunisticRepublish
- * when the winner didn't come from pantry AND pantry confirmed a miss.
- * Commit 4 will split pantry timeout out from miss and introduce the
- * retry UI state.
+ * Resolution algorithm: gather all layer candidates, pick the
+ * max-createdAt one (tiebreak: pantry > local > memory), write-through
+ * to any layer that's missing or carrying an older entry, and call
+ * scheduleOpportunisticRepublish when the winner didn't come from
+ * pantry AND pantry confirmed a miss. Pantry timeout with no other
+ * candidates returns { status: 'timeout', attemptCount } so the
+ * retry UI can surface the blocked state explicitly (drift #1 fix)
+ * instead of silently falling through to compute.
  *
  * The resolver never computes a fresh score — that's the caller's
  * concern (/api/nourish + membership gating). A `miss` result means
@@ -44,7 +43,8 @@ export interface ResolvedEntry {
 
 export type ResolveResult =
   | { status: 'hit'; source: 'memory' | 'local' | 'pantry'; entry: ResolvedEntry }
-  | { status: 'miss' };
+  | { status: 'miss' }
+  | { status: 'timeout'; attemptCount: number };
 
 // ─── Key helpers ────────────────────────────────────────────
 
@@ -100,7 +100,6 @@ interface AttemptWindow {
 const WINDOW_MS = 60_000;
 const attempts = new Map<string, AttemptWindow>();
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars -- commit 4 wires
 function recordTimeout(key: NourishCacheKey): number {
   const k = toMapKey(key);
   const now = Date.now();
@@ -282,10 +281,18 @@ async function doResolve(ndk: NDK, key: NourishCacheKey): Promise<ResolveResult>
     });
   }
 
+  // Emit pantry-timeout warn regardless of other candidates so the
+  // Workers log captures p95 data for calibration. recordTimeout is
+  // only called when the user is blocked (no other candidates) — the
+  // counter drives the "Score now" escape hatch, not observability.
+  if (l4.status === 'timeout') {
+    console.warn('[nourish.pantry.timeout]', { key: toMapKey(key) });
+  }
+
   if (candidates.length === 0) {
-    // Commit 3 still folds timeout into miss via queryNourishEvent.
-    // Commit 4 splits them and emits [nourish.pantry.timeout] plus a
-    // { status: 'timeout' } return with recordTimeout(key) attached.
+    if (l4.status === 'timeout') {
+      return { status: 'timeout', attemptCount: recordTimeout(key) };
+    }
     return { status: 'miss' };
   }
 
