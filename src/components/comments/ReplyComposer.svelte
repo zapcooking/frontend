@@ -23,6 +23,7 @@
 	import { createEventDispatcher, onDestroy } from 'svelte';
 	import MentionDropdown from '../MentionDropdown.svelte';
 	import { MentionComposerController, type MentionState } from '$lib/mentionComposer';
+	import { clickOutside } from '$lib/clickOutside';
 	import GifIcon from 'phosphor-svelte/lib/Gif';
 	import ImageIcon from 'phosphor-svelte/lib/Image';
 	import VideoIcon from 'phosphor-svelte/lib/Video';
@@ -82,6 +83,22 @@
 	let uploadError = '';
 	let imageInputEl: HTMLInputElement;
 	let videoInputEl: HTMLInputElement;
+	let showMediaMenu = false;
+
+	function openImagePicker() {
+		showMediaMenu = false;
+		imageInputEl?.click();
+	}
+
+	function openVideoPicker() {
+		showMediaMenu = false;
+		videoInputEl?.click();
+	}
+
+	// Close the media menu if posting / upload starts while it's open.
+	$: if (showMediaMenu && (posting || uploadingImage || uploadingVideo)) {
+		showMediaMenu = false;
+	}
 
 	let mentionState: MentionState = {
 		mentionQuery: '',
@@ -346,13 +363,46 @@
 	{/if}
 
 	<div class="reply-composer-actions">
-		<label
-			class="btn-media"
-			class:opacity-50={uploadingImage || uploadingVideo || posting}
-			title="Upload image"
-			aria-label="Upload image"
+		<div
+			class="media-menu"
+			use:clickOutside
+			on:click_outside={() => (showMediaMenu = false)}
 		>
-			<ImageIcon size={compact ? 16 : 18} />
+			<button
+				type="button"
+				class="btn-media"
+				class:opacity-50={uploadingImage || uploadingVideo || posting}
+				title="Upload photo or video"
+				aria-label="Upload photo or video"
+				aria-haspopup="menu"
+				aria-expanded={showMediaMenu}
+				disabled={posting || uploadingImage || uploadingVideo}
+				on:click={() => (showMediaMenu = !showMediaMenu)}
+			>
+				<ImageIcon size={compact ? 16 : 18} />
+			</button>
+			{#if showMediaMenu}
+				<div class="media-menu-panel" role="menu">
+					<button
+						type="button"
+						class="media-menu-item"
+						role="menuitem"
+						on:click={openImagePicker}
+					>
+						<ImageIcon size={16} />
+						<span>Photo</span>
+					</button>
+					<button
+						type="button"
+						class="media-menu-item"
+						role="menuitem"
+						on:click={openVideoPicker}
+					>
+						<VideoIcon size={16} />
+						<span>Video</span>
+					</button>
+				</div>
+			{/if}
 			<input
 				bind:this={imageInputEl}
 				type="file"
@@ -361,14 +411,6 @@
 				on:change={handleImageUpload}
 				disabled={posting || uploadingImage || uploadingVideo}
 			/>
-		</label>
-		<label
-			class="btn-media"
-			class:opacity-50={uploadingImage || uploadingVideo || posting}
-			title="Upload video"
-			aria-label="Upload video"
-		>
-			<VideoIcon size={compact ? 16 : 18} />
 			<input
 				bind:this={videoInputEl}
 				type="file"
@@ -377,7 +419,7 @@
 				on:change={handleVideoUpload}
 				disabled={posting || uploadingImage || uploadingVideo}
 			/>
-		</label>
+		</div>
 		<button
 			type="button"
 			on:click={() => (showGifPicker = true)}
@@ -543,8 +585,47 @@
 		opacity: 0.7;
 	}
 
-	.btn-gif:disabled {
+	.btn-gif:disabled,
+	.btn-media:disabled {
 		opacity: 0.4;
 		cursor: not-allowed;
+	}
+
+	.media-menu {
+		position: relative;
+		display: inline-flex;
+	}
+
+	.media-menu-panel {
+		position: absolute;
+		bottom: calc(100% + 0.375rem);
+		left: 0;
+		z-index: 45;
+		background: var(--color-bg-secondary);
+		border: 1px solid var(--color-input-border);
+		border-radius: 0.6rem;
+		min-width: 140px;
+		padding: 0.3rem;
+		display: flex;
+		flex-direction: column;
+		gap: 0.15rem;
+		box-shadow: 0 8px 20px rgba(15, 23, 42, 0.2);
+	}
+
+	.media-menu-item {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		padding: 0.4rem 0.6rem;
+		border-radius: 0.4rem;
+		color: var(--color-text-primary);
+		font-size: 0.8125rem;
+		font-weight: 500;
+		text-align: left;
+		transition: background 0.15s ease;
+	}
+
+	.media-menu-item:hover {
+		background: var(--color-accent-gray);
 	}
 </style>
