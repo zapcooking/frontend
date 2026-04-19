@@ -22,6 +22,7 @@
   import { MentionComposerController, type MentionState } from '$lib/mentionComposer';
   import { uploadImage, uploadVideo } from '$lib/mediaUpload';
   import { detectHaiku } from '$lib/haiku';
+  import { clickOutside } from '$lib/clickOutside';
 
   // Clear stuck posts from the publish queue
   async function clearPendingQueue() {
@@ -57,6 +58,17 @@
   let uploadingVideo = false;
   let imageInputEl: HTMLInputElement;
   let videoInputEl: HTMLInputElement;
+  let showMediaMenu = false;
+
+  function openImagePicker() {
+    showMediaMenu = false;
+    imageInputEl?.click();
+  }
+
+  function openVideoPicker() {
+    showMediaMenu = false;
+    videoInputEl?.click();
+  }
   let quotedNote: { nevent: string; event: NDKEventType } | null = null;
   let showGifPicker = false;
   let showPollCreator = false;
@@ -650,14 +662,46 @@
             style="border-top: 1px solid var(--color-input-border)"
           >
           <div class="flex items-center gap-3">
-            <label
-              class="cursor-pointer p-1.5 rounded-full hover:bg-accent-gray transition-colors"
-              class:opacity-50={posting || uploadingImage || uploadingVideo}
-              class:cursor-not-allowed={posting || uploadingImage || uploadingVideo}
-              aria-disabled={posting || uploadingImage}
-              title="Upload image"
+            <div
+              class="media-menu"
+              use:clickOutside
+              on:click_outside={() => (showMediaMenu = false)}
             >
-              <ImageIcon size={18} class="text-caption" />
+              <button
+                type="button"
+                class="cursor-pointer p-1.5 rounded-full hover:bg-accent-gray transition-colors"
+                class:opacity-50={posting || uploadingImage || uploadingVideo}
+                class:cursor-not-allowed={posting || uploadingImage || uploadingVideo}
+                disabled={posting || uploadingImage || uploadingVideo}
+                aria-haspopup="menu"
+                aria-expanded={showMediaMenu}
+                title="Upload photo or video"
+                on:click={() => (showMediaMenu = !showMediaMenu)}
+              >
+                <ImageIcon size={18} class="text-caption" />
+              </button>
+              {#if showMediaMenu}
+                <div class="media-menu-panel" role="menu">
+                  <button
+                    type="button"
+                    class="media-menu-item"
+                    role="menuitem"
+                    on:click={openImagePicker}
+                  >
+                    <ImageIcon size={16} />
+                    <span>Photo</span>
+                  </button>
+                  <button
+                    type="button"
+                    class="media-menu-item"
+                    role="menuitem"
+                    on:click={openVideoPicker}
+                  >
+                    <VideoIcon size={16} />
+                    <span>Video</span>
+                  </button>
+                </div>
+              {/if}
               <input
                 bind:this={imageInputEl}
                 type="file"
@@ -666,16 +710,6 @@
                 on:change={handleImageUpload}
                 disabled={posting || uploadingImage}
               />
-            </label>
-
-            <label
-              class="cursor-pointer p-1.5 rounded-full hover:bg-accent-gray transition-colors"
-              class:opacity-50={posting || uploadingVideo}
-              class:cursor-not-allowed={posting || uploadingVideo}
-              aria-disabled={posting || uploadingVideo}
-              title="Upload video"
-            >
-              <VideoIcon size={18} class="text-caption" />
               <input
                 bind:this={videoInputEl}
                 type="file"
@@ -684,7 +718,7 @@
                 on:change={handleVideoUpload}
                 disabled={posting || uploadingVideo}
               />
-            </label>
+            </div>
 
             <button
               on:click={() => (showGifPicker = true)}
@@ -918,5 +952,43 @@
   .quoted-note-content :global(*) {
     overflow-wrap: anywhere;
     word-break: break-word;
+  }
+
+  .media-menu {
+    position: relative;
+    display: inline-flex;
+  }
+
+  .media-menu-panel {
+    position: absolute;
+    bottom: calc(100% + 0.375rem);
+    left: 0;
+    z-index: 45;
+    background: var(--color-bg-secondary);
+    border: 1px solid var(--color-input-border);
+    border-radius: 0.6rem;
+    min-width: 140px;
+    padding: 0.3rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    box-shadow: 0 8px 20px rgba(15, 23, 42, 0.2);
+  }
+
+  .media-menu-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.4rem 0.6rem;
+    border-radius: 0.4rem;
+    color: var(--color-text-primary);
+    font-size: 0.8125rem;
+    font-weight: 500;
+    text-align: left;
+    transition: background 0.15s ease;
+  }
+
+  .media-menu-item:hover {
+    background: var(--color-accent-gray);
   }
 </style>
