@@ -14,9 +14,22 @@ md.renderer.rules.link_open = function(tokens, idx, options, env, self) {
   return defaultRender(tokens, idx, options, env, self);
 };
 
+// DOMPurify's default config can drop target/rel on <a> in some browsers;
+// force both back on after sanitization so rendered markdown links always
+// open in a new tab (important for the recipe editor preview — clicking a
+// link in-place would otherwise destroy unsaved edits).
+if (typeof window !== 'undefined') {
+  DOMPurify.addHook('afterSanitizeAttributes', (node) => {
+    if (node.tagName === 'A') {
+      node.setAttribute('target', '_blank');
+      node.setAttribute('rel', 'noopener noreferrer');
+    }
+  });
+}
+
 export function parseMarkdown(markdown: string) {
   const parsedMarkdown = md.render(markdown);
-  return DOMPurify.sanitize(parsedMarkdown);
+  return DOMPurify.sanitize(parsedMarkdown, { ADD_ATTR: ['target'] });
 }
 
 interface MarkdownInformation {
