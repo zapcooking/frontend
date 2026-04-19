@@ -13,14 +13,27 @@
  *   title: string,
  *   ingredients: string[],
  *   tags: string[],
- *   servings: string
+ *   servings: string,
+ *   recipePubkey?: string,     // hex — required for pantry publish
+ *   recipeDTag?: string,       // required for pantry publish
+ *   contentHash?: string       // SHA-256 hex — required for pantry publish
  * }
  *
- * Returns:
+ * Success response:
  * {
- *   success: boolean,
- *   scores?: NourishScores,
- *   error?: string
+ *   success: true,
+ *   scores: NourishScores,              // includes cacheVersion
+ *   improvements: string[],             // up to 5
+ *   ingredient_signals: IngredientSignal[],
+ *   promptVersion: string,              // model/prompt identity
+ *   contentHash?: string,               // echoed when valid
+ *   createdAt: number                   // unix seconds
+ * }
+ *
+ * Error response:
+ * {
+ *   success: false,
+ *   error: string
  * }
  */
 

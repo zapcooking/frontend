@@ -14,6 +14,23 @@
  *   title?: string;       // Optional label
  *   imageData?: string;   // Optional base64-encoded image for vision analysis (max ~20MB)
  * }
+ *
+ * Success response:
+ * {
+ *   success: true,
+ *   scores: NourishScores,              // includes cacheVersion
+ *   quick_take: string,                 // one-line narrative
+ *   improvements: string[],             // up to 5
+ *   ingredient_signals: IngredientSignal[],
+ *   promptVersion: string,              // model/prompt identity
+ *   createdAt: number                   // unix seconds
+ * }
+ *
+ * Error response:
+ * {
+ *   success: false,
+ *   error: string
+ * }
  */
 
 import { json, type RequestHandler } from '@sveltejs/kit';

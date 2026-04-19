@@ -52,12 +52,23 @@
 		return { recipePubkey, recipeDTag };
 	}
 
+	// Cache key, or null when the event lacks the coordinates we need to
+	// build a unique key. Empty recipeDTag would collapse keys across
+	// recipes from the same author, so we skip the cache entirely rather
+	// than collide. Hex-validity check on recipePubkey matches the
+	// server-side guard in /api/nourish.
+	const HEX_64_RE = /^[a-fA-F0-9]{64}$/;
+	function toCacheKey(recipePubkey: string, recipeDTag: string) {
+		if (!recipeDTag || !HEX_64_RE.test(recipePubkey)) return null;
+		return { recipePubkey, recipeDTag, promptVersion: NOURISH_PROMPT_VERSION };
+	}
+
 	async function fetchScores() {
 		const { recipePubkey, recipeDTag } = getRecipeCoordinates();
-		const cacheKey = { recipePubkey, recipeDTag, promptVersion: NOURISH_PROMPT_VERSION };
+		const cacheKey = toCacheKey(recipePubkey, recipeDTag);
 
 		// 1. Check localStorage cache (instant)
-		const cached = getNourishCache(cacheKey);
+		const cached = cacheKey ? getNourishCache(cacheKey) : null;
 		if (cached) {
 			scores = cached.scores;
 			improvements = [];
@@ -70,7 +81,11 @@
 					}
 				}).catch(() => {});
 			}
-			analyzedAt = cached.timestamp ? Math.floor(cached.timestamp / 1000) : 0;
+			// Prefer the score's createdAt (when analysis actually ran) over
+			// the cache's timestamp (when localStorage last wrote). They
+			// diverge across reloads, and createdAt is the one users see in
+			// the "analyzed at" label.
+			analyzedAt = cached.createdAt ?? (cached.timestamp ? Math.floor(cached.timestamp / 1000) : 0);
 			return;
 		}
 
@@ -87,15 +102,20 @@
 
 					// Cache locally for next time, keyed under the relay event's
 					// own prompt version so a v1 hit doesn't collide with v2.
-					setNourishScores(
-						{ recipePubkey, recipeDTag, promptVersion: relayResult.promptVersion },
-						relayResult.scores,
-						{
-							contentHash: relayResult.contentHash,
-							createdAt: relayResult.createdAt,
-							improvements: relayResult.improvements
-						}
-					);
+					// Guarded by toCacheKey — if coordinates are incomplete we
+					// skip the write rather than produce a colliding key.
+					const writeKey = toCacheKey(recipePubkey, recipeDTag);
+					if (writeKey) {
+						setNourishScores(
+							{ ...writeKey, promptVersion: relayResult.promptVersion },
+							relayResult.scores,
+							{
+								contentHash: relayResult.contentHash,
+								createdAt: relayResult.createdAt,
+								improvements: relayResult.improvements
+							}
+						);
+					}
 
 					// Populate ingredient store from relay data (build dataset over time)
 					if (relayResult.ingredientSignals.length > 0) {
@@ -166,20 +186,19 @@
 
 			scores = data.scores;
 			analyzedAt = data.createdAt ?? Math.floor(Date.now() / 1000);
-			setNourishScores(
-				{
-					recipePubkey,
-					recipeDTag,
-					promptVersion: data.promptVersion ?? NOURISH_PROMPT_VERSION
-				},
-				data.scores,
-				{
-					contentHash,
-					createdAt: data.createdAt,
-					improvements: data.improvements,
-					ingredientSignals: data.ingredient_signals
-				}
-			);
+			const writeKey = toCacheKey(recipePubkey, recipeDTag);
+			if (writeKey) {
+				setNourishScores(
+					{ ...writeKey, promptVersion: data.promptVersion ?? NOURISH_PROMPT_VERSION },
+					data.scores,
+					{
+						contentHash,
+						createdAt: data.createdAt,
+						improvements: data.improvements,
+						ingredientSignals: data.ingredient_signals
+					}
+				);
+			}
 			buildImprovements(data.scores, data.improvements);
 
 			if (data.ingredient_signals?.length > 0) {
