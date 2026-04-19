@@ -55,7 +55,14 @@
 
   // Tab state: 'recipes' | 'posts' | 'media' | 'reads' | 'following' | 'drafts'
   // Default to 'posts' tab for a more social-first experience
-  let activeTab: 'recipes' | 'posts' | 'media' | 'reads' | 'following' | 'drafts' = 'posts';
+  let activeTab:
+    | 'recipes'
+    | 'posts'
+    | 'replies'
+    | 'media'
+    | 'reads'
+    | 'following'
+    | 'drafts' = 'posts';
 
   // Reads tab state (longform articles)
   let readsEvents: NDKEvent[] = [];
@@ -101,9 +108,12 @@
   let oldestRecipeTime: number | null = null;
   let recipeSentinel: HTMLElement;
   let postsSentinel: HTMLElement;
+  let repliesSentinel: HTMLElement;
   let foodstrFeedComponent: FoodstrFeedOptimized;
+  let foodstrRepliesFeedComponent: FoodstrFeedOptimized;
   let recipeObserver: IntersectionObserver | null = null;
   let postsObserver: IntersectionObserver | null = null;
+  let repliesObserver: IntersectionObserver | null = null;
   let readsObserver: IntersectionObserver | null = null;
   let mediaObserver: IntersectionObserver | null = null;
 
@@ -1473,6 +1483,10 @@
       postsObserver.disconnect();
       postsObserver = null;
     }
+    if (repliesObserver) {
+      repliesObserver.disconnect();
+      repliesObserver = null;
+    }
     if (readsObserver) {
       readsObserver.disconnect();
       readsObserver = null;
@@ -1513,6 +1527,28 @@
         { rootMargin: '200px' }
       );
       postsObserver.observe(postsSentinel);
+    }
+
+    // Observer for replies tab
+    if (repliesSentinel && activeTab === 'replies') {
+      repliesObserver = new IntersectionObserver(
+        (entries) => {
+          if (
+            entries[0].isIntersecting &&
+            activeTab === 'replies' &&
+            foodstrRepliesFeedComponent
+          ) {
+            if (
+              foodstrRepliesFeedComponent &&
+              typeof (foodstrRepliesFeedComponent as any).loadMore === 'function'
+            ) {
+              (foodstrRepliesFeedComponent as any).loadMore();
+            }
+          }
+        },
+        { rootMargin: '200px' }
+      );
+      repliesObserver.observe(repliesSentinel);
     }
 
     // Observer for reads tab
@@ -1557,7 +1593,7 @@
   }
 
   // Reactive statement to setup observers when tab or sentinels change
-  $: if (recipeSentinel || postsSentinel || readsSentinel || mediaSentinel) {
+  $: if (recipeSentinel || postsSentinel || repliesSentinel || readsSentinel || mediaSentinel) {
     // Use setTimeout to ensure DOM is ready
     setTimeout(() => {
       setupObservers();
@@ -1572,6 +1608,10 @@
     if (postsObserver) {
       postsObserver.disconnect();
       postsObserver = null;
+    }
+    if (repliesObserver) {
+      repliesObserver.disconnect();
+      repliesObserver = null;
     }
     if (readsObserver) {
       readsObserver.disconnect();
@@ -1975,6 +2015,20 @@
         {/if}
       </button>
       <button
+        on:click={() => (activeTab = 'replies')}
+        class="px-4 py-2 text-sm font-medium transition-colors relative"
+        style="color: {activeTab === 'replies'
+          ? 'var(--color-text-primary)'
+          : 'var(--color-text-secondary)'}"
+      >
+        Replies
+        {#if activeTab === 'replies'}
+          <span
+            class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-orange-500 to-amber-500"
+          ></span>
+        {/if}
+      </button>
+      <button
         on:click={() => (activeTab = 'media')}
         class="px-4 py-2 text-sm font-medium transition-colors relative"
         style="color: {activeTab === 'media'
@@ -2079,8 +2133,21 @@
     {/if}
   {:else if activeTab === 'posts'}
     <div class="max-w-2xl w-full">
-      <FoodstrFeedOptimized bind:this={foodstrFeedComponent} authorPubkey={hexpubkey} />
+      <FoodstrFeedOptimized
+        bind:this={foodstrFeedComponent}
+        authorPubkey={hexpubkey}
+        authorScope="top-level"
+      />
       <div bind:this={postsSentinel} class="py-4 text-center"></div>
+    </div>
+  {:else if activeTab === 'replies'}
+    <div class="max-w-2xl w-full">
+      <FoodstrFeedOptimized
+        bind:this={foodstrRepliesFeedComponent}
+        authorPubkey={hexpubkey}
+        authorScope="replies"
+      />
+      <div bind:this={repliesSentinel} class="py-4 text-center"></div>
     </div>
   {:else if activeTab === 'media'}
     {#if !mediaLoaded}

@@ -142,6 +142,9 @@
   export let hideAvatar: boolean = false;
   export let hideAuthorName: boolean = false;
   export let filterMode: 'global' | 'following' | 'replies' | 'members' | 'garden' = 'global';
+  // When `authorPubkey` is set, restrict to top-level notes or replies only.
+  // 'all' (default) preserves the prior behavior for any other call sites.
+  export let authorScope: 'all' | 'top-level' | 'replies' = 'all';
 
   // Exposed refresh function for pull-to-refresh
   export async function refresh(): Promise<void> {
@@ -1690,6 +1693,10 @@
           // Filter cached events the same way we filter fresh events
           const validCached = cachedEvents.filter((event) => {
             if (filterMode === 'following' && isReply(event)) return false;
+            if (authorPubkey) {
+              if (authorScope === 'top-level' && isReply(event)) return false;
+              if (authorScope === 'replies' && !isReply(event)) return false;
+            }
             return shouldIncludeEvent(event);
           });
 
@@ -2529,6 +2536,12 @@
         // Global feed: exclude replies (only show top-level notes)
         if (!authorPubkey && isReply(event)) {
           return false;
+        }
+
+        // Profile view: honor the requested reply scope.
+        if (authorPubkey) {
+          if (authorScope === 'top-level' && isReply(event)) return false;
+          if (authorScope === 'replies' && !isReply(event)) return false;
         }
 
         // Apply food filter based on context
