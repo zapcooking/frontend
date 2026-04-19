@@ -119,12 +119,12 @@
   >
     <img
       src={SVGNostrCookingWithText}
-      class="w-28 sm:w-40 my-2 sm:my-3 dark:hidden"
+      class="logo-light w-28 sm:w-40 my-2 sm:my-3 dark:hidden"
       alt="zap.cooking Logo With Text"
     />
     <img
       src="/zap_cooking_logo_white.svg"
-      class="w-28 sm:w-40 my-2 sm:my-3 hidden dark:block"
+      class="logo-dark w-28 sm:w-40 my-2 sm:my-3 hidden dark:block"
       alt="zap.cooking Logo With Text"
     />
   </button>
