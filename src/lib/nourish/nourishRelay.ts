@@ -19,7 +19,17 @@ import {
 } from './types';
 
 const PANTRY_RELAY = 'wss://pantry.zap.cooking';
-const QUERY_TIMEOUT_MS = 4000;
+// Pantry query timeout. Calibrated to 2s — healthy pantry median sits
+// at ~800ms, so 2s catches p95 with headroom. Revisit if production
+// observability shows timeout rate >5% sustained.
+const DEFAULT_QUERY_TIMEOUT_MS = 2000;
+
+// Sentinel used to disambiguate pantry timeout from an explicit no-event
+// response. Without it, Promise.race([eventPromise, timeoutPromise])
+// collapses both "relay returned null" and "timer fired" into the same
+// null value, and the resolver needs to tell them apart for the retry
+// UI (drift #1 fix).
+const TIMEOUT_SENTINEL = Symbol('nourish-pantry-timeout');
 
 // ─── Content hashing ────────────────────────────────────────
 
@@ -47,14 +57,47 @@ export function buildNourishDTag(recipePubkey: string, recipeDTag: string): stri
 /**
  * Fetch an existing Nourish analysis event from the pantry relay.
  * Returns null if no analysis exists for this recipe.
+ *
+ * Retained for existing callers outside the resolver path (e.g.
+ * nourishDiscovery). The resolver uses queryNourishEvent below,
+ * which returns a discriminated hit/miss result. Migration of the
+ * discovery caller to queryNourishEvent is a follow-up; once that
+ * lands, this wrapper can be deleted.
  */
 export async function fetchNourishEvent(
   ndk: NDK,
   recipePubkey: string,
   recipeDTag: string
 ): Promise<NourishRelayResult | null> {
+  const res = await queryNourishEvent(ndk, recipePubkey, recipeDTag);
+  return res.status === 'hit' ? res.result : null;
+}
+
+/**
+ * Query the pantry relay with a discriminated result.
+ *
+ * Three-way status:
+ *   - hit:     an event was returned and parsed
+ *   - miss:    pantry confirmed no event (or parse failed)
+ *   - timeout: timer fired before pantry responded
+ *
+ * The timeout/miss split is what lets the resolver show a retry UI
+ * when pantry is unreachable (drift #1 fix) instead of silently
+ * falling through to a fresh /api/nourish compute.
+ */
+export async function queryNourishEvent(
+  ndk: NDK,
+  recipePubkey: string,
+  recipeDTag: string,
+  timeoutMs: number = DEFAULT_QUERY_TIMEOUT_MS
+): Promise<
+  | { status: 'hit'; result: NourishRelayResult }
+  | { status: 'miss' }
+  | { status: 'timeout' }
+> {
   const dTag = buildNourishDTag(recipePubkey, recipeDTag);
 
+  let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
   try {
     const filter = {
       kinds: [30078 as number],
@@ -62,21 +105,27 @@ export async function fetchNourishEvent(
       '#d': [dTag]
     };
 
-    // Query the pantry relay specifically (where Nourish events are published)
     const relaySet = NDKRelaySet.fromRelayUrls([PANTRY_RELAY], ndk, true);
 
-    // Race against timeout
     const eventPromise = ndk.fetchEvent(filter, undefined, relaySet);
-    const timeoutPromise = new Promise<null>((resolve) =>
-      setTimeout(() => resolve(null), QUERY_TIMEOUT_MS)
-    );
+    const timeoutPromise = new Promise<typeof TIMEOUT_SENTINEL>((resolve) => {
+      timeoutHandle = setTimeout(() => resolve(TIMEOUT_SENTINEL), timeoutMs);
+    });
 
-    const event = await Promise.race([eventPromise, timeoutPromise]);
-    if (!event) return null;
+    const winner = await Promise.race([eventPromise, timeoutPromise]);
+    if (winner === TIMEOUT_SENTINEL) return { status: 'timeout' };
+    if (!winner) return { status: 'miss' };
 
-    return parseNourishEvent(event);
+    const parsed = parseNourishEvent(winner);
+    if (!parsed) return { status: 'miss' };
+
+    return { status: 'hit', result: parsed };
   } catch {
-    return null;
+    return { status: 'miss' };
+  } finally {
+    // Clear the pending timer on the winning branch so long-lived
+    // sessions don't accumulate dead setTimeout handles.
+    if (timeoutHandle !== undefined) clearTimeout(timeoutHandle);
   }
 }
 

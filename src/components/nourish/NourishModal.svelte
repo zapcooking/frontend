@@ -5,18 +5,19 @@
 	import Button from '../Button.svelte';
 	import LeafIcon from 'phosphor-svelte/lib/Leaf';
 	import LockIcon from 'phosphor-svelte/lib/Lock';
-	import SpinnerIcon from 'phosphor-svelte/lib/SpinnerGap';
-	// CaretDownIcon no longer needed — NourishResult handles expand
 	import ArrowClockwiseIcon from 'phosphor-svelte/lib/ArrowClockwise';
 	import { parseMarkdownForEditing } from '$lib/parser';
-	import { getNourishCache, setNourishScores } from '$lib/nourish/cache';
+	import { setNourishScores, type NourishCacheKey } from '$lib/nourish/cache';
 	import { generateSuggestions, mergeImprovements } from '$lib/nourish/suggestions';
 	import { ingredientStore } from '$lib/nourish/ingredientStore';
-	import { fetchNourishEvent, isNourishStale, computeContentHash } from '$lib/nourish/nourishRelay';
+	import { computeContentHash } from '$lib/nourish/nourishRelay';
+	import { resolveScore, type ResolveResult } from '$lib/nourish/scoreResolver';
 	import type { NourishScores } from '$lib/nourish/types';
 	import { NOURISH_PROMPT_VERSION } from '$lib/nourish/types';
 	import type { FlagTarget } from '$lib/nourish/flagSubmit';
+	import { onMount, onDestroy } from 'svelte';
 	import NourishResult from './NourishResult.svelte';
+	import NourishLoadingState from './NourishLoadingState.svelte';
 
 	export let open = false;
 	export let event: NDKEvent;
@@ -42,9 +43,50 @@
 	let stale = false;
 	let analyzedAt = 0;
 	let error = '';
+	// Pantry-timeout state — set when resolveScore returns
+	// { status: 'timeout' } (drift #1 fix: no more silent compute on
+	// pantry failure). Retry UI consumes attemptCount to decide when
+	// to surface the "Score now" escape hatch.
+	let pantryTimeout = false;
+	let attemptCount = 0;
+	let isOffline = false;
+
+	// Latch to prevent the reactive open-guard from re-firing fetchScores
+	// when the `checking` flag flips false → false on a miss. Without
+	// this, miss/timeout states would loop because the guard's deps
+	// re-evaluate on every `checking` transition. Cleared on modal close
+	// and on explicit handleRetry so retries still fire.
+	let fetched = false;
+
+	// Online/offline listeners — low-cost navigator.onLine check per
+	// the Phase 2 refinement. Accepts occasional false "offline"
+	// states; retry button dismisses it anyway.
+	function handleOnline() { isOffline = false; }
+	function handleOffline() { isOffline = true; }
+	onMount(() => {
+		if (typeof navigator === 'undefined') return;
+		isOffline = !navigator.onLine;
+		window.addEventListener('online', handleOnline);
+		window.addEventListener('offline', handleOffline);
+	});
+	onDestroy(() => {
+		if (typeof window === 'undefined') return;
+		window.removeEventListener('online', handleOnline);
+		window.removeEventListener('offline', handleOffline);
+	});
+
 	// Open modal: anyone can VIEW existing scores, only members can GENERATE new ones
-	$: if (open && !scores && !loading && !checking) { fetchScores(); }
-	$: if (!open) { error = ''; stale = false; }
+	$: if (open && !scores && !loading && !checking && !pantryTimeout && !fetched) {
+		fetched = true;
+		fetchScores();
+	}
+	$: if (!open) {
+		error = '';
+		stale = false;
+		pantryTimeout = false;
+		attemptCount = 0;
+		fetched = false;
+	}
 
 	function getRecipeCoordinates() {
 		const recipePubkey = event.author?.hexpubkey || event.pubkey;
@@ -52,11 +94,10 @@
 		return { recipePubkey, recipeDTag };
 	}
 
-	// Cache key, or null when the event lacks the coordinates we need to
-	// build a unique key. Empty recipeDTag would collapse keys across
-	// recipes from the same author, so we skip the cache entirely rather
-	// than collide. Hex-validity check on recipePubkey matches the
-	// server-side guard in /api/nourish.
+	// The resolver (scoreResolver.ts) owns the hex-64 + non-empty-d-tag
+	// guard on read paths. analyzeRecipe's post-API write still needs a
+	// local guard so a malformed recipe event doesn't write a colliding
+	// localStorage key.
 	const HEX_64_RE = /^[a-fA-F0-9]{64}$/;
 	function toCacheKey(recipePubkey: string, recipeDTag: string) {
 		if (!recipeDTag || !HEX_64_RE.test(recipePubkey)) return null;
@@ -65,89 +106,70 @@
 
 	async function fetchScores() {
 		const { recipePubkey, recipeDTag } = getRecipeCoordinates();
-		const cacheKey = toCacheKey(recipePubkey, recipeDTag);
+		const key: NourishCacheKey = {
+			recipePubkey,
+			recipeDTag,
+			promptVersion: NOURISH_PROMPT_VERSION
+		};
 
-		// 1. Check localStorage cache (instant)
-		const cached = cacheKey ? getNourishCache(cacheKey) : null;
-		if (cached) {
-			scores = cached.scores;
-			improvements = [];
-			buildImprovements(cached.scores, cached.improvements);
-			// Check staleness against current content if we have a hash
-			if (cached.contentHash) {
-				computeContentHash(event.content || '').then((currentHash) => {
-					if (currentHash !== cached.contentHash) {
-						stale = true;
-					}
-				}).catch(() => {});
-			}
-			// Prefer the score's createdAt (when analysis actually ran) over
-			// the cache's timestamp (when localStorage last wrote). They
-			// diverge across reloads, and createdAt is the one users see in
-			// the "analyzed at" label.
-			analyzedAt = cached.createdAt ?? (cached.timestamp ? Math.floor(cached.timestamp / 1000) : 0);
-			return;
-		}
-
-		// 2. Check pantry relay for existing analysis (fast, ~200ms)
 		checking = true;
 		error = '';
+		pantryTimeout = false;
+		let result: ResolveResult = { status: 'miss' };
 		try {
-			if (recipePubkey && recipeDTag && $ndk) {
-				const relayResult = await fetchNourishEvent($ndk, recipePubkey, recipeDTag);
-				if (relayResult) {
-					scores = relayResult.scores;
-					buildImprovements(relayResult.scores, relayResult.improvements);
-					analyzedAt = relayResult.createdAt;
-
-					// Cache locally for next time, keyed under the relay event's
-					// own prompt version so a v1 hit doesn't collide with v2.
-					// Guarded by toCacheKey — if coordinates are incomplete we
-					// skip the write rather than produce a colliding key.
-					const writeKey = toCacheKey(recipePubkey, recipeDTag);
-					if (writeKey) {
-						setNourishScores(
-							{ ...writeKey, promptVersion: relayResult.promptVersion },
-							relayResult.scores,
-							{
-								contentHash: relayResult.contentHash,
-								createdAt: relayResult.createdAt,
-								improvements: relayResult.improvements
-							}
-						);
-					}
-
-					// Populate ingredient store from relay data (build dataset over time)
-					if (relayResult.ingredientSignals.length > 0) {
-						ingredientStore
-							.saveIngredients(
-								relayResult.ingredientSignals,
-								'recipe',
-								event.id,
-								relayResult.promptVersion
-							)
-							.catch(() => {});
-					}
-
-					// Check staleness
-					const isStale = await isNourishStale(relayResult, event.content || '');
-					stale = isStale;
-
-					checking = false;
-					return;
-				}
-			}
-		} catch {
-			// Relay query failed — fall through to API
+			result = await resolveScore($ndk, key);
+		} finally {
+			checking = false;
 		}
-		checking = false;
 
-		// 3. No existing analysis — call API (requires membership)
-		if (!hasMembership) {
-			// No cached score and no membership — show lock state
+		if (result.status === 'hit') {
+			scores = result.entry.scores;
+			improvements = [];
+			buildImprovements(result.entry.scores, result.entry.improvements);
+			analyzedAt = result.entry.createdAt;
+
+			// Preserve the original ingredient-store semantics: save only on
+			// a pantry hit (first-time surfacing of this event in a session).
+			// L2/memory and L3/localStorage hits were written from a prior
+			// pantry hit that already saved the signals.
+			if (result.source === 'pantry' && result.entry.ingredientSignals?.length) {
+				ingredientStore
+					.saveIngredients(
+						result.entry.ingredientSignals,
+						'recipe',
+						event.id,
+						result.entry.promptVersion
+					)
+					.catch(() => {});
+			}
+
+			// Preserve the original blocking-vs-nonblocking staleness pattern:
+			// pantry hit awaits the content-hash comparison (so stale renders
+			// before the modal settles); L2/L3 hits fire-and-forget (so the
+			// score displays immediately and the stale badge lights up after).
+			if (result.entry.contentHash) {
+				const pending = computeContentHash(event.content || '').then((currentHash) => {
+					if (currentHash !== result.entry.contentHash) stale = true;
+				}).catch(() => {});
+				if (result.source === 'pantry') await pending;
+			}
 			return;
 		}
-		await analyzeRecipe();
+
+		if (result.status === 'timeout') {
+			// Drift #1 fix: pantry is unreachable and we have no local
+			// score. Surface a retry UI instead of silently computing a
+			// fresh score via /api/nourish — compute now requires an
+			// explicit user click.
+			pantryTimeout = true;
+			attemptCount = result.attemptCount;
+			return;
+		}
+
+		// Miss — pantry confirmed no event. Members see an [Analyze]
+		// button via NourishLoadingState; non-members see the lock-state
+		// membership upsell. Compute fires only on explicit click — no
+		// more silent fall-through.
 	}
 
 	async function analyzeRecipe() {
@@ -220,6 +242,37 @@
 
 	function reanalyze() { scores = null; stale = false; analyzeRecipe(); }
 
+	// Retry-UI handlers. handleRetry re-runs the resolver (next pantry
+	// query); handleAnalyze commits to an explicit compute. The "Score
+	// now" escape hatch also routes through handleAnalyze — member
+	// gating is enforced both by NourishLoadingState hiding the button
+	// for non-members AND by the existing paywall path below.
+	function handleRetry() {
+		// Clear the flags and let the reactive guard re-fire fetchScores.
+		// Calling fetchScores directly here would double-fire because
+		// the guard re-evaluates when pantryTimeout flips to false.
+		pantryTimeout = false;
+		fetched = false;
+	}
+	function handleAnalyze() {
+		pantryTimeout = false;
+		if (!hasMembership) return;
+		analyzeRecipe();
+	}
+
+	// Derived state for the shared NourishLoadingState component. Order
+	// of precedence: offline > pending (network in flight) > timeout >
+	// miss (no data, show [Analyze] for members). Explicit type so the
+	// ternary chain doesn't widen to `string` for the child prop.
+	let loadingState: 'pending' | 'timeout' | 'miss' | 'offline' = 'pending';
+	$: loadingState = isOffline
+		? 'offline'
+		: checking || loading
+			? 'pending'
+			: pantryTimeout
+				? 'timeout'
+				: 'miss';
+
 	function formatAnalyzedAt(ts: number): string {
 		if (!ts) return '';
 		const diff = Math.floor(Date.now() / 1000) - ts;
@@ -232,36 +285,7 @@
 
 <Modal bind:open compact noHeader>
 	<h2 id="title" class="sr-only">Nourish analysis</h2>
-	{#if !hasMembership && !scores && !checking}
-		<!-- Lock state — only shown if no existing scores exist -->
-		<div class="lock-state">
-			<div class="lock-icon-wrap">
-				<LockIcon size={24} weight="fill" class="text-orange-500" />
-			</div>
-			<h3 class="lock-title">Unlock Nourish</h3>
-			<p class="lock-desc">See how this recipe scores for gut health, protein, and real food quality.</p>
-			<a href="/membership" class="w-full"><Button primary>View Membership</Button></a>
-		</div>
-
-	{:else if checking}
-		<div class="loading-state">
-			<SpinnerIcon size={28} class="animate-spin text-green-500" />
-			<p class="loading-text">Checking for analysis...</p>
-		</div>
-
-	{:else if loading}
-		<div class="loading-state">
-			<SpinnerIcon size={28} class="animate-spin text-green-500" />
-			<p class="loading-text">Analyzing recipe...</p>
-		</div>
-
-	{:else if error}
-		<div class="error-state">
-			<p class="error-text">{error}</p>
-			<Button primary={false} on:click={retry}>Try Again</Button>
-		</div>
-
-	{:else if scores}
+	{#if scores}
 		<!-- ── Stale banner ── -->
 		{#if stale}
 			<div class="stale-banner">
@@ -291,6 +315,37 @@
 				<a href="/nourish" class="footer-link">Explore Nourish</a>
 			</p>
 		</div>
+
+	{:else if !hasMembership}
+		<!-- Lock state — non-members see the membership upsell regardless
+		     of pantry reachability. They can't compute, so the retry UI
+		     and "not yet scored" miss state wouldn't be actionable. -->
+		<div class="lock-state">
+			<div class="lock-icon-wrap">
+				<LockIcon size={24} weight="fill" class="text-orange-500" />
+			</div>
+			<h3 class="lock-title">Unlock Nourish</h3>
+			<p class="lock-desc">See how this recipe scores for gut health, protein, and real food quality.</p>
+			<a href="/membership" class="w-full"><Button primary>View Membership</Button></a>
+		</div>
+
+	{:else if error}
+		<div class="error-state">
+			<p class="error-text">{error}</p>
+			<Button primary={false} on:click={retry}>Try Again</Button>
+		</div>
+
+	{:else}
+		<!-- Shared loading/retry/miss/offline UI. loadingState is derived
+		     above; the component dispatches retry/score-now/analyze. -->
+		<NourishLoadingState
+			state={loadingState}
+			{attemptCount}
+			{hasMembership}
+			on:retry={handleRetry}
+			on:score-now={handleAnalyze}
+			on:analyze={handleAnalyze}
+		/>
 	{/if}
 </Modal>
 
@@ -322,8 +377,6 @@
 	.stale-refresh:hover { background: rgba(234, 179, 8, 0.2); }
 
 	/* ── Loading / Error ── */
-	.loading-state { @apply flex flex-col items-center gap-3 py-8; }
-	.loading-text { @apply text-sm; color: var(--color-text-secondary); }
 	.error-state { @apply flex flex-col items-center text-center gap-3 py-4; }
 	.error-text { @apply text-sm; color: var(--color-text-secondary); }
 

@@ -60,8 +60,7 @@
   import LeafIcon from 'phosphor-svelte/lib/Leaf';
   import NourishModal from '../nourish/NourishModal.svelte';
   import NourishPill from '../nourish/NourishPill.svelte';
-  import { fetchNourishEvent } from '$lib/nourish/nourishRelay';
-  import { getNourishCache } from '$lib/nourish/cache';
+  import { resolveScore } from '$lib/nourish/scoreResolver';
   import { NOURISH_PROMPT_VERSION } from '$lib/nourish/types';
   import { membershipStatusMap, queueMembershipLookup, type MembershipStatus } from '$lib/stores/membershipStatus';
 
@@ -123,24 +122,20 @@
     const recipePubkey = event.author?.hexpubkey || event.pubkey;
     const recipeDTag = event.tags.find((t: string[]) => t[0] === 'd')?.[1] || '';
 
-    // Check localStorage first (instant)
-    if (recipePubkey && recipeDTag) {
-      const cached = getNourishCache({
+    // Resolver walks L2 → L3 → L4 gathering every candidate and picks
+    // the max-createdAt winner (write-through across layers handled
+    // internally). Invalid keys return a miss + emit a warn. Every
+    // call still awaits the pantry query in order to reconcile local
+    // state against the authoritative source — L2/L3 hits don't
+    // short-circuit the pantry read in commit 3's algorithm.
+    if ($ndk) {
+      resolveScore($ndk, {
         recipePubkey,
         recipeDTag,
         promptVersion: NOURISH_PROMPT_VERSION
-      });
-      if (cached) {
-        applyNourishScores(cached.scores);
-        return;
-      }
-    }
-    // Check relay in background
-    if (recipePubkey && recipeDTag && $ndk) {
-      fetchNourishEvent($ndk, recipePubkey, recipeDTag).then((result) => {
-        // Ignore stale result if event changed while fetching
+      }).then((result) => {
         if (event.id !== targetEventId) return;
-        if (result) applyNourishScores(result.scores);
+        if (result.status === 'hit') applyNourishScores(result.entry.scores);
       }).catch(() => {});
     }
   }
