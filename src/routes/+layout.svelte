@@ -314,10 +314,16 @@
   // One-shot pass to clear legacy nourish_scan_* localStorage entries
   // left behind when scan caching was removed in PR 3 commit 6. Runs
   // via requestIdleCallback so it doesn't block initial paint; sentinel
-  // flag ensures single-run per browser.
+  // flag ensures single-run per browser. Wrapped so a dynamic-import
+  // failure (chunk not yet cached, network blip) can't surface as an
+  // unhandled rejection during app boot.
   onMount(async () => {
-    const { cleanupLegacyScanCache } = await import('$lib/nourish/scanCacheCleanup');
-    cleanupLegacyScanCache();
+    try {
+      const { cleanupLegacyScanCache } = await import('$lib/nourish/scanCacheCleanup');
+      cleanupLegacyScanCache();
+    } catch (err) {
+      console.warn('[nourish.scan-cleanup.import-failed]', err);
+    }
   });
 
   // Show wallet welcome after leaving login/onboarding (e.g. after suggested follows completes)
