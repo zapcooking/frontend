@@ -15,7 +15,10 @@
 
   const dispatch = createEventDispatcher();
 
-  // Error handling function
+  // Error handling function — only invoked for programmatically dispatched
+  // CustomEvents (e.g. from child components that rethrow). Native window
+  // `error` events are handled separately in onMount and are treated as
+  // non-fatal (logged only), matching how unhandled rejections are handled.
   function handleError(event: Event) {
     const customEvent = event as CustomEvent;
     error = customEvent.detail?.error || new Error('Unknown error');
@@ -74,24 +77,20 @@
   }
 
   onMount(() => {
-    // Listen for unhandled errors
+    // Don't replace the entire page for random window errors. iOS Safari
+    // in particular fires spurious error events during share / backgrounding
+    // / service-worker transitions that are not fatal to the app. Log the
+    // real error details for debugging — the error UI is reserved for
+    // explicit programmatic dispatches via the CustomEvent path above.
     const handleUnhandledError = (event: ErrorEvent) => {
-      if (!error) { // Only handle if we don't already have an error
-        error = new Error(event.message);
-        errorInfo = {
-          filename: event.filename,
-          lineno: event.lineno,
-          colno: event.colno
-        };
-      }
+      console.warn(
+        '[ErrorBoundary] Window error (suppressed):',
+        event.message,
+        event.error ?? { filename: event.filename, lineno: event.lineno, colno: event.colno }
+      );
     };
 
     const handleUnhandledRejection = (event: PromiseRejectionEvent) => {
-      // Don't replace the entire page for background/network promise rejections.
-      // These are typically relay timeouts, fetch failures, or WebSocket errors
-      // that should be handled gracefully by the calling code, not by showing
-      // an error screen.  Only log them — the real fix is adding .catch() to
-      // the source promises.
       const msg = event.reason?.message || String(event.reason || '');
       console.warn('[ErrorBoundary] Unhandled rejection (suppressed):', msg);
     };
@@ -105,8 +104,6 @@
     };
   });
 </script>
-
-<svelte:window on:error={handleError} />
 
 {#if error}
   <div class="error-boundary">
