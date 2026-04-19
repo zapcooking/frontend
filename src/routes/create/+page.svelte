@@ -104,9 +104,9 @@
     autoSaveTimer = setTimeout(runAutoSave, AUTO_SAVE_DEBOUNCE_MS);
   }
 
-  async function runAutoSave() {
+  function runAutoSave() {
     autoSaveTimer = null;
-    // If a manual save is in flight, wait and retry
+    // Defer to a manual save in flight; retry once it completes
     if (isSavingDraft) {
       scheduleAutoSave();
       return;
@@ -115,37 +115,32 @@
     if (draftSignature === lastSavedSignature) return;
 
     const signatureAtSave = draftSignature;
-    isSavingDraft = true;
-    try {
-      const draftData = {
-        title,
-        images: $images,
-        tags: $selectedTags,
-        summary,
-        chefsnotes,
-        preptime,
-        cooktime,
-        servings,
-        ingredients: $ingredientsArray,
-        directions: $directionsArray,
-        additionalMarkdown
-      };
-      const { draftId } = saveDraft(draftData, currentDraftId || undefined, false);
-      currentDraftId = draftId;
-      if (browser) {
-        const url = new URL(window.location.href);
-        url.searchParams.set('draft', currentDraftId);
-        window.history.replaceState({}, '', url.toString());
-      }
-      lastSavedSignature = signatureAtSave;
-      if (currentDraftSyncStatus === undefined) currentDraftSyncStatus = 'local';
-      draftSaveMessage = 'Draft auto-saved';
-      setTimeout(() => {
-        if (draftSaveMessage === 'Draft auto-saved') draftSaveMessage = '';
-      }, 1500);
-    } finally {
-      isSavingDraft = false;
+    const draftData = {
+      title,
+      images: $images,
+      tags: $selectedTags,
+      summary,
+      chefsnotes,
+      preptime,
+      cooktime,
+      servings,
+      ingredients: $ingredientsArray,
+      directions: $directionsArray,
+      additionalMarkdown
+    };
+    const { draftId } = saveDraft(draftData, currentDraftId || undefined, false);
+
+    // Only rewrite the URL when the draft id first gets assigned — avoids
+    // thrashing $page and causing the editor to jump while typing.
+    if (browser && currentDraftId !== draftId) {
+      const url = new URL(window.location.href);
+      url.searchParams.set('draft', draftId);
+      window.history.replaceState({}, '', url.toString());
     }
+    currentDraftId = draftId;
+    lastSavedSignature = signatureAtSave;
+    // No isSavingDraft toggle and no status message — keep auto-save silent
+    // so it doesn't mutate UI that's in the user's field of view.
   }
 
   function loadDraftById(draftId: string) {
