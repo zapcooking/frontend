@@ -290,19 +290,16 @@ ${additionalMarkdown}
   return template;
 }
 
-// Phase definitions for grouping directions
+// Phase shape preserved for component/print-modal compatibility. We no longer
+// auto-group directions into phases — the keyword heuristic frequently
+// mis-classified steps (e.g. assigning "Bake for 65 minutes" to Finishing),
+// which confused readers more than it helped. `extractAndGroupDirections` now
+// always returns a single "Directions" phase containing every step.
 export interface DirectionPhase {
   id: string;
   title: string;
   steps: Array<{ number: number; text: string }>;
 }
-
-const PHASE_KEYWORDS: Record<string, string[]> = {
-  preparation: ['crust', 'dough', 'pastry', 'base', 'bottom', 'prepare', 'ready', 'separate bowl'],
-  mixing: ['mix', 'combine', 'blend', 'beat', 'whisk', 'fold', 'stir', 'cream', 'batter', 'mixture', 'filling', 'cheesecake', 'cream cheese', 'layer', 'add', 'ingredients'],
-  baking: ['preheat', 'bake', 'oven', 'temperature', 'degrees', 'minutes', 'scoop', 'cookie sheet', 'baking sheet', 'cook', 'roast', 'grill'],
-  finishing: ['cool', 'chill', 'refrigerate', 'set', 'rest', 'garnish', 'serve', 'raspberr', 'mint', 'sprinkle', 'decorate', 'top', 'walnuts', 'nuts', 'ganache', 'chocolate', 'melt', 'chocolate chips']
-};
 
 /**
  * Flexible parser for directions that handles various formats
@@ -385,69 +382,33 @@ function extractDirectionsFlexible(markdown: string): Array<{ number: number; te
 }
 
 /**
- * Extracts directions from markdown and groups them into phases
+ * Extracts directions from markdown. Returns a single "Directions" phase so
+ * downstream renderers/print code don't have to change shape.
  */
 export function extractAndGroupDirections(markdown: string): {
   directions: DirectionPhase[];
   markdownWithoutDirections: string;
 } {
   const steps = extractDirectionsFlexible(markdown);
-  
-  if (steps.length === 0) {
-    // Return empty phases and original markdown if directions can't be parsed
-    return { directions: [], markdownWithoutDirections: markdown };
-  }
-
-  // Group steps into phases
-  // Note: Phases are generic enough to work for various recipe types
-  // Steps are automatically grouped based on keyword matching
-  const phases: DirectionPhase[] = [
-    { id: 'preparation', title: 'Preparation', steps: [] },
-    { id: 'mixing', title: 'Mixing & Combining', steps: [] },
-    { id: 'baking', title: 'Baking & Cooking', steps: [] },
-    { id: 'finishing', title: 'Finishing & Serving', steps: [] }
-  ];
-
-  let currentPhaseIndex = 0;
-
-  for (const step of steps) {
-    const stepLower = step.text.toLowerCase();
-    
-    // Use keyword matching to assign steps to phases (only move forward)
-    let phaseFound = false;
-    for (let i = currentPhaseIndex; i < phases.length; i++) {
-      const keywords = PHASE_KEYWORDS[phases[i].id];
-      if (keywords && keywords.some(keyword => stepLower.includes(keyword))) {
-        currentPhaseIndex = i;
-        phaseFound = true;
-        break;
-      }
-    }
-
-    // Assign step to current phase (or keep in current phase if no keywords matched)
-    phases[currentPhaseIndex].steps.push(step);
-  }
-
-  // Filter out empty phases
-  const nonEmptyPhases = phases.filter(phase => phase.steps.length > 0);
 
   // Remove Directions section from markdown (case-insensitive, handles various formats)
   let markdownWithoutDirections = markdown;
-  
-  // Try to remove ## Directions section
   const directionsSectionRegex = /## Directions\s*\n[\s\S]*?(?=\n## |$)/i;
   if (directionsSectionRegex.test(markdownWithoutDirections)) {
     markdownWithoutDirections = markdownWithoutDirections.replace(directionsSectionRegex, '').trim();
   } else {
-    // Try without ##
     const altDirectionsRegex = /(?:^|\n)Directions\s*\n[\s\S]*?(?=\n(?:## |[A-Z][a-z]+:)|$)/i;
     if (altDirectionsRegex.test(markdownWithoutDirections)) {
       markdownWithoutDirections = markdownWithoutDirections.replace(altDirectionsRegex, '').trim();
     }
   }
 
+  if (steps.length === 0) {
+    return { directions: [], markdownWithoutDirections };
+  }
+
   return {
-    directions: nonEmptyPhases,
+    directions: [{ id: 'directions', title: 'Directions', steps }],
     markdownWithoutDirections
   };
 }
