@@ -61,6 +61,7 @@
   import NourishPill from '../nourish/NourishPill.svelte';
   import { fetchNourishEvent } from '$lib/nourish/nourishRelay';
   import { getNourishCache } from '$lib/nourish/cache';
+  import { NOURISH_PROMPT_VERSION } from '$lib/nourish/types';
   import { membershipStatusMap, queueMembershipLookup, type MembershipStatus } from '$lib/stores/membershipStatus';
 
   export let event: NDKEvent;
@@ -118,16 +119,22 @@
     }
 
     const targetEventId = event.id;
-
-    // Check localStorage first (instant)
-    const cached = getNourishCache(targetEventId);
-    if (cached) {
-      applyNourishScores(cached.scores);
-      return;
-    }
-    // Check relay in background
     const recipePubkey = event.author?.hexpubkey || event.pubkey;
     const recipeDTag = event.tags.find((t: string[]) => t[0] === 'd')?.[1] || '';
+
+    // Check localStorage first (instant)
+    if (recipePubkey && recipeDTag) {
+      const cached = getNourishCache({
+        recipePubkey,
+        recipeDTag,
+        promptVersion: NOURISH_PROMPT_VERSION
+      });
+      if (cached) {
+        applyNourishScores(cached.scores);
+        return;
+      }
+    }
+    // Check relay in background
     if (recipePubkey && recipeDTag && $ndk) {
       fetchNourishEvent($ndk, recipePubkey, recipeDTag).then((result) => {
         // Ignore stale result if event changed while fetching

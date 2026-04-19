@@ -3,12 +3,21 @@ import { NOURISH_CACHE_VERSION, type NourishScores, type ScanResponse } from './
 
 const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
-// ─── Recipe score cache (keyed by eventId) ───────────────────
+// Cache-schema major version, used as a key prefix so future schema
+// breaks can invalidate all prior entries independent of the minor
+// version-mismatch check below. Bump by changing NOURISH_CACHE_VERSION
+// in types.ts to a new major.
+const SCHEMA_MAJOR = NOURISH_CACHE_VERSION.split('.')[0];
+
+// ─── Recipe score cache ──────────────────────────────────────
+// Keyed by (recipePubkey, recipeDTag, promptVersion) so that a v1
+// score and a v2 score for the same recipe are distinct entries —
+// cache hit guarantees version match without a post-read check.
 
 interface CacheEntry {
 	scores: NourishScores;
 	timestamp: number;
-	version: string;
+	cacheVersion: string;
 	contentHash?: string;
 	promptVersion?: string;
 	createdAt?: number;
@@ -16,20 +25,26 @@ interface CacheEntry {
 	ingredientSignals?: import('./types').IngredientSignal[];
 }
 
-function cacheKey(eventId: string): string {
-	return `nourish_${eventId}`;
+export interface NourishCacheKey {
+	recipePubkey: string;
+	recipeDTag: string;
+	promptVersion: string;
 }
 
-export function getNourishCache(eventId: string): CacheEntry | null {
+function cacheKey({ recipePubkey, recipeDTag, promptVersion }: NourishCacheKey): string {
+	return `nourish_v${SCHEMA_MAJOR}_${recipePubkey}:${recipeDTag}:${promptVersion}`;
+}
+
+export function getNourishCache(key: NourishCacheKey): CacheEntry | null {
 	if (!browser) return null;
 
 	try {
-		const raw = localStorage.getItem(cacheKey(eventId));
+		const raw = localStorage.getItem(cacheKey(key));
 		if (!raw) return null;
 
 		const entry: CacheEntry = JSON.parse(raw);
 
-		if (entry.version !== NOURISH_CACHE_VERSION) return null;
+		if (entry.cacheVersion !== NOURISH_CACHE_VERSION) return null;
 		if (Date.now() - entry.timestamp > CACHE_TTL_MS) return null;
 
 		return entry;
@@ -38,17 +53,11 @@ export function getNourishCache(eventId: string): CacheEntry | null {
 	}
 }
 
-/** @deprecated Use getNourishCache for full entry with contentHash */
-export function getNourishScores(eventId: string): NourishScores | null {
-	return getNourishCache(eventId)?.scores ?? null;
-}
-
 export function setNourishScores(
-	eventId: string,
+	key: NourishCacheKey,
 	scores: NourishScores,
 	extra?: {
 		contentHash?: string;
-		promptVersion?: string;
 		createdAt?: number;
 		improvements?: string[];
 		ingredientSignals?: import('./types').IngredientSignal[];
@@ -60,14 +69,14 @@ export function setNourishScores(
 		const entry: CacheEntry = {
 			scores,
 			timestamp: Date.now(),
-			version: NOURISH_CACHE_VERSION,
+			cacheVersion: NOURISH_CACHE_VERSION,
 			contentHash: extra?.contentHash,
-			promptVersion: extra?.promptVersion,
+			promptVersion: key.promptVersion,
 			createdAt: extra?.createdAt,
 			improvements: extra?.improvements,
 			ingredientSignals: extra?.ingredientSignals
 		};
-		localStorage.setItem(cacheKey(eventId), JSON.stringify(entry));
+		localStorage.setItem(cacheKey(key), JSON.stringify(entry));
 	} catch {
 		// localStorage full or unavailable — silently ignore
 	}
@@ -78,7 +87,7 @@ export function setNourishScores(
 interface ScanCacheEntry {
 	data: ScanResponse;
 	timestamp: number;
-	version: string;
+	cacheVersion: string;
 }
 
 /** Derive a cache key from text with extra entropy to reduce collisions. */
@@ -101,7 +110,7 @@ export function getScanResult(text: string): ScanResponse | null {
 
 		const entry: ScanCacheEntry = JSON.parse(raw);
 
-		if (entry.version !== NOURISH_CACHE_VERSION) return null;
+		if (entry.cacheVersion !== NOURISH_CACHE_VERSION) return null;
 		if (Date.now() - entry.timestamp > CACHE_TTL_MS) return null;
 
 		return entry.data;
@@ -117,7 +126,7 @@ export function setScanResult(text: string, data: ScanResponse): void {
 		const entry: ScanCacheEntry = {
 			data,
 			timestamp: Date.now(),
-			version: NOURISH_CACHE_VERSION
+			cacheVersion: NOURISH_CACHE_VERSION
 		};
 		localStorage.setItem(hashText(text), JSON.stringify(entry));
 	} catch {

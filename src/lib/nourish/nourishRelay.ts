@@ -115,7 +115,9 @@ export function parseNourishEvent(event: NDKEvent): NourishRelayResult | null {
         reason: content.overall?.reason || `Weighted: Real Food 45%, Gut 35%, Protein 20%`
       },
       summary: content.summary || '',
-      version: content.version || NOURISH_CACHE_VERSION
+      // Accept both the new `cacheVersion` and the legacy `version` field
+      // so pre-2.0 events in the wild still parse.
+      cacheVersion: content.cacheVersion || content.version || NOURISH_CACHE_VERSION
     };
 
     const improvements: string[] = Array.isArray(content.improvements)

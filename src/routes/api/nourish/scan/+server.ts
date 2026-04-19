@@ -240,7 +240,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 				reason: `Weighted: Real Food 45%, Gut 35%, Protein 20%`
 			},
 			summary: String(parsed.summary || ''),
-			version: NOURISH_CACHE_VERSION
+			cacheVersion: NOURISH_CACHE_VERSION
 		};
 
 		// Parse optional fields gracefully

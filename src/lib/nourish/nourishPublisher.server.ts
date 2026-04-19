@@ -124,7 +124,7 @@ export async function publishNourishEvent(opts: {
         summary: scores.summary,
         improvements,
         ingredient_signals: ingredientSignals,
-        version: scores.version,
+        cacheVersion: scores.cacheVersion,
         // Mirror identity fields into content so the payload is self-
         // describing (tags already carry them; content duplication lets
         // downstream consumers read either location).

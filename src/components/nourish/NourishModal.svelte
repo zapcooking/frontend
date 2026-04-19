@@ -53,8 +53,11 @@
 	}
 
 	async function fetchScores() {
+		const { recipePubkey, recipeDTag } = getRecipeCoordinates();
+		const cacheKey = { recipePubkey, recipeDTag, promptVersion: NOURISH_PROMPT_VERSION };
+
 		// 1. Check localStorage cache (instant)
-		const cached = getNourishCache(event.id);
+		const cached = getNourishCache(cacheKey);
 		if (cached) {
 			scores = cached.scores;
 			improvements = [];
@@ -75,7 +78,6 @@
 		checking = true;
 		error = '';
 		try {
-			const { recipePubkey, recipeDTag } = getRecipeCoordinates();
 			if (recipePubkey && recipeDTag && $ndk) {
 				const relayResult = await fetchNourishEvent($ndk, recipePubkey, recipeDTag);
 				if (relayResult) {
@@ -83,13 +85,17 @@
 					buildImprovements(relayResult.scores, relayResult.improvements);
 					analyzedAt = relayResult.createdAt;
 
-					// Cache locally for next time
-					setNourishScores(event.id, relayResult.scores, {
-						contentHash: relayResult.contentHash,
-						promptVersion: relayResult.promptVersion,
-						createdAt: relayResult.createdAt,
-						improvements: relayResult.improvements
-					});
+					// Cache locally for next time, keyed under the relay event's
+					// own prompt version so a v1 hit doesn't collide with v2.
+					setNourishScores(
+						{ recipePubkey, recipeDTag, promptVersion: relayResult.promptVersion },
+						relayResult.scores,
+						{
+							contentHash: relayResult.contentHash,
+							createdAt: relayResult.createdAt,
+							improvements: relayResult.improvements
+						}
+					);
 
 					// Populate ingredient store from relay data (build dataset over time)
 					if (relayResult.ingredientSignals.length > 0) {
@@ -160,13 +166,20 @@
 
 			scores = data.scores;
 			analyzedAt = data.createdAt ?? Math.floor(Date.now() / 1000);
-			setNourishScores(event.id, data.scores, {
-				contentHash,
-				promptVersion: data.promptVersion,
-				createdAt: data.createdAt,
-				improvements: data.improvements,
-				ingredientSignals: data.ingredient_signals
-			});
+			setNourishScores(
+				{
+					recipePubkey,
+					recipeDTag,
+					promptVersion: data.promptVersion ?? NOURISH_PROMPT_VERSION
+				},
+				data.scores,
+				{
+					contentHash,
+					createdAt: data.createdAt,
+					improvements: data.improvements,
+					ingredientSignals: data.ingredient_signals
+				}
+			);
 			buildImprovements(data.scores, data.improvements);
 
 			if (data.ingredient_signals?.length > 0) {
