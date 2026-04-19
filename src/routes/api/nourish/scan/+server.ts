@@ -18,7 +18,7 @@
 
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
-import { NOURISH_CACHE_VERSION, computeOverallScore } from '$lib/nourish/types';
+import { NOURISH_CACHE_VERSION, NOURISH_PROMPT_VERSION, computeOverallScore } from '$lib/nourish/types';
 import { requireMembership } from '../membershipCheck';
 
 const SCAN_PROMPT = `You are a food analysis assistant for a cooking platform. Analyze the following food description and return quality scores.
@@ -267,7 +267,12 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 			scores,
 			quick_take,
 			improvements,
-			ingredient_signals
+			ingredient_signals,
+			// Identity fields — scans have no durable pantry cache, but
+			// response shape stays consistent with /api/nourish so clients
+			// can reconcile by promptVersion / createdAt.
+			promptVersion: NOURISH_PROMPT_VERSION,
+			createdAt: Math.floor(Date.now() / 1000)
 		});
 	} catch (error: any) {
 		console.error('[Nourish Scan] Error:', error);

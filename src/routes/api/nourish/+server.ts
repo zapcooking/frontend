@@ -26,7 +26,7 @@
 
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
-import { NOURISH_CACHE_VERSION, computeOverallScore } from '$lib/nourish/types';
+import { NOURISH_CACHE_VERSION, NOURISH_PROMPT_VERSION, computeOverallScore } from '$lib/nourish/types';
 import { requireMembership } from './membershipCheck';
 
 const NOURISH_PROMPT = `You are a recipe analysis assistant for a cooking platform. Analyze the recipe below and return three food quality scores.
@@ -269,7 +269,17 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 			}
 		}
 
-		return json({ success: true, scores, improvements, ingredient_signals });
+		return json({
+			success: true,
+			scores,
+			improvements,
+			ingredient_signals,
+			// Identity fields — let clients cache/reconcile by promptVersion
+			// + contentHash + createdAt instead of inferring from cacheVersion.
+			promptVersion: NOURISH_PROMPT_VERSION,
+			contentHash: validContentHash ? contentHash.trim() : undefined,
+			createdAt: Math.floor(Date.now() / 1000)
+		});
 	} catch (error: any) {
 		console.error('[Nourish] Error:', error);
 		return json(

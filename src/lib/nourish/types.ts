@@ -86,6 +86,9 @@ export interface NourishResponse {
 	improvements?: string[];
 	ingredient_signals?: IngredientSignal[];
 	error?: string;
+	promptVersion?: string;
+	contentHash?: string;
+	createdAt?: number;
 }
 
 // ─── Scan Anything ───────────────────────────────────────────
@@ -103,6 +106,8 @@ export interface ScanResponse {
 	improvements?: string[];
 	ingredient_signals?: IngredientSignal[];
 	error?: string;
+	promptVersion?: string;
+	createdAt?: number;
 }
 
 // ─── Ingredient signals ──────────────────────────────────────
@@ -121,4 +126,5 @@ export interface IngredientRecord {
 	source: 'recipe' | 'scan';
 	sourceId?: string;
 	createdAt: number;
+	promptVersion?: string;
 }

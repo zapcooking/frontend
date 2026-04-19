@@ -86,12 +86,21 @@
 					// Cache locally for next time
 					setNourishScores(event.id, relayResult.scores, {
 						contentHash: relayResult.contentHash,
+						promptVersion: relayResult.promptVersion,
+						createdAt: relayResult.createdAt,
 						improvements: relayResult.improvements
 					});
 
 					// Populate ingredient store from relay data (build dataset over time)
 					if (relayResult.ingredientSignals.length > 0) {
-						ingredientStore.saveIngredients(relayResult.ingredientSignals, 'recipe', event.id).catch(() => {});
+						ingredientStore
+							.saveIngredients(
+								relayResult.ingredientSignals,
+								'recipe',
+								event.id,
+								relayResult.promptVersion
+							)
+							.catch(() => {});
 					}
 
 					// Check staleness
@@ -150,16 +159,20 @@
 			if (!data.success) { error = data.error || 'Failed to analyze recipe.'; return; }
 
 			scores = data.scores;
-			analyzedAt = Math.floor(Date.now() / 1000);
+			analyzedAt = data.createdAt ?? Math.floor(Date.now() / 1000);
 			setNourishScores(event.id, data.scores, {
 				contentHash,
+				promptVersion: data.promptVersion,
+				createdAt: data.createdAt,
 				improvements: data.improvements,
 				ingredientSignals: data.ingredient_signals
 			});
 			buildImprovements(data.scores, data.improvements);
 
 			if (data.ingredient_signals?.length > 0) {
-				ingredientStore.saveIngredients(data.ingredient_signals, 'recipe', event.id).catch(() => {});
+				ingredientStore
+					.saveIngredients(data.ingredient_signals, 'recipe', event.id, data.promptVersion)
+					.catch(() => {});
 			}
 		} catch (err) {
 			console.error('[Nourish] Fetch error:', err);

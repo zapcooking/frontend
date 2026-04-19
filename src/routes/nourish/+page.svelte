@@ -117,7 +117,9 @@
 
       // Save ingredient signals to build dataset over time
       if (data.ingredient_signals?.length) {
-        ingredientStore.saveIngredients(data.ingredient_signals, 'scan').catch(() => {});
+        ingredientStore
+          .saveIngredients(data.ingredient_signals, 'scan', undefined, data.promptVersion)
+          .catch(() => {});
       }
     } catch {
       scanError = "Couldn't analyze this one. Try again or rephrase.";

@@ -10,6 +10,8 @@ interface CacheEntry {
 	timestamp: number;
 	version: string;
 	contentHash?: string;
+	promptVersion?: string;
+	createdAt?: number;
 	improvements?: string[];
 	ingredientSignals?: import('./types').IngredientSignal[];
 }
@@ -44,7 +46,13 @@ export function getNourishScores(eventId: string): NourishScores | null {
 export function setNourishScores(
 	eventId: string,
 	scores: NourishScores,
-	extra?: { contentHash?: string; improvements?: string[]; ingredientSignals?: import('./types').IngredientSignal[] }
+	extra?: {
+		contentHash?: string;
+		promptVersion?: string;
+		createdAt?: number;
+		improvements?: string[];
+		ingredientSignals?: import('./types').IngredientSignal[];
+	}
 ): void {
 	if (!browser) return;
 
@@ -54,6 +62,8 @@ export function setNourishScores(
 			timestamp: Date.now(),
 			version: NOURISH_CACHE_VERSION,
 			contentHash: extra?.contentHash,
+			promptVersion: extra?.promptVersion,
+			createdAt: extra?.createdAt,
 			improvements: extra?.improvements,
 			ingredientSignals: extra?.ingredientSignals
 		};
