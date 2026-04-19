@@ -81,7 +81,7 @@
     // in particular fires spurious error events during share / backgrounding
     // / service-worker transitions that are not fatal to the app. Log the
     // real error details for debugging — the error UI is reserved for
-    // explicit programmatic dispatches via the CustomEvent path above.
+    // explicit programmatic dispatches via `zc:fatal-error` below.
     const handleUnhandledError = (event: ErrorEvent) => {
       console.warn(
         '[ErrorBoundary] Window error (suppressed):',
@@ -95,12 +95,17 @@
       console.warn('[ErrorBoundary] Unhandled rejection (suppressed):', msg);
     };
 
+    // Explicit opt-in: child components that hit a truly fatal error can
+    // `window.dispatchEvent(new CustomEvent('zc:fatal-error', { detail: { error, errorInfo } }))`
+    // to surface the boundary's fallback UI.
     window.addEventListener('error', handleUnhandledError);
     window.addEventListener('unhandledrejection', handleUnhandledRejection);
+    window.addEventListener('zc:fatal-error', handleError as EventListener);
 
     return () => {
       window.removeEventListener('error', handleUnhandledError);
       window.removeEventListener('unhandledrejection', handleUnhandledRejection);
+      window.removeEventListener('zc:fatal-error', handleError as EventListener);
     };
   });
 </script>
