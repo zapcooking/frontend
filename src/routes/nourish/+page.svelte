@@ -5,6 +5,9 @@
   import { generateSuggestions, mergeImprovements } from '$lib/nourish/suggestions';
   import { ingredientStore } from '$lib/nourish/ingredientStore';
   import type { ScanResponse } from '$lib/nourish/types';
+  import { NOURISH_PROMPT_VERSION } from '$lib/nourish/types';
+  import { computeContentHash } from '$lib/nourish/nourishRelay';
+  import type { FlagTarget } from '$lib/nourish/flagSubmit';
   import NourishInputTabs from '../../components/nourish/NourishInputTabs.svelte';
   import NourishResult from '../../components/nourish/NourishResult.svelte';
   import Button from '../../components/Button.svelte';
@@ -30,6 +33,33 @@
   let scanError = '';
   let scanResult: ScanResponse | null = null;
   let improvements: string[] = [];
+
+  // Flag target — text scans can be referenced by content hash. Image-only
+  // scans don't have a stable identifier, so the flag affordance is
+  // suppressed there.
+  //
+  // `computeContentHash` is async, and `scanText` can change before a
+  // prior hash resolves. The request-seq guard + text re-check discard
+  // any resolution that's no longer current — otherwise a slow earlier
+  // hash would overwrite a fast newer one with a stale value.
+  let flagTarget: FlagTarget | null = null;
+  let flagTargetRequestSeq = 0;
+  $: updateFlagTarget(scanResult, scanText);
+  async function updateFlagTarget(_result: ScanResponse | null, text: string) {
+    const trimmed = text.trim();
+    const seq = ++flagTargetRequestSeq;
+
+    if (!_result?.scores || !trimmed) {
+      flagTarget = null;
+      return;
+    }
+
+    const hash = await computeContentHash(trimmed);
+    // If a newer request started while we were hashing, or the text has
+    // changed, drop this result.
+    if (seq !== flagTargetRequestSeq || trimmed !== scanText.trim()) return;
+    flagTarget = { kind: 'scan', contentHash: hash };
+  }
 
   $: hasInput = scanText.trim().length > 0 || imageData !== null;
 
@@ -151,6 +181,8 @@
       {improvements}
       ingredientSignals={scanResult.ingredient_signals || []}
       onReset={resetScan}
+      {flagTarget}
+      nourishVer={NOURISH_PROMPT_VERSION}
     />
 
   {:else}

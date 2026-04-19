@@ -5,20 +5,44 @@
    * Shows icon + label + bar by default.
    * Tap/click expands to reveal the reason text and numeric score.
    * No numeric score visible in collapsed state — bars show the profile shape.
+   *
+   * When `flagTarget` is provided, renders a small NourishFlagButton in
+   * the expanded detail row so users can contest the score.
    */
 
   import CaretDownIcon from 'phosphor-svelte/lib/CaretDown';
+  import NourishFlagButton from './NourishFlagButton.svelte';
+  import type { FlagTarget, NourishDimension } from '$lib/nourish/flagSubmit';
 
   export let icon: string = '🌱';
   export let label: string = '';
   export let score: number = 0;
   export let reason: string = '';
 
+  /**
+   * When present, the expanded detail row includes a flag affordance.
+   * Pass through from NourishResult's parent (NourishModal, /nourish page).
+   * Null/undefined → no flag button.
+   */
+  export let flagTarget: FlagTarget | null = null;
+
+  /**
+   * Machine-readable dimension key, required when `flagTarget` is set.
+   * Must be one of the NourishDimension values (gut / protein / realFood /
+   * overall). If omitted, the flag button is suppressed.
+   */
+  export let flagDimension: NourishDimension | null = null;
+
+  /** Nourish model/prompt version snapshot — required when flagTarget is set. */
+  export let nourishVer: string = '';
+
   let expanded = false;
 
   function toggle() {
     if (reason) expanded = !expanded;
   }
+
+  $: canFlag = !!flagTarget && !!flagDimension && !!nourishVer;
 </script>
 
 <button
@@ -45,6 +69,18 @@
   <div class="dim-detail">
     <span class="dim-score">{score}<span class="dim-score-max">/10</span></span>
     <p class="dim-reason">{reason}</p>
+    {#if canFlag && flagTarget && flagDimension}
+      <div class="dim-flag">
+        <NourishFlagButton
+          target={flagTarget}
+          dimension={flagDimension}
+          {score}
+          {nourishVer}
+          iconSize={12}
+          dimensionLabel={label.toLowerCase()}
+        />
+      </div>
+    {/if}
   </div>
 {/if}
 
@@ -143,5 +179,12 @@
     line-height: 1.5;
     color: var(--color-text-secondary);
     margin: 0;
+    flex: 1;
+  }
+
+  .dim-flag {
+    flex-shrink: 0;
+    align-self: flex-start;
+    margin-left: 0.25rem;
   }
 </style>

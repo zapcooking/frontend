@@ -14,11 +14,26 @@
 	import { ingredientStore } from '$lib/nourish/ingredientStore';
 	import { fetchNourishEvent, isNourishStale, computeContentHash } from '$lib/nourish/nourishRelay';
 	import type { NourishScores } from '$lib/nourish/types';
+	import { NOURISH_PROMPT_VERSION } from '$lib/nourish/types';
+	import type { FlagTarget } from '$lib/nourish/flagSubmit';
 	import NourishResult from './NourishResult.svelte';
 
 	export let open = false;
 	export let event: NDKEvent;
 	export let hasMembership = false;
+
+	// Flag target for the per-dimension flag affordance inside NourishResult.
+	// Derived from the recipe's NIP-01 addressable form. The Nourish event's
+	// own id isn't tracked on this component today, so the `a`-tag is the
+	// sole identifier in the flag; admin aggregation uses the a-tag to group.
+	$: flagTarget = scores
+		? ({
+				kind: 'recipe',
+				aTag: `${event.kind}:${event.author?.hexpubkey || event.pubkey}:${
+					event.tags.find((t) => t[0] === 'd')?.[1] || ''
+				}`
+			} satisfies FlagTarget)
+		: null;
 
 	let scores: NourishScores | null = null;
 	let improvements: string[] = [];
@@ -218,6 +233,8 @@
 		<NourishResult
 			{scores}
 			{improvements}
+			{flagTarget}
+			nourishVer={NOURISH_PROMPT_VERSION}
 			compact
 		/>
 

@@ -61,3 +61,76 @@ priority — that's set per-sprint.
    appends the client tag unconditionally. Add a user setting
    ("Identify as zap.cooking on events I publish", default on) and gate
    the append. Affects every publish path.
+
+## Nourish flag mechanism (feat/nourish-flag)
+
+### Deferred UI placements
+
+7. **Flag affordance on NourishPill hover card + NourishModal summary.**
+   Phase 2 committed to these; commit 4 deferred because neither surface
+   currently receives the recipe FlagTarget as a prop. The three
+   NourishDimensionBar rows inside NourishResult cover the primary
+   engaged-user path. Adding the pill-preview and modal-summary flag
+   requires threading `{aTag, nourishEventId?}` into those components.
+   Low-effort once the Nourish event id starts being tracked alongside
+   scores — which is a separate open question below.
+
+8. **Track the Nourish event id alongside cached scores.**
+   `src/lib/nourish/cache.ts` stores scores keyed by recipe event id but
+   doesn't capture the kind 30078 Nourish event's own id returned from
+   the pantry relay or API. Capturing it would let flag events carry a
+   precise `["e", nourishEventId]` for admin triage ("which specific
+   scoring was flagged"). `flagSubmit.ts` already treats
+   `FlagTarget.nourishEventId` as optional; adding it is purely a
+   richer signal.
+
+### Admin auth + discoverability
+
+9. **NIP-98 signed HTTP-auth on admin endpoints.** Current pattern
+   (`x-admin-pubkey` header checked against `ADMIN_PUBKEY`) is the
+   existing codebase precedent (also in /sponsors) but weak — anyone who
+   knows the admin pubkey can spoof it. Upgrade path: require a NIP-98
+   signed Authorization header and verify the signature server-side.
+   Affects `/api/admin/nourish-flags` and `/api/sponsors`.
+
+10. **Admin nav entry for /admin/nourish-flags when usage patterns
+    justify.** v1 is unlinked — navigate manually. Once the page is
+    used regularly, add a nav link gated on `isAdmin($userPublickey)`.
+
+### Spam / abuse contingencies
+
+11. **Turnstile on anon flag endpoint if spam appears.** Not in v1.
+    Current limits (1/min, 10/hr, 30/day per ipHash) are an effective
+    floor. If anon flag volume grows disproportionate to legitimate
+    traffic growth, gate POST /api/nourish/flag behind a Cloudflare
+    Turnstile token. Two-hour change.
+
+12. **Per-pubkey rate cap for signed flags.** Currently unlimited on
+    the Nostr publish path (social pressure + public pubkey = self-
+    policing). If a user brigades from their own pubkey, add a 24h cap
+    (e.g., 50 signed flags per day per pubkey) at the client-side
+    `flagSubmit.submitSignedFlag` pre-check. Server can't easily enforce
+    this on a public relay; enforcement lives at the admin view where
+    per-pubkey concentration is visible.
+
+### Observability
+
+13. **Popover open-rate vs submit-rate analytics.** Measures how much
+    friction the popover adds. Currently no client-side analytics
+    infrastructure; when one lands, instrument
+    `NourishFlagButton.handleIconClick` (open) and `handleSubmit` (submit)
+    to emit events.
+
+14. **Progressive error back-off on repeated 429s.** The 429 response
+    already carries `{retryAfter, scope}`. Client could track rate-limit
+    hits locally and lengthen its cooldown before re-submitting. Not
+    needed for v1 — the UX tells the user to slow down.
+
+### Differentiated error messages
+
+15. **Signing-cancelled / network-timeout / generic error messages on
+    flag submission.** Currently all errors map to
+    "Couldn't submit your flag — please try again." Better granularity
+    helps users self-correct (e.g., "Please connect to the network and
+    try again" vs "You cancelled signing in your extension"). Also
+    applies to comment-post error path from Task 6 Stage 5.
