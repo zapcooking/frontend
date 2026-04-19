@@ -83,8 +83,14 @@
       cancelListenerAttached = true;
     }
 
-    // Wait for reactive statements to populate draftSignature, then arm auto-save
+    // Compute the baseline signature immediately (bypassing the debounced
+    // reactive) so the first edit after load is detected correctly.
     await tick();
+    if (draftSignatureTimer) {
+      clearTimeout(draftSignatureTimer);
+      draftSignatureTimer = null;
+    }
+    recomputeDraftSignature();
     lastSavedSignature = draftSignature;
     initialLoadComplete = true;
   });
@@ -96,6 +102,10 @@
     if (autoSaveTimer) {
       clearTimeout(autoSaveTimer);
       autoSaveTimer = null;
+    }
+    if (draftSignatureTimer) {
+      clearTimeout(draftSignatureTimer);
+      draftSignatureTimer = null;
     }
   });
 
@@ -111,7 +121,18 @@
       scheduleAutoSave();
       return;
     }
-    if (!hasDraftContent) return;
+    // Flush any pending debounced signature computation so we compare against
+    // the latest typed state, not the previous tick's.
+    if (draftSignatureTimer) {
+      clearTimeout(draftSignatureTimer);
+      draftSignatureTimer = null;
+      recomputeDraftSignature();
+    }
+    // Skip the very first save when the composer is empty and there's no
+    // existing draft — no point creating an empty draft entry. But once a
+    // draft exists, always persist subsequent changes (including clearing
+    // all fields) so the "I deleted everything" state is saved too.
+    if (!hasDraftContent && !currentDraftId) return;
     if (draftSignature === lastSavedSignature) return;
 
     const signatureAtSave = draftSignature;
@@ -400,25 +421,60 @@
     $directionsArray.length > 0 ||
     Boolean(additionalMarkdown.trim());
 
-  // Serialized form of all draft fields — drives change detection for auto-save
-  $: draftSignature = JSON.stringify([
-    title,
-    $images,
-    $selectedTags,
-    summary,
-    chefsnotes,
-    preptime,
-    cooktime,
-    servings,
-    $ingredientsArray,
-    $directionsArray,
-    additionalMarkdown
-  ]);
+  // Serialized form of all draft fields — drives change detection for
+  // auto-save. Declared explicitly (and the compute debounced via the
+  // reactive below) so TS knows the var exists before onMount reads it,
+  // and so we don't re-JSON.stringify the entire draft on every keystroke
+  // for recipes with long ingredient/direction lists.
+  let draftSignature = '';
+  let draftSignatureTimer: ReturnType<typeof setTimeout> | null = null;
 
-  // Schedule an auto-save whenever the draft changes (post-load)
+  function recomputeDraftSignature() {
+    draftSignature = JSON.stringify([
+      title,
+      $images,
+      $selectedTags,
+      summary,
+      chefsnotes,
+      preptime,
+      cooktime,
+      servings,
+      $ingredientsArray,
+      $directionsArray,
+      additionalMarkdown
+    ]);
+  }
+
+  $: {
+    // Touch every draft field so Svelte tracks it as a dep.
+    title;
+    $images;
+    $selectedTags;
+    summary;
+    chefsnotes;
+    preptime;
+    cooktime;
+    servings;
+    $ingredientsArray;
+    $directionsArray;
+    additionalMarkdown;
+    if (!browser) {
+      recomputeDraftSignature();
+    } else {
+      if (draftSignatureTimer) clearTimeout(draftSignatureTimer);
+      draftSignatureTimer = setTimeout(() => {
+        draftSignatureTimer = null;
+        recomputeDraftSignature();
+      }, 250);
+    }
+  }
+
+  // Schedule an auto-save whenever the draft changes (post-load). We also
+  // allow the save-through-empty case when a draft already exists so that
+  // clearing all fields on an existing draft is persisted.
   $: if (
     initialLoadComplete &&
-    hasDraftContent &&
+    (hasDraftContent || currentDraftId) &&
     draftSignature !== lastSavedSignature
   ) {
     scheduleAutoSave();

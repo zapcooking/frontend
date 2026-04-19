@@ -38,16 +38,19 @@
       urlError = 'URL must start with http:// or https://.';
       return;
     }
+    // Normalize via URL so `example.com` vs `example.com/` (or different
+    // casing/encoding) collapse to the same entry for the dedupe check.
+    const normalizedUrl = parsed.toString();
     if (limit > 0 && $uploadedImages.length >= limit) {
       urlError = `Limit of ${limit} media reached.`;
       return;
     }
-    if ($uploadedImages.includes(value)) {
+    if ($uploadedImages.includes(normalizedUrl)) {
       urlError = 'That URL is already added.';
       return;
     }
 
-    uploadedImages.update((imgs) => [...imgs, value]);
+    uploadedImages.update((imgs) => [...imgs, normalizedUrl]);
     urlInput = '';
   }
 
@@ -349,6 +352,8 @@
     <button
       type="button"
       class="flex items-center gap-1 text-xs text-caption hover:opacity-80 transition-opacity cursor-pointer"
+      aria-expanded={urlSectionOpen}
+      aria-controls="media-url-panel"
       on:click={() => (urlSectionOpen = !urlSectionOpen)}
     >
       <CaretDownIcon
@@ -359,7 +364,7 @@
     </button>
 
     {#if urlSectionOpen}
-      <div class="flex flex-col gap-1.5 mt-2">
+      <div id="media-url-panel" class="flex flex-col gap-1.5 mt-2">
         <div class="flex flex-col sm:flex-row gap-2">
           <input
             type="url"
