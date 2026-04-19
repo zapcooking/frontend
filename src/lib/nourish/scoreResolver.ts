@@ -10,10 +10,15 @@
  *   L3 localStorage      — 7d TTL (via cache.ts)
  *   L4 pantry relay      — durable, authoritative source
  *
- * Commit 2 introduces L1 + L2 with "first non-null in L2 → L3 → L4"
- * semantics. Commit 3 upgrades this to a createdAt-based winner with
- * write-through reconciliation. Commit 4 splits pantry timeout out
- * from miss and introduces the retry UI state.
+ * Commit 2 introduced L1 + L2 with a simple "first non-null in L2 →
+ * L3 → L4" rule. Commit 3 (this commit) upgrades that to a full
+ * createdAt-based winner with write-through reconciliation across
+ * layers: gather all candidates, pick the max-createdAt one (tiebreak:
+ * pantry > local > memory), write-through to any layer that's missing
+ * or carrying an older entry, and call scheduleOpportunisticRepublish
+ * when the winner didn't come from pantry AND pantry confirmed a miss.
+ * Commit 4 will split pantry timeout out from miss and introduce the
+ * retry UI state.
  *
  * The resolver never computes a fresh score — that's the caller's
  * concern (/api/nourish + membership gating). A `miss` result means
@@ -75,16 +80,47 @@ export function purgeMemory(key: NourishCacheKey): void {
   memory.delete(mapKey);
 }
 
-// ─── Attempt counter (commit 3 activates) ───────────────────
+// ─── Attempt counter (fixed 60s window) ─────────────────────
+//
+// First pantry-timeout opens a 60s window anchored on that moment.
+// All timeouts within the window increment the count. A timeout that
+// arrives after the window closed opens a fresh window (count = 1).
+// A successful resolve invalidates the window so subsequent failures
+// start fresh counts.
+//
+// recordTimeout is dormant in commit 3 (queryNourishEvent still folds
+// timeout into miss, so doResolve never detects one). Commit 4 splits
+// the timeout status out and calls recordTimeout on each.
 
-/**
- * Number of consecutive pantry-timeout attempts for a key, within
- * the current 60s window. Commit 2 returns 0 always; commit 3 wires
- * the actual counter; commit 4's UI consumes it.
- */
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-export function getAttemptCount(_key: NourishCacheKey): number {
-  return 0;
+interface AttemptWindow {
+  count: number;
+  windowStart: number;
+}
+
+const WINDOW_MS = 60_000;
+const attempts = new Map<string, AttemptWindow>();
+
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- commit 4 wires
+function recordTimeout(key: NourishCacheKey): number {
+  const k = toMapKey(key);
+  const now = Date.now();
+  const existing = attempts.get(k);
+  if (!existing || now - existing.windowStart >= WINDOW_MS) {
+    attempts.set(k, { count: 1, windowStart: now });
+    return 1;
+  }
+  existing.count += 1;
+  return existing.count;
+}
+
+function clearAttempts(key: NourishCacheKey): void {
+  attempts.delete(toMapKey(key));
+}
+
+export function getAttemptCount(key: NourishCacheKey): number {
+  const w = attempts.get(toMapKey(key));
+  if (!w || Date.now() - w.windowStart >= WINDOW_MS) return 0;
+  return w.count;
 }
 
 // ─── Opportunistic republish hook (PR 3 wires) ──────────────
@@ -134,62 +170,143 @@ export async function resolveScore(
 
 // ─── Internal resolution ────────────────────────────────────
 
-async function doResolve(ndk: NDK, key: NourishCacheKey): Promise<ResolveResult> {
-  // L2 — module memory
-  const l2Hit = memory.get(toMapKey(key));
-  if (l2Hit) {
-    return { status: 'hit', source: 'memory', entry: l2Hit };
+type CandidateSource = 'memory' | 'local' | 'pantry';
+
+interface Candidate {
+  source: CandidateSource;
+  entry: ResolvedEntry;
+}
+
+// Tiebreak ranks for equal createdAt. Pantry is authoritative, so
+// if a local and a pantry entry share the same createdAt we prefer
+// pantry. Memory at the bottom because it was populated from L3/L4
+// in the first place — pointing back at memory over its source is
+// never informative.
+const TIEBREAK_RANK: Record<CandidateSource, number> = {
+  pantry: 2,
+  local: 1,
+  memory: 0
+};
+
+function pickWinner(candidates: Candidate[]): Candidate {
+  return candidates.reduce((best, c) => {
+    if (c.entry.createdAt > best.entry.createdAt) return c;
+    if (
+      c.entry.createdAt === best.entry.createdAt &&
+      TIEBREAK_RANK[c.source] > TIEBREAK_RANK[best.source]
+    ) {
+      return c;
+    }
+    return best;
+  });
+}
+
+// Write-through: update any layer that's missing the winner or carries
+// an older createdAt. Keyed under the winner's promptVersion (which
+// may differ from the requested key's when pantry has an event tagged
+// with a different version — strict version partitioning preserved).
+function writeThrough(
+  requestedKey: NourishCacheKey,
+  winner: Candidate,
+  existing: {
+    l2Hit: ResolvedEntry | undefined;
+    l3HitCreatedAt: number; // 0 when no L3 entry exists
+  }
+): void {
+  const writeKey: NourishCacheKey = {
+    recipePubkey: requestedKey.recipePubkey,
+    recipeDTag: requestedKey.recipeDTag,
+    promptVersion: winner.entry.promptVersion
+  };
+
+  if (!existing.l2Hit || existing.l2Hit.createdAt < winner.entry.createdAt) {
+    memory.set(toMapKey(writeKey), winner.entry);
   }
 
-  // L3 — localStorage
+  if (existing.l3HitCreatedAt < winner.entry.createdAt) {
+    setNourishScores(writeKey, winner.entry.scores, {
+      contentHash: winner.entry.contentHash,
+      createdAt: winner.entry.createdAt,
+      improvements: winner.entry.improvements,
+      ingredientSignals: winner.entry.ingredientSignals
+    });
+  }
+}
+
+function l3EntryToResolved(
+  l3: NonNullable<ReturnType<typeof getNourishCache>>,
+  promptVersion: string
+): ResolvedEntry {
+  return {
+    scores: l3.scores,
+    contentHash: l3.contentHash,
+    // Fall back to the localStorage write timestamp for pre-1a entries
+    // that lack a persisted createdAt. Matches the fallback the modal
+    // already uses for its "analyzed at" label.
+    createdAt: l3.createdAt ?? Math.floor(l3.timestamp / 1000),
+    improvements: l3.improvements,
+    ingredientSignals: l3.ingredientSignals,
+    promptVersion
+  };
+}
+
+async function doResolve(ndk: NDK, key: NourishCacheKey): Promise<ResolveResult> {
+  // Gather candidates from every layer before deciding. Unlike commit
+  // 2's first-non-null short-circuit, we need all of them because a
+  // stale L2 or L3 must lose to a newer pantry event, and vice versa.
+  const candidates: Candidate[] = [];
+
+  const l2Hit = memory.get(toMapKey(key));
+  if (l2Hit) candidates.push({ source: 'memory', entry: l2Hit });
+
   const l3Hit = getNourishCache(key);
   if (l3Hit) {
-    const entry: ResolvedEntry = {
-      scores: l3Hit.scores,
-      contentHash: l3Hit.contentHash,
-      // Fall back to localStorage write timestamp for pre-1a entries
-      // that lack a persisted createdAt. Matches the fallback the
-      // modal already uses for its "analyzed at" label.
-      createdAt: l3Hit.createdAt ?? Math.floor(l3Hit.timestamp / 1000),
-      improvements: l3Hit.improvements,
-      ingredientSignals: l3Hit.ingredientSignals,
-      promptVersion: key.promptVersion
-    };
-    memory.set(toMapKey(key), entry);
-    return { status: 'hit', source: 'local', entry };
+    candidates.push({
+      source: 'local',
+      entry: l3EntryToResolved(l3Hit, key.promptVersion)
+    });
   }
 
-  // L4 — pantry relay (4s timeout in commit 2; 2s in commit 4)
   const l4 = await queryNourishEvent(ndk, key.recipePubkey, key.recipeDTag);
   if (l4.status === 'hit') {
-    const entry: ResolvedEntry = {
-      scores: l4.result.scores,
-      contentHash: l4.result.contentHash,
-      createdAt: l4.result.createdAt,
-      improvements: l4.result.improvements,
-      ingredientSignals: l4.result.ingredientSignals,
-      promptVersion: l4.result.promptVersion
-    };
-
-    // Write-through to L2 + L3 so the next mount of the same recipe
-    // skips the pantry query. Preserves the modal's existing pattern
-    // of writing under the event's promptVersion (not the caller's)
-    // — strict version partitioning lives here too.
-    const writeKey: NourishCacheKey = {
-      recipePubkey: key.recipePubkey,
-      recipeDTag: key.recipeDTag,
-      promptVersion: l4.result.promptVersion
-    };
-    memory.set(toMapKey(writeKey), entry);
-    setNourishScores(writeKey, entry.scores, {
-      contentHash: entry.contentHash,
-      createdAt: entry.createdAt,
-      improvements: entry.improvements,
-      ingredientSignals: entry.ingredientSignals
+    candidates.push({
+      source: 'pantry',
+      entry: {
+        scores: l4.result.scores,
+        contentHash: l4.result.contentHash,
+        createdAt: l4.result.createdAt,
+        improvements: l4.result.improvements,
+        ingredientSignals: l4.result.ingredientSignals,
+        promptVersion: l4.result.promptVersion
+      }
     });
-
-    return { status: 'hit', source: 'pantry', entry };
   }
 
-  return { status: 'miss' };
+  if (candidates.length === 0) {
+    // Commit 3 still folds timeout into miss via queryNourishEvent.
+    // Commit 4 splits them and emits [nourish.pantry.timeout] plus a
+    // { status: 'timeout' } return with recordTimeout(key) attached.
+    return { status: 'miss' };
+  }
+
+  const winner = pickWinner(candidates);
+
+  writeThrough(key, winner, {
+    l2Hit,
+    l3HitCreatedAt: l3Hit?.createdAt ?? (l3Hit?.timestamp ? Math.floor(l3Hit.timestamp / 1000) : 0)
+  });
+
+  // Winner isn't pantry AND pantry confirmed miss → our local cache
+  // has a score pantry doesn't know about. Republish it so the next
+  // cold client isn't forced to recompute. No-op stub in PR 2; PR 3
+  // wires the implementation.
+  if (winner.source !== 'pantry' && l4.status === 'miss') {
+    scheduleOpportunisticRepublish({ key, entry: winner.entry });
+  }
+
+  // Successful resolve invalidates the attempt window — subsequent
+  // failures start fresh counts rather than inheriting a stale streak.
+  clearAttempts(key);
+
+  return { status: 'hit', source: winner.source, entry: winner.entry };
 }
