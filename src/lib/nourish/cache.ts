@@ -53,6 +53,20 @@ export function getNourishCache(key: NourishCacheKey): CacheEntry | null {
 	}
 }
 
+/**
+ * Remove a single Nourish cache entry. Used by the stale-refresh flow
+ * to invalidate L3 state before re-querying pantry + optionally
+ * computing fresh, so we don't carry a known-stale blob forward.
+ */
+export function clearNourishCache(key: NourishCacheKey): void {
+	if (!browser) return;
+	try {
+		localStorage.removeItem(cacheKey(key));
+	} catch {
+		// localStorage unavailable — ignore
+	}
+}
+
 export function setNourishScores(
 	key: NourishCacheKey,
 	scores: NourishScores,
