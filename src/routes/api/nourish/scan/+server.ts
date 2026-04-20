@@ -38,7 +38,7 @@ import { env } from '$env/dynamic/private';
 import { NOURISH_CACHE_VERSION, NOURISH_PROMPT_VERSION, computeOverallScore } from '$lib/nourish/types';
 import { requireMembership } from '../membershipCheck';
 
-const SCAN_PROMPT = `You are a food analysis assistant for a cooking platform. Analyze the following food description and return quality scores.
+const SCAN_PROMPT = `You are a food analysis assistant for a cooking platform. Analyze the following food description and return eight food scores: seven Nourish health dimensions, and one Audience appeal dimension.
 
 The input may be an ingredient list, a restaurant dish description, a partial recipe, or any food-related text. Do your best with whatever information is provided.
 
@@ -47,6 +47,8 @@ SCORING RULES:
 - Base your analysis ONLY on the information provided.
 - Be consistent: similar ingredient profiles should produce similar scores.
 - These are rough estimates. Err toward the middle of the range unless the input clearly skews high or low.
+
+════════ NOURISH DIMENSIONS (HEALTH) ════════
 
 GUT SCORE (0-10): How well does this food support digestive health?
 - Fermented foods (yogurt, kimchi, sauerkraut, miso, kefir, sourdough): +2-3 points
@@ -70,6 +72,56 @@ REAL FOOD SCORE (0-10): How close are the ingredients to their whole, unprocesse
 - Contains ultra-processed items (processed cheese, instant mixes, artificial flavors): -2-3 points
 - Mostly packaged/convenience ingredients: 0-3 score
 
+ANTI-INFLAMMATORY SCORE (0-10): How well does this food support the body's anti-inflammatory response?
+- Omega-3 rich (fatty fish, walnuts, flaxseed, chia): +2-3
+- Turmeric, ginger, extra-virgin olive oil: +1-2
+- Leafy greens, dark berries: +1-2
+- Colorful vegetables (bell peppers, tomatoes, beets): +1
+- Refined vegetable oils (corn, soybean, safflower): -1-2
+- Processed meats (bacon, sausage, deli meat): -2
+- Added sugar, refined carbs: -1-2
+- Ultra-processed ingredients: -1-2
+
+BLOOD SUGAR SCORE (0-10): How well does this food support stable blood sugar?
+- Fiber + protein + healthy fat balance: +2-3
+- Whole grains (oats, quinoa, brown rice), legumes: +1-2
+- Added sugar (cane/honey/syrup/etc.): -1-2
+- Refined flour, white rice, fruit juice: -1-2
+- Ultra-processed snacks: -1-2
+
+IMMUNE-SUPPORTIVE SCORE (0-10): How well does this food provide immune-supportive nutrients?
+- Vitamin-C-rich (citrus, bell peppers, broccoli, kiwi): +1-2
+- Zinc sources (pumpkin seeds, oysters, legumes, red meat): +1
+- Alliums (garlic, onion, leek, shallot): +1
+- Ginger, turmeric, mushrooms: +1
+- Fermented foods (yogurt, kimchi, kefir, sauerkraut): +1-2
+- Bone broth: +1
+- Mostly refined/processed: 0-2 range
+
+BRAIN HEALTH SCORE (0-10): How well does this food support cognitive health?
+- Omega-3 fatty fish (salmon, sardines, mackerel): +2-3
+- Leafy greens, berries: +1-2
+- Walnuts, other nuts: +1-2
+- Turmeric, whole grains, olive oil: +1
+- Refined sugar, trans fats, ultra-processed: -1-2
+
+════════ AUDIENCE DIMENSION (APPEAL) ════════
+
+KID-FRIENDLY SCORE (0-10): How likely is a typical kid (ages 5-10) to eat this food willingly?
+
+IMPORTANT: This is NOT a health score. Do not penalize healthy food for being healthy, and do not reward unhealthy food for being palatable. It's a palate-appeal score: flavor familiarity, texture approachability, visual presentation, and how picky-eater-compatible the food is. A nutrient-dense stir-fry can score low on kid-friendly; a plain buttered pasta can score high. Both are legitimate signals and independent of health.
+
+- Familiar flavors (mild cheese, pasta, rice, mild chicken, butter): +2-3
+- Slightly sweet or savory-sweet profile: +1
+- Finger foods, nugget/patty shapes, pizza, tacos, dips: +1-2
+- Visual appeal (colorful, fun shapes, dippable components): +1
+- Hidden-veggie dishes (blended into sauces): +1
+- Strong/bitter flavors (olives, blue cheese, bitter greens, heavy spices): -1-2
+- Unfamiliar textures (raw fish, tripe, very chewy): -1-2
+- Visible large pieces of commonly-resisted vegetables: -1
+- Complex plated dishes requiring utensil skill: -1
+- Many separately-prepared components: 0-2 range
+
 LABELS:
 - 0-2: "Low"
 - 3-4: "Fair"
@@ -85,6 +137,11 @@ Return ONLY valid JSON with this exact structure:
   "gut": { "score": <number>, "label": "<string>", "reason": "<one sentence>" },
   "protein": { "score": <number>, "label": "<string>", "reason": "<one sentence>" },
   "realFood": { "score": <number>, "label": "<string>", "reason": "<one sentence>" },
+  "antiInflammatory": { "score": <number>, "label": "<string>", "reason": "<one sentence>" },
+  "bloodSugar": { "score": <number>, "label": "<string>", "reason": "<one sentence>" },
+  "immuneSupportive": { "score": <number>, "label": "<string>", "reason": "<one sentence>" },
+  "brainHealth": { "score": <number>, "label": "<string>", "reason": "<one sentence>" },
+  "kidFriendly": { "score": <number>, "label": "<string>", "reason": "<one sentence>" },
   "summary": "<1-2 sentences>",
   "quick_take": "<one short sentence describing what this food leans toward>",
   "ingredients": [
@@ -193,7 +250,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 			body: JSON.stringify({
 				model: 'gpt-4o-mini',
 				messages,
-				max_tokens: 1500,
+				max_tokens: 2000,
 				temperature: 0.3
 			})
 		});
@@ -229,11 +286,28 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 			);
 		}
 
-		// Normalize scores
+		// Normalize scores defensively. SCAN_PROMPT already requests the
+		// full current schema (7 Nourish dimensions + kidFriendly), but
+		// model responses can still omit fields or return malformed
+		// values. clampScore(undefined) falls back to 0 so a missing
+		// dimension contributes nothing to the weighted overall rather
+		// than throwing.
 		const gutScore = clampScore(parsed.gut?.score);
 		const proteinScore = clampScore(parsed.protein?.score);
 		const realFoodScore = clampScore(parsed.realFood?.score);
-		const overall = computeOverallScore(gutScore, proteinScore, realFoodScore);
+		const antiInflammatoryScore = clampScore(parsed.antiInflammatory?.score);
+		const bloodSugarScore = clampScore(parsed.bloodSugar?.score);
+		const immuneSupportiveScore = clampScore(parsed.immuneSupportive?.score);
+		const brainHealthScore = clampScore(parsed.brainHealth?.score);
+		const overall = computeOverallScore({
+			gut: gutScore,
+			protein: proteinScore,
+			realFood: realFoodScore,
+			antiInflammatory: antiInflammatoryScore,
+			bloodSugar: bloodSugarScore,
+			immuneSupportive: immuneSupportiveScore,
+			brainHealth: brainHealthScore
+		});
 
 		const scores = {
 			gut: {
@@ -251,10 +325,30 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 				label: validateLabel(parsed.realFood?.label),
 				reason: String(parsed.realFood?.reason || '')
 			},
+			antiInflammatory: {
+				score: antiInflammatoryScore,
+				label: validateLabel(parsed.antiInflammatory?.label),
+				reason: String(parsed.antiInflammatory?.reason || '')
+			},
+			bloodSugar: {
+				score: bloodSugarScore,
+				label: validateLabel(parsed.bloodSugar?.label),
+				reason: String(parsed.bloodSugar?.reason || '')
+			},
+			immuneSupportive: {
+				score: immuneSupportiveScore,
+				label: validateLabel(parsed.immuneSupportive?.label),
+				reason: String(parsed.immuneSupportive?.reason || '')
+			},
+			brainHealth: {
+				score: brainHealthScore,
+				label: validateLabel(parsed.brainHealth?.label),
+				reason: String(parsed.brainHealth?.reason || '')
+			},
 			overall: {
 				score: overall.score,
 				label: overall.label,
-				reason: `Weighted: Real Food 45%, Gut 35%, Protein 20%`
+				reason: `Weighted: Real Food 35%, Gut 25%, Protein 15%, Anti-Inflammatory 10%, Blood Sugar 10%, Immune-Supportive 3%, Brain Health 2%`
 			},
 			summary: String(parsed.summary || ''),
 			cacheVersion: NOURISH_CACHE_VERSION
@@ -279,12 +373,27 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 					}))
 			: [];
 
+		// Audience scores — v2 prompt returns kidFriendly. Defensive
+		// parsing: undefined if the model omitted or truncated.
+		const kfRaw = parsed.kidFriendly;
+		const audience_scores =
+			kfRaw && typeof kfRaw.score === 'number'
+				? {
+						kidFriendly: {
+							score: clampScore(kfRaw.score),
+							label: validateLabel(kfRaw.label),
+							reason: String(kfRaw.reason || '')
+						}
+					}
+				: undefined;
+
 		return json({
 			success: true,
 			scores,
 			quick_take,
 			improvements,
 			ingredient_signals,
+			audience_scores,
 			// Identity fields — scans have no durable pantry cache, but
 			// response shape stays consistent with /api/nourish so clients
 			// can reconcile by promptVersion / createdAt.

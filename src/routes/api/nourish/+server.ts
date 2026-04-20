@@ -85,7 +85,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 				{ status: pipelineResult.status }
 			);
 		}
-		const { scores, improvements, ingredientSignals } = pipelineResult;
+		const { scores, improvements, ingredientSignals, audienceScores } = pipelineResult;
 		const ingredient_signals = ingredientSignals;
 
 		// Publish Nourish event to relay (awaited — not fire-and-forget).
@@ -109,7 +109,8 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 						contentHash: contentHash.trim(),
 						scores,
 						improvements,
-						ingredientSignals: ingredient_signals
+						ingredientSignals: ingredient_signals,
+						audienceScores
 					});
 					console.log(`[Nourish] Publish ${published ? 'succeeded' : 'failed'} for ${recipeDTag}`);
 				} catch (err) {
@@ -123,6 +124,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 			scores,
 			improvements,
 			ingredient_signals,
+			audience_scores: audienceScores,
 			// Identity fields — let clients cache/reconcile by promptVersion
 			// + contentHash + createdAt instead of inferring from cacheVersion.
 			promptVersion: NOURISH_PROMPT_VERSION,
