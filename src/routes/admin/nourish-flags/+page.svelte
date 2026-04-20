@@ -30,6 +30,10 @@
   import { parseMarkdownForEditing } from '$lib/parser';
   import type { NourishScores } from '$lib/nourish/types';
   import { NOURISH_PROMPT_VERSION } from '$lib/nourish/types';
+  import {
+    fetchOutOfVersionCandidates,
+    type OutOfVersionCandidate
+  } from '$lib/nourish/nourishDiscovery';
 
   interface AnonFlag {
     target: string;
@@ -54,12 +58,13 @@
   }
 
   type Source = 'signed' | 'anon';
-  type TabKind = 'recipes' | 'scans';
+  type TabKind = 'recipes' | 'scans' | 'candidates';
 
   let loading = true;
   let loadError = '';
   let anonFlags: AnonFlag[] = [];
   let signedFlags: SignedFlag[] = [];
+  let candidates: OutOfVersionCandidate[] = [];
   let activeTab: TabKind = 'recipes';
   let expandedKey: string | null = null;
 
@@ -133,11 +138,16 @@
     };
   }
 
+  async function loadCandidates() {
+    if (!$ndk) return;
+    candidates = await fetchOutOfVersionCandidates($ndk, NOURISH_PROMPT_VERSION);
+  }
+
   async function loadAll() {
     loading = true;
     loadError = '';
     try {
-      await Promise.all([loadAnon(), loadSigned()]);
+      await Promise.all([loadAnon(), loadSigned(), loadCandidates()]);
     } catch (err) {
       loadError = err instanceof Error ? err.message : String(err);
     } finally {
@@ -264,6 +274,26 @@
 
   $: groups = groupFlags(signedFlags, anonFlags, activeTab);
 
+  // Total flag count per target (across all dimensions / directions /
+  // sources) — used to prioritize candidates in the upgrade-candidates
+  // tab. Keyed on the bare a-tag so it can be joined directly against
+  // OutOfVersionCandidate.aTag.
+  $: flagCountsByTarget = (() => {
+    const counts = new Map<string, number>();
+    const bump = (target: string) => {
+      if (!target.startsWith('a:')) return;
+      const aTag = target.slice(2);
+      counts.set(aTag, (counts.get(aTag) ?? 0) + 1);
+    };
+    for (const f of signedFlags) bump(f.target);
+    for (const f of anonFlags) bump(f.target);
+    return counts;
+  })();
+
+  $: sortedCandidates = [...candidates]
+    .map((c) => ({ candidate: c, flagCount: flagCountsByTarget.get(c.aTag) ?? 0 }))
+    .sort((a, b) => b.flagCount - a.flagCount || b.candidate.createdAt - a.candidate.createdAt);
+
   function formatAgo(iso: number): string {
     if (!iso) return '—';
     const diff = Date.now() - iso;
@@ -305,7 +335,6 @@
   let pendingRescore:
     | {
         key: string;
-        group: Group;
         recipePubkey: string;
         recipeDTag: string;
         content: { title: string; ingredients: string[]; tags: string[]; servings: string };
@@ -362,15 +391,12 @@
     }
   }
 
-  async function handleRescoreClick(g: Group) {
+  async function prepareRescore(
+    key: string,
+    recipePubkey: string,
+    recipeDTag: string
+  ) {
     if (!$ndk) return;
-    const parsed = parseRecipeTarget(g.target);
-    if (!parsed) {
-      prepareError = 'Unable to parse recipe coordinates.';
-      return;
-    }
-    const { recipePubkey, recipeDTag } = parsed;
-
     preparingRescore = true;
     prepareError = '';
     try {
@@ -413,8 +439,7 @@
           : null;
 
       pendingRescore = {
-        key: keyOf(g.target, g.dimension, g.nourishVer),
-        group: g,
+        key,
         recipePubkey,
         recipeDTag,
         content: { title, ingredients, tags, servings },
@@ -424,6 +449,30 @@
     } finally {
       preparingRescore = false;
     }
+  }
+
+  async function handleRescoreClick(g: Group) {
+    const parsed = parseRecipeTarget(g.target);
+    if (!parsed) {
+      prepareError = 'Unable to parse recipe coordinates.';
+      return;
+    }
+    await prepareRescore(
+      keyOf(g.target, g.dimension, g.nourishVer),
+      parsed.recipePubkey,
+      parsed.recipeDTag
+    );
+  }
+
+  async function handleCandidateRescoreClick(c: OutOfVersionCandidate) {
+    // Candidate key uses the pantry d-tag + current version so it
+    // doesn't collide with flag row keys. Candidates don't have a
+    // dimension — rescore applies to the whole target.
+    await prepareRescore(
+      `candidate:${c.aTag}`,
+      c.recipePubkey,
+      c.recipeDTag
+    );
   }
 
   function cancelRescore() {
@@ -526,9 +575,97 @@
       >
         Scans
       </button>
+      <button
+        class="tab"
+        class:active={activeTab === 'candidates'}
+        on:click={() => (activeTab = 'candidates')}
+      >
+        Upgrade candidates
+        {#if sortedCandidates.length > 0}
+          <span class="tab-badge">{sortedCandidates.length}</span>
+        {/if}
+      </button>
     </div>
 
-    {#if groups.length === 0}
+    {#if activeTab === 'candidates'}
+      {#if sortedCandidates.length === 0}
+        <p class="status">
+          No candidates. All scored recipes match the current model version (v{NOURISH_PROMPT_VERSION}).
+        </p>
+      {:else}
+        <div class="list">
+          {#each sortedCandidates as { candidate, flagCount } (candidate.eventId)}
+            {@const k = `candidate:${candidate.aTag}`}
+            {@const rescoreState = getRescoreState(k)}
+            <div class="row">
+              <div class="row-header row-header-candidate">
+                <span class="target">a:{candidate.aTag}</span>
+                <span class="ver">
+                  v{candidate.promptVersion} → v{NOURISH_PROMPT_VERSION}
+                </span>
+                <span class="candidate-flags">Flags: {flagCount}</span>
+                <span class="candidate-score">
+                  Overall {candidate.scores.overall.score}
+                </span>
+              </div>
+              <div class="row-detail">
+                {#if rescoreState.status === 'idle'}
+                  <button
+                    type="button"
+                    class="btn-rescore"
+                    disabled={preparingRescore}
+                    on:click={() => handleCandidateRescoreClick(candidate)}
+                  >
+                    {preparingRescore ? 'Preparing…' : 'Rescore to current version'}
+                  </button>
+                  {#if prepareError}
+                    <p class="rescore-error">{prepareError}</p>
+                  {/if}
+                {:else if rescoreState.status === 'submitting'}
+                  <p class="rescore-submitting">Rescoring…</p>
+                {:else if rescoreState.status === 'success'}
+                  <div class="rescore-success">
+                    <p class="rescore-label">Rescored</p>
+                    <div class="rescore-diff">
+                      <div class="rescore-col">
+                        <span class="rescore-heading">Before</span>
+                        {#if rescoreState.previous}
+                          <span class="rescore-score">
+                            {rescoreState.previous.scores.overall.score} ({rescoreState.previous.scores.overall.label})
+                          </span>
+                          <span class="rescore-meta">v{rescoreState.previous.promptVersion}</span>
+                        {:else}
+                          <span class="rescore-meta">No prior score</span>
+                        {/if}
+                      </div>
+                      <span class="rescore-arrow">→</span>
+                      <div class="rescore-col">
+                        <span class="rescore-heading">After</span>
+                        <span class="rescore-score">
+                          {rescoreState.next.scores.overall.score} ({rescoreState.next.scores.overall.label})
+                        </span>
+                        <span class="rescore-meta">v{rescoreState.next.promptVersion}</span>
+                      </div>
+                    </div>
+                  </div>
+                {:else if rescoreState.status === 'error'}
+                  <div class="rescore-error-block">
+                    <p class="rescore-error">Rescore failed: {rescoreState.message}</p>
+                    <button
+                      type="button"
+                      class="btn-rescore-retry"
+                      on:click={() => retryRescore(k)}
+                    >
+                      Retry
+                    </button>
+                  </div>
+                {/if}
+              </div>
+            </div>
+          {/each}
+        </div>
+      {/if}
+    {:else if groups.length === 0}
       <p class="status">No flags in this bucket yet.</p>
     {:else}
       <div class="list">
@@ -734,6 +871,35 @@
     padding: 0.125rem 0.375rem;
     border-radius: 0.25rem;
     background: var(--color-bg-tertiary, rgba(255, 255, 255, 0.04));
+  }
+
+  .tab-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 1.25rem;
+    padding: 0 0.375rem;
+    margin-left: 0.375rem;
+    border-radius: 9999px;
+    background: var(--color-primary);
+    color: white;
+    font-size: 0.6875rem;
+    font-weight: 600;
+  }
+
+  .row-header-candidate {
+    /* Non-button header for candidate rows — no toggle-expand needed. */
+    display: grid;
+    grid-template-columns: 1fr auto auto auto;
+    align-items: center;
+    gap: 1rem;
+    padding: 0.75rem 1rem;
+  }
+
+  .candidate-flags,
+  .candidate-score {
+    font-size: 0.8125rem;
+    color: var(--color-text-secondary);
   }
 
   .rescore-block {

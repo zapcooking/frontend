@@ -10,6 +10,7 @@ import type NDK from '@nostr-dev-kit/ndk';
 import type { NDKEvent } from '@nostr-dev-kit/ndk';
 import { NDKRelaySet } from '@nostr-dev-kit/ndk';
 import { NOURISH_SERVICE_PUBKEY } from './types';
+import type { NourishScores } from './types';
 import { parseNourishEvent, type NourishRelayResult } from './nourishRelay';
 
 const PANTRY_RELAY = 'wss://pantry.zap.cooking';
@@ -180,4 +181,87 @@ export async function fetchNourishRankedRecipes(
   }
 
   return results;
+}
+
+// ─── Admin: model-upgrade candidates ────────────────────────
+
+/**
+ * Candidate for admin-triggered rescore because its stored
+ * promptVersion doesn't match the server's current
+ * NOURISH_PROMPT_VERSION (or it's a legacy `'unknown'` event per
+ * PR 311's untagged-event handling).
+ */
+export interface OutOfVersionCandidate {
+  recipePubkey: string;
+  recipeDTag: string;
+  /** `30023:${recipePubkey}:${recipeDTag}` — joinable against flag aggregator's `target` (minus the `a:` prefix). */
+  aTag: string;
+  eventId: string;
+  promptVersion: string;
+  createdAt: number;
+  scores: NourishScores;
+  contentHash: string;
+}
+
+/**
+ * Fetch pantry Nourish events whose promptVersion doesn't match the
+ * current server constant. Admin view joins these with flag counts
+ * client-side and surfaces them in the "Upgrade candidates" tab.
+ *
+ * Returns the full list (no pagination) — admin surface, volume is
+ * bounded by the number of scored recipes.
+ */
+export async function fetchOutOfVersionCandidates(
+  ndk: NDK,
+  currentPromptVersion: string
+): Promise<OutOfVersionCandidate[]> {
+  const filter = {
+    kinds: [30078 as number],
+    authors: [NOURISH_SERVICE_PUBKEY],
+    limit: 500
+  };
+
+  const relaySet = NDKRelaySet.fromRelayUrls([PANTRY_RELAY], ndk, true);
+  const fetchPromise = ndk.fetchEvents(filter, undefined, relaySet);
+  const timeoutPromise = new Promise<Set<NDKEvent>>((resolve) =>
+    setTimeout(() => resolve(new Set()), FETCH_TIMEOUT_MS)
+  );
+  let nourishEvents = await Promise.race([fetchPromise, timeoutPromise]);
+
+  if (nourishEvents.size === 0) {
+    const broadFetch = ndk.fetchEvents(filter);
+    const broadTimeout = new Promise<Set<NDKEvent>>((resolve) =>
+      setTimeout(() => resolve(new Set()), FETCH_TIMEOUT_MS)
+    );
+    nourishEvents = await Promise.race([broadFetch, broadTimeout]);
+  }
+
+  const candidates: OutOfVersionCandidate[] = [];
+  for (const event of nourishEvents) {
+    const parsed = parseNourishEvent(event);
+    if (!parsed) continue;
+    if (parsed.promptVersion === currentPromptVersion) continue;
+
+    // Recipe coordinates come from the `a` tag (kind:pubkey:dTag).
+    const aTagFull = event.tags.find((t) => t[0] === 'a')?.[1];
+    if (!aTagFull) continue;
+    const parts = aTagFull.split(':');
+    if (parts.length < 3) continue;
+    const [, recipePubkey, ...rest] = parts;
+    const recipeDTag = rest.join(':');
+    if (!recipePubkey || !recipeDTag) continue;
+
+    candidates.push({
+      recipePubkey,
+      recipeDTag,
+      aTag: aTagFull,
+      eventId: parsed.eventId,
+      promptVersion: parsed.promptVersion,
+      createdAt: parsed.createdAt,
+      scores: parsed.scores,
+      contentHash: parsed.contentHash
+    });
+  }
+
+  return candidates;
 }
