@@ -20,6 +20,13 @@ export interface NourishRelayResult {
   promptVersion: string;
   nourishVersion: string;
   createdAt: number;
+  /**
+   * Unix seconds of the last admin rescore. Present only on events
+   * published by the admin rescore endpoint; first-time-scored events
+   * omit the `updated_at` tag and this field is undefined. Drives the
+   * 24h "Updated" pill in the client UI.
+   */
+  updatedAt?: number;
   eventId: string;
 }
 
@@ -89,6 +96,16 @@ export interface NourishResponse {
 	promptVersion?: string;
 	contentHash?: string;
 	createdAt?: number;
+	/**
+	 * Set by the admin rescore endpoint when the server publishes with
+	 * an `updated_at` tag. Undefined on normal compute responses.
+	 */
+	updatedAt?: number;
+	/**
+	 * Set by the admin rescore endpoint to report pantry publish outcome.
+	 * Undefined on normal compute responses.
+	 */
+	published?: boolean;
 }
 
 // ─── Scan Anything ───────────────────────────────────────────

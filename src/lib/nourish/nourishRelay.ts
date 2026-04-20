@@ -184,6 +184,16 @@ export function parseNourishEvent(event: NDKEvent): NourishRelayResult | null {
     const promptVersion = event.tags.find((t) => t[0] === 'prompt_version')?.[1] || 'unknown';
     const nourishVersion = event.tags.find((t) => t[0] === 'nourish_version')?.[1] || NOURISH_CACHE_VERSION;
 
+    // updated_at tag is present only on admin rescores. Accept the tag
+    // or the mirrored content field; undefined on first-time scores.
+    const updatedAtTag = event.tags.find((t) => t[0] === 'updated_at')?.[1];
+    const updatedAtParsed = updatedAtTag ? Number(updatedAtTag) : NaN;
+    const updatedAt = Number.isFinite(updatedAtParsed)
+      ? updatedAtParsed
+      : typeof content.updatedAt === 'number'
+        ? content.updatedAt
+        : undefined;
+
     return {
       scores,
       improvements,
@@ -192,6 +202,7 @@ export function parseNourishEvent(event: NDKEvent): NourishRelayResult | null {
       promptVersion,
       nourishVersion,
       createdAt: event.created_at || 0,
+      updatedAt,
       eventId: event.id
     };
   } catch {

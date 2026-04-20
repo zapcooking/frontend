@@ -53,6 +53,16 @@
 	// at render time (closes 1c gap #3 from Phase 1 Stability). Defaults
 	// to the current constant; overwritten on hit + API-success paths.
 	let resolvedPromptVersion: string = NOURISH_PROMPT_VERSION;
+	// updatedAt from the resolved score, if present. Populated on hit
+	// paths from pantry events published with an `updated_at` tag (admin
+	// rescore endpoint, PR 4 commit 9b). Undefined on first-time scores —
+	// pill intentionally hidden for those.
+	//
+	// Render-time check only: isRecentlyUpdated evaluates when the modal
+	// mounts and doesn't reactively hide the pill at the 24h boundary if
+	// the modal is still open. Acceptable — nobody stares at a modal for
+	// 24h; next mount re-evaluates.
+	let resolvedUpdatedAt: number | undefined = undefined;
 	// Pantry-timeout state — set when resolveScore returns
 	// { status: 'timeout' } (drift #1 fix: no more silent compute on
 	// pantry failure). Retry UI consumes attemptCount to decide when
@@ -97,6 +107,7 @@
 		attemptCount = 0;
 		fetched = false;
 		resolvedPromptVersion = NOURISH_PROMPT_VERSION;
+		resolvedUpdatedAt = undefined;
 	}
 
 	function getRecipeCoordinates() {
@@ -139,6 +150,7 @@
 			buildImprovements(result.entry.scores, result.entry.improvements);
 			analyzedAt = result.entry.createdAt;
 			resolvedPromptVersion = result.entry.promptVersion;
+			resolvedUpdatedAt = result.entry.updatedAt;
 
 			// Preserve the original ingredient-store semantics: save only on
 			// a pantry hit (first-time surfacing of this event in a session).
@@ -290,6 +302,7 @@
 				scores = pantry.result.scores;
 				analyzedAt = pantry.result.createdAt;
 				resolvedPromptVersion = pantry.result.promptVersion;
+				resolvedUpdatedAt = pantry.result.updatedAt;
 				buildImprovements(pantry.result.scores, pantry.result.improvements);
 				setNourishScores(
 					{ ...key, promptVersion: pantry.result.promptVersion },
@@ -297,6 +310,7 @@
 					{
 						contentHash: pantry.result.contentHash,
 						createdAt: pantry.result.createdAt,
+						updatedAt: pantry.result.updatedAt,
 						improvements: pantry.result.improvements,
 						ingredientSignals: pantry.result.ingredientSignals
 					}
@@ -367,6 +381,13 @@
 					</button>
 				{/if}
 			</div>
+		{/if}
+
+		{#if resolvedUpdatedAt && Date.now() / 1000 - resolvedUpdatedAt < 86400}
+			<!-- "Updated" pill — shown for 24h after an admin rescore so returning
+			     users notice the score changed. Render-time check (see the
+			     resolvedUpdatedAt state comment for intentional non-reactivity). -->
+			<span class="updated-pill" title="Recently updated by moderator">Updated</span>
 		{/if}
 
 		<NourishResult
@@ -445,6 +466,14 @@
 		border: none;
 	}
 	.stale-refresh:hover { background: rgba(234, 179, 8, 0.2); }
+
+	/* ── Updated pill (24h post-admin-rescore) ── */
+	.updated-pill {
+		@apply inline-flex items-center gap-1 self-start px-2 py-0.5 rounded-full text-xs font-medium mb-2;
+		color: #22c55e;
+		background: rgba(34, 197, 94, 0.1);
+		border: 1px solid rgba(34, 197, 94, 0.2);
+	}
 
 	/* ── Loading / Error ── */
 	.error-state { @apply flex flex-col items-center text-center gap-3 py-4; }
