@@ -163,6 +163,17 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 			return json({ success: false, error: 'Publish failed' }, { status: 500 });
 		}
 
+		// Publish attempt returned false (no relay accepted the event) —
+		// treat as a server-side failure so the admin UI can surface a
+		// clear error instead of showing a misleading "Rescore failed"
+		// on a success response.
+		if (!published) {
+			return json(
+				{ success: false, error: 'Publish failed: no relay accepted the event' },
+				{ status: 500 }
+			);
+		}
+
 		return json({
 			success: true,
 			scores,

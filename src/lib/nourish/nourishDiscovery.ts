@@ -203,13 +203,19 @@ export interface OutOfVersionCandidate {
   contentHash: string;
 }
 
+const CANDIDATES_FETCH_LIMIT = 500;
+
 /**
  * Fetch pantry Nourish events whose promptVersion doesn't match the
  * current server constant. Admin view joins these with flag counts
  * client-side and surfaces them in the "Upgrade candidates" tab.
  *
- * Returns the full list (no pagination) — admin surface, volume is
- * bounded by the number of scored recipes.
+ * Bounded by a {@link CANDIDATES_FETCH_LIMIT}-event relay cap — emits
+ * a `[nourish.candidates.truncated]` warn when the cap is hit so the
+ * admin can decide whether paging is worth adding. Deduplicates by
+ * `(recipePubkey, recipeDTag)` keeping the newest `createdAt`, so
+ * historical copies of the same addressable event returned by the
+ * relay don't double-count in the UI.
  */
 export async function fetchOutOfVersionCandidates(
   ndk: NDK,
@@ -218,7 +224,7 @@ export async function fetchOutOfVersionCandidates(
   const filter = {
     kinds: [30078 as number],
     authors: [NOURISH_SERVICE_PUBKEY],
-    limit: 500
+    limit: CANDIDATES_FETCH_LIMIT
   };
 
   const relaySet = NDKRelaySet.fromRelayUrls([PANTRY_RELAY], ndk, true);
@@ -236,7 +242,18 @@ export async function fetchOutOfVersionCandidates(
     nourishEvents = await Promise.race([broadFetch, broadTimeout]);
   }
 
-  const candidates: OutOfVersionCandidate[] = [];
+  if (nourishEvents.size >= CANDIDATES_FETCH_LIMIT) {
+    console.warn('[nourish.candidates.truncated]', {
+      fetched: nourishEvents.size,
+      limit: CANDIDATES_FETCH_LIMIT
+    });
+  }
+
+  // Kind 30078 is addressable/replaceable by d-tag, but relays can
+  // still return multiple historical versions for the same coordinate.
+  // Dedup by (recipePubkey, recipeDTag) keeping the newest createdAt
+  // so the Upgrade candidates tab shows one row per target.
+  const byCoord = new Map<string, OutOfVersionCandidate>();
   for (const event of nourishEvents) {
     const parsed = parseNourishEvent(event);
     if (!parsed) continue;
@@ -251,7 +268,10 @@ export async function fetchOutOfVersionCandidates(
     const recipeDTag = rest.join(':');
     if (!recipePubkey || !recipeDTag) continue;
 
-    candidates.push({
+    const existing = byCoord.get(aTagFull);
+    if (existing && existing.createdAt >= parsed.createdAt) continue;
+
+    byCoord.set(aTagFull, {
       recipePubkey,
       recipeDTag,
       aTag: aTagFull,
@@ -263,5 +283,5 @@ export async function fetchOutOfVersionCandidates(
     });
   }
 
-  return candidates;
+  return Array.from(byCoord.values());
 }

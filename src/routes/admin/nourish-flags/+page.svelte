@@ -324,12 +324,16 @@
 
   type RescoreState =
     | { status: 'idle' }
+    | { status: 'preparing' }
+    | { status: 'prepare-error'; message: string }
     | { status: 'submitting' }
     | { status: 'success'; previous: ScoreSnapshot | null; next: ScoreSnapshot }
     | { status: 'error'; message: string };
 
   // Svelte 4 reactivity: reassign the object to trigger updates rather
-  // than mutating the Map in place.
+  // than mutating the Map in place. All prepare/submit state is keyed
+  // per row so one row's failure can't disable or leak error text into
+  // another row's button.
   let rescoreStates: Record<string, RescoreState> = {};
 
   let pendingRescore:
@@ -342,8 +346,6 @@
         previous: ScoreSnapshot | null;
       }
     | null = null;
-  let preparingRescore = false;
-  let prepareError = '';
 
   function getRescoreState(key: string): RescoreState {
     return rescoreStates[key] ?? { status: 'idle' };
@@ -397,8 +399,7 @@
     recipeDTag: string
   ) {
     if (!$ndk) return;
-    preparingRescore = true;
-    prepareError = '';
+    setRescoreState(key, { status: 'preparing' });
     try {
       // Capture previous score from pantry BEFORE POSTing. After rescore,
       // pantry will have replaced the event; this snapshot is the
@@ -409,7 +410,10 @@
       ]);
 
       if (!recipeEv) {
-        prepareError = 'Could not fetch the recipe event from relays.';
+        setRescoreState(key, {
+          status: 'prepare-error',
+          message: 'Could not fetch the recipe event from relays.'
+        });
         return;
       }
 
@@ -423,7 +427,10 @@
       const ingredients = parsedMd.ingredients;
 
       if (!ingredients || ingredients.length === 0) {
-        prepareError = 'Recipe has no ingredients to score.';
+        setRescoreState(key, {
+          status: 'prepare-error',
+          message: 'Recipe has no ingredients to score.'
+        });
         return;
       }
 
@@ -446,22 +453,29 @@
         contentHash,
         previous
       };
-    } finally {
-      preparingRescore = false;
+      // Preparation done; return to idle so the confirmation modal
+      // (driven by pendingRescore) can take over. confirmRescore will
+      // transition to submitting.
+      setRescoreState(key, { status: 'idle' });
+    } catch (err) {
+      setRescoreState(key, {
+        status: 'prepare-error',
+        message: err instanceof Error ? err.message : String(err)
+      });
     }
   }
 
   async function handleRescoreClick(g: Group) {
+    const key = keyOf(g.target, g.dimension, g.nourishVer);
     const parsed = parseRecipeTarget(g.target);
     if (!parsed) {
-      prepareError = 'Unable to parse recipe coordinates.';
+      setRescoreState(key, {
+        status: 'prepare-error',
+        message: 'Unable to parse recipe coordinates.'
+      });
       return;
     }
-    await prepareRescore(
-      keyOf(g.target, g.dimension, g.nourishVer),
-      parsed.recipePubkey,
-      parsed.recipeDTag
-    );
+    await prepareRescore(key, parsed.recipePubkey, parsed.recipeDTag);
   }
 
   async function handleCandidateRescoreClick(c: OutOfVersionCandidate) {
@@ -477,7 +491,6 @@
 
   function cancelRescore() {
     pendingRescore = null;
-    prepareError = '';
   }
 
   async function confirmRescore() {
@@ -613,14 +626,23 @@
                   <button
                     type="button"
                     class="btn-rescore"
-                    disabled={preparingRescore}
                     on:click={() => handleCandidateRescoreClick(candidate)}
                   >
-                    {preparingRescore ? 'Preparing…' : 'Rescore to current version'}
+                    Rescore to current version
                   </button>
-                  {#if prepareError}
-                    <p class="rescore-error">{prepareError}</p>
-                  {/if}
+                {:else if rescoreState.status === 'preparing'}
+                  <p class="rescore-submitting">Preparing…</p>
+                {:else if rescoreState.status === 'prepare-error'}
+                  <div class="rescore-error-block">
+                    <p class="rescore-error">{rescoreState.message}</p>
+                    <button
+                      type="button"
+                      class="btn-rescore-retry"
+                      on:click={() => retryRescore(k)}
+                    >
+                      Retry
+                    </button>
+                  </div>
                 {:else if rescoreState.status === 'submitting'}
                   <p class="rescore-submitting">Rescoring…</p>
                 {:else if rescoreState.status === 'success'}
@@ -714,14 +736,23 @@
                       <button
                         type="button"
                         class="btn-rescore"
-                        disabled={preparingRescore}
                         on:click={() => handleRescoreClick(g)}
                       >
-                        {preparingRescore ? 'Preparing…' : 'Rescore'}
+                        Rescore
                       </button>
-                      {#if prepareError}
-                        <p class="rescore-error">{prepareError}</p>
-                      {/if}
+                    {:else if rescoreState.status === 'preparing'}
+                      <p class="rescore-submitting">Preparing…</p>
+                    {:else if rescoreState.status === 'prepare-error'}
+                      <div class="rescore-error-block">
+                        <p class="rescore-error">{rescoreState.message}</p>
+                        <button
+                          type="button"
+                          class="btn-rescore-retry"
+                          on:click={() => retryRescore(k)}
+                        >
+                          Retry
+                        </button>
+                      </div>
                     {:else if rescoreState.status === 'submitting'}
                       <p class="rescore-submitting">Rescoring…</p>
                     {:else if rescoreState.status === 'success'}
