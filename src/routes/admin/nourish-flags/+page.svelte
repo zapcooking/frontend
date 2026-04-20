@@ -576,6 +576,239 @@
   function retryRescore(key: string) {
     setRescoreState(key, { status: 'idle' });
   }
+
+  // ── Bulk rescore batch ─────────────────────────────────────────────
+  //
+  // Admin-triggered migration: iterate the Upgrade Candidates list in
+  // the browser with bounded concurrency (3 parallel), calling the
+  // same /api/admin/nourish/rescore endpoint the per-row button uses.
+  // Each POST is NIP-98 signed. Retries transient errors once with a
+  // 2s backoff; 403 aborts the whole batch (signer/auth issue —
+  // individual-recipe retries won't help). Other 4xx responses mark
+  // the individual recipe as failed and the batch continues.
+  //
+  // No server-side batch endpoint — CF Workers' 30s HTTP-request
+  // limit fights long-running server operations. Client-driven keeps
+  // each request well under that bound.
+
+  const BATCH_CONCURRENCY = 3;
+  const BATCH_RETRY_DELAY_MS = 2000;
+
+  type BatchState = 'idle' | 'confirming' | 'running' | 'aborting' | 'done';
+  let batchState: BatchState = 'idle';
+  let batchAbortRequested = false;
+  let batchSummary:
+    | { succeeded: number; failed: number; total: number; aborted: boolean }
+    | null = null;
+
+  $: batchProgress = (() => {
+    if (batchState !== 'running' && batchState !== 'aborting') return null;
+    let done = 0;
+    let succeeded = 0;
+    for (const { candidate } of sortedCandidates) {
+      const s = getRescoreState(`candidate:${candidate.aTag}`);
+      if (s.status === 'success') {
+        done++;
+        succeeded++;
+      } else if (s.status === 'error' || s.status === 'prepare-error') {
+        done++;
+      }
+    }
+    return {
+      done,
+      succeeded,
+      failed: done - succeeded,
+      total: sortedCandidates.length
+    };
+  })();
+
+  type BatchOutcome =
+    | { kind: 'success' }
+    | { kind: 'recipe-error'; message: string }
+    | { kind: 'retriable'; message: string; status: number }
+    | { kind: 'fatal'; message: string };
+
+  async function batchRescoreOne(
+    candidate: OutOfVersionCandidate
+  ): Promise<BatchOutcome> {
+    if (!$ndk || !$userPublickey) {
+      return { kind: 'fatal', message: 'Not signed in' };
+    }
+    const key = `candidate:${candidate.aTag}`;
+    setRescoreState(key, { status: 'preparing' });
+
+    const [recipeEv, pantryRes] = await Promise.all([
+      fetchRecipeEvent(candidate.recipePubkey, candidate.recipeDTag),
+      queryNourishEvent($ndk, candidate.recipePubkey, candidate.recipeDTag)
+    ]);
+    if (!recipeEv) {
+      const msg = 'Could not fetch the recipe event from relays.';
+      setRescoreState(key, { status: 'prepare-error', message: msg });
+      return { kind: 'recipe-error', message: msg };
+    }
+
+    const title =
+      recipeEv.tags.find((t) => t[0] === 'title')?.[1] ||
+      recipeEv.tags.find((t) => t[0] === 'd')?.[1] ||
+      '';
+    const tags = recipeEv.tags.filter((t) => t[0] === 't' && t[1]).map((t) => t[1]);
+    const parsedMd = parseMarkdownForEditing(recipeEv.content || '');
+    const servings = parsedMd.information?.servings || '';
+    const ingredients = parsedMd.ingredients;
+    if (!ingredients || ingredients.length === 0) {
+      const msg = 'Recipe has no ingredients to score.';
+      setRescoreState(key, { status: 'prepare-error', message: msg });
+      return { kind: 'recipe-error', message: msg };
+    }
+    const contentHash = await computeContentHash(recipeEv.content || '');
+    const previous: ScoreSnapshot | null =
+      pantryRes.status === 'hit'
+        ? {
+            scores: pantryRes.result.scores,
+            createdAt: pantryRes.result.createdAt,
+            promptVersion: pantryRes.result.promptVersion
+          }
+        : null;
+
+    setRescoreState(key, { status: 'submitting' });
+
+    const bodyString = JSON.stringify({
+      recipePubkey: candidate.recipePubkey,
+      recipeDTag: candidate.recipeDTag,
+      title,
+      ingredients,
+      tags,
+      servings,
+      contentHash
+    });
+    const url = new URL('/api/admin/nourish/rescore', window.location.origin).toString();
+    let authorization: string;
+    try {
+      authorization = await signNip98AuthHeader($ndk, {
+        method: 'POST',
+        url,
+        bodyString
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Could not sign admin auth';
+      setRescoreState(key, { status: 'error', message: msg });
+      // Sign failure is typically the signer being unavailable — likely
+      // to repeat for every candidate, so treat as fatal.
+      return { kind: 'fatal', message: msg };
+    }
+
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: authorization },
+      body: bodyString
+    });
+
+    if (res.status === 403) {
+      setRescoreState(key, { status: 'error', message: 'Forbidden' });
+      return { kind: 'fatal', message: 'Forbidden' };
+    }
+    if (res.status === 429 || (res.status >= 500 && res.status < 600)) {
+      const msg = `HTTP ${res.status}`;
+      // Don't finalize per-row state yet — caller will retry once.
+      return { kind: 'retriable', message: msg, status: res.status };
+    }
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      const msg = typeof body?.error === 'string' ? body.error : `HTTP ${res.status}`;
+      setRescoreState(key, { status: 'error', message: msg });
+      return { kind: 'recipe-error', message: msg };
+    }
+
+    const data = await res.json();
+    if (!data?.success || data?.published !== true) {
+      const msg = typeof data?.error === 'string' ? data.error : 'Rescore failed';
+      setRescoreState(key, { status: 'error', message: msg });
+      return { kind: 'recipe-error', message: msg };
+    }
+    setRescoreState(key, {
+      status: 'success',
+      previous,
+      next: {
+        scores: data.scores,
+        createdAt: data.createdAt,
+        promptVersion: data.promptVersion
+      }
+    });
+    return { kind: 'success' };
+  }
+
+  async function batchRescoreOneWithRetry(
+    candidate: OutOfVersionCandidate
+  ): Promise<BatchOutcome> {
+    let result = await batchRescoreOne(candidate);
+    if (result.kind === 'retriable') {
+      await new Promise((r) => setTimeout(r, BATCH_RETRY_DELAY_MS));
+      result = await batchRescoreOne(candidate);
+      // If still retriable after second attempt, mark as recipe-error
+      // so the batch continues rather than looping forever.
+      if (result.kind === 'retriable') {
+        const key = `candidate:${candidate.aTag}`;
+        setRescoreState(key, { status: 'error', message: result.message });
+        result = { kind: 'recipe-error', message: result.message };
+      }
+    }
+    return result;
+  }
+
+  function handleBatchRescoreClick() {
+    if (sortedCandidates.length === 0) return;
+    batchState = 'confirming';
+  }
+
+  function cancelBatchRescore() {
+    if (batchState === 'confirming') batchState = 'idle';
+  }
+
+  function abortBatchRescore() {
+    if (batchState === 'running') {
+      batchAbortRequested = true;
+      batchState = 'aborting';
+    }
+  }
+
+  async function confirmBatchRescore() {
+    batchState = 'running';
+    batchAbortRequested = false;
+    batchSummary = null;
+
+    const queue = sortedCandidates.map(({ candidate }) => candidate);
+    const total = queue.length;
+    let succeeded = 0;
+    let failed = 0;
+
+    const workers = Array.from({ length: BATCH_CONCURRENCY }, async () => {
+      while (queue.length > 0 && !batchAbortRequested) {
+        const c = queue.shift();
+        if (!c) return;
+        const result = await batchRescoreOneWithRetry(c);
+        if (result.kind === 'fatal') {
+          batchAbortRequested = true;
+          return;
+        }
+        if (result.kind === 'success') succeeded++;
+        else failed++;
+      }
+    });
+    await Promise.all(workers);
+
+    batchSummary = {
+      succeeded,
+      failed,
+      total,
+      aborted: batchAbortRequested
+    };
+    batchState = 'done';
+  }
+
+  function closeBatchSummary() {
+    batchState = 'idle';
+    batchSummary = null;
+  }
 </script>
 
 <svelte:head>
@@ -622,11 +855,79 @@
     </div>
 
     {#if activeTab === 'candidates'}
-      {#if sortedCandidates.length === 0}
+      {#if sortedCandidates.length === 0 && batchState === 'idle'}
         <p class="status">
           No candidates. All scored recipes match the current model version (v{NOURISH_PROMPT_VERSION}).
         </p>
       {:else}
+        <div class="batch-bar">
+          {#if batchState === 'idle' && sortedCandidates.length > 0}
+            <div class="batch-idle">
+              <p class="batch-idle-text">
+                Migrates {sortedCandidates.length} pre-v{NOURISH_PROMPT_VERSION} recipe{sortedCandidates.length === 1 ? '' : 's'}
+                to the current model version. Each rescore fires one LLM call.
+              </p>
+              <button type="button" class="btn-batch" on:click={handleBatchRescoreClick}>
+                Rescore all {sortedCandidates.length}
+              </button>
+            </div>
+          {:else if batchState === 'running' || batchState === 'aborting'}
+            <div class="batch-running">
+              <div class="batch-header">
+                <span class="batch-label">
+                  {batchState === 'aborting' ? 'Aborting…' : 'Rescoring…'}
+                </span>
+                {#if batchProgress}
+                  <span class="batch-counts">
+                    {batchProgress.done} / {batchProgress.total}
+                    · <span class="batch-ok">{batchProgress.succeeded} ok</span>
+                    · <span class="batch-fail">{batchProgress.failed} failed</span>
+                  </span>
+                {/if}
+                <button
+                  type="button"
+                  class="btn-batch-abort"
+                  disabled={batchState === 'aborting'}
+                  on:click={abortBatchRescore}
+                >
+                  {batchState === 'aborting' ? 'Aborting…' : 'Abort'}
+                </button>
+              </div>
+              {#if batchProgress}
+                <div class="batch-progress-track">
+                  <div
+                    class="batch-progress-fill"
+                    style="width: {batchProgress.total === 0
+                      ? 0
+                      : (batchProgress.done / batchProgress.total) * 100}%"
+                  ></div>
+                </div>
+              {/if}
+            </div>
+          {:else if batchState === 'done' && batchSummary}
+            <div class="batch-done">
+              <p class="batch-done-text">
+                Rescored {batchSummary.succeeded} of {batchSummary.total}.
+                {#if batchSummary.failed > 0}
+                  {batchSummary.failed} failed.
+                {/if}
+                {#if batchSummary.aborted}
+                  (Aborted.)
+                {/if}
+                {#if batchSummary.failed > 0 && batchSummary.succeeded === 0}
+                  <br />
+                  <span class="batch-hint">
+                    All attempts failed — usually a temporary upstream issue. Try again later.
+                  </span>
+                {/if}
+              </p>
+              <button type="button" class="btn-batch-close" on:click={closeBatchSummary}>
+                Close
+              </button>
+            </div>
+          {/if}
+        </div>
+
         <div class="list">
           {#each sortedCandidates as { candidate, flagCount } (candidate.eventId)}
             {@const k = `candidate:${candidate.aTag}`}
@@ -837,6 +1138,27 @@
     <div class="confirm-actions">
       <button type="button" class="btn-cancel" on:click={cancelRescore}>Cancel</button>
       <button type="button" class="btn-confirm" on:click={confirmRescore}>Rescore</button>
+    </div>
+  </div>
+</Modal>
+
+<!-- Batch rescore confirmation modal. -->
+<Modal open={batchState === 'confirming'} compact cleanup={cancelBatchRescore}>
+  <span slot="title">Rescore all {sortedCandidates.length} candidates?</span>
+  <div class="confirm-body">
+    <p>
+      This will compute a new Nourish score for each candidate and replace the current one.
+      Each rescore fires one LLM call; expect ~2-3 minutes for {sortedCandidates.length} recipe{sortedCandidates.length === 1 ? '' : 's'} at 3 in parallel.
+      Cannot be undone.
+    </p>
+    <p class="confirm-meta">
+      You can abort mid-batch. Already-rescored recipes will stay rescored; remaining candidates will reappear in this list on the next page load.
+    </p>
+    <div class="confirm-actions">
+      <button type="button" class="btn-cancel" on:click={cancelBatchRescore}>Cancel</button>
+      <button type="button" class="btn-confirm" on:click={confirmBatchRescore}>
+        Rescore all
+      </button>
     </div>
   </div>
 </Modal>
@@ -1088,6 +1410,135 @@
   .btn-confirm {
     background: var(--color-primary);
     color: white;
+  }
+
+  /* ── Bulk rescore batch UI ── */
+
+  .batch-bar {
+    margin-bottom: 1rem;
+    border: 1px solid var(--color-input-border);
+    border-radius: 0.6rem;
+    background: var(--color-bg-secondary);
+    padding: 0.9rem 1rem;
+  }
+
+  .batch-idle {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    flex-wrap: wrap;
+  }
+
+  .batch-idle-text {
+    margin: 0;
+    flex: 1 1 auto;
+    font-size: 0.8125rem;
+    color: var(--color-text-secondary);
+    min-width: 200px;
+  }
+
+  .btn-batch {
+    padding: 0.45rem 0.9rem;
+    border-radius: 0.5rem;
+    border: none;
+    background: var(--color-primary);
+    color: white;
+    font-size: 0.875rem;
+    font-weight: 500;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+
+  .batch-running {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+  }
+
+  .batch-header {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+  }
+
+  .batch-label {
+    font-weight: 600;
+    font-size: 0.875rem;
+  }
+
+  .batch-counts {
+    font-size: 0.8125rem;
+    color: var(--color-text-secondary);
+    flex: 1 1 auto;
+    min-width: 160px;
+  }
+
+  .batch-ok {
+    color: #22c55e;
+  }
+
+  .batch-fail {
+    color: #ef4444;
+  }
+
+  .btn-batch-abort {
+    padding: 0.3rem 0.75rem;
+    border-radius: 0.4rem;
+    background: var(--color-bg-tertiary);
+    color: var(--color-text-primary);
+    border: 1px solid var(--color-input-border);
+    font-size: 0.8125rem;
+    cursor: pointer;
+  }
+
+  .btn-batch-abort:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .batch-progress-track {
+    width: 100%;
+    height: 6px;
+    background: var(--color-bg-tertiary, rgba(255, 255, 255, 0.06));
+    border-radius: 3px;
+    overflow: hidden;
+  }
+
+  .batch-progress-fill {
+    height: 100%;
+    background: var(--color-primary);
+    transition: width 250ms ease-out;
+  }
+
+  .batch-done {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    flex-wrap: wrap;
+  }
+
+  .batch-done-text {
+    margin: 0;
+    flex: 1 1 auto;
+    font-size: 0.8125rem;
+    color: var(--color-text-primary);
+    min-width: 200px;
+  }
+
+  .batch-hint {
+    color: var(--color-text-secondary);
+    font-style: italic;
+  }
+
+  .btn-batch-close {
+    padding: 0.3rem 0.75rem;
+    border-radius: 0.4rem;
+    background: var(--color-bg-tertiary);
+    color: var(--color-text-primary);
+    border: 1px solid var(--color-input-border);
+    font-size: 0.8125rem;
+    cursor: pointer;
   }
 
   .row-header:hover {
