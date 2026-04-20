@@ -10,6 +10,7 @@ import type NDK from '@nostr-dev-kit/ndk';
 import type { NDKEvent } from '@nostr-dev-kit/ndk';
 import { NDKRelaySet } from '@nostr-dev-kit/ndk';
 import { NOURISH_SERVICE_PUBKEY } from './types';
+import type { NourishScores } from './types';
 import { parseNourishEvent, type NourishRelayResult } from './nourishRelay';
 
 const PANTRY_RELAY = 'wss://pantry.zap.cooking';
@@ -180,4 +181,107 @@ export async function fetchNourishRankedRecipes(
   }
 
   return results;
+}
+
+// ─── Admin: model-upgrade candidates ────────────────────────
+
+/**
+ * Candidate for admin-triggered rescore because its stored
+ * promptVersion doesn't match the server's current
+ * NOURISH_PROMPT_VERSION (or it's a legacy `'unknown'` event per
+ * PR 311's untagged-event handling).
+ */
+export interface OutOfVersionCandidate {
+  recipePubkey: string;
+  recipeDTag: string;
+  /** `30023:${recipePubkey}:${recipeDTag}` — joinable against flag aggregator's `target` (minus the `a:` prefix). */
+  aTag: string;
+  eventId: string;
+  promptVersion: string;
+  createdAt: number;
+  scores: NourishScores;
+  contentHash: string;
+}
+
+const CANDIDATES_FETCH_LIMIT = 500;
+
+/**
+ * Fetch pantry Nourish events whose promptVersion doesn't match the
+ * current server constant. Admin view joins these with flag counts
+ * client-side and surfaces them in the "Upgrade candidates" tab.
+ *
+ * Bounded by a {@link CANDIDATES_FETCH_LIMIT}-event relay cap — emits
+ * a `[nourish.candidates.truncated]` warn when the cap is hit so the
+ * admin can decide whether paging is worth adding. Deduplicates by
+ * `(recipePubkey, recipeDTag)` keeping the newest `createdAt`, so
+ * historical copies of the same addressable event returned by the
+ * relay don't double-count in the UI.
+ */
+export async function fetchOutOfVersionCandidates(
+  ndk: NDK,
+  currentPromptVersion: string
+): Promise<OutOfVersionCandidate[]> {
+  const filter = {
+    kinds: [30078 as number],
+    authors: [NOURISH_SERVICE_PUBKEY],
+    limit: CANDIDATES_FETCH_LIMIT
+  };
+
+  const relaySet = NDKRelaySet.fromRelayUrls([PANTRY_RELAY], ndk, true);
+  const fetchPromise = ndk.fetchEvents(filter, undefined, relaySet);
+  const timeoutPromise = new Promise<Set<NDKEvent>>((resolve) =>
+    setTimeout(() => resolve(new Set()), FETCH_TIMEOUT_MS)
+  );
+  let nourishEvents = await Promise.race([fetchPromise, timeoutPromise]);
+
+  if (nourishEvents.size === 0) {
+    const broadFetch = ndk.fetchEvents(filter);
+    const broadTimeout = new Promise<Set<NDKEvent>>((resolve) =>
+      setTimeout(() => resolve(new Set()), FETCH_TIMEOUT_MS)
+    );
+    nourishEvents = await Promise.race([broadFetch, broadTimeout]);
+  }
+
+  if (nourishEvents.size >= CANDIDATES_FETCH_LIMIT) {
+    console.warn('[nourish.candidates.truncated]', {
+      fetched: nourishEvents.size,
+      limit: CANDIDATES_FETCH_LIMIT
+    });
+  }
+
+  // Kind 30078 is addressable/replaceable by d-tag, but relays can
+  // still return multiple historical versions for the same coordinate.
+  // Dedup by (recipePubkey, recipeDTag) keeping the newest createdAt
+  // so the Upgrade candidates tab shows one row per target.
+  const byCoord = new Map<string, OutOfVersionCandidate>();
+  for (const event of nourishEvents) {
+    const parsed = parseNourishEvent(event);
+    if (!parsed) continue;
+    if (parsed.promptVersion === currentPromptVersion) continue;
+
+    // Recipe coordinates come from the `a` tag (kind:pubkey:dTag).
+    const aTagFull = event.tags.find((t) => t[0] === 'a')?.[1];
+    if (!aTagFull) continue;
+    const parts = aTagFull.split(':');
+    if (parts.length < 3) continue;
+    const [, recipePubkey, ...rest] = parts;
+    const recipeDTag = rest.join(':');
+    if (!recipePubkey || !recipeDTag) continue;
+
+    const existing = byCoord.get(aTagFull);
+    if (existing && existing.createdAt >= parsed.createdAt) continue;
+
+    byCoord.set(aTagFull, {
+      recipePubkey,
+      recipeDTag,
+      aTag: aTagFull,
+      eventId: parsed.eventId,
+      promptVersion: parsed.promptVersion,
+      createdAt: parsed.createdAt,
+      scores: parsed.scores,
+      contentHash: parsed.contentHash
+    });
+  }
+
+  return Array.from(byCoord.values());
 }

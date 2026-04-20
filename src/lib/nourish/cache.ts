@@ -21,6 +21,15 @@ interface CacheEntry {
 	contentHash?: string;
 	promptVersion?: string;
 	createdAt?: number;
+	/**
+	 * Unix seconds of the last admin rescore, if any. Populated from
+	 * the pantry event's `updated_at` tag when we cache a rescored
+	 * score. Drives the 24h "Updated" pill on the client. Pre-PR-4
+	 * entries lack this field and won't show the pill — by design:
+	 * they weren't rescored. No bulk migration; entries age out
+	 * naturally.
+	 */
+	updatedAt?: number;
 	improvements?: string[];
 	ingredientSignals?: import('./types').IngredientSignal[];
 }
@@ -73,6 +82,7 @@ export function setNourishScores(
 	extra?: {
 		contentHash?: string;
 		createdAt?: number;
+		updatedAt?: number;
 		improvements?: string[];
 		ingredientSignals?: import('./types').IngredientSignal[];
 	}
@@ -87,6 +97,7 @@ export function setNourishScores(
 			contentHash: extra?.contentHash,
 			promptVersion: key.promptVersion,
 			createdAt: extra?.createdAt,
+			updatedAt: extra?.updatedAt,
 			improvements: extra?.improvements,
 			ingredientSignals: extra?.ingredientSignals
 		};

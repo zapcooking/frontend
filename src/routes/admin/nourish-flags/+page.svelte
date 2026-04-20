@@ -25,6 +25,16 @@
     SCAN_I_TAG_PREFIX
   } from '$lib/nourish/flagSubmit';
   import { NDKRelaySet, type NDKEvent } from '@nostr-dev-kit/ndk';
+  import Modal from '../../../components/Modal.svelte';
+  import { computeContentHash, queryNourishEvent } from '$lib/nourish/nourishRelay';
+  import { parseMarkdownForEditing } from '$lib/parser';
+  import type { NourishScores } from '$lib/nourish/types';
+  import { NOURISH_PROMPT_VERSION } from '$lib/nourish/types';
+  import {
+    fetchOutOfVersionCandidates,
+    type OutOfVersionCandidate
+  } from '$lib/nourish/nourishDiscovery';
+  import { signNip98AuthHeader } from '$lib/nip98';
 
   interface AnonFlag {
     target: string;
@@ -49,12 +59,13 @@
   }
 
   type Source = 'signed' | 'anon';
-  type TabKind = 'recipes' | 'scans';
+  type TabKind = 'recipes' | 'scans' | 'candidates';
 
   let loading = true;
   let loadError = '';
   let anonFlags: AnonFlag[] = [];
   let signedFlags: SignedFlag[] = [];
+  let candidates: OutOfVersionCandidate[] = [];
   let activeTab: TabKind = 'recipes';
   let expandedKey: string | null = null;
 
@@ -128,11 +139,16 @@
     };
   }
 
+  async function loadCandidates() {
+    if (!$ndk) return;
+    candidates = await fetchOutOfVersionCandidates($ndk, NOURISH_PROMPT_VERSION);
+  }
+
   async function loadAll() {
     loading = true;
     loadError = '';
     try {
-      await Promise.all([loadAnon(), loadSigned()]);
+      await Promise.all([loadAnon(), loadSigned(), loadCandidates()]);
     } catch (err) {
       loadError = err instanceof Error ? err.message : String(err);
     } finally {
@@ -152,6 +168,7 @@
   interface Group {
     target: string;
     dimension: string;
+    nourishVer: string;
     tooHighSigned: number;
     tooHighAnon: number;
     tooLowSigned: number;
@@ -167,8 +184,12 @@
     }>;
   }
 
-  function keyOf(target: string, dimension: string): string {
-    return `${target}|${dimension}`;
+  // Grouping tuple partitions by (target, dimension, nourishVer) so
+  // flags against a v1 score don't collapse with flags against a v2
+  // score on the same target — the admin can see whether a prior
+  // rescore cleared the v1 cluster.
+  function keyOf(target: string, dimension: string, nourishVer: string): string {
+    return `${target}|${dimension}|${nourishVer || 'unknown'}`;
   }
 
   function groupFlags(
@@ -181,6 +202,7 @@
     const push = (
       target: string,
       dimension: string,
+      nourishVer: string,
       direction: string,
       source: Source,
       author: string,
@@ -189,13 +211,14 @@
     ) => {
       const matchesTab = isRecipesTab ? target.startsWith('a:') : target.startsWith('scan:');
       if (!matchesTab) return;
-      const k = keyOf(target, dimension);
+      const k = keyOf(target, dimension, nourishVer);
       const ts = Date.parse(createdAt) || 0;
       let g = map.get(k);
       if (!g) {
         g = {
           target,
           dimension,
+          nourishVer: nourishVer || 'unknown',
           tooHighSigned: 0,
           tooHighAnon: 0,
           tooLowSigned: 0,
@@ -224,6 +247,7 @@
       push(
         f.target,
         f.dimension,
+        f.nourishVer,
         f.direction,
         'signed',
         // Truncated hex pubkey — labelling as "pubkey" honestly rather than
@@ -237,6 +261,7 @@
       push(
         f.target,
         f.dimension,
+        f.nourishVer,
         f.direction,
         'anon',
         `anon-${f.ipHash.slice(0, 4)}`,
@@ -250,6 +275,26 @@
 
   $: groups = groupFlags(signedFlags, anonFlags, activeTab);
 
+  // Total flag count per target (across all dimensions / directions /
+  // sources) — used to prioritize candidates in the upgrade-candidates
+  // tab. Keyed on the bare a-tag so it can be joined directly against
+  // OutOfVersionCandidate.aTag.
+  $: flagCountsByTarget = (() => {
+    const counts = new Map<string, number>();
+    const bump = (target: string) => {
+      if (!target.startsWith('a:')) return;
+      const aTag = target.slice(2);
+      counts.set(aTag, (counts.get(aTag) ?? 0) + 1);
+    };
+    for (const f of signedFlags) bump(f.target);
+    for (const f of anonFlags) bump(f.target);
+    return counts;
+  })();
+
+  $: sortedCandidates = [...candidates]
+    .map((c) => ({ candidate: c, flagCount: flagCountsByTarget.get(c.aTag) ?? 0 }))
+    .sort((a, b) => b.flagCount - a.flagCount || b.candidate.createdAt - a.candidate.createdAt);
+
   function formatAgo(iso: number): string {
     if (!iso) return '—';
     const diff = Date.now() - iso;
@@ -261,6 +306,275 @@
 
   function toggleExpand(key: string) {
     expandedKey = expandedKey === key ? null : key;
+  }
+
+  // ── Rescore state ──────────────────────────────────────────────────
+  //
+  // Per-row state tracks whether a rescore is in flight or has completed.
+  // Keyed by the full group key (target|dimension|nourishVer). The
+  // confirmation modal is a single instance driven by `pendingRescore`.
+  // Previous score is captured client-side via queryNourishEvent BEFORE
+  // the POST fires (per Phase 1 late-surface refinement) so the admin
+  // can see old→new even after pantry has been overwritten.
+
+  interface ScoreSnapshot {
+    scores: NourishScores;
+    createdAt: number;
+    promptVersion: string;
+  }
+
+  type RescoreState =
+    | { status: 'idle' }
+    | { status: 'preparing' }
+    | { status: 'prepare-error'; message: string }
+    | { status: 'submitting' }
+    | { status: 'success'; previous: ScoreSnapshot | null; next: ScoreSnapshot }
+    | { status: 'error'; message: string };
+
+  // Svelte 4 reactivity: reassign the object to trigger updates rather
+  // than mutating the Map in place. All prepare/submit state is keyed
+  // per row so one row's failure can't disable or leak error text into
+  // another row's button.
+  let rescoreStates: Record<string, RescoreState> = {};
+
+  let pendingRescore:
+    | {
+        key: string;
+        recipePubkey: string;
+        recipeDTag: string;
+        content: { title: string; ingredients: string[]; tags: string[]; servings: string };
+        contentHash: string;
+        previous: ScoreSnapshot | null;
+      }
+    | null = null;
+
+  function getRescoreState(key: string): RescoreState {
+    return rescoreStates[key] ?? { status: 'idle' };
+  }
+
+  function setRescoreState(key: string, state: RescoreState) {
+    rescoreStates = { ...rescoreStates, [key]: state };
+  }
+
+  /**
+   * Parse the target string back into (recipePubkey, recipeDTag).
+   * Targets in the recipes tab are `a:30023:pubkey:dTag`. Returns null
+   * for non-recipe targets or malformed a-tags.
+   */
+  function parseRecipeTarget(target: string): { recipePubkey: string; recipeDTag: string } | null {
+    if (!target.startsWith('a:')) return null;
+    const parts = target.slice(2).split(':');
+    if (parts.length < 3) return null;
+    // a-tag = kind:pubkey:dTag. We ignore kind (always 30023 here).
+    const [, recipePubkey, ...rest] = parts;
+    const recipeDTag = rest.join(':');
+    if (!recipePubkey || !recipeDTag) return null;
+    return { recipePubkey, recipeDTag };
+  }
+
+  /**
+   * Fetch the kind-30023 recipe event from relays so we can extract
+   * the content for the rescore pipeline. Returns null if the event
+   * can't be located — rescore can't proceed without content.
+   */
+  async function fetchRecipeEvent(recipePubkey: string, recipeDTag: string): Promise<NDKEvent | null> {
+    if (!$ndk) return null;
+    try {
+      const ev = await Promise.race([
+        $ndk.fetchEvent({
+          kinds: [30023 as number],
+          authors: [recipePubkey],
+          '#d': [recipeDTag]
+        } as never),
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), 6000))
+      ]);
+      return ev ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  async function prepareRescore(
+    key: string,
+    recipePubkey: string,
+    recipeDTag: string
+  ) {
+    if (!$ndk) return;
+    setRescoreState(key, { status: 'preparing' });
+    try {
+      // Capture previous score from pantry BEFORE POSTing. After rescore,
+      // pantry will have replaced the event; this snapshot is the
+      // admin's only before/after record.
+      const [recipeEv, pantryRes] = await Promise.all([
+        fetchRecipeEvent(recipePubkey, recipeDTag),
+        queryNourishEvent($ndk, recipePubkey, recipeDTag)
+      ]);
+
+      if (!recipeEv) {
+        setRescoreState(key, {
+          status: 'prepare-error',
+          message: 'Could not fetch the recipe event from relays.'
+        });
+        return;
+      }
+
+      const title =
+        recipeEv.tags.find((t) => t[0] === 'title')?.[1] ||
+        recipeEv.tags.find((t) => t[0] === 'd')?.[1] ||
+        '';
+      const tags = recipeEv.tags.filter((t) => t[0] === 't' && t[1]).map((t) => t[1]);
+      const parsedMd = parseMarkdownForEditing(recipeEv.content || '');
+      const servings = parsedMd.information?.servings || '';
+      const ingredients = parsedMd.ingredients;
+
+      if (!ingredients || ingredients.length === 0) {
+        setRescoreState(key, {
+          status: 'prepare-error',
+          message: 'Recipe has no ingredients to score.'
+        });
+        return;
+      }
+
+      const contentHash = await computeContentHash(recipeEv.content || '');
+
+      const previous: ScoreSnapshot | null =
+        pantryRes.status === 'hit'
+          ? {
+              scores: pantryRes.result.scores,
+              createdAt: pantryRes.result.createdAt,
+              promptVersion: pantryRes.result.promptVersion
+            }
+          : null;
+
+      pendingRescore = {
+        key,
+        recipePubkey,
+        recipeDTag,
+        content: { title, ingredients, tags, servings },
+        contentHash,
+        previous
+      };
+      // Preparation done; return to idle so the confirmation modal
+      // (driven by pendingRescore) can take over. confirmRescore will
+      // transition to submitting.
+      setRescoreState(key, { status: 'idle' });
+    } catch (err) {
+      setRescoreState(key, {
+        status: 'prepare-error',
+        message: err instanceof Error ? err.message : String(err)
+      });
+    }
+  }
+
+  async function handleRescoreClick(g: Group) {
+    const key = keyOf(g.target, g.dimension, g.nourishVer);
+    const parsed = parseRecipeTarget(g.target);
+    if (!parsed) {
+      setRescoreState(key, {
+        status: 'prepare-error',
+        message: 'Unable to parse recipe coordinates.'
+      });
+      return;
+    }
+    await prepareRescore(key, parsed.recipePubkey, parsed.recipeDTag);
+  }
+
+  async function handleCandidateRescoreClick(c: OutOfVersionCandidate) {
+    // Candidate key uses the pantry d-tag + current version so it
+    // doesn't collide with flag row keys. Candidates don't have a
+    // dimension — rescore applies to the whole target.
+    await prepareRescore(
+      `candidate:${c.aTag}`,
+      c.recipePubkey,
+      c.recipeDTag
+    );
+  }
+
+  function cancelRescore() {
+    pendingRescore = null;
+  }
+
+  async function confirmRescore() {
+    if (!pendingRescore || !$userPublickey) return;
+    const { key, recipePubkey, recipeDTag, content, contentHash, previous } = pendingRescore;
+
+    setRescoreState(key, { status: 'submitting' });
+    // Keep the pending context around so we still know which row is
+    // confirming; close the modal so the row shows submitting state.
+    pendingRescore = null;
+
+    try {
+      // Serialize once so the exact bytes we sign are the exact bytes
+      // we send — the server's NIP-98 verifier hashes the received
+      // body and compares to the `payload` tag in the signed event.
+      const bodyString = JSON.stringify({
+        recipePubkey,
+        recipeDTag,
+        title: content.title,
+        ingredients: content.ingredients,
+        tags: content.tags,
+        servings: content.servings,
+        contentHash
+      });
+      const url = new URL('/api/admin/nourish/rescore', window.location.origin).toString();
+      let authorization: string;
+      try {
+        authorization = await signNip98AuthHeader($ndk, {
+          method: 'POST',
+          url,
+          bodyString
+        });
+      } catch (err) {
+        setRescoreState(key, {
+          status: 'error',
+          message:
+            err instanceof Error ? err.message : 'Could not sign admin auth'
+        });
+        return;
+      }
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: authorization
+        },
+        body: bodyString
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        setRescoreState(key, {
+          status: 'error',
+          message: typeof body?.error === 'string' ? body.error : `HTTP ${res.status}`
+        });
+        return;
+      }
+      const data = await res.json();
+      if (!data?.success || data?.published !== true) {
+        setRescoreState(key, {
+          status: 'error',
+          message: typeof data?.error === 'string' ? data.error : 'Rescore failed'
+        });
+        return;
+      }
+      setRescoreState(key, {
+        status: 'success',
+        previous,
+        next: {
+          scores: data.scores,
+          createdAt: data.createdAt,
+          promptVersion: data.promptVersion
+        }
+      });
+    } catch (err) {
+      setRescoreState(key, {
+        status: 'error',
+        message: err instanceof Error ? err.message : String(err)
+      });
+    }
+  }
+
+  function retryRescore(key: string) {
+    setRescoreState(key, { status: 'idle' });
   }
 </script>
 
@@ -295,14 +609,112 @@
       >
         Scans
       </button>
+      <button
+        class="tab"
+        class:active={activeTab === 'candidates'}
+        on:click={() => (activeTab = 'candidates')}
+      >
+        Upgrade candidates
+        {#if sortedCandidates.length > 0}
+          <span class="tab-badge">{sortedCandidates.length}</span>
+        {/if}
+      </button>
     </div>
 
-    {#if groups.length === 0}
+    {#if activeTab === 'candidates'}
+      {#if sortedCandidates.length === 0}
+        <p class="status">
+          No candidates. All scored recipes match the current model version (v{NOURISH_PROMPT_VERSION}).
+        </p>
+      {:else}
+        <div class="list">
+          {#each sortedCandidates as { candidate, flagCount } (candidate.eventId)}
+            {@const k = `candidate:${candidate.aTag}`}
+            {@const rescoreState = getRescoreState(k)}
+            <div class="row">
+              <div class="row-header row-header-candidate">
+                <span class="target">a:{candidate.aTag}</span>
+                <span class="ver">
+                  v{candidate.promptVersion} → v{NOURISH_PROMPT_VERSION}
+                </span>
+                <span class="candidate-flags">Flags: {flagCount}</span>
+                <span class="candidate-score">
+                  Overall {candidate.scores.overall.score}
+                </span>
+              </div>
+              <div class="row-detail">
+                {#if rescoreState.status === 'idle'}
+                  <button
+                    type="button"
+                    class="btn-rescore"
+                    on:click={() => handleCandidateRescoreClick(candidate)}
+                  >
+                    Rescore to current version
+                  </button>
+                {:else if rescoreState.status === 'preparing'}
+                  <p class="rescore-submitting">Preparing…</p>
+                {:else if rescoreState.status === 'prepare-error'}
+                  <div class="rescore-error-block">
+                    <p class="rescore-error">{rescoreState.message}</p>
+                    <button
+                      type="button"
+                      class="btn-rescore-retry"
+                      on:click={() => retryRescore(k)}
+                    >
+                      Retry
+                    </button>
+                  </div>
+                {:else if rescoreState.status === 'submitting'}
+                  <p class="rescore-submitting">Rescoring…</p>
+                {:else if rescoreState.status === 'success'}
+                  <div class="rescore-success">
+                    <p class="rescore-label">Rescored</p>
+                    <div class="rescore-diff">
+                      <div class="rescore-col">
+                        <span class="rescore-heading">Before</span>
+                        {#if rescoreState.previous}
+                          <span class="rescore-score">
+                            {rescoreState.previous.scores.overall.score} ({rescoreState.previous.scores.overall.label})
+                          </span>
+                          <span class="rescore-meta">v{rescoreState.previous.promptVersion}</span>
+                        {:else}
+                          <span class="rescore-meta">No prior score</span>
+                        {/if}
+                      </div>
+                      <span class="rescore-arrow">→</span>
+                      <div class="rescore-col">
+                        <span class="rescore-heading">After</span>
+                        <span class="rescore-score">
+                          {rescoreState.next.scores.overall.score} ({rescoreState.next.scores.overall.label})
+                        </span>
+                        <span class="rescore-meta">v{rescoreState.next.promptVersion}</span>
+                      </div>
+                    </div>
+                  </div>
+                {:else if rescoreState.status === 'error'}
+                  <div class="rescore-error-block">
+                    <p class="rescore-error">Rescore failed: {rescoreState.message}</p>
+                    <button
+                      type="button"
+                      class="btn-rescore-retry"
+                      on:click={() => retryRescore(k)}
+                    >
+                      Retry
+                    </button>
+                  </div>
+                {/if}
+              </div>
+            </div>
+          {/each}
+        </div>
+      {/if}
+    {:else if groups.length === 0}
       <p class="status">No flags in this bucket yet.</p>
     {:else}
       <div class="list">
-        {#each groups as g (keyOf(g.target, g.dimension))}
-          {@const k = keyOf(g.target, g.dimension)}
+        {#each groups as g (keyOf(g.target, g.dimension, g.nourishVer))}
+          {@const k = keyOf(g.target, g.dimension, g.nourishVer)}
+          {@const rescoreState = getRescoreState(k)}
           <div class="row" class:expanded={expandedKey === k}>
             <button
               type="button"
@@ -311,6 +723,7 @@
             >
               <span class="target">{g.target}</span>
               <span class="dim">{g.dimension}</span>
+              <span class="ver">v{g.nourishVer}</span>
               <span class="counts">
                 <span class="count high">↑ {g.tooHighSigned + g.tooHighAnon}</span>
                 <span class="count low">↓ {g.tooLowSigned + g.tooLowAnon}</span>
@@ -337,6 +750,71 @@
                     {/each}
                   </ul>
                 {/if}
+
+                {#if activeTab === 'recipes'}
+                  <div class="rescore-block">
+                    {#if rescoreState.status === 'idle'}
+                      <button
+                        type="button"
+                        class="btn-rescore"
+                        on:click={() => handleRescoreClick(g)}
+                      >
+                        Rescore
+                      </button>
+                    {:else if rescoreState.status === 'preparing'}
+                      <p class="rescore-submitting">Preparing…</p>
+                    {:else if rescoreState.status === 'prepare-error'}
+                      <div class="rescore-error-block">
+                        <p class="rescore-error">{rescoreState.message}</p>
+                        <button
+                          type="button"
+                          class="btn-rescore-retry"
+                          on:click={() => retryRescore(k)}
+                        >
+                          Retry
+                        </button>
+                      </div>
+                    {:else if rescoreState.status === 'submitting'}
+                      <p class="rescore-submitting">Rescoring…</p>
+                    {:else if rescoreState.status === 'success'}
+                      <div class="rescore-success">
+                        <p class="rescore-label">Rescored</p>
+                        <div class="rescore-diff">
+                          <div class="rescore-col">
+                            <span class="rescore-heading">Before</span>
+                            {#if rescoreState.previous}
+                              <span class="rescore-score">
+                                {rescoreState.previous.scores.overall.score} ({rescoreState.previous.scores.overall.label})
+                              </span>
+                              <span class="rescore-meta">v{rescoreState.previous.promptVersion}</span>
+                            {:else}
+                              <span class="rescore-meta">No prior score</span>
+                            {/if}
+                          </div>
+                          <span class="rescore-arrow">→</span>
+                          <div class="rescore-col">
+                            <span class="rescore-heading">After</span>
+                            <span class="rescore-score">
+                              {rescoreState.next.scores.overall.score} ({rescoreState.next.scores.overall.label})
+                            </span>
+                            <span class="rescore-meta">v{rescoreState.next.promptVersion}</span>
+                          </div>
+                        </div>
+                      </div>
+                    {:else if rescoreState.status === 'error'}
+                      <div class="rescore-error-block">
+                        <p class="rescore-error">Rescore failed: {rescoreState.message}</p>
+                        <button
+                          type="button"
+                          class="btn-rescore-retry"
+                          on:click={() => retryRescore(k)}
+                        >
+                          Retry
+                        </button>
+                      </div>
+                    {/if}
+                  </div>
+                {/if}
               </div>
             {/if}
           </div>
@@ -345,6 +823,23 @@
     {/if}
   {/if}
 </div>
+
+<!-- Confirmation modal — shared instance driven by pendingRescore. -->
+<Modal open={pendingRescore !== null} compact cleanup={cancelRescore}>
+  <span slot="title">Rescore this recipe?</span>
+  <div class="confirm-body">
+    <p>This will compute a new Nourish score and replace the current one. Cannot be undone.</p>
+    {#if pendingRescore?.previous}
+      <p class="confirm-meta">
+        Current: {pendingRescore.previous.scores.overall.score} ({pendingRescore.previous.scores.overall.label}) · v{pendingRescore.previous.promptVersion}
+      </p>
+    {/if}
+    <div class="confirm-actions">
+      <button type="button" class="btn-cancel" on:click={cancelRescore}>Cancel</button>
+      <button type="button" class="btn-confirm" on:click={confirmRescore}>Rescore</button>
+    </div>
+  </div>
+</Modal>
 
 <style>
   .page {
@@ -408,7 +903,7 @@
 
   .row-header {
     display: grid;
-    grid-template-columns: 1fr auto auto auto;
+    grid-template-columns: 1fr auto auto auto auto;
     align-items: center;
     gap: 1rem;
     padding: 0.75rem 1rem;
@@ -419,6 +914,180 @@
     text-align: left;
     cursor: pointer;
     font-family: inherit;
+  }
+
+  .ver {
+    font-size: 0.6875rem;
+    font-family: ui-monospace, monospace;
+    color: var(--color-text-secondary);
+    padding: 0.125rem 0.375rem;
+    border-radius: 0.25rem;
+    background: var(--color-bg-tertiary, rgba(255, 255, 255, 0.04));
+  }
+
+  .tab-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 1.25rem;
+    padding: 0 0.375rem;
+    margin-left: 0.375rem;
+    border-radius: 9999px;
+    background: var(--color-primary);
+    color: white;
+    font-size: 0.6875rem;
+    font-weight: 600;
+  }
+
+  .row-header-candidate {
+    /* Non-button header for candidate rows — no toggle-expand needed. */
+    display: grid;
+    grid-template-columns: 1fr auto auto auto;
+    align-items: center;
+    gap: 1rem;
+    padding: 0.75rem 1rem;
+  }
+
+  .candidate-flags,
+  .candidate-score {
+    font-size: 0.8125rem;
+    color: var(--color-text-secondary);
+  }
+
+  .rescore-block {
+    margin-top: 0.75rem;
+    padding-top: 0.75rem;
+    border-top: 1px solid var(--color-input-border);
+  }
+
+  .btn-rescore,
+  .btn-rescore-retry {
+    padding: 0.375rem 0.75rem;
+    border-radius: 0.4rem;
+    background: var(--color-primary);
+    color: white;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    border: none;
+    cursor: pointer;
+  }
+
+  .btn-rescore:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+
+  .btn-rescore-retry {
+    background: var(--color-bg-tertiary);
+    color: var(--color-text-primary);
+    border: 1px solid var(--color-input-border);
+  }
+
+  .rescore-submitting {
+    margin: 0;
+    font-size: 0.8125rem;
+    color: var(--color-text-secondary);
+  }
+
+  .rescore-error-block {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+  }
+
+  .rescore-error {
+    margin: 0;
+    font-size: 0.8125rem;
+    color: #ef4444;
+  }
+
+  .rescore-success {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .rescore-label {
+    margin: 0;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--color-text-secondary);
+  }
+
+  .rescore-diff {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+  }
+
+  .rescore-col {
+    display: flex;
+    flex-direction: column;
+    gap: 0.125rem;
+  }
+
+  .rescore-heading {
+    font-size: 0.6875rem;
+    color: var(--color-text-secondary);
+  }
+
+  .rescore-score {
+    font-size: 0.9375rem;
+    font-weight: 600;
+    color: var(--color-text-primary);
+  }
+
+  .rescore-meta {
+    font-size: 0.6875rem;
+    font-family: ui-monospace, monospace;
+    color: var(--color-text-secondary);
+  }
+
+  .rescore-arrow {
+    font-size: 1.25rem;
+    color: var(--color-text-secondary);
+  }
+
+  .confirm-body {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .confirm-meta {
+    margin: 0;
+    font-size: 0.8125rem;
+    color: var(--color-text-secondary);
+  }
+
+  .confirm-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.5rem;
+  }
+
+  .btn-cancel,
+  .btn-confirm {
+    padding: 0.4rem 0.9rem;
+    border-radius: 0.4rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+    cursor: pointer;
+    border: none;
+  }
+
+  .btn-cancel {
+    background: var(--color-bg-tertiary);
+    color: var(--color-text-primary);
+    border: 1px solid var(--color-input-border);
+  }
+
+  .btn-confirm {
+    background: var(--color-primary);
+    color: white;
   }
 
   .row-header:hover {

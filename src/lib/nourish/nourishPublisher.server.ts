@@ -82,6 +82,11 @@ function publishToRelay(relayUrl: string, event: any): Promise<boolean> {
 
 /**
  * Publish a Nourish analysis event to relays.
+ *
+ * Set `updatedAt` on rescores (admin-triggered) so the client can
+ * distinguish fresh compute from re-scoring and render an "Updated"
+ * badge for 24h. Normal first-time compute omits it — no tag is
+ * emitted, so those events don't trigger the badge.
  */
 export async function publishNourishEvent(opts: {
   privateKey: string;
@@ -91,31 +96,42 @@ export async function publishNourishEvent(opts: {
   scores: NourishScores;
   improvements: string[];
   ingredientSignals: IngredientSignal[];
+  /**
+   * Unix seconds. When set, emit an `updated_at` tag (and content-JSON
+   * mirror) marking this event as a rescore rather than a first-time
+   * score. Undefined → no tag emitted.
+   */
+  updatedAt?: number;
 }): Promise<boolean> {
-  const { privateKey, recipePubkey, recipeDTag, contentHash, scores, improvements, ingredientSignals } = opts;
+  const { privateKey, recipePubkey, recipeDTag, contentHash, scores, improvements, ingredientSignals, updatedAt } = opts;
 
   try {
     const privKeyBytes = resolvePrivateKey(privateKey);
     const dTag = buildNourishDTag(recipePubkey, recipeDTag);
     const createdAt = Math.floor(Date.now() / 1000);
 
+    const tags: string[][] = [
+      ['d', dTag],
+      ['client', 'zap.cooking'],
+      ['a', `30023:${recipePubkey}:${recipeDTag}`],
+      ['p', recipePubkey],
+      ['nourish_version', NOURISH_CACHE_VERSION],
+      ['content_hash', contentHash],
+      ['prompt_version', NOURISH_PROMPT_VERSION],
+      ['nourish_overall', String(scores.overall.score)],
+      ['nourish_gut', String(scores.gut.score)],
+      ['nourish_protein', String(scores.protein.score)],
+      ['nourish_realfood', String(scores.realFood.score)]
+    ];
+    if (updatedAt !== undefined) {
+      tags.push(['updated_at', String(updatedAt)]);
+    }
+
     // Build and sign event using nostr-tools (works on CF Workers)
     const event = finalizeEvent({
       kind: 30078,
       created_at: createdAt,
-      tags: [
-        ['d', dTag],
-        ['client', 'zap.cooking'],
-        ['a', `30023:${recipePubkey}:${recipeDTag}`],
-        ['p', recipePubkey],
-        ['nourish_version', NOURISH_CACHE_VERSION],
-        ['content_hash', contentHash],
-        ['prompt_version', NOURISH_PROMPT_VERSION],
-        ['nourish_overall', String(scores.overall.score)],
-        ['nourish_gut', String(scores.gut.score)],
-        ['nourish_protein', String(scores.protein.score)],
-        ['nourish_realfood', String(scores.realFood.score)]
-      ],
+      tags,
       content: JSON.stringify({
         gut: scores.gut,
         protein: scores.protein,
@@ -130,7 +146,8 @@ export async function publishNourishEvent(opts: {
         // downstream consumers read either location).
         promptVersion: NOURISH_PROMPT_VERSION,
         contentHash,
-        createdAt
+        createdAt,
+        ...(updatedAt !== undefined ? { updatedAt } : {})
       })
     }, privKeyBytes);
 

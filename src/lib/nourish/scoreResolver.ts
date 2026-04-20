@@ -36,6 +36,12 @@ export interface ResolvedEntry {
   scores: NourishScores;
   contentHash?: string;
   createdAt: number;
+  /**
+   * Unix seconds of the last admin rescore. Undefined on first-time
+   * scored events (which don't emit the `updated_at` tag). Drives
+   * the 24h "Updated" pill.
+   */
+  updatedAt?: number;
   improvements?: string[];
   ingredientSignals?: IngredientSignal[];
   promptVersion: string;
@@ -234,6 +240,7 @@ function writeThrough(requestedKey: NourishCacheKey, winner: Candidate): void {
     setNourishScores(writeKey, winner.entry.scores, {
       contentHash: winner.entry.contentHash,
       createdAt: winner.entry.createdAt,
+      updatedAt: winner.entry.updatedAt,
       improvements: winner.entry.improvements,
       ingredientSignals: winner.entry.ingredientSignals
     });
@@ -251,6 +258,7 @@ function l3EntryToResolved(
     // that lack a persisted createdAt. Matches the fallback the modal
     // already uses for its "analyzed at" label.
     createdAt: l3.createdAt ?? Math.floor(l3.timestamp / 1000),
+    updatedAt: l3.updatedAt,
     improvements: l3.improvements,
     ingredientSignals: l3.ingredientSignals,
     promptVersion
@@ -282,6 +290,7 @@ async function doResolve(ndk: NDK, key: NourishCacheKey): Promise<ResolveResult>
         scores: l4.result.scores,
         contentHash: l4.result.contentHash,
         createdAt: l4.result.createdAt,
+        updatedAt: l4.result.updatedAt,
         improvements: l4.result.improvements,
         ingredientSignals: l4.result.ingredientSignals,
         promptVersion: l4.result.promptVersion
