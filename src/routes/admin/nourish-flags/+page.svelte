@@ -34,6 +34,7 @@
     fetchOutOfVersionCandidates,
     type OutOfVersionCandidate
   } from '$lib/nourish/nourishDiscovery';
+  import { signNip98AuthHeader } from '$lib/nip98';
 
   interface AnonFlag {
     target: string;
@@ -503,21 +504,41 @@
     pendingRescore = null;
 
     try {
-      const res = await fetch('/api/admin/nourish/rescore', {
+      // Serialize once so the exact bytes we sign are the exact bytes
+      // we send — the server's NIP-98 verifier hashes the received
+      // body and compares to the `payload` tag in the signed event.
+      const bodyString = JSON.stringify({
+        recipePubkey,
+        recipeDTag,
+        title: content.title,
+        ingredients: content.ingredients,
+        tags: content.tags,
+        servings: content.servings,
+        contentHash
+      });
+      const url = new URL('/api/admin/nourish/rescore', window.location.origin).toString();
+      let authorization: string;
+      try {
+        authorization = await signNip98AuthHeader($ndk, {
+          method: 'POST',
+          url,
+          bodyString
+        });
+      } catch (err) {
+        setRescoreState(key, {
+          status: 'error',
+          message:
+            err instanceof Error ? err.message : 'Could not sign admin auth'
+        });
+        return;
+      }
+      const res = await fetch(url, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-admin-pubkey': $userPublickey
+          Authorization: authorization
         },
-        body: JSON.stringify({
-          recipePubkey,
-          recipeDTag,
-          title: content.title,
-          ingredients: content.ingredients,
-          tags: content.tags,
-          servings: content.servings,
-          contentHash
-        })
+        body: bodyString
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
