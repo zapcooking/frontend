@@ -1,0 +1,184 @@
+/**
+ * POST /api/admin/nourish/rescore — admin-triggered Nourish rescore.
+ *
+ * Runs the shared scoring pipeline (identical to /api/nourish) then
+ * publishes a fresh kind-30078 pantry event under
+ * NOURISH_SERVICE_PUBKEY with an `updated_at` tag — the tag drives
+ * the client-side "Updated" badge visible for 24h after rescore.
+ *
+ * Auth: `x-admin-pubkey` header must match ADMIN_PUBKEY from
+ * $lib/adminAuth. Same pattern as /api/admin/nourish-flags. A future
+ * FOLLOWUPS item formalizes this with NIP-98 HTTP-Auth; until that
+ * lands, all admin endpoints share the weak-but-consistent check so
+ * the migration can cover them together.
+ *
+ * Request body:
+ *   {
+ *     recipePubkey: string,    // hex-64
+ *     recipeDTag: string,      // non-empty, ≤200 chars
+ *     title: string,
+ *     ingredients: string[],   // non-empty
+ *     tags: string[],
+ *     servings: string,
+ *     contentHash: string,     // hex-64 — admin UI computes client-side
+ *     reason?: string          // optional admin note, logged but not persisted
+ *   }
+ *
+ * Success response:
+ *   {
+ *     success: true,
+ *     scores: NourishScores,
+ *     improvements: string[],
+ *     ingredient_signals: IngredientSignal[],
+ *     promptVersion: string,
+ *     contentHash: string,
+ *     createdAt: number,
+ *     updatedAt: number,
+ *     published: boolean
+ *   }
+ *
+ * Error response:
+ *   { error: 'forbidden' }           // 403 — missing/invalid admin header
+ *   { success: false, error: string } // 400/500 — validation or server error
+ *
+ * The admin UI captures the previous score client-side via
+ * queryNourishEvent before POSTing, so the response does NOT include
+ * previousScore — the caller holds that state.
+ */
+
+import { json, type RequestHandler } from '@sveltejs/kit';
+import { env } from '$env/dynamic/private';
+import { NOURISH_PROMPT_VERSION } from '$lib/nourish/types';
+import { runScoringPipeline } from '$lib/nourish/scoringEngine.server';
+import { ADMIN_PUBKEY } from '$lib/adminAuth';
+
+const HEX_64_RE = /^[a-fA-F0-9]{64}$/;
+
+export const POST: RequestHandler = async ({ request, platform }) => {
+	// Admin auth — same verbatim pattern as /api/admin/nourish-flags so
+	// the eventual NIP-98 migration covers both endpoints in one pass.
+	const adminPubkey = request.headers.get('x-admin-pubkey');
+	if (!adminPubkey || adminPubkey !== ADMIN_PUBKEY) {
+		return json({ error: 'forbidden' }, { status: 403 });
+	}
+
+	try {
+		const OPENAI_API_KEY = (platform?.env as any)?.OPENAI_API_KEY || env.OPENAI_API_KEY;
+		if (!OPENAI_API_KEY) {
+			return json({ success: false, error: 'OpenAI API key not configured' }, { status: 500 });
+		}
+
+		const body = await request.json();
+		const {
+			recipePubkey,
+			recipeDTag,
+			title,
+			ingredients,
+			tags,
+			servings,
+			contentHash,
+			reason
+		} = body ?? {};
+
+		// Request validation. Admin endpoint requires the publish
+		// coordinates upfront (unlike /api/nourish where they're optional
+		// and gate only the publish side — here rescore without publish
+		// would be pointless).
+		const validRecipePubkey = typeof recipePubkey === 'string' && HEX_64_RE.test(recipePubkey.trim());
+		const validRecipeDTag =
+			typeof recipeDTag === 'string' &&
+			recipeDTag.trim().length > 0 &&
+			recipeDTag.trim().length <= 200;
+		const validContentHash = typeof contentHash === 'string' && HEX_64_RE.test(contentHash.trim());
+		if (!validRecipePubkey || !validRecipeDTag || !validContentHash) {
+			return json(
+				{ success: false, error: 'Invalid rescore coordinates' },
+				{ status: 400 }
+			);
+		}
+
+		if (!Array.isArray(ingredients) || ingredients.length === 0) {
+			return json(
+				{ success: false, error: 'Ingredients list is required' },
+				{ status: 400 }
+			);
+		}
+
+		// Optional audit-trail context; logged, not persisted. Keeps the
+		// happy-path admin action greppable in Workers logs.
+		if (typeof reason === 'string' && reason.length > 0) {
+			console.log(
+				`[Nourish Rescore] admin=${adminPubkey} target=${recipeDTag.trim()} reason=${reason.slice(0, 200)}`
+			);
+		} else {
+			console.log(`[Nourish Rescore] admin=${adminPubkey} target=${recipeDTag.trim()}`);
+		}
+
+		// Run the shared scoring pipeline — same implementation as the
+		// user compute endpoint.
+		const pipelineResult = await runScoringPipeline(OPENAI_API_KEY, {
+			title: typeof title === 'string' ? title : '',
+			ingredients,
+			tags: Array.isArray(tags) ? tags : [],
+			servings: typeof servings === 'string' ? servings : ''
+		});
+		if (!pipelineResult.ok) {
+			return json(
+				{ success: false, error: pipelineResult.error },
+				{ status: pipelineResult.status }
+			);
+		}
+		const { scores, improvements, ingredientSignals } = pipelineResult;
+
+		// Publish the new pantry event with the `updated_at` tag that
+		// drives the 24h "Updated" badge on the client.
+		const NOTIFICATION_PRIVATE_KEY =
+			(platform?.env as any)?.NOTIFICATION_PRIVATE_KEY || env.NOTIFICATION_PRIVATE_KEY;
+		if (!NOTIFICATION_PRIVATE_KEY) {
+			return json(
+				{ success: false, error: 'Publisher not configured' },
+				{ status: 500 }
+			);
+		}
+
+		const updatedAt = Math.floor(Date.now() / 1000);
+		let published = false;
+		try {
+			const { publishNourishEvent } = await import('$lib/nourish/nourishPublisher.server');
+			published = await publishNourishEvent({
+				privateKey: NOTIFICATION_PRIVATE_KEY,
+				recipePubkey: recipePubkey.trim(),
+				recipeDTag: recipeDTag.trim(),
+				contentHash: contentHash.trim(),
+				scores,
+				improvements,
+				ingredientSignals,
+				updatedAt
+			});
+			console.log(
+				`[Nourish Rescore] publish ${published ? 'succeeded' : 'failed'} for ${recipeDTag.trim()}`
+			);
+		} catch (err) {
+			console.error('[Nourish Rescore] publish error:', err);
+			return json({ success: false, error: 'Publish failed' }, { status: 500 });
+		}
+
+		return json({
+			success: true,
+			scores,
+			improvements,
+			ingredient_signals: ingredientSignals,
+			promptVersion: NOURISH_PROMPT_VERSION,
+			contentHash: contentHash.trim(),
+			createdAt: updatedAt,
+			updatedAt,
+			published
+		});
+	} catch (error: any) {
+		console.error('[Nourish Rescore] Error:', error);
+		return json(
+			{ success: false, error: error.message || 'An unexpected error occurred' },
+			{ status: 500 }
+		);
+	}
+};
