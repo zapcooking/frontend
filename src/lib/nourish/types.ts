@@ -1,5 +1,5 @@
 export const NOURISH_CACHE_VERSION = '2.0';
-export const NOURISH_PROMPT_VERSION = '1';
+export const NOURISH_PROMPT_VERSION = '2';
 
 /**
  * Public key of the Zap Cooking service account that publishes Nourish analysis events.
