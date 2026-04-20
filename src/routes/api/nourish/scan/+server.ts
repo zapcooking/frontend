@@ -286,11 +286,12 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 			);
 		}
 
-		// Normalize scores. Commit 2 will update SCAN_PROMPT to v2 (7
-		// Nourish dimensions + kidFriendly); for now the v1 prompt only
-		// produces gut/protein/realFood. clampScore(undefined) returns
-		// 0 so the four new dimensions contribute nothing to the
-		// weighted overall until the v2 prompt lands.
+		// Normalize scores defensively. SCAN_PROMPT already requests the
+		// full current schema (7 Nourish dimensions + kidFriendly), but
+		// model responses can still omit fields or return malformed
+		// values. clampScore(undefined) falls back to 0 so a missing
+		// dimension contributes nothing to the weighted overall rather
+		// than throwing.
 		const gutScore = clampScore(parsed.gut?.score);
 		const proteinScore = clampScore(parsed.protein?.score);
 		const realFoodScore = clampScore(parsed.realFood?.score);

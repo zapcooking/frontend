@@ -137,11 +137,8 @@ export function parseNourishEvent(event: NDKEvent): NourishRelayResult | null {
   try {
     const content = JSON.parse(event.content);
 
-    // Extract scores — recompute overall with current weights for forward
-    // compatibility. v1 events lack the four new health dimensions; they
-    // default to 0, which contributes nothing to the weighted overall
-    // (consistent with legacy behavior since those weights didn't exist
-    // when the event was scored). v2 events populate them.
+    // Extract per-dimension scores. v1 events lack the four new health
+    // dimensions; they default to 0.
     const gutScore = content.gut?.score ?? 0;
     const proteinScore = content.protein?.score ?? 0;
     const realFoodScore = content.realFood?.score ?? 0;
@@ -149,15 +146,38 @@ export function parseNourishEvent(event: NDKEvent): NourishRelayResult | null {
     const bloodSugarScore = content.bloodSugar?.score ?? 0;
     const immuneSupportiveScore = content.immuneSupportive?.score ?? 0;
     const brainHealthScore = content.brainHealth?.score ?? 0;
-    const overall = computeOverallScore({
-      gut: gutScore,
-      protein: proteinScore,
-      realFood: realFoodScore,
-      antiInflammatory: antiInflammatoryScore,
-      bloodSugar: bloodSugarScore,
-      immuneSupportive: immuneSupportiveScore,
-      brainHealth: brainHealthScore
-    });
+
+    // Overall: trust the stored value when present. Recomputing with
+    // current weights against legacy v1 events depresses overall by
+    // ~25% because the four new dimensions are 0 under ~25% of the
+    // weight (10% + 10% + 3% + 2%). The stored overall was computed
+    // under whichever weights were current when the event was
+    // published; honoring it preserves the "background mode" contract
+    // that users see no visible change in their existing scores.
+    // Only fall back to recomputation for events that somehow lack a
+    // stored overall (pre-overall-field legacy, corrupted content).
+    let overall: { score: number; label: string };
+    const storedOverallScore = content.overall?.score;
+    if (typeof storedOverallScore === 'number' && Number.isFinite(storedOverallScore)) {
+      const rawScore = Math.round(Math.max(0, Math.min(10, storedOverallScore)));
+      overall = {
+        score: rawScore,
+        label:
+          typeof content.overall?.label === 'string'
+            ? content.overall.label
+            : 'Moderate'
+      };
+    } else {
+      overall = computeOverallScore({
+        gut: gutScore,
+        protein: proteinScore,
+        realFood: realFoodScore,
+        antiInflammatory: antiInflammatoryScore,
+        bloodSugar: bloodSugarScore,
+        immuneSupportive: immuneSupportiveScore,
+        brainHealth: brainHealthScore
+      });
+    }
 
     const scores: NourishScores = {
       gut: {

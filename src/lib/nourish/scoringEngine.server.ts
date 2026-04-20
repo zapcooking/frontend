@@ -271,10 +271,12 @@ export async function runScoringPipeline(
 	const gutScore = clampScore(parsed.gut?.score);
 	const proteinScore = clampScore(parsed.protein?.score);
 	const realFoodScore = clampScore(parsed.realFood?.score);
-	// v1 prompt doesn't score the four new dimensions — clampScore(undefined)
-	// returns 0 so they contribute nothing to the weighted overall until
-	// commit 2 ships the v2 prompt. Placeholder reason kept empty so a
-	// downstream "why this score" consumer can't mistake silence for signal.
+	// Defensive parse: the v2 prompt requests these dimensions, but if
+	// the model omits a field or truncates its JSON, clampScore(undefined)
+	// falls back to 0 so the missing dimension contributes nothing to
+	// the weighted overall rather than throwing. Placeholder reason kept
+	// empty so a downstream "why this score" consumer can't mistake
+	// silence for signal.
 	const antiInflammatoryScore = clampScore(parsed.antiInflammatory?.score);
 	const bloodSugarScore = clampScore(parsed.bloodSugar?.score);
 	const immuneSupportiveScore = clampScore(parsed.immuneSupportive?.score);

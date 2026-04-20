@@ -255,7 +255,7 @@ function writeThrough(requestedKey: NourishCacheKey, winner: Candidate): void {
 
 function l3EntryToResolved(
   l3: NonNullable<ReturnType<typeof getNourishCache>>,
-  promptVersion: string
+  fallbackPromptVersion: string
 ): ResolvedEntry {
   return {
     scores: l3.scores,
@@ -268,9 +268,23 @@ function l3EntryToResolved(
     audienceScores: l3.audienceScores,
     improvements: l3.improvements,
     ingredientSignals: l3.ingredientSignals,
-    promptVersion
+    // Prefer the entry's stored promptVersion over the caller's hint.
+    // Matters on legacy-version fallback lookups: a v2-keyed caller
+    // finding a v1 entry via fallback must see promptVersion = '1' so
+    // downstream consumers (flag button, admin aggregation) record the
+    // correct version.
+    promptVersion: l3.promptVersion ?? fallbackPromptVersion
   };
 }
+
+// Previous prompt versions to fall back to on a cache miss under the
+// current version. Allows returning-user offline continuity during the
+// expansion rollout — a v1-cached entry still resolves under a v2
+// lookup until bulk rescore migrates the pantry event. After migration
+// + L3 write-through, the v2 key gets populated naturally and these
+// fallback reads become unused. Add new predecessors here as the
+// constant bumps.
+const LEGACY_PROMPT_VERSIONS = ['1', 'unknown'] as const;
 
 async function doResolve(ndk: NDK, key: NourishCacheKey): Promise<ResolveResult> {
   // Gather candidates from every layer before deciding. Unlike commit
@@ -287,6 +301,36 @@ async function doResolve(ndk: NDK, key: NourishCacheKey): Promise<ResolveResult>
       source: 'local',
       entry: l3EntryToResolved(l3Hit, key.promptVersion)
     });
+  }
+
+  // Legacy-version fallback: during the expansion rollout window,
+  // returning users have v1 entries under v1 keys from prior sessions.
+  // Without this fallback, every v2 lookup would miss L2/L3 and force
+  // a pantry round-trip (or break entirely when offline) until a bulk
+  // rescore migrates pantry events + a subsequent resolve writes v2
+  // entries. The fallback preserves the "no user-visible change"
+  // contract during the migration window. Skipped once we've already
+  // got hits under the requested version so fresh reads stay cheap.
+  if (!l2Hit && !l3Hit) {
+    for (const legacyVersion of LEGACY_PROMPT_VERSIONS) {
+      if (legacyVersion === key.promptVersion) continue;
+      const legacyKey: NourishCacheKey = {
+        recipePubkey: key.recipePubkey,
+        recipeDTag: key.recipeDTag,
+        promptVersion: legacyVersion
+      };
+      const legacyL2 = memory.get(toMapKey(legacyKey));
+      if (legacyL2) {
+        candidates.push({ source: 'memory', entry: legacyL2 });
+      }
+      const legacyL3 = getNourishCache(legacyKey);
+      if (legacyL3) {
+        candidates.push({
+          source: 'local',
+          entry: l3EntryToResolved(legacyL3, legacyVersion)
+        });
+      }
+    }
   }
 
   const l4 = await queryNourishEvent(ndk, key.recipePubkey, key.recipeDTag);
