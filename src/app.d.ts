@@ -18,6 +18,8 @@ declare global {
           NOTIFICATION_PRIVATE_KEY?: string;
           CRON_SECRET?: string;
           MEMBERSHIP_ENABLED?: string;
+          /** OpenAI API key — used by /api/extract-recipe and /api/nourish. */
+          OPENAI_API_KEY?: string;
           MEMBERSHIP_LIGHTNING_ADDRESS?: string;
           STRIKE_API_KEY?: string;
           STRIKE_API_BASE_URL?: string;
