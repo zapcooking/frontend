@@ -229,11 +229,27 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 			);
 		}
 
-		// Normalize scores
+		// Normalize scores. Commit 2 will update SCAN_PROMPT to v2 (7
+		// Nourish dimensions + kidFriendly); for now the v1 prompt only
+		// produces gut/protein/realFood. clampScore(undefined) returns
+		// 0 so the four new dimensions contribute nothing to the
+		// weighted overall until the v2 prompt lands.
 		const gutScore = clampScore(parsed.gut?.score);
 		const proteinScore = clampScore(parsed.protein?.score);
 		const realFoodScore = clampScore(parsed.realFood?.score);
-		const overall = computeOverallScore(gutScore, proteinScore, realFoodScore);
+		const antiInflammatoryScore = clampScore(parsed.antiInflammatory?.score);
+		const bloodSugarScore = clampScore(parsed.bloodSugar?.score);
+		const immuneSupportiveScore = clampScore(parsed.immuneSupportive?.score);
+		const brainHealthScore = clampScore(parsed.brainHealth?.score);
+		const overall = computeOverallScore({
+			gut: gutScore,
+			protein: proteinScore,
+			realFood: realFoodScore,
+			antiInflammatory: antiInflammatoryScore,
+			bloodSugar: bloodSugarScore,
+			immuneSupportive: immuneSupportiveScore,
+			brainHealth: brainHealthScore
+		});
 
 		const scores = {
 			gut: {
@@ -251,10 +267,30 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 				label: validateLabel(parsed.realFood?.label),
 				reason: String(parsed.realFood?.reason || '')
 			},
+			antiInflammatory: {
+				score: antiInflammatoryScore,
+				label: validateLabel(parsed.antiInflammatory?.label),
+				reason: String(parsed.antiInflammatory?.reason || '')
+			},
+			bloodSugar: {
+				score: bloodSugarScore,
+				label: validateLabel(parsed.bloodSugar?.label),
+				reason: String(parsed.bloodSugar?.reason || '')
+			},
+			immuneSupportive: {
+				score: immuneSupportiveScore,
+				label: validateLabel(parsed.immuneSupportive?.label),
+				reason: String(parsed.immuneSupportive?.reason || '')
+			},
+			brainHealth: {
+				score: brainHealthScore,
+				label: validateLabel(parsed.brainHealth?.label),
+				reason: String(parsed.brainHealth?.reason || '')
+			},
 			overall: {
 				score: overall.score,
 				label: overall.label,
-				reason: `Weighted: Real Food 45%, Gut 35%, Protein 20%`
+				reason: `Weighted: Real Food 35%, Gut 25%, Protein 15%, Anti-Inflammatory 10%, Blood Sugar 10%, Immune-Supportive 3%, Brain Health 2%`
 			},
 			summary: String(parsed.summary || ''),
 			cacheVersion: NOURISH_CACHE_VERSION
