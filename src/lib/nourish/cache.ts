@@ -1,5 +1,5 @@
 import { browser } from '$app/environment';
-import { NOURISH_CACHE_VERSION, type NourishScores } from './types';
+import { NOURISH_CACHE_VERSION, type NourishScores, type AudienceScores } from './types';
 
 const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
@@ -30,6 +30,14 @@ interface CacheEntry {
 	 * naturally.
 	 */
 	updatedAt?: number;
+	/**
+	 * Audience scores from v2-scored events. Undefined on v1 entries
+	 * and on entries where the LLM omitted the kidFriendly field.
+	 * Background mode: no UI consumer renders this today; the field
+	 * is persisted so future UI can retrieve it without a fresh LLM
+	 * call.
+	 */
+	audienceScores?: AudienceScores;
 	improvements?: string[];
 	ingredientSignals?: import('./types').IngredientSignal[];
 }
@@ -83,6 +91,7 @@ export function setNourishScores(
 		contentHash?: string;
 		createdAt?: number;
 		updatedAt?: number;
+		audienceScores?: AudienceScores;
 		improvements?: string[];
 		ingredientSignals?: import('./types').IngredientSignal[];
 	}
@@ -98,6 +107,7 @@ export function setNourishScores(
 			promptVersion: key.promptVersion,
 			createdAt: extra?.createdAt,
 			updatedAt: extra?.updatedAt,
+			audienceScores: extra?.audienceScores,
 			improvements: extra?.improvements,
 			ingredientSignals: extra?.ingredientSignals
 		};

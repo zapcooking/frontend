@@ -28,7 +28,7 @@
 import type NDK from '@nostr-dev-kit/ndk';
 import { getNourishCache, setNourishScores, type NourishCacheKey } from './cache';
 import { queryNourishEvent } from './nourishRelay';
-import type { NourishScores, IngredientSignal } from './types';
+import type { AudienceScores, NourishScores, IngredientSignal } from './types';
 
 // ─── Public types ────────────────────────────────────────────
 
@@ -42,6 +42,11 @@ export interface ResolvedEntry {
    * the 24h "Updated" pill.
    */
   updatedAt?: number;
+  /**
+   * Audience scores from v2 events. Undefined on v1 entries (pre-
+   * expansion). Background mode — no UI consumer reads this yet.
+   */
+  audienceScores?: AudienceScores;
   improvements?: string[];
   ingredientSignals?: IngredientSignal[];
   promptVersion: string;
@@ -241,6 +246,7 @@ function writeThrough(requestedKey: NourishCacheKey, winner: Candidate): void {
       contentHash: winner.entry.contentHash,
       createdAt: winner.entry.createdAt,
       updatedAt: winner.entry.updatedAt,
+      audienceScores: winner.entry.audienceScores,
       improvements: winner.entry.improvements,
       ingredientSignals: winner.entry.ingredientSignals
     });
@@ -259,6 +265,7 @@ function l3EntryToResolved(
     // already uses for its "analyzed at" label.
     createdAt: l3.createdAt ?? Math.floor(l3.timestamp / 1000),
     updatedAt: l3.updatedAt,
+    audienceScores: l3.audienceScores,
     improvements: l3.improvements,
     ingredientSignals: l3.ingredientSignals,
     promptVersion
@@ -291,6 +298,7 @@ async function doResolve(ndk: NDK, key: NourishCacheKey): Promise<ResolveResult>
         contentHash: l4.result.contentHash,
         createdAt: l4.result.createdAt,
         updatedAt: l4.result.updatedAt,
+        audienceScores: l4.result.audienceScores,
         improvements: l4.result.improvements,
         ingredientSignals: l4.result.ingredientSignals,
         promptVersion: l4.result.promptVersion
