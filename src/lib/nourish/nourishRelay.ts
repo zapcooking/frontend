@@ -14,6 +14,7 @@ import {
   NOURISH_CACHE_VERSION,
   computeOverallScore,
   type NourishScores,
+  type AudienceScores,
   type NourishRelayResult,
   type IngredientSignal
 } from './types';
@@ -136,11 +137,47 @@ export function parseNourishEvent(event: NDKEvent): NourishRelayResult | null {
   try {
     const content = JSON.parse(event.content);
 
-    // Extract scores — recompute overall with current weights for forward compatibility
+    // Extract per-dimension scores. v1 events lack the four new health
+    // dimensions; they default to 0.
     const gutScore = content.gut?.score ?? 0;
     const proteinScore = content.protein?.score ?? 0;
     const realFoodScore = content.realFood?.score ?? 0;
-    const overall = computeOverallScore(gutScore, proteinScore, realFoodScore);
+    const antiInflammatoryScore = content.antiInflammatory?.score ?? 0;
+    const bloodSugarScore = content.bloodSugar?.score ?? 0;
+    const immuneSupportiveScore = content.immuneSupportive?.score ?? 0;
+    const brainHealthScore = content.brainHealth?.score ?? 0;
+
+    // Overall: trust the stored value when present. Recomputing with
+    // current weights against legacy v1 events depresses overall by
+    // ~25% because the four new dimensions are 0 under ~25% of the
+    // weight (10% + 10% + 3% + 2%). The stored overall was computed
+    // under whichever weights were current when the event was
+    // published; honoring it preserves the "background mode" contract
+    // that users see no visible change in their existing scores.
+    // Only fall back to recomputation for events that somehow lack a
+    // stored overall (pre-overall-field legacy, corrupted content).
+    let overall: { score: number; label: string };
+    const storedOverallScore = content.overall?.score;
+    if (typeof storedOverallScore === 'number' && Number.isFinite(storedOverallScore)) {
+      const rawScore = Math.round(Math.max(0, Math.min(10, storedOverallScore)));
+      overall = {
+        score: rawScore,
+        label:
+          typeof content.overall?.label === 'string'
+            ? content.overall.label
+            : 'Moderate'
+      };
+    } else {
+      overall = computeOverallScore({
+        gut: gutScore,
+        protein: proteinScore,
+        realFood: realFoodScore,
+        antiInflammatory: antiInflammatoryScore,
+        bloodSugar: bloodSugarScore,
+        immuneSupportive: immuneSupportiveScore,
+        brainHealth: brainHealthScore
+      });
+    }
 
     const scores: NourishScores = {
       gut: {
@@ -158,16 +195,55 @@ export function parseNourishEvent(event: NDKEvent): NourishRelayResult | null {
         label: content.realFood?.label || 'Moderate',
         reason: content.realFood?.reason || ''
       },
+      antiInflammatory: {
+        score: antiInflammatoryScore,
+        label: content.antiInflammatory?.label || 'Moderate',
+        reason: content.antiInflammatory?.reason || ''
+      },
+      bloodSugar: {
+        score: bloodSugarScore,
+        label: content.bloodSugar?.label || 'Moderate',
+        reason: content.bloodSugar?.reason || ''
+      },
+      immuneSupportive: {
+        score: immuneSupportiveScore,
+        label: content.immuneSupportive?.label || 'Moderate',
+        reason: content.immuneSupportive?.reason || ''
+      },
+      brainHealth: {
+        score: brainHealthScore,
+        label: content.brainHealth?.label || 'Moderate',
+        reason: content.brainHealth?.reason || ''
+      },
       overall: {
         score: overall.score,
         label: overall.label,
-        reason: content.overall?.reason || `Weighted: Real Food 45%, Gut 35%, Protein 20%`
+        reason:
+          content.overall?.reason ||
+          `Weighted: Real Food 35%, Gut 25%, Protein 15%, Anti-Inflammatory 10%, Blood Sugar 10%, Immune-Supportive 3%, Brain Health 2%`
       },
       summary: content.summary || '',
       // Accept both the new `cacheVersion` and the legacy `version` field
       // so pre-2.0 events in the wild still parse.
       cacheVersion: content.cacheVersion || content.version || NOURISH_CACHE_VERSION
     };
+
+    // Audience scores — v2 events carry an `audience` root key with
+    // kidFriendly. v1 events omit this; leave audienceScores undefined
+    // so consumers see "no audience data" distinctly from "score 0".
+    let audienceScores: AudienceScores | undefined = undefined;
+    if (content.audience && typeof content.audience === 'object') {
+      const kf = content.audience.kidFriendly;
+      if (kf && typeof kf.score === 'number') {
+        audienceScores = {
+          kidFriendly: {
+            score: kf.score,
+            label: typeof kf.label === 'string' ? kf.label : 'Moderate',
+            reason: typeof kf.reason === 'string' ? kf.reason : ''
+          }
+        };
+      }
+    }
 
     const improvements: string[] = Array.isArray(content.improvements)
       ? content.improvements.filter((s: unknown) => typeof s === 'string')
@@ -198,6 +274,7 @@ export function parseNourishEvent(event: NDKEvent): NourishRelayResult | null {
       scores,
       improvements,
       ingredientSignals,
+      audienceScores,
       contentHash,
       promptVersion,
       nourishVersion,

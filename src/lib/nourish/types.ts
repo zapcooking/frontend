@@ -1,5 +1,5 @@
 export const NOURISH_CACHE_VERSION = '2.0';
-export const NOURISH_PROMPT_VERSION = '1';
+export const NOURISH_PROMPT_VERSION = '2';
 
 /**
  * Public key of the Zap Cooking service account that publishes Nourish analysis events.
@@ -16,6 +16,13 @@ export interface NourishRelayResult {
   scores: NourishScores;
   improvements: string[];
   ingredientSignals: IngredientSignal[];
+  /**
+   * Audience scores — parallel dimension to Nourish, answering "will
+   * this person eat it?" separately from "is this food good for you?"
+   * Present on v2 events; undefined on v1 events (background mode —
+   * no UI renders this yet; PR 3 Phase 2 #1d decision).
+   */
+  audienceScores?: AudienceScores;
   contentHash: string;
   promptVersion: string;
   nourishVersion: string;
@@ -51,33 +58,68 @@ export interface NourishScores {
 	gut: ScoreDetail;
 	protein: ScoreDetail;
 	realFood: ScoreDetail;
+	antiInflammatory: ScoreDetail;
+	bloodSugar: ScoreDetail;
+	immuneSupportive: ScoreDetail;
+	brainHealth: ScoreDetail;
 	overall: ScoreDetail;
 	summary: string;
 	cacheVersion: string;
 }
 
+/**
+ * Audience scores — parallel dimension to Nourish. Answers "will
+ * this person eat it?" independently of "is this food good for you?"
+ * First entry is kidFriendly; future entries (elderlyFriendly,
+ * athleteFriendly, etc.) add as named fields for TypeScript narrowing.
+ *
+ * Background mode (PR 3): scored + stored but not rendered. Future
+ * UI will expose these separately from the Nourish weighted overall.
+ */
+export interface AudienceScores {
+	kidFriendly: ScoreDetail;
+}
+
 // ─── Overall score weights (transparent) ─────────────────────
-// Real Food is weighted highest because ingredient quality is the
-// foundation — it affects everything else. Gut health is next because
-// fiber, fermentation, and plant diversity are strong markers of a
-// nourishing meal. Protein is weighted lowest (but still meaningful)
-// because many healthy meals are naturally lower in protein.
+// Real Food is the foundation — ingredient quality affects everything
+// else. Gut health is next (fiber, fermentation, plant diversity are
+// strong markers of a nourishing meal). Protein is baseline. The four
+// new dimensions contribute smaller weights until proven:
+//   - antiInflammatory and bloodSugar each carry 10% — broad signals
+//   - immuneSupportive (3%) and brainHealth (2%) are narrower — they
+//     participate in the overall but don't dominate
 export const NOURISH_WEIGHTS = {
-	realFood: 0.45,
-	gut: 0.35,
-	protein: 0.20
+	realFood: 0.35,
+	gut: 0.25,
+	protein: 0.15,
+	antiInflammatory: 0.10,
+	bloodSugar: 0.10,
+	immuneSupportive: 0.03,
+	brainHealth: 0.02
 } as const;
 
-/** Compute the weighted overall Nourish score (0–10). */
-export function computeOverallScore(
-	gut: number,
-	protein: number,
-	realFood: number
-): { score: number; label: string } {
+/**
+ * Compute the weighted overall Nourish score (0–10) from per-dimension
+ * scores. Takes an object argument rather than positional args because
+ * 7 positional numbers is unreadable and order-fragile.
+ */
+export function computeOverallScore(scores: {
+	gut: number;
+	protein: number;
+	realFood: number;
+	antiInflammatory: number;
+	bloodSugar: number;
+	immuneSupportive: number;
+	brainHealth: number;
+}): { score: number; label: string } {
 	const raw =
-		realFood * NOURISH_WEIGHTS.realFood +
-		gut * NOURISH_WEIGHTS.gut +
-		protein * NOURISH_WEIGHTS.protein;
+		scores.realFood * NOURISH_WEIGHTS.realFood +
+		scores.gut * NOURISH_WEIGHTS.gut +
+		scores.protein * NOURISH_WEIGHTS.protein +
+		scores.antiInflammatory * NOURISH_WEIGHTS.antiInflammatory +
+		scores.bloodSugar * NOURISH_WEIGHTS.bloodSugar +
+		scores.immuneSupportive * NOURISH_WEIGHTS.immuneSupportive +
+		scores.brainHealth * NOURISH_WEIGHTS.brainHealth;
 	const score = Math.round(Math.max(0, Math.min(10, raw)));
 	const label =
 		score <= 2 ? 'Low' :
@@ -92,6 +134,12 @@ export interface NourishResponse {
 	scores?: NourishScores;
 	improvements?: string[];
 	ingredient_signals?: IngredientSignal[];
+	/**
+	 * Audience scores (kidFriendly + future audiences). Present on v2
+	 * responses; undefined on v1 legacy responses. Background mode —
+	 * no UI consumer renders this yet (PR 3).
+	 */
+	audience_scores?: AudienceScores;
 	error?: string;
 	promptVersion?: string;
 	contentHash?: string;
@@ -122,6 +170,11 @@ export interface ScanResponse {
 	quick_take?: string;
 	improvements?: string[];
 	ingredient_signals?: IngredientSignal[];
+	/**
+	 * Audience scores — same shape as NourishResponse's field.
+	 * Background mode; no UI consumer renders this yet.
+	 */
+	audience_scores?: AudienceScores;
 	error?: string;
 	promptVersion?: string;
 	createdAt?: number;

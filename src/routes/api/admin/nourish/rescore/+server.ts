@@ -150,7 +150,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 				{ status: pipelineResult.status }
 			);
 		}
-		const { scores, improvements, ingredientSignals } = pipelineResult;
+		const { scores, improvements, ingredientSignals, audienceScores } = pipelineResult;
 
 		// Publish the new pantry event with the `updated_at` tag that
 		// drives the 24h "Updated" badge on the client.
@@ -175,6 +175,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 				scores,
 				improvements,
 				ingredientSignals,
+				audienceScores,
 				updatedAt
 			});
 			console.log(
@@ -201,6 +202,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 			scores,
 			improvements,
 			ingredient_signals: ingredientSignals,
+			audience_scores: audienceScores,
 			promptVersion: NOURISH_PROMPT_VERSION,
 			contentHash: contentHash.trim(),
 			createdAt: updatedAt,
