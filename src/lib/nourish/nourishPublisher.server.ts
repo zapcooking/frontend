@@ -11,6 +11,7 @@ import {
   NOURISH_CACHE_VERSION,
   NOURISH_PROMPT_VERSION,
   type NourishScores,
+  type AudienceScores,
   type IngredientSignal
 } from './types';
 import { buildNourishDTag } from './nourishRelay';
@@ -97,13 +98,30 @@ export async function publishNourishEvent(opts: {
   improvements: string[];
   ingredientSignals: IngredientSignal[];
   /**
+   * Audience scores (v2 events). When present, emit `audience_*`
+   * tags and an `audience` key in the content JSON. Omitted on v1
+   * events — downstream parsers treat missing `audience` as "no
+   * data" distinct from "score 0."
+   */
+  audienceScores?: AudienceScores;
+  /**
    * Unix seconds. When set, emit an `updated_at` tag (and content-JSON
    * mirror) marking this event as a rescore rather than a first-time
    * score. Undefined → no tag emitted.
    */
   updatedAt?: number;
 }): Promise<boolean> {
-  const { privateKey, recipePubkey, recipeDTag, contentHash, scores, improvements, ingredientSignals, updatedAt } = opts;
+  const {
+    privateKey,
+    recipePubkey,
+    recipeDTag,
+    contentHash,
+    scores,
+    improvements,
+    ingredientSignals,
+    audienceScores,
+    updatedAt
+  } = opts;
 
   try {
     const privKeyBytes = resolvePrivateKey(privateKey);
@@ -121,8 +139,20 @@ export async function publishNourishEvent(opts: {
       ['nourish_overall', String(scores.overall.score)],
       ['nourish_gut', String(scores.gut.score)],
       ['nourish_protein', String(scores.protein.score)],
-      ['nourish_realfood', String(scores.realFood.score)]
+      ['nourish_realfood', String(scores.realFood.score)],
+      // v2 Nourish dimensions — emitted on all events going forward.
+      // v1 events in the wild won't have them; parser defaults to 0.
+      ['nourish_antiinflammatory', String(scores.antiInflammatory.score)],
+      ['nourish_bloodsugar', String(scores.bloodSugar.score)],
+      ['nourish_immunesupportive', String(scores.immuneSupportive.score)],
+      ['nourish_brainhealth', String(scores.brainHealth.score)]
     ];
+    // Audience tag prefix is distinct from nourish_* so future consumers
+    // can filter queries by namespace (e.g. only Nourish, only Audience,
+    // or both) without pulling one when they want the other.
+    if (audienceScores) {
+      tags.push(['audience_kidfriendly', String(audienceScores.kidFriendly.score)]);
+    }
     if (updatedAt !== undefined) {
       tags.push(['updated_at', String(updatedAt)]);
     }
@@ -136,11 +166,21 @@ export async function publishNourishEvent(opts: {
         gut: scores.gut,
         protein: scores.protein,
         realFood: scores.realFood,
+        // v2 Nourish dimensions — flat at root (preserves v1 parse path).
+        antiInflammatory: scores.antiInflammatory,
+        bloodSugar: scores.bloodSugar,
+        immuneSupportive: scores.immuneSupportive,
+        brainHealth: scores.brainHealth,
         overall: scores.overall,
         summary: scores.summary,
         improvements,
         ingredient_signals: ingredientSignals,
         cacheVersion: scores.cacheVersion,
+        // Audience — new root key, present only on v2 events. Keeping
+        // it at the root (rather than restructuring Nourish fields
+        // under a `nourish` key) preserves backward-compat for the
+        // relay parser's existing flat-shape assumptions.
+        ...(audienceScores ? { audience: audienceScores } : {}),
         // Mirror identity fields into content so the payload is self-
         // describing (tags already carry them; content duplication lets
         // downstream consumers read either location).
