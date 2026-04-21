@@ -311,34 +311,61 @@ export async function fetchEngagement(
     return;
   }
   
-  // If we have a subscription but no amount data, close it and create a fresh one
+  // If we have a subscription but no amount data, close it and create a fresh one.
+  // Note: we intentionally do NOT wipe processedEventIds / processedReactionPairs
+  // here — those dedup Sets must persist across sub close+reopen so any
+  // events the prior sub already counted aren't re-counted by the new sub
+  // when the relay redelivers them (F5-B feed-comment double-count bug).
+  // The Sets are only evicted by `cleanupEngagement(eventId)` when the
+  // event goes off-screen.
   if (existingPersistent && !hasAmountData) {
     console.debug('[Engagement] Subscription exists but no amount data, refreshing for', eventId);
     existingPersistent.sub.stop();
     persistentSubscriptions.delete(eventId);
-    processedEventIds.delete(eventId); // Allow re-processing events
-    processedReactionPairs.delete(eventId);
   }
-  
-  // Initialize processed event tracking - MUST be fresh to avoid double counting
-  // Clear any stale processed IDs and start fresh
-  processedEventIds.set(eventId, new Set());
-  processedReactionPairs.set(eventId, new Set());
+
+  // Initialize processed event tracking — init-if-absent, never wipe.
+  // Multiple components (NoteTotalComments, NoteTotalLikes/ReactionTrigger,
+  // NoteTotalZaps, NoteRepost, ReactionPills) all call fetchEngagement for
+  // the same eventId on mount. Wiping the Set on every call caused each
+  // component's resulting subscription to treat already-counted events as
+  // new — producing the F5-B fingerprint of one event yielding 5+ counts.
+  // Sharing a single Set across all callers is the correct pattern for
+  // cross-sub dedup.
+  //
+  // The Set lifetime is bound to the count state that was accumulated
+  // against it: if we created the Set this call, counts are still at
+  // zero (or cached / API-fast-path values) and the subscription should
+  // count up from there. If the Set already existed from a prior call,
+  // the count state it produced is already in `store` — wiping counts
+  // while preserving the Set would cause the sub to dedup historical
+  // events (they're in the Set) without ever re-counting them, leaving
+  // counts stuck at 0.
+  const isFirstInit = !processedEventIds.has(eventId);
+  if (isFirstInit) {
+    processedEventIds.set(eventId, new Set());
+  }
+  if (!processedReactionPairs.has(eventId)) {
+    processedReactionPairs.set(eventId, new Set());
+  }
   const processed = processedEventIds.get(eventId)!;
-  
+
   // Stop any old-style subscriptions
   const existingSubs = activeSubscriptions.get(eventId);
   if (existingSubs) {
     existingSubs.forEach(sub => sub.stop());
     activeSubscriptions.delete(eventId);
   }
-  
-  // IMPORTANT: Reset counts to 0 before subscription to prevent double counting
-  // The cache shows instant data, but subscription will provide accurate final counts
-  // Preserve any pending optimistic zap updates so they aren't wiped during re-fetch
+
+  // Count-reset is only safe when starting fresh. On re-entry (Set
+  // already populated), leave the accumulated counts in place — the
+  // subscription will dedup historical events and only increment for
+  // genuinely new arrivals, which is the correct behavior.
+  // Pending optimistic zap updates are re-applied on both paths so
+  // they aren't wiped during re-fetch.
   let pendingOptimisticAmount = 0;
   let pendingOptimisticCount = 0;
-  let pendingOptimisticZappers: Array<{ pubkey: string; amount: number; timestamp: number }> = [];
+  const pendingOptimisticZappers: Array<{ pubkey: string; amount: number; timestamp: number }> = [];
   for (const [key, zap] of optimisticZaps.entries()) {
     if (key.startsWith(`${eventId}:`)) {
       // totalAmount is stored in millisats; topZappers.amount is sats
@@ -357,20 +384,37 @@ export async function fetchEngagement(
       }
     }
   }
-  store.update(s => ({
-    ...s,
-    reactions: { count: 0, userReacted: false, groups: [], userReactions: new Set() },
-    comments: { count: 0 },
-    reposts: { count: 0, userReposted: false },
-    zaps: {
-      ...s.zaps,
-      count: pendingOptimisticCount,
-      totalAmount: pendingOptimisticAmount,
-      topZappers: pendingOptimisticZappers,
-      userZapped: s.zaps.userZapped || pendingOptimisticCount > 0
-    },
-    loading: true
-  }));
+  if (isFirstInit) {
+    store.update(s => ({
+      ...s,
+      reactions: { count: 0, userReacted: false, groups: [], userReactions: new Set() },
+      comments: { count: 0 },
+      reposts: { count: 0, userReposted: false },
+      zaps: {
+        ...s.zaps,
+        count: pendingOptimisticCount,
+        totalAmount: pendingOptimisticAmount,
+        topZappers: pendingOptimisticZappers,
+        userZapped: s.zaps.userZapped || pendingOptimisticCount > 0
+      },
+      loading: true
+    }));
+  } else {
+    // Re-entry: preserve counts already produced against this Set;
+    // just mark loading so UI knows a refresh is in flight, and top
+    // up the optimistic-zap state.
+    store.update(s => ({
+      ...s,
+      zaps: {
+        ...s.zaps,
+        count: Math.max(s.zaps.count, pendingOptimisticCount),
+        totalAmount: Math.max(s.zaps.totalAmount, pendingOptimisticAmount),
+        topZappers: pendingOptimisticZappers.length > 0 ? pendingOptimisticZappers : s.zaps.topZappers,
+        userZapped: s.zaps.userZapped || pendingOptimisticCount > 0
+      },
+      loading: true
+    }));
+  }
   
   // Mark that subscription counting is in progress (prevents NIP-45 race condition)
   subscriptionCountingInProgress.add(eventId);
@@ -881,25 +925,48 @@ export async function batchFetchEngagement(
   }
   
   // FULL PATH: NDK subscription for accurate counts + user state
-  // Reset processed IDs and counts to prevent double counting
+  // Init-if-absent on the dedup Sets — never wipe them here. The batch
+  // subscription shares `processedEventIds` with any per-event subscription
+  // that fetchEngagement may have already opened for the same eventId.
+  // Wiping the Set at batch-entry caused the in-flight single subs and
+  // the new batch sub to each count the same event against a fresh Set
+  // (F5-B fingerprint). Eviction happens only in cleanupEngagement when
+  // the event leaves the viewport.
   toFetch.forEach(id => {
-    // Clear processed IDs to start fresh
-    processedEventIds.set(id, new Set());
-    processedReactionPairs.set(id, new Set());
-    
+    // Only reset counts to 0 when we're creating the dedup Set for the
+    // first time for this id. If the Set is already populated (e.g. a
+    // per-event `fetchEngagement` ran for this id moments ago), the
+    // accumulated counts in `store` were produced against that Set —
+    // wiping counts while preserving the Set would cause this batch sub
+    // to dedup every historical event without ever re-counting them,
+    // leaving counts stuck at 0.
+    const isFirstInit = !processedEventIds.has(id);
+    if (isFirstInit) {
+      processedEventIds.set(id, new Set());
+    }
+    if (!processedReactionPairs.has(id)) {
+      processedReactionPairs.set(id, new Set());
+    }
+
     // Mark that subscription counting is in progress
     subscriptionCountingInProgress.add(id);
-    
-    // Reset counts to 0 before fetching to prevent accumulation
-    const store = getEngagementStore(id);
-    store.update(s => ({
-      ...s,
-      reactions: { count: 0, userReacted: false, groups: [], userReactions: new Set() },
-      comments: { count: 0 },
-      reposts: { count: 0, userReposted: false },
-      zaps: { ...s.zaps, count: 0, totalAmount: 0, topZappers: [] },
-      loading: true
-    }));
+
+    if (isFirstInit) {
+      const store = getEngagementStore(id);
+      store.update(s => ({
+        ...s,
+        reactions: { count: 0, userReacted: false, groups: [], userReactions: new Set() },
+        comments: { count: 0 },
+        reposts: { count: 0, userReposted: false },
+        zaps: { ...s.zaps, count: 0, totalAmount: 0, topZappers: [] },
+        loading: true
+      }));
+    } else {
+      // Re-entry: preserve counts; just flag loading so UI reflects
+      // the refresh.
+      const store = getEngagementStore(id);
+      store.update(s => ({ ...s, loading: true }));
+    }
   });
   
   const filter = {
