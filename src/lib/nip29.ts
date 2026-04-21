@@ -941,7 +941,8 @@ export async function joinGroup(groupId: string, inviteCode?: string): Promise<v
 
 /**
  * Edit group metadata via kind 9002 (edit-metadata).
- * Supports updating name, about, and picture fields.
+ * Supports updating name, about, picture, and visibility fields.
+ * For members-only visibility, Pantry expects the absence of public tags.
  */
 export async function editGroupMetadata(
 	groupId: string,
@@ -964,9 +965,6 @@ export async function editGroupMetadata(
 	if (fields.visibility === 'public') {
 		event.tags.push(['public']);
 		event.tags.push(['unrestricted']);
-	} else if (fields.visibility === 'private') {
-		event.tags.push(['private']);
-		event.tags.push(['restricted']);
 	}
 
 	await event.sign();
