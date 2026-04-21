@@ -279,12 +279,11 @@ function l3EntryToResolved(
 
 // Previous prompt versions to fall back to on a cache miss under the
 // current version. Allows returning-user offline continuity during the
-// expansion rollout — a v1-cached entry still resolves under a v2
-// lookup until bulk rescore migrates the pantry event. After migration
-// + L3 write-through, the v2 key gets populated naturally and these
-// fallback reads become unused. Add new predecessors here as the
-// constant bumps.
-const LEGACY_PROMPT_VERSIONS = ['1', 'unknown'] as const;
+// expansion rollout — an older cached entry still resolves under a
+// newer lookup until rescore migrates the pantry event. Add each new
+// predecessor here when NOURISH_PROMPT_VERSION bumps so cached entries
+// don't go orphaned.
+const LEGACY_PROMPT_VERSIONS = ['1', '2', 'unknown'] as const;
 
 async function doResolve(ndk: NDK, key: NourishCacheKey): Promise<ResolveResult> {
   // Gather candidates from every layer before deciding. Unlike commit

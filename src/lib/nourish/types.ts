@@ -1,5 +1,5 @@
 export const NOURISH_CACHE_VERSION = '2.0';
-export const NOURISH_PROMPT_VERSION = '2';
+export const NOURISH_PROMPT_VERSION = '3';
 
 /**
  * Public key of the Zap Cooking service account that publishes Nourish analysis events.
@@ -62,6 +62,7 @@ export interface NourishScores {
 	bloodSugar: ScoreDetail;
 	immuneSupportive: ScoreDetail;
 	brainHealth: ScoreDetail;
+	heartHealth: ScoreDetail;
 	overall: ScoreDetail;
 	summary: string;
 	cacheVersion: string;
@@ -81,27 +82,45 @@ export interface AudienceScores {
 }
 
 // ─── Overall score weights (transparent) ─────────────────────
-// Real Food is the foundation — ingredient quality affects everything
-// else. Gut health is next (fiber, fermentation, plant diversity are
-// strong markers of a nourishing meal). Protein is baseline. The four
-// new dimensions contribute smaller weights until proven:
-//   - antiInflammatory and bloodSugar each carry 10% — broad signals
-//   - immuneSupportive (3%) and brainHealth (2%) are narrower — they
-//     participate in the overall but don't dominate
+//
+// 8-dimension composite. Weights chosen for "balanced but anchored":
+// Real Food and Gut Health retain a slight edge because ingredient
+// quality and digestive load affect every other dimension. The six
+// remaining dimensions carry equal weight so no single frame
+// dominates — cardiovascular, metabolic, inflammatory, immune,
+// cognitive, and protein each get the same say.
+//
+//   realFood         0.22  ← anchor (ingredient-quality foundation)
+//   gut              0.18  ← foundational-ish (plant diversity / fiber)
+//   protein          0.10
+//   antiInflammatory 0.10
+//   bloodSugar       0.10
+//   heartHealth      0.10  ← new in prompt v3
+//   immuneSupportive 0.10
+//   brainHealth      0.10
+//                    ────
+//                    1.00
+//
+// The prior 7-dim weights leaned harder on Real Food (0.35) and Gut
+// (0.25). Shifting weight down to 0.22/0.18 and equalizing the rest
+// makes room for Heart Health without overweighting the cardiovascular
+// frame and smooths out the overall number — no single dimension
+// contributes more than ~22%.
 export const NOURISH_WEIGHTS = {
-	realFood: 0.35,
-	gut: 0.25,
-	protein: 0.15,
+	realFood: 0.22,
+	gut: 0.18,
+	protein: 0.10,
 	antiInflammatory: 0.10,
 	bloodSugar: 0.10,
-	immuneSupportive: 0.03,
-	brainHealth: 0.02
+	heartHealth: 0.10,
+	immuneSupportive: 0.10,
+	brainHealth: 0.10
 } as const;
 
 /**
  * Compute the weighted overall Nourish score (0–10) from per-dimension
  * scores. Takes an object argument rather than positional args because
- * 7 positional numbers is unreadable and order-fragile.
+ * 8 positional numbers is unreadable and order-fragile.
  */
 export function computeOverallScore(scores: {
 	gut: number;
@@ -111,6 +130,7 @@ export function computeOverallScore(scores: {
 	bloodSugar: number;
 	immuneSupportive: number;
 	brainHealth: number;
+	heartHealth: number;
 }): { score: number; label: string } {
 	const raw =
 		scores.realFood * NOURISH_WEIGHTS.realFood +
@@ -118,6 +138,7 @@ export function computeOverallScore(scores: {
 		scores.protein * NOURISH_WEIGHTS.protein +
 		scores.antiInflammatory * NOURISH_WEIGHTS.antiInflammatory +
 		scores.bloodSugar * NOURISH_WEIGHTS.bloodSugar +
+		scores.heartHealth * NOURISH_WEIGHTS.heartHealth +
 		scores.immuneSupportive * NOURISH_WEIGHTS.immuneSupportive +
 		scores.brainHealth * NOURISH_WEIGHTS.brainHealth;
 	const score = Math.round(Math.max(0, Math.min(10, raw)));

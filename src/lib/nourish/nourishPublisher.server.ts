@@ -145,7 +145,11 @@ export async function publishNourishEvent(opts: {
       ['nourish_antiinflammatory', String(scores.antiInflammatory.score)],
       ['nourish_bloodsugar', String(scores.bloodSugar.score)],
       ['nourish_immunesupportive', String(scores.immuneSupportive.score)],
-      ['nourish_brainhealth', String(scores.brainHealth.score)]
+      ['nourish_brainhealth', String(scores.brainHealth.score)],
+      // v3 Nourish dimensions — heart health added in prompt v3.
+      // v1/v2 events lack this; parser defaults to 0 with no UI penalty
+      // because the rescore banner prompts a fresh compute.
+      ['nourish_hearthealth', String(scores.heartHealth.score)]
     ];
     // Audience tag prefix is distinct from nourish_* so future consumers
     // can filter queries by namespace (e.g. only Nourish, only Audience,
@@ -171,6 +175,8 @@ export async function publishNourishEvent(opts: {
         bloodSugar: scores.bloodSugar,
         immuneSupportive: scores.immuneSupportive,
         brainHealth: scores.brainHealth,
+        // v3 Nourish dimension — heart health.
+        heartHealth: scores.heartHealth,
         overall: scores.overall,
         summary: scores.summary,
         improvements,
