@@ -967,6 +967,8 @@ export async function editGroupMetadata(
 	if (fields.visibility === 'public') {
 		event.tags.push(['public']);
 		event.tags.push(['unrestricted']);
+	} else if (fields.visibility === 'private') {
+		// Intentionally omit `public`/`unrestricted` tags to request members-only visibility.
 	}
 
 	await event.sign();
