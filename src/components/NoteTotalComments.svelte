@@ -15,12 +15,6 @@
     // Batch fetch may be in progress, but individual fetch ensures counts load
     fetchEngagement($ndk, event.id, $userPublickey);
   });
-
-  // TEMP-INSTRUMENT fingerprint-5 — feed comment double-count investigation.
-  // One log per reactive tick per mounted instance. Multiple lines for the
-  // same event.id slice = multiple NoteTotalComments instances for the same
-  // root event (F5-C fingerprint).
-  $: console.log('[NTC-RENDER] event:', event.id.slice(0, 8), 'count:', $store?.comments?.count);
 </script>
 
 <button

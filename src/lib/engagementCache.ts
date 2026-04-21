@@ -432,22 +432,15 @@ export async function fetchEngagement(
     persistentSubscriptions.set(eventId, { sub, lastActivity: Date.now() });
     
     sub.on('event', (event: NDKEvent) => {
-      if (!event.id) return;
-      if (processed.has(event.id)) {
-        // TEMP-INSTRUMENT fingerprint-5 — feed comment double-count investigation
-        if (event.kind === 1) {
-          console.log('[EC-COMMENT-SINGLE] deduped', event.id.slice(0, 8), 'for root', eventId.slice(0, 8));
-        }
-        return;
-      }
+      if (!event.id || processed.has(event.id)) return;
       processed.add(event.id);
-
+      
       // Mark subscription as active on new events
       touchEngagementSubscription(eventId);
-
+      
       store.update(s => {
         const updated = { ...s };
-
+        
         switch (event.kind) {
           case 7: // Reaction
             processReaction(updated, event, userPublickey, eventId);
@@ -461,16 +454,14 @@ export async function fetchEngagement(
           case 1: // Comment
             // Only count as comment if it's replying to this event
             if (event.tags.some(t => t[0] === 'e' && t[1] === eventId)) {
-              // TEMP-INSTRUMENT fingerprint-5
-              console.log('[EC-COMMENT-SINGLE] counted', event.id.slice(0, 8), 'for root', eventId.slice(0, 8), 'new-count:', updated.comments.count + 1);
               updated.comments.count++;
             }
             break;
         }
-
+        
         // Save to cache on each update for persistence
         saveToCache(eventId, updated);
-
+        
         return updated;
       });
     });
@@ -948,23 +939,16 @@ export async function batchFetchEngagement(
       // Find which target event this is for
       const targetEventId = event.tags.find(t => t[0] === 'e' && toFetch.includes(t[1]))?.[1];
       if (!targetEventId) return;
-
+      
       const processed = processedEventIds.get(targetEventId);
-      if (!processed || !event.id) return;
-      if (processed.has(event.id)) {
-        // TEMP-INSTRUMENT fingerprint-5
-        if (event.kind === 1) {
-          console.log('[EC-COMMENT] deduped', event.id.slice(0, 8), 'for root', targetEventId.slice(0, 8));
-        }
-        return;
-      }
+      if (!processed || !event.id || processed.has(event.id)) return;
       processed.add(event.id);
-
+      
       const store = getEngagementStore(targetEventId);
-
+      
       store.update(s => {
         const updated = { ...s };
-
+        
         switch (event.kind) {
           case 7:
             processReaction(updated, event, userPublickey, targetEventId);
@@ -977,13 +961,11 @@ export async function batchFetchEngagement(
             break;
           case 1:
             if (event.tags.some(t => t[0] === 'e' && t[1] === targetEventId)) {
-              // TEMP-INSTRUMENT fingerprint-5
-              console.log('[EC-COMMENT] counted', event.id.slice(0, 8), 'for root', targetEventId.slice(0, 8), 'new-count:', updated.comments.count + 1);
               updated.comments.count++;
             }
             break;
         }
-
+        
         return updated;
       });
     });
