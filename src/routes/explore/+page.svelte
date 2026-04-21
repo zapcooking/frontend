@@ -17,6 +17,7 @@
   import SponsorBanner from '../../components/SponsorBanner.svelte';
   import PullToRefresh from '../../components/PullToRefresh.svelte';
   import LongformFoodFeed from '../../components/LongformFoodFeed.svelte';
+  import LandingImportHero from '../../components/LandingImportHero.svelte';
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
   import { nip19 } from 'nostr-tools';
   import { init, markOnce } from '$lib/perf/explorePerf';
@@ -388,6 +389,10 @@
           </div>
         {/if}
       </section>
+
+      <!-- Free AI recipe import — full card for anon visitors, compact pill
+           for logged-in non-premium users, hidden for Pro Kitchen / Founders. -->
+      <LandingImportHero />
 
       <!-- Popular Cooks -->
       <section class="flex flex-col gap-4">

@@ -12,6 +12,11 @@
   import { createMarkdown, validateMarkdownTemplate } from '$lib/parser';
   import { addClientTagToEvent } from '$lib/nip89';
   import { nip19 } from 'nostr-tools';
+  import {
+    ANON_IMPORT_HANDOFF_KEY,
+    ANON_IMPORT_MAX_AGE_MS,
+    type AnonImportHandoff
+  } from '$lib/anonImport';
   import Button from '../../components/Button.svelte';
   import Tabs from '../../components/Tabs.svelte';
   import TagsComboBox from '../../components/TagsComboBox.svelte';
@@ -38,15 +43,31 @@
   // State management
   let isLoading = true;
   let errorMessage = '';
+
+  // Anon preview — set when an unauthenticated user arrives via the
+  // landing hero with a parsed recipe stashed in sessionStorage.
+  // Collapses the extraction UI and renders the editor read-only with
+  // a sign-in CTA. Transitions to normal mode automatically if the user
+  // signs in while on this page (see reactive block below).
+  let isAnonPreview = false;
+  let anonPreviewSourceUrl = '';
   
   // Input mode
   type InputMode = 'image' | 'url' | 'text';
-  let inputMode: InputMode = 'text';
-  const tabs = [
+  let inputMode: InputMode = 'url';
+  const ALL_TABS = [
     { id: 'image', label: 'Upload Image' },
     { id: 'url', label: 'Paste URL' },
     { id: 'text', label: 'Paste Text' }
   ];
+  // URL import is free for everyone; image/text stay behind the member
+  // gate. Non-members see a URL-only tab set so the premium surfaces
+  // aren't advertised to them inline. Initialize optimistically to the
+  // URL-only set — the reactive statement below widens to ALL_TABS
+  // once `hasMembership` resolves.
+  let tabs: { id: string; label: string }[] = ALL_TABS.filter((t) => t.id === 'url');
+  $: tabs = hasMembership ? ALL_TABS : ALL_TABS.filter((t) => t.id === 'url');
+  $: if (!hasMembership && inputMode !== 'url') inputMode = 'url';
 
   // Text input state
   let textInput = '';
@@ -85,9 +106,82 @@
   let additionalMarkdown = '';
   
   onMount(() => {
+    // Handoff from the landing-page import hero. Present for both
+    // anon visitors (full hero) AND logged-in non-premium users
+    // (compact pill). If present and fresh, hydrate the editor and
+    // skip the extraction UI — the recipe is already parsed. Only
+    // enter "view-only preview" mode for actual anon visitors; a
+    // logged-in user continuing from the pill should see full
+    // publish/save-draft controls.
+    if (browser) {
+      try {
+        const raw = sessionStorage.getItem(ANON_IMPORT_HANDOFF_KEY);
+        if (raw) {
+          const parsed = JSON.parse(raw) as AnonImportHandoff | null;
+          if (
+            parsed &&
+            parsed.recipe &&
+            typeof parsed.at === 'number' &&
+            Date.now() - parsed.at <= ANON_IMPORT_MAX_AGE_MS
+          ) {
+            hydrateFromHandoff(parsed, !$userPublickey);
+          }
+          // Always clear — a stale or malformed handoff shouldn't
+          // linger and re-hydrate on a later visit.
+          sessionStorage.removeItem(ANON_IMPORT_HANDOFF_KEY);
+        }
+      } catch {
+        // sessionStorage disabled or JSON malformed — fall through to
+        // the normal extraction UI.
+      }
+    }
     isLoading = false;
     return () => unsubMembership();
   });
+
+  function hydrateFromHandoff(handoff: AnonImportHandoff, viewOnly: boolean) {
+    const recipe = handoff.recipe;
+    title = recipe.title || '';
+    summary = recipe.summary || '';
+    chefsnotes = recipe.chefsnotes || '';
+    preptime = recipe.preptime || '';
+    cooktime = recipe.cooktime || '';
+    servings = recipe.servings || '';
+    ingredientsArray.set(recipe.ingredients || []);
+    directionsArray.set(recipe.directions || []);
+
+    // Tag matching mirrors the authenticated extractRecipe path so the
+    // handoff looks identical to a fresh member extraction.
+    const matchedTags: recipeTagSimple[] = [];
+    for (const tagName of recipe.tags || []) {
+      const normalizedTag = tagName.toLowerCase().trim();
+      const existing = recipeTags.find((t) => t.title.toLowerCase() === normalizedTag);
+      matchedTags.push(existing ?? { title: tagName });
+    }
+    selectedTags.set(matchedTags);
+
+    // Anon can't rehost to nostr.build (NIP-98 sign required) — use the
+    // raw external URLs as-is. If the user signs in and publishes, the
+    // URLs are emitted on the kind:30023 event directly; this matches
+    // the existing member-side fallback when rehosting fails.
+    if (Array.isArray(recipe.imageUrls) && recipe.imageUrls.length > 0) {
+      images.set([recipe.imageUrls[0]]);
+    }
+
+    anonPreviewSourceUrl = handoff.sourceUrl || '';
+    isAnonPreview = viewOnly;
+    extractionSuccess = true;
+  }
+
+  // If the user signs in while on this page (e.g. after clicking
+  // "Sign in to publish"), drop the anon-preview flag so the normal
+  // publish/save-draft controls unlock. The hydrated form fields stay
+  // populated — they just become editable.
+  $: if (isAnonPreview && $userPublickey) {
+    isAnonPreview = false;
+    // TODO(analytics): emit `post_import_signup` with
+    // { sourceUrl: anonPreviewSourceUrl }.
+  }
   
   // Handle tab change
   function handleTabChange(event: CustomEvent<string>) {
@@ -518,33 +612,33 @@
     <p class="text-caption">
       A little extra help in the kitchen.
     </p>
-    <p class="text-caption text-sm">Pro Kitchen feature.</p>
+    <p class="text-caption text-sm">
+      URL imports are free. Image and text imports are a Pro Kitchen feature.
+    </p>
   </div>
-  
+
   {#if isLoading}
     <!-- Loading state -->
     <div class="flex flex-col items-center justify-center py-16 gap-4">
       <ArrowsClockwiseIcon size={48} class="animate-spin text-primary" />
       <p class="text-caption">Checking membership status...</p>
     </div>
-  {:else if $userPublickey && !hasMembership}
-    <!-- No membership -->
-    <div class="flex flex-col items-center justify-center py-16 gap-6">
-      <div class="w-20 h-20 rounded-full bg-primary/10 flex items-center justify-center">
-        <SparkleIcon size={40} class="text-primary" weight="fill" />
-      </div>
-      <div class="text-center max-w-md">
-        <h2 class="mb-2">Pro Kitchen Feature</h2>
-        <p class="text-caption mb-6">
-          Sous Chef is available exclusively for Pro Kitchen members. 
-          Upgrade your membership to unlock your AI recipe assistant.
-        </p>
-        <Button on:click={() => goto('/membership')}>
-          View Membership Options
-        </Button>
-      </div>
-    </div>
   {:else}
+    {#if $userPublickey && !hasMembership && !isAnonPreview && !extractionSuccess}
+      <!-- Non-member upgrade nudge — inline banner rather than a blocking
+           gate. URL import is free for all; this banner surfaces the
+           image/text benefit without hiding the whole feature. -->
+      <div class="flex items-start gap-3 p-4 rounded-xl" style="background-color: rgba(249, 115, 22, 0.08); border: 1px solid rgba(249, 115, 22, 0.25);">
+        <SparkleIcon size={22} class="text-primary flex-shrink-0 mt-0.5" weight="fill" />
+        <div class="flex-1">
+          <p class="text-sm">
+            <span class="font-semibold" style="color: var(--color-primary);">URL imports are on us.</span>
+            Unlock image + text imports and more with
+            <button type="button" class="underline" on:click={() => goto('/membership')}>Pro Kitchen</button>.
+          </p>
+        </div>
+      </div>
+    {/if}
     <!-- Has membership - show extraction UI -->
     
     {#if !extractionSuccess}
@@ -671,29 +765,45 @@
     {:else}
       <!-- Extraction Success - Show Editor -->
       <div class="flex flex-col gap-6">
-        <!-- Success Banner -->
-        <div class="flex items-center gap-3 p-4 rounded-xl bg-green-500/10 border border-green-500/20">
-          <CheckCircleIcon size={24} class="text-green-500" weight="fill" />
-          <div class="flex-1">
-            <p class="font-semibold text-green-600 dark:text-green-400">Recipe Extracted Successfully!</p>
-            <p class="text-sm text-caption">
-              Review and edit the details below, then choose an action.
-              {#if $images.length > 0}
-                <span class="inline-flex items-center gap-1 ml-1">
-                  <ImageIcon size={14} class="text-green-500" />
-                  <span class="text-green-600 dark:text-green-400">Image ready!</span>
-                </span>
-              {/if}
-            </p>
+        {#if isAnonPreview}
+          <!-- Anon-preview banner (via landing hero handoff) -->
+          <div class="flex items-start gap-3 p-4 rounded-xl" style="background-color: rgba(249, 115, 22, 0.08); border: 1px solid rgba(249, 115, 22, 0.25);">
+            <SparkleIcon size={24} class="text-primary flex-shrink-0 mt-0.5" weight="fill" />
+            <div class="flex-1">
+              <p class="font-semibold" style="color: var(--color-primary);">Recipe imported — sign in to save or publish</p>
+              <p class="text-sm text-caption mt-1">
+                {#if anonPreviewSourceUrl}
+                  Parsed from <span class="font-mono text-xs break-all">{anonPreviewSourceUrl}</span>.
+                {/if}
+                You can review the details below. Signing in unlocks editing, draft saving, and publishing to your feed.
+              </p>
+            </div>
           </div>
-        </div>
+        {:else}
+          <!-- Success Banner -->
+          <div class="flex items-center gap-3 p-4 rounded-xl bg-green-500/10 border border-green-500/20">
+            <CheckCircleIcon size={24} class="text-green-500" weight="fill" />
+            <div class="flex-1">
+              <p class="font-semibold text-green-600 dark:text-green-400">Recipe Extracted Successfully!</p>
+              <p class="text-sm text-caption">
+                Review and edit the details below, then choose an action.
+                {#if $images.length > 0}
+                  <span class="inline-flex items-center gap-1 ml-1">
+                    <ImageIcon size={14} class="text-green-500" />
+                    <span class="text-green-600 dark:text-green-400">Image ready!</span>
+                  </span>
+                {/if}
+              </p>
+            </div>
+          </div>
+        {/if}
         
         <!-- Recipe Form -->
         <div class="flex flex-col gap-6">
           <!-- Title -->
           <div class="flex flex-col gap-2">
             <h3>Title*</h3>
-            <input placeholder="Recipe title" bind:value={title} class="input" />
+            <input placeholder="Recipe title" bind:value={title} class="input" disabled={isAnonPreview} />
           </div>
           
           <!-- Tags -->
@@ -711,6 +821,7 @@
               bind:value={summary}
               rows="3"
               class="input"
+              disabled={isAnonPreview}
             />
           </div>
           
@@ -730,15 +841,15 @@
             <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div class="flex flex-col gap-2">
                 <span class="text-sm font-medium">Prep Time</span>
-                <input placeholder="20 min" bind:value={preptime} class="input" />
+                <input placeholder="20 min" bind:value={preptime} class="input" disabled={isAnonPreview} />
               </div>
               <div class="flex flex-col gap-2">
                 <span class="text-sm font-medium">Cook Time</span>
-                <input placeholder="1 hour" bind:value={cooktime} class="input" />
+                <input placeholder="1 hour" bind:value={cooktime} class="input" disabled={isAnonPreview} />
               </div>
               <div class="flex flex-col gap-2">
                 <span class="text-sm font-medium">Servings</span>
-                <input placeholder="4" bind:value={servings} class="input" />
+                <input placeholder="4" bind:value={servings} class="input" disabled={isAnonPreview} />
               </div>
             </div>
           </div>
@@ -778,6 +889,24 @@
             </div>
           {/if}
 
+          {#if isAnonPreview}
+            <!-- Sign-in CTA replaces publish/save-draft for anon preview.
+                 redirect=/souschef keeps the handoff-populated form in
+                 place (sessionStorage was already cleared on mount, but
+                 the in-memory fields persist across login). -->
+            <button
+              type="button"
+              on:click={() => goto('/login?redirect=/souschef')}
+              class="w-full flex items-center justify-center gap-2 px-6 py-3 rounded-full font-semibold transition-all"
+              style="background: linear-gradient(135deg, #f97316 0%, #fb923c 100%); color: white; box-shadow: 0 2px 8px rgba(249, 115, 22, 0.3);"
+            >
+              <SparkleIcon size={18} weight="fill" />
+              Sign in to publish
+            </button>
+            <p class="text-xs text-caption text-center">
+              No account? You can create one in a few seconds — no email required.
+            </p>
+          {:else}
           <!-- Primary: Publish Recipe -->
           <button
             type="button"
@@ -818,6 +947,7 @@
           >
             Cancel
           </button>
+          {/if}
         </div>
       </div>
     {/if}
