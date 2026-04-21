@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { ndk, userPublickey, getCurrentRelayGeneration } from '$lib/nostr';
+  import { ndk, userPublickey, getCurrentRelayGeneration, ensureNdkConnected } from '$lib/nostr';
   import type { NDKEvent, NDKFilter, NDKSubscription } from '@nostr-dev-kit/ndk';
   import { onMount, onDestroy } from 'svelte';
   import Feed from '../../components/Feed.svelte';
@@ -14,6 +14,11 @@
   // Pull-to-refresh refs
   let pullToRefreshEl: PullToRefresh;
   let subscription: NDKSubscription | null = null;
+  // Tracked so a new loadRecipes() (e.g. pull-to-refresh) or onDestroy can
+  // cancel a pending safety timeout. Without this, a stale timeout from the
+  // previous load fires during the next load while `loaded` is still false
+  // after the reset and forces `loaded=true` prematurely.
+  let loadTimeout: ReturnType<typeof setTimeout> | null = null;
 
   type TabType = 'recent';
   let activeTab: TabType = 'recent';
@@ -30,11 +35,27 @@
 
   async function loadRecipes(skipCache = false) {
     const perfStart = performance.now();
-    
+
+    // Cancel any pending safety timeout from a prior load so it can't fire
+    // during this load's `loaded=false` reset window and flip the flag early.
+    if (loadTimeout) {
+      clearTimeout(loadTimeout);
+      loadTimeout = null;
+    }
+
     // Capture relay generation at start to detect stale data from relay switches
     const startGeneration = getCurrentRelayGeneration();
-    
+
     try {
+      // Wait for NDK to connect before subscribing. Mirrors /polls' pattern.
+      // On SvelteKit client-side nav from another tab, NDK may already be
+      // connected — this is a near no-op in that case.
+      try {
+        await ensureNdkConnected();
+      } catch {
+        console.warn('[Recent] NDK connection timed out, trying anyway');
+      }
+
       if (!$ndk) {
         console.warn('NDK not available, skipping subscription');
         loaded = true;
@@ -92,9 +113,13 @@
         if (validateMarkdownTemplate(event.content) !== null) {
           fetchedEvents.push(event);
           events = [...fetchedEvents];
-          
-          // Show content early after first batch (progressive loading)
-          if (fetchedEvents.length >= 12 && !loaded) {
+
+          // Progressive paint on FIRST valid event (was: >= 12). The old
+          // threshold left the page stuck on skeleton if fewer than 12
+          // recipes arrived before EOSE, or if EOSE fired during NDK's
+          // cache-replay window and was lost to the race with handler
+          // attach on SvelteKit client-side nav.
+          if (!loaded) {
             loaded = true;
             console.log(`🚀 First paint: ${fetchedEvents.length} recipes in ${(performance.now() - perfStart).toFixed(0)}ms`);
           }
@@ -107,10 +132,10 @@
           console.log('🚫 Relay changed during fetch, discarding results');
           return;
         }
-        
+
         loaded = true;
         console.log(`📡 Network load complete: ${fetchedEvents.length} recipes in ${(performance.now() - perfStart).toFixed(0)}ms`);
-        
+
         // Cache the fetched events for next time
         if (fetchedEvents.length > 0) {
           try {
@@ -123,6 +148,20 @@
           }
         }
       });
+
+      // Safety timeout: flip loaded after 10s if neither an event nor EOSE
+      // reached us. Prevents a stuck skeleton when SvelteKit nav lands on
+      // /recent and NDK's cache replay emits before handlers can attach,
+      // or when EOSE is otherwise delayed. Mirrors /polls' timeout pattern.
+      // Tracked in `loadTimeout` so a subsequent loadRecipes() call or
+      // onDestroy can cancel it.
+      loadTimeout = setTimeout(() => {
+        loadTimeout = null;
+        if (!loaded) {
+          console.warn(`[Recent] Load timeout after 10s with ${fetchedEvents.length} events, forcing loaded=true`);
+          loaded = true;
+        }
+      }, 10000);
 
     } catch (error) {
       console.error(error);
@@ -150,6 +189,12 @@
     if (subscription) {
       subscription.stop();
       subscription = null;
+    }
+    // Cancel a pending safety timeout so it can't fire on a destroyed
+    // component and log a spurious warn.
+    if (loadTimeout) {
+      clearTimeout(loadTimeout);
+      loadTimeout = null;
     }
   });
 </script>
