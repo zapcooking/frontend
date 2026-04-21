@@ -27,6 +27,12 @@ const INITIAL_RETRY_DELAY = 2000; // 2 seconds
 const MAX_RETRY_DELAY = 30000; // 30 seconds
 const PUBLISH_TIMEOUT = 10000; // 10 seconds per relay
 const STALE_ITEM_AGE = 30 * 60 * 1000; // 30 minutes - auto-cleanup stale items
+// Safety cap on `event.sign()`. Some NIP-07 signers (notably Alby when a per-
+// origin permission has been denied) silently drop sign requests — the Promise
+// from window.nostr.signEvent never resolves or rejects, wedging any await
+// chain that waits on it. 15s is wide enough for a hardware-signer approval
+// tap or a NIP-46 bunker round-trip, tight enough to unstick the UI fast.
+const SIGN_TIMEOUT = 15000;
 
 /**
  * Represents a pending publish operation
@@ -427,7 +433,23 @@ class PublishQueueManager {
     // Sign the event if not already signed
     if (!event.sig) {
       console.log('[PublishQueue] Signing event...');
-      await event.sign();
+      const signTimeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => {
+          reject(
+            new Error(
+              `Signer did not respond within ${SIGN_TIMEOUT}ms. If you use Alby, check per-site permissions for this origin — Alby can silently drop sign requests for denied origins.`
+            )
+          );
+        }, SIGN_TIMEOUT);
+      });
+      try {
+        await Promise.race([event.sign(), signTimeoutPromise]);
+        console.log('[PublishQueue] Signed, proceeding to publish');
+      } catch (signError) {
+        const msg = signError instanceof Error ? signError.message : String(signError);
+        console.error('[PublishQueue] Signing failed:', msg);
+        throw signError;
+      }
     }
 
     console.log(`[PublishQueue] Publishing event (kind ${event.kind}) with mode: ${relayMode}`);
