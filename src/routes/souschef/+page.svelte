@@ -62,7 +62,10 @@
   ];
   // URL import is free for everyone; image/text stay behind the member
   // gate. Non-members see a URL-only tab set so the premium surfaces
-  // aren't advertised to them inline.
+  // aren't advertised to them inline. Initialize optimistically to the
+  // URL-only set — the reactive statement below widens to ALL_TABS
+  // once `hasMembership` resolves.
+  let tabs: { id: string; label: string }[] = ALL_TABS.filter((t) => t.id === 'url');
   $: tabs = hasMembership ? ALL_TABS : ALL_TABS.filter((t) => t.id === 'url');
   $: if (!hasMembership && inputMode !== 'url') inputMode = 'url';
 

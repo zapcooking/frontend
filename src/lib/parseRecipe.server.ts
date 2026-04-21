@@ -104,14 +104,34 @@ function parsePublicUrl(raw: string): { ok: true; url: URL } | { ok: false; reas
 function isPrivateIpLiteral(host: string): boolean {
   // Strip IPv6 brackets if present (URL.hostname yields them unbracketed
   // on WHATWG, but be defensive).
-  const h = host.startsWith('[') && host.endsWith(']') ? host.slice(1, -1) : host;
+  const h = (host.startsWith('[') && host.endsWith(']') ? host.slice(1, -1) : host).toLowerCase();
 
-  // IPv6 loopback / link-local / unique-local.
-  if (h === '::1' || h === '::') return true;
+  // IPv6 loopback / unspecified / link-local / unique-local.
+  if (h === '::1' || h === '::' || h === '0:0:0:0:0:0:0:1' || h === '0:0:0:0:0:0:0:0') return true;
   if (h.startsWith('fe80:') || h.startsWith('fe80::')) return true;
   if (/^f[cd][0-9a-f]{2}:/.test(h)) return true;
 
-  // IPv4-literal check.
+  // IPv4-mapped and IPv4-compatible IPv6: ::ffff:127.0.0.1, ::ffff:0:127.0.0.1,
+  // ::127.0.0.1, 0:0:0:0:0:ffff:... etc. If we can find a trailing
+  // dotted-quad in what's otherwise an IPv6 literal, test the IPv4
+  // portion against the private-range check. This catches most
+  // embedded-IPv4 bypass attempts without trying to parse the full
+  // IPv6 grammar (which is hostile at best on Workers).
+  if (h.includes(':') && /\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(h)) {
+    const dottedMatch = h.match(/(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/);
+    if (dottedMatch && isPrivateIpv4(dottedMatch[1])) return true;
+    // Any IPv6 literal with an embedded IPv4 portion is unusual and
+    // only really used for tunneling/compat — reject even if the v4
+    // portion is public, since the v6 prefix (::ffff:, ::) is a
+    // known bypass vector. Be conservative.
+    return true;
+  }
+
+  // Plain IPv4-literal check.
+  return isPrivateIpv4(h);
+}
+
+function isPrivateIpv4(h: string): boolean {
   const v4 = h.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
   if (!v4) return false;
   const [a, b] = [Number(v4[1]), Number(v4[2])];
@@ -172,18 +192,55 @@ function extractImageUrls(html: string, baseUrl: string): string[] {
   return [...new Set(imageUrls)].slice(0, 5);
 }
 
+const MAX_REDIRECTS = 5;
+
 async function fetchUrlContent(
   rawUrl: string
 ): Promise<{ text: string; imageUrls: string[]; finalUrl: string }> {
-  const parsed = parsePublicUrl(rawUrl);
-  if (!parsed.ok) throw new Error(parsed.reason);
+  // Manual redirect loop — `redirect: 'follow'` would let a public URL
+  // bounce into a private IP / metadata host without re-validation.
+  // Each hop runs back through parsePublicUrl so the SSRF guard
+  // applies to the final host the fetch lands on, not just the one
+  // the caller typed in.
+  let currentUrl = rawUrl;
+  for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+    const parsed = parsePublicUrl(currentUrl);
+    if (!parsed.ok) throw new Error(parsed.reason);
 
-  const response = await fetch(parsed.url.toString(), {
-    headers: { 'User-Agent': 'Mozilla/5.0 (compatible; ZapCooking/1.0; +https://zap.cooking)' },
-    redirect: 'follow'
-  });
+    const fetchTarget = parsed.url.toString();
+    const response = await fetch(fetchTarget, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; ZapCooking/1.0; +https://zap.cooking)' },
+      redirect: 'manual'
+    });
 
-  if (!response.ok) throw new Error(`Failed to fetch URL: ${response.status}`);
+    // 3xx with a Location header → revalidate and loop. Workers
+    // `redirect: 'manual'` yields the redirect response with status
+    // in the 300s and the Location header intact.
+    if (response.status >= 300 && response.status < 400) {
+      const location = response.headers.get('location');
+      if (!location) throw new Error(`Redirect without Location header (${response.status})`);
+      // Resolve relative Location against the current URL before
+      // re-running the guard; otherwise `/admin` would be rejected
+      // as a scheme-less URL when it's legitimately same-origin.
+      try {
+        currentUrl = new URL(location, fetchTarget).toString();
+      } catch {
+        throw new Error('Invalid redirect Location');
+      }
+      continue;
+    }
+
+    if (!response.ok) throw new Error(`Failed to fetch URL: ${response.status}`);
+
+    return await readResponseBody(response, fetchTarget);
+  }
+  throw new Error('Too many redirects');
+}
+
+async function readResponseBody(
+  response: Response,
+  sourceUrl: string
+): Promise<{ text: string; imageUrls: string[]; finalUrl: string }> {
 
   // Enforce size cap up front when the server advertises Content-Length.
   const contentLength = response.headers.get('content-length');
@@ -199,7 +256,7 @@ async function fetchUrlContent(
   // Stream the body so an unbounded or chunked response can't exhaust
   // Worker memory. Abort as soon as we cross the cap.
   if (!response.body) {
-    return { text: '', imageUrls: [], finalUrl: response.url || parsed.url.toString() };
+    return { text: '', imageUrls: [], finalUrl: response.url || sourceUrl };
   }
   const reader = response.body.getReader();
   const chunks: Uint8Array[] = [];
@@ -243,7 +300,7 @@ async function fetchUrlContent(
   const bodyText = new TextDecoder('utf-8').decode(full);
 
   if (contentType.includes('text/html')) {
-    const imageUrls = extractImageUrls(bodyText, parsed.url.toString());
+    const imageUrls = extractImageUrls(bodyText, sourceUrl);
     const textContent = bodyText
       .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
       .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
@@ -251,10 +308,10 @@ async function fetchUrlContent(
       .replace(/\s+/g, ' ')
       .trim()
       .substring(0, MAX_PROMPT_CONTENT_CHARS);
-    return { text: textContent, imageUrls, finalUrl: response.url || parsed.url.toString() };
+    return { text: textContent, imageUrls, finalUrl: response.url || sourceUrl };
   }
 
-  return { text: bodyText, imageUrls: [], finalUrl: response.url || parsed.url.toString() };
+  return { text: bodyText, imageUrls: [], finalUrl: response.url || sourceUrl };
 }
 
 function normalizeRecipe(raw: Record<string, unknown>): NormalizedRecipe {

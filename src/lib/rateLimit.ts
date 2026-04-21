@@ -29,7 +29,11 @@ export interface RateLimitOptions {
 
 export interface RateLimitCheck {
   allowed: boolean;
-  /** Remaining hits in the current window after this check. */
+  /**
+   * Remaining hits currently available in the window. `checkRateLimit`
+   * is non-destructive, so this is the capacity *before* the caller
+   * records the next hit — a subsequent `recordHit` will consume one.
+   */
   remaining: number;
   /** Epoch-ms at which the bucket next frees up a slot. 0 if allowed. */
   retryAt: number;

@@ -12,6 +12,9 @@
  *                            pubkey field). This endpoint also accepts
  *                            URL for logged-in callers as a convenience
  *                            so the souschef page doesn't need a split.
+ *                            The same per-IP rate limit applies so this
+ *                            endpoint can't be used as a quieter bypass
+ *                            of /public's cap.
  *   - type: 'image'|'text' — requires active membership (any tier).
  *                            `pubkey` is required and checked via
  *                            `hasActiveMembership`.
@@ -27,8 +30,16 @@
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
 import { parseRecipe, type ParseInput } from '$lib/parseRecipe.server';
+import { checkPerIpRateLimit } from '$lib/ipRateLimit.server';
 
-export const POST: RequestHandler = async ({ request, platform }) => {
+// URL imports on this endpoint share the same per-IP cap as the public
+// sibling so a caller can't route around /public/'s rate limit by
+// hitting this route without a pubkey. Image/text don't need a cap
+// here — they're already gated to active members above.
+const URL_PER_HOUR = 8;
+const URL_PER_DAY = 30;
+
+export const POST: RequestHandler = async ({ request, getClientAddress, platform }) => {
   try {
     const OPENAI_API_KEY = platform?.env?.OPENAI_API_KEY || env.OPENAI_API_KEY;
     if (!OPENAI_API_KEY) {
@@ -98,6 +109,26 @@ export const POST: RequestHandler = async ({ request, platform }) => {
           { status: 400 }
         );
       }
+
+      // Per-IP cap — prevents this endpoint from being used as a
+      // quieter bypass of /api/extract-recipe/public's rate limit.
+      let ip = '127.0.0.1';
+      try {
+        ip = getClientAddress();
+      } catch {
+        // Local dev / missing CF headers.
+      }
+      const kv = platform?.env?.NOURISH_FLAGS;
+      const rl = await checkPerIpRateLimit(kv, {
+        ip,
+        scope: 'extract-url',
+        perHour: URL_PER_HOUR,
+        perDay: URL_PER_DAY
+      });
+      if (rl.limited) {
+        return json(rl.body, { status: 429 });
+      }
+
       input = { type: 'url', url };
     } else {
       if (typeof textData !== 'string' || textData.trim().length === 0) {

@@ -2,12 +2,17 @@
   /**
    * Free AI recipe-import hero for the public landing page.
    *
-   * Renders in one of three modes based on auth + membership tier:
+   * Renders in one of three modes based on auth + membership tier. All
+   * visible modes show the same headline + subtext + input row; the
+   * difference is padding density and the feature-card treatment:
    *
-   *   1. Logged-out          → full hero (headline + subtext + input)
-   *   2. Logged-in non-Pro   → compact pill (just input, discoverable
-   *                            for free and Cook+ users)
-   *   3. Logged-in Pro/Founder → hidden (they have the nav sparkle)
+   *   1. Logged-out           → full feature card (orange-tinted
+   *                             background + border via color-mix on
+   *                             --color-primary)
+   *   2. Logged-in non-Pro    → compact variant (tighter padding, no
+   *                             feature wash)
+   *   3. Logged-in Pro/Founder → hidden (they already have the nav
+   *                             sparkle entry point)
    *
    * The submit path POSTs to `/api/extract-recipe/public`, stashes the
    * parsed recipe in sessionStorage under `ANON_IMPORT_HANDOFF_KEY`, and
@@ -120,17 +125,25 @@
         return;
       }
 
+      let handoffStashed = false;
       if (browser) {
         try {
           sessionStorage.setItem(
             ANON_IMPORT_HANDOFF_KEY,
             JSON.stringify({ recipe: data.recipe, sourceUrl: urlInput.trim(), at: Date.now() })
           );
+          handoffStashed = true;
         } catch {
-          // If sessionStorage is disabled (private mode with strict settings),
-          // fall back to a querystring flag and let /souschef show a generic
-          // "please re-paste" state.
+          // sessionStorage disabled or quota exceeded. We can't hand the
+          // parsed recipe over to /souschef, so surface an inline error
+          // here instead of sending the user somewhere without their
+          // result. Users in this state are rare (strict private mode).
         }
+      }
+      if (!handoffStashed) {
+        error =
+          'We couldn\u2019t save the import for the next step. Try again, or open this site in a normal (non-private) browser window.';
+        return;
       }
 
       recordHit(RATE_LIMIT_OPTS);
