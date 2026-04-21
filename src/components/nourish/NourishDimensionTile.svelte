@@ -45,16 +45,11 @@
 
   let expanded = false;
 
+  // Native <button> handles Enter/Space → click synthesis on its own;
+  // no explicit keydown handler needed. A custom handler here would
+  // double-fire on Enter/Space across some browsers + ATs.
   function toggle() {
     if (reason) expanded = !expanded;
-  }
-
-  function handleKey(e: KeyboardEvent) {
-    if (!reason) return;
-    if (e.key === 'Enter' || e.key === ' ') {
-      e.preventDefault();
-      expanded = !expanded;
-    }
   }
 
   // Score tier drives saturation. Thresholds match the user-facing
@@ -91,7 +86,6 @@
     class="tile-head"
     class:expandable={!!reason}
     on:click={toggle}
-    on:keydown={handleKey}
     aria-expanded={reason ? expanded : undefined}
     aria-label="{label} — {reason ? 'tap to learn more' : ''}"
   >

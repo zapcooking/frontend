@@ -21,7 +21,7 @@
 import { NOURISH_CACHE_VERSION, computeOverallScore } from './types';
 import type { AudienceScores, IngredientSignal, NourishScores } from './types';
 
-// ─── Prompt template (v2) ───────────────────────────────────
+// ─── Prompt template (v3) ───────────────────────────────────
 
 const NOURISH_PROMPT = `You are a recipe analysis assistant for a cooking platform. Analyze the recipe below and return nine food scores: eight Nourish health dimensions, and one Audience appeal dimension.
 

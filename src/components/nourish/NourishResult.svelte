@@ -1,11 +1,17 @@
 <script lang="ts">
   /**
-   * NourishResult — strengths-focused result presentation (v2, 7 dims).
+   * NourishResult — strengths-focused result presentation (v3, 8 dims).
    *
    * Shared between the /nourish page and the NourishModal on recipe pages.
    * Leads with what the food brings, never with what it lacks. The card is
    * a friendly guide, not a scorecard; nothing in here should read as a
    * warning (no amber, no red, no letter grade, no composite number).
+   *
+   * Prompt v3 added Heart-healthy as the 8th dimension and rebalanced the
+   * overall composite weights. Members see a rescore CTA via the
+   * `rescoreVariant` prop — 'upgrade' for out-of-version scores,
+   * 'refresh' for current-version scores, null for non-members / contexts
+   * without a persistent recipe.
    */
 
   import NourishDimensionTile from './NourishDimensionTile.svelte';
@@ -268,7 +274,7 @@
       <SparkleIcon size={14} weight="fill" class="nr-upgrade-sparkle" />
       <div class="nr-upgrade-copy">
         <p class="nr-upgrade-title">Updated scoring available</p>
-        <p class="nr-upgrade-sub">Now includes anti-inflammatory, blood sugar, immune, and brain health.</p>
+        <p class="nr-upgrade-sub">Refresh to get the latest Nourish model — rebalanced weighting and the new heart-healthy dimension.</p>
       </div>
       <button
         type="button"
@@ -308,8 +314,7 @@
     </div>
   {/if}
 
-  <!-- Nourish Profile — 2-column tile grid. 7 tiles land as 4 rows
-       (last row has one tile; the grid naturally left-aligns it). -->
+  <!-- Nourish Profile — 2-column tile grid. 8 tiles land as 4 full rows. -->
   <div class="nr-section">
     <p class="nr-section-label">Nourish Profile</p>
     <div class="nr-dims-grid">
