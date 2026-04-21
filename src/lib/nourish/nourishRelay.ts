@@ -137,8 +137,13 @@ export function parseNourishEvent(event: NDKEvent): NourishRelayResult | null {
   try {
     const content = JSON.parse(event.content);
 
-    // Extract per-dimension scores. v1 events lack the four new health
+    // Extract per-dimension scores. Legacy events lack the newer
     // dimensions; they default to 0.
+    //   - v1 events lack the four v2 dims (antiInflammatory, bloodSugar,
+    //     immuneSupportive, brainHealth)
+    //   - v1 + v2 events lack heartHealth (added in v3)
+    // The rescore-available banner on the card surfaces these as
+    // "Upgrade scoring" so users can refresh into the latest profile.
     const gutScore = content.gut?.score ?? 0;
     const proteinScore = content.protein?.score ?? 0;
     const realFoodScore = content.realFood?.score ?? 0;
@@ -146,6 +151,7 @@ export function parseNourishEvent(event: NDKEvent): NourishRelayResult | null {
     const bloodSugarScore = content.bloodSugar?.score ?? 0;
     const immuneSupportiveScore = content.immuneSupportive?.score ?? 0;
     const brainHealthScore = content.brainHealth?.score ?? 0;
+    const heartHealthScore = content.heartHealth?.score ?? 0;
 
     // Overall: trust the stored value when present. Recomputing with
     // current weights against legacy v1 events depresses overall by
@@ -175,7 +181,8 @@ export function parseNourishEvent(event: NDKEvent): NourishRelayResult | null {
         antiInflammatory: antiInflammatoryScore,
         bloodSugar: bloodSugarScore,
         immuneSupportive: immuneSupportiveScore,
-        brainHealth: brainHealthScore
+        brainHealth: brainHealthScore,
+        heartHealth: heartHealthScore
       });
     }
 
@@ -215,12 +222,17 @@ export function parseNourishEvent(event: NDKEvent): NourishRelayResult | null {
         label: content.brainHealth?.label || 'Moderate',
         reason: content.brainHealth?.reason || ''
       },
+      heartHealth: {
+        score: heartHealthScore,
+        label: content.heartHealth?.label || 'Moderate',
+        reason: content.heartHealth?.reason || ''
+      },
       overall: {
         score: overall.score,
         label: overall.label,
         reason:
           content.overall?.reason ||
-          `Weighted: Real Food 35%, Gut 25%, Protein 15%, Anti-Inflammatory 10%, Blood Sugar 10%, Immune-Supportive 3%, Brain Health 2%`
+          `Weighted: Real Food 22%, Gut 18%, Protein/Anti-Inflammatory/Blood Sugar/Heart/Immune/Brain 10% each`
       },
       summary: content.summary || '',
       // Accept both the new `cacheVersion` and the legacy `version` field

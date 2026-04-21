@@ -38,7 +38,7 @@ import { env } from '$env/dynamic/private';
 import { NOURISH_CACHE_VERSION, NOURISH_PROMPT_VERSION, computeOverallScore } from '$lib/nourish/types';
 import { requireMembership } from '../membershipCheck';
 
-const SCAN_PROMPT = `You are a food analysis assistant for a cooking platform. Analyze the following food description and return eight food scores: seven Nourish health dimensions, and one Audience appeal dimension.
+const SCAN_PROMPT = `You are a food analysis assistant for a cooking platform. Analyze the following food description and return nine food scores: eight Nourish health dimensions, and one Audience appeal dimension.
 
 The input may be an ingredient list, a restaurant dish description, a partial recipe, or any food-related text. Do your best with whatever information is provided.
 
@@ -105,6 +105,18 @@ BRAIN HEALTH SCORE (0-10): How well does this food support cognitive health?
 - Turmeric, whole grains, olive oil: +1
 - Refined sugar, trans fats, ultra-processed: -1-2
 
+HEART HEALTH SCORE (0-10): How well does this food support cardiovascular health?
+- Healthy fats (extra-virgin olive oil, avocado, nuts, seeds): +2-3
+- Fatty fish (salmon, sardines, mackerel): +2
+- Fiber-rich ingredients (oats, legumes, whole grains, vegetables, fruit): +1-2
+- Potassium-rich ingredients (leafy greens, beans, bananas, sweet potato, avocado): +1-2
+- Whole grains (oats, quinoa, brown rice, barley, whole-wheat): +1
+- Heavily salted or cured items (bacon, sausage, processed deli meats, instant broths): -2
+- Added salt beyond a pinch, soy sauce-heavy, high-sodium packaged sauces: -1-2
+- Saturated fat heavy (butter, coconut oil, fatty cuts of red meat): -1
+- Trans fats or partially-hydrogenated oils (shortening, some margarines): -2
+- Refined carbs + added sugar together (baked goods, sweetened drinks): -1-2
+
 ════════ AUDIENCE DIMENSION (APPEAL) ════════
 
 KID-FRIENDLY SCORE (0-10): How likely is a typical kid (ages 5-10) to eat this food willingly?
@@ -129,6 +141,13 @@ LABELS:
 - 7-8: "Strong"
 - 9-10: "Excellent"
 
+SUMMARY GUIDELINES:
+- The summary is 1-2 sentences shown above the dimension grid on the scan card.
+- It must reference ONLY the eight Nourish health dimensions: Real Food, Gut Health, Protein, Anti-inflammatory, Blood Sugar, Immune-supportive, Brain Health, Heart-healthy.
+- Do NOT mention kid-friendliness or any audience score in the summary — that data is computed but not shown on the card and would confuse the reader.
+- Lead with what the food brings (which 1-2 dimensions it scores well on). If a dimension is light, describe it gently ("lighter on protein", "less of a focus"), never as a failure or red flag.
+- Affirming, plain language. No grades, no warnings.
+
 Food Description:
 {{text}}
 
@@ -141,8 +160,9 @@ Return ONLY valid JSON with this exact structure:
   "bloodSugar": { "score": <number>, "label": "<string>", "reason": "<one sentence>" },
   "immuneSupportive": { "score": <number>, "label": "<string>", "reason": "<one sentence>" },
   "brainHealth": { "score": <number>, "label": "<string>", "reason": "<one sentence>" },
+  "heartHealth": { "score": <number>, "label": "<string>", "reason": "<one sentence>" },
   "kidFriendly": { "score": <number>, "label": "<string>", "reason": "<one sentence>" },
-  "summary": "<1-2 sentences>",
+  "summary": "<1-2 sentences referencing only the eight Nourish dimensions above — no kid-friendly mention>",
   "quick_take": "<one short sentence describing what this food leans toward>",
   "ingredients": [
     { "name": "<ingredient>", "signals": ["<tag>"], "contribution": "<gut|protein|realFood|neutral>" }
@@ -287,7 +307,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 		}
 
 		// Normalize scores defensively. SCAN_PROMPT already requests the
-		// full current schema (7 Nourish dimensions + kidFriendly), but
+		// full current schema (8 Nourish dimensions + kidFriendly), but
 		// model responses can still omit fields or return malformed
 		// values. clampScore(undefined) falls back to 0 so a missing
 		// dimension contributes nothing to the weighted overall rather
@@ -299,6 +319,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 		const bloodSugarScore = clampScore(parsed.bloodSugar?.score);
 		const immuneSupportiveScore = clampScore(parsed.immuneSupportive?.score);
 		const brainHealthScore = clampScore(parsed.brainHealth?.score);
+		const heartHealthScore = clampScore(parsed.heartHealth?.score);
 		const overall = computeOverallScore({
 			gut: gutScore,
 			protein: proteinScore,
@@ -306,7 +327,8 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 			antiInflammatory: antiInflammatoryScore,
 			bloodSugar: bloodSugarScore,
 			immuneSupportive: immuneSupportiveScore,
-			brainHealth: brainHealthScore
+			brainHealth: brainHealthScore,
+			heartHealth: heartHealthScore
 		});
 
 		const scores = {
@@ -345,10 +367,15 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 				label: validateLabel(parsed.brainHealth?.label),
 				reason: String(parsed.brainHealth?.reason || '')
 			},
+			heartHealth: {
+				score: heartHealthScore,
+				label: validateLabel(parsed.heartHealth?.label),
+				reason: String(parsed.heartHealth?.reason || '')
+			},
 			overall: {
 				score: overall.score,
 				label: overall.label,
-				reason: `Weighted: Real Food 35%, Gut 25%, Protein 15%, Anti-Inflammatory 10%, Blood Sugar 10%, Immune-Supportive 3%, Brain Health 2%`
+				reason: `Weighted: Real Food 22%, Gut 18%, Protein/Anti-Inflammatory/Blood Sugar/Heart/Immune/Brain 10% each`
 			},
 			summary: String(parsed.summary || ''),
 			cacheVersion: NOURISH_CACHE_VERSION

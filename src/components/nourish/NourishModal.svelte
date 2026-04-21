@@ -3,7 +3,6 @@
 	import { ndk, userPublickey } from '$lib/nostr';
 	import Modal from '../Modal.svelte';
 	import Button from '../Button.svelte';
-	import LeafIcon from 'phosphor-svelte/lib/Leaf';
 	import LockIcon from 'phosphor-svelte/lib/Lock';
 	import ArrowClockwiseIcon from 'phosphor-svelte/lib/ArrowClockwise';
 	import { parseMarkdownForEditing } from '$lib/parser';
@@ -47,6 +46,13 @@
 	let stale = false;
 	let analyzedAt = 0;
 	let error = '';
+	// In-flight flag for user-triggered rescore (upgrade + refresh button
+	// variants on the card). Separate from `loading` so the existing
+	// first-time-compute and stale-refresh flows retain their current
+	// spinner behavior while the card itself stays visible during a
+	// rescore — the result swap is in-place instead of through the
+	// empty-state loading card.
+	let isRescoring = false;
 	// PromptVersion that produced the currently-rendered score. Passed
 	// to NourishResult → NourishDimensionBar → NourishFlagButton so flag
 	// events carry the score's actual version, not the global constant
@@ -344,6 +350,123 @@
 		analyzeRecipe();
 	}
 
+	/**
+	 * User-triggered rescore — driven by the upgrade/refresh button on
+	 * NourishResult. Unlike `reanalyze()`, this doesn't short-circuit on
+	 * a fresh-hash pantry hit: the whole point is to re-run the LLM and
+	 * pick up the latest prompt version. Purges local caches so the
+	 * rescore result lands cleanly.
+	 *
+	 * Member-gated at the call site (rescoreVariant stays null for
+	 * non-members) AND at the server (requireMembership on /api/nourish).
+	 */
+	async function rescoreRecipe() {
+		if (!hasMembership || isRescoring) return;
+		const { recipePubkey, recipeDTag } = getRecipeCoordinates();
+		const key: NourishCacheKey = {
+			recipePubkey,
+			recipeDTag,
+			promptVersion: NOURISH_PROMPT_VERSION
+		};
+
+		isRescoring = true;
+		error = '';
+		try {
+			// Purge local layers so the fresh server response is what the
+			// card renders next. Pantry gets overwritten server-side via
+			// the kind-30078 d-tag replacement on publish.
+			purgeMemory(key);
+			clearNourishCache(key);
+
+			const title =
+				event.tags.find((t) => t[0] === 'title')?.[1] ||
+				event.tags.find((t) => t[0] === 'd')?.[1] ||
+				'';
+			const tags = event.tags.filter((t) => t[0] === 't' && t[1]).map((t) => t[1]);
+			const info = parseMarkdownForEditing(event.content);
+			const servings = info.information?.servings || '';
+			if (info.ingredients.length === 0) {
+				error = 'No ingredients found in this recipe.';
+				return;
+			}
+			const contentHash = await computeContentHash(event.content || '');
+
+			const res = await fetch('/api/nourish', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					pubkey: $userPublickey || '',
+					eventId: event.id,
+					title,
+					ingredients: info.ingredients,
+					tags,
+					servings,
+					recipePubkey,
+					recipeDTag,
+					contentHash
+				})
+			});
+			const data = await res.json();
+			if (!data.success) {
+				error = data.error || 'Rescore failed.';
+				return;
+			}
+
+			// Swap in the fresh result without flushing the existing card —
+			// the user sees the card update in place, not disappear and
+			// come back.
+			scores = data.scores;
+			analyzedAt = data.createdAt ?? Math.floor(Date.now() / 1000);
+			resolvedPromptVersion = data.promptVersion ?? NOURISH_PROMPT_VERSION;
+			// Rescore via /api/nourish doesn't carry the admin `updated_at`
+			// tag — clear it so the green "Updated" pill (which is an admin
+			// signal, not a user-triggered one) stays accurate.
+			resolvedUpdatedAt = undefined;
+			stale = false;
+			buildImprovements(data.scores, data.improvements);
+
+			const writeKey = toCacheKey(recipePubkey, recipeDTag);
+			if (writeKey) {
+				setNourishScores(
+					{ ...writeKey, promptVersion: data.promptVersion ?? NOURISH_PROMPT_VERSION },
+					data.scores,
+					{
+						contentHash,
+						createdAt: data.createdAt,
+						improvements: data.improvements,
+						ingredientSignals: data.ingredient_signals
+					}
+				);
+			}
+			if (data.ingredient_signals?.length > 0) {
+				ingredientStore
+					.saveIngredients(data.ingredient_signals, 'recipe', event.id, data.promptVersion)
+					.catch(() => {});
+			}
+		} catch (err) {
+			console.error('[Nourish] Rescore error:', err);
+			error = 'Could not rescore this recipe. Please try again.';
+		} finally {
+			isRescoring = false;
+		}
+	}
+
+	// Two-faced rescore UI:
+	//   - `'upgrade'` when the currently-rendered score was produced by
+	//     a prior prompt version. Prominent banner at the top of the
+	//     card — the main v1 → current-version migration nudge.
+	//   - `'refresh'` when the versions match but the member wants a
+	//     fresh pass anyway (new-ingredient swaps, after edits, etc.).
+	//   - `null` for non-members — the member gate is explicit and the
+	//     button never renders. Server-side requireMembership is the
+	//     actual enforcement.
+	let rescoreVariant: 'upgrade' | 'refresh' | null = null;
+	$: rescoreVariant = !hasMembership
+		? null
+		: resolvedPromptVersion !== NOURISH_PROMPT_VERSION
+			? 'upgrade'
+			: 'refresh';
+
 	// Derived state for the shared NourishLoadingState component. Order
 	// of precedence: offline > pending (network in flight) > timeout >
 	// miss (no data, show [Analyze] for members). Explicit type so the
@@ -395,6 +518,9 @@
 			{improvements}
 			{flagTarget}
 			promptVersion={resolvedPromptVersion}
+			{rescoreVariant}
+			{isRescoring}
+			onRescore={hasMembership ? rescoreRecipe : null}
 			compact
 		/>
 
