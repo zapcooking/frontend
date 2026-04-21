@@ -725,12 +725,18 @@ function processZap(data: EngagementData, event: NDKEvent, userPublickey: string
 }
 
 // Mark a reaction/engagement event as already processed to prevent double counting
-// Call this after optimistic updates + successful publish
+// Call this after optimistic updates + successful publish. Init-if-absent so a
+// fast click that beats the non-awaited onMount fetchEngagement to populate
+// the Set still takes effect. A later fetchEngagement will see the Set exists
+// and take the re-entry branch (which preserves counts and starts the
+// subscription normally).
 export function markEventAsProcessed(targetEventId: string, processedEventId: string): void {
-  const processed = processedEventIds.get(targetEventId);
-  if (processed) {
-    processed.add(processedEventId);
+  let processed = processedEventIds.get(targetEventId);
+  if (!processed) {
+    processed = new Set();
+    processedEventIds.set(targetEventId, processed);
   }
+  processed.add(processedEventId);
 }
 
 // Track an optimistic reaction BEFORE publishing to prevent double counting

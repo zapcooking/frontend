@@ -79,17 +79,20 @@
       await repostEvent.sign();
       console.log('Repost event signed:', repostEvent.id);
 
-      // Secondary protection — mark by event id so the subscription's
-      // `processed.has(event.id)` short-circuit fires even if the optimistic
-      // key check misses. Done between sign() (which populates .id) and
-      // publish() to close the race where the echo arrives before publish()
-      // resolves.
+      await repostEvent.publish();
+      console.log('Successfully reposted');
+
+      // Secondary protection — mark by event id AFTER publish succeeds so the
+      // subscription's `processed.has(event.id)` short-circuit fires on any
+      // later re-delivery (e.g. subscription restart). The pre-await
+      // trackOptimisticRepost above is the primary defense against the
+      // pre-publish-resolve echo race, matching the pattern in
+      // ReactionTrigger.svelte. Marking only on success also avoids a
+      // dangling mark on partial-publish-fail (rollback in catch block) that
+      // would silence the echo from relays that did accept the event.
       if (repostEvent.id) {
         markEventAsProcessed(event.id, repostEvent.id);
       }
-
-      await repostEvent.publish();
-      console.log('Successfully reposted');
     } catch (error) {
       console.error('Error reposting:', error);
       // Revert optimistic update + clear the optimistic-repost tracking so
