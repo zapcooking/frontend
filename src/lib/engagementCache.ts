@@ -73,6 +73,10 @@ const subscriptionCountingInProgress = new Set<string>();
 const optimisticZaps = new Map<string, { amountMillisats: number; timestamp: number; userPubkey: string }>();
 // Track optimistic reaction updates to prevent double-counting when real reaction arrives
 const optimisticReactions = new Map<string, { emoji: string; timestamp: number; userPubkey: string }>();
+// Track optimistic repost updates to prevent double-counting when relay echoes our kind-6 back.
+// Keyed by `${targetEventId}:${userPubkey}` — NIP-18 is one-per-user-per-target so no emoji
+// distinction is needed.
+const optimisticReposts = new Map<string, { timestamp: number }>();
 
 const CACHE_KEY_PREFIX = 'engagement_';
 const CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours - persist across page reloads
@@ -476,7 +480,7 @@ export async function fetchEngagement(
             processReaction(updated, event, userPublickey, eventId);
             break;
           case 6: // Repost
-            processRepost(updated, event, userPublickey);
+            processRepost(updated, event, userPublickey, eventId);
             break;
           case 9735: // Zap
             processZap(updated, event, userPublickey, eventId);
@@ -618,7 +622,22 @@ function processReaction(data: EngagementData, event: NDKEvent, userPublickey: s
   data.reactions.groups.sort((a, b) => b.count - a.count);
 }
 
-function processRepost(data: EngagementData, event: NDKEvent, userPublickey: string): void {
+function processRepost(data: EngagementData, event: NDKEvent, userPublickey: string, targetEventId?: string): void {
+  // Check if this matches an optimistic repost we already added. Prevents
+  // double counting when the relay echoes our just-published kind-6 back
+  // through the subscription. Mirrors the reaction/zap optimistic-match
+  // pattern. The subscription handler's processedEventIds dedup is a second
+  // line of defense (markEventAsProcessed call in NoteRepost.svelte), but
+  // that can race if the echo arrives before publish() resolves, so this
+  // content-level check runs first.
+  if (targetEventId && event.pubkey === userPublickey) {
+    const optimisticKey = `${targetEventId}:${userPublickey}`;
+    if (optimisticReposts.has(optimisticKey)) {
+      optimisticReposts.delete(optimisticKey);
+      return;
+    }
+  }
+
   data.reposts.count++;
   if (event.pubkey === userPublickey) {
     data.reposts.userReposted = true;
@@ -741,6 +760,31 @@ export function clearOptimisticReaction(targetEventId: string, emoji: string, us
   optimisticReactions.delete(key);
 }
 
+// Track an optimistic repost BEFORE publishing to prevent double counting when
+// the relay echoes our kind-6 back through the subscription. NIP-18 is one
+// repost per user per target, so the key is (targetEventId, userPubkey).
+export function trackOptimisticRepost(targetEventId: string, userPubkey: string): void {
+  const now = Date.now();
+  const key = `${targetEventId}:${userPubkey}`;
+
+  optimisticReposts.set(key, { timestamp: now });
+
+  // Clean up old optimistic reposts (older than 2 minutes) to bound growth
+  // if a publish silently never echoed.
+  const twoMinutesAgo = now - 2 * 60 * 1000;
+  for (const [k, repost] of optimisticReposts.entries()) {
+    if (repost.timestamp < twoMinutesAgo) {
+      optimisticReposts.delete(k);
+    }
+  }
+}
+
+// Clear an optimistic repost (call on publish failure to allow retry)
+export function clearOptimisticRepost(targetEventId: string, userPubkey: string): void {
+  const key = `${targetEventId}:${userPubkey}`;
+  optimisticReposts.delete(key);
+}
+
 // Cleanup function for when a note is removed from view
 export function cleanupEngagement(eventId: string): void {
   // Clean up persistent subscription
@@ -775,6 +819,13 @@ export function cleanupEngagement(eventId: string): void {
   for (const [key] of optimisticReactions.entries()) {
     if (key.startsWith(`${eventId}:`)) {
       optimisticReactions.delete(key);
+    }
+  }
+
+  // Clean up optimistic reposts for this event
+  for (const [key] of optimisticReposts.entries()) {
+    if (key.startsWith(`${eventId}:`)) {
+      optimisticReposts.delete(key);
     }
   }
 }
@@ -998,7 +1049,7 @@ export async function batchFetchEngagement(
             processReaction(updated, event, userPublickey, targetEventId);
             break;
           case 6:
-            processRepost(updated, event, userPublickey);
+            processRepost(updated, event, userPublickey, targetEventId);
             break;
           case 9735:
             processZap(updated, event, userPublickey, targetEventId);
@@ -1092,6 +1143,7 @@ export function clearAllEngagementCaches(): void {
   subscriptionCountingInProgress.clear();
   optimisticZaps.clear();
   optimisticReactions.clear();
+  optimisticReposts.clear();
   
   // Clear localStorage cache
   if (browser) {

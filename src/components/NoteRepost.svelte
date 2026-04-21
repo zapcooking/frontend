@@ -1,13 +1,18 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { get } from 'svelte/store';
   import { ndk, userPublickey } from '$lib/nostr';
   import { NDKEvent } from '@nostr-dev-kit/ndk';
   import { nip19 } from 'nostr-tools';
   import { addClientTagToEvent } from '$lib/nip89';
   import ArrowsClockwise from 'phosphor-svelte/lib/ArrowsClockwise';
   import { clickOutside } from '$lib/clickOutside';
-  import { getEngagementStore, fetchEngagement } from '$lib/engagementCache';
+  import {
+    getEngagementStore,
+    fetchEngagement,
+    markEventAsProcessed,
+    trackOptimisticRepost,
+    clearOptimisticRepost
+  } from '$lib/engagementCache';
   import { openComposerWithQuote } from '$lib/postComposerStore';
 
   export let event: NDKEvent;
@@ -39,6 +44,15 @@
     try {
       console.log('Creating repost for:', event.id);
 
+      // Register the pending repost with engagementCache BEFORE the optimistic
+      // store update, and before any await. When the relay echoes the just-
+      // published kind-6 back through the shared subscription, processRepost
+      // will find this entry via `optimisticReposts.has(...)` and skip its own
+      // `count++`, leaving only the optimistic +1 below. Without this
+      // pre-registration the echo double-counts. Matches the reaction pattern
+      // in ReactionTrigger.svelte.
+      trackOptimisticRepost(event.id, $userPublickey);
+
       // Optimistic update
       store.update((s) => ({
         ...s,
@@ -65,11 +79,22 @@
       await repostEvent.sign();
       console.log('Repost event signed:', repostEvent.id);
 
+      // Secondary protection — mark by event id so the subscription's
+      // `processed.has(event.id)` short-circuit fires even if the optimistic
+      // key check misses. Done between sign() (which populates .id) and
+      // publish() to close the race where the echo arrives before publish()
+      // resolves.
+      if (repostEvent.id) {
+        markEventAsProcessed(event.id, repostEvent.id);
+      }
+
       await repostEvent.publish();
       console.log('Successfully reposted');
     } catch (error) {
       console.error('Error reposting:', error);
-      // Revert optimistic update
+      // Revert optimistic update + clear the optimistic-repost tracking so
+      // a retry can re-register cleanly.
+      clearOptimisticRepost(event.id, $userPublickey);
       store.update((s) => ({
         ...s,
         reposts: { count: s.reposts.count - 1, userReposted: false }
