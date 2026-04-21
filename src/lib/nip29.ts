@@ -942,7 +942,9 @@ export async function joinGroup(groupId: string, inviteCode?: string): Promise<v
 /**
  * Edit group metadata via kind 9002 (edit-metadata).
  * Supports updating name, about, picture, and visibility fields.
- * For members-only visibility, Pantry expects the absence of public tags.
+ * For non-public visibility, this implementation currently omits the `public`/`unrestricted`
+ * tags as a Pantry-specific compatibility workaround, since Pantry rejects
+ * `private`/`restricted` tags on kind 9002.
  */
 export async function editGroupMetadata(
 	groupId: string,
