@@ -44,8 +44,17 @@
     const filter = createCommentFilter(event);
     subscription = $ndk.subscribe(filter, { closeOnEose: true });
 
+    // Dedup by event id. The NDK subscription pool fans the same event
+    // in from every connected relay that holds it; without this Set
+    // we'd `eventCount++` once per arrival, inflating the recipe
+    // comment count to roughly `N_comments * N_relays`. The shared
+    // createCommentSubscription in $lib/comments/subscription.ts uses
+    // the same pattern — this component is the outlier.
+    const processedIds = new Set<string>();
     let eventCount = 0;
-    subscription.on('event', () => {
+    subscription.on('event', (ev: NDKEvent) => {
+      if (!ev.id || processedIds.has(ev.id)) return;
+      processedIds.add(ev.id);
       eventCount++;
       // Only update if:
       // - We didn't get a fast count, OR

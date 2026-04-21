@@ -4,7 +4,13 @@
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
   import type { TargetType } from '$lib/types/reactions';
   import { publishReaction, canPublishReaction } from '$lib/reactions/publishReaction';
-  import { getEngagementStore, fetchEngagement } from '$lib/engagementCache';
+  import {
+    getEngagementStore,
+    fetchEngagement,
+    markEventAsProcessed,
+    trackOptimisticReaction,
+    clearOptimisticReaction
+  } from '$lib/engagementCache';
   import EmojiReactionPicker from './EmojiReactionPicker.svelte';
   import FullEmojiPicker from './FullEmojiPicker.svelte';
   import HeartIcon from 'phosphor-svelte/lib/Heart';
@@ -52,6 +58,16 @@
     const wasReacted = $store.reactions.userReactions.has(emoji);
 
     if (!wasReacted) {
+      // Register the pending reaction with engagementCache BEFORE the
+      // optimistic store update, and before any await. When the relay
+      // echoes the just-published event back through the shared
+      // subscription, processReaction will find this entry via
+      // `optimisticReactions.has(...)` and skip its own `count++`,
+      // leaving only the optimistic +1 that happens below. Without this
+      // pre-registration the echo double-counts. Matches the pattern
+      // already used by ReactionPills.svelte.
+      trackOptimisticReaction(event.id, emoji, $userPublickey);
+
       // Optimistic update
       store.update((s) => {
         const updated = { ...s };
@@ -80,8 +96,17 @@
         targetType
       });
 
-      if (!result?.id) {
-        // Revert on failure
+      if (result?.id) {
+        // Secondary protection — also mark by event id so the subscription's
+        // `processed.has(event.id)` short-circuit fires first, covering the
+        // case where content normalization drift (e.g. `+` vs `❤️` mapping)
+        // would make the optimistic-emoji key miss.
+        markEventAsProcessed(event.id, result.id);
+      } else {
+        // Publish failed — clear the optimistic tracking so a retry can
+        // re-register cleanly, and roll back the optimistic store update.
+        clearOptimisticReaction(event.id, emoji, $userPublickey);
+
         store.update((s) => {
           const updated = { ...s };
           updated.reactions.userReactions.delete(emoji);

@@ -225,21 +225,43 @@
   async function toggleLike() {
     if (liked || !$userPublickey) return;
 
+    const reactionEvent = new NDKEvent($ndk);
+    reactionEvent.kind = 7;
+    reactionEvent.content = '+';
+    reactionEvent.tags = [
+      ['e', event.id, '', 'reply'],
+      ['p', event.pubkey]
+    ];
+    addClientTagToEvent(reactionEvent);
+
+    // Sign first so we have the event id, then register it in the
+    // component's `processedLikes` Set BEFORE the publish await. The
+    // subscription echo of our own reaction can arrive synchronously
+    // once the relay receives it; without the pre-registration, the
+    // echo passes the `processedLikes.has(e.id)` guard on line 206,
+    // runs its own `likeCount++` on line 209, and the post-publish
+    // `likeCount++` below brings the total to +2.
     try {
-      const reactionEvent = new NDKEvent($ndk);
-      reactionEvent.kind = 7;
-      reactionEvent.content = '+';
-      reactionEvent.tags = [
-        ['e', event.id, '', 'reply'],
-        ['p', event.pubkey]
-      ];
-      addClientTagToEvent(reactionEvent);
-      await reactionEvent.publish();
-      liked = true;
-      likeCount++;
+      await reactionEvent.sign();
     } catch {
-      // Failed to like — swallow. Reactions never surface errors to the user
-      // in this app; only comment-post errors do (via ReplyComposer's toast).
+      return;
+    }
+    if (!reactionEvent.id) return;
+    processedLikes.add(reactionEvent.id);
+
+    // Optimistic UI — bump before publish resolves so the click
+    // feels instant. Revert in the catch if publish fails.
+    likeCount++;
+    liked = true;
+
+    try {
+      await reactionEvent.publish();
+    } catch {
+      // Rollback both the optimistic count AND the dedup sentinel so a
+      // retry can register cleanly under the same event id.
+      processedLikes.delete(reactionEvent.id);
+      likeCount--;
+      liked = false;
     }
   }
 
