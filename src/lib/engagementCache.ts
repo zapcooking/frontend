@@ -311,19 +311,33 @@ export async function fetchEngagement(
     return;
   }
   
-  // If we have a subscription but no amount data, close it and create a fresh one
+  // If we have a subscription but no amount data, close it and create a fresh one.
+  // Note: we intentionally do NOT wipe processedEventIds / processedReactionPairs
+  // here — those dedup Sets must persist across sub close+reopen so any
+  // events the prior sub already counted aren't re-counted by the new sub
+  // when the relay redelivers them (F5-B feed-comment double-count bug).
+  // The Sets are only evicted by `cleanupEngagement(eventId)` when the
+  // event goes off-screen.
   if (existingPersistent && !hasAmountData) {
     console.debug('[Engagement] Subscription exists but no amount data, refreshing for', eventId);
     existingPersistent.sub.stop();
     persistentSubscriptions.delete(eventId);
-    processedEventIds.delete(eventId); // Allow re-processing events
-    processedReactionPairs.delete(eventId);
   }
-  
-  // Initialize processed event tracking - MUST be fresh to avoid double counting
-  // Clear any stale processed IDs and start fresh
-  processedEventIds.set(eventId, new Set());
-  processedReactionPairs.set(eventId, new Set());
+
+  // Initialize processed event tracking — init-if-absent, never wipe.
+  // Multiple components (NoteTotalComments, NoteTotalLikes/ReactionTrigger,
+  // NoteTotalZaps, NoteRepost, ReactionPills) all call fetchEngagement for
+  // the same eventId on mount. Wiping the Set on every call caused each
+  // component's resulting subscription to treat already-counted events as
+  // new — producing the F5-B fingerprint of one event yielding 5+ counts.
+  // Sharing a single Set across all callers is the correct pattern for
+  // cross-sub dedup.
+  if (!processedEventIds.has(eventId)) {
+    processedEventIds.set(eventId, new Set());
+  }
+  if (!processedReactionPairs.has(eventId)) {
+    processedReactionPairs.set(eventId, new Set());
+  }
   const processed = processedEventIds.get(eventId)!;
   
   // Stop any old-style subscriptions
@@ -890,12 +904,21 @@ export async function batchFetchEngagement(
   }
   
   // FULL PATH: NDK subscription for accurate counts + user state
-  // Reset processed IDs and counts to prevent double counting
+  // Init-if-absent on the dedup Sets — never wipe them here. The batch
+  // subscription shares `processedEventIds` with any per-event subscription
+  // that fetchEngagement may have already opened for the same eventId.
+  // Wiping the Set at batch-entry caused the in-flight single subs and
+  // the new batch sub to each count the same event against a fresh Set
+  // (F5-B fingerprint). Eviction happens only in cleanupEngagement when
+  // the event leaves the viewport.
   toFetch.forEach(id => {
-    // Clear processed IDs to start fresh
-    processedEventIds.set(id, new Set());
-    processedReactionPairs.set(id, new Set());
-    
+    if (!processedEventIds.has(id)) {
+      processedEventIds.set(id, new Set());
+    }
+    if (!processedReactionPairs.has(id)) {
+      processedReactionPairs.set(id, new Set());
+    }
+
     // Mark that subscription counting is in progress
     subscriptionCountingInProgress.add(id);
     
