@@ -4383,6 +4383,10 @@
   // reactivity (prop change = potential re-render / reactive re-trigger).
   $: console.log('[FEED-PROP]', 'filterMode:', filterMode, 'authorPubkey:', authorPubkey?.slice(0, 8) || 'none', 'authorScope:', authorScope, 'hideAvatar:', hideAvatar, 'hideAuthorName:', hideAuthorName, 'foodFilterEnabled:', foodFilterEnabled);
 
+  // [FEED-FOLLOWS-STATE] — reactive, fires whenever followedPubkeysForRealtime
+  // reassigns. Correlates follows-load timing with [FEED-RENDER] transitions.
+  $: console.log('[FEED-FOLLOWS-STATE]', 'size:', followedPubkeysForRealtime?.length ?? -1, 'ts:', performance.now().toFixed(0));
+
   // [FEED-RENDER] Instrumentation — logs what the template sees each time
   // events/loading/error change. Remove after debugging empty-state bug.
   let _lastEventsLen = -1;
