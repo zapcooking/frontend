@@ -248,7 +248,6 @@ export async function fetchFollowList(
     followListTimestamp = now;
     
     console.log(`[Outbox] Loaded ${follows.length} follows`);
-    console.log('[FEED-FOLLOWS-LOADED]', 'size:', follows.length, 'pubkey:', userPubkey.slice(0, 8), 'ts:', performance.now().toFixed(0));
     return follows;
     
   } catch (err) {
