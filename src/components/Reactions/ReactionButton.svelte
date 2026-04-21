@@ -29,6 +29,16 @@
   let processedIds = new Set<string>();
   let buttonEl: HTMLButtonElement;
 
+  // Monotonically-increasing token used by loadReactions to cancel work
+  // started against a stale event.id. Each call captures the current
+  // value, and mutations / subscriptions after any await check against
+  // `currentLoadToken` — if the token has advanced, a newer call owns
+  // this component's state and the older call bails. Without this, an
+  // in-flight fetchCount could resolve after the event prop changed,
+  // overwrite `subscription` with a subscription to the stale id, and
+  // leak the newer call's subscription.
+  let currentLoadToken = 0;
+
   function getFilter() {
     if (targetType === 'recipe') {
       const dTag = event.tags.find((t) => t[0] === 'd')?.[1];
@@ -52,6 +62,12 @@
   async function loadReactions() {
     if (!event?.id) return;
 
+    // Claim the latest load slot. Every mutation / subscription below
+    // guards against `myToken !== currentLoadToken` — if a later
+    // `loadReactions()` overtakes us mid-await, we drop our partial
+    // work and the newer call owns the component's state.
+    const myToken = ++currentLoadToken;
+
     loading = true;
     reactionEvents = [];
     processedIds.clear();
@@ -64,7 +80,10 @@
         { kinds: filter.kinds, ...('#a' in filter ? { '#a': filter['#a'] } : { '#e': filter['#e'] }) },
         { timeout: 2000 }
       );
-      
+
+      // Post-await check: abort if a newer loadReactions has started.
+      if (myToken !== currentLoadToken) return;
+
       if (countResult && countResult.count > 0) {
         // Show fast count immediately (just total, no breakdown)
         reactions = {
@@ -78,12 +97,27 @@
       // Fast count failed, subscription will provide data
     }
 
+    // Second gate before any subscription work — the catch above may
+    // have swallowed the await, so re-check here too.
+    if (myToken !== currentLoadToken) return;
+
     // FULL PATH: Subscribe for detailed breakdown + user reactions
     try {
       const filter = getFilter();
-      subscription = $ndk.subscribe(filter);
+      const newSub = $ndk.subscribe(filter);
+
+      // NDK subscribe is synchronous but the filter build above may
+      // have raced too; final check before we hand ownership over.
+      // If we lost the race, stop the just-created sub immediately so
+      // it doesn't leak.
+      if (myToken !== currentLoadToken) {
+        newSub.stop();
+        return;
+      }
+      subscription = newSub;
 
       subscription.on('event', (e: NDKEvent) => {
+        if (myToken !== currentLoadToken) return;
         if (!e.id || processedIds.has(e.id)) return;
         processedIds.add(e.id);
         reactionEvents = [...reactionEvents, e];
@@ -92,6 +126,7 @@
       });
 
       subscription.on('eose', () => {
+        if (myToken !== currentLoadToken) return;
         loading = false;
       });
     } catch (error) {
