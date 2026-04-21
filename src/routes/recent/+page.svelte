@@ -14,6 +14,11 @@
   // Pull-to-refresh refs
   let pullToRefreshEl: PullToRefresh;
   let subscription: NDKSubscription | null = null;
+  // Tracked so a new loadRecipes() (e.g. pull-to-refresh) or onDestroy can
+  // cancel a pending safety timeout. Without this, a stale timeout from the
+  // previous load fires during the next load while `loaded` is still false
+  // after the reset and forces `loaded=true` prematurely.
+  let loadTimeout: ReturnType<typeof setTimeout> | null = null;
 
   type TabType = 'recent';
   let activeTab: TabType = 'recent';
@@ -30,6 +35,13 @@
 
   async function loadRecipes(skipCache = false) {
     const perfStart = performance.now();
+
+    // Cancel any pending safety timeout from a prior load so it can't fire
+    // during this load's `loaded=false` reset window and flip the flag early.
+    if (loadTimeout) {
+      clearTimeout(loadTimeout);
+      loadTimeout = null;
+    }
 
     // Capture relay generation at start to detect stale data from relay switches
     const startGeneration = getCurrentRelayGeneration();
@@ -141,7 +153,10 @@
       // reached us. Prevents a stuck skeleton when SvelteKit nav lands on
       // /recent and NDK's cache replay emits before handlers can attach,
       // or when EOSE is otherwise delayed. Mirrors /polls' timeout pattern.
-      setTimeout(() => {
+      // Tracked in `loadTimeout` so a subsequent loadRecipes() call or
+      // onDestroy can cancel it.
+      loadTimeout = setTimeout(() => {
+        loadTimeout = null;
         if (!loaded) {
           console.warn(`[Recent] Load timeout after 10s with ${fetchedEvents.length} events, forcing loaded=true`);
           loaded = true;
@@ -174,6 +189,12 @@
     if (subscription) {
       subscription.stop();
       subscription = null;
+    }
+    // Cancel a pending safety timeout so it can't fire on a destroyed
+    // component and log a spurious warn.
+    if (loadTimeout) {
+      clearTimeout(loadTimeout);
+      loadTimeout = null;
     }
   });
 </script>
