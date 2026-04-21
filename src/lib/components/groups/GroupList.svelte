@@ -14,6 +14,7 @@
 	import LinkSimpleIcon from 'phosphor-svelte/lib/LinkSimple';
 	import UsersThreeIcon from 'phosphor-svelte/lib/UsersThree';
 	import InviteLinkModal from './InviteLinkModal.svelte';
+	import { showToast } from '$lib/toast';
 	import { createEventDispatcher } from 'svelte';
 
 	const dispatch = createEventDispatcher<{
@@ -248,6 +249,7 @@
 			});
 		} catch (err) {
 			console.error('Failed to set group visibility:', err);
+			showToast('error', 'Failed to update group visibility. Please try again.');
 		} finally {
 			togglingVisibility = null;
 		}
