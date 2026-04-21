@@ -1609,10 +1609,19 @@
   }
 
   function dedupeAndSort(eventList: NDKEvent[]): NDKEvent[] {
+    // Dedup *within the input* via a local set. The previous implementation
+    // consulted module-level seenEventIds, which wiped the feed for callers
+    // (runContentRefresh, fetchFreshAndMerge, loadPendingPosts) that prepend
+    // new events onto the existing events array after marking them seen —
+    // every event in the input was already "seen" and got dropped.
+    // seenEventIds is still populated as a side effect so downstream realtime
+    // handlers can dedup incoming events against the initial batch.
+    const seen = new Set<string>();
     const unique: NDKEvent[] = [];
 
     for (const event of eventList) {
-      if (!event.id || seenEventIds.has(event.id)) continue;
+      if (!event.id || seen.has(event.id)) continue;
+      seen.add(event.id);
       seenEventIds.add(event.id);
       unique.push(event);
     }
