@@ -50,6 +50,9 @@
   // Key to force component recreation
   let feedKey = 0;
 
+  // TEMP-INSTRUMENT: log feedKey + activeTab on every reactive cycle
+  $: console.log('[FEED-KEY]', 'feedKey:', feedKey, 'activeTab:', activeTab);
+
   // Groups state (for Pantry tab)
   let selectedGroupId: string | null = null;
   let createGroupOpen = false;
@@ -116,6 +119,8 @@
   async function setTab(tab: FilterMode) {
     if (tab === activeTab) return;
 
+    console.log('[FEED-KEY-BUMP]', 'from tab:', activeTab, '→', tab, 'feedKey:', feedKey, '→', feedKey + 1);
+    console.trace('[FEED-KEY-BUMP] stack');
     activeTab = tab;
     feedKey++; // This forces component recreation with new filterMode
 

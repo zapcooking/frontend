@@ -160,6 +160,7 @@
     isRefreshing = true;
     try {
       // Clear existing data for fresh load
+      console.log('[FEED-STORE-WRITE refresh() reset]', 'was', events.length);
       seenEventIds.clear();
       events = [];
       hasMore = true;
@@ -1293,6 +1294,7 @@
       // Add to seen set
       cachedEvents.forEach((e: NDKEvent) => seenEventIds.add(e.id));
 
+      console.log('[FEED-STORE-WRITE loadCachedEvents compressed]', cachedEvents.length, 'events');
       events = cachedEvents;
       lastEventTime = Math.max(...events.map((e) => e.created_at || 0));
       return true;
@@ -1702,7 +1704,9 @@
 
           if (validCached.length > 0) {
             console.log(`[Feed] Cache hit: ${validCached.length} events (instant paint)`);
+            console.log('[FEED-FILTER-IN cache-hit]', cachedEvents.length, '[FEED-FILTER-OUT cache-hit]', validCached.length);
             validCached.forEach((e) => seenEventIds.add(e.id));
+            console.log('[FEED-STORE-WRITE cache-hit]', validCached.length, 'events, first id:', validCached[0]?.id?.slice(0, 8));
             events = validCached;
             lastEventTime = Math.max(...events.map((e) => e.created_at || 0));
             loading = false;
@@ -1752,6 +1756,7 @@
 
       loading = true;
       error = false;
+      console.log('[FEED-STORE-WRITE loadFoodstrFeed full-fetch reset]', 'was', events.length);
       events = [];
       seenEventIds.clear();
       hasMore = true;
@@ -2460,6 +2465,7 @@
               return;
             }
 
+            console.log('[FEED-STORE-WRITE loadFoodstrFeed primal-race]', primalGlobalResult.length, 'events');
             events = dedupeAndSort(primalGlobalResult);
             loading = false;
             error = false;
@@ -2525,6 +2531,7 @@
       }
 
       // Filter, dedupe, and sort - exclude followed users from Global feed
+      console.log('[FEED-FILTER-IN loadFoodstrFeed global]', allFetchedEvents.length, 'followedSet.size:', followedSet.size);
       const validEvents = allFetchedEvents.filter((event) => {
         // Check muted users first
         if ($userPublickey) {
@@ -2564,6 +2571,7 @@
         return true;
       });
 
+      console.log('[FEED-FILTER-OUT loadFoodstrFeed global]', validEvents.length, 'of', allFetchedEvents.length);
       // Check for stale results before applying events
       if (isStaleResult(loadGeneration)) {
         console.log('[Feed] Discarding stale global results');
@@ -2571,6 +2579,7 @@
         return;
       }
 
+      console.log('[FEED-STORE-WRITE loadFoodstrFeed global]', validEvents.length, 'events');
       events = dedupeAndSort(validEvents);
 
       // Always set loading to false, even if no events
@@ -2592,7 +2601,8 @@
       } catch {
         // Subscription setup failed - non-critical, events already loaded
       }
-    } catch {
+    } catch (err) {
+      console.log('[FEED-STORE-WRITE loadFoodstrFeed catch reset]', 'was', events.length, 'err:', (err as any)?.message);
       loading = false;
       error = true;
       events = [];
@@ -2860,7 +2870,9 @@
         }
 
         if (isScrolledToTop) {
+          console.log('[FEED-STORE-WRITE runContentRefresh prepend]', 'newEvents:', newEvents.length, 'existing:', events.length, 'seenEventIds.size:', seenEventIds.size);
           events = dedupeAndSort([...newEvents, ...events]);
+          console.log('[FEED-STORE-WRITE runContentRefresh after]', 'events:', events.length);
         } else {
           pendingNewEvents = [...pendingNewEvents, ...newEvents];
           showNewPostsButton = true;
@@ -2917,6 +2929,7 @@
       requestAnimationFrame(() => {
         // Sort and merge with existing events
         const sortedBatch = batch.sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
+        console.log('[FEED-STORE-WRITE processBatch realtime]', 'batch:', sortedBatch.length, 'existing:', events.length);
         events = [...sortedBatch, ...events].sort(
           (a, b) => (b.created_at || 0) - (a.created_at || 0)
         );
@@ -3098,6 +3111,7 @@
         if (filterMode !== startMode) return;
 
         // Apply food filter and exclude followed users
+        console.log('[FEED-FILTER-IN fetchFreshAndMerge global]', primalEvents.length, 'followedSet.size:', followedSet.size);
         freshEvents = primalEvents.filter((event) => {
           // Check muted users
           if ($userPublickey) {
@@ -3133,6 +3147,7 @@
       const existingIds = new Set(events.map((e) => e.id));
       const newEvents = freshEvents.filter((e) => !existingIds.has(e.id));
 
+      console.log('[FEED-FILTER-OUT fetchFreshAndMerge]', freshEvents.length, 'after-dedup:', newEvents.length, 'existing:', events.length);
       if (newEvents.length > 0) {
         console.log(`[Feed] ${newEvents.length} new posts found`);
 
@@ -3143,6 +3158,7 @@
 
         if (isScrolledToTop) {
           // User is at top - auto-prepend smoothly
+          console.log('[FEED-STORE-WRITE fetchFreshAndMerge prepend]', newEvents.length, 'new +', events.length, 'existing');
           events = dedupeAndSort([...newEvents, ...events]);
         } else {
           // User is scrolled down - show "new posts" button
@@ -3183,7 +3199,9 @@
   function loadPendingPosts() {
     if (pendingNewEvents.length === 0) return;
 
+    console.log('[FEED-STORE-WRITE loadPendingPosts]', 'pending:', pendingNewEvents.length, 'existing:', events.length);
     events = dedupeAndSort([...pendingNewEvents, ...events]);
+    console.log('[FEED-STORE-WRITE loadPendingPosts after]', 'events:', events.length);
     pendingNewEvents = [];
     showNewPostsButton = false;
 
@@ -3247,6 +3265,7 @@
 
       // For Global feed, exclude posts from followed users
       const followedSet = new Set(followedPubkeysForRealtime);
+      console.log('[FEED-FILTER-IN fetchFreshData]', freshEvents.length, 'followedSet.size:', followedSet.size, 'seenEventIds.size:', seenEventIds.size);
 
       const validNew = freshEvents.filter((e) => {
         if (seenEventIds.has(e.id)) return false;
@@ -3283,14 +3302,19 @@
         return true;
       });
 
+      console.log('[FEED-FILTER-OUT fetchFreshData]', validNew.length, 'of', freshEvents.length);
       if (validNew.length > 0) {
         validNew.forEach((e) => seenEventIds.add(e.id));
+        console.log('[FEED-STORE-WRITE fetchFreshData prepend]', validNew.length, 'new +', events.length, 'existing');
         events = [...validNew, ...events].sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
         lastEventTime = Math.max(lastEventTime, ...validNew.map((e) => e.created_at || 0));
         await cacheEvents();
+      } else {
+        console.log('[FEED-STORE-WRITE fetchFreshData noop]', 'keeping', events.length, 'existing');
       }
-    } catch {
+    } catch (err) {
       // Background refresh failed - non-critical
+      console.log('[FEED-STORE-WRITE fetchFreshData catch]', 'keeping', events.length, 'existing, err:', (err as any)?.message);
     }
   }
 
@@ -3494,6 +3518,7 @@
           renderedNotes.add(e.id);
         }
         renderedNotes = renderedNotes;
+        console.log('[FEED-STORE-WRITE loadMore append]', 'older:', validOlder.length, 'existing:', events.length);
         events = [...events, ...validOlder];
         // Continue fetching if we got events and we're still within time window
         // Check if we've reached the time limit (30 days back)
@@ -4354,6 +4379,24 @@
   // LIFECYCLE
   // ═══════════════════════════════════════════════════════════════
 
+  // [FEED-PROP] Instrumentation — logs every prop that could cause parent-side
+  // reactivity (prop change = potential re-render / reactive re-trigger).
+  $: console.log('[FEED-PROP]', 'filterMode:', filterMode, 'authorPubkey:', authorPubkey?.slice(0, 8) || 'none', 'authorScope:', authorScope, 'hideAvatar:', hideAvatar, 'hideAuthorName:', hideAuthorName, 'foodFilterEnabled:', foodFilterEnabled);
+
+  // [FEED-RENDER] Instrumentation — logs what the template sees each time
+  // events/loading/error change. Remove after debugging empty-state bug.
+  let _lastEventsLen = -1;
+  $: {
+    const curLen = events?.length ?? -1;
+    const transitionedToZero = _lastEventsLen > 0 && curLen === 0;
+    console.log('[FEED-RENDER]', 'events:', curLen, 'loading:', loading, 'error:', error, 'isEmpty:', curLen === 0, 'filterMode:', filterMode, 'authorPubkey:', authorPubkey?.slice(0, 8) || 'none');
+    if (transitionedToZero) {
+      console.log('[FEED-RENDER TRANSITION-TO-ZERO] prev was', _lastEventsLen);
+      console.trace('[FEED-RENDER TRANSITION-TO-ZERO] stack');
+    }
+    _lastEventsLen = curLen;
+  }
+
   // Reactive statement: Handle filter mode changes
   // Especially important for garden mode to ensure only garden relay content
   // Skip initial trigger (when lastFilterMode is still 'global' on first mount)
@@ -4473,6 +4516,7 @@
           }
 
           // No cache for this tab - do full load
+          console.log('[FEED-STORE-WRITE filter-mode-change reset]', 'was', events.length);
           seenEventIds.clear();
           events = [];
           try {
@@ -4502,6 +4546,7 @@
   let unregisterRelaySwitchCallback: (() => void) | null = null;
 
   onMount(async () => {
+    console.log('[FEED-LIFECYCLE onMount]', 'filterMode:', filterMode, 'authorPubkey:', authorPubkey?.slice(0, 8) || 'none');
     portalTarget = document.body;
     // Mark as initialized after onMount runs to allow reactive statement to work
     // This prevents the reactive statement from triggering on initial mount
@@ -4522,6 +4567,7 @@
     // This prevents stale subscriptions from the old relay set
     unregisterRelaySwitchCallback = onRelaySwitchStopSubscriptions(() => {
       console.log('[Feed] Relay switch detected - stopping subscriptions');
+      console.log('[FEED-STORE-WRITE relay-switch reset]', 'was', events.length);
       stopSubscriptions();
       // Clear events to prevent showing stale data during switch
       events = [];
@@ -4569,6 +4615,7 @@
         // Add to seen set
         hydratedEvents.forEach((e: any) => seenEventIds.add(e.id));
 
+        console.log('[FEED-STORE-WRITE onMount instant-cache]', hydratedEvents.length, 'events');
         events = hydratedEvents;
         preseedRenderedNotes(20);
         loading = false; // No loading spinner - we have content!
@@ -4620,6 +4667,7 @@
   });
 
   onDestroy(async () => {
+    console.log('[FEED-LIFECYCLE onDestroy]', 'events:', events.length, 'filterMode:', filterMode);
     // Remove scroll listener and clear throttle timer
     if (typeof window !== 'undefined') {
       window.removeEventListener('scroll', handleFeedScroll);
