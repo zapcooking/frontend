@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, onDestroy } from 'svelte';
+  import { onMount, onDestroy, beforeUpdate } from 'svelte';
   import { ndk, userPublickey } from '$lib/nostr';
   import type { NDKEvent, NDKSubscription } from '@nostr-dev-kit/ndk';
   import type { TargetType, AggregatedReactions } from '$lib/types/reactions';
@@ -165,19 +165,42 @@
     handleReaction(emoji);
   }
 
+  // Lifecycle: load once on mount, re-subscribe only when the `event`
+  // prop's id actually changes after mount. The prior implementation
+  // had both `onMount(loadReactions)` AND a reactive
+  // `$: if (event?.id) loadReactions()` — the latter fired on any
+  // reactive dependency tick, creating a second subscription on
+  // first mount (plus more on subsequent ticks) without stopping
+  // the previous one. onDestroy only stopped the latest `subscription`
+  // reference, so earlier subs leaked.
+  //
+  // `mounted` guard prevents `beforeUpdate` from firing a redundant
+  // load on the pre-mount tick (it runs before onMount on initial
+  // render). `lastEventId` tracks the id we currently hold a sub
+  // against so we only react to real id changes, not to any other
+  // reactive update this component consumes.
+  let mounted = false;
+  let lastEventId: string | null = null;
+
   onMount(() => {
-    loadReactions();
+    mounted = true;
+    lastEventId = event?.id ?? null;
+    if (lastEventId) loadReactions();
   });
 
-  onDestroy(() => {
-    if (subscription) {
-      subscription.stop();
+  beforeUpdate(() => {
+    if (!mounted) return;
+    const newId = event?.id ?? null;
+    if (newId && newId !== lastEventId) {
+      subscription?.stop();
+      lastEventId = newId;
+      loadReactions();
     }
   });
 
-  $: if (event?.id) {
-    loadReactions();
-  }
+  onDestroy(() => {
+    subscription?.stop();
+  });
 </script>
 
 <div class="flex items-center gap-1">
