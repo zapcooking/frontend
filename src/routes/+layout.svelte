@@ -45,6 +45,9 @@
   import { feedInitialLoadDone } from '$lib/startupState';
   // Prewarm outbox relay list cache early (on login, regardless of page)
   import { prewarmOutboxCache } from '$lib/followOutbox';
+  // Refresh engagement counts when the tab returns from background
+  import { tabVisibleAfterHide } from '$lib/tabVisibility';
+  import { refreshActiveEngagement } from '$lib/engagementCache';
 
   // Accept props from SvelteKit to prevent warnings
   export let data: LayoutData = {} as LayoutData;
@@ -342,6 +345,15 @@
 
   $: if (walletWelcomeOpen && hasWallet) {
     markWalletWelcomeSeen();
+  }
+
+  // When the tab returns from background (hidden ≥1s), refresh the
+  // most-recently-touched engagement counts. batchFetchEngagement has its
+  // own 5-min TTL so a near-zero-gap return is cheap.
+  $: if ($tabVisibleAfterHide > 0 && $userPublickey && $ndk) {
+    refreshActiveEngagement($ndk, $userPublickey).catch((err) =>
+      console.warn('[tab-visible] engagement refresh failed:', err)
+    );
   }
 </script>
 
