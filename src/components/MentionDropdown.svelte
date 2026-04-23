@@ -1,7 +1,7 @@
 <script context="module" lang="ts">
-	// Portal action — mounts the node directly to document.body so the
-	// dropdown's position:fixed is viewport-relative (otherwise a
-	// transform on the containing modal would scope it to the modal box).
+	// Portal the node to document.body so the dropdown's positioning is
+	// document-relative (otherwise a transform on a containing modal
+	// would scope it to the modal box).
 	function portal(node: HTMLElement) {
 		document.body.appendChild(node);
 		return {
@@ -15,7 +15,7 @@
 </script>
 
 <script lang="ts">
-	import { createEventDispatcher } from 'svelte';
+	import { createEventDispatcher, onMount, tick } from 'svelte';
 	import CustomAvatar from './CustomAvatar.svelte';
 	import type { MentionSuggestion } from '$lib/mentionComposer';
 
@@ -27,34 +27,107 @@
 
 	const dispatch = createEventDispatcher<{ select: MentionSuggestion }>();
 
-	// Capture caret viewport position when dropdown opens
 	let fixedTop = 0;
 	let fixedLeft = 0;
+	let fixedMaxHeight = 240;
+	let dropdownEl: HTMLDivElement;
 
-	$: if (show) {
+	const GAP = 4;
+	const MARGIN = 8;
+	const DEFAULT_WIDTH = 280;
+
+	function computePosition() {
+		if (!show || !dropdownEl) return;
 		const sel = window.getSelection();
-		if (sel && sel.rangeCount) {
-			const rect = sel.getRangeAt(0).getBoundingClientRect();
-			if (rect.height > 0) {
-				fixedTop = rect.bottom + 4;
-				fixedLeft = rect.left;
-			} else {
-				const parentRect = sel.anchorNode?.parentElement?.getBoundingClientRect();
-				fixedTop = (parentRect?.bottom ?? 0) + 4;
-				fixedLeft = parentRect?.left ?? 0;
-			}
+		if (!sel || !sel.rangeCount) return;
+
+		let caretRect: DOMRect | { top: number; bottom: number; left: number; height: number } =
+			sel.getRangeAt(0).getBoundingClientRect();
+		if (caretRect.height === 0) {
+			const parentRect = (
+				sel.anchorNode?.parentElement as HTMLElement | undefined
+			)?.getBoundingClientRect();
+			if (!parentRect) return;
+			caretRect = parentRect;
 		}
+
+		const vv = window.visualViewport;
+		const vpTop = vv?.offsetTop ?? 0;
+		const vpLeft = vv?.offsetLeft ?? 0;
+		const vpHeight = vv?.height ?? window.innerHeight;
+		const vpWidth = vv?.width ?? window.innerWidth;
+		const vpBottom = vpTop + vpHeight;
+		const vpRight = vpLeft + vpWidth;
+
+		const anchorBottom = caretRect.bottom;
+		const anchorLeft = caretRect.left;
+
+		const width = dropdownEl.offsetWidth || DEFAULT_WIDTH;
+
+		const spaceBelow = vpBottom - anchorBottom - GAP - MARGIN;
+		const layoutTop = anchorBottom + GAP;
+		const available = Math.max(120, spaceBelow);
+
+		let layoutLeft = anchorLeft;
+		if (layoutLeft + width > vpRight - MARGIN) {
+			layoutLeft = vpRight - width - MARGIN;
+		}
+		if (layoutLeft < vpLeft + MARGIN) {
+			layoutLeft = vpLeft + MARGIN;
+		}
+
+		// Document-relative coords. iOS Safari with the keyboard open
+		// scrolls the page (window.scrollY > 0) and treats position:fixed
+		// like position:absolute, so standardizing on absolute + scrollY
+		// offset gives consistent positioning on every platform. scrollY
+		// is 0 on desktop / Android / emulated mobile.
+		fixedTop = layoutTop + window.scrollY;
+		fixedLeft = layoutLeft + window.scrollX;
+		fixedMaxHeight = available;
 	}
+
+	async function schedulePosition() {
+		await tick();
+		computePosition();
+	}
+
+	// Recompute when dropdown opens or its size changes (new suggestions,
+	// searching indicator, etc.) — each of these can grow/shrink the
+	// dropdown and change whether "below" still fits.
+	$: if (show) {
+		void suggestions;
+		void searching;
+		void query;
+		schedulePosition();
+	}
+
+	onMount(() => {
+		const handler = () => {
+			if (show) computePosition();
+		};
+		window.addEventListener('resize', handler);
+		window.visualViewport?.addEventListener('resize', handler);
+		window.visualViewport?.addEventListener('scroll', handler);
+		return () => {
+			window.removeEventListener('resize', handler);
+			window.visualViewport?.removeEventListener('resize', handler);
+			window.visualViewport?.removeEventListener('scroll', handler);
+		};
+	});
 </script>
 
 {#if show}
 	<div
+		bind:this={dropdownEl}
 		use:portal
 		class="mention-dropdown"
-		style="border-color: var(--color-input-border); top: {fixedTop}px; left: {fixedLeft}px;"
+		style="border-color: var(--color-input-border); top: {fixedTop}px; left: {fixedLeft}px; max-height: {fixedMaxHeight}px;"
 	>
 		{#if suggestions.length > 0}
-			<div class="mention-dropdown-content">
+			<div
+				class="mention-dropdown-content"
+				style="max-height: {Math.max(80, fixedMaxHeight - 8)}px;"
+			>
 				{#each suggestions as suggestion, index}
 					<button
 						type="button"
@@ -84,7 +157,7 @@
 <style>
 	/* PR #143 fix #3: z-index 50 -> 1000 */
 	.mention-dropdown {
-		position: fixed;
+		position: absolute;
 		z-index: 1000;
 		width: 280px;
 		max-width: calc(100vw - 2rem);

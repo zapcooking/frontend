@@ -70,7 +70,11 @@ export function renderTextWithMentions(
 		const rawMention = match[0];
 		const mention = rawMention.startsWith('@') ? `nostr:${rawMention.slice(1)}` : rawMention;
 		const displayName = getDisplayNameForMention(mention, profileCache);
-		html += `<span class="mention-pill" contenteditable="false" data-mention="${mention}">@${escapeHtml(displayName)}</span>`;
+		// Wrap each pill in zero-width space text nodes so the caret has a
+		// landing spot before and after the contenteditable=false element.
+		// Fixes iOS Safari caret jumping to end-of-line and makes it
+		// possible to tap/place the cursor before a pill.
+		html += `&#8203;<span class="mention-pill" contenteditable="false" data-mention="${mention}">@${escapeHtml(displayName)}</span>&#8203;`;
 
 		lastIndex = match.index + rawMention.length;
 	}

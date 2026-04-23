@@ -1,7 +1,11 @@
 {
   "name": "zap.cooking",
   "license": "MIT",
+<<<<<<< fix/zap-totals-bolt11-parse
   "version": "4.2.277",
+=======
+  "version": "4.2.279",
+>>>>>>> main
   "private": true,
   "scripts": {
     "dev": "vite dev",
