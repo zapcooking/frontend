@@ -50,6 +50,41 @@ type TextChangeCallback = (text: string) => void;
 // Uses [^@] instead of [^\s@] to allow spaces in names (PR #143 fix #1).
 const MENTION_TRIGGER_REGEX = /@([^@]*)$/;
 
+// Zero-width space (U+200B). Inserted around mention pills as caret-landing
+// spacers so the selection has somewhere to sit on either side of the
+// contenteditable=false pill. Invisible to the user and stripped on content
+// extraction (htmlToPlainText). Use the named constant rather than the literal
+// character so it stays visible to reviewers and survives formatters.
+const ZWSP = '\u200B';
+const ZWSP_REGEX = /\u200B/g;
+
+function isZwspOnlyText(node: Node | null): node is Text {
+	if (!node || node.nodeType !== Node.TEXT_NODE) return false;
+	const value = (node as Text).nodeValue ?? '';
+	return value.length > 0 && value.replace(ZWSP_REGEX, '').length === 0;
+}
+
+// When two pills are adjacent, the HTML parser can coalesce their facing
+// ZWSP spacers into a single text node holding multiple ZWSPs. Removing
+// the whole node would strip the neighbor pill's caret landing spot too,
+// so trim down to one ZWSP if more remain after this pill is gone.
+function trimOrRemoveZwspText(node: Text): void {
+	const value = node.nodeValue ?? '';
+	if (value.length > 1) {
+		node.nodeValue = ZWSP;
+		return;
+	}
+	node.remove();
+}
+
+function removePillWithZwsps(pill: HTMLElement): void {
+	const before = pill.previousSibling;
+	const after = pill.nextSibling;
+	if (isZwspOnlyText(before)) trimOrRemoveZwspText(before);
+	if (isZwspOnlyText(after)) trimOrRemoveZwspText(after);
+	pill.remove();
+}
+
 export class MentionComposerController {
 	private composerEl: HTMLDivElement | null = null;
 	private searchTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -146,20 +181,28 @@ export class MentionComposerController {
 		if (selection && selection.rangeCount) {
 			const range = selection.getRangeAt(0);
 
-			// Delete key — remove mention pill ahead of cursor
+			// Delete key — remove mention pill ahead of cursor. Treats
+			// ZWSP-only text nodes (the pill's caret-landing spacers) as
+			// transparent so one press removes the pill + its ZWSPs.
 			if (event.key === 'Delete' && range.collapsed) {
 				const { startContainer, startOffset } = range;
 				if (startContainer.nodeType === Node.TEXT_NODE) {
 					const textNode = startContainer as Text;
-					if (startOffset === textNode.length) {
-						const nextSibling = startContainer.nextSibling;
+					const value = textNode.nodeValue ?? '';
+					const afterCursor = value.slice(startOffset);
+					if (afterCursor.replace(ZWSP_REGEX, '').length === 0) {
+						let next: Node | null = textNode.nextSibling;
+						if (isZwspOnlyText(next)) next = next.nextSibling;
 						if (
-							nextSibling &&
-							nextSibling.nodeType === Node.ELEMENT_NODE &&
-							(nextSibling as HTMLElement).dataset.mention
+							next &&
+							next.nodeType === Node.ELEMENT_NODE &&
+							(next as HTMLElement).dataset.mention
 						) {
 							event.preventDefault();
-							nextSibling.remove();
+							if (afterCursor.length > 0) {
+								textNode.nodeValue = value.slice(0, startOffset);
+							}
+							removePillWithZwsps(next as HTMLElement);
 							this.updateContentFromComposer();
 							return true;
 						}
@@ -184,7 +227,7 @@ export class MentionComposerController {
 
 					if (mentionElement) {
 						event.preventDefault();
-						mentionElement.remove();
+						removePillWithZwsps(mentionElement);
 						this.updateContentFromComposer();
 						return true;
 					}
@@ -192,17 +235,31 @@ export class MentionComposerController {
 
 				if (range.collapsed) {
 					const { startContainer, startOffset } = range;
-					if (startContainer.nodeType === Node.TEXT_NODE && startOffset === 0) {
-						const prevSibling = startContainer.previousSibling;
-						if (
-							prevSibling &&
-							prevSibling.nodeType === Node.ELEMENT_NODE &&
-							(prevSibling as HTMLElement).dataset.mention
-						) {
-							event.preventDefault();
-							prevSibling.remove();
-							this.updateContentFromComposer();
-							return true;
+					if (startContainer.nodeType === Node.TEXT_NODE) {
+						const textNode = startContainer as Text;
+						const value = textNode.nodeValue ?? '';
+						const beforeCursor = value.slice(0, startOffset);
+						if (beforeCursor.replace(ZWSP_REGEX, '').length === 0) {
+							let prev: Node | null = textNode.previousSibling;
+							if (isZwspOnlyText(prev)) prev = prev.previousSibling;
+							if (
+								prev &&
+								prev.nodeType === Node.ELEMENT_NODE &&
+								(prev as HTMLElement).dataset.mention
+							) {
+								event.preventDefault();
+								if (beforeCursor.length > 0) {
+									textNode.nodeValue = value.slice(startOffset);
+									const newRange = document.createRange();
+									newRange.setStart(textNode, 0);
+									newRange.collapse(true);
+									selection.removeAllRanges();
+									selection.addRange(newRange);
+								}
+								removePillWithZwsps(prev as HTMLElement);
+								this.updateContentFromComposer();
+								return true;
+							}
 						}
 					}
 				}
@@ -509,14 +566,25 @@ export class MentionComposerController {
 		const newRange = document.createRange();
 		newRange.setStart(range.startContainer, range.startOffset);
 		newRange.collapse(true);
+
+		// Zero-width spaces around the pill give the caret a landing spot on
+		// both sides of the contenteditable=false span. Without them, iOS
+		// Safari renders the caret at end-of-line (far right of the input)
+		// and users can't tap before the pill to type leading text.
+		const leadingZwsp = document.createTextNode(ZWSP);
+		newRange.insertNode(leadingZwsp);
+		newRange.setStartAfter(leadingZwsp);
 		newRange.insertNode(pill);
+		newRange.setStartAfter(pill);
+
+		const trailingZwsp = document.createTextNode(ZWSP);
+		newRange.insertNode(trailingZwsp);
+		newRange.setStartAfter(trailingZwsp);
 
 		if (addTrailingSpace) {
 			const spacer = document.createTextNode(' ');
-			pill.after(spacer);
+			newRange.insertNode(spacer);
 			newRange.setStartAfter(spacer);
-		} else {
-			newRange.setStartAfter(pill);
 		}
 
 		newRange.collapse(true);
@@ -536,7 +604,7 @@ export class MentionComposerController {
 		const range = selection.getRangeAt(0);
 		const marker = document.createElement('span');
 		marker.dataset.mentionCaret = 'true';
-		marker.textContent = '\u200B';
+		marker.textContent = ZWSP;
 		range.insertNode(marker);
 
 		const composerEl = this.composerEl;
@@ -580,7 +648,11 @@ export class MentionComposerController {
 					? `nostr:${rawMention.slice(1)}`
 					: rawMention;
 				const displayName = getDisplayNameForMention(mention, cache);
+				// ZWSP spacers give the caret a landing spot on either side of
+				// the contenteditable=false pill (see insertMentionNode).
+				fragment.appendChild(document.createTextNode(ZWSP));
 				fragment.appendChild(createMentionPill(mention, displayName));
+				fragment.appendChild(document.createTextNode(ZWSP));
 
 				lastIndex = match.index + rawMention.length;
 			}
