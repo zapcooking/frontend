@@ -350,10 +350,18 @@
   // When the tab returns from background (hidden ≥1s), refresh the
   // most-recently-touched engagement counts. batchFetchEngagement has its
   // own 5-min TTL so a near-zero-gap return is cheap.
-  $: if ($tabVisibleAfterHide > 0 && $userPublickey && $ndk) {
-    refreshActiveEngagement($ndk, $userPublickey).catch((err) =>
-      console.warn('[tab-visible] engagement refresh failed:', err)
-    );
+  //
+  // Edge-trigger on the counter increment — without this latch, an
+  // unrelated change to userPublickey/ndk (login, reconnect) while the
+  // counter is already > 0 would re-fire the refresh.
+  let lastSeenTabVisible = 0;
+  $: if ($tabVisibleAfterHide > lastSeenTabVisible) {
+    lastSeenTabVisible = $tabVisibleAfterHide;
+    if ($userPublickey && $ndk) {
+      refreshActiveEngagement($ndk, $userPublickey).catch((err) =>
+        console.warn('[tab-visible] engagement refresh failed:', err)
+      );
+    }
   }
 </script>
 

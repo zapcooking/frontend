@@ -12,25 +12,25 @@ const MIN_HIDDEN_MS = 1000;
  * real transition — consumers should trigger only when the value is > 0.
  */
 export const tabVisibleAfterHide = readable(0, (set) => {
-	if (!browser) return () => {};
+  if (!browser) return () => {};
 
-	let hiddenSince = 0;
-	let count = 0;
+  let hiddenSince = 0;
+  let count = 0;
 
-	const handler = () => {
-		if (document.hidden) {
-			hiddenSince = Date.now();
-			return;
-		}
-		if (hiddenSince && Date.now() - hiddenSince >= MIN_HIDDEN_MS) {
-			hiddenSince = 0;
-			count += 1;
-			set(count);
-			return;
-		}
-		hiddenSince = 0;
-	};
+  const handler = () => {
+    if (document.hidden) {
+      hiddenSince = Date.now();
+      return;
+    }
+    if (hiddenSince && Date.now() - hiddenSince >= MIN_HIDDEN_MS) {
+      hiddenSince = 0;
+      count += 1;
+      set(count);
+      return;
+    }
+    hiddenSince = 0;
+  };
 
-	document.addEventListener('visibilitychange', handler);
-	return () => document.removeEventListener('visibilitychange', handler);
+  document.addEventListener('visibilitychange', handler);
+  return () => document.removeEventListener('visibilitychange', handler);
 });
