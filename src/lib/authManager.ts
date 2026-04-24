@@ -25,6 +25,12 @@ export interface NIP46ConnectionInfo {
   relays: string[];
   connectionString: string; // Stored for reconnection (secret redacted if present)
   localPrivateKey?: string; // The local ephemeral key used for NIP-46 communication
+  // Bunker URI secret, when present. Kept out of `connectionString` (which
+  // is redacted for display) but required here so reconnectNIP46 can
+  // reconstruct `pubkey#secret` for NDKNip46Signer. Without this the
+  // initial pair works but the session fails to restore after reload.
+  // No less sensitive than `localPrivateKey`, which is already stored.
+  secret?: string;
 }
 
 export interface AuthOptions {
@@ -444,7 +450,8 @@ export class AuthManager {
         userPubkey, // Store the actual user pubkey separately
         relays,
         connectionString: redactedConnectionString,
-        localPrivateKey // Store to reconnect without re-pairing
+        localPrivateKey, // Store to reconnect without re-pairing
+        secret // Retained separately from the redacted connectionString for reconnect
       };
 
       localStorage.setItem('nostrcooking_loggedInPublicKey', userPubkey);
@@ -497,8 +504,14 @@ export class AuthManager {
       console.log('[NIP-46] Connecting NDK...');
       await this.ndk.connect();
 
-      // Create the NIP-46 signer
-      this.nip46Signer = new NDKNip46Signer(this.ndk, nip46Info.signerPubkey, localSigner);
+      // Create the NIP-46 signer. Reconstruct `pubkey#secret` if the
+      // original bunker URI carried a secret — NDK uses the token as-is
+      // for the connect RPC, so dropping the secret here silently breaks
+      // the session restore for secret-based bunkers.
+      const signerToken = nip46Info.secret
+        ? `${nip46Info.signerPubkey}#${nip46Info.secret}`
+        : nip46Info.signerPubkey;
+      this.nip46Signer = new NDKNip46Signer(this.ndk, signerToken, localSigner);
 
       // Set internal properties that NDKNip46Signer needs
       try {
@@ -781,8 +794,13 @@ export class AuthManager {
         return;
       }
 
-      // Decrypt and validate the response per NIP-46 spec
-      let response: any = null;
+      // Decrypt and validate the response per NIP-46 spec. An
+      // undecryptable or unparseable event MUST be ignored — otherwise
+      // any unrelated kind:24133 event tagged #p=localPubkey becomes a
+      // trigger to call completeNip46PairingWithSignerPubkey() with an
+      // arbitrary pubkey, which generates noise at best and enables
+      // spoofed pairing attempts at worst.
+      let response: { id?: string; method?: string; result?: unknown; error?: string };
       try {
         const decrypted = this.decryptNip44(
           event.content,
@@ -790,47 +808,26 @@ export class AuthManager {
           pendingInfo.localPrivateKey
         );
         response = JSON.parse(decrypted);
-
-        console.log('[NIP-46] Decrypted response:', {
-          id: response.id,
-          method: response.method,
-          hasResult: !!response.result,
-          hasError: !!response.error
-        });
-
-        // Only validate secret for "connect" method responses
-        // Other methods (get_public_key, sign_event, etc.) won't have the secret in result
-        if (response.method === 'connect' || (!response.method && response.result)) {
-          // Per NIP-46: client MUST validate the secret returned by connect response
-          if (response.result === pendingInfo.secret || response.result === 'ack') {
-            // Some signers return 'ack' instead of the secret, which is allowed per spec
-            console.log('[NIP-46] Secret validated successfully');
-          } else if (response.result !== undefined) {
-            // Only warn if result is present but doesn't match (might be a different response type)
-            console.warn(
-              '[NIP-46] Secret mismatch - expected:',
-              pendingInfo.secret,
-              'got:',
-              response.result
-            );
-            // Still proceed but log warning - some signers may not implement secret correctly
-          }
-          // If response.result is undefined and method is not 'connect', it's likely a different method response
-        }
-
-        if (response.error) {
-          console.error('[NIP-46] Signer returned error:', response.error);
-          throw new Error(response.error);
-        }
       } catch (e) {
-        // If decryption fails, it might be from a different signer or malformed
-        // Log but continue to try completing - NDK will handle its own validation
-        console.warn('[NIP-46] Could not validate response (will still attempt connection):', e);
+        console.warn('[NIP-46] Ignoring event that failed to decrypt/parse:', e);
+        return;
       }
 
-      // Only attempt pairing if this looks like a connect response or if we can't determine the method
-      // Skip if it's clearly a different method response (like get_public_key, sign_event, etc.)
-      if (response && response.method && response.method !== 'connect') {
+      console.log('[NIP-46] Decrypted response:', {
+        id: response.id,
+        method: response.method,
+        hasResult: !!response.result,
+        hasError: !!response.error
+      });
+
+      if (response.error) {
+        console.error('[NIP-46] Signer returned error:', response.error);
+        return;
+      }
+
+      // Skip non-connect responses outright (get_public_key, sign_event,
+      // etc.). NDK's own signer handles those.
+      if (response.method && response.method !== 'connect') {
         console.log(
           '[NIP-46] Response is for method:',
           response.method,
@@ -838,6 +835,22 @@ export class AuthManager {
         );
         return;
       }
+
+      // Validate the connect response. Per NIP-46 the signer returns the
+      // secret the client passed in, or 'ack' for looser-spec signers.
+      // Anything else is either an unrelated response or a spoof — don't
+      // initiate pairing based on it.
+      const result = response.result;
+      const isAckOnly = result === 'ack';
+      const isSecretMatch = typeof result === 'string' && result === pendingInfo.secret;
+      if (!isAckOnly && !isSecretMatch) {
+        console.warn(
+          '[NIP-46] Connect response result did not match expected secret — ignoring',
+          { got: result }
+        );
+        return;
+      }
+      console.log('[NIP-46] Secret validated successfully');
 
       try {
         isProcessingPairing = true;

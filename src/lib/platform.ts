@@ -123,13 +123,25 @@ export function supportsNIP07(): boolean {
 }
 
 /**
- * Check if NIP-46 remote signing is supported.
- * This helper is used for feature gating in UI code paths where needed.
- * It currently returns false on iOS and true on web/Android.
+ * Check if NIP-46 QR / universal pairing is supported.
+ * Returns false on iOS: App Store policy blocks the cross-app hand-off
+ * (QR scan → signer app launch → callback) required for these flows.
+ *
+ * Bunker URI paste ("bunker://…" pasted from another device/signer) is
+ * a separate flow that works on every platform — see
+ * supportsNIP46BunkerPaste.
  */
-export function supportsNIP46(): boolean {
-  // UI feature-gate helper: false on iOS, true on web/Android.
+export function supportsNIP46QRPairing(): boolean {
   return !isIOS();
+}
+
+/**
+ * Check if NIP-46 bunker URI paste is supported.
+ * Always true — pasted URIs don't require cross-app communication, so
+ * App Store policy permits the flow on iOS as well.
+ */
+export function supportsNIP46BunkerPaste(): boolean {
+  return true;
 }
 
 // Auto-detect platform on module load (client-side only)
