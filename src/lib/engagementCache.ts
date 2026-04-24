@@ -1126,6 +1126,28 @@ export async function batchFetchEngagement(
   }
 }
 
+// Refresh engagement data for the N most-recently-touched active events.
+// Intended for tab-return: the user is looking at what they were last looking
+// at, so those are the counts most likely to surprise them by being stale.
+// batchFetchEngagement applies its own 5-minute TTL, so calling this on every
+// tab-return is cheap when nothing has actually gone stale.
+export async function refreshActiveEngagement(
+  ndk: NDK,
+  userPublickey: string,
+  maxEvents = 20
+): Promise<void> {
+  if (!ndk) return;
+  const mostRecent = Array.from(persistentSubscriptions.entries())
+    .sort((a, b) => b[1].lastActivity - a[1].lastActivity)
+    .slice(0, maxEvents)
+    .map(([eventId]) => eventId);
+
+  if (mostRecent.length === 0) return;
+
+  console.debug('[Engagement] refreshing', mostRecent.length, 'events on tab visible');
+  await batchFetchEngagement(ndk, mostRecent, userPublickey);
+}
+
 // Clear all caches (for logout, etc)
 export function clearAllEngagementCaches(): void {
   // Stop persistent subscriptions

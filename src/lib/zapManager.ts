@@ -5,6 +5,7 @@ import { resolveProfileByPubkey } from './profileResolver';
 import { AuthManager, getAuthManager } from './authManager';
 import { generateSecretKey } from 'nostr-tools';
 import { ensureClientTag } from './nip89';
+import { extractZapAmountSats } from './zapAmount';
 
 export interface ZapRequest {
   eventId?: string;
@@ -501,16 +502,14 @@ export class ZapManager {
       
       await new Promise<void>((resolve) => {
         subscription.on('event', (receipt: any) => {
-          console.log('Processing receipt:', receipt.id, 'tags:', receipt.tags);
-          const bolt11Tags = receipt.tags.filter((tag: any) => tag[0] === 'bolt11');
-          if (bolt11Tags.length > 0) {
-            // Parse bolt11 invoice to get amount (simplified - in production you'd want proper bolt11 parsing)
-            const bolt11 = bolt11Tags[0][1];
-            // This is a simplified amount extraction - you might want to use a proper bolt11 decoder
-            const amountMatch = bolt11.match(/lnbc(\d+)/);
-            if (amountMatch) {
-              total += parseInt(amountMatch[1]);
-            }
+          // Bolt11 multipliers (m/u/n/p) and the msats→sats conversion are
+          // handled by the canonical extractor in zapAmount.ts; the previous
+          // regex `/lnbc(\d+)/` dropped the multiplier and treated raw
+          // pre-multiplier digits as sats, so any invoice with a `u` / `n` /
+          // `p` suffix displayed with a 10³–10¹² error.
+          const { sats } = extractZapAmountSats(receipt);
+          if (sats > 0) {
+            total += sats;
             count++;
           }
         });
