@@ -198,6 +198,13 @@
     }
   }
 
+  function openBunkerModal() {
+    bunkerModal = true;
+    bunkerError = '';
+    bunkerConnecting = false;
+    bunkerConnectionString = '';
+  }
+
   function generateNewKeys() {
     if (!authManager) return;
     generatedKeys = authManager.generateKeyPair();
@@ -488,7 +495,7 @@
   <title>Welcome to ZapCooking - Join the Recipe Revolution - zap.cooking</title>
 </svelte:head>
 
-<!-- iOS uses a simplified login form without NIP-07 and NIP-46 -->
+<!-- iOS uses a native-focused login form with key import/create and bunker paste -->
 {#if $platformIsIOS}
   <LoginFormIOS />
 {:else}
@@ -519,7 +526,7 @@
 
   <!-- Bunker (NIP-46) Modal -->
   <Modal bind:open={bunkerModal} on:close={modalCleanup}>
-    <svelte:fragment slot="title">🔐 Connect External Signer</svelte:fragment>
+    <svelte:fragment slot="title">🔐 Paste bunker URI</svelte:fragment>
     <div class="flex flex-col gap-4">
       <div class="bg-input border rounded-lg p-3" style="border-color: var(--color-input-border)">
         <p class="text-sm text-caption">
@@ -545,7 +552,8 @@
           disabled={bunkerConnecting}
         ></textarea>
         <p class="text-xs text-caption mt-1.5">
-          Paste your NIP-46 connection string from Amber or another remote signer.
+          Paste a bunker URI (or npub with relay hints) from your signer app. Do not paste
+          nostrconnect:// here.
         </p>
       </div>
 
@@ -592,7 +600,7 @@
 
   <!-- Universal NIP-46 Pairing Modal -->
   <Modal bind:open={nip46UniversalModal} on:close={modalCleanup}>
-    <svelte:fragment slot="title">🔐 Connect External Signer</svelte:fragment>
+    <svelte:fragment slot="title">📷 Scan QR / Universal pairing</svelte:fragment>
     <div class="flex flex-col gap-4">
       <div class="bg-input border rounded-lg p-3" style="border-color: var(--color-input-border)">
         <p class="text-sm text-caption">
@@ -1109,7 +1117,15 @@
               disabled={authState.isLoading}
               class="text-caption hover:opacity-80 hover:underline transition-colors disabled:opacity-50"
             >
-              🔐 Connect External Signer
+              📷 Scan QR / Universal pairing
+            </button>
+            <span class="text-caption">|</span>
+            <button
+              on:click={openBunkerModal}
+              disabled={authState.isLoading}
+              class="text-caption hover:opacity-80 hover:underline transition-colors disabled:opacity-50"
+            >
+              🔐 Paste bunker URI
             </button>
             <span class="text-caption">|</span>
             <button

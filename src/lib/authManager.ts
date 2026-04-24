@@ -3,6 +3,8 @@ import {
   NDKNip07Signer,
   NDKPrivateKeySigner,
   NDKNip46Signer,
+  NDKSubscriptionCacheUsage,
+  type NDKSubscription,
   type NDKUser
 } from '@nostr-dev-kit/ndk';
 import { nip19, getPublicKey, generateSecretKey } from 'nostr-tools';
@@ -24,6 +26,12 @@ export interface NIP46ConnectionInfo {
   relays: string[];
   connectionString: string; // Stored for reconnection (secret redacted if present)
   localPrivateKey?: string; // The local ephemeral key used for NIP-46 communication
+  // Bunker URI secret, when present. Kept out of `connectionString` (which
+  // is redacted for display) but required here so reconnectNIP46 can
+  // reconstruct `pubkey#secret` for NDKNip46Signer. Without this the
+  // initial pair works but the session fails to restore after reload.
+  // No less sensitive than `localPrivateKey`, which is already stored.
+  secret?: string;
 }
 
 export interface AuthOptions {
@@ -45,6 +53,7 @@ export class AuthManager {
 
   private listeners: ((state: AuthState) => void)[] = [];
   private nip46Signer: NDKNip46Signer | null = null;
+  private nip46ResponseSub: NDKSubscription | null = null;
 
   constructor(ndk: any) {
     this.ndk = ndk;
@@ -354,9 +363,10 @@ export class AuthManager {
 
       console.log('[NIP-46] Creating NIP-46 signer...');
 
-      // Create the NIP-46 signer
-      // NDKNip46Signer(ndk, remotePubkey, localSigner)
-      this.nip46Signer = new NDKNip46Signer(this.ndk, signerPubkey, localSigner);
+      // Create the NIP-46 signer.
+      // If bunker URI includes `secret`, NDK expects `pubkey#secret` token for connect.
+      const signerToken = secret ? `${signerPubkey}#${secret}` : signerPubkey;
+      this.nip46Signer = new NDKNip46Signer(this.ndk, signerToken, localSigner);
 
       // Set internal properties that NDKNip46Signer needs
       try {
@@ -376,23 +386,34 @@ export class AuthManager {
 
       console.log('[NIP-46] Connecting to bunker (this may take a moment)...');
 
-      // Block until connected with timeout
-      const connectionTimeout = 30000; // 30 seconds
-      const connectionPromise = this.nip46Signer.blockUntilReady();
-
-      const timeoutPromise = new Promise<never>((_, reject) => {
-        setTimeout(
-          () => reject(new Error('Connection timeout - bunker not responding')),
-          connectionTimeout
+      // Some signers are inconsistent about connect "ack" semantics.
+      // Try blockUntilReady first, but still attempt get_public_key even
+      // if it times out — the RPC listener stays live, so get_public_key
+      // can succeed even when the connect ack didn't arrive.
+      try {
+        const connectionTimeout = 30000; // 30 seconds
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          setTimeout(
+            () => reject(new Error('Connection timeout - bunker not responding')),
+            connectionTimeout
+          );
+        });
+        await Promise.race([this.nip46Signer.blockUntilReady(), timeoutPromise]);
+        console.log('[NIP-46] Session established via connect');
+      } catch (e) {
+        console.warn(
+          '[NIP-46] connect phase timed out/failed, will still try get_public_key:',
+          e
         );
-      });
+      }
 
-      await Promise.race([connectionPromise, timeoutPromise]);
-
-      console.log('[NIP-46] Connected! Getting user pubkey via get_public_key...');
+      console.log('[NIP-46] Getting user pubkey via get_public_key...');
 
       // Per NIP-46: client MUST call get_public_key to learn user-pubkey.
-      // See fetchNip46UserPubkey — NDK's user() is not an RPC.
+      // See fetchNip46UserPubkey — NDK's user() returns the signer
+      // service pubkey synchronously, not the user identity. No silent
+      // fallback to signer pubkey: if the RPC fails we fail the auth
+      // rather than log the session in as the signer service.
       const userPubkey = await this.fetchNip46UserPubkey();
       const user = this.ndk.getUser({ pubkey: userPubkey });
 
@@ -423,7 +444,8 @@ export class AuthManager {
         userPubkey, // Store the actual user pubkey separately
         relays,
         connectionString: redactedConnectionString,
-        localPrivateKey // Store to reconnect without re-pairing
+        localPrivateKey, // Store to reconnect without re-pairing
+        secret // Retained separately from the redacted connectionString for reconnect
       };
 
       localStorage.setItem('nostrcooking_loggedInPublicKey', userPubkey);
@@ -476,8 +498,14 @@ export class AuthManager {
       console.log('[NIP-46] Connecting NDK...');
       await this.ndk.connect();
 
-      // Create the NIP-46 signer
-      this.nip46Signer = new NDKNip46Signer(this.ndk, nip46Info.signerPubkey, localSigner);
+      // Create the NIP-46 signer. Reconstruct `pubkey#secret` if the
+      // original bunker URI carried a secret — NDK uses the token as-is
+      // for the connect RPC, so dropping the secret here silently breaks
+      // the session restore for secret-based bunkers.
+      const signerToken = nip46Info.secret
+        ? `${nip46Info.signerPubkey}#${nip46Info.secret}`
+        : nip46Info.signerPubkey;
+      this.nip46Signer = new NDKNip46Signer(this.ndk, signerToken, localSigner);
 
       // Set internal properties that NDKNip46Signer needs
       try {
@@ -676,6 +704,16 @@ export class AuthManager {
     console.log('[NIP-46] Starting to listen for signer responses...');
     this.startNip46ResponseListener(localPubkey);
 
+    // Watchdog: re-arm listener once shortly after startup to avoid missed initial relay subscription races.
+    setTimeout(() => {
+      if (this.hasPendingNip46Pairing() && !this.authState.isAuthenticated) {
+        console.log('[NIP-46] Re-arming response listener after startup...');
+        this.restartNip46ListenerIfPending().catch((e) => {
+          console.warn('[NIP-46] Listener re-arm failed:', e);
+        });
+      }
+    }, 2000);
+
     return { uri, relays };
   }
 
@@ -704,6 +742,12 @@ export class AuthManager {
 
   // Start listening for NIP-46 responses (used by both initial pairing and resume)
   private startNip46ResponseListener(localPubkey: string): void {
+    // Ensure only one active listener exists at a time.
+    if (this.nip46ResponseSub) {
+      this.nip46ResponseSub.stop();
+      this.nip46ResponseSub = null;
+    }
+
     // Listen for NIP-46 events (kind 24133) addressed to our local pubkey
     const filter = {
       kinds: [24133],
@@ -712,7 +756,12 @@ export class AuthManager {
     };
 
     console.log('[NIP-46] Subscribing to events for:', localPubkey);
-    const sub = this.ndk.subscribe(filter, { closeOnEose: false });
+    const sub = this.ndk.subscribe(filter, {
+      closeOnEose: false,
+      groupable: false,
+      cacheUsage: NDKSubscriptionCacheUsage.ONLY_RELAY
+    });
+    this.nip46ResponseSub = sub;
 
     // Track if we're already processing a pairing to prevent duplicates
     let isProcessingPairing = false;
@@ -736,8 +785,13 @@ export class AuthManager {
         return;
       }
 
-      // Decrypt and validate the response per NIP-46 spec
-      let response: any = null;
+      // Decrypt and validate the response per NIP-46 spec. An
+      // undecryptable or unparseable event MUST be ignored — otherwise
+      // any unrelated kind:24133 event tagged #p=localPubkey becomes a
+      // trigger to call completeNip46PairingWithSignerPubkey() with an
+      // arbitrary pubkey, which generates noise at best and enables
+      // spoofed pairing attempts at worst.
+      let response: { id?: string; method?: string; result?: unknown; error?: string };
       try {
         const decrypted = this.decryptNip44(
           event.content,
@@ -745,47 +799,26 @@ export class AuthManager {
           pendingInfo.localPrivateKey
         );
         response = JSON.parse(decrypted);
-
-        console.log('[NIP-46] Decrypted response:', {
-          id: response.id,
-          method: response.method,
-          hasResult: !!response.result,
-          hasError: !!response.error
-        });
-
-        // Only validate secret for "connect" method responses
-        // Other methods (get_public_key, sign_event, etc.) won't have the secret in result
-        if (response.method === 'connect' || (!response.method && response.result)) {
-          // Per NIP-46: client MUST validate the secret returned by connect response
-          if (response.result === pendingInfo.secret || response.result === 'ack') {
-            // Some signers return 'ack' instead of the secret, which is allowed per spec
-            console.log('[NIP-46] Secret validated successfully');
-          } else if (response.result !== undefined) {
-            // Only warn if result is present but doesn't match (might be a different response type)
-            console.warn(
-              '[NIP-46] Secret mismatch - expected:',
-              pendingInfo.secret,
-              'got:',
-              response.result
-            );
-            // Still proceed but log warning - some signers may not implement secret correctly
-          }
-          // If response.result is undefined and method is not 'connect', it's likely a different method response
-        }
-
-        if (response.error) {
-          console.error('[NIP-46] Signer returned error:', response.error);
-          throw new Error(response.error);
-        }
       } catch (e) {
-        // If decryption fails, it might be from a different signer or malformed
-        // Log but continue to try completing - NDK will handle its own validation
-        console.warn('[NIP-46] Could not validate response (will still attempt connection):', e);
+        console.warn('[NIP-46] Ignoring event that failed to decrypt/parse:', e);
+        return;
       }
 
-      // Only attempt pairing if this looks like a connect response or if we can't determine the method
-      // Skip if it's clearly a different method response (like get_public_key, sign_event, etc.)
-      if (response && response.method && response.method !== 'connect') {
+      console.log('[NIP-46] Decrypted response:', {
+        id: response.id,
+        method: response.method,
+        hasResult: !!response.result,
+        hasError: !!response.error
+      });
+
+      if (response.error) {
+        console.error('[NIP-46] Signer returned error:', response.error);
+        return;
+      }
+
+      // Skip non-connect responses outright (get_public_key, sign_event,
+      // etc.). NDK's own signer handles those.
+      if (response.method && response.method !== 'connect') {
         console.log(
           '[NIP-46] Response is for method:',
           response.method,
@@ -794,22 +827,50 @@ export class AuthManager {
         return;
       }
 
+      // Validate the connect response. Per NIP-46 the signer returns the
+      // secret the client passed in, or 'ack' for looser-spec signers.
+      // Anything else is either an unrelated response or a spoof — don't
+      // initiate pairing based on it.
+      const result = response.result;
+      const isAckOnly = result === 'ack';
+      const isSecretMatch = typeof result === 'string' && result === pendingInfo.secret;
+      if (!isAckOnly && !isSecretMatch) {
+        console.warn(
+          '[NIP-46] Connect response result did not match expected secret — ignoring',
+          { got: result }
+        );
+        return;
+      }
+      console.log('[NIP-46] Secret validated successfully');
+
       try {
         isProcessingPairing = true;
         await this.completeNip46PairingWithSignerPubkey(signerPubkey);
         console.log('[NIP-46] Pairing completed successfully, stopping listener');
         sub.stop();
+        if (this.nip46ResponseSub === sub) {
+          this.nip46ResponseSub = null;
+        }
       } catch (e) {
         const errorMsg = e instanceof Error ? e.message : String(e);
         if (errorMsg.includes('No pending NIP-46 pairing found')) {
           // Already completed, stop listening
           console.log('[NIP-46] Pairing already completed, stopping listener');
           sub.stop();
+          if (this.nip46ResponseSub === sub) {
+            this.nip46ResponseSub = null;
+          }
         } else {
           console.error('[NIP-46] Failed to complete pairing from event:', e);
         }
       } finally {
         isProcessingPairing = false;
+      }
+    });
+
+    sub.on('close', () => {
+      if (this.nip46ResponseSub === sub) {
+        this.nip46ResponseSub = null;
       }
     });
 
@@ -898,21 +959,20 @@ export class AuthManager {
       await this.ndk.connect();
 
       console.log('[NIP-46] Creating NIP-46 signer...');
-      this.nip46Signer = new NDKNip46Signer(this.ndk, signerPubkey, localSigner);
+      const signerToken = pendingInfo.secret ? `${signerPubkey}#${pendingInfo.secret}` : signerPubkey;
+      this.nip46Signer = new NDKNip46Signer(this.ndk, signerToken, localSigner);
 
       // Set signer on NDK BEFORE blockUntilReady
       this.ndk.signer = this.nip46Signer;
 
       // Try to establish session first so we can get user pubkey
       console.log('[NIP-46] Attempting to establish NIP-46 session (15s timeout)...');
-      let sessionEstablished = false;
       try {
         const timeoutPromise = new Promise<never>((_, reject) => {
           setTimeout(() => reject(new Error('Session establishment timeout')), 15000);
         });
         await Promise.race([this.nip46Signer.blockUntilReady(), timeoutPromise]);
         console.log('[NIP-46] Session established successfully!');
-        sessionEstablished = true;
       } catch (e) {
         console.warn(
           '[NIP-46] Session establishment timed out, will still try to get user pubkey:',
@@ -1123,6 +1183,10 @@ export class AuthManager {
     if (this.nip46Signer) {
       this.nip46Signer = null;
     }
+    if (this.nip46ResponseSub) {
+      this.nip46ResponseSub.stop();
+      this.nip46ResponseSub = null;
+    }
 
     this.updateState({
       isAuthenticated: false,
@@ -1140,6 +1204,10 @@ export class AuthManager {
   // Clear localStorage
   private clearStorage(): void {
     if (browser) {
+      if (this.nip46ResponseSub) {
+        this.nip46ResponseSub.stop();
+        this.nip46ResponseSub = null;
+      }
       localStorage.removeItem('nostrcooking_loggedInPublicKey');
       localStorage.removeItem('nostrcooking_privateKey');
       localStorage.removeItem('nostrcooking_authMethod');
