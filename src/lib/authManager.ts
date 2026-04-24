@@ -89,16 +89,21 @@ export class AuthManager {
   ): Promise<string> {
     const signer = this.nip46Signer;
     if (!signer) throw new Error('NIP-46 signer not initialized');
-    type RpcSendRequest = (
-      remotePubkey: string,
-      method: string,
-      params: string[],
-      kind: number,
-      callback: (response: { result?: string; error?: string }) => void
-    ) => void;
-    const rpc = (signer as unknown as { rpc?: { sendRequest?: RpcSendRequest } }).rpc;
-    const sendRequest = rpc?.sendRequest;
-    if (!sendRequest) {
+    // sendRequest is a method on NDKNostrRpc that depends on `this` (it
+    // reads this.signer etc. internally), so we must call it as a method —
+    // extracting the function and invoking it unbound throws a TypeError
+    // inside NDK.
+    type RpcChannel = {
+      sendRequest: (
+        remotePubkey: string,
+        method: string,
+        params: string[],
+        kind: number,
+        callback: (response: { result?: string; error?: string }) => void
+      ) => void;
+    };
+    const rpc = (signer as unknown as { rpc?: RpcChannel }).rpc;
+    if (!rpc || typeof rpc.sendRequest !== 'function') {
       throw new Error('NIP-46 signer RPC channel not available');
     }
 
@@ -108,7 +113,7 @@ export class AuthManager {
         timeoutMs
       );
       try {
-        sendRequest(
+        rpc.sendRequest(
           signerPubkey,
           'get_public_key',
           [],
