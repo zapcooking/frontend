@@ -25,9 +25,11 @@
 - [ ] Extension unavailable shows fallback options
 
 ### NIP-46 Remote Signer (Bunker)
+- [ ] Login page shows both external signer entry points: "Scan QR / Universal pairing" and "Paste bunker URI"
 - [ ] Login with `bunker://` connection string
 - [ ] Login with `nostrconnect://` QR code scan
 - [ ] Universal pairing flow works
+- [ ] iOS login form supports "Paste bunker URI" flow
 - [ ] Secret validation in pairing response
 - [ ] Reconnection after disconnect
 - [ ] Error handling for invalid connection strings
