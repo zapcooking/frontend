@@ -5,7 +5,11 @@
   import FireIcon from 'phosphor-svelte/lib/Fire';
   import type { MembershipTier } from '$lib/membershipStore';
 
-  export let tier: MembershipTier;
+  // Also accept 'member' — the tier string returned by the membership
+  // service for the base paid tier. tierConfig has a 'member' entry, so
+  // this has always been a runtime-valid input; the declared type just
+  // didn't admit it.
+  export let tier: MembershipTier | 'member';
   export let size: 'sm' | 'md' | 'lg' = 'md';
   export let showLabel: boolean = false;
 
