@@ -3,6 +3,8 @@ import {
   NDKNip07Signer,
   NDKPrivateKeySigner,
   NDKNip46Signer,
+  NDKSubscriptionCacheUsage,
+  type NDKSubscription,
   type NDKUser
 } from '@nostr-dev-kit/ndk';
 import { nip19, getPublicKey, generateSecretKey } from 'nostr-tools';
@@ -44,6 +46,7 @@ export class AuthManager {
 
   private listeners: ((state: AuthState) => void)[] = [];
   private nip46Signer: NDKNip46Signer | null = null;
+  private nip46ResponseSub: NDKSubscription | null = null;
 
   constructor(ndk: any) {
     this.ndk = ndk;
@@ -346,9 +349,10 @@ export class AuthManager {
 
       console.log('[NIP-46] Creating NIP-46 signer...');
 
-      // Create the NIP-46 signer
-      // NDKNip46Signer(ndk, remotePubkey, localSigner)
-      this.nip46Signer = new NDKNip46Signer(this.ndk, signerPubkey, localSigner);
+      // Create the NIP-46 signer.
+      // If bunker URI includes `secret`, NDK expects `pubkey#secret` token for connect.
+      const signerToken = secret ? `${signerPubkey}#${secret}` : signerPubkey;
+      this.nip46Signer = new NDKNip46Signer(this.ndk, signerToken, localSigner);
 
       // Set internal properties that NDKNip46Signer needs
       try {
@@ -368,24 +372,49 @@ export class AuthManager {
 
       console.log('[NIP-46] Connecting to bunker (this may take a moment)...');
 
-      // Block until connected with timeout
-      const connectionTimeout = 30000; // 30 seconds
-      const connectionPromise = this.nip46Signer.blockUntilReady();
-
-      const timeoutPromise = new Promise<never>((_, reject) => {
-        setTimeout(
-          () => reject(new Error('Connection timeout - bunker not responding')),
-          connectionTimeout
+      // Some signers are inconsistent about connect "ack" semantics.
+      // Try blockUntilReady first, but still attempt get_public_key even if it times out.
+      let sessionEstablished = false;
+      try {
+        const connectionTimeout = 30000; // 30 seconds
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          setTimeout(
+            () => reject(new Error('Connection timeout - bunker not responding')),
+            connectionTimeout
+          );
+        });
+        await Promise.race([this.nip46Signer.blockUntilReady(), timeoutPromise]);
+        sessionEstablished = true;
+        console.log('[NIP-46] Session established via connect');
+      } catch (e) {
+        console.warn(
+          '[NIP-46] connect phase timed out/failed, will still try get_public_key:',
+          e
         );
-      });
+      }
 
-      await Promise.race([connectionPromise, timeoutPromise]);
-
-      console.log('[NIP-46] Connected! Getting user pubkey via get_public_key...');
+      console.log('[NIP-46] Getting user pubkey via get_public_key...');
 
       // Per NIP-46: client MUST call get_public_key to learn user-pubkey
       // The signer pubkey may differ from the actual user pubkey
-      const user = await this.nip46Signer.user();
+      let user: NDKUser;
+      try {
+        const userTimeout = new Promise<never>((_, reject) => {
+          setTimeout(
+            () => reject(new Error('Connection timeout - bunker not responding')),
+            15000
+          );
+        });
+        user = await Promise.race([this.nip46Signer.user(), userTimeout]);
+      } catch (e) {
+        if (e instanceof Error) {
+          throw e;
+        }
+        if (!sessionEstablished) {
+          throw new Error('Connection timeout - bunker not responding');
+        }
+        throw new Error('Failed to get public key from bunker');
+      }
       const userPubkey = user.hexpubkey;
 
       console.log('[NIP-46] Signer pubkey:', signerPubkey);
@@ -671,6 +700,16 @@ export class AuthManager {
     console.log('[NIP-46] Starting to listen for signer responses...');
     this.startNip46ResponseListener(localPubkey);
 
+    // Watchdog: re-arm listener once shortly after startup to avoid missed initial relay subscription races.
+    setTimeout(() => {
+      if (this.hasPendingNip46Pairing() && !this.authState.isAuthenticated) {
+        console.log('[NIP-46] Re-arming response listener after startup...');
+        this.restartNip46ListenerIfPending().catch((e) => {
+          console.warn('[NIP-46] Listener re-arm failed:', e);
+        });
+      }
+    }, 2000);
+
     return { uri, relays };
   }
 
@@ -699,6 +738,12 @@ export class AuthManager {
 
   // Start listening for NIP-46 responses (used by both initial pairing and resume)
   private startNip46ResponseListener(localPubkey: string): void {
+    // Ensure only one active listener exists at a time.
+    if (this.nip46ResponseSub) {
+      this.nip46ResponseSub.stop();
+      this.nip46ResponseSub = null;
+    }
+
     // Listen for NIP-46 events (kind 24133) addressed to our local pubkey
     const filter = {
       kinds: [24133],
@@ -707,7 +752,12 @@ export class AuthManager {
     };
 
     console.log('[NIP-46] Subscribing to events for:', localPubkey);
-    const sub = this.ndk.subscribe(filter, { closeOnEose: false });
+    const sub = this.ndk.subscribe(filter, {
+      closeOnEose: false,
+      groupable: false,
+      cacheUsage: NDKSubscriptionCacheUsage.ONLY_RELAY
+    });
+    this.nip46ResponseSub = sub;
 
     // Track if we're already processing a pairing to prevent duplicates
     let isProcessingPairing = false;
@@ -794,17 +844,29 @@ export class AuthManager {
         await this.completeNip46PairingWithSignerPubkey(signerPubkey);
         console.log('[NIP-46] Pairing completed successfully, stopping listener');
         sub.stop();
+        if (this.nip46ResponseSub === sub) {
+          this.nip46ResponseSub = null;
+        }
       } catch (e) {
         const errorMsg = e instanceof Error ? e.message : String(e);
         if (errorMsg.includes('No pending NIP-46 pairing found')) {
           // Already completed, stop listening
           console.log('[NIP-46] Pairing already completed, stopping listener');
           sub.stop();
+          if (this.nip46ResponseSub === sub) {
+            this.nip46ResponseSub = null;
+          }
         } else {
           console.error('[NIP-46] Failed to complete pairing from event:', e);
         }
       } finally {
         isProcessingPairing = false;
+      }
+    });
+
+    sub.on('close', () => {
+      if (this.nip46ResponseSub === sub) {
+        this.nip46ResponseSub = null;
       }
     });
 
@@ -893,7 +955,8 @@ export class AuthManager {
       await this.ndk.connect();
 
       console.log('[NIP-46] Creating NIP-46 signer...');
-      this.nip46Signer = new NDKNip46Signer(this.ndk, signerPubkey, localSigner);
+      const signerToken = pendingInfo.secret ? `${signerPubkey}#${pendingInfo.secret}` : signerPubkey;
+      this.nip46Signer = new NDKNip46Signer(this.ndk, signerToken, localSigner);
 
       // Set signer on NDK BEFORE blockUntilReady
       this.ndk.signer = this.nip46Signer;
@@ -1128,6 +1191,10 @@ export class AuthManager {
     if (this.nip46Signer) {
       this.nip46Signer = null;
     }
+    if (this.nip46ResponseSub) {
+      this.nip46ResponseSub.stop();
+      this.nip46ResponseSub = null;
+    }
 
     this.updateState({
       isAuthenticated: false,
@@ -1145,6 +1212,10 @@ export class AuthManager {
   // Clear localStorage
   private clearStorage(): void {
     if (browser) {
+      if (this.nip46ResponseSub) {
+        this.nip46ResponseSub.stop();
+        this.nip46ResponseSub = null;
+      }
       localStorage.removeItem('nostrcooking_loggedInPublicKey');
       localStorage.removeItem('nostrcooking_privateKey');
       localStorage.removeItem('nostrcooking_authMethod');
