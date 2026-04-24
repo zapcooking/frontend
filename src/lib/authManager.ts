@@ -9,6 +9,7 @@ import {
 } from '@nostr-dev-kit/ndk';
 import { nip19, getPublicKey, generateSecretKey } from 'nostr-tools';
 import * as nip44 from 'nostr-tools/nip44';
+import { fetchNip46UserPubkey } from './nip46Rpc';
 
 export interface AuthState {
   isAuthenticated: boolean;
@@ -82,6 +83,13 @@ export class AuthManager {
       // The signer should already be set, but ensure NDK is updated
       this.ndk.signer = this.ndk.signer;
     }
+  }
+
+  // Resolve the real user pubkey via a NIP-46 get_public_key RPC.
+  // See src/lib/nip46Rpc.ts for why NDK's user() is not usable here.
+  private async fetchNip46UserPubkey(): Promise<string> {
+    if (!this.nip46Signer) throw new Error('NIP-46 signer not initialized');
+    return fetchNip46UserPubkey(this.nip46Signer);
   }
 
   // Initialize authentication from localStorage
@@ -379,8 +387,9 @@ export class AuthManager {
       console.log('[NIP-46] Connecting to bunker (this may take a moment)...');
 
       // Some signers are inconsistent about connect "ack" semantics.
-      // Try blockUntilReady first, but still attempt get_public_key even if it times out.
-      let sessionEstablished = false;
+      // Try blockUntilReady first, but still attempt get_public_key even
+      // if it times out — the RPC listener stays live, so get_public_key
+      // can succeed even when the connect ack didn't arrive.
       try {
         const connectionTimeout = 30000; // 30 seconds
         const timeoutPromise = new Promise<never>((_, reject) => {
@@ -390,7 +399,6 @@ export class AuthManager {
           );
         });
         await Promise.race([this.nip46Signer.blockUntilReady(), timeoutPromise]);
-        sessionEstablished = true;
         console.log('[NIP-46] Session established via connect');
       } catch (e) {
         console.warn(
@@ -401,27 +409,13 @@ export class AuthManager {
 
       console.log('[NIP-46] Getting user pubkey via get_public_key...');
 
-      // Per NIP-46: client MUST call get_public_key to learn user-pubkey
-      // The signer pubkey may differ from the actual user pubkey
-      let user: NDKUser;
-      try {
-        const userTimeout = new Promise<never>((_, reject) => {
-          setTimeout(
-            () => reject(new Error('Connection timeout - bunker not responding')),
-            15000
-          );
-        });
-        user = await Promise.race([this.nip46Signer.user(), userTimeout]);
-      } catch (e) {
-        if (e instanceof Error) {
-          throw e;
-        }
-        if (!sessionEstablished) {
-          throw new Error('Connection timeout - bunker not responding');
-        }
-        throw new Error('Failed to get public key from bunker');
-      }
-      const userPubkey = user.hexpubkey;
+      // Per NIP-46: client MUST call get_public_key to learn user-pubkey.
+      // See fetchNip46UserPubkey — NDK's user() returns the signer
+      // service pubkey synchronously, not the user identity. No silent
+      // fallback to signer pubkey: if the RPC fails we fail the auth
+      // rather than log the session in as the signer service.
+      const userPubkey = await this.fetchNip46UserPubkey();
+      const user = this.ndk.getUser({ pubkey: userPubkey });
 
       console.log('[NIP-46] Signer pubkey:', signerPubkey);
       console.log('[NIP-46] User pubkey (from get_public_key):', userPubkey);
@@ -542,34 +536,31 @@ export class AuthManager {
         // Still proceed - might work anyway, or will fail on actual sign attempt
       }
 
-      // ALWAYS fetch the actual user pubkey from the signer to ensure it's correct
-      // The stored userPubkey might be incorrect (e.g., if it was stored as signer pubkey)
-      // Per NIP-46: client MUST call get_public_key to learn user-pubkey
-      let userPubkey = nip46Info.userPubkey; // Use as fallback
+      // Re-verify the user pubkey via a real get_public_key RPC so a stored
+      // value that was ever wrong (e.g. pre-fix sessions that recorded the
+      // signer pubkey) gets corrected on next login. If the RPC fails, fall
+      // back to the stored value — a previously-fetched correct pubkey is
+      // better than failing the reconnect.
+      let userPubkey = nip46Info.userPubkey;
       try {
         console.log('[NIP-46] Fetching actual user pubkey via get_public_key...');
-        const userFromSigner = await this.nip46Signer.user();
-        const actualUserPubkey = userFromSigner.hexpubkey;
+        const actualUserPubkey = await this.fetchNip46UserPubkey();
         console.log('[NIP-46] Signer pubkey:', nip46Info.signerPubkey);
         console.log('[NIP-46] Stored user pubkey:', userPubkey);
         console.log('[NIP-46] Actual user pubkey (from get_public_key):', actualUserPubkey);
 
-        // Use the actual user pubkey from the signer
         userPubkey = actualUserPubkey;
 
-        // If stored userPubkey differs from actual, log a warning
         if (nip46Info.userPubkey && nip46Info.userPubkey !== actualUserPubkey) {
           console.warn(
-            '[NIP-46] Stored user pubkey differs from actual user pubkey! Updating stored value.'
+            '[NIP-46] Stored user pubkey differs from actual user pubkey — updating stored value'
           );
-          // Update the stored value
           nip46Info.userPubkey = actualUserPubkey;
           localStorage.setItem('nostrcooking_nip46', JSON.stringify(nip46Info));
           localStorage.setItem('nostrcooking_loggedInPublicKey', actualUserPubkey);
         }
       } catch (e) {
         console.warn('[NIP-46] Could not get user pubkey from signer, using stored value:', e);
-        // Fall back to stored value if we can't fetch it
       }
 
       const user = this.ndk.getUser({ pubkey: userPubkey });
@@ -976,14 +967,12 @@ export class AuthManager {
 
       // Try to establish session first so we can get user pubkey
       console.log('[NIP-46] Attempting to establish NIP-46 session (15s timeout)...');
-      let sessionEstablished = false;
       try {
         const timeoutPromise = new Promise<never>((_, reject) => {
           setTimeout(() => reject(new Error('Session establishment timeout')), 15000);
         });
         await Promise.race([this.nip46Signer.blockUntilReady(), timeoutPromise]);
         console.log('[NIP-46] Session established successfully!');
-        sessionEstablished = true;
       } catch (e) {
         console.warn(
           '[NIP-46] Session establishment timed out, will still try to get user pubkey:',
@@ -991,29 +980,19 @@ export class AuthManager {
         );
       }
 
-      // Per NIP-46: client MUST call get_public_key to learn user-pubkey
-      // The signer pubkey may differ from the actual user pubkey
-      // ALWAYS try to get the user pubkey, even if session establishment timed out
-      // The signer might still be able to respond to get_public_key requests
-      let userPubkey = signerPubkey; // Fallback to signer pubkey
-      try {
-        console.log('[NIP-46] Calling get_public_key to get actual user pubkey...');
-        const user = await this.nip46Signer.user();
-        userPubkey = user.hexpubkey;
-        console.log('[NIP-46] Got user pubkey via get_public_key:', userPubkey);
-        console.log('[NIP-46] Signer pubkey:', signerPubkey);
-        if (signerPubkey !== userPubkey) {
-          console.log(
-            '[NIP-46] Note: signer pubkey differs from user pubkey (this is valid per spec)'
-          );
-        }
-      } catch (e) {
-        console.warn(
-          '[NIP-46] Could not get user pubkey via get_public_key, using signer pubkey as fallback:',
-          e
+      // Per NIP-46: client MUST call get_public_key to learn user-pubkey.
+      // Even if blockUntilReady timed out the RPC listener is still live,
+      // so get_public_key can still succeed. No silent fallback to signer
+      // pubkey — if we can't learn the user's identity we fail the auth
+      // rather than log the session in as the signer service.
+      console.log('[NIP-46] Calling get_public_key to get actual user pubkey...');
+      const userPubkey = await this.fetchNip46UserPubkey();
+      console.log('[NIP-46] Got user pubkey via get_public_key:', userPubkey);
+      console.log('[NIP-46] Signer pubkey:', signerPubkey);
+      if (signerPubkey !== userPubkey) {
+        console.log(
+          '[NIP-46] Note: signer pubkey differs from user pubkey (this is valid per spec)'
         );
-        // Only use signer pubkey as fallback if we truly can't get the user pubkey
-        // This should be rare, as get_public_key should work even if blockUntilReady() timed out
       }
 
       const user = this.ndk.getUser({ pubkey: userPubkey });

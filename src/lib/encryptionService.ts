@@ -12,11 +12,12 @@
 
 import { get } from 'svelte/store';
 import { ndk } from '$lib/nostr';
-import { NDKUser } from '@nostr-dev-kit/ndk';
+import { NDKUser, type NDKNip46Signer } from '@nostr-dev-kit/ndk';
 import { browser } from '$app/environment';
 import * as nip44 from 'nostr-tools/nip44';
 import * as nip04 from 'nostr-tools/nip04';
 import { nip19 } from 'nostr-tools';
+import { nip44EncryptViaNip46, nip44DecryptViaNip46 } from '$lib/nip46Rpc';
 
 export type EncryptionMethod = 'nip44' | 'nip04' | null;
 
@@ -92,11 +93,13 @@ function isUserDenial(error: unknown): boolean {
   return /reject|denied|cancel|refused|declined|abort|dismissed/.test(msg);
 }
 
+// NDK exposes `encrypt(recipient, value)` / `decrypt(sender, value)` on
+// NDKNip46Signer, and these issue nip04_encrypt / nip04_decrypt RPCs
+// under the hood. NDK does NOT expose NIP-44 methods — those must be
+// driven through the raw RPC helper in $lib/nip46Rpc.
 type SignerWithEncryption = {
-  nip44Encrypt?: (recipient: NDKUser, plaintext: string) => Promise<string>;
-  nip04Encrypt?: (recipient: NDKUser, plaintext: string) => Promise<string>;
-  nip44Decrypt?: (sender: NDKUser, ciphertext: string) => Promise<string>;
-  nip04Decrypt?: (sender: NDKUser, ciphertext: string) => Promise<string>;
+  encrypt?: (recipient: NDKUser, plaintext: string) => Promise<string>;
+  decrypt?: (sender: NDKUser, ciphertext: string) => Promise<string>;
   constructor?: { name?: string };
 };
 
@@ -157,8 +160,9 @@ export function hasEncryptionSupport(): boolean {
       return true;
     }
 
-    // Direct encryption methods available on signer
-    if (typeof signer.nip44Encrypt === 'function' || typeof signer.nip04Encrypt === 'function') {
+    // Direct encryption method available on signer (NDK exposes
+    // encrypt() / decrypt() — nip04/44 prefixed variants do not exist).
+    if (typeof signer.encrypt === 'function') {
       return true;
     }
 
@@ -197,14 +201,24 @@ export async function getEncryptionMethod(): Promise<EncryptionMethod> {
 
   // If we have an NDK signer, it supports encryption via its interface
   if (signer) {
-    // NDK signers support both methods, prefer NIP-44
-    if (typeof signer.nip44Encrypt === 'function') return 'nip44';
-    if (typeof signer.nip04Encrypt === 'function') return 'nip04';
+    const signerName = signer.constructor?.name || '';
+
+    // NIP-46 signers: prefer NIP-44 (encrypt() in the service falls
+    // through to NIP-04 at runtime if the signer rejects nip44).
+    if (signerName.includes('Nip46Signer')) {
+      return 'nip44';
+    }
 
     // For private key signers, we can use nostr-tools directly
     // Use includes() to handle minified class names
-    if ((signer.constructor?.name || '').includes('PrivateKeySigner') && getPrivateKey()) {
+    if (signerName.includes('PrivateKeySigner') && getPrivateKey()) {
       return 'nip44'; // Prefer NIP-44 for private key signers
+    }
+
+    // NDK exposes encrypt/decrypt on its signer interface — use
+    // NIP-04 for signers that only advertise this legacy support.
+    if (typeof signer.encrypt === 'function') {
+      return 'nip04';
     }
   }
 
@@ -310,31 +324,29 @@ export async function encrypt(
     );
   }
 
-  // For NIP-46 signers, use the signer's encryption methods
+  // For NIP-46 signers: NIP-44 goes through the raw RPC (NDK has no
+  // built-in for it); NIP-04 uses NDK's encrypt() which issues a
+  // nip04_encrypt RPC under the hood. Prefer NIP-44 and fall through
+  // to NIP-04 if the signer rejects NIP-44 (e.g. older signer that
+  // only grants nip04 permissions).
   if (signerName.includes('Nip46Signer') && signer) {
-
     const recipient = new NDKUser({ pubkey: recipientPubkey });
+    const nip46Signer = signer as unknown as NDKNip46Signer;
 
-    if (
-      typeof signer.nip44Encrypt === 'function' &&
-      (!preferredMethod || preferredMethod === 'nip44')
-    ) {
+    if (!preferredMethod || preferredMethod === 'nip44') {
       try {
-
-        const ciphertext = await signer.nip44Encrypt(recipient, plaintext);
+        const ciphertext = await nip44EncryptViaNip46(nip46Signer, recipientPubkey, plaintext);
         return { ciphertext, method: 'nip44' };
       } catch (e) {
-        console.warn('[Encryption] signer.nip44Encrypt failed:', e);
-        // Fall through to try nip04
+        console.warn('[Encryption] NIP-46 nip44_encrypt failed, falling back to nip04:', e);
       }
     }
-    if (typeof signer.nip04Encrypt === 'function') {
+    if (typeof signer.encrypt === 'function') {
       try {
-
-        const ciphertext = await signer.nip04Encrypt(recipient, plaintext);
+        const ciphertext = await signer.encrypt(recipient, plaintext);
         return { ciphertext, method: 'nip04' };
       } catch (e) {
-        console.error('[Encryption] signer.nip04Encrypt failed:', e);
+        console.error('[Encryption] NIP-46 nip04_encrypt failed:', e);
       }
     }
 
@@ -574,17 +586,21 @@ async function decryptViaSigner(
         if (result != null) return result;
       }
 
-      // Fallback to NDK signer (for NIP-46 remote signers, etc.)
+      // Fallback to NDK signer (NIP-46 remote signers). NIP-44 goes
+      // through the raw RPC; NIP-04 uses NDK's decrypt() which issues a
+      // nip04_decrypt RPC.
       const ndkInstance = get(ndk);
       const signer = ndkInstance.signer as SignerWithEncryption | null | undefined;
-      if (signer) {
+      const signerName = signer?.constructor?.name || '';
+      if (signer && signerName.includes('Nip46Signer')) {
         const sender = new NDKUser({ pubkey: senderPubkey });
+        const nip46Signer = signer as unknown as NDKNip46Signer;
 
-        if (tryMethod === 'nip44' && typeof signer.nip44Decrypt === 'function') {
-          const result = await signer.nip44Decrypt(sender, ciphertext);
+        if (tryMethod === 'nip44') {
+          const result = await nip44DecryptViaNip46(nip46Signer, senderPubkey, ciphertext);
           if (result != null) return result;
-        } else if (tryMethod === 'nip04' && typeof signer.nip04Decrypt === 'function') {
-          const result = await signer.nip04Decrypt(sender, ciphertext);
+        } else if (tryMethod === 'nip04' && typeof signer.decrypt === 'function') {
+          const result = await signer.decrypt(sender, ciphertext);
           if (result != null) return result;
         }
       }
