@@ -7,6 +7,7 @@ import {
 } from '@nostr-dev-kit/ndk';
 import { nip19, getPublicKey, generateSecretKey } from 'nostr-tools';
 import * as nip44 from 'nostr-tools/nip44';
+import { fetchNip46UserPubkey } from './nip46Rpc';
 
 export interface AuthState {
   isAuthenticated: boolean;
@@ -75,68 +76,11 @@ export class AuthManager {
     }
   }
 
-  // Ask the remote signer for the user's actual pubkey via an explicit
-  // NIP-46 `get_public_key` RPC. NDKNip46Signer.user() is NOT an RPC —
-  // it synchronously returns the `remoteUser` built from the pubkey passed
-  // to its constructor (i.e. the signer service pubkey). Using user() to
-  // obtain the user's identity silently logs the session in as the signer
-  // service instead of the user, which was the root cause of wrong-npub
-  // sign-in against Amber/Primal and any other signer whose service and
-  // user pubkeys differ.
-  private async fetchNip46UserPubkey(
-    signerPubkey: string,
-    timeoutMs = 15000
-  ): Promise<string> {
-    const signer = this.nip46Signer;
-    if (!signer) throw new Error('NIP-46 signer not initialized');
-    // sendRequest is a method on NDKNostrRpc that depends on `this` (it
-    // reads this.signer etc. internally), so we must call it as a method —
-    // extracting the function and invoking it unbound throws a TypeError
-    // inside NDK.
-    type RpcChannel = {
-      sendRequest: (
-        remotePubkey: string,
-        method: string,
-        params: string[],
-        kind: number,
-        callback: (response: { result?: string; error?: string }) => void
-      ) => void;
-    };
-    const rpc = (signer as unknown as { rpc?: RpcChannel }).rpc;
-    if (!rpc || typeof rpc.sendRequest !== 'function') {
-      throw new Error('NIP-46 signer RPC channel not available');
-    }
-
-    return new Promise<string>((resolve, reject) => {
-      const timer = setTimeout(
-        () => reject(new Error('get_public_key timed out')),
-        timeoutMs
-      );
-      try {
-        rpc.sendRequest(
-          signerPubkey,
-          'get_public_key',
-          [],
-          24133,
-          (response: { result?: string; error?: string }) => {
-            clearTimeout(timer);
-            if (response?.error) {
-              reject(new Error(`get_public_key error: ${response.error}`));
-              return;
-            }
-            const pubkey = (response?.result || '').trim().toLowerCase();
-            if (!/^[0-9a-f]{64}$/.test(pubkey)) {
-              reject(new Error(`get_public_key invalid response: ${response?.result}`));
-              return;
-            }
-            resolve(pubkey);
-          }
-        );
-      } catch (e) {
-        clearTimeout(timer);
-        reject(e);
-      }
-    });
+  // Resolve the real user pubkey via a NIP-46 get_public_key RPC.
+  // See src/lib/nip46Rpc.ts for why NDK's user() is not usable here.
+  private async fetchNip46UserPubkey(): Promise<string> {
+    if (!this.nip46Signer) throw new Error('NIP-46 signer not initialized');
+    return fetchNip46UserPubkey(this.nip46Signer);
   }
 
   // Initialize authentication from localStorage
@@ -449,7 +393,7 @@ export class AuthManager {
 
       // Per NIP-46: client MUST call get_public_key to learn user-pubkey.
       // See fetchNip46UserPubkey — NDK's user() is not an RPC.
-      const userPubkey = await this.fetchNip46UserPubkey(signerPubkey);
+      const userPubkey = await this.fetchNip46UserPubkey();
       const user = this.ndk.getUser({ pubkey: userPubkey });
 
       console.log('[NIP-46] Signer pubkey:', signerPubkey);
@@ -572,7 +516,7 @@ export class AuthManager {
       let userPubkey = nip46Info.userPubkey;
       try {
         console.log('[NIP-46] Fetching actual user pubkey via get_public_key...');
-        const actualUserPubkey = await this.fetchNip46UserPubkey(nip46Info.signerPubkey);
+        const actualUserPubkey = await this.fetchNip46UserPubkey();
         console.log('[NIP-46] Signer pubkey:', nip46Info.signerPubkey);
         console.log('[NIP-46] Stored user pubkey:', userPubkey);
         console.log('[NIP-46] Actual user pubkey (from get_public_key):', actualUserPubkey);
@@ -982,7 +926,7 @@ export class AuthManager {
       // pubkey — if we can't learn the user's identity we fail the auth
       // rather than log the session in as the signer service.
       console.log('[NIP-46] Calling get_public_key to get actual user pubkey...');
-      const userPubkey = await this.fetchNip46UserPubkey(signerPubkey);
+      const userPubkey = await this.fetchNip46UserPubkey();
       console.log('[NIP-46] Got user pubkey via get_public_key:', userPubkey);
       console.log('[NIP-46] Signer pubkey:', signerPubkey);
       if (signerPubkey !== userPubkey) {
