@@ -2,12 +2,12 @@
   /**
    * iOS-specific login form.
    *
-   * This component is used on iOS native app where NIP-07 (browser extensions)
-   * and NIP-46 (remote signers) are not supported due to platform restrictions.
+   * This component is used on iOS native app where NIP-07 browser extensions
+   * are not available.
    *
    * Available auth methods:
    * - Private key (nsec) import
-   * - Seed phrase import
+   * - NIP-46 bunker URI paste
    * - Generate new keys
    */
   import Button from './Button.svelte';
@@ -52,10 +52,14 @@
 
   // Modal states
   let nsecModal = false;
+  let bunkerModal = false;
   let generateModal = false;
   let showPrivateKey = false;
   let backupStep = 1;
   let backupDownloaded = false;
+  let bunkerConnectionString = '';
+  let bunkerError = '';
+  let bunkerConnecting = false;
 
   // File input reference
   let fileInput: HTMLInputElement;
@@ -115,6 +119,37 @@
       nsecError = authState.error || 'Invalid private key';
       console.error('Private key login failed:', error);
     }
+  }
+
+  async function loginWithBunker() {
+    if (!authManager) return;
+
+    try {
+      bunkerError = '';
+      bunkerConnecting = true;
+
+      if (!bunkerConnectionString.trim()) {
+        bunkerError = 'Please enter a bunker connection string';
+        bunkerConnecting = false;
+        return;
+      }
+
+      await authManager.authenticateWithNIP46(bunkerConnectionString.trim());
+      bunkerModal = false;
+      bunkerConnectionString = '';
+    } catch (error: any) {
+      bunkerError = error?.message || authState.error || 'Failed to connect to bunker';
+      console.error('Bunker login failed:', error);
+    } finally {
+      bunkerConnecting = false;
+    }
+  }
+
+  function openBunkerModal() {
+    bunkerModal = true;
+    bunkerError = '';
+    bunkerConnecting = false;
+    bunkerConnectionString = '';
   }
 
   function generateNewKeys() {
@@ -228,6 +263,7 @@
 
   function modalCleanup() {
     nsecModal = false;
+    bunkerModal = false;
     generateModal = false;
     showPrivateKey = false;
     backupStep = 1;
@@ -242,6 +278,9 @@
     pictureUploadError = '';
     showPictureUrlInput = false;
     pictureUrlInput = '';
+    bunkerConnectionString = '';
+    bunkerError = '';
+    bunkerConnecting = false;
   }
 
   function applyPictureUrl() {
@@ -384,6 +423,74 @@
         {authState.isLoading ? '⚡ Connecting...' : '⚡ Login'}
       </Button>
       <Button on:click={modalCleanup} primary={false} disabled={authState.isLoading}>Cancel</Button>
+    </div>
+  </div>
+</Modal>
+
+<!-- Bunker (NIP-46) Modal -->
+<Modal bind:open={bunkerModal} on:close={modalCleanup}>
+  <svelte:fragment slot="title">🔐 Paste bunker URI</svelte:fragment>
+  <div class="flex flex-col gap-4">
+    <div class="bg-input border rounded-lg p-3" style="border-color: var(--color-input-border)">
+      <p class="text-sm text-caption">
+        Connect a remote signer so your private key stays in your signer app.
+      </p>
+    </div>
+
+    <div>
+      <label
+        for="ios-bunker-input"
+        class="block text-sm font-medium mb-1.5"
+        style="color: var(--color-text-primary)"
+      >
+        NIP-46 Connection String
+      </label>
+      <textarea
+        id="ios-bunker-input"
+        bind:value={bunkerConnectionString}
+        placeholder="bunker://pubkey?relay=wss://relay.example.com&#10;or&#10;npub1... wss://relay.example.com"
+        rows="3"
+        class="input block w-full sm:text-sm p-3 font-mono text-xs"
+        disabled={bunkerConnecting || authState.isLoading}
+      ></textarea>
+      <p class="text-xs text-caption mt-1.5">
+        Paste a bunker URI (or npub with relay hints). Do not paste nostrconnect:// here.
+      </p>
+    </div>
+
+    {#if bunkerError}
+      <div
+        class="bg-input border rounded-lg p-2.5"
+        style="border-color: var(--color-danger, #ef4444)"
+      >
+        <p class="text-sm" style="color: var(--color-danger, #ef4444)">{bunkerError}</p>
+      </div>
+    {/if}
+
+    {#if bunkerConnecting}
+      <div class="bg-input border rounded-lg p-3" style="border-color: var(--color-primary, #f97316)">
+        <div class="flex items-center gap-2">
+          <div
+            class="animate-spin h-4 w-4 border-2 border-orange-500 border-t-transparent rounded-full"
+          ></div>
+          <p class="text-sm" style="color: var(--color-text-primary)">
+            Connecting to bunker... This may take a moment.
+          </p>
+        </div>
+      </div>
+    {/if}
+
+    <div class="flex gap-2">
+      <Button
+        on:click={loginWithBunker}
+        primary={true}
+        disabled={bunkerConnecting || authState.isLoading || !bunkerConnectionString.trim()}
+      >
+        {bunkerConnecting ? '⏳ Connecting...' : '🔐 Connect'}
+      </Button>
+      <Button on:click={modalCleanup} primary={false} disabled={bunkerConnecting || authState.isLoading}
+        >Cancel</Button
+      >
     </div>
   </div>
 </Modal>
@@ -771,6 +878,14 @@
           style="color: var(--color-text-primary); border-color: var(--color-input-border)"
         >
           <span class="text-sm">🔑 Import Private Key</span>
+        </button>
+        <button
+          on:click={openBunkerModal}
+          disabled={authState.isLoading}
+          aria-label="Sign in with bunker URI"
+          class="w-full text-caption hover:opacity-80 hover:underline transition-colors disabled:opacity-50 text-sm py-1"
+        >
+          🔐 Paste bunker URI
         </button>
       </div>
 
