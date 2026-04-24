@@ -18,6 +18,7 @@ import {
   type NourishRelayResult,
   type IngredientSignal
 } from './types';
+export type { NourishRelayResult } from './types';
 
 const PANTRY_RELAY = 'wss://pantry.zap.cooking';
 // Pantry query timeout. Calibrated to 2s — healthy pantry median sits

@@ -2436,7 +2436,7 @@
                 }
               }
 
-              const foodEvents = primalEvents.filter((event) => {
+              const foodEvents = primalEvents.filter((event: NDKEvent) => {
                 if ($userPublickey) {
                   const mutedUsers = getMutedUsers();
                   const authorKey = event.author?.hexpubkey || event.pubkey;
@@ -2643,7 +2643,7 @@
       // relay-appropriate REQs internally. This replaces N/100 open subs.
       const sub = $ndk.subscribe(
         {
-          kinds: [1, 1068],
+          kinds: [1, 1068 as number] as number[],
           authors: followedPubkeysForRealtime,
           since
         },
