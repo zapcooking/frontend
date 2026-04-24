@@ -124,12 +124,11 @@ export function supportsNIP07(): boolean {
 
 /**
  * Check if NIP-46 remote signing is supported.
- * For iOS, we disable NIP-46 due to app store restrictions on cross-app communication.
- * NIP-46 is supported on web and Android.
+ * This helper is used for feature gating in UI code paths where needed.
+ * It currently returns false on iOS and true on web/Android.
  */
 export function supportsNIP46(): boolean {
-  // iOS does not support NIP-46 due to app store restrictions
-  // Web and Android support NIP-46
+  // UI feature-gate helper: false on iOS, true on web/Android.
   return !isIOS();
 }
 
