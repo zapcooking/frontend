@@ -13,13 +13,13 @@ import {
 	type Kitchen,
 	type KitchenFormData,
 	type ImplicitKitchen,
-	type KitchenDisplay
+	type KitchenDisplay,
+	type KitchenMemberTier
 } from './types';
 import { MARKETPLACE_RELAYS } from './products';
 import { addClientTagToEvent } from '$lib/nip89';
 import { profileCacheManager } from '$lib/profileCache';
 import { getMembership } from '$lib/stores/membershipStatus';
-import type { MembershipTier } from '$lib/membershipStore';
 import { SUPPORTED_CURRENCIES, type CurrencyCode } from '$lib/currencyStore';
 
 // NIP-85 Trusted Assertions — service relay for trust rank lookups
@@ -770,12 +770,11 @@ export async function fetchAllKitchenDisplays(
 	const allSellerPubkeys = qualifiedDisplays.map((d) => d.pubkey);
 	try {
 		const membershipStatuses = await getMembership(allSellerPubkeys);
-		type ValidSellerTier = 'member' | 'cook_plus' | 'pro_kitchen' | 'founders';
-		const validTiers: ValidSellerTier[] = ['member', 'cook_plus', 'pro_kitchen', 'founders'];
+		const validTiers: KitchenMemberTier[] = ['member', 'cook_plus', 'pro_kitchen', 'founders'];
 		for (const d of qualifiedDisplays) {
 			const status = membershipStatuses[d.pubkey];
-			if (status?.active && validTiers.includes(status.tier as ValidSellerTier)) {
-				d.memberTier = status.tier as MembershipTier;
+			if (status?.active && validTiers.includes(status.tier as KitchenMemberTier)) {
+				d.memberTier = status.tier as KitchenMemberTier;
 			}
 		}
 	} catch (e) {
