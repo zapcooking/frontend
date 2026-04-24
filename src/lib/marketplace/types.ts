@@ -5,8 +5,13 @@
  */
 
 import type { NDKEvent } from '@nostr-dev-kit/ndk';
-import type { MembershipTier } from '$lib/membershipStore';
 import type { CurrencyCode } from '$lib/currencyStore';
+
+// Seller-grade tiers actually stored on a KitchenDisplay. Narrower than
+// both $lib/membershipStore.MembershipTier (has 'open', which never
+// makes sense for a seller badge) and $lib/stores/membershipStatus
+// .MembershipTier ('unknown' is filtered out before assignment).
+export type KitchenMemberTier = 'member' | 'cook_plus' | 'pro_kitchen' | 'founders';
 
 // Commerce state enum lives here (instead of commerceState.ts) so that the
 // Product / ProductFormData types can reference it without creating a module
@@ -154,7 +159,7 @@ export interface Kitchen {
 	defaultCurrency?: CurrencyCode; // Default currency for new products in this store
 	productCount?: number; // computed client-side
 	trustRank?: number; // NIP-85 trust score 0-100 (computed)
-	memberTier?: MembershipTier; // zap.cooking membership tier
+	memberTier?: KitchenMemberTier; // zap.cooking membership tier
 	createdAt: number;
 	event: NDKEvent;
 }
@@ -181,7 +186,7 @@ export interface ImplicitKitchen {
 	defaultCurrency?: CurrencyCode;
 	productCount: number;
 	trustRank?: number; // NIP-85 trust score 0-100 (computed)
-	memberTier?: MembershipTier; // zap.cooking membership tier
+	memberTier?: KitchenMemberTier; // zap.cooking membership tier
 	isImplicit: true;
 }
 
