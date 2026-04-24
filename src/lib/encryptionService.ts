@@ -215,8 +215,8 @@ export async function getEncryptionMethod(): Promise<EncryptionMethod> {
       return 'nip44'; // Prefer NIP-44 for private key signers
     }
 
-    // NDK exposes encrypt/decrypt on its signer interface — prefer
-    // NIP-44 when the signer advertises nip04-only legacy support.
+    // NDK exposes encrypt/decrypt on its signer interface — use
+    // NIP-04 for signers that only advertise this legacy support.
     if (typeof signer.encrypt === 'function') {
       return 'nip04';
     }
