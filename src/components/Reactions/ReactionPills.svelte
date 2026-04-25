@@ -110,7 +110,7 @@
 
 {#if $store.reactions.groups.length > 0}
   <div class="flex flex-wrap gap-1 mb-2">
-    {#each visibleGroups as group}
+    {#each visibleGroups as group (group.emoji)}
       <button
         type="button"
         class="flex items-center gap-1 h-6 px-1.5 rounded-full border text-sm transition-colors cursor-pointer {group.userReacted
