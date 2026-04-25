@@ -5,7 +5,6 @@
   import NoteActionBar from './NoteActionBar.svelte';
   import ShareModal from './ShareModal.svelte';
   import BookmarkSimpleIcon from 'phosphor-svelte/lib/BookmarkSimple';
-  import ChatTeardropTextIcon from 'phosphor-svelte/lib/ChatTeardropText';
   import ShareIcon from 'phosphor-svelte/lib/Share';
   import { lazyLoad } from '$lib/lazyLoad';
   import { getImageOrPlaceholder } from '$lib/placeholderImages';
@@ -63,23 +62,6 @@
     }
   }
 
-  // Comments link target — the generic NIP-19 viewer at /<naddr>
-  // already supports NIP-22 comments for any addressable kind. Handle
-  // both relative ("/pack/<naddr>") and absolute ("https://…/pack/<naddr>")
-  // viewUrls that callers may pass.
-  $: commentsHref = (() => {
-    if (!viewUrl) return '';
-    try {
-      // Absolute URL — derive the local path then swap /pack/ → /
-      if (viewUrl.startsWith('http')) {
-        const path = new URL(viewUrl).pathname;
-        return path.replace(/^\/pack\//, '/');
-      }
-    } catch {
-      /* fall through */
-    }
-    return viewUrl.replace(/^\/pack\//, '/');
-  })();
 </script>
 
 <article
@@ -180,30 +162,18 @@
          comment link to the generic NIP-19 viewer (which does support
          NIP-22 comments for kind 30004). -->
     {#if !preview && event}
-      <!-- Social action row.
-           Left:  reactions/repost/zap from NoteActionBar.
-           Right: comments + share — these were "View Pack →" before but
-           the image/title click already opens the pack, so the space is
-           better used for actions. Bookmark lives in the cover top-right
-           (matches recipe-card design). -->
+      <!-- Social action row — same icon set and order as recipes:
+             reactions · comments · repost · zap   |   share
+           Bookmark lives in the cover top-right (matches recipe-card
+           design language). -->
       <div
         class="flex items-center justify-between gap-1 pt-1 border-t -mx-3 sm:-mx-4 px-3 sm:px-4 mt-1"
         style="border-color: var(--color-input-border);"
       >
         <div class="pt-2 flex items-center gap-1 flex-wrap">
-          <NoteActionBar {event} variant="default" showComments={false} />
+          <NoteActionBar {event} variant="default" />
         </div>
         <div class="pt-2 flex items-center gap-1">
-          {#if commentsHref}
-            <a
-              href={commentsHref}
-              class="flex items-center gap-1 px-1.5 py-1 rounded text-caption hover:bg-accent-gray transition-colors"
-              title="Open comments"
-              aria-label="Open comments"
-            >
-              <ChatTeardropTextIcon size={20} />
-            </a>
-          {/if}
           <button
             type="button"
             on:click={() => (shareModalOpen = true)}
