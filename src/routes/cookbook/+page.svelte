@@ -99,23 +99,45 @@
     { value: 'az', label: SORT_LABELS['az'] }
   ];
 
-  // Hydrate from URL once on mount; thereafter we drive URL from state.
-  let hydrated = false;
-  $: if (!hydrated && typeof window !== 'undefined') {
-    const params = $page.url.searchParams;
+  // ----- URL ↔ state sync -----
+  //
+  // We hydrate state from $page.url.searchParams whenever the URL
+  // changes (back/forward, deep link, programmatic goto). Writes are
+  // only triggered by the explicit setters, which avoids the
+  // hydrate-then-overwrite-with-stale-state loop you'd get with a
+  // catch-all reactive sync.
+  //
+  // Internal flow: setX → state changes → syncUrl() → goto() →
+  // $page.url updates → hydrate sees URL matches state → no-op.
+
+  function readParams(params: URLSearchParams): {
+    view: ViewMode;
+    sort: SortMode;
+    collection: 'all' | string;
+  } {
     const v = params.get('view');
-    // Accept legacy 'grid' alias for the renamed 'packs' value.
-    if (v === 'feed') viewMode = 'feed';
-    else if (v === 'packs' || v === 'grid') viewMode = 'packs';
+    let view: ViewMode = 'packs';
+    if (v === 'feed') view = 'feed';
+    else if (v === 'packs' || v === 'grid') view = 'packs'; // legacy 'grid' alias
     const s = params.get('sort');
-    if (s === 'recent-added' || s === 'recent-updated' || s === 'az') sortMode = s;
+    const sort: SortMode =
+      s === 'recent-added' || s === 'recent-updated' || s === 'az' ? s : 'recent-added';
     const c = params.get('collection');
-    if (c) collectionFilter = c;
-    hydrated = true;
+    const collection = c || 'all';
+    return { view, sort, collection };
+  }
+
+  // Re-hydrate from URL on every $page change. Idempotent — updates
+  // local state only when URL values disagree with current state.
+  $: if (typeof window !== 'undefined') {
+    const next = readParams($page.url.searchParams);
+    if (next.view !== viewMode) viewMode = next.view;
+    if (next.sort !== sortMode) sortMode = next.sort;
+    if (next.collection !== collectionFilter) collectionFilter = next.collection;
   }
 
   function syncUrl() {
-    if (typeof window === 'undefined' || !hydrated) return;
+    if (typeof window === 'undefined') return;
     const url = new URL(window.location.href);
     if (viewMode === 'packs') url.searchParams.delete('view');
     else url.searchParams.set('view', viewMode);
@@ -128,24 +150,19 @@
     goto(target, { replaceState: true, keepFocus: true, noScroll: true });
   }
 
-  $: if (hydrated) {
-    // Touch the inputs to force reactivity
-    void viewMode;
-    void sortMode;
-    void collectionFilter;
-    syncUrl();
-  }
-
   function setView(v: ViewMode) {
     viewMode = v;
+    syncUrl();
   }
   function setSort(s: SortMode) {
     sortMode = s;
     sortMenuOpen = false;
+    syncUrl();
   }
   function setCollectionFilter(c: 'all' | string) {
     collectionFilter = c;
     filterMenuOpen = false;
+    syncUrl();
   }
 
   // Pull-to-refresh ref
@@ -733,10 +750,24 @@
     }
   }
 
-  // Trigger fetch when feed becomes active or the underlying recipe set changes
+  // Cheap signature for the underlying cookbook state. We use this
+  // instead of `filteredATags.join(',')` so the change detector stays
+  // O(number of lists) instead of O(number of recipes) — a join over
+  // hundreds of saved a-tags reallocates a multi-KB string on every
+  // reactive run. Folding list count + per-list size + per-list update
+  // time covers add/remove/reassign without the allocation cost.
+  $: cookbookSignature =
+    $cookbookLists.length +
+    ':' +
+    $cookbookLists.reduce(
+      (acc, l) => acc + l.recipes.length * 31 + (l.event?.created_at || 0),
+      0
+    );
+
+  // Trigger fetch when feed becomes active or the underlying recipe set changes.
   let lastFeedKey = '';
   $: {
-    const key = viewMode === 'feed' ? `${collectionFilter}:${filteredATags.join(',')}` : '';
+    const key = viewMode === 'feed' ? `${collectionFilter}:${cookbookSignature}` : '';
     if (viewMode === 'feed' && key !== lastFeedKey) {
       lastFeedKey = key;
       feedLoaded = false;

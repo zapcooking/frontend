@@ -6,6 +6,7 @@
   import { NDKEvent } from '@nostr-dev-kit/ndk';
   import { nip19 } from 'nostr-tools';
   import { get } from 'svelte/store';
+  import { onMount } from 'svelte';
 
   import PanLoader from '../../../components/PanLoader.svelte';
   import NoteActionBar from '../../../components/NoteActionBar.svelte';
@@ -213,9 +214,10 @@
         return;
       }
 
-      // Cache recipes for offline use as we go
+      // Cache recipes for offline use as we go.
+      // Reassign importProgress (don't mutate in place) so Svelte re-renders the label.
       for (let i = 0; i < recipeEvents.length; i++) {
-        importProgress.current = i + 1;
+        importProgress = { current: i + 1, total: recipeEvents.length };
         try {
           await offlineStorage.saveRecipeFromEvent(recipeEvents[i]);
         } catch {}
@@ -242,9 +244,29 @@
     }
   }
 
+  // Subscribe to the store so we know when it's been hydrated from
+  // Nostr/IndexedDB. Without this, `allSaved` would compute against an
+  // empty list and the "Save Pack" CTA could mislead users who already
+  // have these recipes.
+  $: cookbookInitialized = $cookbookStore.initialized;
+
+  // Trigger a load on mount when logged in so allSaved reflects reality
+  // before the user has to click anything.
+  onMount(() => {
+    if (browser && $userPublickey && !get(cookbookStore).initialized) {
+      cookbookStore.load();
+    }
+  });
+
+  // Re-check if the user logs in after the page is already mounted.
+  $: if (browser && $userPublickey && !cookbookInitialized) {
+    cookbookStore.load();
+  }
+
   // Did the user already save every recipe in this pack?
   $: allSaved = (() => {
     if (!$userPublickey || aTags.length === 0) return false;
+    if (!cookbookInitialized) return false;
     const allTags = new Set<string>();
     for (const list of $cookbookLists) {
       for (const r of list.recipes) allTags.add(r);
