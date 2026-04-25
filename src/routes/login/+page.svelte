@@ -12,7 +12,6 @@
   import { nip19 } from 'nostr-tools';
   import { createAuthManager, type AuthState } from '$lib/authManager';
   import { onMount, onDestroy } from 'svelte';
-  import { DEFAULT_PROFILE_IMAGE } from '$lib/consts';
   import { platformIsIOS } from '$lib/platform';
   import LoginFormIOS from '../../components/LoginFormIOS.svelte';
   import SuggestedFollowsModal from '../../components/SuggestedFollowsModal.svelte';
