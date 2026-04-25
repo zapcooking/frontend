@@ -32,23 +32,36 @@ export interface RecipePreview {
 	image?: string;
 }
 
+interface RelayFilter {
+	kinds?: number[];
+	authors?: string[];
+	'#d'?: string[];
+	[k: string]: unknown;
+}
+
 /**
- * One-shot raw-WebSocket fetch for a single replaceable event (kind +
- * pubkey + d-tag). Returns the matching event JSON or null on
- * timeout / failure / EOSE-without-event.
+ * One-shot raw-WebSocket fetch for an event matching `filter` from a
+ * single relay. Returns the matching event JSON or null on timeout /
+ * EOSE-without-event / failure.
+ *
+ * Accepts an AbortSignal so a parent race can cancel pending fetches
+ * once a winner has resolved — without that, every relay fetch would
+ * hold its socket open until its own timeout fired.
  */
 function fetchEventFromRelay(
 	relayUrl: string,
-	filter: { kinds: number[]; authors: string[]; '#d': string[] }
+	filter: RelayFilter,
+	signal?: AbortSignal
 ): Promise<any | null> {
 	if (typeof WebSocket === 'undefined') return Promise.resolve(null);
+	if (signal?.aborted) return Promise.resolve(null);
 
 	return new Promise((resolve) => {
 		let ws: WebSocket | null = null;
 		let resolved = false;
 
 		const cleanup = () => {
-			if (ws && ws.readyState === WebSocket.OPEN) {
+			if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
 				try {
 					ws.close();
 				} catch {
@@ -60,8 +73,13 @@ function fetchEventFromRelay(
 			if (resolved) return;
 			resolved = true;
 			cleanup();
+			signal?.removeEventListener('abort', onAbort);
 			resolve(value);
 		};
+
+		const onAbort = () => safeResolve(null);
+		signal?.addEventListener('abort', onAbort, { once: true });
+
 		const timeout = setTimeout(() => safeResolve(null), FETCH_TIMEOUT_MS);
 
 		try {
@@ -111,15 +129,43 @@ function fetchEventFromRelay(
 	});
 }
 
-/** Fetch the same filter against multiple relays in parallel; return the first hit. */
-async function raceRelays(filter: {
-	kinds: number[];
-	authors: string[];
-	'#d': string[];
-}): Promise<any | null> {
+/**
+ * True first-non-null race across relays: spawn all in parallel, take
+ * the first one that produces a non-null result, abort the rest. If
+ * every relay returns null, the overall result is null.
+ *
+ * Uses a single AbortController so winning settles all pending fetches
+ * immediately — no zombie sockets waiting on FETCH_TIMEOUT_MS.
+ */
+async function raceRelays(filter: RelayFilter): Promise<any | null> {
 	if (typeof WebSocket === 'undefined') return null;
-	const results = await Promise.all(RELAYS.map((r) => fetchEventFromRelay(r, filter)));
-	return results.find((r) => r !== null) || null;
+	const controller = new AbortController();
+	return new Promise((resolve) => {
+		let pending = RELAYS.length;
+		let settled = false;
+
+		const finish = (value: any | null) => {
+			if (settled) return;
+			settled = true;
+			controller.abort();
+			resolve(value);
+		};
+
+		for (const url of RELAYS) {
+			fetchEventFromRelay(url, filter, controller.signal).then(
+				(result) => {
+					if (result !== null) {
+						finish(result);
+					} else if (--pending === 0) {
+						finish(null);
+					}
+				},
+				() => {
+					if (--pending === 0) finish(null);
+				}
+			);
+		}
+	});
 }
 
 /**
@@ -183,73 +229,14 @@ export async function fetchRecipePreviews(
 
 /**
  * Fetch a NIP-01 kind:0 metadata event for a pubkey to resolve display
- * name / picture for the OG card. Returns the parsed metadata object
- * or an empty object on failure.
+ * name / picture for the OG card. Reuses raceRelays so losing relay
+ * sockets get closed as soon as a winner resolves.
  */
 export async function fetchProfileMetadata(
 	pubkey: string
 ): Promise<{ name?: string; display_name?: string; picture?: string }> {
 	if (typeof WebSocket === 'undefined') return {};
-	// NIP-01 kind 0 is non-replaceable but unique per pubkey — fetch by pubkey + kind only.
-	const filter = { kinds: [0], authors: [pubkey] } as any;
-	const evt = await Promise.race(
-		RELAYS.map(
-			(r) =>
-				new Promise<any | null>((resolve) => {
-					let ws: WebSocket | null = null;
-					let resolved = false;
-					const safe = (v: any | null) => {
-						if (resolved) return;
-						resolved = true;
-						try {
-							ws?.close();
-						} catch {
-							/* ignore */
-						}
-						resolve(v);
-					};
-					const t = setTimeout(() => safe(null), FETCH_TIMEOUT_MS);
-					try {
-						ws = new WebSocket(r);
-					} catch {
-						clearTimeout(t);
-						safe(null);
-						return;
-					}
-					const subId = `og-p-${Date.now()}`;
-					ws.onopen = () => {
-						try {
-							ws?.send(JSON.stringify(['REQ', subId, { ...filter, limit: 1 }]));
-						} catch {
-							clearTimeout(t);
-							safe(null);
-						}
-					};
-					ws.onmessage = (m) => {
-						try {
-							const msg = JSON.parse((m as MessageEvent).data);
-							if (msg[0] === 'EVENT' && msg[1] === subId && msg[2]) {
-								clearTimeout(t);
-								safe(msg[2]);
-							} else if (msg[0] === 'EOSE' && msg[1] === subId) {
-								clearTimeout(t);
-								safe(null);
-							}
-						} catch {
-							/* ignore */
-						}
-					};
-					ws.onerror = () => {
-						clearTimeout(t);
-						safe(null);
-					};
-					ws.onclose = () => {
-						clearTimeout(t);
-						if (!resolved) safe(null);
-					};
-				})
-		)
-	);
+	const evt = await raceRelays({ kinds: [0], authors: [pubkey] });
 	if (!evt?.content) return {};
 	try {
 		const parsed = JSON.parse(evt.content);

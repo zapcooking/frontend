@@ -18,7 +18,6 @@ const TRACKING_PARAMS = [
 
 const FALLBACK_TITLE = 'Recipe Pack on Zap Cooking';
 const FALLBACK_DESCRIPTION = 'A zappable recipe collection curated on Zap Cooking.';
-const FALLBACK_IMAGE = 'https://zap.cooking/social-share.png';
 
 interface PackOgMeta {
 	title: string;

@@ -117,7 +117,6 @@ function renderCard(model: CardModel): string {
 	// Left column (text): x=64, width=720 (about 60% of canvas)
 	// Right column (cover): x=816, width=320, height=420 — vertical card
 	const TEXT_X = 64;
-	const TEXT_RIGHT_LIMIT = 760; // leave room before cover area
 
 	// Title baseline starts mid-card
 	let cursorY = 280;
