@@ -63,11 +63,17 @@
   const ogImage = `${siteUrl}/social-share.png`;
   $: canonical = `${siteUrl}${$page.url.pathname === '/' ? '' : $page.url.pathname}`;
 
-  // Skip layout OG tags on pages that set their own (recipe pages, note pages)
+  // Skip layout OG tags on pages that set their own (recipe pages, note pages,
+  // pack pages). When a page provides custom OG tags AND the layout also
+  // emits its generic ones, scrapers see two `og:title` etc. and most pick
+  // the first occurrence — which would be the layout's generic tags. Adding
+  // a path here ensures the page's own SSR OG meta is the only set scrapers
+  // see.
   $: pathSegment = $page.url.pathname.split('/')[1] || '';
   $: hasCustomOgTags =
     $page.url.pathname.startsWith('/recipe/') ||
     $page.url.pathname.startsWith('/r/') ||
+    $page.url.pathname.startsWith('/pack/') ||
     pathSegment.startsWith('note1') ||
     pathSegment.startsWith('nevent1');
 
