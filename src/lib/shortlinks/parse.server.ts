@@ -37,6 +37,12 @@ export function parseUrlOrNaddr(input: string): { naddr: string; type: ShortLink
     if (readsMatch && (origin.includes('zap.cooking') || ZAP_ORIGIN_ALT.test(u.href))) {
       return { naddr: readsMatch[1], type: 'article' };
     }
+
+    // /pack/naddr1... → recipe pack
+    const packMatch = path.match(/^\/pack\/(naddr1[a-zA-Z0-9]+)/);
+    if (packMatch && (origin.includes('zap.cooking') || ZAP_ORIGIN_ALT.test(u.href))) {
+      return { naddr: packMatch[1], type: 'pack' };
+    }
   } catch {
     // not a valid URL
   }
@@ -48,5 +54,7 @@ export function parseUrlOrNaddr(input: string): { naddr: string; type: ShortLink
  * Build redirect path from stored naddr and type.
  */
 export function redirectPath(naddr: string, type: ShortLinkType): string {
-  return type === 'article' ? `/reads/${naddr}` : `/r/${naddr}`;
+  if (type === 'article') return `/reads/${naddr}`;
+  if (type === 'pack') return `/pack/${naddr}`;
+  return `/r/${naddr}`;
 }

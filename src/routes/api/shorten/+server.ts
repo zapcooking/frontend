@@ -13,7 +13,19 @@ import { parseUrlOrNaddr } from '$lib/shortlinks/parse.server';
 
 const SITE_ORIGIN = 'https://zap.cooking';
 const MAX_CUSTOM_SLUG_LENGTH = 20;
-const RESERVED_CODES = new Set(['info', 'api', 's', 'r', 'reads', 'create', 'about', 'login', 'settings']);
+const RESERVED_CODES = new Set([
+  'info',
+  'api',
+  's',
+  'r',
+  'reads',
+  'pack',
+  'packs',
+  'create',
+  'about',
+  'login',
+  'settings'
+]);
 
 function getShortUrl(code: string): string {
   return `${SITE_ORIGIN}/s/${code}`;
@@ -25,7 +37,12 @@ export const POST: RequestHandler = async ({ request, platform }) => {
     return json({ success: false, error: 'Short links are not configured' }, { status: 503 });
   }
 
-  let body: { url?: string; type?: 'recipe' | 'article'; customSlug?: string; createdBy?: string };
+  let body: {
+    url?: string;
+    type?: 'recipe' | 'article' | 'pack';
+    customSlug?: string;
+    createdBy?: string;
+  };
   try {
     body = await request.json();
   } catch {
@@ -39,7 +56,13 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 
   const parsed = parseUrlOrNaddr(rawUrl);
   if (!parsed) {
-    return json({ success: false, error: 'Invalid URL or naddr: use a zap.cooking /r/ or /reads/ link, or a raw naddr' }, { status: 400 });
+    return json(
+      {
+        success: false,
+        error: 'Invalid URL or naddr: use a zap.cooking /r/, /reads/, or /pack/ link, or a raw naddr'
+      },
+      { status: 400 }
+    );
   }
 
   const { naddr, type } = parsed;
