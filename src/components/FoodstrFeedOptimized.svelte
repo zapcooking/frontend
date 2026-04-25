@@ -5048,7 +5048,7 @@
               {@const reposterPubkey = getRepostedBy(event) || ''}
               <a
                 href="/user/{nip19.npubEncode(reposterPubkey)}"
-                class="flex items-center gap-1.5 text-xs mb-1.5 px-2 sm:px-0 hover:opacity-80 transition-opacity"
+                class="flex items-center gap-1.5 text-xs mb-3 px-2 sm:px-0 hover:opacity-80 transition-opacity"
                 style="color: var(--color-caption)"
                 on:click|stopPropagation
               >
