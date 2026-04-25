@@ -24,26 +24,36 @@
   export let allowOverflow = false;
   export let compact = false;
 
-  // Portal target - render at document body level
-  let portalTarget: HTMLElement;
+  // Portal target - render at document body level. Initialized
+  // synchronously when document is available so the dialog can mount
+  // on the same tick the parent flips `open` to true; otherwise the
+  // initial-focus pass below would race the dialog's bind:this.
+  let portalTarget: HTMLElement | null =
+    typeof document !== 'undefined' ? document.body : null;
   let dialogEl: HTMLDialogElement | null = null;
   let previousActiveElement: HTMLElement | null = null;
   let lastOpen = false;
+  let pendingInitialFocus = false;
 
   onMount(() => {
-    portalTarget = document.body;
+    // Re-set in case the component was script-initialized before
+    // document was ready (e.g., SSR rehydrate). No-op when already set.
+    if (!portalTarget && typeof document !== 'undefined') {
+      portalTarget = document.body;
+    }
   });
 
-  // Find focusable descendants of the dialog. Hidden, disabled, or
-  // aria-hidden elements are excluded. Order matches DOM order.
+  // Find focusable descendants of the dialog. Disabled and explicitly
+  // aria-hidden="true" elements are excluded; visibility is checked via
+  // getClientRects() so we don't drop position:fixed children
+  // (offsetParent is null for those). Order matches DOM order.
   function getFocusable(): HTMLElement[] {
     if (!dialogEl) return [];
     const selector =
       'a[href], area[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
     return Array.from(dialogEl.querySelectorAll<HTMLElement>(selector)).filter((el) => {
-      if (el.hasAttribute('aria-hidden')) return false;
-      // offsetParent is null for display:none subtrees; visibility:hidden also reports null.
-      return el.offsetParent !== null || el === document.activeElement;
+      if (el.getAttribute('aria-hidden') === 'true') return false;
+      return el.getClientRects().length > 0 || el === document.activeElement;
     });
   }
 
@@ -75,28 +85,41 @@
   }
 
   // Open/close lifecycle: manage focus capture+restore + keydown listener.
+  // Actual initial focus runs in the second reactive block below, gated
+  // on dialogEl being bound — bind:this fires after the {#if} renders
+  // the dialog, which can trail this block by a tick on first open.
   $: if (typeof window !== 'undefined' && open !== lastOpen) {
     lastOpen = open;
     if (open) {
       previousActiveElement = (document.activeElement as HTMLElement) || null;
       window.addEventListener('keydown', handleKeydown);
-      // Defer initial focus so the dialog has mounted and transitions started.
-      tick().then(() => {
-        const focusable = getFocusable();
-        if (focusable.length > 0) {
-          focusable[0].focus();
-        } else {
-          dialogEl?.focus();
-        }
-      });
+      pendingInitialFocus = true;
     } else {
       window.removeEventListener('keydown', handleKeydown);
+      pendingInitialFocus = false;
       // Return focus to whatever opened the modal.
       if (previousActiveElement && typeof previousActiveElement.focus === 'function') {
         previousActiveElement.focus();
       }
       previousActiveElement = null;
     }
+  }
+
+  // Run the initial focus pass once the dialog is actually in the DOM.
+  // This handles the case where `open` is already true on mount AND
+  // the case where `open` flips true after the dialog has long been
+  // bound — the pendingInitialFocus flag carries the intent across
+  // the gap.
+  $: if (pendingInitialFocus && dialogEl) {
+    pendingInitialFocus = false;
+    tick().then(() => {
+      const focusable = getFocusable();
+      if (focusable.length > 0) {
+        focusable[0].focus();
+      } else {
+        dialogEl?.focus();
+      }
+    });
   }
 
   onDestroy(() => {

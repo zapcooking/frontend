@@ -18,16 +18,6 @@
   import { nip19 } from 'nostr-tools';
   import { createAuthManager, type AuthState } from '$lib/authManager';
   import { onMount, onDestroy } from 'svelte';
-  import { theme } from '$lib/themeStore';
-
-  // Dark mode detection for logo
-  $: resolvedTheme =
-    $theme === 'system'
-      ? browser && window.matchMedia('(prefers-color-scheme: dark)').matches
-        ? 'dark'
-        : 'light'
-      : $theme;
-  $: isDarkMode = resolvedTheme === 'dark';
 
   let authManager: any = null;
   let authState: AuthState = {
@@ -836,12 +826,7 @@
 
   <div class="ios-signin-wrap">
     <div class="signin-scrim" aria-hidden="true"></div>
-    <section
-      class="signin-card"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="ios-signin-title"
-    >
+    <section class="signin-card" aria-labelledby="ios-signin-title">
       <p class="signin-eyebrow">Welcome to</p>
       <h1 id="ios-signin-title" class="signin-wordmark">
         <img src="/zap_cooking_logo_white.svg" alt="Zap Cooking" />
@@ -968,12 +953,22 @@
     padding: 1.5rem 1rem;
     padding-top: max(2.5rem, env(safe-area-inset-top));
     padding-bottom: max(1.5rem, env(safe-area-inset-bottom));
+
+    --signin-ink: #0b0e14;
+    --signin-surface: #13171f;
+    --signin-elevated: #1b202b;
+    --signin-line: #262c3a;
+    --signin-flame: #f7931a;
+    --signin-ember: #ff5f1f;
+    --signin-cream: #f5ebdd;
+    --signin-wheat: #c5b8a3;
+    --signin-mute: #7e8597;
   }
 
   .signin-scrim {
     position: absolute;
     inset: 0;
-    background: rgba(11, 14, 20, 0.85);
+    background: color-mix(in srgb, var(--signin-ink) 85%, transparent);
     backdrop-filter: blur(14px);
     -webkit-backdrop-filter: blur(14px);
     z-index: -1;
@@ -983,8 +978,8 @@
     position: relative;
     width: 100%;
     max-width: 440px;
-    background: #13171f;
-    border: 1px solid #262c3a;
+    background: var(--signin-surface);
+    border: 1px solid var(--signin-line);
     border-radius: 24px;
     padding: 2.25rem 1.75rem 1.5rem;
     box-shadow:
@@ -992,7 +987,7 @@
       0 24px 64px rgba(0, 0, 0, 0.55),
       0 4px 12px rgba(247, 147, 26, 0.06);
     text-align: center;
-    color: #f5ebdd;
+    color: var(--signin-cream);
     font-family: 'Albert Sans', 'Inter', system-ui, -apple-system, sans-serif;
     animation: signinRise 320ms cubic-bezier(0.2, 0.8, 0.25, 1) both;
   }
@@ -1007,7 +1002,7 @@
     font-weight: 500;
     letter-spacing: 0.18em;
     text-transform: uppercase;
-    color: #7e8597;
+    color: var(--signin-mute);
     margin: 0 0 0.5rem;
   }
 
@@ -1023,7 +1018,7 @@
   .signin-tagline {
     font-size: 0.9375rem;
     font-weight: 400;
-    color: #c5b8a3;
+    color: var(--signin-wheat);
     margin: 0 0 1.75rem;
     line-height: 1.5;
   }
@@ -1033,7 +1028,7 @@
     height: 52px;
     border-radius: 14px;
     border: none;
-    background: linear-gradient(135deg, #f7931a 0%, #ff5f1f 100%);
+    background: linear-gradient(135deg, var(--signin-flame) 0%, var(--signin-ember) 100%);
     color: #fff8ec;
     font-family: inherit;
     font-weight: 600;
@@ -1046,13 +1041,13 @@
     padding: 0 1.25rem;
     box-shadow:
       0 1px 0 rgba(255, 255, 255, 0.18) inset,
-      0 8px 24px rgba(247, 147, 26, 0.36),
-      0 2px 6px rgba(255, 95, 31, 0.22);
+      0 8px 24px color-mix(in srgb, var(--signin-flame) 36%, transparent),
+      0 2px 6px color-mix(in srgb, var(--signin-ember) 22%, transparent);
     transition: transform 120ms ease, box-shadow 200ms ease, opacity 200ms ease;
   }
   .signin-cta-primary:hover:not(:disabled) { transform: translateY(-1px); }
   .signin-cta-primary:disabled { opacity: 0.55; cursor: not-allowed; }
-  .signin-cta-primary:focus-visible { outline: 2px solid #f5ebdd; outline-offset: 3px; }
+  .signin-cta-primary:focus-visible { outline: 2px solid var(--signin-cream); outline-offset: 3px; }
 
   .signin-icon { color: currentColor; flex-shrink: 0; }
 
@@ -1072,14 +1067,14 @@
     align-items: center;
     gap: 0.75rem;
     margin: 1.5rem 0 1rem;
-    color: #7e8597;
+    color: var(--signin-mute);
     font-size: 0.6875rem;
     font-weight: 500;
     text-transform: uppercase;
     letter-spacing: 0.16em;
   }
   .signin-divider::before, .signin-divider::after {
-    content: ''; flex: 1; height: 1px; background: #262c3a;
+    content: ''; flex: 1; height: 1px; background: var(--signin-line);
   }
 
   .signin-tiles {
@@ -1092,11 +1087,11 @@
   }
 
   .signin-tile {
-    background: #1b202b;
-    border: 1px solid #262c3a;
+    background: var(--signin-elevated);
+    border: 1px solid var(--signin-line);
     border-radius: 14px;
     padding: 0.875rem 0.5rem 0.75rem;
-    color: #f5ebdd;
+    color: var(--signin-cream);
     font-family: inherit;
     cursor: pointer;
     display: flex;
@@ -1108,39 +1103,39 @@
   }
   .signin-tile:hover:not(:disabled) {
     transform: translateY(-1px);
-    border-color: rgba(247, 147, 26, 0.5);
+    border-color: color-mix(in srgb, var(--signin-flame) 50%, transparent);
     background: #20262f;
   }
-  .signin-tile:focus-visible { outline: 2px solid #f7931a; outline-offset: 2px; }
+  .signin-tile:focus-visible { outline: 2px solid var(--signin-flame); outline-offset: 2px; }
   .signin-tile:disabled { opacity: 0.55; cursor: not-allowed; }
-  .signin-tile-icon { color: #f7931a; margin-bottom: 0.125rem; }
+  .signin-tile-icon { color: var(--signin-flame); margin-bottom: 0.125rem; }
   .signin-tile-title {
     font-size: 0.8125rem;
     font-weight: 600;
-    color: #f5ebdd;
+    color: var(--signin-cream);
     line-height: 1.2;
   }
   .signin-tile-sub {
     font-size: 0.6875rem;
     font-weight: 400;
-    color: #7e8597;
+    color: var(--signin-mute);
     line-height: 1.2;
   }
 
   .signin-footer {
     margin-top: 1.5rem;
     padding-top: 1rem;
-    border-top: 1px solid #262c3a;
+    border-top: 1px solid var(--signin-line);
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 0.75rem;
     font-size: 0.75rem;
-    color: #7e8597;
+    color: var(--signin-mute);
   }
   .signin-footer-tag { font-weight: 500; letter-spacing: 0.02em; }
   .signin-footer-links { display: inline-flex; align-items: center; gap: 0.4rem; }
-  .signin-footer a { color: #f7931a; text-decoration: none; }
+  .signin-footer a { color: var(--signin-flame); text-decoration: none; }
   .signin-footer a:hover { text-decoration: underline; }
 
   @media (max-width: 480px) {
