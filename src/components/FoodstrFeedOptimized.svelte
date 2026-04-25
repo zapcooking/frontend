@@ -35,8 +35,8 @@
   } from '$lib/mutableIntegration';
   import { formatDistanceToNow } from 'date-fns';
   import Avatar from './Avatar.svelte';
-  import type { NDKEvent, NDKSubscription } from '@nostr-dev-kit/ndk';
-  import { NDKSubscriptionCacheUsage } from '@nostr-dev-kit/ndk';
+  import type { NDKSubscription } from '@nostr-dev-kit/ndk';
+  import { NDKEvent, NDKSubscriptionCacheUsage } from '@nostr-dev-kit/ndk';
   import NoteTotalLikes from './NoteTotalLikes.svelte';
   import NoteReactionPills from './NoteReactionPills.svelte';
   import NoteTotalComments from './NoteTotalComments.svelte';
@@ -1147,6 +1147,15 @@
   }
 
   function _shouldIncludeEventUncached(event: NDKEvent): boolean {
+    // For NIP-18 reposts (kind 6), inclusion decisions need to be made against the
+    // underlying note (food content, mutes on original author, etc.). If we can't
+    // expand the inner event, drop the repost.
+    if (event.kind === 6) {
+      const inner = expandRepostEvent(event);
+      if (!inner) return false;
+      return _shouldIncludeEventUncached(inner);
+    }
+
     // Check muted users (both public and private lists)
     if ($userPublickey && $muteListStore.muteList) {
       const authorKey = event.author?.hexpubkey || event.pubkey;
@@ -1550,7 +1559,7 @@
   // This is a discovery function that benefits from temporary relay connections
   async function fetchNotesWithoutHashtags(sinceTimestamp: number): Promise<NDKEvent[]> {
     const filter = {
-      kinds: [1, 1068],
+      kinds: [1, 6, 1068],
       limit: 300, // Increased limit for better discovery
       since: sinceTimestamp
     };
@@ -1606,6 +1615,47 @@
     }
   }
 
+  // Returns the pubkey of the user who reposted this event, if it's a repost.
+  function getRepostedBy(event: NDKEvent): string | null {
+    return (event as any)._repostedBy || null;
+  }
+
+  // Build a minimal event-shaped object for components that only need a pubkey
+  // (e.g. AuthorName for the "Reposted by" header).
+  function makePubkeyEvent(pubkey: string): NDKEvent {
+    return { pubkey, tags: [] } as unknown as NDKEvent;
+  }
+
+  // Expand a NIP-18 kind 6 repost into its underlying kind 1/1068 event,
+  // carrying repost metadata so the feed can render a "Reposted by" header.
+  // Returns null if the inner event can't be parsed.
+  function expandRepostEvent(event: NDKEvent): NDKEvent | null {
+    if (event.kind !== 6) return event;
+    try {
+      const inner = JSON.parse(event.content || '');
+      if (!inner || typeof inner !== 'object' || !inner.id) return null;
+      if (inner.kind !== 1 && inner.kind !== 1068) return null;
+
+      const innerEvent = new NDKEvent($ndk, inner);
+      // Copy across any tags / id explicitly so downstream code sees a fully-formed event
+      innerEvent.id = inner.id;
+      innerEvent.pubkey = inner.pubkey;
+      innerEvent.kind = inner.kind;
+      innerEvent.content = inner.content || '';
+      innerEvent.tags = Array.isArray(inner.tags) ? inner.tags : [];
+      innerEvent.created_at = inner.created_at;
+      innerEvent.sig = inner.sig;
+
+      // Carry repost metadata (used for the "Reposted by" header and ordering)
+      (innerEvent as any)._repostedBy = event.pubkey;
+      (innerEvent as any)._repostId = event.id;
+      (innerEvent as any)._repostCreatedAt = event.created_at;
+      return innerEvent;
+    } catch {
+      return null;
+    }
+  }
+
   function dedupeAndSort(eventList: NDKEvent[]): NDKEvent[] {
     // Dedup *within the input* via a local set. The previous implementation
     // consulted module-level seenEventIds, which wiped the feed for callers
@@ -1617,14 +1667,21 @@
     const seen = new Set<string>();
     const unique: NDKEvent[] = [];
 
-    for (const event of eventList) {
-      if (!event.id || seen.has(event.id)) continue;
+    for (const raw of eventList) {
+      const event = raw.kind === 6 ? expandRepostEvent(raw) : raw;
+      if (!event || !event.id || seen.has(event.id)) continue;
       seen.add(event.id);
       seenEventIds.add(event.id);
       unique.push(event);
     }
 
-    return unique.sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
+    // Sort by repost time when present (so a reposted note surfaces with the repost),
+    // otherwise by the event's own created_at.
+    return unique.sort((a, b) => {
+      const aTime = (a as any)._repostCreatedAt || a.created_at || 0;
+      const bTime = (b as any)._repostCreatedAt || b.created_at || 0;
+      return bTime - aTime;
+    });
   }
 
   // ═══════════════════════════════════════════════════════════════
@@ -1676,7 +1733,7 @@
 
         // Build filter for cache lookup
         const cacheFilter: any = {
-          kinds: [1, 1068],
+          kinds: [1, 6, 1068],
           since: timeWindow.since,
           limit: 50
         };
@@ -1711,9 +1768,11 @@
 
           if (validCached.length > 0) {
             console.log(`[Feed] Cache hit: ${validCached.length} events (instant paint)`);
-            validCached.forEach((e) => seenEventIds.add(e.id));
-            events = validCached;
-            lastEventTime = Math.max(...events.map((e) => e.created_at || 0));
+            // dedupeAndSort handles kind 6 expansion + tracks seenEventIds
+            events = dedupeAndSort(validCached);
+            lastEventTime = Math.max(
+              ...events.map((e) => (e as any)._repostCreatedAt || e.created_at || 0)
+            );
             loading = false;
             error = false;
 
@@ -1862,7 +1921,7 @@
         // Start outbox fetch concurrently
         const outboxOptions: any = {
           since: timeWindow.since,
-          kinds: [1, 1068],
+          kinds: [1, 6, 1068],
           limit: foodFilterEnabled ? 200 : 300,
           timeoutMs: 5000,
           maxRelays: 10
@@ -1998,7 +2057,7 @@
         // Start outbox fetch concurrently
         const repliesOutboxOptions: any = {
           since: timeWindow.since,
-          kinds: [1, 1068],
+          kinds: [1, 6, 1068],
           limit: foodFilterEnabled ? 200 : 300,
           timeoutMs: 5000,
           maxRelays: 10
@@ -2120,7 +2179,7 @@
         // Members feed should show everything from the members relay
         // NOTE: Members relay is private, so we use temporary relay set
         const memberFilter: any = {
-          kinds: [1, 1068],
+          kinds: [1, 6, 1068],
           since: timeWindow.since,
           limit: 50
         };
@@ -2290,7 +2349,7 @@
 
         const now = Math.floor(Date.now() / 1000);
         const gardenFilter: any = {
-          kinds: [1, 1068],
+          kinds: [1, 6, 1068],
           since: now - SEVEN_DAYS_SECONDS, // 7 days for garden relay
           limit: 100
         };
@@ -2387,7 +2446,7 @@
 
       // Build relay pool filter (always needed as backup, starts immediately)
       const hashtagFilter: any = {
-        kinds: [1, 1068],
+        kinds: [1, 6, 1068],
         limit: authorPubkey && !foodFilterEnabled ? 100 : 50,
         since: timeWindow.since
       };
@@ -2643,7 +2702,7 @@
       // relay-appropriate REQs internally. This replaces N/100 open subs.
       const sub = $ndk.subscribe(
         {
-          kinds: [1, 1068 as number] as number[],
+          kinds: [1, 6, 1068 as number] as number[],
           authors: followedPubkeysForRealtime,
           since
         },
@@ -2672,7 +2731,7 @@
 
       // Subscribe to member relay - show ALL content (not just food-tagged)
       const memberFilter: any = {
-        kinds: [1, 1068],
+        kinds: [1, 6, 1068],
         since
       };
 
@@ -2711,7 +2770,7 @@
     if (filterMode === 'garden') {
       // Subscribe to garden relay - content filtering controlled by foodFilterEnabled toggle
       const gardenFilter: any = {
-        kinds: [1, 1068],
+        kinds: [1, 6, 1068],
         since
       };
 
@@ -2773,7 +2832,7 @@
     // Global mode / Profile view - default subscription
     // Single subscription for content (food-filtered or all posts based on context)
     const hashtagFilter: any = {
-      kinds: [1, 1068],
+      kinds: [1, 6, 1068],
       since
     };
 
@@ -2899,9 +2958,22 @@
     }
     // Members mode: no food filter
 
+    // Expand NIP-18 kind 6 reposts into their underlying note (with metadata)
+    // so the rendering pipeline (which expects kind 1/1068) works correctly.
+    let queued = event;
+    if (event.kind === 6) {
+      const expanded = expandRepostEvent(event);
+      if (!expanded || !expanded.id) return;
+      // Mark the kind 6 itself as seen so we don't process it again
+      seenEventIds.add(event.id);
+      // Skip if the underlying note is already in the feed
+      if (seenEventIds.has(expanded.id)) return;
+      queued = expanded;
+    }
+
     // Mark as seen and queue for batch processing
-    seenEventIds.add(event.id);
-    pendingEvents.push(event);
+    seenEventIds.add(queued.id);
+    pendingEvents.push(queued);
 
     debouncedBatchProcess();
   }
@@ -2924,14 +2996,14 @@
     if (!rafScheduled) {
       rafScheduled = true;
       requestAnimationFrame(() => {
-        // Sort and merge with existing events
-        const sortedBatch = batch.sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
-        events = [...sortedBatch, ...events].sort(
-          (a, b) => (b.created_at || 0) - (a.created_at || 0)
-        );
+        // Sort by repost time when present (so reposted notes surface alongside the repost),
+        // otherwise by the event's own created_at.
+        const sortKey = (e: NDKEvent) => (e as any)._repostCreatedAt || e.created_at || 0;
+        const sortedBatch = batch.sort((a, b) => sortKey(b) - sortKey(a));
+        events = [...sortedBatch, ...events].sort((a, b) => sortKey(b) - sortKey(a));
 
         // Update last event time
-        const maxTime = Math.max(...batch.map((e) => e.created_at || 0));
+        const maxTime = Math.max(...batch.map(sortKey));
         if (maxTime > lastEventTime) lastEventTime = maxTime;
 
         rafScheduled = false;
@@ -3233,7 +3305,7 @@
 
       const timeWindow = calculateTimeWindow('initial');
       const filter: any = {
-        kinds: [1, 1068],
+        kinds: [1, 6, 1068],
         limit: authorPubkey && !foodFilterEnabled ? 100 : 50,
         since: timeWindow.since
       };
@@ -3334,7 +3406,7 @@
         const loadMoreOptions: any = {
           since: paginationWindow.since,
           until: paginationWindow.until,
-          kinds: [1, 1068],
+          kinds: [1, 6, 1068],
           limit: foodFilterEnabled ? 100 : 150, // Fetch more when showing all posts
           timeoutMs: 5000,
           maxRelays: 10
@@ -3368,7 +3440,7 @@
 
         // Fetch older events from member relay (all content, not just food-tagged)
         const memberFilter: any = {
-          kinds: [1, 1068],
+          kinds: [1, 6, 1068],
           since: paginationWindow.since,
           until: paginationWindow.until,
           limit: 100 // Increased from 20 for deeper pagination
@@ -3398,7 +3470,7 @@
         }
 
         const gardenFilter: any = {
-          kinds: [1, 1068],
+          kinds: [1, 6, 1068],
           since: paginationWindow.since,
           until: paginationWindow.until,
           limit: 100 // Increased from 20 for deeper pagination
@@ -3415,7 +3487,7 @@
       } else {
         // Global mode / Profile view - use hashtag filter with timeboxing
         const filter: any = {
-          kinds: [1, 1068],
+          kinds: [1, 6, 1068],
           since: paginationWindow.since,
           until: paginationWindow.until,
           limit: authorPubkey && !foodFilterEnabled ? 150 : 100 // Fetch more for profile view when showing all posts
@@ -4972,6 +5044,32 @@
           <article
             class="w-full"
           >
+            {#if getRepostedBy(event)}
+              {@const reposterPubkey = getRepostedBy(event) || ''}
+              <a
+                href="/user/{nip19.npubEncode(reposterPubkey)}"
+                class="flex items-center gap-1.5 text-xs mb-1.5 px-2 sm:px-0 hover:opacity-80 transition-opacity"
+                style="color: var(--color-caption)"
+                on:click|stopPropagation
+              >
+                <svg
+                  class="w-3.5 h-3.5"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                  />
+                </svg>
+                <span>Reposted by</span>
+                <AuthorName event={makePubkeyEvent(reposterPubkey)} className="text-xs font-medium" />
+              </a>
+            {/if}
+
             <!-- User header with avatar and name -->
             <div class="flex items-center justify-between mb-3 px-2 sm:px-0">
               <div class="flex items-center space-x-3 flex-1 min-w-0">
