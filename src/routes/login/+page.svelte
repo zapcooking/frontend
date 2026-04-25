@@ -1036,13 +1036,21 @@
         aria-label="Create a new Zap Cooking profile"
         class="signin-cta-secondary"
       >
+        <!-- user-plus, not a key — keeps semantic distance from the
+             Import key tile below where a key icon already lives. -->
         <svg class="signin-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <circle cx="9" cy="8" r="3.5" stroke="currentColor" stroke-width="1.75" />
           <path
-            d="M21 14l-4-4m0 0l-3 3m3-3l-7 7-4-4 7-7m1-1l4 4-1 1M3 17v4h4l11-11"
+            d="M3 20c0-3.5 2.7-6 6-6s6 2.5 6 6"
             stroke="currentColor"
             stroke-width="1.75"
             stroke-linecap="round"
-            stroke-linejoin="round"
+          />
+          <path
+            d="M18 7v6m-3-3h6"
+            stroke="currentColor"
+            stroke-width="1.75"
+            stroke-linecap="round"
           />
         </svg>
         <span>Create Profile</span>
