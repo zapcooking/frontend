@@ -71,6 +71,13 @@
   }
 
   async function handlePublish() {
+    console.log('[SharePackModal] handlePublish entered', {
+      titleLen: title.trim().length,
+      recipeCount,
+      hasUser: !!$userPublickey,
+      isSubmitting
+    });
+    if (isSubmitting) return;
     error = '';
     if (!title.trim()) {
       error = 'Please enter a title.';
@@ -144,7 +151,15 @@
   <h1 slot="title">Share Recipe Pack</h1>
 
   {#if !publishedUrl}
-    <form on:submit|preventDefault={handlePublish} class="flex flex-col gap-4">
+    <!--
+      Using a <div> + on:click on the Publish button rather than
+      <form on:submit>+<button type="submit">. The Modal portals
+      content into a <dialog> element, and inside <dialog> some
+      browsers swallow or reroute form-submit events depending on
+      focus/method state, which made the Publish button silently
+      no-op for some users. Direct on:click is unambiguous.
+    -->
+    <div class="flex flex-col gap-4">
       <p class="text-sm text-caption">
         Publish your saved recipes as a curated pack. Anyone on Nostr can open it,
         zap it, and zaps go to you.
@@ -221,11 +236,11 @@
 
       <div class="flex justify-end gap-2 pt-1">
         <Button on:click={handleClose} primary={false} disabled={isSubmitting}>Cancel</Button>
-        <Button type="submit" disabled={!canPublish}>
+        <Button on:click={handlePublish} disabled={!canPublish}>
           {isSubmitting ? 'Publishing…' : 'Publish Recipe Pack'}
         </Button>
       </div>
-    </form>
+    </div>
   {:else}
     <div class="flex flex-col gap-4">
       <p class="text-sm" style="color: var(--color-text-primary)">
