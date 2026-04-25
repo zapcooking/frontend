@@ -4,7 +4,7 @@
   import { goto } from '$app/navigation';
   import { onMount } from 'svelte';
   import { nip19 } from 'nostr-tools';
-  import { ndk, userPublickey } from '$lib/nostr';
+  import { ndk, userPublickey, ensureNdkConnected } from '$lib/nostr';
   import { NDKEvent } from '@nostr-dev-kit/ndk';
   import { RECIPE_PACK_KIND, RECIPE_PACK_TAG, ZAP_COOKING_TAG } from '$lib/recipePack';
   import RecipePackCard from '../../components/RecipePackCard.svelte';
@@ -41,28 +41,45 @@
   let mineEvents: NDKEvent[] = [];
   let discoverLoading = false;
   let mineLoading = false;
-  let discoverLoaded = false;
+  let discoverLoaded = false; // success-only; on error we leave this false so retry is possible
   let mineLoaded = false;
   let discoverError = '';
   let mineError = '';
 
+  // Per-load request id for the Mine fetch. Captured at the start of
+  // each load and re-checked when the network returns; if it doesn't
+  // match anymore (user signed out / switched accounts), the result
+  // is dropped without overwriting state. Same idea as the relay-
+  // generation guard in /recent.
+  let mineRequestId = 0;
+
   async function loadDiscover() {
-    if (discoverLoading || discoverLoaded) return;
+    if (discoverLoading) return;
     discoverLoading = true;
     discoverError = '';
     try {
+      // Make sure NDK has at least one connected relay before subscribing
+      // — mirrors /recent's pattern. Reduces cold-load failure rate when
+      // the page is loaded directly (rather than via SPA nav from the home
+      // feed which has already warmed connections).
+      try {
+        await ensureNdkConnected();
+      } catch {
+        /* tolerate; fetchEvents will surface the error if relays are still down */
+      }
+
       const events = await $ndk.fetchEvents({
         kinds: [RECIPE_PACK_KIND as number],
         '#t': [ZAP_COOKING_TAG, RECIPE_PACK_TAG],
         limit: 60
       });
       discoverEvents = sortAndDedupe(Array.from(events));
+      discoverLoaded = true; // mark loaded only on success — error path leaves it false so Retry works
     } catch (e: any) {
       console.error('[packs] discover load failed', e);
       discoverError = 'Could not load Recipe Packs. Try again in a moment.';
     } finally {
       discoverLoading = false;
-      discoverLoaded = true;
     }
   }
 
@@ -73,59 +90,99 @@
       mineLoaded = true;
       return;
     }
+    const reqId = ++mineRequestId;
+    const reqPubkey = $userPublickey;
     mineLoading = true;
     mineError = '';
     try {
+      try {
+        await ensureNdkConnected();
+      } catch {
+        /* tolerate */
+      }
+
       const events = await $ndk.fetchEvents({
         kinds: [RECIPE_PACK_KIND as number],
-        authors: [$userPublickey],
+        authors: [reqPubkey],
         limit: 60
       });
+
+      // Drop the result if the user has logged out or switched accounts
+      // since this fetch began — otherwise stale events from the previous
+      // pubkey would overwrite the current state.
+      if (reqId !== mineRequestId || reqPubkey !== $userPublickey) {
+        return;
+      }
+
       mineEvents = sortAndDedupe(Array.from(events));
+      mineLoaded = true;
     } catch (e: any) {
       console.error('[packs] mine load failed', e);
-      mineError = 'Could not load your Recipe Packs.';
+      if (reqId === mineRequestId) {
+        mineError = 'Could not load your Recipe Packs.';
+      }
     } finally {
-      mineLoading = false;
-      mineLoaded = true;
+      if (reqId === mineRequestId) {
+        mineLoading = false;
+      }
     }
   }
 
-  // Replaceable events: keep only the newest event per (pubkey,d-tag).
-  // Then sort newest-first so the freshest packs surface at the top.
+  // Replaceable events: drop anything missing a `d` tag (Recipe Packs are
+  // addressable so a missing `d` means malformed/spam — we'd also have no
+  // way to build a working /pack/<naddr> link), then keep only the newest
+  // event per (pubkey, d-tag), then sort newest-first.
   function sortAndDedupe(events: NDKEvent[]): NDKEvent[] {
+    const valid = events.filter((e) => {
+      const dTag = e.tags?.find((t) => t[0] === 'd')?.[1];
+      // Need a non-empty d-tag AND at least one recipe `a` reference.
+      // Empty packs would render as empty cards; bare-d packs would
+      // collide in the dedupe map by pubkey alone.
+      return !!dTag && e.tags?.some((t) => t[0] === 'a');
+    });
+
     const byKey = new Map<string, NDKEvent>();
-    for (const e of events) {
-      const dTag = e.tags?.find((t) => t[0] === 'd')?.[1] || '';
+    for (const e of valid) {
+      const dTag = e.tags!.find((t) => t[0] === 'd')![1];
       const key = `${e.pubkey}:${dTag}`;
       const existing = byKey.get(key);
       if (!existing || (e.created_at || 0) > (existing.created_at || 0)) {
         byKey.set(key, e);
       }
     }
-    return Array.from(byKey.values())
-      .filter((e) => {
-        // Filter out empty packs (no recipe references) — they'd show as
-        // empty cards which is just noise.
-        return e.tags?.some((t) => t[0] === 'a');
-      })
-      .sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
+    return Array.from(byKey.values()).sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
   }
 
-  // Trigger loads on tab change (or first mount).
-  $: if (browser && tab === 'discover' && !discoverLoaded && !discoverLoading) {
+  function retryDiscover() {
+    discoverError = '';
+    discoverLoaded = false;
     loadDiscover();
   }
-  $: if (browser && tab === 'mine' && !mineLoaded && !mineLoading) {
+
+  function retryMine() {
+    mineError = '';
+    mineLoaded = false;
     loadMine();
   }
 
-  // Re-load Mine when sign-in changes
+  // Trigger loads on tab change (or first mount).
+  $: if (browser && tab === 'discover' && !discoverLoaded && !discoverLoading && !discoverError) {
+    loadDiscover();
+  }
+  $: if (browser && tab === 'mine' && !mineLoaded && !mineLoading && !mineError) {
+    loadMine();
+  }
+
+  // Re-load Mine when sign-in changes — bump the request id so any
+  // in-flight fetch for the previous pubkey is ignored on resolution.
   let lastUserPubkey = '';
   $: if (browser && $userPublickey !== lastUserPubkey) {
     lastUserPubkey = $userPublickey;
     mineLoaded = false;
     mineEvents = [];
+    mineError = '';
+    mineRequestId++;
+    mineLoading = false;
   }
 
   onMount(() => {
@@ -158,6 +215,13 @@
     return { title, description, image, recipeCount, viewUrl };
   }
 
+  // Explicit declarations to satisfy strict-mode tooling (Svelte's `$:`
+  // creates an implicit binding, but eslint-svelte and svelte-check in
+  // strict TS configs sometimes flag it).
+  let activeEvents: NDKEvent[] = [];
+  let activeLoading = false;
+  let activeLoaded = false;
+  let activeError = '';
   $: activeEvents = tab === 'discover' ? discoverEvents : mineEvents;
   $: activeLoading = tab === 'discover' ? discoverLoading : mineLoading;
   $: activeLoaded = tab === 'discover' ? discoverLoaded : mineLoaded;
@@ -261,7 +325,16 @@
       <PanLoader />
     </div>
   {:else if activeError}
-    <div class="text-caption text-sm text-center py-12">{activeError}</div>
+    <div class="flex flex-col items-center justify-center py-12 px-4 gap-3">
+      <p class="text-caption text-sm text-center">{activeError}</p>
+      <button
+        on:click={() => (tab === 'discover' ? retryDiscover() : retryMine())}
+        class="flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-colors"
+        style="background-color: var(--color-input-bg); color: var(--color-text-primary); border: 1px solid var(--color-input-border);"
+      >
+        Retry
+      </button>
+    </div>
   {:else if activeEvents.length === 0}
     <div class="flex flex-col items-center justify-center py-16 px-4">
       <div
