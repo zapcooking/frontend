@@ -33,7 +33,6 @@
   let notFound = false;
   let packEvent: NDKEvent | null = null;
   let recipeEvents: NDKEvent[] = [];
-  let recipeATagsToFetch: string[] = [];
   let isImporting = false;
   let importProgress = { current: 0, total: 0 };
   let lastSlug: string | null = null;
@@ -68,7 +67,6 @@
     notFound = false;
     packEvent = null;
     recipeEvents = [];
-    recipeATagsToFetch = [];
 
     const slug = $page.params.naddr;
     if (!slug?.startsWith('naddr1')) {
@@ -104,7 +102,6 @@
       }
       packEvent = found;
       const tags = found.tags.filter((t) => t[0] === 'a').map((t) => t[1]);
-      recipeATagsToFetch = tags;
       loaded = true; // header can render now
       await resolveRecipes(tags);
     } catch (err) {
@@ -396,7 +393,20 @@
         <!-- Subtle social action row -->
         <div class="flex items-center justify-between gap-3 pt-1 border-t" style="border-color: var(--color-input-border);">
           <div class="pt-2 flex items-center gap-2">
-            <NoteActionBar event={packEvent} variant="default" showComments={false} />
+            <!--
+              showRepost={false}: NoteRepost publishes a NIP-18 kind:6 wrapping
+              the inner event. The food feed renders kind:6 reposts only when
+              the inner kind is 1 or 1068 (see FoodstrFeedOptimized.expandRepostEvent),
+              so reposting a kind:30004 pack would silently drop in feeds.
+              TODO: when we persist a back-reference to the kind:1 announcement,
+              route repost to that event instead so it surfaces in feeds.
+            -->
+            <NoteActionBar
+              event={packEvent}
+              variant="default"
+              showComments={false}
+              showRepost={false}
+            />
             <!-- Comments link → generic event viewer (supports NIP-22 comments) -->
             <a
               href={naviewUrl}
