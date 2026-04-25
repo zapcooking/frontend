@@ -11,7 +11,6 @@
   import RecipePackCard from '../../components/RecipePackCard.svelte';
   import PanLoader from '../../components/PanLoader.svelte';
   import BookmarkIcon from 'phosphor-svelte/lib/BookmarkSimple';
-  import ArrowLeftIcon from 'phosphor-svelte/lib/ArrowLeft';
 
   type Tab = 'discover' | 'mine';
   let tab: Tab = 'discover';
@@ -276,26 +275,32 @@
   <meta name="twitter:card" content="summary_large_image" />
 </svelte:head>
 
-<div class="flex flex-col gap-5">
-  <!-- Header -->
-  <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-    <div class="flex items-center gap-3">
-      <div
-        class="w-12 h-12 rounded-full bg-gradient-to-br from-orange-500 to-amber-500 flex items-center justify-center flex-shrink-0"
-      >
-        <BookmarkIcon size={24} weight="fill" class="text-white" />
-      </div>
-      <div>
-        <h1 class="text-2xl font-bold" style="color: var(--color-text-primary)">Recipe Packs</h1>
-        <p class="text-sm text-caption">Curated, zappable recipe collections from across Nostr.</p>
-      </div>
+<div class="flex flex-col gap-4 max-w-full md:max-w-none">
+  <!-- Top tab bar — mirrors /recent so navigation stays consistent.
+       Recent / Packs / Premium ⚡️ — Packs is active here. -->
+  <div class="flex w-full border-b" style="border-color: var(--color-input-border)">
+    <a
+      href="/recent"
+      class="flex-1 py-2.5 text-sm font-medium transition-colors relative cursor-pointer text-center"
+      style="color: var(--color-text-secondary)"
+    >
+      Recent
+    </a>
+    <div
+      class="flex-1 py-2.5 text-sm font-medium transition-colors relative text-center"
+      style="color: var(--color-text-primary)"
+    >
+      Packs
+      <span
+        class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-orange-500 to-amber-500"
+      ></span>
     </div>
     <a
-      href="/cookbook"
-      class="inline-flex items-center gap-1.5 text-sm text-caption hover:text-primary transition-colors"
+      href="/premium"
+      class="flex-1 py-2.5 text-sm font-medium transition-colors relative cursor-pointer text-center"
+      style="color: var(--color-text-secondary)"
     >
-      <ArrowLeftIcon size={16} />
-      <span>My Cookbook</span>
+      Premium ⚡️
     </a>
   </div>
 
