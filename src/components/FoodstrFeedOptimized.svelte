@@ -50,6 +50,7 @@
   import PollDisplay from './PollDisplay.svelte';
   import VideoPreview from './VideoPreview.svelte';
   import AuthorName from './AuthorName.svelte';
+  import CustomName from './CustomName.svelte';
   import {
     generateNoteImage,
     generateImageFilename,
@@ -771,8 +772,11 @@
         return { since: now - SEVEN_DAYS_SECONDS };
 
       case 'pagination': {
-        // Pagination: larger window based on oldest event
-        const oldestTime = events[events.length - 1]?.created_at || now;
+        // Pagination: larger window based on oldest event. Use the sort
+        // time (repost time when present), not the inner created_at, so
+        // a repost of an old note doesn't make pagination jump back to
+        // the inner timestamp and skip everything between.
+        const oldestTime = getEventSortTime(events[events.length - 1]) || now;
         const THIRTY_DAYS_SECONDS = 30 * 24 * 60 * 60;
         return {
           since: Math.max(oldestTime - SEVEN_DAYS_SECONDS, now - THIRTY_DAYS_SECONDS),
@@ -1303,7 +1307,7 @@
       cachedEvents.forEach((e: NDKEvent) => seenEventIds.add(e.id));
 
       events = cachedEvents;
-      lastEventTime = Math.max(...events.map((e) => e.created_at || 0));
+      lastEventTime = Math.max(...events.map(getEventSortTime));
       return true;
     } catch {
       return false;
@@ -1620,40 +1624,98 @@
     return (event as any)._repostedBy || null;
   }
 
-  // Build a minimal event-shaped object for components that only need a pubkey
-  // (e.g. AuthorName for the "Reposted by" header).
-  function makePubkeyEvent(pubkey: string): NDKEvent {
-    return { pubkey, tags: [] } as unknown as NDKEvent;
+  // The effective sort timestamp for an event — repost time when present,
+  // otherwise the event's own created_at. Used wherever pagination/time-
+  // window math needs to agree with `dedupeAndSort`'s ordering, so that
+  // a repost of an old note doesn't drag pagination back through the
+  // ancient inner timestamp.
+  function getEventSortTime(event: NDKEvent | null | undefined): number {
+    if (!event) return 0;
+    return (event as any)._repostCreatedAt || event.created_at || 0;
+  }
+
+  function applyRepostMetadata(sourceEvent: NDKEvent, expandedEvent: NDKEvent): NDKEvent {
+    (expandedEvent as any)._repostedBy = sourceEvent.pubkey;
+    (expandedEvent as any)._repostId = sourceEvent.id;
+    (expandedEvent as any)._repostCreatedAt = sourceEvent.created_at;
+    return expandedEvent;
+  }
+
+  // Build an NDKEvent from the JSON blob embedded in a kind:6's content.
+  // Returns null if the JSON isn't a usable kind:1/1068 inner event.
+  function buildExpandedEmbeddedRepostEvent(event: NDKEvent, inner: any): NDKEvent | null {
+    if (!inner || typeof inner !== 'object' || !inner.id) return null;
+    if (inner.kind !== 1 && inner.kind !== 1068) return null;
+
+    const innerEvent = new NDKEvent($ndk, inner);
+    innerEvent.id = inner.id;
+    innerEvent.pubkey = inner.pubkey;
+    innerEvent.kind = inner.kind;
+    innerEvent.content = inner.content || '';
+    innerEvent.tags = Array.isArray(inner.tags) ? inner.tags : [];
+    innerEvent.created_at = inner.created_at;
+    innerEvent.sig = inner.sig;
+
+    return applyRepostMetadata(event, innerEvent);
+  }
+
+  // Build a placeholder NDKEvent for a tag-only NIP-18 repost (empty
+  // content, inner referenced by `e`/`k`/`p` tags). The synthetic event
+  // has just enough identity for dedup + the "Reposted by" header to
+  // work; downstream content filters will still drop it for missing
+  // body text, but it's tracked properly instead of silently lost.
+  function buildExpandedTaggedRepostEvent(event: NDKEvent): NDKEvent | null {
+    const tags = Array.isArray(event.tags) ? event.tags : [];
+    const eventTag = tags.find(
+      (t) => Array.isArray(t) && t[0] === 'e' && typeof t[1] === 'string' && t[1]
+    );
+    const kindTag = tags.find(
+      (t) => Array.isArray(t) && t[0] === 'k' && typeof t[1] === 'string' && t[1]
+    );
+    const pubkeyTag = tags.find(
+      (t) => Array.isArray(t) && t[0] === 'p' && typeof t[1] === 'string' && t[1]
+    );
+
+    const id = eventTag?.[1];
+    if (!id) return null;
+    const parsedKind = kindTag ? Number.parseInt(kindTag[1], 10) : NaN;
+    // If the wrapper doesn't tell us the inner kind, default to 1 — kind:6
+    // is by NIP-18 a "kind:1 repost", and a wrong guess only causes the
+    // synthetic event to be filtered out later, not surface incorrectly.
+    const kind = Number.isFinite(parsedKind) ? parsedKind : 1;
+    if (kind !== 1 && kind !== 1068) return null;
+
+    const innerEvent = new NDKEvent($ndk);
+    innerEvent.id = id;
+    innerEvent.pubkey = pubkeyTag?.[1] || '';
+    innerEvent.kind = kind;
+    innerEvent.content = '';
+    innerEvent.tags = [];
+
+    return applyRepostMetadata(event, innerEvent);
   }
 
   // Expand a NIP-18 kind 6 repost into its underlying kind 1/1068 event,
   // carrying repost metadata so the feed can render a "Reposted by" header.
-  // Returns null if the inner event can't be parsed.
+  // Tries the embedded-JSON path first (most clients) and falls back to
+  // tag-only parsing (some clients publish content-empty reposts that
+  // reference the inner via tags). Returns null only when neither path
+  // identifies a supported inner event.
   function expandRepostEvent(event: NDKEvent): NDKEvent | null {
     if (event.kind !== 6) return event;
-    try {
-      const inner = JSON.parse(event.content || '');
-      if (!inner || typeof inner !== 'object' || !inner.id) return null;
-      if (inner.kind !== 1 && inner.kind !== 1068) return null;
 
-      const innerEvent = new NDKEvent($ndk, inner);
-      // Copy across any tags / id explicitly so downstream code sees a fully-formed event
-      innerEvent.id = inner.id;
-      innerEvent.pubkey = inner.pubkey;
-      innerEvent.kind = inner.kind;
-      innerEvent.content = inner.content || '';
-      innerEvent.tags = Array.isArray(inner.tags) ? inner.tags : [];
-      innerEvent.created_at = inner.created_at;
-      innerEvent.sig = inner.sig;
-
-      // Carry repost metadata (used for the "Reposted by" header and ordering)
-      (innerEvent as any)._repostedBy = event.pubkey;
-      (innerEvent as any)._repostId = event.id;
-      (innerEvent as any)._repostCreatedAt = event.created_at;
-      return innerEvent;
-    } catch {
-      return null;
+    const rawContent = typeof event.content === 'string' ? event.content.trim() : '';
+    if (rawContent) {
+      try {
+        const inner = JSON.parse(rawContent);
+        const expanded = buildExpandedEmbeddedRepostEvent(event, inner);
+        if (expanded) return expanded;
+      } catch {
+        // fall through to tag-based expansion
+      }
     }
+
+    return buildExpandedTaggedRepostEvent(event);
   }
 
   function dedupeAndSort(eventList: NDKEvent[]): NDKEvent[] {
@@ -1770,9 +1832,7 @@
             console.log(`[Feed] Cache hit: ${validCached.length} events (instant paint)`);
             // dedupeAndSort handles kind 6 expansion + tracks seenEventIds
             events = dedupeAndSort(validCached);
-            lastEventTime = Math.max(
-              ...events.map((e) => (e as any)._repostCreatedAt || e.created_at || 0)
-            );
+            lastEventTime = Math.max(...events.map(getEventSortTime));
             loading = false;
             error = false;
 
@@ -1960,7 +2020,7 @@
           error = false;
 
           if (events.length > 0) {
-            lastEventTime = Math.max(...events.map((e) => e.created_at || 0));
+            lastEventTime = Math.max(...events.map(getEventSortTime));
             await cacheEvents();
           }
 
@@ -1997,7 +2057,7 @@
         error = false;
 
         if (events.length > 0) {
-          lastEventTime = Math.max(...events.map((e) => e.created_at || 0));
+          lastEventTime = Math.max(...events.map(getEventSortTime));
           await cacheEvents();
         }
 
@@ -2095,7 +2155,7 @@
           error = false;
 
           if (events.length > 0) {
-            lastEventTime = Math.max(...events.map((e) => e.created_at || 0));
+            lastEventTime = Math.max(...events.map(getEventSortTime));
             await cacheEvents();
           }
 
@@ -2128,7 +2188,7 @@
         error = false;
 
         if (events.length > 0) {
-          lastEventTime = Math.max(...events.map((e) => e.created_at || 0));
+          lastEventTime = Math.max(...events.map(getEventSortTime));
           await cacheEvents();
         }
 
@@ -2237,7 +2297,7 @@
         error = false;
 
         if (events.length > 0) {
-          lastEventTime = Math.max(...events.map((e) => e.created_at || 0));
+          lastEventTime = Math.max(...events.map(getEventSortTime));
           await cacheEvents();
         }
 
@@ -2302,7 +2362,7 @@
               gardenCacheStatus.update((s) => ({ ...s, isLoading: false }));
 
               if (events.length > 0) {
-                lastEventTime = Math.max(...events.map((e) => e.created_at || 0));
+                lastEventTime = Math.max(...events.map(getEventSortTime));
               }
 
               // Still start realtime subscription for new events
@@ -2412,7 +2472,7 @@
             console.warn('[Feed] Garden: Failed to save to cache:', cacheErr);
           }
 
-          lastEventTime = Math.max(...events.map((e) => e.created_at || 0));
+          lastEventTime = Math.max(...events.map(getEventSortTime));
           await cacheEvents(); // Also save to general cache
         } else if (hadCachedEvents > 0) {
           // Relay returned 0 events but we have cached data - KEEP SHOWING CACHED DATA
@@ -2533,7 +2593,7 @@
             error = false;
 
             if (events.length > 0) {
-              lastEventTime = Math.max(...events.map((e) => e.created_at || 0));
+              lastEventTime = Math.max(...events.map(getEventSortTime));
               await cacheEvents();
             }
 
@@ -2646,7 +2706,7 @@
       error = false;
 
       if (events.length > 0) {
-        lastEventTime = Math.max(...events.map((e) => e.created_at || 0));
+        lastEventTime = Math.max(...events.map(getEventSortTime));
         try {
           await cacheEvents();
         } catch {
@@ -2934,7 +2994,7 @@
           showNewPostsButton = true;
         }
 
-        const maxTime = Math.max(...newEvents.map((e) => e.created_at || 0));
+        const maxTime = Math.max(...newEvents.map(getEventSortTime));
         if (maxTime > lastEventTime) lastEventTime = maxTime;
 
         await cacheEvents();
@@ -2962,10 +3022,12 @@
     // so the rendering pipeline (which expects kind 1/1068) works correctly.
     let queued = event;
     if (event.kind === 6) {
+      // Mark the kind:6 wrapper as seen FIRST — even if expansion fails for a
+      // malformed/unsupported repost, we don't want to re-attempt expansion
+      // every time the relay redelivers it.
+      seenEventIds.add(event.id);
       const expanded = expandRepostEvent(event);
       if (!expanded || !expanded.id) return;
-      // Mark the kind 6 itself as seen so we don't process it again
-      seenEventIds.add(event.id);
       // Skip if the underlying note is already in the feed
       if (seenEventIds.has(expanded.id)) return;
       queued = expanded;
@@ -2998,12 +3060,13 @@
       requestAnimationFrame(() => {
         // Sort by repost time when present (so reposted notes surface alongside the repost),
         // otherwise by the event's own created_at.
-        const sortKey = (e: NDKEvent) => (e as any)._repostCreatedAt || e.created_at || 0;
-        const sortedBatch = batch.sort((a, b) => sortKey(b) - sortKey(a));
-        events = [...sortedBatch, ...events].sort((a, b) => sortKey(b) - sortKey(a));
+        const sortedBatch = batch.sort((a, b) => getEventSortTime(b) - getEventSortTime(a));
+        events = [...sortedBatch, ...events].sort(
+          (a, b) => getEventSortTime(b) - getEventSortTime(a)
+        );
 
         // Update last event time
-        const maxTime = Math.max(...batch.map(sortKey));
+        const maxTime = Math.max(...batch.map(getEventSortTime));
         if (maxTime > lastEventTime) lastEventTime = maxTime;
 
         rafScheduled = false;
@@ -3090,7 +3153,7 @@
 
           events = dedupeAndSort([...events, ...newEvents]);
 
-          const maxTime = Math.max(...newEvents.map((e) => e.created_at || 0));
+          const maxTime = Math.max(...newEvents.map(getEventSortTime));
           if (maxTime > lastEventTime) {
             lastEventTime = maxTime;
           }
@@ -3232,7 +3295,7 @@
         }
 
         // Update last event time
-        const maxTime = Math.max(...newEvents.map((e) => e.created_at || 0));
+        const maxTime = Math.max(...newEvents.map(getEventSortTime));
         if (maxTime > lastEventTime) {
           lastEventTime = maxTime;
         }
@@ -3326,10 +3389,25 @@
         ...RELAY_POOLS.fallback
       ]);
 
+      // Expand kind:6 wrappers into their inner kind:1/1068 notes BEFORE the
+      // food/mute/reply filter runs. Without this, kind:6 wrappers (JSON
+      // blobs / non-food tags) leak into the rendered events array.
+      // Mark each wrapper id as seen so we don't reprocess it elsewhere.
+      const expandedFreshEvents: NDKEvent[] = [];
+      for (const raw of freshEvents) {
+        if (raw.kind === 6) {
+          seenEventIds.add(raw.id);
+          const inner = expandRepostEvent(raw);
+          if (inner && inner.id) expandedFreshEvents.push(inner);
+        } else {
+          expandedFreshEvents.push(raw);
+        }
+      }
+
       // For Global feed, exclude posts from followed users
       const followedSet = new Set(followedPubkeysForRealtime);
 
-      const validNew = freshEvents.filter((e) => {
+      const validNew = expandedFreshEvents.filter((e) => {
         if (seenEventIds.has(e.id)) return false;
 
         // Global feed: exclude replies
@@ -3366,8 +3444,10 @@
 
       if (validNew.length > 0) {
         validNew.forEach((e) => seenEventIds.add(e.id));
-        events = [...validNew, ...events].sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
-        lastEventTime = Math.max(lastEventTime, ...validNew.map((e) => e.created_at || 0));
+        events = [...validNew, ...events].sort(
+          (a, b) => getEventSortTime(b) - getEventSortTime(a)
+        );
+        lastEventTime = Math.max(lastEventTime, ...validNew.map(getEventSortTime));
         await cacheEvents();
       }
     } catch {
@@ -3510,10 +3590,24 @@
         ]);
       }
 
+      // Expand kind:6 wrappers into their inner kind:1/1068 notes before
+      // the per-mode filter runs. Same reason as fetchFreshData: without
+      // this, kind:6 wrappers leak into `events` and break rendering/dedup.
+      const expandedOlderEvents: NDKEvent[] = [];
+      for (const raw of olderEvents) {
+        if (raw.kind === 6) {
+          seenEventIds.add(raw.id);
+          const inner = expandRepostEvent(raw);
+          if (inner && inner.id) expandedOlderEvents.push(inner);
+        } else {
+          expandedOlderEvents.push(raw);
+        }
+      }
+
       // For Global feed, exclude posts from followed users
       const followedSet = new Set(followedPubkeysForRealtime);
 
-      const validOlder = olderEvents.filter((e) => {
+      const validOlder = expandedOlderEvents.filter((e) => {
         if (seenEventIds.has(e.id)) return false;
 
         // Garden mode: apply food filter based on toggle
@@ -3577,10 +3671,11 @@
         renderedNotes = renderedNotes;
         events = [...events, ...validOlder];
         // Continue fetching if we got events and we're still within time window
-        // Check if we've reached the time limit (30 days back)
+        // Check if we've reached the time limit (30 days back). Use the sort
+        // time so reposts of older notes don't trigger an early stop.
         const THIRTY_DAYS_SECONDS = 30 * 24 * 60 * 60;
         const now = Math.floor(Date.now() / 1000);
-        const oldestEventTime = events[events.length - 1]?.created_at || now;
+        const oldestEventTime = getEventSortTime(events[events.length - 1]) || now;
         const timeLimit = now - THIRTY_DAYS_SECONDS;
 
         // Continue if we got a good batch (>= 50) or if we're still within time window
@@ -3590,7 +3685,7 @@
         // No valid events - check if we've exhausted the time window
         const THIRTY_DAYS_SECONDS = 30 * 24 * 60 * 60;
         const now = Math.floor(Date.now() / 1000);
-        const oldestEventTime = events[events.length - 1]?.created_at || now;
+        const oldestEventTime = getEventSortTime(events[events.length - 1]) || now;
         const timeLimit = now - THIRTY_DAYS_SECONDS;
 
         // Stop if we've gone back 30 days or got no events
@@ -4657,7 +4752,7 @@
         error = false;
         hasMore = true;
         loadingMore = false;
-        lastEventTime = Math.max(...events.map((e) => e.created_at || 0));
+        lastEventTime = Math.max(...events.map(getEventSortTime));
 
         console.log(`[Feed] Rendered ${events.length} cached events instantly`);
 
@@ -5066,7 +5161,12 @@
                   />
                 </svg>
                 <span>Reposted by</span>
-                <AuthorName event={makePubkeyEvent(reposterPubkey)} className="text-xs font-medium" />
+                <!--
+                  Use CustomName (renders <span>) here, not AuthorName which
+                  renders a <button>. Nesting <button> inside <a> is invalid
+                  HTML and breaks keyboard / screen-reader behavior.
+                -->
+                <CustomName pubkey={reposterPubkey} className="text-xs font-medium" />
               </a>
             {/if}
 
