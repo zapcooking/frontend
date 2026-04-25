@@ -309,8 +309,6 @@
     <meta property="og:description" content={ogMeta.description} />
     <meta property="og:image" content={ogMeta.image} />
     <meta property="og:image:secure_url" content={ogMeta.image} />
-    <meta property="og:image:width" content="1200" />
-    <meta property="og:image:height" content="630" />
     <meta property="og:image:alt" content={ogMeta.title} />
     <meta
       property="og:url"

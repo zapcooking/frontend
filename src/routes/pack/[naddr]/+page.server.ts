@@ -1,7 +1,7 @@
 import type { PageServerLoad } from './$types';
 import { nip19 } from 'nostr-tools';
 import { redirect } from '@sveltejs/kit';
-import { fetchPackMetadata } from '$lib/recipePackOg.server';
+import { fetchPackMetadata, fetchRecipePreviews } from '$lib/recipePackOg.server';
 
 const TRACKING_PARAMS = [
 	'fbclid',
@@ -18,6 +18,11 @@ const TRACKING_PARAMS = [
 
 const FALLBACK_TITLE = 'Recipe Pack on Zap Cooking';
 const FALLBACK_DESCRIPTION = 'A zappable recipe collection curated on Zap Cooking.';
+// Static branded raster fallback. Used when a pack has no cover image
+// AND no recipe in it has an image either. Real raster URL — works on
+// every OG-supporting platform (Twitter/X, Facebook, LinkedIn, Signal,
+// Slack, Discord, Telegram, iMessage).
+const FALLBACK_IMAGE = '/social-share.png';
 
 interface PackOgMeta {
 	title: string;
@@ -31,7 +36,7 @@ function safeFallback(naddr: string, baseUrl: string): { ogMeta: PackOgMeta; nad
 		ogMeta: {
 			title: FALLBACK_TITLE,
 			description: FALLBACK_DESCRIPTION,
-			image: `${baseUrl}/api/og/recipe-pack/${naddr}`,
+			image: `${baseUrl}${FALLBACK_IMAGE}`,
 			url: `${baseUrl}/pack/${naddr}`
 		},
 		naddr
@@ -77,11 +82,23 @@ export const load: PageServerLoad = async ({ params, url }) => {
 				? `A zappable Recipe Pack with ${meta.recipeCount} ${recipeWord}, curated on Zap Cooking.`
 				: FALLBACK_DESCRIPTION;
 
-		// Always use the dynamic OG endpoint as og:image — it composes the
-		// branded card and falls back to the pack's cover or static image
-		// internally. This way social platforms always get consistent
-		// branding rather than a raw recipe photo.
-		const ogImage = `${baseUrl}/api/og/recipe-pack/${naddr}`;
+		// og:image needs to be a real raster image (PNG/JPG/WebP). Twitter/X,
+		// Facebook, and LinkedIn don't render SVG og:image, so we point at:
+		//   1. the pack's own cover image tag, if any
+		//   2. otherwise, the first referenced recipe's image, if any
+		//   3. otherwise, the static branded social-share.png
+		// This matches the pattern that already works on /r/<naddr>.
+		let imageUrl = meta.image || '';
+		if (!imageUrl && meta.recipeATags.length > 0) {
+			try {
+				const previews = await fetchRecipePreviews(meta.recipeATags, 4);
+				const firstWithImage = previews.find((r) => r.image);
+				if (firstWithImage?.image) imageUrl = firstWithImage.image;
+			} catch {
+				/* tolerate failure — fall back to static */
+			}
+		}
+		if (!imageUrl) imageUrl = `${baseUrl}${FALLBACK_IMAGE}`;
 
 		return {
 			ogMeta: {
@@ -90,7 +107,7 @@ export const load: PageServerLoad = async ({ params, url }) => {
 						? `${title} — Recipe Pack on Zap Cooking`
 						: FALLBACK_TITLE,
 				description,
-				image: ogImage,
+				image: imageUrl,
 				url: `${baseUrl}/pack/${naddr}`
 			},
 			naddr
@@ -100,4 +117,3 @@ export const load: PageServerLoad = async ({ params, url }) => {
 		return safeFallback(naddr, baseUrl);
 	}
 };
-
