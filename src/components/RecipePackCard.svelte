@@ -6,7 +6,7 @@
   import ShareModal from './ShareModal.svelte';
   import BookmarkSimpleIcon from 'phosphor-svelte/lib/BookmarkSimple';
   import ChatTeardropTextIcon from 'phosphor-svelte/lib/ChatTeardropText';
-  import LinkSimpleIcon from 'phosphor-svelte/lib/LinkSimple';
+  import ShareIcon from 'phosphor-svelte/lib/Share';
   import { lazyLoad } from '$lib/lazyLoad';
   import { getImageOrPlaceholder } from '$lib/placeholderImages';
   import { savedPacksStore } from '$lib/savedPacksStore';
@@ -87,44 +87,51 @@
   style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);"
 >
   <!-- Image is the primary tap target into the pack -->
-  {#if viewUrl}
-    <a href={viewUrl} class="block relative w-full aspect-[16/9] pack-image-wrap group">
-      <div
-        use:lazyLoad={{ url: resolvedImage }}
-        class="absolute inset-0 pack-image group-hover:scale-[1.02] transition-transform duration-500 ease-in-out"
-      ></div>
-      <div
-        class="absolute top-3 left-3 flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-black/55 text-white text-xs font-medium backdrop-blur-sm"
-      >
-        <BookmarkSimpleIcon size={12} weight="fill" />
-        <span>Recipe Pack</span>
-      </div>
-      {#if preview}
+  <div class="relative w-full aspect-[16/9] pack-image-wrap">
+    {#if viewUrl}
+      <a href={viewUrl} class="absolute inset-0 group" aria-label={title || 'Open Recipe Pack'}>
         <div
-          class="absolute top-3 right-3 px-2.5 py-1 rounded-full bg-amber-500/90 text-white text-xs font-semibold shadow"
-        >
-          Preview
-        </div>
-      {/if}
-    </a>
-  {:else}
-    <div class="relative w-full aspect-[16/9] pack-image-wrap">
+          use:lazyLoad={{ url: resolvedImage }}
+          class="absolute inset-0 pack-image group-hover:scale-[1.02] transition-transform duration-500 ease-in-out"
+        ></div>
+      </a>
+    {:else}
       <div use:lazyLoad={{ url: resolvedImage }} class="absolute inset-0 pack-image"></div>
-      <div
-        class="absolute top-3 left-3 flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-black/55 text-white text-xs font-medium backdrop-blur-sm"
-      >
-        <BookmarkSimpleIcon size={12} weight="fill" />
-        <span>Recipe Pack</span>
-      </div>
-      {#if preview}
-        <div
-          class="absolute top-3 right-3 px-2.5 py-1 rounded-full bg-amber-500/90 text-white text-xs font-semibold shadow"
-        >
-          Preview
-        </div>
-      {/if}
+    {/if}
+
+    <!-- Top-left: Recipe Pack badge — non-interactive, sits over the link -->
+    <div
+      class="absolute top-3 left-3 flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-black/55 text-white text-xs font-medium backdrop-blur-sm pointer-events-none"
+    >
+      <BookmarkSimpleIcon size={12} weight="fill" />
+      <span>Recipe Pack</span>
     </div>
-  {/if}
+
+    <!-- Top-right: bookmark/save (matches recipe-card design language).
+         Hidden in preview mode (the modal preview shows a "Preview"
+         pill there instead). -->
+    {#if preview}
+      <div
+        class="absolute top-3 right-3 px-2.5 py-1 rounded-full bg-amber-500/90 text-white text-xs font-semibold shadow"
+      >
+        Preview
+      </div>
+    {:else if event}
+      <button
+        type="button"
+        on:click|preventDefault|stopPropagation={handleBookmark}
+        disabled={bookmarkBusy}
+        class="absolute top-3 right-3 w-9 h-9 flex items-center justify-center rounded-full bg-black/55 hover:bg-black/70 backdrop-blur-sm transition-colors disabled:opacity-50"
+        class:text-amber-400={isBookmarked}
+        style={isBookmarked ? '' : 'color: white;'}
+        title={isBookmarked ? 'Remove from saved' : 'Save pack'}
+        aria-label={isBookmarked ? 'Remove from saved' : 'Save pack'}
+        aria-pressed={isBookmarked}
+      >
+        <BookmarkSimpleIcon size={18} weight={isBookmarked ? 'fill' : 'regular'} />
+      </button>
+    {/if}
+  </div>
 
   <div class="p-3 sm:p-4 flex flex-col gap-2">
     <!-- Title (also clickable into pack) -->
@@ -173,12 +180,20 @@
          comment link to the generic NIP-19 viewer (which does support
          NIP-22 comments for kind 30004). -->
     {#if !preview && event}
+      <!-- Social action row.
+           Left:  reactions/repost/zap from NoteActionBar.
+           Right: comments + share — these were "View Pack →" before but
+           the image/title click already opens the pack, so the space is
+           better used for actions. Bookmark lives in the cover top-right
+           (matches recipe-card design). -->
       <div
         class="flex items-center justify-between gap-1 pt-1 border-t -mx-3 sm:-mx-4 px-3 sm:px-4 mt-1"
         style="border-color: var(--color-input-border);"
       >
         <div class="pt-2 flex items-center gap-1 flex-wrap">
           <NoteActionBar {event} variant="default" showComments={false} />
+        </div>
+        <div class="pt-2 flex items-center gap-1">
           {#if commentsHref}
             <a
               href={commentsHref}
@@ -196,30 +211,9 @@
             title="Share"
             aria-label="Share"
           >
-            <LinkSimpleIcon size={20} />
-          </button>
-          <button
-            type="button"
-            on:click={handleBookmark}
-            disabled={bookmarkBusy}
-            class="flex items-center gap-1 px-1.5 py-1 rounded transition-colors hover:bg-accent-gray disabled:opacity-50"
-            class:text-amber-500={isBookmarked}
-            style={isBookmarked ? '' : 'color: var(--color-text-secondary);'}
-            title={isBookmarked ? 'Remove from saved' : 'Save pack'}
-            aria-label={isBookmarked ? 'Remove from saved' : 'Save pack'}
-            aria-pressed={isBookmarked}
-          >
-            <BookmarkSimpleIcon size={20} weight={isBookmarked ? 'fill' : 'regular'} />
+            <ShareIcon size={20} />
           </button>
         </div>
-        {#if viewUrl}
-          <a
-            href={viewUrl}
-            class="text-xs sm:text-sm font-medium text-caption hover:text-primary transition-colors whitespace-nowrap pt-2"
-          >
-            View Pack →
-          </a>
-        {/if}
       </div>
     {/if}
   </div>
