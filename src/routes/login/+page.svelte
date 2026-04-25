@@ -12,7 +12,6 @@
   import { nip19 } from 'nostr-tools';
   import { createAuthManager, type AuthState } from '$lib/authManager';
   import { onMount, onDestroy } from 'svelte';
-  import { DEFAULT_PROFILE_IMAGE } from '$lib/consts';
   import { platformIsIOS } from '$lib/platform';
   import LoginFormIOS from '../../components/LoginFormIOS.svelte';
   import SuggestedFollowsModal from '../../components/SuggestedFollowsModal.svelte';
@@ -1017,16 +1016,7 @@
         <span>{authState.isLoading ? 'Connecting…' : 'Sign in with Browser Signer'}</span>
       </button>
 
-      <!-- Extension helper / missing-signer notice -->
-      {#if !showMissingSignerNotice && authManager?.isNIP07Available() === false}
-        <p class="signin-helper">
-          Works with
-          <a href="https://getalby.com" target="_blank" rel="noopener noreferrer">Alby</a>,
-          <a href="https://github.com/fiatjaf/nos2x" target="_blank" rel="noopener noreferrer"
-            >nos2x</a
-          >, and similar.
-        </p>
-      {/if}
+      <!-- Missing-signer notice (only after the user clicks and no extension is detected). -->
       {#if showMissingSignerNotice}
         <div class="signin-notice" role="alert">
           No browser signer detected. Install
@@ -1377,21 +1367,12 @@
 
   /* ───── Helper / notice / error ───── */
 
-  .signin-helper {
-    font-size: 0.75rem;
-    color: var(--signin-mute);
-    margin: 0.625rem 0 0;
-    line-height: 1.5;
-  }
-
-  .signin-helper a,
   .signin-notice a,
   .signin-footer a {
     color: var(--signin-flame);
     text-decoration: none;
   }
 
-  .signin-helper a:hover,
   .signin-notice a:hover,
   .signin-footer a:hover {
     text-decoration: underline;
