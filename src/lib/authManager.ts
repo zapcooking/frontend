@@ -9,7 +9,9 @@ import {
 } from '@nostr-dev-kit/ndk';
 import { nip19, getPublicKey, generateSecretKey } from 'nostr-tools';
 import * as nip44 from 'nostr-tools/nip44';
+import * as nip04 from 'nostr-tools/nip04';
 import { fetchNip46UserPubkey } from './nip46Rpc';
+import { Nip44LocalSigner } from './nip44LocalSigner';
 
 export interface AuthState {
   isAuthenticated: boolean;
@@ -346,8 +348,10 @@ export class AuthManager {
         .map((b) => b.toString(16).padStart(2, '0'))
         .join('');
 
-      // Create a local signer for the NIP-46 client
-      const localSigner = new NDKPrivateKeySigner(localPrivateKey);
+      // Create a local signer for the NIP-46 client. NIP-44-aware
+      // wrapper: NDK 2.10's NDKPrivateKeySigner is NIP-04-only and the
+      // RPC channel inherits its encrypt/decrypt — see Nip44LocalSigner.
+      const localSigner = new Nip44LocalSigner(localPrivateKey);
 
       // Add relays to NDK if not already present
       for (const relay of relays) {
@@ -473,17 +477,19 @@ export class AuthManager {
     try {
       console.log('[NIP-46] Reconnecting to bunker...');
 
-      // Use stored local private key if available
-      let localSigner: NDKPrivateKeySigner;
+      // Use stored local private key if available. NIP-44-aware wrapper —
+      // see Nip44LocalSigner for why NDKPrivateKeySigner alone hangs on
+      // spec-compliant signers.
+      let localSigner: Nip44LocalSigner;
       if (nip46Info.localPrivateKey) {
-        localSigner = new NDKPrivateKeySigner(nip46Info.localPrivateKey);
+        localSigner = new Nip44LocalSigner(nip46Info.localPrivateKey);
       } else {
         // Generate new ephemeral key (will need re-pairing)
         const localPrivateKeyBytes = generateSecretKey();
         const localPrivateKey = Array.from(localPrivateKeyBytes)
           .map((b) => b.toString(16).padStart(2, '0'))
           .join('');
-        localSigner = new NDKPrivateKeySigner(localPrivateKey);
+        localSigner = new Nip44LocalSigner(localPrivateKey);
       }
 
       // Add relays first
@@ -717,26 +723,33 @@ export class AuthManager {
     return { uri, relays };
   }
 
-  // Decrypt NIP-44 encrypted content
-  private decryptNip44(
+  // Decrypt a NIP-46 connect-response payload. Tries NIP-44 first
+  // (current spec) then falls back to NIP-04 — older signers (and
+  // some bunker servers that mirror the request format) still publish
+  // their connect-response in NIP-04. Async because `nostr-tools/nip04`
+  // exposes `decrypt` as a Promise.
+  private async decryptNip44(
     ciphertext: string,
     senderPubkey: string,
     recipientPrivateKey: string
-  ): string {
+  ): Promise<string> {
+    const privateKeyBytes = new Uint8Array(
+      recipientPrivateKey.match(/.{1,2}/g)!.map((byte) => parseInt(byte, 16))
+    );
+
     try {
-      // Convert hex private key to Uint8Array
-      const privateKeyBytes = new Uint8Array(
-        recipientPrivateKey.match(/.{1,2}/g)!.map((byte) => parseInt(byte, 16))
-      );
-
-      // Get conversation key
       const conversationKey = nip44.v2.utils.getConversationKey(privateKeyBytes, senderPubkey);
-
-      // Decrypt
       return nip44.v2.decrypt(ciphertext, conversationKey);
-    } catch (e) {
-      console.error('[NIP-46] Failed to decrypt NIP-44 content:', e);
-      throw new Error('Failed to decrypt response');
+    } catch (nip44Error) {
+      try {
+        return await nip04.decrypt(recipientPrivateKey, senderPubkey, ciphertext);
+      } catch {
+        console.error(
+          '[NIP-46] Failed to decrypt response with NIP-44 or NIP-04:',
+          nip44Error
+        );
+        throw new Error('Failed to decrypt response');
+      }
     }
   }
 
@@ -793,7 +806,7 @@ export class AuthManager {
       // spoofed pairing attempts at worst.
       let response: { id?: string; method?: string; result?: unknown; error?: string };
       try {
-        const decrypted = this.decryptNip44(
+        const decrypted = await this.decryptNip44(
           event.content,
           signerPubkey,
           pendingInfo.localPrivateKey
@@ -945,7 +958,8 @@ export class AuthManager {
     this.updateState({ isLoading: true, error: null });
 
     try {
-      const localSigner = new NDKPrivateKeySigner(pendingInfo.localPrivateKey);
+      // NIP-44-aware local signer — see Nip44LocalSigner.
+      const localSigner = new Nip44LocalSigner(pendingInfo.localPrivateKey);
 
       for (const relay of pendingInfo.relays) {
         try {
