@@ -31,14 +31,7 @@
 import { NDKPrivateKeySigner, type NDKUser } from '@nostr-dev-kit/ndk';
 import * as nip44 from 'nostr-tools/nip44';
 import * as nip04 from 'nostr-tools/nip04';
-
-function hexToBytes(hex: string): Uint8Array {
-  const bytes = new Uint8Array(hex.length / 2);
-  for (let i = 0; i < bytes.length; i++) {
-    bytes[i] = parseInt(hex.substr(i * 2, 2), 16);
-  }
-  return bytes;
-}
+import { hexToBytes } from '@noble/hashes/utils.js';
 
 export class Nip44LocalSigner extends NDKPrivateKeySigner {
   async encrypt(recipient: NDKUser, value: string): Promise<string> {
@@ -65,7 +58,7 @@ export class Nip44LocalSigner extends NDKPrivateKeySigner {
     } catch (nip44Error) {
       try {
         return await nip04.decrypt(hex, sender.pubkey, value);
-      } catch (nip04Error) {
+      } catch {
         // Surface the original NIP-44 error — that's the spec-mandated
         // path, and the fallback failure is rarely what the caller
         // needs to debug.
