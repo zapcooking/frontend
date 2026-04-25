@@ -22,12 +22,10 @@
   // Tab state
   type FilterMode = 'global' | 'following' | 'replies';
   let activeTab: FilterMode = 'global';
-  let feedKey = 0;
 
   function setTab(tab: FilterMode) {
     if (tab === activeTab) return;
     activeTab = tab;
-    feedKey++;
   }
 
 </script>
@@ -138,9 +136,7 @@
     </div>
   {/if}
 
-  {#key feedKey}
-    <FoodstrFeedOptimized bind:this={feedComponent} filterMode={activeTab} />
-  {/key}
+  <FoodstrFeedOptimized bind:this={feedComponent} filterMode={activeTab} />
 </div>
 </PullToRefresh>
 
