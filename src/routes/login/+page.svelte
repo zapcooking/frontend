@@ -1003,165 +1003,148 @@
     </div>
   </div>
 
-  <!-- Main Login Page (centered card, highest layer) -->
-  <main
-    class="login-viewport-center"
-    aria-label="Zap Cooking login page"
-  >
+  <!-- Main Login Card -->
+  <main class="login-viewport-center" aria-label="Sign in to Zap Cooking">
     <section
-      class="glass-card absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 rounded-3xl p-6 md:p-8 w-[calc(100%-2rem)] md:w-[calc(100vw-4em)] max-w-xl max-h-[85vh] md:max-h-[90vh] overflow-y-auto text-center"
-      aria-label="Authentication options"
+      class="signin-card"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="signin-title"
     >
-        <!-- Logo and Title -->
-        <div class="mb-5">
-          <img
-            src={isDarkMode ? '/zap_cooking_logo_white.svg' : '/zap_cooking_logo_black.svg'}
-            class="h-10 md:h-12 mb-2 mx-auto"
-            alt="Zap Cooking"
-          />
-          <h1 class="text-xl md:text-2xl font-bold mb-1" style="color: var(--color-text-primary)">
-            Welcome to <span class="text-orange-500">Zap Cooking</span>
-          </h1>
-          <p class="text-sm text-caption">Share recipes and support creators with Bitcoin zaps</p>
+      <!-- Brand mark -->
+      <div class="signin-brand" aria-hidden="true">
+        <span class="signin-bolt" />
+      </div>
+
+      <!-- Hero -->
+      <h1 id="signin-title" class="signin-title">
+        Welcome <em>back.</em>
+      </h1>
+      <p class="signin-subtitle">Pull up a chair. Your keys unlock the kitchen.</p>
+
+      <!-- Primary CTA: NIP-07 -->
+      <button
+        type="button"
+        on:click={loginWithNIP07}
+        on:mouseenter={() => (isHovered = true)}
+        on:mouseleave={() => (isHovered = false)}
+        disabled={authState.isLoading}
+        aria-label="Sign in to Zap Cooking using your Nostr browser extension"
+        class="signin-cta-primary"
+      >
+        <span class="signin-cta-label">
+          {authState.isLoading ? 'Connecting…' : 'Sign in with extension'}
+        </span>
+        <span class="signin-badge" aria-hidden="true">NIP-07</span>
+      </button>
+
+      <!-- Extension helper / missing-signer notice -->
+      {#if !showMissingSignerNotice && authManager?.isNIP07Available() === false}
+        <p class="signin-helper">
+          Works with
+          <a href="https://getalby.com" target="_blank" rel="noopener noreferrer">Alby</a>,
+          <a href="https://github.com/fiatjaf/nos2x" target="_blank" rel="noopener noreferrer"
+            >nos2x</a
+          >, and similar extensions.
+        </p>
+      {/if}
+      {#if showMissingSignerNotice}
+        <div class="signin-notice" role="alert">
+          No browser signer detected. Install
+          <a href="https://getalby.com" target="_blank" rel="noopener noreferrer">Alby</a>
+          or
+          <a href="https://github.com/fiatjaf/nos2x" target="_blank" rel="noopener noreferrer"
+            >nos2x</a
+          >, or pair an external signer like Amber below.
         </div>
+      {/if}
 
-        <!-- Authentication Options -->
-        <div class="space-y-2.5 mb-3">
-          <!-- NIP-07 Extension Login - Primary CTA -->
-          <div>
-            <button
-              on:click={loginWithNIP07}
-              on:mouseenter={() => (isHovered = true)}
-              on:mouseleave={() => (isHovered = false)}
-              disabled={authState.isLoading}
-              aria-label="Sign in to Zap Cooking using your Nostr browser extension"
-              class="w-full bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white font-semibold h-[52px] md:h-12 px-6 rounded-xl transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
-            >
-              <div class="flex items-center justify-center gap-2">
-                <span class="text-lg">⚡</span>
-                <span class="text-[15px]">
-                  {authState.isLoading ? 'Connecting...' : 'Sign in with Browser Signer'}
-                </span>
-              </div>
-            </button>
-            <!-- Extension helper - show neutral info initially, warning only after click -->
-            {#if !showMissingSignerNotice && authManager?.isNIP07Available() === false}
-              <p class="text-[11px] text-caption mt-1.5 leading-relaxed">
-                Works with <a
-                  href="https://getalby.com"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  class="underline hover:opacity-80">Alby</a
-                >
-                or
-                <a
-                  href="https://github.com/fiatjaf/nos2x"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  class="underline hover:opacity-80">nos2x</a
-                >.
-              </p>
-            {/if}
-            <!-- Missing signer notice - shown only after user clicks and no extension detected -->
-            {#if showMissingSignerNotice}
-              <div
-                class="bg-input border rounded-lg p-2.5 mt-1.5"
-                style="border-color: var(--color-input-border)"
-              >
-                <p class="text-[11px] text-caption leading-relaxed">
-                  No browser signer detected. Install <a
-                    href="https://getalby.com"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    class="underline hover:opacity-80">Alby</a
-                  >
-                  or
-                  <a
-                    href="https://github.com/fiatjaf/nos2x"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    class="underline hover:opacity-80">nos2x</a
-                  >, or use an external signer like Amber.
-                </p>
-              </div>
-            {/if}
-          </div>
+      <!-- Secondary CTA: create new account -->
+      <button
+        type="button"
+        on:click={() => (generateModal = true)}
+        disabled={authState.isLoading}
+        aria-label="Create a new Zap Cooking profile"
+        class="signin-cta-secondary"
+      >
+        <span class="signin-plus" aria-hidden="true">+</span>
+        <span>Create a new account</span>
+      </button>
 
-          <!-- Generate New Account - Secondary CTA -->
-          <button
-            on:click={() => (generateModal = true)}
-            disabled={authState.isLoading}
-            aria-label="Create a new Zap Cooking profile"
-            class="w-full bg-input hover:opacity-90 font-medium h-11 px-6 rounded-xl transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed border"
-            style="color: var(--color-text-primary); border-color: var(--color-input-border)"
+      <!-- Error -->
+      {#if authState.error}
+        <div class="signin-error" role="alert">
+          {authState.error}
+        </div>
+      {/if}
+
+      <!-- Divider -->
+      <div class="signin-divider" aria-hidden="true">
+        <span>or</span>
+      </div>
+
+      <!-- Disclosure: more sign-in methods -->
+      <details class="signin-disclosure">
+        <summary>
+          <span>More sign-in methods</span>
+          <svg
+            class="signin-chevron"
+            width="16"
+            height="16"
+            viewBox="0 0 16 16"
+            fill="none"
+            aria-hidden="true"
           >
-            <span class="text-sm">🔑 Create Profile</span>
+            <path
+              d="M4 6l4 4 4-4"
+              stroke="currentColor"
+              stroke-width="1.5"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+          </svg>
+        </summary>
+        <div class="signin-disclosure-list">
+          <button
+            type="button"
+            on:click={startUniversalPairing}
+            disabled={authState.isLoading}
+            class="signin-method"
+          >
+            <span class="signin-method-title">Scan QR / pair phone</span>
+            <span class="signin-method-meta">NIP-46</span>
+          </button>
+          <button
+            type="button"
+            on:click={openBunkerModal}
+            disabled={authState.isLoading}
+            class="signin-method"
+          >
+            <span class="signin-method-title">Paste bunker URI</span>
+            <span class="signin-method-meta">NIP-46</span>
+          </button>
+          <button
+            type="button"
+            on:click={() => (nsecModal = true)}
+            disabled={authState.isLoading}
+            class="signin-method"
+          >
+            <span class="signin-method-title">Import private key</span>
+            <span class="signin-method-meta signin-method-meta-warn">advanced</span>
           </button>
         </div>
+      </details>
 
-        <!-- Error Display -->
-        {#if authState.error}
-          <div
-            class="bg-input border rounded-lg p-2.5 mb-3"
-            style="border-color: var(--color-danger, #ef4444)"
-          >
-            <p class="text-xs" style="color: var(--color-danger, #ef4444)">{authState.error}</p>
-          </div>
-        {/if}
-
-        <!-- Advanced options -->
-        <div class="py-3 space-y-2">
-          <div class="flex items-center justify-center gap-3 text-[11px]">
-            <button
-              on:click={startUniversalPairing}
-              disabled={authState.isLoading}
-              class="text-caption hover:opacity-80 hover:underline transition-colors disabled:opacity-50"
-            >
-              📷 Scan QR / Universal pairing
-            </button>
-            <span class="text-caption">|</span>
-            <button
-              on:click={openBunkerModal}
-              disabled={authState.isLoading}
-              class="text-caption hover:opacity-80 hover:underline transition-colors disabled:opacity-50"
-            >
-              🔐 Paste bunker URI
-            </button>
-            <span class="text-caption">|</span>
-            <button
-              on:click={() => (nsecModal = true)}
-              disabled={authState.isLoading}
-              class="text-caption hover:opacity-80 hover:underline transition-colors disabled:opacity-50"
-            >
-              Import key
-            </button>
-          </div>
-        </div>
-
-        <!-- Value Propositions - Quieter styling -->
-        <section
-          class="grid grid-cols-2 gap-x-3 gap-y-1.5 text-[11px] text-caption pt-3 border-t"
-          style="border-color: var(--color-input-border)"
-          aria-label="Zap Cooking features"
-        >
-          <div class="flex items-center gap-1">
-            <span class="text-orange-400 text-xs">⚡</span>
-            <span>Instant Bitcoin Tips</span>
-          </div>
-          <div class="flex items-center gap-1">
-            <span class="text-blue-400 text-xs">🔒</span>
-            <span>Decentralized & Private</span>
-          </div>
-          <div class="flex items-center gap-1">
-            <span class="text-purple-400 text-xs">🌍</span>
-            <span>Global Recipe Community</span>
-          </div>
-          <div class="flex items-center gap-1">
-            <span class="text-green-400 text-xs">📱</span>
-            <span>Cross-Platform Access</span>
-          </div>
-        </section>
-      </section>
+      <!-- Footer strip -->
+      <footer class="signin-footer">
+        <span class="signin-footer-tag">Your keys, your kitchen.</span>
+        <span class="signin-footer-links">
+          <a href="/terms">Terms</a>
+          <span aria-hidden="true">·</span>
+          <a href="/privacy">Privacy</a>
+        </span>
+      </footer>
+    </section>
   </main>
 {/if}
 
@@ -1218,5 +1201,419 @@
     inset: 0;
     z-index: 31;
     overflow-y: auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1.5rem 1rem;
+    padding-top: max(1.5rem, env(safe-area-inset-top));
+    padding-bottom: max(1.5rem, env(safe-area-inset-bottom));
+  }
+
+  /* ───── New sign-in card ───── */
+
+  .signin-card {
+    width: 100%;
+    max-width: 440px;
+    background: var(--color-bg-secondary);
+    border: 1px solid var(--color-input-border);
+    border-radius: 24px;
+    padding: 2.25rem 1.75rem 1.5rem;
+    box-shadow:
+      0 1px 0 rgba(255, 255, 255, 0.04) inset,
+      0 24px 64px rgba(0, 0, 0, 0.18),
+      0 4px 12px rgba(236, 71, 0, 0.06);
+    text-align: center;
+    animation: signinRise 320ms cubic-bezier(0.2, 0.8, 0.25, 1) both;
+  }
+
+  @keyframes signinRise {
+    from {
+      opacity: 0;
+      transform: translateY(8px) scale(0.985);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+  }
+
+  /* ───── Brand mark ───── */
+
+  .signin-brand {
+    width: 56px;
+    height: 56px;
+    margin: 0 auto 1.25rem;
+    border-radius: 50%;
+    background: radial-gradient(
+      circle at 50% 45%,
+      #ffd28a 0%,
+      #ff9542 32%,
+      #ec4700 70%,
+      #7c1d00 100%
+    );
+    box-shadow:
+      0 0 0 1px rgba(255, 213, 138, 0.35) inset,
+      0 0 24px rgba(236, 71, 0, 0.45);
+    position: relative;
+    display: grid;
+    place-items: center;
+    animation: signinPulse 3.2s ease-in-out infinite;
+  }
+
+  @keyframes signinPulse {
+    0%, 100% { box-shadow: 0 0 0 1px rgba(255, 213, 138, 0.35) inset, 0 0 24px rgba(236, 71, 0, 0.45); }
+    50% { box-shadow: 0 0 0 1px rgba(255, 213, 138, 0.5) inset, 0 0 36px rgba(236, 71, 0, 0.65); }
+  }
+
+  /* Lightning bolt — drawn with clip-path so it inherits the gradient backdrop. */
+  .signin-bolt {
+    width: 18px;
+    height: 30px;
+    background: #fff8ec;
+    clip-path: polygon(58% 0, 18% 56%, 46% 56%, 32% 100%, 82% 42%, 54% 42%, 70% 0);
+    filter: drop-shadow(0 0 4px rgba(255, 240, 200, 0.85));
+    animation: signinFlicker 4.8s ease-in-out infinite;
+  }
+
+  @keyframes signinFlicker {
+    0%, 92%, 100% { opacity: 1; }
+    93% { opacity: 0.55; }
+    94% { opacity: 1; }
+    96% { opacity: 0.7; }
+    97% { opacity: 1; }
+  }
+
+  /* ───── Hero copy ───── */
+
+  .signin-title {
+    font-family: 'Fraunces', Georgia, 'Times New Roman', serif;
+    font-weight: 600;
+    font-size: 1.875rem;
+    line-height: 1.15;
+    letter-spacing: -0.01em;
+    color: var(--color-text-primary);
+    margin: 0 0 0.5rem;
+  }
+
+  .signin-title em {
+    font-style: italic;
+    font-weight: 500;
+    background: linear-gradient(135deg, #ff9542 0%, #ec4700 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+
+  .signin-subtitle {
+    font-size: 0.9375rem;
+    color: var(--color-text-secondary);
+    margin: 0 0 1.75rem;
+    line-height: 1.5;
+  }
+
+  /* ───── Primary CTA ───── */
+
+  .signin-cta-primary {
+    width: 100%;
+    height: 52px;
+    border-radius: 14px;
+    border: none;
+    background: linear-gradient(135deg, #ff9542 0%, #ec4700 100%);
+    color: #fff8ec;
+    font-weight: 600;
+    font-size: 0.9375rem;
+    letter-spacing: 0.005em;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.625rem;
+    padding: 0 1.25rem;
+    box-shadow:
+      0 1px 0 rgba(255, 255, 255, 0.18) inset,
+      0 8px 24px rgba(236, 71, 0, 0.32),
+      0 2px 6px rgba(124, 29, 0, 0.18);
+    transition: transform 120ms ease, box-shadow 200ms ease, opacity 200ms ease;
+  }
+
+  .signin-cta-primary:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow:
+      0 1px 0 rgba(255, 255, 255, 0.22) inset,
+      0 12px 28px rgba(236, 71, 0, 0.4),
+      0 2px 8px rgba(124, 29, 0, 0.2);
+  }
+
+  .signin-cta-primary:active:not(:disabled) {
+    transform: translateY(0);
+  }
+
+  .signin-cta-primary:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+
+  .signin-cta-primary:focus-visible {
+    outline: 2px solid #ffd28a;
+    outline-offset: 2px;
+  }
+
+  .signin-badge {
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    padding: 0.125rem 0.5rem;
+    border-radius: 999px;
+    background: rgba(255, 248, 236, 0.18);
+    color: #fff8ec;
+    border: 1px solid rgba(255, 248, 236, 0.35);
+  }
+
+  /* ───── Secondary CTA ───── */
+
+  .signin-cta-secondary {
+    width: 100%;
+    height: 48px;
+    margin-top: 0.75rem;
+    border-radius: 14px;
+    border: 1px solid var(--color-input-border);
+    background: var(--color-bg-primary);
+    color: var(--color-text-primary);
+    font-weight: 500;
+    font-size: 0.9375rem;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.625rem;
+    padding: 0 1.25rem;
+    transition: transform 120ms ease, border-color 200ms ease, opacity 200ms ease;
+  }
+
+  .signin-cta-secondary:hover:not(:disabled) {
+    transform: translateY(-1px);
+    border-color: #ec4700;
+  }
+
+  .signin-cta-secondary:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+
+  .signin-cta-secondary:focus-visible {
+    outline: 2px solid #ec4700;
+    outline-offset: 2px;
+  }
+
+  .signin-plus {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #ff9542 0%, #ec4700 100%);
+    color: #fff8ec;
+    font-weight: 600;
+    font-size: 0.875rem;
+    line-height: 1;
+    display: grid;
+    place-items: center;
+    box-shadow: 0 0 12px rgba(236, 71, 0, 0.3);
+  }
+
+  /* ───── Helper / notice / error ───── */
+
+  .signin-helper {
+    font-size: 0.75rem;
+    color: var(--color-text-secondary);
+    margin: 0.625rem 0 0;
+    line-height: 1.5;
+  }
+
+  .signin-helper a,
+  .signin-notice a,
+  .signin-footer a {
+    color: var(--color-primary, #ec4700);
+    text-decoration: none;
+  }
+
+  .signin-helper a:hover,
+  .signin-notice a:hover,
+  .signin-footer a:hover {
+    text-decoration: underline;
+  }
+
+  .signin-notice {
+    margin-top: 0.625rem;
+    padding: 0.625rem 0.75rem;
+    border-radius: 10px;
+    background: var(--color-bg-primary);
+    border: 1px solid var(--color-input-border);
+    font-size: 0.8125rem;
+    color: var(--color-text-secondary);
+    line-height: 1.5;
+    text-align: left;
+  }
+
+  .signin-error {
+    margin-top: 1rem;
+    padding: 0.625rem 0.75rem;
+    border-radius: 10px;
+    background: rgba(239, 68, 68, 0.08);
+    border: 1px solid var(--color-danger, #ef4444);
+    font-size: 0.8125rem;
+    color: var(--color-danger, #ef4444);
+    line-height: 1.5;
+  }
+
+  /* ───── Divider ───── */
+
+  .signin-divider {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin: 1.5rem 0 1rem;
+    color: var(--color-text-secondary);
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+  }
+
+  .signin-divider::before,
+  .signin-divider::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--color-input-border);
+  }
+
+  /* ───── Disclosure ───── */
+
+  .signin-disclosure {
+    border-radius: 14px;
+    border: 1px solid var(--color-input-border);
+    background: var(--color-bg-primary);
+  }
+
+  .signin-disclosure summary {
+    list-style: none;
+    cursor: pointer;
+    padding: 0.875rem 1rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    color: var(--color-text-primary);
+    font-size: 0.9375rem;
+    font-weight: 500;
+    user-select: none;
+  }
+
+  .signin-disclosure summary::-webkit-details-marker { display: none; }
+  .signin-disclosure summary:focus-visible {
+    outline: 2px solid #ec4700;
+    outline-offset: -2px;
+    border-radius: 14px;
+  }
+
+  .signin-chevron {
+    transition: transform 200ms ease;
+    color: var(--color-text-secondary);
+  }
+
+  .signin-disclosure[open] .signin-chevron {
+    transform: rotate(180deg);
+  }
+
+  .signin-disclosure-list {
+    display: flex;
+    flex-direction: column;
+    border-top: 1px solid var(--color-input-border);
+  }
+
+  .signin-method {
+    background: transparent;
+    border: none;
+    padding: 0.875rem 1rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    color: var(--color-text-primary);
+    font-size: 0.9375rem;
+    cursor: pointer;
+    text-align: left;
+    border-bottom: 1px solid var(--color-input-border);
+    transition: background 150ms ease;
+  }
+
+  .signin-method:last-child { border-bottom: none; }
+  .signin-method:hover:not(:disabled) { background: rgba(236, 71, 0, 0.04); }
+  .signin-method:focus-visible {
+    outline: 2px solid #ec4700;
+    outline-offset: -2px;
+  }
+  .signin-method:disabled { opacity: 0.55; cursor: not-allowed; }
+
+  .signin-method-title { font-weight: 500; }
+
+  .signin-method-meta {
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    color: var(--color-text-secondary);
+    padding: 0.125rem 0.5rem;
+    border-radius: 999px;
+    background: var(--color-bg-secondary);
+    border: 1px solid var(--color-input-border);
+  }
+
+  .signin-method-meta-warn {
+    color: #c2410c;
+    border-color: rgba(236, 71, 0, 0.35);
+    background: rgba(236, 71, 0, 0.08);
+  }
+
+  /* ───── Footer ───── */
+
+  .signin-footer {
+    margin-top: 1.5rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--color-input-border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    font-size: 0.75rem;
+    color: var(--color-text-secondary);
+  }
+
+  .signin-footer-tag {
+    font-style: italic;
+  }
+
+  .signin-footer-links {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+
+  /* ───── Mobile tuning ───── */
+
+  @media (max-width: 480px) {
+    .signin-card {
+      padding: 1.75rem 1.25rem 1.25rem;
+      border-radius: 20px;
+    }
+    .signin-title { font-size: 1.625rem; }
+    .signin-subtitle { font-size: 0.875rem; margin-bottom: 1.5rem; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .signin-card,
+    .signin-brand,
+    .signin-bolt,
+    .signin-cta-primary,
+    .signin-cta-secondary,
+    .signin-chevron {
+      animation: none !important;
+      transition: none !important;
+    }
   }
 </style>

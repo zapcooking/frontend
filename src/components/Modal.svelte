@@ -16,7 +16,7 @@
 <script lang="ts">
   import { blur, scale } from 'svelte/transition';
   import CloseIcon from 'phosphor-svelte/lib/XCircle';
-  import { onMount, onDestroy } from 'svelte';
+  import { onMount, onDestroy, tick } from 'svelte';
 
   export let open = false;
   export let cleanup: (() => void) | null = null;
@@ -26,21 +26,76 @@
 
   // Portal target - render at document body level
   let portalTarget: HTMLElement;
+  let dialogEl: HTMLDialogElement | null = null;
+  let previousActiveElement: HTMLElement | null = null;
+  let lastOpen = false;
 
   onMount(() => {
     portalTarget = document.body;
   });
 
-  // Close on Escape key
-  function handleKeydown(e: KeyboardEvent) {
-    if (e.key === 'Escape' && open) close();
+  // Find focusable descendants of the dialog. Hidden, disabled, or
+  // aria-hidden elements are excluded. Order matches DOM order.
+  function getFocusable(): HTMLElement[] {
+    if (!dialogEl) return [];
+    const selector =
+      'a[href], area[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+    return Array.from(dialogEl.querySelectorAll<HTMLElement>(selector)).filter((el) => {
+      if (el.hasAttribute('aria-hidden')) return false;
+      // offsetParent is null for display:none subtrees; visibility:hidden also reports null parent.
+      return el.offsetParent !== null || el === document.activeElement;
+    });
   }
 
-  $: if (typeof window !== 'undefined') {
+  function handleKeydown(e: KeyboardEvent) {
+    if (!open) return;
+    if (e.key === 'Escape') {
+      close();
+      return;
+    }
+    if (e.key === 'Tab') {
+      const focusable = getFocusable();
+      if (focusable.length === 0) {
+        // Nothing focusable inside — keep focus on the dialog itself.
+        e.preventDefault();
+        dialogEl?.focus();
+        return;
+      }
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      const active = document.activeElement as HTMLElement | null;
+      if (e.shiftKey && (active === first || !dialogEl?.contains(active))) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && (active === last || !dialogEl?.contains(active))) {
+        e.preventDefault();
+        first.focus();
+      }
+    }
+  }
+
+  // Open/close lifecycle: manage focus capture+restore + keydown listener.
+  $: if (typeof window !== 'undefined' && open !== lastOpen) {
+    lastOpen = open;
     if (open) {
+      previousActiveElement = (document.activeElement as HTMLElement) || null;
       window.addEventListener('keydown', handleKeydown);
+      // Defer initial focus so the dialog has mounted and transitions started.
+      tick().then(() => {
+        const focusable = getFocusable();
+        if (focusable.length > 0) {
+          focusable[0].focus();
+        } else {
+          dialogEl?.focus();
+        }
+      });
     } else {
       window.removeEventListener('keydown', handleKeydown);
+      // Return focus to whatever opened the modal.
+      if (previousActiveElement && typeof previousActiveElement.focus === 'function') {
+        previousActiveElement.focus();
+      }
+      previousActiveElement = null;
     }
   }
 
@@ -68,6 +123,8 @@
       class="fixed top-0 left-0 z-50 w-full h-full backdrop-brightness-50 backdrop-blur"
     >
       <dialog
+        bind:this={dialogEl}
+        tabindex="-1"
         transition:scale={{ duration: 250 }}
         aria-labelledby="title"
         aria-modal="true"

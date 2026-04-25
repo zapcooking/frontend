@@ -834,94 +834,97 @@
     </div>
   </div>
 
-  <div class="relative flex flex-col items-center min-h-screen px-4 pt-12 md:pt-20 pb-8">
-    <!-- Main Content Card -->
+  <div class="ios-signin-wrap">
     <section
-      class="glass-card rounded-2xl p-6 md:p-8 w-full mx-auto text-center"
-      style="max-width: 420px;"
-      aria-label="Authentication options"
+      class="signin-card"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="ios-signin-title"
     >
-      <!-- Logo and Title -->
-      <div class="mb-5">
-        <img
-          src={isDarkMode ? '/zap_cooking_logo_white.svg' : '/zap_cooking_logo_black.svg'}
-          class="h-10 md:h-12 mb-2 mx-auto"
-          alt="Zap Cooking"
-        />
-        <h1 class="text-xl md:text-2xl font-bold mb-1" style="color: var(--color-text-primary)">
-          Welcome to <span class="text-orange-500">Zap Cooking</span>
-        </h1>
-        <p class="text-sm text-caption">Share recipes and support creators with Bitcoin zaps</p>
+      <div class="signin-brand" aria-hidden="true">
+        <span class="signin-bolt" />
       </div>
 
-      <!-- Authentication Options -->
-      <div class="space-y-2.5 mb-3">
-        <!-- Create Profile - Primary CTA for iOS -->
-        <button
-          on:click={() => (generateModal = true)}
-          disabled={authState.isLoading}
-          aria-label="Create a new Zap Cooking profile"
-          class="w-full bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white font-semibold h-[52px] md:h-12 px-6 rounded-xl transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
-        >
-          <div class="flex items-center justify-center gap-2">
-            <span class="text-lg">⚡</span>
-            <span class="text-[15px]">Create Profile</span>
-          </div>
-        </button>
+      <h1 id="ios-signin-title" class="signin-title">
+        Welcome <em>back.</em>
+      </h1>
+      <p class="signin-subtitle">Pull up a chair. Your keys unlock the kitchen.</p>
 
-        <!-- Import Existing Key - Secondary -->
-        <button
-          on:click={() => (nsecModal = true)}
-          disabled={authState.isLoading}
-          aria-label="Sign in with your Nostr private key"
-          class="w-full bg-input hover:opacity-90 font-medium h-11 px-6 rounded-xl transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed border"
-          style="color: var(--color-text-primary); border-color: var(--color-input-border)"
-        >
-          <span class="text-sm">🔑 Import Private Key</span>
-        </button>
-        <button
-          on:click={openBunkerModal}
-          disabled={authState.isLoading}
-          aria-label="Sign in with bunker URI"
-          class="w-full text-caption hover:opacity-80 hover:underline transition-colors disabled:opacity-50 text-sm py-1"
-        >
-          🔐 Paste bunker URI
-        </button>
-      </div>
+      <!-- Primary CTA on iOS: create new account
+           (NIP-07 + QR pairing intentionally omitted on iOS — App Store
+            policy on cross-app handoff for unlisted signers.) -->
+      <button
+        type="button"
+        on:click={() => (generateModal = true)}
+        disabled={authState.isLoading}
+        aria-label="Create a new Zap Cooking profile"
+        class="signin-cta-primary"
+      >
+        <span class="signin-cta-label">
+          {authState.isLoading ? 'Connecting…' : 'Create a new account'}
+        </span>
+      </button>
 
-      <!-- Error Display -->
       {#if authState.error}
-        <div
-          class="bg-input border rounded-lg p-2.5 mb-3"
-          style="border-color: var(--color-danger, #ef4444)"
-        >
-          <p class="text-xs" style="color: var(--color-danger, #ef4444)">{authState.error}</p>
+        <div class="signin-error" role="alert">
+          {authState.error}
         </div>
       {/if}
 
-      <!-- Value Propositions -->
-      <section
-        class="grid grid-cols-2 gap-x-3 gap-y-1.5 text-[11px] text-caption pt-3 border-t"
-        style="border-color: var(--color-input-border)"
-        aria-label="Zap Cooking features"
-      >
-        <div class="flex items-center gap-1">
-          <span class="text-orange-400 text-xs">⚡</span>
-          <span>Instant Bitcoin Tips</span>
+      <div class="signin-divider" aria-hidden="true">
+        <span>or</span>
+      </div>
+
+      <details class="signin-disclosure">
+        <summary>
+          <span>More sign-in methods</span>
+          <svg
+            class="signin-chevron"
+            width="16"
+            height="16"
+            viewBox="0 0 16 16"
+            fill="none"
+            aria-hidden="true"
+          >
+            <path
+              d="M4 6l4 4 4-4"
+              stroke="currentColor"
+              stroke-width="1.5"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+          </svg>
+        </summary>
+        <div class="signin-disclosure-list">
+          <button
+            type="button"
+            on:click={openBunkerModal}
+            disabled={authState.isLoading}
+            class="signin-method"
+          >
+            <span class="signin-method-title">Paste bunker URI</span>
+            <span class="signin-method-meta">NIP-46</span>
+          </button>
+          <button
+            type="button"
+            on:click={() => (nsecModal = true)}
+            disabled={authState.isLoading}
+            class="signin-method"
+          >
+            <span class="signin-method-title">Import private key</span>
+            <span class="signin-method-meta signin-method-meta-warn">advanced</span>
+          </button>
         </div>
-        <div class="flex items-center gap-1">
-          <span class="text-blue-400 text-xs">🔒</span>
-          <span>Decentralized & Private</span>
-        </div>
-        <div class="flex items-center gap-1">
-          <span class="text-purple-400 text-xs">🌍</span>
-          <span>Global Recipe Community</span>
-        </div>
-        <div class="flex items-center gap-1">
-          <span class="text-green-400 text-xs">📱</span>
-          <span>Cross-Platform Access</span>
-        </div>
-      </section>
+      </details>
+
+      <footer class="signin-footer">
+        <span class="signin-footer-tag">Your keys, your kitchen.</span>
+        <span class="signin-footer-links">
+          <a href="/terms">Terms</a>
+          <span aria-hidden="true">·</span>
+          <a href="/privacy">Privacy</a>
+        </span>
+      </footer>
     </section>
   </div>
 </main>
@@ -950,6 +953,246 @@
     50% {
       opacity: 0.8;
       transform: scale(1.05);
+    }
+  }
+
+  /* ───── New sign-in card (iOS parity) ───── */
+  /* Mirrors the desktop styles in src/routes/login/+page.svelte. Kept
+     duplicated rather than promoted to app.css because the visual is
+     scoped to the login surface. If we end up with a third entry point
+     we'll factor these into a shared component. */
+
+  .ios-signin-wrap {
+    position: relative;
+    z-index: 1;
+    min-height: 100vh;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 1.5rem 1rem;
+    padding-top: max(2.5rem, env(safe-area-inset-top));
+    padding-bottom: max(1.5rem, env(safe-area-inset-bottom));
+  }
+
+  .signin-card {
+    width: 100%;
+    max-width: 440px;
+    background: var(--color-bg-secondary);
+    border: 1px solid var(--color-input-border);
+    border-radius: 24px;
+    padding: 2.25rem 1.75rem 1.5rem;
+    box-shadow:
+      0 1px 0 rgba(255, 255, 255, 0.04) inset,
+      0 24px 64px rgba(0, 0, 0, 0.18),
+      0 4px 12px rgba(236, 71, 0, 0.06);
+    text-align: center;
+    animation: signinRise 320ms cubic-bezier(0.2, 0.8, 0.25, 1) both;
+  }
+
+  @keyframes signinRise {
+    from { opacity: 0; transform: translateY(8px) scale(0.985); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+  }
+
+  .signin-brand {
+    width: 56px;
+    height: 56px;
+    margin: 0 auto 1.25rem;
+    border-radius: 50%;
+    background: radial-gradient(
+      circle at 50% 45%,
+      #ffd28a 0%, #ff9542 32%, #ec4700 70%, #7c1d00 100%
+    );
+    box-shadow:
+      0 0 0 1px rgba(255, 213, 138, 0.35) inset,
+      0 0 24px rgba(236, 71, 0, 0.45);
+    display: grid;
+    place-items: center;
+    animation: signinPulse 3.2s ease-in-out infinite;
+  }
+
+  @keyframes signinPulse {
+    0%, 100% { box-shadow: 0 0 0 1px rgba(255, 213, 138, 0.35) inset, 0 0 24px rgba(236, 71, 0, 0.45); }
+    50% { box-shadow: 0 0 0 1px rgba(255, 213, 138, 0.5) inset, 0 0 36px rgba(236, 71, 0, 0.65); }
+  }
+
+  .signin-bolt {
+    width: 18px;
+    height: 30px;
+    background: #fff8ec;
+    clip-path: polygon(58% 0, 18% 56%, 46% 56%, 32% 100%, 82% 42%, 54% 42%, 70% 0);
+    filter: drop-shadow(0 0 4px rgba(255, 240, 200, 0.85));
+    animation: signinFlicker 4.8s ease-in-out infinite;
+  }
+
+  @keyframes signinFlicker {
+    0%, 92%, 100% { opacity: 1; }
+    93% { opacity: 0.55; }
+    94% { opacity: 1; }
+    96% { opacity: 0.7; }
+    97% { opacity: 1; }
+  }
+
+  .signin-title {
+    font-family: 'Fraunces', Georgia, 'Times New Roman', serif;
+    font-weight: 600;
+    font-size: 1.875rem;
+    line-height: 1.15;
+    letter-spacing: -0.01em;
+    color: var(--color-text-primary);
+    margin: 0 0 0.5rem;
+  }
+
+  .signin-title em {
+    font-style: italic;
+    font-weight: 500;
+    background: linear-gradient(135deg, #ff9542 0%, #ec4700 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+
+  .signin-subtitle {
+    font-size: 0.9375rem;
+    color: var(--color-text-secondary);
+    margin: 0 0 1.75rem;
+    line-height: 1.5;
+  }
+
+  .signin-cta-primary {
+    width: 100%;
+    height: 52px;
+    border-radius: 14px;
+    border: none;
+    background: linear-gradient(135deg, #ff9542 0%, #ec4700 100%);
+    color: #fff8ec;
+    font-weight: 600;
+    font-size: 0.9375rem;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.625rem;
+    padding: 0 1.25rem;
+    box-shadow:
+      0 1px 0 rgba(255, 255, 255, 0.18) inset,
+      0 8px 24px rgba(236, 71, 0, 0.32),
+      0 2px 6px rgba(124, 29, 0, 0.18);
+    transition: transform 120ms ease, box-shadow 200ms ease, opacity 200ms ease;
+  }
+  .signin-cta-primary:hover:not(:disabled) { transform: translateY(-1px); }
+  .signin-cta-primary:disabled { opacity: 0.55; cursor: not-allowed; }
+  .signin-cta-primary:focus-visible { outline: 2px solid #ffd28a; outline-offset: 2px; }
+
+  .signin-error {
+    margin-top: 1rem;
+    padding: 0.625rem 0.75rem;
+    border-radius: 10px;
+    background: rgba(239, 68, 68, 0.08);
+    border: 1px solid var(--color-danger, #ef4444);
+    font-size: 0.8125rem;
+    color: var(--color-danger, #ef4444);
+    line-height: 1.5;
+  }
+
+  .signin-divider {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin: 1.5rem 0 1rem;
+    color: var(--color-text-secondary);
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+  }
+  .signin-divider::before, .signin-divider::after {
+    content: ''; flex: 1; height: 1px; background: var(--color-input-border);
+  }
+
+  .signin-disclosure {
+    border-radius: 14px;
+    border: 1px solid var(--color-input-border);
+    background: var(--color-bg-primary);
+  }
+  .signin-disclosure summary {
+    list-style: none;
+    cursor: pointer;
+    padding: 0.875rem 1rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    color: var(--color-text-primary);
+    font-size: 0.9375rem;
+    font-weight: 500;
+    user-select: none;
+  }
+  .signin-disclosure summary::-webkit-details-marker { display: none; }
+  .signin-disclosure summary:focus-visible {
+    outline: 2px solid #ec4700;
+    outline-offset: -2px;
+    border-radius: 14px;
+  }
+  .signin-chevron { transition: transform 200ms ease; color: var(--color-text-secondary); }
+  .signin-disclosure[open] .signin-chevron { transform: rotate(180deg); }
+  .signin-disclosure-list {
+    display: flex;
+    flex-direction: column;
+    border-top: 1px solid var(--color-input-border);
+  }
+  .signin-method {
+    background: transparent; border: none;
+    padding: 0.875rem 1rem;
+    display: flex; align-items: center; justify-content: space-between;
+    color: var(--color-text-primary); font-size: 0.9375rem;
+    cursor: pointer; text-align: left;
+    border-bottom: 1px solid var(--color-input-border);
+    transition: background 150ms ease;
+  }
+  .signin-method:last-child { border-bottom: none; }
+  .signin-method:hover:not(:disabled) { background: rgba(236, 71, 0, 0.04); }
+  .signin-method:focus-visible { outline: 2px solid #ec4700; outline-offset: -2px; }
+  .signin-method:disabled { opacity: 0.55; cursor: not-allowed; }
+  .signin-method-title { font-weight: 500; }
+  .signin-method-meta {
+    font-size: 0.6875rem; font-weight: 600; letter-spacing: 0.04em;
+    color: var(--color-text-secondary);
+    padding: 0.125rem 0.5rem; border-radius: 999px;
+    background: var(--color-bg-secondary);
+    border: 1px solid var(--color-input-border);
+  }
+  .signin-method-meta-warn {
+    color: #c2410c;
+    border-color: rgba(236, 71, 0, 0.35);
+    background: rgba(236, 71, 0, 0.08);
+  }
+
+  .signin-footer {
+    margin-top: 1.5rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--color-input-border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    font-size: 0.75rem;
+    color: var(--color-text-secondary);
+  }
+  .signin-footer-tag { font-style: italic; }
+  .signin-footer-links { display: inline-flex; align-items: center; gap: 0.4rem; }
+  .signin-footer a { color: var(--color-primary, #ec4700); text-decoration: none; }
+  .signin-footer a:hover { text-decoration: underline; }
+
+  @media (max-width: 480px) {
+    .signin-card { padding: 1.75rem 1.25rem 1.25rem; border-radius: 20px; }
+    .signin-title { font-size: 1.625rem; }
+    .signin-subtitle { font-size: 0.875rem; margin-bottom: 1.5rem; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .signin-card, .signin-brand, .signin-bolt,
+    .signin-cta-primary, .signin-chevron {
+      animation: none !important;
+      transition: none !important;
     }
   }
 </style>
