@@ -15,6 +15,7 @@
   import { platformIsIOS } from '$lib/platform';
   import LoginFormIOS from '../../components/LoginFormIOS.svelte';
   import SuggestedFollowsModal from '../../components/SuggestedFollowsModal.svelte';
+  import { showToast } from '$lib/toast';
 
   let authManager: any = null;
   let authState: AuthState = {
@@ -297,9 +298,13 @@
     }
   }
 
-  function copyToClipboard(text: string) {
-    if (browser) {
-      navigator.clipboard.writeText(text);
+  async function copyToClipboard(text: string) {
+    if (!browser) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      showToast('success', 'Link copied');
+    } catch {
+      showToast('error', 'Could not copy — copy the link manually');
     }
   }
 
@@ -489,6 +494,11 @@
   <Modal bind:open={nsecModal} on:close={modalCleanup}>
     <svelte:fragment slot="title">🔑 Log in with Private Key</svelte:fragment>
     <div class="flex flex-col gap-4">
+      <div class="bg-input border rounded-lg p-3" style="border-color: var(--color-input-border)">
+        <p class="text-sm text-caption">
+          Your key stays in this browser only — it isn't sent to any server. Keep a backup of your nsec; if you lose it, you lose access to your account.
+        </p>
+      </div>
       <div class="text-sm text-caption">Enter your private key (nsec1...) or hex format</div>
       <input
         bind:value={nsecInput}
@@ -503,9 +513,6 @@
         <Button on:click={loginWithPrivateKey} primary={true} disabled={authState.isLoading}>
           {authState.isLoading ? '⚡ Connecting...' : '⚡ Login'}
         </Button>
-        <Button on:click={modalCleanup} primary={false} disabled={authState.isLoading}
-          >Cancel</Button
-        >
       </div>
     </div>
   </Modal>
@@ -579,14 +586,13 @@
         >
           {bunkerConnecting ? '⏳ Connecting...' : '🔐 Connect'}
         </Button>
-        <Button on:click={modalCleanup} primary={false} disabled={bunkerConnecting}>Cancel</Button>
       </div>
     </div>
   </Modal>
 
   <!-- Universal NIP-46 Pairing Modal -->
   <Modal bind:open={nip46UniversalModal} on:close={modalCleanup}>
-    <svelte:fragment slot="title">📷 Scan QR / Universal pairing</svelte:fragment>
+    <svelte:fragment slot="title"><span class="mr-2">📷</span>Scan QR / Universal pairing</svelte:fragment>
     <div class="flex flex-col gap-4">
       <div class="bg-input border rounded-lg p-3" style="border-color: var(--color-input-border)">
         <p class="text-sm text-caption">
@@ -651,9 +657,6 @@
         </div>
       {/if}
 
-      <div class="flex gap-2">
-        <Button on:click={modalCleanup} primary={false} disabled={false}>Cancel</Button>
-      </div>
     </div>
   </Modal>
 
