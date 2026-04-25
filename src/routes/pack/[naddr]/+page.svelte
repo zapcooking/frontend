@@ -7,6 +7,21 @@
   import { nip19 } from 'nostr-tools';
   import { get } from 'svelte/store';
   import { onMount } from 'svelte';
+  import type { PageData } from './$types';
+
+  // SSR-resolved OG metadata. Always present; falls back to safe
+  // branded defaults when the pack can't be loaded server-side.
+  // Used to populate <meta> tags so social/Nostr share previews
+  // render before client-side data arrives.
+  export let data: PageData = {
+    ogMeta: {
+      title: 'Recipe Pack on Zap Cooking',
+      description: 'A zappable recipe collection curated on Zap Cooking.',
+      image: 'https://zap.cooking/social-share.png',
+      url: ''
+    },
+    naddr: ''
+  } as unknown as PageData;
 
   import PanLoader from '../../../components/PanLoader.svelte';
   import NoteActionBar from '../../../components/NoteActionBar.svelte';
@@ -47,16 +62,20 @@
   $: recipeCount = aTags.length;
   $: viewUrl = $page.params.naddr ? buildPackUrl($page.params.naddr) : '';
 
-  // OG meta
+  // SSR data already provides safe-fallback ogMeta. Once the client
+  // resolves the pack we may have a richer title/description, so
+  // prefer the fresh values when available, falling back to the SSR
+  // defaults (which is what scrapers will see).
   $: ogMeta = packEvent
     ? {
         title: `${title} — Recipe Pack on Zap Cooking`,
         description:
           description ||
           `A curated Recipe Pack with ${recipeCount} ${recipeCount === 1 ? 'recipe' : 'recipes'}.`,
-        image: image || 'https://zap.cooking/social-share.png'
+        image: data?.ogMeta?.image || 'https://zap.cooking/social-share.png',
+        url: data?.ogMeta?.url || ''
       }
-    : null;
+    : data?.ogMeta || null;
 
   $: if (browser && $page.params.naddr && $page.params.naddr !== lastSlug) {
     lastSlug = $page.params.naddr;
@@ -285,14 +304,24 @@
   {#if ogMeta}
     <meta name="description" content={ogMeta.description} />
     <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Zap Cooking" />
     <meta property="og:title" content={ogMeta.title} />
     <meta property="og:description" content={ogMeta.description} />
     <meta property="og:image" content={ogMeta.image} />
-    <meta property="og:url" content={`https://zap.cooking/pack/${$page.params.naddr}`} />
+    <meta property="og:image:secure_url" content={ogMeta.image} />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content={ogMeta.title} />
+    <meta
+      property="og:url"
+      content={ogMeta.url || `https://zap.cooking/pack/${$page.params.naddr}`}
+    />
     <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:domain" content="zap.cooking" />
     <meta name="twitter:title" content={ogMeta.title} />
     <meta name="twitter:description" content={ogMeta.description} />
     <meta name="twitter:image" content={ogMeta.image} />
+    <meta name="twitter:image:alt" content={ogMeta.title} />
   {/if}
 </svelte:head>
 
