@@ -914,7 +914,7 @@
       </div>
 
       <footer class="signin-footer">
-        <span class="signin-footer-tag">Your identity · Your data</span>
+        <span class="signin-footer-tag">Your identity · Your data · Your money</span>
         <span class="signin-footer-links">
           <a href="/terms">Terms</a>
           <span aria-hidden="true">·</span>
