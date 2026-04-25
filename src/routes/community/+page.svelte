@@ -47,9 +47,6 @@
   let hasActiveMembership = false;
   let checkingMembership = false;
 
-  // Key to force component recreation
-  let feedKey = 0;
-
   // Groups state (for Pantry tab)
   let selectedGroupId: string | null = null;
   let createGroupOpen = false;
@@ -117,7 +114,6 @@
     if (tab === activeTab) return;
 
     activeTab = tab;
-    feedKey++; // This forces component recreation with new filterMode
 
     // Update URL for bookmarking/sharing
     const url = new URL($page.url);
@@ -376,9 +372,7 @@
         <CreateGroupModal bind:open={createGroupOpen} on:created={handleGroupCreated} />
       {/if}
     {:else}
-      {#key feedKey}
-        <FoodstrFeedOptimized bind:this={feedComponent} filterMode={activeTab} />
-      {/key}
+      <FoodstrFeedOptimized bind:this={feedComponent} filterMode={activeTab} />
     {/if}
   </div>
 </PullToRefresh>
