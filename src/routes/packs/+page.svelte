@@ -8,17 +8,18 @@
   import { NDKEvent, NDKRelaySet } from '@nostr-dev-kit/ndk';
   import { standardRelays } from '$lib/consts';
   import { RECIPE_PACK_KIND, RECIPE_PACK_TAG, ZAP_COOKING_TAG } from '$lib/recipePack';
+  import { savedPacksStore, savedPackATags } from '$lib/savedPacksStore';
   import RecipePackCard from '../../components/RecipePackCard.svelte';
   import PanLoader from '../../components/PanLoader.svelte';
   import BookmarkIcon from 'phosphor-svelte/lib/BookmarkSimple';
 
-  type Tab = 'discover' | 'mine';
+  type Tab = 'discover' | 'mine' | 'saved';
   let tab: Tab = 'discover';
 
-  // Hydrate tab from ?tab= query param so links can deep-link to "Mine".
+  // Hydrate tab from ?tab= query param so links can deep-link to a sub-tab.
   $: {
     const t = $page.url.searchParams.get('tab');
-    if (t === 'mine' || t === 'discover') tab = t;
+    if (t === 'mine' || t === 'discover' || t === 'saved') tab = t;
   }
 
   function setTab(next: Tab) {
@@ -52,6 +53,15 @@
   // is dropped without overwriting state. Same idea as the relay-
   // generation guard in /recent.
   let mineRequestId = 0;
+
+  // Saved tab — same shape, separate state. Populated by resolving each
+  // bookmarked a-tag to its underlying kind 30004 event.
+  let savedEvents: NDKEvent[] = [];
+  let savedLoading = false;
+  let savedLoaded = false;
+  let savedError = '';
+  let savedRequestId = 0;
+  let lastResolvedSavedSig = '';
 
   async function loadDiscover() {
     if (discoverLoading) return;
@@ -184,6 +194,84 @@
     return Array.from(byKey.values()).sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
   }
 
+  /**
+   * Resolve bookmarked pack a-tags to their underlying kind 30004
+   * events. Each a-tag is `30004:pubkey:dTag`. We fetch them in
+   * parallel via the standard pool (same outbox-bypass pattern as
+   * Discover) so the user always sees something even when there's no
+   * NIP-65 data for the pack creators.
+   */
+  async function loadSaved() {
+    if (savedLoading) return;
+    if (!$userPublickey) {
+      savedEvents = [];
+      savedLoaded = true;
+      return;
+    }
+    const reqId = ++savedRequestId;
+    savedLoading = true;
+    savedError = '';
+    try {
+      try {
+        await ensureNdkConnected();
+      } catch {
+        /* tolerate */
+      }
+      // Make sure the bookmark list itself is hydrated.
+      await savedPacksStore.load();
+      const aTags = $savedPackATags;
+      lastResolvedSavedSig = aTags.slice().sort().join(',');
+
+      if (aTags.length === 0) {
+        if (reqId === savedRequestId) {
+          savedEvents = [];
+          savedLoaded = true;
+        }
+        return;
+      }
+
+      // Build the OR-of-(authors,#d) filter set for one round-trip.
+      // We use REQ filters keyed by pubkey since `a`-tag filters aren't
+      // standardized; per-pack (kinds, authors, #d) is the safe form.
+      const relaySet = NDKRelaySet.fromRelayUrls(standardRelays, $ndk, false);
+      const fetched = await Promise.all(
+        aTags.map(async (aTag) => {
+          const parts = aTag.split(':');
+          if (parts.length !== 3) return null;
+          const [kindStr, pubkey, dTag] = parts;
+          const kind = Number(kindStr);
+          if (!Number.isFinite(kind) || !pubkey || !dTag) return null;
+          try {
+            const fetchPromise = $ndk.fetchEvent(
+              { kinds: [kind], authors: [pubkey], '#d': [dTag] },
+              { closeOnEose: true },
+              relaySet
+            );
+            const timeoutPromise = new Promise<null>((resolve) =>
+              setTimeout(() => resolve(null), 8000)
+            );
+            return (await Promise.race([fetchPromise, timeoutPromise])) as NDKEvent | null;
+          } catch {
+            return null;
+          }
+        })
+      );
+
+      // Drop result if user changed mid-fetch.
+      if (reqId !== savedRequestId) return;
+      const valid = fetched.filter((e): e is NDKEvent => e !== null);
+      savedEvents = sortAndDedupe(valid);
+      savedLoaded = true;
+    } catch (e: any) {
+      console.error('[packs] saved load failed', e);
+      if (reqId === savedRequestId) {
+        savedError = 'Could not load your saved Recipe Packs.';
+      }
+    } finally {
+      if (reqId === savedRequestId) savedLoading = false;
+    }
+  }
+
   function retryDiscover() {
     discoverError = '';
     discoverLoaded = false;
@@ -196,6 +284,12 @@
     loadMine();
   }
 
+  function retrySaved() {
+    savedError = '';
+    savedLoaded = false;
+    loadSaved();
+  }
+
   // Trigger loads on tab change (or first mount).
   $: if (browser && tab === 'discover' && !discoverLoaded && !discoverLoading && !discoverError) {
     loadDiscover();
@@ -203,8 +297,26 @@
   $: if (browser && tab === 'mine' && !mineLoaded && !mineLoading && !mineError) {
     loadMine();
   }
+  $: if (browser && tab === 'saved' && !savedLoaded && !savedLoading && !savedError) {
+    loadSaved();
+  }
 
-  // Re-load Mine when sign-in changes — bump the request id so any
+  // Re-resolve Saved when the underlying bookmark list changes — e.g.,
+  // user clicks bookmark on a card. Compare a stable signature of the
+  // a-tag list rather than reference, since the store always emits a
+  // fresh array.
+  $: if (browser && $userPublickey) {
+    const sig = $savedPackATags.slice().sort().join(',');
+    if (savedLoaded && sig !== lastResolvedSavedSig) {
+      lastResolvedSavedSig = sig;
+      savedLoaded = false;
+      // If the user is currently viewing the Saved tab, kick a refetch;
+      // otherwise the auto-load above will handle it on next visit.
+      if (tab === 'saved') loadSaved();
+    }
+  }
+
+  // Re-load Mine + Saved when sign-in changes — bump request ids so any
   // in-flight fetch for the previous pubkey is ignored on resolution.
   let lastUserPubkey = '';
   $: if (browser && $userPublickey !== lastUserPubkey) {
@@ -214,12 +326,19 @@
     mineError = '';
     mineRequestId++;
     mineLoading = false;
+    savedLoaded = false;
+    savedEvents = [];
+    savedError = '';
+    savedRequestId++;
+    savedLoading = false;
+    lastResolvedSavedSig = '';
   }
 
   onMount(() => {
     // Force first load even before reactive blocks fire.
     if (tab === 'discover') loadDiscover();
     if (tab === 'mine') loadMine();
+    if (tab === 'saved') loadSaved();
   });
 
   // Card-friendly view of a pack event.
@@ -253,10 +372,14 @@
   let activeLoading = false;
   let activeLoaded = false;
   let activeError = '';
-  $: activeEvents = tab === 'discover' ? discoverEvents : mineEvents;
-  $: activeLoading = tab === 'discover' ? discoverLoading : mineLoading;
-  $: activeLoaded = tab === 'discover' ? discoverLoaded : mineLoaded;
-  $: activeError = tab === 'discover' ? discoverError : mineError;
+  $: activeEvents =
+    tab === 'discover' ? discoverEvents : tab === 'mine' ? mineEvents : savedEvents;
+  $: activeLoading =
+    tab === 'discover' ? discoverLoading : tab === 'mine' ? mineLoading : savedLoading;
+  $: activeLoaded =
+    tab === 'discover' ? discoverLoaded : tab === 'mine' ? mineLoaded : savedLoaded;
+  $: activeError =
+    tab === 'discover' ? discoverError : tab === 'mine' ? mineError : savedError;
 </script>
 
 <svelte:head>
@@ -304,7 +427,7 @@
     </a>
   </div>
 
-  <!-- Sub-tabs: Discover / Mine -->
+  <!-- Sub-tabs: Discover / Mine / Saved -->
   <div class="flex w-full border-b" style="border-color: var(--color-input-border)">
     <button
       on:click={() => setTab('discover')}
@@ -334,10 +457,24 @@
         ></span>
       {/if}
     </button>
+    <button
+      on:click={() => setTab('saved')}
+      class="flex-1 py-2.5 text-sm font-medium transition-colors relative cursor-pointer text-center"
+      style="color: {tab === 'saved'
+        ? 'var(--color-text-primary)'
+        : 'var(--color-text-secondary)'}"
+    >
+      Saved
+      {#if tab === 'saved'}
+        <span
+          class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-orange-500 to-amber-500"
+        ></span>
+      {/if}
+    </button>
   </div>
 
   <!-- Body -->
-  {#if tab === 'mine' && !$userPublickey}
+  {#if (tab === 'mine' || tab === 'saved') && !$userPublickey}
     <div class="flex flex-col items-center justify-center py-16 px-4">
       <div
         class="w-16 h-16 rounded-full bg-gradient-to-br from-orange-100 to-amber-100 dark:from-orange-900/30 dark:to-amber-900/30 flex items-center justify-center mb-4"
@@ -348,7 +485,9 @@
         Sign in to see your packs
       </h2>
       <p class="text-caption text-center max-w-sm mb-4">
-        Once you're signed in, your published Recipe Packs will appear here.
+        {tab === 'mine'
+          ? "Once you're signed in, your published Recipe Packs will appear here."
+          : "Once you're signed in, packs you've saved will appear here."}
       </p>
       <a
         href="/login"
@@ -365,7 +504,8 @@
     <div class="flex flex-col items-center justify-center py-12 px-4 gap-3">
       <p class="text-caption text-sm text-center">{activeError}</p>
       <button
-        on:click={() => (tab === 'discover' ? retryDiscover() : retryMine())}
+        on:click={() =>
+          tab === 'discover' ? retryDiscover() : tab === 'mine' ? retryMine() : retrySaved()}
         class="flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-colors"
         style="background-color: var(--color-input-bg); color: var(--color-text-primary); border: 1px solid var(--color-input-border);"
       >
@@ -380,12 +520,18 @@
         <BookmarkIcon size={32} weight="regular" class="text-orange-500" />
       </div>
       <h2 class="text-lg font-medium mb-2" style="color: var(--color-text-primary)">
-        {tab === 'discover' ? 'No packs found yet' : "You haven't published any packs"}
+        {tab === 'discover'
+          ? 'No packs found yet'
+          : tab === 'mine'
+            ? "You haven't published any packs"
+            : 'No saved packs yet'}
       </h2>
       <p class="text-caption text-center max-w-sm mb-4">
         {tab === 'discover'
           ? "We couldn't find any Recipe Packs on the connected relays. Check back soon."
-          : 'Open a collection in your cookbook and tap "Share Pack" to publish your first one.'}
+          : tab === 'mine'
+            ? 'Open a collection in your cookbook and tap "Share Pack" to publish your first one.'
+            : 'Tap the bookmark icon on a pack to save it here.'}
       </p>
       <a
         href="/cookbook"
