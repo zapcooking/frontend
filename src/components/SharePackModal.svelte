@@ -38,7 +38,6 @@
   let copied = false;
 
   $: recipeCount = recipeATags.length;
-  $: canPublish = !isSubmitting && recipeCount > 0 && title.trim().length > 0;
 
   // Reset state every time the modal opens
   $: if (open) initStateOnOpen();
@@ -234,9 +233,16 @@
         <p class="text-sm text-red-500">{error}</p>
       {/if}
 
+      <!--
+        The Publish button is always clickable (only blocked while a
+        publish is in flight). Validation runs inside handlePublish and
+        surfaces user-readable error text — that way clicks never
+        silently no-op due to a stale `canPublish` reactive value or a
+        race between modal-open and the title prop landing.
+      -->
       <div class="flex justify-end gap-2 pt-1">
         <Button on:click={handleClose} primary={false} disabled={isSubmitting}>Cancel</Button>
-        <Button on:click={handlePublish} disabled={!canPublish}>
+        <Button on:click={handlePublish} disabled={isSubmitting}>
           {isSubmitting ? 'Publishing…' : 'Publish Recipe Pack'}
         </Button>
       </div>
