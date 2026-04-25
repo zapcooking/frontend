@@ -5,7 +5,8 @@
   import { onMount } from 'svelte';
   import { nip19 } from 'nostr-tools';
   import { ndk, userPublickey, ensureNdkConnected } from '$lib/nostr';
-  import { NDKEvent } from '@nostr-dev-kit/ndk';
+  import { NDKEvent, NDKRelaySet } from '@nostr-dev-kit/ndk';
+  import { standardRelays } from '$lib/consts';
   import { RECIPE_PACK_KIND, RECIPE_PACK_TAG, ZAP_COOKING_TAG } from '$lib/recipePack';
   import RecipePackCard from '../../components/RecipePackCard.svelte';
   import PanLoader from '../../components/PanLoader.svelte';
@@ -68,11 +69,31 @@
         /* tolerate; fetchEvents will surface the error if relays are still down */
       }
 
-      const events = await $ndk.fetchEvents({
-        kinds: [RECIPE_PACK_KIND as number],
-        '#t': [ZAP_COOKING_TAG, RECIPE_PACK_TAG],
-        limit: 60
-      });
+      // CRITICAL: outbox model is enabled on this NDK instance. Filters
+      // without `authors` get an empty relay set ("No relays found for
+      // filter") and the subscription hangs forever — no relays → no
+      // EOSE → fetchEvents never resolves. Pass an explicit relay set
+      // built from the standard pool so unauthored discovery queries
+      // actually run. (`false` here means use existing pool connections;
+      // no extra WebSocket churn.)
+      const relaySet = NDKRelaySet.fromRelayUrls(standardRelays, $ndk, false);
+
+      // Race against a timeout so we never hang the UI even if every
+      // relay is silent. 8s is generous — typical EOSE arrives in 1-2s.
+      const fetchPromise = $ndk.fetchEvents(
+        {
+          kinds: [RECIPE_PACK_KIND as number],
+          '#t': [ZAP_COOKING_TAG, RECIPE_PACK_TAG],
+          limit: 60
+        },
+        { closeOnEose: true },
+        relaySet
+      );
+      const timeoutPromise = new Promise<Set<NDKEvent>>((_, reject) =>
+        setTimeout(() => reject(new Error('Relay timeout')), 8000)
+      );
+
+      const events = (await Promise.race([fetchPromise, timeoutPromise])) as Set<NDKEvent>;
       discoverEvents = sortAndDedupe(Array.from(events));
       discoverLoaded = true; // mark loaded only on success — error path leaves it false so Retry works
     } catch (e: any) {
@@ -101,11 +122,22 @@
         /* tolerate */
       }
 
-      const events = await $ndk.fetchEvents({
-        kinds: [RECIPE_PACK_KIND as number],
-        authors: [reqPubkey],
-        limit: 60
-      });
+      // Same timeout protection as loadDiscover. Outbox model usually
+      // handles authored queries fine, but a stalled relay can still hang
+      // fetchEvents indefinitely. Bound the wait so the spinner can't
+      // stick forever.
+      const fetchPromise = $ndk.fetchEvents(
+        {
+          kinds: [RECIPE_PACK_KIND as number],
+          authors: [reqPubkey],
+          limit: 60
+        },
+        { closeOnEose: true }
+      );
+      const timeoutPromise = new Promise<Set<NDKEvent>>((_, reject) =>
+        setTimeout(() => reject(new Error('Relay timeout')), 8000)
+      );
+      const events = (await Promise.race([fetchPromise, timeoutPromise])) as Set<NDKEvent>;
 
       // Drop the result if the user has logged out or switched accounts
       // since this fetch began — otherwise stale events from the previous
