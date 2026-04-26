@@ -392,14 +392,18 @@ function drawCoverPage(
 		doc.setTextColor(140, 130, 125);
 		const noun = opts.recipeCount === 1 ? 'recipe' : 'recipes';
 		doc.text(`${opts.recipeCount} ${noun}`, CENTER_X, cursorY, { align: 'center' });
+		cursorY += 14;
 	}
 
-	// Creator
+	// Creator — anchored to the title block (just below the recipe count)
+	// rather than the bottom of the page, so it can't crash into the
+	// brand mark / wordmark stack down at PAGE_H-96.
 	if (opts.creatorName) {
+		cursorY += 14;
 		doc.setFont('helvetica', 'italic');
 		doc.setFontSize(12);
 		doc.setTextColor(100, 90, 85);
-		doc.text(`Curated by ${opts.creatorName}`, CENTER_X, PAGE_H - 92, { align: 'center' });
+		doc.text(`Curated by ${opts.creatorName}`, CENTER_X, cursorY, { align: 'center' });
 	}
 
 	// Brand mark — small logo sits above the wordmark, then a thin

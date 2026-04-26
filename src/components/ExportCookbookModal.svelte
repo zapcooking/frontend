@@ -452,7 +452,13 @@
       const creatorNamePromise = fetchCreatorName();
       const recipes: CookbookRecipe[] = recipeEvents.map((e) => recipeEventToCookbookRecipe(e));
       const creatorName = await creatorNamePromise;
-      const { text: introduction, aiUsed } = await fetchPolishedIntroduction(creatorName, recipes);
+      // Skip the polish call entirely when the user unchecked the
+      // introduction. Previously we always fetched (returning the pack
+      // description as fallback) and then passed `!!introduction` to
+      // the builder — which silently re-included the page.
+      const { text: introduction, aiUsed } = includeIntroduction
+        ? await fetchPolishedIntroduction(creatorName, recipes)
+        : { text: '', aiUsed: false };
       usedAi = aiUsed;
 
       const result = await buildCookbookPdf({
@@ -465,7 +471,7 @@
         includeCover,
         includeToc,
         includeImages,
-        includeIntroduction: !!introduction,
+        includeIntroduction,
         style
       });
 
