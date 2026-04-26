@@ -6,7 +6,7 @@
   import { NDKEvent } from '@nostr-dev-kit/ndk';
   import { nip19 } from 'nostr-tools';
   import { get } from 'svelte/store';
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import type { PageData } from './$types';
 
   // SSR-resolved OG metadata. Always present; falls back to safe
@@ -28,6 +28,8 @@
   import Avatar from '../../../components/Avatar.svelte';
   import CustomName from '../../../components/CustomName.svelte';
   import ShareModal from '../../../components/ShareModal.svelte';
+  import Modal from '../../../components/Modal.svelte';
+  import ExportCookbookModal from '../../../components/ExportCookbookModal.svelte';
   import { showToast } from '$lib/toast';
   import { lazyLoad } from '$lib/lazyLoad';
   import { getImageOrPlaceholder } from '$lib/placeholderImages';
@@ -35,10 +37,17 @@
   import { isOnline } from '$lib/connectionMonitor';
   import { cookbookStore, cookbookLists } from '$lib/stores/cookbookStore';
   import { buildPackUrl } from '$lib/recipePack';
+  import {
+    membershipStatusMap,
+    queueMembershipLookup,
+    type MembershipStatus
+  } from '$lib/stores/membershipStatus';
 
   import ArrowLeftIcon from 'phosphor-svelte/lib/ArrowLeft';
   import BookmarkIcon from 'phosphor-svelte/lib/BookmarkSimple';
   import BookmarkSimpleIcon from 'phosphor-svelte/lib/BookmarkSimple';
+  import BookOpenIcon from 'phosphor-svelte/lib/BookOpen';
+  import LockKeyIcon from 'phosphor-svelte/lib/LockKey';
   import CheckCircleIcon from 'phosphor-svelte/lib/CheckCircle';
   import CircleNotchIcon from 'phosphor-svelte/lib/CircleNotch';
   import ChatTeardropTextIcon from 'phosphor-svelte/lib/ChatTeardropText';
@@ -297,6 +306,36 @@
 
   // Share modal (short link + social share + QR), reused from recipe page.
   let shareModalOpen = false;
+
+  // ===== Export-as-Cookbook (Pro feature) =====
+  let exportModalOpen = false;
+  let upgradeModalOpen = false;
+
+  // Mirror the existing isPremiumTier convention from LandingImportHero:
+  // "Pro" === pro_kitchen + founders. cook_plus and others see the
+  // upgrade prompt instead of the full export modal.
+  let membershipMap: Record<string, MembershipStatus> = {};
+  const unsubMembership = membershipStatusMap.subscribe((v) => {
+    membershipMap = v;
+  });
+  $: if ($userPublickey) queueMembershipLookup($userPublickey);
+  $: tierStatus = $userPublickey ? membershipMap[$userPublickey] : undefined;
+  $: isProMember =
+    !!tierStatus?.active && (tierStatus.tier === 'pro_kitchen' || tierStatus.tier === 'founders');
+
+  onDestroy(() => unsubMembership());
+
+  function handleExportClick() {
+    if (!$userPublickey) {
+      goto('/login?redirect=' + encodeURIComponent(window.location.pathname));
+      return;
+    }
+    if (!isProMember) {
+      upgradeModalOpen = true;
+      return;
+    }
+    exportModalOpen = true;
+  }
 </script>
 
 <svelte:head>
@@ -330,6 +369,62 @@
   title={title || 'Recipe Pack'}
   imageUrl={image || ''}
 />
+
+<!-- Export as Cookbook (Pro) -->
+{#if packEvent}
+  <ExportCookbookModal
+    bind:open={exportModalOpen}
+    {packEvent}
+    {recipeEvents}
+    totalRecipeCount={recipeCount}
+    packTitle={title}
+    packDescription={description}
+    packCoverImage={image}
+    {creatorPubkey}
+  />
+{/if}
+
+<!-- Upgrade prompt for non-Pro members who tap the locked Export button -->
+{#if upgradeModalOpen}
+  <Modal cleanup={() => (upgradeModalOpen = false)} bind:open={upgradeModalOpen}>
+    <h1 slot="title">Pro Kitchen feature</h1>
+    <div class="flex flex-col gap-4">
+      <div
+        class="flex items-start gap-3 p-3 rounded-lg"
+        style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);"
+      >
+        <div
+          class="w-10 h-10 rounded-full bg-gradient-to-br from-orange-500 to-amber-500 flex items-center justify-center flex-shrink-0"
+        >
+          <BookOpenIcon size={20} weight="fill" class="text-white" />
+        </div>
+        <div class="flex flex-col">
+          <p class="text-sm font-medium" style="color: var(--color-text-primary)">
+            Export as Cookbook
+          </p>
+          <p class="text-sm text-caption">
+            Export Recipe Packs as printable cookbooks with Pro Kitchen.
+          </p>
+        </div>
+      </div>
+      <div class="flex justify-end gap-2 pt-1">
+        <button
+          on:click={() => (upgradeModalOpen = false)}
+          class="px-4 py-2 rounded-full text-sm font-medium transition-colors"
+          style="background-color: var(--color-input-bg); color: var(--color-text-primary); border: 1px solid var(--color-input-border);"
+        >
+          Maybe later
+        </button>
+        <a
+          href="/membership"
+          class="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white rounded-full font-semibold transition-all shadow-md shadow-orange-500/25"
+        >
+          See Pro Kitchen
+        </a>
+      </div>
+    </div>
+  </Modal>
+{/if}
 
 {#if !loaded}
   <div class="flex justify-center items-center page-loader">
@@ -512,6 +607,31 @@
             <BookmarkIcon size={16} weight="fill" />
             <span>Save Pack to Cookbook</span>
           {/if}
+        </button>
+      {/if}
+
+      <!-- Export as Cookbook — Pro feature. Visible to everyone (so the
+           value is discoverable) but locked for non-Pro members. -->
+      {#if recipeEvents.length > 0}
+        <button
+          on:click={handleExportClick}
+          class="flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-colors"
+          style="background-color: var(--color-input-bg); color: var(--color-text-primary); border: 1px solid var(--color-input-border);"
+          title={isProMember
+            ? 'Export this pack as a printable cookbook PDF'
+            : 'Pro Kitchen members can export Recipe Packs as printable cookbooks'}
+        >
+          {#if isProMember}
+            <BookOpenIcon size={16} />
+          {:else}
+            <LockKeyIcon size={16} class="text-amber-500" />
+          {/if}
+          <span>Export as Cookbook</span>
+          <span
+            class="text-[10px] uppercase tracking-wide font-bold px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-600 dark:text-amber-400"
+          >
+            Pro
+          </span>
         </button>
       {/if}
     </div>
