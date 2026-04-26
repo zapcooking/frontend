@@ -168,8 +168,12 @@ export async function buildCookbookPdf(opts: BuildOptions): Promise<BuildResult>
 	const recipeImagePromises = opts.recipes.map((r) =>
 		opts.includeImages && r.image ? imageUrlToDataUri(r.image) : Promise.resolve(null)
 	);
-	const [coverDataUri, ...recipeImages] = await Promise.all([
+	// Brand mark — same-origin fetch from /icon.png. If it 404s or fetch
+	// fails we just render text-only branding, which is the v0 behavior.
+	const brandLogoPromise = imageUrlToDataUri('/icon.png');
+	const [coverDataUri, brandLogoDataUri, ...recipeImages] = await Promise.all([
 		coverImagePromise,
+		brandLogoPromise,
 		...recipeImagePromises
 	]);
 
@@ -184,7 +188,8 @@ export async function buildCookbookPdf(opts: BuildOptions): Promise<BuildResult>
 			subtitle: sanitizeForPdf(opts.subtitle),
 			creatorName: sanitizeForPdf(opts.creatorName),
 			coverDataUri,
-			recipeCount: opts.recipes.length
+			recipeCount: opts.recipes.length,
+			brandLogoDataUri
 		});
 	}
 
@@ -253,8 +258,8 @@ export async function buildCookbookPdf(opts: BuildOptions): Promise<BuildResult>
 	// Add small "Created with Zap Cooking" footer to every page except cover
 	const nonCoverStart = opts.includeCover ? 2 : 1;
 	addFooters(doc, nonCoverStart);
-	// Running header (pack title) on every non-cover page
-	addRunningHeaders(doc, sanitizeForPdf(opts.title), nonCoverStart);
+	// Running header (pack title + brand mark) on every non-cover page
+	addRunningHeaders(doc, sanitizeForPdf(opts.title), brandLogoDataUri, nonCoverStart);
 
 	const blob = doc.output('blob') as unknown as Blob;
 	return { blob, included, skipped };
@@ -288,7 +293,8 @@ interface JsPdfDoc {
 		x: number,
 		y: number,
 		w: number,
-		h: number
+		h: number,
+		alias?: string
 	) => void;
 	addPage: () => void;
 	rect: (x: number, y: number, w: number, h: number, style?: string) => void;
@@ -306,6 +312,7 @@ function drawCoverPage(
 		creatorName: string;
 		coverDataUri: string | null;
 		recipeCount: number;
+		brandLogoDataUri: string | null;
 	}
 ) {
 	// Page background — soft warm tint
@@ -395,7 +402,26 @@ function drawCoverPage(
 		doc.text(`Curated by ${opts.creatorName}`, CENTER_X, PAGE_H - 92, { align: 'center' });
 	}
 
-	// "Created with Zap Cooking" footer brand
+	// Brand mark — small logo sits above the wordmark, then a thin
+	// separator rule, then the "Created with Zap Cooking" line. Whole
+	// stack stays in the bottom 90pt so it reads as a publisher mark.
+	if (opts.brandLogoDataUri) {
+		try {
+			const logoSize = 26;
+			doc.addImage(
+				opts.brandLogoDataUri,
+				imageFormatFromDataUri(opts.brandLogoDataUri),
+				CENTER_X - logoSize / 2,
+				PAGE_H - 96,
+				logoSize,
+				logoSize,
+				'zc-brand'
+			);
+		} catch {
+			// Logo couldn't render — just fall back to the text wordmark.
+		}
+	}
+
 	doc.setFont('helvetica', 'bold');
 	doc.setFontSize(10);
 	doc.setTextColor(180, 95, 30);
@@ -761,25 +787,52 @@ function addFooters(doc: JsPdfDoc, fromPage: number) {
 }
 
 /**
- * Subtle running header — pack title, top of page, with a hairline rule.
- * Skipped for the cover (which has its own typography). Drawn after all
- * pages exist so we can iterate by page number.
+ * Subtle running header — pack title (left) + Zap Cooking logo (right),
+ * with a hairline rule below. Skipped for the cover (which has its own
+ * typography). Drawn after all pages exist so we iterate by page number.
+ *
+ * The logo is added with a stable alias ('zc-brand') so jsPDF dedupes
+ * the image data across every page rather than embedding it N times.
  */
-function addRunningHeaders(doc: JsPdfDoc, packTitle: string, fromPage: number) {
+function addRunningHeaders(
+	doc: JsPdfDoc,
+	packTitle: string,
+	brandLogoDataUri: string | null,
+	fromPage: number
+) {
 	const trimmed = (packTitle || '').trim();
-	if (!trimmed) return;
+	if (!trimmed && !brandLogoDataUri) return;
 	const total = doc.getNumberOfPages();
+	const logoSize = 12;
+	const logoFmt = brandLogoDataUri ? imageFormatFromDataUri(brandLogoDataUri) : 'PNG';
 	for (let p = fromPage; p <= total; p++) {
 		doc.setPage(p);
-		doc.setFont('helvetica', 'normal');
-		doc.setFontSize(8);
-		doc.setTextColor(160, 150, 145);
-		// Truncate over-long titles so they don't collide with margins.
-		let label = trimmed;
-		if (label.length > 60) label = label.slice(0, 57) + '...';
-		doc.text(label, MARGIN_LEFT, 38, { charSpace: 1.5 } as any);
+		if (trimmed) {
+			doc.setFont('helvetica', 'normal');
+			doc.setFontSize(8);
+			doc.setTextColor(160, 150, 145);
+			// Truncate over-long titles so they don't collide with the logo.
+			let label = trimmed;
+			if (label.length > 50) label = label.slice(0, 47) + '...';
+			doc.text(label, MARGIN_LEFT, 38, { charSpace: 1.5 } as any);
+		}
+		if (brandLogoDataUri) {
+			try {
+				doc.addImage(
+					brandLogoDataUri,
+					logoFmt,
+					CONTENT_RIGHT - logoSize,
+					30,
+					logoSize,
+					logoSize,
+					'zc-brand'
+				);
+			} catch {
+				// Logo failed — header text alone is enough.
+			}
+		}
 		doc.setDrawColor(230, 220, 215);
 		doc.setLineWidth(0.4);
-		doc.line(MARGIN_LEFT, 44, CONTENT_RIGHT, 44);
+		doc.line(MARGIN_LEFT, 46, CONTENT_RIGHT, 46);
 	}
 }
