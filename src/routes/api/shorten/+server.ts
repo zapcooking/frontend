@@ -1,6 +1,15 @@
 /**
- * POST /api/shorten – create a short link for a zap.cooking recipe or Nostr long-form article.
- * Body: { url: string (naddr or zap.cooking URL), type?: 'recipe' | 'article', customSlug?: string, createdBy?: string }
+ * POST /api/shorten – create a short link for a zap.cooking recipe,
+ * Nostr long-form article, or Recipe Pack.
+ *
+ * Body: {
+ *   url: string,                           // raw naddr OR a zap.cooking
+ *                                          // /r/<naddr>, /reads/<naddr>,
+ *                                          // or /pack/<naddr> URL
+ *   type?: 'recipe' | 'article' | 'pack',
+ *   customSlug?: string,
+ *   createdBy?: string
+ * }
  * Returns: { success, shortCode?, shortUrl?, error? }
  *
  * Requires Cloudflare KV namespace bound as SHORTLINKS in the Pages project.

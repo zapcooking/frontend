@@ -25,7 +25,7 @@
   } from '$lib/engagementCache';
   import { showToast } from '$lib/toast';
   import { goto } from '$app/navigation';
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
 
   /**
    * Pack metadata. Either pass a full NDKEvent (after publish) so the
@@ -46,10 +46,32 @@
   let zapModalOpen = false;
   let bookmarkBusy = false;
 
-  // Engagement store for the comment count. Same source NoteTotalComments
-  // uses, so the count matches what users see anywhere else for this
-  // event id. Subscribed reactively via the `$` prefix.
-  $: commentStore = event?.id ? getEngagementStore(event.id) : null;
+  // Reactive bindings — declared explicitly to satisfy strict TS /
+  // svelte-check. Svelte's `$:` will create implicit declarations in
+  // permissive mode but stricter tooling flags assignment to an
+  // undeclared identifier in <script lang="ts">.
+  type EngagementValue = { loading: boolean; comments: { count: number } };
+  let engagement: EngagementValue | null = null;
+  let commentsHref = '';
+  let resolvedImage = '';
+  let isBookmarked = false;
+
+  // Subscribe to the engagement store for this pack. Same source
+  // NoteTotalComments uses, so the count matches everywhere. Manual
+  // subscribe here (with cleanup) gives `engagement` a concrete type
+  // strict-mode templates can read without acrobatics.
+  let engagementUnsub: (() => void) | null = null;
+  $: {
+    engagementUnsub?.();
+    engagement = null;
+    if (event?.id) {
+      const store = getEngagementStore(event.id);
+      engagementUnsub = store.subscribe((v) => {
+        engagement = v as unknown as EngagementValue;
+      });
+    }
+  }
+  onDestroy(() => engagementUnsub?.());
 
   // Comments link target. The generic NIP-19 viewer at /<naddr> already
   // supports NIP-22 comments for any addressable kind. Handles both
@@ -92,7 +114,10 @@
 
   function packATag(e: NDKEvent): string {
     const dTag = e.tags?.find((t) => t[0] === 'd')?.[1] || '';
-    return `${e.kind}:${e.pubkey}:${dTag}`;
+    // Default to RECIPE_PACK_KIND (30004) when e.kind is missing —
+    // matches savedPacksStore.packATag so isSaved() comparisons agree.
+    const kind = e.kind ?? 30004;
+    return `${kind}:${e.pubkey}:${dTag}`;
   }
 
   async function handleBookmark() {
@@ -236,10 +261,10 @@
               aria-label="View comments"
             >
               <ChatTeardropTextIcon size={24} class="text-caption" />
-              {#if commentStore && $commentStore}
+              {#if engagement}
                 <span class="text-caption">
-                  {#if $commentStore.loading}<span class="opacity-0">0</span
-                    >{:else}{$commentStore.comments.count}{/if}
+                  {#if engagement.loading}<span class="opacity-0">0</span
+                    >{:else}{engagement.comments.count}{/if}
                 </span>
               {/if}
             </a>

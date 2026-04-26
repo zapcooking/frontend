@@ -131,7 +131,15 @@ function createSavedPacksStore() {
 		update((s) => ({ ...s, saved: next }));
 		try {
 			const evt = await publish(next, state.event);
-			if (evt) update((s) => ({ ...s, event: evt }));
+			// Treat a null result the same as a thrown error — publish
+			// silently failed (e.g. no signer / no NDK / user logged out
+			// mid-flight). Roll back the optimistic update so the UI
+			// doesn't show a saved state that wasn't persisted to Nostr.
+			if (!evt) {
+				update((s) => ({ ...s, saved: state.saved }));
+				return false;
+			}
+			update((s) => ({ ...s, event: evt }));
 			return true;
 		} catch (err) {
 			console.error('[savedPacks] save failed', err);
@@ -150,7 +158,12 @@ function createSavedPacksStore() {
 		update((s) => ({ ...s, saved: next }));
 		try {
 			const evt = await publish(next, state.event);
-			if (evt) update((s) => ({ ...s, event: evt }));
+			// Same as save(): null publish = silent failure → roll back.
+			if (!evt) {
+				update((s) => ({ ...s, saved: state.saved }));
+				return false;
+			}
+			update((s) => ({ ...s, event: evt }));
 			return true;
 		} catch (err) {
 			console.error('[savedPacks] unsave failed', err);

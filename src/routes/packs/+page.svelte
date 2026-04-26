@@ -17,9 +17,13 @@
   let tab: Tab = 'discover';
 
   // Hydrate tab from ?tab= query param so links can deep-link to a sub-tab.
+  // Snap back to 'discover' when the param is missing or invalid so
+  // navigating /packs?tab=mine → /packs (or browser-back) doesn't leave
+  // the UI on the previous tab.
   $: {
     const t = $page.url.searchParams.get('tab');
     if (t === 'mine' || t === 'discover' || t === 'saved') tab = t;
+    else tab = 'discover';
   }
 
   function setTab(next: Tab) {
