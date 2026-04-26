@@ -78,6 +78,11 @@
   let invoiceLoading = false;
   let invoiceError = '';
   let invoice = '';
+  /** Server-returned price for the active invoice. The server is the
+   *  authority on how many sats this invoice represents (promos can
+   *  expire between client price computation and invoice creation), so
+   *  the wallet payment + balance check use this exact value. */
+  let invoiceAmountSats = 0;
   let exportId = '';
   let receiveRequestId = '';
   let invoicePollInterval: ReturnType<typeof setInterval> | null = null;
@@ -387,6 +392,7 @@
       exportId = data.exportId;
       receiveRequestId = data.receiveRequestId;
       invoice = data.invoice;
+      invoiceAmountSats = data.amountSats;
       stage = 'invoice';
       builtInPayState = 'idle';
       builtInPayError = '';
@@ -397,7 +403,7 @@
       startInvoicePolling(null);
 
       // Prefer the user's connected Zap Cooking wallet (Breez/Spark)
-      // before opening Bitcoin Connect. Sliently no-ops when no
+      // before opening Bitcoin Connect. Silently no-ops when no
       // built-in wallet is connected; falls back gracefully on errors.
       const builtInOutcome = await tryBuiltInWalletPayment();
 
@@ -442,9 +448,13 @@
     if (!active) return 'no-wallet';
     if (!isWalletReady()) return 'no-wallet';
 
-    // Pre-flight balance check: only block when balance is *known* and
-    // insufficient. Refresh once if the cache is cold; tolerate fetch
-    // failures (some WebLN providers don't implement getBalance).
+    // Pre-flight balance check uses the SERVER-returned invoice amount
+    // (not the client-side priceSats) so a promo expiring between
+    // CTA-render and invoice-create can't get us into a "balance was
+    // enough for the discounted price but not the actual price" mess.
+    // Best-effort: only block when balance is *known* and insufficient.
+    // Refresh once if the cache is cold; tolerate fetch failures (some
+    // WebLN providers don't implement getBalance).
     let balance = get(walletBalance);
     if (balance === null) {
       try {
@@ -455,7 +465,7 @@
         // 'failed' state with the SDK's error message.
       }
     }
-    if (balance !== null && balance < priceSats) {
+    if (balance !== null && balance < invoiceAmountSats) {
       builtInPayState = 'insufficient';
       return 'insufficient';
     }
@@ -463,8 +473,14 @@
     builtInPayState = 'attempting';
     builtInPayError = '';
     try {
+      // For BOLT11 invoices the amount is encoded in the invoice itself.
+      // Don't pass an `amount` to walletSendPayment — Spark/Breez forwards
+      // it to prepareSendPayment which can reject when both invoice-
+      // encoded and explicit amounts are present. The wallet pending-tx
+      // metadata still wants a number for display, so we hand it the
+      // server-authoritative value.
       const result = await walletSendPayment(invoice, {
-        amount: priceSats,
+        amount: invoiceAmountSats,
         description: `Cookbook export: ${title.trim() || packTitle || 'Recipe Pack'}`
       });
       if (!result.success) {
@@ -721,7 +737,7 @@
           </div>
           <div class="flex flex-col gap-1 min-w-0">
             <p class="text-sm" style="color: var(--color-text-primary)">
-              <span class="font-medium">Unlock this cookbook for {COOKBOOK_EXPORT_SATS} sats</span>
+              <span class="font-medium">Unlock this cookbook for {priceSats} sats</span>
               <span class="text-caption"> — one-time Lightning payment.</span>
             </p>
             {#if walletBalanceHint}
@@ -897,8 +913,11 @@
         class="flex-none pt-3 mt-3 -mx-4 md:-mx-8 px-4 md:px-8"
         style="border-top: 1px solid var(--color-input-border); padding-bottom: env(safe-area-inset-bottom);"
       >
-        <div class="flex flex-col-reverse sm:flex-row sm:justify-end gap-2">
-          <Button on:click={handleClose} primary={false} class="w-full sm:w-auto">Cancel</Button>
+        <!-- Primary first in DOM so keyboard focus order matches the
+             visual order on both mobile (stacked, primary on top) and
+             desktop (row, primary on left). flex-col-reverse would
+             flip visuals without flipping tab order — bad for a11y. -->
+        <div class="flex flex-col sm:flex-row sm:justify-end gap-2">
           <Button
             on:click={handleGenerateClick}
             disabled={invoiceLoading || !packEvent || recipeEvents.length === 0}
@@ -912,6 +931,7 @@
               Unlock for {priceSats} sats ⚡
             {/if}
           </Button>
+          <Button on:click={handleClose} primary={false} class="w-full sm:w-auto">Cancel</Button>
         </div>
       </div>
     </div>
@@ -952,8 +972,13 @@
           {/if}
 
           <p class="text-xs text-caption">
-            A wallet picker should have opened in another window. If not, copy the invoice and pay
-            from any Lightning wallet.
+            {#if builtInPayState === 'insufficient' || builtInPayState === 'failed'}
+              Copy the invoice and pay from any Lightning wallet, or click "Pay with another
+              wallet" to open the picker.
+            {:else}
+              A wallet picker should have opened in another window. If not, copy the invoice and
+              pay from any Lightning wallet.
+            {/if}
           </p>
 
           <div
@@ -990,13 +1015,13 @@
         class="flex-none pt-3 mt-3 -mx-4 md:-mx-8 px-4 md:px-8"
         style="border-top: 1px solid var(--color-input-border); padding-bottom: env(safe-area-inset-bottom);"
       >
-        <div class="flex flex-col-reverse sm:flex-row sm:justify-end gap-2">
-          <Button on:click={cancelInvoice} primary={false} class="w-full sm:w-auto">Cancel</Button>
+        <div class="flex flex-col sm:flex-row sm:justify-end gap-2">
           {#if builtInPayState === 'insufficient' || builtInPayState === 'failed'}
             <Button on:click={handleSwitchToExternalWallet} class="w-full sm:w-auto">
               Pay with another wallet
             </Button>
           {/if}
+          <Button on:click={cancelInvoice} primary={false} class="w-full sm:w-auto">Cancel</Button>
         </div>
       </div>
     </div>
@@ -1050,14 +1075,14 @@
         class="flex-none pt-3 mt-3 -mx-4 md:-mx-8 px-4 md:px-8"
         style="border-top: 1px solid var(--color-input-border); padding-bottom: env(safe-area-inset-bottom);"
       >
-        <div class="flex flex-col-reverse sm:flex-row sm:flex-wrap sm:justify-end gap-2">
+        <div class="flex flex-col sm:flex-row sm:flex-wrap sm:justify-end gap-2">
+          <Button on:click={handleDownload} class="w-full sm:w-auto">Download PDF</Button>
           {#if packShareUrl}
             <Button on:click={copyShareUrl} primary={false} class="w-full sm:w-auto">
               Share Recipe Pack
             </Button>
           {/if}
           <Button on:click={handleClose} primary={false} class="w-full sm:w-auto">Close</Button>
-          <Button on:click={handleDownload} class="w-full sm:w-auto">Download PDF</Button>
         </div>
       </div>
     </div>
@@ -1079,9 +1104,9 @@
         class="flex-none pt-3 mt-3 -mx-4 md:-mx-8 px-4 md:px-8"
         style="border-top: 1px solid var(--color-input-border); padding-bottom: env(safe-area-inset-bottom);"
       >
-        <div class="flex flex-col-reverse sm:flex-row sm:justify-end gap-2">
-          <Button on:click={handleClose} primary={false} class="w-full sm:w-auto">Close</Button>
+        <div class="flex flex-col sm:flex-row sm:justify-end gap-2">
           <Button on:click={handleRetry} class="w-full sm:w-auto">Try again</Button>
+          <Button on:click={handleClose} primary={false} class="w-full sm:w-auto">Close</Button>
         </div>
       </div>
     </div>
