@@ -75,6 +75,14 @@ export const GET: RequestHandler = async ({ url, platform }) => {
 
         // Founders get lifetime access — ensure expiry is at least 10 years out
         let expiresAt = lookup.member?.subscription_end || undefined;
+        // Founders also need their `active` flag forced to true. The pantry
+        // record sometimes has a stale `subscription_end` in the past
+        // (lifetime members weren't always inserted with a far-future
+        // expiry), and `lookupMember` flips `isActive` to false in that
+        // case. Without this override, founders would silently fall into
+        // the paywall path on any feature gated on `active && tier ===
+        // 'founders'`.
+        let active = lookup.isActive;
         if (tier === 'founders') {
           const tenYearsFromNow = new Date();
           tenYearsFromNow.setFullYear(tenYearsFromNow.getFullYear() + 10);
@@ -82,10 +90,11 @@ export const GET: RequestHandler = async ({ url, platform }) => {
           if (currentExpiry < tenYearsFromNow) {
             expiresAt = tenYearsFromNow.toISOString();
           }
+          active = true;
         }
 
         results[pubkey] = {
-          active: lookup.isActive,
+          active,
           tier,
           expiresAt
         };

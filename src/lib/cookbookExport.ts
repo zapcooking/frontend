@@ -172,7 +172,8 @@ export async function buildCookbookPdf(opts: BuildOptions): Promise<BuildResult>
 			title: sanitizeForPdf(opts.title),
 			subtitle: sanitizeForPdf(opts.subtitle),
 			creatorName: sanitizeForPdf(opts.creatorName),
-			coverDataUri
+			coverDataUri,
+			recipeCount: opts.recipes.length
 		});
 	}
 
@@ -290,106 +291,183 @@ function drawCoverPage(
 		subtitle: string;
 		creatorName: string;
 		coverDataUri: string | null;
+		recipeCount: number;
 	}
 ) {
 	// Page background — soft warm tint
 	doc.setFillColor(252, 248, 243);
 	doc.rect(0, 0, PAGE_W, PAGE_H, 'F');
 
-	// Image fills upper half if present
+	// Cover image, if present, sits in a clean centered window in the
+	// upper third — not edge-bleed and not page-dominating. Gives it a
+	// "framed plate" feel and leaves room for typography.
+	const coverWindowTop = MARGIN + 32;
+	const coverWindowH = 280;
+	const coverWindowW = PAGE_W - MARGIN * 2 - 32;
+	const coverWindowX = (PAGE_W - coverWindowW) / 2;
+
 	if (opts.coverDataUri) {
 		try {
 			doc.addImage(
 				opts.coverDataUri,
 				imageFormatFromDataUri(opts.coverDataUri),
-				0,
-				0,
-				PAGE_W,
-				PAGE_H * 0.55
+				coverWindowX,
+				coverWindowTop,
+				coverWindowW,
+				coverWindowH
 			);
-			// Soft fade overlay at the bottom of the image
-			doc.setFillColor(252, 248, 243);
-			doc.rect(0, PAGE_H * 0.5, PAGE_W, PAGE_H * 0.05, 'F');
 		} catch {
 			/* skip */
 		}
+	} else {
+		// No image: tasteful empty frame so the page still looks intentional.
+		doc.setDrawColor(220, 200, 190);
+		doc.setLineWidth(1);
+		doc.rect(coverWindowX, coverWindowTop, coverWindowW, coverWindowH);
 	}
 
-	const titleY = opts.coverDataUri ? PAGE_H * 0.62 : PAGE_H * 0.42;
+	// Title block sits in the lower third — gives the cover the feel of
+	// a proper book jacket rather than a page with a photo on it.
+	const titleY = coverWindowTop + coverWindowH + 80;
 
-	// "RECIPE PACK" eyebrow
+	// "RECIPE PACK" eyebrow with thin centered rule
 	doc.setFont('helvetica', 'bold');
-	doc.setFontSize(11);
+	doc.setFontSize(10);
 	doc.setTextColor(180, 95, 30);
-	doc.text('RECIPE PACK', PAGE_W / 2, titleY - 36, { align: 'center' });
+	doc.text('A RECIPE PACK', PAGE_W / 2, titleY - 38, { align: 'center', charSpace: 2 } as any);
+
+	// Decorative rule under the eyebrow
+	doc.setDrawColor(180, 95, 30);
+	doc.setLineWidth(0.6);
+	doc.line(PAGE_W / 2 - 18, titleY - 28, PAGE_W / 2 + 18, titleY - 28);
 
 	// Title
 	doc.setFont('helvetica', 'bold');
-	doc.setFontSize(34);
+	doc.setFontSize(38);
 	doc.setTextColor(28, 22, 18);
 	const titleLines = doc.splitTextToSize(opts.title || 'Recipe Pack', CONTENT_W * 0.85);
 	doc.text(titleLines, PAGE_W / 2, titleY, { align: 'center' });
 
-	// Subtitle
+	let cursorY = titleY + titleLines.length * 40;
+
+	// Subtitle (italic for a published-cookbook feel)
 	if (opts.subtitle) {
-		doc.setFont('helvetica', 'normal');
-		doc.setFontSize(14);
+		cursorY += 12;
+		doc.setFont('helvetica', 'italic');
+		doc.setFontSize(13);
 		doc.setTextColor(80, 70, 65);
-		const subLines = doc.splitTextToSize(opts.subtitle, CONTENT_W * 0.8);
-		doc.text(subLines, PAGE_W / 2, titleY + 24 + titleLines.length * 38, { align: 'center' });
+		const subLines = doc.splitTextToSize(opts.subtitle, CONTENT_W * 0.75);
+		doc.text(subLines, PAGE_W / 2, cursorY, { align: 'center' });
+		cursorY += subLines.length * 18;
+	}
+
+	// Recipe count badge
+	if (opts.recipeCount > 0) {
+		cursorY += 10;
+		doc.setFont('helvetica', 'normal');
+		doc.setFontSize(11);
+		doc.setTextColor(140, 130, 125);
+		const noun = opts.recipeCount === 1 ? 'recipe' : 'recipes';
+		doc.text(`${opts.recipeCount} ${noun}`, PAGE_W / 2, cursorY, { align: 'center' });
 	}
 
 	// Creator
 	if (opts.creatorName) {
 		doc.setFont('helvetica', 'italic');
-		doc.setFontSize(13);
+		doc.setFontSize(12);
 		doc.setTextColor(100, 90, 85);
-		doc.text(`Curated by ${opts.creatorName}`, PAGE_W / 2, PAGE_H - 110, { align: 'center' });
+		doc.text(`Curated by ${opts.creatorName}`, PAGE_W / 2, PAGE_H - 92, { align: 'center' });
 	}
 
 	// "Created with Zap Cooking" footer brand
 	doc.setFont('helvetica', 'bold');
-	doc.setFontSize(11);
+	doc.setFontSize(10);
 	doc.setTextColor(180, 95, 30);
-	doc.text('zap.cooking', PAGE_W / 2, PAGE_H - 64, { align: 'center' });
+	doc.text('zap.cooking', PAGE_W / 2, PAGE_H - 60, { align: 'center', charSpace: 1 } as any);
 	doc.setFont('helvetica', 'normal');
 	doc.setFontSize(9);
 	doc.setTextColor(140, 130, 125);
-	doc.text('Created with Zap Cooking', PAGE_W / 2, PAGE_H - 48, { align: 'center' });
+	doc.text('Created with Zap Cooking', PAGE_W / 2, PAGE_H - 46, { align: 'center' });
 }
 
 function drawTocPage(doc: JsPdfDoc, titles: string[], pageNumbers: number[]) {
 	doc.setFillColor(255, 255, 255);
 	doc.rect(0, 0, PAGE_W, PAGE_H, 'F');
 
+	// Eyebrow
 	doc.setFont('helvetica', 'bold');
-	doc.setFontSize(24);
-	doc.setTextColor(28, 22, 18);
-	doc.text('Contents', MARGIN, 110);
+	doc.setFontSize(9);
+	doc.setTextColor(180, 95, 30);
+	doc.text('TABLE OF CONTENTS', MARGIN, 92, { charSpace: 2 } as any);
 
+	// Heading
+	doc.setFont('helvetica', 'bold');
+	doc.setFontSize(28);
+	doc.setTextColor(28, 22, 18);
+	doc.text('Contents', MARGIN, 124);
+
+	// Heading rule
 	doc.setDrawColor(220, 200, 190);
-	doc.setLineWidth(1);
-	doc.line(MARGIN, 124, PAGE_W - MARGIN, 124);
+	doc.setLineWidth(0.8);
+	doc.line(MARGIN, 138, PAGE_W - MARGIN, 138);
 
 	doc.setFont('helvetica', 'normal');
-	doc.setFontSize(13);
+	doc.setFontSize(12);
 	doc.setTextColor(40, 30, 25);
 
-	let y = 160;
-	const rowHeight = 24;
+	let y = 176;
+	const rowHeight = 22;
+	const pageColX = PAGE_W - MARGIN;
+	const titleMaxW = CONTENT_W - 56; // leaves room for the page number
+
 	for (let i = 0; i < titles.length; i++) {
 		const title = titles[i];
 		if (!title) continue;
 		const pageStr = pageNumbers[i] > 0 ? String(pageNumbers[i]) : '';
-		// Title (left, may wrap to one short line)
-		const lines = doc.splitTextToSize(title, CONTENT_W - 50);
-		doc.text(lines[0], MARGIN, y);
-		// Page number (right)
-		if (pageStr) {
-			doc.text(pageStr, PAGE_W - MARGIN, y, { align: 'right' });
+
+		// Long titles wrap to a second line; we keep the page number on the
+		// last line so the dot leaders read naturally.
+		const lines = doc.splitTextToSize(title, titleMaxW);
+		const lastLineIdx = lines.length - 1;
+
+		for (let li = 0; li < lines.length; li++) {
+			if (y > PAGE_H - 90) {
+				// Overflow into a second TOC page if the pack is huge.
+				doc.addPage();
+				doc.setFillColor(255, 255, 255);
+				doc.rect(0, 0, PAGE_W, PAGE_H, 'F');
+				doc.setFont('helvetica', 'normal');
+				doc.setFontSize(12);
+				doc.setTextColor(40, 30, 25);
+				y = MARGIN + 16;
+			}
+			doc.text(lines[li], MARGIN, y);
+
+			if (li === lastLineIdx && pageStr) {
+				// Dot leaders between title end and page number
+				const titleW = (doc as any).getTextWidth
+					? (doc as any).getTextWidth(lines[li])
+					: lines[li].length * 6;
+				const pageW = (doc as any).getTextWidth
+					? (doc as any).getTextWidth(pageStr)
+					: pageStr.length * 6;
+				const leaderStart = MARGIN + titleW + 6;
+				const leaderEnd = pageColX - pageW - 6;
+				if (leaderEnd > leaderStart) {
+					doc.setTextColor(200, 190, 185);
+					const dotW = (doc as any).getTextWidth ? (doc as any).getTextWidth('.') : 3;
+					const space = Math.max(3, dotW + 2);
+					let dx = leaderStart;
+					while (dx < leaderEnd) {
+						doc.text('.', dx, y);
+						dx += space;
+					}
+					doc.setTextColor(40, 30, 25);
+				}
+				doc.text(pageStr, pageColX, y, { align: 'right' });
+			}
+			y += rowHeight;
 		}
-		y += rowHeight;
-		if (y > PAGE_H - 80) break; // overflow safety; rare
 	}
 }
 
@@ -397,30 +475,53 @@ function drawIntroductionPage(doc: JsPdfDoc, intro: string) {
 	doc.setFillColor(255, 255, 255);
 	doc.rect(0, 0, PAGE_W, PAGE_H, 'F');
 
+	// Eyebrow
 	doc.setFont('helvetica', 'bold');
-	doc.setFontSize(24);
+	doc.setFontSize(9);
+	doc.setTextColor(180, 95, 30);
+	doc.text('INTRODUCTION', PAGE_W / 2, 110, { align: 'center', charSpace: 2 } as any);
+
+	// Decorative rule
+	doc.setDrawColor(180, 95, 30);
+	doc.setLineWidth(0.6);
+	doc.line(PAGE_W / 2 - 18, 122, PAGE_W / 2 + 18, 122);
+
+	// Heading
+	doc.setFont('helvetica', 'bold');
+	doc.setFontSize(28);
 	doc.setTextColor(28, 22, 18);
-	doc.text('Introduction', MARGIN, 110);
-	doc.setDrawColor(220, 200, 190);
-	doc.setLineWidth(1);
-	doc.line(MARGIN, 124, PAGE_W - MARGIN, 124);
+	doc.text('A Note on This Pack', PAGE_W / 2, 158, { align: 'center' });
+
+	// Body — narrower measure for readability (~70 chars per line at 12pt)
+	const colW = Math.min(CONTENT_W, 380);
+	const colX = (PAGE_W - colW) / 2;
 
 	doc.setFont('helvetica', 'normal');
 	doc.setFontSize(12);
-	doc.setTextColor(40, 30, 25);
+	doc.setTextColor(50, 40, 35);
+
 	const paragraphs = intro.split(/\n\s*\n/);
-	let y = 160;
+	let y = 200;
+	const lineH = 17;
+	const paragraphGap = 12;
 	for (const p of paragraphs) {
-		const lines = doc.splitTextToSize(p.trim(), CONTENT_W);
+		const text = p.trim();
+		if (!text) continue;
+		const lines = doc.splitTextToSize(text, colW);
 		for (const line of lines) {
 			if (y > PAGE_H - 90) {
 				doc.addPage();
-				y = MARGIN;
+				doc.setFillColor(255, 255, 255);
+				doc.rect(0, 0, PAGE_W, PAGE_H, 'F');
+				doc.setFont('helvetica', 'normal');
+				doc.setFontSize(12);
+				doc.setTextColor(50, 40, 35);
+				y = MARGIN + 16;
 			}
-			doc.text(line, MARGIN, y);
-			y += 18;
+			doc.text(line, colX, y);
+			y += lineH;
 		}
-		y += 10;
+		y += paragraphGap;
 	}
 }
 
@@ -441,7 +542,19 @@ function drawRecipePages(
 	doc.setFillColor(255, 255, 255);
 	doc.rect(0, 0, PAGE_W, PAGE_H, 'F');
 
-	let y = MARGIN + 16;
+	const PAGE_BOTTOM = PAGE_H - 90;
+	const PAGE_TOP = MARGIN + 16;
+
+	// Continue onto a fresh page and reset to a known-safe state. Used by
+	// the orphan-heading guards below.
+	const newPage = (): number => {
+		doc.addPage();
+		doc.setFillColor(255, 255, 255);
+		doc.rect(0, 0, PAGE_W, PAGE_H, 'F');
+		return PAGE_TOP;
+	};
+
+	let y = PAGE_TOP;
 
 	// Title
 	doc.setFont('helvetica', 'bold');
@@ -450,6 +563,11 @@ function drawRecipePages(
 	const titleLines = doc.splitTextToSize(r.title || 'Recipe', CONTENT_W);
 	doc.text(titleLines, MARGIN, y);
 	y += titleLines.length * 26;
+
+	// Accent rule under the title
+	doc.setDrawColor(180, 95, 30);
+	doc.setLineWidth(1.2);
+	doc.line(MARGIN, y - 18, MARGIN + 36, y - 18);
 
 	// Creator attribution
 	if (r.creatorName) {
@@ -460,16 +578,17 @@ function drawRecipePages(
 		y += 16;
 	}
 
-	// Image
+	// Image — graceful fallthrough on addImage failure (e.g. malformed
+	// data URI), keeping y where it was so the rest of the page reflows.
 	if (r.imageDataUri) {
-		y += 4;
+		y += 6;
 		try {
 			const imgW = CONTENT_W;
 			const imgH = imgW * 0.55; // 16:9-ish
 			doc.addImage(r.imageDataUri, imageFormatFromDataUri(r.imageDataUri), MARGIN, y, imgW, imgH);
 			y += imgH + 14;
 		} catch {
-			/* skip image */
+			// Image failed: continue without consuming vertical space.
 		}
 	}
 
@@ -480,99 +599,128 @@ function drawRecipePages(
 		r.cookTime ? `Cook ${r.cookTime}` : ''
 	]
 		.filter(Boolean)
-		.join('  •  ');
+		.join('   •   ');
 	if (meta) {
 		doc.setFont('helvetica', 'normal');
-		doc.setFontSize(11);
+		doc.setFontSize(10);
 		doc.setTextColor(110, 100, 95);
-		doc.text(meta, MARGIN, y);
-		y += 18;
+		doc.text(meta, MARGIN, y, { charSpace: 0.5 } as any);
+		y += 20;
 	}
 
-	// Chef's notes (italic)
+	// Chef's notes (italic, indented quote-style)
 	if (r.chefNotes) {
-		y += 6;
+		y += 4;
 		doc.setFont('helvetica', 'italic');
 		doc.setFontSize(11);
-		doc.setTextColor(80, 70, 65);
-		const notesLines = doc.splitTextToSize(r.chefNotes, CONTENT_W);
+		doc.setTextColor(85, 75, 70);
+		// Subtle left rule
+		const notesLines = doc.splitTextToSize(r.chefNotes, CONTENT_W - 18);
+		const notesStartY = y;
 		for (const line of notesLines) {
-			if (y > PAGE_H - 90) {
-				doc.addPage();
-				y = MARGIN + 16;
+			if (y > PAGE_BOTTOM) {
+				y = newPage();
+				doc.setFont('helvetica', 'italic');
+				doc.setFontSize(11);
+				doc.setTextColor(85, 75, 70);
 			}
-			doc.text(line, MARGIN, y);
-			y += 14;
+			doc.text(line, MARGIN + 14, y);
+			y += 15;
 		}
-		y += 8;
+		// Draw the quote rule once at the end (covers wrapped lines).
+		doc.setDrawColor(220, 200, 190);
+		doc.setLineWidth(1.5);
+		doc.line(MARGIN + 2, notesStartY - 10, MARGIN + 2, y - 10);
+		y += 10;
 	}
+
+	const sectionHeading = (label: string) => {
+		doc.setFont('helvetica', 'bold');
+		doc.setFontSize(13);
+		doc.setTextColor(180, 95, 30);
+		doc.text(label.toUpperCase(), MARGIN, y, { charSpace: 1.5 } as any);
+		// thin rule across the column
+		doc.setDrawColor(220, 200, 190);
+		doc.setLineWidth(0.5);
+		doc.line(MARGIN, y + 6, PAGE_W - MARGIN, y + 6);
+		y += 22;
+	};
 
 	// Ingredients
 	if (r.ingredients.length) {
-		if (y > PAGE_H - 160) {
-			doc.addPage();
-			y = MARGIN + 16;
+		// Orphan-heading guard: the heading + at least 2 lines of body must
+		// fit on the current page; otherwise start fresh.
+		if (y > PAGE_BOTTOM - 60) {
+			y = newPage();
 		}
 		y += 6;
-		doc.setFont('helvetica', 'bold');
-		doc.setFontSize(14);
-		doc.setTextColor(28, 22, 18);
-		doc.text('Ingredients', MARGIN, y);
-		y += 18;
+		sectionHeading('Ingredients');
 		doc.setFont('helvetica', 'normal');
 		doc.setFontSize(11);
 		doc.setTextColor(40, 30, 25);
 		for (const item of r.ingredients) {
-			const lines = doc.splitTextToSize(`•  ${item}`, CONTENT_W - 12);
+			const lines = doc.splitTextToSize(item, CONTENT_W - 18);
 			for (let i = 0; i < lines.length; i++) {
-				if (y > PAGE_H - 90) {
-					doc.addPage();
-					y = MARGIN + 16;
+				if (y > PAGE_BOTTOM) {
+					y = newPage();
+					doc.setFont('helvetica', 'normal');
+					doc.setFontSize(11);
+					doc.setTextColor(40, 30, 25);
 				}
-				doc.text(lines[i], MARGIN + (i === 0 ? 0 : 12), y);
+				if (i === 0) {
+					doc.setTextColor(180, 95, 30);
+					doc.text('•', MARGIN, y);
+					doc.setTextColor(40, 30, 25);
+				}
+				doc.text(lines[i], MARGIN + 14, y);
 				y += 15;
 			}
 		}
-		y += 8;
+		y += 10;
 	}
 
 	// Directions
 	if (r.directions.length) {
-		if (y > PAGE_H - 200) {
-			doc.addPage();
-			y = MARGIN + 16;
+		// Same orphan guard for the Directions heading.
+		if (y > PAGE_BOTTOM - 60) {
+			y = newPage();
 		}
-		y += 6;
-		doc.setFont('helvetica', 'bold');
-		doc.setFontSize(14);
-		doc.setTextColor(28, 22, 18);
-		doc.text('Directions', MARGIN, y);
-		y += 18;
+		y += 4;
+		sectionHeading('Directions');
 		doc.setFont('helvetica', 'normal');
 		doc.setFontSize(11);
 		doc.setTextColor(40, 30, 25);
 		for (let i = 0; i < r.directions.length; i++) {
 			const step = r.directions[i];
-			const numStr = `${i + 1}.`;
+			const numStr = `${i + 1}`;
+			const lines = doc.splitTextToSize(step, CONTENT_W - 32);
+
+			// Keep the step number with at least the first line of its body
+			// to avoid a stranded number at page bottom.
+			if (y > PAGE_BOTTOM - 18) {
+				y = newPage();
+				doc.setFont('helvetica', 'normal');
+				doc.setFontSize(11);
+				doc.setTextColor(40, 30, 25);
+			}
+
 			doc.setFont('helvetica', 'bold');
 			doc.setTextColor(180, 95, 30);
-			if (y > PAGE_H - 90) {
-				doc.addPage();
-				y = MARGIN + 16;
-			}
 			doc.text(numStr, MARGIN, y);
 			doc.setFont('helvetica', 'normal');
 			doc.setTextColor(40, 30, 25);
-			const lines = doc.splitTextToSize(step, CONTENT_W - 28);
+
 			for (let j = 0; j < lines.length; j++) {
-				if (j > 0 && y > PAGE_H - 90) {
-					doc.addPage();
-					y = MARGIN + 16;
+				if (j > 0 && y > PAGE_BOTTOM) {
+					y = newPage();
+					doc.setFont('helvetica', 'normal');
+					doc.setFontSize(11);
+					doc.setTextColor(40, 30, 25);
 				}
 				doc.text(lines[j], MARGIN + 28, y);
 				y += 16;
 			}
-			y += 4;
+			y += 6;
 		}
 	}
 }

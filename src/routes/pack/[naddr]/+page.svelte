@@ -320,6 +320,16 @@
   $: isProMember =
     !!tierStatus?.active && (tierStatus.tier === 'pro_kitchen' || tierStatus.tier === 'founders');
 
+  // Debug log for membership-detection edge cases. Truncates pubkey to
+  // first 8 chars so it's diagnosable without leaking identity.
+  $: if (browser && $userPublickey) {
+    console.info('[pack page] membership snapshot', {
+      pubkey: `${$userPublickey.slice(0, 8)}…`,
+      tierStatus,
+      isProMember
+    });
+  }
+
   onDestroy(() => unsubMembership());
 
   function handleExportClick() {
@@ -379,6 +389,8 @@
     packNaddr={$page.params.naddr}
     packShareUrl={viewUrl}
     {isProMember}
+    membershipTier={tierStatus?.tier}
+    membershipActive={tierStatus?.active}
   />
 {/if}
 

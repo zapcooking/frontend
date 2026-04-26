@@ -7,17 +7,25 @@
  *   {
  *     buyerPubkey: string,   // hex pubkey of buyer (signed-in user)
  *     packNaddr: string,     // naddr1... — the pack being exported
- *     packTitle?: string     // optional, used in invoice description
+ *     packTitle?: string,    // optional, used in invoice description
+ *     promoCode?: string     // optional discount code (server-validated)
  *   }
  *
  * Returns:
- *   200 {
+ *   200 (paid path) {
  *     exportId: string,
  *     invoice: string,           // BOLT11
  *     paymentHash: string,
  *     receiveRequestId: string,
  *     invoiceExpiresAt: number,  // unix seconds
- *     amountSats: number
+ *     amountSats: number,
+ *     promo?: { code, label, originalSats, finalSats }
+ *   }
+ *   200 (free-promo path) {
+ *     exportId: string,
+ *     free: true,                // client should treat as paid
+ *     amountSats: 0,
+ *     promo: { code, label, originalSats: COOKBOOK_EXPORT_SATS, finalSats: 0 }
  *   }
  *
  * Mirrors /api/boost/create-invoice. Same Strike API + GATED_CONTENT
@@ -29,16 +37,18 @@ import { env } from '$env/dynamic/private';
 import { createInvoice as createStrikeInvoice } from '$lib/strikeService.server';
 import {
 	storeExport,
+	markExportPaid,
 	type CookbookExportRecord
 } from '$lib/cookbookExportStore.server';
+import { COOKBOOK_EXPORT_SATS } from '$lib/cookbookPricing';
+import { applyPromo } from '$lib/cookbookPromo.server';
 
 const HEX64_RE = /^[0-9a-fA-F]{64}$/;
-const COOKBOOK_EXPORT_SATS = 2100;
 
 export const POST: RequestHandler = async ({ request, platform }) => {
 	try {
 		const body = await request.json();
-		const { buyerPubkey, packNaddr, packTitle } = body ?? {};
+		const { buyerPubkey, packNaddr, packTitle, promoCode } = body ?? {};
 
 		if (!buyerPubkey || typeof buyerPubkey !== 'string' || !HEX64_RE.test(buyerPubkey)) {
 			return json({ error: 'Invalid buyerPubkey format' }, { status: 400 });
@@ -47,21 +57,82 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 			return json({ error: 'A valid packNaddr is required' }, { status: 400 });
 		}
 
+		// Server-side promo validation. The client may send a code string,
+		// but only this validation determines the actual price.
+		let amountSats = COOKBOOK_EXPORT_SATS;
+		let promo: {
+			code: string;
+			label: string;
+			originalSats: number;
+			finalSats: number;
+		} | null = null;
+
+		if (typeof promoCode === 'string' && promoCode.trim()) {
+			const lookup = applyPromo(promoCode, COOKBOOK_EXPORT_SATS);
+			if (!lookup.ok || !lookup.applied) {
+				return json(
+					{ error: 'Promo code not valid', promoError: lookup.error || 'unknown_code' },
+					{ status: 400 }
+				);
+			}
+			amountSats = lookup.applied.finalSats;
+			promo = {
+				code: lookup.applied.code,
+				label: lookup.applied.label,
+				originalSats: lookup.applied.originalSats,
+				finalSats: lookup.applied.finalSats
+			};
+		}
+
 		const safeTitle =
 			typeof packTitle === 'string' && packTitle.trim()
 				? packTitle.trim().slice(0, 80)
 				: 'Recipe Pack';
-		const description = `zap.cooking · Cookbook export: "${safeTitle}"`;
-		const amountSats = COOKBOOK_EXPORT_SATS;
-		const btcAmount = (amountSats / 100_000_000).toFixed(8);
 
+		const exportId = crypto.randomUUID();
+		const kv = platform?.env?.GATED_CONTENT ?? null;
+		if (!kv && env.NODE_ENV === 'production') {
+			console.error('[cookbook-export] GATED_CONTENT KV binding missing in production');
+			return json({ error: 'Service temporarily unavailable' }, { status: 503 });
+		}
+
+		// 100%-off promo path: skip Strike, write a paid record directly,
+		// return free=true. The verify-payment endpoint will idempotently
+		// see status='paid' if the client double-checks.
+		if (amountSats === 0) {
+			const record: CookbookExportRecord = {
+				id: exportId,
+				buyerPubkey,
+				packNaddr,
+				packTitle: safeTitle,
+				amountSats: 0,
+				receiveRequestId: `promo:${exportId}`,
+				paymentHash: '',
+				status: 'paid',
+				createdAt: Date.now(),
+				paidAt: Date.now()
+			};
+			await storeExport(kv, record);
+			// Note: no need to call markExportPaid — record is created paid.
+			void markExportPaid; // tree-shake hint kept for symmetry with verify path
+
+			return json({
+				exportId,
+				free: true,
+				amountSats: 0,
+				promo
+			});
+		}
+
+		// Paid path — create the Strike invoice.
+		const description = `zap.cooking · Cookbook export: "${safeTitle}"`;
+		const btcAmount = (amountSats / 100_000_000).toFixed(8);
 		const strikeResponse = await createStrikeInvoice(btcAmount, 'BTC', description, platform);
 		const bolt11Data = (strikeResponse as any).bolt11;
 		const invoice = bolt11Data?.invoice || strikeResponse.invoice;
 		if (!invoice) {
 			throw new Error('Strike API did not return a BOLT11 invoice');
 		}
-
 		const paymentHash = bolt11Data?.paymentHash || strikeResponse.paymentHash || '';
 		const receiveRequestId = strikeResponse.receiveRequestId;
 
@@ -71,13 +142,6 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 			invoiceExpiresAt = Math.floor(new Date(expiresString).getTime() / 1000);
 		} else {
 			invoiceExpiresAt = Math.floor(Date.now() / 1000) + 3600;
-		}
-
-		const exportId = crypto.randomUUID();
-		const kv = platform?.env?.GATED_CONTENT ?? null;
-		if (!kv && env.NODE_ENV === 'production') {
-			console.error('[cookbook-export] GATED_CONTENT KV binding missing in production');
-			return json({ error: 'Service temporarily unavailable' }, { status: 503 });
 		}
 
 		const record: CookbookExportRecord = {
@@ -100,7 +164,8 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 			paymentHash,
 			receiveRequestId,
 			invoiceExpiresAt,
-			amountSats
+			amountSats,
+			promo
 		});
 	} catch (error: any) {
 		console.error('[cookbook-export] create-invoice error:', error);

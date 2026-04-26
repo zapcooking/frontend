@@ -7,6 +7,7 @@
   import { showToast } from '$lib/toast';
   import { lightningService } from '$lib/lightningService';
   import { copyToClipboard } from '$lib/utils/share';
+  import { COOKBOOK_EXPORT_SATS } from '$lib/cookbookPricing';
   import {
     buildCookbookPdf,
     cookbookFilename,
@@ -31,6 +32,9 @@
   export let packShareUrl: string = '';
   /** Whether the current user is a Pro Kitchen / Founders member. Free unlimited exports if true. */
   export let isProMember: boolean = false;
+  /** Optional — passed through for debug logs only, not used in gating. */
+  export let membershipTier: string | undefined = undefined;
+  export let membershipActive: boolean | undefined = undefined;
   export let open = false;
 
   const dispatch = createEventDispatcher();
@@ -60,7 +64,6 @@
   // another.
   const RECENT_PAY_TTL_MS = 15 * 60 * 1000;
   const RECENT_PAY_KEY_PREFIX = 'zc:cookbook-export-paid:';
-  const COOKBOOK_EXPORT_SATS = 2100;
 
   let invoiceLoading = false;
   let invoiceError = '';
@@ -72,9 +75,23 @@
   /** True once payment is confirmed in this session. */
   let paymentUnlocked = false;
 
+  // ===== Promo state =====
+  let promoInput = '';
+  let promoLoading = false;
+  let promoError = '';
+  let promoApplied: {
+    code: string;
+    label: string;
+    originalSats: number;
+    finalSats: number;
+    free: boolean;
+  } | null = null;
+
   $: missingRecipes = Math.max(0, totalRecipeCount - recipeEvents.length);
-  /** Either the user is a Pro member OR they've already paid for this pack. */
-  $: canExport = isProMember || paymentUnlocked;
+  /** Either the user is a Pro member OR they've already paid for this pack OR the promo is free. */
+  $: canExport = isProMember || paymentUnlocked || (promoApplied?.free ?? false);
+  /** Effective price the CTA should display. */
+  $: priceSats = promoApplied?.finalSats ?? COOKBOOK_EXPORT_SATS;
 
   // Reset per-open
   $: if (open) initStateOnOpen();
@@ -92,6 +109,10 @@
     exportId = '';
     receiveRequestId = '';
     invoiceCopied = false;
+    promoInput = '';
+    promoApplied = null;
+    promoError = '';
+    promoLoading = false;
     // Note: don't reset paymentUnlocked — let the user generate, fail,
     // and retry without re-paying.
   }
@@ -100,6 +121,23 @@
     title = packTitle || 'My Recipe Pack';
     subtitle = packDescription || '';
     paymentUnlocked = isRecentlyPaid();
+
+    // ───── Membership debug ─────
+    // Until the founders/pro detection edge cases are nailed down, log
+    // enough to diagnose without leaking sensitive data. Pubkey is
+    // truncated to first 8 chars so the log is usable but not a
+    // re-identifier all on its own.
+    if (typeof window !== 'undefined') {
+      const pkPreview = $userPublickey ? `${$userPublickey.slice(0, 8)}…` : '(anon)';
+      console.info('[ExportCookbookModal] membership check', {
+        pubkey: pkPreview,
+        tier: membershipTier ?? '(not passed)',
+        active: membershipActive ?? '(not passed)',
+        isProMember,
+        recentlyPaid: paymentUnlocked,
+        canExport: isProMember || paymentUnlocked
+      });
+    }
   }
 
   // ===== Recently-paid cache =====
@@ -182,6 +220,55 @@
     return { text: fallback, aiUsed: false };
   }
 
+  // ===== Promo flow =====
+  async function handleApplyPromo() {
+    const code = promoInput.trim();
+    if (!code || promoLoading) return;
+    promoError = '';
+    promoLoading = true;
+    try {
+      const res = await fetch('/api/cookbook-export/apply-promo', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code })
+      });
+      const data = (await res.json()) as
+        | {
+            success: true;
+            code: string;
+            label: string;
+            originalSats: number;
+            finalSats: number;
+            free: boolean;
+          }
+        | { success: false; error: string };
+      if (!('success' in data) || !data.success) {
+        promoApplied = null;
+        promoError = 'Promo code not valid';
+        return;
+      }
+      promoApplied = {
+        code: data.code,
+        label: data.label,
+        originalSats: data.originalSats,
+        finalSats: data.finalSats,
+        free: data.free
+      };
+    } catch (err) {
+      console.error('[ExportCookbookModal] apply-promo failed', err);
+      promoApplied = null;
+      promoError = 'Promo code not valid';
+    } finally {
+      promoLoading = false;
+    }
+  }
+
+  function handleClearPromo() {
+    promoInput = '';
+    promoApplied = null;
+    promoError = '';
+  }
+
   // ===== Pay-per-export flow =====
   async function handleUnlockClick() {
     if (invoiceLoading) return;
@@ -202,7 +289,8 @@
         body: JSON.stringify({
           buyerPubkey: $userPublickey,
           packNaddr,
-          packTitle: title.trim() || packTitle
+          packTitle: title.trim() || packTitle,
+          promoCode: promoApplied?.code
         })
       });
       if (!res.ok) {
@@ -215,12 +303,28 @@
       }
       const data = (await res.json()) as {
         exportId: string;
-        invoice: string;
-        paymentHash: string;
-        receiveRequestId: string;
-        invoiceExpiresAt: number;
+        // Paid path
+        invoice?: string;
+        paymentHash?: string;
+        receiveRequestId?: string;
+        invoiceExpiresAt?: number;
         amountSats: number;
+        // Free-promo path
+        free?: boolean;
+        promo?: unknown;
       };
+
+      // 100%-off promo path: the server marked it paid; jump straight
+      // to PDF generation, no Lightning round-trip.
+      if (data.free) {
+        exportId = data.exportId;
+        await onPaymentConfirmed();
+        return;
+      }
+
+      if (!data.invoice || !data.receiveRequestId) {
+        throw new Error('Invoice response was missing fields.');
+      }
       exportId = data.exportId;
       receiveRequestId = data.receiveRequestId;
       invoice = data.invoice;
@@ -436,6 +540,66 @@
             </a>
           </div>
         </div>
+
+        <!-- Promo code -->
+        <div class="flex flex-col gap-1">
+          <label
+            for="cookbook-promo"
+            class="text-xs font-medium"
+            style="color: var(--color-text-secondary)"
+          >
+            Promo code
+          </label>
+          {#if promoApplied}
+            <div
+              class="flex items-center justify-between gap-2 p-2 rounded-lg"
+              style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);"
+            >
+              <p class="text-sm" style="color: var(--color-text-primary)">
+                <span class="font-semibold">{promoApplied.code}</span>
+                <span class="text-caption"> — promo applied: {promoApplied.label}</span>
+              </p>
+              <button
+                type="button"
+                on:click={handleClearPromo}
+                class="text-xs underline"
+                style="color: var(--color-text-secondary)"
+              >
+                Remove
+              </button>
+            </div>
+          {:else}
+            <div class="flex items-center gap-2">
+              <input
+                id="cookbook-promo"
+                type="text"
+                class="input flex-1"
+                bind:value={promoInput}
+                placeholder="e.g., LAUNCH"
+                maxlength="32"
+                autocomplete="off"
+                on:keydown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    handleApplyPromo();
+                  }
+                }}
+              />
+              <button
+                type="button"
+                on:click={handleApplyPromo}
+                disabled={promoLoading || !promoInput.trim()}
+                class="px-3 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                style="background-color: var(--color-input-bg); color: var(--color-text-primary); border: 1px solid var(--color-input-border);"
+              >
+                {promoLoading ? 'Checking…' : 'Apply'}
+              </button>
+            </div>
+            {#if promoError}
+              <p class="text-xs text-red-500">{promoError}</p>
+            {/if}
+          {/if}
+        </div>
       {/if}
 
       <div class="flex flex-col gap-2">
@@ -540,7 +704,7 @@
           {:else if canExport}
             Generate Cookbook
           {:else}
-            Unlock Cookbook for {COOKBOOK_EXPORT_SATS} sats ⚡
+            Unlock Cookbook for {priceSats} sats ⚡
           {/if}
         </Button>
       </div>
@@ -548,8 +712,11 @@
   {:else if stage === 'invoice'}
     <div class="flex flex-col gap-4">
       <p class="text-sm" style="color: var(--color-text-primary)">
-        Pay <span class="font-semibold">{COOKBOOK_EXPORT_SATS} sats</span> to unlock cookbook export
-        for this pack.
+        Pay <span class="font-semibold">{priceSats} sats</span> to unlock cookbook export for this
+        pack.
+        {#if promoApplied}
+          <span class="text-caption">(Promo {promoApplied.code} applied — {promoApplied.label}.)</span>
+        {/if}
       </p>
       <p class="text-xs text-caption">
         A wallet picker should have opened in another window. If not, copy the invoice and pay from
@@ -615,16 +782,17 @@
         </div>
         <div class="flex flex-col">
           <p class="text-sm font-medium" style="color: var(--color-text-primary)">
-            Your cookbook is ready
+            {paymentUnlocked && !isProMember
+              ? 'Payment received ⚡ Your cookbook is ready.'
+              : '📚 Your cookbook is ready'}
           </p>
           <p class="text-xs text-caption">
-            {resultIncluded} {resultIncluded === 1 ? 'recipe' : 'recipes'} included
-            {#if resultSkipped > 0}
+            Turned your Recipe Pack into a printable cookbook. {resultIncluded}
+            {resultIncluded === 1 ? 'recipe' : 'recipes'} included{#if resultSkipped > 0}
               · {resultSkipped} couldn't be loaded
-            {/if}
-            {#if usedAi}
+            {/if}{#if usedAi}
               · introduction polished
-            {/if}
+            {/if}.
           </p>
         </div>
       </div>
