@@ -8,6 +8,14 @@
   import { lightningService } from '$lib/lightningService';
   import { copyToClipboard } from '$lib/utils/share';
   import { COOKBOOK_EXPORT_SATS } from '$lib/cookbookPricing';
+  import { get } from 'svelte/store';
+  import {
+    sendPayment as walletSendPayment,
+    isWalletReady,
+    refreshBalance as refreshWalletBalance,
+    walletBalance
+  } from '$lib/wallet/walletManager';
+  import { getActiveWallet } from '$lib/wallet/walletStore';
   import {
     buildCookbookPdf,
     cookbookFilename,
@@ -77,6 +85,18 @@
   /** True once payment is confirmed in this session. */
   let paymentUnlocked = false;
 
+  // ===== Built-in (Spark/Breez) wallet attempt state =====
+  // Idle = haven't tried yet (or no built-in wallet present).
+  // Attempting = an internal payment is in flight.
+  // Insufficient = active built-in wallet doesn't have enough balance —
+  //   user can switch to an external wallet via the footer button.
+  // Failed = Spark SDK threw mid-payment — same recovery path.
+  // Success = built-in payment returned ok; the existing server-poll
+  //   verification path will pick it up and call onPaymentConfirmed.
+  type BuiltInPayState = 'idle' | 'attempting' | 'insufficient' | 'failed' | 'success';
+  let builtInPayState: BuiltInPayState = 'idle';
+  let builtInPayError = '';
+
   // ===== Promo state =====
   let promoInput = '';
   let promoLoading = false;
@@ -116,6 +136,8 @@
     promoApplied = null;
     promoError = '';
     promoLoading = false;
+    builtInPayState = 'idle';
+    builtInPayError = '';
     // Note: don't reset paymentUnlocked — let the user generate, fail,
     // and retry without re-paying.
   }
@@ -331,35 +353,128 @@
       receiveRequestId = data.receiveRequestId;
       invoice = data.invoice;
       stage = 'invoice';
+      builtInPayState = 'idle';
+      builtInPayError = '';
 
-      // Hand the invoice to Bitcoin Connect / Alby's modal — gives us
-      // the QR + copy + WebLN button without us having to draw it.
-      try {
-        const { setPaid } = await lightningService.launchPayment({
-          invoice,
-          onPaid: async () => {
-            stopInvoicePolling();
-            await onPaymentConfirmed();
-          },
-          onCancelled: () => {
-            stopInvoicePolling();
-            // User dismissed the modal without paying — leave them on
-            // the invoice screen so they can retry / copy the invoice.
-          }
-        });
-        startInvoicePolling(setPaid);
-      } catch (err) {
-        console.error('[ExportCookbookModal] launchPayment failed', err);
-        // Still allow polling — the user can copy the invoice manually
-        // from the screen and pay from any wallet.
-        startInvoicePolling(null);
+      // Server-side polling is the source of truth. Start it
+      // immediately — works whether the user pays via built-in wallet,
+      // an external wallet picker, or by copying the invoice manually.
+      startInvoicePolling(null);
+
+      // Prefer the user's connected Zap Cooking wallet (Breez/Spark)
+      // before opening Bitcoin Connect. Sliently no-ops when no
+      // built-in wallet is connected; falls back gracefully on errors.
+      const builtInOutcome = await tryBuiltInWalletPayment();
+
+      if (builtInOutcome === 'no-wallet') {
+        // No built-in wallet — go straight to Bitcoin Connect, the
+        // pre-existing flow. User still sees the QR + manual invoice.
+        await launchBitcoinConnect();
       }
+      // For 'success' the verify-payment poll will auto-confirm.
+      // For 'insufficient' / 'failed' the user clicks the
+      // "Pay with another wallet" footer button to open BC manually.
     } catch (err: any) {
       console.error('[ExportCookbookModal] create-invoice failed', err);
       invoiceError = err?.message || 'Failed to create Lightning invoice.';
     } finally {
       invoiceLoading = false;
     }
+  }
+
+  /**
+   * Try paying the active invoice from the user's built-in (Breez/Spark)
+   * wallet. Returns the outcome so the caller can decide whether to
+   * fall back to Bitcoin Connect.
+   *
+   * Outcomes:
+   *  - 'no-wallet'    — no built-in wallet present or not initialized
+   *                     (caller falls through to Bitcoin Connect)
+   *  - 'insufficient' — wallet exists but balance < priceSats
+   *  - 'failed'       — Spark threw mid-payment (network / SDK error)
+   *  - 'success'      — payment sent; server poll will confirm
+   */
+  async function tryBuiltInWalletPayment(): Promise<
+    'no-wallet' | 'insufficient' | 'failed' | 'success'
+  > {
+    const active = getActiveWallet();
+    // Only target the in-app Breez/Spark wallet (kind 4). WebLN (1) and
+    // NWC (3) external wallets are still handled by Bitcoin Connect's
+    // launchPaymentModal — same picker users are already used to.
+    if (!active || active.kind !== 4) return 'no-wallet';
+    if (!isWalletReady()) return 'no-wallet';
+
+    // Resolve balance — refresh once if the cached value is null
+    // (cold start). Treat any failure as "no-wallet" so we fall back
+    // cleanly rather than blocking the user behind a flaky balance fetch.
+    let balance = get(walletBalance);
+    if (balance === null) {
+      try {
+        balance = await refreshWalletBalance();
+      } catch (e) {
+        console.warn('[ExportCookbookModal] built-in balance refresh failed', e);
+        return 'no-wallet';
+      }
+    }
+    if (balance === null) return 'no-wallet';
+    if (balance < priceSats) {
+      builtInPayState = 'insufficient';
+      return 'insufficient';
+    }
+
+    builtInPayState = 'attempting';
+    builtInPayError = '';
+    try {
+      const result = await walletSendPayment(invoice, {
+        amount: priceSats,
+        description: `Cookbook export: ${title.trim() || packTitle || 'Recipe Pack'}`
+      });
+      if (!result.success) {
+        builtInPayState = 'failed';
+        builtInPayError = result.error || 'Payment failed';
+        return 'failed';
+      }
+      // Spark accepted the payment. Strike will see the invoice as
+      // paid within a few seconds; the existing /verify-payment poll
+      // we started above will pick it up and call onPaymentConfirmed.
+      builtInPayState = 'success';
+      return 'success';
+    } catch (err: any) {
+      console.error('[ExportCookbookModal] built-in wallet payment threw', err);
+      builtInPayState = 'failed';
+      builtInPayError = err?.message || 'Payment failed';
+      return 'failed';
+    }
+  }
+
+  /** Open Bitcoin Connect's payment modal for the current invoice. */
+  async function launchBitcoinConnect() {
+    try {
+      const { setPaid } = await lightningService.launchPayment({
+        invoice,
+        onPaid: async () => {
+          stopInvoicePolling();
+          await onPaymentConfirmed();
+        },
+        onCancelled: () => {
+          // User dismissed BC — leave them on the invoice screen so
+          // they can copy the invoice or click "Pay with another
+          // wallet" again. Server poll keeps running.
+        }
+      });
+      // Re-start the server poll so it can call setPaid on the BC
+      // modal once Strike confirms — that auto-closes BC.
+      startInvoicePolling(setPaid);
+    } catch (err) {
+      console.error('[ExportCookbookModal] launchPayment failed', err);
+      // Polling is already running (started in handleUnlockClick); the
+      // user can still pay manually via the copy-invoice path.
+    }
+  }
+
+  /** Footer button: user opted out of built-in wallet, switch to BC. */
+  async function handleSwitchToExternalWallet() {
+    await launchBitcoinConnect();
   }
 
   function startInvoicePolling(setPaid: ((r: { preimage: string }) => void) | null) {
@@ -530,7 +645,12 @@
   <h1 slot="title">Export as Cookbook</h1>
 
   {#if stage === 'form'}
-    <div class="flex flex-col gap-4">
+    <div class="flex flex-col flex-1 min-h-0">
+      <!-- Scroll area: form fields. flex-1 + min-h-0 lets it shrink within
+           the dialog's max-h, instead of pushing the footer off-screen. -->
+      <div
+        class="flex-1 min-h-0 overflow-y-auto flex flex-col gap-4 -mx-4 md:-mx-8 px-4 md:px-8"
+      >
       <p class="text-sm text-caption">Turn this Recipe Pack into a printable cookbook PDF.</p>
 
       {#if !canExport}
@@ -703,67 +823,115 @@
       {#if invoiceError}
         <p class="text-sm text-red-500">{invoiceError}</p>
       {/if}
+      </div>
 
-      <div class="flex justify-end gap-2 pt-1">
-        <Button on:click={handleClose} primary={false}>Cancel</Button>
-        <Button
-          on:click={handleGenerateClick}
-          disabled={invoiceLoading || !packEvent || recipeEvents.length === 0}
-        >
-          {#if invoiceLoading}
-            Creating invoice…
-          {:else if canExport}
-            Generate Cookbook
-          {:else}
-            Unlock Cookbook for {priceSats} sats ⚡
-          {/if}
-        </Button>
+      <!-- Sticky footer: stays visible regardless of form scroll. Stacks
+           on mobile (primary on top via flex-col-reverse) and rows on sm+. -->
+      <div
+        class="flex-none pt-3 mt-3 -mx-4 md:-mx-8 px-4 md:px-8"
+        style="border-top: 1px solid var(--color-input-border); padding-bottom: env(safe-area-inset-bottom);"
+      >
+        <div class="flex flex-col-reverse sm:flex-row sm:justify-end gap-2">
+          <Button on:click={handleClose} primary={false} class="w-full sm:w-auto">Cancel</Button>
+          <Button
+            on:click={handleGenerateClick}
+            disabled={invoiceLoading || !packEvent || recipeEvents.length === 0}
+            class="w-full sm:w-auto"
+          >
+            {#if invoiceLoading}
+              Creating invoice…
+            {:else if canExport}
+              Generate Cookbook
+            {:else}
+              Unlock for {priceSats} sats ⚡
+            {/if}
+          </Button>
+        </div>
       </div>
     </div>
   {:else if stage === 'invoice'}
-    <div class="flex flex-col gap-4">
-      <p class="text-sm" style="color: var(--color-text-primary)">
-        Pay <span class="font-semibold">{priceSats} sats</span> to unlock cookbook export for this
-        pack.
-        {#if promoApplied}
-          <span class="text-caption">(Promo {promoApplied.code} applied — {promoApplied.label}.)</span>
+    <div class="flex flex-col flex-1 min-h-0">
+      <div
+        class="flex-1 min-h-0 overflow-y-auto flex flex-col gap-4 -mx-4 md:-mx-8 px-4 md:px-8"
+      >
+        <p class="text-sm" style="color: var(--color-text-primary)">
+          Pay <span class="font-semibold">{priceSats} sats</span> to unlock cookbook export for this
+          pack.
+          {#if promoApplied}
+            <span class="text-caption">(Promo {promoApplied.code} applied — {promoApplied.label}.)</span>
+          {/if}
+        </p>
+
+        {#if builtInPayState === 'attempting'}
+          <!-- Built-in wallet attempt overlay — keeps the user on this screen
+               with a clear explanation of what's happening. -->
+          <div class="flex items-center gap-3 text-sm">
+            <div
+              class="w-5 h-5 rounded-full border-2 border-orange-200 border-t-orange-500 animate-spin"
+            ></div>
+            <span style="color: var(--color-text-primary)"
+              >Paying from your Zap Cooking wallet…</span
+            >
+          </div>
+        {:else}
+          {#if builtInPayState === 'insufficient'}
+            <p class="text-sm" style="color: var(--color-text-primary)">
+              Your Zap Cooking wallet doesn't have enough balance. You can still pay with another
+              wallet.
+            </p>
+          {:else if builtInPayState === 'failed' && builtInPayError}
+            <p class="text-sm text-red-500">
+              Built-in wallet payment failed: {builtInPayError}
+            </p>
+          {/if}
+
+          <p class="text-xs text-caption">
+            A wallet picker should have opened in another window. If not, copy the invoice and pay
+            from any Lightning wallet.
+          </p>
+
+          <div
+            class="flex items-center gap-2 p-2 rounded-lg overflow-hidden"
+            style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);"
+          >
+            <code
+              class="text-xs flex-1 truncate"
+              style="color: var(--color-text-secondary); font-family: monospace;"
+              title={invoice}
+            >
+              {invoice}
+            </code>
+            <button
+              type="button"
+              on:click={copyInvoice}
+              class="flex-shrink-0 px-3 py-1.5 rounded text-xs font-medium transition-colors"
+              style="background-color: var(--color-bg-secondary); color: var(--color-text-primary); border: 1px solid var(--color-input-border);"
+            >
+              {invoiceCopied ? 'Copied' : 'Copy'}
+            </button>
+          </div>
+
+          <div class="flex items-center gap-2 text-sm">
+            <div
+              class="w-4 h-4 rounded-full border-2 border-orange-200 border-t-orange-500 animate-spin"
+            ></div>
+            <span class="text-caption">Waiting for payment…</span>
+          </div>
         {/if}
-      </p>
-      <p class="text-xs text-caption">
-        A wallet picker should have opened in another window. If not, copy the invoice and pay from
-        any Lightning wallet.
-      </p>
+      </div>
 
       <div
-        class="flex items-center gap-2 p-2 rounded-lg overflow-hidden"
-        style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);"
+        class="flex-none pt-3 mt-3 -mx-4 md:-mx-8 px-4 md:px-8"
+        style="border-top: 1px solid var(--color-input-border); padding-bottom: env(safe-area-inset-bottom);"
       >
-        <code
-          class="text-xs flex-1 truncate"
-          style="color: var(--color-text-secondary); font-family: monospace;"
-          title={invoice}
-        >
-          {invoice}
-        </code>
-        <button
-          type="button"
-          on:click={copyInvoice}
-          class="flex-shrink-0 px-3 py-1.5 rounded text-xs font-medium transition-colors"
-          style="background-color: var(--color-bg-secondary); color: var(--color-text-primary); border: 1px solid var(--color-input-border);"
-        >
-          {invoiceCopied ? 'Copied' : 'Copy'}
-        </button>
-      </div>
-
-      <div class="flex items-center gap-2 text-sm">
-        <div
-          class="w-4 h-4 rounded-full border-2 border-orange-200 border-t-orange-500 animate-spin"
-        ></div>
-        <span class="text-caption">Waiting for payment…</span>
-      </div>
-
-      <div class="flex justify-end gap-2 pt-1">
-        <Button on:click={cancelInvoice} primary={false}>Cancel</Button>
+        <div class="flex flex-col-reverse sm:flex-row sm:justify-end gap-2">
+          <Button on:click={cancelInvoice} primary={false} class="w-full sm:w-auto">Cancel</Button>
+          {#if builtInPayState === 'insufficient' || builtInPayState === 'failed'}
+            <Button on:click={handleSwitchToExternalWallet} class="w-full sm:w-auto">
+              Pay with another wallet
+            </Button>
+          {/if}
+        </div>
       </div>
     </div>
   {:else if stage === 'generating'}
@@ -780,55 +948,75 @@
       </p>
     </div>
   {:else if stage === 'success'}
-    <div class="flex flex-col gap-4">
+    <div class="flex flex-col flex-1 min-h-0">
       <div
-        class="flex items-start gap-3 p-3 rounded-lg"
-        style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);"
+        class="flex-1 min-h-0 overflow-y-auto flex flex-col gap-4 -mx-4 md:-mx-8 px-4 md:px-8"
       >
         <div
-          class="w-10 h-10 rounded-full bg-gradient-to-br from-orange-500 to-amber-500 flex items-center justify-center flex-shrink-0 text-white text-lg"
-          aria-hidden="true"
+          class="flex items-start gap-3 p-3 rounded-lg"
+          style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);"
         >
-          📚
-        </div>
-        <div class="flex flex-col">
-          <p class="text-sm font-medium" style="color: var(--color-text-primary)">
-            {paymentUnlocked
-              ? 'Payment received ⚡ Your cookbook is ready.'
-              : '📚 Your cookbook is ready'}
-          </p>
-          <p class="text-xs text-caption">
-            Turned your Recipe Pack into a printable cookbook. {resultIncluded}
-            {resultIncluded === 1 ? 'recipe' : 'recipes'} included{#if resultSkipped > 0}
-              · {resultSkipped} couldn't be loaded
-            {/if}{#if usedAi}
-              · introduction polished
-            {/if}.
-          </p>
+          <div
+            class="w-10 h-10 rounded-full bg-gradient-to-br from-orange-500 to-amber-500 flex items-center justify-center flex-shrink-0 text-white text-lg"
+            aria-hidden="true"
+          >
+            📚
+          </div>
+          <div class="flex flex-col">
+            <p class="text-sm font-medium" style="color: var(--color-text-primary)">
+              {paymentUnlocked
+                ? 'Payment received ⚡ Your cookbook is ready.'
+                : '📚 Your cookbook is ready'}
+            </p>
+            <p class="text-xs text-caption">
+              Turned your Recipe Pack into a printable cookbook. {resultIncluded}
+              {resultIncluded === 1 ? 'recipe' : 'recipes'} included{#if resultSkipped > 0}
+                · {resultSkipped} couldn't be loaded
+              {/if}{#if usedAi}
+                · introduction polished
+              {/if}.
+            </p>
+          </div>
         </div>
       </div>
 
-      <div class="flex flex-wrap justify-end gap-2 pt-1">
-        {#if packShareUrl}
-          <Button on:click={copyShareUrl} primary={false}>Share Recipe Pack</Button>
-        {/if}
-        <Button on:click={handleClose} primary={false}>Close</Button>
-        <Button on:click={handleDownload}>Download PDF</Button>
+      <div
+        class="flex-none pt-3 mt-3 -mx-4 md:-mx-8 px-4 md:px-8"
+        style="border-top: 1px solid var(--color-input-border); padding-bottom: env(safe-area-inset-bottom);"
+      >
+        <div class="flex flex-col-reverse sm:flex-row sm:flex-wrap sm:justify-end gap-2">
+          {#if packShareUrl}
+            <Button on:click={copyShareUrl} primary={false} class="w-full sm:w-auto">
+              Share Recipe Pack
+            </Button>
+          {/if}
+          <Button on:click={handleClose} primary={false} class="w-full sm:w-auto">Close</Button>
+          <Button on:click={handleDownload} class="w-full sm:w-auto">Download PDF</Button>
+        </div>
       </div>
     </div>
   {:else if stage === 'error'}
-    <div class="flex flex-col gap-4">
-      <p class="text-sm" style="color: var(--color-text-primary)">
-        {stageMessage || 'Something went wrong while building the PDF.'}
-      </p>
-      {#if paymentUnlocked}
-        <p class="text-xs text-caption">
-          Your payment is still valid — retry won't charge again.
+    <div class="flex flex-col flex-1 min-h-0">
+      <div
+        class="flex-1 min-h-0 overflow-y-auto flex flex-col gap-4 -mx-4 md:-mx-8 px-4 md:px-8"
+      >
+        <p class="text-sm" style="color: var(--color-text-primary)">
+          {stageMessage || 'Something went wrong while building the PDF.'}
         </p>
-      {/if}
-      <div class="flex justify-end gap-2">
-        <Button on:click={handleClose} primary={false}>Close</Button>
-        <Button on:click={handleRetry}>Try again</Button>
+        {#if paymentUnlocked}
+          <p class="text-xs text-caption">
+            Your payment is still valid — retry won't charge again.
+          </p>
+        {/if}
+      </div>
+      <div
+        class="flex-none pt-3 mt-3 -mx-4 md:-mx-8 px-4 md:px-8"
+        style="border-top: 1px solid var(--color-input-border); padding-bottom: env(safe-area-inset-bottom);"
+      >
+        <div class="flex flex-col-reverse sm:flex-row sm:justify-end gap-2">
+          <Button on:click={handleClose} primary={false} class="w-full sm:w-auto">Close</Button>
+          <Button on:click={handleRetry} class="w-full sm:w-auto">Try again</Button>
+        </div>
       </div>
     </div>
   {/if}
