@@ -4858,8 +4858,9 @@
   // viewers got batched. The batch path (server counts API + NDK
   // subscription) doesn't require auth — userPublickey only feeds the
   // userReacted / userReposted flags, which stay false for anon users
-  // either way. Letting the batch run for everyone preempts the per-card
-  // fetches via the 5-min freshness gate in batchFetchEngagement.
+  // either way. Letting the batch run for everyone warms/populates the
+  // engagement store first, so subsequent per-card fetchEngagement calls can
+  // see already-fetched fresh data and no-op instead of fanning out.
   $: if (typeof window !== 'undefined' && $ndk && events.length > 0 && !loading && renderedNotes.size > 0) {
     // Clear any pending preload
     if (engagementPreloadTimeout) {
