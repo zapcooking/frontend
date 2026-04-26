@@ -23,7 +23,7 @@
  */
 
 import type { NDKEvent } from '@nostr-dev-kit/ndk';
-import { extractRecipeDetails, parseMarkdownForEditing } from '$lib/parser';
+import { normalizeRecipeForCookbook } from '$lib/cookbookNormalize';
 
 export interface CookbookRecipe {
 	id: string; // a-tag for stable identity
@@ -58,29 +58,14 @@ export interface BuildResult {
 	skipped: { id: string; reason: string }[];
 }
 
-/** Convert an NDKEvent (kind 30023) to the parsed CookbookRecipe shape. */
+/**
+ * Convert an NDKEvent (kind 30023) to the parsed CookbookRecipe shape.
+ * Delegates to the normalization layer, which handles markdown stripping,
+ * duplicate-section removal, placeholder-direction detection, and other
+ * print-readiness cleanup.
+ */
 export function recipeEventToCookbookRecipe(event: NDKEvent, creatorName?: string): CookbookRecipe {
-	const tags = event.tags || [];
-	const find = (name: string) => tags.find((t) => t[0] === name)?.[1];
-	const title = find('title') || find('d') || 'Untitled recipe';
-	const image = find('image') || undefined;
-	const dTag = find('d') || event.id || title;
-
-	const parsed = parseMarkdownForEditing(event.content || '');
-	const details = extractRecipeDetails(event.content || '');
-
-	return {
-		id: `${event.kind ?? 30023}:${event.pubkey}:${dTag}`,
-		title,
-		image,
-		creatorName,
-		prepTime: parsed.information?.prepTime || details.prepTime || undefined,
-		cookTime: parsed.information?.cookTime || details.cookTime || undefined,
-		servings: parsed.information?.servings || details.servings || undefined,
-		ingredients: parsed.ingredients || [],
-		directions: parsed.directions || [],
-		chefNotes: parsed.chefNotes
-	};
+	return normalizeRecipeForCookbook(event, creatorName);
 }
 
 /** Strip emoji + control chars jsPDF's default fonts can't render. */
@@ -259,11 +244,12 @@ export async function buildCookbookPdf(opts: BuildOptions): Promise<BuildResult>
 		);
 	}
 
-	// Add small "Created with Zap Cooking" footer to every page except cover
+	// Footer (pack title left, page number right) and minimal running
+	// header (hairline rule only) on every non-cover page. Cover keeps
+	// the prominent brand mark; per-page chrome stays subtle.
 	const nonCoverStart = opts.includeCover ? 2 : 1;
-	addFooters(doc, nonCoverStart);
-	// Running header (pack title + brand mark) on every non-cover page
-	addRunningHeaders(doc, sanitizeForPdf(opts.title), brandLogoDataUri, nonCoverStart);
+	addFooters(doc, sanitizeForPdf(opts.title), nonCoverStart);
+	addRunningHeaders(doc, nonCoverStart);
 
 	const blob = doc.output('blob') as unknown as Blob;
 	return { blob, included, skipped };
@@ -754,68 +740,66 @@ function drawRecipePages(
 				doc.text(lines[j], MARGIN_LEFT + 28, y);
 				y += 16;
 			}
-			y += 6;
+			// Inter-step spacing — bumped from 6 to 12 so long, dense
+			// directions read more like a recipe and less like a wall of
+			// text. The orphan guard above already handles page-bottom.
+			y += 12;
 		}
+	} else {
+		// No usable directions in the source. Show a clear, italicized
+		// fallback so the recipe page doesn't end mid-thought after the
+		// ingredients list. Same orphan guard as above.
+		if (y > PAGE_BOTTOM - 40) {
+			y = newPage();
+		}
+		y += 4;
+		sectionHeading('Directions');
+		doc.setFont('helvetica', 'italic');
+		doc.setFontSize(11);
+		doc.setTextColor(110, 100, 95);
+		doc.text(
+			'Directions were not included in the original recipe.',
+			MARGIN_LEFT,
+			y
+		);
+		y += 16;
 	}
 }
 
-function addFooters(doc: JsPdfDoc, fromPage: number) {
+/**
+ * Footer: pack title (left) + page number (right). Replaces the prior
+ * "Created with Zap Cooking" center text — the cover already carries
+ * the brand prominently, so per-page repetition felt noisy. Title is
+ * truncated to fit alongside the page number without crowding.
+ */
+function addFooters(doc: JsPdfDoc, packTitle: string, fromPage: number) {
 	const total = doc.getNumberOfPages();
+	const trimmedTitle = (packTitle || '').trim();
+	let label = trimmedTitle;
+	if (label.length > 60) label = label.slice(0, 57) + '...';
 	for (let p = fromPage; p <= total; p++) {
 		doc.setPage(p);
 		doc.setFont('helvetica', 'normal');
 		doc.setFontSize(9);
 		doc.setTextColor(160, 150, 145);
-		doc.text('Created with Zap Cooking', CENTER_X, PAGE_H - 28, { align: 'center' });
+		if (label) {
+			doc.text(label, MARGIN_LEFT, PAGE_H - 28);
+		}
 		doc.text(String(p), CONTENT_RIGHT, PAGE_H - 28, { align: 'right' });
 	}
 }
 
 /**
- * Subtle running header — pack title (left) + Zap Cooking logo (right),
- * with a hairline rule below. Skipped for the cover (which has its own
- * typography). Drawn after all pages exist so we iterate by page number.
- *
- * The logo is added with a stable alias ('zc-brand') so jsPDF dedupes
- * the image data across every page rather than embedding it N times.
+ * Minimal running header — a single hairline rule at the top of every
+ * non-cover page. The previous version repeated the pack title and a
+ * brand icon on every page, which compounded against the same title
+ * now in the footer. Visual separator only; identity content lives
+ * on the cover and in the footer.
  */
-function addRunningHeaders(
-	doc: JsPdfDoc,
-	packTitle: string,
-	brandLogoDataUri: string | null,
-	fromPage: number
-) {
-	const trimmed = (packTitle || '').trim();
-	if (!trimmed && !brandLogoDataUri) return;
+function addRunningHeaders(doc: JsPdfDoc, fromPage: number) {
 	const total = doc.getNumberOfPages();
-	const logoSize = 12;
-	const logoFmt = brandLogoDataUri ? imageFormatFromDataUri(brandLogoDataUri) : 'PNG';
 	for (let p = fromPage; p <= total; p++) {
 		doc.setPage(p);
-		if (trimmed) {
-			doc.setFont('helvetica', 'normal');
-			doc.setFontSize(8);
-			doc.setTextColor(160, 150, 145);
-			// Truncate over-long titles so they don't collide with the logo.
-			let label = trimmed;
-			if (label.length > 50) label = label.slice(0, 47) + '...';
-			doc.text(label, MARGIN_LEFT, 38, { charSpace: 1.5 } as any);
-		}
-		if (brandLogoDataUri) {
-			try {
-				doc.addImage(
-					brandLogoDataUri,
-					logoFmt,
-					CONTENT_RIGHT - logoSize,
-					30,
-					logoSize,
-					logoSize,
-					'zc-brand'
-				);
-			} catch {
-				// Logo failed — header text alone is enough.
-			}
-		}
 		doc.setDrawColor(230, 220, 215);
 		doc.setLineWidth(0.4);
 		doc.line(MARGIN_LEFT, 46, CONTENT_RIGHT, 46);
