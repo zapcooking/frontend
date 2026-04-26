@@ -188,7 +188,6 @@ export async function buildCookbookPdf(opts: BuildOptions): Promise<BuildResult>
 			subtitle: sanitizeForPdf(opts.subtitle),
 			creatorName: sanitizeForPdf(opts.creatorName),
 			coverDataUri,
-			recipeCount: opts.recipes.length,
 			brandLogoDataUri
 		});
 	}
@@ -311,7 +310,6 @@ function drawCoverPage(
 		subtitle: string;
 		creatorName: string;
 		coverDataUri: string | null;
-		recipeCount: number;
 		brandLogoDataUri: string | null;
 	}
 ) {
@@ -353,17 +351,6 @@ function drawCoverPage(
 	// a proper book jacket rather than a page with a photo on it.
 	const titleY = coverWindowTop + coverWindowH + 80;
 
-	// "RECIPE PACK" eyebrow with thin centered rule
-	doc.setFont('helvetica', 'bold');
-	doc.setFontSize(10);
-	doc.setTextColor(180, 95, 30);
-	doc.text('A RECIPE PACK', CENTER_X, titleY - 38, { align: 'center', charSpace: 2 } as any);
-
-	// Decorative rule under the eyebrow
-	doc.setDrawColor(180, 95, 30);
-	doc.setLineWidth(0.6);
-	doc.line(CENTER_X - 18, titleY - 28, CENTER_X + 18, titleY - 28);
-
 	// Title
 	doc.setFont('helvetica', 'bold');
 	doc.setFontSize(38);
@@ -384,22 +371,11 @@ function drawCoverPage(
 		cursorY += subLines.length * 18;
 	}
 
-	// Recipe count badge
-	if (opts.recipeCount > 0) {
-		cursorY += 10;
-		doc.setFont('helvetica', 'normal');
-		doc.setFontSize(11);
-		doc.setTextColor(140, 130, 125);
-		const noun = opts.recipeCount === 1 ? 'recipe' : 'recipes';
-		doc.text(`${opts.recipeCount} ${noun}`, CENTER_X, cursorY, { align: 'center' });
-		cursorY += 14;
-	}
-
-	// Creator — anchored to the title block (just below the recipe count)
-	// rather than the bottom of the page, so it can't crash into the
-	// brand mark / wordmark stack down at PAGE_H-96.
+	// Creator — anchored to the title block (right under the title /
+	// subtitle) rather than the bottom of the page, so it can't crash
+	// into the brand mark / wordmark stack down at PAGE_H-96.
 	if (opts.creatorName) {
-		cursorY += 14;
+		cursorY += 18;
 		doc.setFont('helvetica', 'italic');
 		doc.setFontSize(12);
 		doc.setTextColor(100, 90, 85);
