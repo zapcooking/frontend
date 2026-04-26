@@ -7,10 +7,18 @@
  * server-side so the client can never just claim a promo it didn't
  * earn.
  *
+ * To disable a single code: remove its entry from PROMO_CONFIG below
+ * (or set its expiresAt to a past date).
+ *
+ * To disable ALL promos without a code change: set the env var
+ * COOKBOOK_PROMOS_DISABLED=true. The server will then reject every
+ * code with `unknown_code`, regardless of what's in PROMO_CONFIG.
+ *
  * TODO(promo-admin): replace the static config with a KV-backed store
  * + admin endpoints once we want non-engineers to manage codes.
  */
 
+import { env } from '$env/dynamic/private';
 import { applyPromoMath, type PromoApplied } from '$lib/cookbookPricing';
 
 interface PromoConfig {
@@ -43,7 +51,16 @@ export interface PromoLookup {
 	applied?: PromoApplied;
 }
 
+function promosDisabled(): boolean {
+	const flag = (env.COOKBOOK_PROMOS_DISABLED || '').trim().toLowerCase();
+	return flag === '1' || flag === 'true' || flag === 'yes';
+}
+
 export function applyPromo(rawCode: string, baseSats: number): PromoLookup {
+	// Global kill switch — flip this on in env config to reject every
+	// code without redeploying or editing PROMO_CONFIG.
+	if (promosDisabled()) return { ok: false, error: 'unknown_code' };
+
 	const code = String(rawCode || '')
 		.trim()
 		.toUpperCase();

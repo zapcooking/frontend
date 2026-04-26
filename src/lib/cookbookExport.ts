@@ -132,8 +132,19 @@ function imageFormatFromDataUri(dataUri: string): 'JPEG' | 'PNG' | 'WEBP' {
 
 const PAGE_W = 612; // 8.5"
 const PAGE_H = 792; // 11"
-const MARGIN = 56; // ~0.78"
-const CONTENT_W = PAGE_W - MARGIN * 2;
+// Asymmetric margins — extra room on the left for a 3-ring binder gutter,
+// so users who print + bind the cookbook don't lose text to the hole punch.
+const MARGIN_LEFT = 88; // ~1.22"
+const MARGIN_RIGHT = 56; // ~0.78"
+const MARGIN_TOP = 56;
+const MARGIN_BOTTOM = 56;
+const CONTENT_W = PAGE_W - MARGIN_LEFT - MARGIN_RIGHT;
+// Visual centerline of the printable area (between the gutters), so
+// "centered" content stays visually centered relative to the actual
+// content area rather than the physical page edges.
+const CENTER_X = (MARGIN_LEFT + (PAGE_W - MARGIN_RIGHT)) / 2;
+// Aliases retained for ergonomic edge calls.
+const CONTENT_RIGHT = PAGE_W - MARGIN_RIGHT;
 
 /** Build the cookbook PDF. Returns blob + per-recipe failure list. */
 export async function buildCookbookPdf(opts: BuildOptions): Promise<BuildResult> {
@@ -240,7 +251,10 @@ export async function buildCookbookPdf(opts: BuildOptions): Promise<BuildResult>
 	}
 
 	// Add small "Created with Zap Cooking" footer to every page except cover
-	addFooters(doc, opts.includeCover ? 2 : 1);
+	const nonCoverStart = opts.includeCover ? 2 : 1;
+	addFooters(doc, nonCoverStart);
+	// Running header (pack title) on every non-cover page
+	addRunningHeaders(doc, sanitizeForPdf(opts.title), nonCoverStart);
 
 	const blob = doc.output('blob') as unknown as Blob;
 	return { blob, included, skipped };
@@ -301,10 +315,12 @@ function drawCoverPage(
 	// Cover image, if present, sits in a clean centered window in the
 	// upper third — not edge-bleed and not page-dominating. Gives it a
 	// "framed plate" feel and leaves room for typography.
-	const coverWindowTop = MARGIN + 32;
+	// Centered between the actual content margins (gutter-aware), so the
+	// cover stays balanced even with the binder gutter offset.
+	const coverWindowTop = MARGIN_TOP + 32;
 	const coverWindowH = 280;
-	const coverWindowW = PAGE_W - MARGIN * 2 - 32;
-	const coverWindowX = (PAGE_W - coverWindowW) / 2;
+	const coverWindowW = CONTENT_W - 32;
+	const coverWindowX = CENTER_X - coverWindowW / 2;
 
 	if (opts.coverDataUri) {
 		try {
@@ -334,19 +350,19 @@ function drawCoverPage(
 	doc.setFont('helvetica', 'bold');
 	doc.setFontSize(10);
 	doc.setTextColor(180, 95, 30);
-	doc.text('A RECIPE PACK', PAGE_W / 2, titleY - 38, { align: 'center', charSpace: 2 } as any);
+	doc.text('A RECIPE PACK', CENTER_X, titleY - 38, { align: 'center', charSpace: 2 } as any);
 
 	// Decorative rule under the eyebrow
 	doc.setDrawColor(180, 95, 30);
 	doc.setLineWidth(0.6);
-	doc.line(PAGE_W / 2 - 18, titleY - 28, PAGE_W / 2 + 18, titleY - 28);
+	doc.line(CENTER_X - 18, titleY - 28, CENTER_X + 18, titleY - 28);
 
 	// Title
 	doc.setFont('helvetica', 'bold');
 	doc.setFontSize(38);
 	doc.setTextColor(28, 22, 18);
-	const titleLines = doc.splitTextToSize(opts.title || 'Recipe Pack', CONTENT_W * 0.85);
-	doc.text(titleLines, PAGE_W / 2, titleY, { align: 'center' });
+	const titleLines = doc.splitTextToSize(opts.title || 'Recipe Pack', CONTENT_W * 0.92);
+	doc.text(titleLines, CENTER_X, titleY, { align: 'center' });
 
 	let cursorY = titleY + titleLines.length * 40;
 
@@ -356,8 +372,8 @@ function drawCoverPage(
 		doc.setFont('helvetica', 'italic');
 		doc.setFontSize(13);
 		doc.setTextColor(80, 70, 65);
-		const subLines = doc.splitTextToSize(opts.subtitle, CONTENT_W * 0.75);
-		doc.text(subLines, PAGE_W / 2, cursorY, { align: 'center' });
+		const subLines = doc.splitTextToSize(opts.subtitle, CONTENT_W * 0.8);
+		doc.text(subLines, CENTER_X, cursorY, { align: 'center' });
 		cursorY += subLines.length * 18;
 	}
 
@@ -368,7 +384,7 @@ function drawCoverPage(
 		doc.setFontSize(11);
 		doc.setTextColor(140, 130, 125);
 		const noun = opts.recipeCount === 1 ? 'recipe' : 'recipes';
-		doc.text(`${opts.recipeCount} ${noun}`, PAGE_W / 2, cursorY, { align: 'center' });
+		doc.text(`${opts.recipeCount} ${noun}`, CENTER_X, cursorY, { align: 'center' });
 	}
 
 	// Creator
@@ -376,18 +392,18 @@ function drawCoverPage(
 		doc.setFont('helvetica', 'italic');
 		doc.setFontSize(12);
 		doc.setTextColor(100, 90, 85);
-		doc.text(`Curated by ${opts.creatorName}`, PAGE_W / 2, PAGE_H - 92, { align: 'center' });
+		doc.text(`Curated by ${opts.creatorName}`, CENTER_X, PAGE_H - 92, { align: 'center' });
 	}
 
 	// "Created with Zap Cooking" footer brand
 	doc.setFont('helvetica', 'bold');
 	doc.setFontSize(10);
 	doc.setTextColor(180, 95, 30);
-	doc.text('zap.cooking', PAGE_W / 2, PAGE_H - 60, { align: 'center', charSpace: 1 } as any);
+	doc.text('zap.cooking', CENTER_X, PAGE_H - 60, { align: 'center', charSpace: 1 } as any);
 	doc.setFont('helvetica', 'normal');
 	doc.setFontSize(9);
 	doc.setTextColor(140, 130, 125);
-	doc.text('Created with Zap Cooking', PAGE_W / 2, PAGE_H - 46, { align: 'center' });
+	doc.text('Created with Zap Cooking', CENTER_X, PAGE_H - 46, { align: 'center' });
 }
 
 function drawTocPage(doc: JsPdfDoc, titles: string[], pageNumbers: number[]) {
@@ -398,18 +414,18 @@ function drawTocPage(doc: JsPdfDoc, titles: string[], pageNumbers: number[]) {
 	doc.setFont('helvetica', 'bold');
 	doc.setFontSize(9);
 	doc.setTextColor(180, 95, 30);
-	doc.text('TABLE OF CONTENTS', MARGIN, 92, { charSpace: 2 } as any);
+	doc.text('TABLE OF CONTENTS', MARGIN_LEFT, 92, { charSpace: 2 } as any);
 
 	// Heading
 	doc.setFont('helvetica', 'bold');
 	doc.setFontSize(28);
 	doc.setTextColor(28, 22, 18);
-	doc.text('Contents', MARGIN, 124);
+	doc.text('Contents', MARGIN_LEFT, 124);
 
 	// Heading rule
 	doc.setDrawColor(220, 200, 190);
 	doc.setLineWidth(0.8);
-	doc.line(MARGIN, 138, PAGE_W - MARGIN, 138);
+	doc.line(MARGIN_LEFT, 138, CONTENT_RIGHT, 138);
 
 	doc.setFont('helvetica', 'normal');
 	doc.setFontSize(12);
@@ -417,7 +433,7 @@ function drawTocPage(doc: JsPdfDoc, titles: string[], pageNumbers: number[]) {
 
 	let y = 176;
 	const rowHeight = 22;
-	const pageColX = PAGE_W - MARGIN;
+	const pageColX = CONTENT_RIGHT;
 	const titleMaxW = CONTENT_W - 56; // leaves room for the page number
 
 	for (let i = 0; i < titles.length; i++) {
@@ -439,9 +455,9 @@ function drawTocPage(doc: JsPdfDoc, titles: string[], pageNumbers: number[]) {
 				doc.setFont('helvetica', 'normal');
 				doc.setFontSize(12);
 				doc.setTextColor(40, 30, 25);
-				y = MARGIN + 16;
+				y = MARGIN_TOP + 16;
 			}
-			doc.text(lines[li], MARGIN, y);
+			doc.text(lines[li], MARGIN_LEFT, y);
 
 			if (li === lastLineIdx && pageStr) {
 				// Dot leaders between title end and page number
@@ -451,7 +467,7 @@ function drawTocPage(doc: JsPdfDoc, titles: string[], pageNumbers: number[]) {
 				const pageW = (doc as any).getTextWidth
 					? (doc as any).getTextWidth(pageStr)
 					: pageStr.length * 6;
-				const leaderStart = MARGIN + titleW + 6;
+				const leaderStart = MARGIN_LEFT + titleW + 6;
 				const leaderEnd = pageColX - pageW - 6;
 				if (leaderEnd > leaderStart) {
 					doc.setTextColor(200, 190, 185);
@@ -479,22 +495,22 @@ function drawIntroductionPage(doc: JsPdfDoc, intro: string) {
 	doc.setFont('helvetica', 'bold');
 	doc.setFontSize(9);
 	doc.setTextColor(180, 95, 30);
-	doc.text('INTRODUCTION', PAGE_W / 2, 110, { align: 'center', charSpace: 2 } as any);
+	doc.text('INTRODUCTION', CENTER_X, 110, { align: 'center', charSpace: 2 } as any);
 
 	// Decorative rule
 	doc.setDrawColor(180, 95, 30);
 	doc.setLineWidth(0.6);
-	doc.line(PAGE_W / 2 - 18, 122, PAGE_W / 2 + 18, 122);
+	doc.line(CENTER_X - 18, 122, CENTER_X + 18, 122);
 
 	// Heading
 	doc.setFont('helvetica', 'bold');
 	doc.setFontSize(28);
 	doc.setTextColor(28, 22, 18);
-	doc.text('A Note on This Pack', PAGE_W / 2, 158, { align: 'center' });
+	doc.text('A Note on This Pack', CENTER_X, 158, { align: 'center' });
 
 	// Body — narrower measure for readability (~70 chars per line at 12pt)
 	const colW = Math.min(CONTENT_W, 380);
-	const colX = (PAGE_W - colW) / 2;
+	const colX = CENTER_X - colW / 2;
 
 	doc.setFont('helvetica', 'normal');
 	doc.setFontSize(12);
@@ -516,7 +532,7 @@ function drawIntroductionPage(doc: JsPdfDoc, intro: string) {
 				doc.setFont('helvetica', 'normal');
 				doc.setFontSize(12);
 				doc.setTextColor(50, 40, 35);
-				y = MARGIN + 16;
+				y = MARGIN_TOP + 16;
 			}
 			doc.text(line, colX, y);
 			y += lineH;
@@ -543,7 +559,7 @@ function drawRecipePages(
 	doc.rect(0, 0, PAGE_W, PAGE_H, 'F');
 
 	const PAGE_BOTTOM = PAGE_H - 90;
-	const PAGE_TOP = MARGIN + 16;
+	const PAGE_TOP = MARGIN_TOP + 16;
 
 	// Continue onto a fresh page and reset to a known-safe state. Used by
 	// the orphan-heading guards below.
@@ -561,20 +577,20 @@ function drawRecipePages(
 	doc.setFontSize(22);
 	doc.setTextColor(28, 22, 18);
 	const titleLines = doc.splitTextToSize(r.title || 'Recipe', CONTENT_W);
-	doc.text(titleLines, MARGIN, y);
+	doc.text(titleLines, MARGIN_LEFT, y);
 	y += titleLines.length * 26;
 
 	// Accent rule under the title
 	doc.setDrawColor(180, 95, 30);
 	doc.setLineWidth(1.2);
-	doc.line(MARGIN, y - 18, MARGIN + 36, y - 18);
+	doc.line(MARGIN_LEFT, y - 18, MARGIN_LEFT + 36, y - 18);
 
 	// Creator attribution
 	if (r.creatorName) {
 		doc.setFont('helvetica', 'italic');
 		doc.setFontSize(11);
 		doc.setTextColor(110, 100, 95);
-		doc.text(`by ${r.creatorName}`, MARGIN, y);
+		doc.text(`by ${r.creatorName}`, MARGIN_LEFT, y);
 		y += 16;
 	}
 
@@ -585,7 +601,14 @@ function drawRecipePages(
 		try {
 			const imgW = CONTENT_W;
 			const imgH = imgW * 0.55; // 16:9-ish
-			doc.addImage(r.imageDataUri, imageFormatFromDataUri(r.imageDataUri), MARGIN, y, imgW, imgH);
+			doc.addImage(
+				r.imageDataUri,
+				imageFormatFromDataUri(r.imageDataUri),
+				MARGIN_LEFT,
+				y,
+				imgW,
+				imgH
+			);
 			y += imgH + 14;
 		} catch {
 			// Image failed: continue without consuming vertical space.
@@ -604,7 +627,7 @@ function drawRecipePages(
 		doc.setFont('helvetica', 'normal');
 		doc.setFontSize(10);
 		doc.setTextColor(110, 100, 95);
-		doc.text(meta, MARGIN, y, { charSpace: 0.5 } as any);
+		doc.text(meta, MARGIN_LEFT, y, { charSpace: 0.5 } as any);
 		y += 20;
 	}
 
@@ -624,13 +647,13 @@ function drawRecipePages(
 				doc.setFontSize(11);
 				doc.setTextColor(85, 75, 70);
 			}
-			doc.text(line, MARGIN + 14, y);
+			doc.text(line, MARGIN_LEFT + 14, y);
 			y += 15;
 		}
 		// Draw the quote rule once at the end (covers wrapped lines).
 		doc.setDrawColor(220, 200, 190);
 		doc.setLineWidth(1.5);
-		doc.line(MARGIN + 2, notesStartY - 10, MARGIN + 2, y - 10);
+		doc.line(MARGIN_LEFT + 2, notesStartY - 10, MARGIN_LEFT + 2, y - 10);
 		y += 10;
 	}
 
@@ -638,11 +661,11 @@ function drawRecipePages(
 		doc.setFont('helvetica', 'bold');
 		doc.setFontSize(13);
 		doc.setTextColor(180, 95, 30);
-		doc.text(label.toUpperCase(), MARGIN, y, { charSpace: 1.5 } as any);
+		doc.text(label.toUpperCase(), MARGIN_LEFT, y, { charSpace: 1.5 } as any);
 		// thin rule across the column
 		doc.setDrawColor(220, 200, 190);
 		doc.setLineWidth(0.5);
-		doc.line(MARGIN, y + 6, PAGE_W - MARGIN, y + 6);
+		doc.line(MARGIN_LEFT, y + 6, CONTENT_RIGHT, y + 6);
 		y += 22;
 	};
 
@@ -669,10 +692,10 @@ function drawRecipePages(
 				}
 				if (i === 0) {
 					doc.setTextColor(180, 95, 30);
-					doc.text('•', MARGIN, y);
+					doc.text('•', MARGIN_LEFT, y);
 					doc.setTextColor(40, 30, 25);
 				}
-				doc.text(lines[i], MARGIN + 14, y);
+				doc.text(lines[i], MARGIN_LEFT + 14, y);
 				y += 15;
 			}
 		}
@@ -706,7 +729,7 @@ function drawRecipePages(
 
 			doc.setFont('helvetica', 'bold');
 			doc.setTextColor(180, 95, 30);
-			doc.text(numStr, MARGIN, y);
+			doc.text(numStr, MARGIN_LEFT, y);
 			doc.setFont('helvetica', 'normal');
 			doc.setTextColor(40, 30, 25);
 
@@ -717,7 +740,7 @@ function drawRecipePages(
 					doc.setFontSize(11);
 					doc.setTextColor(40, 30, 25);
 				}
-				doc.text(lines[j], MARGIN + 28, y);
+				doc.text(lines[j], MARGIN_LEFT + 28, y);
 				y += 16;
 			}
 			y += 6;
@@ -732,7 +755,31 @@ function addFooters(doc: JsPdfDoc, fromPage: number) {
 		doc.setFont('helvetica', 'normal');
 		doc.setFontSize(9);
 		doc.setTextColor(160, 150, 145);
-		doc.text('Created with Zap Cooking', PAGE_W / 2, PAGE_H - 28, { align: 'center' });
-		doc.text(String(p), PAGE_W - MARGIN, PAGE_H - 28, { align: 'right' });
+		doc.text('Created with Zap Cooking', CENTER_X, PAGE_H - 28, { align: 'center' });
+		doc.text(String(p), CONTENT_RIGHT, PAGE_H - 28, { align: 'right' });
+	}
+}
+
+/**
+ * Subtle running header — pack title, top of page, with a hairline rule.
+ * Skipped for the cover (which has its own typography). Drawn after all
+ * pages exist so we can iterate by page number.
+ */
+function addRunningHeaders(doc: JsPdfDoc, packTitle: string, fromPage: number) {
+	const trimmed = (packTitle || '').trim();
+	if (!trimmed) return;
+	const total = doc.getNumberOfPages();
+	for (let p = fromPage; p <= total; p++) {
+		doc.setPage(p);
+		doc.setFont('helvetica', 'normal');
+		doc.setFontSize(8);
+		doc.setTextColor(160, 150, 145);
+		// Truncate over-long titles so they don't collide with margins.
+		let label = trimmed;
+		if (label.length > 60) label = label.slice(0, 57) + '...';
+		doc.text(label, MARGIN_LEFT, 38, { charSpace: 1.5 } as any);
+		doc.setDrawColor(230, 220, 215);
+		doc.setLineWidth(0.4);
+		doc.line(MARGIN_LEFT, 44, CONTENT_RIGHT, 44);
 	}
 }
