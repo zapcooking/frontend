@@ -4850,8 +4850,18 @@
   let lastBatchedIds = new Set<string>();
   let engagementPreloadTimeout: ReturnType<typeof setTimeout> | null = null;
 
-  // Preload engagement only for rendered (near-viewport) events — not ALL events
-  $: if (typeof window !== 'undefined' && $ndk && $userPublickey && events.length > 0 && !loading && renderedNotes.size > 0) {
+  // Preload engagement only for rendered (near-viewport) events — not ALL events.
+  // Note: NOT gated on `$userPublickey`. Per-card children (NoteTotalLikes,
+  // NoteTotalComments, NoteRepost, NoteTotalZaps, ReactionPills) each call
+  // fetchEngagement on mount regardless of sign-in state, so anonymous
+  // viewers were paying the full per-card fan-out cost while signed-in
+  // viewers got batched. The batch path (server counts API + NDK
+  // subscription) doesn't require auth — userPublickey only feeds the
+  // userReacted / userReposted flags, which stay false for anon users
+  // either way. Letting the batch run for everyone warms/populates the
+  // engagement store first, so subsequent per-card fetchEngagement calls can
+  // see already-fetched fresh data and no-op instead of fanning out.
+  $: if (typeof window !== 'undefined' && $ndk && events.length > 0 && !loading && renderedNotes.size > 0) {
     // Clear any pending preload
     if (engagementPreloadTimeout) {
       clearTimeout(engagementPreloadTimeout);
@@ -4895,11 +4905,12 @@
     }, 200); // Small delay to let cached data load first
   }
 
-  // VISIBILITY UPDATE: When items become visible, ensure they're fresh
+  // VISIBILITY UPDATE: When items become visible, ensure they're fresh.
+  // Same anon-friendly rationale as the preload reactive above — batching
+  // benefits everyone, not just logged-in users.
   $: if (
     typeof window !== 'undefined' &&
     $ndk &&
-    $userPublickey &&
     visibleNotes.size > 0 &&
     events.length > 0
   ) {
