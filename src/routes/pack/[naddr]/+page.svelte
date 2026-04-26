@@ -6,7 +6,7 @@
   import { NDKEvent } from '@nostr-dev-kit/ndk';
   import { nip19 } from 'nostr-tools';
   import { get } from 'svelte/store';
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import type { PageData } from './$types';
 
   // SSR-resolved OG metadata. Always present; falls back to safe
@@ -28,6 +28,7 @@
   import Avatar from '../../../components/Avatar.svelte';
   import CustomName from '../../../components/CustomName.svelte';
   import ShareModal from '../../../components/ShareModal.svelte';
+  import ExportCookbookModal from '../../../components/ExportCookbookModal.svelte';
   import { showToast } from '$lib/toast';
   import { lazyLoad } from '$lib/lazyLoad';
   import { getImageOrPlaceholder } from '$lib/placeholderImages';
@@ -35,10 +36,16 @@
   import { isOnline } from '$lib/connectionMonitor';
   import { cookbookStore, cookbookLists } from '$lib/stores/cookbookStore';
   import { buildPackUrl } from '$lib/recipePack';
+  import {
+    membershipStatusMap,
+    queueMembershipLookup,
+    type MembershipStatus
+  } from '$lib/stores/membershipStatus';
 
   import ArrowLeftIcon from 'phosphor-svelte/lib/ArrowLeft';
   import BookmarkIcon from 'phosphor-svelte/lib/BookmarkSimple';
   import BookmarkSimpleIcon from 'phosphor-svelte/lib/BookmarkSimple';
+  import BookOpenIcon from 'phosphor-svelte/lib/BookOpen';
   import CheckCircleIcon from 'phosphor-svelte/lib/CheckCircle';
   import CircleNotchIcon from 'phosphor-svelte/lib/CircleNotch';
   import ChatTeardropTextIcon from 'phosphor-svelte/lib/ChatTeardropText';
@@ -297,6 +304,45 @@
 
   // Share modal (short link + social share + QR), reused from recipe page.
   let shareModalOpen = false;
+
+  // ===== Export-as-Cookbook =====
+  // Pro Kitchen / Founders → free unlimited exports.
+  // Non-members signed in → pay 2100 sats per export, handled inside
+  // the modal (paywall stage). Signed-out users get bounced to login.
+  let exportModalOpen = false;
+
+  let membershipMap: Record<string, MembershipStatus> = {};
+  const unsubMembership = membershipStatusMap.subscribe((v) => {
+    membershipMap = v;
+  });
+  $: if ($userPublickey) queueMembershipLookup($userPublickey);
+  $: tierStatus = $userPublickey ? membershipMap[$userPublickey] : undefined;
+  $: isProMember =
+    !!tierStatus?.active && (tierStatus.tier === 'pro_kitchen' || tierStatus.tier === 'founders');
+
+  // Dev-only membership snapshot — useful when iterating on tier
+  // detection edge cases, silenced in production so signed-in users
+  // don't see noisy console output (and so tier metadata isn't
+  // surfaced to whatever else the browser console pipes into).
+  $: if (import.meta.env.DEV && browser && $userPublickey) {
+    console.info('[pack page] membership snapshot', {
+      pubkey: `${$userPublickey.slice(0, 8)}…`,
+      tierStatus,
+      isProMember
+    });
+  }
+
+  onDestroy(() => unsubMembership());
+
+  function handleExportClick() {
+    if (!$userPublickey) {
+      goto('/login?redirect=' + encodeURIComponent(window.location.pathname));
+      return;
+    }
+    // Whether the user is Pro or not, the modal handles the right path
+    // (Pro → straight to form; non-Pro → form with paywall CTA).
+    exportModalOpen = true;
+  }
 </script>
 
 <svelte:head>
@@ -330,6 +376,25 @@
   title={title || 'Recipe Pack'}
   imageUrl={image || ''}
 />
+
+<!-- Export as Cookbook (free for Pro / 2100 sats for everyone else) -->
+{#if packEvent}
+  <ExportCookbookModal
+    bind:open={exportModalOpen}
+    {packEvent}
+    {recipeEvents}
+    totalRecipeCount={recipeCount}
+    packTitle={title}
+    packDescription={description}
+    packCoverImage={image}
+    {creatorPubkey}
+    packNaddr={$page.params.naddr}
+    packShareUrl={viewUrl}
+    {isProMember}
+    membershipTier={tierStatus?.tier}
+    membershipActive={tierStatus?.active}
+  />
+{/if}
 
 {#if !loaded}
   <div class="flex justify-center items-center page-loader">
@@ -511,6 +576,37 @@
           {:else}
             <BookmarkIcon size={16} weight="fill" />
             <span>Save Pack to Cookbook</span>
+          {/if}
+        </button>
+      {/if}
+
+      <!-- Export as Cookbook — Pro feature. Visible to everyone (so the
+           value is discoverable) but locked for non-Pro members. -->
+      {#if recipeEvents.length > 0}
+        <button
+          on:click={handleExportClick}
+          class="flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-colors"
+          style="background-color: var(--color-input-bg); color: var(--color-text-primary); border: 1px solid var(--color-input-border);"
+          title={isProMember
+            ? 'Export this pack as a printable cookbook PDF'
+            : 'Free with Pro Kitchen — or unlock once for 2100 sats'}
+        >
+          <BookOpenIcon size={16} />
+          <span>Export as Cookbook</span>
+          {#if isProMember}
+            <span
+              class="text-[10px] uppercase tracking-wide font-bold px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-600 dark:text-amber-400"
+              title="Free for Pro Kitchen members"
+            >
+              Pro
+            </span>
+          {:else}
+            <span
+              class="text-[10px] uppercase tracking-wide font-bold px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-600 dark:text-amber-400"
+              title="Pay 2100 sats per export — or upgrade to Pro Kitchen for unlimited"
+            >
+              2100 sats ⚡
+            </span>
           {/if}
         </button>
       {/if}
