@@ -94,8 +94,13 @@ function sanitizeForPdf(s: string | undefined | null): string {
 		.replace(/🔥/g, '')
 		.replace(/—/g, '-')
 		.replace(/–/g, '-')
-		.replace(/'|'/g, "'")
-		.replace(/"|"/g, '"')
+		// Curly quote / ellipsis → straight ASCII. Written as explicit \u
+		// escapes so the source is unambiguous in any editor; jsPDF's
+		// Latin-1 strip a few lines down would otherwise drop these
+		// codepoints entirely (U+2018–U+201D, U+2026 are outside basic
+		// Latin-1) and the printed text would lose punctuation.
+		.replace(/[‘’]/g, "'")
+		.replace(/[“”]/g, '"')
 		.replace(/…/g, '...');
 	// Drop anything still outside basic Latin-1 (jsPDF's default fonts
 	// don't cover wider Unicode without bundling a custom font).

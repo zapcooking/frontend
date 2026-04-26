@@ -35,6 +35,7 @@ import { json, type RequestHandler } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
 
 const MAX_INTRO_TOKENS = 220;
+const HEX64_RE = /^[0-9a-fA-F]{64}$/;
 
 export const POST: RequestHandler = async ({ request, platform }) => {
 	const OPENAI_API_KEY = platform?.env?.OPENAI_API_KEY || env.OPENAI_API_KEY;
@@ -59,8 +60,17 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 		? body.recipeTitles.filter((t): t is string => typeof t === 'string').slice(0, 10)
 		: [];
 
+	// Pubkey is a required hex-64 identifier. Note that the value is
+	// client-supplied and not signature-verified — same trust model as
+	// /api/extract-recipe today. A non-member could still claim a known
+	// Pro pubkey to obtain free AI compute. Tightening this requires
+	// migrating both endpoints to NIP-98 in a follow-up; see
+	// FOLLOWUPS-auth-migration.
 	if (!pubkey) {
-		return json({ success: false, error: 'Pro Kitchen membership required' }, { status: 401 });
+		return json({ success: false, error: 'pubkey is required' }, { status: 400 });
+	}
+	if (!HEX64_RE.test(pubkey)) {
+		return json({ success: false, error: 'pubkey must be 64-char hex' }, { status: 400 });
 	}
 	if (!packTitle) {
 		return json({ success: false, error: 'packTitle is required' }, { status: 400 });
@@ -70,21 +80,35 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 	const MEMBERSHIP_ENABLED = platform?.env?.MEMBERSHIP_ENABLED || env.MEMBERSHIP_ENABLED;
 	if (MEMBERSHIP_ENABLED?.toLowerCase() === 'true') {
 		const API_SECRET = platform?.env?.RELAY_API_SECRET || env.RELAY_API_SECRET;
-		if (API_SECRET) {
-			try {
-				const { hasActiveMembership } = await import('$lib/membershipApi.server');
-				const isActive = await hasActiveMembership(pubkey, API_SECRET);
-				if (!isActive) {
-					return json(
-						{ success: false, error: 'Pro Kitchen membership required' },
-						{ status: 403 }
-					);
-				}
-			} catch (err) {
-				console.error('[cookbook-intro] membership check failed', err);
-				// Fail open on membership-API outage — same convention as
-				// /api/extract-recipe.
+		// Fail closed on misconfiguration. A missing API secret while
+		// gating is enabled is a deployment error — silently skipping
+		// the membership check would let any caller through to OpenAI
+		// on the server's dime.
+		if (!API_SECRET) {
+			console.error(
+				'[cookbook-intro] MEMBERSHIP_ENABLED=true but RELAY_API_SECRET is not configured'
+			);
+			return json(
+				{ success: false, error: 'Membership service not configured' },
+				{ status: 503 }
+			);
+		}
+		try {
+			const { hasActiveMembership } = await import('$lib/membershipApi.server');
+			const isActive = await hasActiveMembership(pubkey, API_SECRET);
+			if (!isActive) {
+				return json(
+					{ success: false, error: 'Pro Kitchen membership required' },
+					{ status: 403 }
+				);
 			}
+		} catch (err) {
+			console.error('[cookbook-intro] membership check failed', err);
+			// Fail open on membership-API *outage* (transient network
+			// errors etc.) — same convention as /api/extract-recipe. The
+			// distinction matters: a misconfigured secret is admin error
+			// and should fail closed; a flaky upstream relay shouldn't
+			// nuke a paid feature for every active member.
 		}
 	}
 

@@ -320,9 +320,11 @@
   $: isProMember =
     !!tierStatus?.active && (tierStatus.tier === 'pro_kitchen' || tierStatus.tier === 'founders');
 
-  // Debug log for membership-detection edge cases. Truncates pubkey to
-  // first 8 chars so it's diagnosable without leaking identity.
-  $: if (browser && $userPublickey) {
+  // Dev-only membership snapshot — useful when iterating on tier
+  // detection edge cases, silenced in production so signed-in users
+  // don't see noisy console output (and so tier metadata isn't
+  // surfaced to whatever else the browser console pipes into).
+  $: if (import.meta.env.DEV && browser && $userPublickey) {
     console.info('[pack page] membership snapshot', {
       pubkey: `${$userPublickey.slice(0, 8)}…`,
       tierStatus,

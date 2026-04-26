@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { createEventDispatcher } from 'svelte';
+  import { createEventDispatcher, onDestroy } from 'svelte';
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
   import Modal from './Modal.svelte';
   import Button from './Button.svelte';
@@ -125,12 +125,11 @@
     subtitle = packDescription || '';
     paymentUnlocked = isRecentlyPaid();
 
-    // ───── Membership debug ─────
-    // Until the founders/pro detection edge cases are nailed down, log
-    // enough to diagnose without leaking sensitive data. Pubkey is
-    // truncated to first 8 chars so the log is usable but not a
-    // re-identifier all on its own.
-    if (typeof window !== 'undefined') {
+    // Dev-only membership snapshot. Helpful when iterating on tier
+    // detection edge cases; silenced in production so signed-in users
+    // don't see noisy console output or have their tier metadata
+    // surfaced to whatever else listens to console.info.
+    if (import.meta.env.DEV && typeof window !== 'undefined') {
       const pkPreview = $userPublickey ? `${$userPublickey.slice(0, 8)}…` : '(anon)';
       console.info('[ExportCookbookModal] membership check', {
         pubkey: pkPreview,
@@ -397,6 +396,14 @@
       invoicePollInterval = null;
     }
   }
+
+  // Defensive cleanup — `open` flipping false also stops polling, but
+  // an SPA route change can destroy this component while the invoice
+  // poll is still active. Without this, the interval keeps firing
+  // every 3s in the background and re-hits the verify endpoint.
+  onDestroy(() => {
+    stopInvoicePolling();
+  });
 
   async function onPaymentConfirmed() {
     paymentUnlocked = true;
