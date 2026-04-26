@@ -177,26 +177,26 @@ export function stripDuplicateRecipeBlocks(
 	hasDirections: boolean
 ): string {
 	let out = notes;
-	// End-of-input lookahead: JavaScript regex has no `\Z` anchor (it
-	// would match a literal `Z`). `(?![\s\S])` asserts "no character
-	// follows" — the JS-compatible way to say end-of-string. With the
-	// `m` flag, `$` matches end-of-line which would terminate the block
-	// at the wrong place, so we explicitly match-or-terminate via the
-	// negative lookahead instead.
+	// Termination conditions (lookahead alternatives):
+	//
+	//   1. `^#{1,6}\s` — another markdown heading begins.
+	//   2. `\n\s*\n(?=[^\s\-*\d#])` — blank line followed by prose that
+	//      doesn't look like a list item or heading. Treats the next
+	//      free-form paragraph as the chef's notes resuming, not part
+	//      of the embedded sub-block.
+	//   3. `(?![\s\S])` — end of input. JS regex has no `\Z`; this is
+	//      the JS-compatible way to say "no character follows". `$`
+	//      with the `m` flag matches end-of-line, not end-of-string,
+	//      so it'd terminate at the wrong place.
+	const TERM = '(?=^#{1,6}\\s|\\n\\s*\\n(?=[^\\s\\-*\\d#])|(?![\\s\\S]))';
 	if (hasIngredients) {
-		out = out.replace(
-			/^#{1,6}\s*ingredients\b[\s\S]*?(?=^#{1,6}\s|(?![\s\S]))/gim,
-			''
-		);
+		out = out.replace(new RegExp(`^#{1,6}\\s*ingredients\\b[\\s\\S]*?${TERM}`, 'gim'), '');
 	}
 	if (hasDirections) {
-		out = out.replace(
-			/^#{1,6}\s*directions\b[\s\S]*?(?=^#{1,6}\s|(?![\s\S]))/gim,
-			''
-		);
+		out = out.replace(new RegExp(`^#{1,6}\\s*directions\\b[\\s\\S]*?${TERM}`, 'gim'), '');
 		// Also catch the "Steps" / "Method" variants some recipes use.
 		out = out.replace(
-			/^#{1,6}\s*(?:steps|method)\b[\s\S]*?(?=^#{1,6}\s|(?![\s\S]))/gim,
+			new RegExp(`^#{1,6}\\s*(?:steps|method)\\b[\\s\\S]*?${TERM}`, 'gim'),
 			''
 		);
 	}
@@ -208,6 +208,10 @@ export function stripDuplicateRecipeBlocks(
  * heading marker would already be removed by stripMarkdownFormatting and
  * we'd have no anchor to match against), then runs the general markdown
  * cleanup.
+ *
+ * The returned string preserves paragraph breaks as `\n\n`. Use
+ * `cleanNotesIntoParagraphs` when you want a structured list of
+ * paragraphs (e.g. for rendering each with its own spacing).
  */
 export function cleanNotesBlock(
 	notes: string | undefined,
@@ -217,6 +221,30 @@ export function cleanNotesBlock(
 	if (!notes) return '';
 	const dedup = stripDuplicateRecipeBlocks(notes, hasIngredients, hasDirections);
 	return stripMarkdownFormatting(dedup);
+}
+
+/**
+ * Same cleanup as `cleanNotesBlock`, but returns the result split on
+ * blank-line boundaries with empty paragraphs filtered. Lets the
+ * renderer (or any caller that cares about prose structure) treat
+ * paragraphs as discrete units — important for adding spacing between
+ * them without bloating single-paragraph notes.
+ *
+ * Splitting happens after markdown cleanup so any leading-`>` blockquotes
+ * or headings have been normalized first; otherwise their syntactic
+ * markers would leak into the boundary detection.
+ */
+export function cleanNotesIntoParagraphs(
+	notes: string | undefined,
+	hasIngredients: boolean,
+	hasDirections: boolean
+): string[] {
+	const cleaned = cleanNotesBlock(notes, hasIngredients, hasDirections);
+	if (!cleaned) return [];
+	return cleaned
+		.split(/\n\s*\n+/)
+		.map((p) => p.replace(/\s+/g, ' ').trim())
+		.filter((p) => p.length > 0);
 }
 
 // ─── Public entry point ───────────────────────────────────────────
@@ -271,7 +299,15 @@ export function normalizeRecipeForCookbook(
 		directions = [];
 	}
 
-	const chefNotes = cleanNotesBlock(parsed.chefNotes, parsedHadIngredients, parsedHadDirections);
+	// Split into paragraphs (collapsing internal whitespace within each)
+	// and join with `\n\n` so the renderer can split on blank lines and
+	// add spacing between paragraphs without re-collapsing them.
+	const noteParagraphs = cleanNotesIntoParagraphs(
+		parsed.chefNotes,
+		parsedHadIngredients,
+		parsedHadDirections
+	);
+	const chefNotes = noteParagraphs.length > 0 ? noteParagraphs.join('\n\n') : undefined;
 
 	return {
 		id: `${event.kind ?? 30023}:${event.pubkey}:${dTag}`,
@@ -283,6 +319,6 @@ export function normalizeRecipeForCookbook(
 		servings: parsed.information?.servings || details.servings || undefined,
 		ingredients,
 		directions,
-		chefNotes: chefNotes || undefined
+		chefNotes
 	};
 }

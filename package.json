@@ -1,7 +1,7 @@
 {
   "name": "zap.cooking",
   "license": "MIT",
-  "version": "4.2.327",
+  "version": "4.2.328",
   "private": true,
   "scripts": {
     "dev": "vite dev",
@@ -9,6 +9,8 @@
     "build:mobile": "SKIP_ENV_VALIDATION=1 ADAPTER=static vite build",
     "build:android": "SKIP_ENV_VALIDATION=1 CAPACITOR=true vite build",
     "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "dev:cloudflare": "pnpm build && wrangler pages dev .svelte-kit/cloudflare --compatibility-date=2025-01-01 --compatibility-flags=nodejs_compat",
     "test:og": "pnpm build && wrangler pages dev .svelte-kit/cloudflare --compatibility-date=2025-01-01 --compatibility-flags=nodejs_compat",
     "test:notification": "curl \"http://localhost:5174/api/cron/test-notification?npub=npub1aeh2zw4elewy5682lxc6xnlqzjnxksq303gwu2npfaxd49vmde6qcq4nwx\"",
@@ -111,6 +113,7 @@
     "typescript": "^5.0.0",
     "vite": "^5.0.0",
     "vite-plugin-node-polyfills": "^0.24.0",
+    "vitest": "^2",
     "wrangler": "^4.42.0"
   },
   "packageManager": "pnpm@9.12.1+sha512.e5a7e52a4183a02d5931057f7a0dbff9d5e9ce3161e33fa68ae392125b79282a8a8a470a51dfc8a0ed86221442eb2fb57019b0990ed24fab519bf0e1bc5ccfc4"

@@ -628,30 +628,40 @@ function drawRecipePages(
 		y += 20;
 	}
 
-	// Chef's notes (italic, indented quote-style)
+	// Chef's notes (italic, indented quote-style). Split on blank-line
+	// boundaries so multi-paragraph notes don't render as a wall of
+	// text — each paragraph wraps independently with 8pt of breathing
+	// room between paragraphs.
 	if (r.chefNotes) {
-		y += 4;
-		doc.setFont('helvetica', 'italic');
-		doc.setFontSize(11);
-		doc.setTextColor(85, 75, 70);
-		// Subtle left rule
-		const notesLines = doc.splitTextToSize(r.chefNotes, CONTENT_W - 18);
-		const notesStartY = y;
-		for (const line of notesLines) {
-			if (y > PAGE_BOTTOM) {
-				y = newPage();
-				doc.setFont('helvetica', 'italic');
-				doc.setFontSize(11);
-				doc.setTextColor(85, 75, 70);
+		const paragraphs = r.chefNotes.split(/\n\s*\n+/).map((p) => p.trim()).filter(Boolean);
+		if (paragraphs.length > 0) {
+			y += 4;
+			doc.setFont('helvetica', 'italic');
+			doc.setFontSize(11);
+			doc.setTextColor(85, 75, 70);
+			const notesStartY = y;
+			for (let p = 0; p < paragraphs.length; p++) {
+				const lines = doc.splitTextToSize(paragraphs[p], CONTENT_W - 18);
+				for (const line of lines) {
+					if (y > PAGE_BOTTOM) {
+						y = newPage();
+						doc.setFont('helvetica', 'italic');
+						doc.setFontSize(11);
+						doc.setTextColor(85, 75, 70);
+					}
+					doc.text(line, MARGIN_LEFT + 14, y);
+					y += 15;
+				}
+				// Inter-paragraph spacing — skip after the last paragraph
+				// so the trailing quote rule sits flush with the text.
+				if (p < paragraphs.length - 1) y += 8;
 			}
-			doc.text(line, MARGIN_LEFT + 14, y);
-			y += 15;
+			// Draw the quote rule once at the end (covers all paragraphs).
+			doc.setDrawColor(220, 200, 190);
+			doc.setLineWidth(1.5);
+			doc.line(MARGIN_LEFT + 2, notesStartY - 10, MARGIN_LEFT + 2, y - 10);
+			y += 10;
 		}
-		// Draw the quote rule once at the end (covers wrapped lines).
-		doc.setDrawColor(220, 200, 190);
-		doc.setLineWidth(1.5);
-		doc.line(MARGIN_LEFT + 2, notesStartY - 10, MARGIN_LEFT + 2, y - 10);
-		y += 10;
 	}
 
 	const sectionHeading = (label: string) => {
