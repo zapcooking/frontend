@@ -15,7 +15,7 @@
     refreshBalance as refreshWalletBalance,
     walletBalance
   } from '$lib/wallet/walletManager';
-  import { getActiveWallet } from '$lib/wallet/walletStore';
+  import { activeWallet, getActiveWallet } from '$lib/wallet/walletStore';
   import {
     buildCookbookPdf,
     cookbookFilename,
@@ -116,6 +116,32 @@
   /** Effective price the CTA should display. */
   $: priceSats = promoApplied?.finalSats ?? COOKBOOK_EXPORT_SATS;
 
+  /**
+   * Hint shown next to the unlock CTA so the user knows whether their
+   * connected wallet can cover the price before they click. Three cases:
+   *   - sufficient → "Pay from {wallet} (12,500 sats available)"
+   *   - insufficient → "{wallet} has 1,000 sats — top up or pay from another wallet"
+   *   - balance unknown → null (don't promise anything)
+   * Returns null when no wallet is connected (the BC fallback handles it).
+   */
+  $: walletBalanceHint = (() => {
+    const w = $activeWallet;
+    if (!w) return null;
+    const b = $walletBalance;
+    const formatted = (n: number) => n.toLocaleString();
+    if (b === null) return null;
+    if (b < priceSats) {
+      return {
+        kind: 'insufficient' as const,
+        label: `${w.name} has ${formatted(b)} sats — top up or pay from another wallet.`
+      };
+    }
+    return {
+      kind: 'sufficient' as const,
+      label: `Pay from ${w.name} · ${formatted(b)} sats available.`
+    };
+  })();
+
   // Reset per-open
   $: if (open) initStateOnOpen();
   $: if (!open) {
@@ -146,6 +172,15 @@
     title = packTitle || 'My Recipe Pack';
     subtitle = packDescription || '';
     paymentUnlocked = isRecentlyPaid();
+
+    // Kick off a wallet balance refresh so the unlock-card hint
+    // reflects current state on first open. Best-effort only — the
+    // hint just stays hidden if this fails.
+    if (getActiveWallet() && isWalletReady()) {
+      refreshWalletBalance().catch(() => {
+        /* tolerate flaky balance fetches; the hint guards against null */
+      });
+    }
 
     // Dev-only membership snapshot. Helpful when iterating on tier
     // detection edge cases; silenced in production so signed-in users
@@ -383,41 +418,44 @@
   }
 
   /**
-   * Try paying the active invoice from the user's built-in (Breez/Spark)
-   * wallet. Returns the outcome so the caller can decide whether to
-   * fall back to Bitcoin Connect.
+   * Try paying the active invoice from the user's connected Zap Cooking
+   * wallet — Breez/Spark (kind 4), NWC (kind 3), or WebLN (kind 1).
+   * Returns the outcome so the caller can decide whether to fall back
+   * to Bitcoin Connect.
    *
    * Outcomes:
-   *  - 'no-wallet'    — no built-in wallet present or not initialized
+   *  - 'no-wallet'    — no connected wallet or wallet not ready
    *                     (caller falls through to Bitcoin Connect)
-   *  - 'insufficient' — wallet exists but balance < priceSats
-   *  - 'failed'       — Spark threw mid-payment (network / SDK error)
+   *  - 'insufficient' — wallet exists, balance KNOWN, and < priceSats
+   *  - 'failed'       — wallet SDK threw mid-payment
    *  - 'success'      — payment sent; server poll will confirm
+   *
+   * Balance pre-check is best-effort. Some WebLN extensions don't
+   * expose getBalance and return null — in that case we attempt
+   * payment anyway and let the SDK surface insufficient as 'failed'
+   * (with a translated message). Better to try than to bail early.
    */
   async function tryBuiltInWalletPayment(): Promise<
     'no-wallet' | 'insufficient' | 'failed' | 'success'
   > {
     const active = getActiveWallet();
-    // Only target the in-app Breez/Spark wallet (kind 4). WebLN (1) and
-    // NWC (3) external wallets are still handled by Bitcoin Connect's
-    // launchPaymentModal — same picker users are already used to.
-    if (!active || active.kind !== 4) return 'no-wallet';
+    if (!active) return 'no-wallet';
     if (!isWalletReady()) return 'no-wallet';
 
-    // Resolve balance — refresh once if the cached value is null
-    // (cold start). Treat any failure as "no-wallet" so we fall back
-    // cleanly rather than blocking the user behind a flaky balance fetch.
+    // Pre-flight balance check: only block when balance is *known* and
+    // insufficient. Refresh once if the cache is cold; tolerate fetch
+    // failures (some WebLN providers don't implement getBalance).
     let balance = get(walletBalance);
     if (balance === null) {
       try {
         balance = await refreshWalletBalance();
       } catch (e) {
-        console.warn('[ExportCookbookModal] built-in balance refresh failed', e);
-        return 'no-wallet';
+        console.warn('[ExportCookbookModal] balance refresh failed', e);
+        // Don't bail — let the SDK try. Worst case we surface a
+        // 'failed' state with the SDK's error message.
       }
     }
-    if (balance === null) return 'no-wallet';
-    if (balance < priceSats) {
+    if (balance !== null && balance < priceSats) {
       builtInPayState = 'insufficient';
       return 'insufficient';
     }
@@ -430,19 +468,32 @@
         description: `Cookbook export: ${title.trim() || packTitle || 'Recipe Pack'}`
       });
       if (!result.success) {
+        const errMsg = result.error || 'Payment failed';
+        // Map SDK insufficient-balance errors back to the dedicated
+        // state so the user gets the right banner copy (and we don't
+        // show a generic error for what's really a balance issue).
+        if (/insufficient|not enough|balance/i.test(errMsg)) {
+          builtInPayState = 'insufficient';
+          return 'insufficient';
+        }
         builtInPayState = 'failed';
-        builtInPayError = result.error || 'Payment failed';
+        builtInPayError = errMsg;
         return 'failed';
       }
-      // Spark accepted the payment. Strike will see the invoice as
+      // Wallet accepted the payment. Strike will see the invoice as
       // paid within a few seconds; the existing /verify-payment poll
       // we started above will pick it up and call onPaymentConfirmed.
       builtInPayState = 'success';
       return 'success';
     } catch (err: any) {
-      console.error('[ExportCookbookModal] built-in wallet payment threw', err);
+      console.error('[ExportCookbookModal] connected wallet payment threw', err);
+      const errMsg = err?.message || 'Payment failed';
+      if (/insufficient|not enough|balance/i.test(errMsg)) {
+        builtInPayState = 'insufficient';
+        return 'insufficient';
+      }
       builtInPayState = 'failed';
-      builtInPayError = err?.message || 'Payment failed';
+      builtInPayError = errMsg;
       return 'failed';
     }
   }
@@ -655,7 +706,9 @@
 
       {#if !canExport}
         <!-- Unlock hint — cookbook export is a paid feature for every
-             account. Compact so it doesn't dominate the form. -->
+             account. Compact so it doesn't dominate the form. Surfaces
+             the connected-wallet balance so the user knows whether the
+             internal payment will succeed before clicking. -->
         <div
           class="flex items-start gap-3 p-3 rounded-lg"
           style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);"
@@ -666,10 +719,23 @@
           >
             ⚡
           </div>
-          <p class="text-sm" style="color: var(--color-text-primary)">
-            <span class="font-medium">Unlock this cookbook for {COOKBOOK_EXPORT_SATS} sats</span>
-            <span class="text-caption"> — one-time Lightning payment.</span>
-          </p>
+          <div class="flex flex-col gap-1 min-w-0">
+            <p class="text-sm" style="color: var(--color-text-primary)">
+              <span class="font-medium">Unlock this cookbook for {COOKBOOK_EXPORT_SATS} sats</span>
+              <span class="text-caption"> — one-time Lightning payment.</span>
+            </p>
+            {#if walletBalanceHint}
+              <p
+                class="text-xs"
+                class:text-red-500={walletBalanceHint.kind === 'insufficient'}
+                style={walletBalanceHint.kind === 'sufficient'
+                  ? 'color: var(--color-text-secondary)'
+                  : ''}
+              >
+                {walletBalanceHint.label}
+              </p>
+            {/if}
+          </div>
         </div>
 
         <!-- Promo code -->
