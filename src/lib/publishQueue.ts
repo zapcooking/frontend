@@ -31,6 +31,7 @@ const STALE_ITEM_AGE = 30 * 60 * 1000; // 30 minutes - auto-cleanup stale items
 // NIP-65 inbox routing — shared helper handles the kind:10002 lookup
 // + capping. See $lib/nip65Routing for the algorithm details.
 import { unionInboxRelayUrls } from '$lib/nip65Routing';
+import { GARDEN_RELAY_URL, PANTRY_RELAY_URL } from '$lib/nostr';
 
 /**
  * Represents a pending publish operation
@@ -410,13 +411,14 @@ class PublishQueueManager {
    * Resolve the base relay URL list for a given relayMode. The user's
    * intent (e.g. "publish to pantry only") takes precedence — NIP-65
    * augmentation in attemptPublish is layered on top, never replaces.
+   *
+   * Relay URLs come from the canonical exports in $lib/nostr so changes
+   * propagate everywhere instead of drifting between hardcoded literals.
    */
   private getBaseRelayUrls(relayMode: PendingPublish['relayMode'], ndkInstance: any): string[] {
-    if (relayMode === 'garden') return ['wss://garden.zap.cooking'];
-    if (relayMode === 'pantry') return ['wss://pantry.zap.cooking'];
-    if (relayMode === 'garden-pantry') {
-      return ['wss://garden.zap.cooking', 'wss://pantry.zap.cooking'];
-    }
+    if (relayMode === 'garden') return [GARDEN_RELAY_URL];
+    if (relayMode === 'pantry') return [PANTRY_RELAY_URL];
+    if (relayMode === 'garden-pantry') return [GARDEN_RELAY_URL, PANTRY_RELAY_URL];
     // 'all' — every relay currently in the pool.
     const urls: string[] = [];
     if (ndkInstance?.pool?.relays) {

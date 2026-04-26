@@ -24,6 +24,7 @@
 
 import type NDK from '@nostr-dev-kit/ndk';
 import type { NDKEvent, NDKRelaySet, NDKRelay } from '@nostr-dev-kit/ndk';
+import { normalizeRelayUrl } from '$lib/relayListCache';
 
 const HEX64_RE = /^[0-9a-fA-F]{64}$/;
 
@@ -47,33 +48,33 @@ export const INBOX_LOOKUP_TIMEOUT_MS = 1500;
  *   - The cache lookup fails / times out (additive feature, never blocks)
  */
 export async function getRecipientInboxRelays(event: NDKEvent): Promise<string[]> {
-	const targets = new Set<string>();
-	for (const tag of event.tags) {
-		if (tag[0] !== 'p' || !tag[1] || !HEX64_RE.test(tag[1])) continue;
-		// Skip self — no need to publish to our own inbox.
-		if (event.pubkey && tag[1] === event.pubkey) continue;
-		targets.add(tag[1]);
-	}
-	if (targets.size === 0) return [];
+  const targets = new Set<string>();
+  for (const tag of event.tags) {
+    if (tag[0] !== 'p' || !tag[1] || !HEX64_RE.test(tag[1])) continue;
+    // Skip self — no need to publish to our own inbox.
+    if (event.pubkey && tag[1] === event.pubkey) continue;
+    targets.add(tag[1]);
+  }
+  if (targets.size === 0) return [];
 
-	try {
-		const { relayListCache } = await import('$lib/relayListCache');
-		const lookupPromise = relayListCache.getMany([...targets]);
-		const timeoutPromise = new Promise<Map<string, { read: string[] }>>((resolve) =>
-			setTimeout(() => resolve(new Map()), INBOX_LOOKUP_TIMEOUT_MS)
-		);
-		const lists = await Promise.race([lookupPromise, timeoutPromise]);
+  try {
+    const { relayListCache } = await import('$lib/relayListCache');
+    const lookupPromise = relayListCache.getMany([...targets]);
+    const timeoutPromise = new Promise<Map<string, { read: string[] }>>((resolve) =>
+      setTimeout(() => resolve(new Map()), INBOX_LOOKUP_TIMEOUT_MS)
+    );
+    const lists = await Promise.race([lookupPromise, timeoutPromise]);
 
-		const inbox = new Set<string>();
-		for (const list of lists.values()) {
-			if (!list || !Array.isArray(list.read)) continue;
-			for (const url of list.read) inbox.add(url);
-		}
-		return [...inbox];
-	} catch (err) {
-		console.warn('[nip65Routing] inbox lookup failed:', err);
-		return [];
-	}
+    const inbox = new Set<string>();
+    for (const list of lists.values()) {
+      if (!list || !Array.isArray(list.read)) continue;
+      for (const url of list.read) inbox.add(url);
+    }
+    return [...inbox];
+  } catch (err) {
+    console.warn('[nip65Routing] inbox lookup failed:', err);
+    return [];
+  }
 }
 
 /**
@@ -82,21 +83,25 @@ export async function getRecipientInboxRelays(event: NDKEvent): Promise<string[]
  *
  * Order in the result favors the base URLs (caller's intent) so when
  * the cap kicks in, base relays are kept and inbox URLs may be dropped.
+ *
+ * Dedupes by normalized URL (`relayListCache.normalizeRelayUrl`) so
+ * `wss://example.com` and `wss://example.com/` don't both count toward
+ * the cap. The first-seen original spelling is preserved in the result
+ * — NDK's relay pool keys by raw URL, so passing the variant we've
+ * already seen elsewhere keeps the existing connection state intact.
  */
-export async function unionInboxRelayUrls(
-	event: NDKEvent,
-	baseUrls: string[]
-): Promise<string[]> {
-	const inboxUrls = await getRecipientInboxRelays(event);
-	const seen = new Set<string>();
-	const out: string[] = [];
-	for (const url of [...baseUrls, ...inboxUrls]) {
-		if (out.length >= MAX_PUBLISH_RELAYS) break;
-		if (seen.has(url)) continue;
-		seen.add(url);
-		out.push(url);
-	}
-	return out;
+export async function unionInboxRelayUrls(event: NDKEvent, baseUrls: string[]): Promise<string[]> {
+  const inboxUrls = await getRecipientInboxRelays(event);
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const url of [...baseUrls, ...inboxUrls]) {
+    if (out.length >= MAX_PUBLISH_RELAYS) break;
+    const key = normalizeRelayUrl(url);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(url);
+  }
+  return out;
 }
 
 /**
@@ -113,50 +118,52 @@ export async function unionInboxRelayUrls(
  * error, depending on context.
  */
 export async function buildInboxAwareRelaySet(opts: {
-	event: NDKEvent;
-	ndk: NDK;
-	baseUrls?: string[];
+  event: NDKEvent;
+  ndk: NDK;
+  baseUrls?: string[];
 }): Promise<NDKRelaySet | null> {
-	const { event, ndk } = opts;
+  const { event, ndk } = opts;
 
-	// Fall back to the pool's current relays when no base set is given.
-	let baseUrls = opts.baseUrls;
-	if (!baseUrls) {
-		baseUrls = [];
-		const poolRelays = (ndk as unknown as { pool?: { relays?: Map<string, unknown> } }).pool
-			?.relays;
-		if (poolRelays) {
-			for (const [url] of poolRelays) baseUrls.push(url);
-		}
-	}
+  // Fall back to the pool's current relays when no base set is given.
+  let baseUrls = opts.baseUrls;
+  if (!baseUrls) {
+    baseUrls = [];
+    const poolRelays = (ndk as unknown as { pool?: { relays?: Map<string, unknown> } }).pool
+      ?.relays;
+    if (poolRelays) {
+      for (const [url] of poolRelays) baseUrls.push(url);
+    }
+  }
 
-	const targetUrls = await unionInboxRelayUrls(event, baseUrls);
-	if (targetUrls.length === 0) return null;
+  const targetUrls = await unionInboxRelayUrls(event, baseUrls);
+  if (targetUrls.length === 0) return null;
 
-	const { NDKRelaySet } = await import('@nostr-dev-kit/ndk');
-	const pool = (ndk as unknown as {
-		pool: {
-			getRelay: (url: string, autoConnect: boolean, createIfMissing: boolean) => NDKRelay | null;
-		};
-	}).pool;
+  const { NDKRelaySet } = await import('@nostr-dev-kit/ndk');
+  const pool = (
+    ndk as unknown as {
+      pool: {
+        getRelay: (url: string, autoConnect: boolean, createIfMissing: boolean) => NDKRelay | null;
+      };
+    }
+  ).pool;
 
-	const relays: NDKRelay[] = [];
-	for (const url of targetUrls) {
-		const relay = pool.getRelay(url, true, true);
-		if (relay) relays.push(relay);
-	}
+  const relays: NDKRelay[] = [];
+  for (const url of targetUrls) {
+    const relay = pool.getRelay(url, true, true);
+    if (relay) relays.push(relay);
+  }
 
-	if (relays.length === 0) return null;
+  if (relays.length === 0) return null;
 
-	// Best-effort parallel connect; failures are tolerated because the
-	// NDKRelaySet publish path will skip relays that aren't ready and we
-	// just want fast-quorum confirmation, not strict all-relay delivery.
-	await Promise.all(
-		relays.map((r) =>
-			(r as unknown as { connect: () => Promise<unknown> }).connect().catch(() => {})
-		)
-	);
-	await new Promise((resolve) => setTimeout(resolve, 100));
+  // Best-effort parallel connect; failures are tolerated because the
+  // NDKRelaySet publish path will skip relays that aren't ready and we
+  // just want fast-quorum confirmation, not strict all-relay delivery.
+  await Promise.all(
+    relays.map((r) =>
+      (r as unknown as { connect: () => Promise<unknown> }).connect().catch(() => {})
+    )
+  );
+  await new Promise((resolve) => setTimeout(resolve, 100));
 
-	return new NDKRelaySet(new Set(relays), ndk);
+  return new NDKRelaySet(new Set(relays), ndk);
 }
