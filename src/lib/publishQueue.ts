@@ -28,6 +28,10 @@ const MAX_RETRY_DELAY = 30000; // 30 seconds
 const PUBLISH_TIMEOUT = 10000; // 10 seconds per relay
 const STALE_ITEM_AGE = 30 * 60 * 1000; // 30 minutes - auto-cleanup stale items
 
+// NIP-65 inbox routing — shared helper handles the kind:10002 lookup
+// + capping. See $lib/nip65Routing for the algorithm details.
+import { unionInboxRelayUrls } from '$lib/nip65Routing';
+
 /**
  * Represents a pending publish operation
  */
@@ -403,7 +407,37 @@ class PublishQueueManager {
   }
 
   /**
-   * Attempt to publish an event with extended timeout
+   * Resolve the base relay URL list for a given relayMode. The user's
+   * intent (e.g. "publish to pantry only") takes precedence — NIP-65
+   * augmentation in attemptPublish is layered on top, never replaces.
+   */
+  private getBaseRelayUrls(relayMode: PendingPublish['relayMode'], ndkInstance: any): string[] {
+    if (relayMode === 'garden') return ['wss://garden.zap.cooking'];
+    if (relayMode === 'pantry') return ['wss://pantry.zap.cooking'];
+    if (relayMode === 'garden-pantry') {
+      return ['wss://garden.zap.cooking', 'wss://pantry.zap.cooking'];
+    }
+    // 'all' — every relay currently in the pool.
+    const urls: string[] = [];
+    if (ndkInstance?.pool?.relays) {
+      for (const [url] of ndkInstance.pool.relays) urls.push(url);
+    }
+    return urls;
+  }
+
+  /**
+   * Attempt to publish an event with extended timeout.
+   *
+   * Relay set construction:
+   *   1. Base URLs from `relayMode` (garden / pantry / garden-pantry / all)
+   *   2. NIP-65 augmentation: for every non-self pubkey in the event's `p`
+   *      tags, add their published *read* (inbox) relays. This is what
+   *      makes replies / mentions / reactions / zaps reach the recipient.
+   *      Lookups go through `relayListCache` (SWR + IndexedDB), so they're
+   *      typically a memory hit; bounded by INBOX_LOOKUP_TIMEOUT_MS so
+   *      a slow network can't block publishing.
+   *   3. Dedupe + cap at MAX_PUBLISH_RELAYS so a heavily p-tagged post
+   *      can't fan out to 50+ relays.
    */
   private async attemptPublish(
     event: NDKEvent,
@@ -433,73 +467,40 @@ class PublishQueueManager {
     console.log(`[PublishQueue] Publishing event (kind ${event.kind}) with mode: ${relayMode}`);
     console.log(`[PublishQueue] Event ID: ${event.id}`);
 
-    let publishPromise: Promise<Set<any>>;
-    let targetRelays: string[] = [];
+    // 1. Base URLs from relay mode (user's intent takes precedence).
+    const baseUrls = this.getBaseRelayUrls(relayMode, ndkInstance);
 
-    if (relayMode === 'garden') {
-      targetRelays = ['wss://garden.zap.cooking'];
-      const relay = ndkInstance.pool.getRelay('wss://garden.zap.cooking', true, true);
-      await relay.connect();
-      await new Promise((resolve) => setTimeout(resolve, 100));
-      const relaySet = new NDKRelaySet(new Set([relay]), ndkInstance);
-      publishPromise = event.publish(relaySet, PUBLISH_TIMEOUT);
-    } else if (relayMode === 'pantry') {
-      targetRelays = ['wss://pantry.zap.cooking'];
-      const relay = ndkInstance.pool.getRelay('wss://pantry.zap.cooking', true, true);
-      await relay.connect();
-      await new Promise((resolve) => setTimeout(resolve, 100));
-      const relaySet = new NDKRelaySet(new Set([relay]), ndkInstance);
-      publishPromise = event.publish(relaySet, PUBLISH_TIMEOUT);
-    } else if (relayMode === 'garden-pantry') {
-      targetRelays = ['wss://garden.zap.cooking', 'wss://pantry.zap.cooking'];
-      const gardenRelay = ndkInstance.pool.getRelay('wss://garden.zap.cooking', true, true);
-      const pantryRelay = ndkInstance.pool.getRelay('wss://pantry.zap.cooking', true, true);
-      await Promise.all([gardenRelay.connect(), pantryRelay.connect()]);
-      await new Promise((resolve) => setTimeout(resolve, 100));
-      const relaySet = new NDKRelaySet(new Set([gardenRelay, pantryRelay]), ndkInstance);
-      publishPromise = event.publish(relaySet, PUBLISH_TIMEOUT);
-    } else {
-      // 'all' mode - get relay URLs from pool and use getRelay() to ensure proper initialization
-      console.log('[PublishQueue] Using "all" mode');
+    // 2. Union with NIP-65 recipient inbox relays. Capped at the helper's
+    //    MAX_PUBLISH_RELAYS so a heavily p-tagged post stays bounded.
+    const targetRelays = await unionInboxRelayUrls(event, baseUrls);
 
-      // Collect relay URLs from the pool
-      const relayUrls: string[] = [];
-      if (ndkInstance.pool && ndkInstance.pool.relays) {
-        for (const [url] of ndkInstance.pool.relays) {
-          relayUrls.push(url);
-        }
-      }
-
-      console.log(`[PublishQueue] Pool has ${relayUrls.length} relays:`, relayUrls);
-
-      if (relayUrls.length === 0) {
-        throw new Error('No relays available. Please check your internet connection.');
-      }
-
-      // Use getRelay() with autoConnect=true, createIfMissing=true to get properly initialized relays
-      const relaysToPublish: any[] = [];
-      for (const url of relayUrls) {
-        const relay = ndkInstance.pool.getRelay(url, true, true);
-        if (relay) {
-          relaysToPublish.push(relay);
-          targetRelays.push(url);
-        }
-      }
-
-      // Ensure connections are established
-      await Promise.all(relaysToPublish.map((r) => r.connect().catch(() => {})));
-      await new Promise((resolve) => setTimeout(resolve, 100));
-
-      // Log connection states
-      for (const relay of relaysToPublish) {
-        const status = relay.connectivity?.status;
-        const statusName = status === 1 ? 'OPEN' : status === 0 ? 'CONNECTING' : 'CLOSED';
-        console.log(`[PublishQueue] Relay ${relay.url}: ${statusName}`);
-      }
-
-      const relaySet = new NDKRelaySet(new Set(relaysToPublish), ndkInstance);
-      publishPromise = event.publish(relaySet, PUBLISH_TIMEOUT);
+    if (targetRelays.length === 0) {
+      throw new Error('No relays available. Please check your internet connection.');
     }
+
+    console.log(
+      `[PublishQueue] base=${baseUrls.length} → ${targetRelays.length} relays after NIP-65 union`
+    );
+
+    // Materialize relays via getRelay() with autoConnect=true, createIfMissing=true
+    const relaysToPublish: any[] = [];
+    for (const url of targetRelays) {
+      const relay = ndkInstance.pool.getRelay(url, true, true);
+      if (relay) relaysToPublish.push(relay);
+    }
+
+    // Best-effort parallel connect — failures don't block the publish.
+    await Promise.all(relaysToPublish.map((r) => r.connect().catch(() => {})));
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    for (const relay of relaysToPublish) {
+      const status = relay.connectivity?.status;
+      const statusName = status === 1 ? 'OPEN' : status === 0 ? 'CONNECTING' : 'CLOSED';
+      console.log(`[PublishQueue] Relay ${relay.url}: ${statusName}`);
+    }
+
+    const relaySet = new NDKRelaySet(new Set(relaysToPublish), ndkInstance);
+    const publishPromise = event.publish(relaySet, PUBLISH_TIMEOUT);
 
     console.log(`[PublishQueue] Publishing to relays:`, targetRelays);
     console.log(`[PublishQueue] Awaiting publish result (timeout: ${PUBLISH_TIMEOUT + 5000}ms)...`);

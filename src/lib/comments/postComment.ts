@@ -22,6 +22,7 @@ import { NDKEvent, type NDKRelay } from '@nostr-dev-kit/ndk';
 import { buildNip22CommentTags } from '$lib/tagUtils';
 import { addClientTagToEvent } from '$lib/nip89';
 import { isAddressableRoot } from '$lib/commentFilters';
+import { buildInboxAwareRelaySet } from '$lib/nip65Routing';
 
 export type SigningStrategy = 'explicit-with-timeout' | 'implicit';
 
@@ -210,10 +211,17 @@ export async function postComment(
       throw new PostCommentError('sign-failed', 'Event was not signed — no id');
     }
 
+    // NIP-65 inbox routing — fan out to the parent author's (and any
+    // additional p-tagged users') read relays so the comment lands in
+    // their inbox. Falls back to the NDK pool when no recipient has
+    // published a kind:10002.
+    const inboxRelaySet =
+      (await buildInboxAwareRelaySet({ event: ev, ndk })) ?? undefined;
+
     let relaySet: Set<NDKRelay> | undefined;
     try {
       relaySet = await Promise.race([
-        ev.publish(),
+        ev.publish(inboxRelaySet),
         new Promise<never>((_, reject) =>
           setTimeout(
             () => reject(new Error(`Publish timeout after ${publishTimeoutMs}ms`)),
@@ -233,9 +241,13 @@ export async function postComment(
     return { event: ev, publishedRelays: extractRelayUrls(relaySet) };
   }
 
-  // 'implicit' — no explicit sign, no timeout. NDK signs internally.
+  // 'implicit' — no explicit sign, no timeout. NDK signs internally,
+  // but we can still pre-build an inbox-aware relay set since the event
+  // tags (which we built above) already determine recipients.
   try {
-    const relaySet = await ev.publish();
+    const inboxRelaySet =
+      (await buildInboxAwareRelaySet({ event: ev, ndk })) ?? undefined;
+    const relaySet = await ev.publish(inboxRelaySet);
     return { event: ev, publishedRelays: extractRelayUrls(relaySet) };
   } catch (e) {
     throw new PostCommentError('publish-failed', 'Publish failed', {

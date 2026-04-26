@@ -3,6 +3,7 @@ import { NDKEvent } from '@nostr-dev-kit/ndk';
 import type { TargetType } from '$lib/types/reactions';
 import { addClientTagToEvent } from '$lib/nip89';
 import { getAuthManager } from '$lib/authManager';
+import { buildInboxAwareRelaySet } from '$lib/nip65Routing';
 
 export interface PublishReactionOptions {
   ndk: NDK;
@@ -60,12 +61,19 @@ export async function publishReaction(
 
     // Sign and publish with timeout
     await reactionEvent.sign();
-    
-    const publishPromise = reactionEvent.publish();
+
+    // NIP-65 inbox routing — fan out to the reacted-to author's read
+    // relays so the reaction lands where they read. Falls back to the
+    // NDK pool's relays when the recipient hasn't published a kind:10002
+    // (cache returns no inbox URLs, and the pool itself is the base).
+    const relaySet =
+      (await buildInboxAwareRelaySet({ event: reactionEvent, ndk })) ?? undefined;
+
+    const publishPromise = reactionEvent.publish(relaySet);
     const timeoutPromise = new Promise<never>((_, reject) => {
       setTimeout(() => reject(new Error('Publishing timeout - signer may not be responding')), 30000);
     });
-    
+
     await Promise.race([publishPromise, timeoutPromise]);
 
     console.log(`Published reaction ${emoji} to ${targetType}:`, reactionEvent.id);
