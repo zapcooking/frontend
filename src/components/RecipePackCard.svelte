@@ -2,16 +2,30 @@
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
   import Avatar from './Avatar.svelte';
   import CustomName from './CustomName.svelte';
-  import NoteActionBar from './NoteActionBar.svelte';
+  // Compose the social action row from the same primitives NoteActionBar
+  // uses, so we can replace its non-functional comments toggle with a
+  // working link to /<naddr> while keeping the same icon order recipes
+  // use (likes / comments / repost / zap).
+  import NoteTotalLikes from './NoteTotalLikes.svelte';
+  import NoteRepost from './NoteRepost.svelte';
+  import NoteTotalZaps from './NoteTotalZaps.svelte';
+  import ZapModal from './ZapModal.svelte';
   import ShareModal from './ShareModal.svelte';
   import BookmarkSimpleIcon from 'phosphor-svelte/lib/BookmarkSimple';
   import ShareIcon from 'phosphor-svelte/lib/Share';
+  import ChatTeardropTextIcon from 'phosphor-svelte/lib/ChatTeardropText';
   import { lazyLoad } from '$lib/lazyLoad';
   import { getImageOrPlaceholder } from '$lib/placeholderImages';
   import { savedPacksStore } from '$lib/savedPacksStore';
-  import { userPublickey } from '$lib/nostr';
+  import { ndk, userPublickey } from '$lib/nostr';
+  import {
+    fetchEngagement,
+    optimisticZapUpdate,
+    getEngagementStore
+  } from '$lib/engagementCache';
   import { showToast } from '$lib/toast';
   import { goto } from '$app/navigation';
+  import { onMount } from 'svelte';
 
   /**
    * Pack metadata. Either pass a full NDKEvent (after publish) so the
@@ -29,7 +43,48 @@
   export let preview: boolean = false;
 
   let shareModalOpen = false;
+  let zapModalOpen = false;
   let bookmarkBusy = false;
+
+  // Engagement store for the comment count. Same source NoteTotalComments
+  // uses, so the count matches what users see anywhere else for this
+  // event id. Subscribed reactively via the `$` prefix.
+  $: commentStore = event?.id ? getEngagementStore(event.id) : null;
+
+  // Comments link target. The generic NIP-19 viewer at /<naddr> already
+  // supports NIP-22 comments for any addressable kind. Handles both
+  // relative ("/pack/<naddr>") and absolute viewUrls.
+  $: commentsHref = (() => {
+    if (!viewUrl) return '';
+    try {
+      if (viewUrl.startsWith('http')) {
+        const path = new URL(viewUrl).pathname;
+        return path.replace(/^\/pack\//, '/');
+      }
+    } catch {
+      /* fall through */
+    }
+    return viewUrl.replace(/^\/pack\//, '/');
+  })();
+
+  onMount(() => {
+    if (event?.id) fetchEngagement($ndk, event.id, $userPublickey);
+  });
+
+  function openZapModal() {
+    if (!$userPublickey) {
+      goto('/login?redirect=' + encodeURIComponent(window.location.pathname));
+      return;
+    }
+    zapModalOpen = true;
+  }
+
+  function handleZapComplete(e: CustomEvent<{ amount: number }>) {
+    if (event?.id) {
+      optimisticZapUpdate(event.id, (e.detail.amount || 0) * 1000, $userPublickey);
+      fetchEngagement($ndk, event.id, $userPublickey);
+    }
+  }
 
   $: resolvedImage = getImageOrPlaceholder(image || '', `${creatorPubkey}:${title}`);
   // Live bookmark state — re-evaluates whenever the saved-packs store updates.
@@ -156,22 +211,45 @@
       </span>
     </div>
 
-    <!-- Social action row — only when we have a real published event.
-         showComments={false} because NoteTotalComments toggles an inline
-         <FeedComments> we don't render here; we surface a separate
-         comment link to the generic NIP-19 viewer (which does support
-         NIP-22 comments for kind 30004). -->
     {#if !preview && event}
       <!-- Social action row — same icon set and order as recipes:
              reactions · comments · repost · zap   |   share
-           Bookmark lives in the cover top-right (matches recipe-card
-           design language). -->
+           Built from the same primitives NoteActionBar uses, but with
+           the comments button replaced by a real link to the thread
+           page (the inline-toggle behavior NoteTotalComments expects
+           requires a per-card FeedComments container we don't render).
+           Bookmark lives in the cover top-right (recipe-card pattern). -->
       <div
         class="flex items-center justify-between gap-1 pt-1 border-t -mx-3 sm:-mx-4 px-3 sm:px-4 mt-1"
         style="border-color: var(--color-input-border);"
       >
-        <div class="pt-2 flex items-center gap-1 flex-wrap">
-          <NoteActionBar {event} variant="default" />
+        <div class="pt-2 flex items-center gap-3 flex-wrap text-caption">
+          <div class="hover:bg-accent-gray rounded px-1 py-0.5 transition-colors">
+            <NoteTotalLikes {event} />
+          </div>
+          {#if commentsHref}
+            <a
+              href={commentsHref}
+              class="flex items-center gap-1.5 hover:bg-accent-gray rounded px-1 py-0.5 transition-colors"
+              style="color: var(--color-text-primary)"
+              title="View comments"
+              aria-label="View comments"
+            >
+              <ChatTeardropTextIcon size={24} class="text-caption" />
+              {#if commentStore && $commentStore}
+                <span class="text-caption">
+                  {#if $commentStore.loading}<span class="opacity-0">0</span
+                    >{:else}{$commentStore.comments.count}{/if}
+                </span>
+              {/if}
+            </a>
+          {/if}
+          <div class="hover:bg-accent-gray rounded px-1 py-0.5 transition-colors">
+            <NoteRepost {event} />
+          </div>
+          <div class="hover:bg-amber-50/50 rounded px-1 py-0.5 transition-colors">
+            <NoteTotalZaps {event} onZapClick={openZapModal} />
+          </div>
         </div>
         <div class="pt-2 flex items-center gap-1">
           <button
@@ -200,6 +278,10 @@
     title={title || 'Recipe Pack'}
     imageUrl={image || ''}
   />
+{/if}
+
+{#if event && zapModalOpen}
+  <ZapModal bind:open={zapModalOpen} {event} on:zap-complete={handleZapComplete} />
 {/if}
 
 <style>

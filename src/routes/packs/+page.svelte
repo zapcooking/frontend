@@ -230,37 +230,50 @@
         return;
       }
 
-      // Build the OR-of-(authors,#d) filter set for one round-trip.
-      // We use REQ filters keyed by pubkey since `a`-tag filters aren't
-      // standardized; per-pack (kinds, authors, #d) is the safe form.
+      // Group the saved a-tags by (kind, pubkey) so all packs from the
+      // same author can be fetched with a single filter using a multi-
+      // value `#d`. This collapses N requests into "one filter per
+      // unique creator" — typical case is a handful of creators per
+      // user, so the result is usually 1-3 round trips total.
       const relaySet = NDKRelaySet.fromRelayUrls(standardRelays, $ndk, false);
-      const fetched = await Promise.all(
-        aTags.map(async (aTag) => {
-          const parts = aTag.split(':');
-          if (parts.length !== 3) return null;
-          const [kindStr, pubkey, dTag] = parts;
-          const kind = Number(kindStr);
-          if (!Number.isFinite(kind) || !pubkey || !dTag) return null;
-          try {
-            const fetchPromise = $ndk.fetchEvent(
-              { kinds: [kind], authors: [pubkey], '#d': [dTag] },
-              { closeOnEose: true },
-              relaySet
-            );
-            const timeoutPromise = new Promise<null>((resolve) =>
-              setTimeout(() => resolve(null), 8000)
-            );
-            return (await Promise.race([fetchPromise, timeoutPromise])) as NDKEvent | null;
-          } catch {
-            return null;
-          }
-        })
-      );
+      const groups = new Map<string, { kind: number; pubkey: string; dTags: Set<string> }>();
+      for (const aTag of aTags) {
+        const parts = aTag.split(':');
+        if (parts.length !== 3) continue;
+        const [kindStr, pubkey, dTag] = parts;
+        const kind = Number(kindStr);
+        if (!Number.isFinite(kind) || !pubkey || !dTag) continue;
+        const key = `${kind}:${pubkey}`;
+        const existing = groups.get(key);
+        if (existing) existing.dTags.add(dTag);
+        else groups.set(key, { kind, pubkey, dTags: new Set([dTag]) });
+      }
+
+      const filters = Array.from(groups.values()).map(({ kind, pubkey, dTags }) => ({
+        kinds: [kind],
+        authors: [pubkey],
+        '#d': Array.from(dTags)
+      }));
+
+      let fetched: NDKEvent[] = [];
+      if (filters.length > 0) {
+        try {
+          // NDK's fetchEvents accepts an array of filters → it issues a
+          // single REQ with all filters per relay (each filter is OR'd).
+          const fetchPromise = $ndk.fetchEvents(filters, { closeOnEose: true }, relaySet);
+          const timeoutPromise = new Promise<null>((resolve) =>
+            setTimeout(() => resolve(null), 8000)
+          );
+          const result = await Promise.race([fetchPromise, timeoutPromise]);
+          if (result) fetched = Array.from(result);
+        } catch {
+          fetched = [];
+        }
+      }
 
       // Drop result if user changed mid-fetch.
       if (reqId !== savedRequestId) return;
-      const valid = fetched.filter((e): e is NDKEvent => e !== null);
-      savedEvents = sortAndDedupe(valid);
+      savedEvents = sortAndDedupe(fetched);
       savedLoaded = true;
     } catch (e: any) {
       console.error('[packs] saved load failed', e);

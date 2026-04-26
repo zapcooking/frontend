@@ -51,13 +51,28 @@ function createSavedPacksStore() {
 		}
 		if (!force && lastLoadedPubkey === pubkey) return;
 
-		update((s) => ({ ...s, loading: true }));
+		// When the load is for a *different* pubkey than the one we last
+		// hydrated, drop the previous account's saved/event before kicking
+		// off the fetch. Without this the previous user's bookmark state
+		// would briefly bleed into the new session — and if the fetch
+		// fails, the catch path would leave it in place permanently.
+		const isPubkeyChange = lastLoadedPubkey !== null && lastLoadedPubkey !== pubkey;
+		if (isPubkeyChange) {
+			set({ loaded: false, loading: true, saved: [], event: null });
+		} else {
+			update((s) => ({ ...s, loading: true }));
+		}
+
 		try {
 			const evt = await ndkInstance.fetchEvent({
 				kinds: [SAVED_PACKS_KIND],
 				authors: [pubkey],
 				'#d': [SAVED_PACKS_DTAG]
 			});
+			// Re-check the active pubkey at resolution — a fast user switch
+			// could have happened during the await; if so, drop this result.
+			if (get(userPublickey) !== pubkey) return;
+
 			const aTags = evt
 				? evt.tags.filter((t) => t[0] === 'a' && typeof t[1] === 'string').map((t) => t[1])
 				: [];
@@ -65,6 +80,10 @@ function createSavedPacksStore() {
 			lastLoadedPubkey = pubkey;
 		} catch (err) {
 			console.warn('[savedPacks] load failed', err);
+			// On error after a pubkey change, the optimistic clear above
+			// stays in effect — we never let the previous account's data
+			// linger. For a same-pubkey reload error, keep whatever was
+			// cached from the last successful load.
 			update((s) => ({ ...s, loading: false, loaded: true }));
 		}
 	}
