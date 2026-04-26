@@ -769,14 +769,30 @@ function drawRecipePages(
 /**
  * Footer: pack title (left) + page number (right). Replaces the prior
  * "Created with Zap Cooking" center text — the cover already carries
- * the brand prominently, so per-page repetition felt noisy. Title is
- * truncated to fit alongside the page number without crowding.
+ * the brand prominently, so per-page repetition felt noisy.
+ *
+ * Title truncation is width-measured (via splitTextToSize) rather than
+ * a hard character cap, so wide-glyph titles can't collide with the
+ * right-aligned page number and narrow-glyph titles aren't cut short.
+ * Reserves ~36pt for the page number column (covers up to 4 digits at
+ * 9pt with breathing room).
  */
 function addFooters(doc: JsPdfDoc, packTitle: string, fromPage: number) {
 	const total = doc.getNumberOfPages();
 	const trimmedTitle = (packTitle || '').trim();
-	let label = trimmedTitle;
-	if (label.length > 60) label = label.slice(0, 57) + '...';
+
+	// Width-fit the title against the available footer column.
+	doc.setFont('helvetica', 'normal');
+	doc.setFontSize(9);
+	const PAGE_NUMBER_RESERVE = 36;
+	const maxTitleWidth = CONTENT_RIGHT - MARGIN_LEFT - PAGE_NUMBER_RESERVE;
+	let label = '';
+	if (trimmedTitle && maxTitleWidth > 0) {
+		const fittedLines = doc.splitTextToSize(trimmedTitle, maxTitleWidth);
+		// First line of the fit; ellipsis when the title overflowed.
+		label = fittedLines.length > 1 ? `${fittedLines[0]}...` : fittedLines[0];
+	}
+
 	for (let p = fromPage; p <= total; p++) {
 		doc.setPage(p);
 		doc.setFont('helvetica', 'normal');

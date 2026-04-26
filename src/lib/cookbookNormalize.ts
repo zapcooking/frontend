@@ -177,15 +177,28 @@ export function stripDuplicateRecipeBlocks(
 	hasDirections: boolean
 ): string {
 	let out = notes;
+	// End-of-input lookahead: JavaScript regex has no `\Z` anchor (it
+	// would match a literal `Z`). `(?![\s\S])` asserts "no character
+	// follows" — the JS-compatible way to say end-of-string. With the
+	// `m` flag, `$` matches end-of-line which would terminate the block
+	// at the wrong place, so we explicitly match-or-terminate via the
+	// negative lookahead instead.
 	if (hasIngredients) {
-		// Match `## Ingredients` (any header level) up to the next header
-		// of any level OR the end of input.
-		out = out.replace(/^#{1,6}\s*ingredients\b[\s\S]*?(?=^#{1,6}\s|\Z)/gim, '');
+		out = out.replace(
+			/^#{1,6}\s*ingredients\b[\s\S]*?(?=^#{1,6}\s|(?![\s\S]))/gim,
+			''
+		);
 	}
 	if (hasDirections) {
-		out = out.replace(/^#{1,6}\s*directions\b[\s\S]*?(?=^#{1,6}\s|\Z)/gim, '');
-		// Also catch the "Steps" / "Method" variants that some recipes use.
-		out = out.replace(/^#{1,6}\s*(?:steps|method)\b[\s\S]*?(?=^#{1,6}\s|\Z)/gim, '');
+		out = out.replace(
+			/^#{1,6}\s*directions\b[\s\S]*?(?=^#{1,6}\s|(?![\s\S]))/gim,
+			''
+		);
+		// Also catch the "Steps" / "Method" variants some recipes use.
+		out = out.replace(
+			/^#{1,6}\s*(?:steps|method)\b[\s\S]*?(?=^#{1,6}\s|(?![\s\S]))/gim,
+			''
+		);
 	}
 	return out;
 }
@@ -242,6 +255,15 @@ export function normalizeRecipeForCookbook(
 		.map(cleanDirectionLine)
 		.filter((s) => s.length > 0);
 
+	// Capture the *parsed* presence before placeholder filtering. Notes
+	// cleanup needs to know whether a `## Directions` block existed in
+	// the source so it can strip the duplicate from notes — otherwise a
+	// placeholder-only recipe would have its `## Directions` block leak
+	// back into the notes section, reintroducing the very text we just
+	// suppressed at the structured-list level.
+	const parsedHadIngredients = (parsed.ingredients || []).length > 0;
+	const parsedHadDirections = (parsed.directions || []).length > 0;
+
 	// Single-placeholder direction set → drop entirely so the renderer
 	// can show its "directions not included" message rather than printing
 	// "1. See above" verbatim.
@@ -249,7 +271,7 @@ export function normalizeRecipeForCookbook(
 		directions = [];
 	}
 
-	const chefNotes = cleanNotesBlock(parsed.chefNotes, ingredients.length > 0, directions.length > 0);
+	const chefNotes = cleanNotesBlock(parsed.chefNotes, parsedHadIngredients, parsedHadDirections);
 
 	return {
 		id: `${event.kind ?? 30023}:${event.pubkey}:${dTag}`,
