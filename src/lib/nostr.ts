@@ -602,6 +602,7 @@ export function resetCircuitBreaker(url: string) {
 // ═══════════════════════════════════════════════════════════════
 
 export const GARDEN_RELAY_URL = 'wss://garden.zap.cooking';
+export const PANTRY_RELAY_URL = 'wss://pantry.zap.cooking';
 
 export type GardenRelayStatus = 'disconnected' | 'connecting' | 'authenticating' | 'connected' | 'error';
 
