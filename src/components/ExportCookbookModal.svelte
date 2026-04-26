@@ -30,7 +30,9 @@
   export let packNaddr: string = '';
   /** Canonical pack URL for the success-state Share button. */
   export let packShareUrl: string = '';
-  /** Whether the current user is a Pro Kitchen / Founders member. Free unlimited exports if true. */
+  /** Pro Kitchen / Founders member. Cookbook export is paid for every
+   *  account, but Pro members get the AI introduction polish; non-Pro
+   *  users fall back to the raw pack description. */
   export let isProMember: boolean = false;
   /** Optional — passed through for debug logs only, not used in gating. */
   export let membershipTier: string | undefined = undefined;
@@ -88,8 +90,9 @@
   } | null = null;
 
   $: missingRecipes = Math.max(0, totalRecipeCount - recipeEvents.length);
-  /** Either the user is a Pro member OR they've already paid for this pack OR the promo is free. */
-  $: canExport = isProMember || paymentUnlocked || (promoApplied?.free ?? false);
+  /** Cookbook export is a paid feature for every account. The user can
+   *  unlock it via Lightning payment OR by applying a 100%-off promo. */
+  $: canExport = paymentUnlocked || (promoApplied?.free ?? false);
   /** Effective price the CTA should display. */
   $: priceSats = promoApplied?.finalSats ?? COOKBOOK_EXPORT_SATS;
 
@@ -135,7 +138,7 @@
         active: membershipActive ?? '(not passed)',
         isProMember,
         recentlyPaid: paymentUnlocked,
-        canExport: isProMember || paymentUnlocked
+        canExport: paymentUnlocked || (promoApplied?.free ?? false)
       });
     }
   }
@@ -524,8 +527,8 @@
       <p class="text-sm text-caption">Turn this Recipe Pack into a printable cookbook PDF.</p>
 
       {#if !canExport}
-        <!-- Pay-per-use hint for non-Pro users. Kept compact so it doesn't
-             dominate the form. -->
+        <!-- Unlock hint — cookbook export is a paid feature for every
+             account. Compact so it doesn't dominate the form. -->
         <div
           class="flex items-start gap-3 p-3 rounded-lg"
           style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);"
@@ -536,15 +539,10 @@
           >
             ⚡
           </div>
-          <div class="flex flex-col gap-1">
-            <p class="text-sm" style="color: var(--color-text-primary)">
-              <span class="font-medium">Free with Pro Kitchen membership</span>
-              <span class="text-caption"> — or unlock once for {COOKBOOK_EXPORT_SATS} sats.</span>
-            </p>
-            <a href="/membership" class="text-xs text-primary hover:underline">
-              See Pro Kitchen
-            </a>
-          </div>
+          <p class="text-sm" style="color: var(--color-text-primary)">
+            <span class="font-medium">Unlock this cookbook for {COOKBOOK_EXPORT_SATS} sats</span>
+            <span class="text-caption"> — one-time Lightning payment.</span>
+          </p>
         </div>
 
         <!-- Promo code -->
@@ -788,7 +786,7 @@
         </div>
         <div class="flex flex-col">
           <p class="text-sm font-medium" style="color: var(--color-text-primary)">
-            {paymentUnlocked && !isProMember
+            {paymentUnlocked
               ? 'Payment received ⚡ Your cookbook is ready.'
               : '📚 Your cookbook is ready'}
           </p>
@@ -816,7 +814,7 @@
       <p class="text-sm" style="color: var(--color-text-primary)">
         {stageMessage || 'Something went wrong while building the PDF.'}
       </p>
-      {#if paymentUnlocked && !isProMember}
+      {#if paymentUnlocked}
         <p class="text-xs text-caption">
           Your payment is still valid — retry won't charge again.
         </p>
