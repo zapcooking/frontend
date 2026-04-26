@@ -5,6 +5,8 @@
   import Button from './Button.svelte';
   import { ndk, userPublickey } from '$lib/nostr';
   import { showToast } from '$lib/toast';
+  import { lightningService } from '$lib/lightningService';
+  import { copyToClipboard } from '$lib/utils/share';
   import {
     buildCookbookPdf,
     cookbookFilename,
@@ -23,6 +25,12 @@
   export let packDescription: string = '';
   export let packCoverImage: string | undefined = undefined;
   export let creatorPubkey: string = '';
+  /** naddr1… for the pack — used to key the recently-paid cache. */
+  export let packNaddr: string = '';
+  /** Canonical pack URL for the success-state Share button. */
+  export let packShareUrl: string = '';
+  /** Whether the current user is a Pro Kitchen / Founders member. Free unlimited exports if true. */
+  export let isProMember: boolean = false;
   export let open = false;
 
   const dispatch = createEventDispatcher();
@@ -36,8 +44,8 @@
   let includeIntroduction = true;
   let style: 'classic' | 'modern' | 'simple' = 'modern';
 
-  // Stage state
-  type Stage = 'form' | 'generating' | 'success' | 'error';
+  // Stage machine
+  type Stage = 'form' | 'invoice' | 'generating' | 'success' | 'error';
   let stage: Stage = 'form';
   let stageMessage = '';
   let resultBlob: Blob | null = null;
@@ -46,11 +54,32 @@
   let resultSkipped = 0;
   let usedAi = false;
 
+  // ===== Payment state =====
+  // Recently-paid cache so a refresh / retry inside ~15 minutes doesn't
+  // re-charge. Keyed by naddr — buying export for one pack doesn't unlock
+  // another.
+  const RECENT_PAY_TTL_MS = 15 * 60 * 1000;
+  const RECENT_PAY_KEY_PREFIX = 'zc:cookbook-export-paid:';
+  const COOKBOOK_EXPORT_SATS = 2100;
+
+  let invoiceLoading = false;
+  let invoiceError = '';
+  let invoice = '';
+  let exportId = '';
+  let receiveRequestId = '';
+  let invoicePollInterval: ReturnType<typeof setInterval> | null = null;
+  let invoiceCopied = false;
+  /** True once payment is confirmed in this session. */
+  let paymentUnlocked = false;
+
   $: missingRecipes = Math.max(0, totalRecipeCount - recipeEvents.length);
+  /** Either the user is a Pro member OR they've already paid for this pack. */
+  $: canExport = isProMember || paymentUnlocked;
 
   // Reset per-open
   $: if (open) initStateOnOpen();
   $: if (!open) {
+    stopInvoicePolling();
     stage = 'form';
     stageMessage = '';
     resultBlob = null;
@@ -58,18 +87,47 @@
     resultIncluded = 0;
     resultSkipped = 0;
     usedAi = false;
+    invoiceError = '';
+    invoice = '';
+    exportId = '';
+    receiveRequestId = '';
+    invoiceCopied = false;
+    // Note: don't reset paymentUnlocked — let the user generate, fail,
+    // and retry without re-paying.
   }
 
   function initStateOnOpen() {
     title = packTitle || 'My Recipe Pack';
     subtitle = packDescription || '';
+    paymentUnlocked = isRecentlyPaid();
   }
 
-  /**
-   * Look up the pack creator's display name via NDK on the client.
-   * Best-effort — any failure returns undefined and the cover renders
-   * without the "Curated by" line.
-   */
+  // ===== Recently-paid cache =====
+  function recentPayKey(): string {
+    return `${RECENT_PAY_KEY_PREFIX}${packNaddr}`;
+  }
+  function isRecentlyPaid(): boolean {
+    if (!packNaddr || typeof window === 'undefined') return false;
+    try {
+      const raw = window.sessionStorage.getItem(recentPayKey());
+      if (!raw) return false;
+      const ts = Number(raw);
+      if (!Number.isFinite(ts)) return false;
+      return Date.now() - ts < RECENT_PAY_TTL_MS;
+    } catch {
+      return false;
+    }
+  }
+  function markRecentlyPaid() {
+    if (!packNaddr || typeof window === 'undefined') return;
+    try {
+      window.sessionStorage.setItem(recentPayKey(), String(Date.now()));
+    } catch {
+      /* ignore */
+    }
+  }
+
+  // ===== Profile / AI helpers (unchanged) =====
   async function fetchCreatorName(): Promise<string | undefined> {
     if (!creatorPubkey) return undefined;
     try {
@@ -88,16 +146,18 @@
     }
   }
 
-  /**
-   * Optional AI polish for the introduction. Best-effort: any failure
-   * falls back to the raw pack description so the export still ships.
-   */
   async function fetchPolishedIntroduction(
     creatorName: string | undefined,
     recipes: CookbookRecipe[]
   ): Promise<{ text: string; aiUsed: boolean }> {
     const fallback = packDescription || '';
     if (!includeIntroduction) return { text: fallback, aiUsed: false };
+    if (!isProMember) {
+      // Pay-per-use customers get the export but the AI intro endpoint
+      // is gated to Pro. Use the raw description so they still get an
+      // intro if they checked the toggle.
+      return { text: fallback, aiUsed: false };
+    }
     if (!$userPublickey) return { text: fallback, aiUsed: false };
     try {
       const res = await fetch('/api/cookbook-intro', {
@@ -122,7 +182,151 @@
     return { text: fallback, aiUsed: false };
   }
 
-  async function handleGenerate() {
+  // ===== Pay-per-export flow =====
+  async function handleUnlockClick() {
+    if (invoiceLoading) return;
+    if (!$userPublickey) {
+      showToast('info', 'Sign in to unlock cookbook export.');
+      return;
+    }
+    if (!packNaddr) {
+      showToast('error', 'Missing pack reference. Please reload the page.');
+      return;
+    }
+    invoiceError = '';
+    invoiceLoading = true;
+    try {
+      const res = await fetch('/api/cookbook-export/create-invoice', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          buyerPubkey: $userPublickey,
+          packNaddr,
+          packTitle: title.trim() || packTitle
+        })
+      });
+      if (!res.ok) {
+        let msg = 'Failed to create Lightning invoice.';
+        try {
+          const data = await res.json();
+          msg = data?.error || msg;
+        } catch {}
+        throw new Error(msg);
+      }
+      const data = (await res.json()) as {
+        exportId: string;
+        invoice: string;
+        paymentHash: string;
+        receiveRequestId: string;
+        invoiceExpiresAt: number;
+        amountSats: number;
+      };
+      exportId = data.exportId;
+      receiveRequestId = data.receiveRequestId;
+      invoice = data.invoice;
+      stage = 'invoice';
+
+      // Hand the invoice to Bitcoin Connect / Alby's modal — gives us
+      // the QR + copy + WebLN button without us having to draw it.
+      try {
+        const { setPaid } = await lightningService.launchPayment({
+          invoice,
+          onPaid: async () => {
+            stopInvoicePolling();
+            await onPaymentConfirmed();
+          },
+          onCancelled: () => {
+            stopInvoicePolling();
+            // User dismissed the modal without paying — leave them on
+            // the invoice screen so they can retry / copy the invoice.
+          }
+        });
+        startInvoicePolling(setPaid);
+      } catch (err) {
+        console.error('[ExportCookbookModal] launchPayment failed', err);
+        // Still allow polling — the user can copy the invoice manually
+        // from the screen and pay from any wallet.
+        startInvoicePolling(null);
+      }
+    } catch (err: any) {
+      console.error('[ExportCookbookModal] create-invoice failed', err);
+      invoiceError = err?.message || 'Failed to create Lightning invoice.';
+    } finally {
+      invoiceLoading = false;
+    }
+  }
+
+  function startInvoicePolling(setPaid: ((r: { preimage: string }) => void) | null) {
+    stopInvoicePolling();
+    invoicePollInterval = setInterval(async () => {
+      if (!exportId || !receiveRequestId) return;
+      try {
+        const res = await fetch('/api/cookbook-export/verify-payment', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ exportId, receiveRequestId })
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.success) {
+            stopInvoicePolling();
+            // Tell Alby's modal we paid (it'll auto-close).
+            if (setPaid) setPaid({ preimage: 'strike-confirmed' });
+            await onPaymentConfirmed();
+          }
+        } else if (res.status !== 402) {
+          // Permanent failure (404/500) — give up the poll.
+          stopInvoicePolling();
+        }
+      } catch {
+        /* network blip — keep polling */
+      }
+    }, 3000);
+  }
+
+  function stopInvoicePolling() {
+    if (invoicePollInterval) {
+      clearInterval(invoicePollInterval);
+      invoicePollInterval = null;
+    }
+  }
+
+  async function onPaymentConfirmed() {
+    paymentUnlocked = true;
+    markRecentlyPaid();
+    showToast('success', 'Payment received ⚡ Generating your cookbook…');
+    // Move directly into PDF generation — no extra click required.
+    await runGenerate();
+  }
+
+  async function copyInvoice() {
+    if (!invoice) return;
+    const ok = await copyToClipboard(invoice);
+    if (ok) {
+      invoiceCopied = true;
+      setTimeout(() => (invoiceCopied = false), 1800);
+    }
+  }
+
+  function cancelInvoice() {
+    stopInvoicePolling();
+    invoice = '';
+    exportId = '';
+    receiveRequestId = '';
+    stage = 'form';
+  }
+
+  // ===== Generate flow =====
+  async function handleGenerateClick() {
+    if (!canExport) {
+      // Non-Pro and no recent pay — kick off the unlock flow.
+      await handleUnlockClick();
+      return;
+    }
+    await runGenerate();
+  }
+
+  async function runGenerate() {
     if (stage === 'generating') return;
     if (!packEvent) {
       showToast('error', 'Pack event not loaded yet.');
@@ -141,25 +345,12 @@
     stageMessage = 'Formatting your cookbook…';
 
     try {
-      // Resolve creator name (best-effort, parallel to the rest below).
       const creatorNamePromise = fetchCreatorName();
-
-      // Convert each event into our normalized recipe shape. We don't
-      // know per-recipe creator names without per-author profile fetches,
-      // so we only resolve the pack-creator name and leave per-recipe
-      // attribution unset for v1.
       const recipes: CookbookRecipe[] = recipeEvents.map((e) => recipeEventToCookbookRecipe(e));
-
       const creatorName = await creatorNamePromise;
-
-      // AI polish (best-effort).
-      const { text: introduction, aiUsed } = await fetchPolishedIntroduction(
-        creatorName,
-        recipes
-      );
+      const { text: introduction, aiUsed } = await fetchPolishedIntroduction(creatorName, recipes);
       usedAi = aiUsed;
 
-      // Build the PDF.
       const result = await buildCookbookPdf({
         title: title.trim(),
         subtitle: subtitle.trim() || undefined,
@@ -199,6 +390,12 @@
     dispatch('downloaded');
   }
 
+  async function copyShareUrl() {
+    if (!packShareUrl) return;
+    const ok = await copyToClipboard(packShareUrl);
+    if (ok) showToast('success', 'Recipe Pack link copied');
+  }
+
   function handleClose() {
     open = false;
   }
@@ -214,9 +411,32 @@
 
   {#if stage === 'form'}
     <div class="flex flex-col gap-4">
-      <p class="text-sm text-caption">
-        Turn this Recipe Pack into a printable cookbook PDF.
-      </p>
+      <p class="text-sm text-caption">Turn this Recipe Pack into a printable cookbook PDF.</p>
+
+      {#if !canExport}
+        <!-- Pay-per-use hint for non-Pro users. Kept compact so it doesn't
+             dominate the form. -->
+        <div
+          class="flex items-start gap-3 p-3 rounded-lg"
+          style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);"
+        >
+          <div
+            class="w-8 h-8 rounded-full bg-gradient-to-br from-orange-500 to-amber-500 flex items-center justify-center flex-shrink-0 text-white font-bold"
+            aria-hidden="true"
+          >
+            ⚡
+          </div>
+          <div class="flex flex-col gap-1">
+            <p class="text-sm" style="color: var(--color-text-primary)">
+              <span class="font-medium">Free with Pro Kitchen membership</span>
+              <span class="text-caption"> — or unlock once for {COOKBOOK_EXPORT_SATS} sats.</span>
+            </p>
+            <a href="/membership" class="text-xs text-primary hover:underline">
+              See Pro Kitchen
+            </a>
+          </div>
+        </div>
+      {/if}
 
       <div class="flex flex-col gap-2">
         <label
@@ -277,12 +497,18 @@
             class="w-4 h-4 accent-orange-500"
           />
           <span style="color: var(--color-text-primary)">Introduction</span>
-          <span class="text-xs text-caption">— polished automatically when possible</span>
+          {#if isProMember}
+            <span class="text-xs text-caption">— polished automatically when possible</span>
+          {/if}
         </label>
       </fieldset>
 
       <div class="flex flex-col gap-2">
-        <label for="cookbook-style" class="text-sm font-medium" style="color: var(--color-text-primary)">
+        <label
+          for="cookbook-style"
+          class="text-sm font-medium"
+          style="color: var(--color-text-primary)"
+        >
           Style
         </label>
         <select id="cookbook-style" class="input" bind:value={style}>
@@ -299,22 +525,80 @@
         </p>
       {/if}
 
+      {#if invoiceError}
+        <p class="text-sm text-red-500">{invoiceError}</p>
+      {/if}
+
       <div class="flex justify-end gap-2 pt-1">
         <Button on:click={handleClose} primary={false}>Cancel</Button>
-        <Button on:click={handleGenerate} disabled={!packEvent || recipeEvents.length === 0}>
-          Generate Cookbook
+        <Button
+          on:click={handleGenerateClick}
+          disabled={invoiceLoading || !packEvent || recipeEvents.length === 0}
+        >
+          {#if invoiceLoading}
+            Creating invoice…
+          {:else if canExport}
+            Generate Cookbook
+          {:else}
+            Unlock Cookbook for {COOKBOOK_EXPORT_SATS} sats ⚡
+          {/if}
         </Button>
+      </div>
+    </div>
+  {:else if stage === 'invoice'}
+    <div class="flex flex-col gap-4">
+      <p class="text-sm" style="color: var(--color-text-primary)">
+        Pay <span class="font-semibold">{COOKBOOK_EXPORT_SATS} sats</span> to unlock cookbook export
+        for this pack.
+      </p>
+      <p class="text-xs text-caption">
+        A wallet picker should have opened in another window. If not, copy the invoice and pay from
+        any Lightning wallet.
+      </p>
+
+      <div
+        class="flex items-center gap-2 p-2 rounded-lg overflow-hidden"
+        style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);"
+      >
+        <code
+          class="text-xs flex-1 truncate"
+          style="color: var(--color-text-secondary); font-family: monospace;"
+          title={invoice}
+        >
+          {invoice}
+        </code>
+        <button
+          type="button"
+          on:click={copyInvoice}
+          class="flex-shrink-0 px-3 py-1.5 rounded text-xs font-medium transition-colors"
+          style="background-color: var(--color-bg-secondary); color: var(--color-text-primary); border: 1px solid var(--color-input-border);"
+        >
+          {invoiceCopied ? 'Copied' : 'Copy'}
+        </button>
+      </div>
+
+      <div class="flex items-center gap-2 text-sm">
+        <div
+          class="w-4 h-4 rounded-full border-2 border-orange-200 border-t-orange-500 animate-spin"
+        ></div>
+        <span class="text-caption">Waiting for payment…</span>
+      </div>
+
+      <div class="flex justify-end gap-2 pt-1">
+        <Button on:click={cancelInvoice} primary={false}>Cancel</Button>
       </div>
     </div>
   {:else if stage === 'generating'}
     <div class="flex flex-col items-center justify-center gap-4 py-10">
-      <div class="w-10 h-10 rounded-full border-4 border-orange-200 border-t-orange-500 animate-spin"></div>
+      <div
+        class="w-10 h-10 rounded-full border-4 border-orange-200 border-t-orange-500 animate-spin"
+      ></div>
       <p class="text-sm" style="color: var(--color-text-primary)">
         {stageMessage || 'Formatting your cookbook…'}
       </p>
       <p class="text-xs text-caption text-center max-w-sm">
-        Generation runs in your browser. Depending on the number of recipes and image
-        sizes, this can take 10–30 seconds.
+        Generation runs in your browser. Depending on the number of recipes and image sizes, this
+        can take 10–30 seconds.
       </p>
     </div>
   {:else if stage === 'success'}
@@ -327,11 +611,11 @@
           class="w-10 h-10 rounded-full bg-gradient-to-br from-orange-500 to-amber-500 flex items-center justify-center flex-shrink-0 text-white text-lg"
           aria-hidden="true"
         >
-          ✓
+          📚
         </div>
         <div class="flex flex-col">
           <p class="text-sm font-medium" style="color: var(--color-text-primary)">
-            Cookbook ready
+            Your cookbook is ready
           </p>
           <p class="text-xs text-caption">
             {resultIncluded} {resultIncluded === 1 ? 'recipe' : 'recipes'} included
@@ -345,7 +629,10 @@
         </div>
       </div>
 
-      <div class="flex justify-end gap-2 pt-1">
+      <div class="flex flex-wrap justify-end gap-2 pt-1">
+        {#if packShareUrl}
+          <Button on:click={copyShareUrl} primary={false}>Share Recipe Pack</Button>
+        {/if}
         <Button on:click={handleClose} primary={false}>Close</Button>
         <Button on:click={handleDownload}>Download PDF</Button>
       </div>
@@ -355,6 +642,11 @@
       <p class="text-sm" style="color: var(--color-text-primary)">
         {stageMessage || 'Something went wrong while building the PDF.'}
       </p>
+      {#if paymentUnlocked && !isProMember}
+        <p class="text-xs text-caption">
+          Your payment is still valid — retry won't charge again.
+        </p>
+      {/if}
       <div class="flex justify-end gap-2">
         <Button on:click={handleClose} primary={false}>Close</Button>
         <Button on:click={handleRetry}>Try again</Button>

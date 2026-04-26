@@ -28,7 +28,6 @@
   import Avatar from '../../../components/Avatar.svelte';
   import CustomName from '../../../components/CustomName.svelte';
   import ShareModal from '../../../components/ShareModal.svelte';
-  import Modal from '../../../components/Modal.svelte';
   import ExportCookbookModal from '../../../components/ExportCookbookModal.svelte';
   import { showToast } from '$lib/toast';
   import { lazyLoad } from '$lib/lazyLoad';
@@ -47,7 +46,6 @@
   import BookmarkIcon from 'phosphor-svelte/lib/BookmarkSimple';
   import BookmarkSimpleIcon from 'phosphor-svelte/lib/BookmarkSimple';
   import BookOpenIcon from 'phosphor-svelte/lib/BookOpen';
-  import LockKeyIcon from 'phosphor-svelte/lib/LockKey';
   import CheckCircleIcon from 'phosphor-svelte/lib/CheckCircle';
   import CircleNotchIcon from 'phosphor-svelte/lib/CircleNotch';
   import ChatTeardropTextIcon from 'phosphor-svelte/lib/ChatTeardropText';
@@ -307,13 +305,12 @@
   // Share modal (short link + social share + QR), reused from recipe page.
   let shareModalOpen = false;
 
-  // ===== Export-as-Cookbook (Pro feature) =====
+  // ===== Export-as-Cookbook =====
+  // Pro Kitchen / Founders → free unlimited exports.
+  // Non-members signed in → pay 2100 sats per export, handled inside
+  // the modal (paywall stage). Signed-out users get bounced to login.
   let exportModalOpen = false;
-  let upgradeModalOpen = false;
 
-  // Mirror the existing isPremiumTier convention from LandingImportHero:
-  // "Pro" === pro_kitchen + founders. cook_plus and others see the
-  // upgrade prompt instead of the full export modal.
   let membershipMap: Record<string, MembershipStatus> = {};
   const unsubMembership = membershipStatusMap.subscribe((v) => {
     membershipMap = v;
@@ -330,10 +327,8 @@
       goto('/login?redirect=' + encodeURIComponent(window.location.pathname));
       return;
     }
-    if (!isProMember) {
-      upgradeModalOpen = true;
-      return;
-    }
+    // Whether the user is Pro or not, the modal handles the right path
+    // (Pro → straight to form; non-Pro → form with paywall CTA).
     exportModalOpen = true;
   }
 </script>
@@ -370,7 +365,7 @@
   imageUrl={image || ''}
 />
 
-<!-- Export as Cookbook (Pro) -->
+<!-- Export as Cookbook (free for Pro / 2100 sats for everyone else) -->
 {#if packEvent}
   <ExportCookbookModal
     bind:open={exportModalOpen}
@@ -381,49 +376,10 @@
     packDescription={description}
     packCoverImage={image}
     {creatorPubkey}
+    packNaddr={$page.params.naddr}
+    packShareUrl={viewUrl}
+    {isProMember}
   />
-{/if}
-
-<!-- Upgrade prompt for non-Pro members who tap the locked Export button -->
-{#if upgradeModalOpen}
-  <Modal cleanup={() => (upgradeModalOpen = false)} bind:open={upgradeModalOpen}>
-    <h1 slot="title">Pro Kitchen feature</h1>
-    <div class="flex flex-col gap-4">
-      <div
-        class="flex items-start gap-3 p-3 rounded-lg"
-        style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);"
-      >
-        <div
-          class="w-10 h-10 rounded-full bg-gradient-to-br from-orange-500 to-amber-500 flex items-center justify-center flex-shrink-0"
-        >
-          <BookOpenIcon size={20} weight="fill" class="text-white" />
-        </div>
-        <div class="flex flex-col">
-          <p class="text-sm font-medium" style="color: var(--color-text-primary)">
-            Export as Cookbook
-          </p>
-          <p class="text-sm text-caption">
-            Export Recipe Packs as printable cookbooks with Pro Kitchen.
-          </p>
-        </div>
-      </div>
-      <div class="flex justify-end gap-2 pt-1">
-        <button
-          on:click={() => (upgradeModalOpen = false)}
-          class="px-4 py-2 rounded-full text-sm font-medium transition-colors"
-          style="background-color: var(--color-input-bg); color: var(--color-text-primary); border: 1px solid var(--color-input-border);"
-        >
-          Maybe later
-        </button>
-        <a
-          href="/membership"
-          class="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white rounded-full font-semibold transition-all shadow-md shadow-orange-500/25"
-        >
-          See Pro Kitchen
-        </a>
-      </div>
-    </div>
-  </Modal>
 {/if}
 
 {#if !loaded}
@@ -619,19 +575,25 @@
           style="background-color: var(--color-input-bg); color: var(--color-text-primary); border: 1px solid var(--color-input-border);"
           title={isProMember
             ? 'Export this pack as a printable cookbook PDF'
-            : 'Pro Kitchen members can export Recipe Packs as printable cookbooks'}
+            : 'Free with Pro Kitchen — or unlock once for 2100 sats'}
         >
-          {#if isProMember}
-            <BookOpenIcon size={16} />
-          {:else}
-            <LockKeyIcon size={16} class="text-amber-500" />
-          {/if}
+          <BookOpenIcon size={16} />
           <span>Export as Cookbook</span>
-          <span
-            class="text-[10px] uppercase tracking-wide font-bold px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-600 dark:text-amber-400"
-          >
-            Pro
-          </span>
+          {#if isProMember}
+            <span
+              class="text-[10px] uppercase tracking-wide font-bold px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-600 dark:text-amber-400"
+              title="Free for Pro Kitchen members"
+            >
+              Pro
+            </span>
+          {:else}
+            <span
+              class="text-[10px] uppercase tracking-wide font-bold px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-600 dark:text-amber-400"
+              title="Pay 2100 sats per export — or upgrade to Pro Kitchen for unlimited"
+            >
+              2100 sats ⚡
+            </span>
+          {/if}
         </button>
       {/if}
     </div>
