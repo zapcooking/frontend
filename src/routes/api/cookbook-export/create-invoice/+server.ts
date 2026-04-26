@@ -67,8 +67,10 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 			finalSats: number;
 		} | null = null;
 
+		const kv = platform?.env?.GATED_CONTENT ?? null;
+
 		if (typeof promoCode === 'string' && promoCode.trim()) {
-			const lookup = applyPromo(promoCode, COOKBOOK_EXPORT_SATS);
+			const lookup = await applyPromo(kv, promoCode, COOKBOOK_EXPORT_SATS);
 			if (!lookup.ok || !lookup.applied) {
 				return json(
 					{ error: 'Promo code not valid', promoError: lookup.error || 'unknown_code' },
@@ -90,7 +92,6 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 				: 'Recipe Pack';
 
 		const exportId = crypto.randomUUID();
-		const kv = platform?.env?.GATED_CONTENT ?? null;
 		if (!kv && env.NODE_ENV === 'production') {
 			console.error('[cookbook-export] GATED_CONTENT KV binding missing in production');
 			return json({ error: 'Service temporarily unavailable' }, { status: 503 });

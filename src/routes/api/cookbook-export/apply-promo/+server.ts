@@ -19,7 +19,7 @@ import { json, type RequestHandler } from '@sveltejs/kit';
 import { COOKBOOK_EXPORT_SATS } from '$lib/cookbookPricing';
 import { applyPromo } from '$lib/cookbookPromo.server';
 
-export const POST: RequestHandler = async ({ request }) => {
+export const POST: RequestHandler = async ({ request, platform }) => {
 	let body: { code?: string };
 	try {
 		body = (await request.json()) as { code?: string };
@@ -27,7 +27,8 @@ export const POST: RequestHandler = async ({ request }) => {
 		return json({ success: false, error: 'unknown_code' });
 	}
 
-	const result = applyPromo(body?.code || '', COOKBOOK_EXPORT_SATS);
+	const kv = platform?.env?.GATED_CONTENT ?? null;
+	const result = await applyPromo(kv, body?.code || '', COOKBOOK_EXPORT_SATS);
 	if (!result.ok || !result.applied) {
 		return json({ success: false, error: result.error || 'unknown_code' });
 	}
