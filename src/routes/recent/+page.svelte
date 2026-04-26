@@ -233,6 +233,13 @@
         {/if}
       </button>
       <a
+        href="/packs"
+        class="flex-1 py-2.5 text-sm font-medium transition-colors relative cursor-pointer text-center"
+        style="color: var(--color-text-secondary)"
+      >
+        Packs
+      </a>
+      <a
         href="/premium"
         class="flex-1 py-2.5 text-sm font-medium transition-colors relative cursor-pointer text-center"
         style="color: var(--color-text-secondary)"

@@ -1,9 +1,9 @@
 /**
- * URL shortener types for zap.cooking recipe and Nostr long-form article links.
- * Short links use format: zap.cooking/s/:code
+ * URL shortener types for zap.cooking recipe, Nostr long-form article,
+ * and Recipe Pack links. Short links use format: zap.cooking/s/:code
  */
 
-export type ShortLinkType = 'recipe' | 'article';
+export type ShortLinkType = 'recipe' | 'article' | 'pack';
 
 export interface ShortenedURL {
   shortCode: string;

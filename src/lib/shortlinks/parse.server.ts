@@ -5,8 +5,15 @@
 
 import type { ShortLinkType } from './types';
 
-const ZAP_COOKING_ORIGIN = 'https://zap.cooking';
-const ZAP_ORIGIN_ALT = /^https?:\/\/(www\.)?zap\.cooking/i;
+/**
+ * Strict allowlist for the hostname we accept URLs from.
+ * Substring matches (e.g. `origin.includes('zap.cooking')`) would also
+ * accept `zap.cooking.evil.com` or `api.zap.cooking.attacker.tld`.
+ */
+function isZapCookingHost(u: URL): boolean {
+  const host = u.hostname.toLowerCase();
+  return host === 'zap.cooking' || host === 'www.zap.cooking';
+}
 
 /**
  * Extract naddr and type from a zap.cooking URL or raw naddr string.
@@ -23,20 +30,20 @@ export function parseUrlOrNaddr(input: string): { naddr: string; type: ShortLink
 
   try {
     const u = new URL(s);
-    const origin = u.origin.toLowerCase();
+    if (!isZapCookingHost(u)) return null;
     const path = u.pathname;
 
     // /r/naddr1... → recipe
     const rMatch = path.match(/^\/r\/(naddr1[a-zA-Z0-9]+)/);
-    if (rMatch && (origin.includes('zap.cooking') || ZAP_ORIGIN_ALT.test(u.href))) {
-      return { naddr: rMatch[1], type: 'recipe' };
-    }
+    if (rMatch) return { naddr: rMatch[1], type: 'recipe' };
 
     // /reads/naddr1... → article
     const readsMatch = path.match(/^\/reads\/(naddr1[a-zA-Z0-9]+)/);
-    if (readsMatch && (origin.includes('zap.cooking') || ZAP_ORIGIN_ALT.test(u.href))) {
-      return { naddr: readsMatch[1], type: 'article' };
-    }
+    if (readsMatch) return { naddr: readsMatch[1], type: 'article' };
+
+    // /pack/naddr1... → recipe pack
+    const packMatch = path.match(/^\/pack\/(naddr1[a-zA-Z0-9]+)/);
+    if (packMatch) return { naddr: packMatch[1], type: 'pack' };
   } catch {
     // not a valid URL
   }
@@ -48,5 +55,7 @@ export function parseUrlOrNaddr(input: string): { naddr: string; type: ShortLink
  * Build redirect path from stored naddr and type.
  */
 export function redirectPath(naddr: string, type: ShortLinkType): string {
-  return type === 'article' ? `/reads/${naddr}` : `/r/${naddr}`;
+  if (type === 'article') return `/reads/${naddr}`;
+  if (type === 'pack') return `/pack/${naddr}`;
+  return `/r/${naddr}`;
 }
