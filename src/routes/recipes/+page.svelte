@@ -287,8 +287,11 @@
         console.log('[Recipes] pagination exhausted — no older recipes returned');
       } else {
         events = [...events, ...newEvents];
+        // Log the exact `until` we asked the relays for (oldest - 1) so
+        // log lines line up with the actual subscription filter when
+        // debugging "why didn't this older recipe come back?"
         console.log(
-          `[Recipes] pagination +${newEvents.length} (total ${events.length}, until=${oldest})`
+          `[Recipes] pagination +${newEvents.length} (total ${events.length}, oldest=${oldest}, until=${oldest - 1})`
         );
       }
     } catch (err) {
@@ -304,9 +307,18 @@
     }
   }
 
+  /** Tracks the DOM node we're currently observing so we can detect when
+   *  Svelte has remounted the sentinel (pull-to-refresh sets loaded=false
+   *  → {#if} unmounts → bind:this nulls → loaded flips back true → new
+   *  node → bind:this assigns a fresh reference) and re-observe it. */
+  let observedSentinel: HTMLDivElement | null = null;
+
   function setupIntersectionObserver() {
-    if (intersectionObserver || !sentinelEl) return;
+    if (!sentinelEl) return;
     if (typeof IntersectionObserver === 'undefined') return;
+    // Idempotent: if we're already observing the current sentinel, no-op.
+    if (intersectionObserver && observedSentinel === sentinelEl) return;
+    teardownIntersectionObserver();
     intersectionObserver = new IntersectionObserver(
       (entries) => {
         for (const entry of entries) {
@@ -320,6 +332,7 @@
       { rootMargin: '400px' }
     );
     intersectionObserver.observe(sentinelEl);
+    observedSentinel = sentinelEl;
   }
 
   function teardownIntersectionObserver() {
@@ -327,18 +340,24 @@
       intersectionObserver.disconnect();
       intersectionObserver = null;
     }
+    observedSentinel = null;
   }
 
-  // Attach the observer once the first page has settled and the
-  // sentinel is in the DOM. Reactive on `loaded`, `events.length`, and
-  // `sentinelEl` so SPA navigations re-attach correctly.
-  $: if (
-    loaded &&
-    events.length >= MIN_EVENTS_BEFORE_PAGINATION &&
-    sentinelEl &&
-    !intersectionObserver
-  ) {
-    setupIntersectionObserver();
+  // Attach / re-attach the observer based on the current sentinel.
+  // Pull-to-refresh and exhaustion both unmount the sentinel via the
+  // {#if loaded && !exhausted} block, which nulls `sentinelEl`. Without
+  // an explicit teardown branch the old observer would keep watching
+  // a now-detached node and lazy-load would silently stop working
+  // after the first refresh. Combining setup + teardown in one
+  // reactive statement closes that gap and also handles the case where
+  // the sentinel node is replaced (svelte unmount → remount produces
+  // a new HTMLElement reference).
+  $: if (loaded && events.length >= MIN_EVENTS_BEFORE_PAGINATION && sentinelEl) {
+    if (observedSentinel !== sentinelEl) {
+      setupIntersectionObserver();
+    }
+  } else if (intersectionObserver) {
+    teardownIntersectionObserver();
   }
 
   async function handleRefresh() {
