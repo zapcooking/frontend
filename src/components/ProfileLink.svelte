@@ -4,6 +4,7 @@
   import { nip19 } from 'nostr-tools';
   import { profileActions, profiles, loadingProfiles, profileErrors } from '$lib/profileStore';
   import { decodeNostrProfile, resolveProfile, formatDisplayName } from '$lib/profileResolver';
+  import { getAnonChefName } from '$lib/anonName';
   import { ndk } from '$lib/nostr';
 
   export let nostrString: string;
@@ -33,12 +34,16 @@
         } else if (fallbackToRaw) {
           displayName = nostrString;
         } else {
-          displayName = '@Anonymous';
+          // Stable per-pubkey anon-chef name when the profile is gone
+          // (account abandoned / kind:0 deleted / relay GC'd). Falls
+          // through to a generic "Anon Chef" if we couldn't decode a
+          // pubkey from nostrString.
+          displayName = getAnonChefName(pubkey);
         }
       } else if (fallbackToRaw) {
         displayName = nostrString;
       } else {
-        displayName = '@Anonymous';
+        displayName = getAnonChefName(pubkey);
       }
     } catch (err) {
       console.error('Failed to resolve profile:', err);
@@ -46,7 +51,9 @@
       if (fallbackToRaw) {
         displayName = nostrString;
       } else {
-        displayName = '@Error';
+        // Same friendly fallback on resolution error — the user doesn't
+        // care that it was a network blip vs. a missing profile.
+        displayName = getAnonChefName(pubkey);
       }
     } finally {
       isLoading = false;

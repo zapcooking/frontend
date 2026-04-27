@@ -26,6 +26,7 @@
   import ZapModal from '../ZapModal.svelte';
   import ReplyComposer from './ReplyComposer.svelte';
   import { resolveProfileByPubkey, formatDisplayName } from '$lib/profileResolver';
+  import { getAnonChefName } from '$lib/anonName';
   import { formatAmount } from '$lib/utils';
   import { addClientTagToEvent } from '$lib/nip89';
   import HeartIcon from 'phosphor-svelte/lib/Heart';
@@ -155,9 +156,12 @@
     if (event.pubkey && $ndk) {
       try {
         const profile = await resolveProfileByPubkey(event.pubkey, $ndk);
+        // formatDisplayName falls back to a stable anon-chef name when
+        // the profile is missing or has no `name` field; we only need
+        // to handle the resolution-error case explicitly.
         displayName = formatDisplayName(profile);
       } catch (error) {
-        displayName = '@Anonymous';
+        displayName = getAnonChefName(event.pubkey);
       } finally {
         isLoading = false;
       }
@@ -187,7 +191,7 @@
           const profile = await resolveProfileByPubkey(parentComment.pubkey, $ndk);
           parentDisplayName = formatDisplayName(profile);
         } catch {
-          parentDisplayName = '@Anonymous';
+          parentDisplayName = getAnonChefName(parentComment.pubkey);
         }
       }
       parentLoading = false;
