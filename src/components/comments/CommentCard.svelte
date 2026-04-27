@@ -156,10 +156,12 @@
     if (event.pubkey && $ndk) {
       try {
         const profile = await resolveProfileByPubkey(event.pubkey, $ndk);
-        // formatDisplayName falls back to a stable anon-chef name when
-        // the profile is missing or has no `name` field; we only need
-        // to handle the resolution-error case explicitly.
-        displayName = formatDisplayName(profile);
+        // formatDisplayName(null) returns the GENERIC 'Anon Chef' since
+        // it has no pubkey to hash. We DO have event.pubkey here, so
+        // short-circuit the null-profile case to get the stable
+        // per-pubkey name (e.g. "Sat Chef") instead. Profiles with a
+        // name field still flow through formatDisplayName.
+        displayName = profile ? formatDisplayName(profile) : getAnonChefName(event.pubkey);
       } catch (error) {
         displayName = getAnonChefName(event.pubkey);
       } finally {
@@ -189,7 +191,12 @@
       if (parentComment?.pubkey) {
         try {
           const profile = await resolveProfileByPubkey(parentComment.pubkey, $ndk);
-          parentDisplayName = formatDisplayName(profile);
+          // Same pubkey-aware short-circuit as the event-author branch
+          // above — null profile → stable anon-chef name, not the
+          // generic "Anon Chef".
+          parentDisplayName = profile
+            ? formatDisplayName(profile)
+            : getAnonChefName(parentComment.pubkey);
         } catch {
           parentDisplayName = getAnonChefName(parentComment.pubkey);
         }

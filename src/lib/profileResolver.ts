@@ -206,11 +206,13 @@ export async function resolveProfileByPubkey(pubkey: string, ndkInstance: NDK): 
 // Old recipes whose authors deleted their kind:0 metadata used to
 // render as "Anonymous" or a truncated hex; the anon helper makes
 // them feel attributed instead of broken.
+//
+// Callers that have a bare pubkey but no ProfileData object should
+// import `getAnonChefName` directly rather than passing `null` here —
+// the null path can't compute a stable per-pubkey name and returns
+// the generic 'Anon Chef'.
 export function getDisplayName(profile: ProfileData | null): string {
   if (!profile) {
-    // No profile at all — generic fallback. Callers that have a
-    // pubkey can use getDisplayNameWithPubkey() to get the stable
-    // hash-mapped name instead.
     return getAnonChefName(null);
   }
 

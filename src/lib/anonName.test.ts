@@ -36,10 +36,19 @@ describe('getAnonChefName', () => {
     expect(third).toBe(first);
   });
 
-  it('produces different names for different pubkeys (probabilistic, but trivially holds for these two)', () => {
-    // With a 33-entry pool, the odds of two arbitrary inputs colliding
-    // are 1/33; these specific inputs hash to different slots.
-    expect(getAnonChefName(SAMPLE_PUBKEY_A)).not.toBe(getAnonChefName(SAMPLE_PUBKEY_B));
+  it('is deterministic for a second pubkey independently', () => {
+    // We deliberately don't assert that A and B produce *different*
+    // names — that's a hash-collision claim that can flip if the pool
+    // is reordered or extended, even though the determinism contract
+    // (the only real guarantee) still holds. Verifying B's stability
+    // separately preserves the spirit of "two pubkeys → two stable
+    // identities" without baking in the collision-free assumption.
+    const first = getAnonChefName(SAMPLE_PUBKEY_B);
+    const second = getAnonChefName(SAMPLE_PUBKEY_B);
+    const third = getAnonChefName(SAMPLE_PUBKEY_B);
+    expect(second).toBe(first);
+    expect(third).toBe(first);
+    expect(ANON_COOK_NAME_POOL).toContain(first);
   });
 
   it('handles real-looking 64-char hex pubkeys', () => {
@@ -70,15 +79,15 @@ describe('ANON_COOK_NAME_POOL', () => {
   });
 
   it('covers a sensibly large slice of the pool when sampled across many pubkeys', () => {
-    // Sample 200 pubkey-shaped inputs; with a 33-entry pool we should
-    // hit a healthy fraction of distinct entries even via simple hash.
+    // Sample 200 pubkey-shaped inputs; we should hit a healthy fraction
+    // of distinct entries even via the simple hash.
     const seen = new Set<string>();
     for (let i = 0; i < 200; i++) {
       const fakePubkey = i.toString(16).padStart(64, '0');
       seen.add(getAnonChefName(fakePubkey));
     }
-    // With 200 samples and 33 pool entries, we expect to cover most of
-    // the pool. Threshold leaves a margin for hash bunching.
+    // 200 samples should cover at least half the pool. Threshold
+    // references .length so the test stays valid as the pool changes.
     expect(seen.size).toBeGreaterThan(ANON_COOK_NAME_POOL.length * 0.5);
   });
 });

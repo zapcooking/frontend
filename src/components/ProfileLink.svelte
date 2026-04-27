@@ -77,9 +77,13 @@
   {#if isLoading && showLoading}
     <span class="animate-pulse">Loading...</span>
   {:else if error}
-    <span class="text-red-500" title="Error: {error}">
-      {fallbackToRaw ? nostrString : '@Error'}
-    </span>
+    <!-- Error branch: keep the red styling + tooltip so the failure
+         is still visible to anyone hovering, but render `displayName`
+         (which the catch above already set to the friendly anon-chef
+         name when fallbackToRaw is false, or to `nostrString` when
+         true). The previous '@Error' literal bypassed the friendly
+         fallback we computed in the load path. -->
+    <span class="text-red-500" title="Error: {error}">{displayName}</span>
   {:else}
     {displayName}
   {/if}
