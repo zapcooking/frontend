@@ -73,7 +73,7 @@
     discoverError = '';
     try {
       // Make sure NDK has at least one connected relay before subscribing
-      // — mirrors /recipes's pattern. Reduces cold-load failure rate when
+      // — mirrors /recipes' pattern. Reduces cold-load failure rate when
       // the page is loaded directly (rather than via SPA nav from the home
       // feed which has already warmed connections).
       try {
