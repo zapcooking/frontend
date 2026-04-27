@@ -196,19 +196,19 @@
 
 <PullToRefresh bind:this={pullToRefreshEl} on:refresh={handleRefresh}>
 <div class="flex flex-col gap-4 max-w-full md:max-w-none">
-  <!-- Tabs (shared with /recent) -->
+  <!-- Tabs (shared with /recipes) -->
   <div class="flex flex-col gap-3">
     <div class="flex items-center justify-between gap-4">
       <div class="flex gap-1 border-b" style="border-color: var(--color-input-border)">
         <a
-          href="/recent"
+          href="/recipes"
           class="px-4 py-2 text-sm font-medium transition-colors relative cursor-pointer"
           style="color: var(--color-text-secondary)"
         >
           Recent
         </a>
         <a
-          href="/recent"
+          href="/recipes"
           class="px-4 py-2 text-sm font-medium transition-colors relative cursor-pointer"
           style="color: var(--color-text-secondary)"
         >

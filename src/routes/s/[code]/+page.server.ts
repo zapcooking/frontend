@@ -18,14 +18,14 @@ export const load: PageServerLoad = async ({ params, platform }) => {
 
   const code = params?.code?.trim();
   if (!code) {
-    throw redirect(302, '/recent');
+    throw redirect(302, '/recipes');
   }
 
   const key = normalizeShortCode(code);
   const record = await kv.get(key, 'json') as ShortenedURL | null;
   
   if (!record) {
-    throw redirect(302, '/recent');
+    throw redirect(302, '/recipes');
   }
 
   // Increment click count (best-effort; don't block redirect on write failure)
