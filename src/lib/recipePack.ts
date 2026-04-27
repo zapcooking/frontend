@@ -19,12 +19,19 @@ import { get } from 'svelte/store';
 export const RECIPE_PACK_KIND: NDKKind = 30004 as NDKKind;
 export const COOKBOOK_PACK_DTAG = 'zapcooking-cookbook';
 export const COLLECTION_PACK_DTAG_PREFIX = 'zapcooking-pack-';
+export const MY_RECIPES_PACK_DTAG = 'zapcooking-my-recipes';
 export const RECIPE_PACK_TAG = 'recipe-pack';
 export const ZAP_COOKING_TAG = 'zap-cooking';
+export const MY_RECIPES_TAG = 'my-recipes';
 
 export type RecipePackSource =
   | { type: 'cookbook' }
-  | { type: 'collection'; collectionDTag: string };
+  | { type: 'collection'; collectionDTag: string }
+  // Pack of recipes the current user has personally authored
+  // (kind 30023 events with `authors: [pubkey]`). Replaceable per
+  // pubkey via the fixed d-tag, so re-publishing updates a single
+  // canonical "My Recipes" pack rather than spawning new ones.
+  | { type: 'my-recipes' };
 
 export interface BuildPackInput {
   source: RecipePackSource;
@@ -44,6 +51,7 @@ export interface PublishedPack {
 /** Compute the d-tag for a pack source. Replaceable per source. */
 export function packDTag(source: RecipePackSource): string {
   if (source.type === 'cookbook') return COOKBOOK_PACK_DTAG;
+  if (source.type === 'my-recipes') return MY_RECIPES_PACK_DTAG;
   return `${COLLECTION_PACK_DTAG_PREFIX}${source.collectionDTag}`;
 }
 
@@ -162,6 +170,13 @@ export function buildRecipePackEvent(input: BuildPackInput): NDKEvent {
   tags.push(['t', RECIPE_PACK_TAG]);
   tags.push(['t', ZAP_COOKING_TAG]);
   tags.push(['t', RECIPE_TAG_PREFIX_NEW]);
+  // Per-source discriminator tag — lets feed clients filter for "my
+  // recipes" packs specifically without scanning d-tags. Cookbook and
+  // collection packs don't get an extra discriminator; they're already
+  // visually distinct via title/description on the pack page.
+  if (input.source.type === 'my-recipes') {
+    tags.push(['t', MY_RECIPES_TAG]);
+  }
 
   for (const aTag of dedupedATags) {
     tags.push(['a', aTag, GARDEN_RELAY_URL]);

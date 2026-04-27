@@ -18,6 +18,15 @@
   export let open = false;
   export let source: RecipePackSource;
   export let recipeATags: string[] = [];
+  /**
+   * Optional rich recipe list for the preview. When supplied, the
+   * modal renders a checkbox-list of titles so the user can deselect
+   * individual recipes before publishing. When omitted, the modal
+   * stays in the legacy "trust caller's recipeATags" shape used by
+   * cookbook + collection share buttons. Backwards-compatible: any
+   * caller still passing only `recipeATags` gets the same UI as today.
+   */
+  export let recipes: { aTag: string; title: string; image?: string }[] | undefined = undefined;
   export let initialTitle: string = '';
   export let initialDescription: string = '';
   export let initialImage: string | undefined = undefined;
@@ -37,7 +46,37 @@
   let publishedEvent: import('@nostr-dev-kit/ndk').NDKEvent | null = null;
   let copied = false;
 
-  $: recipeCount = recipeATags.length;
+  /**
+   * Selected a-tags from the rich recipe list. Default = all selected.
+   * Only used when `recipes` is provided; when not, the publish path
+   * uses `recipeATags` directly.
+   */
+  let selectedATags = new Set<string>();
+
+  /** Toggle a single recipe's selection. Extracted from the template
+   *  so the cast stays in TS-land — Svelte's inline expression parser
+   *  doesn't reliably handle `as HTMLInputElement` mid-template. */
+  function toggleRecipeSelection(aTag: string, checked: boolean) {
+    const next = new Set(selectedATags);
+    if (checked) next.add(aTag);
+    else next.delete(aTag);
+    selectedATags = next;
+  }
+
+  // Reset selection whenever a new `recipes` list arrives. Without this,
+  // closing + reopening the modal with a different recipe set would
+  // carry stale selections forward.
+  $: if (recipes) {
+    selectedATags = new Set(recipes.map((r) => r.aTag));
+  }
+
+  /** A-tags actually included in the publish: derived from the selection
+   *  when the rich recipe list is in play, or the prop directly otherwise. */
+  $: effectiveRecipeATags = recipes
+    ? recipes.filter((r) => selectedATags.has(r.aTag)).map((r) => r.aTag)
+    : recipeATags;
+
+  $: recipeCount = effectiveRecipeATags.length;
 
   // Reset state every time the modal opens
   $: if (open) initStateOnOpen();
@@ -55,11 +94,20 @@
       title = initialTitle || '';
       description = initialDescription || '';
       effectiveImage = initialImage;
-      // If no cover image was passed in, derive one from the first
-      // recipe that has an image. Cache-first so this is usually instant.
-      if (!effectiveImage && recipeATags.length > 0) {
+
+      // Cover image resolution. When the caller passed the rich recipe
+      // list we already have image URLs in memory — pick the first one
+      // synchronously and skip the network round-trip. Otherwise fall
+      // back to resolveFirstRecipeImage's cache-first lookup.
+      if (!effectiveImage && recipes && recipes.length > 0) {
+        const firstWithImage = recipes.find((r) => r.image);
+        if (firstWithImage?.image) {
+          effectiveImage = firstWithImage.image;
+        }
+      }
+      if (!effectiveImage && effectiveRecipeATags.length > 0) {
         isResolvingImage = true;
-        resolveFirstRecipeImage(recipeATags)
+        resolveFirstRecipeImage(effectiveRecipeATags)
           .then((img) => {
             if (img && !effectiveImage) effectiveImage = img;
           })
@@ -98,7 +146,9 @@
         title: title.trim(),
         description: description.trim() || undefined,
         image: effectiveImage,
-        recipeATags
+        // Use the user's current selection when the rich list is in
+        // play, otherwise fall through to the caller-supplied a-tags.
+        recipeATags: effectiveRecipeATags
       });
       publishedEvent = result.event;
       publishedNaddr = result.naddr;
@@ -197,6 +247,64 @@
           disabled={isSubmitting}
         />
       </div>
+
+      {#if recipes && recipes.length > 0}
+        <!-- Per-recipe checkbox list. Only rendered when the caller
+             passed a rich `recipes` prop; cookbook + collection share
+             paths still use the legacy preview-only flow. Default-all-
+             selected, capped at a max-height so a 200-recipe author
+             doesn't get a runaway scroll inside the modal. -->
+        <div class="flex flex-col gap-2">
+          <div class="flex items-center justify-between">
+            <span class="text-sm font-medium" style="color: var(--color-text-primary)">
+              Recipes ({recipeCount} of {recipes.length} selected)
+            </span>
+            {#if recipeCount < recipes.length}
+              <button
+                type="button"
+                class="text-xs underline"
+                style="color: var(--color-text-secondary)"
+                disabled={isSubmitting}
+                on:click={() => (selectedATags = new Set((recipes ?? []).map((r) => r.aTag)))}
+              >
+                Select all
+              </button>
+            {:else if recipeCount > 0}
+              <button
+                type="button"
+                class="text-xs underline"
+                style="color: var(--color-text-secondary)"
+                disabled={isSubmitting}
+                on:click={() => (selectedATags = new Set())}
+              >
+                Clear
+              </button>
+            {/if}
+          </div>
+          <div
+            class="flex flex-col gap-1 max-h-56 overflow-y-auto rounded-lg p-1"
+            style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);"
+          >
+            {#each recipes as recipe (recipe.aTag)}
+              <label
+                class="flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer hover:bg-black/5 dark:hover:bg-white/5"
+              >
+                <input
+                  type="checkbox"
+                  class="w-4 h-4 accent-orange-500 flex-shrink-0"
+                  checked={selectedATags.has(recipe.aTag)}
+                  disabled={isSubmitting}
+                  on:change={(e) =>
+                    toggleRecipeSelection(recipe.aTag, e.currentTarget.checked)}
+                />
+                <span class="text-sm truncate" style="color: var(--color-text-primary)">
+                  {recipe.title}
+                </span>
+              </label>
+            {/each}
+          </div>
+        </div>
+      {/if}
 
       <!-- Live preview -->
       <div class="flex flex-col gap-2">

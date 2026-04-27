@@ -30,6 +30,7 @@
   import ProfileDrafts from '../../../components/ProfileDrafts.svelte';
   import Modal from '../../../components/Modal.svelte';
   import FoodstrFeedOptimized from '../../../components/FoodstrFeedOptimized.svelte';
+  import ShareMyRecipesAction from '../../../components/ShareMyRecipesAction.svelte';
   import FloppyDiskIcon from 'phosphor-svelte/lib/FloppyDisk';
   import BookOpenIcon from 'phosphor-svelte/lib/BookOpen';
   import ImageSquareIcon from 'phosphor-svelte/lib/ImageSquare';
@@ -2122,6 +2123,18 @@
         </div>
       </div>
     {:else}
+      {#if hexpubkey && $userPublickey === hexpubkey}
+        <!-- Own-profile-only "Share My Recipes" action. Mounts inline
+             above the Feed so the entry point lives where users
+             already think of "my recipes". The component owns its
+             own loading + empty-state + modal — page stays slim. -->
+        <div class="mb-3 flex">
+          <ShareMyRecipesAction
+            pubkey={hexpubkey}
+            displayName={String(profile?.display_name ?? profile?.name ?? '')}
+          />
+        </div>
+      {/if}
       <Feed {events} {loaded} isProfileView={true} isOwnProfile={$userPublickey === hexpubkey} />
       {#if hasMoreRecipes}
         <div bind:this={recipeSentinel} class="py-4 text-center">
