@@ -20,14 +20,14 @@ import { validateMarkdownTemplate } from '$lib/parser';
 import { RECIPE_TAGS } from '$lib/consts';
 
 export interface MyRecipeForPack {
-	/** Addressable a-tag in `kind:pubkey:dTag` form, ready to drop into a Recipe Pack event. */
-	aTag: string;
-	/** Display title (from the `title` tag, falling back to the d-tag). */
-	title: string;
-	/** First image URL on the recipe, when present. */
-	image?: string;
-	/** Original event timestamp, used for newest-first sort. */
-	createdAt: number;
+  /** Addressable a-tag in `kind:pubkey:dTag` form, ready to drop into a Recipe Pack event. */
+  aTag: string;
+  /** Display title (from the `title` tag, falling back to the d-tag). */
+  title: string;
+  /** First image URL on the recipe, when present. */
+  image?: string;
+  /** Original event timestamp, used for newest-first sort. */
+  createdAt: number;
 }
 
 const RECIPE_KIND = 30023;
@@ -53,64 +53,68 @@ const SUBSCRIPTION_TIMEOUT_MS = 10_000;
  * RECIPE_TAGS filter, validate content via `parseMarkdownForEditing`'s
  * looser sibling, dedupe by a-tag, sort newest-first.
  */
-export async function fetchMyAuthoredRecipes(
-	ndk: NDK,
-	pubkey: string
-): Promise<MyRecipeForPack[]> {
-	if (!ndk) throw new Error('NDK not initialized');
-	if (!pubkey) throw new Error('Pubkey required');
+export async function fetchMyAuthoredRecipes(ndk: NDK, pubkey: string): Promise<MyRecipeForPack[]> {
+  if (!ndk) throw new Error('NDK not initialized');
+  if (!pubkey) throw new Error('Pubkey required');
 
-	const filter: NDKFilter = {
-		authors: [pubkey],
-		kinds: [RECIPE_KIND],
-		'#t': RECIPE_TAGS,
-		limit: MAX_RECIPES
-	};
+  const filter: NDKFilter = {
+    authors: [pubkey],
+    kinds: [RECIPE_KIND],
+    '#t': RECIPE_TAGS,
+    limit: MAX_RECIPES
+  };
 
-	// Track by a-tag so a republished recipe (same d-tag, newer
-	// created_at) keeps only the latest version. NDK delivers events as
-	// they arrive — when two come in for the same address we keep
-	// whichever has the higher created_at.
-	const byATag = new Map<string, MyRecipeForPack>();
+  // Track by a-tag so a republished recipe (same d-tag, newer
+  // created_at) keeps only the latest version. NDK delivers events as
+  // they arrive — when two come in for the same address we keep
+  // whichever has the higher created_at.
+  const byATag = new Map<string, MyRecipeForPack>();
 
-	await new Promise<void>((resolve) => {
-		const subscription = ndk.subscribe(filter, { closeOnEose: true });
+  await new Promise<void>((resolve) => {
+    const subscription = ndk.subscribe(filter, { closeOnEose: true });
 
-		const safetyTimeout = setTimeout(() => {
-			try {
-				subscription.stop();
-			} catch {
-				// already stopped
-			}
-			resolve();
-		}, SUBSCRIPTION_TIMEOUT_MS);
+    const safetyTimeout = setTimeout(() => {
+      try {
+        subscription.stop();
+      } catch {
+        // already stopped
+      }
+      resolve();
+    }, SUBSCRIPTION_TIMEOUT_MS);
 
-		subscription.on('event', (event: NDKEvent) => {
-			if (validateMarkdownTemplate(event.content) == null) return;
-			const dTag = event.tags.find((t) => t[0] === 'd')?.[1];
-			if (!dTag) return;
-			const aTag = `${RECIPE_KIND}:${pubkey}:${dTag}`;
-			const existing = byATag.get(aTag);
-			const createdAt = event.created_at || 0;
-			if (existing && existing.createdAt >= createdAt) return;
+    subscription.on('event', (event: NDKEvent) => {
+      // validateMarkdownTemplate returns MarkdownTemplate | string —
+      // it never returns null. A string return is an error message
+      // describing what's wrong with the markdown. Filter on that
+      // shape so malformed events stay out of the pack. (The wider
+      // codebase uses an `!= null` check that's always true; we
+      // don't fix it here to keep this PR scoped, but we use the
+      // correct check for new code.)
+      const validation = validateMarkdownTemplate(event.content);
+      if (typeof validation === 'string') return;
+      const dTag = event.tags.find((t) => t[0] === 'd')?.[1];
+      if (!dTag) return;
+      const aTag = `${RECIPE_KIND}:${pubkey}:${dTag}`;
+      const existing = byATag.get(aTag);
+      const createdAt = event.created_at || 0;
+      if (existing && existing.createdAt >= createdAt) return;
 
-			const title =
-				event.tags.find((t) => t[0] === 'title')?.[1]?.trim() || dTag;
-			const image = event.tags.find((t) => t[0] === 'image')?.[1] || undefined;
+      const title = event.tags.find((t) => t[0] === 'title')?.[1]?.trim() || dTag;
+      const image = event.tags.find((t) => t[0] === 'image')?.[1] || undefined;
 
-			byATag.set(aTag, { aTag, title, image, createdAt });
-		});
+      byATag.set(aTag, { aTag, title, image, createdAt });
+    });
 
-		subscription.on('eose', () => {
-			clearTimeout(safetyTimeout);
-			try {
-				subscription.stop();
-			} catch {
-				// already stopped
-			}
-			resolve();
-		});
-	});
+    subscription.on('eose', () => {
+      clearTimeout(safetyTimeout);
+      try {
+        subscription.stop();
+      } catch {
+        // already stopped
+      }
+      resolve();
+    });
+  });
 
-	return Array.from(byATag.values()).sort((a, b) => b.createdAt - a.createdAt);
+  return Array.from(byATag.values()).sort((a, b) => b.createdAt - a.createdAt);
 }
