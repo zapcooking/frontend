@@ -28,6 +28,33 @@
   // Cache filter for consistent cache keys
   const cacheFilter = { kinds: [30023], '#t': RECIPE_TAGS };
 
+  // ─── Pagination ──────────────────────────────────────────────────
+  // The first page (loadRecipes) fetches 100 most-recent recipes via
+  // the existing path. Once that lands, an IntersectionObserver on a
+  // sentinel just below the feed fires loadMoreRecipes() to walk
+  // backwards in time — `until: oldestCreatedAt - 1` — and append
+  // older recipes 50 at a time until the relays return EOSE with no
+  // new events.
+  //
+  // Cache layer is unchanged: only the first page is persisted via
+  // feedCacheService. Subsequent pages re-fetch on every visit. This
+  // keeps the cache bounded at the cost of re-walking history when a
+  // user re-opens the page mid-deep-scroll. Acceptable for v1.
+  const FOLLOWUP_PAGE_SIZE = 50;
+  // Don't paginate until the first page has clearly landed. Without
+  // this, a sentinel that's already in-viewport on a tiny initial
+  // result set can fire a follow-up before EOSE on the first batch
+  // even reaches us.
+  const MIN_EVENTS_BEFORE_PAGINATION = 10;
+  let loadingMore = false;
+  let exhausted = false;
+  // Bumped on every fresh load (mount / pull-to-refresh) so an
+  // in-flight pagination request from a prior session can't write
+  // its results into the new state.
+  let paginationGeneration = 0;
+  let sentinelEl: HTMLDivElement | null = null;
+  let intersectionObserver: IntersectionObserver | null = null;
+
   // Sort events by created_at descending (most recent first)
   $: sortedEvents = [...events].sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
 
@@ -42,6 +69,13 @@
       clearTimeout(loadTimeout);
       loadTimeout = null;
     }
+
+    // Invalidate any in-flight pagination so its results don't bleed
+    // into this fresh load. Reset exhaustion + spinner so the sentinel
+    // can re-fire once the first page settles.
+    paginationGeneration++;
+    loadingMore = false;
+    exhausted = false;
 
     // Capture relay generation at start to detect stale data from relay switches
     const startGeneration = getCurrentRelayGeneration();
@@ -169,6 +203,144 @@
     }
   }
 
+  /**
+   * Fetch older recipes by walking the `created_at` cursor backwards.
+   * Single-flight (loadingMore guards re-entry), relay-generation +
+   * paginationGeneration guards drop stale results from prior sessions
+   * or relay swaps. EOSE with zero new events flips `exhausted` so the
+   * sentinel stops firing.
+   */
+  async function loadMoreRecipes() {
+    if (!$ndk || loadingMore || exhausted) return;
+    if (!loaded) return;
+    if (events.length < MIN_EVENTS_BEFORE_PAGINATION) return;
+
+    // Find the oldest created_at currently displayed. `until` is
+    // exclusive in some relay implementations and inclusive in others,
+    // so we subtract 1 to be safe — we'd rather miss a duplicate event
+    // (deduped by id below anyway) than fetch the same recipe twice.
+    let oldest = Infinity;
+    for (const e of events) {
+      const ts = e.created_at || 0;
+      if (ts && ts < oldest) oldest = ts;
+    }
+    if (!isFinite(oldest)) return;
+
+    const startGeneration = getCurrentRelayGeneration();
+    const localGen = ++paginationGeneration;
+    loadingMore = true;
+
+    const filter: NDKFilter = {
+      kinds: [30023],
+      '#t': RECIPE_TAGS,
+      limit: FOLLOWUP_PAGE_SIZE,
+      until: oldest - 1
+    };
+
+    let sub: NDKSubscription | null = null;
+    let safetyTimeout: ReturnType<typeof setTimeout> | null = null;
+
+    try {
+      // closeOnEose so this subscription self-cleans after EOSE — we
+      // don't need a long-lived sub for a one-off pagination fetch.
+      sub = $ndk.subscribe(filter, { closeOnEose: true });
+      const newEvents: NDKEvent[] = [];
+      const seen = new Set(events.map((e) => e.id));
+
+      sub.on('event', (event: NDKEvent) => {
+        if (
+          getCurrentRelayGeneration() !== startGeneration ||
+          localGen !== paginationGeneration
+        ) {
+          return;
+        }
+        if (seen.has(event.id)) return;
+        seen.add(event.id);
+        if (validateMarkdownTemplate(event.content) !== null) {
+          newEvents.push(event);
+        }
+      });
+
+      await new Promise<void>((resolve) => {
+        const finish = () => {
+          if (safetyTimeout) {
+            clearTimeout(safetyTimeout);
+            safetyTimeout = null;
+          }
+          resolve();
+        };
+        sub!.on('eose', finish);
+        // Safety: some relay sets never EOSE for a small window of
+        // time. Cap the wait so the spinner can't spin forever.
+        safetyTimeout = setTimeout(finish, 8000);
+      });
+
+      if (
+        getCurrentRelayGeneration() !== startGeneration ||
+        localGen !== paginationGeneration
+      ) {
+        return;
+      }
+
+      if (newEvents.length === 0) {
+        exhausted = true;
+        console.log('[Recipes] pagination exhausted — no older recipes returned');
+      } else {
+        events = [...events, ...newEvents];
+        console.log(
+          `[Recipes] pagination +${newEvents.length} (total ${events.length}, until=${oldest})`
+        );
+      }
+    } catch (err) {
+      console.warn('[Recipes] pagination failed:', err);
+    } finally {
+      try {
+        sub?.stop();
+      } catch {
+        // Already stopped from closeOnEose — ignore.
+      }
+      if (safetyTimeout) clearTimeout(safetyTimeout);
+      loadingMore = false;
+    }
+  }
+
+  function setupIntersectionObserver() {
+    if (intersectionObserver || !sentinelEl) return;
+    if (typeof IntersectionObserver === 'undefined') return;
+    intersectionObserver = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) {
+            loadMoreRecipes();
+          }
+        }
+      },
+      // Pre-fetch when the sentinel is within 400px of the viewport so
+      // the next page lands before the user actually hits the bottom.
+      { rootMargin: '400px' }
+    );
+    intersectionObserver.observe(sentinelEl);
+  }
+
+  function teardownIntersectionObserver() {
+    if (intersectionObserver) {
+      intersectionObserver.disconnect();
+      intersectionObserver = null;
+    }
+  }
+
+  // Attach the observer once the first page has settled and the
+  // sentinel is in the DOM. Reactive on `loaded`, `events.length`, and
+  // `sentinelEl` so SPA navigations re-attach correctly.
+  $: if (
+    loaded &&
+    events.length >= MIN_EVENTS_BEFORE_PAGINATION &&
+    sentinelEl &&
+    !intersectionObserver
+  ) {
+    setupIntersectionObserver();
+  }
+
   async function handleRefresh() {
     try {
       // Skip cache on pull-to-refresh to get fresh data
@@ -196,6 +368,12 @@
       clearTimeout(loadTimeout);
       loadTimeout = null;
     }
+    // Detach the lazy-load observer so it doesn't fire callbacks
+    // against a destroyed component on SPA back-nav.
+    teardownIntersectionObserver();
+    // Bumping the generation invalidates any in-flight pagination
+    // promise so it short-circuits before mutating freed state.
+    paginationGeneration++;
   });
 </script>
 
@@ -260,6 +438,29 @@
 
   <div class="flex flex-col gap-2">
     <Feed events={displayEvents} hideHide={true} {loaded} />
+
+    {#if loaded && !exhausted}
+      <!-- Sentinel: when this scrolls into view (or within 400px of it)
+           the IntersectionObserver fires loadMoreRecipes(). The spinner
+           inside is a visible signal during the fetch; the empty state
+           when not loadingMore keeps the sentinel measurable so the
+           observer can detect intersection. -->
+      <div
+        bind:this={sentinelEl}
+        class="py-6 flex items-center justify-center text-caption text-sm"
+      >
+        {#if loadingMore}
+          <div
+            class="w-5 h-5 rounded-full border-2 border-orange-200 border-t-orange-500 animate-spin mr-2"
+          ></div>
+          <span>Loading more recipes…</span>
+        {/if}
+      </div>
+    {:else if exhausted && events.length > 0}
+      <p class="py-6 text-center text-xs text-caption">
+        That's every recipe we know about. ⚡️
+      </p>
+    {/if}
   </div>
 </div>
 </PullToRefresh>
