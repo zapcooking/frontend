@@ -26,6 +26,7 @@
   import ZapModal from '../ZapModal.svelte';
   import ReplyComposer from './ReplyComposer.svelte';
   import { resolveProfileByPubkey, formatDisplayName } from '$lib/profileResolver';
+  import { getAnonChefName } from '$lib/anonName';
   import { formatAmount } from '$lib/utils';
   import { addClientTagToEvent } from '$lib/nip89';
   import HeartIcon from 'phosphor-svelte/lib/Heart';
@@ -155,9 +156,14 @@
     if (event.pubkey && $ndk) {
       try {
         const profile = await resolveProfileByPubkey(event.pubkey, $ndk);
-        displayName = formatDisplayName(profile);
+        // formatDisplayName(null) returns the GENERIC 'Anon Chef' since
+        // it has no pubkey to hash. We DO have event.pubkey here, so
+        // short-circuit the null-profile case to get the stable
+        // per-pubkey name (e.g. "Sat Chef") instead. Profiles with a
+        // name field still flow through formatDisplayName.
+        displayName = profile ? formatDisplayName(profile) : getAnonChefName(event.pubkey);
       } catch (error) {
-        displayName = '@Anonymous';
+        displayName = getAnonChefName(event.pubkey);
       } finally {
         isLoading = false;
       }
@@ -185,9 +191,14 @@
       if (parentComment?.pubkey) {
         try {
           const profile = await resolveProfileByPubkey(parentComment.pubkey, $ndk);
-          parentDisplayName = formatDisplayName(profile);
+          // Same pubkey-aware short-circuit as the event-author branch
+          // above — null profile → stable anon-chef name, not the
+          // generic "Anon Chef".
+          parentDisplayName = profile
+            ? formatDisplayName(profile)
+            : getAnonChefName(parentComment.pubkey);
         } catch {
-          parentDisplayName = '@Anonymous';
+          parentDisplayName = getAnonChefName(parentComment.pubkey);
         }
       }
       parentLoading = false;

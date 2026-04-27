@@ -2,6 +2,7 @@ import { nip19 } from 'nostr-tools';
 import { ndk } from './nostr';
 import type { NDKUserProfile } from '@nostr-dev-kit/ndk';
 import type NDK from '@nostr-dev-kit/ndk';
+import { getAnonChefName } from './anonName';
 
 // Types for profile data
 export interface ProfileData {
@@ -198,38 +199,47 @@ export async function resolveProfileByPubkey(pubkey: string, ndkInstance: NDK): 
   }
 }
 
-// Get display name for a profile
+// Get display name for a profile.
+//
+// Falls back to a friendly per-pubkey "Anon Chef" name (see
+// $lib/anonName) when the profile is missing or has no name fields.
+// Old recipes whose authors deleted their kind:0 metadata used to
+// render as "Anonymous" or a truncated hex; the anon helper makes
+// them feel attributed instead of broken.
+//
+// Callers that have a bare pubkey but no ProfileData object should
+// import `getAnonChefName` directly rather than passing `null` here —
+// the null path can't compute a stable per-pubkey name and returns
+// the generic 'Anon Chef'.
 export function getDisplayName(profile: ProfileData | null): string {
   if (!profile) {
-    return 'Anonymous';
+    return getAnonChefName(null);
   }
 
-  // Priority: display_name > name > truncated pubkey
+  // Priority: display_name > name > anon fallback (hash-stable per pubkey)
   if (profile.display_name) {
     return profile.display_name;
   }
-  
+
   if (profile.name) {
     return profile.name;
   }
 
-  // Fallback to truncated pubkey
-  return `${profile.pubkey.slice(0, 8)}...${profile.pubkey.slice(-4)}`;
+  return getAnonChefName(profile.pubkey);
 }
 
-// Get username for a profile (without @ prefix)
+// Get username for a profile (without @ prefix). Same fallback policy
+// as getDisplayName.
 export function getUsername(profile: ProfileData | null): string {
   if (!profile) {
-    return 'Anonymous';
+    return getAnonChefName(null);
   }
 
-  // If user has a name, show username without @ prefix
   if (profile.name) {
     return profile.name;
   }
 
-  // Fallback to truncated pubkey
-  return `${profile.pubkey.slice(0, 8)}...${profile.pubkey.slice(-4)}`;
+  return getAnonChefName(profile.pubkey);
 }
 
 // Format display name with @ prefix

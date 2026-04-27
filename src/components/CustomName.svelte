@@ -1,6 +1,7 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
   import { profileCacheManager } from '$lib/profileCache';
+  import { getAnonChefName } from '$lib/anonName';
   import type { NDKUser } from '@nostr-dev-kit/ndk';
 
   export let pubkey: string;
@@ -14,22 +15,15 @@
   let loading = true;
   let lastPubkey: string = '';
 
-  // Generate a display name based on pubkey as fallback
+  /**
+   * Friendly per-pubkey fallback when the profile is unavailable.
+   * Delegates to the shared anon-chef pool ($lib/anonName) so this
+   * component agrees with AuthorName, ProfileLink, and the
+   * profileResolver helpers — same pubkey → same fun name everywhere.
+   */
   function generateDisplayName(pk: string): string {
     if (!pk) return '';
-    // Create a readable name based on pubkey hash
-    const hash = pk.split('').reduce((a, b) => {
-      a = (a << 5) - a + b.charCodeAt(0);
-      return a & a;
-    }, 0);
-
-    const adjectives = ['Cool', 'Smart', 'Creative', 'Bright', 'Swift', 'Bold', 'Sharp', 'Quick'];
-    const nouns = ['Chef', 'Cook', 'Baker', 'Foodie', 'Gourmet', 'Epicure', 'Culinary', 'Kitchen'];
-
-    const adjective = adjectives[Math.abs(hash) % adjectives.length];
-    const noun = nouns[Math.abs(hash >> 8) % nouns.length];
-
-    return `${adjective} ${noun}`;
+    return getAnonChefName(pk);
   }
 
   function formatNpub(pk: string): string {
