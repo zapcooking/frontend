@@ -51,10 +51,13 @@
       match: (p) => p === '/' || p.startsWith('/community')
     },
     {
-      href: '/recent',
+      href: '/recipes',
       label: 'Recipes',
       icon: ForkKnifeIcon,
-      match: (p) => p.startsWith('/recent')
+      // Match /recent too so the nav stays highlighted while the legacy
+      // URL redirects through to /recipes — avoids a flash of unhighlighted
+      // tab during the 301 round-trip on cold links.
+      match: (p) => p.startsWith('/recipes') || p.startsWith('/recent')
     },
     {
       href: '/polls',

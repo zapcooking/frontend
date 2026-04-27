@@ -55,7 +55,7 @@
   // each load and re-checked when the network returns; if it doesn't
   // match anymore (user signed out / switched accounts), the result
   // is dropped without overwriting state. Same idea as the relay-
-  // generation guard in /recent.
+  // generation guard in /recipes.
   let mineRequestId = 0;
 
   // Saved tab — same shape, separate state. Populated by resolving each
@@ -73,7 +73,7 @@
     discoverError = '';
     try {
       // Make sure NDK has at least one connected relay before subscribing
-      // — mirrors /recent's pattern. Reduces cold-load failure rate when
+      // — mirrors /recipes's pattern. Reduces cold-load failure rate when
       // the page is loaded directly (rather than via SPA nav from the home
       // feed which has already warmed connections).
       try {
@@ -416,15 +416,15 @@
 </svelte:head>
 
 <div class="flex flex-col gap-4 max-w-full md:max-w-none">
-  <!-- Top tab bar — mirrors /recent so navigation stays consistent.
-       Recent / Packs / Premium ⚡️ — Packs is active here. -->
+  <!-- Top tab bar — mirrors /recipes so navigation stays consistent.
+       Recipes / Packs / Premium ⚡️ — Packs is active here. -->
   <div class="flex w-full border-b" style="border-color: var(--color-input-border)">
     <a
-      href="/recent"
+      href="/recipes"
       class="flex-1 py-2.5 text-sm font-medium transition-colors relative cursor-pointer text-center"
       style="color: var(--color-text-secondary)"
     >
-      Recent
+      Recipes
     </a>
     <div
       class="flex-1 py-2.5 text-sm font-medium transition-colors relative text-center"

@@ -151,7 +151,7 @@
 
       // Safety timeout: flip loaded after 10s if neither an event nor EOSE
       // reached us. Prevents a stuck skeleton when SvelteKit nav lands on
-      // /recent and NDK's cache replay emits before handlers can attach,
+      // /recipes and NDK's cache replay emits before handlers can attach,
       // or when EOSE is otherwise delayed. Mirrors /polls' timeout pattern.
       // Tracked in `loadTimeout` so a subsequent loadRecipes() call or
       // onDestroy can cancel it.
@@ -202,7 +202,7 @@
 <svelte:head>
   <title>Recipes - zap.cooking</title>
   <meta name="description" content="Browse all recipes on zap.cooking" />
-  <meta property="og:url" content="https://zap.cooking/recent" />
+  <meta property="og:url" content="https://zap.cooking/recipes" />
   <meta property="og:type" content="website" />
   <meta property="og:title" content="Recipes - zap.cooking" />
   <meta property="og:description" content="Browse all recipes on zap.cooking" />
@@ -210,7 +210,7 @@
 
   <meta name="twitter:card" content="summary_large_image" />
   <meta property="twitter:domain" content="zap.cooking" />
-  <meta property="twitter:url" content="https://zap.cooking/recent" />
+  <meta property="twitter:url" content="https://zap.cooking/recipes" />
   <meta name="twitter:title" content="Recipes - zap.cooking" />
   <meta name="twitter:description" content="Browse all recipes on zap.cooking" />
   <meta property="twitter:image" content="https://zap.cooking/social-share.png" />
@@ -227,7 +227,7 @@
         class="flex-1 py-2.5 text-sm font-medium transition-colors relative cursor-pointer text-center"
         style="color: {activeTab === 'recent' ? 'var(--color-text-primary)' : 'var(--color-text-secondary)'}"
       >
-        Recent
+        Recipes
         {#if activeTab === 'recent'}
           <span class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-orange-500 to-amber-500"></span>
         {/if}

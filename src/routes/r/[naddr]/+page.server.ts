@@ -224,7 +224,7 @@ export const load: PageServerLoad = async ({ params, url }) => {
 
 	// Validate naddr format
 	if (!naddr?.startsWith('naddr1')) {
-		throw redirect(302, '/recent');
+		throw redirect(302, '/recipes');
 	}
 
 	// Skip if WebSocket is not available (e.g., some Node.js environments)

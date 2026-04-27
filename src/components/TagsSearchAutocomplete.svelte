@@ -102,7 +102,7 @@
     }, 300);
   }
 
-  // Load recipes progressively using subscription (like /recent page)
+  // Load recipes progressively using subscription (like /recipes page)
   async function preloadRecipes() {
     if (recipeCacheLoading || recipeCacheLoaded) {
       return;
@@ -111,7 +111,7 @@
     recipeCacheLoading = true;
 
     try {
-      // Try to get cached recipes from IndexedDB (same cache as /recent page)
+      // Try to get cached recipes from IndexedDB (same cache as /recipes page)
       const cacheFilter = { kinds: [30023], '#t': RECIPE_TAGS };
       const cachedEvents = await feedCacheService.getCachedFeed({
         filter: cacheFilter,

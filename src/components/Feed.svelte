@@ -142,7 +142,7 @@
       {/if}
 
       <a
-        href="/recent"
+        href="/recipes"
         class="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-full transition-colors hover:opacity-80"
         style="background-color: var(--color-input-bg); color: var(--color-text-primary); border: 1px solid var(--color-input-border);"
       >
