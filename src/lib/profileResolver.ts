@@ -79,6 +79,21 @@ export function decodeNostrProfile(nostrString: string): string | null {
 // Profile fetch timeout
 const PROFILE_FETCH_TIMEOUT = 5000; // 5 seconds
 
+/**
+ * Relays we'll always consult for kind:0 lookups, in addition to NDK's
+ * default pool. Purplepag.es is the de-facto Nostr profile relay —
+ * many users publish kind:0 there (or it's the only relay their
+ * NIP-65 client targeted). Without including it, profiles that don't
+ * happen to live on garden / nos.lol / damus / primal silently 404
+ * and render as the anon-chef fallback. nostr.band + nostr.wine are
+ * common secondary mirrors.
+ */
+const PROFILE_RELAY_URLS = [
+  'wss://purplepag.es',
+  'wss://relay.nostr.band',
+  'wss://nostr.wine'
+];
+
 // Fetch profile data from relays
 async function fetchProfileFromRelays(pubkey: string, ndkInstance: NDK): Promise<ProfileData | null> {
   try {
@@ -90,34 +105,74 @@ async function fetchProfileFromRelays(pubkey: string, ndkInstance: NDK): Promise
       return null;
     }
 
-    // Use NDK's built-in fetchProfile method
-    // It handles relay selection via outbox model when enabled
-    const user = ndkInstance.getUser({ hexpubkey: pubkey });
-    
-    // Don't clear cached profile - let NDK use its cache
-    // This prevents unnecessary network requests
-    
-    // Add timeout to prevent hanging
-    const fetchPromise = user.fetchProfile();
-    const timeoutPromise = new Promise<null>((resolve) => 
+    // Build an explicit relay set: NDK's connected pool relays
+    // (whatever the page already has open — garden, nos.lol, damus,
+    // primal in default mode) plus the canonical profile relays.
+    // NDK's `user.fetchProfile()` doesn't let us widen the relay set,
+    // so we drop down to fetchEvent + parse the kind:0 manually.
+    const { NDKRelaySet } = await import('@nostr-dev-kit/ndk');
+    const relayUrls = new Set<string>();
+    if (ndkInstance.pool?.relays) {
+      for (const [url] of ndkInstance.pool.relays) relayUrls.add(url);
+    }
+    for (const url of PROFILE_RELAY_URLS) relayUrls.add(url);
+
+    const relays = [];
+    for (const url of relayUrls) {
+      // autoConnect=true, createIfMissing=true — purplepag.es etc.
+      // may not be in the pool yet; this opens a connection in the
+      // background. fetchEvent will queue against not-yet-ready
+      // relays and resolve when any of them returns.
+      const relay = ndkInstance.pool?.getRelay(url, true, true);
+      if (relay) relays.push(relay);
+    }
+    const relaySet = relays.length > 0 ? new NDKRelaySet(new Set(relays), ndkInstance) : undefined;
+
+    const fetchPromise = ndkInstance.fetchEvent(
+      { kinds: [0], authors: [pubkey] },
+      undefined,
+      relaySet
+    );
+    const timeoutPromise = new Promise<null>((resolve) =>
       setTimeout(() => resolve(null), PROFILE_FETCH_TIMEOUT)
     );
-    
-    await Promise.race([fetchPromise, timeoutPromise]);
-    
-    const profile = user.profile;
-    if (!profile) {
+
+    const event = await Promise.race([fetchPromise, timeoutPromise]);
+    if (!event) {
       return null;
     }
 
-    const profileData = {
+    let parsed: Record<string, unknown> = {};
+    try {
+      parsed = JSON.parse(event.content || '{}');
+    } catch {
+      // Malformed kind:0 content — return null rather than a
+      // half-populated profile that would obscure the user's identity.
+      return null;
+    }
+
+    // Nostr profile field naming has historically varied: NIP-01 says
+    // `name`, but many clients also (or only) populate `display_name`,
+    // and a few use camelCase `displayName`. Read all three so we
+    // surface the user's identity regardless of which client wrote
+    // their kind:0.
+    const name =
+      typeof parsed.name === 'string' ? parsed.name : undefined;
+    const displayName =
+      typeof parsed.display_name === 'string'
+        ? (parsed.display_name as string)
+        : typeof parsed.displayName === 'string'
+        ? (parsed.displayName as string)
+        : undefined;
+
+    const profileData: ProfileData = {
       pubkey,
-      name: profile.name,
-      display_name: profile.displayName,
-      picture: profile.image,
-      about: profile.bio,
-      nip05: profile.nip05,
-      lud16: profile.lud16,
+      name,
+      display_name: displayName,
+      picture: typeof parsed.picture === 'string' ? parsed.picture : undefined,
+      about: typeof parsed.about === 'string' ? parsed.about : undefined,
+      nip05: typeof parsed.nip05 === 'string' ? parsed.nip05 : undefined,
+      lud16: typeof parsed.lud16 === 'string' ? parsed.lud16 : undefined,
       lastFetched: Date.now()
     };
 
@@ -229,10 +284,20 @@ export function getDisplayName(profile: ProfileData | null): string {
 }
 
 // Get username for a profile (without @ prefix). Same fallback policy
-// as getDisplayName.
+// as getDisplayName: display_name → name → anon. Previously this only
+// checked `name`, which silently fell back to the anon helper for
+// profiles that set only `display_name` (a common shape on Nostr —
+// "display_name" is the human-readable identity, "name" is the optional
+// short handle). formatDisplayName, AuthorName, ProfileLink, and the
+// feed all flow through here, so the fix lights up display_name-only
+// profiles everywhere at once.
 export function getUsername(profile: ProfileData | null): string {
   if (!profile) {
     return getAnonChefName(null);
+  }
+
+  if (profile.display_name) {
+    return profile.display_name;
   }
 
   if (profile.name) {
