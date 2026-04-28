@@ -212,6 +212,77 @@ export function buildAnnouncementContent(opts: {
   return lines.join('\n');
 }
 
+/** Result shape from publishPackDeletion. `queued` is true when the
+ *  initial publish attempt failed and the deletion was persisted to
+ *  the IndexedDB retry queue — relays haven't acknowledged it yet,
+ *  so the UI should distinguish this from a confirmed publish. */
+export interface PackDeletionResult {
+  deletion: NDKEvent;
+  /** True if no relay confirmed yet; false on immediate publish success. */
+  queued: boolean;
+}
+
+/**
+ * Publish a NIP-09 deletion request (kind:5) for a Recipe Pack the
+ * caller authored. Anyone hitting the pack page after relays honor
+ * the deletion will see "pack not found" instead of the cached event.
+ *
+ * Important: NIP-09 is a *request*. Compliant relays drop the event;
+ * non-compliant relays don't. Compliant clients hide it on render;
+ * non-compliant clients still display it. We can't actually erase
+ * the event from the network — only the strongest possible signal
+ * that the author wants it gone.
+ *
+ * Tags follow NIP-09 latest:
+ *   - e: specific event id (current addressable revision)
+ *   - a: addressable form `${kind}:${pubkey}:${dTag}` so future
+ *       republishes at the same address are also covered
+ *   - k: kind number, helps relays index deletion requests
+ *
+ * Publishes via publishQueue's "all" mode so the deletion request
+ * lands on garden + the explicit pool, matching where the original
+ * pack was published. Caller is responsible for ensuring the user
+ * actually authored the pack (we re-check pubkey here as a guard).
+ *
+ * Returns { deletion, queued } so the UI can distinguish "published
+ * immediately" from "queued for IndexedDB retry" — the latter shouldn't
+ * show a confirmed-published toast or redirect away from the pack.
+ */
+export async function publishPackDeletion(
+  packEvent: NDKEvent
+): Promise<PackDeletionResult> {
+  const ndkInstance = get(ndk);
+  const pubkey = get(userPublickey);
+  if (!ndkInstance) throw new Error('NDK not initialized');
+  if (!pubkey) throw new Error('Sign in required to delete a Recipe Pack.');
+  if (packEvent.pubkey !== pubkey) {
+    throw new Error('Only the author can delete this Recipe Pack.');
+  }
+
+  const dTag = packEvent.tags.find((t) => t[0] === 'd')?.[1];
+  if (!dTag) throw new Error('Pack event missing d-tag — cannot reference for deletion.');
+
+  const deletion = new NDKEvent(ndkInstance);
+  deletion.kind = 5;
+  deletion.content = 'Deleted by author';
+  deletion.tags = [
+    ['e', packEvent.id],
+    ['a', `${RECIPE_PACK_KIND}:${pubkey}:${dTag}`],
+    ['k', String(RECIPE_PACK_KIND)]
+  ];
+  addClientTagToEvent(deletion);
+
+  // Use the resilient queue + 'all' mode so the deletion lands on
+  // garden + the standard pool, same write surface as the original
+  // pack publish.
+  const { publishQueue } = await import('$lib/publishQueue');
+  const result = await publishQueue.publishWithRetry(deletion, 'all');
+  if (!result.success && !result.queued) {
+    throw new Error(result.error || 'Failed to publish deletion request.');
+  }
+  return { deletion, queued: !result.success };
+}
+
 /**
  * Publish a kind:1 announcement that references a Recipe Pack.
  * Caller passes the published pack so we can derive `a`-tag and naddr.

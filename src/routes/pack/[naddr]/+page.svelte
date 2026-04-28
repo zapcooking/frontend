@@ -29,6 +29,7 @@
   import CustomName from '../../../components/CustomName.svelte';
   import ShareModal from '../../../components/ShareModal.svelte';
   import ExportCookbookModal from '../../../components/ExportCookbookModal.svelte';
+  import DeletePackModal from '../../../components/DeletePackModal.svelte';
   import { showToast } from '$lib/toast';
   import { lazyLoad } from '$lib/lazyLoad';
   import { getImageOrPlaceholder } from '$lib/placeholderImages';
@@ -311,6 +312,28 @@
   // the modal (paywall stage). Signed-out users get bounced to login.
   let exportModalOpen = false;
 
+  // ===== Delete pack (own-pack only) =====
+  // NIP-09 deletion request. Opens a confirm modal; on confirmed
+  // publish the page redirects to /packs since the displayed event
+  // is now a deletion candidate (and may still cache here briefly).
+  // For QUEUED deletes (publishWithRetry → IndexedDB retry queue),
+  // we stay on the pack page — redirecting to /packs would land the
+  // user on a list that still shows the pack they just queued.
+  let deleteModalOpen = false;
+  function handlePackDeleted(e: CustomEvent<{ queued: boolean }>) {
+    if (e.detail?.queued) {
+      // Stay put. The toast in the modal already explained that
+      // relays haven't confirmed yet; the page will reflect the
+      // deletion once the retry queue lands and the user reloads.
+      return;
+    }
+    // Most relays drop the event within a few seconds, but caches in
+    // this tab + intermediate proxies can linger. Redirecting to
+    // /packs avoids the user staring at a "still here" view of the
+    // pack they just asked to delete.
+    goto('/packs');
+  }
+
   let membershipMap: Record<string, MembershipStatus> = {};
   const unsubMembership = membershipStatusMap.subscribe((v) => {
     membershipMap = v;
@@ -393,6 +416,22 @@
     {isProMember}
     membershipTier={tierStatus?.tier}
     membershipActive={tierStatus?.active}
+  />
+{/if}
+
+<!-- NIP-09 deletion confirmation. Self-contained: the modal handles
+     publishing the kind:5 deletion request and emits `deleted` on
+     success — we redirect to /packs only when the publish is
+     confirmed (queued state stays on the page).
+     Mount is gated on isOwnPack so a non-owner toggling
+     deleteModalOpen via devtools can't get a confusing
+     "Only the author..." error from publishPackDeletion. -->
+{#if packEvent && isOwnPack}
+  <DeletePackModal
+    bind:open={deleteModalOpen}
+    {packEvent}
+    packTitle={title}
+    on:deleted={handlePackDeleted}
   />
 {/if}
 
@@ -556,6 +595,19 @@
           <BookmarkIcon size={16} />
           Open your cookbook
         </a>
+        <!-- Delete (NIP-09 deletion request). Secondary destructive
+             styling so the action is reachable but not the focal CTA;
+             confirmation lives in DeletePackModal. -->
+        <button
+          type="button"
+          on:click={() => (deleteModalOpen = true)}
+          class="flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-colors hover:opacity-80"
+          style="background-color: var(--color-input-bg); color: #dc2626; border: 1px solid rgba(220, 38, 38, 0.4);"
+          title="Publish a NIP-09 deletion request for this Recipe Pack"
+          aria-label="Delete pack"
+        >
+          Delete
+        </button>
       {:else if allSaved}
         <span
           class="flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium"
