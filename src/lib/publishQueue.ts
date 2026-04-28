@@ -671,3 +671,76 @@ class PublishQueueManager {
 
 // Export singleton instance
 export const publishQueue = new PublishQueueManager();
+
+/**
+ * Confirm that a freshly-published event actually landed on Zap Cooking's
+ * own relay (garden), and queue a targeted republish if it didn't.
+ *
+ * Why this exists: NDK 2.x's outbox model on writes routes a publish to
+ * the AUTHOR's NIP-65 write relays. For authors whose NIP-65 doesn't
+ * include garden, our normal `event.publish()` call can land everywhere
+ * EXCEPT garden — and then `/r/<naddr>` can't find the event because
+ * our default fetch path only consults the standard pool. Verifying
+ * post-publish makes garden the durable source of truth for everything
+ * authored on Zap Cooking, regardless of the author's NIP-65.
+ *
+ * Best-effort: a verification miss queues a retry but does not throw.
+ * The caller's primary publish path is unchanged — this is layered on
+ * top.
+ */
+export async function ensureLandedOnGarden(
+  event: NDKEvent,
+  opts: { verifyTimeoutMs?: number } = {}
+): Promise<{ onGarden: boolean; queuedRetry: boolean }> {
+  const verifyTimeoutMs = opts.verifyTimeoutMs ?? 4000;
+
+  if (!event?.id || !event?.pubkey) {
+    return { onGarden: false, queuedRetry: false };
+  }
+
+  try {
+    const { ndk } = await import('$lib/nostr');
+    const { NDKRelaySet } = await import('@nostr-dev-kit/ndk');
+    const ndkInstance = get(ndk);
+    if (!ndkInstance) return { onGarden: false, queuedRetry: false };
+
+    const gardenRelay = ndkInstance.pool.getRelay(GARDEN_RELAY_URL, true, true);
+    if (!gardenRelay) return { onGarden: false, queuedRetry: false };
+
+    // getRelay(url, autoConnect=true, createIfMissing=true) starts the
+    // connection in the background. We DON'T await it — a hung
+    // connect would otherwise block past `verifyTimeoutMs`. fetchEvent
+    // tolerates an in-progress connection (queues until ready), and
+    // the Promise.race below caps the total wait at verifyTimeoutMs
+    // regardless of where the time was spent.
+
+    const relaySet = new NDKRelaySet(new Set([gardenRelay]), ndkInstance);
+
+    const fetchPromise = ndkInstance.fetchEvent(
+      { ids: [event.id] },
+      undefined,
+      relaySet
+    );
+    const timeoutPromise = new Promise<null>((resolve) =>
+      setTimeout(() => resolve(null), verifyTimeoutMs)
+    );
+
+    const found = await Promise.race([fetchPromise, timeoutPromise]);
+    if (found) {
+      console.log(`[publishQueue] ✅ event ${event.id.slice(0, 12)}… confirmed on garden`);
+      return { onGarden: true, queuedRetry: false };
+    }
+
+    // Garden didn't have the event after the verification window. Queue
+    // a targeted republish so it lands eventually (with backoff). This
+    // is exactly what `relayMode: 'garden'` does in attemptPublish.
+    console.warn(
+      `[publishQueue] ⚠️ event ${event.id.slice(0, 12)}… missed garden — queuing retry`
+    );
+    await publishQueue.publishWithRetry(event, 'garden');
+    return { onGarden: false, queuedRetry: true };
+  } catch (err) {
+    console.warn('[publishQueue] ensureLandedOnGarden failed', err);
+    return { onGarden: false, queuedRetry: false };
+  }
+}

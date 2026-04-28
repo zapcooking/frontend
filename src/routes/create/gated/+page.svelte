@@ -12,6 +12,7 @@
   import { nip19 } from 'nostr-tools';
   import MediaUploader from '../../../components/MediaUploader.svelte';
   import { addClientTagToEvent } from '$lib/nip89';
+  import { publishQueue, ensureLandedOnGarden } from '$lib/publishQueue';
   import Button from '../../../components/Button.svelte';
   import MarkdownEditor from '../../../components/MarkdownEditor.svelte';
   import { onMount, onDestroy } from 'svelte';
@@ -228,12 +229,36 @@
         // Replace content with preview-only for relay (full content is encrypted on server)
         event.content = gatePreview || summary || 'This is a premium recipe. Visit zap.cooking to unlock.';
 
-        // Publish the recipe with gated tag (content is now preview-only)
-        await event.publish();
-        
+        // Publish via publishQueue (see /create/+page.svelte for the
+        // full rationale). "all" mode fans out to every pool relay
+        // including garden — guarantees the kind:30023 preview wrapper
+        // lands on Zap Cooking infrastructure regardless of the
+        // author's NIP-65 outbox preferences.
+        const gatedPublishResult = await publishQueue.publishWithRetry(event, 'all');
+        if (!gatedPublishResult.success && !gatedPublishResult.queued) {
+          throw new Error(gatedPublishResult.error || 'Publish failed');
+        }
+        // When the initial publish fails and gets queued for retry, the
+        // event may not be signed yet, so event.author.hexpubkey is
+        // undefined and the garden verify has nothing to look up.
+        // Surface "queued" honestly and skip the verify; otherwise run
+        // the belt-and-suspenders check.
+        if (!gatedPublishResult.queued) {
+          ensureLandedOnGarden(event).catch((e) =>
+            console.warn('[create-gated] garden verification failed', e)
+          );
+        }
+
+        // Always derive the naddr from $userPublickey rather than
+        // event.author.hexpubkey — the latter is only populated after
+        // signing, which can be deferred when queued.
+        const gatedPubkey = event.pubkey || $userPublickey;
+        if (!gatedPubkey) {
+          throw new Error('Unable to determine author pubkey for recipe address');
+        }
         const naddr = nip19.naddrEncode({
           identifier: title.toLowerCase().replaceAll(' ', '-'),
-          pubkey: event.author.hexpubkey,
+          pubkey: gatedPubkey,
           kind: GATED_RECIPE_KIND
         });
         
@@ -251,19 +276,27 @@
           // Non-critical: naddr update failed
         }
         
-        resultMessage = 'Premium recipe created! Redirecting...';
-        
-        // Delete the draft since it's now published
+        resultMessage = gatedPublishResult.queued
+          ? 'Publish queued. Your premium recipe will publish as soon as relays are reachable.'
+          : 'Premium recipe created! Redirecting...';
+
+        // Delete the draft since it's now published (or queued — either
+        // way the user can't usefully edit the same draft anymore).
         if (currentDraftId) {
           deleteDraft(currentDraftId);
           currentDraftId = null;
         }
-        
-        // Redirect to the premium recipe page
-        setTimeout(() => {
-          goto(`/premium/recipe/${naddr}`);
-        }, 1500);
-        return; // Don't reset disablePublishButton - keep it disabled until redirect
+
+        // Only auto-redirect on actual publish success. When queued,
+        // /premium/recipe/<naddr> would 404 because the event isn't on
+        // any relay yet — let the user stay on the create page to see
+        // the queued status, and they can navigate manually later.
+        if (!gatedPublishResult.queued) {
+          setTimeout(() => {
+            goto(`/premium/recipe/${naddr}`);
+          }, 1500);
+          return; // Don't reset disablePublishButton - keep it disabled until redirect
+        }
       }
     } catch (err) {
       resultMessage = 'Error: Something went wrong, Error: ' + String(err);
