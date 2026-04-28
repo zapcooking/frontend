@@ -54,11 +54,14 @@
         return;
       }
 
-      // Simple profile fetch with timeout
-      const profile = await Promise.race([
-        resolveProfileByPubkey(pubkey, ndkInstance),
-        new Promise<null>((r) => setTimeout(() => r(null), 3000))
-      ]);
+      // No outer timeout — `resolveProfileByPubkey` (and the
+      // `fetchProfileFromRelays` it calls) already cap the fetch at
+      // 5s and return null on timeout. The previous 3s outer race
+      // here fired *before* the underlying 5s could complete, so
+      // slow-but-eventual profile fetches landed in the cache while
+      // this component had already rendered the anon fallback —
+      // requiring a refresh to pick up the now-cached profile.
+      const profile = await resolveProfileByPubkey(pubkey, ndkInstance);
 
       if (profile) {
         // formatDisplayName already returns a stable anon-chef name when
