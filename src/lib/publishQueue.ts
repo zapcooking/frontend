@@ -707,9 +707,12 @@ export async function ensureLandedOnGarden(
     const gardenRelay = ndkInstance.pool.getRelay(GARDEN_RELAY_URL, true, true);
     if (!gardenRelay) return { onGarden: false, queuedRetry: false };
 
-    // Best-effort connect; even if connect resolves slowly, the timeout
-    // below caps the wait.
-    await gardenRelay.connect().catch(() => {});
+    // getRelay(url, autoConnect=true, createIfMissing=true) starts the
+    // connection in the background. We DON'T await it — a hung
+    // connect would otherwise block past `verifyTimeoutMs`. fetchEvent
+    // tolerates an in-progress connection (queues until ready), and
+    // the Promise.race below caps the total wait at verifyTimeoutMs
+    // regardless of where the time was spent.
 
     const relaySet = new NDKRelaySet(new Set([gardenRelay]), ndkInstance);
 

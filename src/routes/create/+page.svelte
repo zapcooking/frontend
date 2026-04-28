@@ -380,20 +380,41 @@
         if (!publishResult.success && !publishResult.queued) {
           throw new Error(publishResult.error || 'Publish failed');
         }
-        resultMessage = 'Success!';
 
-        // Belt + suspenders: confirm the event actually landed on
-        // garden specifically. If not, queue a targeted republish so
-        // garden ends up holding every Zap Cooking-authored recipe
-        // regardless of the author's NIP-65 preferences. Best-effort —
-        // doesn't block the user-facing success path.
-        ensureLandedOnGarden(event).catch((e) =>
-          console.warn('[create] garden verification failed', e)
-        );
+        // Distinguish "succeeded immediately" from "queued for retry".
+        // When the initial attempt fails (signer not ready, relay
+        // connectivity blip), publishWithRetry signs+queues the event
+        // for IndexedDB-backed retry — but the event might not have a
+        // valid pubkey/sig yet. We surface this honestly to the user
+        // so they don't think it's already on relays, and we skip the
+        // garden verify (nothing to verify yet).
+        if (publishResult.queued) {
+          resultMessage =
+            'Publish queued. Your recipe will be published as soon as relays are reachable.';
+        } else {
+          resultMessage = 'Success!';
+          // Belt + suspenders: confirm the event actually landed on
+          // garden specifically. If not, queue a targeted republish so
+          // garden ends up holding every Zap Cooking-authored recipe
+          // regardless of the author's NIP-65 preferences. Best-effort —
+          // doesn't block the user-facing success path.
+          ensureLandedOnGarden(event).catch((e) =>
+            console.warn('[create] garden verification failed', e)
+          );
+        }
+
+        // Use the signed-in user's pubkey for the naddr — event.pubkey
+        // can be undefined when the publish was queued before signing
+        // completed. $userPublickey is always populated at this point
+        // (handlePublish already gated on it).
+        const recipePubkey = event.pubkey || $userPublickey;
+        if (!recipePubkey) {
+          throw new Error('Unable to determine author pubkey for recipe address');
+        }
 
         const naddr = nip19.naddrEncode({
           identifier: title.toLowerCase().replaceAll(' ', '-'),
-          pubkey: event.pubkey,
+          pubkey: recipePubkey,
           kind: 30023
         });
 

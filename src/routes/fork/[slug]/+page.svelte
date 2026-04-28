@@ -265,21 +265,42 @@
         if (!forkPublishResult.success && !forkPublishResult.queued) {
           throw new Error(forkPublishResult.error || 'Publish failed');
         }
+
+        // When the publish was queued for retry, the event may not be
+        // signed yet, so event.pubkey is undefined. Surface "queued"
+        // honestly to the user, skip the garden verify (nothing to
+        // look up), skip the redirect (the recipe URL would 404 since
+        // no relay has it yet). Let them stay on the fork page until
+        // the retry queue lands.
+        if (forkPublishResult.queued) {
+          resultMessage =
+            'Publish queued. Your fork will publish as soon as relays are reachable.';
+          disablePublishButton = false;
+          return;
+        }
+
         // Best-effort garden verification + retry-on-miss.
         ensureLandedOnGarden(event).catch((e) =>
           console.warn('[fork] garden verification failed', e)
         );
 
+        // Use $userPublickey as a fallback in case event.pubkey is
+        // somehow unset post-publish — defensive against signer races.
+        const recipePubkey = event.pubkey || $userPublickey;
+        if (!recipePubkey) {
+          throw new Error('Missing author pubkey for recipe address');
+        }
+
         const naddr = nip19.naddrEncode({
           identifier: identifier || title.toLowerCase().replaceAll(' ', '-'),
-          pubkey: event.pubkey,
+          pubkey: recipePubkey,
           kind: 30023
         });
         resultMessage = 'Success! Redirecting to your recipe...';
-        
+
         // Clear the preview to show the user it worked
         previewEvent = undefined;
-        
+
         // Redirect to the recipe page
         setTimeout(() => {
           goto(`/recipe/${naddr}`);

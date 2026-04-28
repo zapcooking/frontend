@@ -238,14 +238,27 @@
         if (!gatedPublishResult.success && !gatedPublishResult.queued) {
           throw new Error(gatedPublishResult.error || 'Publish failed');
         }
-        // Best-effort garden verification + retry-on-miss.
-        ensureLandedOnGarden(event).catch((e) =>
-          console.warn('[create-gated] garden verification failed', e)
-        );
-        
+        // When the initial publish fails and gets queued for retry, the
+        // event may not be signed yet, so event.author.hexpubkey is
+        // undefined and the garden verify has nothing to look up.
+        // Surface "queued" honestly and skip the verify; otherwise run
+        // the belt-and-suspenders check.
+        if (!gatedPublishResult.queued) {
+          ensureLandedOnGarden(event).catch((e) =>
+            console.warn('[create-gated] garden verification failed', e)
+          );
+        }
+
+        // Always derive the naddr from $userPublickey rather than
+        // event.author.hexpubkey — the latter is only populated after
+        // signing, which can be deferred when queued.
+        const gatedPubkey = event.pubkey || $userPublickey;
+        if (!gatedPubkey) {
+          throw new Error('Unable to determine author pubkey for recipe address');
+        }
         const naddr = nip19.naddrEncode({
           identifier: title.toLowerCase().replaceAll(' ', '-'),
-          pubkey: event.author.hexpubkey,
+          pubkey: gatedPubkey,
           kind: GATED_RECIPE_KIND
         });
         
@@ -263,19 +276,27 @@
           // Non-critical: naddr update failed
         }
         
-        resultMessage = 'Premium recipe created! Redirecting...';
-        
-        // Delete the draft since it's now published
+        resultMessage = gatedPublishResult.queued
+          ? 'Publish queued. Your premium recipe will publish as soon as relays are reachable.'
+          : 'Premium recipe created! Redirecting...';
+
+        // Delete the draft since it's now published (or queued — either
+        // way the user can't usefully edit the same draft anymore).
         if (currentDraftId) {
           deleteDraft(currentDraftId);
           currentDraftId = null;
         }
-        
-        // Redirect to the premium recipe page
-        setTimeout(() => {
-          goto(`/premium/recipe/${naddr}`);
-        }, 1500);
-        return; // Don't reset disablePublishButton - keep it disabled until redirect
+
+        // Only auto-redirect on actual publish success. When queued,
+        // /premium/recipe/<naddr> would 404 because the event isn't on
+        // any relay yet — let the user stay on the create page to see
+        // the queued status, and they can navigate manually later.
+        if (!gatedPublishResult.queued) {
+          setTimeout(() => {
+            goto(`/premium/recipe/${naddr}`);
+          }, 1500);
+          return; // Don't reset disablePublishButton - keep it disabled until redirect
+        }
       }
     } catch (err) {
       resultMessage = 'Error: Something went wrong, Error: ' + String(err);
