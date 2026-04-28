@@ -47,9 +47,21 @@
     isSubmitting = true;
     error = '';
     try {
-      await publishPackDeletion(packEvent);
-      showToast('success', 'Deletion request published.');
-      dispatch('deleted');
+      const { queued } = await publishPackDeletion(packEvent);
+      // publishWithRetry can resolve in a queued-for-retry state when
+      // no relay has confirmed yet (signer race, relay flake). Surface
+      // honest copy + a different downstream signal so the page can
+      // skip a redirect that would land the user on /packs while the
+      // pack is still visible there.
+      if (queued) {
+        showToast(
+          'info',
+          'Deletion request queued. It will publish as soon as relays are reachable.'
+        );
+      } else {
+        showToast('success', 'Deletion request published.');
+      }
+      dispatch('deleted', { queued });
       open = false;
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Failed to delete pack.';

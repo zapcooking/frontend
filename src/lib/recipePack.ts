@@ -212,6 +212,16 @@ export function buildAnnouncementContent(opts: {
   return lines.join('\n');
 }
 
+/** Result shape from publishPackDeletion. `queued` is true when the
+ *  initial publish attempt failed and the deletion was persisted to
+ *  the IndexedDB retry queue — relays haven't acknowledged it yet,
+ *  so the UI should distinguish this from a confirmed publish. */
+export interface PackDeletionResult {
+  deletion: NDKEvent;
+  /** True if no relay confirmed yet; false on immediate publish success. */
+  queued: boolean;
+}
+
 /**
  * Publish a NIP-09 deletion request (kind:5) for a Recipe Pack the
  * caller authored. Anyone hitting the pack page after relays honor
@@ -233,8 +243,14 @@ export function buildAnnouncementContent(opts: {
  * lands on garden + the explicit pool, matching where the original
  * pack was published. Caller is responsible for ensuring the user
  * actually authored the pack (we re-check pubkey here as a guard).
+ *
+ * Returns { deletion, queued } so the UI can distinguish "published
+ * immediately" from "queued for IndexedDB retry" — the latter shouldn't
+ * show a confirmed-published toast or redirect away from the pack.
  */
-export async function publishPackDeletion(packEvent: NDKEvent): Promise<NDKEvent> {
+export async function publishPackDeletion(
+  packEvent: NDKEvent
+): Promise<PackDeletionResult> {
   const ndkInstance = get(ndk);
   const pubkey = get(userPublickey);
   if (!ndkInstance) throw new Error('NDK not initialized');
@@ -264,7 +280,7 @@ export async function publishPackDeletion(packEvent: NDKEvent): Promise<NDKEvent
   if (!result.success && !result.queued) {
     throw new Error(result.error || 'Failed to publish deletion request.');
   }
-  return deletion;
+  return { deletion, queued: !result.success };
 }
 
 /**

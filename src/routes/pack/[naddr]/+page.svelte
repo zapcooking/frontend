@@ -313,11 +313,20 @@
   let exportModalOpen = false;
 
   // ===== Delete pack (own-pack only) =====
-  // NIP-09 deletion request. Opens a confirm modal; on success the
-  // pack page redirects to /packs since the displayed event is now
-  // a deletion candidate (and may still cache here briefly).
+  // NIP-09 deletion request. Opens a confirm modal; on confirmed
+  // publish the page redirects to /packs since the displayed event
+  // is now a deletion candidate (and may still cache here briefly).
+  // For QUEUED deletes (publishWithRetry → IndexedDB retry queue),
+  // we stay on the pack page — redirecting to /packs would land the
+  // user on a list that still shows the pack they just queued.
   let deleteModalOpen = false;
-  function handlePackDeleted() {
+  function handlePackDeleted(e: CustomEvent<{ queued: boolean }>) {
+    if (e.detail?.queued) {
+      // Stay put. The toast in the modal already explained that
+      // relays haven't confirmed yet; the page will reflect the
+      // deletion once the retry queue lands and the user reloads.
+      return;
+    }
     // Most relays drop the event within a few seconds, but caches in
     // this tab + intermediate proxies can linger. Redirecting to
     // /packs avoids the user staring at a "still here" view of the
@@ -412,8 +421,12 @@
 
 <!-- NIP-09 deletion confirmation. Self-contained: the modal handles
      publishing the kind:5 deletion request and emits `deleted` on
-     success — we redirect to /packs to clear the stale view. -->
-{#if packEvent}
+     success — we redirect to /packs only when the publish is
+     confirmed (queued state stays on the page).
+     Mount is gated on isOwnPack so a non-owner toggling
+     deleteModalOpen via devtools can't get a confusing
+     "Only the author..." error from publishPackDeletion. -->
+{#if packEvent && isOwnPack}
   <DeletePackModal
     bind:open={deleteModalOpen}
     {packEvent}
