@@ -16,6 +16,7 @@
   import Button from '../../../components/Button.svelte';
   import MarkdownEditor from '../../../components/MarkdownEditor.svelte';
   import { RECIPE_TAG_PREFIX_NEW, RECIPE_TAG_PREFIX_LEGACY } from '$lib/consts';
+  import { publishQueue, ensureLandedOnGarden } from '$lib/publishQueue';
 
   let currentSlug = '';
 
@@ -256,7 +257,19 @@
             event.tags.push(['t', `${RECIPE_TAG_PREFIX_NEW}-${t.title.toLowerCase().replaceAll(' ', '-')}`]);
           }
         });
-        await event.publish();
+        // Publish via publishQueue (see /create/+page.svelte for the
+        // full rationale). "all" mode fans out to every pool relay
+        // including garden — guarantees forks land on Zap Cooking
+        // infrastructure regardless of the forker's NIP-65 outbox.
+        const forkPublishResult = await publishQueue.publishWithRetry(event, 'all');
+        if (!forkPublishResult.success && !forkPublishResult.queued) {
+          throw new Error(forkPublishResult.error || 'Publish failed');
+        }
+        // Best-effort garden verification + retry-on-miss.
+        ensureLandedOnGarden(event).catch((e) =>
+          console.warn('[fork] garden verification failed', e)
+        );
+
         const naddr = nip19.naddrEncode({
           identifier: identifier || title.toLowerCase().replaceAll(' ', '-'),
           pubkey: event.pubkey,

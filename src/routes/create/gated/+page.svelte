@@ -12,6 +12,7 @@
   import { nip19 } from 'nostr-tools';
   import MediaUploader from '../../../components/MediaUploader.svelte';
   import { addClientTagToEvent } from '$lib/nip89';
+  import { publishQueue, ensureLandedOnGarden } from '$lib/publishQueue';
   import Button from '../../../components/Button.svelte';
   import MarkdownEditor from '../../../components/MarkdownEditor.svelte';
   import { onMount, onDestroy } from 'svelte';
@@ -228,8 +229,19 @@
         // Replace content with preview-only for relay (full content is encrypted on server)
         event.content = gatePreview || summary || 'This is a premium recipe. Visit zap.cooking to unlock.';
 
-        // Publish the recipe with gated tag (content is now preview-only)
-        await event.publish();
+        // Publish via publishQueue (see /create/+page.svelte for the
+        // full rationale). "all" mode fans out to every pool relay
+        // including garden — guarantees the kind:30023 preview wrapper
+        // lands on Zap Cooking infrastructure regardless of the
+        // author's NIP-65 outbox preferences.
+        const gatedPublishResult = await publishQueue.publishWithRetry(event, 'all');
+        if (!gatedPublishResult.success && !gatedPublishResult.queued) {
+          throw new Error(gatedPublishResult.error || 'Publish failed');
+        }
+        // Best-effort garden verification + retry-on-miss.
+        ensureLandedOnGarden(event).catch((e) =>
+          console.warn('[create-gated] garden verification failed', e)
+        );
         
         const naddr = nip19.naddrEncode({
           identifier: title.toLowerCase().replaceAll(' ', '-'),
