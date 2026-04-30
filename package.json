@@ -1,7 +1,7 @@
 {
   "name": "zap.cooking",
   "license": "MIT",
-  "version": "4.2.341",
+  "version": "4.2.342",
   "private": true,
   "scripts": {
     "dev": "vite dev",
@@ -20,7 +20,8 @@
     "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
     "lint": "prettier --plugin-search-dir . --check . && eslint .",
     "format": "prettier --plugin-search-dir . --write .",
-    "prepare": "cp scripts/bump-version.sh .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit"
+    "prepare": "cp scripts/bump-version.sh .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit",
+    "preinstall": "npx only-allow pnpm"
   },
   "type": "module",
   "engines": {
@@ -116,5 +117,23 @@
     "vitest": "^2",
     "wrangler": "^4.42.0"
   },
-  "packageManager": "pnpm@9.12.1+sha512.e5a7e52a4183a02d5931057f7a0dbff9d5e9ce3161e33fa68ae392125b79282a8a8a470a51dfc8a0ed86221442eb2fb57019b0990ed24fab519bf0e1bc5ccfc4"
+  "packageManager": "pnpm@9.12.1+sha512.e5a7e52a4183a02d5931057f7a0dbff9d5e9ce3161e33fa68ae392125b79282a8a8a470a51dfc8a0ed86221442eb2fb57019b0990ed24fab519bf0e1bc5ccfc4",
+  "pnpm": {
+    "overrides": {
+      "handlebars": "4.7.9",
+      "rollup": "4.60.2",
+      "flatted": "3.4.2",
+      "tar@7.5.1": "7.5.13",
+      "minimatch@3.0.5": "3.1.5",
+      "minimatch@3.1.2": "3.1.5",
+      "minimatch@5.1.6": "5.1.9",
+      "minimatch@8.0.4": "8.0.7",
+      "minimatch@9.0.3": "9.0.9",
+      "minimatch@10.1.1": "10.2.5",
+      "brace-expansion@1.1.11": "1.1.14",
+      "brace-expansion@2.0.1": "2.1.0",
+      "@isaacs/brace-expansion": "5.0.1",
+      "@xmldom/xmldom": "0.8.13"
+    }
+  }
 }
