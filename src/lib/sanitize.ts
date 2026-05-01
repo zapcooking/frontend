@@ -1,4 +1,4 @@
-import DOMPurify from 'dompurify';
+import DOMPurify from 'isomorphic-dompurify';
 
 const SANITIZE_CONFIG = {
   ADD_ATTR: ['target']
@@ -9,23 +9,14 @@ type DOMPurifyLike = {
   addHook?: (hook: 'afterSanitizeAttributes', callback: (node: Element) => void) => void;
 };
 
-let purifier: DOMPurifyLike | null = null;
+const purifier = DOMPurify as unknown as DOMPurifyLike;
 
-function getPurifier(): DOMPurifyLike {
-  if (purifier) return purifier;
-
-  const domPurify = DOMPurify as unknown as DOMPurifyLike & ((window: Window) => DOMPurifyLike);
-  purifier = typeof window !== 'undefined' ? domPurify(window) : domPurify;
-
-  purifier.addHook?.('afterSanitizeAttributes', (node) => {
-    if (node.nodeName === 'A' && node.getAttribute('target') === '_blank') {
-      node.setAttribute('rel', 'noopener noreferrer nofollow ugc');
-    }
-  });
-
-  return purifier;
-}
+purifier.addHook?.('afterSanitizeAttributes', (node) => {
+  if (node.nodeName === 'A' && node.getAttribute('target') === '_blank') {
+    node.setAttribute('rel', 'noopener noreferrer nofollow ugc');
+  }
+});
 
 export function sanitizeHTML(html: string): string {
-  return getPurifier().sanitize(html, SANITIZE_CONFIG);
+  return purifier.sanitize(html, SANITIZE_CONFIG);
 }
