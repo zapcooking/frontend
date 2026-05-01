@@ -1,5 +1,5 @@
 import MarkdownIt from 'markdown-it';
-import DOMPurify from 'dompurify';
+import { sanitizeHTML } from '$lib/sanitize';
 
 const md = new MarkdownIt();
 
@@ -14,26 +14,9 @@ md.renderer.rules.link_open = function(tokens, idx, options, env, self) {
   return defaultRender(tokens, idx, options, env, self);
 };
 
-// Dedicated DOMPurify instance for markdown so the afterSanitizeAttributes
-// hook doesn't leak into every other sanitize() call in the app (the longform
-// editor and a handful of other callers import DOMPurify directly). The hook
-// forces target=_blank + rel on every <a> — DOMPurify drops those attrs in
-// some configs, which caused the recipe-editor markdown preview to navigate
-// in-place and destroy unsaved edits.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const markdownPurifier =
-  typeof window !== 'undefined' ? DOMPurify(window as any) : null;
-markdownPurifier?.addHook('afterSanitizeAttributes', (node) => {
-  if (node.tagName === 'A') {
-    node.setAttribute('target', '_blank');
-    node.setAttribute('rel', 'noopener noreferrer');
-  }
-});
-
 export function parseMarkdown(markdown: string) {
   const parsedMarkdown = md.render(markdown);
-  const purifier = markdownPurifier ?? DOMPurify;
-  return purifier.sanitize(parsedMarkdown, { ADD_ATTR: ['target'] });
+  return sanitizeHTML(parsedMarkdown);
 }
 
 interface MarkdownInformation {
