@@ -1,22 +1,38 @@
-import DOMPurify from 'isomorphic-dompurify';
+/**
+ * Project-wide HTML sanitizer.
+ *
+ * Uses plain `dompurify` (browser DOM) rather than `isomorphic-dompurify`
+ * (jsdom-on-node). All sinks routing through this helper render in
+ * browser-side contexts, and Cloudflare Workers (production runtime)
+ * don't reliably support jsdom even with `nodejs_compat` — at best a
+ * heavy bundle, at worst an SSR runtime crash. SSR returns empty rather
+ * than raw, which is strictly safer than the prior `browser ? sanitize
+ * : raw` pattern (a blank flash on hydration is preferable to an SSR
+ * XSS). Hydration re-renders with the real sanitized output.
+ *
+ * The hook is registered on DOMPurify's shared singleton at module
+ * load. Anywhere else in the app that imports `dompurify` directly
+ * inherits it. Keep the policy: do NOT import dompurify directly
+ * elsewhere in src/ — funnel through `sanitizeHTML` so changes here
+ * propagate.
+ */
+import DOMPurify from 'dompurify';
 
 const SANITIZE_CONFIG = {
   ADD_ATTR: ['target']
 };
 
-type DOMPurifyLike = {
-  sanitize: (html: string, config?: typeof SANITIZE_CONFIG) => string;
-  addHook?: (hook: 'afterSanitizeAttributes', callback: (node: Element) => void) => void;
-};
+const isBrowser = typeof window !== 'undefined';
 
-const purifier = DOMPurify as unknown as DOMPurifyLike;
-
-purifier.addHook?.('afterSanitizeAttributes', (node) => {
-  if (node.nodeName === 'A' && node.getAttribute('target') === '_blank') {
-    node.setAttribute('rel', 'noopener noreferrer nofollow ugc');
-  }
-});
+if (isBrowser) {
+  DOMPurify.addHook('afterSanitizeAttributes', (node) => {
+    if (node.nodeName === 'A' && node.getAttribute('target') === '_blank') {
+      node.setAttribute('rel', 'noopener noreferrer nofollow ugc');
+    }
+  });
+}
 
 export function sanitizeHTML(html: string): string {
-  return purifier.sanitize(html, SANITIZE_CONFIG);
+  if (!isBrowser) return '';
+  return DOMPurify.sanitize(html, SANITIZE_CONFIG);
 }
