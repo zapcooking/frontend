@@ -22,8 +22,11 @@ const adapter = (isCapacitor || isStaticAdapter)
   : process.env.VERCEL
     ? adapterVercel()
     : adapterCloudflare({
+        // Excluded from SvelteKit Worker so Cloudflare applies redirect routing
+        // for LNURL endpoints defined in root _redirects (proxied to breez.tips).
         routes: {
-          include: ['/*']
+          include: ['/*'],
+          exclude: ['<all>', '/.well-known/lnurlp/*', '/lnurlpay/*']
         }
       });
 

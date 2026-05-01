@@ -1,7 +1,7 @@
 {
   "name": "zap.cooking",
   "license": "MIT",
-  "version": "4.2.356",
+  "version": "4.2.364",
   "private": true,
   "scripts": {
     "dev": "vite dev",
@@ -70,7 +70,7 @@
     "jspdf": "^4.2.1",
     "jsqr": "^1.4.0",
     "libretranslate": "^1.0.1",
-    "markdown-it": "^13.0.1",
+    "markdown-it": "^14.1.1",
     "nostr-tools": "^2.13.0",
     "openai": "^6.16.0",
     "phosphor-svelte": "^1.4.2",
@@ -85,10 +85,10 @@
   },
   "devDependencies": {
     "@capacitor/assets": "^3.0.5",
-    "@sveltejs/adapter-cloudflare": "^7.2.4",
+    "@sveltejs/adapter-cloudflare": "^7.2.8",
     "@sveltejs/adapter-static": "^3.0.10",
-    "@sveltejs/adapter-vercel": "^6.2.0",
-    "@sveltejs/kit": "^2.49.5",
+    "@sveltejs/adapter-vercel": "^6.3.3",
+    "@sveltejs/kit": "^2.57.1",
     "@sveltejs/vite-plugin-svelte": "^3.1.2",
     "@tailwindcss/forms": "^0.5.10",
     "@tailwindcss/postcss": "^4.1.13",
@@ -112,16 +112,17 @@
     "tailwindcss": "^4.1.0",
     "tslib": "^2.4.1",
     "typescript": "^5.0.0",
-    "vite": "^5.0.0",
+    "vite": "^5.4.21",
     "vite-plugin-node-polyfills": "^0.24.0",
     "vitest": "^2",
-    "wrangler": "^4.42.0"
+    "wrangler": "^4.87.0"
   },
   "packageManager": "pnpm@9.12.1+sha512.e5a7e52a4183a02d5931057f7a0dbff9d5e9ce3161e33fa68ae392125b79282a8a8a470a51dfc8a0ed86221442eb2fb57019b0990ed24fab519bf0e1bc5ccfc4",
   "pnpm": {
     "overrides": {
       "tar": "^7.5.13",
       "lodash": "^4.18.0",
+      "js-yaml": ">=4.1.1",
       "undici": "^7.24.0",
       "defu": "^6.1.5",
       "devalue": "^5.6.4",
