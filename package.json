@@ -1,7 +1,7 @@
 {
   "name": "zap.cooking",
   "license": "MIT",
-  "version": "4.2.360",
+  "version": "4.2.361",
   "private": true,
   "scripts": {
     "dev": "vite dev",
@@ -70,7 +70,7 @@
     "jspdf": "^4.2.1",
     "jsqr": "^1.4.0",
     "libretranslate": "^1.0.1",
-    "markdown-it": "^13.0.1",
+    "markdown-it": "^14.1.1",
     "nostr-tools": "^2.13.0",
     "openai": "^6.16.0",
     "phosphor-svelte": "^1.4.2",
