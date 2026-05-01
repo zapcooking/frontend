@@ -8,6 +8,7 @@ import html2canvas from 'html2canvas';
 import { browser } from '$app/environment';
 import type { NDKEvent } from '@nostr-dev-kit/ndk';
 import { nip19 } from 'nostr-tools';
+import { sanitizeHTML } from '$lib/sanitize';
 
 // URL and image detection patterns
 const URL_REGEX = /(https?:\/\/[^\s]+)/g;
@@ -673,7 +674,7 @@ async function generateNoteImageInternal(
       isSafari ? undefined : referencedNote,
       isSafari // skipAllImages flag for Safari
     );
-    container.innerHTML = cardHTML;
+    container.innerHTML = sanitizeHTML(cardHTML);
 
     // Wait for images to load (shorter timeout for Safari)
     await waitForImages(container, isSafari ? 2000 : 5000);
