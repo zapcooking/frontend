@@ -21,7 +21,7 @@
     "lint": "prettier --plugin-search-dir . --check . && eslint .",
     "format": "prettier --plugin-search-dir . --write .",
     "prepare": "cp scripts/bump-version.sh .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit",
-    "preinstall": "npx only-allow pnpm"
+    "preinstall": "node -e \"if (!String(process.env.npm_config_user_agent || '').startsWith('pnpm')) { console.error('Use pnpm: corepack enable && pnpm install'); process.exit(1); }\""
   },
   "type": "module",
   "engines": {
@@ -132,7 +132,6 @@
       "minimatch@10.1.1": "10.2.5",
       "brace-expansion@1.1.11": "1.1.14",
       "brace-expansion@2.0.1": "2.1.0",
-      "@isaacs/brace-expansion": "5.0.1",
       "@xmldom/xmldom": "0.8.13"
     }
   }
