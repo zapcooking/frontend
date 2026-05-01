@@ -1,7 +1,7 @@
 {
   "name": "zap.cooking",
   "license": "MIT",
-  "version": "4.2.355",
+  "version": "4.2.356",
   "private": true,
   "scripts": {
     "dev": "vite dev",
@@ -120,18 +120,18 @@
   "packageManager": "pnpm@9.12.1+sha512.e5a7e52a4183a02d5931057f7a0dbff9d5e9ce3161e33fa68ae392125b79282a8a8a470a51dfc8a0ed86221442eb2fb57019b0990ed24fab519bf0e1bc5ccfc4",
   "pnpm": {
     "overrides": {
-      "tar": ">=7.5.13",
-      "lodash": ">=4.18.0",
-      "undici": ">=7.24.0",
-      "defu": ">=6.1.5",
-      "devalue": ">=5.6.4",
-      "picomatch": ">=4.0.4",
-      "minimatch": ">=10.2.3",
-      "@xmldom/xmldom": ">=0.8.13",
-      "handlebars": ">=4.7.9",
-      "rollup": ">=4.60.2",
-      "flatted": ">=3.4.2",
-      "dompurify": ">=3.4.2"
+      "tar": "^7.5.13",
+      "lodash": "^4.18.0",
+      "undici": "^7.24.0",
+      "defu": "^6.1.5",
+      "devalue": "^5.6.4",
+      "picomatch": "^4.0.4",
+      "minimatch": "^10.2.3",
+      "@xmldom/xmldom": "^0.8.13",
+      "handlebars": "^4.7.9",
+      "rollup": "^4.60.2",
+      "flatted": "^3.4.2",
+      "dompurify": "^3.4.2"
     }
   }
 }

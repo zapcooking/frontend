@@ -5,18 +5,18 @@ settings:
   excludeLinksFromLockfile: false
 
 overrides:
-  tar: '>=7.5.13'
-  lodash: '>=4.18.0'
-  undici: '>=7.24.0'
-  defu: '>=6.1.5'
-  devalue: '>=5.6.4'
-  picomatch: '>=4.0.4'
-  minimatch: '>=10.2.3'
-  '@xmldom/xmldom': '>=0.8.13'
-  handlebars: '>=4.7.9'
-  rollup: '>=4.60.2'
-  flatted: '>=3.4.2'
-  dompurify: '>=3.4.2'
+  tar: ^7.5.13
+  lodash: ^4.18.0
+  undici: ^7.24.0
+  defu: ^6.1.5
+  devalue: ^5.6.4
+  picomatch: ^4.0.4
+  minimatch: ^10.2.3
+  '@xmldom/xmldom': ^0.8.13
+  handlebars: ^4.7.9
+  rollup: ^4.60.2
+  flatted: ^3.4.2
+  dompurify: ^3.4.2
 
 importers:
 
@@ -122,7 +122,7 @@ importers:
         specifier: ^3.6.0
         version: 3.6.0
       dompurify:
-        specifier: '>=3.4.2'
+        specifier: ^3.4.2
         version: 3.4.2
       dotenv:
         specifier: ^17.2.3
@@ -1106,7 +1106,7 @@ packages:
     resolution: {integrity: sha512-2+DEJbNBoPROPkgTDNe8/1YXWcqxbN5DTjASVIOx8HS+pITXushyNiBV56RB08zuptzz8gT3YfkqriTBVycepg==}
     engines: {node: '>=14.0.0'}
     peerDependencies:
-      rollup: '>=4.60.2'
+      rollup: ^4.60.2
     peerDependenciesMeta:
       rollup:
         optional: true
@@ -1115,7 +1115,7 @@ packages:
     resolution: {integrity: sha512-5EdhGZtnu3V88ces7s53hhfK5KSASnJZv8Lulpc04cWO3REESroJXg73DFsOmgbU2BhwV0E20bu2IDZb3VKW4Q==}
     engines: {node: '>=14.0.0'}
     peerDependencies:
-      rollup: '>=4.60.2'
+      rollup: ^4.60.2
     peerDependenciesMeta:
       rollup:
         optional: true
