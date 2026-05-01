@@ -11,7 +11,7 @@
 	import { getOutboxRelays } from '$lib/relayListCache';
 	import { addClientTagToEvent } from '$lib/nip89';
 	import TurndownService from 'turndown';
-	import DOMPurify from 'dompurify';
+	import { sanitizeHTML } from '$lib/sanitize';
 	import XIcon from 'phosphor-svelte/lib/X';
 	import FloppyDiskIcon from 'phosphor-svelte/lib/FloppyDisk';
 	import CloudCheckIcon from 'phosphor-svelte/lib/CloudCheck';
@@ -624,7 +624,7 @@
 							{/if}
 
 							<div class="preview-body prose">
-								{@html browser ? DOMPurify.sanitize(localDraft.content) : localDraft.content}
+								{@html sanitizeHTML(localDraft.content)}
 							</div>
 						</article>
 					</div>
