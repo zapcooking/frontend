@@ -22,6 +22,7 @@
     extractRecipeDetails,
     parseMarkdownForEditing
   } from '$lib/parser';
+  import { sanitizeHTML } from '$lib/sanitize';
   import { goto } from '$app/navigation';
   import { saveDraft } from '$lib/draftStore';
   import { clickOutside } from '$lib/clickOutside';
@@ -1049,7 +1050,7 @@
                     <a class="block" href="/settings">open translation setttings</a>
                   </p>
                   <hr />
-                  {@html result.text}
+                  {@html sanitizeHTML(result.text)}
                 {/if}
               {/if}
             {:catch err}
@@ -1096,7 +1097,7 @@
                     <a class="block" href="/settings">open translation setttings</a>
                   </p>
                   <hr />
-                  {@html result.text}
+                  {@html sanitizeHTML(result.text)}
                 {/if}
               {/if}
             {:catch err}
