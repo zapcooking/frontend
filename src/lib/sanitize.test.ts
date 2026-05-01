@@ -1,10 +1,9 @@
 // @vitest-environment jsdom
 
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 
-async function loadSanitizeHTML() {
-  vi.resetModules();
-  const module = await import('./sanitize');
+async function loadSanitizeHTML(context = 'browser') {
+  const module = await import(`./sanitize?context=${context}-${Date.now()}`);
   return module.sanitizeHTML;
 }
 
@@ -47,6 +46,8 @@ describe('sanitizeHTML', () => {
   });
 
   it('ignores prototype-polluted custom element handling [GHSA-v9jr-rg53-9pgp]', async () => {
+    const pollutedPrototype = Object.prototype as Record<string, unknown>;
+
     Object.defineProperty(Object.prototype, 'tagNameCheck', {
       value: /.*/,
       configurable: true
@@ -64,8 +65,8 @@ describe('sanitizeHTML', () => {
       expect(sanitized).not.toContain('<x-x');
       expect(sanitized.toLowerCase()).not.toContain('onfocus');
     } finally {
-      delete Object.prototype.tagNameCheck;
-      delete Object.prototype.attributeNameCheck;
+      delete pollutedPrototype.tagNameCheck;
+      delete pollutedPrototype.attributeNameCheck;
     }
   });
 
@@ -126,7 +127,6 @@ describe('sanitizeHTML', () => {
   });
 
   it('returns an empty string during SSR instead of raw HTML', async () => {
-    vi.resetModules();
     const originalWindow = globalThis.window;
 
     Object.defineProperty(globalThis, 'window', {
@@ -135,14 +135,13 @@ describe('sanitizeHTML', () => {
     });
 
     try {
-      const { sanitizeHTML } = await import('./sanitize');
+      const sanitizeHTML = await loadSanitizeHTML('ssr');
       expect(sanitizeHTML('<p>server</p><img src=x onerror=alert(1)>')).toBe('');
     } finally {
       Object.defineProperty(globalThis, 'window', {
         value: originalWindow,
         configurable: true
       });
-      vi.resetModules();
     }
   });
 });
