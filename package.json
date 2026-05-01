@@ -1,7 +1,7 @@
 {
   "name": "zap.cooking",
   "license": "MIT",
-  "version": "4.2.359",
+  "version": "4.2.360",
   "private": true,
   "scripts": {
     "dev": "vite dev",
@@ -115,7 +115,7 @@
     "vite": "^5.4.21",
     "vite-plugin-node-polyfills": "^0.24.0",
     "vitest": "^2",
-    "wrangler": "^4.42.0"
+    "wrangler": "^4.87.0"
   },
   "packageManager": "pnpm@9.12.1+sha512.e5a7e52a4183a02d5931057f7a0dbff9d5e9ce3161e33fa68ae392125b79282a8a8a470a51dfc8a0ed86221442eb2fb57019b0990ed24fab519bf0e1bc5ccfc4",
   "pnpm": {
