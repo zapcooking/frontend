@@ -7,6 +7,7 @@ import { nip19 } from 'nostr-tools';
 import { get } from 'svelte/store';
 import { ndk } from '$lib/nostr';
 import { searchProfiles } from '$lib/profileSearchService';
+import { sanitizeHTML } from '$lib/sanitize';
 import {
 	loadFollowListProfiles,
 	getProfileCache,
@@ -116,7 +117,7 @@ export class MentionComposerController {
 	/** Sync HTML into the composer from a text value */
 	syncContent(value: string): void {
 		if (!this.composerEl) return;
-		const html = renderTextWithMentions(value, getProfileCache());
+		const html = sanitizeHTML(renderTextWithMentions(value, getProfileCache()));
 		if (this.composerEl.innerHTML !== html) {
 			this.composerEl.innerHTML = html;
 		}
