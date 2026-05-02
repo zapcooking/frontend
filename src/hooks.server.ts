@@ -2,7 +2,7 @@ import type { Handle } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
 
 const ENABLE_CORS_ALL = env.ENABLE_CORS_ALL?.toLowerCase() === 'true';
-const ALLOW_METHODS = 'GET, POST, OPTIONS';
+const ALLOW_METHODS = 'GET, POST, PATCH, OPTIONS';
 const ALLOW_HEADERS = 'Content-Type, Authorization, Nostr-Authorization';
 
 const TRUSTED_ORIGINS = env.CORS_ORIGIN
