@@ -1,23 +1,11 @@
-/**
- * Server-side hooks for SvelteKit
- * Handles CORS headers for API endpoints and optionally all responses
- * 
- * Environment Variables:
- * - ENABLE_CORS_ALL: Set to 'true' to enable CORS on all routes (default: false, only API routes)
- * - CORS_ORIGIN: Comma-separated list of allowed origins (default: * in dev, empty in prod)
- * 
- * For security, CORS is only enabled on API routes by default.
- * To enable CORS on all routes (including HTML pages), set ENABLE_CORS_ALL=true
- */
-
 import type { Handle } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
 
-// Check if CORS should be enabled for all routes
 const ENABLE_CORS_ALL = env.ENABLE_CORS_ALL?.toLowerCase() === 'true';
+const ALLOW_METHODS = 'GET, POST, OPTIONS';
+const ALLOW_HEADERS = 'Content-Type, Authorization, Nostr-Authorization';
 
-// Parse allowed origins from environment or use defaults
-const ALLOWED_ORIGINS = env.CORS_ORIGIN
+const TRUSTED_ORIGINS = env.CORS_ORIGIN
   ? env.CORS_ORIGIN.split(',').map(o => o.trim())
   : [
       'https://zap.cooking',
@@ -27,57 +15,71 @@ const ALLOWED_ORIGINS = env.CORS_ORIGIN
       'capacitor://localhost',
     ];
 
-/**
- * Get CORS headers based on origin
- * Uses wildcard (*) in development, specific origins in production
- */
-function getCorsHeaders(origin: string | null): Record<string, string> {
-  // In development, allow all origins for easier testing
-  if (process.env.NODE_ENV === 'development') {
-    return {
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS, PATCH, HEAD',
-      'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Requested-With',
-      'Access-Control-Max-Age': '86400', // 24 hours
-    };
-  }
-
-  // In production, check if origin is allowed
-  const isAllowed = origin && (ALLOWED_ORIGINS.includes(origin) || ALLOWED_ORIGINS.includes('*'));
-  
-  return {
-    'Access-Control-Allow-Origin': isAllowed ? origin || '*' : '',
-    'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS, PATCH, HEAD',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Requested-With',
-    'Access-Control-Allow-Credentials': 'true',
-    'Access-Control-Max-Age': '86400', // 24 hours
-  };
+function isTrustedOrigin(origin: string | null): boolean {
+  if (!origin) return false;
+  if (process.env.NODE_ENV === 'development') return true;
+  return TRUSTED_ORIGINS.includes('*') || TRUSTED_ORIGINS.includes(origin);
 }
 
-/**
- * Check if CORS should be applied to this route
- */
-function shouldApplyCors(pathname: string): boolean {
-  // Always apply CORS to API routes
-  if (pathname.startsWith('/api/')) {
+function hasAuthIntent(request: Request): boolean {
+  if (request.headers.has('authorization') || request.headers.has('nostr-authorization')) {
     return true;
   }
 
-  // Apply to all routes if ENABLE_CORS_ALL is set
-  if (ENABLE_CORS_ALL) {
-    return true;
+  const requestedHeaders = request.headers.get('access-control-request-headers');
+  if (!requestedHeaders) return false;
+
+  const normalized = requestedHeaders.toLowerCase();
+  return normalized.includes('authorization') || normalized.includes('nostr-authorization');
+}
+
+function applyVaryOrigin(headers: Headers): void {
+  const existingVary = headers.get('Vary');
+  if (!existingVary) {
+    headers.set('Vary', 'Origin');
+    return;
   }
 
-  return false;
+  const varyValues = existingVary
+    .split(',')
+    .map(value => value.trim().toLowerCase());
+
+  if (!varyValues.includes('origin')) {
+    headers.set('Vary', `${existingVary}, Origin`);
+  }
+}
+
+function buildCorsHeaders(origin: string | null, useWildcard: boolean): Headers {
+  const headers = new Headers({
+    'Access-Control-Allow-Origin': useWildcard ? '*' : (origin ?? ''),
+    'Access-Control-Allow-Methods': ALLOW_METHODS,
+    'Access-Control-Allow-Headers': ALLOW_HEADERS,
+    'Access-Control-Max-Age': '86400',
+  });
+
+  if (!useWildcard && origin) {
+    applyVaryOrigin(headers);
+  }
+
+  return headers;
 }
 
 export const handle: Handle = async ({ event, resolve }) => {
-  const shouldApply = shouldApplyCors(event.url.pathname);
+  const isApiRoute = event.url.pathname.startsWith('/api/');
   const origin = event.request.headers.get('origin');
+  const trustedOrigin = isTrustedOrigin(origin);
+  const authIntent = hasAuthIntent(event.request);
+  const useWildcard = !authIntent || process.env.NODE_ENV === 'development';
 
-  // Handle preflight OPTIONS requests
-  if (event.request.method === 'OPTIONS' && shouldApply) {
-    const corsHeaders = getCorsHeaders(origin);
+  // Apply CORS to API routes and all browser-originating requests.
+  const shouldApplyCors = ENABLE_CORS_ALL || isApiRoute || Boolean(origin);
+
+  if (event.request.method === 'OPTIONS' && shouldApplyCors) {
+    if (authIntent && origin && !trustedOrigin) {
+      return new Response(null, { status: 403 });
+    }
+
+    const corsHeaders = buildCorsHeaders(origin, useWildcard || !origin);
 
     return new Response(null, {
       status: 204,
@@ -85,19 +87,23 @@ export const handle: Handle = async ({ event, resolve }) => {
     });
   }
 
-  // Process the request normally
   const response = await resolve(event);
 
-  // Add CORS headers to responses that need them
-  if (shouldApply) {
-    const corsHeaders = getCorsHeaders(origin);
+  if (!shouldApplyCors) {
+    return response;
+  }
 
-    // Merge CORS headers with existing response headers
-    Object.entries(corsHeaders).forEach(([key, value]) => {
-      if (value) {
-        response.headers.set(key, value);
-      }
-    });
+  if (authIntent && origin && !trustedOrigin) {
+    return response;
+  }
+
+  const corsHeaders = buildCorsHeaders(origin, useWildcard || !origin);
+  corsHeaders.forEach((value, key) => {
+    response.headers.set(key, value);
+  });
+
+  if (!useWildcard && origin) {
+    applyVaryOrigin(response.headers);
   }
 
   return response;
