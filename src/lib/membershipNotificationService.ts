@@ -18,7 +18,6 @@ export interface ExpiringMember {
 const DM_RELAYS = [
   'wss://relay.damus.io',
   'wss://nos.lol',
-  'wss://relay.nostr.band',
   'wss://nostr.wine',
   'wss://relay.snort.social',
   'wss://purplepag.es'

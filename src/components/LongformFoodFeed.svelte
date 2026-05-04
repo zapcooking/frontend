@@ -77,8 +77,7 @@
         'wss://relay.primal.net',
         'wss://relay.damus.io',
         'wss://nos.lol',
-        'wss://nostr.wine',
-        'wss://relay.nostr.band'
+        'wss://nostr.wine'
       ];
       const relaySet = NDKRelaySet.fromRelayUrls(articleRelays, $ndk, true);
       subscription = $ndk.subscribe(filter, { closeOnEose: true }, relaySet);

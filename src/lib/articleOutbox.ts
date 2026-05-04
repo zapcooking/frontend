@@ -88,7 +88,6 @@ const CONFIG = {
     'wss://nos.lol',                 // Popular relay with good uptime
     'wss://nostr.wine',              // Premium relay with quality content
     'wss://purplepag.es',            // Good for profile/content discovery
-    'wss://relay.nostr.band',        // Search-optimized relay
     'wss://antiprimal.net',          // Broad content discovery
   ],
   

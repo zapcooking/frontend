@@ -23,8 +23,7 @@ interface BatchResponse {
 
 // Relays to query for counts - prioritize fastest, most reliable
 const COUNT_RELAYS = [
-  'wss://relay.damus.io',      // 394ms - fast and reliable  
-  'wss://relay.nostr.band',    // 514ms - slower but reliable
+  'wss://relay.damus.io',      // 394ms - fast and reliable
   'wss://nos.lol'              // 342ms - fastest (if it supports NIP-45)
 ];
 

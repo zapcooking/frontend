@@ -17,7 +17,6 @@ interface CountData {
 
 // Relays to query for counts (prioritize those known to support NIP-45)
 const COUNT_RELAYS = [
-  'wss://relay.nostr.band',
   'wss://nostr.wine',
   'wss://relay.damus.io',
   'wss://relay.primal.net'

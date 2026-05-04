@@ -39,7 +39,7 @@
 ```typescript
 [
   'wss://relay.damus.io',      // Fastest
-  'wss://kitchen.zap.cooking', // Your relay
+  'wss://garden.zap.cooking',  // Garden relay
   'wss://nos.lol',
   'wss://purplepag.es',
   'wss://relay.primal.net',
@@ -50,7 +50,7 @@
 ### Relay Pools (from `FoodstrFeedOptimized.svelte`)
 ```typescript
 RELAY_POOLS = {
-  recipes: ['wss://kitchen.zap.cooking'],      // Curated recipe content
+  recipes: ['wss://nos.lol', 'wss://relay.damus.io'],   // General relays with recipe content
   fallback: ['wss://nos.lol', 'wss://relay.damus.io'],  // Fast general relays
   discovery: ['wss://nostr.wine', 'wss://relay.primal.net', 'wss://purplepag.es'],  // Additional relays
   profiles: ['wss://purplepag.es']             // Profile metadata
@@ -59,7 +59,7 @@ RELAY_POOLS = {
 
 ### Outbox Relays (NDK config)
 ```typescript
-outboxRelayUrls: ["wss://purplepag.es", "wss://kitchen.zap.cooking"]
+outboxRelayUrls: ["wss://purplepag.es", "wss://nos.lol"]
 ```
 
 ### Blocked Relays (from `followOutbox.ts`)
