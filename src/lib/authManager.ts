@@ -665,7 +665,7 @@ export class AuthManager {
       relays = Array.from(this.ndk.pool.relays.keys()) as string[];
     }
     if (relays.length === 0) {
-      relays = ['wss://relay.damus.io', 'wss://relay.nostr.band', 'wss://nos.lol'];
+      relays = ['wss://relay.damus.io', 'wss://nos.lol'];
     }
 
     // Store pending pairing info including secret for validation
