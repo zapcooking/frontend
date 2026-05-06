@@ -2,6 +2,7 @@
   import { userPublickey, ndk } from '$lib/nostr';
   import { nip19 } from 'nostr-tools';
   import { resolveProfileByPubkey, getDisplayName, type ProfileData } from '$lib/profileResolver';
+  import { sanitizeHTML } from '$lib/sanitize';
   import LockSimpleIcon from 'phosphor-svelte/lib/LockSimple';
   import LockSimpleOpenIcon from 'phosphor-svelte/lib/LockSimpleOpen';
   import LinkPreview from '../../../components/LinkPreview.svelte';
@@ -75,7 +76,7 @@
   $: pillClass = isMine ? 'msg-pill-sent' : 'msg-pill-received';
 
   // Reactive HTML — re-renders when resolvedNames updates
-  $: renderedHtml = linkify(content, pillClass, resolvedNames);
+  $: renderedHtml = sanitizeHTML(linkify(content, pillClass, resolvedNames));
 
   function renderNostrToken(raw: string, pillCls: string): string {
     const identifier = raw.startsWith('nostr:') ? raw.slice(6) : raw;

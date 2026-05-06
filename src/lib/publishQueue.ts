@@ -28,6 +28,11 @@ const MAX_RETRY_DELAY = 30000; // 30 seconds
 const PUBLISH_TIMEOUT = 10000; // 10 seconds per relay
 const STALE_ITEM_AGE = 30 * 60 * 1000; // 30 minutes - auto-cleanup stale items
 
+// NIP-65 inbox routing — shared helper handles the kind:10002 lookup
+// + capping. See $lib/nip65Routing for the algorithm details.
+import { unionInboxRelayUrls } from '$lib/nip65Routing';
+import { GARDEN_RELAY_URL, PANTRY_RELAY_URL } from '$lib/nostr';
+
 /**
  * Represents a pending publish operation
  */
@@ -403,7 +408,38 @@ class PublishQueueManager {
   }
 
   /**
-   * Attempt to publish an event with extended timeout
+   * Resolve the base relay URL list for a given relayMode. The user's
+   * intent (e.g. "publish to pantry only") takes precedence — NIP-65
+   * augmentation in attemptPublish is layered on top, never replaces.
+   *
+   * Relay URLs come from the canonical exports in $lib/nostr so changes
+   * propagate everywhere instead of drifting between hardcoded literals.
+   */
+  private getBaseRelayUrls(relayMode: PendingPublish['relayMode'], ndkInstance: any): string[] {
+    if (relayMode === 'garden') return [GARDEN_RELAY_URL];
+    if (relayMode === 'pantry') return [PANTRY_RELAY_URL];
+    if (relayMode === 'garden-pantry') return [GARDEN_RELAY_URL, PANTRY_RELAY_URL];
+    // 'all' — every relay currently in the pool.
+    const urls: string[] = [];
+    if (ndkInstance?.pool?.relays) {
+      for (const [url] of ndkInstance.pool.relays) urls.push(url);
+    }
+    return urls;
+  }
+
+  /**
+   * Attempt to publish an event with extended timeout.
+   *
+   * Relay set construction:
+   *   1. Base URLs from `relayMode` (garden / pantry / garden-pantry / all)
+   *   2. NIP-65 augmentation: for every non-self pubkey in the event's `p`
+   *      tags, add their published *read* (inbox) relays. This is what
+   *      makes replies / mentions / reactions / zaps reach the recipient.
+   *      Lookups go through `relayListCache` (SWR + IndexedDB), so they're
+   *      typically a memory hit; bounded by INBOX_LOOKUP_TIMEOUT_MS so
+   *      a slow network can't block publishing.
+   *   3. Dedupe + cap at MAX_PUBLISH_RELAYS so a heavily p-tagged post
+   *      can't fan out to 50+ relays.
    */
   private async attemptPublish(
     event: NDKEvent,
@@ -433,73 +469,40 @@ class PublishQueueManager {
     console.log(`[PublishQueue] Publishing event (kind ${event.kind}) with mode: ${relayMode}`);
     console.log(`[PublishQueue] Event ID: ${event.id}`);
 
-    let publishPromise: Promise<Set<any>>;
-    let targetRelays: string[] = [];
+    // 1. Base URLs from relay mode (user's intent takes precedence).
+    const baseUrls = this.getBaseRelayUrls(relayMode, ndkInstance);
 
-    if (relayMode === 'garden') {
-      targetRelays = ['wss://garden.zap.cooking'];
-      const relay = ndkInstance.pool.getRelay('wss://garden.zap.cooking', true, true);
-      await relay.connect();
-      await new Promise((resolve) => setTimeout(resolve, 100));
-      const relaySet = new NDKRelaySet(new Set([relay]), ndkInstance);
-      publishPromise = event.publish(relaySet, PUBLISH_TIMEOUT);
-    } else if (relayMode === 'pantry') {
-      targetRelays = ['wss://pantry.zap.cooking'];
-      const relay = ndkInstance.pool.getRelay('wss://pantry.zap.cooking', true, true);
-      await relay.connect();
-      await new Promise((resolve) => setTimeout(resolve, 100));
-      const relaySet = new NDKRelaySet(new Set([relay]), ndkInstance);
-      publishPromise = event.publish(relaySet, PUBLISH_TIMEOUT);
-    } else if (relayMode === 'garden-pantry') {
-      targetRelays = ['wss://garden.zap.cooking', 'wss://pantry.zap.cooking'];
-      const gardenRelay = ndkInstance.pool.getRelay('wss://garden.zap.cooking', true, true);
-      const pantryRelay = ndkInstance.pool.getRelay('wss://pantry.zap.cooking', true, true);
-      await Promise.all([gardenRelay.connect(), pantryRelay.connect()]);
-      await new Promise((resolve) => setTimeout(resolve, 100));
-      const relaySet = new NDKRelaySet(new Set([gardenRelay, pantryRelay]), ndkInstance);
-      publishPromise = event.publish(relaySet, PUBLISH_TIMEOUT);
-    } else {
-      // 'all' mode - get relay URLs from pool and use getRelay() to ensure proper initialization
-      console.log('[PublishQueue] Using "all" mode');
+    // 2. Union with NIP-65 recipient inbox relays. Capped at the helper's
+    //    MAX_PUBLISH_RELAYS so a heavily p-tagged post stays bounded.
+    const targetRelays = await unionInboxRelayUrls(event, baseUrls);
 
-      // Collect relay URLs from the pool
-      const relayUrls: string[] = [];
-      if (ndkInstance.pool && ndkInstance.pool.relays) {
-        for (const [url] of ndkInstance.pool.relays) {
-          relayUrls.push(url);
-        }
-      }
-
-      console.log(`[PublishQueue] Pool has ${relayUrls.length} relays:`, relayUrls);
-
-      if (relayUrls.length === 0) {
-        throw new Error('No relays available. Please check your internet connection.');
-      }
-
-      // Use getRelay() with autoConnect=true, createIfMissing=true to get properly initialized relays
-      const relaysToPublish: any[] = [];
-      for (const url of relayUrls) {
-        const relay = ndkInstance.pool.getRelay(url, true, true);
-        if (relay) {
-          relaysToPublish.push(relay);
-          targetRelays.push(url);
-        }
-      }
-
-      // Ensure connections are established
-      await Promise.all(relaysToPublish.map((r) => r.connect().catch(() => {})));
-      await new Promise((resolve) => setTimeout(resolve, 100));
-
-      // Log connection states
-      for (const relay of relaysToPublish) {
-        const status = relay.connectivity?.status;
-        const statusName = status === 1 ? 'OPEN' : status === 0 ? 'CONNECTING' : 'CLOSED';
-        console.log(`[PublishQueue] Relay ${relay.url}: ${statusName}`);
-      }
-
-      const relaySet = new NDKRelaySet(new Set(relaysToPublish), ndkInstance);
-      publishPromise = event.publish(relaySet, PUBLISH_TIMEOUT);
+    if (targetRelays.length === 0) {
+      throw new Error('No relays available. Please check your internet connection.');
     }
+
+    console.log(
+      `[PublishQueue] base=${baseUrls.length} → ${targetRelays.length} relays after NIP-65 union`
+    );
+
+    // Materialize relays via getRelay() with autoConnect=true, createIfMissing=true
+    const relaysToPublish: any[] = [];
+    for (const url of targetRelays) {
+      const relay = ndkInstance.pool.getRelay(url, true, true);
+      if (relay) relaysToPublish.push(relay);
+    }
+
+    // Best-effort parallel connect — failures don't block the publish.
+    await Promise.all(relaysToPublish.map((r) => r.connect().catch(() => {})));
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    for (const relay of relaysToPublish) {
+      const status = relay.connectivity?.status;
+      const statusName = status === 1 ? 'OPEN' : status === 0 ? 'CONNECTING' : 'CLOSED';
+      console.log(`[PublishQueue] Relay ${relay.url}: ${statusName}`);
+    }
+
+    const relaySet = new NDKRelaySet(new Set(relaysToPublish), ndkInstance);
+    const publishPromise = event.publish(relaySet, PUBLISH_TIMEOUT);
 
     console.log(`[PublishQueue] Publishing to relays:`, targetRelays);
     console.log(`[PublishQueue] Awaiting publish result (timeout: ${PUBLISH_TIMEOUT + 5000}ms)...`);
@@ -668,3 +671,76 @@ class PublishQueueManager {
 
 // Export singleton instance
 export const publishQueue = new PublishQueueManager();
+
+/**
+ * Confirm that a freshly-published event actually landed on Zap Cooking's
+ * own relay (garden), and queue a targeted republish if it didn't.
+ *
+ * Why this exists: NDK 2.x's outbox model on writes routes a publish to
+ * the AUTHOR's NIP-65 write relays. For authors whose NIP-65 doesn't
+ * include garden, our normal `event.publish()` call can land everywhere
+ * EXCEPT garden — and then `/r/<naddr>` can't find the event because
+ * our default fetch path only consults the standard pool. Verifying
+ * post-publish makes garden the durable source of truth for everything
+ * authored on Zap Cooking, regardless of the author's NIP-65.
+ *
+ * Best-effort: a verification miss queues a retry but does not throw.
+ * The caller's primary publish path is unchanged — this is layered on
+ * top.
+ */
+export async function ensureLandedOnGarden(
+  event: NDKEvent,
+  opts: { verifyTimeoutMs?: number } = {}
+): Promise<{ onGarden: boolean; queuedRetry: boolean }> {
+  const verifyTimeoutMs = opts.verifyTimeoutMs ?? 4000;
+
+  if (!event?.id || !event?.pubkey) {
+    return { onGarden: false, queuedRetry: false };
+  }
+
+  try {
+    const { ndk } = await import('$lib/nostr');
+    const { NDKRelaySet } = await import('@nostr-dev-kit/ndk');
+    const ndkInstance = get(ndk);
+    if (!ndkInstance) return { onGarden: false, queuedRetry: false };
+
+    const gardenRelay = ndkInstance.pool.getRelay(GARDEN_RELAY_URL, true, true);
+    if (!gardenRelay) return { onGarden: false, queuedRetry: false };
+
+    // getRelay(url, autoConnect=true, createIfMissing=true) starts the
+    // connection in the background. We DON'T await it — a hung
+    // connect would otherwise block past `verifyTimeoutMs`. fetchEvent
+    // tolerates an in-progress connection (queues until ready), and
+    // the Promise.race below caps the total wait at verifyTimeoutMs
+    // regardless of where the time was spent.
+
+    const relaySet = new NDKRelaySet(new Set([gardenRelay]), ndkInstance);
+
+    const fetchPromise = ndkInstance.fetchEvent(
+      { ids: [event.id] },
+      undefined,
+      relaySet
+    );
+    const timeoutPromise = new Promise<null>((resolve) =>
+      setTimeout(() => resolve(null), verifyTimeoutMs)
+    );
+
+    const found = await Promise.race([fetchPromise, timeoutPromise]);
+    if (found) {
+      console.log(`[publishQueue] ✅ event ${event.id.slice(0, 12)}… confirmed on garden`);
+      return { onGarden: true, queuedRetry: false };
+    }
+
+    // Garden didn't have the event after the verification window. Queue
+    // a targeted republish so it lands eventually (with backoff). This
+    // is exactly what `relayMode: 'garden'` does in attemptPublish.
+    console.warn(
+      `[publishQueue] ⚠️ event ${event.id.slice(0, 12)}… missed garden — queuing retry`
+    );
+    await publishQueue.publishWithRetry(event, 'garden');
+    return { onGarden: false, queuedRetry: true };
+  } catch (err) {
+    console.warn('[publishQueue] ensureLandedOnGarden failed', err);
+    return { onGarden: false, queuedRetry: false };
+  }
+}

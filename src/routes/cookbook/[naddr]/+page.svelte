@@ -14,6 +14,10 @@
   import PencilSimpleIcon from 'phosphor-svelte/lib/PencilSimple';
   import TrashIcon from 'phosphor-svelte/lib/Trash';
   import ShareIcon from 'phosphor-svelte/lib/Share';
+  import ShareNetworkIcon from 'phosphor-svelte/lib/ShareNetwork';
+  import DotsThreeIcon from 'phosphor-svelte/lib/DotsThree';
+  import SharePackModal from '../../../components/SharePackModal.svelte';
+  import type { RecipePackSource } from '$lib/recipePack';
   import BookmarkIcon from 'phosphor-svelte/lib/BookmarkSimple';
   import PinIcon from 'phosphor-svelte/lib/PushPin';
   import CloudSlashIcon from 'phosphor-svelte/lib/CloudSlash';
@@ -25,6 +29,8 @@
   import { isOnline } from '$lib/connectionMonitor';
   import { offlineStorage, type CachedRecipe } from '$lib/offlineStorage';
   import { NDKEvent } from '@nostr-dev-kit/ndk';
+  import { clickOutside } from '$lib/clickOutside';
+  import { formatDistanceToNow } from 'date-fns';
 
   let loaded = false;
   let event: NDKEvent | null = null;
@@ -53,6 +59,39 @@
   let changeCoverModalOpen = false;
   let coverImage: string | undefined = undefined;
   let selectedCoverRecipeATag: string | null = null; // Track selected recipe in modal
+
+  // Share-as-Pack modal
+  let sharePackOpen = false;
+  let sharePackSource: RecipePackSource = { type: 'cookbook' };
+  let sharePackATags: string[] = [];
+  let sharePackTitle = '';
+  let sharePackDescription = '';
+  let sharePackImage: string | undefined = undefined;
+
+  // Overflow ("…") menu state
+  let overflowMenuOpen = false;
+
+  // Relative "Updated …" string from the list event's last replaceable timestamp
+  $: updatedLabel = (() => {
+    const t = event?.created_at;
+    if (!t) return '';
+    try {
+      return `Updated ${formatDistanceToNow(new Date(t * 1000), { addSuffix: true })}`;
+    } catch {
+      return '';
+    }
+  })();
+
+  function openSharePackModal() {
+    if (!event || events.length === 0) return;
+    const dTag = event.tags.find((t) => t[0] === 'd')?.[1] || '';
+    sharePackSource = { type: 'collection', collectionDTag: dTag };
+    sharePackATags = event.tags.filter((t) => t[0] === 'a').map((t) => t[1]);
+    sharePackTitle = getListTitle();
+    sharePackDescription = getListSummary() || '';
+    sharePackImage = coverImage || event.tags.find((t) => t[0] === 'image')?.[1];
+    sharePackOpen = true;
+  }
 
   $: {
     if ($page.params.naddr) {
@@ -835,130 +874,189 @@
   </div>
 </Modal>
 
+<!-- Share as Recipe Pack Modal -->
+<SharePackModal
+  bind:open={sharePackOpen}
+  source={sharePackSource}
+  recipeATags={sharePackATags}
+  initialTitle={sharePackTitle}
+  initialDescription={sharePackDescription}
+  initialImage={sharePackImage}
+/>
+
 {#if !loaded}
   <div class="flex justify-center items-center page-loader">
     <PanLoader />
   </div>
 {:else if event}
-  <div class="flex flex-col gap-6">
-    <!-- Header with cover image -->
-    {#if listImage}
-      <div class="relative h-48 sm:h-64 -mx-4 sm:-mx-6 lg:-mx-8 -mt-4 sm:-mt-6 rounded-b-3xl overflow-hidden">
-        <img 
-          src={listImage + (coverImage ? '?t=' + Date.now() : '')} 
+  {@const recipeCountDisplay = offlineMode ? cachedRecipeCount : events.length}
+  <div class="flex flex-col gap-5">
+    <!-- Hero header (always wide; uses cover image when available, gradient when not) -->
+    <div
+      class="relative h-52 sm:h-72 -mx-4 sm:-mx-6 lg:-mx-8 -mt-4 sm:-mt-6 rounded-b-3xl overflow-hidden"
+    >
+      {#if listImage}
+        <img
+          src={listImage + (coverImage ? '?t=' + Date.now() : '')}
           alt={listTitle}
-          class="w-full h-full object-cover"
+          class="absolute inset-0 w-full h-full object-cover"
         />
-        <div class="absolute inset-0 bg-gradient-to-t from-black/60 via-black/20 to-transparent"></div>
-        
-        <!-- Back button overlay -->
-        <a 
-          href="/cookbook" 
-          class="absolute top-4 left-4 w-10 h-10 flex items-center justify-center rounded-full bg-black/30 hover:bg-black/50 text-white transition-colors"
-        >
-          <ArrowLeftIcon size={20} weight="bold" />
-        </a>
-        
-        <!-- Title overlay -->
-        <div class="absolute bottom-4 left-4 right-4">
-          <div class="flex items-end justify-between gap-4">
-            <div>
-              <div class="flex items-center gap-2 mb-1">
-                {#if isDefaultList()}
-                  <div class="flex items-center gap-1.5 px-2 py-0.5 bg-white/20 backdrop-blur-sm rounded-full">
-                    <PinIcon size={14} weight="fill" class="text-white" />
-                    <span class="text-xs text-white font-medium">Quick Saves</span>
-                  </div>
-                {/if}
-              </div>
-              <h1 class="text-2xl sm:text-3xl font-bold text-white">{listTitle}</h1>
-              <p class="text-white/80 text-sm mt-1">
-                {offlineMode ? cachedRecipeCount : events.length} {(offlineMode ? cachedRecipeCount : events.length) === 1 ? 'recipe' : 'recipes'}
-              </p>
+      {:else}
+        <div
+          class="absolute inset-0"
+          style="background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 50%, #f97316 100%);"
+        ></div>
+      {/if}
+      <div class="absolute inset-0 bg-gradient-to-t from-black/70 via-black/30 to-black/10"></div>
+
+      <!-- Back button -->
+      <a
+        href="/cookbook"
+        class="absolute top-4 left-4 w-10 h-10 flex items-center justify-center rounded-full bg-black/35 hover:bg-black/55 text-white transition-colors backdrop-blur-sm"
+        aria-label="Back to cookbook"
+      >
+        <ArrowLeftIcon size={20} weight="bold" />
+      </a>
+
+      <!-- Title block -->
+      <div class="absolute bottom-4 left-4 right-4">
+        <div class="flex items-center gap-2 mb-1.5 flex-wrap">
+          {#if isDefaultList()}
+            <div class="flex items-center gap-1.5 px-2 py-0.5 bg-white/20 backdrop-blur-sm rounded-full">
+              <PinIcon size={14} weight="fill" class="text-white" />
+              <span class="text-xs text-white font-medium">Quick Saves</span>
             </div>
-          </div>
+          {/if}
         </div>
+        <h1 class="text-2xl sm:text-4xl font-bold text-white drop-shadow-lg leading-tight">
+          {listTitle}
+        </h1>
+        <p class="text-white/90 text-sm mt-1.5 drop-shadow">
+          {recipeCountDisplay}
+          {recipeCountDisplay === 1 ? 'recipe' : 'recipes'}
+          {#if updatedLabel}
+            <span class="text-white/60">·</span>
+            <span>{updatedLabel}</span>
+          {/if}
+        </p>
       </div>
-    {:else}
-      <!-- Simple header without image -->
-      <div class="flex items-center gap-4">
-        <a 
-          href="/cookbook" 
-          class="w-10 h-10 flex items-center justify-center rounded-full transition-colors hover:bg-accent-gray"
-          style="background-color: var(--color-input-bg);"
-        >
-          <ArrowLeftIcon size={20} />
-        </a>
-        <div class="flex-1">
-          <div class="flex items-center gap-2">
-            {#if isDefaultList()}
-              <div class="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-orange-100 dark:bg-orange-900/30">
-                <PinIcon size={14} weight="fill" class="text-orange-600 dark:text-orange-400" />
-                <span class="text-xs font-medium text-orange-700 dark:text-orange-300">Quick Saves</span>
-              </div>
-            {/if}
-            <h1 class="text-2xl font-bold" style="color: var(--color-text-primary)">{listTitle}</h1>
-          </div>
-          <p class="text-caption text-sm">
-            {offlineMode ? cachedRecipeCount : events.length} {(offlineMode ? cachedRecipeCount : events.length) === 1 ? 'recipe' : 'recipes'}
-          </p>
-        </div>
-      </div>
-    {/if}
+    </div>
 
-    <!-- Summary -->
+    <!-- Description (if provided) -->
     {#if listSummary}
-      <p class="text-caption leading-relaxed {listImage ? '' : '-mt-2'}">{listSummary}</p>
+      <p class="text-caption leading-relaxed -mt-1">{listSummary}</p>
     {/if}
 
-    <!-- Action buttons (hidden when offline since they require network) -->
+    <!-- Action row: primary Share Pack + secondary Manage + overflow menu -->
     {#if isOwner && !offlineMode}
-      <div class="flex flex-wrap gap-2 {listImage ? '-mt-2' : ''}">
-        {#if events.length > 0}
-          <button
-            on:click={openChangeCoverModal}
-            class="flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-colors"
-            style="background-color: var(--color-input-bg); color: var(--color-text-primary); border: 1px solid var(--color-input-border);"
-          >
-            <ImageIcon size={16} />
-            Change Cover
-          </button>
-        {/if}
+      <div class="flex flex-wrap items-center gap-2 -mt-1">
+        <!-- Primary: Share Pack -->
         <button
-          on:click={openEditModal}
-          class="flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-colors"
-          style="background-color: var(--color-input-bg); color: var(--color-text-primary); border: 1px solid var(--color-input-border);"
+          on:click={openSharePackModal}
+          disabled={events.length === 0}
+          class="flex items-center gap-2 px-5 py-2.5 rounded-full text-sm font-semibold text-white bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 transition-all shadow-md shadow-orange-500/25 disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none"
+          title={events.length === 0
+            ? 'Add recipes first'
+            : 'Publish this collection as a zappable Recipe Pack'}
         >
-          <PencilSimpleIcon size={16} />
-          Edit Details
+          <ShareNetworkIcon size={16} weight="bold" />
+          <span>Share Pack</span>
         </button>
+
+        <!-- Secondary: Manage Recipes -->
         <button
           on:click={openManageModal}
-          class="flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-colors"
+          class="flex items-center gap-2 px-4 py-2.5 rounded-full text-sm font-medium transition-colors"
           style="background-color: var(--color-input-bg); color: var(--color-text-primary); border: 1px solid var(--color-input-border);"
         >
           <BookmarkIcon size={16} />
-          Manage Recipes
+          <span>Manage Recipes</span>
         </button>
-        <button
-          on:click={shareList}
-          class="flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-colors"
-          style="background-color: var(--color-input-bg); color: var(--color-text-primary); border: 1px solid var(--color-input-border);"
+
+        <!-- Overflow menu -->
+        <div
+          class="relative"
+          use:clickOutside
+          on:click_outside={() => (overflowMenuOpen = false)}
         >
-          <ShareIcon size={16} />
-          Share
-        </button>
-        {#if !isDefaultList()}
           <button
-            on:click={openDeleteConfirm}
-            class="flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium text-red-500 transition-colors hover:bg-red-50 dark:hover:bg-red-900/20"
-            style="border: 1px solid currentColor;"
+            on:click={() => (overflowMenuOpen = !overflowMenuOpen)}
+            class="w-10 h-10 flex items-center justify-center rounded-full text-sm font-medium transition-colors"
+            style="background-color: var(--color-input-bg); color: var(--color-text-primary); border: 1px solid var(--color-input-border);"
+            aria-haspopup="true"
+            aria-expanded={overflowMenuOpen}
+            aria-label="More actions"
           >
-            <TrashIcon size={16} />
-            Delete
+            <DotsThreeIcon size={20} weight="bold" />
           </button>
-        {/if}
+          {#if overflowMenuOpen}
+            <div
+              class="absolute right-0 top-[calc(100%+0.5rem)] z-40 min-w-[200px] rounded-xl py-1 shadow-xl"
+              style="background-color: var(--color-bg-secondary); border: 1px solid var(--color-input-border);"
+              role="menu"
+            >
+              <button
+                role="menuitem"
+                on:click={() => {
+                  overflowMenuOpen = false;
+                  openEditModal();
+                }}
+                class="w-full flex items-center gap-2 px-3 py-2 text-sm transition-colors hover:bg-accent-gray text-left"
+                style="color: var(--color-text-primary);"
+              >
+                <PencilSimpleIcon size={16} />
+                <span>Edit Details</span>
+              </button>
+              {#if events.length > 0}
+                <button
+                  role="menuitem"
+                  on:click={() => {
+                    overflowMenuOpen = false;
+                    openChangeCoverModal();
+                  }}
+                  class="w-full flex items-center gap-2 px-3 py-2 text-sm transition-colors hover:bg-accent-gray text-left"
+                  style="color: var(--color-text-primary);"
+                >
+                  <ImageIcon size={16} />
+                  <span>Change Cover</span>
+                </button>
+              {/if}
+              <button
+                role="menuitem"
+                on:click={() => {
+                  overflowMenuOpen = false;
+                  shareList();
+                }}
+                class="w-full flex items-center gap-2 px-3 py-2 text-sm transition-colors hover:bg-accent-gray text-left"
+                style="color: var(--color-text-primary);"
+              >
+                <ShareIcon size={16} />
+                <span>Share Link</span>
+              </button>
+              {#if !isDefaultList()}
+                <div class="my-1 mx-2 h-px" style="background-color: var(--color-input-border);"></div>
+                <button
+                  role="menuitem"
+                  on:click={() => {
+                    overflowMenuOpen = false;
+                    openDeleteConfirm();
+                  }}
+                  class="w-full flex items-center gap-2 px-3 py-2 text-sm transition-colors text-left text-red-500 hover:bg-red-500/10"
+                >
+                  <TrashIcon size={16} />
+                  <span>Delete Collection</span>
+                </button>
+              {/if}
+            </div>
+          {/if}
+        </div>
       </div>
+
+      {#if events.length > 0}
+        <p class="text-xs text-caption -mt-1">
+          Share this collection as a zappable Recipe Pack — anyone on Nostr can save it.
+        </p>
+      {/if}
     {/if}
 
     <!-- Recipes Feed -->
@@ -983,26 +1081,39 @@
       <Feed {events} {loaded} />
     {:else}
       <div class="flex flex-col items-center justify-center py-12 px-4">
-        <div class="w-16 h-16 rounded-full bg-gradient-to-br from-orange-100 to-amber-100 dark:from-orange-900/30 dark:to-amber-900/30 flex items-center justify-center mb-4">
+        <div
+          class="w-16 h-16 rounded-full bg-gradient-to-br from-orange-100 to-amber-100 dark:from-orange-900/30 dark:to-amber-900/30 flex items-center justify-center mb-4"
+        >
           <BookmarkIcon size={32} weight="regular" class="text-orange-500" />
         </div>
         <h3 class="text-lg font-medium mb-2" style="color: var(--color-text-primary)">
-          No recipes yet
+          No recipes in this collection yet.
         </h3>
         <p class="text-caption text-center max-w-sm mb-4">
           {#if isOwner}
-            Start adding recipes to this collection by tapping the save button on any recipe.
+            Add recipes by pasting their naddr, or save them from the recipe page.
           {:else}
             This collection doesn't have any recipes yet.
           {/if}
         </p>
-        <a
-          href="/recent"
-          class="flex items-center px-4 py-2 rounded-full font-medium text-sm transition-colors"
-          style="background-color: var(--color-input-bg); color: var(--color-text-primary); border: 1px solid var(--color-input-border);"
-        >
-          Browse Recipes
-        </a>
+        <div class="flex flex-wrap items-center justify-center gap-2">
+          {#if isOwner && !offlineMode}
+            <button
+              on:click={openManageModal}
+              class="flex items-center gap-2 px-4 py-2 rounded-full font-medium text-sm text-white bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 transition-all"
+            >
+              <BookmarkIcon size={16} />
+              Manage Recipes
+            </button>
+          {/if}
+          <a
+            href="/recipes"
+            class="flex items-center px-4 py-2 rounded-full font-medium text-sm transition-colors"
+            style="background-color: var(--color-input-bg); color: var(--color-text-primary); border: 1px solid var(--color-input-border);"
+          >
+            Browse Recipes
+          </a>
+        </div>
       </div>
     {/if}
   </div>

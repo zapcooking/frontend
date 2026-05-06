@@ -35,8 +35,8 @@
   } from '$lib/mutableIntegration';
   import { formatDistanceToNow } from 'date-fns';
   import Avatar from './Avatar.svelte';
-  import type { NDKEvent, NDKSubscription } from '@nostr-dev-kit/ndk';
-  import { NDKSubscriptionCacheUsage } from '@nostr-dev-kit/ndk';
+  import type { NDKSubscription } from '@nostr-dev-kit/ndk';
+  import { NDKEvent, NDKSubscriptionCacheUsage } from '@nostr-dev-kit/ndk';
   import NoteTotalLikes from './NoteTotalLikes.svelte';
   import NoteReactionPills from './NoteReactionPills.svelte';
   import NoteTotalComments from './NoteTotalComments.svelte';
@@ -50,6 +50,7 @@
   import PollDisplay from './PollDisplay.svelte';
   import VideoPreview from './VideoPreview.svelte';
   import AuthorName from './AuthorName.svelte';
+  import CustomName from './CustomName.svelte';
   import {
     generateNoteImage,
     generateImageFilename,
@@ -771,8 +772,11 @@
         return { since: now - SEVEN_DAYS_SECONDS };
 
       case 'pagination': {
-        // Pagination: larger window based on oldest event
-        const oldestTime = events[events.length - 1]?.created_at || now;
+        // Pagination: larger window based on oldest event. Use the sort
+        // time (repost time when present), not the inner created_at, so
+        // a repost of an old note doesn't make pagination jump back to
+        // the inner timestamp and skip everything between.
+        const oldestTime = getEventSortTime(events[events.length - 1]) || now;
         const THIRTY_DAYS_SECONDS = 30 * 24 * 60 * 60;
         return {
           since: Math.max(oldestTime - SEVEN_DAYS_SECONDS, now - THIRTY_DAYS_SECONDS),
@@ -1147,6 +1151,15 @@
   }
 
   function _shouldIncludeEventUncached(event: NDKEvent): boolean {
+    // For NIP-18 reposts (kind 6), inclusion decisions need to be made against the
+    // underlying note (food content, mutes on original author, etc.). If we can't
+    // expand the inner event, drop the repost.
+    if (event.kind === 6) {
+      const inner = expandRepostEvent(event);
+      if (!inner) return false;
+      return _shouldIncludeEventUncached(inner);
+    }
+
     // Check muted users (both public and private lists)
     if ($userPublickey && $muteListStore.muteList) {
       const authorKey = event.author?.hexpubkey || event.pubkey;
@@ -1294,7 +1307,7 @@
       cachedEvents.forEach((e: NDKEvent) => seenEventIds.add(e.id));
 
       events = cachedEvents;
-      lastEventTime = Math.max(...events.map((e) => e.created_at || 0));
+      lastEventTime = Math.max(...events.map(getEventSortTime));
       return true;
     } catch {
       return false;
@@ -1550,7 +1563,7 @@
   // This is a discovery function that benefits from temporary relay connections
   async function fetchNotesWithoutHashtags(sinceTimestamp: number): Promise<NDKEvent[]> {
     const filter = {
-      kinds: [1, 1068],
+      kinds: [1, 6, 1068],
       limit: 300, // Increased limit for better discovery
       since: sinceTimestamp
     };
@@ -1606,6 +1619,105 @@
     }
   }
 
+  // Returns the pubkey of the user who reposted this event, if it's a repost.
+  function getRepostedBy(event: NDKEvent): string | null {
+    return (event as any)._repostedBy || null;
+  }
+
+  // The effective sort timestamp for an event — repost time when present,
+  // otherwise the event's own created_at. Used wherever pagination/time-
+  // window math needs to agree with `dedupeAndSort`'s ordering, so that
+  // a repost of an old note doesn't drag pagination back through the
+  // ancient inner timestamp.
+  function getEventSortTime(event: NDKEvent | null | undefined): number {
+    if (!event) return 0;
+    return (event as any)._repostCreatedAt || event.created_at || 0;
+  }
+
+  function applyRepostMetadata(sourceEvent: NDKEvent, expandedEvent: NDKEvent): NDKEvent {
+    (expandedEvent as any)._repostedBy = sourceEvent.pubkey;
+    (expandedEvent as any)._repostId = sourceEvent.id;
+    (expandedEvent as any)._repostCreatedAt = sourceEvent.created_at;
+    return expandedEvent;
+  }
+
+  // Build an NDKEvent from the JSON blob embedded in a kind:6's content.
+  // Returns null if the JSON isn't a usable kind:1/1068 inner event.
+  function buildExpandedEmbeddedRepostEvent(event: NDKEvent, inner: any): NDKEvent | null {
+    if (!inner || typeof inner !== 'object' || !inner.id) return null;
+    if (inner.kind !== 1 && inner.kind !== 1068) return null;
+
+    const innerEvent = new NDKEvent($ndk, inner);
+    innerEvent.id = inner.id;
+    innerEvent.pubkey = inner.pubkey;
+    innerEvent.kind = inner.kind;
+    innerEvent.content = inner.content || '';
+    innerEvent.tags = Array.isArray(inner.tags) ? inner.tags : [];
+    innerEvent.created_at = inner.created_at;
+    innerEvent.sig = inner.sig;
+
+    return applyRepostMetadata(event, innerEvent);
+  }
+
+  // Build a placeholder NDKEvent for a tag-only NIP-18 repost (empty
+  // content, inner referenced by `e`/`k`/`p` tags). The synthetic event
+  // has just enough identity for dedup + the "Reposted by" header to
+  // work; downstream content filters will still drop it for missing
+  // body text, but it's tracked properly instead of silently lost.
+  function buildExpandedTaggedRepostEvent(event: NDKEvent): NDKEvent | null {
+    const tags = Array.isArray(event.tags) ? event.tags : [];
+    const eventTag = tags.find(
+      (t) => Array.isArray(t) && t[0] === 'e' && typeof t[1] === 'string' && t[1]
+    );
+    const kindTag = tags.find(
+      (t) => Array.isArray(t) && t[0] === 'k' && typeof t[1] === 'string' && t[1]
+    );
+    const pubkeyTag = tags.find(
+      (t) => Array.isArray(t) && t[0] === 'p' && typeof t[1] === 'string' && t[1]
+    );
+
+    const id = eventTag?.[1];
+    if (!id) return null;
+    const parsedKind = kindTag ? Number.parseInt(kindTag[1], 10) : NaN;
+    // If the wrapper doesn't tell us the inner kind, default to 1 — kind:6
+    // is by NIP-18 a "kind:1 repost", and a wrong guess only causes the
+    // synthetic event to be filtered out later, not surface incorrectly.
+    const kind = Number.isFinite(parsedKind) ? parsedKind : 1;
+    if (kind !== 1 && kind !== 1068) return null;
+
+    const innerEvent = new NDKEvent($ndk);
+    innerEvent.id = id;
+    innerEvent.pubkey = pubkeyTag?.[1] || '';
+    innerEvent.kind = kind;
+    innerEvent.content = '';
+    innerEvent.tags = [];
+
+    return applyRepostMetadata(event, innerEvent);
+  }
+
+  // Expand a NIP-18 kind 6 repost into its underlying kind 1/1068 event,
+  // carrying repost metadata so the feed can render a "Reposted by" header.
+  // Tries the embedded-JSON path first (most clients) and falls back to
+  // tag-only parsing (some clients publish content-empty reposts that
+  // reference the inner via tags). Returns null only when neither path
+  // identifies a supported inner event.
+  function expandRepostEvent(event: NDKEvent): NDKEvent | null {
+    if (event.kind !== 6) return event;
+
+    const rawContent = typeof event.content === 'string' ? event.content.trim() : '';
+    if (rawContent) {
+      try {
+        const inner = JSON.parse(rawContent);
+        const expanded = buildExpandedEmbeddedRepostEvent(event, inner);
+        if (expanded) return expanded;
+      } catch {
+        // fall through to tag-based expansion
+      }
+    }
+
+    return buildExpandedTaggedRepostEvent(event);
+  }
+
   function dedupeAndSort(eventList: NDKEvent[]): NDKEvent[] {
     // Dedup *within the input* via a local set. The previous implementation
     // consulted module-level seenEventIds, which wiped the feed for callers
@@ -1617,14 +1729,21 @@
     const seen = new Set<string>();
     const unique: NDKEvent[] = [];
 
-    for (const event of eventList) {
-      if (!event.id || seen.has(event.id)) continue;
+    for (const raw of eventList) {
+      const event = raw.kind === 6 ? expandRepostEvent(raw) : raw;
+      if (!event || !event.id || seen.has(event.id)) continue;
       seen.add(event.id);
       seenEventIds.add(event.id);
       unique.push(event);
     }
 
-    return unique.sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
+    // Sort by repost time when present (so a reposted note surfaces with the repost),
+    // otherwise by the event's own created_at.
+    return unique.sort((a, b) => {
+      const aTime = (a as any)._repostCreatedAt || a.created_at || 0;
+      const bTime = (b as any)._repostCreatedAt || b.created_at || 0;
+      return bTime - aTime;
+    });
   }
 
   // ═══════════════════════════════════════════════════════════════
@@ -1676,7 +1795,7 @@
 
         // Build filter for cache lookup
         const cacheFilter: any = {
-          kinds: [1, 1068],
+          kinds: [1, 6, 1068],
           since: timeWindow.since,
           limit: 50
         };
@@ -1711,9 +1830,9 @@
 
           if (validCached.length > 0) {
             console.log(`[Feed] Cache hit: ${validCached.length} events (instant paint)`);
-            validCached.forEach((e) => seenEventIds.add(e.id));
-            events = validCached;
-            lastEventTime = Math.max(...events.map((e) => e.created_at || 0));
+            // dedupeAndSort handles kind 6 expansion + tracks seenEventIds
+            events = dedupeAndSort(validCached);
+            lastEventTime = Math.max(...events.map(getEventSortTime));
             loading = false;
             error = false;
 
@@ -1862,7 +1981,7 @@
         // Start outbox fetch concurrently
         const outboxOptions: any = {
           since: timeWindow.since,
-          kinds: [1, 1068],
+          kinds: [1, 6, 1068],
           limit: foodFilterEnabled ? 200 : 300,
           timeoutMs: 5000,
           maxRelays: 10
@@ -1901,7 +2020,7 @@
           error = false;
 
           if (events.length > 0) {
-            lastEventTime = Math.max(...events.map((e) => e.created_at || 0));
+            lastEventTime = Math.max(...events.map(getEventSortTime));
             await cacheEvents();
           }
 
@@ -1938,7 +2057,7 @@
         error = false;
 
         if (events.length > 0) {
-          lastEventTime = Math.max(...events.map((e) => e.created_at || 0));
+          lastEventTime = Math.max(...events.map(getEventSortTime));
           await cacheEvents();
         }
 
@@ -1998,7 +2117,7 @@
         // Start outbox fetch concurrently
         const repliesOutboxOptions: any = {
           since: timeWindow.since,
-          kinds: [1, 1068],
+          kinds: [1, 6, 1068],
           limit: foodFilterEnabled ? 200 : 300,
           timeoutMs: 5000,
           maxRelays: 10
@@ -2036,7 +2155,7 @@
           error = false;
 
           if (events.length > 0) {
-            lastEventTime = Math.max(...events.map((e) => e.created_at || 0));
+            lastEventTime = Math.max(...events.map(getEventSortTime));
             await cacheEvents();
           }
 
@@ -2069,7 +2188,7 @@
         error = false;
 
         if (events.length > 0) {
-          lastEventTime = Math.max(...events.map((e) => e.created_at || 0));
+          lastEventTime = Math.max(...events.map(getEventSortTime));
           await cacheEvents();
         }
 
@@ -2120,7 +2239,7 @@
         // Members feed should show everything from the members relay
         // NOTE: Members relay is private, so we use temporary relay set
         const memberFilter: any = {
-          kinds: [1, 1068],
+          kinds: [1, 6, 1068],
           since: timeWindow.since,
           limit: 50
         };
@@ -2178,7 +2297,7 @@
         error = false;
 
         if (events.length > 0) {
-          lastEventTime = Math.max(...events.map((e) => e.created_at || 0));
+          lastEventTime = Math.max(...events.map(getEventSortTime));
           await cacheEvents();
         }
 
@@ -2243,7 +2362,7 @@
               gardenCacheStatus.update((s) => ({ ...s, isLoading: false }));
 
               if (events.length > 0) {
-                lastEventTime = Math.max(...events.map((e) => e.created_at || 0));
+                lastEventTime = Math.max(...events.map(getEventSortTime));
               }
 
               // Still start realtime subscription for new events
@@ -2290,7 +2409,7 @@
 
         const now = Math.floor(Date.now() / 1000);
         const gardenFilter: any = {
-          kinds: [1, 1068],
+          kinds: [1, 6, 1068],
           since: now - SEVEN_DAYS_SECONDS, // 7 days for garden relay
           limit: 100
         };
@@ -2353,7 +2472,7 @@
             console.warn('[Feed] Garden: Failed to save to cache:', cacheErr);
           }
 
-          lastEventTime = Math.max(...events.map((e) => e.created_at || 0));
+          lastEventTime = Math.max(...events.map(getEventSortTime));
           await cacheEvents(); // Also save to general cache
         } else if (hadCachedEvents > 0) {
           // Relay returned 0 events but we have cached data - KEEP SHOWING CACHED DATA
@@ -2387,7 +2506,7 @@
 
       // Build relay pool filter (always needed as backup, starts immediately)
       const hashtagFilter: any = {
-        kinds: [1, 1068],
+        kinds: [1, 6, 1068],
         limit: authorPubkey && !foodFilterEnabled ? 100 : 50,
         since: timeWindow.since
       };
@@ -2474,7 +2593,7 @@
             error = false;
 
             if (events.length > 0) {
-              lastEventTime = Math.max(...events.map((e) => e.created_at || 0));
+              lastEventTime = Math.max(...events.map(getEventSortTime));
               await cacheEvents();
             }
 
@@ -2587,7 +2706,7 @@
       error = false;
 
       if (events.length > 0) {
-        lastEventTime = Math.max(...events.map((e) => e.created_at || 0));
+        lastEventTime = Math.max(...events.map(getEventSortTime));
         try {
           await cacheEvents();
         } catch {
@@ -2643,7 +2762,7 @@
       // relay-appropriate REQs internally. This replaces N/100 open subs.
       const sub = $ndk.subscribe(
         {
-          kinds: [1, 1068 as number] as number[],
+          kinds: [1, 6, 1068 as number] as number[],
           authors: followedPubkeysForRealtime,
           since
         },
@@ -2672,7 +2791,7 @@
 
       // Subscribe to member relay - show ALL content (not just food-tagged)
       const memberFilter: any = {
-        kinds: [1, 1068],
+        kinds: [1, 6, 1068],
         since
       };
 
@@ -2711,7 +2830,7 @@
     if (filterMode === 'garden') {
       // Subscribe to garden relay - content filtering controlled by foodFilterEnabled toggle
       const gardenFilter: any = {
-        kinds: [1, 1068],
+        kinds: [1, 6, 1068],
         since
       };
 
@@ -2773,7 +2892,7 @@
     // Global mode / Profile view - default subscription
     // Single subscription for content (food-filtered or all posts based on context)
     const hashtagFilter: any = {
-      kinds: [1, 1068],
+      kinds: [1, 6, 1068],
       since
     };
 
@@ -2875,7 +2994,7 @@
           showNewPostsButton = true;
         }
 
-        const maxTime = Math.max(...newEvents.map((e) => e.created_at || 0));
+        const maxTime = Math.max(...newEvents.map(getEventSortTime));
         if (maxTime > lastEventTime) lastEventTime = maxTime;
 
         await cacheEvents();
@@ -2899,9 +3018,24 @@
     }
     // Members mode: no food filter
 
+    // Expand NIP-18 kind 6 reposts into their underlying note (with metadata)
+    // so the rendering pipeline (which expects kind 1/1068) works correctly.
+    let queued = event;
+    if (event.kind === 6) {
+      // Mark the kind:6 wrapper as seen FIRST — even if expansion fails for a
+      // malformed/unsupported repost, we don't want to re-attempt expansion
+      // every time the relay redelivers it.
+      seenEventIds.add(event.id);
+      const expanded = expandRepostEvent(event);
+      if (!expanded || !expanded.id) return;
+      // Skip if the underlying note is already in the feed
+      if (seenEventIds.has(expanded.id)) return;
+      queued = expanded;
+    }
+
     // Mark as seen and queue for batch processing
-    seenEventIds.add(event.id);
-    pendingEvents.push(event);
+    seenEventIds.add(queued.id);
+    pendingEvents.push(queued);
 
     debouncedBatchProcess();
   }
@@ -2924,14 +3058,15 @@
     if (!rafScheduled) {
       rafScheduled = true;
       requestAnimationFrame(() => {
-        // Sort and merge with existing events
-        const sortedBatch = batch.sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
+        // Sort by repost time when present (so reposted notes surface alongside the repost),
+        // otherwise by the event's own created_at.
+        const sortedBatch = batch.sort((a, b) => getEventSortTime(b) - getEventSortTime(a));
         events = [...sortedBatch, ...events].sort(
-          (a, b) => (b.created_at || 0) - (a.created_at || 0)
+          (a, b) => getEventSortTime(b) - getEventSortTime(a)
         );
 
         // Update last event time
-        const maxTime = Math.max(...batch.map((e) => e.created_at || 0));
+        const maxTime = Math.max(...batch.map(getEventSortTime));
         if (maxTime > lastEventTime) lastEventTime = maxTime;
 
         rafScheduled = false;
@@ -3018,7 +3153,7 @@
 
           events = dedupeAndSort([...events, ...newEvents]);
 
-          const maxTime = Math.max(...newEvents.map((e) => e.created_at || 0));
+          const maxTime = Math.max(...newEvents.map(getEventSortTime));
           if (maxTime > lastEventTime) {
             lastEventTime = maxTime;
           }
@@ -3160,7 +3295,7 @@
         }
 
         // Update last event time
-        const maxTime = Math.max(...newEvents.map((e) => e.created_at || 0));
+        const maxTime = Math.max(...newEvents.map(getEventSortTime));
         if (maxTime > lastEventTime) {
           lastEventTime = maxTime;
         }
@@ -3233,7 +3368,7 @@
 
       const timeWindow = calculateTimeWindow('initial');
       const filter: any = {
-        kinds: [1, 1068],
+        kinds: [1, 6, 1068],
         limit: authorPubkey && !foodFilterEnabled ? 100 : 50,
         since: timeWindow.since
       };
@@ -3254,10 +3389,25 @@
         ...RELAY_POOLS.fallback
       ]);
 
+      // Expand kind:6 wrappers into their inner kind:1/1068 notes BEFORE the
+      // food/mute/reply filter runs. Without this, kind:6 wrappers (JSON
+      // blobs / non-food tags) leak into the rendered events array.
+      // Mark each wrapper id as seen so we don't reprocess it elsewhere.
+      const expandedFreshEvents: NDKEvent[] = [];
+      for (const raw of freshEvents) {
+        if (raw.kind === 6) {
+          seenEventIds.add(raw.id);
+          const inner = expandRepostEvent(raw);
+          if (inner && inner.id) expandedFreshEvents.push(inner);
+        } else {
+          expandedFreshEvents.push(raw);
+        }
+      }
+
       // For Global feed, exclude posts from followed users
       const followedSet = new Set(followedPubkeysForRealtime);
 
-      const validNew = freshEvents.filter((e) => {
+      const validNew = expandedFreshEvents.filter((e) => {
         if (seenEventIds.has(e.id)) return false;
 
         // Global feed: exclude replies
@@ -3294,8 +3444,10 @@
 
       if (validNew.length > 0) {
         validNew.forEach((e) => seenEventIds.add(e.id));
-        events = [...validNew, ...events].sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
-        lastEventTime = Math.max(lastEventTime, ...validNew.map((e) => e.created_at || 0));
+        events = [...validNew, ...events].sort(
+          (a, b) => getEventSortTime(b) - getEventSortTime(a)
+        );
+        lastEventTime = Math.max(lastEventTime, ...validNew.map(getEventSortTime));
         await cacheEvents();
       }
     } catch {
@@ -3334,7 +3486,7 @@
         const loadMoreOptions: any = {
           since: paginationWindow.since,
           until: paginationWindow.until,
-          kinds: [1, 1068],
+          kinds: [1, 6, 1068],
           limit: foodFilterEnabled ? 100 : 150, // Fetch more when showing all posts
           timeoutMs: 5000,
           maxRelays: 10
@@ -3368,7 +3520,7 @@
 
         // Fetch older events from member relay (all content, not just food-tagged)
         const memberFilter: any = {
-          kinds: [1, 1068],
+          kinds: [1, 6, 1068],
           since: paginationWindow.since,
           until: paginationWindow.until,
           limit: 100 // Increased from 20 for deeper pagination
@@ -3398,7 +3550,7 @@
         }
 
         const gardenFilter: any = {
-          kinds: [1, 1068],
+          kinds: [1, 6, 1068],
           since: paginationWindow.since,
           until: paginationWindow.until,
           limit: 100 // Increased from 20 for deeper pagination
@@ -3415,7 +3567,7 @@
       } else {
         // Global mode / Profile view - use hashtag filter with timeboxing
         const filter: any = {
-          kinds: [1, 1068],
+          kinds: [1, 6, 1068],
           since: paginationWindow.since,
           until: paginationWindow.until,
           limit: authorPubkey && !foodFilterEnabled ? 150 : 100 // Fetch more for profile view when showing all posts
@@ -3438,10 +3590,24 @@
         ]);
       }
 
+      // Expand kind:6 wrappers into their inner kind:1/1068 notes before
+      // the per-mode filter runs. Same reason as fetchFreshData: without
+      // this, kind:6 wrappers leak into `events` and break rendering/dedup.
+      const expandedOlderEvents: NDKEvent[] = [];
+      for (const raw of olderEvents) {
+        if (raw.kind === 6) {
+          seenEventIds.add(raw.id);
+          const inner = expandRepostEvent(raw);
+          if (inner && inner.id) expandedOlderEvents.push(inner);
+        } else {
+          expandedOlderEvents.push(raw);
+        }
+      }
+
       // For Global feed, exclude posts from followed users
       const followedSet = new Set(followedPubkeysForRealtime);
 
-      const validOlder = olderEvents.filter((e) => {
+      const validOlder = expandedOlderEvents.filter((e) => {
         if (seenEventIds.has(e.id)) return false;
 
         // Garden mode: apply food filter based on toggle
@@ -3505,10 +3671,11 @@
         renderedNotes = renderedNotes;
         events = [...events, ...validOlder];
         // Continue fetching if we got events and we're still within time window
-        // Check if we've reached the time limit (30 days back)
+        // Check if we've reached the time limit (30 days back). Use the sort
+        // time so reposts of older notes don't trigger an early stop.
         const THIRTY_DAYS_SECONDS = 30 * 24 * 60 * 60;
         const now = Math.floor(Date.now() / 1000);
-        const oldestEventTime = events[events.length - 1]?.created_at || now;
+        const oldestEventTime = getEventSortTime(events[events.length - 1]) || now;
         const timeLimit = now - THIRTY_DAYS_SECONDS;
 
         // Continue if we got a good batch (>= 50) or if we're still within time window
@@ -3518,7 +3685,7 @@
         // No valid events - check if we've exhausted the time window
         const THIRTY_DAYS_SECONDS = 30 * 24 * 60 * 60;
         const now = Math.floor(Date.now() / 1000);
-        const oldestEventTime = events[events.length - 1]?.created_at || now;
+        const oldestEventTime = getEventSortTime(events[events.length - 1]) || now;
         const timeLimit = now - THIRTY_DAYS_SECONDS;
 
         // Stop if we've gone back 30 days or got no events
@@ -4585,7 +4752,7 @@
         error = false;
         hasMore = true;
         loadingMore = false;
-        lastEventTime = Math.max(...events.map((e) => e.created_at || 0));
+        lastEventTime = Math.max(...events.map(getEventSortTime));
 
         console.log(`[Feed] Rendered ${events.length} cached events instantly`);
 
@@ -4683,8 +4850,18 @@
   let lastBatchedIds = new Set<string>();
   let engagementPreloadTimeout: ReturnType<typeof setTimeout> | null = null;
 
-  // Preload engagement only for rendered (near-viewport) events — not ALL events
-  $: if (typeof window !== 'undefined' && $ndk && $userPublickey && events.length > 0 && !loading && renderedNotes.size > 0) {
+  // Preload engagement only for rendered (near-viewport) events — not ALL events.
+  // Note: NOT gated on `$userPublickey`. Per-card children (NoteTotalLikes,
+  // NoteTotalComments, NoteRepost, NoteTotalZaps, ReactionPills) each call
+  // fetchEngagement on mount regardless of sign-in state, so anonymous
+  // viewers were paying the full per-card fan-out cost while signed-in
+  // viewers got batched. The batch path (server counts API + NDK
+  // subscription) doesn't require auth — userPublickey only feeds the
+  // userReacted / userReposted flags, which stay false for anon users
+  // either way. Letting the batch run for everyone warms/populates the
+  // engagement store first, so subsequent per-card fetchEngagement calls can
+  // see already-fetched fresh data and no-op instead of fanning out.
+  $: if (typeof window !== 'undefined' && $ndk && events.length > 0 && !loading && renderedNotes.size > 0) {
     // Clear any pending preload
     if (engagementPreloadTimeout) {
       clearTimeout(engagementPreloadTimeout);
@@ -4728,11 +4905,12 @@
     }, 200); // Small delay to let cached data load first
   }
 
-  // VISIBILITY UPDATE: When items become visible, ensure they're fresh
+  // VISIBILITY UPDATE: When items become visible, ensure they're fresh.
+  // Same anon-friendly rationale as the preload reactive above — batching
+  // benefits everyone, not just logged-in users.
   $: if (
     typeof window !== 'undefined' &&
     $ndk &&
-    $userPublickey &&
     visibleNotes.size > 0 &&
     events.length > 0
   ) {
@@ -4972,6 +5150,37 @@
           <article
             class="w-full"
           >
+            {#if getRepostedBy(event)}
+              {@const reposterPubkey = getRepostedBy(event) || ''}
+              <a
+                href="/user/{nip19.npubEncode(reposterPubkey)}"
+                class="flex items-center gap-1.5 text-xs mb-3 px-2 sm:px-0 hover:opacity-80 transition-opacity"
+                style="color: var(--color-caption)"
+                on:click|stopPropagation
+              >
+                <svg
+                  class="w-3.5 h-3.5"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                  />
+                </svg>
+                <span>Reposted by</span>
+                <!--
+                  Use CustomName (renders <span>) here, not AuthorName which
+                  renders a <button>. Nesting <button> inside <a> is invalid
+                  HTML and breaks keyboard / screen-reader behavior.
+                -->
+                <CustomName pubkey={reposterPubkey} className="text-xs font-medium" />
+              </a>
+            {/if}
+
             <!-- User header with avatar and name -->
             <div class="flex items-center justify-between mb-3 px-2 sm:px-0">
               <div class="flex items-center space-x-3 flex-1 min-w-0">

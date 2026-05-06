@@ -55,7 +55,11 @@
     <FlameIcon class="self-center" size={22} />
     <span class="sr-only">Feed</span>
   </a>
-  <a href="/recent" class="nav-tab" class:active={pathname.startsWith('/recent')}>
+  <a
+    href="/recipes"
+    class="nav-tab"
+    class:active={pathname.startsWith('/recipes') || pathname.startsWith('/recent')}
+  >
     <ForkKnifeIcon class="self-center" size={22} />
     <span class="sr-only">Recipes</span>
   </a>

@@ -774,6 +774,115 @@ function createCookbookStore() {
     },
 
     /**
+     * Bulk add many recipes to a list with a single Nostr publish.
+     *
+     * Returns counts so callers can show "Added X, skipped Y already saved".
+     * Skips a-tags already present in the list. Persists locally first
+     * so partial failures still leave the cookbook in a usable state.
+     */
+    async bulkAddRecipesToList(
+      listId: string,
+      recipeEvents: NDKEvent[]
+    ): Promise<{ added: number; skipped: number; failed: number }> {
+      const state = get({ subscribe });
+      const list = state.lists.find(l => l.id === listId);
+      const pubkey = get(userPublickey);
+      const ndkInstance = get(ndk);
+
+      if (!list || !pubkey || !ndkInstance) {
+        return { added: 0, skipped: 0, failed: recipeEvents.length };
+      }
+
+      const existing = new Set(list.recipes);
+      const toAdd: string[] = [];
+      let skipped = 0;
+      for (const ev of recipeEvents) {
+        if (!ev) continue;
+        const dTag = ev.replaceableDTag?.() || ev.tags?.find(t => t[0] === 'd')?.[1] || '';
+        if (!dTag || !ev.kind || !ev.pubkey) continue;
+        const aTag = `${ev.kind}:${ev.pubkey}:${dTag}`;
+        if (existing.has(aTag)) { skipped++; continue; }
+        if (toAdd.includes(aTag)) { skipped++; continue; }
+        toAdd.push(aTag);
+      }
+
+      if (toAdd.length === 0) {
+        return { added: 0, skipped, failed: 0 };
+      }
+
+      const mergedRecipes = [...list.recipes, ...toAdd];
+      const isFirstBatch = list.recipes.length === 0;
+      const updatedList: CookbookList = {
+        ...list,
+        recipes: mergedRecipes,
+        recipeCount: mergedRecipes.length,
+        coverRecipeId: isFirstBatch && !list.coverRecipeId ? toAdd[0] : list.coverRecipeId,
+        pendingSync: true
+      };
+
+      update(s => ({
+        ...s,
+        lists: s.lists.map(l => (l.id === listId ? updatedList : l))
+      }));
+
+      await persistLocally(updatedList, pubkey, false);
+
+      if (isCurrentlyOnline()) {
+        try {
+          const event = new NDKEvent(ndkInstance);
+          event.kind = 30001;
+
+          const tagsToKeep = ['d', 'title', 'summary', 'image', 't'];
+          list.event.tags.forEach(tag => {
+            if (tagsToKeep.includes(tag[0])) {
+              event.tags.push([...tag]);
+            }
+          });
+
+          // Preserve cover (or seed it from first added recipe)
+          const coverId = updatedList.coverRecipeId;
+          if (coverId) event.tags.push(['cover', coverId]);
+
+          mergedRecipes.forEach(r => event.tags.push(['a', r]));
+
+          const { addClientTagToEvent } = await import('$lib/nip89');
+          addClientTagToEvent(event);
+          await event.publish();
+
+          update(s => ({
+            ...s,
+            lists: s.lists.map(l =>
+              l.id === listId ? { ...updatedList, event, pendingSync: false } : l
+            )
+          }));
+          await offlineStorage.markCookbookSynced(listId, pubkey);
+        } catch (error) {
+          console.error('[CookbookStore] bulkAddRecipesToList publish failed:', error);
+          // Queue each as a separate add_recipe op so retry logic stays simple.
+          for (const aTag of toAdd) {
+            await offlineStorage.queueOperation('add_recipe', listId, { aTag });
+          }
+          update(s => ({
+            ...s,
+            syncStatus: 'pending',
+            pendingOperations: s.pendingOperations + toAdd.length
+          }));
+        }
+      } else {
+        for (const aTag of toAdd) {
+          await offlineStorage.queueOperation('add_recipe', listId, { aTag });
+        }
+        update(s => ({
+          ...s,
+          syncStatus: 'pending',
+          pendingOperations: s.pendingOperations + toAdd.length
+        }));
+      }
+
+      return { added: toAdd.length, skipped, failed: 0 };
+    },
+
+    /**
      * Quick save to default list (one-tap bookmark)
      */
     async quickSave(recipeEvent: NDKEvent): Promise<boolean> {

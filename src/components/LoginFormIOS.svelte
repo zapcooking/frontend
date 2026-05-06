@@ -398,6 +398,11 @@
 <Modal bind:open={nsecModal} on:close={modalCleanup}>
   <svelte:fragment slot="title">🔑 Log in with Private Key</svelte:fragment>
   <div class="flex flex-col gap-4">
+    <div class="bg-input border rounded-lg p-3" style="border-color: var(--color-input-border)">
+      <p class="text-sm text-caption">
+        Your key stays on this device only — it isn't sent to any server. Keep a backup of your nsec; if you lose it, you lose access to your account.
+      </p>
+    </div>
     <div class="text-sm text-caption">Enter your private key (nsec1...) or hex format</div>
     <input
       bind:value={nsecInput}
@@ -412,7 +417,6 @@
       <Button on:click={loginWithPrivateKey} primary={true} disabled={authState.isLoading}>
         {authState.isLoading ? '⚡ Connecting...' : '⚡ Login'}
       </Button>
-      <Button on:click={modalCleanup} primary={false} disabled={authState.isLoading}>Cancel</Button>
     </div>
   </div>
 </Modal>
@@ -478,9 +482,6 @@
       >
         {bunkerConnecting ? '⏳ Connecting...' : '🔐 Connect'}
       </Button>
-      <Button on:click={modalCleanup} primary={false} disabled={bunkerConnecting || authState.isLoading}
-        >Cancel</Button
-      >
     </div>
   </div>
 </Modal>

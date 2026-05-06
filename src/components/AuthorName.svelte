@@ -2,19 +2,30 @@
   import { nip19 } from 'nostr-tools';
   import { ndk } from '$lib/nostr';
   import { resolveProfileByPubkey, formatDisplayName } from '$lib/profileResolver';
+  import { getAnonChefName } from '$lib/anonName';
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
   import { onMount } from 'svelte';
 
   export let event: NDKEvent;
   export let className: string = 'font-semibold text-sm';
 
-  let displayName: string = '@Anonymous';
+  let displayName: string = '';
   let isLoading: boolean = true;
   let mounted = false;
   let isHovering = false;
 
   // Get pubkey from event
   $: pubkey = event?.pubkey || event?.author?.hexpubkey || '';
+
+  /**
+   * Friendly fallback when no profile is resolvable. Uses the pubkey
+   * (when we have one) to map to a stable per-author name like
+   * "Nostrich" or "Sat Chef". Recipes whose authors deleted their
+   * kind:0 still feel attributed instead of rendering "@Anonymous".
+   */
+  function anonFallback(): string {
+    return getAnonChefName(pubkey);
+  }
 
   // Load profile on mount only (not reactively)
   onMount(() => {
@@ -24,7 +35,7 @@
 
   async function loadProfile() {
     if (!pubkey) {
-      displayName = '@Anonymous';
+      displayName = anonFallback();
       isLoading = false;
       return;
     }
@@ -38,24 +49,30 @@
       unsub();
 
       if (!ndkInstance) {
-        displayName = '@Anonymous';
+        displayName = anonFallback();
         isLoading = false;
         return;
       }
 
-      // Simple profile fetch with timeout
-      const profile = await Promise.race([
-        resolveProfileByPubkey(pubkey, ndkInstance),
-        new Promise<null>((r) => setTimeout(() => r(null), 3000))
-      ]);
+      // No outer timeout — `resolveProfileByPubkey` (and the
+      // `fetchProfileFromRelays` it calls) already cap the fetch at
+      // 5s and return null on timeout. The previous 3s outer race
+      // here fired *before* the underlying 5s could complete, so
+      // slow-but-eventual profile fetches landed in the cache while
+      // this component had already rendered the anon fallback —
+      // requiring a refresh to pick up the now-cached profile.
+      const profile = await resolveProfileByPubkey(pubkey, ndkInstance);
 
       if (profile) {
-        displayName = formatDisplayName(profile) || '@Anonymous';
+        // formatDisplayName already returns a stable anon-chef name when
+        // the profile has no `name` field, so we just guard against the
+        // rare empty-string return defensively.
+        displayName = formatDisplayName(profile) || anonFallback();
       } else {
-        displayName = '@Anonymous';
+        displayName = anonFallback();
       }
     } catch {
-      displayName = '@Anonymous';
+      displayName = anonFallback();
     } finally {
       isLoading = false;
     }
