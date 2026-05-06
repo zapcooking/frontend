@@ -4,26 +4,19 @@
   import { nip19 } from 'nostr-tools';
   import { ndk, userPublickey } from '$lib/nostr';
   import { mutedPubkeys, muteListStore } from '$lib/muteListStore';
-  import { onMount, onDestroy } from 'svelte';
-  import { get } from 'svelte/store';
+  import { onMount } from 'svelte';
   import Avatar from '../../components/Avatar.svelte';
   import CustomName from '../../components/CustomName.svelte';
-  import AuthorName from '../../components/AuthorName.svelte';
   import { formatDistanceToNow } from 'date-fns';
   import NoteContent from '../../components/NoteContent.svelte';
   import PollDisplay from '../../components/PollDisplay.svelte';
   import NoteActionBar from '../../components/NoteActionBar.svelte';
-  import Button from '../../components/Button.svelte';
-  import { addClientTagToEvent } from '$lib/nip89';
-  import { buildNip22CommentTags } from '$lib/tagUtils';
   import ClientAttribution from '../../components/ClientAttribution.svelte';
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
   import type { PageData } from './$types';
   import { createCommentFilter } from '$lib/commentFilters';
   import PostActionsMenu from '../../components/PostActionsMenu.svelte';
-  import MentionDropdown from '../../components/MentionDropdown.svelte';
-  import { MentionComposerController, type MentionState } from '$lib/mentionComposer';
-  import { detectHaiku } from '$lib/haiku';
+  import ReplyComposer from '../../components/comments/ReplyComposer.svelte';
 
   export let data: PageData;
 
@@ -46,33 +39,7 @@
   // Replies/comments
   let replies: NDKEvent[] = [];
   let loadingReplies = false;
-  let commentText = '';
-  let postingReply = false;
   let processedReplies = new Set<string>();
-
-  // Reply composer with mentions
-  let replyComposerEl: HTMLDivElement;
-  let lastRenderedReply = '';
-  let haikuDetected = false;
-
-  // @ mention autocomplete state (shared controller)
-  let mentionState: MentionState = {
-    mentionQuery: '',
-    showMentionSuggestions: false,
-    mentionSuggestions: [],
-    selectedMentionIndex: 0,
-    mentionSearching: false
-  };
-
-  const mentionCtrl = new MentionComposerController(
-    (state) => {
-      mentionState = state;
-    },
-    (text) => {
-      commentText = text;
-      lastRenderedReply = text;
-    }
-  );
 
   // Get the parent note ID from an event's e tags
   function getParentNoteId(evt: NDKEvent): string | null {
@@ -254,78 +221,16 @@
   }
 
 
-  // Reactive statements for mention controller
-  $: mentionCtrl.setComposerEl(replyComposerEl);
-  $: if (replyComposerEl && commentText !== lastRenderedReply) {
-    mentionCtrl.syncContent(commentText);
-    lastRenderedReply = commentText;
-  }
-  $: haikuDetected = !!event && event.kind !== 30023 && detectHaiku(commentText);
-
-  // Load mute list when user is logged in
   onMount(() => {
     if ($userPublickey) {
       muteListStore.load();
-      mentionCtrl.preloadFollowList();
     }
   });
 
-  onDestroy(() => {
-    mentionCtrl.destroy();
-  });
-
-  // Post a reply
-  async function postReply() {
-    if (!commentText.trim() || !event || postingReply) return;
-
-    postingReply = true;
-    try {
-      if (replyComposerEl) {
-        commentText = mentionCtrl.extractText();
-        lastRenderedReply = commentText;
-      }
-
-      const ev = new (await import('@nostr-dev-kit/ndk')).NDKEvent($ndk);
-
-      // Check if replying to a recipe (kind 30023)
-      // Recipe replies should be kind 1111, not kind 1
-      const isRecipe = event.kind === 30023;
-      ev.kind = isRecipe ? 1111 : 1;
-
-      const replyContent = mentionCtrl.replacePlainMentions(commentText);
-      ev.content = replyContent;
-
-      // Use shared utility to build NIP-22 or NIP-10 tags
-      ev.tags = buildNip22CommentTags({
-        kind: event.kind ?? 1,
-        pubkey: event.pubkey,
-        id: event.id,
-        tags: event.tags as string[][]
-      });
-
-      // Parse and add @ mention tags (p tags)
-      const mentions = mentionCtrl.parseMentions(replyContent);
-      for (const pubkey of mentions.values()) {
-        if (!ev.tags.some((t) => t[0] === 'p' && t[1] === pubkey)) {
-          ev.tags.push(['p', pubkey]);
-        }
-      }
-
-      // Add NIP-89 client tag
-      addClientTagToEvent(ev);
-
-      await ev.publish();
-      commentText = '';
-      lastRenderedReply = '';
-      if (replyComposerEl) {
-        replyComposerEl.innerHTML = '';
-      }
-      mentionCtrl.resetMentionState();
-    } catch {
-      // Failed to post reply
-    } finally {
-      postingReply = false;
-    }
+  function handleReplyPosted(posted: NDKEvent) {
+    if (processedReplies.has(posted.id)) return;
+    processedReplies.add(posted.id);
+    replies = [...replies, posted].sort((a, b) => (a.created_at || 0) - (b.created_at || 0));
   }
 
   // Filter to get only direct replies (not nested)
@@ -684,63 +589,6 @@
         <span>Replies ({directReplies.length})</span>
       </div>
 
-      <!-- Reply Input -->
-      {#if $userPublickey}
-        <div class="mb-4 p-3 rounded-lg" style="background-color: var(--color-bg-secondary)">
-          <div class="flex gap-3">
-            <Avatar pubkey={$userPublickey} size={32} />
-            <div class="flex-1">
-              <div class="relative">
-                <div
-                  bind:this={replyComposerEl}
-                  class="reply-composer-input w-full px-3 py-2 text-sm rounded-lg"
-                  style="background-color: var(--color-bg-primary); border: 1px solid var(--color-input-border); color: var(--color-text-primary); min-height: 60px;"
-                  contenteditable={!postingReply}
-                  role="textbox"
-                  tabindex="0"
-                  aria-multiline="true"
-                  data-placeholder="Write a reply..."
-                  on:input={() => {
-                    commentText = mentionCtrl.handleInput();
-                    lastRenderedReply = commentText;
-                  }}
-                  on:keydown={(e) => mentionCtrl.handleKeydown(e)}
-                  on:beforeinput={(e) => mentionCtrl.handleBeforeInput(e)}
-                  on:paste={(e) => mentionCtrl.handlePaste(e)}
-                ></div>
-
-                <!-- Mention suggestions dropdown -->
-                <MentionDropdown
-                  show={mentionState.showMentionSuggestions}
-                  suggestions={mentionState.mentionSuggestions}
-                  selectedIndex={mentionState.selectedMentionIndex}
-                  searching={mentionState.mentionSearching}
-                  query={mentionState.mentionQuery}
-                  on:select={(e) => mentionCtrl.insertMention(e.detail)}
-                />
-              </div>
-              {#if haikuDetected}
-                <p class="px-1 pt-2 text-[11px] text-amber-600 dark:text-amber-400">
-                  🍃 This looks like a haiku. Expect a visit from the haiku bot.
-                </p>
-              {/if}
-              {#if commentText.trim() || postingReply}
-                <div class="flex justify-end mt-2">
-                  <Button on:click={postReply} disabled={postingReply} class="text-sm px-4 py-1.5">{postingReply ? 'Posting...' : 'Reply'}</Button>
-                </div>
-              {/if}
-            </div>
-          </div>
-        </div>
-      {:else}
-        <div
-          class="mb-4 p-3 rounded-lg text-sm"
-          style="background-color: var(--color-bg-secondary); color: var(--color-caption)"
-        >
-          <a href="/login" class="text-primary hover:underline font-medium">Log in</a> to reply
-        </div>
-      {/if}
-
       <!-- Replies List -->
       {#if loadingReplies}
         <div class="space-y-3">
@@ -760,7 +608,7 @@
         </p>
       {:else}
         <div class="space-y-0">
-          {#each directReplies as reply}
+          {#each directReplies as reply (reply.id)}
             {#if !$mutedPubkeys.has(reply.author?.hexpubkey || reply.pubkey)}
               <div>
                 <article
@@ -810,7 +658,7 @@
                 </article>
 
                 <!-- Nested Replies (1 level deep shown inline) -->
-                {#each getNestedReplies(reply.id).slice(0, 2) as nestedReply}
+                {#each getNestedReplies(reply.id).slice(0, 2) as nestedReply (nestedReply.id)}
                   {#if !$mutedPubkeys.has(nestedReply.author?.hexpubkey || nestedReply.pubkey)}
                     <div class="ml-8 pl-3">
                       <article class="py-2">
@@ -889,6 +737,30 @@
           {/each}
         </div>
       {/if}
+
+      <!-- Reply Input -->
+      {#if $userPublickey}
+        <div class="mt-4 p-3 rounded-lg" style="background-color: var(--color-bg-secondary)">
+          <div class="flex gap-3">
+            <Avatar pubkey={$userPublickey} size={32} />
+            <div class="flex-1">
+              <ReplyComposer
+                parentEvent={event}
+                placeholder="Write a reply..."
+                submitLabel="Reply"
+                onPosted={handleReplyPosted}
+              />
+            </div>
+          </div>
+        </div>
+      {:else}
+        <div
+          class="mt-4 p-3 rounded-lg text-sm"
+          style="background-color: var(--color-bg-secondary); color: var(--color-caption)"
+        >
+          <a href="/login" class="text-primary hover:underline font-medium">Log in</a> to reply
+        </div>
+      {/if}
     </div>
   {/if}
 </div>
@@ -900,22 +772,5 @@
   /* Username hover - orange color */
   .username-link:hover {
     color: var(--color-primary) !important;
-  }
-
-  /* Reply composer input */
-  .reply-composer-input {
-    white-space: pre-wrap;
-    word-break: break-word;
-  }
-
-  .reply-composer-input:empty:before {
-    content: attr(data-placeholder);
-    color: var(--color-caption);
-    pointer-events: none;
-  }
-
-  .reply-composer-input:focus {
-    outline: none;
-    box-shadow: 0 0 0 2px var(--color-primary);
   }
 </style>
