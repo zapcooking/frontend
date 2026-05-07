@@ -11,6 +11,12 @@
   import PencilSimpleIcon from 'phosphor-svelte/lib/PencilSimple';
   import TrashIcon from 'phosphor-svelte/lib/Trash';
   import ShoppingCartIcon from 'phosphor-svelte/lib/ShoppingCart';
+  import CopyIcon from 'phosphor-svelte/lib/Copy';
+  import CheckIcon from 'phosphor-svelte/lib/Check';
+  import LinkIcon from 'phosphor-svelte/lib/Link';
+  import UserIcon from 'phosphor-svelte/lib/User';
+  import TextAlignLeftIcon from 'phosphor-svelte/lib/TextAlignLeft';
+  import BracketsCurlyIcon from 'phosphor-svelte/lib/BracketsCurly';
   import Button from '../Button.svelte';
   import ShareModal from '../ShareModal.svelte';
   import SaveButton from '../SaveButton.svelte';
@@ -86,6 +92,11 @@
   let groceryModal = false;
   let printModalOpen = false;
   let menuOpen = false;
+  let copiedId = false;
+  let copiedLink = false;
+  let copiedNpub = false;
+  let copiedText = false;
+  let copiedJson = false;
   let deleteConfirmOpen = false;
   let isDeleting = false;
   let isEditingRecipe = false;
@@ -331,6 +342,58 @@
     } else {
       zapModal = true;
     }
+  }
+
+  async function copyToClipboard(text: string, flag: 'id' | 'link' | 'npub' | 'text' | 'json') {
+    if (!browser) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      if (flag === 'id') copiedId = true;
+      else if (flag === 'link') copiedLink = true;
+      else if (flag === 'npub') copiedNpub = true;
+      else if (flag === 'text') copiedText = true;
+      else if (flag === 'json') copiedJson = true;
+      setTimeout(() => {
+        copiedId = false;
+        copiedLink = false;
+        copiedNpub = false;
+        copiedText = false;
+        copiedJson = false;
+        menuOpen = false;
+      }, 800);
+    } catch (error) {
+      console.error('Failed to copy:', error);
+    }
+  }
+
+  async function handleCopyId() {
+    await copyToClipboard(computedNaddr, 'id');
+  }
+
+  async function handleCopyLink() {
+    await copyToClipboard(shareUrl, 'link');
+  }
+
+  async function handleCopyNpub() {
+    const authorPubkey = event.author?.hexpubkey || event.pubkey;
+    await copyToClipboard(nip19.npubEncode(authorPubkey), 'npub');
+  }
+
+  async function handleCopyText() {
+    await copyToClipboard(event.content || '', 'text');
+  }
+
+  async function handleCopyJson() {
+    const raw = (event as unknown as { rawEvent?: () => unknown }).rawEvent?.() ?? {
+      id: event.id,
+      pubkey: event.pubkey,
+      created_at: event.created_at,
+      kind: event.kind,
+      tags: event.tags,
+      content: event.content,
+      sig: event.sig
+    };
+    await copyToClipboard(JSON.stringify(raw, null, 2), 'json');
   }
 
   async function handleEdit() {
@@ -693,7 +756,7 @@
 <article class="max-w-[760px] mx-auto">
   {#if checkingGated}
     <div class="flex items-center justify-center p-8">
-      <div class="text-caption">Loading recipe...</div>
+      <div class="text-caption">Loading {isActualRecipe ? 'recipe' : 'article'}...</div>
     </div>
   {:else if gatedMetadata && !unlockedRecipe}
     <!-- Show gated payment UI -->
@@ -885,7 +948,7 @@
                 class="absolute right-0 top-full mt-2 z-20 rounded-xl shadow-lg py-2 min-w-[200px]"
                 style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);"
               >
-                {#if isOwner}
+                {#if isOwner && isActualRecipe}
                   <button
                     class="w-full flex items-center gap-3 px-4 py-2.5 text-left text-sm hover:bg-accent-gray transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                     style="color: var(--color-text-primary);"
@@ -927,27 +990,97 @@
                     Add to Grocery List
                   </button>
                 {/if}
+                {#if isActualRecipe}
+                  <button
+                    class="w-full flex items-center gap-3 px-4 py-2.5 text-left text-sm hover:bg-accent-gray transition-colors"
+                    style="color: var(--color-text-primary);"
+                    on:click={() => {
+                      printModalOpen = true;
+                      menuOpen = false;
+                    }}
+                  >
+                    <PrinterIcon size={18} />
+                    Print
+                  </button>
+                {/if}
+                {#if isActualRecipe}
+                  <button
+                    class="w-full flex items-center gap-3 px-4 py-2.5 text-left text-sm hover:bg-accent-gray transition-colors"
+                    style="color: var(--color-text-primary);"
+                    on:click={() => {
+                      menuOpen = false;
+                      goto(`/boost?recipe=${computedNaddr}`);
+                    }}
+                  >
+                    <LightningIcon size={18} />
+                    Boost this recipe
+                  </button>
+                {/if}
+                <hr class="my-1 border-t" style="border-color: var(--color-input-border);" />
                 <button
                   class="w-full flex items-center gap-3 px-4 py-2.5 text-left text-sm hover:bg-accent-gray transition-colors"
                   style="color: var(--color-text-primary);"
-                  on:click={() => {
-                    printModalOpen = true;
-                    menuOpen = false;
-                  }}
+                  on:click={handleCopyId}
                 >
-                  <PrinterIcon size={18} />
-                  Print
+                  {#if copiedId}
+                    <CheckIcon size={18} class="text-green-500" weight="bold" />
+                    Copied!
+                  {:else}
+                    <CopyIcon size={18} />
+                    Copy {isActualRecipe ? 'Recipe' : 'Article'} ID
+                  {/if}
                 </button>
                 <button
                   class="w-full flex items-center gap-3 px-4 py-2.5 text-left text-sm hover:bg-accent-gray transition-colors"
                   style="color: var(--color-text-primary);"
-                  on:click={() => {
-                    menuOpen = false;
-                    goto(`/boost?recipe=${computedNaddr}`);
-                  }}
+                  on:click={handleCopyLink}
                 >
-                  <LightningIcon size={18} />
-                  Boost this recipe
+                  {#if copiedLink}
+                    <CheckIcon size={18} class="text-green-500" weight="bold" />
+                    Link Copied!
+                  {:else}
+                    <LinkIcon size={18} />
+                    Copy Link
+                  {/if}
+                </button>
+                <button
+                  class="w-full flex items-center gap-3 px-4 py-2.5 text-left text-sm hover:bg-accent-gray transition-colors"
+                  style="color: var(--color-text-primary);"
+                  on:click={handleCopyNpub}
+                >
+                  {#if copiedNpub}
+                    <CheckIcon size={18} class="text-green-500" weight="bold" />
+                    Copied!
+                  {:else}
+                    <UserIcon size={18} />
+                    Copy npub
+                  {/if}
+                </button>
+                <button
+                  class="w-full flex items-center gap-3 px-4 py-2.5 text-left text-sm hover:bg-accent-gray transition-colors"
+                  style="color: var(--color-text-primary);"
+                  on:click={handleCopyText}
+                >
+                  {#if copiedText}
+                    <CheckIcon size={18} class="text-green-500" weight="bold" />
+                    Copied!
+                  {:else}
+                    <TextAlignLeftIcon size={18} />
+                    Copy Text
+                  {/if}
+                </button>
+                <button
+                  class="w-full flex items-center gap-3 px-4 py-2.5 text-left text-sm hover:bg-accent-gray transition-colors"
+                  style="color: var(--color-text-primary);"
+                  on:click={handleCopyJson}
+                >
+                  {#if copiedJson}
+                    <CheckIcon size={18} class="text-green-500" weight="bold" />
+                    Copied!
+                  {:else}
+                    <BracketsCurlyIcon size={18} />
+                    Copy JSON
+                  {/if}
                 </button>
                 {#if isOwner}
                   <hr class="my-1 border-t" style="border-color: var(--color-input-border);" />
@@ -959,7 +1092,7 @@
                     }}
                   >
                     <TrashIcon size={18} />
-                    Delete Recipe
+                    Delete {isActualRecipe ? 'Recipe' : 'Article'}
                   </button>
                 {/if}
               </div>
@@ -1296,6 +1429,35 @@
 
   :global(.prose tbody tr) {
     border-bottom-color: var(--color-input-border);
+  }
+
+  /* Inline YouTube embeds inside rendered markdown */
+  :global(.prose .youtube-embed) {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    margin: 1.25rem 0;
+    border-radius: 0.5rem;
+    overflow: hidden;
+    background: #000;
+  }
+
+  :global(.prose .youtube-embed iframe) {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    border: 0;
+  }
+
+  /* Hashtag pills inside rendered markdown */
+  :global(.prose a.hashtag-link) {
+    color: var(--color-primary);
+    text-decoration: none;
+  }
+
+  :global(.prose a.hashtag-link:hover) {
+    text-decoration: underline;
   }
 
   /* Recipe image carousel: horizontal scroll, one image at a time */
