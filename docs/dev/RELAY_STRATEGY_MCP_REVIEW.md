@@ -143,7 +143,6 @@ export const RELAY_SETS = {
   default: {
     id: 'default',
     relays: [
-      'wss://kitchen.zap.cooking',
       'wss://garden.zap.cooking',
       'wss://nos.lol',
       'wss://relay.damus.io'

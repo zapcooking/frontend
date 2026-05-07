@@ -85,12 +85,11 @@ const PROFILE_FETCH_TIMEOUT = 5000; // 5 seconds
  * many users publish kind:0 there (or it's the only relay their
  * NIP-65 client targeted). Without including it, profiles that don't
  * happen to live on garden / nos.lol / damus / primal silently 404
- * and render as the anon-chef fallback. nostr.band + nostr.wine are
- * common secondary mirrors.
+ * and render as the anon-chef fallback. nostr.wine is a common
+ * secondary mirror.
  */
 const PROFILE_RELAY_URLS = [
   'wss://purplepag.es',
-  'wss://relay.nostr.band',
   'wss://nostr.wine'
 ];
 

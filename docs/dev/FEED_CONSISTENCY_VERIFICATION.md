@@ -168,7 +168,6 @@ typeof validateMarkdownTemplate(event.content) === 'string' // Invalid recipe
 ```typescript
 export const standardRelays = [
   'wss://relay.damus.io',
-  'wss://kitchen.zap.cooking',
   'wss://garden.zap.cooking',
   'wss://nos.lol',
   'wss://purplepag.es',
@@ -179,18 +178,18 @@ export const standardRelays = [
 
 **Status**: ✅ Good selection
 - Mix of popular public relays (damus, primal, nos.lol)
-- App-specific relays (kitchen, garden)
+- App-specific relay (garden)
 - Specialized relays (purplepag.es for profiles, nostr.wine)
 
 ### Default Outbox Relays
 **Defined in**: `src/lib/nostr.ts` (Line 16)
 ```typescript
-const DEFAULT_OUTBOX_RELAY_URLS = ["wss://purplepag.es", "wss://kitchen.zap.cooking"];
+const DEFAULT_OUTBOX_RELAY_URLS = ["wss://purplepag.es", "wss://nos.lol"];
 ```
 
 **Status**: ✅ Appropriate
 - purplepag.es: Profile/metadata relay
-- kitchen.zap.cooking: App-specific relay
+- nos.lol: Fast general relay
 
 ### Relay Set Support
 **Files**: `src/lib/relays/relaySets.ts`

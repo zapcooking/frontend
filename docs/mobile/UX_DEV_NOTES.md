@@ -335,10 +335,8 @@ allZaps.forEach(processZapEvent);
 - **Current Relays**:
   - wss://relay.damus.io
   - wss://nostr.mom
-  - wss://kitchen.zap.cooking
   - wss://nos.lol
   - wss://purplepag.es
-  - wss://relay.nostr.band
 - **Future**: Consider adding wss://relay.primal.net, wss://nostr.wine
 
 ### 2. Swipe Threshold

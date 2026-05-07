@@ -25,7 +25,6 @@ import { SUPPORTED_CURRENCIES, type CurrencyCode } from '$lib/currencyStore';
 export const MARKETPLACE_RELAYS = [
 	'wss://relay.damus.io',
 	'wss://nos.lol',
-	'wss://relay.nostr.band',
 	'wss://relay.nostr.net'
 ];
 

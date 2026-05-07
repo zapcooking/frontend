@@ -46,9 +46,8 @@ const nip45UnsupportedRelays = new Set<string>();
 // Relays known to support NIP-45 COUNT - prioritize fastest/most reliable
 const KNOWN_NIP45_RELAYS = [
   'wss://relay.damus.io',      // 394ms - fast and reliable
-  'wss://nos.lol',              // 342ms - fastest
-  'wss://relay.nostr.band'      // 514ms - slower but reliable
-  // Note: nostr.wine (305ms) removed as it's in blocked relays list
+  'wss://nos.lol'               // 342ms - fastest
+  // Note: nostr.wine (305ms) and relay.nostr.band removed - in blocked relays list
 ];
 
 // Server API configuration

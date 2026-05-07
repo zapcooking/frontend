@@ -7,7 +7,7 @@
 
   // --- Config ---
   var PROFILE_RELAYS = ['wss://purplepag.es', 'wss://relay.damus.io'];
-  var SEARCH_RELAY = 'wss://relay.nostr.band';
+  var SEARCH_RELAY = 'wss://search.nos.today';
   var DEBOUNCE_MS = 200;
   var SEARCH_DEBOUNCE_MS = 300;
   var SEARCH_TIMEOUT_MS = 4000;
