@@ -34,6 +34,7 @@
 	import { uploadImage, uploadVideo } from '$lib/mediaUpload';
 	import { postComment as postCommentLib } from '$lib/comments/postComment';
 	import { showToast } from '$lib/toast';
+	import { detectHaiku } from '$lib/haiku';
 
 	/**
 	 * Root event for NIP-22 / NIP-10 tag-building. Passed verbatim to
@@ -262,6 +263,11 @@
 		posting ||
 		uploadingImage ||
 		uploadingVideo;
+
+	// Replies to recipes (kind 30023) become NIP-22 comments (kind 1111),
+	// which the haiku bot doesn't process. Gate the warning to non-recipe
+	// parents so it only appears when the reply will be a kind 1 note.
+	$: haikuDetected = parentEvent?.kind !== 30023 && detectHaiku(composerText);
 </script>
 
 <div class="reply-composer" class:reply-composer--compact={compact}>
@@ -290,6 +296,12 @@
 			on:select={(e) => mentionCtrl.insertMention(e.detail)}
 		/>
 	</div>
+
+	{#if haikuDetected}
+		<p class="px-1 text-[11px] text-amber-600 dark:text-amber-400">
+			🍃 This looks like a haiku. Expect a visit from the haiku bot.
+		</p>
+	{/if}
 
 	{#if uploadError}
 		<p class="text-red-500 text-xs">{uploadError}</p>
@@ -379,7 +391,7 @@
 				disabled={posting || uploadingImage || uploadingVideo}
 				on:click={() => (showMediaMenu = !showMediaMenu)}
 			>
-				<ImageIcon size={compact ? 16 : 18} />
+				<ImageIcon size={compact ? 16 : 22} />
 			</button>
 			{#if showMediaMenu}
 				<div class="media-menu-panel" role="menu">
@@ -429,7 +441,7 @@
 			disabled={posting || uploadingImage || uploadingVideo}
 			class:opacity-50={uploadingImage || uploadingVideo}
 		>
-			<GifIcon size={compact ? 16 : 18} />
+			<GifIcon size={compact ? 16 : 22} />
 		</button>
 		<button
 			type="button"
@@ -440,7 +452,7 @@
 			disabled={posting || uploadingImage || uploadingVideo}
 			class:opacity-50={posting || uploadingImage || uploadingVideo}
 		>
-			<ChartBarHorizontalIcon size={compact ? 16 : 18} class={pollConfig ? 'text-primary' : ''} />
+			<ChartBarHorizontalIcon size={compact ? 16 : 22} class={pollConfig ? 'text-primary' : ''} />
 		</button>
 
 		{#if uploadingImage}
@@ -499,8 +511,9 @@
 
 	.reply-composer-input {
 		width: 100%;
-		padding: 0.5rem 0.75rem;
-		font-size: 1rem;
+		padding: 0.75rem 1rem;
+		font-size: 1.0625rem;
+		min-height: 72px;
 		border-radius: 0.5rem;
 		background: var(--color-input-bg);
 		border: 1px solid var(--color-input-border);
@@ -512,6 +525,7 @@
 	.reply-composer--compact .reply-composer-input {
 		padding: 0.375rem 0.5rem;
 		font-size: 0.875rem;
+		min-height: 0;
 	}
 
 	.reply-composer-input:focus {

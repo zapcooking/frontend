@@ -1,6 +1,5 @@
 <script lang="ts">
   import GithubLogo from 'phosphor-svelte/lib/GithubLogo';
-  import { theme } from '$lib/themeStore';
   import { VERSION, BUILD_HASH } from '$lib/version';
   import { ndk } from '$lib/nostr';
   import { NDKUser } from '@nostr-dev-kit/ndk';
@@ -28,11 +27,6 @@
   }
 
   $: zapCookingUser = $ndk ? new NDKUser({ pubkey: ZAPCOOKING_PUBKEY }) : null;
-
-  // Reactive resolved theme for logo switching (handles 'system' preference)
-  $: resolvedTheme = $theme === 'system' ? theme.getResolvedTheme() : $theme;
-  $: logoSrc =
-    resolvedTheme === 'dark' ? '/zap_cooking_logo_white.svg' : '/zap_cooking_logo_black.svg';
 </script>
 
 <footer
@@ -41,8 +35,18 @@
 >
   <div class="mx-auto max-w-7xl footer-inner">
     <div class="flex flex-col items-center footer-content">
-      <!-- Logo -->
-      <img src={logoSrc} alt="zap.cooking" class="footer-logo" />
+      <!-- Logo (dual-img CSS swap; matches app.html pre-paint rule for no flash) -->
+      <img
+        src="/zap_cooking_logo_black.svg"
+        alt="zap.cooking"
+        class="footer-logo logo-light dark:hidden"
+      />
+      <img
+        src="/zap_cooking_logo_white.svg"
+        alt=""
+        aria-hidden="true"
+        class="footer-logo logo-dark hidden dark:block"
+      />
 
       <!-- Tagline -->
       <p class="footer-tagline text-caption">Recipes on Nostr, built in the open.</p>
