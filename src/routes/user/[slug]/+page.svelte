@@ -269,6 +269,7 @@
         let subscription = $ndk.subscribe(filter);
 
         subscription.on('event', (ev: NDKEvent) => {
+          if (isDeletedEvent(ev)) return;
           if (validateMarkdownTemplate(ev.content) != null) {
             events.push(ev);
             events = events;
@@ -499,6 +500,7 @@
         let resolved = false;
 
         subscription.on('event', (ev: NDKEvent) => {
+          if (isDeletedEvent(ev)) return;
           if (validateMarkdownTemplate(ev.content) != null) {
             newRecipes.push(ev);
           }
@@ -623,6 +625,14 @@
     return cleaned.trim().substring(0, 150);
   }
 
+  function isDeletedEvent(ev: NDKEvent): boolean {
+    return (
+      ev.tags.some((t) => t[0] === 'deleted') ||
+      !ev.content ||
+      ev.content.trim() === ''
+    );
+  }
+
   function getArticleUrl(event: NDKEvent): string {
     if (event.kind === 30023) {
       const dTag = event.tags.find((t) => t[0] === 'd')?.[1];
@@ -633,7 +643,7 @@
             kind: 30023,
             pubkey: event.pubkey
           });
-          return `/recipe/${naddr}`;
+          return `/reads/${naddr}`;
         } catch (e) {
           console.warn('Failed to encode naddr:', e);
         }
@@ -703,6 +713,8 @@
         subscription.on('event', (ev: NDKEvent) => {
           if (seenIds.has(ev.id)) return;
           seenIds.add(ev.id);
+
+          if (isDeletedEvent(ev)) return;
 
           // Exclude recipes (events with recipe tags)
           const hasRecipeTag = ev.tags.some(
@@ -775,6 +787,8 @@
 
         subscription.on('event', (ev: NDKEvent) => {
           if (existingIds.has(ev.id)) return;
+
+          if (isDeletedEvent(ev)) return;
 
           // Exclude recipes
           const hasRecipeTag = ev.tags.some(

@@ -7,7 +7,8 @@
   import Recipe from '../../../components/Recipe/Recipe.svelte';
   import PanLoader from '../../../components/PanLoader.svelte';
   import type { PageData } from './$types';
-  import { ARTICLE_TAG } from '$lib/articleEditor';
+  import { RECIPE_TAGS } from '$lib/consts';
+  import { validateMarkdownTemplate } from '$lib/parser';
   import ArrowLeftIcon from 'phosphor-svelte/lib/ArrowLeft';
 
   export let data: PageData;
@@ -58,10 +59,13 @@
 
         const e = await Promise.race<NDKEvent | null>([fetchPromise, timeoutPromise]);
         if (e) {
-          // Verify it's an article (has zapreads tag)
-          const hasZapreadsTag = e.tags.some((t: string[]) => t[0] === 't' && t[1] === ARTICLE_TAG);
-          if (!hasZapreadsTag) {
-            throw new Error('This is not an article');
+          // Reject recipe-shaped events; anything else is treated as an article
+          const hasRecipeTag = e.tags.some(
+            (t: string[]) => t[0] === 't' && RECIPE_TAGS.includes(t[1]?.toLowerCase() || '')
+          );
+          const isRecipeShaped = typeof validateMarkdownTemplate(e.content) !== 'string';
+          if (hasRecipeTag || isRecipeShaped) {
+            throw new Error('This is a recipe, not an article');
           }
           event = e;
           loading = false;
