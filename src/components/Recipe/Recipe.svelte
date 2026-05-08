@@ -97,6 +97,7 @@
   let copiedNpub = false;
   let copiedText = false;
   let copiedJson = false;
+  let copyTimeout: ReturnType<typeof setTimeout> | null = null;
   let deleteConfirmOpen = false;
   let isDeleting = false;
   let isEditingRecipe = false;
@@ -168,7 +169,10 @@
     event &&
     event.tags.some((tag) => tag[0] === 't' && RECIPE_TAGS.includes(tag[1]?.toLowerCase() || ''));
 
-  onDestroy(() => { unsubMembership(); });
+  onDestroy(() => {
+    unsubMembership();
+    if (copyTimeout) clearTimeout(copyTimeout);
+  });
 
   // Gated recipe state
   let gatedMetadata: GatedRecipeMetadata | null = null;
@@ -348,17 +352,24 @@
     if (!browser) return;
     try {
       await navigator.clipboard.writeText(text);
+      copiedId = false;
+      copiedLink = false;
+      copiedNpub = false;
+      copiedText = false;
+      copiedJson = false;
       if (flag === 'id') copiedId = true;
       else if (flag === 'link') copiedLink = true;
       else if (flag === 'npub') copiedNpub = true;
       else if (flag === 'text') copiedText = true;
       else if (flag === 'json') copiedJson = true;
-      setTimeout(() => {
+      if (copyTimeout) clearTimeout(copyTimeout);
+      copyTimeout = setTimeout(() => {
         copiedId = false;
         copiedLink = false;
         copiedNpub = false;
         copiedText = false;
         copiedJson = false;
+        copyTimeout = null;
         menuOpen = false;
       }, 800);
     } catch (error) {

@@ -104,15 +104,12 @@ function embedYoutubeInElement(root: Element, doc: Document): void {
 
     const wrapper = buildYoutubeEmbed(id, doc);
 
-    // Strip any leading decorative chars (emoji, whitespace, punctuation) before the link
-    // and check whether the link is effectively the entire paragraph.
-    const paraText = (p.textContent || '').trim();
+    // Replace the paragraph only if the link is a bare URL (link text === href),
+    // meaning the author didn't write custom label text. For labeled links like
+    // [Watch the pitch](https://youtu.be/...) the original text is preserved and
+    // the embed is inserted after the paragraph.
     const linkText = (link.textContent || '').trim();
-    const decorationStripped = paraText
-      .replace(/^[\s\p{P}\p{S}]+/u, '')
-      .replace(/[\s\p{P}\p{S}]+$/u, '');
-
-    if (decorationStripped === linkText) {
+    if (linkText === href) {
       p.replaceWith(wrapper);
     } else {
       p.parentNode?.insertBefore(wrapper, p.nextSibling);
