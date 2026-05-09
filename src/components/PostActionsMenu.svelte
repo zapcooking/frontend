@@ -8,6 +8,7 @@
   import LinkIcon from 'phosphor-svelte/lib/Link';
   import UserIcon from 'phosphor-svelte/lib/User';
   import TextAlignLeftIcon from 'phosphor-svelte/lib/TextAlignLeft';
+  import BracketsCurlyIcon from 'phosphor-svelte/lib/BracketsCurly';
   import DownloadIcon from 'phosphor-svelte/lib/DownloadSimple';
   import DotsThree from 'phosphor-svelte/lib/DotsThree';
   import { clickOutside } from '$lib/clickOutside';
@@ -99,6 +100,33 @@
   let textCopied = false;
   let textCopyTimeout: ReturnType<typeof setTimeout> | null = null;
 
+  let jsonCopied = false;
+  let jsonCopyTimeout: ReturnType<typeof setTimeout> | null = null;
+
+  async function handleCopyJson() {
+    if (!browser) return;
+    try {
+      const raw = (event as unknown as { rawEvent?: () => unknown }).rawEvent?.() ?? {
+        id: event.id,
+        pubkey: event.pubkey,
+        created_at: event.created_at,
+        kind: event.kind,
+        tags: event.tags,
+        content: event.content,
+        sig: event.sig
+      };
+      await navigator.clipboard.writeText(JSON.stringify(raw, null, 2));
+      jsonCopied = true;
+      if (jsonCopyTimeout) clearTimeout(jsonCopyTimeout);
+      jsonCopyTimeout = setTimeout(() => {
+        jsonCopied = false;
+        closeMenu();
+      }, 800);
+    } catch (error) {
+      console.error('Failed to copy JSON:', error);
+    }
+  }
+
   async function handleCopyText() {
     if (!browser) return;
 
@@ -189,6 +217,19 @@
         {:else}
           <TextAlignLeftIcon size={16} class="text-caption" />
           <span>Copy Text</span>
+        {/if}
+      </button>
+      <button
+        on:click={handleCopyJson}
+        class="w-full px-4 py-2 text-left text-sm hover:bg-accent-gray flex items-center gap-2"
+        style="color: var(--color-text-primary);"
+      >
+        {#if jsonCopied}
+          <CheckIcon size={16} class="text-green-500" weight="bold" />
+          <span>Copied!</span>
+        {:else}
+          <BracketsCurlyIcon size={16} class="text-caption" />
+          <span>Copy JSON</span>
         {/if}
       </button>
       {#if engagementData}

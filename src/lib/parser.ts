@@ -1,7 +1,7 @@
 import MarkdownIt from 'markdown-it';
 import { sanitizeHTML } from '$lib/sanitize';
 
-const md = new MarkdownIt();
+const md = new MarkdownIt({ linkify: true });
 
 // Override link renderer to open links in new tab
 const defaultRender = md.renderer.rules.link_open || function(tokens, idx, options, env, self) {
@@ -14,9 +14,123 @@ md.renderer.rules.link_open = function(tokens, idx, options, env, self) {
   return defaultRender(tokens, idx, options, env, self);
 };
 
+const YOUTUBE_PATTERNS = [
+  /^(?:https?:\/\/)?(?:www\.|m\.)?youtube\.com\/watch\?(?:[^#]*&)?v=([a-zA-Z0-9_-]{11})(?:[&#].*)?$/,
+  /^(?:https?:\/\/)?(?:www\.|m\.)?youtu\.be\/([a-zA-Z0-9_-]{11})(?:[?#].*)?$/,
+  /^(?:https?:\/\/)?(?:www\.|m\.)?youtube\.com\/shorts\/([a-zA-Z0-9_-]{11})(?:[?#].*)?$/,
+  /^(?:https?:\/\/)?(?:www\.|m\.)?youtube\.com\/embed\/([a-zA-Z0-9_-]{11})(?:[?#].*)?$/
+];
+
+function extractYoutubeId(url: string): string | null {
+  const trimmed = url.trim();
+  for (const re of YOUTUBE_PATTERNS) {
+    const m = trimmed.match(re);
+    if (m) return m[1];
+  }
+  return null;
+}
+
+const HASHTAG_RE = /#([\p{L}\p{N}_]+)/gu;
+const HASHTAG_SKIP_TAGS = new Set(['A', 'CODE', 'PRE', 'SCRIPT', 'STYLE', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6']);
+
+function collectTextNodes(el: Element, out: Text[]): void {
+  if (HASHTAG_SKIP_TAGS.has(el.nodeName)) return;
+  for (const child of Array.from(el.childNodes)) {
+    if (child.nodeType === 3) {
+      out.push(child as Text);
+    } else if (child.nodeType === 1) {
+      collectTextNodes(child as Element, out);
+    }
+  }
+}
+
+function linkHashtagsInElement(root: Element, doc: Document): void {
+  const textNodes: Text[] = [];
+  collectTextNodes(root, textNodes);
+  for (const node of textNodes) {
+    const text = node.textContent || '';
+    HASHTAG_RE.lastIndex = 0;
+    if (!HASHTAG_RE.test(text)) continue;
+    HASHTAG_RE.lastIndex = 0;
+
+    const fragment = doc.createDocumentFragment();
+    let lastIndex = 0;
+    let match: RegExpExecArray | null;
+    while ((match = HASHTAG_RE.exec(text)) !== null) {
+      if (match.index > lastIndex) {
+        fragment.appendChild(doc.createTextNode(text.slice(lastIndex, match.index)));
+      }
+      const a = doc.createElement('a');
+      a.setAttribute('href', `/tag/${match[1].toLowerCase()}`);
+      a.className = 'hashtag-link';
+      a.textContent = match[0];
+      fragment.appendChild(a);
+      lastIndex = match.index + match[0].length;
+    }
+    if (lastIndex < text.length) {
+      fragment.appendChild(doc.createTextNode(text.slice(lastIndex)));
+    }
+    node.parentNode?.replaceChild(fragment, node);
+  }
+}
+
+function buildYoutubeEmbed(id: string, doc: Document): HTMLElement {
+  const wrapper = doc.createElement('div');
+  wrapper.className = 'youtube-embed';
+  const iframe = doc.createElement('iframe');
+  iframe.setAttribute('src', `https://www.youtube-nocookie.com/embed/${id}`);
+  iframe.setAttribute('title', 'YouTube video player');
+  iframe.setAttribute('frameborder', '0');
+  iframe.setAttribute(
+    'allow',
+    'accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share'
+  );
+  iframe.setAttribute('referrerpolicy', 'strict-origin-when-cross-origin');
+  iframe.setAttribute('allowfullscreen', '');
+  iframe.setAttribute('loading', 'lazy');
+  wrapper.appendChild(iframe);
+  return wrapper;
+}
+
+function embedYoutubeInElement(root: Element, doc: Document): void {
+  const paragraphs = Array.from(root.querySelectorAll('p'));
+  for (const p of paragraphs) {
+    const links = p.querySelectorAll('a');
+    if (links.length !== 1) continue;
+    const link = links[0];
+    const href = link.getAttribute('href') || '';
+    const id = extractYoutubeId(href);
+    if (!id) continue;
+
+    const wrapper = buildYoutubeEmbed(id, doc);
+
+    // Replace the paragraph only if the link is a bare URL (link text === href),
+    // meaning the author didn't write custom label text. For labeled links like
+    // [Watch the pitch](https://youtu.be/...) the original text is preserved and
+    // the embed is inserted after the paragraph.
+    const linkText = (link.textContent || '').trim();
+    if (linkText === href) {
+      p.replaceWith(wrapper);
+    } else {
+      p.parentNode?.insertBefore(wrapper, p.nextSibling);
+    }
+  }
+}
+
+function enhanceContent(html: string): string {
+  if (!html || typeof DOMParser === 'undefined') return html;
+  const doc = new DOMParser().parseFromString(`<div>${html}</div>`, 'text/html');
+  const root = doc.body.firstElementChild as HTMLElement | null;
+  if (!root) return html;
+  embedYoutubeInElement(root, doc);
+  linkHashtagsInElement(root, doc);
+  return root.innerHTML;
+}
+
 export function parseMarkdown(markdown: string) {
   const parsedMarkdown = md.render(markdown);
-  return sanitizeHTML(parsedMarkdown);
+  const sanitized = sanitizeHTML(parsedMarkdown);
+  return enhanceContent(sanitized);
 }
 
 interface MarkdownInformation {
