@@ -50,6 +50,9 @@ importers:
       '@capacitor/splash-screen':
         specifier: ^8.0.0
         version: 8.0.0(@capacitor/core@8.0.0)
+      '@capgo/capacitor-passkey':
+        specifier: ^8.3.0
+        version: 8.3.0(@capacitor/core@8.0.0)
       '@gandlaf21/bolt11-decode':
         specifier: ^3.0.6
         version: 3.1.1
@@ -371,6 +374,11 @@ packages:
 
   '@capacitor/splash-screen@8.0.0':
     resolution: {integrity: sha512-zkFdUSd6C6gd3s3bIEgtO3DVjfwpaX5mmWU9er8xYTg47zr2toEkGtfyE6CPhhErG09fl4rCqrK5DfnGrXLh9w==}
+    peerDependencies:
+      '@capacitor/core': '>=8.0.0'
+
+  '@capgo/capacitor-passkey@8.3.0':
+    resolution: {integrity: sha512-XR0bqaPxFgg7btbN9iYA4XwUO2AnyaLKFOesuL/QdakWaQv0AbajPGb+be5XzdqqNHVujpia9aZH0VGBrgZXQA==}
     peerDependencies:
       '@capacitor/core': '>=8.0.0'
 
@@ -5618,6 +5626,10 @@ snapshots:
       '@capacitor/core': 8.0.0
 
   '@capacitor/splash-screen@8.0.0(@capacitor/core@8.0.0)':
+    dependencies:
+      '@capacitor/core': 8.0.0
+
+  '@capgo/capacitor-passkey@8.3.0(@capacitor/core@8.0.0)':
     dependencies:
       '@capacitor/core': 8.0.0
 

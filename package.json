@@ -1,7 +1,7 @@
 {
   "name": "zap.cooking",
   "license": "MIT",
-  "version": "4.2.384",
+  "version": "4.2.385",
   "private": true,
   "scripts": {
     "dev": "vite dev",
@@ -37,6 +37,7 @@
     "@capacitor/ios": "^8.0.0",
     "@capacitor/local-notifications": "^8.0.0",
     "@capacitor/splash-screen": "^8.0.0",
+    "@capgo/capacitor-passkey": "^8.3.0",
     "@gandlaf21/bolt11-decode": "^3.0.6",
     "@getalby/bitcoin-connect": "^3.11.5",
     "@getalby/lightning-tools": "^6.0.0",

@@ -19,6 +19,12 @@ const config: CapacitorConfig = {
     SplashScreen: {
       launchAutoHide: true,
       launchShowDuration: 2000
+    },
+    // SPIKE ONLY — Phase C.0 passkey PRF validation. Remove with the rest of the spike harness.
+    CapacitorPasskey: {
+      origin: 'https://zap.cooking',
+      autoShim: true,
+      domains: ['zap.cooking', 'www.zap.cooking']
     }
   }
 };
