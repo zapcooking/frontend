@@ -133,7 +133,7 @@ Same as A1 for RP-related concerns. Stronger isolation than A1 within those cons
 ### Infra zap.cooking needs
 
 - `https://zap.cooking/.well-known/webauthn` listing related origins. We'd want at minimum `https://zap.cooking` and probably `https://www.zap.cooking`. (Not strictly required if we only ever use the bare `zap.cooking` origin — but useful for any future subdomain.)
-- `https://zap.cooking/.well-known/apple-app-site-association` with `webcredentials.apps` listing `<TEAMID>.cooking.zap.app` and any dev/staging variants.
+- `https://zap.cooking/.well-known/apple-app-site-association` with `webcredentials.apps` listing `Z26TJQZZWC.cooking.zap.app` and any dev/staging variants.
 - `https://zap.cooking/.well-known/assetlinks.json` with our Android package + signing cert SHA-256.
 - iOS Associated Domains entitlement: `webcredentials:zap.cooking`.
 - Capacitor app ID `cooking.zap.app` already aligns; need to confirm the Apple Team ID and Android signing cert fingerprints (both prod and dev keystores).
@@ -184,7 +184,7 @@ Practical implication: there is no migration path from B to A1/A2 that preserves
 ## 7. Capacitor app ID interaction
 
 - `capacitor.config.ts`: `appId: 'cooking.zap.app'`. This is the iOS bundle identifier and Android package name.
-- For **Option A1/A2**: we need Breez to add `<TEAMID>.cooking.zap.app` to their AASA `webcredentials.apps` list and our Android package + signing cert SHA-256 to their assetlinks. We also need iOS `webcredentials:keys.breez.technology` in our entitlements file and Android Digital Asset Link verification pointing at `keys.breez.technology`.
+- For **Option A1/A2**: we need Breez to add `Z26TJQZZWC.cooking.zap.app` to their AASA `webcredentials.apps` list and our Android package + signing cert SHA-256 to their assetlinks. We also need iOS `webcredentials:keys.breez.technology` in our entitlements file and Android Digital Asset Link verification pointing at `keys.breez.technology`.
 - For **Option B**: same files but served from `zap.cooking`, controlled by us. iOS entitlement `webcredentials:zap.cooking`.
 - Either way the Capacitor WebView passkey support depends on the OS — see Task 3 for whether PRF actually works inside WKWebView and Android WebView. (Working hypothesis: passkey *creation/use* works in WebView via the system credential dialog on iOS 18+ and Android 14+; whether the PRF extension specifically is exposed to the WebView's WebAuthn JS API is the unknown.)
 
