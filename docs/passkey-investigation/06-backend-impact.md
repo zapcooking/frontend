@@ -10,7 +10,7 @@ For each registered passkey credential, persist:
 
 | Field | Type | Source | Why |
 |---|---|---|---|
-| `credential_id` | bytea (CBOR-encoded credential ID, ~16–256 bytes) | Returned by authenticator at registration | Primary identifier for the credential; what `allowCredentials` uses at login |
+| `credential_id` | bytea (raw bytes, ~16–256 bytes; base64url-encoded when serialized to JSON over the wire) | Returned by authenticator at registration | Primary identifier for the credential; what `allowCredentials` uses at login |
 | `public_key` | bytea (COSE-encoded EC2/OKP key, typically 77 bytes for ES256) | Registration response | Used to verify assertion signatures |
 | `counter` | bigint | Registration + each authentication | Monotonic counter for clone-detection; some authenticators always return 0 (synced passkeys). We accept that and rely on credential-binding for replay defense. |
 | `aaguid` | uuid (16 bytes) | Registration response | Identifies the authenticator model (Apple Keychain, Google PM, 1Password, YubiKey 5, etc.). Useful for analytics and provider-specific UX hints. |

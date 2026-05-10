@@ -221,4 +221,4 @@ These are all acceptable but should be planned for.
 
 ---
 
-> 🛑 **STOP GATE 2 — Tasks 3–9 complete. Awaiting Seth's direction before writing the consolidated DECISION.md (Task 10).**
+> ℹ️ *Historical note: Stop Gate 2 lived here during the Phase B investigation. Passed on 2026-05-10 with confirmation to proceed under Option B; `DECISION.md` was written immediately after.*
