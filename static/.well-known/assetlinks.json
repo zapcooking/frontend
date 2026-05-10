@@ -1,0 +1,10 @@
+[
+  {
+    "relation": ["delegate_permission/common.get_login_creds"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "cooking.zap.app",
+      "sha256_cert_fingerprints": ["C0:0C:10:DB:D5:41:0E:D5:FA:52:A6:03:5E:3A:BA:8C:EE:27:D5:21:EE:CE:F4:4E:D0:67:D4:E2:B3:A8:E8:D3"]
+    }
+  }
+]
