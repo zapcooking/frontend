@@ -259,3 +259,15 @@ These are upper-bound estimates assuming one experienced full-stack engineer. Wi
 ## 10. Phase B in one paragraph
 
 zap.cooking should add passkey login as an additive sixth auth method, scoped to its own WebAuthn RP (`zap.cooking`), following the Breez passkey-login spec v0.9.1's PRF→BIP39→BIP32 derivation algorithms but operating its own infrastructure end-to-end. The biggest open implementation question is the Capacitor plugin's PRF behavior, validated by a 3-day Phase C.0 spike before committing to the mobile path. Total engineering effort is in the 5–7 team-week range with no architectural surprises remaining. Existing users keep their existing identities and methods; passkey is for new users and additional secondary identities. The result is phishing-resistant, low-friction onboarding for new users with no operational dependency on Breez.
+
+---
+
+## 11. Breez SDK coexistence and future wallet-passkey path
+
+zap.cooking currently integrates Breez SDK with passkey login **not** enabled. Wallet keys are managed via the SDK's internal seed mechanism. This has two consequences for the Option B decision:
+
+1. **No second-passkey friction at launch.** The zap.cooking passkey shipping under rpID `zap.cooking` will be the first passkey users encounter in this app. There is no existing Breez-derived credential for it to compete with.
+
+2. **Future wallet-passkey path is preserved.** If product direction later calls for passkey-backed wallet key management, the correct path is **not** to flip `enablePasskey: true` in Breez SDK — doing so would register a credential under `keys.breez.technology` and reintroduce the two-passkeys-for-one-app friction that Option B explicitly avoids. Instead, derive wallet keys under our own RP using the Breez spec's salt mechanism: `PRF(passkey, "<wallet-salt>")` produces a 32-byte seed; BIP39-encode for storage portability; BIP32-derive for wallet operations. One passkey, two derivations — Nostr identity from `PRF(passkey, "zap.cooking")`, wallet seed from `PRF(passkey, "<wallet-salt>")`.
+
+This is a Phase D consideration if/when passkey wallet management becomes a product goal. Captured here so the path isn't accidentally closed off by enabling Breez's built-in passkey login at some later date.
