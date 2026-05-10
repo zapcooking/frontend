@@ -4,7 +4,7 @@
 
 **Pre-existing facts** (from `capacitor.config.ts`, `android/app/build.gradle`, `android/variables.gradle`):
 - iOS bundle ID / Android applicationId / Android namespace: `cooking.zap.app`
-- Apple Team ID: not in this repo (Seth has it; the Apple Developer portal has it). Marked `<TEAMID>` in samples below.
+- Apple Team ID: `Z26TJQZZWC` (used in samples below).
 - Android compileSdk: 36, minSdk: 24, targetSdk: 36, JDK 17
 - AndroidX WebKit: 1.14.0 (already past the 1.12.0 floor needed for in-WebView WebAuthn — though we're using a native plugin path anyway, this is good headroom)
 
@@ -46,13 +46,13 @@ If we add subdomains/aliases later, append them here. Chrome enforces a 5-eTLD+1
   },
   "webcredentials": {
     "apps": [
-      "<TEAMID>.cooking.zap.app"
+      "Z26TJQZZWC.cooking.zap.app"
     ]
   }
 }
 ```
 
-The `applinks` section is empty for passkey purposes; we'd populate it if we wanted Universal Links to open URLs in the app, which is unrelated to this work. **`webcredentials.apps`** is the part that matters: it tells iOS that the bundle ID `<TEAMID>.cooking.zap.app` is allowed to share passkeys with `zap.cooking`.
+The `applinks` section is empty for passkey purposes; we'd populate it if we wanted Universal Links to open URLs in the app, which is unrelated to this work. **`webcredentials.apps`** is the part that matters: it tells iOS that the bundle ID `Z26TJQZZWC.cooking.zap.app` is allowed to share passkeys with `zap.cooking`.
 
 If we ship a separate dev/staging bundle ID (e.g., `cooking.zap.app.dev`), add it to the array.
 
@@ -234,7 +234,7 @@ This decision is **independent** of whether iOS WKWebView or Android WebView wou
 | # | Question | Resolution |
 |---|---|---|
 | Q1 | Do we need a separate dev/staging Android keystore SHA in assetlinks for QA testing? | Yes — include both prod and debug fingerprints. |
-| Q2 | Apple Team ID — confirm with Seth | Out of band (private to Apple Developer account) |
+| Q2 | Apple Team ID | `Z26TJQZZWC` (filled in) |
 | Q3 | Should we serve the well-known files from CF Workers or static? | Static is simpler; Pages serves directly. Workers only if we ever need to vary by request (we don't). |
 | Q4 | Capacitor 8.x compatibility with the chosen plugin? | The Cap-go plugin targets Capacitor 5+; Capacitor 8 is compatible per the plugin's `peerDependencies`. Verify in spike. |
 | Q5 | Should we do a TestFlight/internal-track rollout before public release? | Yes — passkey behavior on real devices is the riskiest part. Recommend at least 1 week TestFlight + Play internal track before promoting. |
