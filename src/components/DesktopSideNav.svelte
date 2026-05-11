@@ -162,7 +162,7 @@
 </script>
 
 <aside
-  class="hidden lg:block lg:w-72 xl:w-80 fixed top-0 left-0 h-screen z-10 transition-opacity duration-300"
+  class="hidden xl:block xl:w-80 fixed top-0 left-0 h-screen z-10 transition-opacity duration-300"
   class:opacity-0={$userSidePanelOpen}
   class:pointer-events-none={$userSidePanelOpen}
 >

@@ -132,7 +132,7 @@
 <div class="relative flex gap-2 sm:gap-9 lg:gap-12 justify-between overflow-visible">
   <button
     on:click={handleLogoClick}
-    class="flex-none lg:hidden cursor-pointer transition-transform duration-150 active:scale-95 active:opacity-80"
+    class="flex-none xl:hidden cursor-pointer transition-transform duration-150 active:scale-95 active:opacity-80"
   >
     <img
       src={SVGNostrCookingWithText}

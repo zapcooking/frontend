@@ -412,7 +412,7 @@
       <!-- Full-page scroll container: clip horizontal overflow to prevent Safari horizontal scroll/gap -->
       <div
         id="app-scroll"
-        class="flex-1 min-h-0 min-w-0 overflow-y-auto overflow-x-hidden lg:ml-72 xl:ml-80"
+        class="flex-1 min-h-0 min-w-0 overflow-y-auto overflow-x-hidden xl:ml-80"
         style="background-color: var(--color-bg-primary);"
       >
         <!-- Sticky header with blur -->
@@ -423,7 +423,7 @@
           class="px-4 min-w-0 max-w-full {$page.url.pathname.startsWith('/messages') ||
           $page.url.pathname.startsWith('/groups')
             ? ''
-            : 'pb-16 lg:pb-8'}"
+            : 'pb-16 xl:pb-8'}"
         >
           <slot />
           {#if !$page.url.pathname.startsWith('/messages') && !$page.url.pathname.startsWith('/groups')}
