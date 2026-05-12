@@ -8,7 +8,8 @@
   import { browser } from '$app/environment';
 
   // -- constants -----------------------------------------------------------
-  const RP_ID = 'zap.cooking';
+  // rpID follows the current origin — works on localhost, preview URLs, and zap.cooking.
+  const RP_ID = browser ? window.location.hostname : 'zap.cooking';
   const RP_NAME = 'zap.cooking spike';
 
   const INPUT_A_LABEL = 'spike-test-input-1';
