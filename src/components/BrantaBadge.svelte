@@ -21,6 +21,8 @@
 
   export let paymentString: string = '';
   export let rawQrText: string = '';
+  export let secret: string | undefined = undefined;
+  export let encryptedDestination: string | undefined = undefined;
   export let autoVerify: boolean = true;
   export let showUnverified: boolean = false;
 
@@ -35,9 +37,10 @@
     loading = true;
 
     try {
+      const address = encryptedDestination || paymentString;
       const param = rawQrText
         ? `qr=${encodeURIComponent(rawQrText)}`
-        : `payment=${encodeURIComponent(paymentString)}`;
+        : `payment=${encodeURIComponent(address)}${secret ? `&secret=${encodeURIComponent(secret)}` : ''}`;
       const res = await fetch(`/api/branta/verify?${param}`);
       const data = await res.json();
 

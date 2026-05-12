@@ -23,10 +23,11 @@ export const GET: RequestHandler = async ({ url, platform }) => {
 		return json({ verified: false, error: 'payment or qr query parameter is required' }, { status: 400 });
 	}
 
+	const encryptionKey = url.searchParams.get('secret') ?? undefined;
 	try {
 		const payment = qrText
 			? await getPaymentInfoByQRCode(qrText, platform)
-			: await getPaymentInfo(paymentString!, platform);
+			: await getPaymentInfo(paymentString!, encryptionKey, platform);
 
 		return json({ verified: payment !== null, payment: payment ?? undefined });
 	} catch (error) {

@@ -391,6 +391,8 @@
   // On-chain Bitcoin state
   let receiveMode: 'lightning' | 'onchain' = 'lightning';
   let onchainAddress: string | null = null;
+  let onchainBrantaSecret: string | undefined;
+  let onchainBrantaEncryptedDestination: string | undefined;
   let isGeneratingOnchainAddress = false;
   let unclaimedDeposits: UnclaimedDeposit[] = [];
   let isLoadingDeposits = false;
@@ -1110,21 +1112,24 @@
 
   // Register a payment address/invoice with Branta Guardrail
   // zk: true enables zero-knowledge encryption (on-chain addresses), false for plaintext (Lightning)
-  async function registerWithBranta(paymentString: string, description?: string, zk?: boolean) {
+  async function registerWithBranta(paymentString: string, description?: string, destinationType?: string): Promise<{ secret?: string; encryptedDestination?: string }> {
     try {
-      await fetch('/api/branta/register', {
+      const res = await fetch('/api/branta/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           paymentString,
           description,
-          ttl: 86400, // 24 hours
-          zk
+          destinationType,
+          ttl: 86400 // 24 hours
         })
       });
+      const data = await res.json().catch(() => ({}));
+      return { secret: data.secret, encryptedDestination: data.encryptedDestination };
     } catch (e) {
       // Silent fail - Branta registration is optional
       console.warn('[Branta] Registration failed:', e);
+      return {};
     }
   }
 
@@ -1154,9 +1159,10 @@
 
     try {
       const result = await receiveOnchain();
-      // Register with Branta for verification (plaintext for now, ZK in follow-up PR)
       // Await to ensure badge can verify after registration completes
-      await registerWithBranta(result.address, 'zap.cooking Bitcoin deposit address', false);
+      const brantaResult = await registerWithBranta(result.address, 'zap.cooking Bitcoin deposit address', 'bitcoin_address');
+      onchainBrantaSecret = brantaResult.secret;
+      onchainBrantaEncryptedDestination = brantaResult.encryptedDestination;
       onchainAddress = result.address;
       // Also load any pending deposits
       await loadUnclaimedDeposits();
@@ -1476,7 +1482,7 @@
       await registerWithBranta(
         result.invoice,
         `zap.cooking invoice for ${amountToUse} sats`,
-        false
+        'bolt11'
       );
       generatedInvoice = result.invoice;
 
@@ -5184,7 +5190,7 @@
 
                   <!-- Branta Verification Badge -->
                   <div class="flex justify-center">
-                    <BrantaBadge paymentString={onchainAddress} />
+                    <BrantaBadge paymentString={onchainAddress} secret={onchainBrantaSecret} encryptedDestination={onchainBrantaEncryptedDestination} />
                   </div>
 
                   <!-- Address (segmented for easier verification) -->
