@@ -30,6 +30,7 @@
     type RelayMode
   } from '$lib/nostr';
   import { wallets, navBalanceVisible, setNavBalanceVisible } from '$lib/wallet/walletStore';
+  import { openWallet } from '$lib/wallet/walletModalStore';
   import { bitcoinConnectEnabled, bitcoinConnectWalletInfo } from '$lib/wallet/bitcoinConnect';
   import { weblnConnected, weblnWalletName } from '$lib/wallet/webln';
   import {
@@ -80,7 +81,10 @@
     if (wotMode === 'global') return wotProvider !== null;
     if (!wotPubkey.trim()) return false;
     if (!wotProvider) return true;
-    return wotProvider.servicePubkey !== wotPubkey.trim() || (wotProvider.relayHint || '') !== wotRelay.trim();
+    return (
+      wotProvider.servicePubkey !== wotPubkey.trim() ||
+      (wotProvider.relayHint || '') !== wotRelay.trim()
+    );
   })();
 
   async function loadWotProvider() {
@@ -104,7 +108,7 @@
     }
   }
 
-  function selectWotProvider(provider: typeof KNOWN_WOT_PROVIDERS[0]) {
+  function selectWotProvider(provider: (typeof KNOWN_WOT_PROVIDERS)[0]) {
     wotMode = 'custom';
     wotPubkey = provider.pubkey;
     wotRelay = provider.relay;
@@ -129,7 +133,10 @@
           wotSaving = false;
           return;
         }
-        const provider: TrustProvider = { servicePubkey: pubkey, relayHint: wotRelay.trim() || undefined };
+        const provider: TrustProvider = {
+          servicePubkey: pubkey,
+          relayHint: wotRelay.trim() || undefined
+        };
         const result = await publishTrustProvider($ndk, provider);
         if (result.success) {
           wotProvider = provider;
@@ -546,41 +553,48 @@
           <div class="text-sm text-caption italic">Loading membership status...</div>
         {:else if membershipData?.found && membershipData.member}
           {@const member = membershipData.member}
-          {@const validTier = (['open', 'cook_plus', 'pro_kitchen', 'founders'].includes(member.tier) ? member.tier : 'cook_plus')}
+          {@const validTier = ['open', 'cook_plus', 'pro_kitchen', 'founders'].includes(member.tier)
+            ? member.tier
+            : 'cook_plus'}
           {@const expiryDate = new Date(member.subscription_end)}
 
           <!-- Current Plan + Details -->
           <div class="flex items-center gap-3 mb-2">
             <MembershipBadge tier={validTier} size="lg" showLabel />
             {#if membershipData.isActive}
-              <span class="text-xs px-2 py-0.5 rounded-full bg-green-500/20 text-green-600 dark:text-green-400">Active</span>
+              <span
+                class="text-xs px-2 py-0.5 rounded-full bg-green-500/20 text-green-600 dark:text-green-400"
+                >Active</span
+              >
             {:else if membershipData.isExpired}
-              <span class="text-xs px-2 py-0.5 rounded-full bg-red-500/20 text-red-500">Expired</span>
+              <span class="text-xs px-2 py-0.5 rounded-full bg-red-500/20 text-red-500"
+                >Expired</span
+              >
             {/if}
           </div>
 
           <div class="flex flex-col gap-2 text-sm">
-              <div class="flex justify-between">
-                <span class="text-caption">{membershipData.isExpired ? 'Expired' : 'Expires'}</span>
-                <span style="color: var(--color-text-primary)">
-                  {expiryDate.toLocaleDateString('en-US', {
-                    year: 'numeric',
-                    month: 'long',
-                    day: 'numeric'
-                  })}
-                </span>
-              </div>
-              <div class="flex justify-between">
-                <span class="text-caption">Payment</span>
-                <span style="color: var(--color-text-primary)">
-                  {member.payment_method === 'stripe' || member.payment_method === 'card'
-                    ? 'Credit Card'
-                    : member.payment_method === 'bitcoin'
-                      ? 'Bitcoin'
-                      : member.payment_method || 'None'}
-                </span>
-              </div>
+            <div class="flex justify-between">
+              <span class="text-caption">{membershipData.isExpired ? 'Expired' : 'Expires'}</span>
+              <span style="color: var(--color-text-primary)">
+                {expiryDate.toLocaleDateString('en-US', {
+                  year: 'numeric',
+                  month: 'long',
+                  day: 'numeric'
+                })}
+              </span>
             </div>
+            <div class="flex justify-between">
+              <span class="text-caption">Payment</span>
+              <span style="color: var(--color-text-primary)">
+                {member.payment_method === 'stripe' || member.payment_method === 'card'
+                  ? 'Credit Card'
+                  : member.payment_method === 'bitcoin'
+                    ? 'Bitcoin'
+                    : member.payment_method || 'None'}
+              </span>
+            </div>
+          </div>
 
           <!-- Actions -->
           <div class="flex flex-col gap-2">
@@ -617,10 +631,10 @@
             class="p-4 rounded-xl text-center"
             style="border: 1px solid var(--color-input-border);"
           >
-            <p class="text-sm font-medium" style="color: var(--color-text-primary)">Welcome Table</p>
-            <p class="text-xs text-caption mt-1">
-              Free tier — browse, create, and share recipes.
+            <p class="text-sm font-medium" style="color: var(--color-text-primary)">
+              Welcome Table
             </p>
+            <p class="text-xs text-caption mt-1">Free tier — browse, create, and share recipes.</p>
           </div>
           <Button on:click={() => goto('/membership')}>Explore Membership Plans</Button>
         {/if}
@@ -940,7 +954,7 @@
           {/if}
         </div>
 
-        <Button on:click={() => goto('/wallet')}>Manage Wallets</Button>
+        <Button on:click={() => openWallet()}>Manage Wallets</Button>
       </div>
     </Accordion>
 
@@ -1097,9 +1111,11 @@
     <Accordion title="Web of Trust" open={false}>
       <div class="flex flex-col gap-4">
         <p class="text-xs" style="color: var(--color-caption)">
-          Trust scores help identify reputable sellers in The Market. Choose a provider
-          to personalize scores based on your social graph, or use the global default.
-          <a href="/market/trust" class="hover:underline" style="color: var(--color-accent)">Learn more</a>
+          Trust scores help identify reputable sellers in The Market. Choose a provider to
+          personalize scores based on your social graph, or use the global default.
+          <a href="/market/trust" class="hover:underline" style="color: var(--color-accent)"
+            >Learn more</a
+          >
         </p>
 
         {#if !$userPublickey}
@@ -1110,31 +1126,58 @@
           <p class="text-sm" style="color: var(--color-text-secondary)">Loading...</p>
         {:else}
           <!-- Current status -->
-          <div class="flex items-center gap-2 px-3 py-2 rounded-lg" style="border: 1px solid var(--color-input-border);">
+          <div
+            class="flex items-center gap-2 px-3 py-2 rounded-lg"
+            style="border: 1px solid var(--color-input-border);"
+          >
             {#if wotProvider}
               <ShieldCheckIcon size={16} weight="fill" class="text-green-500" />
-              <span class="text-sm" style="color: var(--color-text-primary)">Personalized scoring active</span>
+              <span class="text-sm" style="color: var(--color-text-primary)"
+                >Personalized scoring active</span
+              >
             {:else}
               <ShieldCheckIcon size={16} weight="fill" class="text-blue-400" />
-              <span class="text-sm" style="color: var(--color-text-primary)">Using global scores</span>
+              <span class="text-sm" style="color: var(--color-text-primary)"
+                >Using global scores</span
+              >
             {/if}
           </div>
 
           <!-- Mode selection -->
           <div class="flex flex-col gap-2">
             <label class="flex items-start gap-3 p-3 rounded-lg cursor-pointer">
-              <input type="radio" bind:group={wotMode} value="global" class="mt-1" style="accent-color: var(--color-accent);" />
+              <input
+                type="radio"
+                bind:group={wotMode}
+                value="global"
+                class="mt-1"
+                style="accent-color: var(--color-accent);"
+              />
               <div>
-                <span class="block text-sm font-medium" style="color: var(--color-text-primary)">Global Web of Trust</span>
-                <span class="block text-xs" style="color: var(--color-caption)">Default scoring — same for everyone</span>
+                <span class="block text-sm font-medium" style="color: var(--color-text-primary)"
+                  >Global Web of Trust</span
+                >
+                <span class="block text-xs" style="color: var(--color-caption)"
+                  >Default scoring — same for everyone</span
+                >
               </div>
             </label>
 
             <label class="flex items-start gap-3 p-3 rounded-lg cursor-pointer">
-              <input type="radio" bind:group={wotMode} value="custom" class="mt-1" style="accent-color: var(--color-accent);" />
+              <input
+                type="radio"
+                bind:group={wotMode}
+                value="custom"
+                class="mt-1"
+                style="accent-color: var(--color-accent);"
+              />
               <div>
-                <span class="block text-sm font-medium" style="color: var(--color-text-primary)">Personalized</span>
-                <span class="block text-xs" style="color: var(--color-caption)">Scores based on your social graph</span>
+                <span class="block text-sm font-medium" style="color: var(--color-text-primary)"
+                  >Personalized</span
+                >
+                <span class="block text-xs" style="color: var(--color-caption)"
+                  >Scores based on your social graph</span
+                >
               </div>
             </label>
           </div>
@@ -1142,24 +1185,35 @@
           <!-- Provider selection (when personalized) -->
           {#if wotMode === 'custom'}
             <div class="flex flex-col gap-2">
-              <label class="text-xs font-medium" style="color: var(--color-text-secondary)">Provider</label>
+              <label class="text-xs font-medium" style="color: var(--color-text-secondary)"
+                >Provider</label
+              >
               {#each KNOWN_WOT_PROVIDERS as provider}
                 <button
                   type="button"
                   class="flex items-center gap-2 p-3 rounded-lg text-left transition-colors"
-                  style="background-color: var(--color-input-bg); border: 1px solid {wotPubkey === provider.pubkey ? 'var(--color-accent)' : 'transparent'};"
+                  style="background-color: var(--color-input-bg); border: 1px solid {wotPubkey ===
+                  provider.pubkey
+                    ? 'var(--color-accent)'
+                    : 'transparent'};"
                   on:click={() => selectWotProvider(provider)}
                 >
                   <ShieldCheckIcon size={16} weight="fill" class="text-green-500 flex-shrink-0" />
                   <div>
-                    <span class="block text-sm font-medium" style="color: var(--color-text-primary)">{provider.name}</span>
-                    <span class="block text-xs" style="color: var(--color-caption)">{provider.description}</span>
+                    <span class="block text-sm font-medium" style="color: var(--color-text-primary)"
+                      >{provider.name}</span
+                    >
+                    <span class="block text-xs" style="color: var(--color-caption)"
+                      >{provider.description}</span
+                    >
                   </div>
                 </button>
               {/each}
 
               <div class="flex flex-col gap-2 mt-1">
-                <label class="text-xs font-medium" style="color: var(--color-text-secondary)">Or enter a custom provider</label>
+                <label class="text-xs font-medium" style="color: var(--color-text-secondary)"
+                  >Or enter a custom provider</label
+                >
                 <input
                   type="text"
                   bind:value={wotPubkey}
@@ -1192,7 +1246,14 @@
           {/if}
 
           {#if wotMessage}
-            <p class="text-xs px-3 py-2 rounded-lg" style="color: {wotMessage.type === 'success' ? '#16a34a' : '#ef4444'}; background-color: {wotMessage.type === 'success' ? 'rgba(22,163,74,0.1)' : 'rgba(239,68,68,0.1)'};">
+            <p
+              class="text-xs px-3 py-2 rounded-lg"
+              style="color: {wotMessage.type === 'success'
+                ? '#16a34a'
+                : '#ef4444'}; background-color: {wotMessage.type === 'success'
+                ? 'rgba(22,163,74,0.1)'
+                : 'rgba(239,68,68,0.1)'};"
+            >
               {wotMessage.text}
             </p>
           {/if}
@@ -1321,7 +1382,8 @@
               </p>
             </div>
             <p class="text-xs text-caption">
-              Your private key is securely held by your remote signer. It is never exposed to this app.
+              Your private key is securely held by your remote signer. It is never exposed to this
+              app.
             </p>
           </div>
         {:else if pk}
@@ -1333,7 +1395,8 @@
               </p>
             </div>
             <p class="text-xs text-caption mb-4">
-              Your private key is securely held by your browser extension. It is never exposed to this app.
+              Your private key is securely held by your browser extension. It is never exposed to
+              this app.
             </p>
 
             <button
@@ -1405,7 +1468,8 @@
           {#if authMethod === 'nip46'}
             Your private key remains safe in your remote signer. You can reconnect anytime.
           {:else}
-            Your private key remains safe in your Nostr signer (for example, your browser extension). You can sign back in anytime.
+            Your private key remains safe in your Nostr signer (for example, your browser
+            extension). You can sign back in anytime.
           {/if}
         </p>
       </div>

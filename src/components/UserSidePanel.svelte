@@ -41,6 +41,7 @@
   import { cookingToolsStore } from '$lib/stores/cookingToolsWidget';
   import { userSidePanelOpen } from '$lib/stores/userSidePanel';
   import { walletConnected } from '$lib/wallet/walletStore';
+  import { openWallet, type WalletView } from '$lib/wallet/walletModalStore';
   import { weblnConnected } from '$lib/wallet/webln';
 
   // Use the store for open state
@@ -123,6 +124,11 @@
   function navigate(path: string) {
     close();
     goto(path);
+  }
+
+  function openWalletPanel(view: WalletView = 'main') {
+    close();
+    openWallet(view);
   }
 
   function openTimerWidget() {
@@ -328,7 +334,7 @@
           </li>
           <li>
             <button
-              on:click={() => navigate('/wallet')}
+              on:click={() => openWalletPanel()}
               class="w-full flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-opacity-50 transition-colors cursor-pointer"
               style="color: var(--color-text-primary);"
             >

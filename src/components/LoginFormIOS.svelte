@@ -12,6 +12,9 @@
    */
   import Button from './Button.svelte';
   import Modal from './Modal.svelte';
+  import CloseIcon from 'phosphor-svelte/lib/XCircle';
+  import LightningIcon from 'phosphor-svelte/lib/Lightning';
+  import ProfileReadyIcon from './icons/ProfileReadyIcon.svelte';
   import { ndk, userPublickey } from '$lib/nostr';
   import { browser } from '$app/environment';
   import { goto } from '$app/navigation';
@@ -395,389 +398,430 @@
 </script>
 
 <!-- Private Key Modal -->
-<Modal bind:open={nsecModal} on:close={modalCleanup}>
-  <svelte:fragment slot="title">🔑 Log in with Private Key</svelte:fragment>
-  <div class="flex flex-col gap-4">
-    <div class="bg-input border rounded-lg p-3" style="border-color: var(--color-input-border)">
-      <p class="text-sm text-caption">
-        Your key stays on this device only — it isn't sent to any server. Keep a backup of your nsec; if you lose it, you lose access to your account.
-      </p>
-    </div>
-    <div class="text-sm text-caption">Enter your private key (nsec1...) or hex format</div>
-    <input
-      bind:value={nsecInput}
-      placeholder="nsec1..."
-      class="input block w-full sm:text-sm p-3"
-      disabled={authState.isLoading}
-    />
-    {#if nsecError}
-      <div class="text-sm" style="color: var(--color-danger, #ef4444)">{nsecError}</div>
-    {/if}
-    <div class="flex gap-2">
-      <Button on:click={loginWithPrivateKey} primary={true} disabled={authState.isLoading}>
-        {authState.isLoading ? '⚡ Connecting...' : '⚡ Login'}
-      </Button>
+<Modal bind:open={nsecModal} cleanup={modalCleanup} noHeader>
+  <div class="login-modal-body">
+    <button type="button" class="login-modal-logo-btn" aria-label="Close" on:click={modalCleanup}>
+      <img src="/zap_cooking_logo_black.svg" alt="" aria-hidden="true" class="dark:hidden" />
+      <img src="/zap_cooking_logo_white.svg" alt="" aria-hidden="true" class="hidden dark:block" />
+    </button>
+    <button type="button" class="login-modal-close-btn" aria-label="Close" on:click={modalCleanup}>
+      <CloseIcon size={24} />
+    </button>
+    <h2 class="login-modal-title">🔑 Log in with Private Key</h2>
+    <div class="flex flex-col gap-4">
+      <div class="bg-input border rounded-lg p-3" style="border-color: var(--color-input-border)">
+        <p class="text-sm text-caption">
+          Your key stays on this device only — it isn't sent to any server. Keep a backup of your
+          nsec; if you lose it, you lose access to your account.
+        </p>
+      </div>
+      <div class="text-sm text-caption">Enter your private key (nsec1...) or hex format</div>
+      <input
+        bind:value={nsecInput}
+        placeholder="nsec1..."
+        class="input block w-full sm:text-sm p-3"
+        disabled={authState.isLoading}
+      />
+      {#if nsecError}
+        <div class="text-sm" style="color: var(--color-danger, #ef4444)">{nsecError}</div>
+      {/if}
+      <div class="flex gap-2">
+        <Button on:click={loginWithPrivateKey} primary={true} disabled={authState.isLoading}>
+          {authState.isLoading ? 'Connecting...' : 'Login'}
+        </Button>
+      </div>
     </div>
   </div>
 </Modal>
 
 <!-- Bunker (NIP-46) Modal -->
-<Modal bind:open={bunkerModal} on:close={modalCleanup}>
-  <svelte:fragment slot="title">🔐 Paste bunker URI</svelte:fragment>
-  <div class="flex flex-col gap-4">
-    <div class="bg-input border rounded-lg p-3" style="border-color: var(--color-input-border)">
-      <p class="text-sm text-caption">
-        Connect a remote signer so your private key stays in your signer app.
-      </p>
-    </div>
-
-    <div>
-      <label
-        for="ios-bunker-input"
-        class="block text-sm font-medium mb-1.5"
-        style="color: var(--color-text-primary)"
-      >
-        NIP-46 Connection String
-      </label>
-      <textarea
-        id="ios-bunker-input"
-        bind:value={bunkerConnectionString}
-        placeholder="bunker://pubkey?relay=wss://relay.example.com&#10;or&#10;npub1... wss://relay.example.com"
-        rows="3"
-        class="input block w-full sm:text-sm p-3 font-mono text-xs"
-        disabled={bunkerConnecting || authState.isLoading}
-      ></textarea>
-      <p class="text-xs text-caption mt-1.5">
-        Paste a bunker URI (or npub with relay hints). Do not paste nostrconnect:// here.
-      </p>
-    </div>
-
-    {#if bunkerError}
-      <div
-        class="bg-input border rounded-lg p-2.5"
-        style="border-color: var(--color-danger, #ef4444)"
-      >
-        <p class="text-sm" style="color: var(--color-danger, #ef4444)">{bunkerError}</p>
+<Modal bind:open={bunkerModal} cleanup={modalCleanup} noHeader>
+  <div class="login-modal-body">
+    <button type="button" class="login-modal-logo-btn" aria-label="Close" on:click={modalCleanup}>
+      <img src="/zap_cooking_logo_black.svg" alt="" aria-hidden="true" class="dark:hidden" />
+      <img src="/zap_cooking_logo_white.svg" alt="" aria-hidden="true" class="hidden dark:block" />
+    </button>
+    <button type="button" class="login-modal-close-btn" aria-label="Close" on:click={modalCleanup}>
+      <CloseIcon size={24} />
+    </button>
+    <h2 class="login-modal-title">🔐 Paste bunker URI</h2>
+    <div class="flex flex-col gap-4">
+      <div class="bg-input border rounded-lg p-3" style="border-color: var(--color-input-border)">
+        <p class="text-sm text-caption">
+          Connect a remote signer so your private key stays in your signer app.
+        </p>
       </div>
-    {/if}
 
-    {#if bunkerConnecting}
-      <div class="bg-input border rounded-lg p-3" style="border-color: var(--color-primary, #f97316)">
-        <div class="flex items-center gap-2">
-          <div
-            class="animate-spin h-4 w-4 border-2 border-orange-500 border-t-transparent rounded-full"
-          ></div>
-          <p class="text-sm" style="color: var(--color-text-primary)">
-            Connecting to bunker... This may take a moment.
-          </p>
+      <div>
+        <label
+          for="ios-bunker-input"
+          class="block text-sm font-medium mb-1.5"
+          style="color: var(--color-text-primary)"
+        >
+          NIP-46 Connection String
+        </label>
+        <textarea
+          id="ios-bunker-input"
+          bind:value={bunkerConnectionString}
+          placeholder="bunker://pubkey?relay=wss://relay.example.com&#10;or&#10;npub1... wss://relay.example.com"
+          rows="3"
+          class="input block w-full sm:text-sm p-3 font-mono text-xs"
+          disabled={bunkerConnecting || authState.isLoading}
+        ></textarea>
+        <p class="text-xs text-caption mt-1.5">
+          Paste a bunker URI (or npub with relay hints). Do not paste nostrconnect:// here.
+        </p>
+      </div>
+
+      {#if bunkerError}
+        <div
+          class="bg-input border rounded-lg p-2.5"
+          style="border-color: var(--color-danger, #ef4444)"
+        >
+          <p class="text-sm" style="color: var(--color-danger, #ef4444)">{bunkerError}</p>
         </div>
-      </div>
-    {/if}
+      {/if}
 
-    <div class="flex gap-2">
-      <Button
-        on:click={loginWithBunker}
-        primary={true}
-        disabled={bunkerConnecting || authState.isLoading || !bunkerConnectionString.trim()}
-      >
-        {bunkerConnecting ? '⏳ Connecting...' : '🔐 Connect'}
-      </Button>
+      {#if bunkerConnecting}
+        <div
+          class="bg-input border rounded-lg p-3"
+          style="border-color: var(--color-primary, #f97316)"
+        >
+          <div class="flex items-center gap-2">
+            <div
+              class="animate-spin h-4 w-4 border-2 border-orange-500 border-t-transparent rounded-full"
+            ></div>
+            <p class="text-sm" style="color: var(--color-text-primary)">
+              Connecting to bunker... This may take a moment.
+            </p>
+          </div>
+        </div>
+      {/if}
+
+      <div class="flex gap-2">
+        <Button
+          on:click={loginWithBunker}
+          primary={true}
+          disabled={bunkerConnecting || authState.isLoading || !bunkerConnectionString.trim()}
+        >
+          {bunkerConnecting ? '⏳ Connecting...' : '🔐 Connect'}
+        </Button>
+      </div>
     </div>
   </div>
 </Modal>
 
 <!-- Generate Keys Modal -->
-<Modal bind:open={generateModal} on:close={modalCleanup}>
-  <svelte:fragment slot="title"
-    >{generatedKeys
-      ? backupStep === 2
-        ? 'Add a display name and bio (optional)'
-        : '🔐 Save your backup key'
-      : '🎉 Your Zap Cooking profile is almost ready!'}</svelte:fragment
-  >
-  <div class="flex flex-col gap-4">
+<Modal bind:open={generateModal} cleanup={modalCleanup} noHeader>
+  <div class="login-modal-body">
+    <button type="button" class="login-modal-logo-btn" aria-label="Close" on:click={modalCleanup}>
+      <img src="/zap_cooking_logo_black.svg" alt="" aria-hidden="true" class="dark:hidden" />
+      <img src="/zap_cooking_logo_white.svg" alt="" aria-hidden="true" class="hidden dark:block" />
+    </button>
+    <button type="button" class="login-modal-close-btn" aria-label="Close" on:click={modalCleanup}>
+      <CloseIcon size={24} />
+    </button>
     {#if !generatedKeys}
-      <div class="space-y-4">
-        <div class="bg-input border rounded-lg p-4" style="border-color: var(--color-input-border)">
-          <div class="text-sm font-medium mb-2" style="color: var(--color-text-primary)">
-            🔐 Your profile, your keys
-          </div>
-          <p class="text-sm text-caption mb-3">
-            Zap Cooking uses Nostr, which means you own your profile and data.
-          </p>
-          <ul class="text-sm text-caption space-y-1.5">
-            <li class="flex items-start gap-2">
-              <span class="text-caption">•</span>
-              <span>Your profile will be created on this device</span>
-            </li>
-            <li class="flex items-start gap-2">
-              <span class="text-caption">•</span>
-              <span>You'll see a backup key after creation</span>
-            </li>
-            <li class="flex items-start gap-2">
-              <span class="text-caption">•</span>
-              <span>Saving it lets you recover your profile later</span>
-            </li>
-          </ul>
+      <div class="login-modal-hero">
+        <div class="login-modal-hero-icon">
+          <ProfileReadyIcon size={36} class="text-amber-500" />
         </div>
-
-        <p class="text-sm text-caption">
-          When you continue, we'll create your profile and show you a backup key to save for
-          safekeeping.
-        </p>
-
-        <div>
-          <Button on:click={generateNewKeys} primary={true} class="w-full">
-            ⚡ Create Profile
-          </Button>
-          <p class="text-xs text-caption text-center mt-2">Takes less than 10 seconds</p>
-        </div>
+        <h2 class="login-modal-hero-title">
+          Create your Zap Cooking profile<br />in under a minute.
+        </h2>
       </div>
     {:else}
-      <div class="space-y-4">
-        <!-- Calm intro message -->
-        {#if backupStep === 1}
-          <div class="bg-green-50 border border-green-200 rounded-lg p-3">
-            <p class="text-sm text-green-700">
-              ✓ Your profile has been created. Save your backup key below to recover it later.
+      <h2 class="login-modal-title">
+        {backupStep === 2 ? 'Add a display name and bio (optional)' : '🔐 Save your backup key'}
+      </h2>
+    {/if}
+    <div class="flex flex-col gap-4">
+      {#if !generatedKeys}
+        <div class="space-y-4">
+          <div
+            class="bg-input border rounded-lg p-4"
+            style="border-color: var(--color-input-border)"
+          >
+            <div class="text-sm font-medium mb-2" style="color: var(--color-text-primary)">
+              🔐 Your profile, your keys
+            </div>
+            <p class="text-sm text-caption mb-3">
+              Zap Cooking uses Nostr, which means you own your profile and data.
             </p>
+            <ul class="text-sm text-caption space-y-1.5">
+              <li class="flex items-start gap-2">
+                <span class="text-caption">•</span>
+                <span>Your profile will be created on this device</span>
+              </li>
+              <li class="flex items-start gap-2">
+                <span class="text-caption">•</span>
+                <span>You'll see a backup key after creation</span>
+              </li>
+              <li class="flex items-start gap-2">
+                <span class="text-caption">•</span>
+                <span>Saving it lets you recover your profile later</span>
+              </li>
+            </ul>
           </div>
-        {/if}
 
-        {#if backupStep === 1}
-          <!-- Backup Key (Private) - Hidden by default -->
+          <p class="text-sm text-caption">
+            When you continue, we'll create your profile and show you a backup key to save for
+            safekeeping.
+          </p>
+
           <div>
-            <p class="block text-sm font-medium mb-1" style="color: var(--color-text-primary)">
-              Backup key (private)
-            </p>
-            {#if showPrivateKey}
-              <div class="flex gap-2">
-                <textarea
-                  id="private-key-textarea"
+            <Button on:click={generateNewKeys} primary={true} class="w-full spark-glow">
+              Create Profile
+            </Button>
+            <p class="text-xs text-caption text-center mt-2">Takes less than 10 seconds</p>
+          </div>
+        </div>
+      {:else}
+        <div class="space-y-4">
+          <!-- Calm intro message -->
+          {#if backupStep === 1}
+            <div class="bg-green-50 border border-green-200 rounded-lg p-3">
+              <p class="text-sm text-green-700">
+                ✓ Your profile has been created. Save your backup key below to recover it later.
+              </p>
+            </div>
+          {/if}
+
+          {#if backupStep === 1}
+            <!-- Backup Key (Private) - Hidden by default -->
+            <div>
+              <p class="block text-sm font-medium mb-1" style="color: var(--color-text-primary)">
+                Backup key (private)
+              </p>
+              {#if showPrivateKey}
+                <div class="flex flex-col sm:flex-row gap-2">
+                  <textarea
+                    id="private-key-textarea"
+                    readonly
+                    value={nip19.nsecEncode(generatedKeys.privateKey)}
+                    rows="2"
+                    class="flex-1 min-w-0 input text-sm font-mono p-3"
+                  ></textarea>
+                  <button
+                    on:click={() =>
+                      generatedKeys && copyToClipboard(nip19.nsecEncode(generatedKeys.privateKey))}
+                    class="flex-shrink-0 px-3 py-2 bg-accent-gray hover:opacity-80 rounded-lg text-sm font-medium transition-colors"
+                    style="color: var(--color-text-primary)"
+                  >
+                    Copy
+                  </button>
+                </div>
+                <div class="flex items-center justify-between mt-1.5">
+                  <p class="text-xs text-amber-600">
+                    ⚠️ Anyone with this key can control your profile. Never share it.
+                  </p>
+                  <button
+                    on:click={() => (showPrivateKey = false)}
+                    class="text-xs text-caption hover:opacity-80 underline"
+                  >
+                    Hide
+                  </button>
+                </div>
+              {:else}
+                <div class="flex flex-col sm:flex-row gap-2">
+                  <div
+                    class="flex-1 min-w-0 bg-input border rounded-lg p-3 text-sm text-caption font-mono overflow-hidden whitespace-nowrap"
+                    style="border-color: var(--color-input-border)"
+                  >
+                    ••••••••••••••••••••••••••••••••
+                  </div>
+                  <button
+                    on:click={() => (showPrivateKey = true)}
+                    class="flex-shrink-0 px-3 py-2 bg-accent-gray hover:opacity-80 rounded-lg text-sm font-medium transition-colors"
+                    style="color: var(--color-text-primary)"
+                  >
+                    Reveal
+                  </button>
+                </div>
+                <p class="text-xs text-caption mt-1.5">Reveal to copy and save securely</p>
+              {/if}
+            </div>
+
+            <!-- Public Identity (npub) -->
+            <div>
+              <label
+                for="public-key-input"
+                class="block text-sm font-medium mb-1"
+                style="color: var(--color-text-primary)">Public identity (npub)</label
+              >
+              <div class="flex flex-col sm:flex-row gap-2">
+                <input
+                  id="public-key-input"
                   readonly
-                  value={nip19.nsecEncode(generatedKeys.privateKey)}
-                  rows="2"
-                  class="flex-1 input text-sm font-mono p-3"
-                ></textarea>
+                  value={nip19.npubEncode(generatedKeys.publicKey)}
+                  class="flex-1 min-w-0 input text-sm font-mono p-3"
+                />
                 <button
                   on:click={() =>
-                    generatedKeys && copyToClipboard(nip19.nsecEncode(generatedKeys.privateKey))}
-                  class="px-3 py-2 bg-accent-gray hover:opacity-80 rounded-lg text-sm font-medium transition-colors"
+                    generatedKeys && copyToClipboard(nip19.npubEncode(generatedKeys.publicKey))}
+                  class="flex-shrink-0 px-3 py-2 bg-accent-gray hover:opacity-80 rounded-lg text-sm transition-colors"
                   style="color: var(--color-text-primary)"
                 >
                   Copy
                 </button>
               </div>
-              <div class="flex items-center justify-between mt-1.5">
-                <p class="text-xs text-amber-600">
-                  ⚠️ Anyone with this key can control your profile. Never share it.
-                </p>
-                <button
-                  on:click={() => (showPrivateKey = false)}
-                  class="text-xs text-caption hover:opacity-80 underline"
-                >
-                  Hide
-                </button>
-              </div>
-            {:else}
-              <div class="flex gap-2">
-                <div
-                  class="flex-1 bg-input border rounded-lg p-3 text-sm text-caption font-mono"
-                  style="border-color: var(--color-input-border)"
-                >
-                  ••••••••••••••••••••••••••••••••
-                </div>
-                <button
-                  on:click={() => (showPrivateKey = true)}
-                  class="px-3 py-2 bg-accent-gray hover:opacity-80 rounded-lg text-sm font-medium transition-colors"
-                  style="color: var(--color-text-primary)"
-                >
-                  Reveal
-                </button>
-              </div>
-              <p class="text-xs text-caption mt-1.5">Reveal to copy and save securely</p>
-            {/if}
-          </div>
-
-          <!-- Public Identity (npub) -->
-          <div>
-            <label
-              for="public-key-input"
-              class="block text-sm font-medium mb-1"
-              style="color: var(--color-text-primary)">Public identity (npub)</label
-            >
-            <div class="flex gap-2">
-              <input
-                id="public-key-input"
-                readonly
-                value={nip19.npubEncode(generatedKeys.publicKey)}
-                class="flex-1 input text-sm font-mono p-3"
-              />
-              <button
-                on:click={() =>
-                  generatedKeys && copyToClipboard(nip19.npubEncode(generatedKeys.publicKey))}
-                class="px-3 py-2 bg-accent-gray hover:opacity-80 rounded-lg text-sm transition-colors"
-                style="color: var(--color-text-primary)"
-              >
-                Copy
-              </button>
+              <p class="text-xs text-caption mt-1.5">
+                This is safe to share - it's your public identity
+              </p>
             </div>
-            <p class="text-xs text-caption mt-1.5">
-              This is safe to share - it's your public identity
-            </p>
-          </div>
 
-          <p class="text-xs text-caption uppercase tracking-wide mb-2">Step 1</p>
-          <div
-            class="bg-input border rounded-lg p-3"
-            style="border-color: var(--color-input-border)"
-          >
-            <p class="text-sm text-caption">
-              Download a backup file with your keys and safety notes.
-            </p>
-            <Button on:click={downloadKeysBackup} primary={true} class="w-full mt-3">
-              Download backup file
+            <p class="text-xs text-caption uppercase tracking-wide mb-2">Step 1</p>
+            <div
+              class="bg-input border rounded-lg p-3"
+              style="border-color: var(--color-input-border)"
+            >
+              <p class="text-sm text-caption">
+                Download a backup file with your keys and safety notes.
+              </p>
+              <Button on:click={downloadKeysBackup} primary={true} class="w-full mt-3">
+                Download backup file
+              </Button>
+            </div>
+            <Button
+              on:click={() => (backupStep = 2)}
+              primary={false}
+              class="w-full {!backupDownloaded ? 'opacity-50 cursor-not-allowed' : ''}"
+              disabled={!backupDownloaded}
+            >
+              Next
             </Button>
-          </div>
-          <Button
-            on:click={() => (backupStep = 2)}
-            primary={false}
-            class="w-full {!backupDownloaded ? 'opacity-50 cursor-not-allowed' : ''}"
-            disabled={!backupDownloaded}
-          >
-            ⚡ Next
-          </Button>
-          {#if !backupDownloaded}
-            <p class="text-xs text-caption text-center">Download the backup file to continue.</p>
-          {/if}
-        {:else}
-          <p class="text-xs text-caption uppercase tracking-wide mb-2">Step 2</p>
+            {#if !backupDownloaded}
+              <p class="text-xs text-caption text-center">Download the backup file to continue.</p>
+            {/if}
+          {:else}
+            <p class="text-xs text-caption uppercase tracking-wide mb-2">Step 2</p>
 
-          <div class="space-y-3 mb-4">
-            <!-- Profile Photo -->
-            <div>
-              <div class="flex items-center gap-3 mb-2">
-                <div class="relative">
-                  {#if newAccountPicture}
-                    <img
-                      src={newAccountPicture}
-                      alt="Profile preview"
-                      class="w-14 h-14 rounded-full object-cover border-2"
-                      style="border-color: var(--color-input-border)"
-                    />
-                  {:else}
-                    <div
-                      class="w-14 h-14 rounded-full bg-input border-2 border-dashed flex items-center justify-center"
-                      style="border-color: var(--color-input-border)"
-                    >
-                      <span class="text-caption text-xl">👤</span>
-                    </div>
-                  {/if}
-                </div>
-                <div class="flex-1">
-                  <input
-                    type="file"
-                    accept="image/*"
-                    class="hidden"
-                    bind:this={fileInput}
-                    on:change={uploadProfilePicture}
-                    disabled={uploadingPicture || authState.isLoading}
-                  />
-                  <div class="flex items-center gap-2">
-                    <button
-                      on:click={() => fileInput?.click()}
-                      disabled={uploadingPicture || authState.isLoading}
-                      class="text-sm text-orange-500 hover:text-orange-600 font-medium transition-colors disabled:opacity-50"
-                    >
-                      {#if uploadingPicture}
-                        Uploading...
-                      {:else if newAccountPicture}
-                        Change photo
-                      {:else}
-                        Upload photo
-                      {/if}
-                    </button>
-                    {#if !newAccountPicture && !uploadingPicture}
-                      <span class="text-caption">|</span>
-                      <button
-                        on:click={() => (showPictureUrlInput = !showPictureUrlInput)}
-                        class="text-sm text-caption hover:opacity-80 transition-colors"
+            <div class="space-y-3 mb-4">
+              <!-- Profile Photo -->
+              <div>
+                <div class="flex items-center gap-3 mb-2">
+                  <div class="relative">
+                    {#if newAccountPicture}
+                      <img
+                        src={newAccountPicture}
+                        alt="Profile preview"
+                        class="w-14 h-14 rounded-full object-cover border-2"
+                        style="border-color: var(--color-input-border)"
+                      />
+                    {:else}
+                      <div
+                        class="w-14 h-14 rounded-full bg-input border-2 border-dashed flex items-center justify-center"
+                        style="border-color: var(--color-input-border)"
                       >
-                        Paste URL
-                      </button>
+                        <span class="text-caption text-xl">👤</span>
+                      </div>
                     {/if}
                   </div>
-                  {#if pictureUploadError && !showPictureUrlInput}
-                    <p class="text-xs text-red-500 mt-0.5">{pictureUploadError}</p>
-                  {:else if newAccountPicture}
-                    <p class="text-xs text-caption mt-0.5">Looking good!</p>
-                  {/if}
+                  <div class="flex-1">
+                    <input
+                      type="file"
+                      accept="image/*"
+                      class="hidden"
+                      bind:this={fileInput}
+                      on:change={uploadProfilePicture}
+                      disabled={uploadingPicture || authState.isLoading}
+                    />
+                    <div class="flex items-center gap-2">
+                      <button
+                        on:click={() => fileInput?.click()}
+                        disabled={uploadingPicture || authState.isLoading}
+                        class="text-sm text-orange-500 hover:text-orange-600 font-medium transition-colors disabled:opacity-50"
+                      >
+                        {#if uploadingPicture}
+                          Uploading...
+                        {:else if newAccountPicture}
+                          Change photo
+                        {:else}
+                          Upload photo
+                        {/if}
+                      </button>
+                      {#if !newAccountPicture && !uploadingPicture}
+                        <span class="text-caption">|</span>
+                        <button
+                          on:click={() => (showPictureUrlInput = !showPictureUrlInput)}
+                          class="text-sm text-caption hover:opacity-80 transition-colors"
+                        >
+                          Paste URL
+                        </button>
+                      {/if}
+                    </div>
+                    {#if pictureUploadError && !showPictureUrlInput}
+                      <p class="text-xs text-red-500 mt-0.5">{pictureUploadError}</p>
+                    {:else if newAccountPicture}
+                      <p class="text-xs text-caption mt-0.5">Looking good!</p>
+                    {/if}
+                  </div>
                 </div>
+
+                <!-- URL Input (shown on demand or after upload failure) -->
+                {#if showPictureUrlInput && !newAccountPicture}
+                  <div class="flex gap-2 mt-2">
+                    <input
+                      type="url"
+                      bind:value={pictureUrlInput}
+                      placeholder="https://example.com/photo.jpg"
+                      class="flex-1 input text-sm p-2"
+                      disabled={authState.isLoading}
+                    />
+                    <button
+                      on:click={applyPictureUrl}
+                      disabled={!pictureUrlInput.trim() || authState.isLoading}
+                      class="px-3 py-2 bg-orange-500 hover:bg-orange-600 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-50"
+                    >
+                      Apply
+                    </button>
+                  </div>
+                  {#if pictureUploadError}
+                    <p class="text-xs text-red-500 mt-1">{pictureUploadError}</p>
+                  {/if}
+                {/if}
               </div>
 
-              <!-- URL Input (shown on demand or after upload failure) -->
-              {#if showPictureUrlInput && !newAccountPicture}
-                <div class="flex gap-2 mt-2">
-                  <input
-                    type="url"
-                    bind:value={pictureUrlInput}
-                    placeholder="https://example.com/photo.jpg"
-                    class="flex-1 input text-sm p-2"
-                    disabled={authState.isLoading}
-                  />
-                  <button
-                    on:click={applyPictureUrl}
-                    disabled={!pictureUrlInput.trim() || authState.isLoading}
-                    class="px-3 py-2 bg-orange-500 hover:bg-orange-600 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-50"
-                  >
-                    Apply
-                  </button>
-                </div>
-                {#if pictureUploadError}
-                  <p class="text-xs text-red-500 mt-1">{pictureUploadError}</p>
-                {/if}
-              {/if}
+              <!-- Display Name -->
+              <div>
+                <input
+                  id="username-input"
+                  bind:value={newAccountUsername}
+                  placeholder="Display name"
+                  class="w-full input block text-sm p-2.5"
+                  disabled={authState.isLoading}
+                />
+                <p class="text-xs text-caption mt-1">Shown on your profile across Nostr clients</p>
+              </div>
+
+              <!-- Bio -->
+              <div>
+                <textarea
+                  bind:value={newAccountBio}
+                  placeholder="A short bio about you..."
+                  rows="2"
+                  class="w-full input block text-sm p-2.5 resize-none"
+                  disabled={authState.isLoading}
+                ></textarea>
+                <p class="text-xs text-caption mt-1">A short description about you</p>
+              </div>
             </div>
 
-            <!-- Display Name -->
-            <div>
-              <input
-                id="username-input"
-                bind:value={newAccountUsername}
-                placeholder="Display name"
-                class="w-full input block text-sm p-2.5"
-                disabled={authState.isLoading}
-              />
-              <p class="text-xs text-caption mt-1">Shown on your profile across Nostr clients</p>
+            <!-- Actions -->
+            <div class="space-y-2">
+              <Button
+                on:click={() => useGeneratedKeys(false)}
+                primary={true}
+                disabled={authState.isLoading || uploadingPicture}
+                class="w-full"
+              >
+                {authState.isLoading ? 'Setting up...' : 'Continue to Zap Cooking'}
+              </Button>
             </div>
-
-            <!-- Bio -->
-            <div>
-              <textarea
-                bind:value={newAccountBio}
-                placeholder="A short bio about you..."
-                rows="2"
-                class="w-full input block text-sm p-2.5 resize-none"
-                disabled={authState.isLoading}
-              ></textarea>
-              <p class="text-xs text-caption mt-1">A short description about you</p>
-            </div>
-          </div>
-
-          <!-- Actions -->
-          <div class="space-y-2">
-            <Button
-              on:click={() => useGeneratedKeys(false)}
-              primary={true}
-              disabled={authState.isLoading || uploadingPicture}
-              class="w-full"
-            >
-              {authState.isLoading ? '⚡ Setting up...' : '⚡ Continue to Zap Cooking'}
-            </Button>
-          </div>
-        {/if}
-      </div>
-    {/if}
+          {/if}
+        </div>
+      {/if}
+    </div>
   </div>
 </Modal>
 
@@ -846,7 +890,14 @@
         aria-label="Create a new Zap Cooking profile"
         class="signin-cta-primary"
       >
-        <svg class="signin-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <svg
+          class="signin-icon"
+          width="20"
+          height="20"
+          viewBox="0 0 24 24"
+          fill="none"
+          aria-hidden="true"
+        >
           <path d="M13 2L4 14h7l-1 8 9-12h-7l1-8z" fill="currentColor" />
         </svg>
         <span>{authState.isLoading ? 'Connecting…' : 'Create Profile'}</span>
@@ -874,9 +925,29 @@
           aria-label="Sign in with a bunker URI from a remote signer"
           class="signin-tile"
         >
-          <svg class="signin-tile-icon" width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-            <rect x="4" y="10" width="16" height="11" rx="2" stroke="currentColor" stroke-width="1.6" />
-            <path d="M8 10V7a4 4 0 018 0v3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
+          <svg
+            class="signin-tile-icon"
+            width="22"
+            height="22"
+            viewBox="0 0 24 24"
+            fill="none"
+            aria-hidden="true"
+          >
+            <rect
+              x="4"
+              y="10"
+              width="16"
+              height="11"
+              rx="2"
+              stroke="currentColor"
+              stroke-width="1.6"
+            />
+            <path
+              d="M8 10V7a4 4 0 018 0v3"
+              stroke="currentColor"
+              stroke-width="1.6"
+              stroke-linecap="round"
+            />
             <circle cx="12" cy="15" r="1.5" fill="currentColor" />
           </svg>
           <span class="signin-tile-title">Bunker URI</span>
@@ -890,9 +961,22 @@
           aria-label="Sign in by importing a private key"
           class="signin-tile"
         >
-          <svg class="signin-tile-icon" width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <svg
+            class="signin-tile-icon"
+            width="22"
+            height="22"
+            viewBox="0 0 24 24"
+            fill="none"
+            aria-hidden="true"
+          >
             <circle cx="8.5" cy="14.5" r="3.5" stroke="currentColor" stroke-width="1.6" />
-            <path d="M11 12l9-9m-3 0h3v3m-5 2l2 2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
+            <path
+              d="M11 12l9-9m-3 0h3v3m-5 2l2 2"
+              stroke="currentColor"
+              stroke-width="1.6"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
           </svg>
           <span class="signin-tile-title">Import key</span>
           <span class="signin-tile-sub">Paste nsec</span>
@@ -989,13 +1073,24 @@
       0 4px 12px rgba(247, 147, 26, 0.06);
     text-align: center;
     color: var(--signin-cream);
-    font-family: 'Albert Sans', 'Inter', system-ui, -apple-system, sans-serif;
+    font-family:
+      'Albert Sans',
+      'Inter',
+      system-ui,
+      -apple-system,
+      sans-serif;
     animation: signinRise 320ms cubic-bezier(0.2, 0.8, 0.25, 1) both;
   }
 
   @keyframes signinRise {
-    from { opacity: 0; transform: translateY(8px) scale(0.985); }
-    to { opacity: 1; transform: translateY(0) scale(1); }
+    from {
+      opacity: 0;
+      transform: translateY(8px) scale(0.985);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
   }
 
   .signin-eyebrow {
@@ -1007,7 +1102,10 @@
     margin: 0 0 0.5rem;
   }
 
-  .signin-wordmark { margin: 0 auto 0.875rem; line-height: 0; }
+  .signin-wordmark {
+    margin: 0 auto 0.875rem;
+    line-height: 0;
+  }
   .signin-wordmark img {
     width: 240px;
     max-width: 100%;
@@ -1044,13 +1142,27 @@
       0 1px 0 rgba(255, 255, 255, 0.18) inset,
       0 8px 24px color-mix(in srgb, var(--signin-flame) 36%, transparent),
       0 2px 6px color-mix(in srgb, var(--signin-ember) 22%, transparent);
-    transition: transform 120ms ease, box-shadow 200ms ease, opacity 200ms ease;
+    transition:
+      transform 120ms ease,
+      box-shadow 200ms ease,
+      opacity 200ms ease;
   }
-  .signin-cta-primary:hover:not(:disabled) { transform: translateY(-1px); }
-  .signin-cta-primary:disabled { opacity: 0.55; cursor: not-allowed; }
-  .signin-cta-primary:focus-visible { outline: 2px solid var(--signin-cream); outline-offset: 3px; }
+  .signin-cta-primary:hover:not(:disabled) {
+    transform: translateY(-1px);
+  }
+  .signin-cta-primary:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+  .signin-cta-primary:focus-visible {
+    outline: 2px solid var(--signin-cream);
+    outline-offset: 3px;
+  }
 
-  .signin-icon { color: currentColor; flex-shrink: 0; }
+  .signin-icon {
+    color: currentColor;
+    flex-shrink: 0;
+  }
 
   .signin-error {
     margin-top: 1rem;
@@ -1074,8 +1186,12 @@
     text-transform: uppercase;
     letter-spacing: 0.16em;
   }
-  .signin-divider::before, .signin-divider::after {
-    content: ''; flex: 1; height: 1px; background: var(--signin-line);
+  .signin-divider::before,
+  .signin-divider::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--signin-line);
   }
 
   .signin-tiles {
@@ -1100,16 +1216,28 @@
     align-items: center;
     gap: 0.375rem;
     text-align: center;
-    transition: transform 120ms ease, border-color 200ms ease, background 200ms ease;
+    transition:
+      transform 120ms ease,
+      border-color 200ms ease,
+      background 200ms ease;
   }
   .signin-tile:hover:not(:disabled) {
     transform: translateY(-1px);
     border-color: color-mix(in srgb, var(--signin-flame) 50%, transparent);
     background: #20262f;
   }
-  .signin-tile:focus-visible { outline: 2px solid var(--signin-flame); outline-offset: 2px; }
-  .signin-tile:disabled { opacity: 0.55; cursor: not-allowed; }
-  .signin-tile-icon { color: var(--signin-flame); margin-bottom: 0.125rem; }
+  .signin-tile:focus-visible {
+    outline: 2px solid var(--signin-flame);
+    outline-offset: 2px;
+  }
+  .signin-tile:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+  .signin-tile-icon {
+    color: var(--signin-flame);
+    margin-bottom: 0.125rem;
+  }
   .signin-tile-title {
     font-size: 0.8125rem;
     font-weight: 600;
@@ -1134,18 +1262,44 @@
     font-size: 0.75rem;
     color: var(--signin-mute);
   }
-  .signin-footer-tag { font-weight: 500; letter-spacing: 0.02em; }
-  .signin-footer-links { display: inline-flex; align-items: center; gap: 0.4rem; }
-  .signin-footer a { color: var(--signin-flame); text-decoration: none; }
-  .signin-footer a:hover { text-decoration: underline; }
+  .signin-footer-tag {
+    font-weight: 500;
+    letter-spacing: 0.02em;
+  }
+  .signin-footer-links {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+  .signin-footer a {
+    color: var(--signin-flame);
+    text-decoration: none;
+  }
+  .signin-footer a:hover {
+    text-decoration: underline;
+  }
 
   @media (max-width: 480px) {
-    .signin-card { padding: 1.75rem 1.25rem 1.25rem; border-radius: 20px; }
-    .signin-wordmark img { width: 200px; }
-    .signin-tagline { font-size: 0.875rem; margin-bottom: 1.5rem; }
-    .signin-tile { padding: 0.75rem 0.375rem 0.625rem; }
-    .signin-tile-title { font-size: 0.75rem; }
-    .signin-tile-sub { font-size: 0.625rem; }
+    .signin-card {
+      padding: 1.75rem 1.25rem 1.25rem;
+      border-radius: 20px;
+    }
+    .signin-wordmark img {
+      width: 200px;
+    }
+    .signin-tagline {
+      font-size: 0.875rem;
+      margin-bottom: 1.5rem;
+    }
+    .signin-tile {
+      padding: 0.75rem 0.375rem 0.625rem;
+    }
+    .signin-tile-title {
+      font-size: 0.75rem;
+    }
+    .signin-tile-sub {
+      font-size: 0.625rem;
+    }
   }
 
   @media (prefers-reduced-motion: reduce) {

@@ -48,7 +48,7 @@
 
 <nav
   bind:this={navEl}
-  class="lg:hidden bg-input w-full fixed left-0 right-0 z-40 grid grid-cols-5 text-center print:hidden bottom-nav-ios"
+  class="xl:hidden bg-input w-full fixed left-0 right-0 z-40 grid grid-cols-5 text-center print:hidden bottom-nav-ios"
   style="color: var(--color-text-primary); border-top: 1px solid var(--color-input-border);"
 >
   <a href="/community" class="nav-tab" class:active={pathname === '/' || pathname.startsWith('/community')}>
