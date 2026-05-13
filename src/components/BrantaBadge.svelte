@@ -38,10 +38,16 @@
 
     try {
       const address = encryptedDestination || paymentString;
-      const param = rawQrText
-        ? `qr=${encodeURIComponent(rawQrText)}`
-        : `payment=${encodeURIComponent(address)}${secret ? `&secret=${encodeURIComponent(secret)}` : ''}`;
-      const res = await fetch(`/api/branta/verify?${param}`);
+      // Secret is sent in a POST body (not as a query param) so it isn't
+      // captured by logs, proxies, or referrers.
+      const requestBody = rawQrText
+        ? { qr: rawQrText }
+        : { payment: address, ...(secret ? { secret } : {}) };
+      const res = await fetch('/api/branta/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestBody)
+      });
       const data = await res.json();
 
       if (res.status === 503) {

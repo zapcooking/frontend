@@ -1110,8 +1110,10 @@
     return segments;
   }
 
-  // Register a payment address/invoice with Branta Guardrail
-  // zk: true enables zero-knowledge encryption (on-chain addresses), false for plaintext (Lightning)
+  // Register a payment address/invoice with Branta Guardrail.
+  // Registration is always zk-encrypted server-side; the returned `secret`
+  // and `encryptedDestination` are required to verify on-chain destinations
+  // later. Returns {} on any failure so callers can fall back gracefully.
   async function registerWithBranta(paymentString: string, description?: string, destinationType?: string): Promise<{ secret?: string; encryptedDestination?: string }> {
     try {
       const res = await fetch('/api/branta/register', {
@@ -1124,7 +1126,15 @@
           ttl: 86400 // 24 hours
         })
       });
+      if (!res.ok) {
+        console.warn('[Branta] Registration returned non-OK status:', res.status);
+        return {};
+      }
       const data = await res.json().catch(() => ({}));
+      if (data?.success !== true) {
+        console.warn('[Branta] Registration unsuccessful:', data?.error);
+        return {};
+      }
       return { secret: data.secret, encryptedDestination: data.encryptedDestination };
     } catch (e) {
       // Silent fail - Branta registration is optional
@@ -1148,6 +1158,8 @@
     // Reset on-chain state
     receiveMode = 'lightning';
     onchainAddress = null;
+    onchainBrantaSecret = undefined;
+    onchainBrantaEncryptedDestination = undefined;
   }
 
   // Generate on-chain Bitcoin address for receiving
@@ -1477,8 +1489,9 @@
         throw new Error('Failed to generate invoice - no invoice returned');
       }
       generatedPaymentHash = result.paymentHash || '';
-      // Register with Branta for verification (zk: false for Lightning)
-      // Await to ensure badge can verify after registration completes
+      // Register Lightning invoice with Branta as a `bolt11` destination so
+      // the badge can verify it. Await to ensure the badge can verify after
+      // registration completes.
       await registerWithBranta(
         result.invoice,
         `zap.cooking invoice for ${amountToUse} sats`,
@@ -5288,6 +5301,8 @@
                     class="w-full py-3 px-4 rounded-xl border border-input hover:bg-input text-primary-color font-medium transition-colors"
                     on:click={() => {
                       onchainAddress = null;
+                      onchainBrantaSecret = undefined;
+                      onchainBrantaEncryptedDestination = undefined;
                       receiveMode = 'lightning';
                     }}
                   >
@@ -5367,7 +5382,7 @@
                             on:click={async () => {
                               const wasHidden = showLightningAddressQr !== nwcLud16;
                               if (wasHidden && nwcLud16) {
-                                await registerWithBranta(nwcLud16, 'NWC Lightning Address', false);
+                                await registerWithBranta(nwcLud16, 'NWC Lightning Address');
                                 showLightningAddressQr = nwcLud16;
                               } else {
                                 showLightningAddressQr = null;
@@ -5454,8 +5469,7 @@
                               if (wasHidden && $sparkLightningAddressStore) {
                                 await registerWithBranta(
                                   $sparkLightningAddressStore,
-                                  'Spark Lightning Address',
-                                  false
+                                  'Spark Lightning Address'
                                 );
                                 showLightningAddressQr = $sparkLightningAddressStore;
                               } else {
