@@ -512,6 +512,14 @@
   let sendInput = ''; // Invoice or Lightning address
   let brantaVerifyTriggered = false;
   let rawQrText = ''; // Raw QR text for QR-based branta verification
+  let onchainAddressBrantaSecret = '';
+  let onchainAddressBrantaEncryptedDestination = '';
+  let generatedInvoiceBrantaSecret = '';
+  let generatedInvoiceBrantaEncryptedDestination = '';
+  let nwcLud16BrantaSecret = '';
+  let nwcLud16BrantaEncryptedDestination = '';
+  let sparkLightningAddressBrantaSecret = '';
+  let sparkLightningAddressBrantaEncryptedDestination = '';
   let sendAmount = 0; // Amount for Lightning address sends
   let sendComment = ''; // Optional message for Lightning address sends
   let receiveAmount = 0;
@@ -1297,23 +1305,35 @@
   }
 
   // Register a payment address/invoice with Branta Guardrail
-  // zk: true enables zero-knowledge encryption (on-chain addresses), false for plaintext (Lightning)
-  async function registerWithBranta(paymentString: string, description?: string, zk?: boolean) {
+  async function registerWithBranta(
+    paymentString: string,
+    description?: string,
+    destinationType?: string
+  ): Promise<{ secret?: string; encryptedDestination?: string; verifyLink?: string }> {
     try {
-      await fetch('/api/branta/register', {
+      const res = await fetch('/api/branta/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           paymentString,
           description,
           ttl: 86400, // 24 hours
-          zk
+          destinationType
         })
       });
+      if (res.ok) {
+        const data = await res.json();
+        return {
+          secret: data.secret,
+          encryptedDestination: data.encryptedDestination,
+          verifyLink: data.verifyLink
+        };
+      }
     } catch (e) {
       // Silent fail - Branta registration is optional
       console.warn('[Branta] Registration failed:', e);
     }
+    return {};
   }
 
   // Reset receive modal state
@@ -1324,6 +1344,10 @@
     generatedInvoice = '';
     generatedPaymentHash = '';
     invoicePaid = false;
+    generatedInvoiceBrantaSecret = '';
+    generatedInvoiceBrantaEncryptedDestination = '';
+    onchainAddressBrantaSecret = '';
+    onchainAddressBrantaEncryptedDestination = '';
     receiveError = '';
     isGeneratingInvoice = false;
     balanceBeforeInvoice = null;
@@ -1342,9 +1366,14 @@
 
     try {
       const result = await receiveOnchain();
-      // Register with Branta for verification (plaintext for now, ZK in follow-up PR)
-      // Await to ensure badge can verify after registration completes
-      await registerWithBranta(result.address, 'zap.cooking Bitcoin deposit address', false);
+      // Register with Branta (ZK for on-chain addresses)
+      const brantaResult = await registerWithBranta(
+        result.address,
+        'zap.cooking Bitcoin deposit address',
+        'bitcoin_address'
+      );
+      onchainAddressBrantaSecret = brantaResult.secret ?? '';
+      onchainAddressBrantaEncryptedDestination = brantaResult.encryptedDestination ?? '';
       onchainAddress = result.address;
       // Also load any pending deposits
       await loadUnclaimedDeposits();
@@ -1659,13 +1688,14 @@
         throw new Error('Failed to generate invoice - no invoice returned');
       }
       generatedPaymentHash = result.paymentHash || '';
-      // Register with Branta for verification (zk: false for Lightning)
-      // Await to ensure badge can verify after registration completes
-      await registerWithBranta(
+      // Register with Branta (bolt11 type for Lightning invoices)
+      const brantaInvoiceResult = await registerWithBranta(
         result.invoice,
         `zap.cooking invoice for ${amountToUse} sats`,
-        false
+        'bolt11'
       );
+      generatedInvoiceBrantaSecret = brantaInvoiceResult.secret ?? '';
+      generatedInvoiceBrantaEncryptedDestination = brantaInvoiceResult.encryptedDestination ?? '';
       generatedInvoice = result.invoice;
 
       setTimeout(() => {
@@ -5443,7 +5473,11 @@
 
             <!-- Branta Verification Badge -->
             <div class="flex justify-center">
-              <BrantaBadge paymentString={onchainAddress} />
+              <BrantaBadge
+                paymentString={onchainAddress}
+                secret={onchainAddressBrantaSecret}
+                encryptedDestination={onchainAddressBrantaEncryptedDestination}
+              />
             </div>
 
             <!-- Address (segmented for easier verification) -->
@@ -5613,7 +5647,13 @@
                       on:click={async () => {
                         const wasHidden = showLightningAddressQr !== nwcLud16;
                         if (wasHidden && nwcLud16) {
-                          await registerWithBranta(nwcLud16, 'NWC Lightning Address', false);
+                          const r = await registerWithBranta(
+                            nwcLud16,
+                            'NWC Lightning Address',
+                            'ln_address'
+                          );
+                          nwcLud16BrantaSecret = r.secret ?? '';
+                          nwcLud16BrantaEncryptedDestination = r.encryptedDestination ?? '';
                           showLightningAddressQr = nwcLud16;
                         } else {
                           showLightningAddressQr = null;
@@ -5661,7 +5701,11 @@
                   </div>
                   <!-- Branta Verification Badge -->
                   <div class="flex justify-center mt-2">
-                    <BrantaBadge paymentString={nwcLud16} />
+                    <BrantaBadge
+                      paymentString={nwcLud16}
+                      secret={nwcLud16BrantaSecret}
+                      encryptedDestination={nwcLud16BrantaEncryptedDestination}
+                    />
                   </div>
                 {/if}
               </div>
@@ -5700,11 +5744,14 @@
                       on:click={async () => {
                         const wasHidden = showLightningAddressQr !== $sparkLightningAddressStore;
                         if (wasHidden && $sparkLightningAddressStore) {
-                          await registerWithBranta(
+                          const r = await registerWithBranta(
                             $sparkLightningAddressStore,
                             'Spark Lightning Address',
-                            false
+                            'ln_address'
                           );
+                          sparkLightningAddressBrantaSecret = r.secret ?? '';
+                          sparkLightningAddressBrantaEncryptedDestination =
+                            r.encryptedDestination ?? '';
                           showLightningAddressQr = $sparkLightningAddressStore;
                         } else {
                           showLightningAddressQr = null;
@@ -5752,7 +5799,11 @@
                   </div>
                   <!-- Branta Verification Badge -->
                   <div class="flex justify-center mt-2">
-                    <BrantaBadge paymentString={$sparkLightningAddressStore} />
+                    <BrantaBadge
+                      paymentString={$sparkLightningAddressStore}
+                      secret={sparkLightningAddressBrantaSecret}
+                      encryptedDestination={sparkLightningAddressBrantaEncryptedDestination}
+                    />
                   </div>
                 {/if}
               </div>
@@ -5799,7 +5850,11 @@
               </div>
               <!-- Branta Verification Badge -->
               <div class="flex justify-center mt-2">
-                <BrantaBadge paymentString={generatedInvoice} />
+                <BrantaBadge
+                  paymentString={generatedInvoice}
+                  secret={generatedInvoiceBrantaSecret}
+                  encryptedDestination={generatedInvoiceBrantaEncryptedDestination}
+                />
               </div>
             {/if}
 
