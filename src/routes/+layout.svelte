@@ -484,10 +484,15 @@
     box-shadow: 0 1px 0 rgba(168, 85, 247, 0.04);
   }
 
-  /* Safe area padding for header on mobile */
+  /* Safe area padding for header on mobile.
+     `env(safe-area-inset-top, 0px)` alone would collapse to 0 on
+     non-notched browsers (regular Chrome/Safari/Firefox on mobile
+     and desktop-narrow), making the avatar touch the viewport top.
+     `max()` keeps the baseline 0.75rem (matches the `py-3` from the
+     wrapper) and grows for devices with a real notch inset. */
   @media (max-width: 1023px) {
     .header-blur {
-      padding-top: env(safe-area-inset-top, 0px);
+      padding-top: max(env(safe-area-inset-top, 0px), 0.75rem);
     }
   }
 
