@@ -75,15 +75,16 @@ export async function registerPayment(
   }
 
   try {
-    // Build destination object with optional zk flag
+    // Always register with zk encryption enabled so the destination value
+    // is encrypted at rest in Branta. Callers must persist the returned
+    // secret/encryptedDestination to verify later.
     const destination: Destination = {
-      value: paymentString.trim()
+      value: paymentString.trim(),
+      zk: true
     };
 
-    destination.zk = true;
-
     if (destinationType) {
-        destination.type = destinationType;
+      destination.type = destinationType;
     }
 
     const body: Payment = {
