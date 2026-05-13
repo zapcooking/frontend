@@ -110,8 +110,17 @@ function createCurrencyStore(): CurrencyStore {
 
     cycleSatsFiat() {
       if (!browser) return;
-      const target: CurrencyCode =
-        currentCurrency === 'SATS' ? getPreferredFiat() : 'SATS';
+      let target: CurrencyCode;
+      if (currentCurrency === 'SATS') {
+        target = getPreferredFiat();
+      } else {
+        // Remember the fiat we're leaving so the next cycle returns
+        // to it. Without this, existing users whose display currency
+        // was persisted before PREFERRED_FIAT_KEY existed (e.g. EUR)
+        // would always cycle SATS → USD instead of SATS → EUR.
+        localStorage.setItem(PREFERRED_FIAT_KEY, currentCurrency);
+        target = 'SATS';
+      }
       currentCurrency = target;
       localStorage.setItem(STORAGE_KEY, target);
       set(target);

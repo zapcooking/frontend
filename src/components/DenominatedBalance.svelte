@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { displayCurrency } from '$lib/currencyStore';
+  import { displayCurrency, type CurrencyCode } from '$lib/currencyStore';
   import { convertSatsToFiat, formatFiatValue } from '$lib/currencyConversion';
 
   export let sats: number | null;
@@ -10,12 +10,14 @@
 
   let fiatValue: number | null = null;
   let lastFetchedSats: number | null = null;
-  let lastFetchedCurrency: string = '';
+  let lastFetchedCurrency: CurrencyCode | '' = '';
+  // Monotonic request id — every fetch increments. Only the most
+  // recent request is allowed to write `fiatValue` / `fiatLoading`,
+  // so an older promise that resolves after the user switched
+  // currency or amount can't clobber the latest state.
+  let requestSeq = 0;
   let fiatLoading = false;
 
-  // Re-fetch fiat only when sats, currency, or visibility actually change to
-  // an active fiat view. Compares against last-fetched to avoid request
-  // storms from unrelated parent reactivity.
   $: if (
     visible &&
     sats !== null &&
@@ -24,10 +26,15 @@
   ) {
     lastFetchedSats = sats;
     lastFetchedCurrency = $displayCurrency;
+    const mySeq = ++requestSeq;
+    const requestedCurrency = $displayCurrency;
+    const requestedSats = sats;
     fiatLoading = true;
-    convertSatsToFiat(sats).then((v) => {
-      // Drop stale results if currency switched mid-flight.
-      if ($displayCurrency === lastFetchedCurrency) {
+    // Pass the requested currency explicitly so the conversion uses
+    // it (not whatever the store now points to), and compare against
+    // the monotonic seq to discard stale results.
+    convertSatsToFiat(requestedSats, requestedCurrency).then((v) => {
+      if (mySeq === requestSeq) {
         fiatValue = v;
         fiatLoading = false;
       }
@@ -35,6 +42,8 @@
   }
 
   $: if ($displayCurrency === 'SATS') {
+    // Invalidate any in-flight fetch so it can't write back later.
+    requestSeq++;
     fiatValue = null;
     fiatLoading = false;
   }

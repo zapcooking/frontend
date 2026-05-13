@@ -48,6 +48,12 @@
   import { displayCurrency } from '$lib/currencyStore';
 
   function onPillKeydown(e: KeyboardEvent) {
+    // Only the outer pill itself should toggle the dropdown — without
+    // the currentTarget===target check, Enter/Space while focused on
+    // the inner currency-cycle button would bubble up and re-toggle
+    // the dropdown right after the inner button already handled the
+    // key natively.
+    if (e.currentTarget !== e.target) return;
     if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault();
       toggleDropdown();

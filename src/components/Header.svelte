@@ -37,7 +37,6 @@
     type MembershipTier
   } from '$lib/stores/membershipStatus';
 
-  let isLoading = true;
   let intelligenceMenuOpen = false;
 
   // Count active timers (running or paused + done)
@@ -57,10 +56,6 @@
     } else {
       goto(`/tag/${query}`);
     }
-  }
-
-  $: if ($userPublickey !== undefined) {
-    isLoading = false;
   }
 
   $: resolvedTheme = $theme === 'system' ? theme.getResolvedTheme() : $theme;
@@ -187,7 +182,7 @@
       <div class="relative">
         <button
           type="button"
-          on:click={() => (intelligenceMenuOpen = !intelligenceMenuOpen)}
+          on:click|stopPropagation={() => (intelligenceMenuOpen = !intelligenceMenuOpen)}
           class="zh-iconbtn zh-intelligence-btn {onIntelligenceSurface || intelligenceMenuOpen
             ? 'is-active'
             : ''}"

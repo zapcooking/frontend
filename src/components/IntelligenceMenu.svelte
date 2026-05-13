@@ -53,10 +53,14 @@
   }
 
   onMount(() => {
-    document.addEventListener('mousedown', onDocClick);
+    // Use `click` rather than `mousedown` so the opener's own click
+    // handler runs first. Otherwise mousedown closes the menu, then
+    // the opener's click immediately re-toggles it back open — and
+    // tapping the icon while the menu is open feels broken.
+    document.addEventListener('click', onDocClick);
     document.addEventListener('keydown', onKey);
     return () => {
-      document.removeEventListener('mousedown', onDocClick);
+      document.removeEventListener('click', onDocClick);
       document.removeEventListener('keydown', onKey);
     };
   });
