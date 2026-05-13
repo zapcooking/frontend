@@ -22,8 +22,16 @@
   import { nip19 } from 'nostr-tools';
   import { init, markOnce } from '$lib/perf/explorePerf';
   import { userPublickey, ensureNdkConnected } from '$lib/nostr';
-  import { membershipStatusMap, queueMembershipLookup, type MembershipStatus } from '$lib/stores/membershipStatus';
+  import {
+    membershipStatusMap,
+    queueMembershipLookup,
+    type MembershipStatus
+  } from '$lib/stores/membershipStatus';
   import { cookingToolsOpen, cookingToolsStore } from '$lib/stores/cookingToolsWidget';
+  import {
+    cookingToolsTipVisible,
+    dismissCookingToolsTip as dismissCookingToolsTipShared
+  } from '$lib/cookingToolsTip';
   import { browser } from '$app/environment';
   import type { PageData } from './$types';
   import { exploreNavTick } from '$lib/exploreNav';
@@ -32,18 +40,15 @@
   export let data: PageData;
 
   // One-time Cooking Tools tip (4.2 first-60-seconds improvement)
-  const COOKING_TOOLS_TIP_KEY = 'zapcooking_cooking_tools_tip_seen';
-  let showCookingToolsTip = false;
+  // Visibility lives in a shared store so other components (e.g. the
+  // header wallet dropdown) can dismiss it.
   let cookingToolsTipEl: HTMLDivElement | null = null;
   let tipPointerX = '2.5rem';
   let tipTop = '0.5rem';
   let tipPointerScheduled = false;
-  if (browser) {
-    showCookingToolsTip = localStorage.getItem(COOKING_TOOLS_TIP_KEY) !== '1';
-  }
+  $: showCookingToolsTip = $cookingToolsTipVisible;
   function dismissCookingToolsTip() {
-    showCookingToolsTip = false;
-    if (browser) localStorage.setItem(COOKING_TOOLS_TIP_KEY, '1');
+    dismissCookingToolsTipShared();
   }
   function openCookingTools() {
     cookingToolsStore.open('timer');
@@ -109,8 +114,21 @@
   let collections: Collection[] = [];
   let popularCooks: PopularCook[] = [];
   let discoverRecipes: NDKEvent[] = [];
-  let boostedRecipes: { naddr: string; recipeTitle: string; recipeImage: string; authorPubkey: string; tier: string; expiresAt: number }[] = [];
-  let sponsorBanners: { id: string; title: string; description: string; imageUrl: string; linkUrl: string }[] = [];
+  let boostedRecipes: {
+    naddr: string;
+    recipeTitle: string;
+    recipeImage: string;
+    authorPubkey: string;
+    tier: string;
+    expiresAt: number;
+  }[] = [];
+  let sponsorBanners: {
+    id: string;
+    title: string;
+    description: string;
+    imageUrl: string;
+    linkUrl: string;
+  }[] = [];
   let loadingCollections = true;
   let loadingCooks = true;
   let loadingDiscover = true;
@@ -163,21 +181,24 @@
     await ensureNdkConnected();
 
     // Start discover recipes immediately (don't block on other data)
-    fetchDiscoverRecipes(12).then((discoverData) => {
-      discoverRecipes = discoverData;
-      loadingDiscover = false;
-    }).catch(() => {
-      loadingDiscover = false;
-    });
+    fetchDiscoverRecipes(12)
+      .then((discoverData) => {
+        discoverRecipes = discoverData;
+        loadingDiscover = false;
+      })
+      .catch(() => {
+        loadingDiscover = false;
+      });
 
     // Load popular cooks (uses cache for instant load)
-    fetchPopularCooks(12).then((cooksData) => {
-      popularCooks = cooksData;
-      loadingCooks = false;
-    }).catch(() => {
-      loadingCooks = false;
-    });
-
+    fetchPopularCooks(12)
+      .then((cooksData) => {
+        popularCooks = cooksData;
+        loadingCooks = false;
+      })
+      .catch(() => {
+        loadingCooks = false;
+      });
   }
 
   async function handleRefresh() {
@@ -194,28 +215,28 @@
   onMount(() => {
     let cleanup: (() => void) | undefined;
     void (async () => {
-    syncTipPointer();
-    await loadExploreData();
+      syncTipPointer();
+      await loadExploreData();
 
-    if (browser) {
-      let ticking = false;
-      const handleLayoutChange = () => {
-        if (!ticking) {
-          ticking = true;
-          requestAnimationFrame(() => {
-            syncTipPointer();
-            ticking = false;
-          });
-        }
-      };
-      const scrollContainer = document.getElementById('app-scroll');
-      window.addEventListener('resize', handleLayoutChange);
-      scrollContainer?.addEventListener('scroll', handleLayoutChange, { passive: true });
-      return () => {
-        window.removeEventListener('resize', handleLayoutChange);
-        scrollContainer?.removeEventListener('scroll', handleLayoutChange);
-      };
-    }
+      if (browser) {
+        let ticking = false;
+        const handleLayoutChange = () => {
+          if (!ticking) {
+            ticking = true;
+            requestAnimationFrame(() => {
+              syncTipPointer();
+              ticking = false;
+            });
+          }
+        };
+        const scrollContainer = document.getElementById('app-scroll');
+        window.addEventListener('resize', handleLayoutChange);
+        scrollContainer?.addEventListener('scroll', handleLayoutChange, { passive: true });
+        return () => {
+          window.removeEventListener('resize', handleLayoutChange);
+          scrollContainer?.removeEventListener('scroll', handleLayoutChange);
+        };
+      }
     })().then((result) => {
       cleanup = result;
     });
@@ -247,11 +268,15 @@
     queueMembershipLookup($userPublickey);
   }
 
-  $: exploreMembershipStatus = $userPublickey ? exploreMembershipMap[$userPublickey.trim().toLowerCase()] : undefined;
+  $: exploreMembershipStatus = $userPublickey
+    ? exploreMembershipMap[$userPublickey.trim().toLowerCase()]
+    : undefined;
   // Only show teaser once lookup has resolved (avoid flash for members)
   $: isNonMember = exploreMembershipStatus !== undefined && !exploreMembershipStatus.active;
 
-  onDestroy(() => { unsubExploreMembership(); });
+  onDestroy(() => {
+    unsubExploreMembership();
+  });
 
   function navigateToTag(tag: recipeTagSimple) {
     goto(`/tag/${tag.title}`);
@@ -318,7 +343,9 @@
       <!-- Supported by our partners -->
       {#if sponsorBanners.length > 0}
         <section class="flex flex-col gap-3" data-section="partners">
-          <h2 class="text-lg font-semibold" style="color: var(--color-text-primary);">Supported by our partners</h2>
+          <h2 class="text-lg font-semibold" style="color: var(--color-text-primary);">
+            Supported by our partners
+          </h2>
           {#if sponsorBanners.length === 1}
             <SponsorBanner
               title={sponsorBanners[0].title}
@@ -425,21 +452,15 @@
         <section class="membership-teaser" aria-label="Membership teaser">
           <div class="membership-teaser-glow"></div>
           <div class="relative z-10 text-center px-4 py-6">
-            <p class="text-xs uppercase tracking-widest font-semibold mb-2" style="color: rgba(249,115,22,0.9);">
+            <p
+              class="text-xs uppercase tracking-widest font-semibold mb-2"
+              style="color: rgba(249,115,22,0.9);"
+            >
               Kitchen+
             </p>
-            <h3 class="text-lg font-bold text-white">
-              Unlock your kitchen
-            </h3>
-            <p class="text-sm mt-1.5 text-gray-300">
-              AI tools, private groups, and more.
-            </p>
-            <a
-              href="/membership"
-              class="membership-teaser-cta"
-            >
-              Enter the Kitchen+
-            </a>
+            <h3 class="text-lg font-bold text-white">Unlock your kitchen</h3>
+            <p class="text-sm mt-1.5 text-gray-300">AI tools, private groups, and more.</p>
+            <a href="/membership" class="membership-teaser-cta"> Enter the Kitchen+ </a>
           </div>
         </section>
       {/if}
@@ -492,24 +513,15 @@
           What are you cooking?
         </h2>
         <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-          {#each [
-            { emoji: '⚡', label: 'Quick', sub: 'Ready in 20 min', tag: 'Quick' },
-            { emoji: '🌅', label: 'Breakfast', sub: 'Start your day right', tag: 'Breakfast' },
-            { emoji: '🍰', label: 'Dessert', sub: 'Something sweet', tag: 'Dessert' },
-            { emoji: '🍷', label: 'Drinks', sub: 'Something to sip', tag: 'Drinks' },
-            { emoji: '🥗', label: 'Easy', sub: 'Simple & satisfying', tag: 'Easy' },
-            { emoji: '🍜', label: 'Lunch', sub: 'Midday meals', tag: 'Lunch' },
-            { emoji: '🍽️', label: 'Supper', sub: 'End the day well', tag: 'Supper' },
-            { emoji: '🍿', label: 'Snack', sub: 'Quick bites', tag: 'Snack' }
-          ] as card}
-            <button
-              type="button"
-              class="intent-card"
-              on:click={() => goto(`/tag/${card.tag}`)}
-            >
+          {#each [{ emoji: '⚡', label: 'Quick', sub: 'Ready in 20 min', tag: 'Quick' }, { emoji: '🌅', label: 'Breakfast', sub: 'Start your day right', tag: 'Breakfast' }, { emoji: '🍰', label: 'Dessert', sub: 'Something sweet', tag: 'Dessert' }, { emoji: '🍷', label: 'Drinks', sub: 'Something to sip', tag: 'Drinks' }, { emoji: '🥗', label: 'Easy', sub: 'Simple & satisfying', tag: 'Easy' }, { emoji: '🍜', label: 'Lunch', sub: 'Midday meals', tag: 'Lunch' }, { emoji: '🍽️', label: 'Supper', sub: 'End the day well', tag: 'Supper' }, { emoji: '🍿', label: 'Snack', sub: 'Quick bites', tag: 'Snack' }] as card}
+            <button type="button" class="intent-card" on:click={() => goto(`/tag/${card.tag}`)}>
               <span class="text-2xl">{card.emoji}</span>
-              <span class="text-sm font-semibold" style="color: var(--color-text-primary);">{card.label}</span>
-              <span class="text-[11px] leading-tight" style="color: var(--color-text-secondary);">{card.sub}</span>
+              <span class="text-sm font-semibold" style="color: var(--color-text-primary);"
+                >{card.label}</span
+              >
+              <span class="text-[11px] leading-tight" style="color: var(--color-text-secondary);"
+                >{card.sub}</span
+              >
             </button>
           {/each}
         </div>
@@ -521,27 +533,12 @@
           Browse by category
         </h2>
         <div class="flex gap-2.5 overflow-x-auto pb-2 -mx-4 px-4 scrollbar-hide touch-pan-x">
-          {#each [
-            { emoji: '🥩', label: 'Beef' },
-            { emoji: '🍗', label: 'Chicken' },
-            { emoji: '🐟', label: 'Fish' },
-            { emoji: '🌱', label: 'Vegan' },
-            { emoji: '🍝', label: 'Pasta' },
-            { emoji: '🍕', label: 'Pizza' },
-            { emoji: '🥘', label: 'Soup' },
-            { emoji: '🥪', label: 'Sandwich' },
-            { emoji: '🍚', label: 'Rice' },
-            { emoji: '🥚', label: 'Eggs' },
-            { emoji: '🥔', label: 'Potato' },
-            { emoji: '🧀', label: 'Cheese' }
-          ] as cat}
-            <button
-              type="button"
-              class="category-chip"
-              on:click={() => goto(`/tag/${cat.label}`)}
-            >
+          {#each [{ emoji: '🥩', label: 'Beef' }, { emoji: '🍗', label: 'Chicken' }, { emoji: '🐟', label: 'Fish' }, { emoji: '🌱', label: 'Vegan' }, { emoji: '🍝', label: 'Pasta' }, { emoji: '🍕', label: 'Pizza' }, { emoji: '🥘', label: 'Soup' }, { emoji: '🥪', label: 'Sandwich' }, { emoji: '🍚', label: 'Rice' }, { emoji: '🥚', label: 'Eggs' }, { emoji: '🥔', label: 'Potato' }, { emoji: '🧀', label: 'Cheese' }] as cat}
+            <button type="button" class="category-chip" on:click={() => goto(`/tag/${cat.label}`)}>
               <span class="text-xl">{cat.emoji}</span>
-              <span class="text-xs font-medium" style="color: var(--color-text-primary);">{cat.label}</span>
+              <span class="text-xs font-medium" style="color: var(--color-text-primary);"
+                >{cat.label}</span
+              >
             </button>
           {/each}
         </div>
@@ -646,7 +643,7 @@
     position: fixed;
     inset: 0;
     pointer-events: none;
-    z-index: 1000;
+    z-index: 40;
     --tip-bg: #ffffff;
     --tip-border: var(--color-input-border);
   }
@@ -663,7 +660,7 @@
     box-shadow:
       0 16px 28px rgba(18, 26, 33, 0.18),
       0 6px 12px rgba(18, 26, 33, 0.1);
-    z-index: 1001;
+    z-index: 41;
     pointer-events: auto;
   }
 
@@ -710,7 +707,9 @@
     border: 1px solid var(--color-input-border);
     background-color: var(--color-bg-secondary);
     cursor: pointer;
-    transition: border-color 0.15s, transform 0.1s;
+    transition:
+      border-color 0.15s,
+      transform 0.1s;
     min-height: 88px;
   }
 
@@ -736,7 +735,9 @@
     cursor: pointer;
     flex-shrink: 0;
     min-width: 72px;
-    transition: border-color 0.15s, transform 0.1s;
+    transition:
+      border-color 0.15s,
+      transform 0.1s;
   }
 
   .category-chip:hover {
@@ -775,7 +776,9 @@
     color: white;
     background: linear-gradient(135deg, #f97316, #ea580c);
     box-shadow: 0 0 20px rgba(249, 115, 22, 0.3);
-    transition: transform 0.15s, box-shadow 0.15s;
+    transition:
+      transform 0.15s,
+      box-shadow 0.15s;
     text-decoration: none;
   }
 

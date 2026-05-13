@@ -65,3 +65,14 @@ export {
   disableBitcoinConnect,
   isBitcoinConnectEnabled
 } from './bitcoinConnect';
+
+// Export wallet modal controls
+export {
+  type WalletView,
+  walletModalOpen,
+  walletModalView,
+  openWallet,
+  closeWallet,
+  setWalletView,
+  isWalletModalOpen
+} from './walletModalStore';

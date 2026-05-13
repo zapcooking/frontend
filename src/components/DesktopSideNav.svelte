@@ -6,7 +6,7 @@
   import { goto } from '$app/navigation';
   import { theme } from '$lib/themeStore';
   import SVGNostrCookingWithText from '../assets/nostr.cooking-withtext.svg';
-  import { walletConnected } from '$lib/wallet';
+  import { walletConnected, openWallet, walletModalOpen } from '$lib/wallet';
   import { weblnConnected } from '$lib/wallet/webln';
   import { bitcoinConnectEnabled, bitcoinConnectWalletInfo } from '$lib/wallet/bitcoinConnect';
 
@@ -41,6 +41,7 @@
     match?: (path: string) => boolean;
     badge?: 'notificationsDot' | 'walletConnect' | 'members' | 'messagesDot';
     external?: boolean;
+    onClick?: () => void;
   };
 
   const primary: NavItem[] = [
@@ -104,8 +105,9 @@
       href: '/wallet',
       label: 'Wallet',
       icon: WalletIcon,
-      match: (p) => p.startsWith('/wallet'),
-      badge: 'walletConnect'
+      match: () => $walletModalOpen,
+      badge: 'walletConnect',
+      onClick: () => openWallet()
     },
     {
       href: '/nourish',
@@ -157,7 +159,6 @@
       goto('/explore');
     }
   }
-
 </script>
 
 <aside
@@ -165,17 +166,16 @@
   class:opacity-0={$userSidePanelOpen}
   class:pointer-events-none={$userSidePanelOpen}
 >
-  <div class="h-full overflow-y-auto scrollbar-hide p-3" style="background-color: var(--color-bg-primary);">
+  <div
+    class="h-full overflow-y-auto scrollbar-hide p-3"
+    style="background-color: var(--color-bg-primary);"
+  >
     <!-- Logo aligned with header position -->
     <button
       on:click={handleLogoClick}
       class="block pl-2 py-2 cursor-pointer transition-transform duration-150 active:scale-95 active:opacity-80"
     >
-      <img
-        src={SVGNostrCookingWithText}
-        class="logo-light w-40 dark:hidden"
-        alt="Zap Cooking"
-      />
+      <img src={SVGNostrCookingWithText} class="logo-light w-40 dark:hidden" alt="Zap Cooking" />
       <img
         src="/zap_cooking_logo_white.svg"
         class="logo-dark w-40 hidden dark:block"
@@ -209,7 +209,10 @@
                   <svelte:component
                     this={item.icon}
                     size={20}
-                    weight={(item.href === '/notifications' && $unreadCount > 0) || (item.href === '/messages' && $totalUnreadCount > 0) ? 'fill' : 'regular'}
+                    weight={(item.href === '/notifications' && $unreadCount > 0) ||
+                    (item.href === '/messages' && $totalUnreadCount > 0)
+                      ? 'fill'
+                      : 'regular'}
                   />
                   {#if item.badge === 'notificationsDot' && $unreadCount > 0}
                     <span
@@ -257,6 +260,12 @@
                 class={linkClasses(active)}
                 style="color: var(--color-text-primary);"
                 aria-current={active ? 'page' : undefined}
+                on:click={(e) => {
+                  if (item.onClick && !(e.metaKey || e.ctrlKey || e.shiftKey || e.altKey)) {
+                    e.preventDefault();
+                    item.onClick();
+                  }
+                }}
               >
                 <span class="relative flex items-center justify-center w-9 h-9 rounded-xl">
                   <svelte:component this={item.icon} size={20} />
@@ -279,7 +288,6 @@
           {/each}
         </ul>
       </div>
-
     </nav>
   </div>
 </aside>

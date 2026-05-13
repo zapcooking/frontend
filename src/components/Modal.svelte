@@ -28,8 +28,7 @@
   // synchronously when document is available so the dialog can mount
   // on the same tick the parent flips `open` to true; otherwise the
   // initial-focus pass below would race the dialog's bind:this.
-  let portalTarget: HTMLElement | null =
-    typeof document !== 'undefined' ? document.body : null;
+  let portalTarget: HTMLElement | null = typeof document !== 'undefined' ? document.body : null;
   let dialogEl: HTMLDialogElement | null = null;
   let previousActiveElement: HTMLElement | null = null;
   let lastOpen = false;
@@ -151,16 +150,14 @@
         transition:scale={{ duration: 250 }}
         aria-labelledby="title"
         aria-modal="true"
-        class="absolute m-0 top-1/2 left-1/2 px-4 md:px-8 pt-6 pb-8 rounded-3xl w-[calc(100%-2rem)] md:w-[calc(100vw-4em)] max-w-xl min-h-[50vh] md:min-h-0 max-h-[85vh] md:max-h-[90vh] -translate-x-1/2 -translate-y-1/2 flex flex-col"
+        class="absolute m-0 top-1/2 left-1/2 px-4 md:px-8 pt-6 pb-8 rounded-3xl w-[calc(100%-2rem)] md:w-[calc(100vw-4em)] max-w-xl min-h-[50vh] md:min-h-0 max-h-[85dvh] md:max-h-[90dvh] -translate-x-1/2 -translate-y-1/2 flex flex-col"
         class:compact-padding={compact}
         class:overflow-y-auto={!allowOverflow}
         class:overflow-visible={allowOverflow}
         style="background-color: var(--color-bg-secondary);"
         open
       >
-        <div
-          class="flex flex-col flex-1 {compact ? 'gap-2' : 'gap-6'}"
-        >
+        <div class="flex flex-col flex-1 {compact ? 'gap-2' : 'gap-6'}">
           {#if !noHeader}
             <div class="flex justify-between">
               <h2
@@ -170,8 +167,9 @@
                 <slot id="title" name="title" />
               </h2>
               <button
-                class="self-center cursor-pointer"
+                class="self-center cursor-pointer flex items-center justify-center min-w-[44px] min-h-[44px] -mr-2"
                 style="color: var(--color-text-primary)"
+                aria-label="Close"
                 on:click={close}
               >
                 <CloseIcon size={24} />

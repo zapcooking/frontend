@@ -18,11 +18,16 @@
   import { userSidePanelOpen } from '$lib/stores/userSidePanel';
   import { mobileSearchOpen } from '$lib/stores/mobileSearch';
   import { timerStore } from '$lib/timerStore';
-  import { navBalanceVisible, walletConnected } from '$lib/wallet';
+  import { navBalanceVisible, walletConnected, openWallet } from '$lib/wallet';
   import { weblnConnected } from '$lib/wallet/webln';
   import { bitcoinConnectEnabled, bitcoinConnectWalletInfo } from '$lib/wallet/bitcoinConnect';
   import { cookingToolsStore, cookingToolsOpen } from '$lib/stores/cookingToolsWidget';
-  import { membershipStatusMap, queueMembershipLookup, type MembershipStatus, type MembershipTier } from '$lib/stores/membershipStatus';
+  import {
+    membershipStatusMap,
+    queueMembershipLookup,
+    type MembershipStatus,
+    type MembershipTier
+  } from '$lib/stores/membershipStatus';
 
   let isLoading = true;
 
@@ -73,30 +78,42 @@
     queueMembershipLookup($userPublickey);
   }
 
-  $: userMembershipStatus = $userPublickey ? membershipMap[$userPublickey.trim().toLowerCase()] : undefined;
+  $: userMembershipStatus = $userPublickey
+    ? membershipMap[$userPublickey.trim().toLowerCase()]
+    : undefined;
   $: isActiveMember = Boolean(userMembershipStatus?.active);
   $: membershipTier = userMembershipStatus?.tier;
 
   function getTierLabel(tier: MembershipTier | undefined): string {
     switch (tier) {
-      case 'cook_plus': return 'COOK+';
-      case 'pro_kitchen': return 'PRO';
-      case 'founders': return 'FOUNDER';
-      default: return '';
+      case 'cook_plus':
+        return 'COOK+';
+      case 'pro_kitchen':
+        return 'PRO';
+      case 'founders':
+        return 'FOUNDER';
+      default:
+        return '';
     }
   }
 
   function getTierClasses(tier: MembershipTier | undefined): string {
     switch (tier) {
-      case 'founders': return 'bg-amber-100 text-amber-700 border-amber-300 dark:bg-amber-900/30 dark:text-amber-300 dark:border-amber-700';
-      case 'pro_kitchen': return 'bg-violet-100 text-violet-700 border-violet-300 dark:bg-violet-900/30 dark:text-violet-300 dark:border-violet-700';
-      case 'cook_plus': return 'bg-orange-100 text-orange-700 border-orange-300 dark:bg-orange-900/30 dark:text-orange-300 dark:border-orange-700';
-      default: return '';
+      case 'founders':
+        return 'bg-amber-100 text-amber-700 border-amber-300 dark:bg-amber-900/30 dark:text-amber-300 dark:border-amber-700';
+      case 'pro_kitchen':
+        return 'bg-violet-100 text-violet-700 border-violet-300 dark:bg-violet-900/30 dark:text-violet-300 dark:border-violet-700';
+      case 'cook_plus':
+        return 'bg-orange-100 text-orange-700 border-orange-300 dark:bg-orange-900/30 dark:text-orange-300 dark:border-orange-700';
+      default:
+        return '';
     }
   }
 
   import { onDestroy } from 'svelte';
-  onDestroy(() => { unsubMembership(); });
+  onDestroy(() => {
+    unsubMembership();
+  });
 
   function toggleCookingTools() {
     cookingToolsStore.toggle();
@@ -200,16 +217,17 @@
       {/if}
     </button>
 
-    <!-- Wallet button (mobile only) - shortcut to wallet page -->
+    <!-- Wallet button (mobile only) - opens wallet modal -->
     {#if $userPublickey}
-      <a
-        href="/wallet"
+      <button
+        type="button"
+        on:click={() => openWallet()}
         class="sm:hidden w-8 h-8 flex items-center justify-center rounded-full transition-colors cursor-pointer hover:opacity-80 hover:bg-accent-gray"
         style="color: var(--color-text-primary)"
         aria-label="Open wallet"
       >
         <WalletIcon size={18} weight="bold" />
-      </a>
+      </button>
     {/if}
 
     <!-- Wallet Balance - only show when logged in -->
@@ -219,14 +237,15 @@
           <WalletBalance />
         </div>
       {:else}
-        <a
-          href="/wallet"
-          class="hidden sm:flex items-center gap-2 px-3 py-1.5 min-w-[154px] rounded-full text-sm font-medium transition-colors hover:bg-accent-gray"
+        <button
+          type="button"
+          on:click={() => openWallet('setup')}
+          class="hidden sm:flex items-center gap-2 px-3 py-1.5 min-w-[154px] rounded-full text-sm font-medium transition-colors hover:bg-accent-gray cursor-pointer"
           style="background-color: var(--color-input-bg); color: var(--color-text-primary); border: 1px solid var(--color-input-border);"
         >
           <LightningIcon size={14} weight="fill" class="text-amber-500" aria-hidden="true" />
           <span>Set up a Wallet</span>
-        </a>
+        </button>
       {/if}
     {/if}
 
@@ -234,7 +253,9 @@
     {#if $userPublickey && isActiveMember && getTierLabel(membershipTier)}
       <a
         href="/membership"
-        class="hidden sm:inline-flex px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wide border transition-colors hover:opacity-80 {getTierClasses(membershipTier)}"
+        class="hidden sm:inline-flex px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wide border transition-colors hover:opacity-80 {getTierClasses(
+          membershipTier
+        )}"
       >
         {getTierLabel(membershipTier)}
       </a>

@@ -13,13 +13,10 @@
   import CreateMenuButton from '../components/CreateMenuButton.svelte';
   import PostModal from '../components/PostModal.svelte';
   import LongformEditorModal from '../components/reads/LongformEditorModal.svelte';
-  import WalletWelcomeModal from '../components/WalletWelcomeModal.svelte';
+  import WalletModal from '../components/wallet/WalletModal.svelte';
   import ToastContainer from '../components/ToastContainer.svelte';
   import { createAuthManager, type AuthState } from '$lib/authManager';
-  import {
-    stopMessageSubscription,
-    clearMessages
-  } from '$lib/stores/messages';
+  import { stopMessageSubscription, clearMessages } from '$lib/stores/messages';
   import { clearDecryptCache } from '$lib/encryptionService';
   import { clearUnwrapCache } from '$lib/nip17';
   import { stopGroupSubscription, clearGroups } from '$lib/stores/groups';
@@ -28,7 +25,12 @@
   import ErrorBoundary from '../components/ErrorBoundary.svelte';
   import OfflineIndicator from '../components/OfflineIndicator.svelte';
   import { theme } from '$lib/themeStore';
-  import { initializeWalletManager, walletConnected, clearAllWallets } from '$lib/wallet';
+  import {
+    initializeWalletManager,
+    walletConnected,
+    clearAllWallets,
+    openWallet
+  } from '$lib/wallet';
   import { disconnectWallet as disconnectSparkWallet, clearAllSparkWallets } from '$lib/spark';
   import { loadOneTapZapSettings } from '$lib/autoZapSettings';
   import { weblnConnected } from '$lib/wallet/webln';
@@ -88,7 +90,6 @@
   };
   let unsubscribe: (() => void) | null = null;
   let feedInitialLoadTimeout: ReturnType<typeof setTimeout> | null = null;
-  let walletWelcomeOpen = false;
   let walletWelcomeSeen = false;
   let walletWelcomeForce = false;
   let oneTapZapLoadedForPubkey = '';
@@ -99,12 +100,13 @@
     $weblnConnected ||
     ($bitcoinConnectEnabled && $bitcoinConnectWalletInfo.connected);
 
-  function markWalletWelcomeSeen() {
-    walletWelcomeOpen = false;
+  // Open the wallet modal directly when the user is logged in but has
+  // no wallet — the picker view inside the modal already serves as the
+  // welcome screen, so we don't need a separate intro modal.
+  function promptWalletSetup() {
     walletWelcomeSeen = true;
-    if (browser) {
-      localStorage.setItem(WALLET_WELCOME_KEY, '1');
-    }
+    if (browser) localStorage.setItem(WALLET_WELCOME_KEY, '1');
+    openWallet('setup');
   }
 
   // Handle deep links from Capacitor (for NIP-46 pairing)
@@ -276,10 +278,17 @@
           walletWelcomeForce = localStorage.getItem(WALLET_WELCOME_FORCE_KEY) === '1';
         }
 
-        const isOnboardingFlow = $page.url.pathname.startsWith('/login') || $page.url.pathname.startsWith('/onboarding');
-        if (browser && state.isAuthenticated && state.publicKey && !hasWallet && !isOnboardingFlow) {
+        const isOnboardingFlow =
+          $page.url.pathname.startsWith('/login') || $page.url.pathname.startsWith('/onboarding');
+        if (
+          browser &&
+          state.isAuthenticated &&
+          state.publicKey &&
+          !hasWallet &&
+          !isOnboardingFlow
+        ) {
           if (walletWelcomeForce || !walletWelcomeSeen) {
-            walletWelcomeOpen = true;
+            promptWalletSetup();
             if (walletWelcomeForce) {
               walletWelcomeForce = false;
               localStorage.removeItem(WALLET_WELCOME_FORCE_KEY);
@@ -335,22 +344,21 @@
     }
   });
 
-  // Show wallet welcome after leaving login/onboarding (e.g. after suggested follows completes)
+  // Open the wallet modal automatically once after leaving login/
+  // onboarding when the user has no wallet (e.g. after suggested
+  // follows completes).
   $: {
-    const onboardingFlow = $page.url.pathname.startsWith('/login') || $page.url.pathname.startsWith('/onboarding');
-    if (browser && !walletWelcomeOpen && !onboardingFlow && authState.isAuthenticated && !hasWallet) {
+    const onboardingFlow =
+      $page.url.pathname.startsWith('/login') || $page.url.pathname.startsWith('/onboarding');
+    if (browser && !onboardingFlow && authState.isAuthenticated && !hasWallet) {
       const forceFlag = localStorage.getItem(WALLET_WELCOME_FORCE_KEY) === '1';
       if (forceFlag || !walletWelcomeSeen) {
-        walletWelcomeOpen = true;
+        promptWalletSetup();
         if (forceFlag) {
           localStorage.removeItem(WALLET_WELCOME_FORCE_KEY);
         }
       }
     }
-  }
-
-  $: if (walletWelcomeOpen && hasWallet) {
-    markWalletWelcomeSeen();
   }
 
   // When the tab returns from background (hidden ≥1s), refresh the
@@ -412,7 +420,8 @@
           <Header />
         </div>
         <div
-          class="px-4 min-w-0 max-w-full {$page.url.pathname.startsWith('/messages') || $page.url.pathname.startsWith('/groups')
+          class="px-4 min-w-0 max-w-full {$page.url.pathname.startsWith('/messages') ||
+          $page.url.pathname.startsWith('/groups')
             ? ''
             : 'pb-16 lg:pb-8'}"
         >
@@ -431,7 +440,7 @@
       <MobileSearchOverlay />
       <PostModal bind:open={$postComposerOpen} />
       <LongformEditorModal />
-      <WalletWelcomeModal bind:open={walletWelcomeOpen} onDismiss={markWalletWelcomeSeen} />
+      <WalletModal />
       <ToastContainer />
     </div>
   </div>
