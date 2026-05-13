@@ -43,15 +43,28 @@ let signerDenialCount = 0;
 let signerCircuitBroken = false;
 const SIGNER_DENIAL_THRESHOLD = 2;
 
-function getDecryptCacheKey(method: EncryptionMethod, senderPubkey: string, ciphertext: string): string {
+function getDecryptCacheKey(
+  method: EncryptionMethod,
+  senderPubkey: string,
+  ciphertext: string
+): string {
   return `${method}:${senderPubkey}:${ciphertext}`;
 }
 
-function getCachedDecrypt(method: EncryptionMethod, senderPubkey: string, ciphertext: string): string | undefined {
+function getCachedDecrypt(
+  method: EncryptionMethod,
+  senderPubkey: string,
+  ciphertext: string
+): string | undefined {
   return decryptCache.get(getDecryptCacheKey(method, senderPubkey, ciphertext));
 }
 
-function setCachedDecrypt(method: EncryptionMethod, senderPubkey: string, ciphertext: string, plaintext: string): void {
+function setCachedDecrypt(
+  method: EncryptionMethod,
+  senderPubkey: string,
+  ciphertext: string,
+  plaintext: string
+): void {
   if (decryptCache.size >= DECRYPT_CACHE_MAX) {
     // Evict oldest half
     const keys = Array.from(decryptCache.keys());
@@ -80,7 +93,10 @@ let decryptQueuePromise: Promise<void> = Promise.resolve();
 function enqueueDecrypt<T>(fn: () => Promise<T>): Promise<T> {
   const result = decryptQueuePromise.then(fn, fn);
   // Update the chain (swallow errors so the queue doesn't stall)
-  decryptQueuePromise = result.then(() => {}, () => {});
+  decryptQueuePromise = result.then(
+    () => {},
+    () => {}
+  );
   return result;
 }
 
@@ -247,7 +263,10 @@ export function getBestEncryptionMethod(): EncryptionMethod {
   if (ndkInstance.signer) {
     // For private key signers, we can use nostr-tools directly
     // Use includes() to handle minified class names
-    if ((ndkInstance.signer.constructor?.name || '').includes('PrivateKeySigner') && getPrivateKey()) {
+    if (
+      (ndkInstance.signer.constructor?.name || '').includes('PrivateKeySigner') &&
+      getPrivateKey()
+    ) {
       return 'nip44';
     }
     return 'nip44';
@@ -267,6 +286,50 @@ export function getBestEncryptionMethod(): EncryptionMethod {
 }
 
 /**
+ * Whether the current signer can safely create Nostr-relay-stored
+ * encrypted backups (wallet seed, NWC connection string, etc.).
+ *
+ * Some NIP-46 remote signers may encrypt under their session/auth
+ * key rather than the user's real identity key. When that happens
+ * the resulting ciphertext can't be decrypted later by any client
+ * that calls spec-compliant nip44.decrypt with the real user pubkey
+ * — including future zap.cooking sessions, even on the same account.
+ * Since we can't tell from the outside which remote signers behave
+ * this way, the conservative default is to disable backup *creation*
+ * for all NIP-46 users until the failure mode is better characterised.
+ *
+ * Existing backups remain visible in the restore list and we still
+ * attempt to decrypt them — only new writes are blocked.
+ *
+ * Returns true when the signer is nsec (NDKPrivateKeySigner) or
+ * NIP-07 (window.nostr / NDKNip07Signer), false for NIP-46 or no
+ * signer.
+ */
+export function canCreateNostrBackup(): boolean {
+  if (!browser) return false;
+
+  // Local private key (nsec) — encrypts directly via nostr-tools, no
+  // bunker round-trip, no identity ambiguity.
+  if (getPrivateKey()) return true;
+
+  const ndkInstance = get(ndk);
+  const signerName = ndkInstance.signer?.constructor?.name || '';
+
+  // NIP-46 remote signers are blocked — see comment above.
+  if (signerName.includes('Nip46Signer')) return false;
+
+  // NIP-07 browser extension — encrypts with the user's real key.
+  if (signerName.includes('Nip07Signer')) return true;
+  if (signerName.includes('PrivateKeySigner')) return true;
+
+  // No NDK signer but window.nostr is present (NIP-07 fallback).
+  const nostr = (window as any).nostr;
+  if (nostr?.nip44?.encrypt || nostr?.nip04?.encrypt) return true;
+
+  return false;
+}
+
+/**
  * Encrypt data using the best available method
  */
 export async function encrypt(
@@ -282,7 +345,6 @@ export async function encrypt(
   const signer = ndkInstance.signer as SignerWithEncryption | null | undefined;
   const signerName = signer?.constructor?.name || '';
 
-
   // For NIP-07 signers, go directly to window.nostr (NDKNip07Signer delegates to it anyway)
   // Use includes() to handle minified class names like _NDKNip07Signer
   if (signerName.includes('Nip07Signer')) {
@@ -290,7 +352,6 @@ export async function encrypt(
 
     if (nostr?.nip44?.encrypt && (!preferredMethod || preferredMethod === 'nip44')) {
       try {
-
         const ciphertext = await nostr.nip44.encrypt(recipientPubkey, plaintext);
         return { ciphertext, method: 'nip44' };
       } catch (e) {
@@ -300,7 +361,6 @@ export async function encrypt(
     }
     if (nostr?.nip04?.encrypt) {
       try {
-
         const ciphertext = await nostr.nip04.encrypt(recipientPubkey, plaintext);
         return { ciphertext, method: 'nip04' };
       } catch (e) {
@@ -364,7 +424,6 @@ export async function encrypt(
       throw new Error('Private key not found. Please log in again with your private key.');
     }
 
-
     const method = preferredMethod || 'nip44';
     try {
       if (method === 'nip44') {
@@ -396,7 +455,6 @@ export async function encrypt(
   // Try direct encryption with private key if available (for cases where signer isn't set but key is stored)
   const privateKey = getPrivateKey();
   if (privateKey) {
-
     const method = preferredMethod || 'nip44';
     try {
       if (method === 'nip44') {
@@ -419,12 +477,10 @@ export async function encrypt(
   // Last resort: Try window.nostr directly (for cases where signer type is unknown)
   const nostr = (window as any).nostr;
   if (nostr?.nip44?.encrypt && (!preferredMethod || preferredMethod === 'nip44')) {
-
     const ciphertext = await nostr.nip44.encrypt(recipientPubkey, plaintext);
     return { ciphertext, method: 'nip44' };
   }
   if (nostr?.nip04?.encrypt) {
-
     const ciphertext = await nostr.nip04.encrypt(recipientPubkey, plaintext);
     return { ciphertext, method: 'nip04' };
   }
@@ -544,10 +600,7 @@ async function decryptWithPrivateKey(
         const privateKeyBytes = new Uint8Array(
           privateKey.match(/.{1,2}/g)!.map((byte) => parseInt(byte, 16))
         );
-        const conversationKey = nip44.v2.utils.getConversationKey(
-          privateKeyBytes,
-          senderPubkey
-        );
+        const conversationKey = nip44.v2.utils.getConversationKey(privateKeyBytes, senderPubkey);
         const result = nip44.v2.decrypt(ciphertext, conversationKey);
         if (result !== null && result !== undefined) return result;
       } else if (tryMethod === 'nip04') {
@@ -555,7 +608,10 @@ async function decryptWithPrivateKey(
         if (result !== null && result !== undefined) return result;
       }
     } catch (e) {
-      console.warn(`[Encryption] Direct ${tryMethod} decryption failed:`, (e as Error)?.message || e);
+      console.warn(
+        `[Encryption] Direct ${tryMethod} decryption failed:`,
+        (e as Error)?.message || e
+      );
     }
   }
   return null;

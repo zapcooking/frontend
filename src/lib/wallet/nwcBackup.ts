@@ -14,6 +14,7 @@ import {
   encrypt,
   decrypt,
   detectEncryptionMethod,
+  canCreateNostrBackup,
   type EncryptionMethod
 } from '$lib/encryptionService';
 
@@ -55,7 +56,21 @@ export async function backupNwcToNostr(pubkey: string, nwcConnectionString: stri
   // Check encryption support
   if (!hasEncryptionSupport()) {
     throw new Error(
-      'No encryption method available. Encryption is supported when logged in with a private key (nsec), NIP-07 extension, or NIP-46 remote signer with encryption permissions.'
+      'No encryption method available. Encryption is supported when logged in with a private key (nsec) or a NIP-07 browser extension.'
+    );
+  }
+
+  // Block NIP-46 remote signers from creating Nostr-relay backups.
+  // Some NIP-46 remote signers may encrypt under their session/auth
+  // key rather than the user's real identity key, producing ciphertext
+  // that no future session can decrypt. Since we can't reliably tell
+  // which remote signers behave this way, the conservative default is
+  // to allow new backups only from nsec / NIP-07 users.
+  if (!canCreateNostrBackup()) {
+    throw new Error(
+      'Nostr-relay backup is unavailable when using a remote signer (NIP-46). ' +
+        'Save your NWC connection string manually, or sign in with a private key (nsec) ' +
+        'or a NIP-07 browser extension to enable cloud backup.'
     );
   }
 
@@ -63,23 +78,9 @@ export async function backupNwcToNostr(pubkey: string, nwcConnectionString: stri
   const { ndk, ndkReady } = await import('$lib/nostr');
   const { NDKEvent } = await import('@nostr-dev-kit/ndk');
   const { get } = await import('svelte/store');
-  const { createAuthManager } = await import('$lib/authManager');
 
   await ndkReady;
   const ndkInstance = get(ndk);
-
-  // For NIP-46 signers, ensure the signer is ready before attempting encryption
-  if (ndkInstance.signer?.constructor?.name === 'NDKNip46Signer') {
-    console.log('[NWC Backup] Ensuring NIP-46 signer is ready...');
-    const authManager = createAuthManager(ndkInstance);
-    const isReady = await authManager.ensureNip46SignerReady();
-    if (!isReady) {
-      throw new Error(
-        'NIP-46 signer is not ready. Please ensure your remote signer app is open and connected.'
-      );
-    }
-    console.log('[NWC Backup] NIP-46 signer is ready');
-  }
 
   // Encrypt using the unified encryption service
   console.log('[NWC Backup] Encrypting connection string...');
