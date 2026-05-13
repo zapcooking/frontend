@@ -308,15 +308,24 @@ export function getBestEncryptionMethod(): EncryptionMethod {
 export function canCreateNostrBackup(): boolean {
   if (!browser) return false;
 
-  // Local private key (nsec) — encrypts directly via nostr-tools, no
-  // bunker round-trip, no identity ambiguity.
-  if (getPrivateKey()) return true;
-
   const ndkInstance = get(ndk);
   const signerName = ndkInstance.signer?.constructor?.name || '';
 
-  // NIP-46 remote signers are blocked — see comment above.
+  // NIP-46 remote signers are blocked — see comment above. Check this
+  // first so a stale `nostrcooking_privateKey` left in localStorage by
+  // a previous nsec session can't bypass the block when the user is
+  // currently authenticated via a bunker.
   if (signerName.includes('Nip46Signer')) return false;
+
+  // Local private key (nsec) — encrypts directly via nostr-tools, no
+  // bunker round-trip, no identity ambiguity. Only trust the stored
+  // key when the active NDK signer is a PrivateKeySigner (or there is
+  // no signer yet, e.g. a fresh page load that hasn't hydrated). For
+  // any other signer type the stored key is from a previous session
+  // and would encrypt under the wrong identity.
+  if (!ndkInstance.signer || signerName.includes('PrivateKeySigner')) {
+    if (getPrivateKey()) return true;
+  }
 
   // NIP-07 browser extension — encrypts with the user's real key.
   if (signerName.includes('Nip07Signer')) return true;
