@@ -26,6 +26,7 @@
     balanceVisible,
     openWallet
   } from '$lib/wallet';
+  import { displayCurrency } from '$lib/currencyStore';
   import { weblnConnected } from '$lib/wallet/webln';
   import { bitcoinConnectEnabled, bitcoinConnectWalletInfo } from '$lib/wallet/bitcoinConnect';
   import { cookingToolsStore, cookingToolsOpen } from '$lib/stores/cookingToolsWidget';
@@ -225,22 +226,32 @@
     <!-- Wallet (logged in) -->
     {#if $userPublickey && $navBalanceVisible}
       {#if hasNavWallet}
-        <!-- Mobile compact wallet pill -->
-        <button
-          type="button"
-          on:click={() => openWallet()}
-          class="zh-wallet-mobile sm:hidden"
-          aria-label="Open wallet"
-        >
-          <LightningIcon size={14} weight="fill" class="text-amber-400" />
-          <span class="zh-wallet-amount">
+        <!-- Mobile compact wallet pill — split into two interactive
+             zones so the user gets a one-tap currency cycle on the
+             balance text while preserving "open wallet" on the icon. -->
+        <div class="zh-wallet-mobile sm:hidden" role="group" aria-label="Wallet">
+          <button
+            type="button"
+            on:click={() => openWallet()}
+            class="zh-wallet-mobile-zone zh-wallet-mobile-icon"
+            aria-label="Open wallet"
+          >
+            <LightningIcon size={14} weight="fill" class="text-amber-400" />
+          </button>
+          <button
+            type="button"
+            on:click={() => displayCurrency.cycleSatsFiat()}
+            class="zh-wallet-mobile-zone zh-wallet-mobile-amount"
+            aria-label="Toggle currency"
+            title="Tap to toggle currency"
+          >
             <DenominatedBalance
               sats={$walletBalance}
               visible={$balanceVisible}
               loading={$walletLoading}
             />
-          </span>
-        </button>
+          </button>
+        </div>
         <!-- Desktop full WalletBalance widget -->
         <div class="hidden sm:block">
           <WalletBalance />
@@ -358,37 +369,76 @@
     color: rgb(233, 213, 255);
   }
 
-  /* Mobile wallet pill — compact { icon + balance } that opens the wallet
-     modal directly. Mobile only; the desktop uses the existing
-     WalletBalance widget. The media query is co-located with the
-     component CSS so it beats the Tailwind `sm:hidden` utility (which
-     would otherwise lose to this rule's specificity). */
+  /* Mobile wallet pill — compact container split into two interactive
+     zones: a lightning icon (opens the wallet modal) and a balance
+     text (one-tap cycles SATS ↔ preferred fiat). Mobile only; desktop
+     uses the existing WalletBalance widget. The media query is
+     co-located with the component CSS so it beats the Tailwind
+     `sm:hidden` utility (which would otherwise lose to this rule's
+     specificity). */
   .zh-wallet-mobile {
     display: inline-flex;
-    align-items: center;
-    gap: 6px;
+    align-items: stretch;
     height: 30px;
-    padding: 0 10px 0 8px;
     border-radius: 999px;
     background-color: var(--color-input-bg);
     border: 1px solid var(--color-input-border, transparent);
     color: var(--color-text-primary);
-    cursor: pointer;
     font-size: 12px;
     font-weight: 600;
     line-height: 1;
-    transition:
-      background-color 140ms ease,
-      border-color 140ms ease,
-      box-shadow 140ms ease;
-  }
-  .zh-wallet-mobile:active {
-    transform: scale(0.97);
+    overflow: hidden;
+    transition: background-color 140ms ease, border-color 140ms ease;
   }
   @media (min-width: 640px) {
     .zh-wallet-mobile {
       display: none;
     }
+  }
+
+  /* When `.zh-wallet-mobile` is used as a single button (the "Set up"
+     branch), fall back to old behavior. */
+  button.zh-wallet-mobile {
+    cursor: pointer;
+    padding: 0 10px 0 8px;
+    gap: 6px;
+    align-items: center;
+  }
+  button.zh-wallet-mobile:active {
+    transform: scale(0.97);
+  }
+
+  /* Inner zones share styling, are full-height, and meet a 30px tap
+     target via padding. They show a subtle hover state so the user
+     sees the two are independent. */
+  .zh-wallet-mobile-zone {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: 0;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+    transition: background-color 120ms ease, color 120ms ease;
+  }
+  .zh-wallet-mobile-zone:hover {
+    background-color: rgba(0, 0, 0, 0.05);
+  }
+  :global(.dark) .zh-wallet-mobile-zone:hover {
+    background-color: rgba(255, 255, 255, 0.06);
+  }
+  :where(.zh-wallet-mobile-zone:active) {
+    transform: scale(0.96);
+  }
+  .zh-wallet-mobile-icon {
+    padding: 0 6px 0 9px;
+  }
+  .zh-wallet-mobile-amount {
+    padding: 0 10px 0 6px;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.01em;
+    min-width: 3.5ch;
   }
   :global(.dark) .zh-wallet-mobile {
     background-color: rgba(255, 255, 255, 0.04);
