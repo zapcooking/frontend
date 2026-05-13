@@ -10,6 +10,7 @@
   import CustomAvatar from './CustomAvatar.svelte';
   import IntelligenceIcon from './icons/IntelligenceIcon.svelte';
   import IntelligenceMenu from './IntelligenceMenu.svelte';
+  import DenominatedBalance from './DenominatedBalance.svelte';
   import { theme } from '$lib/themeStore';
   import WalletBalance from './WalletBalance.svelte';
   import LightningIcon from 'phosphor-svelte/lib/Lightning';
@@ -134,12 +135,6 @@
     }
   }
 
-  function formatBalance(balance: number | null): string {
-    if (balance === null) return '---';
-    if (balance >= 1000000) return `${(balance / 1000000).toFixed(2)}M`;
-    if (balance >= 1000) return `${(balance / 1000).toFixed(1)}k`;
-    return balance.toLocaleString();
-  }
 </script>
 
 <!-- Mobile-first sleek header -->
@@ -239,13 +234,11 @@
         >
           <LightningIcon size={14} weight="fill" class="text-amber-400" />
           <span class="zh-wallet-amount">
-            {#if $walletLoading || $walletBalance === null}
-              ---
-            {:else if $balanceVisible}
-              {formatBalance($walletBalance)}
-            {:else}
-              ***
-            {/if}
+            <DenominatedBalance
+              sats={$walletBalance}
+              visible={$balanceVisible}
+              loading={$walletLoading}
+            />
           </span>
         </button>
         <!-- Desktop full WalletBalance widget -->

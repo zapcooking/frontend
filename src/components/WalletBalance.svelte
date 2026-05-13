@@ -44,6 +44,7 @@
   import SparkLogo from './icons/SparkLogo.svelte';
   import NwcLogo from './icons/NwcLogo.svelte';
   import BitcoinConnectLogo from './icons/BitcoinConnectLogo.svelte';
+  import DenominatedBalance from './DenominatedBalance.svelte';
 
   let dropdownActive = false;
   let showRemoveBitcoinConnectModal = false;
@@ -71,17 +72,6 @@
   // Fetch WebLN balance when connected
   $: if ($weblnConnected && weblnBalance === null && !weblnBalanceLoading) {
     refreshWeblnBalance();
-  }
-
-  function formatBalance(balance: number | null): string {
-    if (balance === null) return '---';
-    if (balance >= 1000000) {
-      return `${(balance / 1000000).toFixed(2)}M`;
-    }
-    if (balance >= 1000) {
-      return `${(balance / 1000).toFixed(1)}k`;
-    }
-    return balance.toLocaleString();
   }
 
   async function handleRefresh() {
@@ -138,15 +128,13 @@
       >
         <LightningIcon size={10} weight="fill" class="text-white" />
       </div>
-      {#if weblnBalanceLoading}
-        <span class="animate-pulse min-w-[3.5rem] text-right">...</span>
-      {:else if weblnBalance === null}
-        <span class="min-w-[3.5rem] text-right">---</span>
-      {:else if $balanceVisible}
-        <span class="min-w-[3.5rem] text-right">{formatBalance(weblnBalance)}</span>
-      {:else}
-        <span class="min-w-[3.5rem] text-right">***</span>
-      {/if}
+      <span class="min-w-[3.5rem] text-right">
+        <DenominatedBalance
+          sats={weblnBalance}
+          visible={$balanceVisible}
+          loading={weblnBalanceLoading}
+        />
+      </span>
 
       <CaretDownIcon size={12} class="text-caption ml-0.5" />
     </button>
@@ -233,15 +221,13 @@
       >
         <BitcoinConnectLogo size={10} className="text-white" />
       </div>
-      {#if $bitcoinConnectBalanceLoading}
-        <span class="animate-pulse min-w-[3.5rem] text-right">...</span>
-      {:else if $bitcoinConnectBalance === null}
-        <span class="min-w-[3.5rem] text-right">---</span>
-      {:else if $balanceVisible}
-        <span class="min-w-[3.5rem] text-right">{formatBalance($bitcoinConnectBalance)}</span>
-      {:else}
-        <span class="min-w-[3.5rem] text-right">***</span>
-      {/if}
+      <span class="min-w-[3.5rem] text-right">
+        <DenominatedBalance
+          sats={$bitcoinConnectBalance}
+          visible={$balanceVisible}
+          loading={$bitcoinConnectBalanceLoading}
+        />
+      </span>
 
       <CaretDownIcon size={12} class="text-caption ml-0.5" />
     </button>
@@ -322,13 +308,13 @@
       on:click={toggleDropdown}
     >
       <LightningIcon size={16} weight="fill" class="text-amber-500" />
-      {#if $walletLoading || $walletBalance === null}
-        <span class="animate-pulse min-w-[3.5rem] text-right">...</span>
-      {:else if $balanceVisible}
-        <span class="min-w-[3.5rem] text-right">{formatBalance($walletBalance)}</span>
-      {:else}
-        <span class="min-w-[3.5rem] text-right">***</span>
-      {/if}
+      <span class="min-w-[3.5rem] text-right">
+        <DenominatedBalance
+          sats={$walletBalance}
+          visible={$balanceVisible}
+          loading={$walletLoading}
+        />
+      </span>
 
       <CaretDownIcon size={12} class="text-caption ml-0.5" />
     </button>
