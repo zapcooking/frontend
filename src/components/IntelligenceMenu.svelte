@@ -79,7 +79,6 @@
         role="menuitem"
         on:click={() => go(item.href)}
       >
-        <span class="dot" style:background-color={item.accent}></span>
         <span class="icon" style:color={item.accent}>
           <svelte:component this={item.Icon} size={16} weight="fill" />
         </span>
@@ -130,7 +129,7 @@
 
   .item {
     display: grid;
-    grid-template-columns: auto auto 1fr;
+    grid-template-columns: auto 1fr;
     align-items: center;
     gap: 10px;
     width: 100%;
@@ -146,13 +145,6 @@
 
   .item:hover {
     background-color: var(--color-input-bg);
-  }
-
-  .dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 999px;
-    box-shadow: 0 0 6px currentColor;
   }
 
   .icon {
