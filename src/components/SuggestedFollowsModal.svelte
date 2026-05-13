@@ -7,6 +7,7 @@
   import Modal from './Modal.svelte';
   import CustomAvatar from './CustomAvatar.svelte';
   import Button from './Button.svelte';
+  import CloseIcon from 'phosphor-svelte/lib/XCircle';
 
   export let open = false;
   export let onComplete: () => void = () => {};
@@ -86,11 +87,13 @@
 
       // Active cooks — exclude community members and self, dedupe
       const communityPubkeySet = new Set(COMMUNITY_PUBKEYS);
-      const cookPubkeys = [...new Set(
-        popularCooks
-          .map((c) => c.pubkey)
-          .filter((pk) => !communityPubkeySet.has(pk) && pk !== userPubkey)
-      )];
+      const cookPubkeys = [
+        ...new Set(
+          popularCooks
+            .map((c) => c.pubkey)
+            .filter((pk) => !communityPubkeySet.has(pk) && pk !== userPubkey)
+        )
+      ];
 
       // Fill up to 21 total
       const targetCooks = Math.max(0, 21 - communityUsers.length);
@@ -132,9 +135,7 @@
             profile.displayName || profile.display_name || profile.name || 'Unknown'
           );
           const picture =
-            profile.image || profile.picture
-              ? String(profile.image || profile.picture)
-              : null;
+            profile.image || profile.picture ? String(profile.image || profile.picture) : null;
           const nip05 = profile.nip05 ? String(profile.nip05) : undefined;
 
           return { pubkey, displayName, picture, nip05 };
@@ -194,10 +195,7 @@
       const contactEvent = new NDKEvent($ndk);
       contactEvent.kind = 3;
       contactEvent.content = existingContent;
-      contactEvent.tags = [
-        ...otherTags,
-        ...Array.from(mergedPubkeys).map((pk) => ['p', pk])
-      ];
+      contactEvent.tags = [...otherTags, ...Array.from(mergedPubkeys).map((pk) => ['p', pk])];
 
       await contactEvent.publish();
     } catch (error) {
@@ -214,7 +212,24 @@
 </script>
 
 <Modal bind:open noHeader={true} allowOverflow={false}>
-  <div class="flex flex-col gap-3">
+  <div class="flex flex-col gap-3 login-modal-body">
+    <button
+      type="button"
+      class="login-modal-logo-btn"
+      aria-label="Close"
+      on:click={() => (open = false)}
+    >
+      <img src="/zap_cooking_logo_black.svg" alt="" aria-hidden="true" class="dark:hidden" />
+      <img src="/zap_cooking_logo_white.svg" alt="" aria-hidden="true" class="hidden dark:block" />
+    </button>
+    <button
+      type="button"
+      class="login-modal-close-btn"
+      aria-label="Close"
+      on:click={() => (open = false)}
+    >
+      <CloseIcon size={24} />
+    </button>
     <!-- Header -->
     <div class="text-center px-2">
       <h2 class="text-xl font-bold" style="color: var(--color-text-primary);">
@@ -230,9 +245,7 @@
         <div
           class="animate-spin w-7 h-7 border-2 border-orange-500 border-t-transparent rounded-full"
         ></div>
-        <p class="text-sm" style="color: var(--color-text-secondary);">
-          Finding your people...
-        </p>
+        <p class="text-sm" style="color: var(--color-text-secondary);">Finding your people...</p>
       </div>
     {:else}
       <!-- Selected count -->
@@ -284,7 +297,10 @@
                 {/if}
               </div>
               {#if user.nip05}
-                <p class="text-xs truncate leading-snug mt-0.5" style="color: var(--color-text-secondary);">
+                <p
+                  class="text-xs truncate leading-snug mt-0.5"
+                  style="color: var(--color-text-secondary);"
+                >
                   {user.nip05}
                 </p>
               {/if}
@@ -321,7 +337,11 @@
 
       <!-- Actions -->
       <div class="flex flex-col gap-2 pt-1">
-        <Button on:click={followSelected} disabled={publishing || selectedCount === 0} primary={true}>
+        <Button
+          on:click={followSelected}
+          disabled={publishing || selectedCount === 0}
+          primary={true}
+        >
           {#if publishing}
             Connecting...
           {:else}
@@ -335,10 +355,11 @@
           </button>
         {/if}
 
-        <button class="action-link" on:click={skip} disabled={publishing}>
-          Skip for now
-        </button>
-        <p class="text-center text-[11px]" style="color: var(--color-text-secondary); opacity: 0.7;">
+        <button class="action-link" on:click={skip} disabled={publishing}> Skip for now </button>
+        <p
+          class="text-center text-[11px]"
+          style="color: var(--color-text-secondary); opacity: 0.7;"
+        >
           You can follow more anytime
         </p>
       </div>
