@@ -8,39 +8,41 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { registerPayment, isBrantaConfigured } from '$lib/brantaService.server';
+import type { DestinationType } from '@branta-ops/branta/v2';
 
 export const POST: RequestHandler = async ({ request, platform }) => {
-	// Check if Branta is configured
-	if (!isBrantaConfigured(platform)) {
-		return json({ success: false, error: 'Branta not configured' }, { status: 503 });
-	}
+  // Check if Branta is configured
+  if (!isBrantaConfigured(platform)) {
+    return json({ success: false, error: 'Branta not configured' }, { status: 503 });
+  }
 
-	try {
-		const body = await request.json();
-		const { paymentString, ttl, description, metadata, zk } = body;
+  try {
+    const body = await request.json();
+    const { paymentString, ttl, description, metadata, destinationType } = body;
 
-		if (!paymentString || typeof paymentString !== 'string' || paymentString.trim().length === 0) {
-			return json({ success: false, error: 'paymentString is required' }, { status: 400 });
-		}
+    if (!paymentString || typeof paymentString !== 'string' || paymentString.trim().length === 0) {
+      return json({ success: false, error: 'paymentString is required' }, { status: 400 });
+    }
 
-		const result = await registerPayment(
-			paymentString,
-			typeof ttl === 'number' ? ttl : undefined,
-			typeof description === 'string' ? description : undefined,
-			typeof metadata === 'object' ? metadata : undefined,
-			typeof zk === 'boolean' ? zk : undefined, platform
-		);
+    const result = await registerPayment(
+      paymentString,
+      typeof ttl === 'number' ? ttl : undefined,
+      typeof description === 'string' ? description : undefined,
+      typeof metadata === 'object' ? metadata : undefined,
+      typeof destinationType === 'string' ? (destinationType as DestinationType) : undefined,
+      platform
+    );
 
-		if (result.success) {
-			return json({ success: true, verifyLink: result.verifyLink });
-		}
+    if (result.success) {
+      return json({ success: true, verifyLink: result.verifyLink, secret: result.secret });
+    }
 
-		return json({ success: false, error: result.error }, { status: 500 });
-	} catch (error) {
-		console.error('[Branta API] Registration error:', error);
-		return json(
-			{ success: false, error: error instanceof Error ? error.message : 'Unknown error' },
-			{ status: 500 }
-		);
-	}
+    return json({ success: false, error: result.error }, { status: 500 });
+  } catch (error) {
+    console.error('[Branta API] Registration error:', error);
+    return json(
+      { success: false, error: error instanceof Error ? error.message : 'Unknown error' },
+      { status: 500 }
+    );
+  }
 };

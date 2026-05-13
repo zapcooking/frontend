@@ -23,6 +23,7 @@
   export let rawQrText: string = '';
   export let autoVerify: boolean = true;
   export let showUnverified: boolean = false;
+  export let secret: string = '';
 
   let verified: boolean | null = null;
   let payment: Record<string, any> | null = null;
@@ -35,9 +36,10 @@
     loading = true;
 
     try {
-      const param = rawQrText
+      let param = rawQrText
         ? `qr=${encodeURIComponent(rawQrText)}`
         : `payment=${encodeURIComponent(paymentString)}`;
+      if (secret && !rawQrText) param += `&encryptionKey=${encodeURIComponent(secret)}`;
       const res = await fetch(`/api/branta/verify?${param}`);
       const data = await res.json();
 
@@ -86,7 +88,11 @@
     style="width: 100%"
   >
     {#if payment.platformLogoUrl}
-      <img src={payment.platformLogoUrl} alt={payment.platform} class="w-10 h-10 rounded object-contain" />
+      <img
+        src={payment.platformLogoUrl}
+        alt={payment.platform}
+        class="w-10 h-10 rounded object-contain"
+      />
     {:else}
       <ShieldCheckIcon size={16} weight="fill" class="text-green-500" />
     {/if}

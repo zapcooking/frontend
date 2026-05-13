@@ -371,6 +371,10 @@
   let sendInput = ''; // Invoice or Lightning address
   let brantaVerifyTriggered = false;
   let rawQrText = ''; // Raw QR text for QR-based branta verification
+  let onchainAddressBrantaSecret = '';
+  let generatedInvoiceBrantaSecret = '';
+  let nwcLud16BrantaSecret = '';
+  let sparkLightningAddressBrantaSecret = '';
   let sendAmount = 0; // Amount for Lightning address sends
   let sendComment = ''; // Optional message for Lightning address sends
   let receiveAmount = 0;
@@ -1060,7 +1064,9 @@
           shouldAutoVerify = true;
         } else if (decoded.toLowerCase().startsWith('bitcoin:')) {
           const withoutPrefix = decoded.slice('bitcoin:'.length);
-          const params = new URLSearchParams(withoutPrefix.includes('?') ? withoutPrefix.split('?')[1] : '');
+          const params = new URLSearchParams(
+            withoutPrefix.includes('?') ? withoutPrefix.split('?')[1] : ''
+          );
           if (params.has('branta_id') && params.has('branta_secret')) {
             shouldAutoVerify = true;
           }
@@ -1071,7 +1077,10 @@
         rawQrText = shouldAutoVerify ? raw : '';
         sendingMaxBalance = false;
         brantaVerifyTriggered = shouldAutoVerify;
-        if (onchainFeeQuote) { onchainFeeQuote = null; onchainPrepareResponse = null; }
+        if (onchainFeeQuote) {
+          onchainFeeQuote = null;
+          onchainPrepareResponse = null;
+        }
         stopQrCamera();
         return;
       }
@@ -1081,8 +1090,14 @@
 
   function stopQrCamera() {
     showQrCamera = false;
-    if (qrAnimFrame) { cancelAnimationFrame(qrAnimFrame); qrAnimFrame = null; }
-    if (qrCameraStream) { qrCameraStream.getTracks().forEach(t => t.stop()); qrCameraStream = null; }
+    if (qrAnimFrame) {
+      cancelAnimationFrame(qrAnimFrame);
+      qrAnimFrame = null;
+    }
+    if (qrCameraStream) {
+      qrCameraStream.getTracks().forEach((t) => t.stop());
+      qrCameraStream = null;
+    }
     qrCanvas = null;
     qrCtx = null;
   }
@@ -1109,23 +1124,31 @@
   }
 
   // Register a payment address/invoice with Branta Guardrail
-  // zk: true enables zero-knowledge encryption (on-chain addresses), false for plaintext (Lightning)
-  async function registerWithBranta(paymentString: string, description?: string, zk?: boolean) {
+  async function registerWithBranta(
+    paymentString: string,
+    description?: string,
+    destinationType?: string
+  ): Promise<{ secret?: string; verifyLink?: string }> {
     try {
-      await fetch('/api/branta/register', {
+      const res = await fetch('/api/branta/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           paymentString,
           description,
           ttl: 86400, // 24 hours
-          zk
+          destinationType
         })
       });
+      if (res.ok) {
+        const data = await res.json();
+        return { secret: data.secret, verifyLink: data.verifyLink };
+      }
     } catch (e) {
       // Silent fail - Branta registration is optional
       console.warn('[Branta] Registration failed:', e);
     }
+    return {};
   }
 
   // Reset receive modal state
@@ -1136,6 +1159,8 @@
     generatedInvoice = '';
     generatedPaymentHash = '';
     invoicePaid = false;
+    generatedInvoiceBrantaSecret = '';
+    onchainAddressBrantaSecret = '';
     receiveError = '';
     isGeneratingInvoice = false;
     balanceBeforeInvoice = null;
@@ -1154,9 +1179,13 @@
 
     try {
       const result = await receiveOnchain();
-      // Register with Branta for verification (plaintext for now, ZK in follow-up PR)
-      // Await to ensure badge can verify after registration completes
-      await registerWithBranta(result.address, 'zap.cooking Bitcoin deposit address', false);
+      // Register with Branta (ZK for on-chain addresses)
+      const brantaResult = await registerWithBranta(
+        result.address,
+        'zap.cooking Bitcoin deposit address',
+        'bitcoin_address'
+      );
+      onchainAddressBrantaSecret = brantaResult.secret ?? '';
       onchainAddress = result.address;
       // Also load any pending deposits
       await loadUnclaimedDeposits();
@@ -1471,13 +1500,13 @@
         throw new Error('Failed to generate invoice - no invoice returned');
       }
       generatedPaymentHash = result.paymentHash || '';
-      // Register with Branta for verification (zk: false for Lightning)
-      // Await to ensure badge can verify after registration completes
-      await registerWithBranta(
+      // Register with Branta (bolt11 type for Lightning invoices)
+      const brantaInvoiceResult = await registerWithBranta(
         result.invoice,
         `zap.cooking invoice for ${amountToUse} sats`,
-        false
+        'bolt11'
       );
+      generatedInvoiceBrantaSecret = brantaInvoiceResult.secret ?? '';
       generatedInvoice = result.invoice;
 
       setTimeout(() => {
@@ -2474,7 +2503,10 @@
             <div class="text-4xl font-bold text-primary-color flex items-center gap-3">
               <LightningIcon size={32} weight="fill" class="text-amber-500 flex-shrink-0" />
               {#if $walletLoading || $walletBalance === null}
-                <span class="inline-block w-32 h-9 rounded-lg animate-pulse" style="background: var(--color-input-bg);"></span>
+                <span
+                  class="inline-block w-32 h-9 rounded-lg animate-pulse"
+                  style="background: var(--color-input-bg);"
+                ></span>
               {:else if $balanceVisible}
                 {formatBalance($walletBalance)}
               {:else}
@@ -2550,10 +2582,18 @@
 
     <!-- Pending deposits alert -->
     {#if $activeWallet?.kind === 4 && unclaimedDeposits.length > 0}
-      <div class="mb-4 p-3 rounded-xl flex items-center gap-2" style="background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.3);">
+      <div
+        class="mb-4 p-3 rounded-xl flex items-center gap-2"
+        style="background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.3);"
+      >
         <WarningIcon size={18} class="text-amber-500 flex-shrink-0" />
-        <span class="text-sm font-medium" style="color: var(--color-text-primary);">{unclaimedDeposits.length} pending deposit{unclaimedDeposits.length > 1 ? 's' : ''} to claim</span>
-        <a href="#pending-deposits" class="ml-auto text-xs font-medium text-amber-500 hover:text-amber-400">View</a>
+        <span class="text-sm font-medium" style="color: var(--color-text-primary);"
+          >{unclaimedDeposits.length} pending deposit{unclaimedDeposits.length > 1 ? 's' : ''} to claim</span
+        >
+        <a
+          href="#pending-deposits"
+          class="ml-auto text-xs font-medium text-amber-500 hover:text-amber-400">View</a
+        >
       </div>
     {/if}
 
@@ -2567,9 +2607,7 @@
           <ShieldCheckIcon size={22} class="text-amber-500 flex-shrink-0 mt-0.5" />
           <div class="flex-1">
             <p class="font-medium text-primary-color mb-1">Protect your wallet</p>
-            <p class="text-sm text-caption mb-3">
-              Choose a backup method to secure your funds.
-            </p>
+            <p class="text-sm text-caption mb-3">Choose a backup method to secure your funds.</p>
 
             {#if showPaperBackupInline && revealedMnemonic}
               <div class="mb-3">
@@ -2729,7 +2767,6 @@
 
     <!-- Connected Wallets -->
     <div class="mb-8">
-
       <!-- WebLN External Wallet Display -->
       {#if $weblnConnected}
         <div
@@ -2756,9 +2793,7 @@
       {/if}
 
       {#if $wallets.length === 0 && !$weblnConnected}
-        <div
-          class="py-12 text-center flex flex-col items-center"
-        >
+        <div class="py-12 text-center flex flex-col items-center">
           {#if $bitcoinConnectEnabled}
             <div
               class="w-16 h-16 rounded-full bg-gradient-to-br from-orange-500 to-amber-500 flex items-center justify-center mb-4"
@@ -2822,11 +2857,17 @@
               </button>
             </div>
           {:else}
-            <div class="w-16 h-16 rounded-full bg-gradient-to-br from-amber-500/20 to-orange-500/20 flex items-center justify-center mb-4">
+            <div
+              class="w-16 h-16 rounded-full bg-gradient-to-br from-amber-500/20 to-orange-500/20 flex items-center justify-center mb-4"
+            >
               <WalletIcon size={32} class="text-amber-500" />
             </div>
-            <h3 class="font-semibold mb-1" style="color: var(--color-text-primary)">Get Started with Sats</h3>
-            <p class="text-caption text-sm mb-4 max-w-xs">Connect a Lightning wallet to send zaps, receive payments, and support creators.</p>
+            <h3 class="font-semibold mb-1" style="color: var(--color-text-primary)">
+              Get Started with Sats
+            </h3>
+            <p class="text-caption text-sm mb-4 max-w-xs">
+              Connect a Lightning wallet to send zaps, receive payments, and support creators.
+            </p>
             <Button
               on:click={() => {
                 showAddWallet = true;
@@ -2869,7 +2910,9 @@
             {@const isEffectivelyActive = wallet.active && !$weblnConnected}
             <div
               class="rounded-lg overflow-hidden border"
-              style="border-color: {isEffectivelyActive ? 'rgba(245, 158, 11, 0.5)' : 'var(--color-input-border)'};"
+              style="border-color: {isEffectivelyActive
+                ? 'rgba(245, 158, 11, 0.5)'
+                : 'var(--color-input-border)'};"
             >
               <div class="p-3 sm:p-4 flex items-center gap-2 sm:gap-4">
                 <!-- Wallet type icon -->
@@ -3498,7 +3541,8 @@
                 {#if tx.status === 'completed'}
                   <!-- Completed but not yet in history (outgoing = orange) -->
                   <div
-                    class="py-4 flex items-center gap-4 border-b border-l-2 border-orange-500/50 pl-3" style="border-bottom-color: var(--color-input-border);"
+                    class="py-4 flex items-center gap-4 border-b border-l-2 border-orange-500/50 pl-3"
+                    style="border-bottom-color: var(--color-input-border);"
                   >
                     {#if tx.pubkey}
                       <a href="/user/{nip19.npubEncode(tx.pubkey)}" class="flex-shrink-0">
@@ -3542,7 +3586,8 @@
                 {:else}
                   <!-- Still pending -->
                   <div
-                    class="py-4 flex items-center gap-4 border-b border-l-2 border-amber-500/50 pl-3 animate-pulse" style="border-bottom-color: var(--color-input-border);"
+                    class="py-4 flex items-center gap-4 border-b border-l-2 border-amber-500/50 pl-3 animate-pulse"
+                    style="border-bottom-color: var(--color-input-border);"
                   >
                     {#if tx.pubkey}
                       <a href="/user/{nip19.npubEncode(tx.pubkey)}" class="flex-shrink-0">
@@ -3591,7 +3636,8 @@
                 {#if tx.status === 'pending'}
                   <!-- Pending transaction from SDK -->
                   <div
-                    class="py-4 flex items-center gap-4 border-b border-l-2 border-amber-500/50 pl-3 animate-pulse" style="border-bottom-color: var(--color-input-border);"
+                    class="py-4 flex items-center gap-4 border-b border-l-2 border-amber-500/50 pl-3 animate-pulse"
+                    style="border-bottom-color: var(--color-input-border);"
                   >
                     {#if tx.pubkey}
                       <a href="/user/{nip19.npubEncode(tx.pubkey)}" class="flex-shrink-0">
@@ -3643,7 +3689,10 @@
                   </div>
                 {:else}
                   <!-- Completed transaction -->
-                  <div class="py-4 flex items-center gap-4 border-b" style="border-color: var(--color-input-border);">
+                  <div
+                    class="py-4 flex items-center gap-4 border-b"
+                    style="border-color: var(--color-input-border);"
+                  >
                     {#if tx.pubkey}
                       <a href="/user/{nip19.npubEncode(tx.pubkey)}" class="flex-shrink-0">
                         <CustomAvatar pubkey={tx.pubkey} size={40} />
@@ -4042,9 +4091,7 @@
                         </button>
                       </div>
                       {#if canCheckSparkBackup && sparkBackupExists === false}
-                        <p class="text-xs text-caption text-center">
-                          No backup found on relays.
-                        </p>
+                        <p class="text-xs text-caption text-center">No backup found on relays.</p>
                       {/if}
                     </div>
                   {/if}
@@ -4365,7 +4412,10 @@
 
             {#if walletToDelete.kind === 4 || walletToDelete.kind === 3}
               <!-- Backup warning -->
-              <div class="flex items-center gap-2 mb-3 pb-3 border-b" style="border-color: var(--color-input-border);">
+              <div
+                class="flex items-center gap-2 mb-3 pb-3 border-b"
+                style="border-color: var(--color-input-border);"
+              >
                 <WarningIcon size={18} class="text-amber-500 flex-shrink-0" />
                 <span class="text-sm text-amber-500">Back up your wallet before removing</span>
               </div>
@@ -4414,7 +4464,10 @@
               </div>
 
               <!-- Delete relay backup toggle -->
-              <label class="flex items-center gap-2 mb-4 cursor-pointer text-sm" style="color: var(--color-text-secondary);">
+              <label
+                class="flex items-center gap-2 mb-4 cursor-pointer text-sm"
+                style="color: var(--color-text-secondary);"
+              >
                 <input type="checkbox" bind:checked={deleteRelayBackups} class="accent-red-500" />
                 Also delete relay backup
               </label>
@@ -4752,7 +4805,7 @@
                   <div class="mt-1">
                     {#if sendInput.trim()}
                       {#if brantaVerifyTriggered}
-                        <BrantaBadge paymentString={sendInput.trim()} rawQrText={rawQrText} />
+                        <BrantaBadge paymentString={sendInput.trim()} {rawQrText} />
                       {:else}
                         <button
                           type="button"
@@ -4995,23 +5048,28 @@
             </div>
           </div>
         </div>
-      {#if showQrCamera}
-        <div class="fixed inset-0 bg-black z-[60] flex flex-col">
-          <div class="flex items-center justify-between p-4">
-            <span class="text-white text-sm font-medium">Point camera at QR code</span>
-            <button type="button" class="text-white p-1" on:click={stopQrCamera} aria-label="Close QR scanner">
-              <XIcon size={24} />
-            </button>
+        {#if showQrCamera}
+          <div class="fixed inset-0 bg-black z-[60] flex flex-col">
+            <div class="flex items-center justify-between p-4">
+              <span class="text-white text-sm font-medium">Point camera at QR code</span>
+              <button
+                type="button"
+                class="text-white p-1"
+                on:click={stopQrCamera}
+                aria-label="Close QR scanner"
+              >
+                <XIcon size={24} />
+              </button>
+            </div>
+            <div class="flex-1 flex items-center justify-center overflow-hidden">
+              <!-- svelte-ignore a11y-media-has-caption -->
+              <video bind:this={qrVideoElement} class="w-full h-full object-cover" playsinline />
+            </div>
+            <div class="p-4 text-center text-white/50 text-sm">Scanning for QR code...</div>
           </div>
-          <div class="flex-1 flex items-center justify-center overflow-hidden">
-            <!-- svelte-ignore a11y-media-has-caption -->
-            <video bind:this={qrVideoElement} class="w-full h-full object-cover" playsinline />
-          </div>
-          <div class="p-4 text-center text-white/50 text-sm">Scanning for QR code...</div>
-        </div>
-      {/if}
-    </div>
-  {/if}
+        {/if}
+      </div>
+    {/if}
 
     <!-- Receive Modal -->
     {#if showReceiveModal && portalTarget}
@@ -5184,7 +5242,10 @@
 
                   <!-- Branta Verification Badge -->
                   <div class="flex justify-center">
-                    <BrantaBadge paymentString={onchainAddress} />
+                    <BrantaBadge
+                      paymentString={onchainAddress}
+                      secret={onchainAddressBrantaSecret}
+                    />
                   </div>
 
                   <!-- Address (segmented for easier verification) -->
@@ -5361,7 +5422,12 @@
                             on:click={async () => {
                               const wasHidden = showLightningAddressQr !== nwcLud16;
                               if (wasHidden && nwcLud16) {
-                                await registerWithBranta(nwcLud16, 'NWC Lightning Address', false);
+                                const r = await registerWithBranta(
+                                  nwcLud16,
+                                  'NWC Lightning Address',
+                                  'ln_address'
+                                );
+                                nwcLud16BrantaSecret = r.secret ?? '';
                                 showLightningAddressQr = nwcLud16;
                               } else {
                                 showLightningAddressQr = null;
@@ -5406,7 +5472,7 @@
                         </div>
                         <!-- Branta Verification Badge -->
                         <div class="flex justify-center mt-2">
-                          <BrantaBadge paymentString={nwcLud16} />
+                          <BrantaBadge paymentString={nwcLud16} secret={nwcLud16BrantaSecret} />
                         </div>
                       {/if}
                     </div>
@@ -5446,11 +5512,12 @@
                               const wasHidden =
                                 showLightningAddressQr !== $sparkLightningAddressStore;
                               if (wasHidden && $sparkLightningAddressStore) {
-                                await registerWithBranta(
+                                const r = await registerWithBranta(
                                   $sparkLightningAddressStore,
                                   'Spark Lightning Address',
-                                  false
+                                  'ln_address'
                                 );
+                                sparkLightningAddressBrantaSecret = r.secret ?? '';
                                 showLightningAddressQr = $sparkLightningAddressStore;
                               } else {
                                 showLightningAddressQr = null;
@@ -5500,7 +5567,10 @@
                         </div>
                         <!-- Branta Verification Badge -->
                         <div class="flex justify-center mt-2">
-                          <BrantaBadge paymentString={$sparkLightningAddressStore} />
+                          <BrantaBadge
+                            paymentString={$sparkLightningAddressStore}
+                            secret={sparkLightningAddressBrantaSecret}
+                          />
                         </div>
                       {/if}
                     </div>
@@ -5551,7 +5621,10 @@
                     </div>
                     <!-- Branta Verification Badge -->
                     <div class="flex justify-center mt-2">
-                      <BrantaBadge paymentString={generatedInvoice} />
+                      <BrantaBadge
+                        paymentString={generatedInvoice}
+                        secret={generatedInvoiceBrantaSecret}
+                      />
                     </div>
                   {/if}
 

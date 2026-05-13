@@ -13,7 +13,13 @@
  */
 
 import { env } from '$env/dynamic/private';
-import { V2BrantaClient, type BrantaClientOptions, type Destination, type Payment } from '@branta-ops/branta';
+import {
+  BrantaService,
+  type Destination,
+  type DestinationType,
+  type Payment
+} from '@branta-ops/branta/v2';
+import type { BrantaClientOptions } from '@branta-ops/branta';
 
 export type { Payment };
 
@@ -36,11 +42,9 @@ export function getBrantaConfig(platform?: any): BrantaClientOptions | null {
   }
 
   const baseUrl =
-    platform?.env?.BRANTA_API_BASE_URL ||
-    env.BRANTA_API_BASE_URL ||
-    'https://guardrail.branta.pro';
+    platform?.env?.BRANTA_API_BASE_URL || env.BRANTA_API_BASE_URL || 'https://guardrail.branta.pro';
 
-  return { defaultApiKey: apiKey, baseUrl };
+  return { defaultApiKey: apiKey, baseUrl, privacy: 'strict' };
 }
 
 /**
@@ -50,12 +54,14 @@ export function isBrantaConfigured(platform?: any): boolean {
   return getBrantaConfig(platform) !== null;
 }
 
-
 /**
  * Register a payment address/invoice with Branta
  *
  * @param paymentString - The Bitcoin address, Lightning invoice, or Lightning address
- * @param options - Optional configuration (ttl, description, metadata)
+ * @param ttl - Time-to-live in seconds (default 24 hours)
+ * @param description - Optional description
+ * @param metadata - Optional metadata
+ * @param destinationType - Type of payment destination (bitcoin_address, bolt11, ln_address, etc.)
  * @param platform - Optional platform object for Cloudflare Workers
  */
 export async function registerPayment(
@@ -63,7 +69,7 @@ export async function registerPayment(
   ttl: number | undefined,
   description: string | undefined,
   metadata: object | undefined,
-  zk: boolean | undefined,
+  destinationType: DestinationType | undefined,
   platform?: any
 ): Promise<RegisterPaymentResult> {
   const config = getBrantaConfig(platform);
@@ -73,14 +79,13 @@ export async function registerPayment(
   }
 
   try {
-    // Build destination object with optional zk flag
     const destination: Destination = {
-      value: paymentString.trim()
+      value: paymentString.trim(),
+      zk: true
     };
 
-    // Use zk (zero-knowledge) for on-chain addresses, plaintext for lightning
-    if (zk !== undefined) {
-      destination.zk = zk;
+    if (destinationType !== undefined) {
+      destination.type = destinationType;
     }
 
     const body: Payment = {
@@ -92,21 +97,13 @@ export async function registerPayment(
       body.description = description;
     }
 
-    // metadata must be stringified JSON per API spec
     if (metadata) {
       body.metadata = metadata as Record<string, string>;
     }
 
-    const brantaClient = new V2BrantaClient(config);
-
-    // Use ZK encryption for on-chain addresses, plaintext for Lightning
-    if (zk) {
-      const result = await brantaClient.addZKPayment(body);
-      return { success: true, verifyLink: result.verifyLink, secret: result.secret };
-    } else {
-      const result = await brantaClient.addPayment(body);
-      return { success: true, verifyLink: result.verifyLink };
-    }
+    const brantaService = new BrantaService(config);
+    const result = await brantaService.addPayment(body);
+    return { success: true, verifyLink: result.verifyLink, secret: result.secret };
   } catch (error) {
     if (error instanceof Error && error.name === 'AbortError') {
       console.warn('[Branta] Registration request timed out');
@@ -126,14 +123,15 @@ export async function registerPayment(
  */
 export async function getPaymentInfo(
   paymentString: string,
+  encryptionKey?: string | null,
   platform?: any
 ): Promise<Payment | null> {
   const config = getBrantaConfig(platform);
   if (!config || !paymentString?.trim()) return null;
 
   try {
-    const brantaClient = new V2BrantaClient(config);
-    const response = await brantaClient.getPayments(paymentString.trim());
+    const brantaService = new BrantaService(config);
+    const response = await brantaService.getPayments(paymentString.trim(), encryptionKey ?? null);
     return response[0] ?? null;
   } catch (error) {
     console.warn('[Branta] getPaymentInfo failed:', error);
@@ -152,8 +150,8 @@ export async function getPaymentInfoByQRCode(
   if (!config || !qrText?.trim()) return null;
 
   try {
-    const brantaClient = new V2BrantaClient(config);
-    const response = await brantaClient.getPaymentsByQRCode(qrText.trim());
+    const brantaService = new BrantaService(config);
+    const response = await brantaService.getPaymentsByQRCode(qrText.trim());
 
     return response[0] ?? null;
   } catch (error) {
@@ -161,4 +159,3 @@ export async function getPaymentInfoByQRCode(
     return null;
   }
 }
-
