@@ -326,8 +326,11 @@
 </div>
 
 <style>
-  /* Shared icon button — minimal, balanced tap target, subtle hover */
-  .zh-iconbtn {
+  /* Shared icon button — minimal, balanced tap target, subtle hover.
+     Wrapped in :where() so Tailwind responsive utilities (sm:hidden,
+     etc.) can override individual properties without specificity
+     fights. */
+  :where(.zh-iconbtn) {
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -363,7 +366,10 @@
   }
 
   /* Mobile wallet pill — compact { icon + balance } that opens the wallet
-     modal directly. Keeps the header dense without losing live balance. */
+     modal directly. Mobile only; the desktop uses the existing
+     WalletBalance widget. The media query is co-located with the
+     component CSS so it beats the Tailwind `sm:hidden` utility (which
+     would otherwise lose to this rule's specificity). */
   .zh-wallet-mobile {
     display: inline-flex;
     align-items: center;
@@ -385,6 +391,11 @@
   }
   .zh-wallet-mobile:active {
     transform: scale(0.97);
+  }
+  @media (min-width: 640px) {
+    .zh-wallet-mobile {
+      display: none;
+    }
   }
   :global(.dark) .zh-wallet-mobile {
     background-color: rgba(255, 255, 255, 0.04);
