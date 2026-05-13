@@ -1321,14 +1321,20 @@
           destinationType
         })
       });
-      if (res.ok) {
-        const data = await res.json();
-        return {
-          secret: data.secret,
-          encryptedDestination: data.encryptedDestination,
-          verifyLink: data.verifyLink
-        };
+      if (!res.ok) {
+        console.warn('[Branta] Registration returned non-OK status:', res.status);
+        return {};
       }
+      const data = await res.json().catch(() => ({}));
+      if (data?.success !== true) {
+        console.warn('[Branta] Registration unsuccessful:', data?.error);
+        return {};
+      }
+      return {
+        secret: data.secret,
+        encryptedDestination: data.encryptedDestination,
+        verifyLink: data.verifyLink
+      };
     } catch (e) {
       // Silent fail - Branta registration is optional
       console.warn('[Branta] Registration failed:', e);
@@ -5570,6 +5576,8 @@
               class="w-full py-3 px-4 rounded-xl border border-input hover:bg-input text-primary-color font-medium transition-colors"
               on:click={() => {
                 onchainAddress = null;
+                onchainAddressBrantaSecret = '';
+                onchainAddressBrantaEncryptedDestination = '';
                 receiveMode = 'lightning';
               }}
             >
