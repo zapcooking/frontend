@@ -345,7 +345,7 @@
           {#if publishing}
             Connecting...
           {:else}
-            ⚡ Follow Friends
+            Follow Friends
           {/if}
         </Button>
 

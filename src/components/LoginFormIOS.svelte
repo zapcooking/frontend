@@ -427,7 +427,7 @@
       {/if}
       <div class="flex gap-2">
         <Button on:click={loginWithPrivateKey} primary={true} disabled={authState.isLoading}>
-          {authState.isLoading ? '⚡ Connecting...' : '⚡ Login'}
+          {authState.isLoading ? 'Connecting...' : 'Login'}
         </Button>
       </div>
     </div>
@@ -526,7 +526,9 @@
         <div class="login-modal-hero-icon">
           <ProfileReadyIcon size={36} class="text-amber-500" />
         </div>
-        <h2 class="login-modal-hero-title">Your Zap Cooking profile is almost ready!</h2>
+        <h2 class="login-modal-hero-title">
+          Create your Zap Cooking profile<br />in under a minute.
+        </h2>
       </div>
     {:else}
       <h2 class="login-modal-title">
@@ -568,8 +570,8 @@
           </p>
 
           <div>
-            <Button on:click={generateNewKeys} primary={true} class="w-full">
-              ⚡ Create Profile
+            <Button on:click={generateNewKeys} primary={true} class="w-full spark-glow">
+              Create Profile
             </Button>
             <p class="text-xs text-caption text-center mt-2">Takes less than 10 seconds</p>
           </div>
@@ -686,7 +688,7 @@
               class="w-full {!backupDownloaded ? 'opacity-50 cursor-not-allowed' : ''}"
               disabled={!backupDownloaded}
             >
-              ⚡ Next
+              Next
             </Button>
             {#if !backupDownloaded}
               <p class="text-xs text-caption text-center">Download the backup file to continue.</p>
@@ -813,7 +815,7 @@
                 disabled={authState.isLoading || uploadingPicture}
                 class="w-full"
               >
-                {authState.isLoading ? '⚡ Setting up...' : '⚡ Continue to Zap Cooking'}
+                {authState.isLoading ? 'Setting up...' : 'Continue to Zap Cooking'}
               </Button>
             </div>
           {/if}

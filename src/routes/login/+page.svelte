@@ -533,7 +533,7 @@
         {/if}
         <div class="flex gap-2">
           <Button on:click={loginWithPrivateKey} primary={true} disabled={authState.isLoading}>
-            {authState.isLoading ? '⚡ Connecting...' : '⚡ Login'}
+            {authState.isLoading ? 'Connecting...' : 'Login'}
           </Button>
         </div>
       </div>
@@ -747,7 +747,9 @@
           <div class="login-modal-hero-icon">
             <ProfileReadyIcon size={36} class="text-amber-500" />
           </div>
-          <h2 class="login-modal-hero-title">Your Zap Cooking profile is almost ready!</h2>
+          <h2 class="login-modal-hero-title">
+            Create your Zap Cooking profile<br />in under a minute.
+          </h2>
         </div>
       {:else}
         <h2 class="login-modal-title">
@@ -789,8 +791,8 @@
             </p>
 
             <div>
-              <Button on:click={generateNewKeys} primary={true} class="w-full">
-                ⚡ Create Profile
+              <Button on:click={generateNewKeys} primary={true} class="w-full spark-glow">
+                Create Profile
               </Button>
               <p class="text-xs text-caption text-center mt-2">Takes less than 10 seconds</p>
             </div>
@@ -909,7 +911,7 @@
                 class="w-full {!backupDownloaded ? 'opacity-50 cursor-not-allowed' : ''}"
                 disabled={!backupDownloaded}
               >
-                ⚡ Next
+                Next
               </Button>
               {#if !backupDownloaded}
                 <p class="text-xs text-caption text-center">
@@ -1040,7 +1042,7 @@
                   disabled={authState.isLoading || uploadingPicture}
                   class="w-full"
                 >
-                  {authState.isLoading ? '⚡ Setting up...' : '⚡ Continue to Zap Cooking'}
+                  {authState.isLoading ? 'Setting up...' : 'Continue to Zap Cooking'}
                 </Button>
               </div>
             {/if}
@@ -1141,16 +1143,6 @@
         aria-label="Sign in to Zap Cooking using your Nostr browser extension"
         class="signin-cta-primary"
       >
-        <svg
-          class="signin-icon"
-          width="20"
-          height="20"
-          viewBox="0 0 24 24"
-          fill="none"
-          aria-hidden="true"
-        >
-          <path d="M13 2L4 14h7l-1 8 9-12h-7l1-8z" fill="currentColor" />
-        </svg>
         <span>{authState.isLoading ? 'Connecting…' : 'Sign in with Browser Signer'}</span>
       </button>
 
@@ -1337,9 +1329,9 @@
       <footer class="signin-footer">
         <span class="signin-footer-tag">Your identity · Your data · Your money</span>
         <span class="signin-footer-links">
-          <a href="/terms">Terms</a>
+          <a href="/terms" target="_blank" rel="noopener noreferrer">Terms</a>
           <span aria-hidden="true">·</span>
-          <a href="/privacy">Privacy</a>
+          <a href="/privacy" target="_blank" rel="noopener noreferrer">Privacy</a>
         </span>
       </footer>
     </section>
@@ -1895,14 +1887,46 @@
     height: 4rem;
     margin: 0 auto 0.75rem;
     border-radius: 9999px;
-    background: linear-gradient(
-      135deg,
-      rgba(245, 158, 11, 0.2) 0%,
-      rgba(249, 115, 22, 0.2) 100%
-    );
+    background: linear-gradient(135deg, rgba(245, 158, 11, 0.2) 0%, rgba(249, 115, 22, 0.2) 100%);
     display: flex;
     align-items: center;
     justify-content: center;
+    /* Shine sweep — mirrors the wallet's welcome-bolt animation so the
+       onboarding hero reads as part of the same visual family. */
+    position: relative;
+    overflow: hidden;
+    isolation: isolate;
+  }
+  :global(.login-modal-hero-icon)::after {
+    content: '';
+    position: absolute;
+    inset: -25%;
+    background: linear-gradient(
+      120deg,
+      transparent 0%,
+      transparent 40%,
+      rgba(255, 255, 255, 0.22) 50%,
+      transparent 60%,
+      transparent 100%
+    );
+    transform: translateX(-110%);
+    animation: login-hero-shine 2.8s ease-in-out infinite;
+    pointer-events: none;
+    will-change: transform;
+  }
+  @keyframes login-hero-shine {
+    0% {
+      transform: translateX(-110%);
+    }
+    55%,
+    100% {
+      transform: translateX(110%);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    :global(.login-modal-hero-icon)::after {
+      animation: none;
+    }
   }
   :global(.login-modal-hero-title) {
     font-size: 1.5rem;

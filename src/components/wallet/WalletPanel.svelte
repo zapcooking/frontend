@@ -4432,19 +4432,18 @@
         </div>
       {/if}
 
-      <!-- "I'll do this later." dismiss for the no-wallet welcome state.
-           The X top-right also closes the modal, but a soft text link in
-           the setup flow gives users a low-pressure way out. Hidden when
-           a wallet type has been selected (sub-screens have their own
+      <!-- Welcome card / soft exit for first-time users who land here
+           with no wallet yet. Frames the wallet as optional and gives a
+           clear "explore the rest of the app" CTA. Hidden when a
+           wallet type has been selected (sub-screens have their own
            back-bar) or when the user is just adding another wallet. -->
       {#if !hasAnyWallet && !selectedWalletType}
-        <div class="mt-6 mb-2 text-center">
-          <button
-            type="button"
-            class="text-sm font-bold text-caption hover:text-primary transition-colors cursor-pointer"
-            on:click={dismissPicker}
-          >
-            I'll do this later.
+        <div class="explore-prompt-card">
+          <p class="explore-prompt-card__text">
+            Not ready for a wallet? You can explore Zap Cooking and come back anytime.
+          </p>
+          <button type="button" class="explore-prompt-card__cta" on:click={dismissPicker}>
+            Explore Zap Cooking →
           </button>
         </div>
       {/if}
@@ -6157,6 +6156,45 @@
     .welcome-bolt::after {
       animation: none;
     }
+  }
+
+  /* "Explore Zap Cooking" exit card at the bottom of the welcome
+     picker. Replaces the earlier text-link "I'll do this later" — a
+     visible card with a clear CTA makes the exit obvious for users
+     who aren't ready to set up a wallet on first run. */
+  .explore-prompt-card {
+    margin-top: 2rem;
+    padding: 1rem 1.25rem;
+    border-radius: 1rem;
+    background: rgba(245, 158, 11, 0.05);
+    border: 1px solid rgba(245, 158, 11, 0.2);
+    text-align: center;
+  }
+  .explore-prompt-card__text {
+    font-size: 0.875rem;
+    color: var(--color-text-secondary);
+    margin: 0 0 0.75rem;
+    line-height: 1.5;
+  }
+  .explore-prompt-card__cta {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.5rem 1.25rem;
+    border-radius: 9999px;
+    background: var(--color-input-bg);
+    border: 1px solid var(--color-input-border);
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--color-text-primary);
+    cursor: pointer;
+    transition:
+      background-color 0.15s,
+      border-color 0.15s;
+  }
+  .explore-prompt-card__cta:hover {
+    background: rgba(255, 255, 255, 0.05);
+    border-color: rgba(245, 158, 11, 0.5);
   }
 
   /* :global() so the rule reaches buttons rendered by child components
