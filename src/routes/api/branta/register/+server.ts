@@ -8,6 +8,15 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { registerPayment, isBrantaConfigured } from '$lib/brantaService.server';
+import type { DestinationType } from '@branta-ops/branta/v2';
+
+const ALLOWED_DESTINATION_TYPES: ReadonlyArray<DestinationType> = [
+	'bitcoin_address',
+	'bolt11',
+	'bolt12',
+	'ln_url',
+	'tether_address'
+];
 
 export const POST: RequestHandler = async ({ request, platform }) => {
 	// Check if Branta is configured
@@ -17,10 +26,24 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 
 	try {
 		const body = await request.json();
-		const { paymentString, ttl, description, metadata, zk } = body;
+		const { paymentString, ttl, description, metadata, destinationType } = body;
 
 		if (!paymentString || typeof paymentString !== 'string' || paymentString.trim().length === 0) {
 			return json({ success: false, error: 'paymentString is required' }, { status: 400 });
+		}
+
+		let validatedDestinationType: DestinationType | undefined;
+		if (destinationType !== undefined && destinationType !== null) {
+			if (
+				typeof destinationType !== 'string' ||
+				!ALLOWED_DESTINATION_TYPES.includes(destinationType as DestinationType)
+			) {
+				return json(
+					{ success: false, error: 'invalid destinationType' },
+					{ status: 400 }
+				);
+			}
+			validatedDestinationType = destinationType as DestinationType;
 		}
 
 		const result = await registerPayment(
@@ -28,11 +51,12 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 			typeof ttl === 'number' ? ttl : undefined,
 			typeof description === 'string' ? description : undefined,
 			typeof metadata === 'object' ? metadata : undefined,
-			typeof zk === 'boolean' ? zk : undefined, platform
+			validatedDestinationType,
+			platform
 		);
 
 		if (result.success) {
-			return json({ success: true, verifyLink: result.verifyLink });
+			return json({ success: true, verifyLink: result.verifyLink, secret: result.secret, encryptedDestination: result.encryptedDestination });
 		}
 
 		return json({ success: false, error: result.error }, { status: 500 });

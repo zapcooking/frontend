@@ -21,6 +21,8 @@
 
   export let paymentString: string = '';
   export let rawQrText: string = '';
+  export let secret: string | undefined = undefined;
+  export let encryptedDestination: string | undefined = undefined;
   export let autoVerify: boolean = true;
   export let showUnverified: boolean = false;
 
@@ -35,10 +37,17 @@
     loading = true;
 
     try {
-      const param = rawQrText
-        ? `qr=${encodeURIComponent(rawQrText)}`
-        : `payment=${encodeURIComponent(paymentString)}`;
-      const res = await fetch(`/api/branta/verify?${param}`);
+      const address = encryptedDestination || paymentString;
+      // Secret is sent in a POST body (not as a query param) so it isn't
+      // captured by logs, proxies, or referrers.
+      const requestBody = rawQrText
+        ? { qr: rawQrText }
+        : { payment: address, ...(secret ? { secret } : {}) };
+      const res = await fetch('/api/branta/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestBody)
+      });
       const data = await res.json();
 
       if (res.status === 503) {
