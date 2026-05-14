@@ -48,7 +48,7 @@ function getInitialCurrency(): CurrencyCode {
   return 'SATS';
 }
 
-function getPreferredFiat(): CurrencyCode {
+export function getPreferredFiat(): CurrencyCode {
   if (!browser) return 'USD';
   const stored = localStorage.getItem(PREFERRED_FIAT_KEY);
   if (
