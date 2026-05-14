@@ -188,7 +188,7 @@
         // Use in-app wallet directly
         const result = await sendPayment(ZAPPY_LIGHTNING_ADDRESS, {
           amount: zapAmount,
-          description: zapMessage || `Zap to Zappy from ${$userPublickey?.substring(0, 8)}...`,
+          description: zapMessage || `Zap to Chef ₿ from ${$userPublickey?.substring(0, 8)}...`,
           comment: zapMessage
         });
         
@@ -378,7 +378,7 @@
 </script>
 
 <svelte:head>
-  <title>Zappy - zap.cooking</title>
+  <title>Chef ₿ - zap.cooking</title>
 </svelte:head>
 
 <div class="flex flex-col max-w-[760px] mx-auto gap-6 pb-8">
@@ -387,17 +387,17 @@
     <div class="flex items-center justify-between">
       <div class="flex items-center gap-3">
         <RobotIcon size={32} class="text-yellow-500" weight="fill" />
-        <h1>Zappy</h1>
+        <h1>Chef ₿</h1>
       </div>
       {#if hasMembership}
         <button
           type="button"
           class="flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium transition-all bg-yellow-500/10 hover:bg-yellow-500/20 text-yellow-600 hover:scale-105"
           on:click={openZapModal}
-          title="Zap Zappy to say thanks ⚡"
+          title="Zap Chef ₿ to say thanks ⚡"
         >
           <LightningIcon size={16} weight="fill" />
-          Zap Zappy
+          Zap Chef ₿
         </button>
       {/if}
     </div>
@@ -422,7 +422,7 @@
       <div class="text-center max-w-md">
         <h2 class="mb-2">Pro Kitchen Feature</h2>
         <p class="text-caption mb-6">
-          Zappy is available exclusively for Pro Kitchen members. 
+          Chef ₿ is available exclusively for Pro Kitchen members.
           Upgrade your membership to unlock your AI recipe generator.
         </p>
         <Button on:click={() => goto('/membership')}>
@@ -623,7 +623,7 @@
       {#if status === 'generating'}
         <div class="flex items-center gap-2 text-caption">
           <ArrowsClockwiseIcon size={16} class="animate-spin" />
-          <span>Zappy is cooking up something delicious...</span>
+          <span>Chef ₿ is cooking up something delicious...</span>
         </div>
       {:else if status === 'error'}
         <div class="flex items-start gap-3 p-4 rounded-xl bg-red-500/10 border border-red-500/20">
@@ -658,9 +658,9 @@
           style="background-color: #1a1a2e; border: 1px solid #2d2d44;"
         >
           {#if output}
-            <!-- Zappy attribution header -->
+            <!-- Chef ₿ attribution header -->
             <p class="text-yellow-400/80 text-xs font-medium mb-3 pb-2 border-b border-gray-700/50">
-              Zappy cooked this up for you 🤖⚡
+              Chef ₿ cooked this up for you ⚡
             </p>
             <pre class="whitespace-pre-wrap font-mono text-sm leading-relaxed text-gray-200">{output}</pre>
             
@@ -681,7 +681,7 @@
               </button>
             </div>
           {:else}
-            <p class="text-gray-500 font-mono text-sm italic">Zappy will drop your recipe here…</p>
+            <p class="text-gray-500 font-mono text-sm italic">Chef ₿ will drop your recipe here…</p>
           {/if}
         </div>
       </div>
@@ -689,11 +689,11 @@
   {/if}
 </div>
 
-<!-- Zap Zappy Modal -->
+<!-- Zap Chef ₿ Modal -->
 <Modal bind:open={zapModalOpen}>
   <h1 slot="title" class="flex items-center gap-2">
     <RobotIcon size={24} class="text-yellow-500" weight="fill" />
-    Zap Zappy
+    Zap Chef ₿
   </h1>
   
   <div class="flex flex-col gap-4">
@@ -708,8 +708,8 @@
         </div>
         <Checkmark color="#90EE90" weight="fill" class="w-20 h-20" />
         <div class="text-center">
-          <p class="text-xl font-semibold" style="color: var(--color-text-primary)">Zappy says thanks!</p>
-          <p class="text-caption mt-1">Your {zapAmount} sats made Zappy's circuits warm! 🤖⚡</p>
+          <p class="text-xl font-semibold" style="color: var(--color-text-primary)">Chef ₿ says thanks!</p>
+          <p class="text-caption mt-1">Your {zapAmount} sats fired up Chef ₿'s kitchen! ⚡</p>
         </div>
       </div>
     {:else if zapStatus === 'error'}
@@ -722,7 +722,7 @@
     {:else}
       <!-- Selection state -->
       <div class="flex flex-col gap-4">
-        <p class="text-caption text-center">Show Zappy some love! Your zaps keep the robot running. 🤖</p>
+        <p class="text-caption text-center">Show Chef ₿ some love! Your zaps keep the kitchen running. ⚡</p>
         
         <!-- Amount selection -->
         <div class="grid grid-cols-3 gap-2">
@@ -756,7 +756,7 @@
           type="text"
           class="input"
           bind:value={zapMessage}
-          placeholder="Message for Zappy (optional)"
+          placeholder="Message for Chef ₿ (optional)"
           maxlength="140"
         />
         
@@ -785,9 +785,9 @@
         >
           {#if zapStatus === 'paying'}
             <ArrowsClockwiseIcon size={18} class="animate-spin" />
-            Sending to Zappy...
+            Sending to Chef ₿...
           {:else}
-            ⚡ Send {zapAmount.toLocaleString()} sats to Zappy
+            ⚡ Send {zapAmount.toLocaleString()} sats to Chef ₿
           {/if}
         </Button>
       </div>
@@ -800,7 +800,7 @@
   <div class="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 animate-bounce">
     <div class="flex items-center gap-2 px-4 py-3 rounded-full bg-yellow-500 text-white font-semibold shadow-lg">
       <RobotIcon size={20} weight="fill" />
-      <span>Zappy loves you! ⚡</span>
+      <span>Chef ₿ loves you! ⚡</span>
       <HeartIcon size={20} weight="fill" class="text-red-300" />
     </div>
   </div>

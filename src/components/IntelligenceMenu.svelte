@@ -20,7 +20,7 @@
     },
     {
       href: '/zappy',
-      label: 'Zappy',
+      label: 'Chef ₿',
       blurb: 'AI cooking assistant',
       Icon: RobotIcon,
       accent: 'rgb(234, 179, 8)'

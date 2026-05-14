@@ -188,7 +188,7 @@
       { icon: ShieldCheckIcon, label: 'Verified NIP-05 Identity' },
       { icon: StorefrontIcon, label: 'Market Access' },
       { icon: StarIcon, label: 'Priority Relay Access' },
-      { icon: CookingPotIcon, label: 'Zappy AI Assistant' },
+      { icon: CookingPotIcon, label: 'Chef ₿ AI Assistant' },
     ],
     founders: [
       { icon: CrownIcon, label: 'Lifetime Access — All Features' },
@@ -197,7 +197,7 @@
       { icon: ShieldCheckIcon, label: 'Verified NIP-05 Identity' },
       { icon: StorefrontIcon, label: 'Market Access' },
       { icon: StarIcon, label: 'Priority Relay Access' },
-      { icon: CookingPotIcon, label: 'Zappy AI Assistant' },
+      { icon: CookingPotIcon, label: 'Chef ₿ AI Assistant' },
     ],
   };
 
@@ -801,7 +801,7 @@
               <li>
                 <span class="feature-icon">🤖</span>
                 <div class="feature-content">
-                  <a href="/zappy" class="feature-link">Zappy - Scan your fridge, generate recipes, and plan what to make tonight</a>
+                  <a href="/zappy" class="feature-link">Chef ₿ - Scan your fridge, generate recipes, and plan what to make tonight</a>
                   <span class="feature-subtext">Your personal kitchen companion</span>
                 </div>
               </li>
