@@ -14,6 +14,8 @@
   import { saveDraft } from '$lib/draftStore';
   import ShareIcon from 'phosphor-svelte/lib/Share';
   import FloppyDiskIcon from 'phosphor-svelte/lib/FloppyDisk';
+  import ArrowLeftIcon from 'phosphor-svelte/lib/ArrowLeft';
+  import InfoIcon from 'phosphor-svelte/lib/Info';
   import LightningIcon from 'phosphor-svelte/lib/Lightning';
   import RobotIcon from 'phosphor-svelte/lib/Robot';
   import LeafIcon from 'phosphor-svelte/lib/Leaf';
@@ -133,6 +135,12 @@
   // can see what's cooking. For chips it's the chip label; for Cook
   // It it's the textarea content; for Surprise Me it's "Surprise me".
   let currentPrompt = '';
+
+  // Non-fatal notice (amber banner). Used when Save's markdown parse
+  // can't make sense of the AI output — we still send the user to
+  // /create with the raw text salvaged, but we warn them first so
+  // they know why the form will look raw.
+  let noticeMessage = '';
   
   // Copy state
   let copied = false;
@@ -204,7 +212,10 @@
     currentPrompt = mode === 'hungry' ? 'Surprise me' : effectivePrompt;
     status = 'generating';
     errorMessage = '';
-    output = '';
+    // Don't clear `output` here. The card hides the previous recipe
+    // behind the shimmer while `status === 'generating'`; if the
+    // request errors out, status drops back and the previous recipe
+    // re-appears under the error banner so the user keeps context.
 
     try {
       const response = await fetch('/api/zappy', {
@@ -233,29 +244,49 @@
   }
   
   // ── Recipe-card actions ──────────────────────────────────────
-  // Pull the recipe title out of the first `# Heading` line in the
-  // generated markdown. Falls back to a generic label if the model
-  // skipped the heading.
+  // Pull the recipe title out of the first `#` or `##` heading in
+  // the generated markdown. Falls back to "Untitled" for malformed
+  // output (the salvage path can still call us safely).
   function extractRecipeTitle(md: string): string {
-    const match = md.match(/^#\s+(.+?)\s*$/m);
-    return match ? match[1].trim() : 'Recipe from Chef ₿';
+    const match = md.match(/^#{1,2}\s+(.+?)\s*$/m);
+    return match ? match[1].trim() : 'Untitled';
   }
 
   let isSaving = false;
+
+  // "← Cook another" — return the page to idle so the user can
+  // re-start. Intentionally does NOT clear `promptInput` so the
+  // user can tweak and retry without retyping. Also clears any
+  // lingering noticeMessage from a salvage flow.
+  function cookAnother() {
+    currentPrompt = '';
+    output = '';
+    errorMessage = '';
+    noticeMessage = '';
+    status = 'idle';
+  }
 
   // Save → /create pre-filled. Reuses the same `saveDraft` →
   // `goto('/create?draft=...')` pattern that Recipe.svelte's edit
   // flow uses, so AI-generated recipes go through the existing
   // human-review-then-publish path rather than getting auto-pushed
   // to the relay.
+  //
+  // If `parseMarkdownForEditing` throws (model output didn't follow
+  // the expected ## sections), fall back to a salvage draft: title
+  // from the first heading (or "Untitled"), the full raw markdown
+  // dropped into `additionalMarkdown`, and empty arrays for the
+  // structured fields. The user lands in the editor with text to
+  // clean up rather than a dead end.
   async function saveAsRecipeDraft() {
     if (!output || isSaving) return;
     isSaving = true;
     try {
       const title = extractRecipeTitle(output);
-      const parsed = parseMarkdownForEditing(output);
-      const { draftId } = saveDraft(
-        {
+      let draftData: Parameters<typeof saveDraft>[0];
+      try {
+        const parsed = parseMarkdownForEditing(output);
+        draftData = {
           title,
           images: [],
           tags: [],
@@ -267,10 +298,28 @@
           ingredients: parsed.ingredients || [],
           directions: parsed.directions || [],
           additionalMarkdown: parsed.additionalMarkdown || ''
-        },
-        undefined,
-        false
-      );
+        };
+      } catch (parseErr) {
+        console.warn('[Chef ₿] Recipe parse failed, falling back to raw text:', parseErr);
+        noticeMessage =
+          "Couldn't parse this recipe cleanly — opening editor with raw text.";
+        draftData = {
+          title,
+          images: [],
+          tags: [],
+          summary: '',
+          chefsnotes: '',
+          preptime: '',
+          cooktime: '',
+          servings: '',
+          ingredients: [],
+          directions: [],
+          additionalMarkdown: output
+        };
+        // Give the user a beat to see the notice before we navigate.
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+      }
+      const { draftId } = saveDraft(draftData, undefined, false);
       goto(`/create?draft=${draftId}`);
     } catch (e) {
       console.error('[Chef ₿] Save-as-draft failed:', e);
@@ -282,13 +331,17 @@
   }
 
   // Share — Web Share API when present (mobile + some desktops),
-  // otherwise fall back to copying the markdown to the clipboard.
+  // otherwise fall back to copying a combined string to the
+  // clipboard. The recipe isn't a published Nostr event yet so
+  // there's no canonical URL; we share zap.cooking instead.
   async function shareRecipe() {
     if (!output || !browser) return;
-    const title = extractRecipeTitle(output);
+    const shareTitle = `${extractRecipeTitle(output)} — Chef ₿ recipe`;
+    const url = 'https://zap.cooking';
+
     if (navigator.share) {
       try {
-        await navigator.share({ title, text: output });
+        await navigator.share({ title: shareTitle, text: output, url });
         return;
       } catch (e) {
         // User canceled the share sheet — that's a no-op, not an
@@ -296,26 +349,19 @@
         if ((e as DOMException)?.name === 'AbortError') return;
       }
     }
-    await copyToClipboard();
-  }
 
-  // Copy output to clipboard
-  async function copyToClipboard() {
-    if (!output || !browser) return;
-    
+    // Clipboard fallback — combined { title, body, url } so the
+    // pasted content reads like a sharable recipe rather than just
+    // the markdown body.
     try {
-      await navigator.clipboard.writeText(output);
+      await navigator.clipboard.writeText(`${shareTitle}\n\n${output}\n\n${url}`);
       copied = true;
-      
-      // Clear any existing timeout
       if (copyTimeout) clearTimeout(copyTimeout);
-      
-      // Reset copied state after 2 seconds
       copyTimeout = setTimeout(() => {
         copied = false;
       }, 2000);
     } catch (err) {
-      console.error('Failed to copy:', err);
+      console.error('[Chef ₿] Share clipboard fallback failed:', err);
     }
   }
   
@@ -795,6 +841,17 @@
         </div>
       {/if}
 
+      <!-- Non-fatal notice (amber). Surfaces when Save's parser
+           can't make sense of the AI output — we still salvage and
+           route to /create, but we tell the user first so the
+           editor's raw-text fields don't surprise them. -->
+      {#if noticeMessage}
+        <div class="flex items-start gap-3 p-3 rounded-xl bg-amber-500/10 border border-amber-500/20">
+          <InfoIcon size={18} class="text-amber-500 flex-shrink-0 mt-0.5" />
+          <p class="text-sm text-amber-700 dark:text-amber-300">{noticeMessage}</p>
+        </div>
+      {/if}
+
       <!-- Output card. Hidden entirely when idle (no empty dead
            zone). Shows the Chef ₿ avatar + a "Cooking up: ..."
            echo + Skeleton shimmer during generation, then swaps
@@ -803,16 +860,31 @@
       {#if status === 'generating' || output}
         <article class="recipe-card">
           <header class="recipe-card-header">
-            <span class="chef-avatar">
-              <RobotIcon size={20} weight="fill" />
-            </span>
-            <div class="flex flex-col leading-tight min-w-0">
-              <span class="text-xs font-semibold text-primary">Chef ₿</span>
-              {#if status === 'generating'}
-                <span class="text-xs text-caption truncate">Cooking up: {currentPrompt}</span>
-              {:else}
-                <span class="text-xs text-caption">cooked this up for you ⚡</span>
-              {/if}
+            {#if output && status !== 'generating'}
+              <button
+                type="button"
+                class="cook-another-btn"
+                on:click={cookAnother}
+              >
+                <ArrowLeftIcon size={12} weight="bold" />
+                Cook another
+              </button>
+            {/if}
+            <div
+              class="flex items-center gap-2.5 min-w-0"
+              class:ml-auto={output && status !== 'generating'}
+            >
+              <span class="chef-avatar">
+                <RobotIcon size={20} weight="fill" />
+              </span>
+              <div class="flex flex-col leading-tight min-w-0">
+                <span class="text-xs font-semibold text-primary">Chef ₿</span>
+                {#if status === 'generating'}
+                  <span class="text-xs text-caption truncate">Cooking up: {currentPrompt}</span>
+                {:else}
+                  <span class="text-xs text-caption">cooked this up for you ⚡</span>
+                {/if}
+              </div>
             </div>
           </header>
 
@@ -854,10 +926,12 @@
               <Button
                 variant="outline"
                 class="flex-1 py-2 text-sm"
+                title="Zap Chef ₿"
+                aria-label="Zap Chef ₿"
                 on:click={openZapModal}
               >
                 <LightningIcon size={16} weight="fill" />
-                Zap Chef ₿
+                Zap
               </Button>
               <Button
                 variant="outline"
@@ -1117,6 +1191,36 @@
     gap: 10px;
     padding: 12px 16px;
     border-bottom: 1px solid var(--color-input-border);
+  }
+
+  /* Tiny "← Cook another" affordance at the top-left of the card
+     when an output is showing. Reads as a text link with an icon —
+     intentionally lighter than the action-bar buttons since it's a
+     reset, not an action on the recipe itself. */
+  .cook-another-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    height: 26px;
+    padding: 0 8px;
+    border-radius: 999px;
+    background: transparent;
+    border: 0;
+    color: var(--color-text-caption, #9ca3af);
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 500;
+    transition:
+      background-color 120ms ease,
+      color 120ms ease;
+  }
+  .cook-another-btn:hover {
+    background-color: color-mix(in srgb, var(--color-primary) 8%, transparent);
+    color: var(--color-primary);
+  }
+  .cook-another-btn:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 45%, transparent);
   }
 
   .chef-avatar {

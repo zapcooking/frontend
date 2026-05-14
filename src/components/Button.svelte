@@ -34,6 +34,7 @@
   ]} {$$props.class}"
   on:click
   {disabled}
+  {...$$restProps}
 >
   <slot />
 </button>
