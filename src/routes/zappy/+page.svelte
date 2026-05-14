@@ -386,13 +386,13 @@
   <div class="flex flex-col gap-2">
     <div class="flex items-center justify-between">
       <div class="flex items-center gap-3">
-        <RobotIcon size={32} class="text-yellow-500" weight="fill" />
+        <RobotIcon size={32} class="text-primary" weight="fill" />
         <h1>Chef ₿</h1>
       </div>
       {#if hasMembership}
         <button
           type="button"
-          class="flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium transition-all bg-yellow-500/10 hover:bg-yellow-500/20 text-yellow-600 hover:scale-105"
+          class="flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium transition-all bg-primary/10 hover:bg-primary/20 text-primary hover:scale-105"
           on:click={openZapModal}
           title="Zap Chef ₿ to say thanks ⚡"
         >
@@ -416,8 +416,8 @@
   {:else if !hasMembership}
     <!-- No membership -->
     <div class="flex flex-col items-center justify-center py-16 gap-6">
-      <div class="w-20 h-20 rounded-full bg-yellow-500/10 flex items-center justify-center">
-        <RobotIcon size={40} class="text-yellow-500" weight="fill" />
+      <div class="w-20 h-20 rounded-full bg-primary/10 flex items-center justify-center">
+        <RobotIcon size={40} class="text-primary" weight="fill" />
       </div>
       <div class="text-center max-w-md">
         <h2 class="mb-2">Pro Kitchen Feature</h2>
@@ -640,7 +640,7 @@
         >
           {#if output}
             <!-- Chef ₿ attribution header -->
-            <p class="text-yellow-400/80 text-xs font-medium mb-3 pb-2 border-b border-gray-700/50">
+            <p class="text-primary text-xs font-medium mb-3 pb-2 border-b border-gray-700/50">
               Chef ₿ cooked this up for you ⚡
             </p>
             <pre class="whitespace-pre-wrap font-mono text-sm leading-relaxed text-gray-200">{output}</pre>
@@ -673,7 +673,7 @@
 <!-- Zap Chef ₿ Modal -->
 <Modal bind:open={zapModalOpen}>
   <h1 slot="title" class="flex items-center gap-2">
-    <RobotIcon size={24} class="text-yellow-500" weight="fill" />
+    <RobotIcon size={24} class="text-primary" weight="fill" />
     Zap Chef ₿
   </h1>
   
@@ -682,7 +682,7 @@
       <!-- Success state -->
       <div class="flex flex-col items-center justify-center py-6 gap-4">
         <div class="relative">
-          <RobotIcon size={80} class="text-yellow-500" weight="fill" />
+          <RobotIcon size={80} class="text-primary" weight="fill" />
           <div class="absolute -top-2 -right-2 animate-bounce">
             <HeartIcon size={32} class="text-red-500" weight="fill" />
           </div>
@@ -713,7 +713,7 @@
               on:click={() => zapAmount = option.amount}
               class="flex flex-col items-center justify-center py-3 px-2 rounded-xl transition-all duration-200 cursor-pointer
                 {zapAmount === option.amount
-                  ? 'bg-yellow-500 text-white shadow-md scale-105'
+                  ? 'bg-primary text-white shadow-md scale-105'
                   : 'bg-input hover:bg-accent-gray'}"
               style="{zapAmount !== option.amount ? 'color: var(--color-text-primary)' : ''}"
             >
@@ -779,7 +779,7 @@
 <!-- Floating success notification -->
 {#if showZapSuccess && !zapModalOpen}
   <div class="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 animate-bounce">
-    <div class="flex items-center gap-2 px-4 py-3 rounded-full bg-yellow-500 text-white font-semibold shadow-lg">
+    <div class="flex items-center gap-2 px-4 py-3 rounded-full bg-primary text-white font-semibold shadow-lg">
       <RobotIcon size={20} weight="fill" />
       <span>Chef ₿ loves you! ⚡</span>
       <HeartIcon size={20} weight="fill" class="text-red-300" />
