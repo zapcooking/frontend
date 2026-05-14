@@ -209,6 +209,9 @@
     currentPrompt = mode === 'hungry' ? 'Surprise me' : effectivePrompt;
     status = 'generating';
     errorMessage = '';
+    // Clear any stale salvage notice from a prior Save attempt so
+    // it doesn't leak into the new generation's UI.
+    noticeMessage = '';
     // Don't clear `output` here. The card hides the previous recipe
     // behind the shimmer while `status === 'generating'`; if the
     // request errors out, status drops back and the previous recipe
@@ -269,20 +272,29 @@
   // human-review-then-publish path rather than getting auto-pushed
   // to the relay.
   //
-  // If `parseMarkdownForEditing` throws (model output didn't follow
-  // the expected ## sections), fall back to a salvage draft: title
-  // from the first heading (or "Untitled"), the full raw markdown
-  // dropped into `additionalMarkdown`, and empty arrays for the
-  // structured fields. The user lands in the editor with text to
-  // clean up rather than a dead end.
+  // `parseMarkdownForEditing` is intentionally lenient and never
+  // throws — it just returns empty arrays when sections aren't
+  // recognized. So we can't rely on a thrown error to detect a
+  // malformed AI output; we have to inspect the parsed result and
+  // treat empty ingredients/directions as a parse failure. On
+  // failure: salvage by dumping the full raw markdown into
+  // `additionalMarkdown`, surface an amber notice, give the user a
+  // beat to see it, then navigate. The user lands in the editor
+  // with text to clean up instead of a dead end.
   async function saveAsRecipeDraft() {
     if (!output || isSaving) return;
     isSaving = true;
+    // Reset any prior notice so a successful save doesn't carry one
+    // over from an earlier salvage.
+    noticeMessage = '';
     try {
       const title = extractRecipeTitle(output);
+      const parsed = parseMarkdownForEditing(output);
+      const parseLooksGood =
+        parsed.ingredients.length > 0 && parsed.directions.length > 0;
+
       let draftData: Parameters<typeof saveDraft>[0];
-      try {
-        const parsed = parseMarkdownForEditing(output);
+      if (parseLooksGood) {
         draftData = {
           title,
           images: [],
@@ -292,12 +304,15 @@
           preptime: parsed.information?.prepTime || '',
           cooktime: parsed.information?.cookTime || '',
           servings: parsed.information?.servings || '',
-          ingredients: parsed.ingredients || [],
-          directions: parsed.directions || [],
+          ingredients: parsed.ingredients,
+          directions: parsed.directions,
           additionalMarkdown: parsed.additionalMarkdown || ''
         };
-      } catch (parseErr) {
-        console.warn('[Chef ₿] Recipe parse failed, falling back to raw text:', parseErr);
+      } else {
+        console.warn(
+          '[Chef ₿] Recipe parse produced empty ingredients/directions, salvaging raw text. Parsed:',
+          parsed
+        );
         noticeMessage =
           "Couldn't parse this recipe cleanly — opening editor with raw text.";
         draftData = {
@@ -317,7 +332,11 @@
         await new Promise((resolve) => setTimeout(resolve, 1500));
       }
       const { draftId } = saveDraft(draftData, undefined, false);
-      goto(`/create?draft=${draftId}`);
+      // Await the navigation so `isSaving` stays true until it
+      // resolves — otherwise the Save button re-enables before the
+      // route change completes and a fast double-tap creates two
+      // drafts.
+      await goto(`/create?draft=${draftId}`);
     } catch (e) {
       console.error('[Chef ₿] Save-as-draft failed:', e);
       errorMessage = e instanceof Error ? e.message : 'Failed to save draft';
