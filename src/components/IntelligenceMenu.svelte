@@ -23,7 +23,10 @@
       label: 'Chef ₿',
       blurb: 'AI cooking assistant',
       Icon: RobotIcon,
-      accent: 'rgb(234, 179, 8)'
+      // Chef ₿ orange — uses the CSS var so the accent shifts
+      // automatically between the light (#ec4700) and dark
+      // (#ff5722) palettes.
+      accent: 'var(--color-primary)'
     },
     {
       href: '/nourish',
