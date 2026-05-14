@@ -183,14 +183,14 @@
      --connect-step which has its own (smaller) auto-sized rules. */
   @media (min-width: 768px) {
     :global(dialog:has(.wallet-scroll.picker-view:not(.picker-view--connect-step))) {
-      height: 880px !important;
-      max-height: 90vh !important;
+      height: 960px !important;
+      max-height: 92vh !important;
     }
   }
   @media (min-width: 1024px) {
     :global(dialog:has(.wallet-scroll.picker-view:not(.picker-view--connect-step))) {
-      height: 920px !important;
-      max-height: min(960px, 90vh) !important;
+      height: 1000px !important;
+      max-height: min(1040px, 92vh) !important;
     }
   }
   /* External-wallet mode (WebLN, Bitcoin Connect): elastic height —

@@ -71,6 +71,7 @@
     recentSparkPayments,
     getBestEncryptionMethod,
     deleteBackupFromNostr as deleteSparkBackupFromNostr,
+    getSparkWalletId,
     getSparkWalletInfo,
     receiveOnchain,
     prepareOnchainSend,
@@ -207,6 +208,8 @@
   let expandedWalletId: number | null = null;
   let revealedMnemonic: string | null = null;
   let isBackingUp = false;
+  // Picker-home altcoin-curious prompt toggle
+  let showAltcoinReply = false;
 
   // NWC wallet info
   let nwcWalletInfo: { alias?: string; methods: string[]; relay: string; pubkey: string } | null =
@@ -1892,14 +1895,14 @@
     errorMessage = '';
 
     try {
-      await createSparkWallet($userPublickey, BREEZ_API_KEY);
+      const newMnemonic = await createSparkWallet($userPublickey, BREEZ_API_KEY);
       successMessage = 'Spark wallet created!';
       showBackupReminder = true;
       showAddWallet = false;
       selectedWalletType = null;
 
-      // Register in wallet store
-      await connectWallet(4, 'spark');
+      // Register in wallet store with walletId so deletion can target the right relay backup
+      await connectWallet(4, getSparkWalletId(newMnemonic));
 
       // Fetch initial balance (will be 0 for new wallet)
       await refreshBalance();
@@ -1932,8 +1935,8 @@
   async function restoreSelectedSparkBackup(backup: SparkBackupEntry) {
     const mnemonic = await restoreSparkBackup($userPublickey, BREEZ_API_KEY, backup);
     if (mnemonic) {
-      // Register in wallet store
-      await connectWallet(4, 'spark');
+      // Register in wallet store with walletId so deletion can target the right relay backup
+      await connectWallet(4, getSparkWalletId(mnemonic));
 
       // Actively fetch balance and transaction history
       await refreshBalance();
@@ -2059,8 +2062,8 @@
     try {
       const success = await restoreFromMnemonic($userPublickey, mnemonic, BREEZ_API_KEY);
       if (success) {
-        // Register in wallet store
-        await connectWallet(4, 'spark');
+        // Register in wallet store with walletId so deletion can target the right relay backup
+        await connectWallet(4, getSparkWalletId(mnemonic));
 
         // Actively fetch balance and transaction history
         await refreshBalance();
@@ -2139,8 +2142,9 @@
 
       const success = await restoreFromBackup($userPublickey, backup, BREEZ_API_KEY, decryptFn);
       if (success) {
-        // Register in wallet store
-        await connectWallet(4, 'spark');
+        // Register in wallet store with walletId so deletion can target the right relay backup
+        const restoredMnemonic = await loadMnemonic($userPublickey);
+        await connectWallet(4, restoredMnemonic ? getSparkWalletId(restoredMnemonic) : 'spark');
 
         // Actively fetch balance and transaction history
         await refreshBalance();
@@ -4258,6 +4262,35 @@
               </button>
             {/if}
           {/if}
+
+          <!-- Picker-home prompt for users curious about non-bitcoin chains. -->
+          <div class="mt-4 text-center">
+            <button
+              type="button"
+              class="text-xs text-caption hover:text-orange-500 transition-colors cursor-pointer underline decoration-dotted underline-offset-4 bg-transparent border-0 p-0"
+              on:click={() => (showAltcoinReply = !showAltcoinReply)}
+            >
+              Looking for Ethereum, Solana, XRP, Cardano or other coins?
+            </button>
+            {#if showAltcoinReply}
+              <p
+                class="mt-3 text-sm font-medium"
+                style="color: var(--color-text-primary)"
+              >
+                Just kidding, Zap Cooking is bitcoin only!
+              </p>
+              <!-- svelte-ignore a11y-media-has-caption -->
+              <video
+                class="mt-3 mx-auto rounded-lg w-full max-w-sm"
+                src="https://video.nostr.build/ab7659486ab83bf66fe446251687ede7a3b5779cc16afbadbdb21be60bc596bb.mp4"
+                autoplay
+                loop
+                muted
+                playsinline
+                controls
+              ></video>
+            {/if}
+          </div>
         </div>
       {:else if selectedWalletType === 3}
         <!-- NWC connection -->
@@ -4474,11 +4507,19 @@
            wallet type has been selected (sub-screens have their own
            back-bar) or when the user is just adding another wallet. -->
       {#if !hasAnyWallet && !selectedWalletType}
-        <div class="explore-prompt-card">
-          <p class="explore-prompt-card__text">
+        <div
+          class="mt-6 p-3 rounded-2xl text-center"
+          style="background-color: rgba(245, 158, 11, 0.05); border: 1px solid rgba(245, 158, 11, 0.2);"
+        >
+          <p class="text-sm text-caption mb-2 leading-snug">
             Not ready for a wallet? You can explore Zap Cooking and come back anytime.
           </p>
-          <button type="button" class="explore-prompt-card__cta" on:click={dismissPicker}>
+          <button
+            type="button"
+            class="explore-prompt-cta inline-flex items-center gap-1 px-5 py-2 rounded-full text-sm font-semibold cursor-pointer transition-colors"
+            style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border); color: var(--color-text-primary);"
+            on:click={dismissPicker}
+          >
             Explore Zap Cooking →
           </button>
         </div>
@@ -4794,7 +4835,18 @@
                 if (deleteRelayBackups && $userPublickey) {
                   try {
                     if (walletToDelete.kind === 4) {
-                      await deleteSparkBackupFromNostr($userPublickey);
+                      // Legacy backups (d-tag 'spark-wallet-backup' with no
+                      // walletId suffix) predate the per-wallet d-tag scheme
+                      // and can't be targeted by our delete flow. Surface a
+                      // toast instead of silently no-op'ing.
+                      const backups = await listSparkBackups($userPublickey);
+                      if (backups.some((b) => b.isLegacy)) {
+                        errorMessage = "Legacy wallet backups can't be deleted by Zap Cooking.";
+                      } else {
+                        const sparkWalletId =
+                          walletToDelete.data !== 'spark' ? walletToDelete.data : undefined;
+                        await deleteSparkBackupFromNostr($userPublickey, sparkWalletId);
+                      }
                     } else if (walletToDelete.kind === 3) {
                       await deleteNwcBackupFromNostr($userPublickey);
                     }
@@ -6221,43 +6273,13 @@
     }
   }
 
-  /* "Explore Zap Cooking" exit card at the bottom of the welcome
-     picker. Replaces the earlier text-link "I'll do this later" — a
-     visible card with a clear CTA makes the exit obvious for users
-     who aren't ready to set up a wallet on first run. */
-  .explore-prompt-card {
-    margin-top: 2rem;
-    padding: 1rem 1.25rem;
-    border-radius: 1rem;
-    background: rgba(245, 158, 11, 0.05);
-    border: 1px solid rgba(245, 158, 11, 0.2);
-    text-align: center;
-  }
-  .explore-prompt-card__text {
-    font-size: 0.875rem;
-    color: var(--color-text-secondary);
-    margin: 0 0 0.75rem;
-    line-height: 1.5;
-  }
-  .explore-prompt-card__cta {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.25rem;
-    padding: 0.5rem 1.25rem;
-    border-radius: 9999px;
-    background: var(--color-input-bg);
-    border: 1px solid var(--color-input-border);
-    font-size: 0.875rem;
-    font-weight: 600;
-    color: var(--color-text-primary);
-    cursor: pointer;
-    transition:
-      background-color 0.15s,
-      border-color 0.15s;
-  }
-  .explore-prompt-card__cta:hover {
-    background: rgba(255, 255, 255, 0.05);
-    border-color: rgba(245, 158, 11, 0.5);
+  /* Hover state for the "Explore Zap Cooking" exit card CTA. Layout,
+     colors, and base chrome live as inline styles on the markup to
+     stay above the wallet-modal-body :global() rules that strip
+     button backgrounds otherwise. */
+  .explore-prompt-cta:hover {
+    background-color: rgba(255, 255, 255, 0.05) !important;
+    border-color: rgba(245, 158, 11, 0.5) !important;
   }
 
   /* :global() so the rule reaches buttons rendered by child components
