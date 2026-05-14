@@ -4599,6 +4599,11 @@
           </button>
         </div>
       {/if}
+      <!-- Real DOM spacer so the picker can scroll flush to the bottom.
+           A scoped CSS ::after on .wallet-scroll.picker-view got pruned
+           by Svelte's CSS scoping; a real element is reliably included
+           in scrollHeight. -->
+      <div aria-hidden="true" style="height: 3rem; flex-shrink: 0;"></div>
     </div>
   {/if}
 
