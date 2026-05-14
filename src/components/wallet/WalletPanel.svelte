@@ -2652,7 +2652,7 @@
          inset as the non-WebLN balance frame and the inner wallet-scroll
          content below, so widths line up consistently. -->
     {#if $weblnConnected}
-      <div class="mb-8 mx-4 p-6 rounded-2xl bg-input border border-input">
+      <div class="mt-8 mb-8 mx-4 p-6 rounded-2xl bg-input border border-input">
         <div class="flex items-start justify-between gap-3 mb-2 balance-row">
           <div class="flex-1 min-w-0">
             <div
@@ -2731,7 +2731,7 @@
          while the connection / disconnect card below it scrolls.
          Mirrors the WebLN sticky-balance pattern above. -->
     {#if $bitcoinConnectEnabled && $wallets.length === 0 && !$weblnConnected}
-      <div class="mb-8 mx-4 p-6 rounded-2xl bg-input border border-input">
+      <div class="mt-8 mb-8 mx-4 p-6 rounded-2xl bg-input border border-input">
         <div class="flex items-start justify-between gap-3 mb-2 balance-row">
           <div class="flex-1 min-w-0">
             <div
@@ -6202,8 +6202,11 @@
     background-color: var(--color-bg-secondary);
     /* 1rem horizontal padding gives a visible bg-secondary "border"
        around the balance card on both sides, matching the inner
-       scroll container's padding so balance and history align. */
-    padding: 0 1rem;
+       scroll container's padding so balance and history align. The
+       2rem top padding replaces the buffer we used to get from
+       wallet-modal-body's padding-top (now zeroed to avoid the
+       flex + padding overlap bug on the scroll child below). */
+    padding: 2rem 1rem 0;
     transition: padding-bottom 0.18s ease-out;
     /* Keep the frame above the scrolling content so its solid bg masks
        transactions briefly visible at the card's rounded corners. */
@@ -6229,7 +6232,10 @@
   .wallet-scroll.picker-view,
   .wallet-scroll.wallet-info-view,
   .wallet-scroll.remove-wallet-view {
-    padding-top: 0.5rem;
+    /* Top buffer lives here (not on wallet-modal-body) because the
+       flex container's padding bleeds bg-secondary over the top of
+       the scrollable content. */
+    padding-top: 2rem;
     padding-bottom: 1.5rem;
   }
   @media (min-width: 768px) {
@@ -6240,7 +6246,7 @@
     .wallet-scroll.remove-wallet-view {
       padding-left: 1.5rem;
       padding-right: 1.5rem;
-      padding-top: 0.75rem;
+      padding-top: 2rem;
       padding-bottom: 2rem;
     }
   }
