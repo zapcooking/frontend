@@ -407,7 +407,7 @@
             <li>
               <span class="feature-icon">🤖</span>
               <div class="feature-content">
-                <span class="feature-text">Zappy - Kitchen assistant to scan your fridge, generate recipes, and recommend what to make tonight</span>
+                <span class="feature-text">Chef ₿ - Kitchen assistant to scan your fridge, generate recipes, and recommend what to make tonight</span>
                 <span class="feature-subtext">Your personal kitchen companion</span>
               </div>
             </li>
