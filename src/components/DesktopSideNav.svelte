@@ -271,18 +271,16 @@
                   <svelte:component this={item.icon} size={20} />
                 </span>
                 <span class="font-medium">{item.label}</span>
-                <span class="ml-auto">
-                  {#if item.badge === 'walletConnect' && !hasWallet}
-                    <span class="text-xs px-2 py-0.5 rounded-full bg-primary/20 text-primary"
-                      >Connect</span
-                    >
-                  {:else if item.badge === 'members'}
-                    <span
-                      class="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary font-medium"
-                      >Members</span
-                    >
-                  {/if}
-                </span>
+                {#if item.badge === 'walletConnect' && !hasWallet}
+                  <span class="text-xs px-2 py-0.5 rounded-full bg-primary/20 text-primary"
+                    >Connect</span
+                  >
+                {:else if item.badge === 'members'}
+                  <span
+                    class="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary font-medium"
+                    >Members</span
+                  >
+                {/if}
               </a>
             </li>
           {/each}
