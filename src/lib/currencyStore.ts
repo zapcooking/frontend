@@ -37,12 +37,15 @@ const STORAGE_KEY = 'zapcooking_display_currency';
 const PREFERRED_FIAT_KEY = 'zapcooking_preferred_fiat';
 
 function getInitialCurrency(): CurrencyCode {
-  if (!browser) return 'USD';
+  // SATS is the native bitcoin denomination — defaulting first-load
+  // to USD made wallet balances look fiat-first before the user had a
+  // chance to express a preference. Stored preference still wins.
+  if (!browser) return 'SATS';
   const stored = localStorage.getItem(STORAGE_KEY);
   if (stored && SUPPORTED_CURRENCIES.some((c) => c.code === stored)) {
     return stored as CurrencyCode;
   }
-  return 'USD';
+  return 'SATS';
 }
 
 function getPreferredFiat(): CurrencyCode {
