@@ -161,7 +161,7 @@
   import { lightningService } from '$lib/lightningService';
   import { displayCurrency } from '$lib/currencyStore';
   import CurrencySelector from '../CurrencySelector.svelte';
-  import FiatBalance from '../FiatBalance.svelte';
+  import DenominatedBalance from '../DenominatedBalance.svelte';
 
   // Pull-to-refresh refs
 
@@ -883,6 +883,23 @@
     if (target?.closest('button')) return;
     e.preventDefault();
     handleBalanceCardClick(e);
+  }
+
+  // Tap the balance amount / fiat sub-line to cycle SATS ↔ preferred
+  // fiat. Mirrors the earlier header-pill behavior, kept here because
+  // the wallet modal centers the balance as the primary UI element.
+  // For the embedded card, the wrapper only carries these handlers
+  // when !isPanelScrolled — in compact mode the outer card already
+  // owns taps (scroll-to-top).
+  function handleBalanceAmountTap(e: MouseEvent) {
+    e.stopPropagation();
+    displayCurrency.cycleSatsFiat();
+  }
+  function handleBalanceAmountKeydown(e: KeyboardEvent) {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    e.preventDefault();
+    e.stopPropagation();
+    displayCurrency.cycleSatsFiat();
   }
 
   // Attach/detach the scroll listener whenever .wallet-scroll mounts or
@@ -2638,28 +2655,46 @@
       <div class="mb-8 mx-4 p-6 rounded-2xl bg-input border border-input">
         <div class="flex items-start justify-between gap-3 mb-2 balance-row">
           <div class="flex-1 min-w-0">
-            <div class="text-4xl font-bold text-primary-color flex items-center gap-3 min-w-0">
-              <LightningIcon size={32} weight="fill" class="text-amber-500 flex-shrink-0" />
-              {#if weblnBalance === null && weblnBalanceLoading}
-                <span
-                  class="inline-block w-32 h-9 rounded-lg animate-pulse"
-                  style="background: var(--color-input-bg);"
-                ></span>
-              {:else if weblnBalance === null}
-                <span class="text-2xl text-caption">Balance not available</span>
-              {:else if $balanceVisible}
-                <span class:balance-refreshing={weblnBalanceLoading}
-                  >{formatBalance(weblnBalance)}</span
-                >
-              {:else}
-                <span class:balance-refreshing={weblnBalanceLoading}>***</span>
-              {/if}
-            </div>
-            {#if weblnBalance !== null}
-              <div class="ml-11">
-                <FiatBalance satoshis={weblnBalance} visible={$balanceVisible} />
+            <div
+              class="inline-block max-w-full rounded-lg -mx-3 px-3 -my-1.5 py-1.5 cursor-pointer select-none hover:bg-white/5 transition-colors"
+              role="button"
+              tabindex="0"
+              aria-label="Toggle SATS / fiat display"
+              on:click={handleBalanceAmountTap}
+              on:keydown={handleBalanceAmountKeydown}
+            >
+              <div class="text-4xl font-bold text-primary-color flex items-center gap-3 min-w-0">
+                <LightningIcon size={32} weight="fill" class="text-amber-500 flex-shrink-0" />
+                {#if weblnBalance === null && weblnBalanceLoading}
+                  <span
+                    class="inline-block w-32 h-9 rounded-lg animate-pulse"
+                    style="background: var(--color-input-bg);"
+                  ></span>
+                {:else if weblnBalance === null}
+                  <span class="text-2xl text-caption">Balance not available</span>
+                {:else}
+                  <span class:balance-refreshing={weblnBalanceLoading}>
+                    <DenominatedBalance
+                      sats={weblnBalance}
+                      visible={$balanceVisible}
+                      compact={false}
+                    />
+                  </span>
+                {/if}
               </div>
-            {/if}
+              <!-- Sub-line: sats counterpart when fiat is primary, invisible
+                   placeholder when SATS is primary (preserves card height
+                   across toggles). -->
+              <div class="ml-11 text-sm text-caption">
+                {#if $displayCurrency === 'SATS' || weblnBalance === null}
+                  &nbsp;
+                {:else if !$balanceVisible}
+                  ***
+                {:else}
+                  {formatBalance(weblnBalance)} sats
+                {/if}
+              </div>
+            </div>
           </div>
           <div class="flex items-center gap-3 flex-shrink-0">
             <CurrencySelector compact />
@@ -2700,32 +2735,48 @@
         <div class="flex items-start justify-between gap-3 mb-2 balance-row">
           <div class="flex-1 min-w-0">
             <div
-              class="text-4xl font-bold flex items-center gap-3 min-w-0"
-              style="color: var(--color-text-primary)"
+              class="inline-block max-w-full rounded-lg -mx-3 px-3 -my-1.5 py-1.5 cursor-pointer select-none hover:bg-white/5 transition-colors"
+              role="button"
+              tabindex="0"
+              aria-label="Toggle SATS / fiat display"
+              on:click={handleBalanceAmountTap}
+              on:keydown={handleBalanceAmountKeydown}
             >
-              <LightningIcon size={32} weight="fill" class="text-amber-500 flex-shrink-0" />
-              {#if $bitcoinConnectBalance === null && $bitcoinConnectBalanceLoading}
-                <span
-                  class="inline-block w-32 h-9 rounded-lg animate-pulse"
-                  style="background: var(--color-input-bg);"
-                ></span>
-              {:else if $bitcoinConnectBalance !== null}
-                {#if $balanceVisible}
-                  <span class:balance-refreshing={$bitcoinConnectBalanceLoading}
-                    >{formatBalance($bitcoinConnectBalance)}</span
-                  >
+              <div
+                class="text-4xl font-bold flex items-center gap-3 min-w-0"
+                style="color: var(--color-text-primary)"
+              >
+                <LightningIcon size={32} weight="fill" class="text-amber-500 flex-shrink-0" />
+                {#if $bitcoinConnectBalance === null && $bitcoinConnectBalanceLoading}
+                  <span
+                    class="inline-block w-32 h-9 rounded-lg animate-pulse"
+                    style="background: var(--color-input-bg);"
+                  ></span>
+                {:else if $bitcoinConnectBalance !== null}
+                  <span class:balance-refreshing={$bitcoinConnectBalanceLoading}>
+                    <DenominatedBalance
+                      sats={$bitcoinConnectBalance}
+                      visible={$balanceVisible}
+                      compact={false}
+                    />
+                  </span>
                 {:else}
-                  <span class:balance-refreshing={$bitcoinConnectBalanceLoading}>***</span>
+                  <span class="text-2xl text-caption">Balance unavailable</span>
                 {/if}
-              {:else}
-                <span class="text-2xl text-caption">Balance unavailable</span>
-              {/if}
-            </div>
-            {#if $bitcoinConnectBalance !== null}
-              <div class="ml-11">
-                <FiatBalance satoshis={$bitcoinConnectBalance} visible={$balanceVisible} />
               </div>
-            {/if}
+              <!-- Sub-line: sats counterpart when fiat is primary, invisible
+                   placeholder when SATS is primary (preserves card height
+                   across toggles). -->
+              <div class="ml-11 text-sm text-caption">
+                {#if $displayCurrency === 'SATS' || $bitcoinConnectBalance === null}
+                  &nbsp;
+                {:else if !$balanceVisible}
+                  ***
+                {:else}
+                  {formatBalance($bitcoinConnectBalance)} sats
+                {/if}
+              </div>
+            </div>
           </div>
           <div class="flex items-center gap-3 flex-shrink-0">
             <CurrencySelector compact />
@@ -2778,41 +2829,65 @@
           >
             <div class="flex-1 min-w-0">
               <div
-                class="balance-amount font-bold text-primary-color flex items-center gap-3 min-w-0"
-                class:text-4xl={!isPanelScrolled}
-                class:text-2xl={isPanelScrolled}
+                class="inline-block max-w-full rounded-lg transition-colors {!isPanelScrolled
+                  ? '-mx-3 px-3 -my-1.5 py-1.5 cursor-pointer select-none hover:bg-white/5'
+                  : ''}"
+                role={!isPanelScrolled ? 'button' : undefined}
+                tabindex={!isPanelScrolled ? 0 : -1}
+                aria-label={!isPanelScrolled ? 'Toggle SATS / fiat display' : undefined}
+                on:click={!isPanelScrolled ? handleBalanceAmountTap : undefined}
+                on:keydown={!isPanelScrolled ? handleBalanceAmountKeydown : undefined}
               >
-                <LightningIcon
-                  size={isPanelScrolled ? 22 : 32}
-                  weight="fill"
-                  class="text-amber-500 flex-shrink-0"
-                />
-                {#if $walletBalance === null}
-                  <span
-                    class="inline-block w-32 h-9 rounded-lg animate-pulse"
-                    style="background: var(--color-input-bg);"
-                  ></span>
-                {:else if $balanceVisible}
-                  <span class:balance-refreshing={$walletLoading}
-                    >{formatBalance($walletBalance)}</span
-                  >
-                {:else}
-                  <span class:balance-refreshing={$walletLoading}>***</span>
-                {/if}
-              </div>
-              {#if !isPanelScrolled}
-                <div class="ml-11">
-                  <FiatBalance satoshis={$walletBalance} visible={$balanceVisible} />
+                <div
+                  class="balance-amount font-bold text-primary-color flex items-center gap-3 min-w-0"
+                  class:text-4xl={!isPanelScrolled}
+                  class:text-2xl={isPanelScrolled}
+                >
+                  <LightningIcon
+                    size={isPanelScrolled ? 22 : 32}
+                    weight="fill"
+                    class="text-amber-500 flex-shrink-0"
+                  />
+                  {#if $walletBalance === null}
+                    <span
+                      class="inline-block w-32 h-9 rounded-lg animate-pulse"
+                      style="background: var(--color-input-bg);"
+                    ></span>
+                  {:else}
+                    <span class:balance-refreshing={$walletLoading}>
+                      <DenominatedBalance
+                        sats={$walletBalance}
+                        visible={$balanceVisible}
+                        compact={false}
+                      />
+                    </span>
+                  {/if}
                 </div>
-                <!-- Syncing indicator — shows whenever Spark is syncing,
-                     regardless of balance, so it's the single source of
-                     truth for the syncing state in the wallet UI. -->
-                {#if $activeWallet?.kind === 4 && $sparkSyncing}
-                  <div class="text-xs text-caption flex items-center gap-1 mt-1 ml-11">
-                    <ArrowClockwiseIcon size={12} weight="bold" class="animate-spin" />
-                    Syncing wallet...
+                {#if !isPanelScrolled}
+                  <!-- Sub-line: sats counterpart when fiat is primary,
+                       invisible placeholder when SATS is primary (preserves
+                       card height across toggles). -->
+                  <div class="ml-11 text-sm text-caption">
+                    {#if $displayCurrency === 'SATS' || $walletBalance === null}
+                      &nbsp;
+                    {:else if !$balanceVisible}
+                      ***
+                    {:else}
+                      {formatBalance($walletBalance)} sats
+                    {/if}
                   </div>
                 {/if}
+              </div>
+              <!-- Syncing indicator — shows whenever Spark is syncing,
+                   regardless of balance, so it's the single source of
+                   truth for the syncing state in the wallet UI. Kept
+                   outside the tap-to-cycle button so tapping it doesn't
+                   change currency. -->
+              {#if !isPanelScrolled && $activeWallet?.kind === 4 && $sparkSyncing}
+                <div class="text-xs text-caption flex items-center gap-1 mt-1 ml-11">
+                  <ArrowClockwiseIcon size={12} weight="bold" class="animate-spin" />
+                  Syncing wallet...
+                </div>
               {/if}
             </div>
             <div class="flex items-center gap-3 flex-shrink-0">
