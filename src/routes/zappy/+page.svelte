@@ -61,9 +61,10 @@
     autoSizePrompt();
   }
 
-  // One-tap prompt seeds. Tapping any of these replaces the
-  // textarea contents, focuses it, and parks the cursor at the
-  // end so the user can keep typing to refine.
+  // One-tap prompt seeds. Tapping a chip fires a generation
+  // immediately using the chip's label as the prompt — the textarea
+  // is left alone so chips and the custom input stay separate
+  // affordances (one-tap presets vs. write-your-own).
   const suggestionChips = [
     'Cozy vegetarian',
     '30-min dinner',
@@ -73,15 +74,20 @@
     'Pantry only'
   ];
 
-  async function applyChip(text: string) {
-    promptInput = text;
-    await tick();
-    if (promptEl) {
-      promptEl.focus();
-      const end = promptEl.value.length;
-      promptEl.setSelectionRange(end, end);
+  // Tracks which chip (if any) is currently driving the generation.
+  // Used to show a per-chip spinner while leaving the rest dimmed.
+  let tappedChip: string | null = null;
+
+  async function fireChip(text: string) {
+    if (status === 'generating') return;
+    tappedChip = text;
+    try {
+      await generateRecipe('prompt', text);
+    } finally {
+      // Reset on both success and error so the chip returns to idle
+      // even when generateRecipe surfaces an error via errorMessage.
+      tappedChip = null;
     }
-    // height is handled by the reactive `$: promptInput, autoSizePrompt()`
   }
   
   // Rotating placeholder examples
@@ -160,21 +166,27 @@
     if (zapSuccessTimeout) clearTimeout(zapSuccessTimeout);
   });
   
-  // Generate recipe from prompt
-  async function generateRecipe(mode: 'prompt' | 'hungry' = 'prompt') {
+  // Generate recipe from prompt. `promptOverride` lets one-tap chips
+  // supply their label as the prompt without writing into the
+  // textarea — keeps presets and custom input as separate paths.
+  async function generateRecipe(
+    mode: 'prompt' | 'hungry' = 'prompt',
+    promptOverride?: string
+  ) {
     if (status === 'generating') return;
-    if (mode === 'prompt' && !promptInput.trim()) return;
-    
+    const effectivePrompt = (promptOverride ?? promptInput).trim();
+    if (mode === 'prompt' && !effectivePrompt) return;
+
     status = 'generating';
     errorMessage = '';
     output = '';
-    
+
     try {
       const response = await fetch('/api/zappy', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          prompt: promptInput.trim(),
+          prompt: effectivePrompt,
           mode,
           pubkey: $userPublickey
         })
@@ -506,19 +518,26 @@
             </button>
           </div>
 
-          <!-- Suggestion chips — one-tap prompt seeds. Each chip
-               replaces the textarea contents, focuses, and parks the
-               cursor at the end so the user can refine. Built as a
-               local pattern; not extracted to a shared Chip
-               component yet (per design brief). -->
+          <!-- Suggestion chips — one-tap presets. The chip's label IS
+               the prompt; tapping fires a generation immediately
+               (textarea is left alone). The tapped chip shows a
+               spinner inline; all chips + Cook It + Surprise Me
+               disable for the duration. Built as a local pattern;
+               not extracted to a shared Chip component yet. -->
           <div class="flex flex-wrap gap-2" aria-label="Prompt suggestions">
             {#each suggestionChips as chipText}
+              {@const isFiring = tappedChip === chipText}
               <button
                 type="button"
                 class="suggestion-chip"
-                on:click={() => applyChip(chipText)}
+                class:is-loading={isFiring}
+                on:click={() => fireChip(chipText)}
                 disabled={status === 'generating'}
+                aria-busy={isFiring}
               >
+                {#if isFiring}
+                  <ArrowsClockwiseIcon size={12} class="animate-spin" />
+                {/if}
                 {chipText}
               </button>
             {/each}
@@ -890,6 +909,7 @@
   .suggestion-chip {
     display: inline-flex;
     align-items: center;
+    gap: 6px;
     height: 30px;
     padding: 0 12px;
     border-radius: 999px;
@@ -903,7 +923,8 @@
     transition:
       background-color 140ms ease,
       transform 140ms ease,
-      box-shadow 140ms ease;
+      box-shadow 140ms ease,
+      opacity 140ms ease;
   }
   .suggestion-chip:hover:not(:disabled) {
     background-color: color-mix(in srgb, var(--color-primary) 18%, transparent);
@@ -918,6 +939,13 @@
   .suggestion-chip:disabled {
     opacity: 0.5;
     cursor: not-allowed;
+  }
+  /* The chip currently driving a generation keeps its readability
+     above the other disabled chips so the user can see WHICH one
+     fired. Pairs with the inline spinner in the template. */
+  .suggestion-chip.is-loading:disabled {
+    opacity: 0.9;
+    background-color: color-mix(in srgb, var(--color-primary) 16%, transparent);
   }
 
   /* Scan Fridge — labeled pill docked in the textarea's bottom-right
