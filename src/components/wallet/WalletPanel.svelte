@@ -208,6 +208,8 @@
   let expandedWalletId: number | null = null;
   let revealedMnemonic: string | null = null;
   let isBackingUp = false;
+  // Picker-home altcoin-curious prompt toggle
+  let showAltcoinReply = false;
 
   // NWC wallet info
   let nwcWalletInfo: { alias?: string; methods: string[]; relay: string; pubkey: string } | null =
@@ -4260,6 +4262,35 @@
               </button>
             {/if}
           {/if}
+
+          <!-- Picker-home prompt for users curious about non-bitcoin chains. -->
+          <div class="mt-4 text-center">
+            <button
+              type="button"
+              class="text-xs text-caption hover:text-orange-500 transition-colors cursor-pointer underline decoration-dotted underline-offset-4 bg-transparent border-0 p-0"
+              on:click={() => (showAltcoinReply = !showAltcoinReply)}
+            >
+              Looking for Ethereum, Solana, XRP, Cardano or other coins?
+            </button>
+            {#if showAltcoinReply}
+              <p
+                class="mt-3 text-sm font-medium"
+                style="color: var(--color-text-primary)"
+              >
+                Just kidding, Zap Cooking is bitcoin only!
+              </p>
+              <!-- svelte-ignore a11y-media-has-caption -->
+              <video
+                class="mt-3 mx-auto rounded-lg w-full max-w-sm"
+                src="https://video.nostr.build/ab7659486ab83bf66fe446251687ede7a3b5779cc16afbadbdb21be60bc596bb.mp4"
+                autoplay
+                loop
+                muted
+                playsinline
+                controls
+              ></video>
+            {/if}
+          </div>
         </div>
       {:else if selectedWalletType === 3}
         <!-- NWC connection -->
