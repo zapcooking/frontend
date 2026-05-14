@@ -11,6 +11,7 @@
   import Modal from '../../components/Modal.svelte';
   import LightningIcon from 'phosphor-svelte/lib/Lightning';
   import RobotIcon from 'phosphor-svelte/lib/Robot';
+  import LeafIcon from 'phosphor-svelte/lib/Leaf';
   import CookingPotIcon from 'phosphor-svelte/lib/CookingPot';
   import CopyIcon from 'phosphor-svelte/lib/Copy';
   import CheckIcon from 'phosphor-svelte/lib/Check';
@@ -68,11 +69,20 @@
   const suggestionChips = [
     'Cozy vegetarian',
     '30-min dinner',
-    "Use what's in my fridge",
-    'High-protein lunch',
+    'Mediterranean dinner',
+    'One-pot meal',
+    'Sheet pan dinner',
+    'Hearty salad',
     'Kid-friendly',
     'Pantry only'
   ];
+
+  // Nourish program presets — same fireChip behavior, just visually
+  // tagged with a green leaf to indicate they're aligned with the
+  // Nourish nutrition surface. The chips still POST to /api/zappy
+  // like the regular ones; the leaf is a visual program tag, not a
+  // separate code path.
+  const nourishChips = ['High protein', 'Gut health', 'Real food'];
 
   // Tracks which chip (if any) is currently driving the generation.
   // Used to show a per-chip spinner while leaving the rest dimmed.
@@ -541,6 +551,36 @@
                 {chipText}
               </button>
             {/each}
+          </div>
+
+          <!-- Nourish program presets — same chip behavior, tagged
+               with a green leaf so users can see at a glance which
+               prompts align with the Nourish nutrition surface. -->
+          <div class="flex flex-col gap-1.5 mt-1" aria-label="Nourish program prompts">
+            <span class="text-xs font-medium text-caption flex items-center gap-1.5">
+              <LeafIcon size={12} weight="fill" class="text-green-500" />
+              Nourish program
+            </span>
+            <div class="flex flex-wrap gap-2">
+              {#each nourishChips as chipText}
+                {@const isFiring = tappedChip === chipText}
+                <button
+                  type="button"
+                  class="suggestion-chip"
+                  class:is-loading={isFiring}
+                  on:click={() => fireChip(chipText)}
+                  disabled={status === 'generating'}
+                  aria-busy={isFiring}
+                >
+                  {#if isFiring}
+                    <ArrowsClockwiseIcon size={12} class="animate-spin" />
+                  {:else}
+                    <LeafIcon size={12} weight="fill" class="text-green-500" />
+                  {/if}
+                  {chipText}
+                </button>
+              {/each}
+            </div>
           </div>
         </div>
 
