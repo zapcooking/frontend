@@ -1,6 +1,10 @@
 <script lang="ts">
   import { displayCurrency, type CurrencyCode } from '$lib/currencyStore';
-  import { convertSatsToFiat, formatFiatValue } from '$lib/currencyConversion';
+  import {
+    convertSatsToFiat,
+    formatFiatValue,
+    formatFiatValueCompact
+  } from '$lib/currencyConversion';
 
   export let sats: number | null;
   export let visible: boolean = true;
@@ -26,6 +30,11 @@
   ) {
     lastFetchedSats = sats;
     lastFetchedCurrency = $displayCurrency;
+    // Clear any stale value from a previous currency/amount so we don't
+    // briefly render the old fiat under a new label while the fetch
+    // resolves. Cached values for SATS round-trips are preserved by
+    // *not* clearing in the SATS branch below.
+    fiatValue = null;
     const mySeq = ++requestSeq;
     const requestedCurrency = $displayCurrency;
     const requestedSats = sats;
@@ -42,9 +51,12 @@
   }
 
   $: if ($displayCurrency === 'SATS') {
-    // Invalidate any in-flight fetch so it can't write back later.
+    // Invalidate any in-flight fetch so it can't write back later, and
+    // drop the loading flag. fiatValue is intentionally preserved so a
+    // SATS → fiat round-trip with unchanged sats/currency renders the
+    // cached value instead of falling through to "--" (the dedup gate
+    // above would otherwise skip the re-fetch).
     requestSeq++;
-    fiatValue = null;
     fiatLoading = false;
   }
 
@@ -63,7 +75,7 @@
 {:else if $displayCurrency === 'SATS'}
   {formatSatsValue(sats)}
 {:else if fiatValue !== null}
-  {formatFiatValue(fiatValue)}
+  {compact ? formatFiatValueCompact(fiatValue) : formatFiatValue(fiatValue)}
 {:else if fiatLoading}
   ...
 {:else}

@@ -212,6 +212,50 @@ export function formatFiatValue(value: number | null, currencyCode?: CurrencyCod
 }
 
 /**
+ * Compact-format a fiat value for tight spaces (e.g. the wallet pill).
+ * Above 1k, abbreviates with k/M suffix; below, falls through to the
+ * standard locale-aware formatter so small balances keep full precision.
+ */
+export function formatFiatValueCompact(
+	value: number | null,
+	currencyCode?: CurrencyCode
+): string {
+	if (value === null) return '--';
+	const code = currencyCode || get(displayCurrency);
+	if (code === 'SATS') return '';
+
+	if (Math.abs(value) < 1_000) {
+		return formatFiatValue(value, code);
+	}
+
+	const currency = getCurrencyByCode(code);
+	let abbreviated: number;
+	let suffix: string;
+	let fractionDigits: number;
+	if (Math.abs(value) >= 1_000_000) {
+		abbreviated = value / 1_000_000;
+		suffix = 'M';
+		fractionDigits = 2;
+	} else {
+		abbreviated = value / 1_000;
+		suffix = 'k';
+		fractionDigits = 1;
+	}
+
+	try {
+		const base = abbreviated.toLocaleString(currency.locale, {
+			style: 'currency',
+			currency: code,
+			minimumFractionDigits: fractionDigits,
+			maximumFractionDigits: fractionDigits
+		});
+		return `${base}${suffix}`;
+	} catch {
+		return `${currency.symbol}${abbreviated.toFixed(fractionDigits)}${suffix}`;
+	}
+}
+
+/**
  * Get formatted fiat string directly from satoshis
  * Convenience function combining convert + format
  */
