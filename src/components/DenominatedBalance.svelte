@@ -1,6 +1,10 @@
 <script lang="ts">
   import { displayCurrency, type CurrencyCode } from '$lib/currencyStore';
-  import { convertSatsToFiat, formatFiatValue } from '$lib/currencyConversion';
+  import {
+    convertSatsToFiat,
+    formatFiatValue,
+    formatFiatValueCompact
+  } from '$lib/currencyConversion';
 
   export let sats: number | null;
   export let visible: boolean = true;
@@ -71,7 +75,7 @@
 {:else if $displayCurrency === 'SATS'}
   {formatSatsValue(sats)}
 {:else if fiatValue !== null}
-  {formatFiatValue(fiatValue)}
+  {compact ? formatFiatValueCompact(fiatValue) : formatFiatValue(fiatValue)}
 {:else if fiatLoading}
   ...
 {:else}
