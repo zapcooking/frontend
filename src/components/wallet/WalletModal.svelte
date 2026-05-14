@@ -57,8 +57,14 @@
     flex-direction: column;
     overflow: hidden;
     background-color: var(--color-bg-secondary);
-    padding-top: 2rem;
-    padding-bottom: 2rem;
+    /* No vertical padding on the flex container: flex column + body
+       padding + a flex:1 overflow-auto child cause the child to
+       extend through the padding region, painting the body's
+       bg-secondary over the top and bottom of the scrollable content.
+       The vertical visual buffer lives inside the inner .wallet-scroll
+       instead. */
+    padding-top: 0;
+    padding-bottom: 0;
   }
   /* Floating logo (left) + close button (right) — both sit on top of
      content in the top corners of the modal. No opaque banner — the
