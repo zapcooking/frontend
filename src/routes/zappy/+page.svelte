@@ -74,25 +74,22 @@
   // is left alone so chips and the custom input stay separate
   // affordances (one-tap presets vs. write-your-own).
   //
-  // The three Nourish-tagged chips carry a green leaf glyph so users
-  // can see at a glance which prompts align with the Nourish
-  // nutrition surface. They share the same fireChip behavior and
-  // POST to /api/zappy like every other chip; the leaf is a visual
-  // tag only. Order is intentionally interspersed (not grouped) so
-  // the row reads as a mixed bag of presets rather than a taxonomy.
-  type Chip = { label: string; nourish?: boolean };
-  const suggestionChips: Chip[] = [
-    { label: 'Cozy vegetarian' },
-    { label: 'High protein', nourish: true },
-    { label: '30-min dinner' },
-    { label: 'Mediterranean dinner' },
-    { label: 'Gut health', nourish: true },
-    { label: 'One-pot meal' },
-    { label: 'Sheet pan dinner' },
-    { label: 'Real food', nourish: true },
-    { label: 'Hearty salad' },
-    { label: 'Kid-friendly' },
-    { label: 'Pantry only' }
+  // Chips are grouped into two rows so the leaf icon reads as the
+  // Nourish program's universal "healthy" marker rather than an
+  // ad-hoc accent. Every chip in the "Nourish picks" row carries a
+  // leaf (vegetarian / Mediterranean / high-protein / gut-health all
+  // qualify); "More ideas" is the catch-all without health framing.
+  const nourishChips = [
+    'Cozy vegetarian',
+    'High protein',
+    'Mediterranean dinner',
+    'Gut health'
+  ];
+  const moreIdeasChips = [
+    '30-min dinner',
+    'One-pot meal',
+    'Kid-friendly',
+    'Pantry only'
   ];
 
   // Tracks which chip (if any) is currently driving the generation.
@@ -656,33 +653,59 @@
             </button>
           </div>
 
-          <!-- Suggestion chips — one-tap presets. The chip's label IS
-               the prompt; tapping fires a generation immediately
-               (textarea is left alone). Nourish-tagged chips carry
-               a small green leaf next to the label; they're
-               interspersed (not grouped) so the row reads as a
-               mixed bag rather than a taxonomy. Built as a local
-               pattern; not extracted to a shared Chip component
-               yet. -->
-          <div class="flex flex-wrap gap-2" aria-label="Prompt suggestions">
-            {#each suggestionChips as chip}
-              {@const isFiring = tappedChip === chip.label}
-              <button
-                type="button"
-                class="suggestion-chip"
-                class:is-loading={isFiring}
-                on:click={() => fireChip(chip.label)}
-                disabled={status === 'generating'}
-                aria-busy={isFiring}
-              >
-                {#if isFiring}
-                  <ArrowsClockwiseIcon size={12} class="animate-spin" />
-                {:else if chip.nourish}
-                  <LeafIcon size={12} weight="fill" class="text-green-500" />
-                {/if}
-                {chip.label}
-              </button>
-            {/each}
+          <!-- Suggestion chips — one-tap presets, grouped into two
+               rows. "Nourish picks" carries the leaf glyph on every
+               chip (it's the universal "healthy" marker for the
+               Nourish program); "More ideas" is the unmarked
+               catch-all. Built as a local pattern; not extracted to
+               a shared Chip component yet. -->
+          <div class="flex flex-col gap-1.5">
+            <span class="chip-row-label chip-row-label-nourish">
+              <LeafIcon size={12} weight="fill" />
+              Nourish picks
+            </span>
+            <div class="flex flex-wrap gap-2">
+              {#each nourishChips as label}
+                {@const isFiring = tappedChip === label}
+                <button
+                  type="button"
+                  class="suggestion-chip"
+                  class:is-loading={isFiring}
+                  on:click={() => fireChip(label)}
+                  disabled={status === 'generating'}
+                  aria-busy={isFiring}
+                >
+                  {#if isFiring}
+                    <ArrowsClockwiseIcon size={12} class="animate-spin" />
+                  {:else}
+                    <LeafIcon size={12} weight="fill" class="text-green-500" />
+                  {/if}
+                  {label}
+                </button>
+              {/each}
+            </div>
+          </div>
+
+          <div class="flex flex-col gap-1.5 mt-1">
+            <span class="chip-row-label chip-row-label-more">More ideas</span>
+            <div class="flex flex-wrap gap-2">
+              {#each moreIdeasChips as label}
+                {@const isFiring = tappedChip === label}
+                <button
+                  type="button"
+                  class="suggestion-chip"
+                  class:is-loading={isFiring}
+                  on:click={() => fireChip(label)}
+                  disabled={status === 'generating'}
+                  aria-busy={isFiring}
+                >
+                  {#if isFiring}
+                    <ArrowsClockwiseIcon size={12} class="animate-spin" />
+                  {/if}
+                  {label}
+                </button>
+              {/each}
+            </div>
           </div>
         </div>
 
@@ -730,11 +753,11 @@
           </Button>
         </div>
 
-        <!-- Disabled-state helper: surfaces when Cook It is blocked
-             because the textarea is empty (canGenerate is false &
-             nothing is generating). Surprise Me always works, so we
-             point users at it. -->
-        {#if !canGenerate && status !== 'generating'}
+        <!-- Disabled-state helper: surfaces only on idle with an
+             empty prompt — i.e. the only state where Cook It is
+             unusable. Don't render during 'generating' (shimmer
+             explains it) or 'error' (the banner does). -->
+        {#if status === 'idle' && !promptInput.trim()}
           <p class="text-xs text-caption text-center -mt-1">
             Type an idea or try Surprise Me.
           </p>
@@ -1087,6 +1110,28 @@
      kept local on this page; we'll extract a shared Chip component
      later if the detected-ingredients chips end up close enough to
      consolidate. */
+  /* Section labels above each chip row. Small, subdued, with the
+     row's leading icon (leaf for the Nourish row). Nourish picks
+     gets a muted-orange tint; "More ideas" stays gray. */
+  .chip-row-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+  }
+  .chip-row-label-nourish {
+    color: color-mix(in srgb, var(--color-primary) 70%, transparent);
+  }
+  .chip-row-label-nourish :global(svg) {
+    color: rgb(34, 197, 94);
+  }
+  .chip-row-label-more {
+    color: var(--color-text-caption, #9ca3af);
+    opacity: 0.75;
+  }
+
   .suggestion-chip {
     display: inline-flex;
     align-items: center;
@@ -1106,6 +1151,15 @@
       transform 140ms ease,
       box-shadow 140ms ease,
       opacity 140ms ease;
+  }
+  /* Tighten on mobile so two trimmed rows don't push Cook It below
+     the fold at iPhone-SE width (375×667). */
+  @media (max-width: 640px) {
+    .suggestion-chip {
+      height: 28px;
+      padding: 0 10px;
+      font-size: 12px;
+    }
   }
   .suggestion-chip:hover:not(:disabled) {
     background-color: color-mix(in srgb, var(--color-primary) 18%, transparent);

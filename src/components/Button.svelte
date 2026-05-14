@@ -27,14 +27,21 @@
   };
 </script>
 
+<!--
+  Order matters: spread `$$restProps` BEFORE the explicit class/type/
+  disabled so the explicit attributes win. Otherwise the caller's
+  `class="..."` (which Svelte routes through $$restProps when it
+  isn't an exported prop) overwrites the variant classes and the
+  button renders bare.
+-->
 <button
+  {...$$restProps}
   {type}
   class="rounded-full whitespace-nowrap flex items-center justify-center gap-2 px-4 py-2.5 font-semibold transition duration-300 {variantClasses[
     effectiveVariant
   ]} {$$props.class}"
   on:click
   {disabled}
-  {...$$restProps}
 >
   <slot />
 </button>
