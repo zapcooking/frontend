@@ -384,22 +384,9 @@
 <div class="flex flex-col max-w-[760px] mx-auto gap-6 pb-8">
   <!-- Header -->
   <div class="flex flex-col gap-2">
-    <div class="flex items-center justify-between">
-      <div class="flex items-center gap-3">
-        <RobotIcon size={32} class="text-primary" weight="fill" />
-        <h1>Chef ₿</h1>
-      </div>
-      {#if hasMembership}
-        <button
-          type="button"
-          class="flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium transition-all bg-primary/10 hover:bg-primary/20 text-primary hover:scale-105"
-          on:click={openZapModal}
-          title="Zap Chef ₿ to say thanks ⚡"
-        >
-          <LightningIcon size={16} weight="fill" />
-          Zap Chef ₿
-        </button>
-      {/if}
+    <div class="flex items-center gap-3">
+      <RobotIcon size={32} class="text-primary" weight="fill" />
+      <h1>Chef ₿</h1>
     </div>
     <p class="text-caption">
       What's cooking? Tell me what you're craving or show me your fridge!
@@ -665,6 +652,19 @@
             <p class="text-gray-500 font-mono text-sm italic">Chef ₿ will drop your recipe here…</p>
           {/if}
         </div>
+      </div>
+
+      <!-- Tip-the-chef affordance below the output box -->
+      <div class="flex justify-center pt-2">
+        <button
+          type="button"
+          class="flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all bg-primary/10 hover:bg-primary/20 text-primary hover:scale-105"
+          on:click={openZapModal}
+          title="Zap Chef ₿ to say thanks ⚡"
+        >
+          <LightningIcon size={16} weight="fill" />
+          Zap Chef ₿
+        </button>
       </div>
     </div>
   {/if}
