@@ -6,11 +6,11 @@
   import SVGNostrCookingWithText from '../assets/nostr.cooking-withtext.svg';
   import SearchIcon from 'phosphor-svelte/lib/MagnifyingGlass';
   import CookingPotIcon from 'phosphor-svelte/lib/CookingPot';
-  import SparkleIcon from 'phosphor-svelte/lib/Sparkle';
-  import RobotIcon from 'phosphor-svelte/lib/Robot';
-  import LeafIcon from 'phosphor-svelte/lib/Leaf';
   import TagsSearchAutocomplete from './TagsSearchAutocomplete.svelte';
   import CustomAvatar from './CustomAvatar.svelte';
+  import IntelligenceIcon from './icons/IntelligenceIcon.svelte';
+  import IntelligenceMenu from './IntelligenceMenu.svelte';
+  import DenominatedBalance from './DenominatedBalance.svelte';
   import { theme } from '$lib/themeStore';
   import WalletBalance from './WalletBalance.svelte';
   import LightningIcon from 'phosphor-svelte/lib/Lightning';
@@ -18,7 +18,15 @@
   import { userSidePanelOpen } from '$lib/stores/userSidePanel';
   import { mobileSearchOpen } from '$lib/stores/mobileSearch';
   import { timerStore } from '$lib/timerStore';
-  import { navBalanceVisible, walletConnected, openWallet } from '$lib/wallet';
+  import {
+    navBalanceVisible,
+    walletConnected,
+    walletBalance,
+    walletLoading,
+    balanceVisible,
+    openWallet
+  } from '$lib/wallet';
+  import { displayCurrency } from '$lib/currencyStore';
   import { weblnConnected } from '$lib/wallet/webln';
   import { bitcoinConnectEnabled, bitcoinConnectWalletInfo } from '$lib/wallet/bitcoinConnect';
   import { cookingToolsStore, cookingToolsOpen } from '$lib/stores/cookingToolsWidget';
@@ -29,18 +37,13 @@
     type MembershipTier
   } from '$lib/stores/membershipStatus';
 
-  let isLoading = true;
+  let intelligenceMenuOpen = false;
 
   // Count active timers (running or paused + done)
   $: activeTimers = $timerStore.timers.filter(
     (t) => t.status === 'running' || t.status === 'paused' || t.status === 'done'
   );
   $: hasActiveTimers = activeTimers.length > 0;
-
-  // Debug: log when profile picture override changes
-  $: if ($userProfilePictureOverride) {
-    console.log('[Header] userProfilePictureOverride changed:', $userProfilePictureOverride);
-  }
 
   function openTag(query: string) {
     mobileSearchOpen.set(false);
@@ -55,12 +58,6 @@
     }
   }
 
-  // Simple loading state management
-  $: if ($userPublickey !== undefined) {
-    isLoading = false;
-  }
-
-  // Reactive resolved theme for logo switching
   $: resolvedTheme = $theme === 'system' ? theme.getResolvedTheme() : $theme;
   $: isDarkMode = resolvedTheme === 'dark';
   $: hasNavWallet =
@@ -68,7 +65,14 @@
     $weblnConnected ||
     ($bitcoinConnectEnabled && $bitcoinConnectWalletInfo.connected);
 
-  // Membership status for header tier badge
+  // Active state highlights the Intelligence icon when the user is
+  // currently on one of the AI surfaces.
+  $: onIntelligenceSurface =
+    $page.url.pathname.startsWith('/souschef') ||
+    $page.url.pathname.startsWith('/zappy') ||
+    $page.url.pathname.startsWith('/nourish');
+
+  // Membership
   let membershipMap: Record<string, MembershipStatus> = {};
   const unsubMembership = membershipStatusMap.subscribe((value) => {
     membershipMap = value;
@@ -126,26 +130,30 @@
       goto('/explore');
     }
   }
+
 </script>
 
-<!-- Mobile-first layout -->
-<div class="relative flex gap-2 sm:gap-9 lg:gap-12 justify-between overflow-visible">
+<!-- Mobile-first sleek header -->
+<div class="zh-root relative flex items-center gap-3 sm:gap-6 lg:gap-10 justify-between overflow-visible">
+  <!-- Left: compact logo -->
   <button
     on:click={handleLogoClick}
-    class="flex-none xl:hidden cursor-pointer transition-transform duration-150 active:scale-95 active:opacity-80"
+    class="zh-logo flex-none xl:hidden cursor-pointer transition-transform duration-150 active:scale-95"
+    aria-label="zap.cooking home"
   >
     <img
       src={SVGNostrCookingWithText}
-      class="logo-light w-28 sm:w-40 my-2 sm:my-3 dark:hidden"
-      alt="zap.cooking Logo With Text"
+      class="w-24 sm:w-32 my-1.5 sm:my-2 dark:hidden"
+      alt="zap.cooking"
     />
     <img
       src="/zap_cooking_logo_white.svg"
-      class="logo-dark w-28 sm:w-40 my-2 sm:my-3 hidden dark:block"
-      alt="zap.cooking Logo With Text"
+      class="w-24 sm:w-32 my-1.5 sm:my-2 hidden dark:block"
+      alt="zap.cooking"
     />
   </button>
 
+  <!-- Center: search bar (desktop) -->
   <div
     class="hidden sm:flex flex-1 self-center print:hidden max-w-2xl min-w-[280px] lg:min-w-[500px]"
   >
@@ -155,88 +163,104 @@
     />
   </div>
   <span class="hidden lg:max-xl:flex lg:max-xl:grow"></span>
-  <div class="flex items-center gap-1 sm:gap-3 self-center flex-none print:hidden">
-    <!-- Search icon (mobile/tablet only when search bar hidden) -->
+
+  <!-- Right: action cluster -->
+  <div class="flex items-center gap-1.5 sm:gap-2.5 self-center flex-none print:hidden">
+    <!-- Search icon (mobile only) -->
     <div class="block sm:hidden">
       <button
         on:click={() => mobileSearchOpen.set(true)}
-        class="w-8 h-8 sm:w-9 sm:h-9 flex items-center justify-center hover:opacity-80 hover:bg-accent-gray rounded-full transition-colors cursor-pointer"
-        style="color: var(--color-text-primary)"
+        class="zh-iconbtn"
         aria-label="Search"
       >
-        <SearchIcon size={18} weight="bold" class="sm:w-5 sm:h-5" />
+        <SearchIcon size={18} weight="bold" />
       </button>
     </div>
 
-    <!-- Sous Chef, Zappy & Nourish icons (logged in) -->
+    <!-- Unified Intelligence icon (logged in) -->
     {#if $userPublickey}
-      <a
-        href="/souschef"
-        class="w-8 h-8 sm:w-9 sm:h-9 flex items-center justify-center rounded-full transition-colors cursor-pointer hover:bg-accent-gray"
-        aria-label="Sous Chef"
-      >
-        <SparkleIcon size={18} weight="fill" class="text-primary sm:w-5 sm:h-5" />
-      </a>
-      <a
-        href="/zappy"
-        class="w-8 h-8 sm:w-9 sm:h-9 flex items-center justify-center rounded-full transition-colors cursor-pointer hover:bg-accent-gray"
-        aria-label="Zappy"
-      >
-        <RobotIcon size={18} weight="regular" class="text-yellow-500/70 sm:w-5 sm:h-5" />
-      </a>
-      <a
-        href="/nourish"
-        class="w-8 h-8 sm:w-9 sm:h-9 flex items-center justify-center rounded-full transition-colors cursor-pointer hover:bg-accent-gray"
-        aria-label="Nourish"
-      >
-        <LeafIcon size={18} weight="fill" class="text-green-500/70 sm:w-5 sm:h-5" />
-      </a>
+      <div class="relative">
+        <button
+          type="button"
+          on:click|stopPropagation={() => (intelligenceMenuOpen = !intelligenceMenuOpen)}
+          class="zh-iconbtn zh-intelligence-btn {onIntelligenceSurface || intelligenceMenuOpen
+            ? 'is-active'
+            : ''}"
+          aria-label="Intelligence tools"
+          aria-haspopup="menu"
+          aria-expanded={intelligenceMenuOpen}
+        >
+          <IntelligenceIcon size={20} active={onIntelligenceSurface || intelligenceMenuOpen} />
+        </button>
+        <IntelligenceMenu
+          open={intelligenceMenuOpen}
+          on:close={() => (intelligenceMenuOpen = false)}
+        />
+      </div>
     {/if}
 
-    <!-- Cooking Tools toggle (timer + converter) -->
+    <!-- Cooking Tools toggle (timer + converter) — kept but lighter -->
     <button
       on:click={toggleCookingTools}
       data-cooking-tools-button
-      class="w-8 h-8 sm:w-9 sm:h-9 flex items-center justify-center rounded-full transition-colors cursor-pointer relative {$cookingToolsOpen
+      class="zh-iconbtn relative {$cookingToolsOpen
         ? 'bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400'
-        : 'hover:opacity-80 hover:bg-accent-gray'}"
-      style={$cookingToolsOpen ? '' : 'color: var(--color-text-primary)'}
+        : ''}"
       aria-label={$cookingToolsOpen ? 'Hide cooking tools' : 'Show cooking tools'}
     >
-      <CookingPotIcon
-        size={18}
-        weight={$cookingToolsOpen || hasActiveTimers ? 'fill' : 'bold'}
-        class="sm:w-5 sm:h-5"
-      />
+      <CookingPotIcon size={18} weight={$cookingToolsOpen || hasActiveTimers ? 'fill' : 'bold'} />
       {#if hasActiveTimers}
         <span
-          class="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 sm:w-4 sm:h-4 bg-amber-500 text-white text-[10px] sm:text-xs font-bold rounded-full flex items-center justify-center"
+          class="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 bg-amber-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center"
         >
           {activeTimers.length}
         </span>
       {/if}
     </button>
 
-    <!-- Wallet button (mobile only) - opens wallet modal -->
-    {#if $userPublickey}
-      <button
-        type="button"
-        on:click={() => openWallet()}
-        class="sm:hidden w-8 h-8 flex items-center justify-center rounded-full transition-colors cursor-pointer hover:opacity-80 hover:bg-accent-gray"
-        style="color: var(--color-text-primary)"
-        aria-label="Open wallet"
-      >
-        <WalletIcon size={18} weight="bold" />
-      </button>
-    {/if}
-
-    <!-- Wallet Balance - only show when logged in -->
+    <!-- Wallet (logged in) -->
     {#if $userPublickey && $navBalanceVisible}
       {#if hasNavWallet}
+        <!-- Mobile compact wallet pill — split into two interactive
+             zones so the user gets a one-tap currency cycle on the
+             balance text while preserving "open wallet" on the icon. -->
+        <div class="zh-wallet-mobile sm:hidden" role="group" aria-label="Wallet">
+          <button
+            type="button"
+            on:click={() => openWallet()}
+            class="zh-wallet-mobile-zone zh-wallet-mobile-icon"
+            aria-label="Open wallet"
+          >
+            <LightningIcon size={14} weight="fill" class="text-amber-400" />
+          </button>
+          <button
+            type="button"
+            on:click={() => displayCurrency.cycleSatsFiat()}
+            class="zh-wallet-mobile-zone zh-wallet-mobile-amount"
+            aria-label="Toggle currency"
+            title="Tap to toggle currency"
+          >
+            <DenominatedBalance
+              sats={$walletBalance}
+              visible={$balanceVisible}
+              loading={$walletLoading}
+            />
+          </button>
+        </div>
+        <!-- Desktop full WalletBalance widget -->
         <div class="hidden sm:block">
           <WalletBalance />
         </div>
       {:else}
+        <button
+          type="button"
+          on:click={() => openWallet('setup')}
+          class="zh-wallet-mobile sm:hidden"
+          aria-label="Set up a wallet"
+        >
+          <LightningIcon size={14} weight="fill" class="text-amber-400" />
+          <span class="zh-wallet-amount">Set up</span>
+        </button>
         <button
           type="button"
           on:click={() => openWallet('setup')}
@@ -247,6 +271,17 @@
           <span>Set up a Wallet</span>
         </button>
       {/if}
+    {:else if $userPublickey && hasNavWallet}
+      <!-- Wallet exists but balance is hidden via $navBalanceVisible: still
+           expose a compact tap-to-open affordance on mobile. -->
+      <button
+        type="button"
+        on:click={() => openWallet()}
+        class="zh-iconbtn sm:hidden"
+        aria-label="Open wallet"
+      >
+        <WalletIcon size={18} weight="bold" />
+      </button>
     {/if}
 
     <!-- Tier badge for active members -->
@@ -265,11 +300,17 @@
     <div class="print:hidden flex-shrink-0">
       {#if $userPublickey !== ''}
         <button
-          class="flex cursor-pointer rounded-full transition-transform duration-200 hover:scale-105 active:scale-95"
+          class="zh-avatar-btn"
           on:click={() => userSidePanelOpen.set(true)}
           aria-label="Open user menu"
         >
-          <CustomAvatar pubkey={$userPublickey} size={32} imageUrl={$userProfilePictureOverride} />
+          <span class="zh-avatar-ring">
+            <CustomAvatar
+              pubkey={$userPublickey}
+              size={32}
+              imageUrl={$userProfilePictureOverride}
+            />
+          </span>
         </button>
       {:else}
         <a
@@ -284,6 +325,172 @@
 </div>
 
 <style>
+  /* Shared icon button — minimal, balanced tap target, subtle hover.
+     Wrapped in :where() so Tailwind responsive utilities (sm:hidden,
+     etc.) can override individual properties without specificity
+     fights. */
+  :where(.zh-iconbtn) {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    border-radius: 999px;
+    color: var(--color-text-primary);
+    background: transparent;
+    border: 0;
+    cursor: pointer;
+    transition:
+      background-color 140ms ease,
+      color 140ms ease,
+      box-shadow 140ms ease;
+  }
+  .zh-iconbtn:hover {
+    background-color: var(--color-input-bg);
+  }
+  .zh-iconbtn:active {
+    transform: scale(0.96);
+  }
+
+  /* Intelligence button — when active, soft purple ring + glow */
+  .zh-intelligence-btn.is-active {
+    background-color: rgba(168, 85, 247, 0.1);
+    box-shadow:
+      inset 0 0 0 1px rgba(168, 85, 247, 0.35),
+      0 0 12px rgba(168, 85, 247, 0.18);
+    color: rgb(216, 180, 254);
+  }
+  :global(.dark) .zh-intelligence-btn.is-active {
+    color: rgb(233, 213, 255);
+  }
+
+  /* Mobile wallet pill — compact container split into two interactive
+     zones: a lightning icon (opens the wallet modal) and a balance
+     text (one-tap cycles SATS ↔ preferred fiat). Mobile only; desktop
+     uses the existing WalletBalance widget. The media query is
+     co-located with the component CSS so it beats the Tailwind
+     `sm:hidden` utility (which would otherwise lose to this rule's
+     specificity). */
+  .zh-wallet-mobile {
+    display: inline-flex;
+    align-items: stretch;
+    height: 30px;
+    border-radius: 999px;
+    background-color: var(--color-input-bg);
+    border: 1px solid var(--color-input-border, transparent);
+    color: var(--color-text-primary);
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1;
+    overflow: hidden;
+    transition: background-color 140ms ease, border-color 140ms ease;
+  }
+  @media (min-width: 640px) {
+    .zh-wallet-mobile {
+      display: none;
+    }
+  }
+
+  /* When `.zh-wallet-mobile` is used as a single button (the "Set up"
+     branch), fall back to old behavior. */
+  button.zh-wallet-mobile {
+    cursor: pointer;
+    padding: 0 10px 0 8px;
+    gap: 6px;
+    align-items: center;
+  }
+  button.zh-wallet-mobile:active {
+    transform: scale(0.97);
+  }
+
+  /* Inner zones share styling, are full-height, and meet a 30px tap
+     target via padding. They show a subtle hover state so the user
+     sees the two are independent. */
+  .zh-wallet-mobile-zone {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: 0;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+    transition: background-color 120ms ease, color 120ms ease;
+  }
+  .zh-wallet-mobile-zone:hover {
+    background-color: rgba(0, 0, 0, 0.05);
+  }
+  :global(.dark) .zh-wallet-mobile-zone:hover {
+    background-color: rgba(255, 255, 255, 0.06);
+  }
+  :where(.zh-wallet-mobile-zone:active) {
+    transform: scale(0.96);
+  }
+  .zh-wallet-mobile-icon {
+    padding: 0 6px 0 9px;
+  }
+  .zh-wallet-mobile-amount {
+    padding: 0 10px 0 6px;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.01em;
+    min-width: 3.5ch;
+  }
+  :global(.dark) .zh-wallet-mobile {
+    background-color: rgba(255, 255, 255, 0.04);
+    border-color: rgba(255, 255, 255, 0.08);
+    box-shadow: inset 0 0 0 1px rgba(251, 191, 36, 0.06);
+  }
+  .zh-wallet-amount {
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.01em;
+    min-width: 2.5ch;
+    text-align: right;
+  }
+
+  /* Avatar — soft purple glow ring, scales softly on hover/tap */
+  .zh-avatar-btn {
+    display: inline-flex;
+    padding: 0;
+    background: transparent;
+    border: 0;
+    border-radius: 999px;
+    cursor: pointer;
+    transition: transform 200ms ease;
+  }
+  .zh-avatar-btn:hover {
+    transform: scale(1.04);
+  }
+  .zh-avatar-btn:active {
+    transform: scale(0.96);
+  }
+  .zh-avatar-ring {
+    display: inline-flex;
+    padding: 2px;
+    border-radius: 999px;
+    background:
+      radial-gradient(
+        circle at 30% 30%,
+        rgba(168, 85, 247, 0.55),
+        rgba(168, 85, 247, 0.18) 60%,
+        transparent 80%
+      );
+    box-shadow:
+      0 0 0 1px rgba(168, 85, 247, 0.35),
+      0 0 10px rgba(168, 85, 247, 0.25);
+  }
+  :global(.dark) .zh-avatar-ring {
+    background:
+      radial-gradient(
+        circle at 30% 30%,
+        rgba(192, 132, 252, 0.6),
+        rgba(168, 85, 247, 0.2) 60%,
+        transparent 80%
+      );
+    box-shadow:
+      0 0 0 1px rgba(192, 132, 252, 0.4),
+      0 0 12px rgba(168, 85, 247, 0.3);
+  }
+
   .signin-button:hover {
     border-color: var(--color-accent-gray);
     background-color: var(--color-input-bg);

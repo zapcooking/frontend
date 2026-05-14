@@ -467,12 +467,32 @@
     background-color: color-mix(in srgb, var(--color-bg-primary) 70%, transparent);
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
+    border-bottom: 1px solid color-mix(in srgb, var(--color-input-border) 60%, transparent);
   }
 
-  /* Safe area padding for header on mobile */
+  /* Dark-mode header gets a subtle navy lean + thin glow band so the
+     header reads as its own surface, not just a tinted body. Light
+     mode is left clean. */
+  :global(.dark) .header-blur {
+    background-color: rgba(14, 21, 41, 0.78);
+    background-image: linear-gradient(
+      to bottom,
+      rgba(33, 39, 73, 0.45),
+      rgba(14, 21, 41, 0.65)
+    );
+    border-bottom-color: rgba(255, 255, 255, 0.06);
+    box-shadow: 0 1px 0 rgba(168, 85, 247, 0.04);
+  }
+
+  /* Safe area padding for header on mobile.
+     `env(safe-area-inset-top, 0px)` alone would collapse to 0 on
+     non-notched browsers (regular Chrome/Safari/Firefox on mobile
+     and desktop-narrow), making the avatar touch the viewport top.
+     `max()` keeps the baseline 0.75rem (matches the `py-3` from the
+     wrapper) and grows for devices with a real notch inset. */
   @media (max-width: 1023px) {
     .header-blur {
-      padding-top: env(safe-area-inset-top, 0px);
+      padding-top: max(env(safe-area-inset-top, 0px), 0.75rem);
     }
   }
 

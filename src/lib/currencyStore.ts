@@ -34,11 +34,25 @@ export const SUPPORTED_CURRENCIES: Currency[] = [
 ];
 
 const STORAGE_KEY = 'zapcooking_display_currency';
+const PREFERRED_FIAT_KEY = 'zapcooking_preferred_fiat';
 
 function getInitialCurrency(): CurrencyCode {
   if (!browser) return 'USD';
   const stored = localStorage.getItem(STORAGE_KEY);
   if (stored && SUPPORTED_CURRENCIES.some((c) => c.code === stored)) {
+    return stored as CurrencyCode;
+  }
+  return 'USD';
+}
+
+function getPreferredFiat(): CurrencyCode {
+  if (!browser) return 'USD';
+  const stored = localStorage.getItem(PREFERRED_FIAT_KEY);
+  if (
+    stored &&
+    stored !== 'SATS' &&
+    SUPPORTED_CURRENCIES.some((c) => c.code === stored)
+  ) {
     return stored as CurrencyCode;
   }
   return 'USD';
@@ -53,6 +67,15 @@ interface CurrencyStore {
   initialize: () => void;
   setCurrency: (currency: CurrencyCode) => void;
   getCurrency: () => Currency;
+  /**
+   * One-tap cycle between SATS and the user's last-selected fiat.
+   * - From a fiat → SATS (remembering which fiat to come back to).
+   * - From SATS → the remembered fiat (defaults to USD on first use).
+   * The remembered "preferred fiat" is also updated whenever the user
+   * picks a fiat via setCurrency, so the cycle target tracks the
+   * full picker.
+   */
+  cycleSatsFiat: () => void;
 }
 
 function createCurrencyStore(): CurrencyStore {
@@ -73,11 +96,34 @@ function createCurrencyStore(): CurrencyStore {
       if (!browser) return;
       currentCurrency = currency;
       localStorage.setItem(STORAGE_KEY, currency);
+      // Track the most recent fiat selection so the SATS↔fiat cycle
+      // returns to whatever the user last explicitly picked.
+      if (currency !== 'SATS') {
+        localStorage.setItem(PREFERRED_FIAT_KEY, currency);
+      }
       set(currency);
     },
 
     getCurrency(): Currency {
       return getCurrencyByCode(currentCurrency);
+    },
+
+    cycleSatsFiat() {
+      if (!browser) return;
+      let target: CurrencyCode;
+      if (currentCurrency === 'SATS') {
+        target = getPreferredFiat();
+      } else {
+        // Remember the fiat we're leaving so the next cycle returns
+        // to it. Without this, existing users whose display currency
+        // was persisted before PREFERRED_FIAT_KEY existed (e.g. EUR)
+        // would always cycle SATS → USD instead of SATS → EUR.
+        localStorage.setItem(PREFERRED_FIAT_KEY, currentCurrency);
+        target = 'SATS';
+      }
+      currentCurrency = target;
+      localStorage.setItem(STORAGE_KEY, target);
+      set(target);
     }
   };
 }
