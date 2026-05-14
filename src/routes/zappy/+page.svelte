@@ -431,22 +431,41 @@
       </div>
     </div>
   {:else}
-    <!-- Has membership - show Zappy UI -->
+    <!-- Has membership - show Chef ₿ UI -->
     <div class="flex flex-col gap-6">
       <!-- Input Section -->
       <div class="flex flex-col gap-4">
         <div class="flex flex-col gap-2">
           <label for="prompt" class="text-sm font-medium">What are you in the mood for?</label>
-          <textarea
-            id="prompt"
-            bind:value={promptInput}
-            placeholder={currentPlaceholder}
-            rows="5"
-            class="input resize-none text-base"
-            disabled={status === 'generating'}
-          />
+          <div class="relative">
+            <textarea
+              id="prompt"
+              bind:value={promptInput}
+              placeholder={currentPlaceholder}
+              rows="5"
+              class="input resize-none text-base w-full pr-12"
+              disabled={status === 'generating'}
+            ></textarea>
+            <!-- Scan Fridge — small camera-icon affordance docked inside
+                 the textarea. Triggers the same hidden file input as
+                 before; spinner replaces the icon while scanning. -->
+            <button
+              type="button"
+              class="scan-icon-btn"
+              on:click={triggerScan}
+              disabled={isScanning || status === 'generating'}
+              title="Scan your fridge"
+              aria-label="Scan fridge for ingredients"
+            >
+              {#if isScanning}
+                <ArrowsClockwiseIcon size={18} class="animate-spin" />
+              {:else}
+                <CameraIcon size={18} weight="fill" />
+              {/if}
+            </button>
+          </div>
         </div>
-        
+
         <!-- Hidden file input for camera/upload -->
         <input
           bind:this={fileInput}
@@ -456,75 +475,37 @@
           class="hidden"
           on:change={handleFileSelect}
         />
-        
-        <!-- Three-button action row -->
-        <!-- Mobile: Scan full width, other two side-by-side -->
-        <!-- Desktop: All three equal width -->
-        <div class="flex flex-col sm:flex-row gap-4">
-          <!-- Scan Fridge Button -->
-          <div class="flex flex-col items-center gap-1 w-full sm:flex-1">
-            <button
-              type="button"
-              class="flex items-center justify-center gap-2 px-4 py-3 rounded-full font-semibold transition-all
-                bg-teal-500 hover:bg-teal-600 text-white disabled:opacity-50 disabled:cursor-not-allowed
-                w-full"
-              disabled={isScanning || status === 'generating'}
-              on:click={triggerScan}
-            >
-              {#if isScanning}
-                <ArrowsClockwiseIcon size={18} class="animate-spin" />
-                Scanning...
-              {:else}
-                <CameraIcon size={18} weight="fill" />
-                Scan Fridge
-              {/if}
-            </button>
-            <span class="text-xs text-caption">Use what you have</span>
-          </div>
-          
-          <!-- Mobile: Two buttons side-by-side -->
-          <div class="flex gap-4 sm:contents">
-            <!-- Surprise Me Button -->
-            <div class="flex flex-col items-center gap-1 flex-1">
-              <button
-                type="button"
-                class="flex items-center justify-center gap-2 px-4 py-3 rounded-full font-semibold transition-all
-                  bg-yellow-500 hover:bg-yellow-600 text-white disabled:opacity-50 disabled:cursor-not-allowed
-                  w-full"
-                disabled={status === 'generating'}
-                on:click={() => generateRecipe('hungry')}
-              >
-                {#if status === 'generating' && !promptInput.trim()}
-                  <ArrowsClockwiseIcon size={18} class="animate-spin" />
-                {:else}
-                  <ShuffleIcon size={18} weight="fill" />
-                {/if}
-                Surprise Me
-              </button>
-              <span class="text-xs text-caption">No thinking required</span>
-            </div>
-            
-            <!-- Cook It Button (Primary) -->
-            <div class="flex flex-col items-center gap-1 flex-1">
-              <button
-                type="button"
-                class="flex items-center justify-center gap-2 px-4 py-3 rounded-full font-semibold transition-all
-                  bg-primary hover:opacity-90 text-white disabled:opacity-50 disabled:cursor-not-allowed
-                  w-full"
-                disabled={!canGenerate}
-                on:click={() => generateRecipe('prompt')}
-              >
-                {#if status === 'generating' && promptInput.trim()}
-                  <ArrowsClockwiseIcon size={18} class="animate-spin" />
-                  Cooking...
-                {:else}
-                  <RobotIcon size={18} weight="fill" />
-                  Cook It
-                {/if}
-              </button>
-              <span class="text-xs text-caption">Let's cook</span>
-            </div>
-          </div>
+
+        <!-- Two-button action row — clear orange hierarchy:
+             Cook It = solid primary; Surprise Me = outline secondary. -->
+        <div class="flex flex-col-reverse sm:flex-row gap-3">
+          <Button
+            variant="outline"
+            class="w-full sm:flex-1 py-3"
+            disabled={status === 'generating'}
+            on:click={() => generateRecipe('hungry')}
+          >
+            {#if status === 'generating' && !promptInput.trim()}
+              <ArrowsClockwiseIcon size={18} class="animate-spin" />
+            {:else}
+              <ShuffleIcon size={18} weight="fill" />
+            {/if}
+            Surprise Me
+          </Button>
+          <Button
+            variant="primary"
+            class="w-full sm:flex-1 py-3"
+            disabled={!canGenerate}
+            on:click={() => generateRecipe('prompt')}
+          >
+            {#if status === 'generating' && promptInput.trim()}
+              <ArrowsClockwiseIcon size={18} class="animate-spin" />
+              Cooking...
+            {:else}
+              <RobotIcon size={18} weight="fill" />
+              Cook It
+            {/if}
+          </Button>
         </div>
         
         <!-- Scan error message -->
@@ -807,6 +788,39 @@
 {/if}
 
 <style>
+  /* Scan Fridge — small camera-icon button docked inside the prompt
+     textarea (top-right). Uses the Chef ₿ orange so it reads as part
+     of the same surface as the primary Cook It button, but with a
+     softer fill so it doesn't compete with the main CTA below. */
+  .scan-icon-btn {
+    position: absolute;
+    top: 0.5rem;
+    right: 0.5rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border-radius: 999px;
+    background-color: color-mix(in srgb, var(--color-primary) 12%, transparent);
+    color: var(--color-primary);
+    border: 0;
+    cursor: pointer;
+    transition:
+      background-color 140ms ease,
+      transform 140ms ease;
+  }
+  .scan-icon-btn:hover:not(:disabled) {
+    background-color: color-mix(in srgb, var(--color-primary) 22%, transparent);
+  }
+  .scan-icon-btn:active:not(:disabled) {
+    transform: scale(0.94);
+  }
+  .scan-icon-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
   .terminal-output {
     scrollbar-width: thin;
     scrollbar-color: #4b5563 #1a1a2e;
