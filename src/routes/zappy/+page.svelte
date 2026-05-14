@@ -430,24 +430,29 @@
               bind:value={promptInput}
               placeholder={currentPlaceholder}
               rows="5"
-              class="input resize-none text-base w-full pr-12"
+              class="input resize-none text-base w-full pb-12"
               disabled={status === 'generating'}
             ></textarea>
-            <!-- Scan Fridge — small camera-icon affordance docked inside
-                 the textarea. Triggers the same hidden file input as
-                 before; spinner replaces the icon while scanning. -->
+            <!-- Scan Fridge — small labeled pill docked in the textarea's
+                 bottom-right corner (Slack/ChatGPT/iMessage convention).
+                 Always-visible "Scan" text makes it self-describing on
+                 mobile where hover tooltips don't fire. Triggers the
+                 same hidden file input as before; spinner + "Scanning"
+                 replace the icon + text while scanning. -->
             <button
               type="button"
-              class="scan-icon-btn"
+              class="scan-pill"
               on:click={triggerScan}
               disabled={isScanning || status === 'generating'}
-              title="Scan your fridge"
-              aria-label="Scan fridge for ingredients"
+              title="Scan fridge"
+              aria-label="Scan fridge"
             >
               {#if isScanning}
-                <ArrowsClockwiseIcon size={18} class="animate-spin" />
+                <ArrowsClockwiseIcon size={14} class="animate-spin" />
+                <span>Scanning</span>
               {:else}
-                <CameraIcon size={18} weight="fill" />
+                <CameraIcon size={14} weight="fill" />
+                <span>Scan</span>
               {/if}
             </button>
           </div>
@@ -464,11 +469,13 @@
         />
 
         <!-- Two-button action row — clear orange hierarchy:
-             Cook It = solid primary; Surprise Me = outline secondary. -->
+             Cook It = solid primary (~60% width on desktop, top on
+             mobile); Surprise Me = outline secondary (~40% width on
+             desktop, bottom on mobile). -->
         <div class="flex flex-col-reverse sm:flex-row gap-3">
           <Button
             variant="outline"
-            class="w-full sm:flex-1 py-3"
+            class="w-full sm:flex-[2] py-3"
             disabled={status === 'generating'}
             on:click={() => generateRecipe('hungry')}
           >
@@ -481,7 +488,7 @@
           </Button>
           <Button
             variant="primary"
-            class="w-full sm:flex-1 py-3"
+            class="w-full sm:flex-[3] py-3"
             disabled={!canGenerate}
             on:click={() => generateRecipe('prompt')}
           >
@@ -494,6 +501,16 @@
             {/if}
           </Button>
         </div>
+
+        <!-- Disabled-state helper: surfaces when Cook It is blocked
+             because the textarea is empty (canGenerate is false &
+             nothing is generating). Surprise Me always works, so we
+             point users at it. -->
+        {#if !canGenerate && status !== 'generating'}
+          <p class="text-xs text-caption text-center -mt-1">
+            Type an idea or try Surprise Me.
+          </p>
+        {/if}
         
         <!-- Scan error message -->
         {#if scanError}
@@ -788,35 +805,44 @@
 {/if}
 
 <style>
-  /* Scan Fridge — small camera-icon button docked inside the prompt
-     textarea (top-right). Uses the Chef ₿ orange so it reads as part
-     of the same surface as the primary Cook It button, but with a
-     softer fill so it doesn't compete with the main CTA below. */
-  .scan-icon-btn {
+  /* Scan Fridge — labeled pill docked in the textarea's bottom-right
+     corner (Slack/ChatGPT/iMessage convention). Always-visible "Scan"
+     text means no hover tooltip needed on mobile. Uses the Chef ₿
+     orange tint so it reads as the same surface family as the primary
+     Cook It button, but at a lower visual weight. */
+  .scan-pill {
     position: absolute;
-    top: 0.5rem;
+    bottom: 0.5rem;
     right: 0.5rem;
     display: inline-flex;
     align-items: center;
-    justify-content: center;
-    width: 32px;
-    height: 32px;
+    gap: 6px;
+    height: 28px;
+    padding: 0 10px 0 8px;
     border-radius: 999px;
     background-color: color-mix(in srgb, var(--color-primary) 12%, transparent);
     color: var(--color-primary);
     border: 0;
     cursor: pointer;
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1;
     transition:
       background-color 140ms ease,
-      transform 140ms ease;
+      transform 140ms ease,
+      box-shadow 140ms ease;
   }
-  .scan-icon-btn:hover:not(:disabled) {
+  .scan-pill:hover:not(:disabled) {
     background-color: color-mix(in srgb, var(--color-primary) 22%, transparent);
   }
-  .scan-icon-btn:active:not(:disabled) {
-    transform: scale(0.94);
+  .scan-pill:active:not(:disabled) {
+    transform: scale(0.96);
   }
-  .scan-icon-btn:disabled {
+  .scan-pill:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 55%, transparent);
+  }
+  .scan-pill:disabled {
     opacity: 0.5;
     cursor: not-allowed;
   }
