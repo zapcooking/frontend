@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, onDestroy } from 'svelte';
+  import { onMount, onDestroy, tick } from 'svelte';
   import { browser } from '$app/environment';
   import { goto } from '$app/navigation';
   import { userPublickey } from '$lib/nostr';
@@ -11,6 +11,7 @@
   import Modal from '../../components/Modal.svelte';
   import LightningIcon from 'phosphor-svelte/lib/Lightning';
   import RobotIcon from 'phosphor-svelte/lib/Robot';
+  import LeafIcon from 'phosphor-svelte/lib/Leaf';
   import CookingPotIcon from 'phosphor-svelte/lib/CookingPot';
   import CopyIcon from 'phosphor-svelte/lib/Copy';
   import CheckIcon from 'phosphor-svelte/lib/Check';
@@ -38,6 +39,70 @@
   
   // Form state
   let promptInput = '';
+  let promptEl: HTMLTextAreaElement;
+
+  // Auto-grow the prompt textarea between min (~2 rows) and max
+  // (~6 rows). CSS sets the bounds via min-height / max-height +
+  // overflow-y:auto; this keeps the rendered height in sync with
+  // content. Wrapped in tick() so we read scrollHeight *after* the
+  // new value is in the DOM (covers chip taps, scan auto-fill,
+  // ingredient add/remove — all of which assign promptInput
+  // programmatically).
+  async function autoSizePrompt() {
+    await tick();
+    if (!promptEl) return;
+    promptEl.style.height = 'auto';
+    promptEl.style.height = `${promptEl.scrollHeight}px`;
+  }
+
+  // Run autoSize whenever the prompt value changes from any path —
+  // user typing (via bind:value), chip apply, scan auto-fill, etc.
+  $: if (browser) {
+    promptInput;
+    autoSizePrompt();
+  }
+
+  // One-tap prompt seeds. Tapping a chip fires a generation
+  // immediately using the chip's label as the prompt — the textarea
+  // is left alone so chips and the custom input stay separate
+  // affordances (one-tap presets vs. write-your-own).
+  //
+  // The three Nourish-tagged chips carry a green leaf glyph so users
+  // can see at a glance which prompts align with the Nourish
+  // nutrition surface. They share the same fireChip behavior and
+  // POST to /api/zappy like every other chip; the leaf is a visual
+  // tag only. Order is intentionally interspersed (not grouped) so
+  // the row reads as a mixed bag of presets rather than a taxonomy.
+  type Chip = { label: string; nourish?: boolean };
+  const suggestionChips: Chip[] = [
+    { label: 'Cozy vegetarian' },
+    { label: 'High protein', nourish: true },
+    { label: '30-min dinner' },
+    { label: 'Mediterranean dinner' },
+    { label: 'Gut health', nourish: true },
+    { label: 'One-pot meal' },
+    { label: 'Sheet pan dinner' },
+    { label: 'Real food', nourish: true },
+    { label: 'Hearty salad' },
+    { label: 'Kid-friendly' },
+    { label: 'Pantry only' }
+  ];
+
+  // Tracks which chip (if any) is currently driving the generation.
+  // Used to show a per-chip spinner while leaving the rest dimmed.
+  let tappedChip: string | null = null;
+
+  async function fireChip(text: string) {
+    if (status === 'generating') return;
+    tappedChip = text;
+    try {
+      await generateRecipe('prompt', text);
+    } finally {
+      // Reset on both success and error so the chip returns to idle
+      // even when generateRecipe surfaces an error via errorMessage.
+      tappedChip = null;
+    }
+  }
   
   // Rotating placeholder examples
   const placeholderExamples = [
@@ -115,21 +180,27 @@
     if (zapSuccessTimeout) clearTimeout(zapSuccessTimeout);
   });
   
-  // Generate recipe from prompt
-  async function generateRecipe(mode: 'prompt' | 'hungry' = 'prompt') {
+  // Generate recipe from prompt. `promptOverride` lets one-tap chips
+  // supply their label as the prompt without writing into the
+  // textarea — keeps presets and custom input as separate paths.
+  async function generateRecipe(
+    mode: 'prompt' | 'hungry' = 'prompt',
+    promptOverride?: string
+  ) {
     if (status === 'generating') return;
-    if (mode === 'prompt' && !promptInput.trim()) return;
-    
+    const effectivePrompt = (promptOverride ?? promptInput).trim();
+    if (mode === 'prompt' && !effectivePrompt) return;
+
     status = 'generating';
     errorMessage = '';
     output = '';
-    
+
     try {
       const response = await fetch('/api/zappy', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          prompt: promptInput.trim(),
+          prompt: effectivePrompt,
           mode,
           pubkey: $userPublickey
         })
@@ -383,15 +454,18 @@
 
 <div class="flex flex-col max-w-[760px] mx-auto gap-6 pb-8">
   <!-- Header -->
-  <div class="flex flex-col gap-2">
-    <div class="flex items-center gap-3">
-      <RobotIcon size={32} class="text-primary" weight="fill" />
-      <h1>Chef ₿</h1>
-    </div>
-    <p class="text-caption">
-      What's cooking? Tell me what you're craving or show me your fridge!
-    </p>
-    <p class="text-caption text-sm">Pro Kitchen feature.</p>
+  <div class="flex items-center gap-3 flex-wrap">
+    <RobotIcon size={32} class="text-primary" weight="fill" />
+    <h1>Chef ₿</h1>
+    <!-- Pro Kitchen badge — replaces the standalone
+         "Pro Kitchen feature." line that used to sit below the
+         H1. Folded in here since it's the same copy-consolidation
+         pass (Phase 5 work, cheap to do now). -->
+    <span
+      class="inline-flex px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wide border bg-primary/10 text-primary border-primary/30"
+    >
+      PRO KITCHEN
+    </span>
   </div>
   
   {#if isLoading}
@@ -427,10 +501,11 @@
           <div class="relative">
             <textarea
               id="prompt"
+              bind:this={promptEl}
               bind:value={promptInput}
               placeholder={currentPlaceholder}
-              rows="5"
-              class="input resize-none text-base w-full pb-12"
+              rows="2"
+              class="input auto-grow resize-none text-base w-full pb-12"
               disabled={status === 'generating'}
             ></textarea>
             <!-- Scan Fridge — small labeled pill docked in the textarea's
@@ -455,6 +530,35 @@
                 <span>Scan</span>
               {/if}
             </button>
+          </div>
+
+          <!-- Suggestion chips — one-tap presets. The chip's label IS
+               the prompt; tapping fires a generation immediately
+               (textarea is left alone). Nourish-tagged chips carry
+               a small green leaf next to the label; they're
+               interspersed (not grouped) so the row reads as a
+               mixed bag rather than a taxonomy. Built as a local
+               pattern; not extracted to a shared Chip component
+               yet. -->
+          <div class="flex flex-wrap gap-2" aria-label="Prompt suggestions">
+            {#each suggestionChips as chip}
+              {@const isFiring = tappedChip === chip.label}
+              <button
+                type="button"
+                class="suggestion-chip"
+                class:is-loading={isFiring}
+                on:click={() => fireChip(chip.label)}
+                disabled={status === 'generating'}
+                aria-busy={isFiring}
+              >
+                {#if isFiring}
+                  <ArrowsClockwiseIcon size={12} class="animate-spin" />
+                {:else if chip.nourish}
+                  <LeafIcon size={12} weight="fill" class="text-green-500" />
+                {/if}
+                {chip.label}
+              </button>
+            {/each}
           </div>
         </div>
 
@@ -805,6 +909,63 @@
 {/if}
 
 <style>
+  /* Prompt textarea — starts compact (~2 rows of usable text plus the
+     scan-pill gutter at the bottom) and grows up to ~6 rows. The JS
+     `autoSizePrompt` keeps `style.height` in sync with scrollHeight;
+     max-height + overflow-y here cap the growth and switch to scroll. */
+  .input.auto-grow {
+    min-height: 6.5rem;
+    max-height: 14rem;
+    overflow-y: auto;
+  }
+
+  /* Suggestion chip — orange-tint button at secondary visual weight,
+     clearly tappable, focus-visible ring for keyboard users. Pattern
+     kept local on this page; we'll extract a shared Chip component
+     later if the detected-ingredients chips end up close enough to
+     consolidate. */
+  .suggestion-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 30px;
+    padding: 0 12px;
+    border-radius: 999px;
+    border: 0;
+    background-color: color-mix(in srgb, var(--color-primary) 10%, transparent);
+    color: var(--color-primary);
+    font-size: 13px;
+    font-weight: 500;
+    line-height: 1;
+    cursor: pointer;
+    transition:
+      background-color 140ms ease,
+      transform 140ms ease,
+      box-shadow 140ms ease,
+      opacity 140ms ease;
+  }
+  .suggestion-chip:hover:not(:disabled) {
+    background-color: color-mix(in srgb, var(--color-primary) 18%, transparent);
+  }
+  .suggestion-chip:active:not(:disabled) {
+    transform: scale(0.96);
+  }
+  .suggestion-chip:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 55%, transparent);
+  }
+  .suggestion-chip:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  /* The chip currently driving a generation keeps its readability
+     above the other disabled chips so the user can see WHICH one
+     fired. Pairs with the inline spinner in the template. */
+  .suggestion-chip.is-loading:disabled {
+    opacity: 0.9;
+    background-color: color-mix(in srgb, var(--color-primary) 16%, transparent);
+  }
+
   /* Scan Fridge — labeled pill docked in the textarea's bottom-right
      corner (Slack/ChatGPT/iMessage convention). Always-visible "Scan"
      text means no hover tooltip needed on mobile. Uses the Chef ₿
