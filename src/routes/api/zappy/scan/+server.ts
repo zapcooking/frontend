@@ -86,7 +86,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
           const isActive = await hasActiveMembership(pubkey, API_SECRET);
           if (!isActive) {
             return json(
-              { ok: false, error: 'Premium membership required for Zappy' },
+              { ok: false, error: 'Premium membership required for Chef ₿' },
               { status: 403 }
             );
           }

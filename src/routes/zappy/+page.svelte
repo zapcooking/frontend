@@ -188,7 +188,7 @@
         // Use in-app wallet directly
         const result = await sendPayment(ZAPPY_LIGHTNING_ADDRESS, {
           amount: zapAmount,
-          description: zapMessage || `Zap to Zappy from ${$userPublickey?.substring(0, 8)}...`,
+          description: zapMessage || `Zap to Chef ₿ from ${$userPublickey?.substring(0, 8)}...`,
           comment: zapMessage
         });
         
@@ -378,28 +378,15 @@
 </script>
 
 <svelte:head>
-  <title>Zappy - zap.cooking</title>
+  <title>Chef ₿ - zap.cooking</title>
 </svelte:head>
 
 <div class="flex flex-col max-w-[760px] mx-auto gap-6 pb-8">
   <!-- Header -->
   <div class="flex flex-col gap-2">
-    <div class="flex items-center justify-between">
-      <div class="flex items-center gap-3">
-        <RobotIcon size={32} class="text-yellow-500" weight="fill" />
-        <h1>Zappy</h1>
-      </div>
-      {#if hasMembership}
-        <button
-          type="button"
-          class="flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium transition-all bg-yellow-500/10 hover:bg-yellow-500/20 text-yellow-600 hover:scale-105"
-          on:click={openZapModal}
-          title="Zap Zappy to say thanks ⚡"
-        >
-          <LightningIcon size={16} weight="fill" />
-          Zap Zappy
-        </button>
-      {/if}
+    <div class="flex items-center gap-3">
+      <RobotIcon size={32} class="text-primary" weight="fill" />
+      <h1>Chef ₿</h1>
     </div>
     <p class="text-caption">
       What's cooking? Tell me what you're craving or show me your fridge!
@@ -416,13 +403,13 @@
   {:else if !hasMembership}
     <!-- No membership -->
     <div class="flex flex-col items-center justify-center py-16 gap-6">
-      <div class="w-20 h-20 rounded-full bg-yellow-500/10 flex items-center justify-center">
-        <RobotIcon size={40} class="text-yellow-500" weight="fill" />
+      <div class="w-20 h-20 rounded-full bg-primary/10 flex items-center justify-center">
+        <RobotIcon size={40} class="text-primary" weight="fill" />
       </div>
       <div class="text-center max-w-md">
         <h2 class="mb-2">Pro Kitchen Feature</h2>
         <p class="text-caption mb-6">
-          Zappy is available exclusively for Pro Kitchen members. 
+          Chef ₿ is available exclusively for Pro Kitchen members.
           Upgrade your membership to unlock your AI recipe generator.
         </p>
         <Button on:click={() => goto('/membership')}>
@@ -431,22 +418,46 @@
       </div>
     </div>
   {:else}
-    <!-- Has membership - show Zappy UI -->
+    <!-- Has membership - show Chef ₿ UI -->
     <div class="flex flex-col gap-6">
       <!-- Input Section -->
       <div class="flex flex-col gap-4">
         <div class="flex flex-col gap-2">
           <label for="prompt" class="text-sm font-medium">What are you in the mood for?</label>
-          <textarea
-            id="prompt"
-            bind:value={promptInput}
-            placeholder={currentPlaceholder}
-            rows="5"
-            class="input resize-none text-base"
-            disabled={status === 'generating'}
-          />
+          <div class="relative">
+            <textarea
+              id="prompt"
+              bind:value={promptInput}
+              placeholder={currentPlaceholder}
+              rows="5"
+              class="input resize-none text-base w-full pb-12"
+              disabled={status === 'generating'}
+            ></textarea>
+            <!-- Scan Fridge — small labeled pill docked in the textarea's
+                 bottom-right corner (Slack/ChatGPT/iMessage convention).
+                 Always-visible "Scan" text makes it self-describing on
+                 mobile where hover tooltips don't fire. Triggers the
+                 same hidden file input as before; spinner + "Scanning"
+                 replace the icon + text while scanning. -->
+            <button
+              type="button"
+              class="scan-pill"
+              on:click={triggerScan}
+              disabled={isScanning || status === 'generating'}
+              title="Scan fridge"
+              aria-label="Scan fridge"
+            >
+              {#if isScanning}
+                <ArrowsClockwiseIcon size={14} class="animate-spin" />
+                <span>Scanning</span>
+              {:else}
+                <CameraIcon size={14} weight="fill" />
+                <span>Scan</span>
+              {/if}
+            </button>
+          </div>
         </div>
-        
+
         <!-- Hidden file input for camera/upload -->
         <input
           bind:this={fileInput}
@@ -456,76 +467,50 @@
           class="hidden"
           on:change={handleFileSelect}
         />
-        
-        <!-- Three-button action row -->
-        <!-- Mobile: Scan full width, other two side-by-side -->
-        <!-- Desktop: All three equal width -->
-        <div class="flex flex-col sm:flex-row gap-4">
-          <!-- Scan Fridge Button -->
-          <div class="flex flex-col items-center gap-1 w-full sm:flex-1">
-            <button
-              type="button"
-              class="flex items-center justify-center gap-2 px-4 py-3 rounded-full font-semibold transition-all
-                bg-teal-500 hover:bg-teal-600 text-white disabled:opacity-50 disabled:cursor-not-allowed
-                w-full"
-              disabled={isScanning || status === 'generating'}
-              on:click={triggerScan}
-            >
-              {#if isScanning}
-                <ArrowsClockwiseIcon size={18} class="animate-spin" />
-                Scanning...
-              {:else}
-                <CameraIcon size={18} weight="fill" />
-                Scan Fridge
-              {/if}
-            </button>
-            <span class="text-xs text-caption">Use what you have</span>
-          </div>
-          
-          <!-- Mobile: Two buttons side-by-side -->
-          <div class="flex gap-4 sm:contents">
-            <!-- Surprise Me Button -->
-            <div class="flex flex-col items-center gap-1 flex-1">
-              <button
-                type="button"
-                class="flex items-center justify-center gap-2 px-4 py-3 rounded-full font-semibold transition-all
-                  bg-yellow-500 hover:bg-yellow-600 text-white disabled:opacity-50 disabled:cursor-not-allowed
-                  w-full"
-                disabled={status === 'generating'}
-                on:click={() => generateRecipe('hungry')}
-              >
-                {#if status === 'generating' && !promptInput.trim()}
-                  <ArrowsClockwiseIcon size={18} class="animate-spin" />
-                {:else}
-                  <ShuffleIcon size={18} weight="fill" />
-                {/if}
-                Surprise Me
-              </button>
-              <span class="text-xs text-caption">No thinking required</span>
-            </div>
-            
-            <!-- Cook It Button (Primary) -->
-            <div class="flex flex-col items-center gap-1 flex-1">
-              <button
-                type="button"
-                class="flex items-center justify-center gap-2 px-4 py-3 rounded-full font-semibold transition-all
-                  bg-primary hover:opacity-90 text-white disabled:opacity-50 disabled:cursor-not-allowed
-                  w-full"
-                disabled={!canGenerate}
-                on:click={() => generateRecipe('prompt')}
-              >
-                {#if status === 'generating' && promptInput.trim()}
-                  <ArrowsClockwiseIcon size={18} class="animate-spin" />
-                  Cooking...
-                {:else}
-                  <RobotIcon size={18} weight="fill" />
-                  Cook It
-                {/if}
-              </button>
-              <span class="text-xs text-caption">Let's cook</span>
-            </div>
-          </div>
+
+        <!-- Two-button action row — clear orange hierarchy:
+             Cook It = solid primary (~60% width on desktop, top on
+             mobile); Surprise Me = outline secondary (~40% width on
+             desktop, bottom on mobile). -->
+        <div class="flex flex-col-reverse sm:flex-row gap-3">
+          <Button
+            variant="outline"
+            class="w-full sm:flex-[2] py-3"
+            disabled={status === 'generating'}
+            on:click={() => generateRecipe('hungry')}
+          >
+            {#if status === 'generating' && !promptInput.trim()}
+              <ArrowsClockwiseIcon size={18} class="animate-spin" />
+            {:else}
+              <ShuffleIcon size={18} weight="fill" />
+            {/if}
+            Surprise Me
+          </Button>
+          <Button
+            variant="primary"
+            class="w-full sm:flex-[3] py-3"
+            disabled={!canGenerate}
+            on:click={() => generateRecipe('prompt')}
+          >
+            {#if status === 'generating' && promptInput.trim()}
+              <ArrowsClockwiseIcon size={18} class="animate-spin" />
+              Cooking...
+            {:else}
+              <RobotIcon size={18} weight="fill" />
+              Cook It
+            {/if}
+          </Button>
         </div>
+
+        <!-- Disabled-state helper: surfaces when Cook It is blocked
+             because the textarea is empty (canGenerate is false &
+             nothing is generating). Surprise Me always works, so we
+             point users at it. -->
+        {#if !canGenerate && status !== 'generating'}
+          <p class="text-xs text-caption text-center -mt-1">
+            Type an idea or try Surprise Me.
+          </p>
+        {/if}
         
         <!-- Scan error message -->
         {#if scanError}
@@ -623,7 +608,7 @@
       {#if status === 'generating'}
         <div class="flex items-center gap-2 text-caption">
           <ArrowsClockwiseIcon size={16} class="animate-spin" />
-          <span>Zappy is cooking up something delicious...</span>
+          <span>Chef ₿ is cooking up something delicious...</span>
         </div>
       {:else if status === 'error'}
         <div class="flex items-start gap-3 p-4 rounded-xl bg-red-500/10 border border-red-500/20">
@@ -658,9 +643,9 @@
           style="background-color: #1a1a2e; border: 1px solid #2d2d44;"
         >
           {#if output}
-            <!-- Zappy attribution header -->
-            <p class="text-yellow-400/80 text-xs font-medium mb-3 pb-2 border-b border-gray-700/50">
-              Zappy cooked this up for you 🤖⚡
+            <!-- Chef ₿ attribution header -->
+            <p class="text-primary text-xs font-medium mb-3 pb-2 border-b border-gray-700/50">
+              Chef ₿ cooked this up for you ⚡
             </p>
             <pre class="whitespace-pre-wrap font-mono text-sm leading-relaxed text-gray-200">{output}</pre>
             
@@ -681,19 +666,32 @@
               </button>
             </div>
           {:else}
-            <p class="text-gray-500 font-mono text-sm italic">Zappy will drop your recipe here…</p>
+            <p class="text-gray-500 font-mono text-sm italic">Chef ₿ will drop your recipe here…</p>
           {/if}
         </div>
+      </div>
+
+      <!-- Tip-the-chef affordance below the output box -->
+      <div class="flex justify-center pt-2">
+        <button
+          type="button"
+          class="flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all bg-primary/10 hover:bg-primary/20 text-primary hover:scale-105"
+          on:click={openZapModal}
+          title="Zap Chef ₿ to say thanks ⚡"
+        >
+          <LightningIcon size={16} weight="fill" />
+          Zap Chef ₿
+        </button>
       </div>
     </div>
   {/if}
 </div>
 
-<!-- Zap Zappy Modal -->
+<!-- Zap Chef ₿ Modal -->
 <Modal bind:open={zapModalOpen}>
   <h1 slot="title" class="flex items-center gap-2">
-    <RobotIcon size={24} class="text-yellow-500" weight="fill" />
-    Zap Zappy
+    <RobotIcon size={24} class="text-primary" weight="fill" />
+    Zap Chef ₿
   </h1>
   
   <div class="flex flex-col gap-4">
@@ -701,15 +699,15 @@
       <!-- Success state -->
       <div class="flex flex-col items-center justify-center py-6 gap-4">
         <div class="relative">
-          <RobotIcon size={80} class="text-yellow-500" weight="fill" />
+          <RobotIcon size={80} class="text-primary" weight="fill" />
           <div class="absolute -top-2 -right-2 animate-bounce">
             <HeartIcon size={32} class="text-red-500" weight="fill" />
           </div>
         </div>
         <Checkmark color="#90EE90" weight="fill" class="w-20 h-20" />
         <div class="text-center">
-          <p class="text-xl font-semibold" style="color: var(--color-text-primary)">Zappy says thanks!</p>
-          <p class="text-caption mt-1">Your {zapAmount} sats made Zappy's circuits warm! 🤖⚡</p>
+          <p class="text-xl font-semibold" style="color: var(--color-text-primary)">Chef ₿ says thanks!</p>
+          <p class="text-caption mt-1">Your {zapAmount} sats fired up Chef ₿'s kitchen! ⚡</p>
         </div>
       </div>
     {:else if zapStatus === 'error'}
@@ -722,7 +720,7 @@
     {:else}
       <!-- Selection state -->
       <div class="flex flex-col gap-4">
-        <p class="text-caption text-center">Show Zappy some love! Your zaps keep the robot running. 🤖</p>
+        <p class="text-caption text-center">Show Chef ₿ some love! Your zaps keep the kitchen running. ⚡</p>
         
         <!-- Amount selection -->
         <div class="grid grid-cols-3 gap-2">
@@ -732,7 +730,7 @@
               on:click={() => zapAmount = option.amount}
               class="flex flex-col items-center justify-center py-3 px-2 rounded-xl transition-all duration-200 cursor-pointer
                 {zapAmount === option.amount
-                  ? 'bg-yellow-500 text-white shadow-md scale-105'
+                  ? 'bg-primary text-white shadow-md scale-105'
                   : 'bg-input hover:bg-accent-gray'}"
               style="{zapAmount !== option.amount ? 'color: var(--color-text-primary)' : ''}"
             >
@@ -756,7 +754,7 @@
           type="text"
           class="input"
           bind:value={zapMessage}
-          placeholder="Message for Zappy (optional)"
+          placeholder="Message for Chef ₿ (optional)"
           maxlength="140"
         />
         
@@ -785,9 +783,9 @@
         >
           {#if zapStatus === 'paying'}
             <ArrowsClockwiseIcon size={18} class="animate-spin" />
-            Sending to Zappy...
+            Sending to Chef ₿...
           {:else}
-            ⚡ Send {zapAmount.toLocaleString()} sats to Zappy
+            ⚡ Send {zapAmount.toLocaleString()} sats to Chef ₿
           {/if}
         </Button>
       </div>
@@ -798,15 +796,57 @@
 <!-- Floating success notification -->
 {#if showZapSuccess && !zapModalOpen}
   <div class="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 animate-bounce">
-    <div class="flex items-center gap-2 px-4 py-3 rounded-full bg-yellow-500 text-white font-semibold shadow-lg">
+    <div class="flex items-center gap-2 px-4 py-3 rounded-full bg-primary text-white font-semibold shadow-lg">
       <RobotIcon size={20} weight="fill" />
-      <span>Zappy loves you! ⚡</span>
+      <span>Chef ₿ loves you! ⚡</span>
       <HeartIcon size={20} weight="fill" class="text-red-300" />
     </div>
   </div>
 {/if}
 
 <style>
+  /* Scan Fridge — labeled pill docked in the textarea's bottom-right
+     corner (Slack/ChatGPT/iMessage convention). Always-visible "Scan"
+     text means no hover tooltip needed on mobile. Uses the Chef ₿
+     orange tint so it reads as the same surface family as the primary
+     Cook It button, but at a lower visual weight. */
+  .scan-pill {
+    position: absolute;
+    bottom: 0.5rem;
+    right: 0.5rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 28px;
+    padding: 0 10px 0 8px;
+    border-radius: 999px;
+    background-color: color-mix(in srgb, var(--color-primary) 12%, transparent);
+    color: var(--color-primary);
+    border: 0;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1;
+    transition:
+      background-color 140ms ease,
+      transform 140ms ease,
+      box-shadow 140ms ease;
+  }
+  .scan-pill:hover:not(:disabled) {
+    background-color: color-mix(in srgb, var(--color-primary) 22%, transparent);
+  }
+  .scan-pill:active:not(:disabled) {
+    transform: scale(0.96);
+  }
+  .scan-pill:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 55%, transparent);
+  }
+  .scan-pill:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
   .terminal-output {
     scrollbar-width: thin;
     scrollbar-color: #4b5563 #1a1a2e;

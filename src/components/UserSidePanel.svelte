@@ -389,7 +389,7 @@
                 style="color: var(--color-text-primary);"
               >
                 <RobotIcon size={22} weight="fill" class="text-yellow-500" />
-                <span class="font-medium">Zappy</span>
+                <span class="font-medium">Chef ₿</span>
                 <span
                   class="text-xs px-2 py-0.5 rounded-full bg-yellow-500/10 text-yellow-600 font-medium"
                   >Pro</span
