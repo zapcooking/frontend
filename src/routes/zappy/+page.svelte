@@ -9,6 +9,13 @@
   import { lightningService } from '$lib/lightningService';
   import Button from '../../components/Button.svelte';
   import Modal from '../../components/Modal.svelte';
+  import Skeleton from '../../components/Skeleton.svelte';
+  import { parseMarkdown, parseMarkdownForEditing } from '$lib/parser';
+  import { saveDraft } from '$lib/draftStore';
+  import ShareIcon from 'phosphor-svelte/lib/Share';
+  import FloppyDiskIcon from 'phosphor-svelte/lib/FloppyDisk';
+  import ArrowLeftIcon from 'phosphor-svelte/lib/ArrowLeft';
+  import InfoIcon from 'phosphor-svelte/lib/Info';
   import LightningIcon from 'phosphor-svelte/lib/Lightning';
   import RobotIcon from 'phosphor-svelte/lib/Robot';
   import LeafIcon from 'phosphor-svelte/lib/Leaf';
@@ -67,25 +74,22 @@
   // is left alone so chips and the custom input stay separate
   // affordances (one-tap presets vs. write-your-own).
   //
-  // The three Nourish-tagged chips carry a green leaf glyph so users
-  // can see at a glance which prompts align with the Nourish
-  // nutrition surface. They share the same fireChip behavior and
-  // POST to /api/zappy like every other chip; the leaf is a visual
-  // tag only. Order is intentionally interspersed (not grouped) so
-  // the row reads as a mixed bag of presets rather than a taxonomy.
-  type Chip = { label: string; nourish?: boolean };
-  const suggestionChips: Chip[] = [
-    { label: 'Cozy vegetarian' },
-    { label: 'High protein', nourish: true },
-    { label: '30-min dinner' },
-    { label: 'Mediterranean dinner' },
-    { label: 'Gut health', nourish: true },
-    { label: 'One-pot meal' },
-    { label: 'Sheet pan dinner' },
-    { label: 'Real food', nourish: true },
-    { label: 'Hearty salad' },
-    { label: 'Kid-friendly' },
-    { label: 'Pantry only' }
+  // Chips are grouped into two rows so the leaf icon reads as the
+  // Nourish program's universal "healthy" marker rather than an
+  // ad-hoc accent. Every chip in the "Nourish picks" row carries a
+  // leaf (vegetarian / Mediterranean / high-protein / gut-health all
+  // qualify); "More ideas" is the catch-all without health framing.
+  const nourishChips = [
+    'Cozy vegetarian',
+    'High protein',
+    'Mediterranean dinner',
+    'Gut health'
+  ];
+  const moreIdeasChips = [
+    '30-min dinner',
+    'One-pot meal',
+    'Kid-friendly',
+    'Pantry only'
   ];
 
   // Tracks which chip (if any) is currently driving the generation.
@@ -123,6 +127,17 @@
   let status: Status = 'idle';
   let errorMessage = '';
   let output = '';
+  // The prompt that the in-flight (or most recent) generation was
+  // started from — echoed back during the loading state so the user
+  // can see what's cooking. For chips it's the chip label; for Cook
+  // It it's the textarea content; for Surprise Me it's "Surprise me".
+  let currentPrompt = '';
+
+  // Non-fatal notice (amber banner). Used when Save's markdown parse
+  // can't make sense of the AI output — we still send the user to
+  // /create with the raw text salvaged, but we warn them first so
+  // they know why the form will look raw.
+  let noticeMessage = '';
   
   // Copy state
   let copied = false;
@@ -191,9 +206,16 @@
     const effectivePrompt = (promptOverride ?? promptInput).trim();
     if (mode === 'prompt' && !effectivePrompt) return;
 
+    currentPrompt = mode === 'hungry' ? 'Surprise me' : effectivePrompt;
     status = 'generating';
     errorMessage = '';
-    output = '';
+    // Clear any stale salvage notice from a prior Save attempt so
+    // it doesn't leak into the new generation's UI.
+    noticeMessage = '';
+    // Don't clear `output` here. The card hides the previous recipe
+    // behind the shimmer while `status === 'generating'`; if the
+    // request errors out, status drops back and the previous recipe
+    // re-appears under the error banner so the user keeps context.
 
     try {
       const response = await fetch('/api/zappy', {
@@ -221,23 +243,141 @@
     }
   }
   
-  // Copy output to clipboard
-  async function copyToClipboard() {
-    if (!output || !browser) return;
-    
+  // ── Recipe-card actions ──────────────────────────────────────
+  // Pull the recipe title out of the first `#` or `##` heading in
+  // the generated markdown. Falls back to "Untitled" for malformed
+  // output (the salvage path can still call us safely).
+  function extractRecipeTitle(md: string): string {
+    const match = md.match(/^#{1,2}\s+(.+?)\s*$/m);
+    return match ? match[1].trim() : 'Untitled';
+  }
+
+  let isSaving = false;
+
+  // "← Cook another" — return the page to idle so the user can
+  // re-start. Intentionally does NOT clear `promptInput` so the
+  // user can tweak and retry without retyping. Also clears any
+  // lingering noticeMessage from a salvage flow.
+  function cookAnother() {
+    currentPrompt = '';
+    output = '';
+    errorMessage = '';
+    noticeMessage = '';
+    status = 'idle';
+  }
+
+  // Save → /create pre-filled. Reuses the same `saveDraft` →
+  // `goto('/create?draft=...')` pattern that Recipe.svelte's edit
+  // flow uses, so AI-generated recipes go through the existing
+  // human-review-then-publish path rather than getting auto-pushed
+  // to the relay.
+  //
+  // `parseMarkdownForEditing` is intentionally lenient and never
+  // throws — it just returns empty arrays when sections aren't
+  // recognized. So we can't rely on a thrown error to detect a
+  // malformed AI output; we have to inspect the parsed result and
+  // treat empty ingredients/directions as a parse failure. On
+  // failure: salvage by dumping the full raw markdown into
+  // `additionalMarkdown`, surface an amber notice, give the user a
+  // beat to see it, then navigate. The user lands in the editor
+  // with text to clean up instead of a dead end.
+  async function saveAsRecipeDraft() {
+    if (!output || isSaving) return;
+    isSaving = true;
+    // Reset any prior notice so a successful save doesn't carry one
+    // over from an earlier salvage.
+    noticeMessage = '';
     try {
-      await navigator.clipboard.writeText(output);
+      const title = extractRecipeTitle(output);
+      const parsed = parseMarkdownForEditing(output);
+      const parseLooksGood =
+        parsed.ingredients.length > 0 && parsed.directions.length > 0;
+
+      let draftData: Parameters<typeof saveDraft>[0];
+      if (parseLooksGood) {
+        draftData = {
+          title,
+          images: [],
+          tags: [],
+          summary: '',
+          chefsnotes: parsed.chefNotes || '',
+          preptime: parsed.information?.prepTime || '',
+          cooktime: parsed.information?.cookTime || '',
+          servings: parsed.information?.servings || '',
+          ingredients: parsed.ingredients,
+          directions: parsed.directions,
+          additionalMarkdown: parsed.additionalMarkdown || ''
+        };
+      } else {
+        console.warn(
+          '[Chef ₿] Recipe parse produced empty ingredients/directions, salvaging raw text. Parsed:',
+          parsed
+        );
+        noticeMessage =
+          "Couldn't parse this recipe cleanly — opening editor with raw text.";
+        draftData = {
+          title,
+          images: [],
+          tags: [],
+          summary: '',
+          chefsnotes: '',
+          preptime: '',
+          cooktime: '',
+          servings: '',
+          ingredients: [],
+          directions: [],
+          additionalMarkdown: output
+        };
+        // Give the user a beat to see the notice before we navigate.
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+      }
+      const { draftId } = saveDraft(draftData, undefined, false);
+      // Await the navigation so `isSaving` stays true until it
+      // resolves — otherwise the Save button re-enables before the
+      // route change completes and a fast double-tap creates two
+      // drafts.
+      await goto(`/create?draft=${draftId}`);
+    } catch (e) {
+      console.error('[Chef ₿] Save-as-draft failed:', e);
+      errorMessage = e instanceof Error ? e.message : 'Failed to save draft';
+      status = 'error';
+    } finally {
+      isSaving = false;
+    }
+  }
+
+  // Share — Web Share API when present (mobile + some desktops),
+  // otherwise fall back to copying a combined string to the
+  // clipboard. The recipe isn't a published Nostr event yet so
+  // there's no canonical URL; we share zap.cooking instead.
+  async function shareRecipe() {
+    if (!output || !browser) return;
+    const shareTitle = `${extractRecipeTitle(output)} — Chef ₿ recipe`;
+    const url = 'https://zap.cooking';
+
+    if (navigator.share) {
+      try {
+        await navigator.share({ title: shareTitle, text: output, url });
+        return;
+      } catch (e) {
+        // User canceled the share sheet — that's a no-op, not an
+        // error. Anything else falls through to clipboard.
+        if ((e as DOMException)?.name === 'AbortError') return;
+      }
+    }
+
+    // Clipboard fallback — combined { title, body, url } so the
+    // pasted content reads like a sharable recipe rather than just
+    // the markdown body.
+    try {
+      await navigator.clipboard.writeText(`${shareTitle}\n\n${output}\n\n${url}`);
       copied = true;
-      
-      // Clear any existing timeout
       if (copyTimeout) clearTimeout(copyTimeout);
-      
-      // Reset copied state after 2 seconds
       copyTimeout = setTimeout(() => {
         copied = false;
       }, 2000);
     } catch (err) {
-      console.error('Failed to copy:', err);
+      console.error('[Chef ₿] Share clipboard fallback failed:', err);
     }
   }
   
@@ -532,33 +672,59 @@
             </button>
           </div>
 
-          <!-- Suggestion chips — one-tap presets. The chip's label IS
-               the prompt; tapping fires a generation immediately
-               (textarea is left alone). Nourish-tagged chips carry
-               a small green leaf next to the label; they're
-               interspersed (not grouped) so the row reads as a
-               mixed bag rather than a taxonomy. Built as a local
-               pattern; not extracted to a shared Chip component
-               yet. -->
-          <div class="flex flex-wrap gap-2" aria-label="Prompt suggestions">
-            {#each suggestionChips as chip}
-              {@const isFiring = tappedChip === chip.label}
-              <button
-                type="button"
-                class="suggestion-chip"
-                class:is-loading={isFiring}
-                on:click={() => fireChip(chip.label)}
-                disabled={status === 'generating'}
-                aria-busy={isFiring}
-              >
-                {#if isFiring}
-                  <ArrowsClockwiseIcon size={12} class="animate-spin" />
-                {:else if chip.nourish}
-                  <LeafIcon size={12} weight="fill" class="text-green-500" />
-                {/if}
-                {chip.label}
-              </button>
-            {/each}
+          <!-- Suggestion chips — one-tap presets, grouped into two
+               rows. "Nourish picks" carries the leaf glyph on every
+               chip (it's the universal "healthy" marker for the
+               Nourish program); "More ideas" is the unmarked
+               catch-all. Built as a local pattern; not extracted to
+               a shared Chip component yet. -->
+          <div class="flex flex-col gap-1.5">
+            <span class="chip-row-label chip-row-label-nourish">
+              <LeafIcon size={12} weight="fill" />
+              Nourish picks
+            </span>
+            <div class="flex flex-wrap gap-2">
+              {#each nourishChips as label}
+                {@const isFiring = tappedChip === label}
+                <button
+                  type="button"
+                  class="suggestion-chip"
+                  class:is-loading={isFiring}
+                  on:click={() => fireChip(label)}
+                  disabled={status === 'generating'}
+                  aria-busy={isFiring}
+                >
+                  {#if isFiring}
+                    <ArrowsClockwiseIcon size={12} class="animate-spin" />
+                  {:else}
+                    <LeafIcon size={12} weight="fill" class="text-green-500" />
+                  {/if}
+                  {label}
+                </button>
+              {/each}
+            </div>
+          </div>
+
+          <div class="flex flex-col gap-1.5 mt-1">
+            <span class="chip-row-label chip-row-label-more">More ideas</span>
+            <div class="flex flex-wrap gap-2">
+              {#each moreIdeasChips as label}
+                {@const isFiring = tappedChip === label}
+                <button
+                  type="button"
+                  class="suggestion-chip"
+                  class:is-loading={isFiring}
+                  on:click={() => fireChip(label)}
+                  disabled={status === 'generating'}
+                  aria-busy={isFiring}
+                >
+                  {#if isFiring}
+                    <ArrowsClockwiseIcon size={12} class="animate-spin" />
+                  {/if}
+                  {label}
+                </button>
+              {/each}
+            </div>
           </div>
         </div>
 
@@ -606,11 +772,11 @@
           </Button>
         </div>
 
-        <!-- Disabled-state helper: surfaces when Cook It is blocked
-             because the textarea is empty (canGenerate is false &
-             nothing is generating). Surprise Me always works, so we
-             point users at it. -->
-        {#if !canGenerate && status !== 'generating'}
+        <!-- Disabled-state helper: surfaces only on idle with an
+             empty prompt — i.e. the only state where Cook It is
+             unusable. Don't render during 'generating' (shimmer
+             explains it) or 'error' (the banner does). -->
+        {#if status === 'idle' && !promptInput.trim()}
           <p class="text-xs text-caption text-center -mt-1">
             Type an idea or try Surprise Me.
           </p>
@@ -708,85 +874,124 @@
         {/if}
       </div>
       
-      <!-- Status indicator -->
-      {#if status === 'generating'}
-        <div class="flex items-center gap-2 text-caption">
-          <ArrowsClockwiseIcon size={16} class="animate-spin" />
-          <span>Chef ₿ is cooking up something delicious...</span>
-        </div>
-      {:else if status === 'error'}
+      <!-- Error banner (separate from the card so the user can
+           retry without the previous-recipe context disappearing) -->
+      {#if status === 'error'}
         <div class="flex items-start gap-3 p-4 rounded-xl bg-red-500/10 border border-red-500/20">
           <WarningIcon size={20} class="text-red-500 flex-shrink-0 mt-0.5" />
           <p class="text-sm text-red-500">{errorMessage}</p>
         </div>
       {/if}
-      
-      <!-- Output Terminal -->
-      <div class="flex flex-col gap-2">
-        <div class="flex items-center justify-between">
-          <span class="text-sm font-medium">Recipe Output</span>
-          {#if output}
-            <button
-              type="button"
-              class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors {copied ? 'bg-green-500/10 text-green-600' : 'bg-input hover:bg-accent-gray text-caption hover:text-primary'}"
-              on:click={copyToClipboard}
-            >
-              {#if copied}
-                <CheckIcon size={16} weight="bold" />
-                Copied!
-              {:else}
-                <CopyIcon size={16} />
-                Copy
-              {/if}
-            </button>
-          {/if}
+
+      <!-- Non-fatal notice (amber). Surfaces when Save's parser
+           can't make sense of the AI output — we still salvage and
+           route to /create, but we tell the user first so the
+           editor's raw-text fields don't surprise them. -->
+      {#if noticeMessage}
+        <div class="flex items-start gap-3 p-3 rounded-xl bg-amber-500/10 border border-amber-500/20">
+          <InfoIcon size={18} class="text-amber-500 flex-shrink-0 mt-0.5" />
+          <p class="text-sm text-amber-700 dark:text-amber-300">{noticeMessage}</p>
         </div>
-        
-        <div 
-          class="terminal-output rounded-xl p-4 min-h-[300px] max-h-[500px] overflow-y-auto"
-          style="background-color: #1a1a2e; border: 1px solid #2d2d44;"
-        >
-          {#if output}
-            <!-- Chef ₿ attribution header -->
-            <p class="text-primary text-xs font-medium mb-3 pb-2 border-b border-gray-700/50">
-              Chef ₿ cooked this up for you ⚡
-            </p>
-            <pre class="whitespace-pre-wrap font-mono text-sm leading-relaxed text-gray-200">{output}</pre>
-            
-            <!-- Bottom copy button -->
-            <div class="mt-4 pt-3 border-t border-gray-700/50 flex justify-end">
+      {/if}
+
+      <!-- Output card. Hidden entirely when idle (no empty dead
+           zone). Shows the Chef ₿ avatar + a "Cooking up: ..."
+           echo + Skeleton shimmer during generation, then swaps
+           in the parsed-markdown recipe card with action buttons
+           when the response lands. -->
+      {#if status === 'generating' || output}
+        <article class="recipe-card">
+          <header class="recipe-card-header">
+            {#if output && status !== 'generating'}
               <button
                 type="button"
-                class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors {copied ? 'bg-green-500/20 text-green-400' : 'bg-gray-700/50 hover:bg-gray-600/50 text-gray-300 hover:text-white'}"
-                on:click={copyToClipboard}
+                class="cook-another-btn"
+                on:click={cookAnother}
+              >
+                <ArrowLeftIcon size={12} weight="bold" />
+                Cook another
+              </button>
+            {/if}
+            <div
+              class="flex items-center gap-2.5 min-w-0"
+              class:ml-auto={output && status !== 'generating'}
+            >
+              <span class="chef-avatar">
+                <RobotIcon size={20} weight="fill" />
+              </span>
+              <div class="flex flex-col leading-tight min-w-0">
+                <span class="text-xs font-semibold text-primary">Chef ₿</span>
+                {#if status === 'generating'}
+                  <span class="text-xs text-caption truncate">Cooking up: {currentPrompt}</span>
+                {:else}
+                  <span class="text-xs text-caption">cooked this up for you ⚡</span>
+                {/if}
+              </div>
+            </div>
+          </header>
+
+          {#if status === 'generating'}
+            <!-- "Thinking" shimmer — a few skeleton lines that loosely
+                 mimic recipe structure (title, summary, ingredients). -->
+            <div class="flex flex-col gap-3 px-5 py-4">
+              <Skeleton width="70%" height="1.5rem" borderRadius="0.5rem" />
+              <Skeleton width="90%" height="0.875rem" />
+              <Skeleton width="80%" height="0.875rem" />
+              <div class="h-2"></div>
+              <Skeleton width="40%" height="1rem" borderRadius="0.375rem" />
+              <Skeleton width="60%" height="0.75rem" />
+              <Skeleton width="55%" height="0.75rem" />
+              <Skeleton width="65%" height="0.75rem" />
+            </div>
+          {:else if output}
+            <!-- Rendered markdown via the same parser the recipe
+                 pages use — no more raw `## Servings` leaking. -->
+            <div class="recipe-card-body prose dark:prose-invert max-w-none">
+              {@html parseMarkdown(output)}
+            </div>
+
+            <!-- Action bar: Save / Zap / Share. Save routes to
+                 /create pre-filled via the existing draft pipeline
+                 so AI recipes still get human review before
+                 publishing. Share uses Web Share API where
+                 available and falls back to copy. -->
+            <footer class="recipe-card-actions">
+              <Button
+                variant="primary"
+                class="flex-1 py-2 text-sm"
+                disabled={isSaving}
+                on:click={saveAsRecipeDraft}
+              >
+                <FloppyDiskIcon size={16} weight="bold" />
+                {isSaving ? 'Saving…' : 'Save'}
+              </Button>
+              <Button
+                variant="outline"
+                class="flex-1 py-2 text-sm"
+                title="Zap Chef ₿"
+                aria-label="Zap Chef ₿"
+                on:click={openZapModal}
+              >
+                <LightningIcon size={16} weight="fill" />
+                Zap
+              </Button>
+              <Button
+                variant="outline"
+                class="flex-1 py-2 text-sm"
+                on:click={shareRecipe}
               >
                 {#if copied}
                   <CheckIcon size={16} weight="bold" />
-                  Copied!
+                  Copied
                 {:else}
-                  <CopyIcon size={16} />
-                  Copy Recipe
+                  <ShareIcon size={16} weight="fill" />
+                  Share
                 {/if}
-              </button>
-            </div>
-          {:else}
-            <p class="text-gray-500 font-mono text-sm italic">Chef ₿ will drop your recipe here…</p>
+              </Button>
+            </footer>
           {/if}
-        </div>
-      </div>
-
-      <!-- Tip-the-chef affordance below the output box -->
-      <div class="flex justify-center pt-2">
-        <button
-          type="button"
-          class="flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all bg-primary/10 hover:bg-primary/20 text-primary hover:scale-105"
-          on:click={openZapModal}
-          title="Zap Chef ₿ to say thanks ⚡"
-        >
-          <LightningIcon size={16} weight="fill" />
-          Zap Chef ₿
-        </button>
-      </div>
+        </article>
+      {/if}
     </div>
   {/if}
 </div>
@@ -924,6 +1129,28 @@
      kept local on this page; we'll extract a shared Chip component
      later if the detected-ingredients chips end up close enough to
      consolidate. */
+  /* Section labels above each chip row. Small, subdued, with the
+     row's leading icon (leaf for the Nourish row). Nourish picks
+     gets a muted-orange tint; "More ideas" stays gray. */
+  .chip-row-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+  }
+  .chip-row-label-nourish {
+    color: color-mix(in srgb, var(--color-primary) 70%, transparent);
+  }
+  .chip-row-label-nourish :global(svg) {
+    color: rgb(34, 197, 94);
+  }
+  .chip-row-label-more {
+    color: var(--color-text-caption, #9ca3af);
+    opacity: 0.75;
+  }
+
   .suggestion-chip {
     display: inline-flex;
     align-items: center;
@@ -943,6 +1170,15 @@
       transform 140ms ease,
       box-shadow 140ms ease,
       opacity 140ms ease;
+  }
+  /* Tighten on mobile so two trimmed rows don't push Cook It below
+     the fold at iPhone-SE width (375×667). */
+  @media (max-width: 640px) {
+    .suggestion-chip {
+      height: 28px;
+      padding: 0 10px;
+      font-size: 12px;
+    }
   }
   .suggestion-chip:hover:not(:disabled) {
     background-color: color-mix(in srgb, var(--color-primary) 18%, transparent);
@@ -1008,26 +1244,110 @@
     cursor: not-allowed;
   }
 
-  .terminal-output {
-    scrollbar-width: thin;
-    scrollbar-color: #4b5563 #1a1a2e;
+  /* Recipe output card — replaces the legacy terminal-output. Used
+     both for the loading skeleton and the rendered-markdown recipe.
+     A thin orange accent stripe on the left anchors it to the
+     Chef ₿ brand without overwhelming the content. */
+  .recipe-card {
+    display: flex;
+    flex-direction: column;
+    border-radius: 14px;
+    background-color: var(--color-bg-secondary);
+    border: 1px solid var(--color-input-border);
+    border-left: 3px solid var(--color-primary);
+    overflow: hidden;
   }
-  
-  .terminal-output::-webkit-scrollbar {
-    width: 8px;
+
+  .recipe-card-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--color-input-border);
   }
-  
-  .terminal-output::-webkit-scrollbar-track {
-    background: #1a1a2e;
-    border-radius: 4px;
+
+  /* Tiny "← Cook another" affordance at the top-left of the card
+     when an output is showing. Reads as a text link with an icon —
+     intentionally lighter than the action-bar buttons since it's a
+     reset, not an action on the recipe itself. */
+  .cook-another-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    height: 26px;
+    padding: 0 8px;
+    border-radius: 999px;
+    background: transparent;
+    border: 0;
+    color: var(--color-text-caption, #9ca3af);
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 500;
+    transition:
+      background-color 120ms ease,
+      color 120ms ease;
   }
-  
-  .terminal-output::-webkit-scrollbar-thumb {
-    background: #4b5563;
-    border-radius: 4px;
+  .cook-another-btn:hover {
+    background-color: color-mix(in srgb, var(--color-primary) 8%, transparent);
+    color: var(--color-primary);
   }
-  
-  .terminal-output::-webkit-scrollbar-thumb:hover {
-    background: #6b7280;
+  .cook-another-btn:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 45%, transparent);
+  }
+
+  .chef-avatar {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border-radius: 999px;
+    background-color: color-mix(in srgb, var(--color-primary) 14%, transparent);
+    color: var(--color-primary);
+    flex-shrink: 0;
+  }
+
+  .recipe-card-body {
+    padding: 16px 20px;
+    color: var(--color-text-primary);
+    font-size: 0.95rem;
+    line-height: 1.55;
+  }
+  /* Tighten the default prose spacing — recipe headings benefit
+     from being denser than article prose. */
+  .recipe-card-body :global(h1) {
+    font-size: 1.35rem;
+    margin: 0 0 0.5rem;
+  }
+  .recipe-card-body :global(h2) {
+    font-size: 1rem;
+    font-weight: 700;
+    margin: 1rem 0 0.4rem;
+    color: var(--color-primary);
+  }
+  .recipe-card-body :global(ul),
+  .recipe-card-body :global(ol) {
+    margin: 0.25rem 0 0.75rem;
+    padding-left: 1.25rem;
+  }
+  .recipe-card-body :global(li) {
+    margin: 0.2rem 0;
+  }
+  .recipe-card-body :global(p) {
+    margin: 0.4rem 0;
+  }
+
+  .recipe-card-actions {
+    display: flex;
+    gap: 8px;
+    padding: 12px 16px;
+    border-top: 1px solid var(--color-input-border);
+    background-color: color-mix(in srgb, var(--color-primary) 4%, transparent);
+  }
+  @media (max-width: 480px) {
+    .recipe-card-actions {
+      flex-wrap: wrap;
+    }
   }
 </style>
