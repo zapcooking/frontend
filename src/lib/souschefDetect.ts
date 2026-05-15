@@ -24,9 +24,11 @@ export function detectMode(text: string, hasImage: boolean): SousChefMode | null
   if (hasImage) return 'image';
   const trimmed = text.trim();
   if (trimmed.length === 0) return null;
-  // URL only if the entire trimmed input is a single URL token —
-  // no internal whitespace, no trailing content.
-  if (/^https?:\/\/\S+$/i.test(trimmed) && !/\s/.test(trimmed)) return 'url';
+  // URL only if the entire trimmed input is a single URL token.
+  // The anchored `^...$` plus `\S+` guarantees no whitespace
+  // anywhere in the string — a recipe pasted with a source link at
+  // the top falls through to the text branch below.
+  if (/^https?:\/\/\S+$/i.test(trimmed)) return 'url';
   if (trimmed.length >= 30) return 'text';
   return null;
 }

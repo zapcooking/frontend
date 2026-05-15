@@ -198,7 +198,7 @@
     await processImageFile(files[0]);
   }
 
-  async function processImageFile(file: File) {
+  async function processImageFile(file: File): Promise<void> {
     if (!file.type.startsWith('image/')) {
       extractionError = 'Please upload an image file (JPG, PNG, WEBP, or GIF)';
       return;
@@ -210,17 +210,24 @@
       return;
     }
 
-    // Read as base64
-    const reader = new FileReader();
-    reader.onload = () => {
-      uploadedImageData = reader.result as string;
-      uploadedImagePreview = uploadedImageData;
-      extractionError = '';
-    };
-    reader.onerror = () => {
-      extractionError = 'Failed to read image file';
-    };
-    reader.readAsDataURL(file);
+    // Read as base64. Wrap FileReader's callback API in a Promise so
+    // `await processImageFile(...)` actually waits for the read to
+    // finish — otherwise the await resolves the instant we call
+    // `readAsDataURL`, before `uploadedImageData` is populated.
+    await new Promise<void>((resolve) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        uploadedImageData = reader.result as string;
+        uploadedImagePreview = uploadedImageData;
+        extractionError = '';
+        resolve();
+      };
+      reader.onerror = () => {
+        extractionError = 'Failed to read image file';
+        resolve();
+      };
+      reader.readAsDataURL(file);
+    });
   }
 
   // Paste handler — the hint promises ⌘V works for images, so we
@@ -244,6 +251,10 @@
   function removeImage() {
     uploadedImageData = null;
     uploadedImagePreview = null;
+    // Clear the file input value so picking the same file again
+    // re-fires `change`. Browsers don't fire `change` when the new
+    // FileList matches the prior one.
+    if (fileInput) fileInput.value = '';
   }
   
   // Detection runs live on input/drop/paste. Text mode requires ≥30
@@ -700,6 +711,7 @@
           >
             <textarea
               id="souschef-input"
+              aria-label="Recipe input. Paste a URL, paste recipe text, or drop a photo."
               bind:value={textInput}
               on:paste={handlePaste}
               placeholder="Paste a recipe URL, paste recipe text, or drop a photo…"
