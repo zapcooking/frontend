@@ -208,8 +208,22 @@ async function fetchUrlContent(
     if (!parsed.ok) throw new Error(parsed.reason);
 
     const fetchTarget = parsed.url.toString();
+    // Browser-shaped User-Agent. The prior `ZapCooking/1.0 bot` UA was
+    // 403'd on sight by Cloudflare/Akamai-fronted recipe sites
+    // (AllRecipes, Bon Appétit, NYT Cooking, etc.), which made the
+    // URL-import feature unusable for most mainstream sources. These
+    // are user-initiated, one-at-a-time imports — not crawling — so a
+    // generic browser UA reflects the actual traffic shape. Sites
+    // with TLS fingerprinting or JS challenges will still block; this
+    // only fixes naive UA-based bot detection.
     const response = await fetch(fetchTarget, {
-      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; ZapCooking/1.0; +https://zap.cooking)' },
+      headers: {
+        'User-Agent':
+          'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept':
+          'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9'
+      },
       redirect: 'manual'
     });
 
