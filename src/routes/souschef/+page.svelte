@@ -17,14 +17,13 @@
     ANON_IMPORT_MAX_AGE_MS,
     type AnonImportHandoff
   } from '$lib/anonImport';
+  import { detectMode } from '$lib/souschefDetect';
   import Button from '../../components/Button.svelte';
-  import Tabs from '../../components/Tabs.svelte';
   import TagsComboBox from '../../components/TagsComboBox.svelte';
   import StringComboBox from '../../components/StringComboBox.svelte';
   import MediaUploader from '../../components/MediaUploader.svelte';
   import MarkdownEditor from '../../components/MarkdownEditor.svelte';
   import UploadIcon from 'phosphor-svelte/lib/UploadSimple';
-  import LinkIcon from 'phosphor-svelte/lib/Link';
   import SparkleIcon from 'phosphor-svelte/lib/Sparkle';
   import ArrowsClockwiseIcon from 'phosphor-svelte/lib/ArrowsClockwise';
   import WarningIcon from 'phosphor-svelte/lib/Warning';
@@ -52,36 +51,22 @@
   let isAnonPreview = false;
   let anonPreviewSourceUrl = '';
   
-  // Input mode
-  type InputMode = 'image' | 'url' | 'text';
-  let inputMode: InputMode = 'url';
-  const ALL_TABS = [
-    { id: 'image', label: 'Upload Image' },
-    { id: 'url', label: 'Paste URL' },
-    { id: 'text', label: 'Paste Text' }
-  ];
-  // URL import is free for everyone; image/text stay behind the member
-  // gate. Non-members see a URL-only tab set so the premium surfaces
-  // aren't advertised to them inline. Initialize optimistically to the
-  // URL-only set — the reactive statement below widens to ALL_TABS
-  // once `hasMembership` resolves.
-  let tabs: { id: string; label: string }[] = ALL_TABS.filter((t) => t.id === 'url');
-  $: tabs = hasMembership ? ALL_TABS : ALL_TABS.filter((t) => t.id === 'url');
-  $: if (!hasMembership && inputMode !== 'url') inputMode = 'url';
+  // Input mode — derived from the unified input via `detectMode`
+  // (extracted to `$lib/souschefDetect` so it can be unit-tested).
+  // The page used to split image / URL / text behind explicit tabs;
+  // now a single textarea + drop zone auto-detects from the content.
+  // Downstream code (extractRecipe, image rehost) still branches on
+  // the mode, so the discriminator survives — it just isn't
+  // user-selectable.
 
-  // Text input state
+  // Unified input state. `textInput` holds either a URL or pasted
+  // recipe text; `uploadedImageData` is set on drop/paste/upload.
   let textInput = '';
-
-  // Image upload state
   let fileInput: HTMLInputElement;
   let isDragging = false;
   let uploadedImageData: string | null = null;
   let uploadedImagePreview: string | null = null;
-  
-  // URL input state
-  let urlInput = '';
-  let urlError = '';
-  
+
   // Publishing state
   let isPublishing = false;
   let publishError = '';
@@ -183,23 +168,6 @@
     // { sourceUrl: anonPreviewSourceUrl }.
   }
   
-  // Handle tab change
-  function handleTabChange(event: CustomEvent<string>) {
-    inputMode = event.detail as InputMode;
-    clearInputs();
-  }
-  
-  // Clear all inputs
-  function clearInputs() {
-    uploadedImageData = null;
-    uploadedImagePreview = null;
-    urlInput = '';
-    urlError = '';
-    textInput = '';
-    extractionError = '';
-    extractionSuccess = false;
-  }
-  
   // Image handling
   function handleDrop(e: DragEvent) {
     e.preventDefault();
@@ -227,19 +195,21 @@
   
   async function handleFiles(files: FileList) {
     if (files.length === 0) return;
-    
-    const file = files[0];
+    await processImageFile(files[0]);
+  }
+
+  async function processImageFile(file: File) {
     if (!file.type.startsWith('image/')) {
       extractionError = 'Please upload an image file (JPG, PNG, WEBP, or GIF)';
       return;
     }
-    
+
     // Check file size (max 20MB for OpenAI)
     if (file.size > 20 * 1024 * 1024) {
       extractionError = 'Image file is too large. Please use an image under 20MB.';
       return;
     }
-    
+
     // Read as base64
     const reader = new FileReader();
     reader.onload = () => {
@@ -252,33 +222,38 @@
     };
     reader.readAsDataURL(file);
   }
-  
+
+  // Paste handler — the hint promises ⌘V works for images, so we
+  // intercept image clipboard items and route them through the same
+  // upload path. Plain text/URL paste falls through to the textarea.
+  function handlePaste(e: ClipboardEvent) {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    for (const item of items) {
+      if (item.type.startsWith('image/')) {
+        const file = item.getAsFile();
+        if (file) {
+          e.preventDefault();
+          void processImageFile(file);
+          return;
+        }
+      }
+    }
+  }
+
   function removeImage() {
     uploadedImageData = null;
     uploadedImagePreview = null;
   }
   
-  // URL validation
-  function validateUrl(url: string): boolean {
-    try {
-      new URL(url);
-      return true;
-    } catch {
-      return false;
-    }
-  }
-  
-  $: if (urlInput) {
-    urlError = validateUrl(urlInput) ? '' : 'Please enter a valid URL';
-  }
-  
-  // Check if we can extract
-  $: canExtract = inputMode === 'image'
-    ? !!uploadedImageData
-    : inputMode === 'url'
-      ? (!!urlInput && !urlError)
-      : !!textInput.trim();
-  
+  // Detection runs live on input/drop/paste. Text mode requires ≥30
+  // chars to avoid flickering between `null` and `text` on every
+  // keystroke; the threshold is enforced inside detectMode().
+  // TODO(analytics): emit `sous_chef_mode_detected({mode})` when
+  // detectedMode flips from null → a real mode.
+  $: detectedMode = detectMode(textInput, !!uploadedImageData);
+  $: canExtract = detectedMode !== null;
+
   // Upload image to nostr.build
   async function uploadToNostrBuild(file: File): Promise<string | null> {
     const body = new FormData();
@@ -358,41 +333,55 @@
       goto('/login?redirect=/souschef');
       return;
     }
-    if (!canExtract || isExtracting) return;
-    
+    // Snapshot the detected mode so async awaits below see a stable
+    // discriminator even if textInput were to change mid-flight. (The
+    // textarea is disabled during isExtracting, so this is belt+
+    // suspenders — but cheap belt+suspenders.)
+    const mode = detectedMode;
+    if (!mode || isExtracting) return;
+
+    // Non-member upsell: image/text are gated. The button stays
+    // visually enabled and the click itself is the conversion event
+    // — we redirect to /membership without calling the import API.
+    if (!hasMembership && (mode === 'text' || mode === 'image')) {
+      // TODO(analytics): emit `sous_chef_upsell_triggered` with { mode }
+      goto('/membership');
+      return;
+    }
+
     isExtracting = true;
     extractionError = '';
     extractionProgress = 'Analyzing content...';
-    
+
     try {
       const requestBody: any = {
-        type: inputMode,
+        type: mode,
         pubkey: $userPublickey
       };
-      
-      if (inputMode === 'image') {
+
+      if (mode === 'image') {
         requestBody.imageData = uploadedImageData;
         extractionProgress = 'Extracting recipe from image...';
-      } else if (inputMode === 'text') {
+      } else if (mode === 'text') {
         requestBody.textData = textInput.trim();
         extractionProgress = 'Formatting your recipe...';
       } else {
-        requestBody.url = urlInput;
+        requestBody.url = textInput.trim();
         extractionProgress = 'Fetching and extracting recipe from URL...';
       }
-      
+
       const response = await fetch('/api/extract-recipe', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(requestBody)
       });
-      
+
       const data = await response.json();
-      
+
       if (!response.ok || !data.success) {
         throw new Error(data.error || 'Failed to extract recipe');
       }
-      
+
       // Populate the form with extracted data
       const recipe = data.recipe;
       title = recipe.title || '';
@@ -403,12 +392,12 @@
       servings = recipe.servings || '';
       ingredientsArray.set(recipe.ingredients || []);
       directionsArray.set(recipe.directions || []);
-      
+
       // Match tags to existing tags
       const matchedTags: recipeTagSimple[] = [];
       for (const tagName of recipe.tags || []) {
         const normalizedTag = tagName.toLowerCase().trim();
-        const existingTag = recipeTags.find(t => 
+        const existingTag = recipeTags.find(t =>
           t.title.toLowerCase() === normalizedTag
         );
         if (existingTag) {
@@ -418,11 +407,11 @@
         }
       }
       selectedTags.set(matchedTags);
-      
+
       // Handle image upload/rehosting
       const uploadedUrls: string[] = [];
-      
-      if (inputMode === 'image' && uploadedImageData) {
+
+      if (mode === 'image' && uploadedImageData) {
         // Upload the user's image to nostr.build
         extractionProgress = 'Uploading image to nostr.build...';
         const file = base64ToFile(uploadedImageData, 'recipe-image.jpg');
@@ -430,7 +419,7 @@
         if (uploadedUrl) {
           uploadedUrls.push(uploadedUrl);
         }
-      } else if (inputMode === 'url' && recipe.imageUrls && recipe.imageUrls.length > 0) {
+      } else if (mode === 'url' && recipe.imageUrls && recipe.imageUrls.length > 0) {
         // Rehost the first image from the URL to nostr.build
         extractionProgress = 'Downloading and uploading recipe image...';
         const firstImageUrl = recipe.imageUrls[0];
@@ -599,7 +588,21 @@
   <title>Sous Chef - zap.cooking</title>
 </svelte:head>
 
-<div class="flex flex-col max-w-[760px] mx-auto gap-6 pb-8">
+<!--
+  Scoped purple theme — see IntelligenceMenu.svelte's Sous Chef entry
+  (`accent: 'rgb(168, 85, 247)'`) for the source of truth. We override
+  --color-primary on this wrapper only, so every `text-primary` /
+  `bg-primary` / `border-primary` utility class descending from here
+  (including those inside <Button>) resolves to purple. Outside this
+  subtree the global orange palette is untouched.
+
+  Tailwind v4's compiled utilities use `var(--color-primary)`
+  (verified against dist/_app CSS), so the cascade override propagates
+  correctly. The remaining hard-coded orange literals on inline
+  `style=` attributes are replaced with purple equivalents in the same
+  pass — those don't pick up the variable.
+-->
+<div class="flex flex-col max-w-[760px] mx-auto gap-6 pb-8" style="--color-primary: #a855f7;">
   <!-- Header -->
   <div class="flex flex-col gap-2">
     <div class="flex items-center gap-3">
@@ -612,9 +615,6 @@
     <p class="text-caption">
       A little extra help in the kitchen.
     </p>
-    <p class="text-caption text-sm">
-      URL imports are free. Image and text imports are a Pro Kitchen feature.
-    </p>
   </div>
 
   {#if isLoading}
@@ -624,17 +624,24 @@
       <p class="text-caption">Checking membership status...</p>
     </div>
   {:else}
-    {#if $userPublickey && !hasMembership && !isAnonPreview && !extractionSuccess}
-      <!-- Non-member upgrade nudge — inline banner rather than a blocking
-           gate. URL import is free for all; this banner surfaces the
-           image/text benefit without hiding the whole feature. -->
-      <div class="flex items-start gap-3 p-4 rounded-xl" style="background-color: rgba(249, 115, 22, 0.08); border: 1px solid rgba(249, 115, 22, 0.25);">
+    {#if $userPublickey && !hasMembership && !isAnonPreview && !extractionSuccess
+         && (detectedMode === 'text' || detectedMode === 'image')}
+      <!-- Contextual upgrade nudge — only renders when the unified
+           input has detected a gated mode (image or text). URL is free
+           for everyone, so the banner stays hidden in that case and
+           when the input is empty. The CTA copy says "Cook+ and above"
+           because the server gate is `hasActiveMembership` (any tier),
+           not specifically Pro Kitchen.
+           TODO(tier-consolidation): when Cook+ is removed in the
+           planned single-tier consolidation, rewrite this copy to
+           "members" and revisit whether the gate should narrow then. -->
+      <div class="flex items-start gap-3 p-4 rounded-xl" style="background-color: rgba(168, 85, 247, 0.08); border: 1px solid rgba(168, 85, 247, 0.25);">
         <SparkleIcon size={22} class="text-primary flex-shrink-0 mt-0.5" weight="fill" />
         <div class="flex-1">
           <p class="text-sm">
             <span class="font-semibold" style="color: var(--color-primary);">URL imports are on us.</span>
-            Unlock image + text imports and more with
-            <button type="button" class="underline" on:click={() => goto('/membership')}>Pro Kitchen</button>.
+            Image and text imports are a Cook+ and above feature.
+            <button type="button" class="underline" on:click={() => goto('/membership')}>View membership</button>.
           </p>
         </div>
       </div>
@@ -642,100 +649,79 @@
     <!-- Has membership - show extraction UI -->
     
     {#if !extractionSuccess}
-      <!-- Input Section -->
+      <!-- Unified input — auto-detects URL / image / text. Mode is
+           derived from the textarea + uploadedImageData; explicit tabs
+           were removed in the souschef/consolidate refactor. -->
       <div class="flex flex-col gap-4">
-        <Tabs {tabs} activeTab={inputMode} on:change={handleTabChange} />
-        
-        {#if inputMode === 'image'}
-          <!-- Image Upload -->
-          <div class="flex flex-col gap-4">
-            {#if !uploadedImagePreview}
-              <div
-                class="relative flex flex-col items-center justify-center rounded-xl border-2 border-dashed px-6 py-12 transition-all duration-200 cursor-pointer"
-                class:border-primary={isDragging}
-                style="border-color: {isDragging ? 'var(--color-primary)' : 'var(--color-input-border)'}; background-color: var(--color-input-bg)"
-                on:drop={handleDrop}
-                on:dragover={handleDragOver}
-                on:dragleave={handleDragLeave}
-                on:click={() => fileInput.click()}
-                role="button"
-                tabindex="0"
-                on:keypress={(e) => e.key === 'Enter' && fileInput.click()}
-              >
-                <input
-                  bind:this={fileInput}
-                  type="file"
-                  accept="image/jpeg,image/png,image/webp,image/gif"
-                  class="hidden"
-                  on:change={handleFileSelect}
-                />
-                
-                <UploadIcon size={48} class="text-caption mb-4" />
-                <div class="text-center">
-                  <p class="font-semibold text-primary mb-1">Upload a recipe image</p>
-                  <p class="text-caption text-sm">or drag and drop</p>
-                  <p class="text-caption text-xs mt-2">JPG, PNG, WEBP, GIF (max 20MB)</p>
-                </div>
-              </div>
-            {:else}
-              <!-- Image Preview -->
-              <div class="relative rounded-xl overflow-hidden">
-                <img
-                  src={uploadedImagePreview}
-                  alt="Recipe to extract"
-                  class="w-full max-h-[400px] object-contain bg-input"
-                />
-                <button
-                  type="button"
-                  class="absolute top-3 right-3 bg-black/60 hover:bg-red-500 text-white rounded-full p-2 transition-all cursor-pointer"
-                  on:click={removeImage}
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <line x1="18" y1="6" x2="6" y2="18"></line>
-                    <line x1="6" y1="6" x2="18" y2="18"></line>
-                  </svg>
-                </button>
-              </div>
-            {/if}
-          </div>
-        {:else if inputMode === 'url'}
-          <!-- URL Input -->
-          <div class="flex flex-col gap-2">
-            <div class="flex items-center gap-2">
-              <LinkIcon size={20} class="text-caption" />
-              <span class="text-sm text-caption">Recipe URL</span>
-            </div>
-            <input
-              type="url"
-              placeholder="https://example.com/recipe..."
-              bind:value={urlInput}
-              class="input"
+        <!-- Hidden file input — triggered by the toolbar "Upload image"
+             button or programmatically on keyboard fallback. -->
+        <input
+          bind:this={fileInput}
+          type="file"
+          accept="image/jpeg,image/png,image/webp,image/gif"
+          class="hidden"
+          on:change={handleFileSelect}
+        />
+
+        {#if uploadedImagePreview}
+          <!-- Image-mode preview. The textarea is intentionally hidden
+               while an image is staged — one mode at a time. -->
+          <div class="relative rounded-xl overflow-hidden">
+            <img
+              src={uploadedImagePreview}
+              alt="Recipe to extract"
+              class="w-full max-h-[400px] object-contain bg-input"
             />
-            {#if urlError}
-              <p class="text-sm text-danger">{urlError}</p>
-            {/if}
-            <p class="text-xs text-caption">
-              Paste a URL from any recipe website. The AI will extract the recipe details.
-            </p>
+            <button
+              type="button"
+              aria-label="Remove image"
+              class="absolute top-3 right-3 bg-black/60 hover:bg-red-500 text-white rounded-full p-2 transition-all cursor-pointer"
+              on:click={removeImage}
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="18" y1="6" x2="6" y2="18"></line>
+                <line x1="6" y1="6" x2="18" y2="18"></line>
+              </svg>
+            </button>
           </div>
         {:else}
-          <!-- Text Input -->
-          <div class="flex flex-col gap-2">
-            <label for="text-input" class="text-sm text-caption">Drop a recipe in here</label>
+          <!-- Unified textarea + drop zone. The whole container is the
+               drop target so users can drop anywhere; paste of an image
+               from the clipboard is intercepted in handlePaste. -->
+          <div
+            class="relative flex flex-col rounded-xl border-2 border-dashed transition-all duration-200"
+            class:border-primary={isDragging}
+            style="border-color: {isDragging ? 'var(--color-primary)' : 'var(--color-input-border)'}; background-color: var(--color-input-bg)"
+            role="group"
+            aria-label="Recipe input. Paste a URL, paste recipe text, or drop a photo."
+            on:drop={handleDrop}
+            on:dragover={handleDragOver}
+            on:dragleave={handleDragLeave}
+          >
             <textarea
-              id="text-input"
+              id="souschef-input"
               bind:value={textInput}
-              placeholder="Paste a URL, copy from a website, type it out, screenshot text — whatever you've got, Sous Chef will handle it."
-              rows="10"
-              class="input resize-none text-base"
+              on:paste={handlePaste}
+              placeholder="Paste a recipe URL, paste recipe text, or drop a photo…"
+              rows="8"
+              class="w-full bg-transparent border-0 p-4 resize-none focus:outline-none focus:ring-0 text-base"
               disabled={isExtracting}
             />
-            <p class="text-xs text-caption">
-              Paste any recipe text and Sous Chef will format it for zap.cooking.
-            </p>
+            <div class="flex items-center justify-between gap-3 px-4 py-2 border-t" style="border-color: var(--color-input-border)">
+              <span class="text-xs text-caption">⌘V works for URLs, text, and images.</span>
+              <button
+                type="button"
+                class="inline-flex items-center gap-1.5 text-sm font-medium text-caption hover:text-primary transition-colors"
+                on:click={() => fileInput.click()}
+                disabled={isExtracting}
+              >
+                <UploadIcon size={16} />
+                Upload image
+              </button>
+            </div>
           </div>
         {/if}
-        
+
         <!-- Error message -->
         {#if extractionError}
           <div class="flex items-start gap-3 p-4 rounded-xl bg-red-500/10 border border-red-500/20">
@@ -767,7 +753,7 @@
       <div class="flex flex-col gap-6">
         {#if isAnonPreview}
           <!-- Anon-preview banner (via landing hero handoff) -->
-          <div class="flex items-start gap-3 p-4 rounded-xl" style="background-color: rgba(249, 115, 22, 0.08); border: 1px solid rgba(249, 115, 22, 0.25);">
+          <div class="flex items-start gap-3 p-4 rounded-xl" style="background-color: rgba(168, 85, 247, 0.08); border: 1px solid rgba(168, 85, 247, 0.25);">
             <SparkleIcon size={24} class="text-primary flex-shrink-0 mt-0.5" weight="fill" />
             <div class="flex-1">
               <p class="font-semibold" style="color: var(--color-primary);">Recipe imported — sign in to save or publish</p>
@@ -898,7 +884,7 @@
               type="button"
               on:click={() => goto('/login?redirect=/souschef')}
               class="w-full flex items-center justify-center gap-2 px-6 py-3 rounded-full font-semibold transition-all"
-              style="background: linear-gradient(135deg, #f97316 0%, #fb923c 100%); color: white; box-shadow: 0 2px 8px rgba(249, 115, 22, 0.3);"
+              style="background: linear-gradient(135deg, #a855f7 0%, #c084fc 100%); color: white; box-shadow: 0 2px 8px rgba(168, 85, 247, 0.3);"
             >
               <SparkleIcon size={18} weight="fill" />
               Sign in to publish
@@ -913,7 +899,7 @@
             on:click={publishRecipe}
             disabled={isPublishing || !title || $images.length === 0 || $selectedTags.length === 0 || $ingredientsArray.length === 0 || $directionsArray.length === 0}
             class="w-full flex items-center justify-center gap-2 px-6 py-3 rounded-full font-semibold transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-            style="background: linear-gradient(135deg, #f97316 0%, #fb923c 100%); color: white; box-shadow: 0 2px 8px rgba(249, 115, 22, 0.3);"
+            style="background: linear-gradient(135deg, #a855f7 0%, #c084fc 100%); color: white; box-shadow: 0 2px 8px rgba(168, 85, 247, 0.3);"
             class:hover:shadow-lg={!isPublishing && title && $images.length > 0 && $selectedTags.length > 0 && $ingredientsArray.length > 0 && $directionsArray.length > 0}
           >
             {#if isPublishing}
