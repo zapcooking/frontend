@@ -522,6 +522,24 @@
     box-shadow: 0 0 0 2px rgba(251, 191, 36, 0.35);
   }
 
+  /* Dark mode — desktop pill matches the mobile pill (`.zh-wallet-mobile`
+     in Header.svelte) so the header's wallet pill looks identical at
+     every breakpoint. Translucent off-white fill + amber-tinted border
+     picks up the brand colour. `!important` is necessary because the
+     pill's <div> carries inline `style=` for background-color / border
+     (set via CSS variables) — inline styles win class-selector
+     specificity otherwise. */
+  :global(.dark) .balance-pill {
+    background-color: rgba(255, 255, 255, 0.08) !important;
+    border-color: rgba(251, 191, 36, 0.35) !important;
+    box-shadow: inset 0 0 0 1px rgba(251, 191, 36, 0.08);
+  }
+  :global(.dark) .balance-pill:focus-visible {
+    box-shadow:
+      inset 0 0 0 1px rgba(251, 191, 36, 0.08),
+      0 0 0 2px rgba(251, 191, 36, 0.35);
+  }
+
   /* Inner balance text — display-only. Currency switching moved into
      the dropdown so an accidental tap on the balance can't change
      what's displayed; the outer pill handles the open-dropdown

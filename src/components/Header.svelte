@@ -397,9 +397,13 @@
   }
 
   :global(.dark) .zh-wallet-mobile {
-    background-color: rgba(255, 255, 255, 0.04);
-    border-color: rgba(255, 255, 255, 0.08);
-    box-shadow: inset 0 0 0 1px rgba(251, 191, 36, 0.06);
+    /* Visible translucent fill (~2x previous) so the pill reads as a
+       distinct chip against the dark page bg. */
+    background-color: rgba(255, 255, 255, 0.08);
+    /* Amber-tinted border so the pill picks up the brand colour from
+       the lightning bolt and the wallet modal's amber gradient. */
+    border-color: rgba(251, 191, 36, 0.35);
+    box-shadow: inset 0 0 0 1px rgba(251, 191, 36, 0.08);
   }
   .zh-wallet-amount {
     font-variant-numeric: tabular-nums;
