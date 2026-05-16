@@ -230,9 +230,9 @@
     });
   }
 
-  // Paste handler — the hint promises ⌘V works for images, so we
-  // intercept image clipboard items and route them through the same
-  // upload path. Plain text/URL paste falls through to the textarea.
+  // Paste handler — intercept image clipboard items and route them
+  // through the same upload path so users can paste a screenshot
+  // directly. Plain text/URL paste falls through to the textarea.
   function handlePaste(e: ClipboardEvent) {
     const items = e.clipboardData?.items;
     if (!items) return;
