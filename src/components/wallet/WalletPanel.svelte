@@ -1329,7 +1329,7 @@
     paymentString: string,
     description?: string,
     destinationType?: string
-  ): Promise<{ secret?: string; encryptedDestination?: string; verifyLink?: string }> {
+  ): Promise<{ secret?: string; encryptedDestination?: string; verifyUrl?: string }> {
     try {
       const res = await fetch('/api/branta/register', {
         method: 'POST',
@@ -1353,7 +1353,7 @@
       return {
         secret: data.secret,
         encryptedDestination: data.encryptedDestination,
-        verifyLink: data.verifyLink
+        verifyUrl: data.verifyUrl
       };
     } catch (e) {
       // Silent fail - Branta registration is optional
