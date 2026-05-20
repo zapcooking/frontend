@@ -10,7 +10,7 @@
 
   Props:
     - paymentString: The address/invoice to verify (used when no rawQrText)
-    - rawQrText: Raw QR code text for QR-based verification (uses getPaymentsByQRCode)
+    - rawQrText: Raw QR code text for QR-based verification (uses getPaymentsByQrCode)
     - autoVerify: Whether to verify on mount (default: true)
     - showUnverified: Whether to show badge when not verified (default: false)
 -->
@@ -37,12 +37,20 @@
     loading = true;
 
     try {
-      const address = encryptedDestination || paymentString;
-      // Secret is sent in a POST body (not as a query param) so it isn't
-      // captured by logs, proxies, or referrers.
+      // bolt11 invoices are looked up by their plain text value with no
+      // secret. Bitcoin addresses (and other non-bolt11 destinations) are
+      // looked up by their encrypted destination value, with the secret
+      // used to decrypt the ZK response. Secret is sent in a POST body
+      // (not as a query param) so it isn't captured by logs, proxies, or
+      // referrers.
+      const isBolt11 = /^ln(bc|tb|bcrt)/i.test(paymentString.trim());
       const requestBody = rawQrText
         ? { qr: rawQrText }
-        : { payment: address, ...(secret ? { secret } : {}) };
+        : isBolt11
+          ? { payment: paymentString }
+          : encryptedDestination && secret
+            ? { payment: encryptedDestination, secret }
+            : { payment: paymentString };
       const res = await fetch('/api/branta/verify', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

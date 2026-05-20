@@ -8,7 +8,7 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { registerPayment, isBrantaConfigured } from '$lib/brantaService.server';
-import type { DestinationType } from '@branta-ops/branta/v2';
+import type { DestinationType } from '@branta-ops/branta';
 
 const ALLOWED_DESTINATION_TYPES: ReadonlyArray<DestinationType> = [
 	'bitcoin_address',
@@ -56,7 +56,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 		);
 
 		if (result.success) {
-			return json({ success: true, verifyLink: result.verifyLink, secret: result.secret, encryptedDestination: result.encryptedDestination });
+			return json({ success: true, verifyUrl: result.verifyUrl, secret: result.secret, encryptedDestination: result.encryptedDestination });
 		}
 
 		return json({ success: false, error: result.error }, { status: 500 });
