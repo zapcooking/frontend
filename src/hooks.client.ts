@@ -1,9 +1,16 @@
 import type { HandleClientError } from '@sveltejs/kit';
 
 
-// Register Service Worker to intercept __data.json requests and cache app assets for offline support
-// Service Workers can intercept requests and cache assets for offline functionality
-if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
+// Register Service Worker to intercept __data.json requests and cache app
+// assets for offline support. Skipped in dev — sw.js caches every JS/CSS
+// request from Vite's HMR module URLs, and the cached modules become stale
+// against the live page state across reloads, hanging the tab. Production
+// builds and previews still register normally.
+if (
+  typeof window !== 'undefined' &&
+  'serviceWorker' in navigator &&
+  !import.meta.env.DEV
+) {
   // Register service worker for all builds (static and web) to enable offline asset caching
   navigator.serviceWorker.register('/sw.js')
     .then(reg => {
