@@ -197,8 +197,17 @@
               <div class="font-semibold truncate" style="color: var(--color-text-primary)">
                 {zapper.displayName}
               </div>
+              {#if zapper.comment}
+                <div
+                  class="text-sm italic mt-0.5 line-clamp-2 whitespace-pre-wrap break-words"
+                  style="color: var(--color-text-secondary)"
+                  title={zapper.comment}
+                >
+                  "{zapper.comment}"
+                </div>
+              {/if}
               {#if formatTimestamp(zapper.timestamp)}
-                <div class="text-xs text-caption">
+                <div class="text-xs text-caption mt-0.5">
                   {formatTimestamp(zapper.timestamp)}
                 </div>
               {/if}
