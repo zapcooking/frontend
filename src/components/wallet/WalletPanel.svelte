@@ -1060,13 +1060,21 @@
       const pending = $pendingTransactions;
       const now = Math.floor(Date.now() / 1000);
 
+      // Match window for migrating pending tx metadata onto the SDK
+      // history row. Has to be wide enough that an SDK timestamp that
+      // drifts a bit from when we sent still matches. Orphan cleanup
+      // uses the same window so a completed pending tx that never gets
+      // an SDK counterpart eventually drops out instead of lingering
+      // forever. Kept in sync with PENDING_TX_TTL_SECS in walletManager.
+      const PENDING_MIGRATION_WINDOW_SECS = 30 * 60;
+
       for (const pendingTx of pending) {
         if (pendingTx.status === 'completed') {
           const matchingRealIndex = transactions.findIndex(
             (tx) =>
               tx.amount === pendingTx.amount &&
               tx.type === 'outgoing' &&
-              Math.abs(tx.timestamp - pendingTx.timestamp) < 600
+              Math.abs(tx.timestamp - pendingTx.timestamp) < PENDING_MIGRATION_WINDOW_SECS
           );
 
           if (matchingRealIndex >= 0) {
@@ -1085,7 +1093,7 @@
               comment: pendingTx.comment
             });
             removePendingTransaction(pendingTx.id);
-          } else if (now - pendingTx.timestamp > 600) {
+          } else if (now - pendingTx.timestamp > PENDING_MIGRATION_WINDOW_SECS) {
             removePendingTransaction(pendingTx.id);
           }
         } else if (pendingTx.status === 'pending' && now - pendingTx.timestamp > 1800) {

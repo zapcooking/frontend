@@ -12,8 +12,12 @@ import { ndk, userPublickey } from '$lib/nostr';
 import { ZapManager } from '$lib/zapManager';
 import { activeWallet } from '$lib/wallet';
 import { sendPayment } from '$lib/wallet/walletManager';
-import { oneTapZapEnabled, oneTapZapAmount } from '$lib/autoZapSettings';
-import { optimisticZapUpdate } from '$lib/engagementCache';
+import { oneTapZapEnabled, oneTapZapAmount, defaultZapMessage } from '$lib/autoZapSettings';
+import {
+  optimisticZapUpdate,
+  revertOptimisticZap,
+  markSelfZapCompleted
+} from '$lib/engagementCache';
 
 /**
  * Check if one-tap zap is available (enabled + has in-app wallet)
@@ -73,6 +77,7 @@ export async function sendOneTapZap(target: NDKEvent | NDKUser): Promise<OneTapZ
   }
 
     const amount = get(oneTapZapAmount);
+    const message = get(defaultZapMessage);
     const currentUserPubkey = get(userPublickey);
     console.log('[OneTapZap] Amount:', amount, 'sats, Wallet kind:', wallet.kind);
 
@@ -93,41 +98,71 @@ export async function sendOneTapZap(target: NDKEvent | NDKUser): Promise<OneTapZ
       return { success: false, error: 'Invalid target for zap' };
     }
 
-    // Optimistically update the zap count immediately (before payment starts)
-    // This provides instant visual feedback while payment processes in background
-    if (eventId && currentUserPubkey) {
-      optimisticZapUpdate(eventId, amount * 1000, currentUserPubkey);
-      console.log('[OneTapZap] Optimistic update applied for event:', eventId, 'amount:', amount, 'sats');
-    }
+    // Track whether we've applied the optimistic update so the catch
+    // block knows whether to revert. We defer the optimistic update until
+    // AFTER createZap succeeds — that call is what fetches the
+    // recipient's LNURL endpoint and gets back an invoice. If the
+    // recipient has no lud16 / lud06, or the LNURL provider errors,
+    // createZap throws BEFORE any optimistic count would be applied, so
+    // the note never shows a phantom zap that never actually happened.
+    let optimisticApplied = false;
+    const amountMillisats = amount * 1000;
 
     try {
       const zapManager = new ZapManager(ndkInstance);
 
-    // Create the zap invoice
+    // Create the zap invoice. Throws if the recipient isn't zappable
+    // (no lud16 / lud06, LNURL endpoint unreachable, etc.).
     console.log('[OneTapZap] Creating zap invoice...');
     const zapResult = await zapManager.createZap(
       recipientPubkey,
-      amount * 1000, // Convert to millisats
-      '', // No message for one-tap zaps
+      amountMillisats, // Convert to millisats
+      message, // User-configurable default zap message (empty string by default)
       eventId
     );
     console.log('[OneTapZap] Zap invoice created:', zapResult.invoice?.substring(0, 50) + '...');
+
+    // LNURL succeeded → recipient is zappable → apply the optimistic
+    // update so the UI shows immediate feedback while payment processes.
+    if (eventId && currentUserPubkey) {
+      optimisticZapUpdate(eventId, amountMillisats, currentUserPubkey, message || undefined);
+      optimisticApplied = true;
+      console.log('[OneTapZap] Optimistic update applied for event:', eventId, 'amount:', amount, 'sats');
+    }
 
     // Send the payment
     console.log('[OneTapZap] Sending payment...');
     const paymentResult = await sendPayment(zapResult.invoice, {
       amount,
-      description: `Zap to ${recipientPubkey.substring(0, 8)}...`,
+      description: message || `Zap to ${recipientPubkey.substring(0, 8)}...`,
+      comment: message || undefined,
       pubkey: recipientPubkey
     });
     console.log('[OneTapZap] Payment result:', paymentResult);
 
     if (!paymentResult.success) {
+      // Payment failed after the optimistic update — revert it so the
+      // note doesn't show a phantom zap that never actually arrived.
+      if (optimisticApplied && eventId && currentUserPubkey) {
+        revertOptimisticZap(eventId, amountMillisats, currentUserPubkey);
+      }
       return { success: false, error: paymentResult.error || 'Payment failed' };
+    }
+
+    // Payment fully completed — mark the self-zap for any UI animation
+    // that wants a one-shot "celebration" trigger (e.g. sparkle burst).
+    if (eventId) {
+      markSelfZapCompleted(eventId);
     }
 
     return { success: true, amount };
   } catch (e) {
+    // createZap threw (no lud16, LNURL down, etc.) OR something else
+    // failed mid-flow. If we'd already applied the optimistic update,
+    // revert it; if we hadn't, there's nothing to revert.
+    if (optimisticApplied && eventId && currentUserPubkey) {
+      revertOptimisticZap(eventId, amountMillisats, currentUserPubkey);
+    }
     const errorMessage = e instanceof Error ? e.message : 'Unknown error';
     console.error('[OneTapZap] Failed:', errorMessage, e);
     return { success: false, error: errorMessage };

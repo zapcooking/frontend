@@ -6,7 +6,7 @@
   import NoteTotalZaps from './NoteTotalZaps.svelte';
   import ZapModal from './ZapModal.svelte';
   import { ndk, userPublickey } from '$lib/nostr';
-  import { fetchEngagement, optimisticZapUpdate } from '$lib/engagementCache';
+  import { fetchEngagement, optimisticZapUpdate, markSelfZapCompleted } from '$lib/engagementCache';
 
   export let event: NDKEvent;
 
@@ -28,6 +28,10 @@
 
   let zapModalOpen = false;
 
+  // Called as the `onZapClick` callback from NoteTotalZaps when its
+  // internal one-tap path isn't applicable (no in-app wallet, toggle off,
+  // or signed out). NoteTotalZaps already handles the one-tap path
+  // itself, so this is purely the modal-fallback handler.
   function openZapModal() {
     if (!$userPublickey) {
       window.location.href = '/login?redirect=' + encodeURIComponent(window.location.pathname);
@@ -36,9 +40,18 @@
     zapModalOpen = true;
   }
 
-  function handleZapComplete(e: CustomEvent<{ amount: number }>) {
+  function handleZapComplete(e: CustomEvent<{ amount: number; comment?: string }>) {
     if (event) {
-      optimisticZapUpdate(event.id, (e.detail.amount || 0) * 1000, $userPublickey);
+      optimisticZapUpdate(
+        event.id,
+        (e.detail.amount || 0) * 1000,
+        $userPublickey,
+        e.detail.comment
+      );
+      // Modal zap is fully paid by the time this fires (it's dispatched
+      // from ZapModal's success branch / Bitcoin Connect onPaid). Fire
+      // the completion marker so the sparkle burst runs exactly once.
+      markSelfZapCompleted(event.id);
       fetchEngagement($ndk, event.id, $userPublickey);
     }
   }
@@ -125,4 +138,5 @@
   .full .zap-pills-row {
     padding: 0;
   }
+
 </style>
