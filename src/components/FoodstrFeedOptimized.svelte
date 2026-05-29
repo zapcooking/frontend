@@ -33,7 +33,6 @@
     hasMutedTag,
     isThreadMuted
   } from '$lib/mutableIntegration';
-  import { formatDistanceToNow } from 'date-fns';
   import Avatar from './Avatar.svelte';
   import type { NDKSubscription } from '@nostr-dev-kit/ndk';
   import { NDKEvent, NDKSubscriptionCacheUsage } from '@nostr-dev-kit/ndk';
@@ -792,8 +791,20 @@
     }
   }
 
+  // Compact "X-unit-ago" formatter for note headers (e.g. "10m", "3h",
+  // "2d", "1y"). Replaces date-fns' formatDistanceToNow which produced
+  // verbose phrases like "about 3 hours ago" that wrapped mid-phrase on
+  // mobile and pushed the post-actions menu around.
   function formatTimeAgo(timestamp: number): string {
-    return formatDistanceToNow(new Date(timestamp * 1000), { addSuffix: true });
+    const seconds = Math.floor(Date.now() / 1000) - timestamp;
+    if (seconds < 60) return 'now';
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return `${minutes}m`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours}h`;
+    const days = Math.floor(hours / 24);
+    if (days < 365) return `${days}d`;
+    return `${Math.floor(days / 365)}y`;
   }
 
   function isImageUrl(url: string): boolean {
@@ -5199,10 +5210,13 @@
 
                 <div class="flex items-center space-x-2 flex-wrap min-w-0">
                   {#if !hideAuthorName}
-                    <AuthorName {event} />
-                    <span class="text-sm" style="color: var(--color-caption)">·</span>
+                    <!-- truncate + min-w-0 lets a long display name shrink with an
+                         ellipsis instead of pushing the timestamp onto a new line
+                         (or worse, splitting "about 3 hours ago" mid-phrase). -->
+                    <AuthorName {event} className="font-semibold text-sm truncate min-w-0" />
+                    <span class="text-sm flex-shrink-0" style="color: var(--color-caption)">·</span>
                   {/if}
-                  <span class="text-sm" style="color: var(--color-caption)">
+                  <span class="text-sm whitespace-nowrap flex-shrink-0" style="color: var(--color-caption)">
                     {event.created_at ? formatTimeAgo(event.created_at) : 'Unknown time'}
                   </span>
                   <ClientAttribution tags={event.tags} enableEnrichment={false} />
