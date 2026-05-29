@@ -295,7 +295,24 @@ export async function sendPayment(
 ): Promise<{ success: boolean; preimage?: string; error?: string }> {
   const wallet = getActiveWallet();
 
+  // WebLN-only state: WebLN wallets aren't stored in $wallets (kind=1 entries
+  // are stripped on mount in WalletPanel), so getActiveWallet() returns null
+  // even though window.webln is connected and ready to pay. Route through
+  // WebLN before bailing on "No wallet connected".
   if (!wallet) {
+    if (isWeblnConnected()) {
+      walletLoading.set(true);
+      try {
+        const { preimage } = await payWeblnInvoice(invoice);
+        return { success: true, preimage };
+      } catch (e) {
+        const error = e instanceof Error ? e.message : String(e) || 'WebLN payment failed';
+        console.error('[WalletManager] WebLN payment failed:', e);
+        return { success: false, error };
+      } finally {
+        walletLoading.set(false);
+      }
+    }
     return { success: false, error: 'No wallet connected' };
   }
 

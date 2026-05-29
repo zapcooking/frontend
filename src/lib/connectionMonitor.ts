@@ -151,27 +151,22 @@ async function heartbeatCheck(): Promise<boolean> {
     return navigator.onLine;
   }
   
-  // For web builds, use local favicon check
-  try {
-    // Try to fetch a small resource with timeout
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), HEARTBEAT_TIMEOUT);
-    
-    // Use a simple HEAD request to a reliable endpoint
-    // We use the app's own domain to avoid CORS issues
-    const response = await fetch(`/favicon.ico?heartbeat=${Date.now()}`, {
-      method: 'HEAD',
-      cache: 'no-store',
-      signal: controller.signal
-    });
-    
-    clearTimeout(timeoutId);
-    return response.ok;
-  } catch (error) {
-    // Network error or timeout
-    console.log('[ConnectionMonitor] Heartbeat check failed:', error);
-    return false;
-  }
+  // For web builds, trust `navigator.onLine` plus the browser's native
+  // `online` / `offline` events (already wired up in startMonitoring).
+  //
+  // We previously did a `fetch('/favicon.ico', { method: 'HEAD' })`
+  // heartbeat every 30 s. That was brittle on two axes:
+  //   - The asset is `favicon.svg` (not `.ico`), so the request
+  //     permanently 404'd on Vercel and pinned the app into "offline".
+  //   - The service worker registered in hooks.client.ts intercepts
+  //     same-origin fetches; if its cache logic errored, the heartbeat
+  //     threw and the app went "offline" even with a healthy network.
+  //
+  // `navigator.onLine` is set by the browser based on network
+  // configuration and is updated synchronously when the `online` /
+  // `offline` events fire. That is exactly the signal this app needs;
+  // no extra round-trip required.
+  return true;
 }
 
 // Heartbeat interval timer

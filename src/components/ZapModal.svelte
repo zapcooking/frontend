@@ -20,9 +20,19 @@
   const dispatch = createEventDispatcher<{ 'zap-complete': { amount: number; pollOptionId?: string } }>();
   import { activeWallet, getWalletKindName } from '$lib/wallet';
   import { sendPayment } from '$lib/wallet/walletManager';
+  import { weblnConnected } from '$lib/wallet/webln';
 
-  // Check if user has an in-app wallet connected (Spark or NWC)
-  $: hasInAppWallet = $activeWallet && ($activeWallet.kind === 3 || $activeWallet.kind === 4);
+  // True when we can pay an invoice directly without launching the
+  // Bitcoin Connect payment modal:
+  //   - an in-app wallet (NWC kind=3, Spark kind=4) is the active one, OR
+  //   - WebLN is connected. WebLN wallets are deliberately not registered
+  //     in the $wallets store (see WalletPanel.svelte — kind=1 entries are
+  //     removed on mount), so $activeWallet is null even when WebLN is
+  //     active. We have to check $weblnConnected separately to route
+  //     through walletManager.sendPayment instead of the BC modal.
+  $: hasInAppWallet =
+    $weblnConnected ||
+    ($activeWallet && ($activeWallet.kind === 3 || $activeWallet.kind === 4));
 
   const defaultZapSatsAmounts = [
     { amount: 21, emoji: '☕', label: '21' },
@@ -143,7 +153,11 @@
         throw new Error('Zap manager not initialized. Please try again.');
       }
 
-      if (!$activeWallet) {
+      // WebLN-only is a valid in-app state (window.webln present, no
+      // entry in $wallets), so don't require $activeWallet — only fail
+      // when neither is available. sendPayment() routes WebLN itself
+      // when getActiveWallet() returns null.
+      if (!$activeWallet && !$weblnConnected) {
         throw new Error('No wallet connected. Please connect a wallet first.');
       }
 
