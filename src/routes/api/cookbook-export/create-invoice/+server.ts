@@ -70,7 +70,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 		const kv = platform?.env?.GATED_CONTENT ?? null;
 
 		if (typeof promoCode === 'string' && promoCode.trim()) {
-			const lookup = await applyPromo(kv, promoCode, COOKBOOK_EXPORT_SATS);
+			const lookup = await applyPromo(kv, promoCode, COOKBOOK_EXPORT_SATS, 'cookbook');
 			if (!lookup.ok || !lookup.applied) {
 				return json(
 					{ error: 'Promo code not valid', promoError: lookup.error || 'unknown_code' },

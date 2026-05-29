@@ -38,8 +38,10 @@ import {
 	upsertPromoCode,
 	type PromoEntry
 } from '$lib/cookbookPromoStore.server';
+import type { PromoScope } from '$lib/cookbookPricing';
 
 const CODE_RE = /^[A-Z0-9_-]{2,32}$/;
+const VALID_SCOPES: PromoScope[] = ['cookbook', 'membership', 'sponsor', 'genesis', 'all'];
 
 export const GET: RequestHandler = async ({ request, platform }) => {
 	const auth = await verifyNip98(request, { expectedPubkey: ADMIN_PUBKEY });
@@ -62,6 +64,7 @@ interface UpsertAction {
 	code: string;
 	percentOff: number;
 	flatOff?: number;
+	scope?: string;
 	expiresAt?: number | null;
 	note?: string;
 }
@@ -121,9 +124,23 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 			if (!Number.isFinite(flatOff) || flatOff < 0) {
 				return json({ error: 'flatOff must be ≥ 0' }, { status: 400 });
 			}
+			const scope = (String(body.scope ?? 'all').trim().toLowerCase() || 'all') as PromoScope;
+			if (!VALID_SCOPES.includes(scope)) {
+				return json({ error: 'Invalid scope' }, { status: 400 });
+			}
+			// Membership + genesis are percent-only and capped below 100%
+			// (activation always stays behind a verified payment — see the
+			// promo engine). Enforce at write time too, as defence-in-depth.
+			if ((scope === 'membership' || scope === 'genesis') && (flatOff > 0 || percentOff >= 100)) {
+				return json(
+					{ error: 'Membership/genesis codes must be percent-only and below 100%' },
+					{ status: 400 }
+				);
+			}
 			const entry: PromoEntry = {
 				percentOff,
-				flatOff
+				flatOff,
+				scope
 			};
 			if (typeof body.expiresAt === 'number' && body.expiresAt > 0) {
 				entry.expiresAt = body.expiresAt;
@@ -133,7 +150,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 			}
 			const next = await upsertPromoCode(kv, code, entry, DEFAULT_PROMO_CONFIG);
 			console.log(
-				`[admin.promos] upsert code=${code} percent=${percentOff} flat=${flatOff} by=${auth.pubkey}`
+				`[admin.promos] upsert code=${code} scope=${scope} percent=${percentOff} flat=${flatOff} by=${auth.pubkey}`
 			);
 			return json({ success: true, config: next });
 		}

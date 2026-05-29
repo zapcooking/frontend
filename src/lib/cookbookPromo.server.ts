@@ -20,7 +20,12 @@
  */
 
 import { env } from '$env/dynamic/private';
-import { applyPromoMath, type PromoApplied } from '$lib/cookbookPricing';
+import {
+	applyPromoMath,
+	scopeAllows,
+	type PromoApplied,
+	type PromoScope
+} from '$lib/cookbookPricing';
 import {
 	loadPromoConfig,
 	type PromoConfigState,
@@ -39,11 +44,13 @@ export const DEFAULT_PROMO_CONFIG: PromoConfigState = {
 		LAUNCH: {
 			percentOff: 50,
 			flatOff: 0,
+			scope: 'cookbook',
 			note: 'launch promo: 50% off cookbook export'
 		},
 		FREEPACK: {
 			percentOff: 100,
 			flatOff: 0,
+			scope: 'cookbook',
 			note: '100% off — free cookbook export (limited use)'
 		}
 	}
@@ -51,13 +58,29 @@ export const DEFAULT_PROMO_CONFIG: PromoConfigState = {
 
 export interface PromoLookup {
 	ok: boolean;
-	error?: 'unknown_code' | 'expired' | 'disabled';
+	/**
+	 * `wrong_scope` — code exists but isn't valid for the requested surface.
+	 * `invalid_for_scope` — code's discount shape isn't permitted for the
+	 *   requested surface (membership/genesis are percent-only and capped
+	 *   below 100%, so every activation stays behind a verified payment).
+	 */
+	error?: 'unknown_code' | 'expired' | 'disabled' | 'wrong_scope' | 'invalid_for_scope';
 	applied?: PromoApplied;
 }
 
-function envKillSwitch(): boolean {
-	const flag = (env.COOKBOOK_PROMOS_DISABLED || '').trim().toLowerCase();
+function isFlagOn(raw: string | undefined): boolean {
+	const flag = (raw || '').trim().toLowerCase();
 	return flag === '1' || flag === 'true' || flag === 'yes';
+}
+
+/** Generic break-glass: disables promos on EVERY scope. */
+function genericKillSwitch(): boolean {
+	return isFlagOn(env.PROMOS_DISABLED);
+}
+
+/** Legacy cookbook-only break-glass, kept for back-compat. */
+function cookbookKillSwitch(): boolean {
+	return isFlagOn(env.COOKBOOK_PROMOS_DISABLED);
 }
 
 /**
@@ -71,19 +94,28 @@ export async function resolvePromoConfig(kv: PromoKV): Promise<PromoConfigState>
 }
 
 /**
- * Validate a user-submitted code against the resolved config.
+ * Validate a user-submitted code against the resolved config, for a
+ * specific surface (`scope`).
  *
  * Async because KV is the source of truth. Callers (the public
  * apply-promo + create-invoice endpoints) pass through `platform.env`'s
  * `GATED_CONTENT` binding.
+ *
+ * Unit-agnostic on `baseAmount`: cookbook passes sats, membership/genesis
+ * pass USD cents (see `applyPromoMath`). The validation here only gates
+ * *which* code may apply; the caller owns the units and downstream
+ * conversion.
  */
 export async function applyPromo(
 	kv: PromoKV,
 	rawCode: string,
-	baseSats: number
+	baseAmount: number,
+	scope: PromoScope
 ): Promise<PromoLookup> {
-	// Break-glass env override wins over everything else.
-	if (envKillSwitch()) return { ok: false, error: 'disabled' };
+	// Generic break-glass disables every scope; the legacy cookbook
+	// switch additionally disables the cookbook scope.
+	if (genericKillSwitch()) return { ok: false, error: 'disabled' };
+	if (scope === 'cookbook' && cookbookKillSwitch()) return { ok: false, error: 'disabled' };
 
 	const config = await resolvePromoConfig(kv);
 	if (!config.enabled) return { ok: false, error: 'disabled' };
@@ -98,7 +130,26 @@ export async function applyPromo(
 	if (cfg.expiresAt && Date.now() > cfg.expiresAt) {
 		return { ok: false, error: 'expired' };
 	}
-	const applied = applyPromoMath(baseSats, cfg.percentOff, cfg.flatOff, code);
+
+	// Scope gate — a code only applies to its surface (legacy codes with
+	// no scope default to 'all', which covers cookbook + membership but
+	// never genesis).
+	if (!scopeAllows(cfg.scope, scope)) {
+		return { ok: false, error: 'wrong_scope' };
+	}
+
+	// Membership + genesis are percent-only and capped below 100%, so a
+	// paid Strike receive always gates activation (no free-grant path in
+	// v1). flatOff is sats-denominated and meaningless against USD cents,
+	// so it's rejected outright on these scopes too. Defence-in-depth:
+	// the admin upsert endpoint enforces the same rules at write time.
+	if (scope === 'membership' || scope === 'genesis') {
+		if (cfg.flatOff > 0 || cfg.percentOff >= 100) {
+			return { ok: false, error: 'invalid_for_scope' };
+		}
+	}
+
+	const applied = applyPromoMath(baseAmount, cfg.percentOff, cfg.flatOff, code);
 	return { ok: true, applied };
 }
 

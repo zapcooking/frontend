@@ -33,6 +33,60 @@
   let amountSats: number | null = null;
   let discountPercent = 5;
 
+  // Promo code (Lightning only). Server is the source of truth for price;
+  // this just previews the discount and forwards the code to invoice creation.
+  let promoCode = '';
+  let promoApplying = false;
+  let promoError: string | null = null;
+  let appliedPromo: { code: string; label: string; originalUsd: number; finalUsd: number } | null = null;
+
+  function promoErrorMessage(code: string | undefined): string {
+    switch (code) {
+      case 'expired': return 'This code has expired.';
+      case 'wrong_scope': return "This code isn't valid for this membership.";
+      case 'invalid_for_scope': return "This code can't be applied here.";
+      case 'disabled': return 'Promo codes are currently unavailable.';
+      default: return 'Invalid promo code.';
+    }
+  }
+
+  async function applyPromoCode() {
+    const code = promoCode.trim();
+    if (!code) return;
+    promoApplying = true;
+    promoError = null;
+    try {
+      const response = await fetch('/api/membership/apply-promo', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code, tier: 'pro', period: selectedPeriod })
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        appliedPromo = null;
+        promoError = promoErrorMessage(data.error);
+        return;
+      }
+      appliedPromo = {
+        code: data.code,
+        label: data.label,
+        originalUsd: data.originalUsd,
+        finalUsd: data.finalUsd
+      };
+    } catch {
+      appliedPromo = null;
+      promoError = 'Could not validate code. Please try again.';
+    } finally {
+      promoApplying = false;
+    }
+  }
+
+  function clearPromo() {
+    appliedPromo = null;
+    promoCode = '';
+    promoError = null;
+  }
+
   onMount(() => {
     if (!browser) return;
     
@@ -174,6 +228,7 @@
           pubkey: $userPublickey,
           tier: 'pro',
           period: selectedPeriod,
+          promoCode: appliedPromo?.code,
         }),
       });
 
@@ -194,6 +249,10 @@
       lightningInvoice = data.invoice;
       paymentHash = data.paymentHash;
       receiveRequestId = data.receiveRequestId;
+      // Server is the source of truth for the charged amount — reflect any
+      // promo-adjusted figures it returned.
+      if (typeof data.discountedUsdAmount === 'number') discountedUsdAmount = data.discountedUsdAmount;
+      if (typeof data.amountSats === 'number') amountSats = data.amountSats;
 
       const { setPaid } = await lightningService.launchPayment({
         invoice: data.invoice,
@@ -476,7 +535,42 @@
         </div>
       </div>
 
-      <button 
+      {#if paymentMethod === 'lightning'}
+        <div class="promo-section">
+          {#if appliedPromo}
+            <div class="promo-applied">
+              <span class="promo-applied-text">✓ {appliedPromo.code} — {appliedPromo.label}</span>
+              <button type="button" class="promo-clear" on:click={clearPromo} disabled={loading}>
+                Remove
+              </button>
+            </div>
+          {:else}
+            <div class="promo-input-row">
+              <input
+                type="text"
+                class="promo-input"
+                placeholder="Have a promo code?"
+                bind:value={promoCode}
+                disabled={promoApplying || loading}
+                on:keydown={(e) => e.key === 'Enter' && applyPromoCode()}
+              />
+              <button
+                type="button"
+                class="promo-apply"
+                on:click={applyPromoCode}
+                disabled={promoApplying || loading || !promoCode.trim()}
+              >
+                {promoApplying ? '…' : 'Apply'}
+              </button>
+            </div>
+          {/if}
+          {#if promoError}
+            <p class="promo-error">{promoError}</p>
+          {/if}
+        </div>
+      {/if}
+
+      <button
         class="checkout-button"
         on:click={proceedToCheckout}
         disabled={loading || !isLoggedIn}
@@ -897,5 +991,68 @@
     .discount-badge {
       margin-left: 0;
     }
+  }
+
+  /* Promo code */
+  .promo-section {
+    margin-bottom: 1.5rem;
+  }
+  .promo-input-row {
+    display: flex;
+    gap: 0.5rem;
+  }
+  .promo-input {
+    flex: 1;
+    padding: 0.75rem 1rem;
+    background: rgba(17, 24, 39, 0.6);
+    border: 2px solid rgba(236, 71, 0, 0.2);
+    border-radius: 8px;
+    color: #f3f4f6;
+    font-size: 0.95rem;
+  }
+  .promo-input:focus {
+    outline: none;
+    border-color: var(--color-primary);
+  }
+  .promo-apply {
+    padding: 0.75rem 1.25rem;
+    background: rgba(236, 71, 0, 0.15);
+    border: 2px solid rgba(236, 71, 0, 0.4);
+    border-radius: 8px;
+    color: var(--color-primary);
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .promo-apply:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  .promo-applied {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.75rem 1rem;
+    background: rgba(16, 185, 129, 0.1);
+    border: 1px solid rgba(16, 185, 129, 0.3);
+    border-radius: 8px;
+  }
+  .promo-applied-text {
+    color: #10b981;
+    font-weight: 600;
+    font-size: 0.9rem;
+  }
+  .promo-clear {
+    background: none;
+    border: none;
+    color: #9ca3af;
+    cursor: pointer;
+    font-size: 0.85rem;
+    text-decoration: underline;
+  }
+  .promo-error {
+    margin: 0.5rem 0 0;
+    color: #ef4444;
+    font-size: 0.85rem;
   }
 </style>

@@ -29,6 +29,7 @@ import { env } from '$env/dynamic/private';
 import { getBitcoinPrice } from '$lib/bitcoinPrice.server';
 import { createInvoice as createStrikeInvoice } from '$lib/strikeService.server';
 import { storeInvoiceMetadata } from '$lib/invoiceMetadataStore.server';
+import { applyPromo } from '$lib/promoEngine.server';
 
 // Founders Club pricing in USD (lifetime membership)
 const FOUNDERS_CLUB_PRICE_USD = 210; // $210
@@ -45,8 +46,8 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 
   try {
     const body = await request.json();
-    const { pubkey } = body;
-    
+    const { pubkey, promoCode } = body;
+
     if (!pubkey) {
       return json(
         { error: 'pubkey is required' },
@@ -63,12 +64,46 @@ export const POST: RequestHandler = async ({ request, platform }) => {
     }
     
     const usdAmount = FOUNDERS_CLUB_PRICE_USD;
-    
+
+    // KV binding — promo validation and invoice metadata both need it.
+    const kv = platform?.env?.GATED_CONTENT ?? null;
+    const isProd = env.NODE_ENV === 'production';
+    if (!kv && isProd) {
+      console.error('[Founders Club Lightning] GATED_CONTENT KV binding missing in production');
+      return json({ error: 'Service temporarily unavailable' }, { status: 503 });
+    }
+
+    // Optional promo code. Founders has its OWN 'genesis' scope so a generic
+    // membership code can't discount a lifetime founder slot (D4). Percent-only,
+    // capped below 100%, applied to the list USD price in integer cents; the 5%
+    // Bitcoin discount then STACKS below (D2). NOTE: activation still requires a
+    // verified Strike COMPLETED receive in verify-lightning-payment — there is
+    // no free-grant path, so a discounted founder slot is still a paid slot.
+    let listUsdAmount = usdAmount;
+    let promo: { code: string; label: string; originalUsd: number; finalUsd: number } | null = null;
+    if (typeof promoCode === 'string' && promoCode.trim()) {
+      const lookup = await applyPromo(kv, promoCode, Math.round(usdAmount * 100), 'genesis');
+      if (!lookup.ok || !lookup.applied) {
+        return json(
+          { error: 'Promo code not valid', promoError: lookup.error || 'unknown_code' },
+          { status: 400 }
+        );
+      }
+      listUsdAmount = lookup.applied.finalSats / 100; // cents → USD
+      promo = {
+        code: lookup.applied.code,
+        label: lookup.applied.label,
+        originalUsd: usdAmount,
+        finalUsd: parseFloat(listUsdAmount.toFixed(2))
+      };
+    }
+
     // Fetch BTC price once and derive all amounts (avoids race condition)
     const currentPrice = await getBitcoinPrice(platform);
 
-    // Calculate discounted USD amount (5% off for Bitcoin payments)
-    const discountedUsdAmount = usdAmount * (1 - BITCOIN_DISCOUNT_PERCENT / 100);
+    // Calculate discounted USD amount (5% off for Bitcoin payments), stacked
+    // on top of any promo-adjusted list price.
+    const discountedUsdAmount = listUsdAmount * (1 - BITCOIN_DISCOUNT_PERCENT / 100);
 
     // Convert using the single fetched price
     const btcAmountNum = discountedUsdAmount / currentPrice;
@@ -117,15 +152,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 
     // Store metadata so webhook and verify endpoints can match payment to user
     // Genesis uses 'pro' tier internally for NIP-05 claiming
-    const kv = platform?.env?.GATED_CONTENT ?? null;
-    const isProd = env.NODE_ENV === 'production';
-    if (!kv && isProd) {
-      console.error('[Founders Club Lightning] GATED_CONTENT KV binding missing in production');
-      return json(
-        { error: 'Service temporarily unavailable' },
-        { status: 503 }
-      );
-    }
+    // (kv + production guard already resolved above)
     await storeInvoiceMetadata(
       kv,
       receiveRequestId,
@@ -143,8 +170,9 @@ export const POST: RequestHandler = async ({ request, platform }) => {
       discountedUsdAmount: parseFloat(discountedUsdAmount.toFixed(2)),
       btcPrice: parseFloat(currentPrice.toFixed(2)),
       discountPercent: BITCOIN_DISCOUNT_PERCENT,
+      promo,
     });
-    
+
   } catch (error: any) {
     console.error('[Founders Club Lightning] Error creating invoice:', error);
     

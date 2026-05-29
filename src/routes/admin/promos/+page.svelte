@@ -19,10 +19,20 @@
   import { ndk, userPublickey } from '$lib/nostr';
   import { isAdmin } from '$lib/adminAuth';
   import { signNip98AuthHeader } from '$lib/nip98';
+  import type { PromoScope } from '$lib/cookbookPricing';
+
+  const SCOPES: { value: PromoScope; label: string }[] = [
+    { value: 'all', label: 'All (cookbook + membership)' },
+    { value: 'cookbook', label: 'Cookbook' },
+    { value: 'membership', label: 'Membership' },
+    { value: 'genesis', label: 'Genesis (Founders)' },
+    { value: 'sponsor', label: 'Sponsor' }
+  ];
 
   interface PromoEntry {
     percentOff: number;
     flatOff: number;
+    scope?: PromoScope;
     expiresAt?: number;
     note?: string;
   }
@@ -44,6 +54,7 @@
   let newCode = '';
   let newPercentOff = '50';
   let newFlatOff = '0';
+  let newScope: PromoScope = 'all';
   let newNote = '';
   let newExpiresAt = ''; // ISO date string from <input type=date>
 
@@ -51,8 +62,19 @@
   let editingCode: string | null = null;
   let editPercentOff = '';
   let editFlatOff = '';
+  let editScope: PromoScope = 'all';
   let editNote = '';
   let editExpiresAt = '';
+
+  // Membership + genesis codes are percent-only and capped below 100% (the
+  // server enforces this too). Mirror it in the UI so the admin gets fast
+  // feedback rather than a 400.
+  function scopeRejectsEntry(scope: PromoScope, percentOff: number, flatOff: number): string | null {
+    if ((scope === 'membership' || scope === 'genesis') && (flatOff > 0 || percentOff >= 100)) {
+      return 'Membership/Genesis codes must be percent-only and below 100%.';
+    }
+    return null;
+  }
 
   $: authed = isAdmin($userPublickey);
 
@@ -152,12 +174,18 @@
       actionError = 'Code must be 2–32 chars, A–Z 0–9 _ -';
       return;
     }
+    const guard = scopeRejectsEntry(newScope, Number(newPercentOff), Number(newFlatOff || 0));
+    if (guard) {
+      actionError = guard;
+      return;
+    }
     busyCode = '__add';
     const ok = await postAction({
       action: 'upsert',
       code,
       percentOff: Number(newPercentOff),
       flatOff: Number(newFlatOff || 0),
+      scope: newScope,
       note: newNote.trim() || undefined,
       expiresAt: parseExpiresInput(newExpiresAt) ?? null
     });
@@ -166,6 +194,7 @@
       newCode = '';
       newPercentOff = '50';
       newFlatOff = '0';
+      newScope = 'all';
       newNote = '';
       newExpiresAt = '';
     }
@@ -175,6 +204,7 @@
     editingCode = code;
     editPercentOff = String(entry.percentOff);
     editFlatOff = String(entry.flatOff);
+    editScope = entry.scope ?? 'all';
     editNote = entry.note ?? '';
     editExpiresAt = formatExpiresForInput(entry.expiresAt);
     actionError = '';
@@ -185,12 +215,18 @@
   }
 
   async function saveEdit(code: string) {
+    const guard = scopeRejectsEntry(editScope, Number(editPercentOff), Number(editFlatOff || 0));
+    if (guard) {
+      actionError = guard;
+      return;
+    }
     busyCode = code;
     const ok = await postAction({
       action: 'upsert',
       code,
       percentOff: Number(editPercentOff),
       flatOff: Number(editFlatOff || 0),
+      scope: editScope,
       note: editNote.trim() || undefined,
       expiresAt: parseExpiresInput(editExpiresAt) ?? null
     });
@@ -213,14 +249,16 @@
 </script>
 
 <svelte:head>
-  <title>Cookbook Promos — Admin</title>
+  <title>Promo Codes — Admin</title>
 </svelte:head>
 
 <div class="page">
   <a class="back" href="/admin">← Admin</a>
-  <h1>Cookbook Promos</h1>
+  <h1>Promo Codes</h1>
   <p class="lede">
-    Toggle promos on/off, create new codes, edit or remove existing ones. Changes
+    Toggle promos on/off, create new codes, edit or remove existing ones. Each code
+    has a <strong>scope</strong> (which checkout it applies to); legacy codes with no
+    scope default to <code>all</code> (cookbook + membership, not genesis). Changes
     propagate to all edges within ~1 minute (Cloudflare KV).
   </p>
 
@@ -291,6 +329,14 @@
           <input type="number" min="0" bind:value={newFlatOff} />
         </label>
         <label>
+          <span>Scope</span>
+          <select bind:value={newScope}>
+            {#each SCOPES as s (s.value)}
+              <option value={s.value}>{s.label}</option>
+            {/each}
+          </select>
+        </label>
+        <label>
           <span>Expires (optional)</span>
           <input type="date" bind:value={newExpiresAt} />
         </label>
@@ -348,6 +394,14 @@
                     <input type="number" min="0" bind:value={editFlatOff} />
                   </label>
                   <label>
+                    <span>Scope</span>
+                    <select bind:value={editScope}>
+                      {#each SCOPES as s (s.value)}
+                        <option value={s.value}>{s.label}</option>
+                      {/each}
+                    </select>
+                  </label>
+                  <label>
                     <span>Expires</span>
                     <input type="date" bind:value={editExpiresAt} />
                   </label>
@@ -385,6 +439,7 @@
                     {#if entry.flatOff > 0}
                       <span class="badge">−{entry.flatOff} sats</span>
                     {/if}
+                    <span class="badge badge-scope">{entry.scope ?? 'all'}</span>
                   </div>
                   <div class="code-meta">
                     <span>Expires: {formatExpiresLabel(entry.expiresAt)}</span>
@@ -495,7 +550,8 @@
   .form-grid label.full {
     grid-column: 1 / -1;
   }
-  .form-grid input {
+  .form-grid input,
+  .form-grid select {
     padding: 0.5rem 0.625rem;
     border: 1px solid var(--color-input-border);
     border-radius: 0.375rem;
@@ -576,6 +632,11 @@
   .badge-free {
     background: rgba(180, 95, 30, 0.15);
     color: #b45f1e;
+  }
+  .badge-scope {
+    background: rgba(124, 58, 237, 0.15);
+    color: #a78bfa;
+    text-transform: capitalize;
   }
   .code-meta {
     margin-top: 0.25rem;
