@@ -7,7 +7,6 @@
   import { onMount } from 'svelte';
   import Avatar from '../../components/Avatar.svelte';
   import CustomName from '../../components/CustomName.svelte';
-  import { formatDistanceToNow } from 'date-fns';
   import NoteContent from '../../components/NoteContent.svelte';
   import PollDisplay from '../../components/PollDisplay.svelte';
   import NoteActionBar from '../../components/NoteActionBar.svelte';
@@ -216,8 +215,19 @@
     }
   }
 
+  // Compact "X-unit-ago" formatter for note headers (e.g. "10m", "3h",
+  // "2d", "1y"). Mirrors the helper in FoodstrFeedOptimized — short
+  // form avoids mid-phrase wrap on mobile.
   function formatTimeAgo(timestamp: number): string {
-    return formatDistanceToNow(new Date(timestamp * 1000), { addSuffix: true });
+    const seconds = Math.floor(Date.now() / 1000) - timestamp;
+    if (seconds < 60) return 'now';
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return `${minutes}m`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours}h`;
+    const days = Math.floor(hours / 24);
+    if (days < 365) return `${days}d`;
+    return `${Math.floor(days / 365)}y`;
   }
 
 
@@ -487,18 +497,18 @@
                 </div>
                 <div class="flex-1 min-w-0">
                   <div class="flex items-center justify-between mb-1">
-                    <div class="flex items-center space-x-2">
+                    <div class="flex items-center space-x-2 min-w-0">
                       <a
                         href="/user/{nip19.npubEncode(
                           parentNote.author?.hexpubkey || parentNote.pubkey
                         )}"
-                        class="font-semibold text-sm transition-colors username-link"
+                        class="font-semibold text-sm transition-colors username-link truncate min-w-0"
                         style="color: var(--color-text-primary)"
                       >
                         <CustomName pubkey={parentNote.author?.hexpubkey || parentNote.pubkey} />
                       </a>
-                      <span class="text-sm" style="color: var(--color-caption)">·</span>
-                      <span class="text-sm" style="color: var(--color-caption)">
+                      <span class="text-sm flex-shrink-0" style="color: var(--color-caption)">·</span>
+                      <span class="text-sm whitespace-nowrap flex-shrink-0" style="color: var(--color-caption)">
                         {parentNote.created_at ? formatTimeAgo(parentNote.created_at) : ''}
                       </span>
                     </div>
@@ -546,13 +556,13 @@
               <div class="flex items-center space-x-2 mb-2 flex-wrap">
                 <a
                   href="/user/{nip19.npubEncode(event.author?.hexpubkey || event.pubkey)}"
-                  class="font-semibold text-sm transition-colors username-link"
+                  class="font-semibold text-sm transition-colors username-link truncate min-w-0"
                   style="color: var(--color-text-primary)"
                 >
                   <CustomName pubkey={event.author?.hexpubkey || event.pubkey} />
                 </a>
-                <span class="text-sm" style="color: var(--color-caption)">·</span>
-                <span class="text-sm" style="color: var(--color-caption)">
+                <span class="text-sm flex-shrink-0" style="color: var(--color-caption)">·</span>
+                <span class="text-sm whitespace-nowrap flex-shrink-0" style="color: var(--color-caption)">
                   {event.created_at ? formatTimeAgo(event.created_at) : 'Unknown time'}
                 </span>
                 <ClientAttribution tags={event.tags} enableEnrichment={true} />
@@ -624,16 +634,16 @@
                     </a>
                     <div class="flex-1 min-w-0">
                       <div class="flex items-center justify-between mb-1">
-                        <div class="flex items-center space-x-2">
+                        <div class="flex items-center space-x-2 min-w-0">
                           <a
                             href="/user/{nip19.npubEncode(reply.author?.hexpubkey || reply.pubkey)}"
-                            class="font-medium text-sm transition-colors username-link"
+                            class="font-medium text-sm transition-colors username-link truncate min-w-0"
                             style="color: var(--color-text-primary)"
                           >
                             <CustomName pubkey={reply.author?.hexpubkey || reply.pubkey} />
                           </a>
-                          <span class="text-xs" style="color: var(--color-caption)">·</span>
-                          <span class="text-xs" style="color: var(--color-caption)">
+                          <span class="text-xs flex-shrink-0" style="color: var(--color-caption)">·</span>
+                          <span class="text-xs whitespace-nowrap flex-shrink-0" style="color: var(--color-caption)">
                             {reply.created_at ? formatTimeAgo(reply.created_at) : ''}
                           </span>
                         </div>
@@ -676,20 +686,20 @@
                           </a>
                           <div class="flex-1 min-w-0">
                             <div class="flex items-center justify-between mb-0.5">
-                              <div class="flex items-center space-x-2">
+                              <div class="flex items-center space-x-2 min-w-0">
                                 <a
                                   href="/user/{nip19.npubEncode(
                                     nestedReply.author?.hexpubkey || nestedReply.pubkey
                                   )}"
-                                  class="font-medium text-xs transition-colors username-link"
+                                  class="font-medium text-xs transition-colors username-link truncate min-w-0"
                                   style="color: var(--color-text-primary)"
                                 >
                                   <CustomName
                                     pubkey={nestedReply.author?.hexpubkey || nestedReply.pubkey}
                                   />
                                 </a>
-                                <span class="text-xs" style="color: var(--color-caption)">·</span>
-                                <span class="text-xs" style="color: var(--color-caption)">
+                                <span class="text-xs flex-shrink-0" style="color: var(--color-caption)">·</span>
+                                <span class="text-xs whitespace-nowrap flex-shrink-0" style="color: var(--color-caption)">
                                   {nestedReply.created_at
                                     ? formatTimeAgo(nestedReply.created_at)
                                     : ''}
