@@ -14,8 +14,18 @@
  */
 
 import { env } from '$env/dynamic/private';
-import type { BrantaClientOptions, BrantaServerBaseUrl, DestinationType } from '@branta-ops/branta';
-import { BrantaService, type Destination, type Payment } from '@branta-ops/branta/v2';
+// v3 unifies everything under the package root; the `/v2` entry point is
+// deprecated (removed in v4). `BrantaServerBaseUrl` is imported as a value
+// because v3 types `baseUrl` as the resolved URL string, so we map the
+// environment name through the const rather than passing 'Production' etc.
+import {
+  BrantaService,
+  BrantaServerBaseUrl,
+  type BrantaClientOptions,
+  type Destination,
+  type DestinationType,
+  type Payment
+} from '@branta-ops/branta';
 
 export type { Payment };
 export type PaymentWithVerifyUrl = Payment & { verifyUrl?: string };
@@ -41,7 +51,11 @@ export function getBrantaConfig(platform?: any): BrantaClientOptions | null {
 
   const raw = platform?.env?.BRANTA_ENVIRONMENT || env.BRANTA_ENVIRONMENT;
   const baseUrl: BrantaServerBaseUrl =
-    raw === 'Staging' || raw === 'Localhost' ? raw : 'Production';
+    raw === 'Staging'
+      ? BrantaServerBaseUrl.Staging
+      : raw === 'Localhost'
+        ? BrantaServerBaseUrl.Localhost
+        : BrantaServerBaseUrl.Production;
 
   return { defaultApiKey: apiKey, baseUrl, privacy: 'strict' };
 }
@@ -81,7 +95,7 @@ export async function registerPayment(
     // secret/encryptedDestination to verify later.
     const destination: Destination = {
       value: paymentString.trim(),
-      isZk: true
+      zk: true // v3 renamed the v2 `isZk` toggle to `zk`
     };
 
     if (destinationType) {
@@ -97,18 +111,22 @@ export async function registerPayment(
       body.description = description;
     }
 
-    // Payment.metadata is a stringified JSON blob per the API spec.
+    // v3 types Payment.metadata as a flat Record<string, string> (v2 took a
+    // stringified JSON blob). Coerce values to strings to match.
     if (metadata) {
-      body.metadata = JSON.stringify(metadata);
+      body.metadata = Object.fromEntries(
+        Object.entries(metadata as Record<string, unknown>).map(([k, v]) => [k, String(v)])
+      );
     }
 
     const brantaService = new BrantaService(config);
 
     const result = await brantaService.addPayment(body);
 
+    // v3 moved verifyUrl off ZKPaymentResult and onto the returned Payment.
     return {
       success: true,
-      verifyUrl: result.verifyUrl,
+      verifyUrl: result.payment.verifyUrl,
       secret: result.secret,
       encryptedDestination: result.payment.destinations[0]?.value
     };
@@ -160,7 +178,7 @@ export async function getPaymentInfoByQRCode(
 
   try {
     const brantaService = new BrantaService(config);
-    const result = await brantaService.getPaymentsByQrCode(qrText.trim());
+    const result = await brantaService.getPaymentsByQRCode(qrText.trim());
     const payment = result.payments[0];
     return payment ? { ...payment, verifyUrl: result.verifyUrl } : null;
   } catch (error) {
