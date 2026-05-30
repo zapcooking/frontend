@@ -22,7 +22,11 @@ export default defineConfig({
 	resolve: {
 		alias: {
 			$lib: path.resolve('./src/lib'),
-			$app: path.resolve('./.svelte-kit/dev/runtime/app')
+			$app: path.resolve('./.svelte-kit/dev/runtime/app'),
+			// SvelteKit's $env virtual modules aren't provided here (no
+			// SvelteKit Vite plugin), so point server modules under test at
+			// a mutable stub. See src/test/envMock.ts.
+			'$env/dynamic/private': path.resolve('./src/test/envMock.ts')
 		}
 	},
 	test: {

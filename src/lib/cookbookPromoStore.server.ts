@@ -21,9 +21,12 @@
  * extends a code's life by a minute.
  */
 
+import type { PromoScope } from '$lib/cookbookPricing';
+
 export interface PromoEntry {
 	percentOff: number; // 0-100
-	flatOff: number; // sats removed AFTER percent
+	flatOff: number; // sats removed AFTER percent (cookbook scope only; see below)
+	scope?: PromoScope; // which surface this code applies to; absent = 'all'
 	expiresAt?: number; // unix ms — undefined = never expires
 	note?: string;
 }

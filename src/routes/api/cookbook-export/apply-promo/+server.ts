@@ -28,7 +28,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 	}
 
 	const kv = platform?.env?.GATED_CONTENT ?? null;
-	const result = await applyPromo(kv, body?.code || '', COOKBOOK_EXPORT_SATS);
+	const result = await applyPromo(kv, body?.code || '', COOKBOOK_EXPORT_SATS, 'cookbook');
 	if (!result.ok || !result.applied) {
 		return json({ success: false, error: result.error || 'unknown_code' });
 	}

@@ -30,6 +30,7 @@ import { env } from '$env/dynamic/private';
 import { getBitcoinPrice } from '$lib/bitcoinPrice.server';
 import { createInvoice as createStrikeInvoice } from '$lib/strikeService.server';
 import { storeInvoiceMetadata } from '$lib/invoiceMetadataStore.server';
+import { applyPromo } from '$lib/promoEngine.server';
 
 // Pricing in USD
 const PRICING_USD = {
@@ -55,8 +56,8 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 
   try {
     const body = await request.json();
-    const { pubkey, tier, period } = body;
-    
+    const { pubkey, tier, period, promoCode } = body;
+
     if (!pubkey) {
       return json(
         { error: 'pubkey is required' },
@@ -101,12 +102,44 @@ export const POST: RequestHandler = async ({ request, platform }) => {
         { status: 500 }
       );
     }
-    
+
+    // KV binding — promo validation and invoice metadata both need it.
+    const kv = platform?.env?.GATED_CONTENT ?? null;
+    if (!kv && env.NODE_ENV === 'production') {
+      console.error('[Membership Lightning] GATED_CONTENT KV binding is missing in production');
+      return json({ error: 'Service temporarily unavailable' }, { status: 503 });
+    }
+
+    // Optional promo code. The promo applies to the LIST USD price (computed
+    // in integer cents so rounding is exact); the existing 5% Bitcoin discount
+    // then STACKS on the promo-adjusted price below (D2). Membership codes are
+    // percent-only and capped below 100% — the server is the source of truth
+    // for the amount, the client-sent code is only a hint.
+    let listUsdAmount = usdAmount;
+    let promo: { code: string; label: string; originalUsd: number; finalUsd: number } | null = null;
+    if (typeof promoCode === 'string' && promoCode.trim()) {
+      const lookup = await applyPromo(kv, promoCode, Math.round(usdAmount * 100), 'membership');
+      if (!lookup.ok || !lookup.applied) {
+        return json(
+          { error: 'Promo code not valid', promoError: lookup.error || 'unknown_code' },
+          { status: 400 }
+        );
+      }
+      listUsdAmount = lookup.applied.finalSats / 100; // cents → USD
+      promo = {
+        code: lookup.applied.code,
+        label: lookup.applied.label,
+        originalUsd: usdAmount,
+        finalUsd: parseFloat(listUsdAmount.toFixed(2))
+      };
+    }
+
     // Fetch BTC price once and derive all amounts from it (avoids race condition)
     const currentPrice = await getBitcoinPrice(platform);
 
-    // Calculate discounted USD amount (5% off for Bitcoin payments)
-    const discountedUsdAmount = usdAmount * (1 - BITCOIN_DISCOUNT_PERCENT / 100);
+    // Calculate discounted USD amount (5% off for Bitcoin payments), stacked
+    // on top of any promo-adjusted list price.
+    const discountedUsdAmount = listUsdAmount * (1 - BITCOIN_DISCOUNT_PERCENT / 100);
 
     // Convert using the single fetched price
     const btcAmountNum = discountedUsdAmount / currentPrice;
@@ -159,16 +192,8 @@ export const POST: RequestHandler = async ({ request, platform }) => {
       pubkey: pubkey.substring(0, 16) + '...',
     });
 
-    // Store invoice metadata so webhook and verify endpoints can match payment to user
-    const kv = platform?.env?.GATED_CONTENT ?? null;
-    // In production, require the GATED_CONTENT KV binding to avoid falling back to in-memory storage
-    if (!kv && env.NODE_ENV === 'production') {
-      console.error('[Membership Lightning] GATED_CONTENT KV binding is missing in production');
-      return json(
-        { error: 'Service temporarily unavailable' },
-        { status: 503 }
-      );
-    }
+    // Store invoice metadata so webhook and verify endpoints can match payment
+    // to user. (kv + production guard already resolved above.)
     await storeInvoiceMetadata(
       kv,
       receiveRequestId,
@@ -188,6 +213,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
       discountPercent: BITCOIN_DISCOUNT_PERCENT,
       tier,
       period,
+      promo,
     });
     
   } catch (error: any) {
