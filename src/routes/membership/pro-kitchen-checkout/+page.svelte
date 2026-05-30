@@ -33,12 +33,16 @@
   let amountSats: number | null = null;
   let discountPercent = 5;
 
-  // Promo code (Lightning only). Server is the source of truth for price;
-  // this just previews the discount and forwards the code to invoice creation.
+  // Promo code (Lightning only). The apply-promo endpoint recomputes the
+  // FULL effective price (promo stacked with the 5% BTC discount) and returns
+  // amountSats + totalDiscountPercent. We bind the Lightning card's USD, sats,
+  // AND badge to those figures so the price and the badge can never disagree.
+  // discountedUsdAmount / amountSats / discountPercent are the single source of
+  // truth for what's displayed; applying/clearing a code rewrites all three.
   let promoCode = '';
   let promoApplying = false;
   let promoError: string | null = null;
-  let appliedPromo: { code: string; label: string; originalUsd: number; finalUsd: number } | null = null;
+  let appliedPromo: { code: string; label: string } | null = null;
 
   function promoErrorMessage(code: string | undefined): string {
     switch (code) {
@@ -67,12 +71,11 @@
         promoError = promoErrorMessage(data.error);
         return;
       }
-      appliedPromo = {
-        code: data.code,
-        label: data.label,
-        originalUsd: data.originalUsd,
-        finalUsd: data.finalUsd
-      };
+      appliedPromo = { code: data.code, label: data.label };
+      // Drive the card from the promo-adjusted totals so price/sats/badge agree.
+      discountedUsdAmount = data.discountedUsd;
+      amountSats = data.amountSats;
+      discountPercent = data.totalDiscountPercent;
     } catch {
       appliedPromo = null;
       promoError = 'Could not validate code. Please try again.';
@@ -85,6 +88,8 @@
     appliedPromo = null;
     promoCode = '';
     promoError = null;
+    // Restore the base (5%-only) Lightning quote.
+    fetchBitcoinPriceQuote();
   }
 
   onMount(() => {
@@ -249,6 +254,15 @@
       lightningInvoice = data.invoice;
       paymentHash = data.paymentHash;
       receiveRequestId = data.receiveRequestId;
+      // The displayed price must equal what we're actually charging. Warn if the
+      // invoice's sats differ from what the card previewed before reconciling.
+      if (typeof data.amountSats === 'number' && amountSats !== null && data.amountSats !== amountSats) {
+        console.warn('[Pro Kitchen Checkout] Displayed sats != invoice sats', {
+          displayed: amountSats,
+          invoice: data.amountSats,
+          promo: appliedPromo?.code ?? null
+        });
+      }
       // Server is the source of truth for the charged amount — reflect any
       // promo-adjusted figures it returned.
       if (typeof data.discountedUsdAmount === 'number') discountedUsdAmount = data.discountedUsdAmount;
@@ -512,7 +526,6 @@
               <div class="payment-method-header">
                 <span class="payment-icon">⚡</span>
                 <span class="payment-name">Bitcoin Lightning</span>
-                <span class="discount-badge">{discountPercent}% OFF</span>
               </div>
               <div class="payment-provider bitcoin-pricing">
                 {#if bitcoinPriceLoading}
@@ -522,11 +535,13 @@
                   <span class="usd-pricing">
                     <span class="original-price">${PRO_KITCHEN_PRICE_USD}</span>
                     <span class="discounted-price">${discountedUsdAmount?.toFixed(2)}</span>
+                    <span class="discount-badge">{discountPercent}% OFF</span>
                   </span>
                 {:else}
                   <span class="usd-pricing">
                     <span class="original-price">${PRO_KITCHEN_PRICE_USD}</span>
                     <span class="discounted-price">${discountedUsdAmount?.toFixed(2)}</span>
+                    <span class="discount-badge">{discountPercent}% OFF</span>
                   </span>
                 {/if}
               </div>
@@ -644,7 +659,12 @@
     border-image: linear-gradient(135deg, var(--color-primary) 0%, #ff6b00 50%, #ff4500 100%) 1;
     border-radius: 16px;
     padding: 2.5rem;
-    box-shadow: 
+    /* Contain the card within the viewport: count padding+border in the width
+       and never let a flex child push it past the screen edge. */
+    box-sizing: border-box;
+    width: 100%;
+    max-width: 100%;
+    box-shadow:
       0 8px 32px rgba(236, 71, 0, 0.15),
       0 0 0 1px rgba(236, 71, 0, 0.1);
   }
@@ -887,6 +907,7 @@
     display: flex;
     align-items: center;
     gap: 0.5rem;
+    flex-wrap: wrap;
   }
 
   .original-price {
@@ -908,7 +929,9 @@
     border-radius: 10px;
     font-size: 0.65rem;
     font-weight: 700;
-    margin-left: auto;
+    flex-shrink: 0;
+    /* Sits inline with the price (see .usd-pricing), not floated to its own
+       line — so the badge's % always reads next to the price it describes. */
   }
 
   .loading-price {
@@ -972,6 +995,16 @@
   }
 
   @media (max-width: 480px) {
+    /* Tighten the outer chrome so the card fits narrow screens without
+       horizontal overflow. */
+    .checkout-page {
+      padding: 1rem;
+    }
+
+    .checkout-card {
+      padding: 1.5rem;
+    }
+
     .payment-method-option {
       padding: 0.75rem;
     }
@@ -988,7 +1021,8 @@
       font-size: 0.9rem;
     }
 
-    .discount-badge {
+    /* Drop the indent that pushed "57,470 sats" onto a second line. */
+    .payment-provider {
       margin-left: 0;
     }
   }
@@ -1003,6 +1037,10 @@
   }
   .promo-input {
     flex: 1;
+    /* Allow the flex input to shrink below its intrinsic/placeholder width so
+       the row (input + Apply) never forces the card wider than the screen. */
+    min-width: 0;
+    box-sizing: border-box;
     padding: 0.75rem 1rem;
     background: rgba(17, 24, 39, 0.6);
     border: 2px solid rgba(236, 71, 0, 0.2);
@@ -1022,6 +1060,8 @@
     color: var(--color-primary);
     font-weight: 600;
     cursor: pointer;
+    /* Keep its size and stay on screen instead of being clipped off the right. */
+    flex-shrink: 0;
   }
   .promo-apply:disabled {
     opacity: 0.5;
