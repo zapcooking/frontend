@@ -627,59 +627,88 @@ async function decryptWithPrivateKey(
 }
 
 /**
+ * Some mobile NIP-07 signers (iOS WKWebView bridges in particular) return
+ * the plaintext wrapped in an object instead of as a bare string. Accept
+ * `{ plaintext }`, `{ result }`, `{ data }`, or `{ content }` so the
+ * caller doesn't end up `JSON.stringify`-ing an object further downstream.
+ */
+function coerceDecryptResult(value: unknown, methodLabel: string): string {
+  if (typeof value === 'string') return value;
+  if (value && typeof value === 'object') {
+    const obj = value as Record<string, unknown>;
+    const candidate = obj.plaintext ?? obj.result ?? obj.data ?? obj.content;
+    if (typeof candidate === 'string') return candidate;
+  }
+  throw new Error(
+    `Signer returned an unexpected ${methodLabel} decrypt result (type: ${typeof value}). ` +
+      `If you are using a mobile signer, please ensure it implements NIP-07 nip44.decrypt ` +
+      `and returns the plaintext as a string.`
+  );
+}
+
+/**
  * Decrypt via browser signer (window.nostr) or NDK signer (NIP-46).
  * Called inside the sequential queue so only one request hits the signer at a time.
+ *
+ * Honors the caller-supplied `method` exactly — we do NOT silently fall back
+ * to the other method, because:
+ *   - For wallet relay backups the method is pinned by the event's `encryption`
+ *     tag, so the "fallback" would just feed nip44 ciphertext into a nip04
+ *     decrypt and surface a misleading base64/iv error.
+ *   - Some mobile NIP-07 signers expose only one of the two methods; silently
+ *     skipping the missing one and calling the other guarantees a wrong-method
+ *     call that produces an unrelated failure.
  */
 async function decryptViaSigner(
   senderPubkey: string,
   ciphertext: string,
   method: EncryptionMethod
 ): Promise<string> {
-  const methods: EncryptionMethod[] = method === 'nip44' ? ['nip44', 'nip04'] : ['nip04', 'nip44'];
-  let lastError: Error | null = null;
+  if (!method) {
+    throw new Error('Encryption method not specified');
+  }
 
-  for (const tryMethod of methods) {
-    try {
-      // First try window.nostr (NIP-07) - this is the original working method
-      const nostr = (window as any).nostr;
-      if (tryMethod === 'nip44' && nostr?.nip44?.decrypt) {
-        const result = await nostr.nip44.decrypt(senderPubkey, ciphertext);
-        if (result != null) return result;
-      }
-      if (tryMethod === 'nip04' && nostr?.nip04?.decrypt) {
-        const result = await nostr.nip04.decrypt(senderPubkey, ciphertext);
-        if (result != null) return result;
-      }
+  const nostr = (window as any).nostr;
+  const ndkInstance = get(ndk);
+  const signer = ndkInstance.signer as SignerWithEncryption | null | undefined;
+  const signerName = signer?.constructor?.name || '';
 
-      // Fallback to NDK signer (NIP-46 remote signers). NIP-44 goes
-      // through the raw RPC; NIP-04 uses NDK's decrypt() which issues a
-      // nip04_decrypt RPC.
-      const ndkInstance = get(ndk);
-      const signer = ndkInstance.signer as SignerWithEncryption | null | undefined;
-      const signerName = signer?.constructor?.name || '';
-      if (signer && signerName.includes('Nip46Signer')) {
-        const sender = new NDKUser({ pubkey: senderPubkey });
-        const nip46Signer = signer as unknown as NDKNip46Signer;
+  // NIP-07 path: drive through window.nostr when the requested method is
+  // actually exposed. NIP-44 and NIP-04 are optional in NIP-07; an extension
+  // can expose one, both, or neither. Missing-method is treated as "fall
+  // through to the next path", not as a silent skip-then-try-the-wrong-method.
+  if (method === 'nip44' && typeof nostr?.nip44?.decrypt === 'function') {
+    const raw = await nostr.nip44.decrypt(senderPubkey, ciphertext);
+    return coerceDecryptResult(raw, 'nip44');
+  }
+  if (method === 'nip04' && typeof nostr?.nip04?.decrypt === 'function') {
+    const raw = await nostr.nip04.decrypt(senderPubkey, ciphertext);
+    return coerceDecryptResult(raw, 'nip04');
+  }
 
-        if (tryMethod === 'nip44') {
-          const result = await nip44DecryptViaNip46(nip46Signer, senderPubkey, ciphertext);
-          if (result != null) return result;
-        } else if (tryMethod === 'nip04' && typeof signer.decrypt === 'function') {
-          const result = await signer.decrypt(sender, ciphertext);
-          if (result != null) return result;
-        }
-      }
-    } catch (e) {
-      lastError = e instanceof Error ? e : new Error(String(e));
-      // If the user denied, don't try the fallback method — one popup is enough
-      if (isUserDenial(e)) {
-        throw lastError;
-      }
-      console.warn(`[Encryption] ${tryMethod} decryption failed, trying next method...`, e);
+  // NIP-46 remote signer path: NIP-44 via raw RPC, NIP-04 via NDK's decrypt().
+  if (signer && signerName.includes('Nip46Signer')) {
+    const sender = new NDKUser({ pubkey: senderPubkey });
+    const nip46Signer = signer as unknown as NDKNip46Signer;
+    if (method === 'nip44') {
+      const raw = await nip44DecryptViaNip46(nip46Signer, senderPubkey, ciphertext);
+      return coerceDecryptResult(raw, 'nip44');
+    }
+    if (method === 'nip04' && typeof signer.decrypt === 'function') {
+      const raw = await signer.decrypt(sender, ciphertext);
+      return coerceDecryptResult(raw, 'nip04');
     }
   }
 
-  throw lastError || new Error(`Cannot decrypt: no supported decryption method available`);
+  // Surface a precise, user-facing reason — and explicitly say which
+  // capability is missing — instead of falling through to the other method
+  // and producing a misleading base64/iv error.
+  const methodLabel = method === 'nip44' ? 'NIP-44' : 'NIP-04';
+  throw new Error(
+    `Your signer does not support ${methodLabel} decryption. ` +
+      `This content was encrypted with ${methodLabel}, which requires a signer that exposes window.nostr.${method}.decrypt. ` +
+      `If you are restoring a wallet, you can use your recovery phrase instead.`
+  );
 }
 
 /**

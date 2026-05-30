@@ -5,24 +5,38 @@
   import PanLoader from './PanLoader.svelte';
   import Button from './Button.svelte';
   import Checkmark from 'phosphor-svelte/lib/CheckFat';
-  import XIcon from 'phosphor-svelte/lib/X';
+  import LightningIcon from 'phosphor-svelte/lib/LightningSlash';
 
   import CustomAvatar from './CustomAvatar.svelte';
   import CustomName from './CustomName.svelte';
   import { browser } from '$app/environment';
   import { onMount, createEventDispatcher } from 'svelte';
+  import { get } from 'svelte/store';
   import { ZapManager } from '$lib/zapManager';
   import { lightningService } from '$lib/lightningService';
   import { hapticSuccess } from '$lib/haptics';
   import { displayCurrency } from '$lib/currencyStore';
   import { convertSatsToFiat, formatFiatValue } from '$lib/currencyConversion';
 
-  const dispatch = createEventDispatcher<{ 'zap-complete': { amount: number; pollOptionId?: string } }>();
+  const dispatch = createEventDispatcher<{
+    'zap-complete': { amount: number; pollOptionId?: string; comment?: string };
+  }>();
   import { activeWallet, getWalletKindName } from '$lib/wallet';
   import { sendPayment } from '$lib/wallet/walletManager';
+  import { weblnConnected } from '$lib/wallet/webln';
+  import { defaultZapMessage } from '$lib/autoZapSettings';
 
-  // Check if user has an in-app wallet connected (Spark or NWC)
-  $: hasInAppWallet = $activeWallet && ($activeWallet.kind === 3 || $activeWallet.kind === 4);
+  // True when we can pay an invoice directly without launching the
+  // Bitcoin Connect payment modal:
+  //   - an in-app wallet (NWC kind=3, Spark kind=4) is the active one, OR
+  //   - WebLN is connected. WebLN wallets are deliberately not registered
+  //     in the $wallets store (see WalletPanel.svelte — kind=1 entries are
+  //     removed on mount), so $activeWallet is null even when WebLN is
+  //     active. We have to check $weblnConnected separately to route
+  //     through walletManager.sendPayment instead of the BC modal.
+  $: hasInAppWallet =
+    $weblnConnected ||
+    ($activeWallet && ($activeWallet.kind === 3 || $activeWallet.kind === 4));
 
   const defaultZapSatsAmounts = [
     { amount: 21, emoji: '☕', label: '21' },
@@ -72,10 +86,68 @@
   $: if (isPollMode && pollMinSats && amount === 21) {
     amount = pollMinSats;
   }
-  let message: string = '';
+  // Pre-fill from the user's saved default zap message (set in Settings →
+  // Zap Settings → Default zap message). The user can still edit or clear
+  // this in the textarea before sending; the override doesn't affect the
+  // saved default. Each caller wraps <ZapModal/> in `{#if open}`, so the
+  // component remounts on every open and this initialiser fires fresh.
+  // Use `get()` (not `$store`) so we pull the current value without
+  // creating a subscription that re-fires on later store updates.
+  let message: string = get(defaultZapMessage);
 
   let state: 'pre' | 'pending' | 'success' | 'error' = 'pre';
   let error: Error | null = null;
+
+  // Friendly mapping for the error state. The raw error message can be
+  // alarming and technical ("Profile lud16: undefined") — translate the
+  // common cases into something a human can act on. Anything we don't
+  // recognise falls back to a soft generic message + retry; cases we
+  // know aren't retryable (e.g. recipient has no Lightning address) hide
+  // the Try Again button.
+  let errorTitle = 'Zap unavailable';
+  let errorBody = '';
+  let errorRetryable = true;
+  $: {
+    const msg = error?.message || String(error || '');
+    const lower = msg.toLowerCase();
+    if (
+      lower.includes('no lightning address') ||
+      lower.includes('lud16') ||
+      lower.includes('lud06') ||
+      lower.includes('no zap endpoint')
+    ) {
+      errorTitle = 'No Lightning address';
+      errorBody =
+        "This user hasn't set up a Lightning address yet, so zaps can't be sent to them.";
+      errorRetryable = false;
+    } else if (lower.includes('timed out') || lower.includes('timeout')) {
+      errorTitle = 'Zap timed out';
+      errorBody =
+        'The payment service took too long to respond. Check your connection and try again.';
+      errorRetryable = true;
+    } else if (lower.includes('insufficient') || lower.includes('balance')) {
+      errorTitle = 'Not enough sats';
+      errorBody = "Your wallet doesn't have enough sats for this zap. Try a smaller amount.";
+      errorRetryable = true;
+    } else if (
+      lower.includes('rejected') ||
+      lower.includes('denied') ||
+      lower.includes('cancelled') ||
+      lower.includes('canceled')
+    ) {
+      errorTitle = 'Zap cancelled';
+      errorBody = 'The payment was cancelled before it completed.';
+      errorRetryable = true;
+    } else if (lower.includes('no wallet')) {
+      errorTitle = 'No wallet connected';
+      errorBody = 'Connect a Lightning wallet to send zaps.';
+      errorRetryable = false;
+    } else {
+      errorTitle = "Couldn't send zap";
+      errorBody = msg || 'Something went wrong. Please try again.';
+      errorRetryable = true;
+    }
+  }
 
   let zapManager: ZapManager;
   let pendingTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -143,7 +215,11 @@
         throw new Error('Zap manager not initialized. Please try again.');
       }
 
-      if (!$activeWallet) {
+      // WebLN-only is a valid in-app state (window.webln present, no
+      // entry in $wallets), so don't require $activeWallet — only fail
+      // when neither is available. sendPayment() routes WebLN itself
+      // when getActiveWallet() returns null.
+      if (!$activeWallet && !$weblnConnected) {
         throw new Error('No wallet connected. Please connect a wallet first.');
       }
 
@@ -175,10 +251,14 @@
       );
 
       // Use the unified wallet manager to send payment (handles both Spark and NWC)
-      // Pass metadata so a pending transaction appears immediately
+      // Pass metadata so a pending transaction appears immediately. The
+      // user-typed message becomes both `comment` (rendered in italics in
+      // the wallet history row) and the source of `description` when
+      // present (rendered when the row has no associated pubkey).
       const paymentResult = await sendPayment(zapResult.invoice, {
         amount,
         description: message || `Zap to ${recipientPubkey.substring(0, 8)}...`,
+        comment: message || undefined,
         pubkey: recipientPubkey
       });
 
@@ -190,8 +270,9 @@
       state = 'success';
       hapticSuccess();
 
-      // Notify parent that zap completed so it can refresh zap totals
-      dispatch('zap-complete', { amount, pollOptionId });
+      // Notify parent that zap completed so it can refresh zap totals.
+      // Include the user-typed message so the optimistic pill shows it.
+      dispatch('zap-complete', { amount, pollOptionId, comment: message || undefined });
 
       // Auto-close modal after 2.5s; user can also tap anywhere to dismiss
       successTimeout = setTimeout(() => {
@@ -258,7 +339,7 @@
         invoice: zapResult.invoice,
         verify: zapResult.verify,
         onPaid: () => {
-          dispatch('zap-complete', { amount, pollOptionId });
+          dispatch('zap-complete', { amount, pollOptionId, comment: message || undefined });
         },
         onCancelled: () => {
           // User cancelled - reopen our modal
@@ -419,20 +500,31 @@
         </Button>
       </div>
     {:else if state == 'error'}
-      <div class="flex flex-col items-center justify-center">
-        <XIcon color="red" weight="bold" class="w-36 h-36" />
-        <span class="text-2xl ml-4 text-center" style="color: var(--color-text-primary)"
-          >An Error Occurred.</span
+      <div class="flex flex-col items-center justify-center py-2">
+        <div
+          class="w-16 h-16 rounded-full flex items-center justify-center mb-3"
+          style="background-color: rgba(245, 158, 11, 0.12); color: #f59e0b;"
         >
-        <span class="text-base text-caption text-center mt-2">{error && error.toString()}</span>
-        <div class="flex gap-2 mt-4">
+          <LightningIcon weight="fill" size={32} />
+        </div>
+        <span
+          class="text-lg font-semibold text-center"
+          style="color: var(--color-text-primary)">{errorTitle}</span
+        >
+        <span
+          class="text-sm text-center mt-1.5 max-w-xs"
+          style="color: var(--color-text-secondary)">{errorBody}</span
+        >
+        <div class="flex gap-2 mt-5">
           <Button on:click={() => (open = false)}>Close</Button>
-          <Button
-            on:click={() => {
-              state = 'pre';
-              error = null;
-            }}>Try Again</Button
-          >
+          {#if errorRetryable}
+            <Button
+              on:click={() => {
+                state = 'pre';
+                error = null;
+              }}>Try Again</Button
+            >
+          {/if}
         </div>
       </div>
     {:else if state == 'success'}
@@ -500,6 +592,14 @@
           </span>
           {#if successFiatStr}
             <span class="text-sm text-caption">{successFiatStr}</span>
+          {/if}
+          {#if message.trim()}
+            <p
+              class="text-sm italic text-center max-w-xs mt-1 break-words"
+              style="color: var(--color-text-secondary)"
+            >
+              "{message}"
+            </p>
           {/if}
         </div>
       </button>

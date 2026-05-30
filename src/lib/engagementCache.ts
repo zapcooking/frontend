@@ -18,6 +18,10 @@ export interface Zapper {
   pubkey: string;
   amount: number; // in sats
   timestamp: number;
+  /** Zap message (content of the kind-9734 zap request inside the
+   * receipt's description tag). Undefined when the zap had no comment
+   * or we couldn't parse the request. */
+  comment?: string;
 }
 
 // Types for engagement data
@@ -40,6 +44,12 @@ export interface EngagementData {
     count: number;
     userZapped: boolean;
     topZappers: Zapper[]; // Top zappers sorted by amount (descending)
+    /** Bumps to Date.now() each time the local user successfully sends a
+     * zap on this event (via optimistic update). UI watches this to
+     * trigger a sparkle/celebration animation on every zap — including
+     * repeat zaps where `userZapped` is already true and wouldn't show
+     * a transition. Undefined / 0 means "never zapped in this session". */
+    lastSelfZapAt?: number;
   };
   loading: boolean;
   lastFetched: number;
@@ -652,8 +662,12 @@ function processZap(data: EngagementData, event: NDKEvent, userPublickey: string
   // ThreadCommentActions, shareNoteImage, FoodstrFeedOptimized glow tier).
   const amountMillisats = amountSats * 1000;
 
-  // Extract zapper info from the zap request in the description tag
+  // Extract zapper info from the zap request in the description tag.
+  // The kind-9734 zap request lives JSON-encoded in the receipt's
+  // `description` tag — its `pubkey` is the actual zapper and its
+  // `content` is the user-typed zap message.
   let zapperPubkey = event.pubkey; // fallback to zapper service pubkey
+  let zapComment: string | undefined;
   try {
     const descTag = event.tags.find(t => t[0] === 'description')?.[1];
     if (descTag) {
@@ -661,9 +675,12 @@ function processZap(data: EngagementData, event: NDKEvent, userPublickey: string
       if (zapRequest.pubkey) {
         zapperPubkey = zapRequest.pubkey;
       }
+      if (typeof zapRequest.content === 'string' && zapRequest.content.length > 0) {
+        zapComment = zapRequest.content;
+      }
     }
   } catch {
-    // Failed to parse description, use event pubkey
+    // Failed to parse description, use event pubkey and no comment
   }
 
   // Check if this matches an optimistic zap we already added
@@ -710,11 +727,17 @@ function processZap(data: EngagementData, event: NDKEvent, userPublickey: string
       existingZapper.amount += amountSats;
     }
     existingZapper.timestamp = Math.max(existingZapper.timestamp, zapTimestamp);
+    // Keep the most recent non-empty comment so the pill detail surfaces
+    // the message the user just sent rather than an older blank zap.
+    if (zapComment) {
+      existingZapper.comment = zapComment;
+    }
   } else {
     data.zaps.topZappers.push({
       pubkey: zapperPubkey,
       amount: amountSats,
-      timestamp: zapTimestamp
+      timestamp: zapTimestamp,
+      comment: zapComment
     });
   }
 
@@ -839,11 +862,16 @@ export function cleanupEngagement(eventId: string): void {
 // Optimistically update zap count when zap is initiated
 // This provides immediate feedback while the zap is processing
 // The subscription will correct the count when the real zap receipt arrives
-export function optimisticZapUpdate(eventId: string, amountMillisats: number, userPublickey: string): void {
+export function optimisticZapUpdate(
+  eventId: string,
+  amountMillisats: number,
+  userPublickey: string,
+  comment?: string
+): void {
   const store = getEngagementStore(eventId);
   const amountSats = Math.floor(amountMillisats / 1000);
   const now = Date.now();
-  
+
   // Track this optimistic zap (keyed by eventId + userPubkey + timestamp for uniqueness)
   const optimisticKey = `${eventId}:${userPublickey}:${now}`;
   optimisticZaps.set(optimisticKey, {
@@ -851,7 +879,7 @@ export function optimisticZapUpdate(eventId: string, amountMillisats: number, us
     timestamp: now,
     userPubkey: userPublickey
   });
-  
+
   // Clean up old optimistic zaps (older than 5 minutes)
   const fiveMinutesAgo = now - 5 * 60 * 1000;
   for (const [key, zap] of optimisticZaps.entries()) {
@@ -859,7 +887,7 @@ export function optimisticZapUpdate(eventId: string, amountMillisats: number, us
       optimisticZaps.delete(key);
     }
   }
-  
+
   store.update(s => {
     const updated = { ...s };
 
@@ -868,29 +896,118 @@ export function optimisticZapUpdate(eventId: string, amountMillisats: number, us
     updated.zaps.totalAmount += amountMillisats;
     updated.zaps.count += 1;
     updated.zaps.userZapped = true;
-    
+    // Intentionally NOT bumping lastSelfZapAt here. The optimistic update
+    // runs after LNURL succeeds but before the actual payment confirms —
+    // a celebration animation hooked to that moment would fire before
+    // the payment is done, then again at completion. UI animations
+    // (sparkle burst) watch lastSelfZapAt which is set by
+    // markSelfZapCompleted() only after the payment is fully through.
+
     // Add or update zapper in the list optimistically
     const existingZapper = updated.zaps.topZappers.find(z => z.pubkey === userPublickey);
     if (existingZapper) {
       existingZapper.amount += amountSats;
       existingZapper.timestamp = Math.floor(Date.now() / 1000);
+      if (comment) existingZapper.comment = comment;
     } else {
       updated.zaps.topZappers.push({
         pubkey: userPublickey,
         amount: amountSats,
-        timestamp: Math.floor(Date.now() / 1000)
+        timestamp: Math.floor(Date.now() / 1000),
+        comment: comment || undefined
       });
     }
-    
+
     // Sort by amount descending, keep top 10
     updated.zaps.topZappers.sort((a, b) => b.amount - a.amount);
     if (updated.zaps.topZappers.length > 10) {
       updated.zaps.topZappers = updated.zaps.topZappers.slice(0, 10);
     }
-    
+
     // Save to cache with optimistic update
     saveToCache(eventId, updated);
-    
+
+    return updated;
+  });
+}
+
+/**
+ * Mark a self-zap as fully completed (payment confirmed). Bumps
+ * lastSelfZapAt so UI animations keyed off it (sparkle burst) fire
+ * exactly once per zap — at completion, not during the in-flight
+ * optimistic window. Call this from the zap path right after the
+ * payment provider returns success.
+ */
+export function markSelfZapCompleted(eventId: string): void {
+  const store = getEngagementStore(eventId);
+  store.update(s => {
+    const updated = { ...s };
+    updated.zaps.lastSelfZapAt = Date.now();
+    saveToCache(eventId, updated);
+    return updated;
+  });
+}
+
+/**
+ * Roll back a previously-applied optimistic zap update. Call this when a
+ * zap fails to complete (LNURL has no callback, payment errored, etc.) so
+ * the phantom count doesn't linger on the note until a real receipt
+ * arrives (which it won't, because no zap was made).
+ *
+ * Pass the EXACT amount you originally passed to optimisticZapUpdate so
+ * we subtract the right value. If multiple optimistic entries exist for
+ * the same user+event we revert the most recent one.
+ */
+export function revertOptimisticZap(
+  eventId: string,
+  amountMillisats: number,
+  userPublickey: string
+): void {
+  const store = getEngagementStore(eventId);
+  const amountSats = Math.floor(amountMillisats / 1000);
+
+  // Remove the most recent matching tracking entry so a later real
+  // receipt isn't accidentally matched to this reverted optimistic.
+  let mostRecentKey: string | null = null;
+  let mostRecentTs = 0;
+  for (const [key, opt] of optimisticZaps.entries()) {
+    if (
+      key.startsWith(`${eventId}:${userPublickey}:`) &&
+      opt.amountMillisats === amountMillisats &&
+      opt.timestamp > mostRecentTs
+    ) {
+      mostRecentKey = key;
+      mostRecentTs = opt.timestamp;
+    }
+  }
+  if (mostRecentKey) {
+    optimisticZaps.delete(mostRecentKey);
+  }
+
+  store.update(s => {
+    const updated = { ...s };
+    updated.zaps.totalAmount = Math.max(0, updated.zaps.totalAmount - amountMillisats);
+    updated.zaps.count = Math.max(0, updated.zaps.count - 1);
+
+    // Subtract from the user's entry; remove if it drops to 0.
+    const idx = updated.zaps.topZappers.findIndex(z => z.pubkey === userPublickey);
+    if (idx !== -1) {
+      const zapper = updated.zaps.topZappers[idx];
+      const newAmount = zapper.amount - amountSats;
+      if (newAmount <= 0) {
+        updated.zaps.topZappers.splice(idx, 1);
+        // Only flip userZapped off if there are no other zaps from this user.
+        const stillHasZap = updated.zaps.topZappers.some(z => z.pubkey === userPublickey);
+        if (!stillHasZap) {
+          updated.zaps.userZapped = false;
+        }
+      } else {
+        zapper.amount = newAmount;
+      }
+      updated.zaps.topZappers.sort((a, b) => b.amount - a.amount);
+    }
+
+    saveToCache(eventId, updated);
     return updated;
   });
 }

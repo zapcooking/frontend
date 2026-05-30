@@ -1,11 +1,31 @@
 import type { HandleClientError } from '@sveltejs/kit';
 
 
-// Register Service Worker to intercept __data.json requests and cache app assets for offline support
-// Service Workers can intercept requests and cache assets for offline functionality
+// Service Worker registration and dev cleanup.
+//
+// Production: register sw.js for offline asset caching.
+//
+// Dev: actively unregister ANY service workers already installed for this
+// origin. sw.js caches Vite's HMR module URLs and serves stale modules on
+// subsequent reloads — the page hangs and DevTools can become unopenable.
+// Leftover prod-mode SWs persist across `pnpm dev` sessions; without an
+// active teardown the user has to manually unregister via DevTools every
+// time. This self-heals on first dev load and stays clean afterward
+// (registration is also gated by !import.meta.env.DEV below).
 if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
-  // Register service worker for all builds (static and web) to enable offline asset caching
-  navigator.serviceWorker.register('/sw.js')
+  if (import.meta.env.DEV) {
+    navigator.serviceWorker.getRegistrations().then((regs) => {
+      for (const reg of regs) {
+        reg.unregister().then((ok) => {
+          if (ok) {
+            console.log('[hooks.client.ts] Unregistered stale SW in dev:', reg.scope);
+          }
+        });
+      }
+    });
+  } else {
+    // Register service worker for all builds (static and web) to enable offline asset caching
+    navigator.serviceWorker.register('/sw.js')
     .then(reg => {
       
       // Check for updates periodically (every hour)
@@ -21,6 +41,7 @@ if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
       });
     })
     .catch(err => console.error('[hooks.client.ts] Service Worker registration failed:', err));
+  }
 }
 
 // Intercept fetch requests for __data.json files that don't exist in static builds

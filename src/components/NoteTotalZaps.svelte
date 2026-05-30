@@ -19,6 +19,35 @@
   let showZappersModal = false;
   let isZapping = false;
 
+  // Sparkle burst on every successful self-zap. Triggered reactively
+  // off $store.zaps.lastSelfZapAt, which markSelfZapCompleted (called
+  // by the zap path on payment confirmation, NOT by the optimistic
+  // update) bumps to Date.now(). Both one-tap and ZapModal paths fire
+  // it after their respective payment success, so the burst happens at
+  // the END of the zap regardless of which path was used.
+  //
+  // Numeric counter (vs boolean) keyed in the template so each burst
+  // gets a fresh DOM tree and the CSS animation re-runs from frame 0.
+  let sparkleBurstCount = 0;
+  let prevLastSelfZapAt = $store.zaps.lastSelfZapAt;
+  let sparkleTimer: ReturnType<typeof setTimeout> | null = null;
+
+  function triggerSparkleBurst() {
+    sparkleBurstCount += 1;
+    if (sparkleTimer) clearTimeout(sparkleTimer);
+    sparkleTimer = setTimeout(() => {
+      sparkleBurstCount = 0;
+    }, 1000);
+  }
+
+  $: {
+    const current = $store.zaps.lastSelfZapAt;
+    if (current && current !== prevLastSelfZapAt) {
+      triggerSparkleBurst();
+    }
+    prevLastSelfZapAt = current;
+  }
+
   // Long press handling
   const LONG_PRESS_DURATION = 500; // ms
   let longPressTimer: ReturnType<typeof setTimeout> | null = null;
@@ -35,6 +64,9 @@
   onDestroy(() => {
     if (longPressTimer) {
       clearTimeout(longPressTimer);
+    }
+    if (sparkleTimer) {
+      clearTimeout(sparkleTimer);
     }
   });
 
@@ -173,6 +205,10 @@
           navigator.vibrate([40, 50, 40]); // Two short pulses
         }
         console.log('[NoteTotalZaps] One-tap zap completed successfully, amount:', result.amount);
+        // Sparkle burst fires reactively via the lastSelfZapAt watcher
+        // when markSelfZapCompleted (called inside sendOneTapZap on
+        // confirmed payment) bumps the store. Single source of truth so
+        // we don't fire twice.
         // Re-fetch engagement to pick up the real zap receipt from relays
         // (the optimistic update shows instantly, but this ensures the subscription
         // is active and will reconcile with the actual zap receipt)
@@ -300,13 +336,30 @@
         ? `Zap ${getOneTapAmount()} sats (hold for custom amount)`
         : 'Send a zap'}
     >
-      <LightningIcon
-        size={18}
-        class="{totalSats > 0 ? 'text-yellow-500' : 'text-caption'} {isZapping
-          ? 'animate-pulse'
-          : ''}"
-        weight={$store.zaps.userZapped ? 'fill' : 'regular'}
-      />
+      <!-- Instant feedback on tap: the bolt turns yellow + filled the
+           moment isZapping flips (synchronous, before any await), so the
+           user sees confirmation even before createZap finishes fetching
+           the LNURL. Falls back to the persisted userZapped / totalSats
+           state afterwards. -->
+      <span class="bolt-sparkle-wrap">
+        <LightningIcon
+          size={18}
+          class="{isZapping || totalSats > 0 ? 'text-yellow-500' : 'text-caption'} {isZapping
+            ? 'animate-pulse'
+            : ''}"
+          weight={isZapping || $store.zaps.userZapped ? 'fill' : 'regular'}
+        />
+        {#if sparkleBurstCount > 0}
+          {#key sparkleBurstCount}
+            <span class="sparkle sparkle-0" aria-hidden="true"></span>
+            <span class="sparkle sparkle-1" aria-hidden="true"></span>
+            <span class="sparkle sparkle-2" aria-hidden="true"></span>
+            <span class="sparkle sparkle-3" aria-hidden="true"></span>
+            <span class="sparkle sparkle-4" aria-hidden="true"></span>
+            <span class="sparkle sparkle-5" aria-hidden="true"></span>
+          {/key}
+        {/if}
+      </span>
     </button>
 
     <!-- Zapper Pills -->
@@ -365,13 +418,26 @@
         ? `Zap ${getOneTapAmount()} sats (hold for custom amount)`
         : 'Send a zap'}
     >
-      <LightningIcon
-        size={24}
-        class="{$store.zaps.totalAmount > 0 ? 'text-yellow-500' : 'text-caption'} {isZapping
-          ? 'animate-pulse'
-          : ''}"
-        weight={$store.zaps.userZapped ? 'fill' : 'regular'}
-      />
+      <!-- Instant feedback on tap (see comment in the pill variant above). -->
+      <span class="bolt-sparkle-wrap">
+        <LightningIcon
+          size={24}
+          class="{isZapping || $store.zaps.totalAmount > 0
+            ? 'text-yellow-500'
+            : 'text-caption'} {isZapping ? 'animate-pulse' : ''}"
+          weight={isZapping || $store.zaps.userZapped ? 'fill' : 'regular'}
+        />
+        {#if sparkleBurstCount > 0}
+          {#key sparkleBurstCount}
+            <span class="sparkle sparkle-0" aria-hidden="true"></span>
+            <span class="sparkle sparkle-1" aria-hidden="true"></span>
+            <span class="sparkle sparkle-2" aria-hidden="true"></span>
+            <span class="sparkle sparkle-3" aria-hidden="true"></span>
+            <span class="sparkle sparkle-4" aria-hidden="true"></span>
+            <span class="sparkle sparkle-5" aria-hidden="true"></span>
+          {/key}
+        {/if}
+      </span>
     </button>
 
     <!-- Count Button - Opens ZappersListModal -->
@@ -406,5 +472,73 @@
   .zap-pills-row {
     overscroll-behavior-x: contain;
     -webkit-overflow-scrolling: touch;
+  }
+
+  /* Sparkle burst on zap-complete: 6 tiny dots emanate outward from the
+     bolt center on a single 700 ms keyframe, fading and shrinking as
+     they fly out. Each .sparkle-N sets its own (--tx, --ty) so the
+     particles fan out in a hex-ish pattern. The wrap stays
+     inline-flex/relative so the bolt's layout doesn't shift; pointer
+     events are off on the sparkles so they never block taps.
+     overflow: visible explicitly because the wrap's parent button is
+     often inside a row with overflow-y-hidden (.zap-pills-row), which
+     would otherwise clip particles that fly outside the row height. */
+  .bolt-sparkle-wrap {
+    position: relative;
+    display: inline-flex;
+    line-height: 0;
+    overflow: visible;
+  }
+  .sparkle {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 6px;
+    height: 6px;
+    margin: -3px 0 0 -3px;
+    background: #fbbf24;
+    border-radius: 50%;
+    pointer-events: none;
+    /* High z-index so the burst paints on top of the icon and the
+       surrounding pills row, not behind them. */
+    z-index: 10;
+    box-shadow:
+      0 0 6px 1px rgba(251, 191, 36, 0.9),
+      0 0 12px 2px rgba(249, 115, 22, 0.45);
+    animation: bolt-sparkle 950ms ease-out forwards;
+  }
+  /* Magnitudes kept small enough vertically (≤ 10 px) that the burst
+     fits inside a .zap-pills-row's overflow-y: hidden window without
+     clipping. Horizontal range is wider since the surrounding flex row
+     is overflow-x: auto and can scroll. */
+  .sparkle-0 { --tx: 18px;  --ty: 0px; }
+  .sparkle-1 { --tx: 12px;  --ty: -9px; }
+  .sparkle-2 { --tx: -3px;  --ty: -10px; }
+  .sparkle-3 { --tx: -18px; --ty: -2px; }
+  .sparkle-4 { --tx: -11px; --ty: 8px; animation-delay: 40ms; }
+  .sparkle-5 { --tx: 4px;   --ty: 10px; animation-delay: 70ms; }
+  @keyframes bolt-sparkle {
+    0% {
+      transform: translate(0, 0) scale(0.5);
+      opacity: 0;
+    }
+    8% {
+      transform: translate(calc(var(--tx) * 0.15), calc(var(--ty) * 0.15)) scale(1.3);
+      opacity: 1;
+    }
+    65% {
+      transform: translate(calc(var(--tx) * 0.85), calc(var(--ty) * 0.85)) scale(0.95);
+      opacity: 1;
+    }
+    100% {
+      transform: translate(var(--tx), var(--ty)) scale(0.2);
+      opacity: 0;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .sparkle {
+      animation: none;
+      display: none;
+    }
   }
 </style>

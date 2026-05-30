@@ -295,20 +295,41 @@ export async function sendPayment(
 ): Promise<{ success: boolean; preimage?: string; error?: string }> {
   const wallet = getActiveWallet();
 
+  // WebLN-only state: WebLN wallets aren't stored in $wallets (kind=1 entries
+  // are stripped on mount in WalletPanel), so getActiveWallet() returns null
+  // even though window.webln is connected and ready to pay. Route through
+  // WebLN before bailing on "No wallet connected".
   if (!wallet) {
+    if (isWeblnConnected()) {
+      walletLoading.set(true);
+      try {
+        const { preimage } = await payWeblnInvoice(invoice);
+        return { success: true, preimage };
+      } catch (e) {
+        const error = e instanceof Error ? e.message : String(e) || 'WebLN payment failed';
+        console.error('[WalletManager] WebLN payment failed:', e);
+        return { success: false, error };
+      } finally {
+        walletLoading.set(false);
+      }
+    }
     return { success: false, error: 'No wallet connected' };
   }
 
   // Generate a temporary ID for the pending transaction
   const pendingId = `pending-${Date.now()}-${Math.random().toString(36).substring(7)}`;
 
-  // Add pending transaction if we have metadata
+  // Add pending transaction if we have metadata. The `comment` field is the
+  // user-typed zap message — distinct from `description`, which is a generic
+  // display string. WalletPanel renders comment in italics on the row when
+  // present, so callers should pass the message through here.
   if (metadata?.amount) {
     addPendingTransaction({
       id: pendingId,
       type: 'outgoing',
       amount: metadata.amount,
       description: metadata.description || 'Sending payment...',
+      comment: metadata.comment,
       timestamp: Math.floor(Date.now() / 1000),
       pubkey: metadata.pubkey,
       walletId: wallet.id
@@ -555,14 +576,27 @@ export interface Transaction {
  */
 const PENDING_TX_KEY = 'zapcooking_pending_transactions';
 
+// How long completed pending transactions live in localStorage before we
+// drop them on initial load. They serve as the bridge that carries the
+// recipient pubkey + zap comment onto the SDK history row (via the
+// matching pass in WalletPanel.loadTransactionHistory). 5 minutes was
+// too short — if the SDK history hadn't picked up the payment yet, or
+// the user closed the wallet panel right after sending and came back
+// later, the pending tx was dropped before its metadata was migrated
+// onto the real SDK row. The row then renders as a generic "Sent" with
+// no recipient. 30 minutes gives the migration plenty of time to run on
+// the next wallet-panel open. Once migrated, metadata is persisted under
+// the SDK txid (zapcooking_tx_metadata) and survives indefinitely.
+const PENDING_TX_TTL_SECS = 30 * 60;
+
 function loadPendingFromStorage(): Transaction[] {
   if (typeof window === 'undefined' || typeof localStorage === 'undefined') return [];
   try {
     const stored = localStorage.getItem(PENDING_TX_KEY);
     if (stored) {
       const txs = JSON.parse(stored) as Transaction[];
-      const fiveMinutesAgo = Math.floor(Date.now() / 1000) - 300;
-      return txs.filter((tx) => tx.timestamp > fiveMinutesAgo);
+      const cutoff = Math.floor(Date.now() / 1000) - PENDING_TX_TTL_SECS;
+      return txs.filter((tx) => tx.timestamp > cutoff);
     }
   } catch (e) {
     console.error('[WalletManager] Failed to load pending transactions:', e);

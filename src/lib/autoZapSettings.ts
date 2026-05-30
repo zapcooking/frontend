@@ -19,12 +19,18 @@ import { CLIENT_TAG_IDENTIFIER } from '$lib/consts';
 // Storage keys
 const ONE_TAP_ZAP_ENABLED_KEY = 'zapcooking_one_tap_zap_enabled';
 const ONE_TAP_ZAP_AMOUNT_KEY = 'zapcooking_one_tap_zap_amount';
+const DEFAULT_ZAP_MESSAGE_KEY = 'zapcooking_default_zap_message';
 
 // Default amount in sats (user's preferred zap amount)
 const DEFAULT_AMOUNT = 21;
 
 // Maximum allowed amount (safety limit)
 export const MAX_ONE_TAP_ZAP_AMOUNT = 10000;
+
+// Length cap for the default zap message — prevents accidental novel-length
+// blobs in the zap comment field. Matches the practical limit most LNURL
+// servers accept for `comment` parameters.
+export const MAX_ZAP_MESSAGE_LENGTH = 280;
 
 // Nostr settings
 const SETTINGS_KIND = 30078;
@@ -33,6 +39,10 @@ const SETTINGS_D_TAG = 'one-tap-zap-settings';
 export interface OneTapZapSettings {
   enabled: boolean;
   amount: number;
+  /** Default zap comment, pre-filled into ZapModal and used for one-tap
+   * zaps. Empty string means "no default" (preserves current behaviour
+   * for users who never set one). */
+  defaultMessage: string;
 }
 
 let isLoadingFromRelay = false;
@@ -60,15 +70,21 @@ function normalizeSettings(settings: Partial<OneTapZapSettings>): OneTapZapSetti
     amount:
       typeof settings.amount === 'number'
         ? Math.min(Math.max(1, settings.amount), MAX_ONE_TAP_ZAP_AMOUNT)
-        : DEFAULT_AMOUNT
+        : DEFAULT_AMOUNT,
+    defaultMessage:
+      typeof settings.defaultMessage === 'string'
+        ? settings.defaultMessage.slice(0, MAX_ZAP_MESSAGE_LENGTH)
+        : ''
   };
 }
 
 function applySettings(settings: OneTapZapSettings): void {
   oneTapZapEnabled.set(settings.enabled);
   oneTapZapAmount.set(settings.amount);
+  defaultZapMessage.set(settings.defaultMessage);
   saveEnabled(settings.enabled);
   saveAmount(settings.amount);
+  saveDefaultMessage(settings.defaultMessage);
 }
 
 /**
@@ -121,6 +137,36 @@ function saveAmount(amount: number): void {
   }
 }
 
+/**
+ * Load default zap message from localStorage
+ */
+function loadDefaultMessage(): string {
+  if (!browser) return '';
+  try {
+    const stored = localStorage.getItem(DEFAULT_ZAP_MESSAGE_KEY);
+    return typeof stored === 'string' ? stored.slice(0, MAX_ZAP_MESSAGE_LENGTH) : '';
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Save default zap message to localStorage
+ */
+function saveDefaultMessage(message: string): void {
+  if (!browser) return;
+  try {
+    if (message) {
+      localStorage.setItem(DEFAULT_ZAP_MESSAGE_KEY, message);
+    } else {
+      // Empty string means "no default" — drop the key entirely.
+      localStorage.removeItem(DEFAULT_ZAP_MESSAGE_KEY);
+    }
+  } catch {
+    // Ignore storage errors
+  }
+}
+
 // --- Stores ---
 
 /** Whether one-tap zap is enabled */
@@ -128,6 +174,11 @@ export const oneTapZapEnabled = writable<boolean>(false);
 
 /** One-tap zap amount in sats - user's preferred default zap amount */
 export const oneTapZapAmount = writable<number>(DEFAULT_AMOUNT);
+
+/** Default zap comment, pre-filled into ZapModal and used as the message
+ * for one-tap zaps. Empty string means "no default" — preserves the
+ * pre-feature behaviour where ZapModal opened with an empty message. */
+export const defaultZapMessage = writable<string>('');
 
 // Legacy exports for compatibility during transition
 export const autoZapEnabled = oneTapZapEnabled;
@@ -143,6 +194,7 @@ if (browser) {
     hasLoaded = true;
     oneTapZapEnabled.set(loadEnabled());
     oneTapZapAmount.set(loadAmount());
+    defaultZapMessage.set(loadDefaultMessage());
   }, 0);
 }
 
@@ -159,12 +211,19 @@ oneTapZapAmount.subscribe((amount) => {
   }
 });
 
+defaultZapMessage.subscribe((message) => {
+  if (browser && hasLoaded) {
+    saveDefaultMessage(message);
+  }
+});
+
 // --- Nostr Sync ---
 
 export async function loadOneTapZapSettings(): Promise<OneTapZapSettings> {
   const localSettings = normalizeSettings({
     enabled: loadEnabled(),
-    amount: loadAmount()
+    amount: loadAmount(),
+    defaultMessage: loadDefaultMessage()
   });
   applySettings(localSettings);
 
@@ -259,7 +318,8 @@ export function setOneTapZapEnabled(enabled: boolean): void {
   oneTapZapEnabled.set(enabled);
   const settings = normalizeSettings({
     enabled,
-    amount: get(oneTapZapAmount)
+    amount: get(oneTapZapAmount),
+    defaultMessage: get(defaultZapMessage)
   });
   void publishOneTapZapSettings(settings);
 }
@@ -272,9 +332,32 @@ export function setOneTapZapAmount(sats: number): void {
   oneTapZapAmount.set(capped);
   const settings = normalizeSettings({
     enabled: get(oneTapZapEnabled),
-    amount: capped
+    amount: capped,
+    defaultMessage: get(defaultZapMessage)
   });
   void publishOneTapZapSettings(settings);
+}
+
+/**
+ * Set the default zap message (capped at MAX_ZAP_MESSAGE_LENGTH).
+ * Pass an empty string to clear the default.
+ */
+export function setDefaultZapMessage(message: string): void {
+  const trimmed = (message || '').slice(0, MAX_ZAP_MESSAGE_LENGTH);
+  defaultZapMessage.set(trimmed);
+  const settings = normalizeSettings({
+    enabled: get(oneTapZapEnabled),
+    amount: get(oneTapZapAmount),
+    defaultMessage: trimmed
+  });
+  void publishOneTapZapSettings(settings);
+}
+
+/**
+ * Get the current default zap message
+ */
+export function getDefaultZapMessage(): string {
+  return get(defaultZapMessage);
 }
 
 /**

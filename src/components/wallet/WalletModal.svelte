@@ -233,6 +233,19 @@
   :global(.wallet-modal-body--external .wallet-scroll .mb-3) {
     margin-bottom: 0 !important;
   }
+  /* External mode disables the inner scroll, so the last card would
+     otherwise sit flush against the dialog's bottom edge. Add an
+     explicit bottom inset on desktop. padding-top stays 0 to match the
+     regular scrolling wallet view — the floating X close button overlays
+     the balance card's top-right corner just like the Spark/NWC view.
+     Mobile already gets its insets from env(safe-area-inset-*) in the
+     bottom @media block. */
+  @media (min-width: 768px) {
+    :global(.wallet-modal-body--external) {
+      padding-top: 0 !important;
+      padding-bottom: 2rem !important;
+    }
+  }
   /* External (BC/WebLN) and connect-step modes have short, fixed
      content — there's nothing tall enough to scroll. Suppress the
      wallet-scroll's overflow so neither a scrollbar nor accidental
