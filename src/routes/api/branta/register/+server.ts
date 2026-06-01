@@ -8,7 +8,7 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { registerPayment, isBrantaConfigured } from '$lib/brantaService.server';
-import type { DestinationType } from '@branta-ops/branta';
+import type { DestinationType } from '@branta-ops/branta/v2';
 
 const ALLOWED_DESTINATION_TYPES: ReadonlyArray<DestinationType> = [
 	'bitcoin_address',
