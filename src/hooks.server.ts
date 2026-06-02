@@ -1,5 +1,27 @@
-import type { Handle } from '@sveltejs/kit';
+import type { Handle, HandleServerError } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
+
+/**
+ * Log the real server-side error (with stack) instead of letting SvelteKit
+ * silently mask it as the generic { message: "Internal Error" } sent to the
+ * client. Without this, a render/load throw on any route is invisible in the
+ * Cloudflare/Vercel function logs beyond a bare 500. The returned object is
+ * what the client receives, so keep it generic — the detail stays server-side.
+ */
+export const handleError: HandleServerError = ({ error, event, status, message }) => {
+  const err = error as Error | undefined;
+  console.error('[handleError]', {
+    method: event.request.method,
+    path: event.url.pathname,
+    status,
+    message,
+    name: err?.name,
+    error: err?.message ?? String(error),
+    stack: err?.stack
+  });
+
+  return { message: 'Internal Error' };
+};
 
 const ENABLE_CORS_ALL = env.ENABLE_CORS_ALL?.toLowerCase() === 'true';
 const ALLOW_METHODS = 'GET, POST, PATCH, OPTIONS';
