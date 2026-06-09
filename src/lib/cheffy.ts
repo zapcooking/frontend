@@ -9,6 +9,21 @@
  * repeating the previous line.
  */
 
+/**
+ * Cheffy's small, typed set of moods and the two silhouette variants.
+ * Canonical home for these types so the store, components, and icon all
+ * agree (CheffyIcon re-exports them for its existing consumers).
+ */
+export type CheffyExpression =
+  | 'neutral'
+  | 'happy'
+  | 'thinking'
+  | 'excited'
+  | 'concerned'
+  | 'cooking';
+
+export type CheffyVariant = 'compact' | 'character';
+
 /** Rotating placeholders for the main Cheffy input. */
 export const PROMPT_PLACEHOLDERS: string[] = [
   'What are we cooking?',

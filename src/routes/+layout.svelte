@@ -39,6 +39,8 @@
   import CookingToolsWidget from '../components/CookingToolsWidget.svelte';
   import UserSidePanel from '../components/UserSidePanel.svelte';
   import MobileSearchOverlay from '../components/MobileSearchOverlay.svelte';
+  import CheffyLauncher from '../components/CheffyLauncher.svelte';
+  import CheffyMessenger from '../components/CheffyMessenger.svelte';
   // Import sync service to initialize offline sync functionality
   import '$lib/syncService';
   // Import platform detection to initialize early
@@ -72,6 +74,15 @@
   // a path here ensures the page's own SSR OG meta is the only set scrapers
   // see.
   $: pathSegment = $page.url.pathname.split('/')[1] || '';
+  // The persistent Cheffy messenger is hidden on the full Cheffy page
+  // (redundant), the chrome-less messaging surfaces, and auth flows.
+  $: showCheffy =
+    !$page.url.pathname.startsWith('/messages') &&
+    !$page.url.pathname.startsWith('/groups') &&
+    !$page.url.pathname.startsWith('/cheffy') &&
+    !$page.url.pathname.startsWith('/zappy') &&
+    !$page.url.pathname.startsWith('/login') &&
+    !$page.url.pathname.startsWith('/onboarding');
   $: hasCustomOgTags =
     $page.url.pathname.startsWith('/recipe/') ||
     $page.url.pathname.startsWith('/r/') ||
@@ -436,6 +447,10 @@
       {/if}
       <BottomNav />
       <CookingToolsWidget />
+      {#if showCheffy}
+        <CheffyLauncher />
+        <CheffyMessenger />
+      {/if}
       <UserSidePanel />
       <MobileSearchOverlay />
       <PostModal bind:open={$postComposerOpen} />
@@ -475,11 +490,7 @@
      mode is left clean. */
   :global(.dark) .header-blur {
     background-color: rgba(14, 21, 41, 0.78);
-    background-image: linear-gradient(
-      to bottom,
-      rgba(33, 39, 73, 0.45),
-      rgba(14, 21, 41, 0.65)
-    );
+    background-image: linear-gradient(to bottom, rgba(33, 39, 73, 0.45), rgba(14, 21, 41, 0.65));
     border-bottom-color: rgba(255, 255, 255, 0.06);
     box-shadow: 0 1px 0 rgba(168, 85, 247, 0.04);
   }

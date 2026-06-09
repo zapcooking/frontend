@@ -1,22 +1,13 @@
 <script lang="ts" context="module">
-  // The small, typed set of moods Cheffy can wear. Kept intentionally
-  // short — every expression below has hand-tuned eyes/brow/mouth so
-  // the set stays cheap to render and easy to reason about.
-  export type CheffyExpression =
-    | 'neutral'
-    | 'happy'
-    | 'thinking'
-    | 'excited'
-    | 'concerned'
-    | 'cooking';
-
-  // Two silhouettes of the SAME character:
-  //  - compact  → face + oversized hat only, no arms. The default;
-  //    built to read at 20–32px in nav, buttons, and utility cards.
-  //  - character → adds a small torso and short arms that attach at
-  //    shoulder level (clearly below the head). For the feature page
-  //    and larger cards.
-  export type CheffyVariant = 'compact' | 'character';
+  // Canonical types live in $lib/cheffy; re-exported here so existing
+  // consumers that import them from the icon keep working.
+  //  - CheffyExpression: the small, typed set of moods (each has
+  //    hand-tuned eyes/brow/mouth below).
+  //  - CheffyVariant: compact (face + oversized hat only, no arms — the
+  //    default for 20–32px nav/buttons/cards) vs character (adds a small
+  //    torso + short arms at shoulder level, for larger surfaces).
+  import type { CheffyExpression, CheffyVariant } from '$lib/cheffy';
+  export type { CheffyExpression, CheffyVariant };
 </script>
 
 <script lang="ts">
@@ -140,12 +131,17 @@
       stroke-linecap="round"
     >
       <!-- Clean self-contained face -->
-      <path d="M32 23 C20 23 13.5 31 13.5 39.5 C13.5 50 21.5 56 32 56 C42.5 56 50.5 50 50.5 39.5 C50.5 31 44 23 32 23 Z" />
+      <path
+        d="M32 23 C20 23 13.5 31 13.5 39.5 C13.5 50 21.5 56 32 56 C42.5 56 50.5 50 50.5 39.5 C50.5 31 44 23 32 23 Z"
+      />
       <!-- Oversized toque: band + asymmetrical puffs -->
       <path d="M16.5 24 L47.5 24" />
       <path d="M17 24 Q17 19 22 18.5 Q22 12 29 13 Q31 7.5 38 10.5 Q45 9.5 45.5 17 Q50.5 19 47 24" />
       <!-- Zap fold accent in the hat -->
-      <path d="M45.5 8.5 L40.5 16 L44.8 16 L39.8 24 L51 13.5 L46.2 13.5 L49.8 8.5" stroke-width="2" />
+      <path
+        d="M45.5 8.5 L40.5 16 L44.8 16 L39.8 24 L51 13.5 L46.2 13.5 L49.8 8.5"
+        stroke-width="2"
+      />
     </g>
     <!-- Eyes + smile in currentColor -->
     <g fill="currentColor">
@@ -201,7 +197,9 @@
           <circle cx="32" cy="8.5" r="10" />
           <circle cx="43.5" cy="13" r="8" />
           <!-- Band -->
-          <path d="M16.5 18 L47.5 18 Q49 18 49 20.5 L49 23.5 Q49 25.5 47 25.5 L17 25.5 Q15 25.5 15 23.5 L15 20.5 Q15 18 16.5 18 Z" />
+          <path
+            d="M16.5 18 L47.5 18 Q49 18 49 20.5 L49 23.5 Q49 25.5 47 25.5 L17 25.5 Q15 25.5 15 23.5 L15 20.5 Q15 18 16.5 18 Z"
+          />
         </g>
         <!-- Zap fold accent — the signature feature. Bright fill keyed
              to the brand so the lightning shape stays legible on the
@@ -218,16 +216,40 @@
       <!-- Eyes -->
       <g fill="var(--cheffy-ink, #3A2415)">
         {#if eyeStyle === 'happy'}
-          <path d="M22.6 40 Q25.6 36.4 28.6 40" fill="none" stroke="var(--cheffy-ink, #3A2415)" stroke-width="2.5" stroke-linecap="round" />
-          <path d="M35.6 40 Q38.6 36.4 41.6 40" fill="none" stroke="var(--cheffy-ink, #3A2415)" stroke-width="2.5" stroke-linecap="round" />
+          <path
+            d="M22.6 40 Q25.6 36.4 28.6 40"
+            fill="none"
+            stroke="var(--cheffy-ink, #3A2415)"
+            stroke-width="2.5"
+            stroke-linecap="round"
+          />
+          <path
+            d="M35.6 40 Q38.6 36.4 41.6 40"
+            fill="none"
+            stroke="var(--cheffy-ink, #3A2415)"
+            stroke-width="2.5"
+            stroke-linecap="round"
+          />
         {:else}
           {@const r = eyeStyle === 'wide' ? 3.9 : eyeStyle === 'small' ? 2.8 : 3.3}
           {@const pupilDy = eyeStyle === 'up' ? -0.8 : 0}
-          <circle cx={LEFT_EYE} cy={EYE_Y + pupilDy} r={r} />
-          <circle cx={RIGHT_EYE} cy={EYE_Y + pupilDy} r={r} />
+          <circle cx={LEFT_EYE} cy={EYE_Y + pupilDy} {r} />
+          <circle cx={RIGHT_EYE} cy={EYE_Y + pupilDy} {r} />
           <!-- Catchlights -->
-          <circle cx={LEFT_EYE + 1.1} cy={EYE_Y + pupilDy - 1.1} r={r * 0.32} fill="#fff" opacity="0.9" />
-          <circle cx={RIGHT_EYE + 1.1} cy={EYE_Y + pupilDy - 1.1} r={r * 0.32} fill="#fff" opacity="0.9" />
+          <circle
+            cx={LEFT_EYE + 1.1}
+            cy={EYE_Y + pupilDy - 1.1}
+            r={r * 0.32}
+            fill="#fff"
+            opacity="0.9"
+          />
+          <circle
+            cx={RIGHT_EYE + 1.1}
+            cy={EYE_Y + pupilDy - 1.1}
+            r={r * 0.32}
+            fill="#fff"
+            opacity="0.9"
+          />
         {/if}
       </g>
 
