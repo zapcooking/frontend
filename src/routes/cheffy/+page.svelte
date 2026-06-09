@@ -273,7 +273,10 @@
 
   async function send(content: string, mode: 'chat' | 'hungry' = 'chat') {
     if (loading) return;
-    const text = content.trim();
+    let text = content.trim();
+    if (mode !== 'hungry' && !text && detectedIngredients.length > 0) {
+      text = `I have: ${detectedIngredients.join(', ')}`;
+    }
     if (mode !== 'hungry' && !text) return;
     scanError = '';
 
