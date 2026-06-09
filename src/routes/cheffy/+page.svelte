@@ -295,7 +295,7 @@
 
   async function retryLast() {
     if (loading || !lastTurn) return;
-    // Drop the trailing error bubble, then re-issue the same turn.
+    // Drop any error bubbles, then re-issue the same turn.
     thread = thread.filter((m) => m.kind !== 'error');
     const apiHistory = buildHistory(true);
     await dispatchTurn(
