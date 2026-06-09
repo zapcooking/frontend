@@ -153,29 +153,54 @@
       <path d={mouthPath} fill={mouthFilled ? 'currentColor' : 'none'} />
     </g>
   {:else}
-    <!-- ── Character-only torso + arms (drawn first so the head overlaps
-         the shoulders). Arms attach at shoulder level, never the head. -->
+    <!-- ── Character-only body: a dressed chef torso (shirt + apron bib)
+         so he never reads as a bare blob. Drawn first so the head
+         overlaps the shoulders; arms attach at shoulder level. -->
     {#if variant === 'character'}
       <g>
-        <!-- Short arms from the shoulders -->
+        <!-- Short sleeved arms from the shoulders, with small hands -->
         <path
-          d="M25.5 47 Q20.5 48.5 20 52.5"
+          d="M25 47 Q19.5 48.5 19 53"
           fill="none"
-          stroke="var(--cheffy-body-shade, #E6B765)"
-          stroke-width="3.8"
+          stroke="var(--cheffy-shirt, var(--color-primary, #ec4700))"
+          stroke-width="4.2"
           stroke-linecap="round"
         />
         <path
-          d="M38.5 47 Q43.5 48.5 44 52.5"
+          d="M39 47 Q44.5 48.5 45 53"
           fill="none"
-          stroke="var(--cheffy-body-shade, #E6B765)"
-          stroke-width="3.8"
+          stroke="var(--cheffy-shirt, var(--color-primary, #ec4700))"
+          stroke-width="4.2"
           stroke-linecap="round"
         />
-        <!-- Small rounded torso -->
+        <circle cx="19" cy="53" r="2.4" fill="var(--cheffy-body, #F6DCA6)" />
+        <circle cx="45" cy="53" r="2.4" fill="var(--cheffy-body, #F6DCA6)" />
+
+        <!-- Shirt / torso -->
         <path
-          d="M25 45.5 Q25 43.8 32 43.8 Q39 43.8 39 45.5 L40.5 55 Q40.5 59.5 32 59.5 Q23.5 59.5 23.5 55 Z"
-          fill="var(--cheffy-body, #F6DCA6)"
+          d="M24 46 Q24 44 32 44 Q40 44 40 46 L41 56 Q41 60.5 32 60.5 Q23 60.5 23 56 Z"
+          fill="var(--cheffy-shirt, var(--color-primary, #ec4700))"
+        />
+        <!-- Apron bib (cream) with straps and a pocket line — minimal,
+             but enough to read as "dressed" rather than bare. -->
+        <path
+          d="M27.5 46.5 L29.5 45 M36.5 46.5 L34.5 45"
+          fill="none"
+          stroke="var(--cheffy-apron, #FBEAC6)"
+          stroke-width="1.3"
+          stroke-linecap="round"
+        />
+        <path
+          d="M28 47 Q28 45.9 32 45.9 Q36 45.9 36 47 L36.8 57 Q36.8 59.6 32 59.6 Q27.2 59.6 27.2 57 Z"
+          fill="var(--cheffy-apron, #FBEAC6)"
+        />
+        <path
+          d="M28.4 53 L35.6 53"
+          fill="none"
+          stroke="var(--cheffy-shirt-shade, #C23A00)"
+          stroke-width="0.8"
+          opacity="0.35"
+          stroke-linecap="round"
         />
       </g>
     {/if}
