@@ -12,21 +12,21 @@
  *
  * NOTE: This file is server-only and uses SvelteKit's $env system.
  *
- * Branta SDK v3 layout: the service class and the Payment/Destination types
- * are exported from the `/v2` entry point; only the client-options classes
- * (`BrantaClientOptions`, `BrantaServerBaseUrl`) live at the package root.
- * `BrantaServerBaseUrl` is a value (an enum-like const whose members carry the
- * resolved URL), so it's imported as a value and used to build `baseUrl`.
+ * Branta SDK 3.1 layout: the service class and the Payment/Destination types
+ * are exported from the `/v2` entry point; the client-options type,
+ * `BrantaServerBaseUrl`, and the `DestinationType` enum live at the package
+ * root. `BrantaServerBaseUrl` is a value (an enum-like const whose members
+ * carry the resolved URL), so it's imported as a value and used to build
+ * `baseUrl`.
  */
 
 import { env } from '$env/dynamic/private';
-import { BrantaServerBaseUrl, type BrantaClientOptions } from '@branta-ops/branta';
 import {
-  BrantaService,
-  type Destination,
-  type DestinationType,
-  type Payment
-} from '@branta-ops/branta/v2';
+  BrantaServerBaseUrl,
+  type BrantaClientOptions,
+  type DestinationType
+} from '@branta-ops/branta';
+import { BrantaService, type Destination, type Payment } from '@branta-ops/branta/v2';
 
 export type { Payment };
 export type PaymentWithVerifyUrl = Payment & { verifyUrl?: string };
@@ -102,7 +102,7 @@ export async function registerPayment(
     // secret/encryptedDestination to verify later.
     const destination: Destination = {
       value: paymentString.trim(),
-      zk: true
+      isZk: true
     };
 
     if (destinationType) {
@@ -118,11 +118,9 @@ export async function registerPayment(
       body.description = description;
     }
 
-    // Payment.metadata is a flat Record<string, string>; coerce values.
+    // Payment.metadata is a JSON string in SDK 3.1; serialize the object.
     if (metadata) {
-      body.metadata = Object.fromEntries(
-        Object.entries(metadata as Record<string, unknown>).map(([k, v]) => [k, String(v)])
-      );
+      body.metadata = JSON.stringify(metadata);
     }
 
     const brantaService = new BrantaService(config);
@@ -131,7 +129,7 @@ export async function registerPayment(
 
     return {
       success: true,
-      verifyUrl: result.verifyLink,
+      verifyUrl: result.verifyUrl,
       secret: result.secret,
       encryptedDestination: result.payment.destinations[0]?.value
     };
@@ -162,10 +160,12 @@ export async function getPaymentInfo(
 
   try {
     const brantaService = new BrantaService(config);
-    // getPayments resolves to a Payment[]; each Payment carries its own
-    // optional verifyUrl.
-    const payments = await brantaService.getPayments(paymentString.trim(), encryptionKey);
-    return payments[0] ?? null;
+    // getPayments resolves to a PaymentsResult { payments, verifyUrl }; the
+    // verifyUrl is shared across the result, so attach it to the payment we
+    // return.
+    const result = await brantaService.getPayments(paymentString.trim(), encryptionKey);
+    const payment = result.payments[0];
+    return payment ? { ...payment, verifyUrl: result.verifyUrl } : null;
   } catch (error) {
     console.warn('[Branta] getPaymentInfo failed:', error);
     return null;
@@ -184,8 +184,9 @@ export async function getPaymentInfoByQRCode(
 
   try {
     const brantaService = new BrantaService(config);
-    const payments = await brantaService.getPaymentsByQRCode(qrText.trim());
-    return payments[0] ?? null;
+    const result = await brantaService.getPaymentsByQrCode(qrText.trim());
+    const payment = result.payments[0];
+    return payment ? { ...payment, verifyUrl: result.verifyUrl } : null;
   } catch (error) {
     console.warn('[Branta] getPaymentInfoByQRCode failed:', error);
     return null;

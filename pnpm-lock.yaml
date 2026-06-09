@@ -18,7 +18,6 @@ overrides:
   rollup: ^4.60.2
   flatted: ^3.4.2
   dompurify: ^3.4.2
-  '@branta-ops/branta': 3.0.2
   tmp@<0.2.6: ^0.2.6
   qs@<6.15.2: ^6.15.2
   ws@>=8.0.0 <8.20.1: ^8.20.1
@@ -40,8 +39,8 @@ importers:
   .:
     dependencies:
       '@branta-ops/branta':
-        specifier: 3.0.2
-        version: 3.0.2
+        specifier: ^3.1.2
+        version: 3.1.3
       '@breeztech/breez-sdk-spark':
         specifier: 0.11.0
         version: 0.11.0
@@ -340,8 +339,8 @@ packages:
     resolution: {integrity: sha512-ctxtJ/eA+t+6q2++vj5j7FYX3nRu311q1wfYH3xjlLOsczhlhxAg2FWNUXhpGvAw3BWo1xBcvOV6/YLc2r5FJw==}
     hasBin: true
 
-  '@branta-ops/branta@3.0.2':
-    resolution: {integrity: sha512-0ujzdfZQEEkD8PaFwCxQ/bPAOzdst/ErBRDGwhZr5Hxk9WSpUOWNdR6uWZutHgD/bb/tE8dg+UPC5uKP7/G13g==}
+  '@branta-ops/branta@3.1.3':
+    resolution: {integrity: sha512-rcyDBYnYD+cmvQWylJ+n3JdR65FiHP1tVPtWQMhKLmcXx56czL8Ez7+I9jy7pmLBIVwP6mS1EsUqSrvQi22v1w==}
 
   '@breeztech/breez-sdk-spark@0.11.0':
     resolution: {integrity: sha512-wX8ZdFfnXN9t2AuLYlZxslmdHlxqnvkU8kAmIL1GuI3LNV8F7bxMGxLV/WTaQTgd7BGW/pcejpBcNPe7jjCdfA==}
@@ -5442,7 +5441,7 @@ snapshots:
       css-tree: 3.2.1
     optional: true
 
-  '@branta-ops/branta@3.0.2': {}
+  '@branta-ops/branta@3.1.3': {}
 
   '@breeztech/breez-sdk-spark@0.11.0':
     optionalDependencies:

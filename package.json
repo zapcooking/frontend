@@ -1,7 +1,7 @@
 {
   "name": "zap.cooking",
   "license": "MIT",
-  "version": "4.2.466",
+  "version": "4.2.467",
   "private": true,
   "scripts": {
     "dev": "vite dev",
@@ -133,7 +133,6 @@
       "rollup": "^4.60.2",
       "flatted": "^3.4.2",
       "dompurify": "^3.4.2",
-      "@branta-ops/branta": "3.0.2",
       "tmp@<0.2.6": "^0.2.6",
       "qs@<6.15.2": "^6.15.2",
       "ws@>=8.0.0 <8.20.1": "^8.20.1",
