@@ -102,9 +102,14 @@ function buildHistory(excludeTrailingUser = false) {
   return api;
 }
 
-// Cosmetic only — picks the pending bubble's expression/line.
+// Cosmetic only — picks the pending bubble's expression/line. The
+// "I have:" prefix is matched separately because the trailing colon
+// defeats a \b word boundary.
 function looksLikeRecipeRequest(text: string): boolean {
-  return /\b(recipe|cook|dinner|lunch|breakfast|dessert|make me|i have:?)\b/i.test(text);
+  return (
+    /\b(recipe|cook|dinner|lunch|breakfast|dessert|make me)\b/i.test(text) ||
+    /\bi have:?\s/i.test(text)
+  );
 }
 
 async function dispatchTurn(

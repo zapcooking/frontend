@@ -189,9 +189,17 @@ export const POST: RequestHandler = async ({ request, platform }) => {
         }));
     }
 
-    // Check membership status (Pro Kitchen feature)
+    // Check membership status (Pro Kitchen feature). Fail CLOSED when
+    // gating is enabled but the caller sent no pubkey — otherwise a
+    // non-member could reach this paid endpoint just by omitting it.
     const MEMBERSHIP_ENABLED = platform?.env?.MEMBERSHIP_ENABLED || env.MEMBERSHIP_ENABLED;
-    if (MEMBERSHIP_ENABLED?.toLowerCase() === 'true' && pubkey) {
+    if (MEMBERSHIP_ENABLED?.toLowerCase() === 'true') {
+      if (!pubkey || typeof pubkey !== 'string' || !pubkey.trim()) {
+        return json(
+          { ok: false, error: 'Cheffy is available to Pro Kitchen members.' },
+          { status: 403 }
+        );
+      }
       const API_SECRET = platform?.env?.RELAY_API_SECRET || env.RELAY_API_SECRET;
       if (API_SECRET) {
         try {
@@ -205,7 +213,8 @@ export const POST: RequestHandler = async ({ request, platform }) => {
           }
         } catch (err) {
           console.error('[Cheffy] Error checking membership:', err);
-          // Continue anyway if membership check fails
+          // Fail open ONLY for membership-service outages, not for a
+          // missing pubkey (handled above).
         }
       }
     }
