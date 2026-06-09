@@ -35,6 +35,12 @@
   } from '$lib/stores/cheffyChat';
   import CheffyAvatar from './CheffyAvatar.svelte';
   import CheffyRecipeCard from './CheffyRecipeCard.svelte';
+  import CheffySuggestionChips, {
+    STARTER_SUGGESTIONS,
+    CONTEXT_RECIPE,
+    CONTEXT_GENERAL,
+    type CheffySuggestion
+  } from './CheffySuggestionChips.svelte';
   import XIcon from 'phosphor-svelte/lib/X';
   import CaretDownIcon from 'phosphor-svelte/lib/CaretDown';
   import DotsThreeIcon from 'phosphor-svelte/lib/DotsThreeOutline';
@@ -97,18 +103,29 @@
     });
   }
 
-  // ── Welcome starters (max three, large) ────────────────────────
-  const starters = [
-    { label: 'Make dinner', prompt: 'I need a dinner idea. Give me a recipe.' },
-    {
-      label: 'Use what I have',
-      prompt: "Help me cook with what I already have. I'll tell you what's in my kitchen."
-    },
-    {
-      label: 'Fix something',
-      prompt: 'Something went wrong while I was cooking. Can you help me fix it?'
+  // ── Suggestions ────────────────────────────────────────────────
+  // `send` chips fire immediately; `populate` chips drop text into the
+  // composer for the user to finish (without clobbering an existing
+  // draft). Contextual chips attach only to the latest response.
+  $: lastMsgId = $cheffyThread[$cheffyThread.length - 1]?.id;
+
+  async function handleSuggestion(s: CheffySuggestion) {
+    if (s.behavior === 'send') {
+      sendCheffy(s.prompt);
+      return;
     }
-  ];
+    // populate: only seed the composer when it's empty so we never
+    // overwrite what the user already typed.
+    if ($cheffyDraft.trim().length === 0) {
+      cheffyDraft.set(s.prompt);
+    }
+    await tick();
+    if (composerEl) {
+      composerEl.focus();
+      const end = composerEl.value.length;
+      composerEl.setSelectionRange(end, end);
+    }
+  }
 
   // ── Header overflow menu ───────────────────────────────────────
   let menuOpen = false;
@@ -428,22 +445,12 @@
       <!-- Conversation -->
       <div class="cheffy-list" bind:this={listEl}>
         {#if $cheffyThread.length === 0}
-          <!-- Minimal welcome -->
+          <!-- Minimal welcome — the starter chips live above the
+               composer, not here, so users can also just start typing. -->
           <div class="welcome">
             <CheffyAvatar size={64} expression="happy" variant="character" />
             <p class="welcome-q">What are we cooking?</p>
-            <div class="welcome-starters">
-              {#each starters as s}
-                <button
-                  type="button"
-                  class="starter-action"
-                  disabled={$cheffyLoading}
-                  on:click={() => sendCheffy(s.prompt)}
-                >
-                  {s.label}
-                </button>
-              {/each}
-            </div>
+            <p class="welcome-sub">Ask anything, or pick a place to start.</p>
           </div>
         {:else}
           {#each $cheffyThread as m (m.id)}
@@ -484,12 +491,37 @@
                       {@html parseMarkdown(m.content)}
                     </div>
                   {/if}
+
+                  <!-- Context-aware follow-ups: only under the latest
+                       response, never while a turn is in flight. -->
+                  {#if m.id === lastMsgId && !$cheffyLoading && (m.kind === 'text' || m.kind === 'recipe')}
+                    <div class="context-row">
+                      <CheffySuggestionChips
+                        compact
+                        suggestions={m.kind === 'recipe' ? CONTEXT_RECIPE : CONTEXT_GENERAL}
+                        ariaLabel="Follow-up suggestions"
+                        onSelect={handleSuggestion}
+                      />
+                    </div>
+                  {/if}
                 </div>
               </div>
             {/if}
           {/each}
         {/if}
       </div>
+
+      <!-- Starter suggestions — a single scrollable row directly above
+           the composer; removed once the conversation begins. -->
+      {#if $cheffyThread.length === 0}
+        <div class="starter-row">
+          <CheffySuggestionChips
+            suggestions={STARTER_SUGGESTIONS}
+            ariaLabel="Cheffy conversation suggestions"
+            onSelect={handleSuggestion}
+          />
+        </div>
+      {/if}
 
       <!-- Fixed composer -->
       <div class="cheffy-composer">
@@ -818,32 +850,23 @@
     font-weight: 700;
     margin: 0;
   }
-  .welcome-starters {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    width: 100%;
-    max-width: 320px;
+  .welcome-sub {
+    font-size: 0.9rem;
+    color: var(--color-text-secondary);
+    margin: 0;
+    max-width: 28ch;
   }
-  .starter-action {
-    width: 100%;
-    min-height: 48px;
-    padding: 0 18px;
-    border-radius: 14px;
-    border: 1px solid color-mix(in srgb, var(--color-primary) 25%, transparent);
-    background-color: color-mix(in srgb, var(--color-primary) 8%, transparent);
-    color: var(--color-primary);
-    font-size: 1rem;
-    font-weight: 600;
-    cursor: pointer;
-    transition: background-color 140ms ease;
+
+  /* Starter chip row — sits directly above the composer, secondary to
+     it. The chips component handles the horizontal scroll + edge fade. */
+  .starter-row {
+    flex-shrink: 0;
+    padding: 6px 0 2px;
   }
-  .starter-action:hover:not(:disabled) {
-    background-color: color-mix(in srgb, var(--color-primary) 16%, transparent);
-  }
-  .starter-action:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
+  /* Contextual follow-ups under the latest response. Negative inset
+     lets the row use the message column's full width for scrolling. */
+  .context-row {
+    margin: 8px -4px 0;
   }
 
   .msg {
