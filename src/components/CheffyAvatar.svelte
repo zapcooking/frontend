@@ -9,10 +9,15 @@
    *  - excited  → a brief pop
    * All motion is disabled under `prefers-reduced-motion`.
    */
-  import CheffyIcon, { type CheffyExpression } from './icons/CheffyIcon.svelte';
+  import CheffyIcon, {
+    type CheffyExpression,
+    type CheffyVariant
+  } from './icons/CheffyIcon.svelte';
 
   export let size: number = 40;
   export let expression: CheffyExpression = 'neutral';
+  /** compact (default) or character (adds torso + arms at larger sizes). */
+  export let variant: CheffyVariant = 'compact';
   /** Turn on the small idle/working motion tied to the expression. */
   export let animate: boolean = false;
   /** Accessible label; omit for decorative use (badge becomes aria-hidden). */
@@ -40,7 +45,7 @@
       <i></i><i></i><i></i>
     </span>
   {/if}
-  <CheffyIcon {size} {expression} {title} />
+  <CheffyIcon {size} {expression} {variant} {title} />
 </span>
 
 <style>

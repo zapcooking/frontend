@@ -614,7 +614,7 @@
   {:else if !hasMembership}
     <!-- Membership gate -->
     <div class="flex flex-col items-center justify-center py-16 gap-6">
-      <CheffyAvatar size={84} expression="neutral" />
+      <CheffyAvatar size={84} expression="neutral" variant="character" />
       <div class="text-center max-w-md">
         <h2 class="mb-2">Cheffy is a Pro Kitchen feature</h2>
         <p class="text-caption mb-6">
@@ -907,7 +907,7 @@
     {#if zapStatus === 'success'}
       <div class="flex flex-col items-center justify-center py-6 gap-4">
         <div class="relative">
-          <CheffyAvatar size={72} expression="excited" animate />
+          <CheffyAvatar size={72} expression="excited" animate variant="character" />
           <div class="absolute -top-2 -right-2 animate-bounce">
             <HeartIcon size={30} class="text-red-500" weight="fill" />
           </div>
