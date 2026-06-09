@@ -5,35 +5,159 @@ on:
     branches: ['main']
   pull_request:
     branches: ['main']
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  npm-install:
+  lint:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Checkout 🛎️
         uses: actions/checkout@v4
+
+      - name: Setup Node.js 🟢
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
 
       - name: Enable Corepack (pnpm) 🎯
         run: |
           corepack enable
           pnpm --version
 
+      - name: Get pnpm store directory 📂
+        run: echo "PNPM_STORE_PATH=$(pnpm store path --silent)" >> "$GITHUB_ENV"
+
       - name: Use cache for pnpm 🎁
-        id: cache-pnpm
         uses: actions/cache@v4
         with:
-          path: |
-            ~/.pnpm-store
-          key: ${{ runner.os }}-pnpm-${{ hashFiles('**/pnpm-lock.yaml') }}
+          path: ${{ env.PNPM_STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
           restore-keys: |
-            ${{ runner.os }}-pnpm-
-
-      - name: Setup Node.js 🟢
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: 'pnpm'
+            ${{ runner.os }}-pnpm-store-
 
       - name: Install pnpm packages 📦
         run: |
           pnpm install --frozen-lockfile
 
+      # Soft-fail: repo-wide formatting/eslint debt (563 prettier files, ~17k eslint errors).
+      # Tracked for cleanup — flip to enforcing once formatting debt is paid.
+      - name: Lint 🧹
+        continue-on-error: true
+        run: pnpm lint
+
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout 🛎️
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 🟢
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Enable Corepack (pnpm) 🎯
+        run: |
+          corepack enable
+          pnpm --version
+
+      - name: Get pnpm store directory 📂
+        run: echo "PNPM_STORE_PATH=$(pnpm store path --silent)" >> "$GITHUB_ENV"
+
+      - name: Use cache for pnpm 🎁
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.PNPM_STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+
+      - name: Install pnpm packages 📦
+        run: |
+          pnpm install --frozen-lockfile
+
+      - name: Typecheck (svelte-check) 🔍
+        run: pnpm check
+
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout 🛎️
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 🟢
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Enable Corepack (pnpm) 🎯
+        run: |
+          corepack enable
+          pnpm --version
+
+      - name: Get pnpm store directory 📂
+        run: echo "PNPM_STORE_PATH=$(pnpm store path --silent)" >> "$GITHUB_ENV"
+
+      - name: Use cache for pnpm 🎁
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.PNPM_STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+
+      - name: Install pnpm packages 📦
+        run: |
+          pnpm install --frozen-lockfile
+
+      # tsconfig.json extends ./.svelte-kit/tsconfig.json, which only exists after sync
+      # (the check and build jobs run sync implicitly; bare vitest does not)
+      - name: Generate .svelte-kit (svelte-kit sync) 🔄
+        run: pnpm exec svelte-kit sync
+
+      - name: Test (vitest) 🧪
+        run: pnpm test
+
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      # Client bundling OOMs V8's default heap; build needs ~8GB (runners have 16GB).
+      NODE_OPTIONS: --max-old-space-size=8192
+    steps:
+      - name: Checkout 🛎️
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 🟢
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Enable Corepack (pnpm) 🎯
+        run: |
+          corepack enable
+          pnpm --version
+
+      - name: Get pnpm store directory 📂
+        run: echo "PNPM_STORE_PATH=$(pnpm store path --silent)" >> "$GITHUB_ENV"
+
+      - name: Use cache for pnpm 🎁
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.PNPM_STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+
+      - name: Install pnpm packages 📦
+        run: |
+          pnpm install --frozen-lockfile
+
+      - name: Build (Cloudflare adapter, smoke test only) 🏗️
+        run: pnpm build
