@@ -194,12 +194,14 @@
           d="M28 47 Q28 45.9 32 45.9 Q36 45.9 36 47 L36.8 57 Q36.8 59.6 32 59.6 Q27.2 59.6 27.2 57 Z"
           fill="var(--cheffy-apron, #FBEAC6)"
         />
+        <!-- Pocket line keyed to its own apron shade (not the shirt
+             colour) so the apron can be re-tinted independently. -->
         <path
           d="M28.4 53 L35.6 53"
           fill="none"
-          stroke="var(--cheffy-shirt-shade, #C23A00)"
+          stroke="var(--cheffy-apron-shade, #D9B98A)"
           stroke-width="0.8"
-          opacity="0.35"
+          opacity="0.55"
           stroke-linecap="round"
         />
       </g>

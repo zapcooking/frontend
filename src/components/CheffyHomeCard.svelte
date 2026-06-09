@@ -20,10 +20,14 @@
 
 <style>
   .cheffy-row {
-    display: inline-flex;
+    /* Full-width in-flow row with a comfortable 44px touch target,
+       while staying borderless and visually secondary to browsing. */
+    display: flex;
     align-items: center;
     gap: 6px;
-    padding: 6px 2px;
+    width: 100%;
+    min-height: 44px;
+    padding: 0 2px;
     background: transparent;
     border: 0;
     color: var(--color-text-secondary);
