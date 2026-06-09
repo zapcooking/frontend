@@ -2,8 +2,8 @@
   import { onMount, createEventDispatcher } from 'svelte';
   import { goto } from '$app/navigation';
   import SparkleIcon from 'phosphor-svelte/lib/Sparkle';
-  import RobotIcon from 'phosphor-svelte/lib/Robot';
   import LeafIcon from 'phosphor-svelte/lib/Leaf';
+  import CheffyIcon from './icons/CheffyIcon.svelte';
 
   export let open: boolean = false;
 
@@ -19,11 +19,11 @@
       accent: 'rgb(168, 85, 247)'
     },
     {
-      href: '/zappy',
-      label: 'Chef ₿',
-      blurb: 'AI cooking assistant',
-      Icon: RobotIcon,
-      // Chef ₿ orange — uses the CSS var so the accent shifts
+      href: '/cheffy',
+      label: 'Cheffy',
+      blurb: 'Your kitchen companion',
+      Icon: CheffyIcon,
+      // Cheffy's warm orange — uses the CSS var so the accent shifts
       // automatically between the light (#ec4700) and dark
       // (#ff5722) palettes.
       accent: 'var(--color-primary)'
@@ -70,24 +70,21 @@
 </script>
 
 {#if open}
-  <div
-    bind:this={panelEl}
-    class="intelligence-menu"
-    role="menu"
-    aria-label="Intelligence tools"
-  >
+  <div bind:this={panelEl} class="intelligence-menu" role="menu" aria-label="Intelligence tools">
     <div class="header-row">
       <span class="eyebrow">Intelligence</span>
     </div>
     {#each items as item}
-      <button
-        type="button"
-        class="item"
-        role="menuitem"
-        on:click={() => go(item.href)}
-      >
+      <button type="button" class="item" role="menuitem" on:click={() => go(item.href)}>
         <span class="icon" style:color={item.accent}>
-          <svelte:component this={item.Icon} size={16} weight="fill" />
+          {#if item.Icon === CheffyIcon}
+            <!-- Cheffy renders as the full colored character (no
+                 monochrome `weight`), one of his branded touches in
+                 the menu. -->
+            <CheffyIcon size={18} expression="happy" />
+          {:else}
+            <svelte:component this={item.Icon} size={16} weight="fill" />
+          {/if}
         </span>
         <span class="text">
           <span class="label">{item.label}</span>

@@ -21,11 +21,11 @@
 
   // Read billing period from URL query param
   $: periodParam = $page.url.searchParams.get('period');
-  $: selectedPeriod = periodParam === 'monthly' ? 'monthly' as const : 'annual' as const;
+  $: selectedPeriod = periodParam === 'monthly' ? ('monthly' as const) : ('annual' as const);
 
   // Pro Kitchen pricing (dynamic based on period)
   $: PRO_KITCHEN_PRICE_USD = selectedPeriod === 'annual' ? 89 : 8.99;
-  
+
   // Dynamic Bitcoin pricing (fetched from API)
   let bitcoinPriceLoading = true;
   let bitcoinPriceError: string | null = null;
@@ -46,11 +46,16 @@
 
   function promoErrorMessage(code: string | undefined): string {
     switch (code) {
-      case 'expired': return 'This code has expired.';
-      case 'wrong_scope': return "This code isn't valid for this membership.";
-      case 'invalid_for_scope': return "This code can't be applied here.";
-      case 'disabled': return 'Promo codes are currently unavailable.';
-      default: return 'Invalid promo code.';
+      case 'expired':
+        return 'This code has expired.';
+      case 'wrong_scope':
+        return "This code isn't valid for this membership.";
+      case 'invalid_for_scope':
+        return "This code can't be applied here.";
+      case 'disabled':
+        return 'Promo codes are currently unavailable.';
+      default:
+        return 'Invalid promo code.';
     }
   }
 
@@ -94,7 +99,7 @@
 
   onMount(() => {
     if (!browser) return;
-    
+
     // Redirect to login if not logged in
     if (!isLoggedIn) {
       goto('/login?redirect=/membership/pro-kitchen-checkout');
@@ -103,32 +108,33 @@
     // Check for payment success (Stripe)
     const paymentStatus = $page.url.searchParams.get('payment');
     const sessionId = $page.url.searchParams.get('session_id');
-    
+
     if (paymentStatus === 'success' && sessionId) {
       goto(`/membership/confirmation?tier=pro&payment_method=stripe&session_id=${sessionId}`);
     }
-    
+
     // Fetch Bitcoin price quote
     fetchBitcoinPriceQuote();
   });
-  
+
   async function fetchBitcoinPriceQuote() {
     bitcoinPriceLoading = true;
     bitcoinPriceError = null;
-    
+
     try {
-      const response = await fetch(`/api/membership/bitcoin-price-quote?tier=pro&period=${selectedPeriod}`);
-      
+      const response = await fetch(
+        `/api/membership/bitcoin-price-quote?tier=pro&period=${selectedPeriod}`
+      );
+
       if (!response.ok) {
         const data = await response.json();
         throw new Error(data.error || 'Failed to fetch Bitcoin price');
       }
-      
+
       const data = await response.json();
       discountedUsdAmount = data.discountedUsdAmount;
       amountSats = data.amountSats;
       discountPercent = data.discountPercent;
-      
     } catch (err) {
       console.error('[Pro Kitchen Checkout] Bitcoin price error:', err);
       bitcoinPriceError = err instanceof Error ? err.message : 'Failed to fetch Bitcoin price';
@@ -145,7 +151,7 @@
       error = 'Please log in to continue';
       return;
     }
-    
+
     if (paymentMethod === 'stripe') {
       await proceedWithStripe();
     } else {
@@ -166,7 +172,7 @@
       const response = await fetch('/api/stripe/create-session', {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
+          'Content-Type': 'application/json'
         },
         body: JSON.stringify({
           tier: 'pro',
@@ -174,8 +180,8 @@
           successUrl,
           cancelUrl,
           customerEmail: undefined,
-          pubkey: $userPublickey,
-        }),
+          pubkey: $userPublickey
+        })
       });
 
       if (!response.ok) {
@@ -196,13 +202,12 @@
 
       const data = await response.json();
       console.log('[Pro Kitchen Checkout] Session created, redirecting to Stripe...');
-      
+
       if (!data.url) {
         throw new Error('No checkout URL returned from server');
       }
 
       window.location.href = data.url;
-      
     } catch (err) {
       console.error('[Pro Kitchen Checkout] Error:', err);
       error = err instanceof Error ? err.message : 'Failed to start checkout. Please try again.';
@@ -227,14 +232,14 @@
       const response = await fetch('/api/membership/create-lightning-invoice', {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
+          'Content-Type': 'application/json'
         },
         body: JSON.stringify({
           pubkey: $userPublickey,
           tier: 'pro',
           period: selectedPeriod,
-          promoCode: appliedPromo?.code,
-        }),
+          promoCode: appliedPromo?.code
+        })
       });
 
       if (!response.ok) {
@@ -256,7 +261,11 @@
       receiveRequestId = data.receiveRequestId;
       // The displayed price must equal what we're actually charging. Warn if the
       // invoice's sats differ from what the card previewed before reconciling.
-      if (typeof data.amountSats === 'number' && amountSats !== null && data.amountSats !== amountSats) {
+      if (
+        typeof data.amountSats === 'number' &&
+        amountSats !== null &&
+        data.amountSats !== amountSats
+      ) {
         console.warn('[Pro Kitchen Checkout] Displayed sats != invoice sats', {
           displayed: amountSats,
           invoice: data.amountSats,
@@ -265,7 +274,8 @@
       }
       // Server is the source of truth for the charged amount — reflect any
       // promo-adjusted figures it returned.
-      if (typeof data.discountedUsdAmount === 'number') discountedUsdAmount = data.discountedUsdAmount;
+      if (typeof data.discountedUsdAmount === 'number')
+        discountedUsdAmount = data.discountedUsdAmount;
       if (typeof data.amountSats === 'number') amountSats = data.amountSats;
 
       const { setPaid } = await lightningService.launchPayment({
@@ -288,10 +298,12 @@
 
       // Start polling our verify endpoint to detect external wallet payments
       startPaymentPolling(setPaid);
-
     } catch (err) {
       console.error('[Pro Kitchen Checkout] Error:', err);
-      error = err instanceof Error ? err.message : 'Failed to create Lightning invoice. Please try again.';
+      error =
+        err instanceof Error
+          ? err.message
+          : 'Failed to create Lightning invoice. Please try again.';
       loading = false;
     }
   }
@@ -308,15 +320,15 @@
       const response = await fetch('/api/membership/verify-lightning-payment', {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
+          'Content-Type': 'application/json'
         },
         body: JSON.stringify({
           receiveRequestId,
           paymentHash,
           pubkey: $userPublickey,
           tier: 'pro',
-          period: selectedPeriod,
-        }),
+          period: selectedPeriod
+        })
       });
 
       if (!response.ok) {
@@ -331,7 +343,7 @@
       }
 
       const data = await response.json();
-      
+
       if (data.success) {
         // Build success URL with NIP-05 info if available
         const params = new URLSearchParams({
@@ -348,10 +360,10 @@
       } else {
         throw new Error('Payment verification failed');
       }
-
     } catch (err) {
       console.error('[Pro Kitchen Checkout] Verification error:', err);
-      error = err instanceof Error ? err.message : 'Failed to verify payment. Please contact support.';
+      error =
+        err instanceof Error ? err.message : 'Failed to verify payment. Please contact support.';
       loading = false;
     }
   }
@@ -369,8 +381,8 @@
             paymentHash,
             pubkey: $userPublickey,
             tier: 'pro',
-            period: selectedPeriod,
-          }),
+            period: selectedPeriod
+          })
         });
 
         if (response.ok) {
@@ -415,7 +427,7 @@
 <div class="checkout-page">
   <div class="checkout-container">
     <h1>Join Pro Kitchen</h1>
-    
+
     {#if error}
       <div class="error-message">
         {error}
@@ -436,14 +448,17 @@
 
       <div class="checkout-benefits">
         <h3>What you get:</h3>
-        
+
         <!-- Includes All Cook+ Features -->
         <div class="benefit-section">
           <h4 class="section-header">Includes All Cook+ Features</h4>
           <ul class="benefit-list">
             <li>
               <span class="checkmark">✓</span>
-              <span class="feature-text muted-text">Everything in Cook+ (Sous Chef, NIP-05 identity, pantry relay access, collections, badge, early access, voting)</span>
+              <span class="feature-text muted-text"
+                >Everything in Cook+ (Sous Chef, NIP-05 identity, pantry relay access, collections,
+                badge, early access, voting)</span
+              >
             </li>
           </ul>
         </div>
@@ -478,10 +493,13 @@
           <h4 class="section-header">Kitchen Tools</h4>
           <ul class="benefit-list">
             <li>
-              <span class="feature-icon">🤖</span>
+              <span class="feature-icon">🧑‍🍳</span>
               <div class="feature-content">
-                <span class="feature-text">Chef ₿ - Kitchen assistant to scan your fridge, generate recipes, and recommend what to make tonight</span>
-                <span class="feature-subtext">Your personal kitchen companion</span>
+                <span class="feature-text"
+                  >Cheffy - Ask cooking questions, use what you have, fix a mistake, or turn an idea
+                  into dinner</span
+                >
+                <span class="feature-subtext">Your kitchen companion</span>
               </div>
             </li>
             <li>
@@ -490,7 +508,6 @@
             </li>
           </ul>
         </div>
-
       </div>
 
       <!-- Payment Method Selection -->
@@ -498,10 +515,10 @@
         <h3>Choose Payment Method</h3>
         <div class="payment-methods">
           <label class="payment-method-option {paymentMethod === 'stripe' ? 'selected' : ''}">
-            <input 
-              type="radio" 
-              name="paymentMethod" 
-              value="stripe" 
+            <input
+              type="radio"
+              name="paymentMethod"
+              value="stripe"
               bind:group={paymentMethod}
               disabled={loading}
             />
@@ -515,10 +532,10 @@
           </label>
 
           <label class="payment-method-option {paymentMethod === 'lightning' ? 'selected' : ''}">
-            <input 
-              type="radio" 
-              name="paymentMethod" 
-              value="lightning" 
+            <input
+              type="radio"
+              name="paymentMethod"
+              value="lightning"
               bind:group={paymentMethod}
               disabled={loading}
             />
@@ -854,7 +871,7 @@
     background: rgba(236, 71, 0, 0.1);
   }
 
-  .payment-method-option input[type="radio"] {
+  .payment-method-option input[type='radio'] {
     margin-right: 1rem;
     width: 20px;
     height: 20px;
@@ -1009,7 +1026,7 @@
       padding: 0.75rem;
     }
 
-    .payment-method-option input[type="radio"] {
+    .payment-method-option input[type='radio'] {
       margin-right: 0.6rem;
     }
 

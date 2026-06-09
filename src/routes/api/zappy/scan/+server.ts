@@ -1,17 +1,18 @@
 /**
- * Zappy Fridge Scanner API
- * 
+ * Cheffy Fridge Scanner API (route kept at /api/zappy/scan for
+ * backwards-compatibility; the public feature is "Cheffy").
+ *
  * Uses OpenAI GPT-4 Vision to analyze fridge/pantry images and detect ingredients.
  * Premium feature for Pro Kitchen members.
- * 
+ *
  * POST /api/zappy/scan
- * 
+ *
  * Body:
  * {
  *   image: string (base64 encoded image),
  *   pubkey?: string
  * }
- * 
+ *
  * Returns:
  * {
  *   ok: true,
@@ -50,23 +51,17 @@ export const POST: RequestHandler = async ({ request, platform }) => {
     // Check for OpenAI API key
     const OPENAI_API_KEY = (platform?.env as any)?.OPENAI_API_KEY || env.OPENAI_API_KEY;
     if (!OPENAI_API_KEY) {
-      return json(
-        { ok: false, error: 'OpenAI API key not configured' },
-        { status: 500 }
-      );
+      return json({ ok: false, error: 'OpenAI API key not configured' }, { status: 500 });
     }
-    
+
     const body = await request.json();
     const { image, pubkey } = body;
-    
+
     // Validate request
     if (!image || typeof image !== 'string') {
-      return json(
-        { ok: false, error: 'Image data is required' },
-        { status: 400 }
-      );
+      return json({ ok: false, error: 'Image data is required' }, { status: 400 });
     }
-    
+
     // Check image size (rough estimate: base64 is ~33% larger than binary)
     // Limit to ~10MB original = ~13MB base64
     if (image.length > 13 * 1024 * 1024) {
@@ -75,7 +70,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
         { status: 400 }
       );
     }
-    
+
     // Check membership status (Pro Kitchen feature)
     const MEMBERSHIP_ENABLED = platform?.env?.MEMBERSHIP_ENABLED || env.MEMBERSHIP_ENABLED;
     if (MEMBERSHIP_ENABLED?.toLowerCase() === 'true' && pubkey) {
@@ -86,7 +81,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
           const isActive = await hasActiveMembership(pubkey, API_SECRET);
           if (!isActive) {
             return json(
-              { ok: false, error: 'Premium membership required for Chef ₿' },
+              { ok: false, error: 'Cheffy is available to Pro Kitchen members.' },
               { status: 403 }
             );
           }
@@ -96,7 +91,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
         }
       }
     }
-    
+
     // Detect image type from base64 header or default to jpeg
     let mimeType = 'image/jpeg';
     if (image.startsWith('/9j/')) {
@@ -108,13 +103,13 @@ export const POST: RequestHandler = async ({ request, platform }) => {
     } else if (image.startsWith('UklGR')) {
       mimeType = 'image/webp';
     }
-    
+
     // Call OpenAI Vision API
     const openaiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${OPENAI_API_KEY}`
+        Authorization: `Bearer ${OPENAI_API_KEY}`
       },
       body: JSON.stringify({
         model: 'gpt-4o-mini',
@@ -140,7 +135,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
         temperature: 0.3 // Lower temperature for more consistent results
       })
     });
-    
+
     if (!openaiResponse.ok) {
       const errorData = await openaiResponse.json().catch(() => ({}));
       console.error('[Zappy Scan] OpenAI API error:', errorData);
@@ -149,17 +144,14 @@ export const POST: RequestHandler = async ({ request, platform }) => {
         { status: 500 }
       );
     }
-    
+
     const openaiData = await openaiResponse.json();
     const content = openaiData.choices?.[0]?.message?.content;
-    
+
     if (!content) {
-      return json(
-        { ok: false, error: 'No response from AI. Please try again.' },
-        { status: 500 }
-      );
+      return json({ ok: false, error: 'No response from AI. Please try again.' }, { status: 500 });
     }
-    
+
     // Parse the JSON array from the response
     let ingredients: string[] = [];
     try {
@@ -168,21 +160,20 @@ export const POST: RequestHandler = async ({ request, platform }) => {
       if (jsonMatch) {
         ingredients = JSON.parse(jsonMatch[0]);
       }
-      
+
       // Validate it's an array of strings
       if (!Array.isArray(ingredients)) {
         ingredients = [];
       }
-      
+
       // Filter to only strings and clean up
       ingredients = ingredients
         .filter((i: any) => typeof i === 'string')
         .map((i: string) => i.trim().toLowerCase())
         .filter((i: string) => i.length > 0 && i.length < 50);
-      
+
       // Remove duplicates
       ingredients = [...new Set(ingredients)];
-      
     } catch (parseErr) {
       console.error('[Zappy Scan] Failed to parse ingredients:', parseErr, content);
       return json(
@@ -190,12 +181,11 @@ export const POST: RequestHandler = async ({ request, platform }) => {
         { status: 500 }
       );
     }
-    
+
     return json({
       ok: true,
       ingredients
     });
-    
   } catch (error: any) {
     console.error('[Zappy Scan] Error:', error);
     return json(

@@ -18,6 +18,7 @@
   import PullToRefresh from '../../components/PullToRefresh.svelte';
   import LongformFoodFeed from '../../components/LongformFoodFeed.svelte';
   import LandingImportHero from '../../components/LandingImportHero.svelte';
+  import CheffyHomeCard from '../../components/CheffyHomeCard.svelte';
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
   import { nip19 } from 'nostr-tools';
   import { init, markOnce } from '$lib/perf/explorePerf';
@@ -416,6 +417,12 @@
           </div>
         {/if}
       </section>
+
+      <!-- Cheffy entry point — compact kitchen-companion card. Members
+           get a direct prompt handoff to /cheffy; everyone else can see
+           and understand Cheffy (auth + membership enforced on the
+           /cheffy page, never here). -->
+      <CheffyHomeCard />
 
       <!-- Free AI recipe import — full card for anon visitors, compact pill
            for logged-in non-premium users, hidden for Pro Kitchen / Founders. -->

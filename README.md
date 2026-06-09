@@ -85,7 +85,7 @@ If you believe food connects people and culture matters more than clicks, you're
 
 ### Kitchen Tools
 
-- **Zappy AI** — AI assistant for recipe ideas and cooking help (membership feature).
+- **Cheffy** — your kitchen companion: ask cooking questions, use what you have, fix a mistake, or turn an idea into dinner (membership feature).
 - **Cooking Timer** — Integrated timer widget accessible from the header.
 - **Unit Converter** — Convert between cooking measurement units.
 
@@ -145,7 +145,8 @@ src/
     my-store/                # Seller dashboard
     garden/                  # Invite tree
     pantry/                  # Community features
-    zappy/                   # AI assistant
+    cheffy/                  # Cheffy — kitchen companion (assistant)
+    zappy/                   # Legacy redirect → /cheffy
     settings/                # App settings
     notifications/           # Activity feed
     [nip19]/                 # Universal NIP-19 handler
