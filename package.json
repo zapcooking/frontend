@@ -81,14 +81,14 @@
     "timeago.js": "^4.0.2",
     "turndown": "^7.2.2",
     "webln": "^0.3.2",
-    "ws": "^8.18.3"
+    "ws": "^8.20.1"
   },
   "devDependencies": {
     "@capacitor/assets": "^3.0.5",
     "@sveltejs/adapter-cloudflare": "^7.2.8",
     "@sveltejs/adapter-static": "^3.0.10",
     "@sveltejs/adapter-vercel": "^6.3.3",
-    "@sveltejs/kit": "^2.57.1",
+    "@sveltejs/kit": "^2.60.1",
     "@sveltejs/vite-plugin-svelte": "^3.1.2",
     "@tailwindcss/forms": "^0.5.10",
     "@tailwindcss/postcss": "^4.1.13",
@@ -114,7 +114,7 @@
     "typescript": "^5.0.0",
     "vite": "^5.4.21",
     "vite-plugin-node-polyfills": "^0.24.0",
-    "vitest": "^2",
+    "vitest": "^3.2.6",
     "wrangler": "^4.87.0"
   },
   "packageManager": "pnpm@9.12.1+sha512.e5a7e52a4183a02d5931057f7a0dbff9d5e9ce3161e33fa68ae392125b79282a8a8a470a51dfc8a0ed86221442eb2fb57019b0990ed24fab519bf0e1bc5ccfc4",
@@ -125,14 +125,30 @@
       "js-yaml": ">=4.1.1",
       "undici": "^7.24.0",
       "defu": "^6.1.5",
-      "devalue": "^5.6.4",
+      "devalue": "^5.8.1",
       "picomatch": "^4.0.4",
       "minimatch": "^10.2.3",
       "@xmldom/xmldom": "^0.8.13",
       "handlebars": "^4.7.9",
       "rollup": "^4.60.2",
       "flatted": "^3.4.2",
-      "dompurify": "^3.4.2"
+      "dompurify": "^3.4.2",
+      "@branta-ops/branta": "3.0.2",
+      "tmp@<0.2.6": "^0.2.6",
+      "qs@<6.15.2": "^6.15.2",
+      "ws@>=8.0.0 <8.20.1": "^8.20.1",
+      "brace-expansion@>=5.0.0 <5.0.6": "^5.0.6",
+      "bn.js@<4.12.3": "^4.12.3",
+      "bn.js@>=5.0.0 <5.2.3": "^5.2.3",
+      "ajv@>=6.0.0 <6.14.0": "^6.14.0",
+      "uuid@<11.1.1": "^11.1.1",
+      "esbuild@<0.25.0": "^0.25.0",
+      "cookie@<0.7.0": "^0.7.0",
+      "@tootallnate/once@<2.0.1": "^2.0.1",
+      "yaml@>=1.0.0 <1.10.3": "^1.10.3",
+      "yaml@>=2.0.0 <2.8.3": "^2.8.3",
+      "diff@>=4.0.0 <4.0.4": "^4.0.4",
+      "diff@>=5.0.0 <5.2.2": "^5.2.2"
     }
   }
 }
