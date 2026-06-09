@@ -4,7 +4,11 @@
   import { onDestroy } from 'svelte';
   import { userPublickey } from '$lib/nostr';
   import { membershipStore, formatMembershipExpiry } from '$lib/membershipStore';
-  import { membershipStatusMap, queueMembershipLookup, type MembershipStatus } from '$lib/stores/membershipStatus';
+  import {
+    membershipStatusMap,
+    queueMembershipLookup,
+    type MembershipStatus
+  } from '$lib/stores/membershipStatus';
   import CustomAvatar from '../../components/CustomAvatar.svelte';
   import CustomName from '../../components/CustomName.svelte';
   import PricingToggle from './PricingToggle.svelte';
@@ -23,7 +27,9 @@
 
   $: cookMonthlyEquivalent = (cookAnnualPrice / 12).toFixed(2);
   $: proMonthlyEquivalent = (proAnnualPrice / 12).toFixed(2);
-  $: savingsPercent = Math.round(((cookMonthlyPrice * 12 - cookAnnualPrice) / (cookMonthlyPrice * 12)) * 100);
+  $: savingsPercent = Math.round(
+    ((cookMonthlyPrice * 12 - cookAnnualPrice) / (cookMonthlyPrice * 12)) * 100
+  );
 
   function handlePeriodChange(newPeriod: 'annual' | 'monthly') {
     billingPeriod = newPeriod;
@@ -46,20 +52,27 @@
 
   // Current user membership info
   $: currentMembership = $userPublickey ? membershipStore.getMembership($userPublickey) : null;
-  $: hasActiveCardMembership = currentMembership
-    && currentMembership.paymentMethod === 'card'
-    && currentMembership.expiresAt > Date.now()
-    && currentMembership.invoiceId;
+  $: hasActiveCardMembership =
+    currentMembership &&
+    currentMembership.paymentMethod === 'card' &&
+    currentMembership.expiresAt > Date.now() &&
+    currentMembership.invoiceId;
 
   $: isFoundersMember = apiMembershipStatus?.tier === 'founders';
   // Lifetime = founders or expiry 8+ years out (matches formatExpiresAt logic without coupling to its string)
-  $: isLifetimeMember = isFoundersMember || (() => {
-    if (!apiMembershipStatus?.expiresAt) return false;
-    try {
-      const yearsAway = (new Date(apiMembershipStatus.expiresAt).getTime() - Date.now()) / (1000 * 60 * 60 * 24 * 365);
-      return yearsAway >= 8;
-    } catch { return false; }
-  })();
+  $: isLifetimeMember =
+    isFoundersMember ||
+    (() => {
+      if (!apiMembershipStatus?.expiresAt) return false;
+      try {
+        const yearsAway =
+          (new Date(apiMembershipStatus.expiresAt).getTime() - Date.now()) /
+          (1000 * 60 * 60 * 24 * 365);
+        return yearsAway >= 8;
+      } catch {
+        return false;
+      }
+    })();
 
   let cancellingMembership = false;
   let cancelError: string | null = null;
@@ -78,8 +91,8 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           pubkey: $userPublickey,
-          returnUrl: window.location.href,
-        }),
+          returnUrl: window.location.href
+        })
       });
 
       if (response.ok) {
@@ -92,7 +105,9 @@
 
       // 404 = no Stripe subscription found → fall through to email
       if (response.status !== 404) {
-        const errData = await response.json().catch(() => ({ error: 'Failed to open cancellation portal' }));
+        const errData = await response
+          .json()
+          .catch(() => ({ error: 'Failed to open cancellation portal' }));
         throw new Error(errData.error || 'Failed to open cancellation portal');
       }
     } catch (err) {
@@ -107,7 +122,9 @@
 
     // Fallback: Lightning / other members without Stripe subscription
     cancellingMembership = false;
-    window.location.href = 'mailto:support@zap.cooking?subject=Membership%20Cancellation%20Request&body=Hi%2C%20I%20would%20like%20to%20cancel%20my%20zap.cooking%20membership.%0A%0AMy%20pubkey%3A%20' + encodeURIComponent($userPublickey || '');
+    window.location.href =
+      'mailto:support@zap.cooking?subject=Membership%20Cancellation%20Request&body=Hi%2C%20I%20would%20like%20to%20cancel%20my%20zap.cooking%20membership.%0A%0AMy%20pubkey%3A%20' +
+      encodeURIComponent($userPublickey || '');
   }
 
   // --- API-based membership status (membershipStatusMap) ---
@@ -119,7 +136,9 @@
 
   $: if ($userPublickey) queueMembershipLookup($userPublickey);
 
-  $: normalizedPubkey = String($userPublickey || '').trim().toLowerCase();
+  $: normalizedPubkey = String($userPublickey || '')
+    .trim()
+    .toLowerCase();
   $: apiMembershipStatus = membershipMap[normalizedPubkey];
   $: isActiveMemberApi = Boolean(apiMembershipStatus?.active);
 
@@ -130,7 +149,11 @@
       // If expiry is 8+ years away, show "Lifetime" instead of a date
       const yearsAway = (date.getTime() - Date.now()) / (1000 * 60 * 60 * 24 * 365);
       if (yearsAway >= 8) return 'Lifetime';
-      return date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+      return date.toLocaleDateString(undefined, {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric'
+      });
     } catch {
       return '—';
     }
@@ -154,7 +177,10 @@
   $: if (apiMembershipStatus && data.founders) {
     const founderRecord = data.founders.find((f: any) => f.pubkey === normalizedPubkey);
     if (founderRecord?.joined) {
-      memberSince = new Date(founderRecord.joined).toLocaleDateString(undefined, { year: 'numeric', month: 'long' });
+      memberSince = new Date(founderRecord.joined).toLocaleDateString(undefined, {
+        year: 'numeric',
+        month: 'long'
+      });
     } else {
       memberSince = null;
     }
@@ -180,7 +206,7 @@
       { icon: RobotIcon, label: 'AI Recipe Extraction' },
       { icon: ShieldCheckIcon, label: 'Verified NIP-05 Identity' },
       { icon: StorefrontIcon, label: 'Market Access' },
-      { icon: StarIcon, label: 'Priority Relay Access' },
+      { icon: StarIcon, label: 'Priority Relay Access' }
     ],
     pro_kitchen: [
       { icon: RobotIcon, label: 'AI Recipe Extraction' },
@@ -188,7 +214,7 @@
       { icon: ShieldCheckIcon, label: 'Verified NIP-05 Identity' },
       { icon: StorefrontIcon, label: 'Market Access' },
       { icon: StarIcon, label: 'Priority Relay Access' },
-      { icon: CookingPotIcon, label: 'Chef ₿ AI Assistant' },
+      { icon: CookingPotIcon, label: 'Cheffy — Your Kitchen Companion' }
     ],
     founders: [
       { icon: CrownIcon, label: 'Lifetime Access — All Features' },
@@ -197,8 +223,8 @@
       { icon: ShieldCheckIcon, label: 'Verified NIP-05 Identity' },
       { icon: StorefrontIcon, label: 'Market Access' },
       { icon: StarIcon, label: 'Priority Relay Access' },
-      { icon: CookingPotIcon, label: 'Chef ₿ AI Assistant' },
-    ],
+      { icon: CookingPotIcon, label: 'Cheffy — Your Kitchen Companion' }
+    ]
   };
 
   $: currentPerks = isFoundersMember
@@ -231,12 +257,14 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           sessionId: currentMembership.invoiceId,
-          returnUrl: window.location.href,
-        }),
+          returnUrl: window.location.href
+        })
       });
 
       if (!response.ok) {
-        const errData = await response.json().catch(() => ({ error: 'Failed to open subscription portal' }));
+        const errData = await response
+          .json()
+          .catch(() => ({ error: 'Failed to open subscription portal' }));
         throw new Error(errData.error || 'Failed to open subscription portal');
       }
 
@@ -255,20 +283,20 @@
 
   async function handleClaimSpot() {
     if (!browser) return;
-    
+
     // Check if user is logged in
     if (!isLoggedIn) {
       // Redirect to login page
       goto('/login?redirect=/membership');
       return;
     }
-    
+
     // Check if sold out
     if (isSoldOut) {
       alert('All Founders Club spots have been claimed!');
       return;
     }
-    
+
     // Navigate to checkout
     isCheckingOut = true;
     goto('/membership/genesis-checkout');
@@ -323,7 +351,9 @@
       <div class="member-dashboard-stats">
         <div class="member-dashboard-stat">
           <span class="member-dashboard-stat-label">Expires</span>
-          <span class="member-dashboard-stat-value">{formatExpiresAt(apiMembershipStatus?.expiresAt)}</span>
+          <span class="member-dashboard-stat-value"
+            >{formatExpiresAt(apiMembershipStatus?.expiresAt)}</span
+          >
         </div>
         {#if memberSince}
           <div class="member-dashboard-stat">
@@ -384,7 +414,9 @@
       <!-- Cancel Membership -->
       <div class="member-dashboard-cancel">
         {#if isLifetimeMember}
-          <p class="cancel-note">Your Founders Club membership is lifetime — no renewal or cancellation needed.</p>
+          <p class="cancel-note">
+            Your Founders Club membership is lifetime — no renewal or cancellation needed.
+          </p>
         {:else}
           {#if cancelError}
             <p class="cancel-error">{cancelError}</p>
@@ -404,7 +436,8 @@
             {#if hasActiveCardMembership}
               You'll be redirected to our payment provider to complete cancellation.
             {:else}
-              Contact support to cancel your membership. Your access continues until the expiration date.
+              Contact support to cancel your membership. Your access continues until the expiration
+              date.
             {/if}
           </p>
         {/if}
@@ -413,424 +446,436 @@
   {/if}
 
   {#if !isActiveMemberApi || showUpgradeOptions}
-  <section class="hero">
-    <h1>Your Kitchen, Supercharged</h1>
-    <p>AI-powered recipe tools, a private Nostr relay, and Bitcoin-native payments — all in one membership.</p>
-  </section>
+    <section class="hero">
+      <h1>Your Kitchen, Supercharged</h1>
+      <p>
+        AI-powered recipe tools, a private Nostr relay, and Bitcoin-native payments — all in one
+        membership.
+      </p>
+    </section>
 
-  <!-- Value Props Row -->
-  <section class="value-props">
-    <div class="value-prop">
-      <span class="value-prop-icon">✨</span>
-      <span class="value-prop-label">AI Recipe Tools</span>
-    </div>
-    <div class="value-prop">
-      <span class="value-prop-icon">📡</span>
-      <span class="value-prop-label">Private Relay</span>
-    </div>
-    <div class="value-prop">
-      <span class="value-prop-icon">⚡</span>
-      <span class="value-prop-label">Bitcoin Payments</span>
-    </div>
-    <div class="value-prop">
-      <span class="value-prop-icon">🔓</span>
-      <span class="value-prop-label">Own Your Data</span>
-    </div>
-  </section>
-
-  <!-- Founders Club Hero Section -->
-  <section class="genesis-founders-hero">
-    <div 
-      class="genesis-hero-card {isSoldOut ? 'sold-out' : ''}" 
-      on:click={handleCardClick}
-      on:keydown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          handleCardClick();
-        }
-      }}
-      role="button" 
-      tabindex="0"
-      aria-expanded={showFoundersList}
-      aria-label="Toggle Founders Club list"
-    >
-      <div class="genesis-hero-content">
-        <div class="genesis-hero-icon">🔥</div>
-        <div class="genesis-hero-text">
-          <h2>Founders Club</h2>
-          <p class="genesis-hero-countdown">
-            {spotsTaken}/{TOTAL_GENESIS_SPOTS} taken
-          </p>
-        </div>
-        <div class="genesis-hero-arrow">
-          <svg 
-            class="arrow-icon {showFoundersList ? 'rotated' : ''}" 
-            width="24" 
-            height="24" 
-            viewBox="0 0 24 24" 
-            fill="none" 
-            stroke="currentColor" 
-            stroke-width="2"
-          >
-            <path d="M6 9l6 6 6-6"/>
-          </svg>
-        </div>
+    <!-- Value Props Row -->
+    <section class="value-props">
+      <div class="value-prop">
+        <span class="value-prop-icon">✨</span>
+        <span class="value-prop-label">AI Recipe Tools</span>
       </div>
-      {#if spotsRemaining > 0}
-        <div class="genesis-hero-progress">
-          <div class="progress-bar">
-            <div 
-              class="progress-fill" 
-              style="width: {(spotsTaken / TOTAL_GENESIS_SPOTS) * 100}%"
-            ></div>
-          </div>
-          <p class="progress-text">{spotsRemaining} spots remaining</p>
-          <p class="urgency-text">These spots won't last — claim yours before they're gone</p>
-        </div>
-      {/if}
-      {#if !showFoundersList}
-        <p class="card-hint">Click to learn more</p>
-      {/if}
-    </div>
-  </section>
-
-  <!-- Founders Club Checkout Section (shown when expanded) -->
-  {#if showFoundersList && !isSoldOut}
-    <section class="genesis-checkout-section">
-      <div class="genesis-checkout-card">
-        <div class="genesis-checkout-header">
-          <h3>Join Founders Club</h3>
-          <p class="genesis-checkout-price">$210 <span>lifetime</span></p>
-        </div>
-        
-        <div class="genesis-checkout-benefits">
-          <h4>What you get:</h4>
-          
-          <!-- Lifetime Membership -->
-          <div class="benefit-section">
-            <h5 class="section-header">Lifetime Membership</h5>
-            <ul class="benefit-list">
-              <li>
-                <span class="checkmark">✓</span>
-                <span class="feature-text">Lifetime Pro Kitchen membership (never expires)</span>
-              </li>
-              <li>
-                <span class="checkmark">✓</span>
-                <span class="feature-text">All future Pro Kitchen features included</span>
-              </li>
-            </ul>
-          </div>
-
-          <!-- Section Divider -->
-          <div class="section-divider"></div>
-
-          <!-- Founders Club Exclusive -->
-          <div class="benefit-section">
-            <h5 class="section-header">Founders Club Exclusive</h5>
-            <ul class="benefit-list">
-              <li>
-                <span class="checkmark">✓</span>
-                <span class="feature-text">Founders Club badge (#{spotsTaken + 1}-21)</span>
-              </li>
-              <li>
-                <span class="checkmark">✓</span>
-                <span class="feature-text">Name permanently displayed as a Founder</span>
-              </li>
-            </ul>
-          </div>
-
-          <!-- Section Divider -->
-          <div class="section-divider"></div>
-
-          <!-- Access & Features -->
-          <div class="benefit-section">
-            <h5 class="section-header">Access & Features</h5>
-            <ul class="benefit-list">
-              <li>
-                <span class="checkmark">✓</span>
-                <span class="feature-text">Verified @zap.cooking NIP-05 identity</span>
-              </li>
-              <li>
-                <span class="checkmark">✓</span>
-                <span class="feature-text">Access to pantry.zap.cooking relay</span>
-              </li>
-              <li>
-                <span class="checkmark">✓</span>
-                <span class="feature-text">Nourish recipe intelligence</span>
-              </li>
-              <li>
-                <span class="checkmark">✓</span>
-                <span class="feature-text">Buy and sell on the Market</span>
-              </li>
-            </ul>
-          </div>
-        </div>
-        
-        <div class="genesis-checkout-urgency">
-          <p>Only <strong>{spotsRemaining} of {TOTAL_GENESIS_SPOTS} spots remaining</strong></p>
-        </div>
-        
-        <button 
-          class="genesis-claim-button"
-          on:click={handleClaimSpot}
-          disabled={isCheckingOut || isSoldOut || !isLoggedIn}
-        >
-          {#if !isLoggedIn}
-            Login to Claim Your Spot
-          {:else if isCheckingOut}
-            Processing...
-          {:else if isSoldOut}
-            Sold Out
-          {:else}
-            Claim Your Spot
-          {/if}
-        </button>
+      <div class="value-prop">
+        <span class="value-prop-icon">📡</span>
+        <span class="value-prop-label">Private Relay</span>
+      </div>
+      <div class="value-prop">
+        <span class="value-prop-icon">⚡</span>
+        <span class="value-prop-label">Bitcoin Payments</span>
+      </div>
+      <div class="value-prop">
+        <span class="value-prop-icon">🔓</span>
+        <span class="value-prop-label">Own Your Data</span>
       </div>
     </section>
-  {/if}
 
-  <!-- Founders Club Link (shown when expanded) -->
-  {#if showFoundersList}
-    <section class="genesis-founders-link">
-      <a href="/founders" class="founders-link-button">
-        View Founders Club Members
-      </a>
-    </section>
-  {/if}
-
-  <!-- Active Membership Management (legacy card, hidden when API dashboard shows) -->
-  {#if hasActiveCardMembership && currentMembership && !isActiveMemberApi}
-    <section class="active-membership">
-      <div class="active-membership-card">
-        <div class="active-membership-header">
-          <h3>Your Membership</h3>
-          <span class="active-badge">Active</span>
+    <!-- Founders Club Hero Section -->
+    <section class="genesis-founders-hero">
+      <div
+        class="genesis-hero-card {isSoldOut ? 'sold-out' : ''}"
+        on:click={handleCardClick}
+        on:keydown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            handleCardClick();
+          }
+        }}
+        role="button"
+        tabindex="0"
+        aria-expanded={showFoundersList}
+        aria-label="Toggle Founders Club list"
+      >
+        <div class="genesis-hero-content">
+          <div class="genesis-hero-icon">🔥</div>
+          <div class="genesis-hero-text">
+            <h2>Founders Club</h2>
+            <p class="genesis-hero-countdown">
+              {spotsTaken}/{TOTAL_GENESIS_SPOTS} taken
+            </p>
+          </div>
+          <div class="genesis-hero-arrow">
+            <svg
+              class="arrow-icon {showFoundersList ? 'rotated' : ''}"
+              width="24"
+              height="24"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+            >
+              <path d="M6 9l6 6 6-6" />
+            </svg>
+          </div>
         </div>
-        <div class="active-membership-details">
-          <p class="membership-tier-name">
-            {currentMembership.tier === 'cook_plus' ? 'Cook+' : currentMembership.tier === 'founders' ? 'Founders Club' : 'Pro Kitchen'}
-          </p>
-          <p class="membership-expiry">
-            Expires {formatMembershipExpiry(currentMembership.expiresAt)}
-          </p>
-        </div>
-        {#if manageError}
-          <div class="manage-error">{manageError}</div>
+        {#if spotsRemaining > 0}
+          <div class="genesis-hero-progress">
+            <div class="progress-bar">
+              <div
+                class="progress-fill"
+                style="width: {(spotsTaken / TOTAL_GENESIS_SPOTS) * 100}%"
+              ></div>
+            </div>
+            <p class="progress-text">{spotsRemaining} spots remaining</p>
+            <p class="urgency-text">These spots won't last — claim yours before they're gone</p>
+          </div>
         {/if}
-        <button
-          class="manage-subscription-button"
-          on:click={handleManageSubscription}
-          disabled={managingSubscription}
-        >
-          {#if managingSubscription}
-            Opening portal...
-          {:else}
-            Manage Subscription
-          {/if}
-        </button>
+        {#if !showFoundersList}
+          <p class="card-hint">Click to learn more</p>
+        {/if}
       </div>
     </section>
-  {/if}
 
-  <!-- Membership Tiers Section -->
-  <section class="tiers" id="pricing">
-    <h2 class="section-label">Choose Your Plan</h2>
-
-    <PricingToggle
-      period={billingPeriod}
-      onPeriodChange={handlePeriodChange}
-      savingsPercent={savingsPercent}
-    />
-
-    <div class="tiers-grid">
-      <div class="tier-card cook-plus">
-        <h3>Cook+</h3>
-        <div class="price">
-          <div class="price-container">
-            {#if billingPeriod === 'annual'}
-              $49<span>/year</span>
-            {:else}
-              $4.99<span>/mo</span>
-            {/if}
-          </div>
-          <div class="price-subtext">
-            {#if billingPeriod === 'annual'}
-              That's just ${cookMonthlyEquivalent}/month
-            {:else}
-              <button class="annual-link" on:click={switchToAnnual}>
-                or $49/year — save with annual
-              </button>
-            {/if}
-          </div>
-        </div>
-        
-        <div class="tier-benefits">
-          <!-- Premium Tools -->
-          <div class="benefit-section">
-            <h4 class="section-header">Premium Tools</h4>
-            <ul class="benefit-list">
-              <li>
-                <span class="feature-icon">✨</span>
-                <div class="feature-content">
-                  <a href="/souschef" class="feature-link">Sous Chef - Extract recipes from any link, photo, or pasted text instantly</a>
-                  <span class="feature-subtext">Save time - let it do the work</span>
-                </div>
-              </li>
-              <li>
-                <span class="feature-icon">🌱</span>
-                <div class="feature-content">
-                  <a href="/nourish" class="feature-link">Nourish - Recipe intelligence scores for gut health, protein, and real food</a>
-                  <span class="feature-subtext">Understand what your food is doing for you</span>
-                </div>
-              </li>
-            </ul>
+    <!-- Founders Club Checkout Section (shown when expanded) -->
+    {#if showFoundersList && !isSoldOut}
+      <section class="genesis-checkout-section">
+        <div class="genesis-checkout-card">
+          <div class="genesis-checkout-header">
+            <h3>Join Founders Club</h3>
+            <p class="genesis-checkout-price">$210 <span>lifetime</span></p>
           </div>
 
-          <div class="section-divider"></div>
+          <div class="genesis-checkout-benefits">
+            <h4>What you get:</h4>
 
-          <!-- Community & Content -->
-          <div class="benefit-section">
-            <h4 class="section-header">Community & Content</h4>
-            <ul class="benefit-list">
-              <li>
-                <span class="checkmark">✓</span>
-                <span class="feature-text">Verified @zap.cooking NIP-05 identity</span>
-              </li>
-              <li>
-                <span class="checkmark">✓</span>
-                <span class="feature-text">Access to pantry.zap.cooking private relay</span>
-              </li>
-              <li>
-                <span class="checkmark">✓</span>
-                <a href="/market" class="feature-link">Buy and sell on the Market</a>
-              </li>
-              <li>
-                <span class="checkmark">✓</span>
-                <span class="feature-text">Featured recipe collections</span>
-              </li>
-              <li>
-                <span class="checkmark">✓</span>
-                <span class="feature-text">Exclusive Cook+ member badge</span>
-              </li>
-            </ul>
-          </div>
+            <!-- Lifetime Membership -->
+            <div class="benefit-section">
+              <h5 class="section-header">Lifetime Membership</h5>
+              <ul class="benefit-list">
+                <li>
+                  <span class="checkmark">✓</span>
+                  <span class="feature-text">Lifetime Pro Kitchen membership (never expires)</span>
+                </li>
+                <li>
+                  <span class="checkmark">✓</span>
+                  <span class="feature-text">All future Pro Kitchen features included</span>
+                </li>
+              </ul>
+            </div>
 
-          <div class="section-divider"></div>
+            <!-- Section Divider -->
+            <div class="section-divider"></div>
 
-          <!-- Member Perks -->
-          <div class="benefit-section">
-            <h4 class="section-header">Member Perks</h4>
-            <ul class="benefit-list">
-              <li>
-                <span class="checkmark">✓</span>
-                <span class="feature-text">Early access to new features</span>
-              </li>
-              <li>
-                <span class="checkmark">✓</span>
-                <span class="feature-text">Vote on features and roadmap</span>
-              </li>
-            </ul>
-          </div>
-        </div>
-        
-        <button class="tier-button" on:click={goToCookPlusCheckout}>Join Cook+</button>
-        <div class="payment-indicators">
-          <span>⚡ Bitcoin preferred</span>
-          <span class="separator">•</span>
-          <span>💳 Card accepted</span>
-        </div>
-      </div>
+            <!-- Founders Club Exclusive -->
+            <div class="benefit-section">
+              <h5 class="section-header">Founders Club Exclusive</h5>
+              <ul class="benefit-list">
+                <li>
+                  <span class="checkmark">✓</span>
+                  <span class="feature-text">Founders Club badge (#{spotsTaken + 1}-21)</span>
+                </li>
+                <li>
+                  <span class="checkmark">✓</span>
+                  <span class="feature-text">Name permanently displayed as a Founder</span>
+                </li>
+              </ul>
+            </div>
 
-      <div class="tier-card pro-kitchen">
-        <div class="popular-badge-floating">Most Popular</div>
-        <h3>Pro Kitchen</h3>
-        <div class="price">
-          <div class="price-container">
-            {#if billingPeriod === 'annual'}
-              $89<span>/year</span>
-            {:else}
-              $8.99<span>/mo</span>
-            {/if}
-          </div>
-          <div class="price-subtext">
-            {#if billingPeriod === 'annual'}
-              That's just ${proMonthlyEquivalent}/month
-            {:else}
-              <button class="annual-link" on:click={switchToAnnual}>
-                or $89/year — save with annual
-              </button>
-            {/if}
-          </div>
-        </div>
-        
-        <div class="tier-benefits">
-          <!-- Includes All Cook+ Features -->
-          <div class="benefit-section">
-            <h4 class="section-header">Includes All Cook+ Features</h4>
-            <ul class="benefit-list">
-              <li>
-                <span class="checkmark">✓</span>
-                <span class="feature-text muted-text">Everything in Cook+ (Sous Chef, Nourish, NIP-05 identity, Market access, pantry relay, collections, badge, early access, voting)</span>
-              </li>
-            </ul>
-          </div>
+            <!-- Section Divider -->
+            <div class="section-divider"></div>
 
-          <div class="section-divider"></div>
-
-          <!-- Pro Kitchen Exclusive Features -->
-          <div class="benefit-section">
-            <h4 class="section-header">Pro Kitchen Exclusive Features</h4>
-            <ul class="benefit-list">
-              <li>
-                <span class="checkmark">✓</span>
-                <a href="/premium" class="feature-link">Lightning-gated recipes</a>
-              </li>
-              <li>
-                <span class="checkmark">✓</span>
-                <span class="feature-text">Priority recipe promotion</span>
-              </li>
-            </ul>
-          </div>
-
-          <div class="section-divider"></div>
-
-          <!-- Kitchen Tools -->
-          <div class="benefit-section">
-            <h4 class="section-header">Kitchen Tools</h4>
-            <ul class="benefit-list">
-              <li>
-                <span class="feature-icon">🤖</span>
-                <div class="feature-content">
-                  <a href="/zappy" class="feature-link">Chef ₿ - Scan your fridge, generate recipes, and plan what to make tonight</a>
-                  <span class="feature-subtext">Your personal kitchen companion</span>
-                </div>
-              </li>
-              <li>
-                <span class="feature-icon">✨</span>
-                <div class="feature-content">
-                  <span class="feature-text">Sous Chef features</span>
-                </div>
-              </li>
-              <li>
-                <span class="feature-icon">🌱</span>
-                <div class="feature-content">
+            <!-- Access & Features -->
+            <div class="benefit-section">
+              <h5 class="section-header">Access & Features</h5>
+              <ul class="benefit-list">
+                <li>
+                  <span class="checkmark">✓</span>
+                  <span class="feature-text">Verified @zap.cooking NIP-05 identity</span>
+                </li>
+                <li>
+                  <span class="checkmark">✓</span>
+                  <span class="feature-text">Access to pantry.zap.cooking relay</span>
+                </li>
+                <li>
+                  <span class="checkmark">✓</span>
                   <span class="feature-text">Nourish recipe intelligence</span>
-                </div>
-              </li>
-            </ul>
+                </li>
+                <li>
+                  <span class="checkmark">✓</span>
+                  <span class="feature-text">Buy and sell on the Market</span>
+                </li>
+              </ul>
+            </div>
           </div>
 
+          <div class="genesis-checkout-urgency">
+            <p>Only <strong>{spotsRemaining} of {TOTAL_GENESIS_SPOTS} spots remaining</strong></p>
+          </div>
+
+          <button
+            class="genesis-claim-button"
+            on:click={handleClaimSpot}
+            disabled={isCheckingOut || isSoldOut || !isLoggedIn}
+          >
+            {#if !isLoggedIn}
+              Login to Claim Your Spot
+            {:else if isCheckingOut}
+              Processing...
+            {:else if isSoldOut}
+              Sold Out
+            {:else}
+              Claim Your Spot
+            {/if}
+          </button>
         </div>
-        
-        <button class="tier-button primary" on:click={goToProKitchenCheckout}>Join Pro Kitchen</button>
-        <div class="payment-indicators">
-          <span>⚡ Bitcoin preferred</span>
-          <span class="separator">•</span>
-          <span>💳 Card accepted</span>
+      </section>
+    {/if}
+
+    <!-- Founders Club Link (shown when expanded) -->
+    {#if showFoundersList}
+      <section class="genesis-founders-link">
+        <a href="/founders" class="founders-link-button"> View Founders Club Members </a>
+      </section>
+    {/if}
+
+    <!-- Active Membership Management (legacy card, hidden when API dashboard shows) -->
+    {#if hasActiveCardMembership && currentMembership && !isActiveMemberApi}
+      <section class="active-membership">
+        <div class="active-membership-card">
+          <div class="active-membership-header">
+            <h3>Your Membership</h3>
+            <span class="active-badge">Active</span>
+          </div>
+          <div class="active-membership-details">
+            <p class="membership-tier-name">
+              {currentMembership.tier === 'cook_plus'
+                ? 'Cook+'
+                : currentMembership.tier === 'founders'
+                  ? 'Founders Club'
+                  : 'Pro Kitchen'}
+            </p>
+            <p class="membership-expiry">
+              Expires {formatMembershipExpiry(currentMembership.expiresAt)}
+            </p>
+          </div>
+          {#if manageError}
+            <div class="manage-error">{manageError}</div>
+          {/if}
+          <button
+            class="manage-subscription-button"
+            on:click={handleManageSubscription}
+            disabled={managingSubscription}
+          >
+            {#if managingSubscription}
+              Opening portal...
+            {:else}
+              Manage Subscription
+            {/if}
+          </button>
+        </div>
+      </section>
+    {/if}
+
+    <!-- Membership Tiers Section -->
+    <section class="tiers" id="pricing">
+      <h2 class="section-label">Choose Your Plan</h2>
+
+      <PricingToggle period={billingPeriod} onPeriodChange={handlePeriodChange} {savingsPercent} />
+
+      <div class="tiers-grid">
+        <div class="tier-card cook-plus">
+          <h3>Cook+</h3>
+          <div class="price">
+            <div class="price-container">
+              {#if billingPeriod === 'annual'}
+                $49<span>/year</span>
+              {:else}
+                $4.99<span>/mo</span>
+              {/if}
+            </div>
+            <div class="price-subtext">
+              {#if billingPeriod === 'annual'}
+                That's just ${cookMonthlyEquivalent}/month
+              {:else}
+                <button class="annual-link" on:click={switchToAnnual}>
+                  or $49/year — save with annual
+                </button>
+              {/if}
+            </div>
+          </div>
+
+          <div class="tier-benefits">
+            <!-- Premium Tools -->
+            <div class="benefit-section">
+              <h4 class="section-header">Premium Tools</h4>
+              <ul class="benefit-list">
+                <li>
+                  <span class="feature-icon">✨</span>
+                  <div class="feature-content">
+                    <a href="/souschef" class="feature-link"
+                      >Sous Chef - Extract recipes from any link, photo, or pasted text instantly</a
+                    >
+                    <span class="feature-subtext">Save time - let it do the work</span>
+                  </div>
+                </li>
+                <li>
+                  <span class="feature-icon">🌱</span>
+                  <div class="feature-content">
+                    <a href="/nourish" class="feature-link"
+                      >Nourish - Recipe intelligence scores for gut health, protein, and real food</a
+                    >
+                    <span class="feature-subtext">Understand what your food is doing for you</span>
+                  </div>
+                </li>
+              </ul>
+            </div>
+
+            <div class="section-divider"></div>
+
+            <!-- Community & Content -->
+            <div class="benefit-section">
+              <h4 class="section-header">Community & Content</h4>
+              <ul class="benefit-list">
+                <li>
+                  <span class="checkmark">✓</span>
+                  <span class="feature-text">Verified @zap.cooking NIP-05 identity</span>
+                </li>
+                <li>
+                  <span class="checkmark">✓</span>
+                  <span class="feature-text">Access to pantry.zap.cooking private relay</span>
+                </li>
+                <li>
+                  <span class="checkmark">✓</span>
+                  <a href="/market" class="feature-link">Buy and sell on the Market</a>
+                </li>
+                <li>
+                  <span class="checkmark">✓</span>
+                  <span class="feature-text">Featured recipe collections</span>
+                </li>
+                <li>
+                  <span class="checkmark">✓</span>
+                  <span class="feature-text">Exclusive Cook+ member badge</span>
+                </li>
+              </ul>
+            </div>
+
+            <div class="section-divider"></div>
+
+            <!-- Member Perks -->
+            <div class="benefit-section">
+              <h4 class="section-header">Member Perks</h4>
+              <ul class="benefit-list">
+                <li>
+                  <span class="checkmark">✓</span>
+                  <span class="feature-text">Early access to new features</span>
+                </li>
+                <li>
+                  <span class="checkmark">✓</span>
+                  <span class="feature-text">Vote on features and roadmap</span>
+                </li>
+              </ul>
+            </div>
+          </div>
+
+          <button class="tier-button" on:click={goToCookPlusCheckout}>Join Cook+</button>
+          <div class="payment-indicators">
+            <span>⚡ Bitcoin preferred</span>
+            <span class="separator">•</span>
+            <span>💳 Card accepted</span>
+          </div>
+        </div>
+
+        <div class="tier-card pro-kitchen">
+          <div class="popular-badge-floating">Most Popular</div>
+          <h3>Pro Kitchen</h3>
+          <div class="price">
+            <div class="price-container">
+              {#if billingPeriod === 'annual'}
+                $89<span>/year</span>
+              {:else}
+                $8.99<span>/mo</span>
+              {/if}
+            </div>
+            <div class="price-subtext">
+              {#if billingPeriod === 'annual'}
+                That's just ${proMonthlyEquivalent}/month
+              {:else}
+                <button class="annual-link" on:click={switchToAnnual}>
+                  or $89/year — save with annual
+                </button>
+              {/if}
+            </div>
+          </div>
+
+          <div class="tier-benefits">
+            <!-- Includes All Cook+ Features -->
+            <div class="benefit-section">
+              <h4 class="section-header">Includes All Cook+ Features</h4>
+              <ul class="benefit-list">
+                <li>
+                  <span class="checkmark">✓</span>
+                  <span class="feature-text muted-text"
+                    >Everything in Cook+ (Sous Chef, Nourish, NIP-05 identity, Market access, pantry
+                    relay, collections, badge, early access, voting)</span
+                  >
+                </li>
+              </ul>
+            </div>
+
+            <div class="section-divider"></div>
+
+            <!-- Pro Kitchen Exclusive Features -->
+            <div class="benefit-section">
+              <h4 class="section-header">Pro Kitchen Exclusive Features</h4>
+              <ul class="benefit-list">
+                <li>
+                  <span class="checkmark">✓</span>
+                  <a href="/premium" class="feature-link">Lightning-gated recipes</a>
+                </li>
+                <li>
+                  <span class="checkmark">✓</span>
+                  <span class="feature-text">Priority recipe promotion</span>
+                </li>
+              </ul>
+            </div>
+
+            <div class="section-divider"></div>
+
+            <!-- Kitchen Tools -->
+            <div class="benefit-section">
+              <h4 class="section-header">Kitchen Tools</h4>
+              <ul class="benefit-list">
+                <li>
+                  <span class="feature-icon">🧑‍🍳</span>
+                  <div class="feature-content">
+                    <a href="/cheffy" class="feature-link"
+                      >Cheffy - Ask cooking questions, use what you have, fix a mistake, or turn an
+                      idea into dinner</a
+                    >
+                    <span class="feature-subtext">Your kitchen companion</span>
+                  </div>
+                </li>
+                <li>
+                  <span class="feature-icon">✨</span>
+                  <div class="feature-content">
+                    <span class="feature-text">Sous Chef features</span>
+                  </div>
+                </li>
+                <li>
+                  <span class="feature-icon">🌱</span>
+                  <div class="feature-content">
+                    <span class="feature-text">Nourish recipe intelligence</span>
+                  </div>
+                </li>
+              </ul>
+            </div>
+          </div>
+
+          <button class="tier-button primary" on:click={goToProKitchenCheckout}
+            >Join Pro Kitchen</button
+          >
+          <div class="payment-indicators">
+            <span>⚡ Bitcoin preferred</span>
+            <span class="separator">•</span>
+            <span>💳 Card accepted</span>
+          </div>
         </div>
       </div>
-    </div>
-  </section>
+    </section>
   {/if}
 </div>
 
@@ -860,11 +905,16 @@
 
   .member-avatar-glow {
     border-radius: 9999px;
-    box-shadow: 0 0 12px rgba(245, 158, 11, 0.4), 0 0 24px rgba(249, 115, 22, 0.15);
+    box-shadow:
+      0 0 12px rgba(245, 158, 11, 0.4),
+      0 0 24px rgba(249, 115, 22, 0.15);
   }
 
   .member-avatar-glow.founders-glow {
-    box-shadow: 0 0 14px rgba(245, 158, 11, 0.5), 0 0 28px rgba(249, 115, 22, 0.25), 0 0 48px rgba(249, 115, 22, 0.1);
+    box-shadow:
+      0 0 14px rgba(245, 158, 11, 0.5),
+      0 0 28px rgba(249, 115, 22, 0.25),
+      0 0 48px rgba(249, 115, 22, 0.1);
   }
 
   .member-dashboard-identity-text {
@@ -1125,7 +1175,7 @@
     padding: 2.5rem;
     cursor: pointer;
     transition: all 0.3s ease;
-    box-shadow: 
+    box-shadow:
       0 8px 32px rgba(236, 71, 0, 0.15),
       0 0 0 1px rgba(236, 71, 0, 0.1),
       inset 0 1px 0 rgba(255, 255, 255, 0.05);
@@ -1147,7 +1197,7 @@
 
   .genesis-hero-card:hover {
     transform: translateY(-2px);
-    box-shadow: 
+    box-shadow:
       0 12px 40px rgba(236, 71, 0, 0.25),
       0 0 0 1px rgba(236, 71, 0, 0.2),
       inset 0 1px 0 rgba(255, 255, 255, 0.1);
@@ -1233,7 +1283,9 @@
   }
 
   @keyframes fillProgress {
-    from { width: 0; }
+    from {
+      width: 0;
+    }
   }
 
   .progress-text {
@@ -1288,7 +1340,7 @@
     border-image: linear-gradient(135deg, var(--color-primary) 0%, #ff6b00 50%, #ff4500 100%) 1;
     border-radius: 16px;
     padding: 2.5rem;
-    box-shadow: 
+    box-shadow:
       0 8px 32px rgba(236, 71, 0, 0.15),
       0 0 0 1px rgba(236, 71, 0, 0.1);
   }
@@ -1483,7 +1535,9 @@
     border-radius: 16px;
     padding: 2rem;
     position: relative;
-    transition: transform 0.2s, box-shadow 0.2s;
+    transition:
+      transform 0.2s,
+      box-shadow 0.2s;
     display: flex;
     flex-direction: column;
   }
@@ -1860,6 +1914,5 @@
     .value-prop-label {
       font-size: 0.85rem;
     }
-
   }
 </style>

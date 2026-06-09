@@ -68,6 +68,7 @@
   // currently on one of the AI surfaces.
   $: onIntelligenceSurface =
     $page.url.pathname.startsWith('/souschef') ||
+    $page.url.pathname.startsWith('/cheffy') ||
     $page.url.pathname.startsWith('/zappy') ||
     $page.url.pathname.startsWith('/nourish');
 
