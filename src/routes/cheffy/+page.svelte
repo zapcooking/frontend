@@ -146,12 +146,29 @@
 
   $: canSend = (input.trim().length > 0 || detectedIngredients.length > 0) && !loading;
 
+  let unsubMembershipReady: (() => void) | null = null;
+
   onMount(() => {
     if (!$userPublickey) {
       goto('/login?redirect=/cheffy');
       return;
     }
-    isLoading = false;
+
+    // Wait for membershipStatusMap to resolve this pubkey to avoid briefly showing
+    // the upsell UI for active members.
+    const pk = normalizedPk;
+    if (!/^[a-f0-9]{64}$/.test(pk) || membershipMap[pk] !== undefined) {
+      isLoading = false;
+    } else {
+      isLoading = true;
+      unsubMembershipReady = membershipStatusMap.subscribe((v) => {
+        if (v[pk] !== undefined) {
+          isLoading = false;
+          unsubMembershipReady?.();
+          unsubMembershipReady = null;
+        }
+      });
+    }
 
     // Pull a prompt handed off from Explore (single-use, session-only).
     const handoff = consumeCheffyPrompt();
@@ -166,6 +183,7 @@
   });
 
   onDestroy(() => {
+    unsubMembershipReady?.();
     unsubMembership();
     if (placeholderInterval) clearInterval(placeholderInterval);
     if (copyTimeout) clearTimeout(copyTimeout);
