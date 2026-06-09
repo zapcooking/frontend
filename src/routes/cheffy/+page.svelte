@@ -198,7 +198,10 @@
   // Cosmetic only: decides whether the pending bubble shows the
   // "cooking" or "thinking" expression/line.
   function looksLikeRecipeRequest(text: string): boolean {
-    return /\b(recipe|cook|dinner|lunch|breakfast|dessert|make me|i have:?)\b/i.test(text);
+    return (
+      /\b(recipe|cook|dinner|lunch|breakfast|dessert|make me)\b/i.test(text) ||
+      /\bi have:?\s/i.test(text)
+    );
   }
 
   async function dispatchTurn(
