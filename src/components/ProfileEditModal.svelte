@@ -5,6 +5,7 @@
   import CloudArrowUpIcon from 'phosphor-svelte/lib/CloudArrowUp';
   import ClockCounterClockwiseIcon from 'phosphor-svelte/lib/ClockCounterClockwise';
   import CloseIcon from 'phosphor-svelte/lib/XCircle';
+  import CaretDownIcon from 'phosphor-svelte/lib/CaretDown';
   import Button from './Button.svelte';
   import { ndk, userPublickey } from '$lib/nostr';
   import { NDKEvent } from '@nostr-dev-kit/ndk';
@@ -21,7 +22,9 @@
   export let profile: any = null;
   export let onProfileUpdated: () => void = () => {};
 
-  // Form state
+  // Form state. `noffer` is the user's CLINK static offer (matches the
+  // `noffer` custom field bxrd.app's profile editor writes — see
+  // https://github.com/shocknet/CLINK/blob/main/specs/clink-offers.md).
   let formData = {
     display_name: '',
     name: '',
@@ -30,8 +33,13 @@
     banner: '',
     nip05: '',
     website: '',
-    lud16: ''
+    lud16: '',
+    noffer: ''
   };
+
+  // Advanced section visibility — image URL fields (picture / banner)
+  // live under here so the main form stays focused on identity fields.
+  let showAdvanced = false;
 
   // UI state
   let saving = false;
@@ -54,6 +62,16 @@
   function initializeForm() {
     if (!profile) return;
 
+    // Read noffer tolerantly — the field key isn't formally
+    // standardised; `noffer` is what bxrd.app writes but accept
+    // `offer` / `clink_offer` as fallbacks in case a different client
+    // chose a slightly different key for the same value.
+    const rawNoffer =
+      (typeof profile.noffer === 'string' && profile.noffer) ||
+      (typeof profile.offer === 'string' && profile.offer) ||
+      (typeof profile.clink_offer === 'string' && profile.clink_offer) ||
+      '';
+
     formData = {
       display_name: profile.displayName || profile.display_name || '',
       name: profile.name || '',
@@ -62,11 +80,13 @@
       banner: profile.banner || '',
       nip05: profile.nip05 || '',
       website: profile.website || '',
-      lud16: profile.lud16 || ''
+      lud16: profile.lud16 || '',
+      noffer: rawNoffer
     };
     error = null;
     backupStatus = 'idle';
     showRestorePanel = false;
+    showAdvanced = false;
     fetchLastBackupTimestamp();
   }
 
@@ -283,7 +303,8 @@
         banner: formData.banner.trim(),
         nip05: formData.nip05.trim(),
         website: formData.website.trim(),
-        lud16: formData.lud16.trim()
+        lud16: formData.lud16.trim(),
+        noffer: formData.noffer.trim()
       };
 
       // Remove empty strings (optional - keeps profile clean)
@@ -403,8 +424,11 @@
 </script>
 
 <Modal bind:open cleanup={close} noHeader>
-  <!-- Banner Upload Area -->
-  <div class="relative h-40 overflow-hidden -mx-2 md:-mx-8 -mt-6 rounded-b-xl" style="background-color: var(--color-input-bg);">
+  <!-- Banner Upload Area. Top corners inherit the dialog's rounding
+       (clipped via the dialog's overflow-hidden); bottom is squared so
+       the banner sits flush against the avatar / form below instead of
+       carving an awkward curve into the modal content area. -->
+  <div class="relative h-40 overflow-hidden -mx-2 md:-mx-8 -mt-6" style="background-color: var(--color-input-bg);">
     {#if formData.banner}
       <img src={formData.banner} alt="Banner" class="w-full h-full object-cover" />
     {:else}
@@ -429,41 +453,54 @@
         disabled={uploadingBanner}
       />
     </label>
+
+    <!-- Close button — overlays the banner's top-right corner so it
+         sits in the actual top-right of the dialog (the banner bleeds
+         past the dialog padding via -mx/-mt). Z-index above the
+         upload label so clicks land on the X, not the upload picker. -->
+    <button
+      type="button"
+      class="profile-edit-close-btn"
+      on:click={close}
+      aria-label="Close"
+    >
+      <CloseIcon size={24} weight="fill" />
+    </button>
   </div>
 
-  <!-- Avatar and Close button row -->
-  <div class="flex justify-between items-center -mt-12 mb-4 relative z-10">
+  <!-- Avatar row -->
+  <div class="flex -mt-12 mb-4 relative z-10">
     <!-- Avatar Upload Area -->
     <div class="relative w-24 h-24 ml-2">
-    <div class="w-24 h-24 rounded-full overflow-hidden border-4" style="border-color: var(--color-bg-secondary); background-color: var(--color-input-bg);">
-      {#if formData.picture}
-        <img src={formData.picture} alt="Profile" class="w-full h-full object-cover" />
-      {:else}
-        <div class="w-full h-full flex items-center justify-center">
-          <CameraIcon size={32} class="text-caption" />
-        </div>
-      {/if}
+      <div
+        class="w-24 h-24 rounded-full overflow-hidden border-4"
+        style="border-color: var(--color-bg-secondary); background-color: var(--color-input-bg);"
+      >
+        {#if formData.picture}
+          <img src={formData.picture} alt="Profile" class="w-full h-full object-cover" />
+        {:else}
+          <div class="w-full h-full flex items-center justify-center">
+            <CameraIcon size={32} class="text-caption" />
+          </div>
+        {/if}
+      </div>
+      <label
+        class="absolute inset-0 w-24 h-24 rounded-full flex items-center justify-center cursor-pointer bg-black/30 hover:bg-black/50 transition-all"
+      >
+        {#if uploadingPicture}
+          <SpinnerIcon size={24} class="text-white animate-spin" />
+        {:else}
+          <CameraIcon size={24} class="text-white" />
+        {/if}
+        <input
+          type="file"
+          class="sr-only"
+          accept="image/*"
+          on:change={handlePictureUpload}
+          disabled={uploadingPicture}
+        />
+      </label>
     </div>
-    <label class="absolute inset-0 w-24 h-24 rounded-full flex items-center justify-center cursor-pointer bg-black/30 hover:bg-black/50 transition-all">
-      {#if uploadingPicture}
-        <SpinnerIcon size={24} class="text-white animate-spin" />
-      {:else}
-        <CameraIcon size={24} class="text-white" />
-      {/if}
-      <input
-        type="file"
-        class="sr-only"
-        accept="image/*"
-        on:change={handlePictureUpload}
-        disabled={uploadingPicture}
-      />
-    </label>
-    </div>
-
-    <!-- Close button -->
-    <button class="cursor-pointer" style="color: var(--color-text-primary)" on:click={close}>
-      <CloseIcon size={24} />
-    </button>
   </div>
 
   <!-- Error Message -->
@@ -485,7 +522,11 @@
     </div>
   {/if}
 
-  <!-- Form Fields -->
+  <!-- Form Fields. Order matches the natural profile-page reading
+       order — identity first, then payment fields, then website at the
+       end. Image URL inputs live under "Advanced" because the avatar /
+       banner are typically set via the upload UI above, not the URL
+       field; surfacing them inline crowded the form. -->
   <div class="flex flex-col gap-4" style="touch-action: auto; user-select: text;">
     <div>
       <label for="profile-display-name" class="block text-sm font-medium mb-1 text-caption">Display Name</label>
@@ -525,32 +566,6 @@
     </div>
 
     <div>
-      <label for="profile-picture-url" class="block text-sm font-medium mb-1 text-caption">Profile Picture URL</label>
-      <input
-        id="profile-picture-url"
-        type="url"
-        class="input w-full"
-        style="touch-action: auto; user-select: text; -webkit-user-select: text;"
-        placeholder="https://..."
-        bind:value={formData.picture}
-      />
-      <p class="text-xs text-caption mt-1">Or click the avatar above to upload</p>
-    </div>
-
-    <div>
-      <label for="profile-banner-url" class="block text-sm font-medium mb-1 text-caption">Banner URL</label>
-      <input
-        id="profile-banner-url"
-        type="url"
-        class="input w-full"
-        style="touch-action: auto; user-select: text; -webkit-user-select: text;"
-        placeholder="https://..."
-        bind:value={formData.banner}
-      />
-      <p class="text-xs text-caption mt-1">Or click the banner above to upload</p>
-    </div>
-
-    <div>
       <label for="profile-nip05" class="block text-sm font-medium mb-1 text-caption">NIP-05 Identifier</label>
       <input
         id="profile-nip05"
@@ -560,6 +575,37 @@
         placeholder="you@example.com"
         bind:value={formData.nip05}
       />
+    </div>
+
+    <div>
+      <label for="profile-lud16" class="block text-sm font-medium mb-1 text-caption">Lightning Address (lud16)</label>
+      <input
+        id="profile-lud16"
+        type="text"
+        class="input w-full"
+        style="touch-action: auto; user-select: text; -webkit-user-select: text;"
+        placeholder="you@getalby.com"
+        bind:value={formData.lud16}
+      />
+    </div>
+
+    <div>
+      <label for="profile-noffer" class="block text-sm font-medium mb-1 text-caption">CLINK offer (noffer)</label>
+      <input
+        id="profile-noffer"
+        type="text"
+        class="input w-full"
+        style="touch-action: auto; user-select: text; -webkit-user-select: text;"
+        placeholder="noffer1..."
+        bind:value={formData.noffer}
+        autocomplete="off"
+        autocorrect="off"
+        autocapitalize="off"
+        spellcheck="false"
+      />
+      <p class="text-xs text-caption mt-1">
+        Optional. CLINK static offer for self-custodial Lightning payments. Generate one with ShockWallet or Lightning.Pub.
+      </p>
     </div>
 
     <div>
@@ -574,16 +620,59 @@
       />
     </div>
 
-    <div>
-      <label for="profile-lud16" class="block text-sm font-medium mb-1 text-caption">Lightning Address</label>
-      <input
-        id="profile-lud16"
-        type="text"
-        class="input w-full"
-        style="touch-action: auto; user-select: text; -webkit-user-select: text;"
-        placeholder="you@getalby.com"
-        bind:value={formData.lud16}
-      />
+    <!-- Advanced: image URLs. Collapsed by default — most users set
+         these via the avatar/banner upload widgets above. -->
+    <div class="border-t pt-3" style="border-color: var(--color-input-border);">
+      <button
+        type="button"
+        class="w-full flex items-center justify-between text-sm font-medium text-caption hover:text-primary transition-colors"
+        on:click={() => (showAdvanced = !showAdvanced)}
+        aria-expanded={showAdvanced}
+        aria-controls="profile-advanced-section"
+      >
+        <span>Advanced</span>
+        <CaretDownIcon
+          size={16}
+          weight="bold"
+          class="transition-transform {showAdvanced ? 'rotate-180' : ''}"
+        />
+      </button>
+
+      {#if showAdvanced}
+        <div id="profile-advanced-section" class="flex flex-col gap-4 mt-4">
+          <div>
+            <label
+              for="profile-picture-url"
+              class="block text-sm font-medium mb-1 text-caption">Profile Picture URL</label
+            >
+            <input
+              id="profile-picture-url"
+              type="url"
+              class="input w-full"
+              style="touch-action: auto; user-select: text; -webkit-user-select: text;"
+              placeholder="https://..."
+              bind:value={formData.picture}
+            />
+            <p class="text-xs text-caption mt-1">Or click the avatar above to upload</p>
+          </div>
+
+          <div>
+            <label
+              for="profile-banner-url"
+              class="block text-sm font-medium mb-1 text-caption">Banner URL</label
+            >
+            <input
+              id="profile-banner-url"
+              type="url"
+              class="input w-full"
+              style="touch-action: auto; user-select: text; -webkit-user-select: text;"
+              placeholder="https://..."
+              bind:value={formData.banner}
+            />
+            <p class="text-xs text-caption mt-1">Or click the banner above to upload</p>
+          </div>
+        </div>
+      {/if}
     </div>
   </div>
 
@@ -672,3 +761,35 @@
     {/if}
   </div>
 </Modal>
+
+<style>
+  /* Close (×) — overlays the banner's top-right corner. The banner
+     bleeds past the dialog's padding via `-mx-2 md:-mx-8 -mt-6` and
+     this button rides along, sitting in the actual top-right of the
+     dialog regardless of the dialog's padding. Translucent black pill
+     so the X reads on both light and dark banner photos. */
+  .profile-edit-close-btn {
+    position: absolute;
+    top: 0.5rem;
+    right: 0.5rem;
+    width: 36px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 9999px;
+    background-color: rgba(0, 0, 0, 0.45);
+    color: #fff;
+    border: none;
+    cursor: pointer;
+    z-index: 20;
+    transition: background-color 0.15s ease-out;
+  }
+  .profile-edit-close-btn:hover {
+    background-color: rgba(0, 0, 0, 0.65);
+  }
+  .profile-edit-close-btn:focus-visible {
+    outline: 2px solid #fff;
+    outline-offset: 2px;
+  }
+</style>
