@@ -1,4 +1,5 @@
 import { json, type RequestHandler } from '@sveltejs/kit';
+import { dev } from '$app/environment';
 import { env } from '$env/dynamic/private';
 import { lookupMember } from '$lib/membershipApi.server';
 
@@ -30,7 +31,9 @@ function parsePubkeys(url: URL): string[] {
 }
 
 function mockMembership(pubkey: string): ApiMembershipStatus {
-  // Deterministic mock for local/dev environments without membership backend configured.
+  // Deterministic mock for local dev without the membership backend
+  // configured. Only reachable when `dev` is true — production and
+  // preview builds fail loudly instead (see below).
   const bucket = parseInt(pubkey.slice(-2), 16) % 5;
   if (bucket === 0) return { active: true, tier: 'cook_plus' };
   if (bucket === 1) return { active: true, tier: 'pro_kitchen' };
@@ -52,14 +55,20 @@ export const GET: RequestHandler = async ({ url, platform }) => {
   ).toLowerCase();
   const apiSecret = platform?.env?.RELAY_API_SECRET || env.RELAY_API_SECRET;
 
-  // TODO: wire this endpoint to the canonical membership source for all environments.
-  const shouldUseLiveLookup = membershipEnabled === 'true' && Boolean(apiSecret);
-
-  if (!shouldUseLiveLookup) {
-    for (const pubkey of limitedPubkeys) {
-      results[pubkey] = mockMembership(pubkey);
+  if (membershipEnabled !== 'true' || !apiSecret) {
+    // Local dev keeps the deterministic mock; everywhere else fails
+    // loudly — this fallback once served mock data unconditionally,
+    // masking misconfiguration in production.
+    if (dev) {
+      for (const pubkey of limitedPubkeys) {
+        results[pubkey] = mockMembership(pubkey);
+      }
+      return json(results);
     }
-    return json(results);
+    console.error(
+      '[api/membership] MEMBERSHIP_ENABLED/RELAY_API_SECRET not configured — refusing to serve membership data'
+    );
+    return json({ error: 'membership lookup unavailable' }, { status: 503 });
   }
 
   await Promise.all(
