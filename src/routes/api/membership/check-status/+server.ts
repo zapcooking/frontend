@@ -11,23 +11,27 @@
  *   pubkey: string
  * }
  *
- * Returns:
- * {
- *   found: boolean,
- *   member?: {
- *     pubkey: string,
- *     tier: string,
- *     status: string,
- *     subscription_end: string,
- *     payment_id: string,
- *     ...
- *   }
- * }
+ * Two disclosure tiers:
+ *
+ * PUBLIC (no auth) — badge surface only. `found` is always true; a
+ * pubkey that was never a member is indistinguishable from a lapsed
+ * one (both report isActive: false, tier 'member'):
+ *   { found: true, isActive: boolean, member: { tier: string } }
+ *
+ * OWNER (NIP-98 `Authorization` header signed by the queried pubkey
+ * itself — pair with signNip98AuthHeader in $lib/nip98) — the full
+ * record:
+ *   { found: true, isActive, isExpired, owner: true,
+ *     member: { pubkey, tier, status, subscription_end,
+ *               subscription_start, payment_method } }
+ * An absent, invalid, or mismatched signature degrades to the public
+ * shape rather than erroring.
  */
 
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
 import { lookupMember } from '$lib/membershipApi.server';
+import { verifyNip98 } from '$lib/nip98.server';
 
 /**
  * Normalize relay tier values to the canonical app tiers.
@@ -51,50 +55,77 @@ export const POST: RequestHandler = async ({ request, platform }) => {
     return json({ error: 'Forbidden' }, { status: 403 });
   }
 
+  // Read the body bytes ONCE — NIP-98 payload verification and JSON
+  // parsing must see the same bytes (see verifyNip98's doc comment on
+  // body-consumption semantics on Cloudflare Workers).
+  let pubkey: unknown;
+  let bodyBytes: Uint8Array;
   try {
-    const body = await request.json();
-    const { pubkey } = body;
+    bodyBytes = new Uint8Array(await request.arrayBuffer());
+    ({ pubkey } = JSON.parse(new TextDecoder().decode(bodyBytes)));
+  } catch {
+    return json({ error: 'pubkey is required' }, { status: 400 });
+  }
 
-    if (!pubkey) {
-      return json(
-        { error: 'pubkey is required' },
-        { status: 400 }
-      );
+  if (!pubkey || typeof pubkey !== 'string') {
+    return json({ error: 'pubkey is required' }, { status: 400 });
+  }
+
+  // Validate pubkey format
+  if (!/^[0-9a-fA-F]{64}$/.test(pubkey)) {
+    return json({ error: 'Invalid pubkey format' }, { status: 400 });
+  }
+
+  // Owner check: a NIP-98 header signed by the queried pubkey itself
+  // unlocks the full record. Any failure degrades to the public shape
+  // — callers that only need badge data never send a header.
+  let isOwner = false;
+  if (request.headers.get('Authorization')) {
+    const verification = await verifyNip98(request, {
+      expectedPubkey: pubkey.toLowerCase(),
+      bodyBytes
+    });
+    if (verification.ok) {
+      isOwner = true;
+    } else {
+      console.warn('[check-status] NIP-98 rejected:', verification.reason);
     }
+  }
 
-    // Validate pubkey format
-    if (!/^[0-9a-fA-F]{64}$/.test(pubkey)) {
-      return json(
-        { error: 'Invalid pubkey format' },
-        { status: 400 }
-      );
-    }
+  const API_SECRET = platform?.env?.RELAY_API_SECRET || env.RELAY_API_SECRET;
+  if (!API_SECRET) {
+    console.error('[Membership Status] RELAY_API_SECRET not configured');
+    return json({ error: 'membership lookup unavailable' }, { status: 503 });
+  }
 
-    // Get API secret
-    const API_SECRET = platform?.env?.RELAY_API_SECRET || env.RELAY_API_SECRET;
-    if (!API_SECRET) {
-      return json(
-        { error: 'RELAY_API_SECRET not configured' },
-        { status: 500 }
-      );
-    }
-
+  try {
     const result = await lookupMember(pubkey, API_SECRET);
 
     if (!result.found) {
-      return json({ found: false });
+      return isOwner
+        ? json({ found: false, owner: true })
+        : json({ found: true, isActive: false, member: { tier: 'member' } });
     }
 
     const tier = normalizeRelayTier(result.member.tier, result.member.payment_id);
-    const member = { ...result.member, tier };
+
+    if (!isOwner) {
+      // Public shape: tier is disclosed only while the membership is
+      // active, so lapsed and never-a-member are indistinguishable.
+      return json({
+        found: true,
+        isActive: result.isActive,
+        member: { tier: result.isActive ? tier : 'member' }
+      });
+    }
 
     // Founders get lifetime access — ensure expiry is at least 10 years out
-    if (tier === 'founders' && member.subscription_end) {
+    let subscriptionEnd = result.member.subscription_end;
+    if (tier === 'founders' && subscriptionEnd) {
       const tenYearsFromNow = new Date();
       tenYearsFromNow.setFullYear(tenYearsFromNow.getFullYear() + 10);
-      const currentExpiry = new Date(member.subscription_end);
-      if (currentExpiry < tenYearsFromNow) {
-        member.subscription_end = tenYearsFromNow.toISOString();
+      if (new Date(subscriptionEnd) < tenYearsFromNow) {
+        subscriptionEnd = tenYearsFromNow.toISOString();
       }
     }
 
@@ -102,19 +133,18 @@ export const POST: RequestHandler = async ({ request, platform }) => {
       found: true,
       isActive: result.isActive,
       isExpired: result.isExpired,
-      member
+      owner: true,
+      member: {
+        pubkey: result.member.pubkey,
+        tier,
+        status: result.member.status,
+        subscription_end: subscriptionEnd,
+        subscription_start: result.member.subscription_start,
+        payment_method: result.member.payment_method
+      }
     });
-
-  } catch (error: any) {
+  } catch (error) {
     console.error('[Membership Status] Error checking status:', error);
-
-    return json(
-      {
-        error: error.message || 'Failed to check membership status',
-        found: false
-      },
-      { status: 500 }
-    );
+    return json({ error: 'membership lookup unavailable' }, { status: 503 });
   }
 };
-
