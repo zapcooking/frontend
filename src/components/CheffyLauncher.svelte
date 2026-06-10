@@ -101,7 +101,16 @@
       40px + env(safe-area-inset-bottom, 0px) + 1rem + var(--timer-widget-offset, 0px) + 56px +
         0.75rem
     );
-    z-index: 40;
+    /* One below the create FAB / its expanded menu (both at z-index 40,
+       with the menu's inner panel at z-index 45 within that stacking
+       context). The create menu opens upward from the FAB into the same
+       screen region as this launcher; keeping Cheffy at z-index 40
+       (same as the menu container) painted Cheffy on top of the menu
+       because it's mounted later in document order. Dropping to 39 lets
+       the menu paint over Cheffy whenever they overlap, without
+       affecting any other floating UI (timer / cooking-tools widgets
+       sit at z-index 50). */
+    z-index: 39;
 
     display: inline-flex;
     align-items: center;
