@@ -22,6 +22,21 @@
   // Show the expanded hint only for first-timers, and only this session.
   let showHint = false;
 
+  // Scroll-dim — mirrors the behaviour on CreateMenuButton (the orange
+  // create FAB that sits directly below us). Both launchers dim to
+  // 0.45 opacity while the page is actively scrolling so they don't
+  // distract from the content, and snap back ~160ms after scroll ends.
+  let isScrolling = false;
+  let scrollTimeout: ReturnType<typeof setTimeout> | null = null;
+
+  function handleScroll() {
+    isScrolling = true;
+    if (scrollTimeout) clearTimeout(scrollTimeout);
+    scrollTimeout = setTimeout(() => {
+      isScrolling = false;
+    }, 160);
+  }
+
   onMount(() => {
     if (!$cheffyHintSeen) {
       showHint = true;
@@ -31,10 +46,23 @@
         dismissCheffyHint();
       }, 6000);
     }
+
+    if (typeof window === 'undefined') return;
+    // Scrolling happens on the #app-scroll container, not the window.
+    // Window listener is a defensive fallback for routes that scroll the
+    // window directly.
+    const scrollContainer = document.getElementById('app-scroll');
+    scrollContainer?.addEventListener('scroll', handleScroll, { passive: true });
+    window.addEventListener('scroll', handleScroll, { passive: true });
   });
 
   onDestroy(() => {
     if (hintTimer) clearTimeout(hintTimer);
+    if (scrollTimeout) clearTimeout(scrollTimeout);
+    if (typeof window === 'undefined') return;
+    const scrollContainer = document.getElementById('app-scroll');
+    scrollContainer?.removeEventListener('scroll', handleScroll);
+    window.removeEventListener('scroll', handleScroll);
   });
 
   function launch() {
@@ -50,6 +78,7 @@
     type="button"
     class="cheffy-launcher"
     class:has-hint={showHint}
+    class:is-scrolling={isScrolling}
     on:click={launch}
     aria-label="Open Cheffy"
   >
@@ -72,7 +101,16 @@
       40px + env(safe-area-inset-bottom, 0px) + 1rem + var(--timer-widget-offset, 0px) + 56px +
         0.75rem
     );
-    z-index: 40;
+    /* One below the create FAB / its expanded menu (both at z-index 40,
+       with the menu's inner panel at z-index 45 within that stacking
+       context). The create menu opens upward from the FAB into the same
+       screen region as this launcher; keeping Cheffy at z-index 40
+       (same as the menu container) painted Cheffy on top of the menu
+       because it's mounted later in document order. Dropping to 39 lets
+       the menu paint over Cheffy whenever they overlap, without
+       affecting any other floating UI (timer / cooking-tools widgets
+       sit at z-index 50). */
+    z-index: 39;
 
     display: inline-flex;
     align-items: center;
@@ -112,6 +150,15 @@
   .cheffy-launcher:focus-visible {
     outline: none;
     box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 45%, transparent);
+  }
+
+  /* Dim while the page is actively scrolling — matches CreateMenuButton.
+     pointer-events:none so a tap landing mid-scroll doesn't accidentally
+     pop the chat panel; restores ~160 ms after scroll ends. */
+  .cheffy-launcher.is-scrolling {
+    opacity: 0.45;
+    pointer-events: none;
+    transition: opacity 160ms ease;
   }
 
   .launcher-icon {
