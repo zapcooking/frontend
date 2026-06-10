@@ -21,6 +21,7 @@
   import { theme, type Theme } from '$lib/themeStore';
   import { displayCurrency, SUPPORTED_CURRENCIES, type CurrencyCode } from '$lib/currencyStore';
   import { getAuthManager, type NIP46ConnectionInfo } from '$lib/authManager';
+  import { signNip98AuthHeader } from '$lib/nip98';
   import {
     userPublickey,
     ndk,
@@ -373,10 +374,24 @@
     if (!pk) return;
     membershipLoading = true;
     try {
+      // NIP-98 auth proves we own this pubkey, unlocking the full
+      // record (expiry, payment method). Without a signer we fall back
+      // to the public shape — tier badge only.
+      const bodyString = JSON.stringify({ pubkey: pk });
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      try {
+        headers.Authorization = await signNip98AuthHeader($ndk, {
+          method: 'POST',
+          url: `${location.origin}/api/membership/check-status`,
+          bodyString
+        });
+      } catch {
+        // No signer available — public shape is fine.
+      }
       const res = await fetch('/api/membership/check-status', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pubkey: pk })
+        headers,
+        body: bodyString
       });
       if (res.ok) {
         membershipData = await res.json();
@@ -578,16 +593,19 @@
           </div>
 
           <div class="flex flex-col gap-2 text-sm">
-            <div class="flex justify-between">
-              <span class="text-caption">{membershipData.isExpired ? 'Expired' : 'Expires'}</span>
-              <span style="color: var(--color-text-primary)">
-                {expiryDate.toLocaleDateString('en-US', {
-                  year: 'numeric',
-                  month: 'long',
-                  day: 'numeric'
-                })}
-              </span>
-            </div>
+            <!-- Only present on the NIP-98 owner-tier response; the public shape carries no expiry -->
+            {#if member.subscription_end}
+              <div class="flex justify-between">
+                <span class="text-caption">{membershipData.isExpired ? 'Expired' : 'Expires'}</span>
+                <span style="color: var(--color-text-primary)">
+                  {expiryDate.toLocaleDateString('en-US', {
+                    year: 'numeric',
+                    month: 'long',
+                    day: 'numeric'
+                  })}
+                </span>
+              </div>
+            {/if}
             <div class="flex justify-between">
               <span class="text-caption">Payment</span>
               <span style="color: var(--color-text-primary)">
