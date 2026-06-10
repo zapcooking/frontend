@@ -49,7 +49,6 @@
     justify-content: center;
     gap: 0.4rem;
     color: #fff;
-    font-weight: 700;
     /* Zap-orange → amber gradient. The diagonal gradient picks up the
        brand orange (#ec4700, also `--zap-orange` in app.css) on the
        leading edge and warms into amber-500 on the trailing edge —
@@ -78,21 +77,27 @@
   }
 
   /* Inline pill — used in note content and bios. Small enough to flow
-     between words; soft glow so it pulls the eye without screaming. */
+     between words; soft glow so it pulls the eye without screaming.
+     Heavier weight here because the pill is small and competes with
+     surrounding body text — needs the extra punch to read as a CTA. */
   .noffer-pay-btn--pill {
     padding: 0.3rem 0.7rem;
     border-radius: 9999px;
     font-size: 0.8125rem;
+    font-weight: 700;
     box-shadow: 0 0 0 1px rgba(236, 71, 0, 0.5), 0 2px 8px rgba(236, 71, 0, 0.25);
   }
 
-  /* Full-width CTA — used on the profile page. Stronger glow to match
-     the visual weight of the Send Zap button it sits next to. */
+  /* Full-width CTA — used on the profile page. Weight matches the
+     Send Zap and Copy npub buttons it sits next to (Tailwind
+     font-medium / 500) so the row reads as peers rather than this
+     one shouting over the others. */
   .noffer-pay-btn--cta {
     width: 100%;
     padding: 0.85rem 1rem;
     border-radius: 0.5rem;
     font-size: 1rem;
+    font-weight: 500;
     box-shadow: 0 4px 14px rgba(236, 71, 0, 0.32);
   }
   .noffer-pay-btn--cta:hover {
