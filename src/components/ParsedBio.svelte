@@ -2,12 +2,13 @@
   import { ndk } from '$lib/nostr';
   import { nip19 } from 'nostr-tools';
   import { onMount } from 'svelte';
+  import NofferButton from './clink/NofferButton.svelte';
 
   export let text: string = '';
   export let class_: string = '';
 
   interface BioSegment {
-    type: 'text' | 'url' | 'nostr';
+    type: 'text' | 'url' | 'nostr' | 'noffer';
     content: string;
     href?: string;
     pubkey?: string;
@@ -20,12 +21,28 @@
   // Regex patterns
   const URL_REGEX = /(https?:\/\/[^\s<>"\)]+)/g;
   const NOSTR_REGEX = /(nostr:n(?:pub|profile)1[023456789acdefghjklmnpqrstuvwxyz]+)/g;
+  // CLINK noffer — both `nostr:noffer1…` and bare `noffer1…`. Word boundary
+  // before the bare form so we don't match in the middle of an identifier.
+  const NOFFER_REGEX =
+    /((?:nostr:)?noffer1[023456789acdefghjklmnpqrstuvwxyz]{6,})/g;
 
   function parseText(input: string): BioSegment[] {
     const result: BioSegment[] = [];
 
-    // Combined regex to match both URLs and nostr links
-    const combinedRegex = new RegExp(`(${URL_REGEX.source})|(${NOSTR_REGEX.source})`, 'g');
+    // Combined regex to match URLs, nostr profile links, and CLINK noffers.
+    // Order matters: noffer goes first so a bare `noffer1…` token isn't
+    // accidentally swallowed by the URL pattern (it wouldn't be, since
+    // bech32 has no `://`, but precedence keeps intent clear).
+    //
+    // IMPORTANT: do NOT wrap each `.source` in extra parens here — the
+    // base regexes already each contain one capturing group, and wrapping
+    // them doubles the groups (outer + inner) which shifts the indices.
+    // The code below expects match[1]=noffer, [2]=url, [3]=nostr — that
+    // only holds when each alternative contributes exactly one group.
+    const combinedRegex = new RegExp(
+      `${NOFFER_REGEX.source}|${URL_REGEX.source}|${NOSTR_REGEX.source}`,
+      'g'
+    );
 
     let lastIndex = 0;
     let match;
@@ -40,17 +57,23 @@
       }
 
       if (match[1]) {
+        // Noffer match
+        result.push({
+          type: 'noffer',
+          content: match[1]
+        });
+      } else if (match[2]) {
         // URL match
         result.push({
           type: 'url',
-          content: match[1],
-          href: match[1]
+          content: match[2],
+          href: match[2]
         });
-      } else if (match[2]) {
+      } else if (match[3]) {
         // Nostr match
         result.push({
           type: 'nostr',
-          content: match[2]
+          content: match[3]
         });
       }
 
@@ -172,6 +195,8 @@
           href={segment.href}
           class="text-primary hover:underline"
         >@{segment.displayName || segment.content}</a>
+      {:else if segment.type === 'noffer'}
+        <NofferButton noffer={segment.content} />
       {/if}
     {/each}
   {/if}

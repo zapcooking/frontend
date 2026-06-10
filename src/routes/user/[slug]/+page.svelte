@@ -4,6 +4,8 @@
   import type { NDKFilter, NDKUser, NDKUserProfile } from '@nostr-dev-kit/ndk';
   import { nip19 } from 'nostr-tools';
   import ZapModal from '../../../components/ZapModal.svelte';
+  import NofferButton from '../../../components/clink/NofferButton.svelte';
+  import { isNofferString } from '$lib/clink/noffer';
   import Feed from '../../../components/Feed.svelte';
   import { validateMarkdownTemplate } from '$lib/parser';
   import { goto } from '$app/navigation';
@@ -53,6 +55,21 @@
   let loaded = false;
   let zapModal = false;
   let isZapping = false;
+
+  // CLINK noffer pulled from the user's kind:0 custom field. NDK
+  // Object.assigns the parsed JSON onto NDKUserProfile, so custom
+  // fields like `noffer` ride along — they're just not typed. Validate
+  // the shape (must start with `noffer1` after stripping optional
+  // `nostr:` prefix) before exposing as a Pay pill. Tolerant of the
+  // field key — `noffer` is the most likely name (bxrd.app's profile
+  // editor labels it "CLINK offer (noffer)"); fall back to `offer` /
+  // `clink_offer` if it lands under a slightly different key.
+  $: profileNoffer = (() => {
+    if (!profile) return undefined;
+    const p = profile as unknown as Record<string, unknown>;
+    const raw = (p.noffer || p.offer || p.clink_offer) as unknown;
+    return typeof raw === 'string' && isNofferString(raw) ? raw : undefined;
+  })();
 
   // Tab state: 'recipes' | 'posts' | 'media' | 'reads' | 'following' | 'drafts'
   // Default to 'posts' tab for a more social-first experience
@@ -1707,6 +1724,7 @@
         </div>
       {/if}
 
+
       <!-- Action buttons for other users -->
       {#if hexpubkey !== $userPublickey}
         <!-- Zap Button (hidden for muted users) -->
@@ -1722,6 +1740,13 @@
             <LightningIcon size={22} weight="fill" />
             <span>{isZapping ? 'Zapping...' : 'Send Zap'}</span>
           </button>
+        {/if}
+
+        <!-- CLINK offer — full-width CTA, gradient brand orange. Sits
+             alongside Send Zap so the two payment paths read as peers
+             rather than the noffer feeling buried. -->
+        {#if profileNoffer && hexpubkey && !$mutedPubkeys.has(hexpubkey)}
+          <NofferButton noffer={profileNoffer} variant="cta" />
         {/if}
 
         <!-- DM Button -->
