@@ -20,7 +20,7 @@
  */
 
 import { get } from 'svelte/store';
-import { ndk } from '$lib/nostr';
+import { ndk, userPublickey } from '$lib/nostr';
 import { NDKEvent, NDKRelaySet, type NDKKind } from '@nostr-dev-kit/ndk';
 import { encrypt, decrypt } from '$lib/encryptionService';
 import { NofferError, type NofferData, type NofferRequest, type NofferResponse } from './types';
@@ -62,9 +62,15 @@ export async function requestInvoice(
     throw new Error('Sign in to pay an offer');
   }
 
-  const me = await ndkInstance.signer.user();
-  const myPubkey = me.pubkey;
-  if (!myPubkey) throw new Error('Could not resolve signer pubkey');
+  // Use the app's canonical user-pubkey store. `ndkInstance.signer.user()`
+  // is the wrong source for NIP-46 sessions — NDKNip46Signer.user() returns
+  // the SIGNER service pubkey, not the user's pubkey (see src/lib/nip46Rpc.ts
+  // for the fetchNip46UserPubkey workaround used elsewhere). The
+  // `userPublickey` store is the unified "who am I" surface that authManager
+  // populates correctly for every signer type — using it here ensures the
+  // `#p` filter below subscribes to the right pubkey.
+  const myPubkey = get(userPublickey);
+  if (!myPubkey) throw new Error('Sign in to pay an offer');
 
   // Build the request payload. Pricing rules:
   // - Fixed: amount baked into the offer; we still pass amountSats when

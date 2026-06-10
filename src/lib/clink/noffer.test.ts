@@ -33,8 +33,9 @@ function encodeTestNoffer(tlvs: Array<{ type: number; value: Uint8Array }>): str
   return bech32.encode('noffer', words, 5000);
 }
 
-// A 32-byte hex string (the user's pubkey from the conversation — used
-// because it's a known-real pubkey, makes the test fixture meaningful).
+// Fixed example pubkey used across the fixtures below — a real-looking
+// 32-byte hex string so the encoded TLV-0 round-trips through the
+// decoder under realistic conditions.
 const PUBKEY = 'ee6ea13ab9fe5c4a68eaf9b1a34fe014a66b40117c50ee2a614f4cda959b6e74';
 const RELAY = 'wss://relay.example.com';
 const OFFER_ID = 'tip-jar';

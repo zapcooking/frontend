@@ -33,8 +33,14 @@
     // Order matters: noffer goes first so a bare `noffer1…` token isn't
     // accidentally swallowed by the URL pattern (it wouldn't be, since
     // bech32 has no `://`, but precedence keeps intent clear).
+    //
+    // IMPORTANT: do NOT wrap each `.source` in extra parens here — the
+    // base regexes already each contain one capturing group, and wrapping
+    // them doubles the groups (outer + inner) which shifts the indices.
+    // The code below expects match[1]=noffer, [2]=url, [3]=nostr — that
+    // only holds when each alternative contributes exactly one group.
     const combinedRegex = new RegExp(
-      `(${NOFFER_REGEX.source})|(${URL_REGEX.source})|(${NOSTR_REGEX.source})`,
+      `${NOFFER_REGEX.source}|${URL_REGEX.source}|${NOSTR_REGEX.source}`,
       'g'
     );
 

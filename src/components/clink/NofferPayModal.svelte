@@ -140,12 +140,18 @@
     state = 'requesting';
     error = null;
     try {
+      // For Fixed offers the amount input is hidden in the UI — never
+      // forward `amountInput` to the service or the wallet history, since
+      // it could be a stale value left over from a prior Variable /
+      // Spontaneous offer in the same session. The service knows the
+      // canonical price from the offer id; we honour `data.price` for
+      // display + wallet metadata.
+      const effectiveAmount = needsAmountInput ? amountSats : (data.price ?? 0);
       const { bolt11 } = await requestInvoice(data, {
-        amountSats: amountSats > 0 ? amountSats : undefined,
+        amountSats: needsAmountInput && amountSats > 0 ? amountSats : undefined,
         description: `Offer: ${data.offerId}`
       });
       state = 'paying';
-      const effectiveAmount = amountSats > 0 ? amountSats : data.price;
       const result = await sendPayment(bolt11, {
         amount: effectiveAmount,
         description: `CLINK offer: ${data.offerId}`,
@@ -201,7 +207,7 @@
         </div>
         <p class="text-lg font-semibold" style="color: var(--color-text-primary)">Paid!</p>
         <p class="text-sm mt-1" style="color: var(--color-text-secondary)">
-          {(amountSats > 0 ? amountSats : (data.price ?? 0)).toLocaleString()} sats sent.
+          {(needsAmountInput ? amountSats : (data.price ?? 0)).toLocaleString()} sats sent.
         </p>
       </div>
     {:else if state === 'error'}

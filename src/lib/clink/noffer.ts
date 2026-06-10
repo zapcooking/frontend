@@ -147,7 +147,13 @@ export function isNofferString(s: string | undefined | null): s is string {
  * Strip a leading `nostr:` prefix if present and return the bare
  * `noffer1…` token. Useful for building `lightning:` URIs and copy-to-
  * clipboard affordances.
+ *
+ * Trims surrounding whitespace before the prefix check so a stored
+ * profile field like `"  nostr:noffer1…"` doesn't leak its leading
+ * spaces into the `lightning:` URI or the clipboard. `isNofferString`
+ * already trims on its own match, so callers that validated with it
+ * could otherwise produce an invalid `lightning: nostr:…` URI here.
  */
 export function stripNostrPrefix(noffer: string): string {
-  return noffer.replace(/^nostr:/i, '');
+  return noffer.trim().replace(/^nostr:/i, '');
 }
