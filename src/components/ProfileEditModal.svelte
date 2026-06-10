@@ -578,7 +578,7 @@
     </div>
 
     <div>
-      <label for="profile-lud16" class="block text-sm font-medium mb-1 text-caption">Lightning Address (lud16)</label>
+      <label for="profile-lud16" class="block text-sm font-medium mb-1 text-caption">Lightning Address</label>
       <input
         id="profile-lud16"
         type="text"
@@ -587,25 +587,6 @@
         placeholder="you@getalby.com"
         bind:value={formData.lud16}
       />
-    </div>
-
-    <div>
-      <label for="profile-noffer" class="block text-sm font-medium mb-1 text-caption">CLINK offer (noffer)</label>
-      <input
-        id="profile-noffer"
-        type="text"
-        class="input w-full"
-        style="touch-action: auto; user-select: text; -webkit-user-select: text;"
-        placeholder="noffer1..."
-        bind:value={formData.noffer}
-        autocomplete="off"
-        autocorrect="off"
-        autocapitalize="off"
-        spellcheck="false"
-      />
-      <p class="text-xs text-caption mt-1">
-        Optional. CLINK static offer for self-custodial Lightning payments. Generate one with ShockWallet or Lightning.Pub.
-      </p>
     </div>
 
     <div>
@@ -670,6 +651,29 @@
               bind:value={formData.banner}
             />
             <p class="text-xs text-caption mt-1">Or click the banner above to upload</p>
+          </div>
+
+          <div>
+            <label
+              for="profile-noffer"
+              class="block text-sm font-medium mb-1 text-caption">CLINK offer</label
+            >
+            <input
+              id="profile-noffer"
+              type="text"
+              class="input w-full"
+              style="touch-action: auto; user-select: text; -webkit-user-select: text;"
+              placeholder="noffer1..."
+              bind:value={formData.noffer}
+              autocomplete="off"
+              autocorrect="off"
+              autocapitalize="off"
+              spellcheck="false"
+            />
+            <p class="text-xs text-caption mt-1">
+              CLINK static offer for self-custodial Lightning payments. Generate one with Zeus,
+              ShockWallet or Lightning.Pub.
+            </p>
           </div>
         </div>
       {/if}
