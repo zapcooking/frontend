@@ -13,6 +13,10 @@ export interface ProfileData {
   about?: string;
   nip05?: string;
   lud16?: string;
+  /** CLINK static offer bech32 string (noffer1…). Written by bxrd.app's
+   * profile editor; we surface a Pay affordance when present.
+   * See https://github.com/shocknet/CLINK/blob/main/specs/clink-offers.md */
+  noffer?: string;
   lastFetched: number;
 }
 
@@ -164,6 +168,19 @@ async function fetchProfileFromRelays(pubkey: string, ndkInstance: NDK): Promise
         ? (parsed.displayName as string)
         : undefined;
 
+    // CLINK noffer: the field key isn't formally standardised yet — bxrd.app's
+    // profile editor labels it "CLINK offer (noffer)" and most likely writes it
+    // as `noffer`, but accept `offer` and `clink_offer` as fallbacks so we
+    // don't lose data if the key name diverges. The value must start with
+    // `noffer1` to be considered valid (so we don't pick up unrelated fields).
+    const rawNoffer =
+      (typeof parsed.noffer === 'string' && parsed.noffer) ||
+      (typeof parsed.offer === 'string' && parsed.offer) ||
+      (typeof parsed.clink_offer === 'string' && parsed.clink_offer) ||
+      undefined;
+    const noffer =
+      rawNoffer && /^(nostr:)?noffer1/i.test(rawNoffer.trim()) ? rawNoffer.trim() : undefined;
+
     const profileData: ProfileData = {
       pubkey,
       name,
@@ -172,6 +189,7 @@ async function fetchProfileFromRelays(pubkey: string, ndkInstance: NDK): Promise
       about: typeof parsed.about === 'string' ? parsed.about : undefined,
       nip05: typeof parsed.nip05 === 'string' ? parsed.nip05 : undefined,
       lud16: typeof parsed.lud16 === 'string' ? parsed.lud16 : undefined,
+      noffer,
       lastFetched: Date.now()
     };
 

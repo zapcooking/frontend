@@ -4,6 +4,7 @@
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
   import ProfileLink from './ProfileLink.svelte';
   import NoteEmbed from './NoteEmbed.svelte';
+  import NofferButton from './clink/NofferButton.svelte';
   import LinkPreview from './LinkPreview.svelte';
   import VideoPreview from './VideoPreview.svelte';
   import { processContentWithProfiles } from '$lib/contentProcessor';
@@ -119,9 +120,12 @@
 
   // Parse content and create clickable links for URLs, hashtags, and nostr references
   function parseContent(text: string) {
-    // Include naddr1 for addressable events (recipes, long-form content)
+    // Include naddr1 for addressable events (recipes, long-form content).
+    // noffer1 (CLINK static offers) is detected both as a bare token and with
+    // the optional `nostr:` prefix — when present we render an inline "⚡ Pay"
+    // pill (NofferButton) instead of treating it as plain text.
     const urlRegex =
-      /(https?:\/\/[^\s]+)|nostr:(nevent1|note1|npub1|nprofile1|naddr1)([023456789acdefghjklmnpqrstuvwxyz]+)/g;
+      /(https?:\/\/[^\s]+)|nostr:(nevent1|note1|npub1|nprofile1|naddr1|noffer1)([023456789acdefghjklmnpqrstuvwxyz]+)|\b(noffer1)([023456789acdefghjklmnpqrstuvwxyz]{6,})/g;
     const hashtagRegex = /#[\w]+/g;
 
     const parts = [];
@@ -140,7 +144,7 @@
     }> = [];
     urlRegex.lastIndex = 0;
     while ((match = urlRegex.exec(text)) !== null) {
-      const [fullMatch, url, nostrPrefix, nostrData] = match;
+      const [fullMatch, url, nostrPrefix, nostrData, bareNofferPrefix, bareNofferData] = match;
       if (url) {
         urlMatches.push({
           index: match.index,
@@ -155,6 +159,17 @@
           type: 'nostr',
           prefix: nostrPrefix,
           data: nostrData
+        });
+      } else if (bareNofferPrefix && bareNofferData) {
+        // Bare `noffer1…` (no `nostr:` prefix) — treat the same as a
+        // nostr:noffer1 reference so the downstream renderer surfaces a
+        // Pay button.
+        urlMatches.push({
+          index: match.index,
+          content: fullMatch,
+          type: 'nostr',
+          prefix: bareNofferPrefix,
+          data: bareNofferData
         });
       }
     }
@@ -325,6 +340,10 @@
       {:else if part.prefix === 'naddr1'}
         <!-- Addressable event (recipe, article, etc.) - render as embedded content -->
         <NoteEmbed nostrString={part.content} depth={embedDepth} />
+      {:else if part.prefix === 'noffer1'}
+        <!-- CLINK static offer — render an inline "⚡ Pay" pill that opens
+             NofferPayModal. Matches the bxrd.app affordance. -->
+        <NofferButton noffer={part.content} />
       {:else}
         <button
           class="text-blue-500 hover:text-blue-700 hover:underline cursor-pointer"
