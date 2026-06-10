@@ -291,7 +291,7 @@
           style="border-color: var(--color-input-border)"
         >
           <p class="text-sm text-center mb-2" style="color: var(--color-text-secondary)">
-            …or scan with a CLINK-aware wallet (Zeus, ShockWallet, …)
+            or scan with a CLINK-aware wallet (Zeus or ShockWallet)
           </p>
           <div class="flex justify-center bg-white p-4 rounded-lg">
             <svg

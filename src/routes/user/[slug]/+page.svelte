@@ -1724,20 +1724,6 @@
         </div>
       {/if}
 
-      <!-- CLINK offer (noffer) — set on the user's kind:0 by bxrd.app's
-           profile editor. NDK preserves custom kind:0 fields on
-           NDKUserProfile (it Object.assigns the parsed JSON), so we read
-           via a typed cast and validate the shape before exposing the
-           Pay pill. -->
-      {#if profileNoffer}
-        <div class="flex items-center gap-2 text-sm">
-          <LightningIcon size={18} weight="fill" class="text-amber-500 flex-shrink-0" />
-          <span class="text-caption">CLINK offer</span>
-          <div class="flex-1 flex justify-end">
-            <NofferButton noffer={profileNoffer} />
-          </div>
-        </div>
-      {/if}
 
       <!-- Action buttons for other users -->
       {#if hexpubkey !== $userPublickey}
@@ -1754,6 +1740,13 @@
             <LightningIcon size={22} weight="fill" />
             <span>{isZapping ? 'Zapping...' : 'Send Zap'}</span>
           </button>
+        {/if}
+
+        <!-- CLINK offer — full-width CTA, gradient brand orange. Sits
+             alongside Send Zap so the two payment paths read as peers
+             rather than the noffer feeling buried. -->
+        {#if profileNoffer && hexpubkey && !$mutedPubkeys.has(hexpubkey)}
+          <NofferButton noffer={profileNoffer} variant="cta" />
         {/if}
 
         <!-- DM Button -->
