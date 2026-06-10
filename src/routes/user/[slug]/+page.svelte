@@ -1690,7 +1690,11 @@
 />
 
 <Modal cleanup={qrModalCleanup} open={qrModal}>
-  <h1 slot="title">{profile && profile.name ? profile.name : '...'}'s Profile</h1>
+  <h1 slot="title">
+    {profile
+      ? profile.displayName || profile.display_name || profile.name || '...'
+      : '...'}'s Profile
+  </h1>
 
   <div class="flex flex-col items-center gap-6">
     <!-- Profile Info -->

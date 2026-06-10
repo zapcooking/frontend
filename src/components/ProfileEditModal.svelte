@@ -6,6 +6,8 @@
   import ClockCounterClockwiseIcon from 'phosphor-svelte/lib/ClockCounterClockwise';
   import CloseIcon from 'phosphor-svelte/lib/XCircle';
   import CaretDownIcon from 'phosphor-svelte/lib/CaretDown';
+  import CheckCircleIcon from 'phosphor-svelte/lib/CheckCircle';
+  import WarningCircleIcon from 'phosphor-svelte/lib/WarningCircle';
   import Button from './Button.svelte';
   import { ndk, userPublickey } from '$lib/nostr';
   import { NDKEvent } from '@nostr-dev-kit/ndk';
@@ -54,6 +56,144 @@
   let lastBackupTimestamp: number | null = null;
   let creatingManualBackup = false;
   let backupSectionEl: HTMLElement;
+
+  // NIP-05 and lud16 are both `local@domain.tld` shaped. NIP-05 allows
+  // `_` as the local part (root identifier); both fields are
+  // case-insensitive in practice. This is the shape check — actual
+  // resolution against the domain's /.well-known endpoint is done
+  // below after a debounce.
+  const ADDRESS_REGEX = /^[A-Za-z0-9_.+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}$/;
+
+  type FieldStatus = 'idle' | 'invalid' | 'checking' | 'valid' | 'unresolved';
+  let nip05Status: FieldStatus = 'idle';
+  let lud16Status: FieldStatus = 'idle';
+  let nip05Message = '';
+  let lud16Message = '';
+  let nip05Controller: AbortController | null = null;
+  let lud16Controller: AbortController | null = null;
+  let nip05Timer: ReturnType<typeof setTimeout> | null = null;
+  let lud16Timer: ReturnType<typeof setTimeout> | null = null;
+
+  function onNip05Change(value: string) {
+    const trimmed = value.trim();
+    if (nip05Timer) {
+      clearTimeout(nip05Timer);
+      nip05Timer = null;
+    }
+    nip05Controller?.abort();
+    nip05Controller = null;
+    if (!trimmed) {
+      nip05Status = 'idle';
+      nip05Message = '';
+      return;
+    }
+    if (!ADDRESS_REGEX.test(trimmed)) {
+      nip05Status = 'invalid';
+      nip05Message = 'Use the form name@example.com';
+      return;
+    }
+    nip05Status = 'checking';
+    nip05Message = '';
+    nip05Timer = setTimeout(() => {
+      verifyNip05(trimmed);
+    }, 500);
+  }
+
+  async function verifyNip05(value: string) {
+    const at = value.indexOf('@');
+    const local = value.slice(0, at);
+    const domain = value.slice(at + 1);
+    const controller = new AbortController();
+    nip05Controller = controller;
+    try {
+      const url = `https://${domain}/.well-known/nostr.json?name=${encodeURIComponent(local)}`;
+      const res = await fetch(url, { signal: controller.signal });
+      if (controller.signal.aborted) return;
+      if (!res.ok) {
+        nip05Status = 'unresolved';
+        nip05Message = `Could not reach ${domain} (${res.status})`;
+        return;
+      }
+      const json = await res.json();
+      const found: string | undefined = json?.names?.[local];
+      if (!found) {
+        nip05Status = 'unresolved';
+        nip05Message = `${domain} has no entry for "${local}"`;
+        return;
+      }
+      if ($userPublickey && found.toLowerCase() !== $userPublickey.toLowerCase()) {
+        nip05Status = 'unresolved';
+        nip05Message = 'Domain points to a different pubkey than yours';
+        return;
+      }
+      nip05Status = 'valid';
+      nip05Message = '';
+    } catch (e: any) {
+      if (e?.name === 'AbortError' || controller.signal.aborted) return;
+      nip05Status = 'unresolved';
+      nip05Message = `Could not verify with ${domain}`;
+    }
+  }
+
+  function onLud16Change(value: string) {
+    const trimmed = value.trim();
+    if (lud16Timer) {
+      clearTimeout(lud16Timer);
+      lud16Timer = null;
+    }
+    lud16Controller?.abort();
+    lud16Controller = null;
+    if (!trimmed) {
+      lud16Status = 'idle';
+      lud16Message = '';
+      return;
+    }
+    if (!ADDRESS_REGEX.test(trimmed)) {
+      lud16Status = 'invalid';
+      lud16Message = 'Use the form name@example.com';
+      return;
+    }
+    lud16Status = 'checking';
+    lud16Message = '';
+    lud16Timer = setTimeout(() => {
+      verifyLud16(trimmed);
+    }, 500);
+  }
+
+  async function verifyLud16(value: string) {
+    const at = value.indexOf('@');
+    const local = value.slice(0, at);
+    const domain = value.slice(at + 1);
+    const controller = new AbortController();
+    lud16Controller = controller;
+    try {
+      const url = `https://${domain}/.well-known/lnurlp/${encodeURIComponent(local)}`;
+      const res = await fetch(url, { signal: controller.signal });
+      if (controller.signal.aborted) return;
+      if (!res.ok) {
+        lud16Status = 'unresolved';
+        lud16Message = `Could not reach ${domain} (${res.status})`;
+        return;
+      }
+      const json = await res.json();
+      if (json?.tag !== 'payRequest' || !json?.callback) {
+        lud16Status = 'unresolved';
+        lud16Message = `${domain} did not return a valid LNURL response`;
+        return;
+      }
+      lud16Status = 'valid';
+      lud16Message = '';
+    } catch (e: any) {
+      if (e?.name === 'AbortError' || controller.signal.aborted) return;
+      lud16Status = 'unresolved';
+      lud16Message = `Could not verify Lightning address with ${domain}`;
+    }
+  }
+
+  // Drive verification off form changes (debounced inside the handlers).
+  $: onNip05Change(formData.nip05);
+  $: onLud16Change(formData.lud16);
+  $: hasValidationError = nip05Status === 'invalid' || lud16Status === 'invalid';
 
   // Track modal open state to initialize only once per open
   let wasOpen = false;
@@ -271,6 +411,14 @@
 
   async function saveProfile() {
     if (!$userPublickey || saving) return;
+
+    if (hasValidationError) {
+      error =
+        (nip05Status === 'invalid' && nip05Message) ||
+        (lud16Status === 'invalid' && lud16Message) ||
+        'Please fix the highlighted fields.';
+      return;
+    }
 
     saving = true;
     error = null;
@@ -567,26 +715,112 @@
 
     <div>
       <label for="profile-nip05" class="block text-sm font-medium mb-1 text-caption">NIP-05 Identifier</label>
-      <input
-        id="profile-nip05"
-        type="text"
-        class="input w-full"
-        style="touch-action: auto; user-select: text; -webkit-user-select: text;"
-        placeholder="you@example.com"
-        bind:value={formData.nip05}
-      />
+      <div class="relative">
+        <input
+          id="profile-nip05"
+          type="text"
+          autocomplete="off"
+          autocapitalize="none"
+          spellcheck="false"
+          inputmode="email"
+          class="input w-full pr-10"
+          class:input-error={nip05Status === 'invalid'}
+          class:input-warning={nip05Status === 'unresolved'}
+          class:input-valid={nip05Status === 'valid'}
+          style="touch-action: auto; user-select: text; -webkit-user-select: text;"
+          placeholder="you@example.com"
+          aria-invalid={nip05Status === 'invalid' || nip05Status === 'unresolved'}
+          aria-describedby={nip05Message ? 'profile-nip05-msg' : undefined}
+          bind:value={formData.nip05}
+        />
+        {#if nip05Status === 'checking'}
+          <SpinnerIcon
+            size={20}
+            class="absolute right-3 top-1/2 -translate-y-1/2 text-caption animate-spin pointer-events-none"
+          />
+        {:else if nip05Status === 'valid'}
+          <CheckCircleIcon
+            size={20}
+            weight="fill"
+            class="absolute right-3 top-1/2 -translate-y-1/2 text-green-500 pointer-events-none"
+          />
+        {:else if nip05Status === 'unresolved'}
+          <WarningCircleIcon
+            size={20}
+            weight="fill"
+            class="absolute right-3 top-1/2 -translate-y-1/2 text-amber-500 pointer-events-none"
+          />
+        {:else if nip05Status === 'invalid'}
+          <WarningCircleIcon
+            size={20}
+            weight="fill"
+            class="absolute right-3 top-1/2 -translate-y-1/2 text-red-500 pointer-events-none"
+          />
+        {/if}
+      </div>
+      {#if nip05Message}
+        <p
+          id="profile-nip05-msg"
+          class="text-xs mt-1"
+          class:text-red-500={nip05Status === 'invalid'}
+          class:text-amber-500={nip05Status === 'unresolved'}
+        >{nip05Message}</p>
+      {/if}
     </div>
 
     <div>
       <label for="profile-lud16" class="block text-sm font-medium mb-1 text-caption">Lightning Address</label>
-      <input
-        id="profile-lud16"
-        type="text"
-        class="input w-full"
-        style="touch-action: auto; user-select: text; -webkit-user-select: text;"
-        placeholder="you@getalby.com"
-        bind:value={formData.lud16}
-      />
+      <div class="relative">
+        <input
+          id="profile-lud16"
+          type="text"
+          autocomplete="off"
+          autocapitalize="none"
+          spellcheck="false"
+          inputmode="email"
+          class="input w-full pr-10"
+          class:input-error={lud16Status === 'invalid'}
+          class:input-warning={lud16Status === 'unresolved'}
+          class:input-valid={lud16Status === 'valid'}
+          style="touch-action: auto; user-select: text; -webkit-user-select: text;"
+          placeholder="you@getalby.com"
+          aria-invalid={lud16Status === 'invalid' || lud16Status === 'unresolved'}
+          aria-describedby={lud16Message ? 'profile-lud16-msg' : undefined}
+          bind:value={formData.lud16}
+        />
+        {#if lud16Status === 'checking'}
+          <SpinnerIcon
+            size={20}
+            class="absolute right-3 top-1/2 -translate-y-1/2 text-caption animate-spin pointer-events-none"
+          />
+        {:else if lud16Status === 'valid'}
+          <CheckCircleIcon
+            size={20}
+            weight="fill"
+            class="absolute right-3 top-1/2 -translate-y-1/2 text-green-500 pointer-events-none"
+          />
+        {:else if lud16Status === 'unresolved'}
+          <WarningCircleIcon
+            size={20}
+            weight="fill"
+            class="absolute right-3 top-1/2 -translate-y-1/2 text-amber-500 pointer-events-none"
+          />
+        {:else if lud16Status === 'invalid'}
+          <WarningCircleIcon
+            size={20}
+            weight="fill"
+            class="absolute right-3 top-1/2 -translate-y-1/2 text-red-500 pointer-events-none"
+          />
+        {/if}
+      </div>
+      {#if lud16Message}
+        <p
+          id="profile-lud16-msg"
+          class="text-xs mt-1"
+          class:text-red-500={lud16Status === 'invalid'}
+          class:text-amber-500={lud16Status === 'unresolved'}
+        >{lud16Message}</p>
+      {/if}
     </div>
 
     <div>
@@ -687,7 +921,7 @@
     </Button>
     <Button
       on:click={saveProfile}
-      disabled={saving || uploadingPicture || uploadingBanner}
+      disabled={saving || uploadingPicture || uploadingBanner || hasValidationError}
       class="flex-1"
     >
       {#if saving}
@@ -795,5 +1029,28 @@
   .profile-edit-close-btn:focus-visible {
     outline: 2px solid #fff;
     outline-offset: 2px;
+  }
+
+
+  .input-error {
+    border-color: rgb(239 68 68) !important;
+  }
+  .input-error:focus {
+    outline-color: rgb(239 68 68);
+    box-shadow: 0 0 0 1px rgb(239 68 68);
+  }
+  .input-valid {
+    border-color: rgb(34 197 94) !important;
+  }
+  .input-valid:focus {
+    outline-color: rgb(34 197 94);
+    box-shadow: 0 0 0 1px rgb(34 197 94);
+  }
+  .input-warning {
+    border-color: rgb(245 158 11) !important;
+  }
+  .input-warning:focus {
+    outline-color: rgb(245 158 11);
+    box-shadow: 0 0 0 1px rgb(245 158 11);
   }
 </style>
