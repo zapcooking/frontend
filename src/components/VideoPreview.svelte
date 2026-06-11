@@ -4,6 +4,12 @@
   import VideoIcon from 'phosphor-svelte/lib/Video';
 
   export let url: string;
+  /**
+   * Fill the parent container instead of using the intrinsic 16:9
+   * preview box. Used by MediaCarousel where the tile dictates the
+   * size (4:5) and clips its own corners.
+   */
+  export let fill = false;
 
   let showVideo = false;
   let previewVideo: HTMLVideoElement;
@@ -323,28 +329,30 @@
   });
 </script>
 
-<div class="my-1 relative" bind:this={containerEl}>
+<div class="relative {fill ? 'h-full' : 'my-1'}" bind:this={containerEl}>
   {#if showVideo}
-    <!-- Show full video player when clicked -->
+    <!-- Show full video player when clicked. In fill mode the player is
+         letterboxed (contain) so the native controls stay visible inside
+         the tile. -->
     <video
       bind:this={fullVideoPlayer}
       src={url}
       controls
       autoplay
-      class="max-w-full rounded-lg max-h-96 w-full"
+      class={fill ? 'w-full h-full object-contain bg-black' : 'max-w-full rounded-lg max-h-96 w-full'}
       preload="auto"
     >
       <track kind="captions" />
     </video>
   {:else}
     <!-- Show video preview with play button overlay -->
-    <div 
-      class="relative group cursor-pointer rounded-lg overflow-hidden bg-gray-800" 
-      on:click={handlePlayClick} 
-      on:keypress={(e) => e.key === 'Enter' && handlePlayClick()} 
-      role="button" 
+    <div
+      class="relative group cursor-pointer overflow-hidden bg-gray-800 {fill ? 'h-full' : 'rounded-lg'}"
+      on:click={handlePlayClick}
+      on:keypress={(e) => e.key === 'Enter' && handlePlayClick()}
+      role="button"
       tabindex="0"
-      style="min-height: 200px; aspect-ratio: 16/9;"
+      style={fill ? '' : 'min-height: 200px; aspect-ratio: 16/9;'}
       title={isPlaying ? "Tap to show controls" : "Tap to play"}
     >
       {#if isVisible}

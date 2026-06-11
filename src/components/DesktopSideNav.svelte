@@ -25,7 +25,6 @@
   import LeafIcon from 'phosphor-svelte/lib/Leaf';
   import ClockCounterClockwiseIcon from 'phosphor-svelte/lib/ClockCounterClockwise';
   import { totalUnreadCount } from '$lib/stores/messages';
-  import { userSidePanelOpen } from '$lib/stores/userSidePanel';
 
   $: pathname = $page.url.pathname;
   $: resolvedTheme = $theme === 'system' ? theme.getResolvedTheme() : $theme;
@@ -168,11 +167,11 @@
   }
 </script>
 
-<aside
-  class="hidden xl:block xl:w-80 fixed top-0 left-0 h-screen z-10 transition-opacity duration-300"
-  class:opacity-0={$userSidePanelOpen}
-  class:pointer-events-none={$userSidePanelOpen}
->
+<!-- Stays visible (dimmed and blurred like the rest of the page)
+     under the user side panel's backdrop — it must NOT fade itself
+     out when the panel opens, or the backdrop completely obscures the
+     menu and logo (issue #426). -->
+<aside class="hidden xl:block xl:w-80 fixed top-0 left-0 h-screen z-10">
   <div
     class="h-full overflow-y-auto scrollbar-hide p-3"
     style="background-color: var(--color-bg-primary);"

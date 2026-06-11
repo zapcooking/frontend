@@ -1,6 +1,6 @@
 <script lang="ts">
   import { fly, slide } from 'svelte/transition';
-  import { goto } from '$app/navigation';
+  import { goto, afterNavigate } from '$app/navigation';
   import { nip19 } from 'nostr-tools';
   import { onMount, onDestroy } from 'svelte';
   import { browser } from '$app/environment';
@@ -108,6 +108,13 @@
   function close() {
     userSidePanelOpen.set(false);
   }
+
+  // The desktop side nav stays visible and clickable above the
+  // backdrop while this panel is open — close the panel whenever a
+  // navigation happens so it doesn't linger over the new page.
+  afterNavigate(() => {
+    if ($userSidePanelOpen) close();
+  });
 
   function handleBackdropClick(e: MouseEvent) {
     if (e.target === e.currentTarget) {
