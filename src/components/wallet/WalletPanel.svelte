@@ -160,6 +160,7 @@
   } from '$lib/wallet/webln';
   import { lightningService } from '$lib/lightningService';
   import { isNofferString, decodeNoffer } from '$lib/clink/noffer';
+  import { decode as decodeBolt11 } from '@gandlaf21/bolt11-decode';
   import { requestInvoice } from '$lib/clink/nofferClient';
   import { NofferError, type NofferData } from '$lib/clink/types';
   import { displayCurrency } from '$lib/currencyStore';
@@ -1744,11 +1745,6 @@
       return;
     }
 
-    // For Fixed offers the service knows the canonical price from the
-    // offer id; honour the offer's TLV-4 price for wallet metadata and
-    // don't forward a (possibly stale) amount to the service.
-    const effectiveAmount = needsAmount ? sendAmount : (data.price ?? 0);
-
     isSending = true;
     sendError = '';
     sendSuccess = '';
@@ -1759,8 +1755,29 @@
         description: `Offer: ${data.offerId}`
       });
 
+      // The service's bolt11 is the source of truth for the amount —
+      // the offer's TLV-4 price can be stale for Fixed offers, and
+      // Spark treats metadata.amount as an explicit amount override
+      // when paying a bolt11, which must match the invoice. Fall back
+      // to the entered/TLV amount only when the invoice is amountless
+      // (Spark needs an explicit amount to pay those).
+      let invoiceAmountSats = 0;
+      try {
+        const decoded = decodeBolt11(bolt11);
+        const amountSection = decoded.sections.find(
+          (s: { name: string; value?: unknown }) => s.name === 'amount'
+        );
+        if (amountSection?.value) {
+          invoiceAmountSats = Math.floor(Number(amountSection.value) / 1000);
+        }
+      } catch {
+        // Undecodable amount section — fall back below.
+      }
+      const paidAmount =
+        invoiceAmountSats > 0 ? invoiceAmountSats : needsAmount ? sendAmount : (data.price ?? 0);
+
       const result = await sendPayment(bolt11, {
-        amount: effectiveAmount,
+        amount: paidAmount,
         description: `CLINK offer: ${data.offerId}`,
         pubkey: data.pubkey
       });
@@ -1791,6 +1808,9 @@
             sendError = e.latest
               ? 'This offer has a newer version. Ask the recipient for an updated offer.'
               : 'This offer has been retired by the recipient.';
+            break;
+          case 4:
+            sendError = "The service doesn't support this kind of payment request.";
             break;
           case 5:
             sendError = e.range
@@ -5270,7 +5290,7 @@
           <div>
             <label class="block text-sm font-medium mb-2 text-caption">
               {#if $activeWallet?.kind === 4}
-                Invoice, Lightning or Bitcoin Address, or CLINK Offer
+                Invoice, Lightning Address, Bitcoin Address, or CLINK Offer
               {:else}
                 Invoice, Lightning Address, or CLINK Offer
               {/if}
@@ -5314,7 +5334,8 @@
               <div class="mt-1 text-xs text-amber-500 flex items-center gap-1">
                 <LightningIcon size={12} weight="fill" />
                 {#if nofferData}
-                  CLINK offer detected{nofferData.pricingType === 'fixed' && nofferData.price
+                  CLINK offer detected{nofferData.pricingType === 'fixed' &&
+                  nofferData.price != null
                     ? ` · ${nofferData.price.toLocaleString()} sats`
                     : ''}
                 {:else}
