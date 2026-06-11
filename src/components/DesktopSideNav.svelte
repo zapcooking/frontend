@@ -23,6 +23,7 @@
   import HandshakeIcon from 'phosphor-svelte/lib/Handshake';
   import StorefrontIcon from 'phosphor-svelte/lib/Storefront';
   import LeafIcon from 'phosphor-svelte/lib/Leaf';
+  import ClockCounterClockwiseIcon from 'phosphor-svelte/lib/ClockCounterClockwise';
   import { totalUnreadCount } from '$lib/stores/messages';
   import { userSidePanelOpen } from '$lib/stores/userSidePanel';
 
@@ -114,6 +115,12 @@
       label: 'Nourish',
       icon: LeafIcon,
       match: (p) => p.startsWith('/nourish')
+    },
+    {
+      href: '/memories',
+      label: 'Memories',
+      icon: ClockCounterClockwiseIcon,
+      match: (p) => p.startsWith('/memories')
     },
     {
       href: '/membership',

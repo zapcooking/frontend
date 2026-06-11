@@ -1,5 +1,6 @@
 <script lang="ts">
   import FoodstrFeedOptimized from '../../components/FoodstrFeedOptimized.svelte';
+  import MemoriesCard from '../../components/MemoriesCard.svelte';
   import PullToRefresh from '../../components/PullToRefresh.svelte';
   import { ndk, userPublickey } from '$lib/nostr';
   import { browser } from '$app/environment';
@@ -372,6 +373,9 @@
         <CreateGroupModal bind:open={createGroupOpen} on:created={handleGroupCreated} />
       {/if}
     {:else}
+      {#if $userPublickey}
+        <MemoriesCard />
+      {/if}
       <FoodstrFeedOptimized bind:this={feedComponent} filterMode={activeTab} />
     {/if}
   </div>
