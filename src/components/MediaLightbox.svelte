@@ -1,128 +1,137 @@
 <script lang="ts">
   /**
-   * Fullscreen image lightbox with real swipe motion. The previous,
-   * current and next images render side-by-side on a sliding track —
-   * a swipe drags the track 1:1 with the pointer and committing
-   * animates the neighbour into place (instead of swapping the src in
-   * place, which reads as a laggy jump and only starts loading the
-   * next image on arrival). Side panes double as a preload of the
-   * adjacent images.
+   * Fullscreen image lightbox. Paging uses the same mechanism as the
+   * inline gallery — a native horizontal scroll-snap pager with one
+   * full-screen pane per image — so touch swiping direction, momentum
+   * and snap feel identical to the feed carousel by construction.
+   * Offscreen panes double as a preload of neighbouring images.
    *
-   * Chrome (counter / close / arrows) is pinned to the backdrop
-   * gutters, outside the photo frame. Navigation wraps around.
+   * Desktop adds the gallery's mouse drag-to-swipe plus hover-style
+   * chevrons; chrome (counter / close / arrows) is pinned to the
+   * backdrop gutters, outside the photo frame.
    */
-  import { tick, onDestroy } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
 
   export let images: string[] = [];
   export let index = 0;
   export let onClose: () => void = () => {};
 
   $: count = images.length;
-  $: prevIndex = (index - 1 + count) % count;
-  $: nextIndex = (index + 1) % count;
   $: multiple = count > 1;
 
-  let stageEl: HTMLDivElement;
-  let trackEl: HTMLDivElement;
+  let scroller: HTMLDivElement;
 
-  const ENGAGE_PX = 8;
-  const COMMIT_PX = 60;
-  const SLIDE_MS = 220;
-
-  let isPointerDown = false;
-  let engaged = false;
-  let suppressClick = false;
-  let animating = false;
-  let startX = 0;
-  let startY = 0;
-  let settleTimer: ReturnType<typeof setTimeout> | null = null;
-
-  function setTrack(x: number, transition: string) {
-    if (!trackEl) return;
-    trackEl.style.transition = transition;
-    trackEl.style.transform = `translateX(${x}px)`;
+  function paneWidth(): number {
+    return scroller?.offsetWidth || 0;
   }
 
-  /** dir 1 = advance to next (track slides left), -1 = back to prev. */
-  function commit(dir: 1 | -1) {
-    if (!multiple || animating || !stageEl) return;
-    const width = stageEl.offsetWidth;
-    if (!width) return;
-    animating = true;
-    setTrack(dir === 1 ? -width : width, `transform ${SLIDE_MS}ms ease-out`);
-    if (settleTimer) clearTimeout(settleTimer);
-    settleTimer = setTimeout(async () => {
-      index = dir === 1 ? nextIndex : prevIndex;
-      // Wait for the panes to re-render with the new neighbours before
-      // resetting the track, so the swap is pixel-identical.
-      await tick();
-      setTrack(0, 'none');
-      animating = false;
-    }, SLIDE_MS + 20);
+  onMount(() => {
+    // Jump straight to the tapped image (no animation on open).
+    const w = paneWidth();
+    if (w && index > 0) scroller.scrollLeft = index * w;
+  });
+
+  function handleScroll() {
+    const w = paneWidth();
+    if (!w) return;
+    index = Math.max(0, Math.min(count - 1, Math.round(scroller.scrollLeft / w)));
   }
 
-  function snapBack() {
-    setTrack(0, 'transform 200ms ease-out');
-  }
-
-  function handlePointerDown(e: PointerEvent) {
-    if (!multiple || animating) return;
-    if (e.pointerType === 'mouse' && e.button !== 0) return;
-    isPointerDown = true;
-    engaged = false;
-    startX = e.clientX;
-    startY = e.clientY;
-    // No capture yet — a plain click must keep its original target so
-    // tapping the backdrop still closes.
-  }
-
-  function handlePointerMove(e: PointerEvent) {
-    if (!isPointerDown) return;
-    // Mouse button released where we couldn't see it — don't let the
-    // armed state stick and resume on re-entry.
-    if (e.pointerType === 'mouse' && !(e.buttons & 1)) {
-      release(e);
-      return;
-    }
-    const dx = e.clientX - startX;
-    const dy = e.clientY - startY;
-    if (!engaged && Math.abs(dx) > ENGAGE_PX && Math.abs(dx) > Math.abs(dy)) {
-      engaged = true;
-      suppressClick = true;
-      stageEl.setPointerCapture(e.pointerId);
-    }
-    if (engaged) setTrack(dx, 'none');
-  }
-
-  function release(e: PointerEvent) {
-    if (!isPointerDown) return;
-    isPointerDown = false;
-    if (!engaged) return; // plain click — let it through untouched
-    engaged = false;
-    const dx = e.clientX - startX;
-    if (dx <= -COMMIT_PX) commit(1);
-    else if (dx >= COMMIT_PX) commit(-1);
-    else snapBack();
-  }
-
-  // The browser fires a click after a drag — swallow it so finishing a
-  // swipe doesn't close the lightbox.
-  function handleClickCapture(e: MouseEvent) {
-    if (suppressClick) {
-      e.stopPropagation();
-      e.preventDefault();
-      suppressClick = false;
-    }
+  function scrollToIndex(i: number) {
+    const w = paneWidth();
+    if (!w) return;
+    scroller.scrollTo({ left: i * w, behavior: 'smooth' });
   }
 
   function handleKeydown(e: KeyboardEvent) {
     if (e.key === 'Escape') onClose();
-    else if (e.key === 'ArrowLeft') commit(-1);
-    else if (e.key === 'ArrowRight') commit(1);
+    else if (e.key === 'ArrowLeft' && index > 0) scrollToIndex(index - 1);
+    else if (e.key === 'ArrowRight' && index < count - 1) scrollToIndex(index + 1);
+  }
+
+  // ── Mouse drag-to-swipe — same rules as the inline gallery ──────
+  // Touch is handled natively by the scroller; these only run for a
+  // mouse. Capture and drag styling engage after a clearly horizontal
+  // 8px pull so plain clicks keep their original target.
+  let isPointerDown = false;
+  let dragActive = false;
+  let dragMoved = false;
+  let dragStartX = 0;
+  let dragStartY = 0;
+  let dragStartScrollLeft = 0;
+  let dragStartIndex = 0;
+  let snapDisabled = false;
+  let snapRestoreTimer: ReturnType<typeof setTimeout> | null = null;
+
+  function handlePointerDown(e: PointerEvent) {
+    if (e.pointerType !== 'mouse' || e.button !== 0) return;
+    isPointerDown = true;
+    dragMoved = false;
+    dragStartX = e.clientX;
+    dragStartY = e.clientY;
+    dragStartScrollLeft = scroller.scrollLeft;
+    dragStartIndex = index;
+  }
+
+  function handlePointerMove(e: PointerEvent) {
+    if (!isPointerDown) return;
+    // Button released where we couldn't see it — don't let the armed
+    // state stick and resume on re-entry.
+    if (!(e.buttons & 1)) {
+      endDrag(e);
+      return;
+    }
+    const dx = e.clientX - dragStartX;
+    const dy = e.clientY - dragStartY;
+    if (!dragMoved && Math.abs(dx) > 8 && Math.abs(dx) > Math.abs(dy)) {
+      dragMoved = true;
+      dragActive = true;
+      scroller.setPointerCapture(e.pointerId);
+    }
+    if (dragMoved) scroller.scrollLeft = dragStartScrollLeft - dx;
+  }
+
+  function endDrag(e: PointerEvent) {
+    if (!isPointerDown) return;
+    isPointerDown = false;
+    dragActive = false;
+    if (!dragMoved) return; // plain click — let it through untouched
+    const w = paneWidth();
+    if (!w) return;
+
+    const dx = e.clientX - dragStartX;
+    const nearest = Math.round(scroller.scrollLeft / w);
+    let target = nearest;
+    // Flick: a short-but-decisive drag advances one pane in the drag
+    // direction even if the nearest snap point is still the start.
+    if (Math.abs(dx) > 40) {
+      target =
+        dx < 0 ? Math.max(dragStartIndex + 1, nearest) : Math.min(dragStartIndex - 1, nearest);
+    }
+    target = Math.max(0, Math.min(count - 1, target));
+
+    // Keep snap off until the release animation settles, otherwise
+    // mandatory snap jumps instantly and kills the smooth scroll.
+    snapDisabled = true;
+    scroller.scrollTo({ left: target * w, behavior: 'smooth' });
+    if (snapRestoreTimer) clearTimeout(snapRestoreTimer);
+    snapRestoreTimer = setTimeout(() => {
+      snapDisabled = false;
+    }, 350);
+  }
+
+  // The browser fires a click after a drag — swallow it so finishing a
+  // swipe doesn't close the lightbox.
+  function suppressClickAfterDrag(e: MouseEvent) {
+    if (dragMoved) {
+      e.stopPropagation();
+      e.preventDefault();
+      dragMoved = false;
+    }
   }
 
   onDestroy(() => {
-    if (settleTimer) clearTimeout(settleTimer);
+    if (snapRestoreTimer) clearTimeout(snapRestoreTimer);
   });
 </script>
 
@@ -135,42 +144,33 @@
   role="dialog"
   aria-modal="true"
 >
-  <!-- Image stage — swipe / drag anywhere on it to page. Padded panes
-       keep the photos clear of the chrome in the backdrop gutters. -->
   <!-- svelte-ignore a11y-no-static-element-interactions -->
   <div
-    bind:this={stageEl}
-    class="absolute inset-0"
-    style="touch-action: pan-y;"
+    bind:this={scroller}
+    class="lightbox-scroller"
+    class:is-dragging={dragActive}
+    class:no-snap={dragActive || snapDisabled}
+    on:scroll={handleScroll}
     on:pointerdown={handlePointerDown}
     on:pointermove={handlePointerMove}
-    on:pointerup={release}
-    on:pointercancel={release}
-    on:lostpointercapture={release}
-    on:click|capture={handleClickCapture}
+    on:pointerup={endDrag}
+    on:pointercancel={endDrag}
+    on:lostpointercapture={endDrag}
+    on:click|capture={suppressClickAfterDrag}
   >
-    <div bind:this={trackEl} class="lightbox-track">
-      {#if multiple}
-        <div class="lightbox-pane pane-prev">
-          <img src={images[prevIndex]} alt="" class="lightbox-image" draggable="false" />
-        </div>
-      {/if}
+    {#each images as url, i}
       <div class="lightbox-pane">
         <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-noninteractive-element-interactions -->
         <img
-          src={images[index]}
-          alt="Full size preview"
+          src={url}
+          alt={i === index ? 'Full size preview' : ''}
           class="lightbox-image"
+          loading="lazy"
           draggable="false"
           on:click|stopPropagation
         />
       </div>
-      {#if multiple}
-        <div class="lightbox-pane pane-next">
-          <img src={images[nextIndex]} alt="" class="lightbox-image" draggable="false" />
-        </div>
-      {/if}
-    </div>
+    {/each}
   </div>
 
   <!-- Close button -->
@@ -198,43 +198,75 @@
     </div>
 
     <!-- Previous / next — desktop only; touch users swipe -->
-    <button
-      on:click|stopPropagation={() => commit(-1)}
-      class="hidden sm:flex absolute left-3 top-1/2 -translate-y-1/2 z-10 bg-white/10 hover:bg-white/20 text-white rounded-full p-2 transition"
-      aria-label="Previous image"
-    >
-      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          stroke-width="2"
-          d="M15 19l-7-7 7-7"
-        />
-      </svg>
-    </button>
+    {#if index > 0}
+      <button
+        on:click|stopPropagation={() => scrollToIndex(index - 1)}
+        class="hidden sm:flex absolute left-3 top-1/2 -translate-y-1/2 z-10 bg-white/10 hover:bg-white/20 text-white rounded-full p-2 transition"
+        aria-label="Previous image"
+      >
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="2"
+            d="M15 19l-7-7 7-7"
+          />
+        </svg>
+      </button>
+    {/if}
 
-    <button
-      on:click|stopPropagation={() => commit(1)}
-      class="hidden sm:flex absolute right-3 top-1/2 -translate-y-1/2 z-10 bg-white/10 hover:bg-white/20 text-white rounded-full p-2 transition"
-      aria-label="Next image"
-    >
-      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
-      </svg>
-    </button>
+    {#if index < count - 1}
+      <button
+        on:click|stopPropagation={() => scrollToIndex(index + 1)}
+        class="hidden sm:flex absolute right-3 top-1/2 -translate-y-1/2 z-10 bg-white/10 hover:bg-white/20 text-white rounded-full p-2 transition"
+        aria-label="Next image"
+      >
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+        </svg>
+      </button>
+    {/if}
   {/if}
 </div>
 
 <style>
-  .lightbox-track {
+  .lightbox-scroller {
     position: absolute;
     inset: 0;
-    will-change: transform;
+    display: flex;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: contain;
+    touch-action: pan-y pan-x;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  .lightbox-scroller::-webkit-scrollbar {
+    display: none;
+  }
+  @media (hover: hover) {
+    .lightbox-scroller {
+      cursor: grab;
+    }
+  }
+  .lightbox-scroller.is-dragging {
+    cursor: grabbing;
+    user-select: none;
+  }
+  .lightbox-scroller.is-dragging :global(*) {
+    pointer-events: none;
+  }
+  .lightbox-scroller.no-snap {
+    scroll-snap-type: none;
   }
 
   .lightbox-pane {
-    position: absolute;
-    inset: 0;
+    flex: 0 0 100%;
+    width: 100%;
+    height: 100%;
+    scroll-snap-align: center;
+    scroll-snap-stop: always;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -245,12 +277,6 @@
       padding-left: 4rem;
       padding-right: 4rem;
     }
-  }
-  .pane-prev {
-    transform: translateX(-100%);
-  }
-  .pane-next {
-    transform: translateX(100%);
   }
 
   .lightbox-image {
