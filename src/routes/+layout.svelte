@@ -58,8 +58,11 @@
   // into a full-page load. Cloudflare Pages removes the previous deploy's
   // immutable assets, so stale clients otherwise 404 on chunk imports when
   // navigating (broken tabs until a hard refresh).
-  beforeNavigate(({ willUnload, to }) => {
+  beforeNavigate(({ willUnload, to, cancel }) => {
     if ($updated && !willUnload && to?.url) {
+      // Cancel the client-side navigation first so SvelteKit doesn't start
+      // resolving (stale) route chunks before the full-page load takes over.
+      cancel();
       location.href = to.url.href;
     }
   });
