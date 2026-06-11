@@ -326,6 +326,15 @@ function writeCache(pubkey: string, now: Date, groups: MemoryGroup[]): void {
 }
 
 /**
+ * In-flight fetches keyed by pubkey+day. Rapid mount/unmount cycles (e.g.
+ * bouncing between /community and /memories before the first fetch
+ * finishes) share one fetch instead of opening 3 new subscriptions per
+ * mount. Entries are removed when the fetch settles, so each subscription
+ * still self-terminates on eose or its 10s timeout — nothing outlives that.
+ */
+const pendingFetches = new Map<string, Promise<MemoryGroup[]>>();
+
+/**
  * Return today's cached memories if present, otherwise fetch from relays
  * and cache the result. Empty results are cached too (so relays aren't
  * re-queried all day for users with no memories) — but only when at least
@@ -340,16 +349,29 @@ export async function getMemoriesCached(
   const cached = readCache(ndk, pubkey, now);
   if (cached) return cached;
 
-  const { getCurrentRelayGeneration } = await import('./nostr');
-  const startGeneration = getCurrentRelayGeneration();
+  const key = cacheKey(pubkey, now);
+  const pending = pendingFetches.get(key);
+  if (pending) return pending;
 
-  const groups = await fetchMemories(ndk, pubkey, now);
+  const fetchPromise = (async () => {
+    try {
+      const { getCurrentRelayGeneration } = await import('./nostr');
+      const startGeneration = getCurrentRelayGeneration();
 
-  if (getCurrentRelayGeneration() === startGeneration && shouldCacheMemories(groups)) {
-    writeCache(pubkey, now, groups);
-  }
+      const groups = await fetchMemories(ndk, pubkey, now);
 
-  return groups;
+      if (getCurrentRelayGeneration() === startGeneration && shouldCacheMemories(groups)) {
+        writeCache(pubkey, now, groups);
+      }
+
+      return groups;
+    } finally {
+      pendingFetches.delete(key);
+    }
+  })();
+
+  pendingFetches.set(key, fetchPromise);
+  return fetchPromise;
 }
 
 /**

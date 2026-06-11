@@ -76,6 +76,7 @@
         on:click={() => (expanded = !expanded)}
         class="flex items-center gap-2 flex-1 min-w-0 text-left"
         aria-expanded={expanded}
+        aria-controls="memories-card-panel"
         aria-label={expanded ? 'Collapse memories' : 'Expand memories'}
       >
         <span aria-hidden="true">📅</span>
@@ -89,6 +90,7 @@
           class="ml-auto flex-shrink-0 transition-transform duration-200"
           class:rotate-180={expanded}
           style="color: var(--color-text-secondary);"
+          aria-hidden="true"
         >
           <CaretDownIcon size={16} />
         </span>
@@ -104,7 +106,7 @@
     </div>
 
     {#if expanded}
-      <div class="px-4 pb-4 flex flex-col gap-4">
+      <div id="memories-card-panel" class="px-4 pb-4 flex flex-col gap-4">
         {#each nonEmptyGroups as group (group.yearsAgo)}
           <div>
             <h3
