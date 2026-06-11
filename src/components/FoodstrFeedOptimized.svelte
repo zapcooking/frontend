@@ -26,7 +26,7 @@
     onRelaySwitchStopSubscriptions
   } from '$lib/nostr';
   import { hellthreadThreshold } from '$lib/hellthreadFilterSettings';
-  import { swipeNav } from '$lib/swipeNav';
+  import MediaLightbox from './MediaLightbox.svelte';
   import { muteListStore, mutedPubkeys } from '$lib/muteListStore';
   import {
     isPubkeyMuted,
@@ -529,7 +529,6 @@
   let zapModal = false;
   let selectedEvent: NDKEvent | null = null;
   let imageModalOpen = false;
-  let selectedImageUrl = '';
   let selectedEventImages: string[] = [];
   let selectedImageIndex = 0;
 
@@ -4443,9 +4442,9 @@
     }, 0);
   }
 
-  // Image modal
-  function openImageModal(imageUrl: string, allImages: string[], index: number) {
-    selectedImageUrl = imageUrl;
+  // Image modal — navigation, keyboard, and swipe live inside
+  // MediaLightbox.
+  function openImageModal(_imageUrl: string, allImages: string[], index: number) {
     selectedEventImages = allImages;
     selectedImageIndex = index;
     imageModalOpen = true;
@@ -4453,27 +4452,8 @@
 
   function closeImageModal() {
     imageModalOpen = false;
-    selectedImageUrl = '';
     selectedEventImages = [];
     selectedImageIndex = 0;
-  }
-
-  function nextModalImage() {
-    selectedImageIndex = (selectedImageIndex + 1) % selectedEventImages.length;
-    selectedImageUrl = selectedEventImages[selectedImageIndex];
-  }
-
-  function prevModalImage() {
-    selectedImageIndex =
-      selectedImageIndex === 0 ? selectedEventImages.length - 1 : selectedImageIndex - 1;
-    selectedImageUrl = selectedEventImages[selectedImageIndex];
-  }
-
-  function handleImageModalKeydown(e: KeyboardEvent) {
-    if (!imageModalOpen) return;
-    if (e.key === 'Escape') closeImageModal();
-    else if (e.key === 'ArrowLeft') prevModalImage();
-    else if (e.key === 'ArrowRight') nextModalImage();
   }
 
   // ═══════════════════════════════════════════════════════════════
@@ -5536,92 +5516,13 @@
   </div>
 {/if}
 
-<svelte:window on:keydown={handleImageModalKeydown} />
-
 {#if imageModalOpen && portalTarget}
   <div use:portal={portalTarget}>
-    <div
-      class="fixed inset-0 z-50 bg-black/85"
-      on:click={closeImageModal}
-      role="dialog"
-      aria-modal="true"
-    >
-      <!-- Image stage — padded so the photo never sits under the
-           chrome; the gallery chrome (counter / close / arrows) lives
-           in the backdrop gutters, outside the photo frame. Drag /
-           swipe anywhere on the stage to page. -->
-      <div
-        class="absolute inset-0 flex items-center justify-center px-3 py-16 sm:px-16"
-        use:swipeNav={{
-          onPrev: prevModalImage,
-          onNext: nextModalImage,
-          enabled: selectedEventImages.length > 1
-        }}
-      >
-        <img
-          src={selectedImageUrl}
-          alt="Full size preview"
-          class="max-w-full max-h-full object-contain rounded-lg shadow-2xl"
-          draggable="false"
-          data-swipe-target
-          on:click|stopPropagation
-        />
-      </div>
-
-      <button
-        class="absolute top-3 right-3 z-10 bg-white/10 hover:bg-white/20 text-white rounded-full p-2 transition"
-        on:click|stopPropagation={closeImageModal}
-        aria-label="Close image"
-      >
-        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            stroke-width="2"
-            d="M6 18L18 6M6 6l12 12"
-          />
-        </svg>
-      </button>
-
-      {#if selectedEventImages.length > 1}
-        <div
-          class="absolute top-3 left-3 z-10 bg-black/60 text-white text-sm px-3 py-1.5 rounded-full"
-        >
-          {selectedImageIndex + 1} / {selectedEventImages.length}
-        </div>
-
-        <!-- Previous / next — desktop only; touch users swipe -->
-        <button
-          on:click|stopPropagation={prevModalImage}
-          class="hidden sm:flex absolute left-3 top-1/2 -translate-y-1/2 z-10 bg-white/10 hover:bg-white/20 text-white rounded-full p-2 transition"
-          aria-label="Previous image"
-        >
-          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="2"
-              d="M15 19l-7-7 7-7"
-            />
-          </svg>
-        </button>
-
-        <button
-          on:click|stopPropagation={nextModalImage}
-          class="hidden sm:flex absolute right-3 top-1/2 -translate-y-1/2 z-10 bg-white/10 hover:bg-white/20 text-white rounded-full p-2 transition"
-          aria-label="Next image"
-        >
-          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="2"
-              d="M9 5l7 7-7 7"
-            />
-          </svg>
-        </button>
-      {/if}
-    </div>
+    <MediaLightbox
+      images={selectedEventImages}
+      bind:index={selectedImageIndex}
+      onClose={closeImageModal}
+    />
   </div>
 {/if}
 

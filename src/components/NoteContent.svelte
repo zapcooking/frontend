@@ -9,7 +9,7 @@
   import VideoPreview from './VideoPreview.svelte';
   import MediaCarousel from './MediaCarousel.svelte';
   import { processContentWithProfiles } from '$lib/contentProcessor';
-  import { swipeNav } from '$lib/swipeNav';
+  import MediaLightbox from './MediaLightbox.svelte';
   import { onMount, onDestroy } from 'svelte';
   import { browser } from '$app/environment';
 
@@ -22,42 +22,20 @@
 
   let isExpanded: boolean = false;
 
-  // Image modal state
+  // Image modal state — navigation, keyboard, and swipe live inside
+  // MediaLightbox.
   let imageModalOpen = false;
-  let selectedImageUrl = '';
   let allImageUrls: string[] = [];
   let selectedImageIndex = 0;
 
-  function openImageModal(imageUrl: string, index: number) {
-    selectedImageUrl = imageUrl;
+  function openImageModal(_imageUrl: string, index: number) {
     selectedImageIndex = index;
     imageModalOpen = true;
   }
 
   function closeImageModal() {
     imageModalOpen = false;
-    selectedImageUrl = '';
     selectedImageIndex = 0;
-  }
-
-  function nextModalImage() {
-    if (allImageUrls.length <= 1) return;
-    selectedImageIndex = (selectedImageIndex + 1) % allImageUrls.length;
-    selectedImageUrl = allImageUrls[selectedImageIndex];
-  }
-
-  function prevModalImage() {
-    if (allImageUrls.length <= 1) return;
-    selectedImageIndex =
-      selectedImageIndex === 0 ? allImageUrls.length - 1 : selectedImageIndex - 1;
-    selectedImageUrl = allImageUrls[selectedImageIndex];
-  }
-
-  function handleKeydown(e: KeyboardEvent) {
-    if (!imageModalOpen) return;
-    if (e.key === 'Escape') closeImageModal();
-    else if (e.key === 'ArrowLeft') prevModalImage();
-    else if (e.key === 'ArrowRight') nextModalImage();
   }
 
   // Extract all image URLs from parsed content for navigation
@@ -439,96 +417,12 @@
 </div>
 
 <!-- Image Modal -->
-<svelte:window on:keydown={handleKeydown} />
-
 {#if imageModalOpen}
-  <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-noninteractive-element-interactions -->
-  <div
-    class="fixed inset-0 z-50 bg-black/85"
-    on:click={closeImageModal}
-    role="dialog"
-    aria-modal="true"
-  >
-    <!-- Image stage — padded so the photo never sits under the chrome;
-         the gallery chrome (counter / close / arrows) lives in the
-         backdrop gutters, outside the photo frame. Drag / swipe
-         anywhere on the stage to page. -->
-    <!-- svelte-ignore a11y-no-static-element-interactions -->
-    <div
-      class="absolute inset-0 flex items-center justify-center px-3 py-16 sm:px-16"
-      use:swipeNav={{
-        onPrev: prevModalImage,
-        onNext: nextModalImage,
-        enabled: allImageUrls.length > 1
-      }}
-    >
-      <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-noninteractive-element-interactions -->
-      <img
-        src={selectedImageUrl}
-        alt="Full size preview"
-        class="max-w-full max-h-full object-contain rounded-lg shadow-2xl"
-        draggable="false"
-        data-swipe-target
-        on:click|stopPropagation
-      />
-    </div>
-
-    <!-- Close button -->
-    <button
-      class="absolute top-3 right-3 z-10 bg-white/10 hover:bg-white/20 text-white rounded-full p-2 transition"
-      on:click|stopPropagation={closeImageModal}
-      aria-label="Close image"
-    >
-      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          stroke-width="2"
-          d="M6 18L18 6M6 6l12 12"
-        />
-      </svg>
-    </button>
-
-    {#if allImageUrls.length > 1}
-      <!-- Image counter -->
-      <div
-        class="absolute top-3 left-3 z-10 bg-black/60 text-white text-sm px-3 py-1.5 rounded-full"
-      >
-        {selectedImageIndex + 1} / {allImageUrls.length}
-      </div>
-
-      <!-- Previous / next — desktop only; touch users swipe -->
-      <button
-        on:click|stopPropagation={prevModalImage}
-        class="hidden sm:flex absolute left-3 top-1/2 -translate-y-1/2 z-10 bg-white/10 hover:bg-white/20 text-white rounded-full p-2 transition"
-        aria-label="Previous image"
-      >
-        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            stroke-width="2"
-            d="M15 19l-7-7 7-7"
-          />
-        </svg>
-      </button>
-
-      <button
-        on:click|stopPropagation={nextModalImage}
-        class="hidden sm:flex absolute right-3 top-1/2 -translate-y-1/2 z-10 bg-white/10 hover:bg-white/20 text-white rounded-full p-2 transition"
-        aria-label="Next image"
-      >
-        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            stroke-width="2"
-            d="M9 5l7 7-7 7"
-          />
-        </svg>
-      </button>
-    {/if}
-  </div>
+  <MediaLightbox
+    images={allImageUrls}
+    bind:index={selectedImageIndex}
+    onClose={closeImageModal}
+  />
 {/if}
 
 <style>
