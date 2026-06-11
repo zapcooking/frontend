@@ -123,10 +123,10 @@
           aria-expanded={isMobile ? undefined : expanded}
           aria-controls={isMobile ? undefined : 'memories-card-panel'}
           aria-label={isMobile
-            ? 'View memories'
+            ? 'View echoes'
             : expanded
-              ? 'Collapse memories'
-              : 'Expand memories'}
+              ? 'Collapse echoes'
+              : 'Expand echoes'}
         >
           <!-- Row 1: icon + title + caret -->
           <span class="flex items-center gap-2">
@@ -137,7 +137,7 @@
               class="text-sm font-semibold whitespace-nowrap"
               style="color: var(--color-text-primary);"
             >
-              On this day
+              Echoes
             </span>
             <span
               class="ml-auto flex-shrink-0 pr-1"
@@ -157,7 +157,10 @@
               </span>
             </span>
           </span>
-          <!-- Row 2: summary -->
+          <!-- Row 2: subheading + summary -->
+          <span class="block text-xs mt-0.5" style="color: var(--color-text-secondary);">
+            Notes from this day in years past.
+          </span>
           <span class="block text-xs mt-0.5" style="color: var(--color-text-secondary);">
             {summary}
           </span>
@@ -168,7 +171,7 @@
           on:click={dismiss}
           class="dismiss-btn flex-shrink-0 flex items-center justify-center self-center ml-2 mr-1 rounded-full hover:opacity-70 transition-opacity"
           style="color: var(--color-text-secondary);"
-          aria-label="Hide memories for today"
+          aria-label="Hide echoes for today"
         >
           <XIcon size={16} />
         </button>
@@ -197,7 +200,7 @@
             href="/memories"
             class="text-sm font-medium text-orange-500 hover:text-orange-600 transition-colors"
           >
-            See all memories →
+            See all echoes →
           </a>
         </div>
       {/if}
@@ -207,7 +210,7 @@
       class="undo-strip rounded-xl border mb-4 px-4 py-2 flex items-center justify-between gap-2"
       role="status"
     >
-      <span class="text-xs" style="color: var(--color-text-secondary);">Memories hidden</span>
+      <span class="text-xs" style="color: var(--color-text-secondary);">Echoes hidden</span>
       <button
         on:click={undo}
         class="text-xs font-medium underline hover:opacity-80 transition-opacity"
