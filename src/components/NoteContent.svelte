@@ -7,7 +7,9 @@
   import NofferButton from './clink/NofferButton.svelte';
   import LinkPreview from './LinkPreview.svelte';
   import VideoPreview from './VideoPreview.svelte';
+  import MediaCarousel from './MediaCarousel.svelte';
   import { processContentWithProfiles } from '$lib/contentProcessor';
+  import { swipeNav } from '$lib/swipeNav';
   import { onMount, onDestroy } from 'svelte';
   import { browser } from '$app/environment';
 
@@ -103,6 +105,55 @@
   function handleImageError(e: Event) {
     const target = e.target as HTMLImageElement;
     if (target) target.style.display = 'none';
+  }
+
+  function isMediaPart(part?: { type?: string; url?: string }): boolean {
+    return Boolean(
+      part?.type === 'url' && part.url && (isImageUrl(part.url) || isVideoUrl(part.url))
+    );
+  }
+
+  // Collapse runs of consecutive media URLs (ignoring the whitespace
+  // between them) into a single `media-gallery` part so they render as
+  // a swipeable carousel instead of a vertical stack. Lone media items
+  // keep their inline rendering.
+  function groupMediaRuns(parts: any[]): any[] {
+    const out: any[] = [];
+    let i = 0;
+    while (i < parts.length) {
+      const part = parts[i];
+      if (isMediaPart(part)) {
+        const urls: string[] = [part.url];
+        let j = i + 1;
+        while (j < parts.length) {
+          const next = parts[j];
+          if (isMediaPart(next)) {
+            urls.push(next.url);
+            j++;
+            continue;
+          }
+          // Swallow whitespace-only text that sits between two media
+          // URLs (typically the newline separating pasted links).
+          if (
+            next.type === 'text' &&
+            next.content.trim() === '' &&
+            isMediaPart(parts[j + 1])
+          ) {
+            j++;
+            continue;
+          }
+          break;
+        }
+        if (urls.length > 1) {
+          out.push({ type: 'media-gallery', urls, key: `gallery-${part.key ?? i}` });
+          i = j;
+          continue;
+        }
+      }
+      out.push(part);
+      i++;
+    }
+    return out;
   }
 
   function isBlockPart(part?: { type?: string; prefix?: string; url?: string }) {
@@ -273,6 +324,7 @@
   $: shouldCollapse = collapsible && content.length > maxLength;
   $: displayContent = shouldCollapse && !isExpanded ? content.substring(0, maxLength) : content;
   $: finalParsedContent = parseContent(displayContent);
+  $: renderParts = groupMediaRuns(finalParsedContent);
 
   // Preload profiles when content changes
   $: if (content) {
@@ -288,8 +340,20 @@
   class="whitespace-pre-wrap break-words note-content {className} w-full"
   style="white-space: pre-wrap;"
 >
-  {#each finalParsedContent as part, i}
+  {#each renderParts as part, i}
     {#if part.type === 'text'}<span>{part.content}</span>
+    {:else if part.type === 'media-gallery'}
+      <!-- Consecutive media URLs render as a swipeable carousel:
+           peeking 4:5 tiles with a count badge. -->
+      <div class="my-1">
+        <MediaCarousel
+          items={part.urls}
+          onItemClick={(url) => {
+            const index = allImageUrls.indexOf(url);
+            openImageModal(url, index >= 0 ? index : 0);
+          }}
+        />
+      </div>
     {:else if part.type === 'hashtag'}
       <button
         class="hashtag-pill inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium transition-colors cursor-pointer"
@@ -380,82 +444,90 @@
 {#if imageModalOpen}
   <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-noninteractive-element-interactions -->
   <div
-    class="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-75 p-4"
+    class="fixed inset-0 z-50 bg-black/85"
     on:click={closeImageModal}
     role="dialog"
     aria-modal="true"
   >
-    <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+    <!-- Image stage — padded so the photo never sits under the chrome;
+         the gallery chrome (counter / close / arrows) lives in the
+         backdrop gutters, outside the photo frame. Drag / swipe
+         anywhere on the stage to page. -->
+    <!-- svelte-ignore a11y-no-static-element-interactions -->
     <div
-      class="relative bg-input rounded-lg shadow-2xl max-w-4xl max-h-[90vh] overflow-hidden"
-      on:click|stopPropagation
+      class="absolute inset-0 flex items-center justify-center px-3 py-16 sm:px-16"
+      use:swipeNav={{
+        onPrev: prevModalImage,
+        onNext: nextModalImage,
+        enabled: allImageUrls.length > 1
+      }}
     >
-      <!-- Close button -->
+      <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-noninteractive-element-interactions -->
+      <img
+        src={selectedImageUrl}
+        alt="Full size preview"
+        class="max-w-full max-h-full object-contain rounded-lg shadow-2xl"
+        draggable="false"
+        data-swipe-target
+        on:click|stopPropagation
+      />
+    </div>
+
+    <!-- Close button -->
+    <button
+      class="absolute top-3 right-3 z-10 bg-white/10 hover:bg-white/20 text-white rounded-full p-2 transition"
+      on:click|stopPropagation={closeImageModal}
+      aria-label="Close image"
+    >
+      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          stroke-width="2"
+          d="M6 18L18 6M6 6l12 12"
+        />
+      </svg>
+    </button>
+
+    {#if allImageUrls.length > 1}
+      <!-- Image counter -->
+      <div
+        class="absolute top-3 left-3 z-10 bg-black/60 text-white text-sm px-3 py-1.5 rounded-full"
+      >
+        {selectedImageIndex + 1} / {allImageUrls.length}
+      </div>
+
+      <!-- Previous / next — desktop only; touch users swipe -->
       <button
-        class="absolute top-2 right-2 bg-input hover:bg-accent-gray rounded-full p-2 shadow-md transition z-10"
-        style="color: var(--color-text-primary)"
-        on:click={closeImageModal}
-        aria-label="Close image"
+        on:click|stopPropagation={prevModalImage}
+        class="hidden sm:flex absolute left-3 top-1/2 -translate-y-1/2 z-10 bg-white/10 hover:bg-white/20 text-white rounded-full p-2 transition"
+        aria-label="Previous image"
       >
         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path
             stroke-linecap="round"
             stroke-linejoin="round"
             stroke-width="2"
-            d="M6 18L18 6M6 6l12 12"
+            d="M15 19l-7-7 7-7"
           />
         </svg>
       </button>
 
-      {#if allImageUrls.length > 1}
-        <!-- Image counter -->
-        <div
-          class="absolute top-2 left-2 bg-black/60 text-white text-sm px-3 py-1.5 rounded-full z-10"
-        >
-          {selectedImageIndex + 1} / {allImageUrls.length}
-        </div>
-
-        <!-- Previous button -->
-        <button
-          on:click|stopPropagation={prevModalImage}
-          class="absolute left-2 top-1/2 -translate-y-1/2 bg-input/90 hover:bg-input rounded-full p-2 shadow-md transition z-10"
-          style="color: var(--color-text-primary)"
-          aria-label="Previous image"
-        >
-          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="2"
-              d="M15 19l-7-7 7-7"
-            />
-          </svg>
-        </button>
-
-        <!-- Next button -->
-        <button
-          on:click|stopPropagation={nextModalImage}
-          class="absolute right-2 top-1/2 -translate-y-1/2 bg-input/90 hover:bg-input rounded-full p-2 shadow-md transition z-10"
-          style="color: var(--color-text-primary)"
-          aria-label="Next image"
-        >
-          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="2"
-              d="M9 5l7 7-7 7"
-            />
-          </svg>
-        </button>
-      {/if}
-
-      <img
-        src={selectedImageUrl}
-        alt="Full size preview"
-        class="w-full h-auto max-h-[90vh] object-contain"
-      />
-    </div>
+      <button
+        on:click|stopPropagation={nextModalImage}
+        class="hidden sm:flex absolute right-3 top-1/2 -translate-y-1/2 z-10 bg-white/10 hover:bg-white/20 text-white rounded-full p-2 transition"
+        aria-label="Next image"
+      >
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="2"
+            d="M9 5l7 7-7 7"
+          />
+        </svg>
+      </button>
+    {/if}
   </div>
 {/if}
 

@@ -26,6 +26,7 @@
     onRelaySwitchStopSubscriptions
   } from '$lib/nostr';
   import { hellthreadThreshold } from '$lib/hellthreadFilterSettings';
+  import { swipeNav } from '$lib/swipeNav';
   import { muteListStore, mutedPubkeys } from '$lib/muteListStore';
   import {
     isPubkeyMuted,
@@ -47,7 +48,7 @@
   import PostActionsMenu from './PostActionsMenu.svelte';
   import NoteContent from './NoteContent.svelte';
   import PollDisplay from './PollDisplay.svelte';
-  import VideoPreview from './VideoPreview.svelte';
+  import MediaCarousel from './MediaCarousel.svelte';
   import AuthorName from './AuthorName.svelte';
   import CustomName from './CustomName.svelte';
   import {
@@ -506,7 +507,6 @@
   const seenEventIds = new Set<string>();
 
   // UI state
-  let carouselStates: { [eventId: string]: number } = {};
   // Share modal state
   let shareModalOpen = false;
   let shareUrl = '';
@@ -3987,11 +3987,6 @@
     })();
   }
 
-  function handleMediaError(e: Event) {
-    const target = e.target as HTMLElement;
-    if (target) target.style.display = 'none';
-  }
-
   function handlePostCopy(event: CustomEvent<{ noteId: string }>) {
     // Copy handled by PostActionsMenu component
     console.log('Note ID copied:', event.detail.noteId);
@@ -4249,62 +4244,6 @@
     } finally {
       isGeneratingImage = false;
     }
-  }
-
-  // Carousel navigation
-  function getCurrentSlide(eventId: string): number {
-    return carouselStates[eventId] || 0;
-  }
-
-  function getCarouselContainer(eventId: string): HTMLElement | null {
-    return document.querySelector(`[data-carousel-id="${eventId}"]`) as HTMLElement | null;
-  }
-
-  function scrollCarouselTo(eventId: string, index: number) {
-    const container = getCarouselContainer(eventId);
-    if (container) {
-      const slideWidth = container.offsetWidth;
-      container.scrollTo({ left: slideWidth * index, behavior: 'smooth' });
-    }
-  }
-
-  function scrollCarouselPrev(eventId: string) {
-    const container = getCarouselContainer(eventId);
-    if (container) {
-      const slideWidth = container.offsetWidth;
-      container.scrollTo({ left: container.scrollLeft - slideWidth, behavior: 'smooth' });
-    }
-  }
-
-  function scrollCarouselNext(eventId: string) {
-    const container = getCarouselContainer(eventId);
-    if (container) {
-      const slideWidth = container.offsetWidth;
-      container.scrollTo({ left: container.scrollLeft + slideWidth, behavior: 'smooth' });
-    }
-  }
-
-  function handleCarouselScroll(e: Event, eventId: string) {
-    const container = e.currentTarget as HTMLElement;
-    if (!container) return;
-    const slideWidth = container.offsetWidth;
-    if (slideWidth === 0) return;
-    const newIndex = Math.round(container.scrollLeft / slideWidth);
-    if (carouselStates[eventId] !== newIndex) {
-      carouselStates[eventId] = newIndex;
-      carouselStates = { ...carouselStates };
-    }
-  }
-
-  function nextSlide(eventId: string, totalSlides: number) {
-    carouselStates[eventId] = ((carouselStates[eventId] || 0) + 1) % totalSlides;
-    carouselStates = { ...carouselStates };
-  }
-
-  function prevSlide(eventId: string, totalSlides: number) {
-    const current = carouselStates[eventId] || 0;
-    carouselStates[eventId] = current === 0 ? totalSlides - 1 : current - 1;
-    carouselStates = { ...carouselStates };
   }
 
   // Consolidated engagement info for rendering - avoids multiple store lookups
@@ -5414,101 +5353,14 @@
               {#if getImageUrlsCached(event).length > 0}
                 {@const mediaUrls = getImageUrlsCached(event)}
 
+                <!-- Swipeable gallery: peeking 4:5 tiles with a count
+                     badge; single media shrink-wraps to the photo. -->
                 <div class="mb-3">
-                  <div class="relative rounded-lg overflow-hidden">
-                    <!-- Swipeable carousel container -->
-                    <div
-                      class="carousel-container flex overflow-x-auto snap-x snap-mandatory"
-                      style="touch-action: pan-y pan-x; overscroll-behavior-x: contain; -webkit-overflow-scrolling: touch; background-color: #1f2937;"
-                      data-carousel-id={event.id}
-                      on:scroll={(e) => handleCarouselScroll(e, event.id)}
-                    >
-                      {#each mediaUrls as imageUrl, index}
-                        <div
-                          class="carousel-slide flex-shrink-0 w-full snap-center flex items-center justify-center"
-                          style="background-color: #1f2937; min-height: 200px;"
-                        >
-                          {#if isImageUrl(imageUrl)}
-                            <button
-                              class="w-full flex items-center justify-center"
-                              style="touch-action: pan-y pan-x; -webkit-tap-highlight-color: transparent; background-color: #1f2937;"
-                              on:click={() => openImageModal(imageUrl, mediaUrls, index)}
-                            >
-                              <img
-                                src={getOptimizedImageUrl(imageUrl)}
-                                alt="Preview"
-                                class="carousel-image cursor-pointer hover:opacity-95 transition-opacity select-none"
-                                style="-webkit-user-drag: none; user-drag: none; -webkit-touch-callout: none; pointer-events: auto;"
-                                loading="lazy"
-                                decoding="async"
-                                draggable="false"
-                                on:error={handleMediaError}
-                              />
-                            </button>
-                          {:else if isVideoUrl(imageUrl)}
-                            <div class="carousel-image">
-                              <VideoPreview url={imageUrl} />
-                            </div>
-                          {/if}
-                        </div>
-                      {/each}
-                    </div>
-
-                    {#if mediaUrls.length > 1}
-                      <!-- Arrow buttons (hidden on mobile, visible on larger screens) -->
-                      <button
-                        on:click={() => scrollCarouselPrev(event.id)}
-                        class="hidden sm:block absolute left-2 top-1/2 -translate-y-1/2 bg-black/50 hover:bg-black/70 text-white rounded-full p-2 transition-colors z-10"
-                      >
-                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path
-                            stroke-linecap="round"
-                            stroke-linejoin="round"
-                            stroke-width="2"
-                            d="M15 19l-7-7 7-7"
-                          />
-                        </svg>
-                      </button>
-
-                      <button
-                        on:click={() => scrollCarouselNext(event.id)}
-                        class="hidden sm:block absolute right-2 top-1/2 -translate-y-1/2 bg-black/50 hover:bg-black/70 text-white rounded-full p-2 transition-colors z-10"
-                      >
-                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path
-                            stroke-linecap="round"
-                            stroke-linejoin="round"
-                            stroke-width="2"
-                            d="M9 5l7 7-7 7"
-                          />
-                        </svg>
-                      </button>
-
-                      <!-- Slide counter -->
-                      <div
-                        class="absolute top-2 right-2 bg-black/50 text-white text-xs px-2 py-1 rounded z-10"
-                      >
-                        {getCurrentSlide(event.id) + 1} / {mediaUrls.length}
-                      </div>
-
-                      <!-- Dot indicators -->
-                      {#if mediaUrls.length <= 5}
-                        <div
-                          class="absolute bottom-2 left-1/2 -translate-x-1/2 flex space-x-1.5 z-10"
-                        >
-                          {#each mediaUrls as _, index}
-                            <button
-                              on:click={() => scrollCarouselTo(event.id, index)}
-                              class="w-2 h-2 rounded-full transition-all {index ===
-                              getCurrentSlide(event.id)
-                                ? 'bg-white'
-                                : 'bg-white/50'}"
-                            />
-                          {/each}
-                        </div>
-                      {/if}
-                    {/if}
-                  </div>
+                  <MediaCarousel
+                    items={mediaUrls}
+                    optimizeUrl={getOptimizedImageUrl}
+                    onItemClick={(url, index) => openImageModal(url, mediaUrls, index)}
+                  />
                 </div>
               {/if}
 
@@ -5689,77 +5541,86 @@
 {#if imageModalOpen && portalTarget}
   <div use:portal={portalTarget}>
     <div
-      class="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-75 p-4"
+      class="fixed inset-0 z-50 bg-black/85"
       on:click={closeImageModal}
       role="dialog"
       aria-modal="true"
     >
+      <!-- Image stage — padded so the photo never sits under the
+           chrome; the gallery chrome (counter / close / arrows) lives
+           in the backdrop gutters, outside the photo frame. Drag /
+           swipe anywhere on the stage to page. -->
       <div
-        class="relative bg-input rounded-lg shadow-2xl max-w-4xl max-h-[90vh] overflow-hidden"
-        on:click|stopPropagation
+        class="absolute inset-0 flex items-center justify-center px-3 py-16 sm:px-16"
+        use:swipeNav={{
+          onPrev: prevModalImage,
+          onNext: nextModalImage,
+          enabled: selectedEventImages.length > 1
+        }}
       >
+        <img
+          src={selectedImageUrl}
+          alt="Full size preview"
+          class="max-w-full max-h-full object-contain rounded-lg shadow-2xl"
+          draggable="false"
+          data-swipe-target
+          on:click|stopPropagation
+        />
+      </div>
+
+      <button
+        class="absolute top-3 right-3 z-10 bg-white/10 hover:bg-white/20 text-white rounded-full p-2 transition"
+        on:click|stopPropagation={closeImageModal}
+        aria-label="Close image"
+      >
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="2"
+            d="M6 18L18 6M6 6l12 12"
+          />
+        </svg>
+      </button>
+
+      {#if selectedEventImages.length > 1}
+        <div
+          class="absolute top-3 left-3 z-10 bg-black/60 text-white text-sm px-3 py-1.5 rounded-full"
+        >
+          {selectedImageIndex + 1} / {selectedEventImages.length}
+        </div>
+
+        <!-- Previous / next — desktop only; touch users swipe -->
         <button
-          class="absolute top-2 right-2 bg-input hover:bg-accent-gray rounded-full p-2 shadow-md transition z-10"
-          style="color: var(--color-text-primary)"
-          on:click={closeImageModal}
-          aria-label="Close image"
+          on:click|stopPropagation={prevModalImage}
+          class="hidden sm:flex absolute left-3 top-1/2 -translate-y-1/2 z-10 bg-white/10 hover:bg-white/20 text-white rounded-full p-2 transition"
+          aria-label="Previous image"
         >
           <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path
               stroke-linecap="round"
               stroke-linejoin="round"
               stroke-width="2"
-              d="M6 18L18 6M6 6l12 12"
+              d="M15 19l-7-7 7-7"
             />
           </svg>
         </button>
 
-        {#if selectedEventImages.length > 1}
-          <div
-            class="absolute top-2 left-2 bg-black/60 text-white text-sm px-3 py-1.5 rounded-full z-10"
-          >
-            {selectedImageIndex + 1} / {selectedEventImages.length}
-          </div>
-
-          <button
-            on:click|stopPropagation={prevModalImage}
-            class="absolute left-2 top-1/2 -translate-y-1/2 bg-input/90 hover:bg-input rounded-full p-2 shadow-md transition z-10"
-            style="color: var(--color-text-primary)"
-            aria-label="Previous image"
-          >
-            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M15 19l-7-7 7-7"
-              />
-            </svg>
-          </button>
-
-          <button
-            on:click|stopPropagation={nextModalImage}
-            class="absolute right-2 top-1/2 -translate-y-1/2 bg-input/90 hover:bg-input rounded-full p-2 shadow-md transition z-10"
-            style="color: var(--color-text-primary)"
-            aria-label="Next image"
-          >
-            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M9 5l7 7-7 7"
-              />
-            </svg>
-          </button>
-        {/if}
-
-        <img
-          src={selectedImageUrl}
-          alt="Full size preview"
-          class="w-full h-auto max-h-[90vh] object-contain"
-        />
-      </div>
+        <button
+          on:click|stopPropagation={nextModalImage}
+          class="hidden sm:flex absolute right-3 top-1/2 -translate-y-1/2 z-10 bg-white/10 hover:bg-white/20 text-white rounded-full p-2 transition"
+          aria-label="Next image"
+        >
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M9 5l7 7-7 7"
+            />
+          </svg>
+        </button>
+      {/if}
     </div>
   </div>
 {/if}
@@ -5775,47 +5636,6 @@
   }
 
   /* Carousel touch behavior - allow both vertical (feed) and horizontal (carousel) scrolling */
-  .carousel-container {
-    scrollbar-width: none; /* Firefox */
-    -ms-overflow-style: none; /* IE/Edge */
-    touch-action: pan-y pan-x !important; /* Allow both vertical feed scroll and horizontal carousel swipe */
-    will-change: scroll-position; /* Optimize scrolling performance */
-    scroll-snap-type: x mandatory;
-  }
-
-  .carousel-container::-webkit-scrollbar {
-    display: none; /* Chrome/Safari/Opera */
-  }
-
-  .carousel-slide {
-    touch-action: pan-y pan-x !important; /* Allow both scroll directions - browser detects gesture direction */
-    scroll-snap-align: center;
-    scroll-snap-stop: always;
-  }
-
-  .carousel-slide img,
-  .carousel-slide video,
-  .carousel-slide button {
-    -webkit-touch-callout: none; /* Disable iOS callout */
-    -webkit-user-select: none; /* Prevent text selection */
-    user-select: none;
-    -webkit-user-drag: none; /* Prevent dragging */
-    user-drag: none;
-  }
-
-  /* Allow vertical scrolling to pass through to feed */
-  .carousel-slide button {
-    touch-action: pan-y pan-x !important;
-  }
-
-  /* Dynamic height carousel images - adapt to aspect ratio */
-  .carousel-image {
-    width: 100%;
-    height: auto;
-    max-height: 70vh;
-    object-fit: contain;
-  }
-
   /* Parent quote embed - always visible */
   .parent-quote-embed {
     padding: 0.5rem 0.75rem;
@@ -5861,23 +5681,6 @@
     display: flex;
     align-items: center;
     gap: 0.5rem;
-  }
-
-  /* Swipeable carousel styles */
-  .carousel-container {
-    scroll-snap-type: x mandatory;
-    -webkit-overflow-scrolling: touch;
-    scrollbar-width: none; /* Firefox */
-    -ms-overflow-style: none; /* IE/Edge */
-  }
-
-  .carousel-container::-webkit-scrollbar {
-    display: none; /* Chrome/Safari */
-  }
-
-  .carousel-slide {
-    scroll-snap-align: start;
-    scroll-snap-stop: always;
   }
 
   /* Zap-popular post golden border animation */
