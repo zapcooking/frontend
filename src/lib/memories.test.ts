@@ -16,6 +16,9 @@ import {
   isReplyNote,
   shouldCacheMemories,
   overwriteMemoriesCache,
+  dismissMemoriesCard,
+  undismissMemoriesCard,
+  isMemoriesCardDismissed,
   type MemoryGroup
 } from './memories';
 
@@ -257,5 +260,13 @@ describe('overwriteMemoriesCache (refresh gating)', () => {
     expect(written).toBe(true);
     expect(store.has(staleKey)).toBe(false);
     expect(store.has(todayKey)).toBe(true);
+  });
+
+  it('undismiss clears the dismissal for the same day (Undo flow)', () => {
+    dismissMemoriesCard(pubkey, now);
+    expect(isMemoriesCardDismissed(pubkey, now)).toBe(true);
+
+    undismissMemoriesCard(pubkey, now);
+    expect(isMemoriesCardDismissed(pubkey, now)).toBe(false);
   });
 });

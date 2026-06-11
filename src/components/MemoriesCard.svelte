@@ -7,6 +7,7 @@
     getMemoriesCached,
     dismissMemoriesCard,
     isMemoriesCardDismissed,
+    undismissMemoriesCard,
     type MemoryGroup
   } from '$lib/memories';
   import MemoryNoteCard from './MemoryNoteCard.svelte';
@@ -103,18 +104,8 @@
       clearTimeout(undoTimer);
       undoTimer = null;
     }
-    // memories.ts has no undismiss export (frozen this phase); the key
-    // format mirrors dismissMemoriesCard / localDateKey in $lib/memories.
-    if (browser && $userPublickey) {
-      const d = new Date();
-      const dateKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(
-        d.getDate()
-      ).padStart(2, '0')}`;
-      try {
-        localStorage.removeItem(`zap_memories_dismissed_${$userPublickey}_${dateKey}`);
-      } catch {
-        // Best-effort only.
-      }
+    if ($userPublickey) {
+      undismissMemoriesCard($userPublickey);
     }
     undoVisible = false;
     dismissed = false;

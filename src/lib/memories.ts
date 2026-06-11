@@ -432,3 +432,13 @@ export function isMemoriesCardDismissed(pubkey: string, now: Date = new Date()):
   if (!hasLocalStorage()) return false;
   return localStorage.getItem(`${DISMISS_PREFIX}${pubkey}_${localDateKey(now)}`) !== null;
 }
+
+/** Clear today's dismissal (the card's "Undo" affordance). */
+export function undismissMemoriesCard(pubkey: string, now: Date = new Date()): void {
+  if (!hasLocalStorage()) return;
+  try {
+    localStorage.removeItem(`${DISMISS_PREFIX}${pubkey}_${localDateKey(now)}`);
+  } catch {
+    // Best-effort only.
+  }
+}
