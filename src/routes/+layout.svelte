@@ -3,8 +3,8 @@
   import '../app.css';
   import Header from '../components/Header.svelte';
   import { browser } from '$app/environment';
-  import { page } from '$app/stores';
-  import { goto } from '$app/navigation';
+  import { page, updated } from '$app/stores';
+  import { goto, beforeNavigate } from '$app/navigation';
   import { userPublickey, ndk } from '$lib/nostr';
   import BottomNav from '../components/BottomNav.svelte';
   import DesktopSideNav from '../components/DesktopSideNav.svelte';
@@ -52,6 +52,33 @@
   // Refresh engagement counts when the tab returns from background
   import { tabVisibleAfterHide } from '$lib/tabVisibility';
   import { refreshActiveEngagement } from '$lib/engagementCache';
+
+  // Version-skew guard: when a new deploy is detected (kit.version
+  // pollInterval in svelte.config.js), turn the next client-side navigation
+  // into a full-page load. Cloudflare Pages removes the previous deploy's
+  // immutable assets, so stale clients otherwise 404 on chunk imports when
+  // navigating (broken tabs until a hard refresh).
+  beforeNavigate(({ willUnload, to, cancel }) => {
+    if ($updated && !willUnload && to?.url) {
+      // Cancel the client-side navigation first so SvelteKit doesn't start
+      // resolving (stale) route chunks before the full-page load takes over.
+      cancel();
+      location.href = to.url.href;
+    }
+  });
+
+  // Safety net for the window before the first version poll: if a lazy
+  // chunk fails to load (its hashed file no longer exists on the new
+  // deploy), reload to pick up the fresh build instead of leaving the
+  // app in a broken half-navigated state.
+  onMount(() => {
+    const onPreloadError = (event: Event) => {
+      event.preventDefault();
+      location.reload();
+    };
+    window.addEventListener('vite:preloadError', onPreloadError);
+    return () => window.removeEventListener('vite:preloadError', onPreloadError);
+  });
 
   // Accept props from SvelteKit to prevent warnings
   export let data: LayoutData = {} as LayoutData;
