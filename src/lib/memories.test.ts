@@ -10,8 +10,14 @@
  * exercised here.
  */
 
-import { describe, it, expect } from 'vitest';
-import { getMemoryWindows, isReplyNote, shouldCacheMemories } from './memories';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import {
+  getMemoryWindows,
+  isReplyNote,
+  shouldCacheMemories,
+  overwriteMemoriesCache,
+  type MemoryGroup
+} from './memories';
 
 /** Assert a window spans exactly the given local calendar day. */
 function expectLocalDaySpan(
@@ -177,5 +183,79 @@ describe('shouldCacheMemories', () => {
         { events: [], resolvedVia: 'timeout' }
       ])
     ).toBe(true);
+  });
+});
+
+describe('overwriteMemoriesCache (refresh gating)', () => {
+  const pubkey = 'a'.repeat(64);
+  const now = new Date(2026, 5, 10, 12, 0, 0); // Jun 10 2026 → key suffix 2026-06-10
+  const todayKey = `zap_memories_${pubkey}_2026-06-10`;
+
+  function group(resolvedVia: 'eose' | 'timeout', yearsAgo = 1): MemoryGroup {
+    return { yearsAgo, date: new Date(2025, 5, 10), events: [], resolvedVia };
+  }
+
+  // Minimal localStorage stub (vitest's node env has none)
+  let store: Map<string, string>;
+
+  beforeEach(() => {
+    store = new Map();
+    vi.stubGlobal('localStorage', {
+      get length() {
+        return store.size;
+      },
+      key: (i: number) => [...store.keys()][i] ?? null,
+      getItem: (k: string) => store.get(k) ?? null,
+      setItem: (k: string, v: string) => {
+        store.set(k, String(v));
+      },
+      removeItem: (k: string) => {
+        store.delete(k);
+      },
+      clear: () => store.clear()
+    });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('does not overwrite existing cache on an all-timeout empty refresh', () => {
+    store.set(todayKey, '[{"existing":"data"}]');
+
+    const written = overwriteMemoriesCache(
+      pubkey,
+      [group('timeout', 1), group('timeout', 2), group('timeout', 3)],
+      now
+    );
+
+    expect(written).toBe(false);
+    expect(store.get(todayKey)).toBe('[{"existing":"data"}]');
+  });
+
+  it('overwrites the cache when at least one window saw EOSE', () => {
+    store.set(todayKey, '[{"existing":"data"}]');
+
+    const written = overwriteMemoriesCache(
+      pubkey,
+      [group('eose', 1), group('timeout', 2), group('timeout', 3)],
+      now
+    );
+
+    expect(written).toBe(true);
+    const stored = JSON.parse(store.get(todayKey)!);
+    expect(stored).toHaveLength(3);
+    expect(stored[0].resolvedVia).toBe('eose');
+  });
+
+  it('prunes stale prior-day keys when it writes', () => {
+    const staleKey = `zap_memories_${pubkey}_2026-06-09`;
+    store.set(staleKey, '[]');
+
+    const written = overwriteMemoriesCache(pubkey, [group('eose')], now);
+
+    expect(written).toBe(true);
+    expect(store.has(staleKey)).toBe(false);
+    expect(store.has(todayKey)).toBe(true);
   });
 });

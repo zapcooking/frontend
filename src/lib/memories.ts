@@ -352,6 +352,45 @@ export async function getMemoriesCached(
   return groups;
 }
 
+/**
+ * Overwrite today's cache entry with `groups`, but only when they're
+ * authoritative per shouldCacheMemories. Returns whether the write
+ * happened. Exported separately so the gating is unit-testable.
+ */
+export function overwriteMemoriesCache(
+  pubkey: string,
+  groups: MemoryGroup[],
+  now: Date = new Date()
+): boolean {
+  if (!shouldCacheMemories(groups)) return false;
+  writeCache(pubkey, now, groups);
+  return true;
+}
+
+/**
+ * Cache-bypassing refresh for the /memories page: always hits relays,
+ * then overwrites today's cache entry only when the result is
+ * authoritative (has events or saw EOSE) and the relay generation is
+ * unchanged. `refreshed: false` means the caller should keep showing
+ * its current (cached) data.
+ */
+export async function refreshMemories(
+  ndk: NDK,
+  pubkey: string,
+  now: Date = new Date()
+): Promise<{ groups: MemoryGroup[]; refreshed: boolean }> {
+  const { getCurrentRelayGeneration } = await import('./nostr');
+  const startGeneration = getCurrentRelayGeneration();
+
+  const groups = await fetchMemories(ndk, pubkey, now);
+
+  if (getCurrentRelayGeneration() !== startGeneration) {
+    return { groups, refreshed: false };
+  }
+
+  return { groups, refreshed: overwriteMemoriesCache(pubkey, groups, now) };
+}
+
 // ═══════════════════════════════════════════════════════════════
 // DISMISSAL
 // ═══════════════════════════════════════════════════════════════
