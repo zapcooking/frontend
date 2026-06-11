@@ -38,6 +38,12 @@ export interface MemoryGroup {
   /** Start of the target day, local time */
   date: Date;
   events: NDKEvent[];
+  /**
+   * How the window's subscription resolved. 'timeout' means relays never
+   * sent EOSE, so an empty result may just mean "relays didn't answer" —
+   * callers use this to decide whether an empty day is cacheable.
+   */
+  resolvedVia: 'eose' | 'timeout';
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -123,7 +129,8 @@ function emptyGroup(window: MemoryWindow): MemoryGroup {
   return {
     yearsAgo: window.yearsAgo,
     date: new Date(window.since * 1000),
-    events: []
+    events: [],
+    resolvedVia: 'timeout'
   };
 }
 
@@ -159,7 +166,7 @@ function fetchWindow(
     const collected = new Map<string, NDKEvent>();
     let resolved = false;
 
-    const finish = () => {
+    const finish = (resolvedVia: 'eose' | 'timeout') => {
       if (resolved) return;
       resolved = true;
       subscription.stop();
@@ -171,7 +178,8 @@ function fetchWindow(
       resolve({
         yearsAgo: window.yearsAgo,
         date: new Date(window.since * 1000),
-        events
+        events,
+        resolvedVia
       });
     };
 
@@ -181,8 +189,8 @@ function fetchWindow(
       }
     });
 
-    subscription.on('eose', finish);
-    setTimeout(finish, WINDOW_FETCH_TIMEOUT_MS);
+    subscription.on('eose', () => finish('eose'));
+    setTimeout(() => finish('timeout'), WINDOW_FETCH_TIMEOUT_MS);
   });
 }
 
@@ -225,6 +233,21 @@ interface StoredMemoryGroup {
   yearsAgo: number;
   date: string;
   events: NostrEvent[];
+  resolvedVia?: 'eose' | 'timeout';
+}
+
+/**
+ * Empty results are only cacheable when at least one window received EOSE —
+ * an all-timeout empty result means relays never answered, and caching it
+ * would suppress memories for the rest of the day. Non-empty results are
+ * always cacheable.
+ */
+export function shouldCacheMemories(
+  groups: { events: unknown[]; resolvedVia: 'eose' | 'timeout' }[]
+): boolean {
+  const hasEvents = groups.some((group) => group.events.length > 0);
+  const sawEose = groups.some((group) => group.resolvedVia === 'eose');
+  return hasEvents || sawEose;
 }
 
 function hasLocalStorage(): boolean {
@@ -273,7 +296,9 @@ function readCache(ndk: NDK, pubkey: string, now: Date): MemoryGroup[] | null {
     return stored.map((group) => ({
       yearsAgo: group.yearsAgo,
       date: new Date(group.date),
-      events: group.events.map((ev) => new NDKEvent(ndk, ev))
+      events: group.events.map((ev) => new NDKEvent(ndk, ev)),
+      // Anything that made it into the cache was deemed authoritative.
+      resolvedVia: group.resolvedVia ?? 'eose'
     }));
   } catch {
     return null;
@@ -287,7 +312,8 @@ function writeCache(pubkey: string, now: Date, groups: MemoryGroup[]): void {
   const stored: StoredMemoryGroup[] = groups.map((group) => ({
     yearsAgo: group.yearsAgo,
     date: group.date.toISOString(),
-    events: group.events.map((ev) => ev.rawEvent())
+    events: group.events.map((ev) => ev.rawEvent()),
+    resolvedVia: group.resolvedVia
   }));
 
   try {
@@ -301,9 +327,10 @@ function writeCache(pubkey: string, now: Date, groups: MemoryGroup[]): void {
 
 /**
  * Return today's cached memories if present, otherwise fetch from relays
- * and cache the result (including empty results, so relays aren't
- * re-queried all day for users with no memories). Cache writes are
- * skipped if the relay generation changed during the fetch.
+ * and cache the result. Empty results are cached too (so relays aren't
+ * re-queried all day for users with no memories) — but only when at least
+ * one window received EOSE; empty-via-timeout is never cached. Cache
+ * writes are also skipped if the relay generation changed during the fetch.
  */
 export async function getMemoriesCached(
   ndk: NDK,
@@ -318,7 +345,7 @@ export async function getMemoriesCached(
 
   const groups = await fetchMemories(ndk, pubkey, now);
 
-  if (getCurrentRelayGeneration() === startGeneration) {
+  if (getCurrentRelayGeneration() === startGeneration && shouldCacheMemories(groups)) {
     writeCache(pubkey, now, groups);
   }
 

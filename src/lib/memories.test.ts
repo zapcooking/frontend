@@ -11,7 +11,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { getMemoryWindows, isReplyNote } from './memories';
+import { getMemoryWindows, isReplyNote, shouldCacheMemories } from './memories';
 
 /** Assert a window spans exactly the given local calendar day. */
 function expectLocalDaySpan(
@@ -133,5 +133,49 @@ describe('isReplyNote', () => {
 
   it('ignores e tags with no event id', () => {
     expect(isReplyNote({ tags: [['e']] })).toBe(false);
+  });
+});
+
+describe('shouldCacheMemories', () => {
+  const note = {}; // contents irrelevant; only presence is checked
+
+  it('does not cache empty results when every window timed out', () => {
+    expect(
+      shouldCacheMemories([
+        { events: [], resolvedVia: 'timeout' },
+        { events: [], resolvedVia: 'timeout' },
+        { events: [], resolvedVia: 'timeout' }
+      ])
+    ).toBe(false);
+  });
+
+  it('caches empty results when at least one window received EOSE', () => {
+    expect(
+      shouldCacheMemories([
+        { events: [], resolvedVia: 'eose' },
+        { events: [], resolvedVia: 'timeout' },
+        { events: [], resolvedVia: 'timeout' }
+      ])
+    ).toBe(true);
+  });
+
+  it('caches all-EOSE empty results (genuinely no memories today)', () => {
+    expect(
+      shouldCacheMemories([
+        { events: [], resolvedVia: 'eose' },
+        { events: [], resolvedVia: 'eose' },
+        { events: [], resolvedVia: 'eose' }
+      ])
+    ).toBe(true);
+  });
+
+  it('caches non-empty results even if every window timed out', () => {
+    expect(
+      shouldCacheMemories([
+        { events: [note], resolvedVia: 'timeout' },
+        { events: [], resolvedVia: 'timeout' },
+        { events: [], resolvedVia: 'timeout' }
+      ])
+    ).toBe(true);
   });
 });
