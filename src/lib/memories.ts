@@ -206,7 +206,21 @@ export async function fetchMemories(
 ): Promise<MemoryGroup[]> {
   const windows = getMemoryWindows(now);
 
-  const { getCurrentRelayGeneration } = await import('./nostr');
+  const { getCurrentRelayGeneration, ensureNdkConnected } = await import('./nostr');
+
+  // Don't start subscriptions while NDK is still connecting — they'd all
+  // time out and read as "no memories today". Centralized here so every
+  // caller (card mount, /memories load, refresh) is gated the same way.
+  // ensureNdkConnected resolves on its own timeout, but awaiting ndkReady
+  // inside it can reject if the initial connection failed — swallow that
+  // to preserve this function's never-throw contract (windows would then
+  // resolve via timeout and correctly not be cached).
+  try {
+    await ensureNdkConnected();
+  } catch (error) {
+    console.warn('[memories] Proceeding without confirmed NDK connection:', error);
+  }
+
   const startGeneration = getCurrentRelayGeneration();
 
   const relaySet = NDKRelaySet.fromRelayUrls(memoryRelayUrls(), ndk, false);

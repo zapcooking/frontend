@@ -18,13 +18,15 @@
     minute: '2-digit'
   });
 
-  function noteUrl(): string | null {
+  function noteUrl(id: string): string | null {
     try {
-      return `/${nip19.noteEncode(event.id)}`;
+      return `/${nip19.noteEncode(id)}`;
     } catch {
       return null;
     }
   }
+
+  $: viewUrl = noteUrl(event.id);
 
   function share() {
     try {
@@ -52,9 +54,9 @@
   <div class="flex items-center justify-between mt-3">
     <span class="text-xs" style="color: var(--color-text-secondary);">{timeLabel}</span>
     <div class="flex items-center gap-3">
-      {#if noteUrl()}
+      {#if viewUrl}
         <a
-          href={noteUrl()}
+          href={viewUrl}
           class="text-xs font-medium hover:opacity-80 transition-opacity"
           style="color: var(--color-text-secondary);"
         >
