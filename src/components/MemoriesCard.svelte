@@ -159,7 +159,7 @@
           </span>
           <!-- Row 2: subheading + summary -->
           <span class="block text-xs mt-0.5" style="color: var(--color-text-secondary);">
-            Notes from this day in years past.
+            A look back at notes from this day
           </span>
           <span class="block text-xs mt-0.5" style="color: var(--color-text-secondary);">
             {summary}

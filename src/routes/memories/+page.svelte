@@ -95,7 +95,7 @@
 
 <svelte:head>
   <title>Echoes - zap.cooking</title>
-  <meta name="description" content="Echoes — notes from this day in years past" />
+  <meta name="description" content="Echoes — a look back at notes from this day" />
 </svelte:head>
 
 <div class="px-4 max-w-2xl mx-auto w-full memories-page">
@@ -106,7 +106,7 @@
         Echoes
       </h1>
       <p class="text-sm mb-4" style="color: var(--color-text-secondary);">
-        Notes from this day in years past. Sign in to see yours.
+        A look back at notes from this day. Sign in to see yours.
       </p>
       <a
         href="/login?redirect=/memories"
@@ -120,7 +120,7 @@
       <div>
         <h1 class="text-2xl font-bold" style="color: var(--color-text-primary);">Echoes</h1>
         <p class="text-sm mt-1" style="color: var(--color-text-secondary);">
-          Notes from this day in years past. · {todayLabel}
+          A look back at notes from this day · {todayLabel}
         </p>
       </div>
       <button
