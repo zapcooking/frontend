@@ -5334,12 +5334,19 @@
                 {@const mediaUrls = getImageUrlsCached(event)}
 
                 <!-- Swipeable gallery: peeking 4:5 tiles with a count
-                     badge; single media shrink-wraps to the photo. -->
+                     badge; single media shrink-wraps to the photo.
+                     The lightbox only renders images, so it gets an
+                     images-only list (videos play inline in their
+                     tiles) with the index remapped accordingly. -->
                 <div class="mb-3">
                   <MediaCarousel
                     items={mediaUrls}
                     optimizeUrl={getOptimizedImageUrl}
-                    onItemClick={(url, index) => openImageModal(url, mediaUrls, index)}
+                    onItemClick={(url) => {
+                      const imageUrls = mediaUrls.filter((u) => isImageUrl(u));
+                      const imageIndex = imageUrls.indexOf(url);
+                      openImageModal(url, imageUrls, imageIndex >= 0 ? imageIndex : 0);
+                    }}
                   />
                 </div>
               {/if}

@@ -21,13 +21,18 @@
   /** Optional CDN/proxy rewrite applied to tile image sources. */
   export let optimizeUrl: (url: string) => string = (url) => url;
 
-  // Matches the detection used by the feed/NoteContent extractors; any
-  // non-video media URL is treated as an image.
+  // Matches the detection used by the feed/NoteContent extractors
+  // (file extensions plus video platforms) so a URL classified as
+  // video upstream is never mistaken for an image here; any non-video
+  // media URL is treated as an image.
   const VIDEO_EXTENSIONS = /\.(mp4|webm|mov|avi|mkv|m4v)(\?.*)?$/i;
+  const VIDEO_HOSTS = ['youtube.com', 'youtu.be', 'vimeo.com'];
 
   function isVideo(url: string): boolean {
     try {
-      return VIDEO_EXTENSIONS.test(new URL(url).pathname);
+      const parsed = new URL(url);
+      if (VIDEO_EXTENSIONS.test(parsed.pathname)) return true;
+      return VIDEO_HOSTS.some((host) => parsed.hostname.includes(host));
     } catch {
       return false;
     }
@@ -170,6 +175,7 @@
     <button
       type="button"
       class="single-media-button"
+      aria-label="View image"
       on:click={() => onItemClick(items[0], 0)}
     >
       <img
@@ -207,6 +213,7 @@
             <button
               type="button"
               class="tile-button"
+              aria-label="View image {index + 1} of {items.length}"
               on:click={() => onItemClick(url, index)}
             >
               <img

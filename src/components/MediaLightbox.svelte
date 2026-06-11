@@ -18,6 +18,10 @@
 
   $: count = images.length;
   $: multiple = count > 1;
+  // Defensive: if the parent's image list empties while we're open
+  // (or we were opened with nothing to show), close rather than
+  // rendering an empty pager.
+  $: if (count === 0) onClose();
 
   let scroller: HTMLDivElement;
 

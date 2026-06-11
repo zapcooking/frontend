@@ -10,8 +10,6 @@
   import MediaCarousel from './MediaCarousel.svelte';
   import { processContentWithProfiles } from '$lib/contentProcessor';
   import MediaLightbox from './MediaLightbox.svelte';
-  import { onMount, onDestroy } from 'svelte';
-  import { browser } from '$app/environment';
 
   export let content: string;
   export let className: string = '';
