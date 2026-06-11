@@ -35,7 +35,15 @@ const config = {
   preprocess: [vitePreprocess({})],
 
   kit: {
-    adapter: adapter
+    adapter: adapter,
+    version: {
+      // Poll _app/version.json so long-lived tabs detect new deploys.
+      // Cloudflare Pages drops the previous deploy's immutable assets, so
+      // without this, stale clients 404 on chunk imports during client-side
+      // navigation (and surface as broken tabs/500s until a hard refresh).
+      // Paired with the $updated guard in +layout.svelte.
+      pollInterval: 60000
+    }
   }
 };
 
