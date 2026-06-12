@@ -2420,6 +2420,11 @@
           // Check for stale results BEFORE the cache paint below writes events
           if (isLoadStale(myLoadId, startMode, loadGeneration)) {
             console.log('[Feed] Discarding stale garden cache results');
+            // Still the owner (stale via relay-gen/mode change, not supersede):
+            // clear the indicator set above, or it would stick on `true`.
+            if (myLoadId === currentLoadId) {
+              gardenCacheStatus.update((s) => ({ ...s, isLoading: false }));
+            }
             return;
           }
 
@@ -2477,6 +2482,9 @@
 
         if (isLoadStale(myLoadId, startMode, loadGeneration)) {
           console.log('[Feed] Discarding stale garden load (after connection wait)');
+          if (myLoadId === currentLoadId) {
+            gardenCacheStatus.update((s) => ({ ...s, isLoading: false }));
+          }
           return;
         }
 
