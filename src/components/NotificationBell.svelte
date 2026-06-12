@@ -31,6 +31,7 @@
   import { formatCompactTime } from '$lib/utils';
   import Avatar from './Avatar.svelte';
   import CustomName from './CustomName.svelte';
+  import NotifText from './notifications/NotifText.svelte';
 
   type Tab = 'all' | 'replies' | 'zaps' | 'dms';
 
@@ -349,7 +350,9 @@
                     {actionText(row.notification)}
                   </span>
                   {#if row.notification.content}
-                    <span class="notif-row-preview">{row.notification.content}</span>
+                    <span class="notif-row-preview"
+                      ><NotifText text={row.notification.content} /></span
+                    >
                   {/if}
                 </span>
                 {#if isUnread(row.notification, notifLastSeen)}
