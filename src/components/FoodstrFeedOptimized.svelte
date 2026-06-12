@@ -1281,7 +1281,11 @@
     }
   }
 
-  async function loadCachedEvents(): Promise<boolean> {
+  /**
+   * @param isStale Checked after the cache read, before writing events /
+   * seenEventIds — a load superseded during the await must not write.
+   */
+  async function loadCachedEvents(isStale?: () => boolean): Promise<boolean> {
     if (typeof window === 'undefined') return false;
 
     try {
@@ -1312,6 +1316,8 @@
         .filter(shouldIncludeEvent);
 
       if (cachedEvents.length === 0) return false;
+
+      if (isStale?.()) return false;
 
       // Add to seen set
       cachedEvents.forEach((e: NDKEvent) => seenEventIds.add(e.id));
@@ -1762,6 +1768,14 @@
 
   // Track if a load is in progress to prevent race conditions
   let loadInProgress = false;
+  // Identity of the most recent load. Each loadFoodstrFeed call takes a fresh
+  // id; an in-flight load whose id no longer matches has been superseded by a
+  // newer load (tab switch) and must not write events, caches, or UI state.
+  let currentLoadId = 0;
+  // The filterMode the in-flight load is running for. Used to distinguish a
+  // same-feed duplicate call (skip, original guard behavior) from a cross-feed
+  // call (supersede and proceed).
+  let loadingMode: typeof filterMode | null = null;
 
   /**
    * Check if results are stale (relay generation changed during async operation).
@@ -1778,16 +1792,49 @@
     return false;
   }
 
+  /**
+   * Combined staleness check for loadFoodstrFeed checkpoints. A load is stale
+   * when (a) a newer load superseded it, (b) the filterMode prop changed from
+   * the mode it started for, or (c) the relay set was switched. Must be
+   * consulted after every await, before any write to events/caches/UI state.
+   */
+  function isLoadStale(
+    myLoadId: number,
+    startMode: typeof filterMode,
+    capturedGeneration: number
+  ): boolean {
+    if (myLoadId !== currentLoadId) {
+      console.log(`[Feed] Discarding superseded load #${myLoadId} (current is #${currentLoadId})`);
+      return true;
+    }
+    if (filterMode !== startMode) {
+      console.log(`[Feed] Discarding load started for ${startMode} (now on ${filterMode})`);
+      return true;
+    }
+    return isStaleResult(capturedGeneration);
+  }
+
   async function loadFoodstrFeed(useCache = true) {
+    // Same-feed duplicate calls still skip (original purpose of the guard:
+    // onMount + reactive statement both firing for the same feed). A call for
+    // a DIFFERENT feed supersedes the in-flight load instead — bumping
+    // currentLoadId below makes the old load fail its next isLoadStale
+    // checkpoint, so its results are discarded (latest-wins).
+    if (loadInProgress) {
+      if (loadingMode === filterMode) {
+        console.log('[Feed] Load already in progress, skipping duplicate call');
+        return;
+      }
+      console.log(`[Feed] Superseding in-flight load (${loadingMode} → ${filterMode})`);
+    }
+
+    const myLoadId = ++currentLoadId;
+    const startMode = filterMode;
     // Capture relay generation at start - used to detect stale results
     const loadGeneration = getCurrentRelayGeneration();
 
-    // Prevent concurrent loads that can cause race conditions with seenEventIds
-    if (loadInProgress) {
-      console.log('[Feed] Load already in progress, skipping duplicate call');
-      return;
-    }
     loadInProgress = true;
+    loadingMode = filterMode;
 
     try {
       // For garden/members mode, never use cache to ensure only target relay content
@@ -1821,9 +1868,8 @@
         const cachedEvents = await eventStore.loadEvents(cacheFilter);
 
         // Check for stale results after async operation
-        if (isStaleResult(loadGeneration)) {
+        if (isLoadStale(myLoadId, startMode, loadGeneration)) {
           console.log('[Feed] Discarding stale cache results');
-          loadInProgress = false;
           return;
         }
 
@@ -1855,16 +1901,14 @@
             } catch {
               // Non-critical
             }
-            loadInProgress = false;
             return;
           }
         }
       }
 
       // Check for stale results before proceeding
-      if (isStaleResult(loadGeneration)) {
+      if (isLoadStale(myLoadId, startMode, loadGeneration)) {
         console.log('[Feed] Discarding stale results (before relay fetch)');
-        loadInProgress = false;
         return;
       }
 
@@ -1873,18 +1917,23 @@
         useCache &&
         filterMode !== 'garden' &&
         filterMode !== 'members' &&
-        (await loadCachedEvents())
+        (await loadCachedEvents(() => isLoadStale(myLoadId, startMode, loadGeneration)))
       ) {
         // Check for stale results after async operation
-        if (isStaleResult(loadGeneration)) {
+        if (isLoadStale(myLoadId, startMode, loadGeneration)) {
           console.log('[Feed] Discarding stale compressed cache results');
-          loadInProgress = false;
           return;
         }
         loading = false;
         error = false;
         setTimeout(() => fetchFreshData(), 100);
-        loadInProgress = false;
+        return;
+      }
+
+      // The loadCachedEvents await above may have suspended on a cache miss —
+      // re-check before resetting state for the network load, or a superseded
+      // load could wipe the newer tab's events/seenEventIds.
+      if (isLoadStale(myLoadId, startMode, loadGeneration)) {
         return;
       }
 
@@ -1899,7 +1948,6 @@
         console.error('[Feed] NDK not initialized');
         loading = false;
         error = true;
-        loadInProgress = false;
         return;
       }
 
@@ -1927,16 +1975,17 @@
         await ndkConnectPromise;
       } catch (err) {
         console.error('[Feed] Failed to ensure NDK connection:', err);
-        loading = false;
-        error = true;
-        loadInProgress = false;
+        // Only the latest load may surface the error state.
+        if (!isLoadStale(myLoadId, startMode, loadGeneration)) {
+          loading = false;
+          error = true;
+        }
         return;
       }
 
       // Check for stale results after waiting for connection
-      if (isStaleResult(loadGeneration)) {
+      if (isLoadStale(myLoadId, startMode, loadGeneration)) {
         console.log('[Feed] Discarding stale results (after connection wait)');
-        loadInProgress = false;
         return;
       }
 
@@ -1947,7 +1996,6 @@
           loading = false;
           error = false;
           events = [];
-          loadInProgress = false;
           return;
         }
 
@@ -2020,8 +2068,7 @@
 
         if (primalResult && primalResult.length >= 10) {
           // Primal won — show results immediately
-          if (isStaleResult(loadGeneration)) {
-            loadInProgress = false;
+          if (isLoadStale(myLoadId, startMode, loadGeneration)) {
             return;
           }
 
@@ -2044,7 +2091,6 @@
           // (instead of launching a redundant supplementWithOutbox fetch)
           mergeOutboxInBackground(outboxPromise, 'following');
 
-          loadInProgress = false;
           return;
         }
 
@@ -2057,8 +2103,7 @@
 
         const validEvents = filterFollowingEvents(result.events);
 
-        if (isStaleResult(loadGeneration)) {
-          loadInProgress = false;
+        if (isLoadStale(myLoadId, startMode, loadGeneration)) {
           return;
         }
 
@@ -2076,7 +2121,6 @@
         } catch {
           // Non-critical
         }
-        loadInProgress = false;
         return;
       }
 
@@ -2086,7 +2130,6 @@
           loading = false;
           error = false;
           events = [];
-          loadInProgress = false;
           return;
         }
 
@@ -2155,8 +2198,7 @@
         ]);
 
         if (repliesPrimalResult && repliesPrimalResult.length >= 10) {
-          if (isStaleResult(loadGeneration)) {
-            loadInProgress = false;
+          if (isLoadStale(myLoadId, startMode, loadGeneration)) {
             return;
           }
 
@@ -2180,7 +2222,6 @@
           // Reuse the already-running outbox promise for background merge
           mergeOutboxInBackground(repliesOutboxPromise, 'replies');
 
-          loadInProgress = false;
           return;
         }
 
@@ -2192,6 +2233,10 @@
         }
 
         const foodEvents = filterRepliesEvents(result.events);
+
+        if (isLoadStale(myLoadId, startMode, loadGeneration)) {
+          return;
+        }
 
         events = dedupeAndSort(foodEvents);
         loading = false;
@@ -2212,7 +2257,6 @@
         } catch {
           // Non-critical
         }
-        loadInProgress = false;
         return;
       }
 
@@ -2222,18 +2266,19 @@
           loading = false;
           error = false;
           events = [];
-          loadInProgress = false;
           return;
         }
 
         // Check if user has active membership
         const membershipStatus = await checkMembershipStatus($userPublickey);
+        if (isLoadStale(myLoadId, startMode, loadGeneration)) {
+          return;
+        }
         if (!membershipStatus.hasActiveMembership) {
           loading = false;
           error = false;
           events = [];
           console.warn('[Feed] User does not have active membership');
-          loadInProgress = false;
           return;
         }
 
@@ -2296,9 +2341,8 @@
         );
 
         // Check for stale results before applying events
-        if (isStaleResult(loadGeneration)) {
+        if (isLoadStale(myLoadId, startMode, loadGeneration)) {
           console.log('[Feed] Discarding stale members results');
-          loadInProgress = false;
           return;
         }
 
@@ -2316,7 +2360,6 @@
         } catch {
           // Subscription setup failed - non-critical, events already loaded
         }
-        loadInProgress = false;
         return;
       }
 
@@ -2335,6 +2378,12 @@
         try {
           const cachedEvents = await gardenCache.getCachedEvents();
           const cacheStats = await gardenCache.getStats();
+
+          // Check for stale results BEFORE the cache paint below writes events
+          if (isLoadStale(myLoadId, startMode, loadGeneration)) {
+            console.log('[Feed] Discarding stale garden cache results');
+            return;
+          }
 
           if (cachedEvents.length > 0) {
             console.log(
@@ -2359,13 +2408,6 @@
             events = filteredCachedEvents;
             loading = false; // Show cached data immediately
 
-            // Check for stale results
-            if (isStaleResult(loadGeneration)) {
-              console.log('[Feed] Discarding stale garden cache results');
-              loadInProgress = false;
-              return;
-            }
-
             // If cache is fresh, we're done - skip the relay fetch
             if (cacheStats.isFresh) {
               console.log('[Feed] Garden: Cache is fresh, skipping relay fetch');
@@ -2381,7 +2423,6 @@
               } catch {
                 // Non-critical
               }
-              loadInProgress = false;
               return;
             }
 
@@ -2395,6 +2436,11 @@
 
         // STEP 2: Fetch fresh data from relay (if relay is connected)
         await ensureNdkConnected();
+
+        if (isLoadStale(myLoadId, startMode, loadGeneration)) {
+          console.log('[Feed] Discarding stale garden load (after connection wait)');
+          return;
+        }
 
         const connectedRelays = getConnectedRelays().map((r) => normalizeRelayUrl(r));
         const normalizedGardenUrl = normalizeRelayUrl(RELAY_POOLS.garden[0]);
@@ -2413,7 +2459,6 @@
           } catch {
             // Non-critical
           }
-          loadInProgress = false;
           return;
         }
 
@@ -2445,10 +2490,13 @@
         console.log(`[Feed] Garden feed: ${gardenEvents.length} events from relay`);
 
         // Check for stale results
-        if (isStaleResult(loadGeneration)) {
+        if (isLoadStale(myLoadId, startMode, loadGeneration)) {
           console.log('[Feed] Discarding stale garden relay results');
-          gardenCacheStatus.update((s) => ({ ...s, isLoading: false }));
-          loadInProgress = false;
+          // Superseded loads must not touch shared UI state; only the load
+          // that still owns the feed clears the garden loading indicator.
+          if (myLoadId === currentLoadId) {
+            gardenCacheStatus.update((s) => ({ ...s, isLoading: false }));
+          }
           return;
         }
 
@@ -2482,6 +2530,15 @@
             console.warn('[Feed] Garden: Failed to save to cache:', cacheErr);
           }
 
+          // gardenCache.saveEvents above awaited — re-check before touching
+          // shared state (lastEventTime) and the shared compressed cache.
+          if (isLoadStale(myLoadId, startMode, loadGeneration)) {
+            if (myLoadId === currentLoadId) {
+              gardenCacheStatus.update((s) => ({ ...s, isLoading: false }));
+            }
+            return;
+          }
+
           lastEventTime = Math.max(...events.map(getEventSortTime));
           await cacheEvents(); // Also save to general cache
         } else if (hadCachedEvents > 0) {
@@ -2495,6 +2552,14 @@
           console.log('[Feed] Garden: No events available (relay empty/unavailable, no cache)');
         }
 
+        // cacheEvents above awaited — only the latest load owns UI state.
+        if (isLoadStale(myLoadId, startMode, loadGeneration)) {
+          if (myLoadId === currentLoadId) {
+            gardenCacheStatus.update((s) => ({ ...s, isLoading: false }));
+          }
+          return;
+        }
+
         loading = false;
         error = false;
         gardenCacheStatus.update((s) => ({ ...s, isLoading: false }));
@@ -2504,7 +2569,6 @@
         } catch {
           // Subscription setup failed - non-critical, events already loaded
         }
-        loadInProgress = false;
         return;
       }
 
@@ -2593,8 +2657,7 @@
           ]);
 
           if (primalGlobalResult && primalGlobalResult.length >= 15) {
-            if (isStaleResult(loadGeneration)) {
-              loadInProgress = false;
+            if (isLoadStale(myLoadId, startMode, loadGeneration)) {
               return;
             }
 
@@ -2613,7 +2676,6 @@
               // Non-critical
             }
 
-            loadInProgress = false;
             return;
           }
         } catch {
@@ -2703,9 +2765,8 @@
       });
 
       // Check for stale results before applying events
-      if (isStaleResult(loadGeneration)) {
+      if (isLoadStale(myLoadId, startMode, loadGeneration)) {
         console.log('[Feed] Discarding stale global results');
-        loadInProgress = false;
         return;
       }
 
@@ -2731,11 +2792,21 @@
         // Subscription setup failed - non-critical, events already loaded
       }
     } catch {
-      loading = false;
-      error = true;
-      events = [];
+      // A superseded load must not surface its failure over the newer load's
+      // UI state — only the latest load may write loading/error/events here.
+      if (myLoadId === currentLoadId) {
+        loading = false;
+        error = true;
+        events = [];
+      }
     } finally {
-      loadInProgress = false;
+      // Ownership-aware cleanup: a superseded load must not clear the flag
+      // the newer load set, or the guard would let a third call run
+      // concurrently with the second.
+      if (myLoadId === currentLoadId) {
+        loadInProgress = false;
+        loadingMode = null;
+      }
     }
   }
 
