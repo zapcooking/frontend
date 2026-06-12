@@ -7,7 +7,7 @@
  * Event Structure:
  * - kind: 30078 (NIP-78 Application-specific Data)
  * - d tag: "timer-settings" (addressable/replaceable)
- * - client tag: "zap.cooking"
+ * - client tag: "Zap Cooking"
  * - content: JSON payload with settings
  */
 
