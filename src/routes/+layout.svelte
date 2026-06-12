@@ -67,50 +67,82 @@
     }
   });
 
-  // Recovery for chunk-load failures in the window before the first version
-  // poll. Unlike the reverted #430, the reload is loop-proof: a sessionStorage
-  // flag permits AT MOST ONE automatic reload until the page subsequently
-  // stays healthy (no preload error for 10s). A persistent failure that a
-  // reload can't fix (ad-blocker, broken cache) therefore reloads once and
-  // then gives up instead of refreshing forever.
-  const SKEW_RELOAD_FLAG = 'zap_skew_reload_attempted';
+  // Recovery for chunk-load failures (stale deploy assets): reload AT MOST
+  // ONCE per browser session. The previous design re-armed after 10s of
+  // health, which produced a reload roughly every 10s on clients where the
+  // failure recurs indefinitely (e.g. iOS Safari with a content blocker or
+  // poisoned HTML cache). sessionStorage survives reloads in the same tab,
+  // so a recovery reload that didn't fix the problem can never repeat —
+  // further failures are only counted and logged.
+  const RECOVERY_RELOAD_KEY = 'zc:recovery-reload';
+
+  interface RecoveryReloadRecord {
+    /** Set when the one recovery reload of this session was triggered. */
+    reloadedAt?: number;
+    /** Total vite:preloadError events this session, including suppressed ones. */
+    errors: number;
+    /** Message of the most recent preload error (failing chunk URL when available). */
+    lastError?: string;
+    lastErrorAt?: number;
+  }
+
   onMount(() => {
-    const rearmFlag = () => {
+    const readRecord = (): RecoveryReloadRecord => {
       try {
-        sessionStorage.removeItem(SKEW_RELOAD_FLAG);
+        const parsed = JSON.parse(sessionStorage.getItem(RECOVERY_RELOAD_KEY) ?? '');
+        if (parsed && typeof parsed === 'object') {
+          const rec = parsed as Partial<RecoveryReloadRecord>;
+          return { ...rec, errors: typeof rec.errors === 'number' ? rec.errors : 0 };
+        }
       } catch {
-        // ignore storage errors
+        // Missing or corrupt record — start fresh.
       }
+      return { errors: 0 };
     };
-    // Page stayed healthy (no preload error) for 10s: re-arm the one-shot
-    // so a future deploy can still trigger a recovery reload later in this
-    // session. The timer restarts on every preload error, so the flag can
-    // never clear while errors are still occurring — a persistent failure
-    // reloads once and then stays inert.
-    let rearmTimer = setTimeout(rearmFlag, 10_000);
 
     const onPreloadError = (event: Event) => {
-      clearTimeout(rearmTimer);
-      rearmTimer = setTimeout(rearmFlag, 10_000);
+      // Vite attaches the underlying error as `payload` on the event.
+      const payload = (event as Event & { payload?: unknown }).payload;
+      const message =
+        payload instanceof Error ? payload.message : String(payload ?? 'unknown preload error');
 
-      let alreadyTried = true;
+      const record = readRecord();
+      record.errors += 1;
+      record.lastError = message;
+      record.lastErrorAt = Date.now();
+
+      if (record.reloadedAt) {
+        // Already used this session's one recovery reload — never reload
+        // again. Persist the counter for diagnostics and let the failure
+        // surface normally (SvelteKit error handling / console).
+        try {
+          sessionStorage.setItem(RECOVERY_RELOAD_KEY, JSON.stringify(record));
+        } catch {
+          // ignore storage errors
+        }
+        console.warn(
+          `[recovery] Chunk preload failed again after recovery reload (error #${record.errors}); suppressing further reloads.`,
+          message
+        );
+        return;
+      }
+
+      record.reloadedAt = Date.now();
       try {
-        alreadyTried = sessionStorage.getItem(SKEW_RELOAD_FLAG) === '1';
-        if (!alreadyTried) sessionStorage.setItem(SKEW_RELOAD_FLAG, '1');
+        // sessionStorage writes are synchronous — the record is durably in
+        // place before reload() below, so the post-reload page always sees
+        // reloadedAt and cannot reload a second time.
+        sessionStorage.setItem(RECOVERY_RELOAD_KEY, JSON.stringify(record));
       } catch {
         // No storage means no loop protection — never reload in that case.
         return;
       }
-      if (alreadyTried) return;
       event.preventDefault();
       location.reload();
     };
     window.addEventListener('vite:preloadError', onPreloadError);
 
-    return () => {
-      clearTimeout(rearmTimer);
-      window.removeEventListener('vite:preloadError', onPreloadError);
-    };
+    return () => window.removeEventListener('vite:preloadError', onPreloadError);
   });
 
   // Accept props from SvelteKit to prevent warnings
