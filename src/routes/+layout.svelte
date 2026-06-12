@@ -75,7 +75,24 @@
   // then gives up instead of refreshing forever.
   const SKEW_RELOAD_FLAG = 'zap_skew_reload_attempted';
   onMount(() => {
+    const rearmFlag = () => {
+      try {
+        sessionStorage.removeItem(SKEW_RELOAD_FLAG);
+      } catch {
+        // ignore storage errors
+      }
+    };
+    // Page stayed healthy (no preload error) for 10s: re-arm the one-shot
+    // so a future deploy can still trigger a recovery reload later in this
+    // session. The timer restarts on every preload error, so the flag can
+    // never clear while errors are still occurring — a persistent failure
+    // reloads once and then stays inert.
+    let rearmTimer = setTimeout(rearmFlag, 10_000);
+
     const onPreloadError = (event: Event) => {
+      clearTimeout(rearmTimer);
+      rearmTimer = setTimeout(rearmFlag, 10_000);
+
       let alreadyTried = true;
       try {
         alreadyTried = sessionStorage.getItem(SKEW_RELOAD_FLAG) === '1';
@@ -89,17 +106,6 @@
       location.reload();
     };
     window.addEventListener('vite:preloadError', onPreloadError);
-
-    // Page survived 10s without a preload error: consider it healthy and
-    // re-arm the one-shot so a future deploy can still trigger a recovery
-    // reload later in this session.
-    const rearmTimer = setTimeout(() => {
-      try {
-        sessionStorage.removeItem(SKEW_RELOAD_FLAG);
-      } catch {
-        // ignore storage errors
-      }
-    }, 10_000);
 
     return () => {
       clearTimeout(rearmTimer);
