@@ -1,7 +1,6 @@
 <script lang="ts">
-  import { onDestroy, onMount } from 'svelte';
+  import { onDestroy } from 'svelte';
   import {
-    getMembership,
     getMembershipLabel,
     membershipStatusMap,
     queueMembershipLookup,
@@ -34,15 +33,12 @@
     }
   })();
 
+  // Membership lookup goes through the debounced queue ONLY — see
+  // Avatar.svelte for why the extra onMount getMembership() call was removed
+  // (it bypassed batching and fired one request per mounted badge).
   $: if (normalizedPubkey) {
     queueMembershipLookup(normalizedPubkey);
   }
-
-  onMount(() => {
-    if (normalizedPubkey) {
-      void getMembership([normalizedPubkey]);
-    }
-  });
 
   onDestroy(() => {
     unsubscribe();

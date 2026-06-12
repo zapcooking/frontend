@@ -1,9 +1,8 @@
 <script lang="ts">
   import { browser } from '$app/environment';
-  import { createEventDispatcher, onDestroy, onMount } from 'svelte';
+  import { createEventDispatcher, onDestroy } from 'svelte';
   import CustomAvatar from './CustomAvatar.svelte';
   import {
-    getMembership,
     getMembershipLabel,
     membershipStatusMap,
     queueMembershipLookup,
@@ -49,15 +48,13 @@
     }
   })();
 
+  // Membership lookup goes through the debounced queue ONLY. Calling
+  // getMembership() here as well (as this used to) bypassed the 75ms batch
+  // window and fired one HTTP request per mounted avatar — hundreds of
+  // single-pubkey /api/membership invocations per feed page.
   $: if (normalizedPubkey) {
     queueMembershipLookup(normalizedPubkey);
   }
-
-  onMount(() => {
-    if (normalizedPubkey) {
-      void getMembership([normalizedPubkey]);
-    }
-  });
 
   function handleClick(event: MouseEvent): void {
     if (isActiveMember) {
