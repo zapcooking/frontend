@@ -167,11 +167,11 @@
     }
   }
 
-  // Counts and unread styling stay frozen while the panel is open —
-  // everything clears on CLOSE, so numbers never vanish under the
-  // user's cursor mid-read. markAllAsRead keeps the store / the
-  // notifications page in sync for items within its persistence cap;
-  // the watermark covers the rest.
+  // Unread counts don't clear until CLOSE, so numbers don't vanish
+  // under the cursor mid-read. New arrivals while the panel is open
+  // will still increment the counts (the watermark hasn't moved yet).
+  // markAllAsRead keeps the store / the notifications page in sync for
+  // items within its persistence cap; the watermark covers the rest.
   function close() {
     if (!open) return;
     open = false;
@@ -262,7 +262,7 @@
     class:is-open={open}
     on:click|stopPropagation={toggle}
     aria-label="Notifications"
-    aria-haspopup="menu"
+    aria-haspopup="dialog"
     aria-expanded={open}
   >
     <BellIcon size={18} weight={totalUnread > 0 ? 'fill' : 'bold'} />
@@ -272,55 +272,68 @@
   </button>
 
   {#if open}
-    <div class="notif-panel" role="menu" aria-label="Recent notifications">
+    <div class="notif-panel" role="dialog" aria-modal="true" aria-label="Recent notifications">
       <div class="notif-panel-header">
         <span class="notif-panel-title">Notifications</span>
       </div>
 
-      <div class="notif-tabs" role="tablist">
+      <div class="notif-tabs" role="tablist" aria-label="Notification filters">
         <button
+          id="notif-tab-all"
           type="button"
           role="tab"
           class="notif-tab"
           class:active={activeTab === 'all'}
           aria-selected={activeTab === 'all'}
+          aria-controls="notif-tabpanel"
           on:click={() => (activeTab = 'all')}
         >
           All
         </button>
         <button
+          id="notif-tab-replies"
           type="button"
           role="tab"
           class="notif-tab"
           class:active={activeTab === 'replies'}
           aria-selected={activeTab === 'replies'}
+          aria-controls="notif-tabpanel"
           on:click={() => (activeTab = 'replies')}
         >
           Replies{#if repliesUnread > 0}<span class="notif-tab-count">{repliesUnread}</span>{/if}
         </button>
         <button
+          id="notif-tab-zaps"
           type="button"
           role="tab"
           class="notif-tab"
           class:active={activeTab === 'zaps'}
           aria-selected={activeTab === 'zaps'}
+          aria-controls="notif-tabpanel"
           on:click={() => (activeTab = 'zaps')}
         >
           Zaps{#if zapsUnread > 0}<span class="notif-tab-count">{zapsUnread}</span>{/if}
         </button>
         <button
+          id="notif-tab-dms"
           type="button"
           role="tab"
           class="notif-tab"
           class:active={activeTab === 'dms'}
           aria-selected={activeTab === 'dms'}
+          aria-controls="notif-tabpanel"
           on:click={() => (activeTab = 'dms')}
         >
           DMs{#if dmNewCount > 0}<span class="notif-tab-count">{dmNewCount}</span>{/if}
         </button>
       </div>
 
-      <div class="notif-list">
+      <div
+        id="notif-tabpanel"
+        role="tabpanel"
+        aria-labelledby="notif-tab-{activeTab}"
+        class="notif-list"
+      >
         {#if rows.length === 0}
           {#if activeTab === 'dms' && $messagesLoading}
             <p class="notif-empty">Loading messages…</p>
