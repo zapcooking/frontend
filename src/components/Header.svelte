@@ -10,6 +10,7 @@
   import CustomAvatar from './CustomAvatar.svelte';
   import IntelligenceIcon from './icons/IntelligenceIcon.svelte';
   import IntelligenceMenu from './IntelligenceMenu.svelte';
+  import NotificationBell from './NotificationBell.svelte';
   import DenominatedBalance from './DenominatedBalance.svelte';
   import { theme } from '$lib/themeStore';
   import WalletBalance from './WalletBalance.svelte';
@@ -276,6 +277,14 @@
       >
         <WalletIcon size={18} weight="bold" />
       </button>
+    {/if}
+
+    <!-- Notifications bell + dropdown (desktop only — mobile keeps the
+         bottom-nav bell) -->
+    {#if $userPublickey}
+      <div class="hidden sm:block">
+        <NotificationBell />
+      </div>
     {/if}
 
     <!-- Tier badge for active members -->

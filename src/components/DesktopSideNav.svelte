@@ -1,7 +1,5 @@
 <script lang="ts">
   import { page } from '$app/stores';
-  import { unreadCount } from '$lib/notificationStore';
-  import { triggerNotificationsNav } from '$lib/notificationsNav';
   import { triggerExploreNav } from '$lib/exploreNav';
   import { goto } from '$app/navigation';
   import { theme } from '$lib/themeStore';
@@ -13,7 +11,6 @@
   import ForkKnifeIcon from 'phosphor-svelte/lib/ForkKnife';
   import ChartBarHorizontalIcon from 'phosphor-svelte/lib/ChartBarHorizontal';
   import FlameIcon from 'phosphor-svelte/lib/Flame';
-  import BellIcon from 'phosphor-svelte/lib/Bell';
   import EnvelopeSimpleIcon from 'phosphor-svelte/lib/EnvelopeSimple';
 
   import CookbookIcon from 'phosphor-svelte/lib/BookOpen';
@@ -39,7 +36,7 @@
     label: string;
     icon: any;
     match?: (path: string) => boolean;
-    badge?: 'notificationsDot' | 'walletConnect' | 'members' | 'messagesDot';
+    badge?: 'walletConnect' | 'members' | 'messagesDot';
     external?: boolean;
     onClick?: () => void;
   };
@@ -72,13 +69,10 @@
       icon: StorefrontIcon,
       match: (p) => p.startsWith('/market') || p.startsWith('/my-store')
     },
-    {
-      href: '/notifications',
-      label: 'Notifications',
-      icon: BellIcon,
-      match: (p) => p.startsWith('/notifications'),
-      badge: 'notificationsDot'
-    },
+    // Notifications intentionally has no side-nav entry on desktop —
+    // it lives in the header as a bell + dropdown beside the user
+    // avatar (NotificationBell.svelte). Mobile keeps the bottom-nav
+    // bell.
     {
       href: '/messages',
       label: 'Messages',
@@ -151,13 +145,6 @@
     ].join(' ');
   }
 
-  function handleNotificationsClick(event: MouseEvent, isActive: boolean) {
-    triggerNotificationsNav();
-    if (isActive) {
-      event.preventDefault();
-    }
-  }
-
   function handleLogoClick() {
     if ($page.url.pathname === '/explore') {
       triggerExploreNav();
@@ -207,26 +194,15 @@
                 aria-current={active ? 'page' : undefined}
                 target={item.external ? '_blank' : undefined}
                 rel={item.external ? 'noopener noreferrer' : undefined}
-                on:click={(e) => {
-                  if (item.href === '/notifications') handleNotificationsClick(e, active);
-                }}
               >
                 <span class="relative flex items-center justify-center w-9 h-9 rounded-xl">
                   <svelte:component
                     this={item.icon}
                     size={20}
-                    weight={(item.href === '/notifications' && $unreadCount > 0) ||
-                    (item.href === '/messages' && $totalUnreadCount > 0)
+                    weight={item.href === '/messages' && $totalUnreadCount > 0
                       ? 'fill'
                       : 'regular'}
                   />
-                  {#if item.badge === 'notificationsDot' && $unreadCount > 0}
-                    <span
-                      class="absolute top-1.5 right-1.5 w-2.5 h-2.5 rounded-full bg-red-500 border-2"
-                      style="border-color: var(--color-bg-primary);"
-                      aria-hidden="true"
-                    ></span>
-                  {/if}
                   {#if item.badge === 'messagesDot' && $totalUnreadCount > 0}
                     <span
                       class="absolute top-1.5 right-1.5 w-2.5 h-2.5 rounded-full bg-red-500 border-2"
