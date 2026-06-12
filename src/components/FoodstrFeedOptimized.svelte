@@ -1335,9 +1335,47 @@
   // ═══════════════════════════════════════════════════════════════
   // localStorage-based cache keyed by filterMode and user for instant UI paint
 
-  const INSTANT_CACHE_PREFIX = 'foodstr_instant_';
+  // Cache format/behavior version. v2: tab-switch race fix — pre-v2 entries
+  // could contain another tab's events (wrong-tab writes), so all clients
+  // must discard them on first load after deploy. Bump again whenever cached
+  // entries from a previous release can no longer be trusted.
+  const INSTANT_CACHE_VERSION = 2;
+  const INSTANT_CACHE_PREFIX = `foodstr_instant_v${INSTANT_CACHE_VERSION}_`;
+  // Matches every instant-cache key ever written (the unversioned pre-v2 era
+  // used 'foodstr_instant_<mode>_<user>'; versioned eras nest under it too).
+  const INSTANT_CACHE_LEGACY_PREFIX = 'foodstr_instant_';
   const INSTANT_CACHE_MAX_EVENTS = 100;
   const INSTANT_CACHE_MAX_AGE_MS = 5 * 60 * 1000; // 5 minutes
+
+  /**
+   * Delete instant-cache entries from any earlier cache version (storage
+   * hygiene — old entries are unreadable by design since reads only use the
+   * current versioned prefix, but they must not linger in localStorage).
+   */
+  function purgeLegacyInstantCaches() {
+    if (typeof window === 'undefined') return;
+    try {
+      const staleKeys: string[] = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (
+          k &&
+          k.startsWith(INSTANT_CACHE_LEGACY_PREFIX) &&
+          !k.startsWith(INSTANT_CACHE_PREFIX)
+        ) {
+          staleKeys.push(k);
+        }
+      }
+      for (const k of staleKeys) {
+        localStorage.removeItem(k);
+      }
+      if (staleKeys.length > 0) {
+        console.log(`[Feed] Purged ${staleKeys.length} legacy instant-cache entries`);
+      }
+    } catch {
+      // localStorage unavailable — nothing to purge
+    }
+  }
 
   /**
    * Get cache key for current mode and user
@@ -4725,6 +4763,10 @@
     // This prevents the reactive statement from triggering on initial mount
     isInitialized = true;
     lastFilterMode = filterMode;
+
+    // Drop instant-cache entries written by earlier cache versions before any
+    // read can run (all reads happen below / on later tab switches).
+    purgeLegacyInstantCaches();
 
     // Load mute list if user is logged in
     if ($userPublickey) {
