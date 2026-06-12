@@ -695,7 +695,9 @@
         class="flex flex-col items-center justify-center py-16 px-4 rounded-xl text-center"
         style="background-color: var(--color-bg-secondary); border: 1px solid var(--color-input-border);"
       >
-        <span class="text-5xl mb-4" aria-hidden="true">🔔</span>
+        <span class="mb-4" aria-hidden="true" style="color: var(--color-caption);">
+          <BellIcon size={48} weight="regular" />
+        </span>
         <h2 class="text-xl font-semibold mb-2" style="color: var(--color-text-primary);">
           Sign in to see your notifications
         </h2>
@@ -735,14 +737,14 @@
       </div>
 
       {#if $visibleNotifications.length === 0}
-      <div class="text-center py-12 text-caption">
-        <span class="text-5xl">🔔</span>
+      <div class="flex flex-col items-center text-center py-12 text-caption">
+        <BellIcon size={48} weight="regular" aria-hidden="true" />
         <p class="mt-4 text-lg">No notifications yet</p>
         <p class="mt-2">When someone reacts, zaps, or replies to you, it will show up here.</p>
       </div>
     {:else if filteredNotifications.length === 0}
-      <div class="text-center py-12 text-caption">
-        <span class="text-5xl">🔔</span>
+      <div class="flex flex-col items-center text-center py-12 text-caption">
+        <BellIcon size={48} weight="regular" aria-hidden="true" />
         <p class="mt-4 text-lg">No {activeTab === 'all' ? '' : activeTab} notifications</p>
       </div>
     {:else}
