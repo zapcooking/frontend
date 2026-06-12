@@ -282,7 +282,7 @@
     <!-- Notifications bell + dropdown (desktop only — mobile keeps the
          bottom-nav bell) -->
     {#if $userPublickey}
-      <div class="hidden sm:block">
+      <div class="hidden sm:inline-flex sm:items-center">
         <NotificationBell />
       </div>
     {/if}
