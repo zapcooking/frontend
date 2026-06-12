@@ -2791,9 +2791,11 @@
       } catch {
         // Subscription setup failed - non-critical, events already loaded
       }
-    } catch {
-      // A superseded load must not surface its failure over the newer load's
-      // UI state — only the latest load may write loading/error/events here.
+    } catch (err) {
+      // Always log, even for superseded loads — but only the latest load may
+      // write loading/error/events (its failure must not clobber the newer
+      // load's UI state).
+      console.error(`[Feed] Load #${myLoadId} (${startMode}) failed:`, err);
       if (myLoadId === currentLoadId) {
         loading = false;
         error = true;
@@ -3850,19 +3852,37 @@
     }
     activeSubscriptions = [];
     stopPeriodicContentRefresh();
-  }
 
-  async function cleanup() {
-    stopSubscriptions();
-
+    // Drop the queued realtime batch so the old subscription's events can't
+    // flush into whatever feed is active when the 300ms debounce fires (tab
+    // switch / relay switch). Un-mark them from seenEventIds first: they were
+    // marked at queue time but never rendered, so leaving them marked would
+    // suppress them for the rest of the session if redelivered.
     if (batchTimeout) {
       clearTimeout(batchTimeout);
       batchTimeout = null;
     }
+    if (pendingEvents.length > 0) {
+      for (const e of pendingEvents) {
+        seenEventIds.delete(e.id);
+      }
+      pendingEvents = [];
+    }
+  }
 
+  async function cleanup() {
+    // Flush (not drop) the queued batch at destroy — preserves the
+    // pre-existing behavior of persisting late realtime events to cache.
+    // Must run BEFORE stopSubscriptions(), which now discards the queue.
+    if (batchTimeout) {
+      clearTimeout(batchTimeout);
+      batchTimeout = null;
+    }
     if (pendingEvents.length > 0) {
       await processBatch();
     }
+
+    stopSubscriptions();
 
     compressedCacheManager.invalidateStale();
   }
