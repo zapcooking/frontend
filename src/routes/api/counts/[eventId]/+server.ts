@@ -1,5 +1,6 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
+import { isValidEventId } from '$lib/utils/eventId';
 
 // In-memory cache with TTL (for edge/serverless)
 // In production, consider using Cloudflare KV or Redis
@@ -228,8 +229,7 @@ async function fetchEngagementCounts(eventId: string): Promise<CountData> {
 export const GET: RequestHandler = async ({ params, url, platform }) => {
   const { eventId } = params;
 
-  const isValidNostrEventId = typeof eventId === 'string' && /^[a-f0-9]{64}$/i.test(eventId);
-  if (!isValidNostrEventId) {
+  if (!isValidEventId(eventId)) {
     return json({ error: 'Invalid event ID' }, { status: 400 });
   }
 

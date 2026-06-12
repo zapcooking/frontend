@@ -1,6 +1,9 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { isValidEventId } from '$lib/utils/nostrRefs';
+// Import from the dependency-free module — NOT $lib/utils/nostrRefs, whose
+// import chain reaches $lib/nostr's module-scope NDK construction and
+// crashes worker module init (500 on every request to this endpoint).
+import { isValidEventId } from '$lib/utils/eventId';
 
 // In-memory cache with TTL
 const countCache = new Map<string, { data: CountData; timestamp: number }>();
