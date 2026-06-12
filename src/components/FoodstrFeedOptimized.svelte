@@ -3071,9 +3071,19 @@
         // Sort by repost time when present (so reposted notes surface alongside the repost),
         // otherwise by the event's own created_at.
         const sortedBatch = batch.sort((a, b) => getEventSortTime(b) - getEventSortTime(a));
-        events = [...sortedBatch, ...events].sort(
-          (a, b) => getEventSortTime(b) - getEventSortTime(a)
-        );
+
+        // Same gate as fetchFreshAndMerge / runContentRefresh: only mutate the
+        // rendered list while the user is at the top. Prepending mid-scroll
+        // shifts content under the user's finger on iOS Safari (no scroll
+        // anchoring support) — divert to the "N new posts" pill instead.
+        if (isScrolledToTop) {
+          events = [...sortedBatch, ...events].sort(
+            (a, b) => getEventSortTime(b) - getEventSortTime(a)
+          );
+        } else {
+          pendingNewEvents = [...pendingNewEvents, ...sortedBatch];
+          showNewPostsButton = true;
+        }
 
         // Update last event time
         const maxTime = Math.max(...batch.map(getEventSortTime));
@@ -3299,8 +3309,12 @@
           // User is at top - auto-prepend smoothly
           events = dedupeAndSort([...newEvents, ...events]);
         } else {
-          // User is scrolled down - show "new posts" button
-          pendingNewEvents = newEvents;
+          // User is scrolled down - show "new posts" button. Append (don't
+          // replace): realtime processBatch also diverts events here, and a
+          // replacement would silently drop them (they're already marked
+          // seen, so they would never render). loadPendingPosts dedupes the
+          // combined list by id.
+          pendingNewEvents = [...pendingNewEvents, ...newEvents];
           showNewPostsButton = true;
         }
 

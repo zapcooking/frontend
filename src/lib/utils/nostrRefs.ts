@@ -19,13 +19,10 @@ const recipeCache = new Map<string, RecipeMetadata>();
 const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
 const FETCH_TIMEOUT = 5000; // 5 seconds timeout for fetches
 
-/**
- * Validate that eventId is exactly 64 hex characters (Nostr event ID format)
- */
-const EVENT_ID_PATTERN = /^[a-f0-9]{64}$/i;
-export function isValidEventId(id: unknown): id is string {
-  return typeof id === 'string' && EVENT_ID_PATTERN.test(id);
-}
+// Moved to $lib/utils/eventId (dependency-free) so server endpoints can
+// validate ids without pulling this module's NDK import chain into their
+// worker bundle. Re-exported here for backwards compatibility.
+export { isValidEventId } from './eventId';
 
 /**
  * Resolve a profile by pubkey or npub string
