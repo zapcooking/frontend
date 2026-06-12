@@ -24,7 +24,7 @@ export type recipeTagSimple = {
 export const DEFAULT_PROFILE_IMAGE = 'https://zap.cooking/default-pfp.jpg';
 
 // NIP-89 Client identification
-export const CLIENT_TAG_IDENTIFIER = 'zap.cooking';
+export const CLIENT_TAG_IDENTIFIER = 'Zap Cooking';
 export const CLIENT_DISPLAY_NAME = 'Zap Cooking';
 
 // Recipe tag prefixes
