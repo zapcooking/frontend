@@ -3,8 +3,8 @@
   import '../app.css';
   import Header from '../components/Header.svelte';
   import { browser } from '$app/environment';
-  import { page } from '$app/stores';
-  import { goto } from '$app/navigation';
+  import { page, updated } from '$app/stores';
+  import { goto, beforeNavigate } from '$app/navigation';
   import { userPublickey, ndk } from '$lib/nostr';
   import BottomNav from '../components/BottomNav.svelte';
   import DesktopSideNav from '../components/DesktopSideNav.svelte';
@@ -52,6 +52,66 @@
   // Refresh engagement counts when the tab returns from background
   import { tabVisibleAfterHide } from '$lib/tabVisibility';
   import { refreshActiveEngagement } from '$lib/engagementCache';
+
+  // Version-skew guard: when a new deploy is detected (kit.version
+  // pollInterval in svelte.config.js), turn the next client-side navigation
+  // into a full-page load. Cloudflare Pages removes the previous deploy's
+  // immutable assets, so stale clients otherwise 404 on chunk imports when
+  // navigating (broken tabs until a hard refresh).
+  beforeNavigate(({ willUnload, to, cancel }) => {
+    if ($updated && !willUnload && to?.url) {
+      // Cancel the client-side navigation first so SvelteKit doesn't start
+      // resolving (stale) route chunks before the full-page load takes over.
+      cancel();
+      location.href = to.url.href;
+    }
+  });
+
+  // Recovery for chunk-load failures in the window before the first version
+  // poll. Unlike the reverted #430, the reload is loop-proof: a sessionStorage
+  // flag permits AT MOST ONE automatic reload until the page subsequently
+  // stays healthy (no preload error for 10s). A persistent failure that a
+  // reload can't fix (ad-blocker, broken cache) therefore reloads once and
+  // then gives up instead of refreshing forever.
+  const SKEW_RELOAD_FLAG = 'zap_skew_reload_attempted';
+  onMount(() => {
+    const rearmFlag = () => {
+      try {
+        sessionStorage.removeItem(SKEW_RELOAD_FLAG);
+      } catch {
+        // ignore storage errors
+      }
+    };
+    // Page stayed healthy (no preload error) for 10s: re-arm the one-shot
+    // so a future deploy can still trigger a recovery reload later in this
+    // session. The timer restarts on every preload error, so the flag can
+    // never clear while errors are still occurring — a persistent failure
+    // reloads once and then stays inert.
+    let rearmTimer = setTimeout(rearmFlag, 10_000);
+
+    const onPreloadError = (event: Event) => {
+      clearTimeout(rearmTimer);
+      rearmTimer = setTimeout(rearmFlag, 10_000);
+
+      let alreadyTried = true;
+      try {
+        alreadyTried = sessionStorage.getItem(SKEW_RELOAD_FLAG) === '1';
+        if (!alreadyTried) sessionStorage.setItem(SKEW_RELOAD_FLAG, '1');
+      } catch {
+        // No storage means no loop protection — never reload in that case.
+        return;
+      }
+      if (alreadyTried) return;
+      event.preventDefault();
+      location.reload();
+    };
+    window.addEventListener('vite:preloadError', onPreloadError);
+
+    return () => {
+      clearTimeout(rearmTimer);
+      window.removeEventListener('vite:preloadError', onPreloadError);
+    };
+  });
 
   // Accept props from SvelteKit to prevent warnings
   export let data: LayoutData = {} as LayoutData;
