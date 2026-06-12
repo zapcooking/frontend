@@ -2927,6 +2927,12 @@
         return;
       }
 
+      // Profile view: respect authorScope (matches initial load filter)
+      if (authorPubkey) {
+        if (authorScope === 'top-level' && isReply(event)) return;
+        if (authorScope === 'replies' && !isReply(event)) return;
+      }
+
       // For Global feed, exclude posts from followed users
       if (!authorPubkey && followedPubkeysForRealtime.length > 0) {
         const authorKey = event.author?.hexpubkey || event.pubkey;
@@ -3023,8 +3029,9 @@
       // Garden/Following/Replies: respect foodFilterEnabled toggle
       if (foodFilterEnabled && !shouldIncludeEvent(event)) return;
     } else if (filterMode !== 'members') {
-      // Global mode (and profile view): always apply food filter
-      if (!shouldIncludeEvent(event)) return;
+      // Global feed: always apply food filter
+      // Profile view: respect the foodFilterEnabled toggle (matches initial load)
+      if (authorPubkey ? (foodFilterEnabled && !shouldIncludeEvent(event)) : !shouldIncludeEvent(event)) return;
     }
     // Members mode: no food filter
 
@@ -4651,6 +4658,7 @@
       loading = true;
       try {
         await loadFoodstrFeed(false);
+        if (authorPubkey) preseedRenderedNotes(20);
         console.log(
           `[Feed] Profile/special mode: Loaded ${events.length} events for ${authorPubkey || filterMode}`
         );
