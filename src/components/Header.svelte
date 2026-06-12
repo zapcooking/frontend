@@ -10,6 +10,7 @@
   import CustomAvatar from './CustomAvatar.svelte';
   import IntelligenceIcon from './icons/IntelligenceIcon.svelte';
   import IntelligenceMenu from './IntelligenceMenu.svelte';
+  import NotificationBell from './NotificationBell.svelte';
   import DenominatedBalance from './DenominatedBalance.svelte';
   import { theme } from '$lib/themeStore';
   import WalletBalance from './WalletBalance.svelte';
@@ -278,6 +279,14 @@
       </button>
     {/if}
 
+    <!-- Notifications bell + dropdown (desktop only — mobile keeps the
+         bottom-nav bell) -->
+    {#if $userPublickey}
+      <div class="hidden sm:inline-flex sm:items-center">
+        <NotificationBell />
+      </div>
+    {/if}
+
     <!-- Tier badge for active members -->
     {#if $userPublickey && isActiveMember && getTierLabel(membershipTier)}
       <a
@@ -291,7 +300,7 @@
     {/if}
 
     <!-- Sign in / User menu -->
-    <div class="print:hidden flex-shrink-0">
+    <div class="print:hidden flex-shrink-0 inline-flex items-center">
       {#if $userPublickey !== ''}
         <button
           class="zh-avatar-btn"

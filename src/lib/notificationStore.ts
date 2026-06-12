@@ -20,12 +20,15 @@ export interface Notification {
   read: boolean;
 }
 
-const STORAGE_KEY = 'zc_notifications_v6'; // Cursor-based pagination
+// v7: drop caches written before the cleanContentForPreview lookbehind fix —
+// they contain mentions already mangled to a dangling "nostr: ".
+const STORAGE_KEY = 'zc_notifications_v7';
 const MAX_STORED_NOTIFICATIONS = 100; // Only store recent notifications for quick load
 
 // Load from localStorage
 function loadNotifications(): Notification[] {
   try {
+    localStorage.removeItem('zc_notifications_v6'); // orphaned pre-v7 cache
     const stored = localStorage.getItem(STORAGE_KEY);
     if (stored) {
       const parsed = JSON.parse(stored) as Notification[];
@@ -375,8 +378,11 @@ function cleanContentForPreview(content: string): string {
     // Remove image URLs (they don't render in text previews)
     .replace(/https?:\/\/[^\s]+\.(?:jpg|jpeg|png|gif|webp|svg|bmp|avif)(?:\?[^\s]*)?/gi, '')
     .replace(/https?:\/\/(?:i\.)?(?:nostr\.build|imgur\.com|primal\.b-cdn\.net|image\.nostr\.build|void\.cat|m\.primal\.net|cdn\.satellite\.earth)[^\s]*/gi, '')
-    // Remove standalone bech32 identifiers (without nostr: prefix) — display layer only resolves nostr: URIs
-    .replace(/\b(?:note1|nevent1|naddr1|npub1|nprofile1)[023456789ac-hj-np-z]{20,}\b/gi, ' ')
+    // Remove standalone bech32 identifiers (without nostr: prefix) — display layer only resolves nostr: URIs.
+    // The lookbehind keeps `nostr:npub1…` mentions intact; without it the bech32
+    // gets stripped out of the URI, leaving a dangling literal "nostr: " that the
+    // display layer can no longer resolve to a name.
+    .replace(/(?<!nostr:)\b(?:note1|nevent1|naddr1|npub1|nprofile1)[023456789ac-hj-np-z]{20,}\b/gi, ' ')
     // Clean up multiple spaces and newlines
     .replace(/\s+/g, ' ')
     .trim();
