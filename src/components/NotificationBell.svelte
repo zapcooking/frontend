@@ -255,7 +255,7 @@
 
 <svelte:window on:keydown={handleKeydown} />
 
-<div class="relative" use:clickOutside on:click_outside={close}>
+<div class="relative inline-flex items-center" use:clickOutside on:click_outside={close}>
   <button
     type="button"
     class="bell-btn"

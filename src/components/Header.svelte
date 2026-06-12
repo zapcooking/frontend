@@ -300,7 +300,7 @@
     {/if}
 
     <!-- Sign in / User menu -->
-    <div class="print:hidden flex-shrink-0">
+    <div class="print:hidden flex-shrink-0 inline-flex items-center">
       {#if $userPublickey !== ''}
         <button
           class="zh-avatar-btn"
