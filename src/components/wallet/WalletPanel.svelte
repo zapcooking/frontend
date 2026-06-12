@@ -421,14 +421,35 @@
   // future session can decrypt. Since we can't reliably tell which
   // remote signers do this, the conservative default is to allow new
   // backups only from nsec / NIP-07 users.
-  $: canShowNostrBackup = encryptionSupported && !isNip46User;
+  //
+  // NOTE: the gate is deliberately NOT a `$:` derived. In this
+  // component (large enough to exceed 192 reactive slots) the compiled
+  // dirty-bitmask guard for `$: canShowNostrBackup = …` stopped
+  // matching the slots its dependencies invalidate, so the derived
+  // latched its initial `false` even after encryptionSupported flipped
+  // true — and the backup buttons never appeared. Template gates
+  // inline the expression (`encryptionSupported && !isNip46User`)
+  // instead, which tracks the two plain variables directly and updates
+  // reliably.
 
-  // Re-check encryption support when NDK signer changes (reactive)
+  // Re-check encryption support when NDK signer changes (reactive).
+  // Note: this only fires when the $ndk STORE re-emits — authManager
+  // attaches the signer by mutating the existing NDK instance, which
+  // the store never re-emits, so this alone can latch a too-early
+  // "false" for the whole session (e.g. checked before a NIP-07
+  // extension injected window.nostr).
   $: {
     const signer = $ndk?.signer;
     if (browser) {
       checkEncryptionSupport();
     }
+  }
+
+  // …so also re-check every time the wallet panel opens. By the time a
+  // user can open the wallet, the extension/signer is up, which makes
+  // the Backup-to-Nostr buttons appear reliably for NIP-07 sessions.
+  $: if (browser && $walletModalOpen) {
+    checkEncryptionSupport();
   }
 
   // Filter pending transactions to only show those for the active wallet
@@ -3172,7 +3193,7 @@
                       <PencilSimpleIcon size={18} class="text-amber-500 flex-shrink-0" />
                       <span class="text-primary-color">Write down recovery phrase</span>
                     </button>
-                    {#if canShowNostrBackup}
+                    {#if encryptionSupported && !isNip46User}
                       <button
                         class="flex items-center gap-3 w-full py-2.5 px-4 rounded-xl text-sm font-medium text-left transition-colors hover:bg-white/5 disabled:opacity-40"
                         style="border: 1px solid var(--color-input-border);"
@@ -3515,7 +3536,7 @@
                           <KeyIcon size={16} />
                           Recovery Phrase
                         </button>
-                        {#if canShowNostrBackup}
+                        {#if encryptionSupported && !isNip46User}
                           <button
                             class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer hover:bg-white/5 dark:hover:bg-white/5"
                             style="color: var(--color-text-secondary); border: 1px solid var(--color-input-border);"
@@ -3816,7 +3837,7 @@
                         Backup & Recovery
                       </div>
                       <div class="grid grid-cols-2 gap-2">
-                        {#if canShowNostrBackup}
+                        {#if encryptionSupported && !isNip46User}
                           <button
                             class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer hover:bg-white/5"
                             style="background-color: transparent; color: var(--color-text-secondary); border: 1px solid var(--color-input-border);"
@@ -4988,8 +5009,8 @@
 
         <div
           class="grid gap-2 mb-4"
-          class:grid-cols-2={canShowNostrBackup}
-          class:grid-cols-1={!canShowNostrBackup}
+          class:grid-cols-2={encryptionSupported && !isNip46User}
+          class:grid-cols-1={!(encryptionSupported && !isNip46User)}
         >
           {#if walletToDelete.kind === 4}
             <button
@@ -5011,7 +5032,7 @@
               Download
             </button>
           {/if}
-          {#if canShowNostrBackup}
+          {#if encryptionSupported && !isNip46User}
             <button
               class="flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors cursor-pointer hover:bg-white/5"
               style="border: 1px solid var(--color-input-border); color: var(--color-text-primary);"
