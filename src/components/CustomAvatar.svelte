@@ -18,10 +18,13 @@
   let imageCandidates: string[] = []; // Ordered list of URLs to try
   let currentCandidateIndex = 0; // Index of current candidate being tried
   
-  // Generate a simple avatar based on pubkey
-  function generateAvatar(pubkey: string): string {
+  // Generate a simple avatar based on pubkey.
+  // Tolerates a missing pubkey: callers occasionally render before one is
+  // available, and during SSR an undefined pubkey here was crashing the
+  // whole page render with a 500 (TypeError on .split).
+  function generateAvatar(pubkey: string | null | undefined): string {
     // Create a simple colored circle based on pubkey hash
-    const hash = pubkey.split('').reduce((a, b) => {
+    const hash = String(pubkey || '').split('').reduce((a, b) => {
       a = ((a << 5) - a) + b.charCodeAt(0);
       return a & a;
     }, 0);
