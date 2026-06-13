@@ -12,7 +12,7 @@
   import { nip19 } from 'nostr-tools';
   import MediaUploader from '../../components/MediaUploader.svelte';
   import { addClientTagToEvent } from '$lib/nip89';
-  import { publishQueue, ensureLandedOnGarden } from '$lib/publishQueue';
+  import { publishQueue } from '$lib/publishQueue';
   import Button from '../../components/Button.svelte';
   import MarkdownEditor from '../../components/MarkdownEditor.svelte';
   import { onMount, onDestroy, tick } from 'svelte';
@@ -370,12 +370,10 @@
         // Publish via publishQueue.
         //
         // Why not bare event.publish(): NDK 2.x's outbox model on writes
-        // routes a publish to the AUTHOR's NIP-65 write relays. For
-        // authors whose NIP-65 doesn't include garden, that path lands
-        // the event on niche relays and skips garden entirely — and
-        // /r/<naddr> readers can't find it. publishQueue's "all" mode
-        // explicitly fans out to every pool relay (garden included),
-        // and persists a retry queue in IndexedDB if any of them flake.
+        // routes a publish to the AUTHOR's NIP-65 write relays, which
+        // can skip the relays /r/<naddr> readers consult. publishQueue's
+        // "all" mode explicitly fans out to every pool relay, and
+        // persists a retry queue in IndexedDB if any of them flake.
         const publishResult = await publishQueue.publishWithRetry(event, 'all');
         if (!publishResult.success && !publishResult.queued) {
           throw new Error(publishResult.error || 'Publish failed');
@@ -386,21 +384,12 @@
         // connectivity blip), publishWithRetry signs+queues the event
         // for IndexedDB-backed retry — but the event might not have a
         // valid pubkey/sig yet. We surface this honestly to the user
-        // so they don't think it's already on relays, and we skip the
-        // garden verify (nothing to verify yet).
+        // so they don't think it's already on relays.
         if (publishResult.queued) {
           resultMessage =
             'Publish queued. Your recipe will be published as soon as relays are reachable.';
         } else {
           resultMessage = 'Success!';
-          // Belt + suspenders: confirm the event actually landed on
-          // garden specifically. If not, queue a targeted republish so
-          // garden ends up holding every Zap Cooking-authored recipe
-          // regardless of the author's NIP-65 preferences. Best-effort —
-          // doesn't block the user-facing success path.
-          ensureLandedOnGarden(event).catch((e) =>
-            console.warn('[create] garden verification failed', e)
-          );
         }
 
         // Use the signed-in user's pubkey for the naddr — event.pubkey

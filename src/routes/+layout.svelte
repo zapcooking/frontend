@@ -447,6 +447,20 @@
     }
   });
 
+  // Drop the Garden feed's IndexedDB cache, orphaned when the garden
+  // relay was decommissioned. Fire-and-forget: a failed or blocked
+  // delete must never delay app init — it simply runs again on a
+  // future load (deleting a nonexistent database is a no-op).
+  onMount(() => {
+    if (browser) {
+      try {
+        indexedDB.deleteDatabase('zapcooking-garden-cache');
+      } catch {
+        // ignore — implicitly retried on the next app load
+      }
+    }
+  });
+
   // Open the wallet modal automatically once after leaving login/
   // onboarding when the user has no wallet (e.g. after suggested
   // follows completes).
