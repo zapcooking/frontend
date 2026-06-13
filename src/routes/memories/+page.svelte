@@ -94,8 +94,8 @@
 </script>
 
 <svelte:head>
-  <title>Echoes - zap.cooking</title>
-  <meta name="description" content="Echoes — a look back at notes from this day" />
+  <title>Memories - zap.cooking</title>
+  <meta name="description" content="Memories — a look back at notes from this day" />
 </svelte:head>
 
 <div class="px-4 max-w-2xl mx-auto w-full memories-page">
@@ -103,7 +103,7 @@
     <div class="text-center py-16">
       <p class="text-4xl mb-3" aria-hidden="true">📅</p>
       <h1 class="text-xl font-semibold mb-2" style="color: var(--color-text-primary);">
-        Echoes
+        Memories
       </h1>
       <p class="text-sm mb-4" style="color: var(--color-text-secondary);">
         A look back at notes from this day. Sign in to see yours.
@@ -118,7 +118,7 @@
   {:else}
     <div class="flex items-start justify-between gap-4 mb-6 pt-2">
       <div>
-        <h1 class="text-2xl font-bold" style="color: var(--color-text-primary);">Echoes</h1>
+        <h1 class="text-2xl font-bold" style="color: var(--color-text-primary);">Memories</h1>
         <p class="text-sm mt-1" style="color: var(--color-text-secondary);">
           A look back at notes from this day · {todayLabel}
         </p>
@@ -128,7 +128,7 @@
         disabled={refreshing}
         class="flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-sm font-medium hover:opacity-80 transition-opacity disabled:opacity-50"
         style="color: var(--color-text-secondary); border-color: var(--color-input-border);"
-        aria-label="Refresh echoes from relays"
+        aria-label="Refresh memories from relays"
       >
         <span class:animate-spin={refreshing}>
           <ArrowsClockwiseIcon size={14} />
@@ -155,7 +155,7 @@
       <div class="text-center py-16">
         <p class="text-4xl mb-3" aria-hidden="true">🍳</p>
         <p class="text-sm" style="color: var(--color-text-secondary);">
-          No echoes found for this day. Relays may not keep notes this old — or this day is
+          No memories found for this day. Relays may not keep notes this old — or this day is
           still waiting for its first one.
         </p>
       </div>
