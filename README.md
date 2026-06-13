@@ -143,7 +143,6 @@ src/
     membership/              # Membership tiers & checkout
     marketplace/             # P2P marketplace
     my-store/                # Seller dashboard
-    garden/                  # Invite tree
     pantry/                  # Community features
     cheffy/                  # Cheffy — kitchen companion (assistant)
     zappy/                   # Legacy redirect → /cheffy

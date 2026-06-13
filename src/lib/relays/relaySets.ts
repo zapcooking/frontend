@@ -19,19 +19,9 @@ export const RELAY_SETS: Record<string, RelaySet> = {
     name: 'Default',
     description: 'Standard relay configuration for general use',
     relays: [
-      'wss://garden.zap.cooking',
       'wss://nos.lol',
       'wss://relay.damus.io',
       'wss://relay.primal.net'
-    ]
-  },
-  garden: {
-    id: 'garden',
-    name: 'Garden',
-    description: 'Focused on Zap.Cooking garden relay',
-    relays: [
-      'wss://garden.zap.cooking',
-      'wss://nos.lol'
     ]
   },
   members: {

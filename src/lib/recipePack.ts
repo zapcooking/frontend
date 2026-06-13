@@ -10,7 +10,7 @@
 
 import { NDKEvent, type NDKKind } from '@nostr-dev-kit/ndk';
 import { nip19 } from 'nostr-tools';
-import { ndk, userPublickey, GARDEN_RELAY_URL } from '$lib/nostr';
+import { ndk, userPublickey } from '$lib/nostr';
 import { addClientTagToEvent } from '$lib/nip89';
 import { RECIPE_TAG_PREFIX_NEW } from '$lib/consts';
 import { offlineStorage } from '$lib/offlineStorage';
@@ -23,6 +23,12 @@ export const MY_RECIPES_PACK_DTAG = 'zapcooking-my-recipes';
 export const RECIPE_PACK_TAG = 'recipe-pack';
 export const ZAP_COOKING_TAG = 'zap-cooking';
 export const MY_RECIPES_TAG = 'my-recipes';
+
+// Relay hints for `a` tags. NIP-01 allows one relay URL per tag, so
+// the hints rotate across a pack's recipe tags — between them, both
+// high-uptime general relays get coverage. Recipes publish via "all"
+// mode, so they land on both.
+export const RECIPE_PACK_RELAY_HINTS = ['wss://relay.damus.io', 'wss://relay.primal.net'];
 
 export type RecipePackSource =
   | { type: 'cookbook' }
@@ -178,9 +184,9 @@ export function buildRecipePackEvent(input: BuildPackInput): NDKEvent {
     tags.push(['t', MY_RECIPES_TAG]);
   }
 
-  for (const aTag of dedupedATags) {
-    tags.push(['a', aTag, GARDEN_RELAY_URL]);
-  }
+  dedupedATags.forEach((aTag, i) => {
+    tags.push(['a', aTag, RECIPE_PACK_RELAY_HINTS[i % RECIPE_PACK_RELAY_HINTS.length]]);
+  });
 
   event.tags = tags;
   return event;
@@ -240,7 +246,7 @@ export interface PackDeletionResult {
  *   - k: kind number, helps relays index deletion requests
  *
  * Publishes via publishQueue's "all" mode so the deletion request
- * lands on garden + the explicit pool, matching where the original
+ * lands on the full explicit pool, matching where the original
  * pack was published. Caller is responsible for ensuring the user
  * actually authored the pack (we re-check pubkey here as a guard).
  *
@@ -273,8 +279,8 @@ export async function publishPackDeletion(
   addClientTagToEvent(deletion);
 
   // Use the resilient queue + 'all' mode so the deletion lands on
-  // garden + the standard pool, same write surface as the original
-  // pack publish.
+  // the standard pool, same write surface as the original pack
+  // publish.
   const { publishQueue } = await import('$lib/publishQueue');
   const result = await publishQueue.publishWithRetry(deletion, 'all');
   if (!result.success && !result.queued) {
@@ -309,7 +315,7 @@ export async function publishPackAnnouncement(pack: PublishedPack, input: {
     naddr: pack.naddr
   });
   announcement.tags = [
-    ['a', `${RECIPE_PACK_KIND}:${pubkey}:${dTag}`, GARDEN_RELAY_URL],
+    ['a', `${RECIPE_PACK_KIND}:${pubkey}:${dTag}`, RECIPE_PACK_RELAY_HINTS[0]],
     ['t', RECIPE_PACK_TAG],
     ['t', ZAP_COOKING_TAG],
     ['t', RECIPE_TAG_PREFIX_NEW]

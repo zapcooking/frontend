@@ -100,7 +100,7 @@ export interface FeedNoteVM {
 
 /** The feed tab the user is viewing. URL-bookmarkable via the
  * `?tab=` searchParam on `/community`. */
-export type FeedTab = 'global' | 'following' | 'replies' | 'members' | 'garden';
+export type FeedTab = 'global' | 'following' | 'replies' | 'members';
 
 /** Pagination cursor passed to `FeedSource.loadMore()`. Matches the
  * `since` / `until` convention used by the existing monolith so cursor

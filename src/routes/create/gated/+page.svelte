@@ -12,7 +12,7 @@
   import { nip19 } from 'nostr-tools';
   import MediaUploader from '../../../components/MediaUploader.svelte';
   import { addClientTagToEvent } from '$lib/nip89';
-  import { publishQueue, ensureLandedOnGarden } from '$lib/publishQueue';
+  import { publishQueue } from '$lib/publishQueue';
   import Button from '../../../components/Button.svelte';
   import MarkdownEditor from '../../../components/MarkdownEditor.svelte';
   import { onMount, onDestroy } from 'svelte';
@@ -230,23 +230,13 @@
         event.content = gatePreview || summary || 'This is a premium recipe. Visit zap.cooking to unlock.';
 
         // Publish via publishQueue (see /create/+page.svelte for the
-        // full rationale). "all" mode fans out to every pool relay
-        // including garden — guarantees the kind:30023 preview wrapper
-        // lands on Zap Cooking infrastructure regardless of the
-        // author's NIP-65 outbox preferences.
+        // full rationale). "all" mode fans out to every pool relay so
+        // the kind:30023 preview wrapper stays reachable via the relays
+        // readers consult, regardless of the author's NIP-65 outbox
+        // preferences.
         const gatedPublishResult = await publishQueue.publishWithRetry(event, 'all');
         if (!gatedPublishResult.success && !gatedPublishResult.queued) {
           throw new Error(gatedPublishResult.error || 'Publish failed');
-        }
-        // When the initial publish fails and gets queued for retry, the
-        // event may not be signed yet, so event.author.hexpubkey is
-        // undefined and the garden verify has nothing to look up.
-        // Surface "queued" honestly and skip the verify; otherwise run
-        // the belt-and-suspenders check.
-        if (!gatedPublishResult.queued) {
-          ensureLandedOnGarden(event).catch((e) =>
-            console.warn('[create-gated] garden verification failed', e)
-          );
         }
 
         // Always derive the naddr from $userPublickey rather than

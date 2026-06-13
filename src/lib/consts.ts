@@ -1,6 +1,5 @@
 export const standardRelays = [
   'wss://relay.damus.io',
-  'wss://garden.zap.cooking', // Garden relay (always connected)
   'wss://nos.lol',
   'wss://purplepag.es',
   'wss://relay.primal.net',

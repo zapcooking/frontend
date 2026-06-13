@@ -6,7 +6,7 @@
 
   export let open = false;
 
-  type RelaySelection = 'all' | 'garden' | 'pantry' | 'garden-pantry';
+  type RelaySelection = 'all' | 'pantry';
   let selectedRelay: RelaySelection = 'all';
 
   function handleClose() {
@@ -32,9 +32,7 @@
           "
         >
           <option value="all">All relays</option>
-          <option value="garden">🌱 Garden only</option>
           <option value="pantry">🏪 Pantry only</option>
-          <option value="garden-pantry">🌱🏪 Garden + Pantry</option>
         </select>
       </div>
 

@@ -88,9 +88,8 @@ const PROFILE_FETCH_TIMEOUT = 5000; // 5 seconds
  * default pool. Purplepag.es is the de-facto Nostr profile relay —
  * many users publish kind:0 there (or it's the only relay their
  * NIP-65 client targeted). Without including it, profiles that don't
- * happen to live on garden / nos.lol / damus / primal silently 404
- * and render as the anon-chef fallback. nostr.wine is a common
- * secondary mirror.
+ * happen to live on nos.lol / damus / primal silently 404 and render
+ * as the anon-chef fallback. nostr.wine is a common secondary mirror.
  */
 const PROFILE_RELAY_URLS = [
   'wss://purplepag.es',
@@ -109,8 +108,8 @@ async function fetchProfileFromRelays(pubkey: string, ndkInstance: NDK): Promise
     }
 
     // Build an explicit relay set: NDK's connected pool relays
-    // (whatever the page already has open — garden, nos.lol, damus,
-    // primal in default mode) plus the canonical profile relays.
+    // (whatever the page already has open — nos.lol, damus, primal
+    // in default mode) plus the canonical profile relays.
     // NDK's `user.fetchProfile()` doesn't let us widen the relay set,
     // so we drop down to fetchEvent + parse the kind:0 manually.
     const { NDKRelaySet } = await import('@nostr-dev-kit/ndk');

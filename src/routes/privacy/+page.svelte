@@ -106,7 +106,6 @@
     <p>Zap Cooking operates certain community-managed relays, including:</p>
 
     <ul class="list-disc pl-6 space-y-2">
-      <li><strong>The Garden</strong> (garden.zap.cooking) — a community relay for the broader zap.cooking community</li>
       <li><strong>The Pantry</strong> (pantry.zap.cooking) — a NIP-29 group relay for public group chats</li>
     </ul>
 
@@ -142,7 +141,7 @@
 
     <p>Zap Cooking does not retain user-generated content on centralized servers operated by us. Content published through the Nostr protocol is stored on decentralized relays and may persist on those relays even if you stop using the Service.</p>
 
-    <p>For content on relays we operate (The Garden, The Pantry), we retain content in accordance with our relay operations and moderation practices. We may remove content from our relays, but we cannot remove content from third-party relays.</p>
+    <p>For content on relays we operate (The Pantry), we retain content in accordance with our relay operations and moderation practices. We may remove content from our relays, but we cannot remove content from third-party relays.</p>
 
     <p>Payment-related records (transaction confirmations, subscription status, billing metadata) are retained for as long as reasonably necessary for accounting, fraud prevention, legal compliance, and dispute resolution purposes.</p>
 
