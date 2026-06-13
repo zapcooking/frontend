@@ -111,7 +111,7 @@
     },
     {
       href: '/memories',
-      label: 'Echoes',
+      label: 'Memories',
       icon: ClockCounterClockwiseIcon,
       match: (p) => p.startsWith('/memories')
     },
