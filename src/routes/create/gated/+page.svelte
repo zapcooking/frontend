@@ -230,10 +230,10 @@
         event.content = gatePreview || summary || 'This is a premium recipe. Visit zap.cooking to unlock.';
 
         // Publish via publishQueue (see /create/+page.svelte for the
-        // full rationale). "all" mode fans out to every pool relay —
-        // guarantees the kind:30023 preview wrapper lands on Zap
-        // Cooking infrastructure regardless of the author's NIP-65
-        // outbox preferences.
+        // full rationale). "all" mode fans out to every pool relay so
+        // the kind:30023 preview wrapper stays reachable via the relays
+        // readers consult, regardless of the author's NIP-65 outbox
+        // preferences.
         const gatedPublishResult = await publishQueue.publishWithRetry(event, 'all');
         if (!gatedPublishResult.success && !gatedPublishResult.queued) {
           throw new Error(gatedPublishResult.error || 'Publish failed');

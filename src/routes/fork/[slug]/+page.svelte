@@ -258,9 +258,9 @@
           }
         });
         // Publish via publishQueue (see /create/+page.svelte for the
-        // full rationale). "all" mode fans out to every pool relay —
-        // guarantees forks land on Zap Cooking infrastructure
-        // regardless of the forker's NIP-65 outbox.
+        // full rationale). "all" mode fans out to every pool relay so
+        // forks stay reachable via the relays /r/<naddr> readers
+        // consult, regardless of the forker's NIP-65 outbox.
         const forkPublishResult = await publishQueue.publishWithRetry(event, 'all');
         if (!forkPublishResult.success && !forkPublishResult.queued) {
           throw new Error(forkPublishResult.error || 'Publish failed');

@@ -1,7 +1,7 @@
 # Relay Selection Feature for Posting Modal
 
 ## Overview
-Relay selection capability in the posting modal, allowing users to choose which relays to post to when creating new posts.
+The posting modal offers relay selection, letting users choose which relays to post to when creating new posts.
 
 > **History note:** this feature originally offered `garden` and
 > `garden-pantry` modes targeting `wss://garden.zap.cooking`. Those
