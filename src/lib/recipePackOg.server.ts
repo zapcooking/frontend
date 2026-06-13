@@ -9,7 +9,6 @@
  */
 
 const RELAYS = [
-	'wss://garden.zap.cooking',
 	'wss://relay.primal.net',
 	'wss://relay.damus.io',
 	'wss://nos.lol'
