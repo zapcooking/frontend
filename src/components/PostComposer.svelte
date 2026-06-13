@@ -34,8 +34,8 @@
     }
   }
 
-  type FilterMode = 'global' | 'following' | 'replies' | 'members' | 'garden';
-  type RelaySelection = 'all' | 'garden' | 'pantry' | 'garden-pantry';
+  type FilterMode = 'global' | 'following' | 'replies' | 'members';
+  type RelaySelection = 'all' | 'pantry';
 
   export let activeTab: FilterMode = 'global';
   export let variant: 'inline' | 'modal' = 'inline';
@@ -353,9 +353,7 @@
 
       // Determine which relays to publish to
       // Priority: explicit selectedRelay prop (from modal) > activeTab (from feed context)
-      const relayMode =
-        selectedRelay ||
-        (activeTab === 'garden' ? 'garden' : activeTab === 'members' ? 'pantry' : 'all');
+      const relayMode = selectedRelay || (activeTab === 'members' ? 'pantry' : 'all');
 
       console.log(`[PostComposer] Publishing with relay mode: ${relayMode}`);
       console.log('[PostComposer] Event content:', event.content);
@@ -619,22 +617,6 @@
                 >
                   <p class="text-xs font-medium text-blue-700 dark:text-blue-300">
                     🏪 The Pantry — If you're seeing this, you're early.
-                  </p>
-                </div>
-              {:else if activeTab === 'garden' || selectedRelay === 'garden'}
-                <div
-                  class="mb-2 px-3 py-1.5 rounded-lg bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800"
-                >
-                  <p class="text-xs font-medium text-green-700 dark:text-green-300">
-                    🌱 Posting to: <span class="font-semibold">garden.zap.cooking</span>
-                  </p>
-                </div>
-              {:else if selectedRelay === 'garden-pantry'}
-                <div
-                  class="mb-2 px-3 py-1.5 rounded-lg bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800"
-                >
-                  <p class="text-xs font-medium text-purple-700 dark:text-purple-300">
-                    🌱🏪 Posting to Garden + Pantry
                   </p>
                 </div>
               {:else if selectedRelay === 'all'}
