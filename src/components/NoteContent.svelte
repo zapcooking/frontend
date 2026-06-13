@@ -298,7 +298,20 @@
 
   // Check if content should be collapsed
   $: shouldCollapse = collapsible && content.length > maxLength;
-  $: displayContent = shouldCollapse && !isExpanded ? content.substring(0, maxLength) : content;
+  // Extend the truncation point to include any URL that was cut mid-way,
+  // so its file extension survives and isImageUrl() classifies it correctly.
+  function truncateAtUrlBoundary(text: string, limit: number): string {
+    const cut = text.substring(0, limit);
+    const urlRegex = /https?:\/\/[^\s]+/g;
+    let m;
+    while ((m = urlRegex.exec(text)) !== null) {
+      if (m.index < limit && m.index + m[0].length > limit) {
+        return text.substring(0, m.index + m[0].length);
+      }
+    }
+    return cut;
+  }
+  $: displayContent = shouldCollapse && !isExpanded ? truncateAtUrlBoundary(content, maxLength) : content;
   $: finalParsedContent = parseContent(displayContent);
   $: renderParts = groupMediaRuns(finalParsedContent);
 
