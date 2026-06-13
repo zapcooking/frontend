@@ -95,14 +95,6 @@
     type EngagementData
   } from '$lib/engagementCache';
 
-  // Garden relay dedicated cache (IndexedDB-based)
-  import {
-    gardenCache,
-    gardenCacheStatus,
-    cachedEventToNDKLike,
-    type CachedGardenEvent
-  } from '$lib/gardenCache';
-
   // Primal cache for fast feed fetching (aggregates from 100+ relays)
   import {
     fetchFeedFromPrimal,
@@ -142,7 +134,7 @@
   export let authorPubkey: string | undefined = undefined;
   export let hideAvatar: boolean = false;
   export let hideAuthorName: boolean = false;
-  export let filterMode: 'global' | 'following' | 'replies' | 'members' | 'garden' = 'global';
+  export let filterMode: 'global' | 'following' | 'replies' | 'members' = 'global';
   // When `authorPubkey` is set, restrict to top-level notes or replies only.
   // 'all' (default) preserves the prior behavior for any other call sites.
   export let authorScope: 'all' | 'top-level' | 'replies' = 'all';
@@ -450,7 +442,7 @@
   const CACHE_KEY = 'foodstr_feed_cache';
   const BATCH_DEBOUNCE_MS = 300;
   const SUBSCRIPTION_TIMEOUT_MS = 4000;
-  const PRIVATE_RELAY_TIMEOUT_MS = 15000; // Longer timeout for garden/members relays (15 seconds)
+  const PRIVATE_RELAY_TIMEOUT_MS = 15000; // Longer timeout for members relays (15 seconds)
   const ONE_DAY_SECONDS = 24 * 60 * 60;
   const THREE_DAYS_SECONDS = 3 * 24 * 60 * 60;
   const SEVEN_DAYS_SECONDS = 7 * 24 * 60 * 60;
@@ -463,8 +455,7 @@
     fallback: ['wss://relay.primal.net', 'wss://nostr.wine', 'wss://antiprimal.net'], // Fast general relays for broader discovery
     discovery: ['wss://nostr.wine', 'wss://relay.primal.net', 'wss://purplepag.es', 'wss://antiprimal.net'], // Additional relays for discovery
     profiles: ['wss://purplepag.es'], // Profile metadata (356ms, specialized for kind:0)
-    members: ['wss://pantry.zap.cooking'], // Private member relay (The Pantry)
-    garden: ['wss://garden.zap.cooking'] // Garden relay (no trailing slash!)
+    members: ['wss://pantry.zap.cooking'] // Private member relay (The Pantry)
   };
 
   // ═══════════════════════════════════════════════════════════════
@@ -485,7 +476,7 @@
   let lastEventTime: number = 0;
 
   // Track filter mode for reactive updates
-  let lastFilterMode: 'global' | 'following' | 'replies' | 'members' | 'garden' = 'global';
+  let lastFilterMode: 'global' | 'following' | 'replies' | 'members' = 'global';
 
   // Followed pubkeys for real-time subscriptions (populated by outbox module)
   let followedPubkeysForRealtime: string[] = [];
@@ -763,7 +754,7 @@
     switch (mode) {
       case 'initial':
         // Following/Replies: 3 days is plenty for active follows (halves relay data).
-        // Global/Garden/Members: keep 7 days for broader discovery.
+        // Global/Members: keep 7 days for broader discovery.
         if (filterMode === 'following' || filterMode === 'replies') {
           return { since: now - THREE_DAYS_SECONDS };
         }
@@ -1503,7 +1494,7 @@
    * @param filter - NDK filter for the query
    * @param relayUrls - Relay URLs to fetch from
    * @param timeoutMs - Timeout in milliseconds
-   * @param skipCache - Skip NDK cache (important for garden/members feeds)
+   * @param skipCache - Skip NDK cache (important for members feeds)
    * @param useTemporaryRelaySet - If true, creates temporary relay connections (use for private/discovery relays not in default pool)
    */
   async function fetchFromRelays(
@@ -1526,7 +1517,7 @@
         setTimeout(() => reject(new Error('Timeout')), timeoutMs)
       );
 
-      // Build fetch options - skip cache if requested (important for garden/members feeds)
+      // Build fetch options - skip cache if requested (important for members feeds)
       const fetchOpts = skipCache
         ? { cacheUsage: NDKSubscriptionCacheUsage.ONLY_RELAY }
         : undefined;
@@ -1875,8 +1866,8 @@
     loadingMode = filterMode;
 
     try {
-      // For garden/members mode, never use cache to ensure only target relay content
-      if (filterMode === 'garden' || filterMode === 'members') {
+      // For members mode, never use cache to ensure only target relay content
+      if (filterMode === 'members') {
         useCache = false;
         console.log(
           `[Feed] ${filterMode} mode: Cache disabled to ensure only ${filterMode} relay content`
@@ -1950,10 +1941,9 @@
         return;
       }
 
-      // Fallback: Try compressed cache (legacy) - skip for garden/members mode
+      // Fallback: Try compressed cache (legacy) - skip for members mode
       if (
         useCache &&
-        filterMode !== 'garden' &&
         filterMode !== 'members' &&
         (await loadCachedEvents(() => isLoadStale(myLoadId, startMode, loadGeneration)))
       ) {
@@ -2401,223 +2391,6 @@
         return;
       }
 
-      if (filterMode === 'garden') {
-        // Garden feed: show content from garden relay ONLY
-        // Uses dedicated IndexedDB cache for instant paint + background refresh
-        events = [];
-        seenEventIds.clear();
-
-        const gardenRelayUrl = normalizeRelayUrl(RELAY_POOLS.garden[0]);
-        console.log('[Feed] Using garden relay:', gardenRelayUrl);
-
-        // STEP 1: Load from cache immediately (instant paint)
-        gardenCacheStatus.update((s) => ({ ...s, isLoading: true }));
-
-        try {
-          const cachedEvents = await gardenCache.getCachedEvents();
-          const cacheStats = await gardenCache.getStats();
-
-          // Check for stale results BEFORE the cache paint below writes events
-          if (isLoadStale(myLoadId, startMode, loadGeneration)) {
-            console.log('[Feed] Discarding stale garden cache results');
-            // Still the owner (stale via relay-gen/mode change, not supersede):
-            // clear the indicator set above, or it would stick on `true`.
-            if (myLoadId === currentLoadId) {
-              gardenCacheStatus.update((s) => ({ ...s, isLoading: false }));
-            }
-            return;
-          }
-
-          if (cachedEvents.length > 0) {
-            console.log(
-              `[Feed] Garden: Loaded ${cachedEvents.length} events from cache (age: ${cacheStats.cacheAge ? Math.round(cacheStats.cacheAge / 1000) + 's' : 'unknown'})`
-            );
-
-            // Convert cached events to NDK-like format and display immediately
-            const cachedNDKEvents = cachedEvents.map((e) => cachedEventToNDKLike(e));
-
-            // Apply food filter if enabled
-            const beforeFilter = cachedNDKEvents.length;
-            const filteredCachedEvents = foodFilterEnabled
-              ? cachedNDKEvents.filter((e) => shouldIncludeEvent(e))
-              : cachedNDKEvents;
-
-            if (foodFilterEnabled && beforeFilter !== filteredCachedEvents.length) {
-              console.log(
-                `[Feed] Garden: Filtered cached events: ${filteredCachedEvents.length} / ${beforeFilter}`
-              );
-            }
-
-            events = filteredCachedEvents;
-            loading = false; // Show cached data immediately
-
-            // If cache is fresh, we're done - skip the relay fetch
-            if (cacheStats.isFresh) {
-              console.log('[Feed] Garden: Cache is fresh, skipping relay fetch');
-              gardenCacheStatus.update((s) => ({ ...s, isLoading: false }));
-
-              if (events.length > 0) {
-                lastEventTime = Math.max(...events.map(getEventSortTime));
-              }
-
-              // Still start realtime subscription for new events
-              try {
-                startRealtimeSubscription();
-              } catch {
-                // Non-critical
-              }
-              return;
-            }
-
-            console.log('[Feed] Garden: Cache is stale, fetching fresh data in background...');
-          } else {
-            console.log('[Feed] Garden: No cached events, fetching from relay...');
-          }
-        } catch (cacheErr) {
-          console.warn('[Feed] Garden: Cache read failed:', cacheErr);
-        }
-
-        // STEP 2: Fetch fresh data from relay (if relay is connected)
-        await ensureNdkConnected();
-
-        if (isLoadStale(myLoadId, startMode, loadGeneration)) {
-          console.log('[Feed] Discarding stale garden load (after connection wait)');
-          if (myLoadId === currentLoadId) {
-            gardenCacheStatus.update((s) => ({ ...s, isLoading: false }));
-          }
-          return;
-        }
-
-        const connectedRelays = getConnectedRelays().map((r) => normalizeRelayUrl(r));
-        const normalizedGardenUrl = normalizeRelayUrl(RELAY_POOLS.garden[0]);
-        const isGardenConnected = connectedRelays.includes(normalizedGardenUrl);
-
-        console.log(
-          `[Feed] Garden relay connection status: ${isGardenConnected ? 'connected' : 'not connected'}`
-        );
-
-        // If relay not connected and we have cached data, skip fetch
-        if (!isGardenConnected && events.length > 0) {
-          console.log('[Feed] Garden: Relay not connected, using cached data');
-          gardenCacheStatus.update((s) => ({ ...s, isLoading: false }));
-          try {
-            startRealtimeSubscription();
-          } catch {
-            // Non-critical
-          }
-          return;
-        }
-
-        const now = Math.floor(Date.now() / 1000);
-        const gardenFilter: any = {
-          kinds: [1, 6, 1068],
-          since: now - SEVEN_DAYS_SECONDS, // 7 days for garden relay
-          limit: 100
-        };
-
-        console.log('[Feed] Garden filter:', gardenFilter);
-
-        // If we have cached data, use shorter timeout (5s) since we're just doing a background refresh
-        // If no cache, use longer timeout (15s) to give relay more time
-        const fetchTimeout = events.length > 0 ? 5000 : PRIVATE_RELAY_TIMEOUT_MS;
-        console.log(
-          `[Feed] Garden relay fetching (timeout: ${fetchTimeout}ms, have cache: ${events.length > 0})...`
-        );
-
-        // Use existing pool connection (useTemporaryRelaySet = false) to avoid creating new WebSocket
-        const gardenEvents = await fetchFromRelays(
-          gardenFilter,
-          RELAY_POOLS.garden,
-          fetchTimeout,
-          true,
-          false
-        );
-
-        console.log(`[Feed] Garden feed: ${gardenEvents.length} events from relay`);
-
-        // Check for stale results
-        if (isLoadStale(myLoadId, startMode, loadGeneration)) {
-          console.log('[Feed] Discarding stale garden relay results');
-          // Superseded loads must not touch shared UI state; only the load
-          // that still owns the feed clears the garden loading indicator.
-          if (myLoadId === currentLoadId) {
-            gardenCacheStatus.update((s) => ({ ...s, isLoading: false }));
-          }
-          return;
-        }
-
-        // STEP 3: Update display and cache
-        // Remember how many cached events we had before the fetch
-        const hadCachedEvents = events.length;
-
-        if (gardenEvents.length > 0) {
-          // Apply food filter if enabled
-          const beforeFilter = gardenEvents.length;
-          const filteredGardenEvents = foodFilterEnabled
-            ? gardenEvents.filter((e) => shouldIncludeEvent(e))
-            : gardenEvents;
-
-          if (foodFilterEnabled && beforeFilter !== filteredGardenEvents.length) {
-            console.log(
-              `[Feed] Garden: Filtered relay events: ${filteredGardenEvents.length} / ${beforeFilter}`
-            );
-          }
-
-          // Got fresh events from relay - update display and cache
-          events = dedupeAndSort(filteredGardenEvents);
-          console.log(`[Feed] Garden: Got ${events.length} fresh events from relay`);
-
-          // Save to dedicated Garden cache
-          try {
-            await gardenCache.saveEvents(gardenEvents);
-            await gardenCache.pruneCache(); // Keep cache size manageable
-            console.log('[Feed] Garden: Events saved to dedicated cache');
-          } catch (cacheErr) {
-            console.warn('[Feed] Garden: Failed to save to cache:', cacheErr);
-          }
-
-          // gardenCache.saveEvents above awaited — re-check before touching
-          // shared state (lastEventTime) and the shared compressed cache.
-          if (isLoadStale(myLoadId, startMode, loadGeneration)) {
-            if (myLoadId === currentLoadId) {
-              gardenCacheStatus.update((s) => ({ ...s, isLoading: false }));
-            }
-            return;
-          }
-
-          lastEventTime = Math.max(...events.map(getEventSortTime));
-          await cacheEvents(); // Also save to general cache
-        } else if (hadCachedEvents > 0) {
-          // Relay returned 0 events but we have cached data - KEEP SHOWING CACHED DATA
-          console.log(
-            `[Feed] Garden: Relay unavailable/timeout, keeping ${hadCachedEvents} cached events`
-          );
-          // events already has cached data, don't modify it
-        } else {
-          // No events from relay AND no cached events
-          console.log('[Feed] Garden: No events available (relay empty/unavailable, no cache)');
-        }
-
-        // cacheEvents above awaited — only the latest load owns UI state.
-        if (isLoadStale(myLoadId, startMode, loadGeneration)) {
-          if (myLoadId === currentLoadId) {
-            gardenCacheStatus.update((s) => ({ ...s, isLoading: false }));
-          }
-          return;
-        }
-
-        loading = false;
-        error = false;
-        gardenCacheStatus.update((s) => ({ ...s, isLoading: false }));
-
-        try {
-          startRealtimeSubscription();
-        } catch {
-          // Subscription setup failed - non-critical, events already loaded
-        }
-        return;
-      }
-
       // ═══════════════════════════════════════════════════════════════
       // GLOBAL MODE: Race Primal against relay pools (not sequential)
       // Both start concurrently. Whichever returns good data first wins.
@@ -2956,68 +2729,6 @@
       return;
     }
 
-    if (filterMode === 'garden') {
-      // Subscribe to garden relay - content filtering controlled by foodFilterEnabled toggle
-      const gardenFilter: any = {
-        kinds: [1, 6, 1068],
-        since
-      };
-
-      try {
-        await ensureNdkConnected();
-
-        const normalizedGardenRelays = RELAY_POOLS.garden.map(normalizeRelayUrl);
-        const connectedRelays = getConnectedRelays().map(normalizeRelayUrl);
-
-        // Check if garden relay is actually connected in the pool
-        const isGardenConnected = normalizedGardenRelays.some((url) =>
-          connectedRelays.includes(url)
-        );
-
-        if (!isGardenConnected) {
-          // Garden relay not connected - skip realtime subscription
-          // We have cached data, so this is non-critical
-          console.log(
-            '[Feed] Garden realtime: Relay not connected, skipping subscription (cached data available)'
-          );
-          return;
-        }
-
-        console.log('[Feed] Garden realtime: Using existing pool connection');
-
-        const { NDKRelaySet } = await import('@nostr-dev-kit/ndk');
-        // Use false - use existing connection from the pool instead of creating new temporary connection
-        // This avoids WebSocket connection errors when the relay is flaky
-        const relaySet = NDKRelaySet.fromRelayUrls(normalizedGardenRelays, $ndk, false);
-
-        const sub = $ndk.subscribe(
-          gardenFilter,
-          {
-            closeOnEose: false,
-            cacheUsage: NDKSubscriptionCacheUsage.ONLY_RELAY
-          },
-          relaySet
-        );
-
-        sub.on('event', (event: NDKEvent) => {
-          console.log(`[Feed] Garden realtime: Received event ${event.id?.substring(0, 8)}`);
-          handleRealtimeEvent(event);
-
-          // Also save to dedicated Garden cache for persistence
-          gardenCache.mergeEvents([event]).catch((err) => {
-            console.warn('[Feed] Garden realtime: Failed to cache event:', err);
-          });
-        });
-
-        activeSubscriptions.push(sub);
-        console.log('[Feed] Garden realtime subscription started');
-      } catch (err) {
-        console.warn(`[Feed] Failed to subscribe to garden relay (cached data available):`, err);
-      }
-
-      return;
-    }
-
     // Global mode / Profile view - default subscription
     // Single subscription for content (food-filtered or all posts based on context)
     const hashtagFilter: any = {
@@ -3144,8 +2855,8 @@
     if (seenEventIds.has(event.id)) return;
 
     // Validate content - apply food filter based on mode and toggle
-    if (filterMode === 'garden' || filterMode === 'following' || filterMode === 'replies') {
-      // Garden/Following/Replies: respect foodFilterEnabled toggle
+    if (filterMode === 'following' || filterMode === 'replies') {
+      // Following/Replies: respect foodFilterEnabled toggle
       if (foodFilterEnabled && !shouldIncludeEvent(event)) return;
     } else if (filterMode !== 'members') {
       // Global feed: always apply food filter
@@ -3321,8 +3032,8 @@
    * Called after instant cache paint to get latest content
    */
   async function fetchFreshAndMerge() {
-    // Don't run for garden/members (private relays not in Primal)
-    if (filterMode === 'garden' || filterMode === 'members') {
+    // Don't run for members (private relay not in Primal)
+    if (filterMode === 'members') {
       return;
     }
 
@@ -3686,34 +3397,6 @@
           true,
           true
         );
-      } else if (filterMode === 'garden') {
-        // Garden mode - fetch from garden relay only (all content, not just food-tagged)
-        // Check if relay is connected first
-        const gardenConnectedRelays = getConnectedRelays().map((r) => normalizeRelayUrl(r));
-        const normalizedGardenUrl = normalizeRelayUrl(RELAY_POOLS.garden[0]);
-
-        if (!gardenConnectedRelays.includes(normalizedGardenUrl)) {
-          console.log('[Feed] Garden loadMore: Relay not connected, no more events available');
-          hasMore = false;
-          loadingMore = false;
-          return;
-        }
-
-        const gardenFilter: any = {
-          kinds: [1, 6, 1068],
-          since: paginationWindow.since,
-          until: paginationWindow.until,
-          limit: 100 // Increased from 20 for deeper pagination
-        };
-
-        // Use existing pool connection (useTemporaryRelaySet = false) to avoid WebSocket errors
-        olderEvents = await fetchFromRelays(
-          gardenFilter,
-          RELAY_POOLS.garden,
-          PRIVATE_RELAY_TIMEOUT_MS,
-          true,
-          false
-        );
       } else {
         // Global mode / Profile view - use hashtag filter with timeboxing
         const filter: any = {
@@ -3760,13 +3443,7 @@
       const validOlder = expandedOlderEvents.filter((e) => {
         if (seenEventIds.has(e.id)) return false;
 
-        // Garden mode: apply food filter based on toggle
-        if (filterMode === 'garden') {
-          if (foodFilterEnabled && !shouldIncludeEvent(e)) return false;
-          return true;
-        }
-
-        // Check muted users (not for garden)
+        // Check muted users
         if ($userPublickey) {
           const mutedUsers = getMutedUsers();
           const authorKey = e.author?.hexpubkey || e.pubkey;
@@ -3786,7 +3463,7 @@
           return false; // Global mode: exclude replies
         }
 
-        // Apply food filter based on context (not for garden)
+        // Apply food filter based on context
         if (authorPubkey) {
           // Profile view: respect the toggle
           if (foodFilterEnabled && !shouldIncludeEvent(e)) return false;
@@ -4405,7 +4082,6 @@
 
   // Consolidated engagement info for rendering - avoids multiple store lookups
   interface EngagementRenderInfo {
-    isZapPopular: boolean;
     zapGlowTier: 'none' | 'soft' | 'medium' | 'bright';
     totalSats: number;
     zapCount: number;
@@ -4436,13 +4112,7 @@
   // Calculate glow tier from engagement data - optimized for speed
   function calculateEngagementInfo(data: EngagementData): EngagementRenderInfo {
     const zapCount = data.zaps?.count || 0;
-    const uniqueZapperCount = data.zaps?.topZappers?.length || 0;
-    const totalReactionCount = data.reactions?.count || 0;
     const totalSats = (data.zaps?.totalAmount || 0) / 1000; // Convert millisats to sats
-
-    // Zap-popular: only for garden posts with more zappers than reactions
-    const isZapPopular =
-      filterMode === 'garden' && uniqueZapperCount > 0 && uniqueZapperCount > totalReactionCount;
 
     // Get tier from count (3/6/9 thresholds)
     const countTierIdx = getTierIndex(zapCount, COUNT_THRESHOLDS);
@@ -4455,7 +4125,7 @@
     // Use whichever tier is higher
     const zapGlowTier = GLOW_TIERS[Math.max(countTierIdx, amountTierIdx)];
 
-    return { isZapPopular, zapGlowTier, totalSats, zapCount };
+    return { zapGlowTier, totalSats, zapCount };
   }
 
   // Subscribe to an engagement store and update cache reactively
@@ -4507,7 +4177,6 @@
 
   // Default engagement info - cached to avoid object allocation
   const DEFAULT_ENGAGEMENT_INFO: EngagementRenderInfo = Object.freeze({
-    isZapPopular: false,
     zapGlowTier: 'none' as const,
     totalSats: 0,
     zapCount: 0
@@ -4619,7 +4288,7 @@
   // ═══════════════════════════════════════════════════════════════
 
   // Reactive statement: Handle filter mode changes
-  // Especially important for garden mode to ensure only garden relay content
+  // Especially important for members mode to ensure only members relay content
   // Skip initial trigger (when lastFilterMode is still 'global' on first mount)
   let isInitialized = false;
   let filterModeChangeInProgress = false;
@@ -4639,8 +4308,8 @@
         pendingNewEvents = [];
         showNewPostsButton = false;
 
-        // If switching to garden or members mode, force a complete refresh to ensure only target relay content
-        if (filterMode === 'garden' || filterMode === 'members') {
+        // If switching to members mode, force a complete refresh to ensure only target relay content
+        if (filterMode === 'members') {
           // Stop all subscriptions immediately
           stopSubscriptions();
 
@@ -4661,8 +4330,8 @@
             loading = false;
             // Don't throw - errors are handled gracefully
           }
-        } else if (previousMode === 'garden' || previousMode === 'members') {
-          // When leaving garden/members mode, use cache-first approach
+        } else if (previousMode === 'members') {
+          // When leaving members mode, use cache-first approach
           stopSubscriptions();
           visibleNotes = new Set();
           renderedNotes = new Set();
@@ -4700,7 +4369,7 @@
               saveToInstantCache(filterMode, events);
             }
           } catch (err) {
-            console.error('[Feed] Failed to load feed after garden mode:', err);
+            console.error('[Feed] Failed to load feed after members mode:', err);
             error = true;
             loading = false;
             // Don't throw - errors are handled gracefully
@@ -4802,9 +4471,9 @@
       showNewPostsButton = false;
     });
 
-    // For garden/members mode OR profile view, load directly without cache
+    // For members mode OR profile view, load directly without cache
     // Profile view needs fresh data specific to that user, not cached global feed
-    if (filterMode === 'garden' || filterMode === 'members' || authorPubkey) {
+    if (filterMode === 'members' || authorPubkey) {
       visibleNotes = new Set();
       renderedNotes = new Set();
       clearRenderZoneState();
@@ -5032,8 +4701,7 @@
   }
 
   // Reactive statement to handle filter mode changes
-  // Note: Filter mode changes are handled by the reactive statement above (around line 2257)
-  // This ensures garden mode properly refreshes and only shows garden relay content
+  // Note: Filter mode changes are handled by the reactive statement above
 </script>
 
 <FeedErrorBoundary>
@@ -5073,7 +4741,7 @@
       </div>
     {/if}
 
-    {#if filterMode === 'following' || filterMode === 'replies' || filterMode === 'garden' || authorPubkey}
+    {#if filterMode === 'following' || filterMode === 'replies' || authorPubkey}
       <div class="flex items-center justify-end gap-2 px-2 sm:px-0 mb-4">
         {#if foodFilterEnabled}
           <span class="text-sm">
@@ -5228,7 +4896,6 @@
           {@const isVisible = visibleNotes.has(event.id)}
           {@const engagementInfo = getEngagementRenderInfo(event.id, isVisible)}
           <!-- Glow/animation disabled on community feed to reduce bandwidth -->
-          <!-- {@const isPopular = engagementInfo.isZapPopular} -->
           <!-- {@const isZapAnimating = zapAnimatingNotes.has(event.id)} -->
           <!-- {@const zapGlowTier = engagementInfo.zapGlowTier} -->
           {@const engagementStoreValue = get(getEngagementStore(event.id))}
