@@ -1,57 +1,57 @@
 # Relay Selection Feature for Posting Modal
 
 ## Overview
-Added relay selection capability to the posting modal, allowing users to choose which relays to post to when creating new posts.
+The posting modal offers relay selection, letting users choose which relays to post to when creating new posts.
+
+> **History note:** this feature originally offered `garden` and
+> `garden-pantry` modes targeting `wss://garden.zap.cooking`. Those
+> were removed when the Garden relay was decommissioned; persisted
+> queue items with the old modes are migrated to `all` on startup
+> (see `publishQueue.ts`).
 
 ## Implementation Details
 
-### Files Modified
+### Files Involved
 
 #### 1. `src/components/PostModal.svelte`
-Added relay selection dropdown in the modal header:
+Relay selection dropdown in the modal header:
 - **Relay Options:**
   - `all` - Post to all connected relays (default behavior)
-  - `garden` - Post only to `wss://garden.zap.cooking`
   - `pantry` - Post only to `wss://pantry.zap.cooking`
-  - `garden-pantry` - Post to both Garden and Pantry relays
 
 - **UI Implementation:**
   - Dropdown selector in modal title bar
-  - Visual indicators with emojis (🌱 Garden, 🥫 Pantry)
+  - Visual indicator with emoji (🏪 Pantry)
   - Theme-aware styling matching app design system
   - Focus state with orange accent color
 
 #### 2. `src/components/PostComposer.svelte`
-Enhanced posting logic to support explicit relay selection:
+Posting logic supports explicit relay selection:
 
-- **New Type Definition:**
+- **Type Definition:**
   ```typescript
-  type RelaySelection = 'all' | 'garden' | 'pantry' | 'garden-pantry';
+  type RelaySelection = 'all' | 'pantry';
   ```
 
-- **New Prop:**
+- **Prop:**
   - `selectedRelay?: RelaySelection` - Optional prop for explicit relay selection (used by modal)
 
-- **Posting Logic Updates:**
+- **Posting Logic:**
   - Priority system: `selectedRelay` prop (from modal) takes precedence over `activeTab` (from feed context)
   - Relay mode determination:
-    - `garden` → Posts to Garden relay only
-    - `pantry` → Posts to Pantry relay only (replaces old "members" terminology)
-    - `garden-pantry` → Posts to both Garden and Pantry relays
+    - `pantry` → Posts to Pantry relay only (the `members` feed tab also maps here)
     - `all` → Posts to all connected relays (default NDK behavior)
 
 - **Visual Feedback:**
   - Color-coded relay indicators:
-    - Garden: Green theme 🌱
-    - Pantry: Blue theme 🥫
-    - Garden+Pantry: Purple theme 🌱🥫
+    - Pantry: Blue theme 🏪
     - All relays: Orange theme 📡
   - Indicators show before posting to confirm destination
 
 - **Error Handling:**
   - Validates successful publishing to selected relays
-  - Warns if partial success (e.g., only one relay in garden-pantry mode)
-  - Clear error messages if publishing fails
+  - Clear error messages if publishing fails; failures queue for
+    IndexedDB-backed background retry via `publishQueue`
 
 ### Key Features
 
@@ -66,42 +66,21 @@ Enhanced posting logic to support explicit relay selection:
    - Dropdown preserves selection during modal session
    - Resets to "all" on next modal open
 
-3. **Relay Terminology Update:**
-   - Changed "members.zap.cooking" to "pantry.zap.cooking" throughout
-   - Updated relay URLs to use pantry endpoint
-   - Consistent naming: Garden = community, Pantry = members-only
-
 ### Usage
 
-#### From Modal (New Feature)
+#### From Modal
 ```typescript
 // User opens posting modal via CreateMenuButton
 // Selects relay from dropdown
 // Posts to selected relay(s)
 ```
 
-#### From Feed (Existing Behavior)
+#### From Feed
 ```typescript
 // PostComposer in feed context uses activeTab prop
-<PostComposer variant="inline" activeTab="garden" />
-// Still works as before, posts to garden relay
+<PostComposer variant="inline" activeTab="members" />
+// Posts to the pantry relay
 ```
-
-### Testing Checklist
-
-- [ ] Open posting modal from CreateMenuButton
-- [ ] Verify dropdown shows all 4 options
-- [ ] Select "Garden only" - verify green indicator appears
-- [ ] Post and verify it goes to garden.zap.cooking
-- [ ] Select "Pantry only" - verify blue indicator appears
-- [ ] Post and verify it goes to pantry.zap.cooking
-- [ ] Select "Garden + Pantry" - verify purple indicator appears
-- [ ] Post and verify it goes to both relays
-- [ ] Select "All relays" - verify orange indicator appears
-- [ ] Post and verify it uses default NDK publishing
-- [ ] Test inline composer in feed still works
-- [ ] Verify garden feed posting still works
-- [ ] Test dark/light theme styling
 
 ### Future Enhancements
 
@@ -125,5 +104,4 @@ Enhanced posting logic to support explicit relay selection:
 
 - Uses NDK's `NDKRelaySet.fromRelayUrls()` for targeted publishing
 - Validates published relays using `normalizeRelayUrl()` for consistency
-- Maintains existing garden/members feed behavior
 - No breaking changes to existing functionality

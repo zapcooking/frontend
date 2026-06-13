@@ -38,7 +38,7 @@
   export const data: PageData = {} as PageData;
 
   // Tab state - use local state for immediate reactivity
-  type FilterMode = 'global' | 'following' | 'replies' | 'members' | 'garden';
+  type FilterMode = 'global' | 'following' | 'replies' | 'members';
 
   // Local state for immediate UI updates
   // Default to global — faster load, more variety on login
@@ -147,20 +147,14 @@
 
   onMount(() => {
     const tab = $page.url.searchParams.get('tab');
-    if (
-      tab === 'following' ||
-      tab === 'replies' ||
-      tab === 'global' ||
-      tab === 'members' ||
-      tab === 'garden'
-    ) {
+    if (tab === 'following' || tab === 'replies' || tab === 'global' || tab === 'members') {
       activeTab = tab;
     }
 
-    // Signed out: default to garden tab (following is disabled when signed out)
-    if (!$userPublickey && (activeTab === 'following' || !tab)) {
-      activeTab = 'garden';
-      goto('/community?tab=garden', { noScroll: true, replaceState: true });
+    // Signed out: following is disabled, fall back to global
+    if (!$userPublickey && activeTab === 'following') {
+      activeTab = 'global';
+      goto('/community?tab=global', { noScroll: true, replaceState: true });
     }
 
     if ($userPublickey) {
@@ -307,21 +301,6 @@
         >
           Groups
           {#if activeTab === 'members'}
-            <span
-              class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-orange-500 to-amber-500"
-            ></span>
-          {/if}
-        </button>
-
-        <button
-          on:click={() => setTab('garden')}
-          class="flex-1 py-2 text-sm font-medium transition-colors relative text-center"
-          style="color: {activeTab === 'garden'
-            ? 'var(--color-text-primary)'
-            : 'var(--color-text-secondary)'}"
-        >
-          Garden
-          {#if activeTab === 'garden'}
             <span
               class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-orange-500 to-amber-500"
             ></span>

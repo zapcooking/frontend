@@ -16,7 +16,7 @@
   import Button from '../../../components/Button.svelte';
   import MarkdownEditor from '../../../components/MarkdownEditor.svelte';
   import { RECIPE_TAG_PREFIX_NEW, RECIPE_TAG_PREFIX_LEGACY } from '$lib/consts';
-  import { publishQueue, ensureLandedOnGarden } from '$lib/publishQueue';
+  import { publishQueue } from '$lib/publishQueue';
 
   let currentSlug = '';
 
@@ -258,9 +258,9 @@
           }
         });
         // Publish via publishQueue (see /create/+page.svelte for the
-        // full rationale). "all" mode fans out to every pool relay
-        // including garden — guarantees forks land on Zap Cooking
-        // infrastructure regardless of the forker's NIP-65 outbox.
+        // full rationale). "all" mode fans out to every pool relay so
+        // forks stay reachable via the relays /r/<naddr> readers
+        // consult, regardless of the forker's NIP-65 outbox.
         const forkPublishResult = await publishQueue.publishWithRetry(event, 'all');
         if (!forkPublishResult.success && !forkPublishResult.queued) {
           throw new Error(forkPublishResult.error || 'Publish failed');
@@ -268,21 +268,15 @@
 
         // When the publish was queued for retry, the event may not be
         // signed yet, so event.pubkey is undefined. Surface "queued"
-        // honestly to the user, skip the garden verify (nothing to
-        // look up), skip the redirect (the recipe URL would 404 since
-        // no relay has it yet). Let them stay on the fork page until
-        // the retry queue lands.
+        // honestly to the user and skip the redirect (the recipe URL
+        // would 404 since no relay has it yet). Let them stay on the
+        // fork page until the retry queue lands.
         if (forkPublishResult.queued) {
           resultMessage =
             'Publish queued. Your fork will publish as soon as relays are reachable.';
           disablePublishButton = false;
           return;
         }
-
-        // Best-effort garden verification + retry-on-miss.
-        ensureLandedOnGarden(event).catch((e) =>
-          console.warn('[fork] garden verification failed', e)
-        );
 
         // Use $userPublickey as a fallback in case event.pubkey is
         // somehow unset post-publish — defensive against signer races.

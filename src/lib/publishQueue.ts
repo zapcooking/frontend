@@ -31,7 +31,7 @@ const STALE_ITEM_AGE = 30 * 60 * 1000; // 30 minutes - auto-cleanup stale items
 // NIP-65 inbox routing — shared helper handles the kind:10002 lookup
 // + capping. See $lib/nip65Routing for the algorithm details.
 import { unionInboxRelayUrls } from '$lib/nip65Routing';
-import { GARDEN_RELAY_URL, PANTRY_RELAY_URL } from '$lib/nostr';
+import { PANTRY_RELAY_URL } from '$lib/nostr';
 
 /**
  * Represents a pending publish operation
@@ -44,7 +44,7 @@ export interface PendingPublish {
     tags: string[][];
     created_at: number;
   };
-  relayMode: 'all' | 'garden' | 'pantry' | 'garden-pantry';
+  relayMode: 'all' | 'pantry';
   createdAt: number;
   retryCount: number;
   lastAttempt: number | null;
@@ -84,13 +84,17 @@ class PublishQueueManager {
 
     if (browser) {
       this.initDatabase()
-        .then(() => {
-          // Clean up stale items on startup
-          this.cleanupStaleItems();
-        })
+        // Re-point persisted garden-era queue items BEFORE dbReady
+        // resolves: every read/retry path awaits ready(), so no item
+        // can be retried with a decommissioned relay mode.
+        .then(() => this.migrateLegacyRelayModes())
         .catch((error) => {
           console.warn('[PublishQueue] Failed to initialize:', error);
+        })
+        .finally(() => {
           this.dbReadyResolve();
+          // Clean up stale items on startup
+          this.cleanupStaleItems();
         });
 
       // Register for auto-sync when connection is restored
@@ -114,7 +118,6 @@ class PublishQueueManager {
     const idb = (globalThis as any).indexedDB;
     if (!idb) {
       console.warn('[PublishQueue] IndexedDB not available');
-      this.dbReadyResolve();
       return;
     }
 
@@ -129,7 +132,6 @@ class PublishQueueManager {
       request.onsuccess = () => {
         this.db = request.result;
         console.log('[PublishQueue] Database initialized');
-        this.dbReadyResolve();
         this.updateQueueState();
         resolve();
       };
@@ -151,6 +153,46 @@ class PublishQueueManager {
    */
   async ready(): Promise<void> {
     return this.dbReady;
+  }
+
+  /**
+   * One-time migration: queue items persisted with the decommissioned
+   * garden relay modes ('garden' / 'garden-pantry') are re-pointed at
+   * 'all' so they publish to the full pool instead of retrying against
+   * a dead relay forever. Uses raw transactions (not updatePublish)
+   * because it runs before dbReady resolves.
+   */
+  private async migrateLegacyRelayModes(): Promise<void> {
+    if (!this.db) return;
+
+    // Persisted records may carry relay modes the current type no longer
+    // allows — that's exactly what this migration repairs.
+    type PersistedPublish = Omit<PendingPublish, 'relayMode'> & { relayMode: string };
+    const items: PersistedPublish[] = await new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction([QUEUE_STORE], 'readonly');
+      const request = transaction.objectStore(QUEUE_STORE).getAll();
+      request.onsuccess = () => resolve(request.result || []);
+      request.onerror = () => reject(request.error);
+    });
+
+    const legacy = items.filter(
+      (i) => i.relayMode === 'garden' || i.relayMode === 'garden-pantry'
+    );
+    if (legacy.length === 0) return;
+
+    await new Promise<void>((resolve, reject) => {
+      const transaction = this.db!.transaction([QUEUE_STORE], 'readwrite');
+      const store = transaction.objectStore(QUEUE_STORE);
+      for (const item of legacy) {
+        store.put({ ...item, relayMode: 'all' });
+      }
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error);
+    });
+
+    console.log(
+      `[PublishQueue] Migrated ${legacy.length} queued item(s) from garden relay modes to 'all'`
+    );
   }
 
   /**
@@ -416,9 +458,7 @@ class PublishQueueManager {
    * propagate everywhere instead of drifting between hardcoded literals.
    */
   private getBaseRelayUrls(relayMode: PendingPublish['relayMode'], ndkInstance: any): string[] {
-    if (relayMode === 'garden') return [GARDEN_RELAY_URL];
     if (relayMode === 'pantry') return [PANTRY_RELAY_URL];
-    if (relayMode === 'garden-pantry') return [GARDEN_RELAY_URL, PANTRY_RELAY_URL];
     // 'all' — every relay currently in the pool.
     const urls: string[] = [];
     if (ndkInstance?.pool?.relays) {
@@ -431,7 +471,7 @@ class PublishQueueManager {
    * Attempt to publish an event with extended timeout.
    *
    * Relay set construction:
-   *   1. Base URLs from `relayMode` (garden / pantry / garden-pantry / all)
+   *   1. Base URLs from `relayMode` (pantry / all)
    *   2. NIP-65 augmentation: for every non-self pubkey in the event's `p`
    *      tags, add their published *read* (inbox) relays. This is what
    *      makes replies / mentions / reactions / zaps reach the recipient.
@@ -671,76 +711,3 @@ class PublishQueueManager {
 
 // Export singleton instance
 export const publishQueue = new PublishQueueManager();
-
-/**
- * Confirm that a freshly-published event actually landed on Zap Cooking's
- * own relay (garden), and queue a targeted republish if it didn't.
- *
- * Why this exists: NDK 2.x's outbox model on writes routes a publish to
- * the AUTHOR's NIP-65 write relays. For authors whose NIP-65 doesn't
- * include garden, our normal `event.publish()` call can land everywhere
- * EXCEPT garden — and then `/r/<naddr>` can't find the event because
- * our default fetch path only consults the standard pool. Verifying
- * post-publish makes garden the durable source of truth for everything
- * authored on Zap Cooking, regardless of the author's NIP-65.
- *
- * Best-effort: a verification miss queues a retry but does not throw.
- * The caller's primary publish path is unchanged — this is layered on
- * top.
- */
-export async function ensureLandedOnGarden(
-  event: NDKEvent,
-  opts: { verifyTimeoutMs?: number } = {}
-): Promise<{ onGarden: boolean; queuedRetry: boolean }> {
-  const verifyTimeoutMs = opts.verifyTimeoutMs ?? 4000;
-
-  if (!event?.id || !event?.pubkey) {
-    return { onGarden: false, queuedRetry: false };
-  }
-
-  try {
-    const { ndk } = await import('$lib/nostr');
-    const { NDKRelaySet } = await import('@nostr-dev-kit/ndk');
-    const ndkInstance = get(ndk);
-    if (!ndkInstance) return { onGarden: false, queuedRetry: false };
-
-    const gardenRelay = ndkInstance.pool.getRelay(GARDEN_RELAY_URL, true, true);
-    if (!gardenRelay) return { onGarden: false, queuedRetry: false };
-
-    // getRelay(url, autoConnect=true, createIfMissing=true) starts the
-    // connection in the background. We DON'T await it — a hung
-    // connect would otherwise block past `verifyTimeoutMs`. fetchEvent
-    // tolerates an in-progress connection (queues until ready), and
-    // the Promise.race below caps the total wait at verifyTimeoutMs
-    // regardless of where the time was spent.
-
-    const relaySet = new NDKRelaySet(new Set([gardenRelay]), ndkInstance);
-
-    const fetchPromise = ndkInstance.fetchEvent(
-      { ids: [event.id] },
-      undefined,
-      relaySet
-    );
-    const timeoutPromise = new Promise<null>((resolve) =>
-      setTimeout(() => resolve(null), verifyTimeoutMs)
-    );
-
-    const found = await Promise.race([fetchPromise, timeoutPromise]);
-    if (found) {
-      console.log(`[publishQueue] ✅ event ${event.id.slice(0, 12)}… confirmed on garden`);
-      return { onGarden: true, queuedRetry: false };
-    }
-
-    // Garden didn't have the event after the verification window. Queue
-    // a targeted republish so it lands eventually (with backoff). This
-    // is exactly what `relayMode: 'garden'` does in attemptPublish.
-    console.warn(
-      `[publishQueue] ⚠️ event ${event.id.slice(0, 12)}… missed garden — queuing retry`
-    );
-    await publishQueue.publishWithRetry(event, 'garden');
-    return { onGarden: false, queuedRetry: true };
-  } catch (err) {
-    console.warn('[publishQueue] ensureLandedOnGarden failed', err);
-    return { onGarden: false, queuedRetry: false };
-  }
-}

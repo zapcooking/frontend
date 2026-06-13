@@ -75,7 +75,7 @@ function notifyStopSubscriptions(): void {
 // RELAY MODE TYPES
 // ═══════════════════════════════════════════════════════════════
 
-export type RelayMode = 'default' | 'garden' | 'members' | 'discovery';
+export type RelayMode = 'default' | 'members' | 'discovery';
 
 // ═══════════════════════════════════════════════════════════════
 // URL NORMALIZATION & VALIDATION
@@ -133,21 +133,11 @@ interface NdkConfig {
 /**
  * Get NDK config based on relay mode.
  * - default: standard config with outbox model enabled
- * - garden: outbox disabled, only garden relay
  * - members: outbox disabled, only members relay
  * - discovery: outbox enabled with discovery relays
  */
 function getNdkConfigForMode(mode: RelayMode, relayUrls: string[]): NdkConfig {
   switch (mode) {
-    case 'garden':
-      // Garden mode: Enable outbox model for profile resolution, but feed uses explicit relays only
-      // The outbox model won't affect feed queries since we use explicit relay sets
-      return {
-        explicitRelayUrls: relayUrls,
-        enableOutboxModel: true,
-        outboxRelayUrls: DEFAULT_OUTBOX_RELAY_URLS
-      };
-    
     case 'members':
       // Members mode: Enable outbox model for profile resolution, but feed uses explicit relays only
       return {
@@ -307,7 +297,7 @@ async function connectWithRetry(ndkInstance: NDK, maxRetries = 3): Promise<void>
  * 6. Updates the ndk store
  * 7. Connects to the new relays
  * 
- * @param mode - Relay mode ('default', 'garden', 'members', 'discovery')
+ * @param mode - Relay mode ('default', 'members', 'discovery')
  * @param nextRelayUrls - Array of relay URLs to switch to
  * @returns Promise that resolves when connection attempt completes
  */
@@ -371,9 +361,7 @@ export async function switchRelays(mode: RelayMode, nextRelayUrls: string[]): Pr
     
     // 10. Connect to new relays
     await connectWithRetry(newNdk);
-    
-    // 11. Garden relay monitoring is now initialized per-page (see Garden page)
-    
+
     console.log(`✅ Relay switch complete [gen=${newGen}, mode=${mode}]`);
   } finally {
     ndkSwitching.set(false);
@@ -383,7 +371,7 @@ export async function switchRelays(mode: RelayMode, nextRelayUrls: string[]): Pr
 /**
  * Switch to a named relay set.
  * 
- * @param id - The relay set ID (e.g., 'default', 'garden', 'discovery', 'profiles')
+ * @param id - The relay set ID (e.g., 'default', 'discovery', 'profiles')
  * @returns Promise that resolves when connection attempt completes
  */
 export async function switchRelaySetId(id: string): Promise<void> {
@@ -408,7 +396,7 @@ export async function switchRelaySetId(id: string): Promise<void> {
   
   // Determine mode from relay set ID
   let mode: RelayMode;
-  if (id === 'garden' || id === 'members' || id === 'discovery') {
+  if (id === 'members' || id === 'discovery') {
     mode = id as RelayMode;
   } else if (id === 'default' || id === 'profiles') {
     // These relay sets intentionally use the standard/default mode
@@ -436,22 +424,13 @@ export function getCurrentRelayMode(): RelayMode {
 // Connect when in browser environment (non-blocking)
 if (browser) {
   // Suppress expected WebSocket connection errors from NDK
-  // Garden relay uses "soft connections" - failures are non-critical
   const originalError = console.error;
   const originalLog = console.log;
   let errorSuppressionActive = true;
-  
-  // Garden relay URL for soft connection error suppression
-  const GARDEN_RELAY_URL = 'garden.zap.cooking';
-  
+
   console.error = (...args: unknown[]) => {
     const message = args.join(' ');
-    
-    // Always suppress garden relay WebSocket errors (soft connection - failures are OK)
-    if (message.includes('WebSocket connection to') && message.includes(GARDEN_RELAY_URL)) {
-      return; // Silently ignore garden relay connection errors
-    }
-    
+
     // Suppress expected WebSocket connection failures during initial connection period
     if (errorSuppressionActive && message.includes('WebSocket connection to') && message.includes('failed')) {
       return;
@@ -470,24 +449,15 @@ if (browser) {
   };
 
   connectWithRetry(currentNdk).then(() => {
-    // Garden relay monitoring is now initialized per-page (see Garden page)
     ndkReadyResolve();
   }).catch(error => {
     console.error('🚨 Failed to establish NDK connection:', error);
     ndkReadyResolve(); // Resolve anyway so components don't hang
   }).finally(() => {
     setTimeout(() => {
+      // Initial connection window has passed — restore console.error.
       errorSuppressionActive = false;
-      // Keep garden relay error suppression active permanently (soft connections)
-      // Only restore console.error for non-garden errors
-      console.error = (...args: unknown[]) => {
-        const message = args.join(' ');
-        // Always suppress garden relay errors (soft connection)
-        if (message.includes('WebSocket connection to') && message.includes(GARDEN_RELAY_URL)) {
-          return;
-        }
-        originalError.apply(console, args);
-      };
+      console.error = originalError;
     }, 3000);
   });
 } else {
@@ -597,448 +567,8 @@ export function resetCircuitBreaker(url: string) {
   }
 }
 
-// ═══════════════════════════════════════════════════════════════
-// GARDEN RELAY CONNECTION MANAGEMENT
-// ═══════════════════════════════════════════════════════════════
-
-export const GARDEN_RELAY_URL = 'wss://garden.zap.cooking';
+// Zap Cooking's private members relay (The Pantry).
 export const PANTRY_RELAY_URL = 'wss://pantry.zap.cooking';
-
-export type GardenRelayStatus = 'disconnected' | 'connecting' | 'authenticating' | 'connected' | 'error';
-
-export interface GardenRelayConnectionState {
-  status: GardenRelayStatus;
-  lastConnectedAt: number | null;
-  lastDisconnectedAt: number | null;
-  reconnectAttempts: number;
-  lastError: string | null;
-}
-
-// Garden relay connection state store
-export const gardenRelayStatus = writable<GardenRelayConnectionState>({
-  status: 'disconnected',
-  lastConnectedAt: null,
-  lastDisconnectedAt: null,
-  reconnectAttempts: 0,
-  lastError: null
-});
-
-// Garden relay connection manager
-let gardenRelayMonitor: GardenRelayMonitor | null = null;
-
-/**
- * Garden relay connection monitor
- * Tracks connection state, handles reconnection with exponential backoff, and manages NIP-42 auth
- */
-class GardenRelayMonitor {
-  private ndkInstance: NDK;
-  private reconnectTimeoutId: NodeJS.Timeout | null = null;
-  private heartbeatIntervalId: NodeJS.Timeout | null = null;
-  private reconnectAttempts = 0;
-  private readonly MAX_RECONNECT_ATTEMPTS = 10;
-  private readonly INITIAL_RECONNECT_DELAY = 2000; // 2s
-  private readonly MAX_RECONNECT_DELAY = 30000; // 30s
-  private readonly HEARTBEAT_INTERVAL = 60000; // 60s
-  private readonly SUBSCRIPTION_TIMEOUT = 15000; // 15s
-  private isDestroyed = false;
-  private activeSubscriptions = new Set<any>();
-  private eventDedupeSet = new Set<string>();
-
-  constructor(ndk: NDK) {
-    this.ndkInstance = ndk;
-    this.setupEventListeners();
-    this.startMonitoring();
-  }
-
-  private setupEventListeners(): void {
-    if (!this.ndkInstance.pool) return;
-
-    // Listen for relay connection events
-    this.ndkInstance.pool.on('relay:connect', (relay: any) => {
-      if (relay.url === GARDEN_RELAY_URL) {
-        this.handleConnect();
-      }
-    });
-
-    // Listen for relay disconnection events
-    this.ndkInstance.pool.on('relay:disconnect', (relay: any) => {
-      if (relay.url === GARDEN_RELAY_URL) {
-        this.handleDisconnect();
-      }
-    });
-
-    // Listen for NIP-42 auth challenges
-    this.ndkInstance.pool.on('relay:auth', (relay: any, challenge: string) => {
-      if (relay.url === GARDEN_RELAY_URL) {
-        this.handleAuthChallenge(challenge, relay);
-      }
-    });
-
-    // Note: relay:notice and relay:event events are not available in current NDK version
-    // Connection state is tracked via relay:connect and relay:disconnect events
-  }
-
-  private handleConnect(): void {
-    if (this.isDestroyed) return;
-
-    console.log(`[Garden] ✅ Connected to ${GARDEN_RELAY_URL}`);
-    
-    gardenRelayStatus.set({
-      status: 'connected',
-      lastConnectedAt: Date.now(),
-      lastDisconnectedAt: null,
-      reconnectAttempts: 0,
-      lastError: null
-    });
-
-    this.reconnectAttempts = 0;
-    this.startHeartbeat();
-  }
-
-  private handleDisconnect(): void {
-    if (this.isDestroyed) return;
-
-    console.log(`[Garden] ❌ Disconnected from ${GARDEN_RELAY_URL}`);
-    
-    gardenRelayStatus.set({
-      status: 'disconnected',
-      lastConnectedAt: null,
-      lastDisconnectedAt: Date.now(),
-      reconnectAttempts: this.reconnectAttempts,
-      lastError: null
-    });
-
-    this.stopHeartbeat();
-    this.scheduleReconnect();
-  }
-
-  private async handleAuthChallenge(challenge: string, relay: any): Promise<void> {
-    if (this.isDestroyed) return;
-
-    console.log(`[Garden] 🔐 Auth challenge received from ${GARDEN_RELAY_URL}`);
-    
-    gardenRelayStatus.set({
-      status: 'authenticating',
-      lastConnectedAt: null,
-      lastDisconnectedAt: null,
-      reconnectAttempts: this.reconnectAttempts,
-      lastError: null
-    });
-
-    try {
-      // NDK handles NIP-42 authentication automatically if signer is available
-      // We just need to log the challenge
-      console.log(`[Garden] Auth challenge: ${challenge.substring(0, 50)}...`);
-      
-      // Wait a bit for NDK to handle auth
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      // Check if still connected after auth
-      const relayInstance = this.ndkInstance.pool?.relays.get(GARDEN_RELAY_URL);
-      if (relayInstance?.connectivity?.status === 1) {
-        console.log(`[Garden] ✅ Authentication successful`);
-        this.handleConnect();
-      } else {
-        console.warn(`[Garden] ⚠️ Authentication may have failed - relay disconnected`);
-        this.handleDisconnect();
-      }
-    } catch (error: any) {
-      console.error(`[Garden] ❌ Auth challenge handling failed:`, error);
-      gardenRelayStatus.set({
-        status: 'error',
-        lastConnectedAt: null,
-        lastDisconnectedAt: Date.now(),
-        reconnectAttempts: this.reconnectAttempts,
-        lastError: error.message || 'Authentication failed'
-      });
-    }
-  }
-
-  private scheduleReconnect(): void {
-    if (this.isDestroyed) return;
-    if (this.reconnectAttempts >= this.MAX_RECONNECT_ATTEMPTS) {
-      console.error(`[Garden] ❌ Max reconnect attempts (${this.MAX_RECONNECT_ATTEMPTS}) reached`);
-      return;
-    }
-
-    this.reconnectAttempts++;
-    
-    // Exponential backoff: 2s start, max 30s
-    const delay = Math.min(
-      this.INITIAL_RECONNECT_DELAY * Math.pow(2, this.reconnectAttempts - 1),
-      this.MAX_RECONNECT_DELAY
-    );
-
-    console.log(`[Garden] 🔄 Scheduling reconnect attempt ${this.reconnectAttempts} in ${delay}ms...`);
-
-    this.reconnectTimeoutId = setTimeout(() => {
-      if (this.isDestroyed) return;
-      this.attemptReconnect();
-    }, delay);
-  }
-
-  private async attemptReconnect(): Promise<void> {
-    if (this.isDestroyed) return;
-
-    console.log(`[Garden] 🔄 Attempting reconnect (attempt ${this.reconnectAttempts})...`);
-
-    try {
-      const relayInstance = this.ndkInstance.pool?.relays.get(GARDEN_RELAY_URL);
-      if (relayInstance) {
-        await relayInstance.connect();
-      } else {
-        // Relay not in pool, try to add it using addExplicitRelay
-        console.log(`[Garden] Relay not in pool, adding...`);
-        this.ndkInstance.addExplicitRelay(GARDEN_RELAY_URL);
-        await this.ndkInstance.connect();
-      }
-    } catch (error: any) {
-      console.error(`[Garden] ❌ Reconnect attempt failed:`, error);
-      this.scheduleReconnect();
-    }
-  }
-
-  private startHeartbeat(): void {
-    this.stopHeartbeat();
-    
-    this.heartbeatIntervalId = setInterval(() => {
-      if (this.isDestroyed) return;
-      this.checkConnectionHealth();
-    }, this.HEARTBEAT_INTERVAL);
-  }
-
-  private stopHeartbeat(): void {
-    if (this.heartbeatIntervalId) {
-      clearInterval(this.heartbeatIntervalId);
-      this.heartbeatIntervalId = null;
-    }
-  }
-
-  private async checkConnectionHealth(): Promise<void> {
-    if (this.isDestroyed) return;
-
-    try {
-      const relayInstance = this.ndkInstance.pool?.relays.get(GARDEN_RELAY_URL);
-      const isConnected = relayInstance?.connectivity?.status === 1;
-
-      if (!isConnected) {
-        console.warn(`[Garden] ⚠️ Heartbeat detected disconnected relay`);
-        this.handleDisconnect();
-        return;
-      }
-
-      // Perform lightweight health check (simple query)
-      const { NDKRelaySet } = await import('@nostr-dev-kit/ndk');
-      const relaySet = NDKRelaySet.fromRelayUrls([GARDEN_RELAY_URL], this.ndkInstance, true);
-      
-      const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('Health check timeout')), 5000)
-      );
-
-      await Promise.race([
-        this.ndkInstance.fetchEvents({ kinds: [1], limit: 1 }, {}, relaySet),
-        timeoutPromise
-      ]);
-
-      console.log(`[Garden] ✅ Health check passed`);
-    } catch (error: any) {
-      console.warn(`[Garden] ⚠️ Health check failed:`, error.message);
-      // Don't disconnect on health check failure - it might be temporary
-    }
-  }
-
-  private startMonitoring(): void {
-    // Check initial connection state
-    this.checkInitialConnection();
-  }
-
-  private checkInitialConnection(): void {
-    if (this.isDestroyed) return;
-
-    const relayInstance = this.ndkInstance.pool?.relays.get(GARDEN_RELAY_URL);
-    if (relayInstance) {
-      const isConnected = relayInstance.connectivity?.status === 1;
-      if (isConnected) {
-        this.handleConnect();
-      } else {
-        this.handleDisconnect();
-      }
-    } else {
-      // Relay not in pool yet
-      gardenRelayStatus.set({
-        status: 'disconnected',
-        lastConnectedAt: null,
-        lastDisconnectedAt: Date.now(),
-        reconnectAttempts: 0,
-        lastError: null
-      });
-    }
-  }
-
-  destroy(): void {
-    this.isDestroyed = true;
-    this.stopHeartbeat();
-    if (this.reconnectTimeoutId) {
-      clearTimeout(this.reconnectTimeoutId);
-      this.reconnectTimeoutId = null;
-    }
-    this.activeSubscriptions.forEach(sub => {
-      try {
-        sub.stop();
-      } catch (e) {
-        // Ignore errors
-      }
-    });
-    this.activeSubscriptions.clear();
-    this.eventDedupeSet.clear();
-  }
-}
-
-/**
- * Initialize Garden relay monitoring for the current NDK instance
- * This should be called from pages that need Garden relay monitoring (e.g., Garden page)
- */
-export function initializeGardenRelayMonitoring(ndkInstance: NDK): void {
-  if (!browser) return;
-
-  // Clean up existing monitor if any
-  if (gardenRelayMonitor) {
-    gardenRelayMonitor.destroy();
-    gardenRelayMonitor = null;
-  }
-
-  console.log('[Garden] Initializing Garden relay monitoring...');
-  gardenRelayMonitor = new GardenRelayMonitor(ndkInstance);
-}
-
-/**
- * Clean up Garden relay monitoring
- * Call this when leaving a page that uses Garden relay monitoring
- */
-export function destroyGardenRelayMonitoring(): void {
-  if (gardenRelayMonitor) {
-    console.log('[Garden] Destroying Garden relay monitoring...');
-    gardenRelayMonitor.destroy();
-    gardenRelayMonitor = null;
-  }
-}
-
-/**
- * Get Garden relay NDKRelaySet for subscriptions
- */
-export async function getGardenRelaySet(ndkInstance: NDK): Promise<any> {
-  const { NDKRelaySet } = await import('@nostr-dev-kit/ndk');
-  return NDKRelaySet.fromRelayUrls([GARDEN_RELAY_URL], ndkInstance, true);
-}
-
-/**
- * Create a subscription with Garden relay optimized settings
- * - closeOnEose: false (keep subscription alive)
- * - 15s timeout
- * - Event deduplication
- * - Connection status logging
- */
-export function createGardenSubscription(
-  ndkInstance: NDK,
-  filter: any,
-  options: {
-    onEvent?: (event: any) => void;
-    onEose?: () => void;
-    timeout?: number;
-  } = {}
-): any {
-  const timeout = options.timeout || 15000; // 15s default
-  const eventDedupeSet = new Set<string>();
-
-  console.log(`[Garden] Creating subscription with filter:`, filter);
-
-  // Create subscription with closeOnEose: false to keep it alive
-  const subscription = ndkInstance.subscribe(filter, { 
-    closeOnEose: false 
-  });
-
-  // Wrap onEvent to add deduplication and logging
-  if (options.onEvent) {
-    const onEventCallback = options.onEvent; // Capture in const for type narrowing
-    subscription.on('event', (event: any) => {
-      const eventId = event.id;
-      
-      // Deduplicate events
-      if (eventDedupeSet.has(eventId)) {
-        console.log(`[Garden] Duplicate event ignored: ${eventId}`);
-        return;
-      }
-      eventDedupeSet.add(eventId);
-
-      // Log event with relay URL
-      console.log(`[Garden] Event received from ${GARDEN_RELAY_URL}: ${eventId} (kind ${event.kind})`);
-      
-      onEventCallback(event);
-    });
-  }
-
-  // Handle EOSE
-  if (options.onEose) {
-    subscription.on('eose', () => {
-      console.log(`[Garden] EOSE received from ${GARDEN_RELAY_URL}`);
-      if (options.onEose) {
-        options.onEose();
-      }
-    });
-  }
-
-  // Add timeout handler
-  const timeoutId = setTimeout(() => {
-    console.warn(`[Garden] Subscription timeout (${timeout}ms) reached`);
-    // Don't stop subscription on timeout - keep it alive per requirements
-  }, timeout);
-
-  // Clean up timeout when subscription stops
-  subscription.on('close', () => {
-    clearTimeout(timeoutId);
-  });
-
-  return subscription;
-}
-
-/**
- * Ensure Garden relay is connected and ready
- * Returns a promise that resolves when connected or times out
- */
-export async function ensureGardenRelayConnected(timeoutMs = 15000): Promise<boolean> {
-  if (!browser) return false;
-
-  const state = get(gardenRelayStatus);
-  if (state.status === 'connected') {
-    return true;
-  }
-
-  // Wait for connection with timeout
-  return new Promise((resolve) => {
-    const startTime = Date.now();
-    const unsubscribe = gardenRelayStatus.subscribe((state) => {
-      if (state.status === 'connected') {
-        unsubscribe();
-        resolve(true);
-        return;
-      }
-
-      if (Date.now() - startTime > timeoutMs) {
-        unsubscribe();
-        console.warn(`[Garden] Timeout waiting for connection`);
-        resolve(false);
-        return;
-      }
-    });
-
-    // Also check immediately
-    const currentState = get(gardenRelayStatus);
-    if (currentState.status === 'connected') {
-      unsubscribe();
-      resolve(true);
-    }
-  });
-}
 
 // ═══════════════════════════════════════════════════════════════
 // STORES

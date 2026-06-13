@@ -252,13 +252,9 @@ export async function fetchArticles(
       const discoveryRelays = RELAY_SETS.discovery?.relays || [];
       discoveryRelays.forEach(r => relaysToQuery.add(r));
       
-      // Add default relays (but exclude garden.zap.cooking - it has issues with kind:30023)
+      // Add default relays
       const defaultRelays = RELAY_SETS.default?.relays || [];
-      defaultRelays.forEach(r => {
-        if (r !== 'wss://garden.zap.cooking') {
-          relaysToQuery.add(r);
-        }
-      });
+      defaultRelays.forEach(r => relaysToQuery.add(r));
       
       // Add article-optimized relays
       CONFIG.ARTICLE_RELAYS.forEach(r => relaysToQuery.add(r));

@@ -357,9 +357,8 @@
 
 			// Build relay set: article relays + user's outbox relays for maximum reach
 			const articleRelayUrls = new Set(RELAY_SETS.articles?.relays || []);
-			// Add default relays for broader coverage, excluding Garden which has issues with longform
+			// Add default relays for broader coverage
 			for (const r of RELAY_SETS.default?.relays || []) {
-				if (r === 'wss://garden.zap.cooking') continue;
 				articleRelayUrls.add(r);
 			}
 			// Add user's NIP-65 outbox relays so their followers can find the article

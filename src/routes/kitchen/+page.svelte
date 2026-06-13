@@ -65,24 +65,6 @@
       </div>
     </section>
 
-    <!-- Community Relays Card -->
-    <section class="rounded-xl shadow-sm p-5 md:p-6 transition-all duration-300" style="border: 1px solid var(--color-input-border); background-color: var(--color-bg-secondary)">
-      <h2 class="text-2xl font-bold mb-4 flex items-center gap-2" style="color: var(--color-text-primary)">
-        <span>🔌</span>
-        <span>Community Relays</span>
-      </h2>
-      <div class="flex flex-col gap-3">
-        <div class="flex flex-col sm:flex-row sm:items-center gap-2">
-          <span class="font-medium text-sm" style="color: var(--color-text-secondary)">Garden Relay:</span>
-          <code class="text-sm px-3 py-1.5 rounded bg-input-bg font-mono" style="color: var(--color-text-primary); border: 1px solid var(--color-input-border)">
-            wss://garden.zap.cooking
-          </code>
-        </div>
-        <p class="text-sm" style="color: var(--color-text-secondary)">
-          Add this relay to your client for the best Zap Cooking experience. The Garden is our community relay for food content, recipes, and culinary conversations.
-        </p>
-      </div>
-    </section>
   </div>
 
   <!-- Filter Tabs -->
