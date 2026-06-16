@@ -637,7 +637,7 @@
                 {/if}
               {/if}
 
-              {#if quotedNote}
+              {#if !showPreview && quotedNote}
                 <div class="quoted-note-embed mb-3">
                   <div class="quoted-note-header">
                     <CustomAvatar pubkey={quotedNote.event.pubkey} size={16} />
@@ -669,7 +669,7 @@
                 </div>
               {/if}
 
-              {#if uploadedImages.length > 0}
+              {#if !showPreview && uploadedImages.length > 0}
                 <div class="mb-2 flex flex-wrap gap-2">
                   {#each uploadedImages as imageUrl, index}
                     <div class="relative group">
@@ -700,7 +700,7 @@
                 </div>
               {/if}
 
-              {#if uploadedVideos.length > 0}
+              {#if !showPreview && uploadedVideos.length > 0}
                 <div class="mb-2 flex flex-wrap gap-2">
                   {#each uploadedVideos as videoUrl, index}
                     <div class="relative group">
