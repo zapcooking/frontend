@@ -333,7 +333,24 @@ export class MentionComposerController {
 	/** Handle paste event — strips HTML, inserts plain text with proper line breaks */
 	handlePaste(event: ClipboardEvent): void {
 		event.preventDefault();
-		const plainText = event.clipboardData?.getData('text/plain');
+
+		// When the clipboard carries mention pills (e.g. the user cut text
+		// containing a pill from this composer), the text/plain flavor is just
+		// the visible "@DisplayName" — which convertRawMentionsToPills can't
+		// re-pill. Read the text/html flavor instead and run it through
+		// htmlToPlainText, which serializes data-mention pills back to their
+		// `nostr:npub…` form so they get re-pilled by the handleInput() pass
+		// below. We parse the HTML in a detached element and only ever read
+		// text/dataset out of it — its nodes never touch the live DOM.
+		const html = event.clipboardData?.getData('text/html');
+		let plainText: string | undefined;
+		if (html && html.includes('data-mention')) {
+			const tmp = document.createElement('div');
+			tmp.innerHTML = html;
+			plainText = htmlToPlainText(tmp);
+		} else {
+			plainText = event.clipboardData?.getData('text/plain');
+		}
 		if (!plainText) return;
 
 		const selection = window.getSelection();
