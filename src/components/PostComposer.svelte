@@ -21,7 +21,6 @@
   import MentionDropdown from './MentionDropdown.svelte';
   import { MentionComposerController, type MentionState } from '$lib/mentionComposer';
   import { uploadImage, uploadVideo } from '$lib/mediaUpload';
-  import { detectHaiku } from '$lib/haiku';
   import { clickOutside } from '$lib/clickOutside';
 
   // Clear stuck posts from the publish queue
@@ -85,7 +84,6 @@
   let showPollCreator = false;
   let pollConfig: PollConfig | null = null;
   let zapPollConfig: ZapPollConfig | null = null;
-  let haikuDetected = false;
 
   const DRAFT_KEY = 'zapcooking_note_draft';
   let draftTimer: ReturnType<typeof setTimeout> | null = null;
@@ -123,8 +121,6 @@
   $: if (variant === 'modal') {
     isComposerOpen = true;
   }
-
-  $: haikuDetected = detectHaiku(content);
 
   $: previewContent = computePreviewContent(content, uploadedImages, uploadedVideos, quotedNote);
 
@@ -772,11 +768,6 @@
         <div
           class="{variant === 'modal' ? 'flex-shrink-0 px-3 pb-3' : ''}"
         >
-          {#if haikuDetected}
-            <p class="pb-2 pt-2 text-[11px] text-amber-600 dark:text-amber-400">
-              🍃 This looks like a haiku. Expect a visit from the haiku bot.
-            </p>
-          {/if}
           <div
             class="flex items-center justify-between pt-2"
             style="border-top: 1px solid var(--color-input-border)"
