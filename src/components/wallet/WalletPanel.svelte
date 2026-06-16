@@ -2233,9 +2233,19 @@
       return;
     }
 
-    const mnemonic = restoreMnemonicInput.trim();
+    const mnemonic = restoreMnemonicInput.trim().toLowerCase().replace(/\s+/g, ' ');
     if (!mnemonic) {
       errorMessage = 'Please enter your recovery phrase';
+      return;
+    }
+
+    const words = mnemonic.split(' ');
+    if (![12, 15, 18, 21, 24].includes(words.length)) {
+      errorMessage = `Recovery phrases must be 12, 15, 18, 21, or 24 words (you entered ${words.length})`;
+      return;
+    }
+    if (!words.every((w) => /^[a-z]+$/.test(w))) {
+      errorMessage = 'Recovery phrase contains invalid characters — enter BIP-39 words only';
       return;
     }
 
