@@ -91,6 +91,7 @@
   let showPreview = false;
   let isMinimized = false;
   let previewContent = '';
+  let minimizedLabel = '';
 
   // Mention autocomplete (shared controller)
   let mentionState: MentionState = {
@@ -183,6 +184,8 @@
     if (variant === 'inline') {
       window.removeEventListener('quote-note', handleQuoteNote as EventListener);
     }
+    // Cancel any pending debounced draft save so it can't fire after unmount
+    if (draftTimer) clearTimeout(draftTimer);
     mentionCtrl.destroy();
   });
 
@@ -946,7 +949,12 @@
       class="flex items-center gap-2 pl-3 pr-2 py-2.5 rounded-t-xl cursor-pointer"
       style="background: var(--color-input-bg); border: 1px solid var(--color-input-border); border-bottom: none; box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.35);"
       on:click={restoreFromMinimized}
-      on:keydown={(e) => e.key === 'Enter' && restoreFromMinimized()}
+      on:keydown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          restoreFromMinimized();
+        }
+      }}
       role="button"
       tabindex="0"
       aria-label="Restore draft"

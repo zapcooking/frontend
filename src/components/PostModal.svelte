@@ -25,6 +25,19 @@
     clearQuotedNote();
   }
 
+  // Backdrop click / Escape close the Modal directly. Route them through the
+  // composer's requestClose() so the draft is flushed and the
+  // minimize-vs-close (and quote-clear) logic runs, instead of `open` silently
+  // flipping to false and bypassing it. Falls back to a plain close if the
+  // composer isn't mounted.
+  function handleBackdropClose() {
+    if (composer) {
+      composer.requestClose();
+    } else {
+      handleClose();
+    }
+  }
+
   // Composer asked to minimize (desktop close with unsaved content). The draft
   // is already flushed to localStorage; we just hide the modal and show a pill.
   // Keep the quoted note so it's restored on reopen.
@@ -50,7 +63,7 @@
   }
 </script>
 
-<Modal bind:open allowOverflow={false} noHeader={true} wide={true}>
+<Modal bind:open allowOverflow={false} noHeader={true} wide={true} cleanup={handleBackdropClose}>
   <div class="flex flex-col gap-4 flex-1 min-h-0 overflow-hidden">
     <!-- Header: relay selector + contextual hint on left, X on right -->
     <div class="flex items-start justify-between gap-2">
@@ -109,7 +122,12 @@
       class="flex items-center gap-2 pl-3 pr-2 py-2.5 rounded-t-xl cursor-pointer"
       style="background: var(--color-input-bg); border: 1px solid var(--color-input-border); border-bottom: none; box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.35);"
       on:click={restoreMinimized}
-      on:keydown={(e) => e.key === 'Enter' && restoreMinimized()}
+      on:keydown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          restoreMinimized();
+        }
+      }}
       role="button"
       tabindex="0"
       aria-label="Restore draft"
