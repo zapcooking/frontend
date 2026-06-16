@@ -23,6 +23,7 @@
   export let noHeader = false;
   export let allowOverflow = false;
   export let compact = false;
+  export let wide = false;
 
   // Portal target - render at document body level. Initialized
   // synchronously when document is available so the dialog can mount
@@ -150,11 +151,13 @@
         transition:scale={{ duration: 250 }}
         aria-labelledby="title"
         aria-modal="true"
-        class="absolute m-0 top-1/2 left-1/2 px-4 md:px-8 pt-6 pb-8 rounded-3xl w-[calc(100%-2rem)] md:w-[calc(100vw-4em)] max-w-xl min-h-[50vh] md:min-h-0 max-h-[85dvh] md:max-h-[90dvh] -translate-x-1/2 -translate-y-1/2 flex flex-col"
+        class="absolute m-0 top-1/2 left-1/2 px-4 md:px-8 pt-6 pb-8 rounded-3xl w-[calc(100%-2rem)] md:w-[calc(100vw-4em)] min-h-[50vh] md:min-h-0 max-h-[85dvh] md:max-h-[90dvh] -translate-x-1/2 -translate-y-1/2 flex flex-col"
+        class:max-w-xl={!wide}
+        class:max-w-2xl={wide}
         class:compact-padding={compact}
         class:overflow-y-auto={!allowOverflow}
         class:overflow-visible={allowOverflow}
-        style="background-color: var(--color-bg-secondary);"
+        style="background-color: var(--color-bg-secondary); color: var(--color-text-primary);"
         open
       >
         <div class="flex flex-col flex-1 {compact ? 'gap-2' : 'gap-6'}">

@@ -42,7 +42,13 @@
   export let selectedRelay: RelaySelection | undefined = undefined;
   export let initialQuotedNote: { nevent: string; event: NDKEventType } | null = null;
 
-  const dispatch = createEventDispatcher<{ close: void }>();
+  const dispatch = createEventDispatcher<{ close: void; minimize: { preview: string } }>();
+
+  // Exposed so the wrapping modal's X button routes through the same
+  // close/minimize logic as the composer's own Cancel button.
+  export function requestClose() {
+    closeComposer();
+  }
 
   let isComposerOpen = variant === 'modal';
   let content = '';
@@ -81,6 +87,13 @@
   let zapPollConfig: ZapPollConfig | null = null;
   let haikuDetected = false;
 
+  const DRAFT_KEY = 'zapcooking_note_draft';
+  let draftTimer: ReturnType<typeof setTimeout> | null = null;
+  let draftSaved = false;
+  let showPreview = false;
+  let isMinimized = false;
+  let previewContent = '';
+
   // Mention autocomplete (shared controller)
   let mentionState: MentionState = {
     mentionQuery: '',
@@ -113,6 +126,12 @@
 
   $: haikuDetected = detectHaiku(content);
 
+  $: previewContent = computePreviewContent(content, uploadedImages, uploadedVideos, quotedNote);
+
+  $: if (composerEl && (content || uploadedImages.length || uploadedVideos.length)) {
+    scheduleDraftSave();
+  }
+
   function focusComposer() {
     setTimeout(() => {
       if (composerEl) {
@@ -140,6 +159,21 @@
       mentionCtrl.preloadFollowList();
     }
 
+    // Restore saved draft — set content directly so the reactive
+    // $: if (composerEl && content !== lastRenderedContent) fires when composerEl binds
+    try {
+      const raw = localStorage.getItem(DRAFT_KEY);
+      if (raw) {
+        const draft = JSON.parse(raw) as { content?: string; images?: string[]; videos?: string[]; savedAt?: number };
+        if (draft.content || draft.images?.length || draft.videos?.length) {
+          if (draft.content) content = draft.content; // don't set lastRenderedContent — let reactive sync handle DOM
+          if (draft.images?.length) uploadedImages = draft.images;
+          if (draft.videos?.length) uploadedVideos = draft.videos;
+          draftSaved = true;
+        }
+      }
+    } catch (_) {}
+
     if (variant === 'modal') {
       // Set initial quoted note if provided (from store via PostModal)
       if (initialQuotedNote) {
@@ -157,15 +191,20 @@
   });
 
   function openComposer() {
+    isMinimized = false;
     isComposerOpen = true;
     focusComposer();
   }
 
   function resetComposerState() {
+    try { localStorage.removeItem(DRAFT_KEY); } catch (_) {}
     content = '';
     lastRenderedContent = '';
     error = '';
     successQueued = false;
+    showPreview = false;
+    draftSaved = false;
+    isMinimized = false;
     mentionCtrl.resetMentionState();
     uploadedImages = [];
     uploadedVideos = [];
@@ -180,15 +219,34 @@
   function closeComposer() {
     if (posting) return;
 
-    resetComposerState();
+    // Persist the latest content before we tear anything down
+    flushDraftSave();
+
+    const hasContent = !!(content.trim() || uploadedImages.length || uploadedVideos.length);
+    const isDesktop =
+      typeof window !== 'undefined' && window.matchMedia('(min-width: 768px)').matches;
 
     if (variant === 'modal') {
-      // Clear the quoted note store when closing modal
-      clearQuotedNote();
-      dispatch('close');
+      // Desktop with content → minimize to the bottom drawer (handled by PostModal,
+      // which survives the modal unmount). Otherwise fully close — the autosaved
+      // draft is restored on next open.
+      if (hasContent && isDesktop) {
+        dispatch('minimize', { preview: toPreviewLabel(content) || 'Media note' });
+      } else {
+        dispatch('close');
+      }
       return;
     }
 
+    // Inline: minimize to floating pill on desktop; on mobile just collapse
+    // (in-memory content is preserved, no pill needed).
+    if (hasContent) {
+      isMinimized = isDesktop;
+      isComposerOpen = false;
+      return;
+    }
+
+    resetComposerState();
     isComposerOpen = false;
   }
 
@@ -416,6 +474,73 @@
 
     // No additional non-mention keydown logic in PostComposer
   }
+
+  function saveDraftNow() {
+    try {
+      const text = composerEl ? mentionCtrl.extractText() : content;
+      if (!text.trim() && uploadedImages.length === 0 && uploadedVideos.length === 0) {
+        localStorage.removeItem(DRAFT_KEY);
+        draftSaved = false;
+        return;
+      }
+      localStorage.setItem(
+        DRAFT_KEY,
+        JSON.stringify({ content: text, images: uploadedImages, videos: uploadedVideos, savedAt: Date.now() })
+      );
+      draftSaved = true;
+    } catch (_) {}
+  }
+
+  function scheduleDraftSave() {
+    if (draftTimer) clearTimeout(draftTimer);
+    draftTimer = setTimeout(saveDraftNow, 300);
+  }
+
+  // Flush any pending debounced save immediately (called before closing)
+  function flushDraftSave() {
+    if (draftTimer) {
+      clearTimeout(draftTimer);
+      draftTimer = null;
+    }
+    saveDraftNow();
+  }
+
+  // Human-readable label for the minimized draft tab — strip image URLs,
+  // links, and raw nostr refs so the tab shows meaningful text, not a URL.
+  function toPreviewLabel(raw: string): string {
+    return raw
+      .replace(/https?:\/\/\S+/gi, '')
+      .replace(/nostr:\S+/gi, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  $: minimizedLabel = toPreviewLabel(content) || 'Media note';
+
+  function restoreFromMinimized() {
+    isMinimized = false;
+    openComposer();
+  }
+
+  function discardAndFullyClose() {
+    if (!confirm('Discard this draft? This cannot be undone.')) return;
+    isMinimized = false;
+    resetComposerState();
+    isComposerOpen = false;
+  }
+
+  function computePreviewContent(text: string, images: string[], videos: string[], quote: typeof quotedNote): string {
+    const resolved = mentionCtrl.replacePlainMentions(text);
+    let preview = resolved.trim();
+    const media = [...images, ...videos];
+    if (media.length) {
+      preview = preview ? `${preview}\n\n${media.join('\n')}` : media.join('\n');
+    }
+    if (quote) {
+      preview = preview ? `${preview}\n\nnostr:${quote.nevent}` : `nostr:${quote.nevent}`;
+    }
+    return preview;
+  }
 </script>
 
 {#if $userPublickey !== '' || variant === 'modal'}
@@ -448,31 +573,59 @@
         <div class={variant === 'modal' ? 'composer-scroll-area flex-1 overflow-y-auto min-h-0 p-3' : ''}>
           <div class="flex gap-3">
             <CustomAvatar pubkey={$userPublickey} size={36} />
-            <div class="flex-1">
-              <div class="relative">
-                <div
-                  bind:this={composerEl}
-                  class={`composer-input w-full overflow-y-auto p-2 border-0 focus:outline-none focus:ring-0 bg-transparent ${variant === 'modal' ? 'min-h-[80px] max-h-[40vh]' : 'min-h-[120px] sm:min-h-[100px] max-h-[50vh]'}`}
-                  style="color: var(--color-text-primary); font-size: 16px;"
-                  contenteditable={!posting}
-                  role="textbox"
-                  aria-multiline="true"
-                  data-placeholder="What are you eating, cooking, or loving?"
-                  on:keydown={handleKeydown}
-                  on:input={() => mentionCtrl.handleInput()}
-                  on:beforeinput={(e) => mentionCtrl.handleBeforeInput(e)}
-                  on:paste={(e) => mentionCtrl.handlePaste(e)}
-                ></div>
-
-                <MentionDropdown
-                  show={mentionState.showMentionSuggestions}
-                  suggestions={mentionState.mentionSuggestions}
-                  selectedIndex={mentionState.selectedMentionIndex}
-                  searching={mentionState.mentionSearching}
-                  query={mentionState.mentionQuery}
-                  on:select={(e) => mentionCtrl.insertMention(e.detail)}
-                />
+            <div class="flex-1 min-w-0">
+              <!-- Write / Preview tab bar -->
+              <div class="flex border-b mb-1" style="border-color: var(--color-input-border)">
+                <button
+                  type="button"
+                  on:click={() => (showPreview = false)}
+                  class="px-3 py-1.5 text-xs font-medium transition-colors -mb-px border-b-2 {!showPreview ? 'text-primary border-primary' : 'text-caption border-transparent'}"
+                >Write</button>
+                <button
+                  type="button"
+                  on:click={() => (showPreview = true)}
+                  class="px-3 py-1.5 text-xs font-medium transition-colors -mb-px border-b-2 {showPreview ? 'text-primary border-primary' : 'text-caption border-transparent'}"
+                >Preview</button>
               </div>
+
+              <!-- Write pane (hidden when preview active, DOM kept for content preservation) -->
+              <div class:hidden={showPreview}>
+                <div class="relative">
+                  <div
+                    bind:this={composerEl}
+                    class={`composer-input w-full overflow-y-auto p-2 border-0 focus:outline-none focus:ring-0 bg-transparent ${variant === 'modal' ? 'min-h-[200px] max-h-[45vh]' : 'min-h-[120px] sm:min-h-[100px] max-h-[40vh]'}`}
+                    style="color: var(--color-text-primary);"
+                    contenteditable={!posting}
+                    role="textbox"
+                    aria-multiline="true"
+                    data-placeholder="What are you eating, cooking, or loving?"
+                    on:keydown={handleKeydown}
+                    on:input={() => mentionCtrl.handleInput()}
+                    on:beforeinput={(e) => mentionCtrl.handleBeforeInput(e)}
+                    on:paste={(e) => mentionCtrl.handlePaste(e)}
+                  ></div>
+
+                  <MentionDropdown
+                    show={mentionState.showMentionSuggestions}
+                    suggestions={mentionState.mentionSuggestions}
+                    selectedIndex={mentionState.selectedMentionIndex}
+                    searching={mentionState.mentionSearching}
+                    query={mentionState.mentionQuery}
+                    on:select={(e) => mentionCtrl.insertMention(e.detail)}
+                  />
+                </div>
+              </div>
+
+              <!-- Preview pane — matches Write pane padding/font so toggling feels seamless -->
+              {#if showPreview}
+                <div class={`composer-input overflow-y-auto p-2 ${variant === 'modal' ? 'min-h-[200px] max-h-[45vh]' : 'min-h-[120px] sm:min-h-[100px] max-h-[40vh]'}`} style="color: var(--color-text-primary);">
+                  {#if previewContent.trim()}
+                    <NoteContent content={previewContent} collapsible={false} showLinkPreviews={true} />
+                  {:else}
+                    <p class="text-caption italic">Nothing to preview yet — start writing in the Write tab.</p>
+                  {/if}
+                </div>
+              {/if}
 
               {#if error}
                 <p class="text-red-500 text-xs mb-2">{error}</p>
@@ -611,23 +764,6 @@
                 </div>
               {/if}
 
-              {#if activeTab === 'members' || selectedRelay === 'pantry'}
-                <div
-                  class="mb-2 px-3 py-1.5 rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800"
-                >
-                  <p class="text-xs font-medium text-blue-700 dark:text-blue-300">
-                    🏪 The Pantry — If you're seeing this, you're early.
-                  </p>
-                </div>
-              {:else if selectedRelay === 'all'}
-                <div
-                  class="mb-2 px-3 py-1.5 rounded-lg bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800"
-                >
-                  <p class="text-xs font-medium text-orange-700 dark:text-orange-300">
-                    📡 Posting to: <span class="font-semibold">All connected relays</span>
-                  </p>
-                </div>
-              {/if}
             </div>
           </div>
         </div>
@@ -735,6 +871,14 @@
           </div>
 
           <div class="flex items-center gap-2">
+            {#if draftSaved && !posting && !success}
+              <span class="text-xs text-caption flex items-center gap-0.5" title="Draft autosaved">
+                <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                  <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/>
+                </svg>
+                Saved
+              </span>
+            {/if}
             {#if $publishQueueState.pending > 0}
               <span
                 class="text-xs text-amber-600 flex items-center gap-1"
@@ -789,9 +933,48 @@
             </button>
           </div>
           </div>
+          {#if variant === 'inline' && (activeTab === 'members' || selectedRelay === 'pantry')}
+            <p class="pt-1.5 text-[11px] text-caption">
+              <span class="mr-1">🏪</span>Posting to the Pantry — if you're seeing this, you're early.
+            </p>
+          {/if}
         </div>
       </div>
     {/if}
+  </div>
+{/if}
+
+{#if isMinimized && variant === 'inline'}
+  <!-- Desktop-only minimized draft drawer. Docks flush to the bottom edge on
+       the left, clear of the bottom-right FAB and the bottom nav. -->
+  <div
+    class="hidden md:block fixed z-50"
+    style="bottom: calc(var(--bottom-nav-height, 0px) + env(safe-area-inset-bottom, 0px)); right: calc(1.25rem + 56px + 0.75rem);"
+  >
+    <div
+      class="flex items-center gap-2 pl-3 pr-2 py-2.5 rounded-t-xl cursor-pointer"
+      style="background: var(--color-input-bg); border: 1px solid var(--color-input-border); border-bottom: none; box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.35);"
+      on:click={restoreFromMinimized}
+      on:keydown={(e) => e.key === 'Enter' && restoreFromMinimized()}
+      role="button"
+      tabindex="0"
+      aria-label="Restore draft"
+    >
+      <PencilSimpleIcon size={14} class="text-caption flex-shrink-0" />
+      <span class="text-sm truncate max-w-[200px]" style="color: var(--color-text-primary)">
+        {minimizedLabel}
+      </span>
+      <button
+        type="button"
+        on:click|stopPropagation={discardAndFullyClose}
+        class="ml-1 p-0.5 text-caption hover:text-primary flex-shrink-0"
+        aria-label="Discard draft"
+      >
+        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+        </svg>
+      </button>
+    </div>
   </div>
 {/if}
 
@@ -818,6 +1001,14 @@
   .composer-input {
     white-space: pre-wrap;
     word-break: break-word;
+    /* 16px on mobile avoids iOS focus-zoom; slightly smaller on desktop reads better */
+    font-size: 16px;
+  }
+
+  @media (min-width: 768px) {
+    .composer-input {
+      font-size: 15px;
+    }
   }
 
   /* Scrollable content area for modal variant */
