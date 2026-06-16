@@ -35,14 +35,22 @@ export function parseNwcUrl(url: string): { pubkey: string; relay: string; secre
 	try {
 		// CRITICAL: Trim whitespace, newlines, and any invisible characters
 		// Without this, pasted URLs with trailing newlines cause relay connection timeouts
-		let cleaned = url.trim().replace(/[\r\n\t]/g, '')
+		const cleaned_input = url.trim().replace(/[\r\n\t]/g, '')
 
-		// Handle both formats: with and without //
-		cleaned = cleaned
-			.replace('nostr+walletconnect://', '')
-			.replace('nostrwalletconnect://', '')
-			.replace('nostr+walletconnect:', '')
-			.replace('nostrwalletconnect:', '')
+		// Reject anything that doesn't begin with a recognised NWC scheme.
+		// A non-anchored replace would silently swallow leading garbage text
+		// and produce a corrupted pubkey, so we gate hard here first.
+		if (!/^nostr(?:\+walletconnect)?:\/\//i.test(cleaned_input) &&
+		    !/^nostrwalletconnect:/i.test(cleaned_input)) {
+			return null
+		}
+
+		// Strip the scheme to get pubkey?params
+		let cleaned = cleaned_input
+			.replace(/^nostr\+walletconnect:\/\//i, '')
+			.replace(/^nostrwalletconnect:\/\//i, '')
+			.replace(/^nostr\+walletconnect:/i, '')
+			.replace(/^nostrwalletconnect:/i, '')
 
 		const [pubkey, queryString] = cleaned.split('?')
 
@@ -59,7 +67,14 @@ export function parseNwcUrl(url: string): { pubkey: string; relay: string; secre
 			return null
 		}
 
-		return { pubkey: pubkey.trim(), relay, secret, lud16 }
+		// Normalize pubkey: accept npub1… bech32 or raw 64-char hex
+		const normalizedPubkey = normalizePubkey(pubkey.trim())
+		if (!/^[0-9a-fA-F]{64}$/.test(normalizedPubkey)) {
+			console.error('[NWC] Invalid pubkey in connection string:', pubkey.trim())
+			return null
+		}
+
+		return { pubkey: normalizedPubkey, relay, secret, lud16 }
 	} catch (e) {
 		console.error('[NWC] Failed to parse connection URL:', e)
 		return null
@@ -71,6 +86,23 @@ export function parseNwcUrl(url: string): { pubkey: string; relay: string; secre
  */
 export function isValidNwcUrl(url: string): boolean {
 	return parseNwcUrl(url) !== null
+}
+
+/**
+ * Normalize public key to hex format
+ * Handles both raw 64-char hex and npub1 bech32 format
+ */
+function normalizePubkey(pubkey: string): string {
+	const cleaned = pubkey.trim()
+	if (cleaned.startsWith('npub1')) {
+		try {
+			const decoded = nip19.decode(cleaned)
+			if (decoded.type === 'npub') return decoded.data as string
+		} catch (e) {
+			console.error('[NWC] Failed to decode npub:', e)
+		}
+	}
+	return cleaned
 }
 
 /**
