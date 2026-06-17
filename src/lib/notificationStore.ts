@@ -484,9 +484,9 @@ function parseNotification(event: NDKEvent, userPubkey: string): Notification | 
     }
 
     case 1: { // Reply or mention
-      // NIP-10: Distinguish replies from mentions.
-      // A reply has e tags with 'reply'/'root' markers or uses deprecated positional e tags.
-      // A mention is a standalone post that p-tags the user but has no e tags (not in a thread).
+      // NIP-10: events with e-tags are replies in a thread; events without are standalone notes.
+      // Both types p-tag the user — "mention" here means no thread context, "comment" means
+      // there is one. The Mentions UI tab shows both types (any note that tagged you).
       const eTags = event.tags.filter((t) => t[0] === 'e');
       const isReply = eTags.length > 0;
 

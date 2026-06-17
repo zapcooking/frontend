@@ -157,7 +157,7 @@
     if (activeTab === 'all') return true;
     if (activeTab === 'zaps') return n.type === 'zap';
     if (activeTab === 'replies') return n.type === 'comment';
-    if (activeTab === 'mentions') return n.type === 'mention';
+    if (activeTab === 'mentions') return n.type === 'mention' || n.type === 'comment';
     return true;
   });
 
