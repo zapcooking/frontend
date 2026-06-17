@@ -293,7 +293,15 @@
   }
 
   async function uploadImage(file: File, type: 'picture' | 'banner'): Promise<string | null> {
-    const url = 'https://nostr.build/api/v2/upload/profile';
+    // Avatars use nostr.build's profile endpoint, which crops to a square pfp.
+    // Banners must NOT be square-cropped — that endpoint squares the image
+    // regardless of the NIP-96 `media_type` hint, which is why banners came
+    // out pfp-shaped. Route banners through the general media endpoint, which
+    // preserves the uploaded aspect ratio (same endpoint the composer uses).
+    const url =
+      type === 'picture'
+        ? 'https://nostr.build/api/v2/upload/profile'
+        : 'https://nostr.build/api/v2/upload/files';
 
     // Validate file
     if (!file.type.startsWith('image/')) {
