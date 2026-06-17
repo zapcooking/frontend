@@ -324,6 +324,10 @@ export function startOverCheffy() {
   cheffyDraft.set('');
   cheffyStarted.set(false);
   cheffyConversion.set(null);
+  // Drop preview tagging on reset; the messenger re-asserts it for a
+  // non-member still in the preview, but a member who started one and
+  // then upgraded gets clean multi-turn history again.
+  cheffyExperienceMode.set(false);
   lastTurn = null;
   cheffyAnnounce.set('Conversation cleared.');
 }

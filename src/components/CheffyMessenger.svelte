@@ -79,6 +79,14 @@
   // Re-assert preview mode so follow-up sends stay tagged as experience
   // requests (e.g. after a mid-chat reload, where the flag would reset).
   $: if (inExperience && !$cheffyExperienceMode) cheffyExperienceMode.set(true);
+  // If membership resolves true mid-session, drop the preview flags so a
+  // new member never lands on a blank surface (conversion card hidden by
+  // `inExperience`, composer hidden by `$cheffyConversion`) and their
+  // sends are no longer tagged as a preview.
+  $: if (hasMembership && ($cheffyConversion !== null || $cheffyExperienceMode)) {
+    cheffyConversion.set(null);
+    cheffyExperienceMode.set(false);
+  }
   // Opening Cheffy again after the experience was spent (e.g. via the
   // launcher) lands on the friendly card, never a technical wall.
   $: if (
@@ -537,7 +545,8 @@
 
                   <!-- Context-aware follow-ups: only under the latest
                        response, never while a turn is in flight, and not
-                       during the single-shot preview. -->
+                       during the non-member preview (the composer carries
+                       the preview turns). -->
                   {#if m.id === lastMsgId && !$cheffyLoading && !inExperience && (m.kind === 'text' || m.kind === 'recipe')}
                     <div class="context-row">
                       <CheffySuggestionChips
@@ -555,9 +564,10 @@
         {/if}
 
         {#if inExperience && $cheffyConversion}
-          <!-- Soft conversion card — invites the visitor to create a free
-               kitchen or unlock Kitchen+ after one helpful Cheffy answer.
-               Never a paywall: this is the gentle next step. -->
+          <!-- Soft conversion card — shown once the preview turns are
+               spent (or when the experience was already used): invites the
+               visitor to create a free kitchen or unlock Kitchen+. Never a
+               paywall — this is the gentle next step. -->
           <div class="conversion" role="group" aria-label="Keep cooking with Cheffy">
             <CheffyAvatar size={44} expression="happy" variant="character" />
             {#if $cheffyConversion === 'used'}

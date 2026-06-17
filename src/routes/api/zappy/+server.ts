@@ -147,7 +147,7 @@ const EXPERIENCE_MAX_PROMPT_CHARS = 750;
 const EXPERIENCE_MAX_TOKENS = 700;
 const EXPERIENCE_COOKIE_MAX_AGE = 60 * 60 * 24 * 180; // ~180 days
 
-export const POST: RequestHandler = async ({ request, platform, cookies }) => {
+export const POST: RequestHandler = async ({ request, platform, cookies, url }) => {
   try {
     // Check for OpenAI API key
     const OPENAI_API_KEY = (platform?.env as any)?.OPENAI_API_KEY || env.OPENAI_API_KEY;
@@ -227,7 +227,7 @@ export const POST: RequestHandler = async ({ request, platform, cookies }) => {
               code: 'CHEFFY_EXPERIENCE_USED',
               error: 'Create your free kitchen or unlock Kitchen+ to keep cooking with Cheffy.'
             },
-            { status: 200 }
+            { status: 429 }
           );
         }
         experienceGranted = true;
@@ -319,13 +319,17 @@ export const POST: RequestHandler = async ({ request, platform, cookies }) => {
     }
 
     // Count a preview turn only on a successful answer, so a failed
-    // attempt never burns the visitor's experience.
+    // attempt never burns the visitor's experience. Derive `secure` from
+    // the request protocol so the turn cap also holds over plain HTTP
+    // (local dev / staging) while staying Secure in production.
     if (experienceGranted) {
+      const isHttps =
+        url.protocol === 'https:' || request.headers.get('x-forwarded-proto') === 'https';
       cookies.set(EXPERIENCE_COOKIE, String(experienceCount + 1), {
         path: '/',
         httpOnly: true,
         sameSite: 'lax',
-        secure: true,
+        secure: isHttps,
         maxAge: EXPERIENCE_COOKIE_MAX_AGE
       });
     }
