@@ -61,6 +61,38 @@ export function dismissCheffyHint() {
   }
 }
 
+// ── First-use experience ("experience", never "free question") ──
+// A non-member (logged out OR logged in without an active membership)
+// may use Cheffy ONCE from the /explore invite as a controlled preview.
+// The server is the real gate (HttpOnly cookie); these stores drive the
+// in-messenger preview UI and the soft conversion card that follows.
+const EXPERIENCE_USED_KEY = 'zapcooking:cheffy-experience-used:v1';
+
+/** True once this device has consumed its Cheffy experience. Persisted. */
+export const cheffyExperienceUsed = writable<boolean>(
+  browser ? localStorage.getItem(EXPERIENCE_USED_KEY) === '1' : false
+);
+
+/** True while the current messenger session is a non-member preview. */
+export const cheffyExperienceMode = writable(false);
+
+/** Which soft conversion card to show inside the messenger, or null.
+ *  'response' = after the first helpful preview answer;
+ *  'used'     = the experience was already spent. */
+export type CheffyConversion = null | 'response' | 'used';
+export const cheffyConversion = writable<CheffyConversion>(null);
+
+function markExperienceUsed() {
+  cheffyExperienceUsed.set(true);
+  if (browser) {
+    try {
+      localStorage.setItem(EXPERIENCE_USED_KEY, '1');
+    } catch {
+      // storage blocked — the server cookie still enforces one use
+    }
+  }
+}
+
 // ── Conversation state ──────────────────────────────────────────
 export const cheffyThread = writable<ChatMessage[]>([]);
 export const cheffyLoading = writable(false);
@@ -119,6 +151,9 @@ async function dispatchTurn(
   expectRecipe: boolean
 ) {
   cheffyLoading.set(true);
+  // Captured per-turn: a preview request never leaks prior turns and is
+  // tagged so the server can apply the controlled experience path.
+  const isExperience = get(cheffyExperienceMode);
   const statusLine = pickLine(expectRecipe ? COOKING_LINES : THINKING_LINES, lastStatusLine);
   lastStatusLine = statusLine;
   const pendingId = nextId();
@@ -142,10 +177,23 @@ async function dispatchTurn(
         prompt: promptForApi,
         mode,
         pubkey: get(userPublickey),
-        messages: apiHistory
+        // Previews are single-shot — never send prior turns.
+        messages: isExperience ? [] : apiHistory,
+        ...(isExperience ? { experience: true } : {})
       })
     });
     const data = await resp.json();
+
+    // Experience already spent — swap the pending bubble for the friendly
+    // conversion card rather than surfacing a technical error.
+    if (data?.code === 'CHEFFY_EXPERIENCE_USED') {
+      markExperienceUsed();
+      cheffyThread.update((t) => t.filter((m) => m.id !== pendingId));
+      cheffyConversion.set('used');
+      cheffyAnnounce.set('Cheffy already helped you get started.');
+      return;
+    }
+
     if (!resp.ok || !data.ok) {
       throw new Error(data.error || 'Cheffy could not respond.');
     }
@@ -163,6 +211,13 @@ async function dispatchTurn(
       )
     );
     cheffyAnnounce.set(isRecipe ? 'Cheffy shared a recipe.' : 'Cheffy replied.');
+
+    // First helpful preview answer → spend the experience and invite the
+    // visitor to create a free kitchen or unlock Kitchen+.
+    if (isExperience) {
+      markExperienceUsed();
+      cheffyConversion.set('response');
+    }
   } catch (err) {
     const detail = err instanceof Error ? err.message : 'Cheffy could not respond.';
     cheffyThread.update((t) =>
@@ -207,6 +262,23 @@ export async function sendCheffy(content: string, mode: 'chat' | 'hungry' = 'cha
   );
 }
 
+/**
+ * Enter the first-use experience from the /explore invite. Opens the
+ * messenger as a non-member preview and sends the one prompt. If this
+ * device already spent its experience, skips the API and shows the soft
+ * conversion card instead of a paywall.
+ */
+export function startCheffyExperience(content: string, mode: 'chat' | 'hungry' = 'chat') {
+  cheffyExperienceMode.set(true);
+  cheffyConversion.set(null);
+  openCheffy();
+  if (get(cheffyExperienceUsed)) {
+    cheffyConversion.set('used');
+    return;
+  }
+  void sendCheffy(content, mode);
+}
+
 export async function retryCheffy() {
   if (get(cheffyLoading) || !lastTurn) return;
   cheffyThread.update((t) => t.filter((m) => m.kind !== 'error'));
@@ -224,6 +296,7 @@ export function startOverCheffy() {
   cheffyThread.set([]);
   cheffyDraft.set('');
   cheffyStarted.set(false);
+  cheffyConversion.set(null);
   lastTurn = null;
   cheffyAnnounce.set('Conversation cleared.');
 }

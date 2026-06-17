@@ -133,7 +133,18 @@ const HUNGRY_PROMPT = `Surprise me with a complete recipe! It could be any cuisi
 const MAX_HISTORY_TURNS = 12;
 const MAX_HISTORY_MESSAGE_CHARS = 4000;
 
-export const POST: RequestHandler = async ({ request, platform }) => {
+// First-use "experience" — a single controlled preview for non-members,
+// initiated from the /explore invite. Deliberately NOT a "free question"
+// or "trial": it is a smaller, single-shot discovery answer. One use per
+// device is enforced with an HttpOnly cookie (localStorage alone is not
+// trusted). The endpoint fails CLOSED — non-members get nothing unless
+// the request is an explicit, allowed experience request.
+const EXPERIENCE_COOKIE = 'zapcooking_cheffy_experience_used';
+const EXPERIENCE_MAX_PROMPT_CHARS = 750;
+const EXPERIENCE_MAX_TOKENS = 700;
+const EXPERIENCE_COOKIE_MAX_AGE = 60 * 60 * 24 * 180; // ~180 days
+
+export const POST: RequestHandler = async ({ request, platform, cookies }) => {
   try {
     // Check for OpenAI API key
     const OPENAI_API_KEY = (platform?.env as any)?.OPENAI_API_KEY || env.OPENAI_API_KEY;
@@ -143,6 +154,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 
     const body = await request.json();
     const { prompt, mode = 'prompt', pubkey } = body;
+    const isExperience = body.experience === true;
 
     // Validate mode. "chat" and "prompt" are aliases for the
     // conversational path; "prompt" is kept for any older callers.
@@ -162,8 +174,66 @@ export const POST: RequestHandler = async ({ request, platform }) => {
       );
     }
 
-    // Limit prompt length (format mode allows longer input for pasted recipes)
-    const maxPromptLength = isFormatMode ? 10000 : 2000;
+    // Membership gate (Cheffy is a Pro Kitchen feature) with a single
+    // controlled "experience" preview for non-members. Members are
+    // unaffected. The experience path is the ONLY way a non-member can
+    // reach Cheffy — and only once per device. `experienceGranted` stays
+    // false for members, so their answers keep full depth.
+    let experienceGranted = false;
+    const MEMBERSHIP_ENABLED = platform?.env?.MEMBERSHIP_ENABLED || env.MEMBERSHIP_ENABLED;
+    if (MEMBERSHIP_ENABLED?.toLowerCase() === 'true') {
+      // Best-effort membership determination. Fail OPEN only for a
+      // verifiable, pubkey-bearing caller during a membership-service
+      // outage (preserves prior behavior); never for a missing pubkey.
+      let isMember = false;
+      if (pubkey && typeof pubkey === 'string' && pubkey.trim()) {
+        const API_SECRET = platform?.env?.RELAY_API_SECRET || env.RELAY_API_SECRET;
+        if (!API_SECRET) {
+          // No secret configured — preserve prior fall-through (allow).
+          isMember = true;
+        } else {
+          try {
+            const { hasActiveMembership } = await import('$lib/membershipApi.server');
+            isMember = await hasActiveMembership(pubkey, API_SECRET);
+          } catch (err) {
+            console.error('[Cheffy] Error checking membership:', err);
+            isMember = true; // outage: fail open for a pubkey-bearing caller
+          }
+        }
+      }
+
+      if (!isMember) {
+        // Non-members get the controlled discovery preview only — never
+        // recipe formatting, image scanning, or other advanced tools.
+        const experienceModeAllowed = mode === 'chat' || mode === 'prompt' || mode === 'hungry';
+        if (!isExperience || !experienceModeAllowed) {
+          return json(
+            { ok: false, error: 'Cheffy is available to Pro Kitchen members.' },
+            { status: 403 }
+          );
+        }
+        // One preview per device (HttpOnly cookie — not client-trusted).
+        if (cookies.get(EXPERIENCE_COOKIE) === '1') {
+          return json(
+            {
+              ok: false,
+              code: 'CHEFFY_EXPERIENCE_USED',
+              error: 'Create your free kitchen or unlock Kitchen+ to keep cooking with Cheffy.'
+            },
+            { status: 200 }
+          );
+        }
+        experienceGranted = true;
+      }
+    }
+
+    // Limit prompt length. Experience previews are capped tighter; format
+    // mode allows longer input for pasted recipes.
+    const maxPromptLength = experienceGranted
+      ? EXPERIENCE_MAX_PROMPT_CHARS
+      : isFormatMode
+        ? 10000
+        : 2000;
     if (prompt && prompt.length > maxPromptLength) {
       return json(
         { ok: false, error: `Input is too long (max ${maxPromptLength} characters)` },
@@ -171,9 +241,10 @@ export const POST: RequestHandler = async ({ request, platform }) => {
       );
     }
 
-    // Sanitize optional conversation history (ignored for format mode).
+    // Sanitize optional conversation history (ignored for format mode and
+    // for the single-shot experience preview).
     let history: { role: 'user' | 'assistant'; content: string }[] = [];
-    if (!isFormatMode && Array.isArray(body.messages)) {
+    if (!isFormatMode && !experienceGranted && Array.isArray(body.messages)) {
       history = body.messages
         .filter(
           (m: any) =>
@@ -187,36 +258,6 @@ export const POST: RequestHandler = async ({ request, platform }) => {
           role: m.role,
           content: String(m.content).slice(0, MAX_HISTORY_MESSAGE_CHARS)
         }));
-    }
-
-    // Check membership status (Pro Kitchen feature). Fail CLOSED when
-    // gating is enabled but the caller sent no pubkey — otherwise a
-    // non-member could reach this paid endpoint just by omitting it.
-    const MEMBERSHIP_ENABLED = platform?.env?.MEMBERSHIP_ENABLED || env.MEMBERSHIP_ENABLED;
-    if (MEMBERSHIP_ENABLED?.toLowerCase() === 'true') {
-      if (!pubkey || typeof pubkey !== 'string' || !pubkey.trim()) {
-        return json(
-          { ok: false, error: 'Cheffy is available to Pro Kitchen members.' },
-          { status: 403 }
-        );
-      }
-      const API_SECRET = platform?.env?.RELAY_API_SECRET || env.RELAY_API_SECRET;
-      if (API_SECRET) {
-        try {
-          const { hasActiveMembership } = await import('$lib/membershipApi.server');
-          const isActive = await hasActiveMembership(pubkey, API_SECRET);
-          if (!isActive) {
-            return json(
-              { ok: false, error: 'Cheffy is available to Pro Kitchen members.' },
-              { status: 403 }
-            );
-          }
-        } catch (err) {
-          console.error('[Cheffy] Error checking membership:', err);
-          // Fail open ONLY for membership-service outages, not for a
-          // missing pubkey (handled above).
-        }
-      }
     }
 
     // Determine the user prompt and system instruction based on mode
@@ -244,7 +285,8 @@ export const POST: RequestHandler = async ({ request, platform }) => {
       body: JSON.stringify({
         model: 'gpt-4.1-mini',
         messages,
-        max_tokens: 2048,
+        // Previews stay useful but intentionally lighter than full depth.
+        max_tokens: experienceGranted ? EXPERIENCE_MAX_TOKENS : 2048,
         temperature: isFormatMode ? 0.3 : 0.8
       })
     });
@@ -266,6 +308,18 @@ export const POST: RequestHandler = async ({ request, platform }) => {
         { ok: false, error: 'Cheffy went quiet for a second. Please try again.' },
         { status: 500 }
       );
+    }
+
+    // Spend the one-use preview only on a successful answer, so a failed
+    // attempt never burns the visitor's experience.
+    if (experienceGranted) {
+      cookies.set(EXPERIENCE_COOKIE, '1', {
+        path: '/',
+        httpOnly: true,
+        sameSite: 'lax',
+        secure: true,
+        maxAge: EXPERIENCE_COOKIE_MAX_AGE
+      });
     }
 
     return json({
