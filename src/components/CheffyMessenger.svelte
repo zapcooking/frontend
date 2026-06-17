@@ -30,6 +30,7 @@
     cheffyAnnounce,
     cheffyExperienceMode,
     cheffyExperienceUsed,
+    cheffyExperienceCount,
     cheffyConversion,
     sendCheffy,
     retryCheffy,
@@ -68,12 +69,16 @@
 
   // ── First-use experience (non-member preview) ───────────────────
   // A non-member (logged out OR logged-in without a membership) who
-  // entered via the /explore invite, or who has already spent their
-  // experience, sees the preview flow + a soft conversion card instead
+  // entered via the /explore invite, or who has any preview turns spent
+  // (so a mid-chat reload keeps them in the preview rather than dropping
+  // to the gate), sees the preview flow + a soft conversion card instead
   // of the hard sign-in / membership gate. Members are never affected.
   $: inExperience =
     !hasMembership &&
-    ($cheffyExperienceMode || $cheffyExperienceUsed || $cheffyConversion !== null);
+    ($cheffyExperienceMode || $cheffyExperienceCount > 0 || $cheffyConversion !== null);
+  // Re-assert preview mode so follow-up sends stay tagged as experience
+  // requests (e.g. after a mid-chat reload, where the flag would reset).
+  $: if (inExperience && !$cheffyExperienceMode) cheffyExperienceMode.set(true);
   // Opening Cheffy again after the experience was spent (e.g. via the
   // launcher) lands on the friendly card, never a technical wall.
   $: if (
@@ -482,7 +487,7 @@
     {:else}
       <!-- Conversation -->
       <div class="cheffy-list" bind:this={listEl}>
-        {#if $cheffyThread.length === 0 && !inExperience}
+        {#if $cheffyThread.length === 0 && !$cheffyConversion}
           <!-- Minimal welcome — the starter chips live above the
                composer, not here, so users can also just start typing. -->
           <div class="welcome">
@@ -596,9 +601,9 @@
       </div>
 
       <!-- Starter suggestions — a single scrollable row directly above
-           the composer; removed once the conversation begins. Hidden in
-           the single-shot preview. -->
-      {#if $cheffyThread.length === 0 && !inExperience}
+           the composer; removed once the conversation begins or the
+           conversion card takes over. -->
+      {#if $cheffyThread.length === 0 && !$cheffyConversion}
         <div class="starter-row">
           <CheffySuggestionChips
             suggestions={STARTER_SUGGESTIONS}
@@ -608,28 +613,33 @@
         </div>
       {/if}
 
-      {#if !inExperience}
+      <!-- Composer — usable during a member chat and during the preview
+           turns; replaced by the conversion card once they're spent. -->
+      {#if !$cheffyConversion}
       <!-- Fixed composer -->
       <div class="cheffy-composer">
         {#if scanError}
           <p class="scan-error" role="alert">{scanError}</p>
         {/if}
         <div class="composer-row">
-          <button
-            type="button"
-            class="composer-icon"
-            aria-label="Add ingredients, photo, or recipe"
-            aria-haspopup="menu"
-            aria-expanded={attachOpen}
-            on:click|stopPropagation={() => (attachOpen = !attachOpen)}
-            disabled={isScanning}
-          >
-            {#if isScanning}
-              <ArrowsClockwiseIcon size={20} class="animate-spin" />
-            {:else}
-              <PaperclipIcon size={20} />
-            {/if}
-          </button>
+          {#if !inExperience}
+            <!-- Attach (scan / photo / paste) is a member-only tool. -->
+            <button
+              type="button"
+              class="composer-icon"
+              aria-label="Add ingredients, photo, or recipe"
+              aria-haspopup="menu"
+              aria-expanded={attachOpen}
+              on:click|stopPropagation={() => (attachOpen = !attachOpen)}
+              disabled={isScanning}
+            >
+              {#if isScanning}
+                <ArrowsClockwiseIcon size={20} class="animate-spin" />
+              {:else}
+                <PaperclipIcon size={20} />
+              {/if}
+            </button>
+          {/if}
           <label class="sr-only" for="cheffy-composer-input">Message Cheffy</label>
           <textarea
             id="cheffy-composer-input"
@@ -657,6 +667,7 @@
         </div>
       </div>
 
+      {#if !inExperience}
       <!-- Hidden file inputs for scan/photo/upload -->
       <input
         bind:this={cameraInput}
@@ -698,6 +709,7 @@
             <LinkIcon size={20} /> Import a link
           </button>
         </div>
+      {/if}
       {/if}
       {/if}
     {/if}

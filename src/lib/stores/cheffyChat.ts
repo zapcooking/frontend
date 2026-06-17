@@ -9,7 +9,7 @@
  * Multi-turn is session-only: the live thread is re-sent on each request
  * and never persisted to disk or Nostr.
  */
-import { writable, get } from 'svelte/store';
+import { writable, derived, get } from 'svelte/store';
 import { browser } from '$app/environment';
 import { userPublickey } from '$lib/nostr';
 import {
@@ -62,35 +62,60 @@ export function dismissCheffyHint() {
 }
 
 // ── First-use experience ("experience", never "free question") ──
-// A non-member (logged out OR logged in without an active membership)
-// may use Cheffy ONCE from the /explore invite as a controlled preview.
-// The server is the real gate (HttpOnly cookie); these stores drive the
-// in-messenger preview UI and the soft conversion card that follows.
-const EXPERIENCE_USED_KEY = 'zapcooking:cheffy-experience-used:v1';
+// A non-member (logged out OR logged in without an active membership) may
+// chat with Cheffy a few times from the /explore invite as a controlled
+// preview, so they get a real back-and-forth before any membership pitch.
+// The server is the real gate (HttpOnly cookie counter); these stores
+// mirror it to drive the preview UI and the soft conversion card.
+export const EXPERIENCE_MAX_TURNS = 3;
+const EXPERIENCE_COUNT_KEY = 'zapcooking:cheffy-experience-used:v1';
 
-/** True once this device has consumed its Cheffy experience. Persisted. */
-export const cheffyExperienceUsed = writable<boolean>(
-  browser ? localStorage.getItem(EXPERIENCE_USED_KEY) === '1' : false
+function readExperienceCount(): number {
+  if (!browser) return 0;
+  const n = parseInt(localStorage.getItem(EXPERIENCE_COUNT_KEY) || '0', 10);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+/** Preview answers this device has spent. Persisted; mirrors the cookie. */
+export const cheffyExperienceCount = writable<number>(readExperienceCount());
+
+/** True once every preview turn is spent. */
+export const cheffyExperienceUsed = derived(
+  cheffyExperienceCount,
+  ($count) => $count >= EXPERIENCE_MAX_TURNS
 );
 
 /** True while the current messenger session is a non-member preview. */
 export const cheffyExperienceMode = writable(false);
 
 /** Which soft conversion card to show inside the messenger, or null.
- *  'response' = after the first helpful preview answer;
- *  'used'     = the experience was already spent. */
+ *  'response' = after the preview turns are spent;
+ *  'used'     = the experience was already spent before this session. */
 export type CheffyConversion = null | 'response' | 'used';
 export const cheffyConversion = writable<CheffyConversion>(null);
 
-function markExperienceUsed() {
-  cheffyExperienceUsed.set(true);
-  if (browser) {
-    try {
-      localStorage.setItem(EXPERIENCE_USED_KEY, '1');
-    } catch {
-      // storage blocked — the server cookie still enforces one use
-    }
+function persistExperienceCount(count: number) {
+  if (!browser) return;
+  try {
+    localStorage.setItem(EXPERIENCE_COUNT_KEY, String(count));
+  } catch {
+    // storage blocked — the server cookie still enforces the cap
   }
+}
+
+/** Record one spent preview answer. */
+function recordExperienceTurn() {
+  cheffyExperienceCount.update((c) => {
+    const next = c + 1;
+    persistExperienceCount(next);
+    return next;
+  });
+}
+
+/** Force the spent state when the server says the preview is used up. */
+function markExperienceExhausted() {
+  cheffyExperienceCount.set(EXPERIENCE_MAX_TURNS);
+  persistExperienceCount(EXPERIENCE_MAX_TURNS);
 }
 
 // ── Conversation state ──────────────────────────────────────────
@@ -177,8 +202,7 @@ async function dispatchTurn(
         prompt: promptForApi,
         mode,
         pubkey: get(userPublickey),
-        // Previews are single-shot — never send prior turns.
-        messages: isExperience ? [] : apiHistory,
+        messages: apiHistory,
         ...(isExperience ? { experience: true } : {})
       })
     });
@@ -187,7 +211,7 @@ async function dispatchTurn(
     // Experience already spent — swap the pending bubble for the friendly
     // conversion card rather than surfacing a technical error.
     if (data?.code === 'CHEFFY_EXPERIENCE_USED') {
-      markExperienceUsed();
+      markExperienceExhausted();
       cheffyThread.update((t) => t.filter((m) => m.id !== pendingId));
       cheffyConversion.set('used');
       cheffyAnnounce.set('Cheffy already helped you get started.');
@@ -212,11 +236,14 @@ async function dispatchTurn(
     );
     cheffyAnnounce.set(isRecipe ? 'Cheffy shared a recipe.' : 'Cheffy replied.');
 
-    // First helpful preview answer → spend the experience and invite the
-    // visitor to create a free kitchen or unlock Kitchen+.
+    // Spend one preview turn. Only invite the visitor to create a free
+    // kitchen or unlock Kitchen+ once all preview turns are used up — let
+    // them actually chat with Cheffy first.
     if (isExperience) {
-      markExperienceUsed();
-      cheffyConversion.set('response');
+      recordExperienceTurn();
+      if (get(cheffyExperienceCount) >= EXPERIENCE_MAX_TURNS) {
+        cheffyConversion.set('response');
+      }
     }
   } catch (err) {
     const detail = err instanceof Error ? err.message : 'Cheffy could not respond.';

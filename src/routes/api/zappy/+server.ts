@@ -133,13 +133,16 @@ const HUNGRY_PROMPT = `Surprise me with a complete recipe! It could be any cuisi
 const MAX_HISTORY_TURNS = 12;
 const MAX_HISTORY_MESSAGE_CHARS = 4000;
 
-// First-use "experience" — a single controlled preview for non-members,
-// initiated from the /explore invite. Deliberately NOT a "free question"
-// or "trial": it is a smaller, single-shot discovery answer. One use per
-// device is enforced with an HttpOnly cookie (localStorage alone is not
-// trusted). The endpoint fails CLOSED — non-members get nothing unless
-// the request is an explicit, allowed experience request.
+// First-use "experience" — a short controlled preview chat for
+// non-members, initiated from the /explore invite. Deliberately NOT a
+// "free question" or "trial": it is a handful of smaller discovery
+// answers so the visitor gets a real back-and-forth. The turn count is
+// enforced with an HttpOnly cookie (localStorage alone is not trusted).
+// The endpoint fails CLOSED — non-members get nothing unless the request
+// is an explicit, allowed experience request.
 const EXPERIENCE_COOKIE = 'zapcooking_cheffy_experience_used';
+const EXPERIENCE_MAX_TURNS = 3;
+const EXPERIENCE_MAX_HISTORY = 6; // ~3 prior exchanges of context
 const EXPERIENCE_MAX_PROMPT_CHARS = 750;
 const EXPERIENCE_MAX_TOKENS = 700;
 const EXPERIENCE_COOKIE_MAX_AGE = 60 * 60 * 24 * 180; // ~180 days
@@ -180,6 +183,7 @@ export const POST: RequestHandler = async ({ request, platform, cookies }) => {
     // reach Cheffy — and only once per device. `experienceGranted` stays
     // false for members, so their answers keep full depth.
     let experienceGranted = false;
+    let experienceCount = 0; // preview turns already spent on this device
     const MEMBERSHIP_ENABLED = platform?.env?.MEMBERSHIP_ENABLED || env.MEMBERSHIP_ENABLED;
     if (MEMBERSHIP_ENABLED?.toLowerCase() === 'true') {
       // Best-effort membership determination. Fail OPEN only for a
@@ -212,8 +216,11 @@ export const POST: RequestHandler = async ({ request, platform, cookies }) => {
             { status: 403 }
           );
         }
-        // One preview per device (HttpOnly cookie — not client-trusted).
-        if (cookies.get(EXPERIENCE_COOKIE) === '1') {
+        // A few preview turns per device (HttpOnly cookie counter — not
+        // client-trusted). Once spent, invite them to convert.
+        const prior = parseInt(cookies.get(EXPERIENCE_COOKIE) || '0', 10);
+        experienceCount = Number.isFinite(prior) && prior > 0 ? prior : 0;
+        if (experienceCount >= EXPERIENCE_MAX_TURNS) {
           return json(
             {
               ok: false,
@@ -241,10 +248,11 @@ export const POST: RequestHandler = async ({ request, platform, cookies }) => {
       );
     }
 
-    // Sanitize optional conversation history (ignored for format mode and
-    // for the single-shot experience preview).
+    // Sanitize optional conversation history (ignored for format mode).
+    // The preview keeps a short window so Cheffy can follow the chat.
     let history: { role: 'user' | 'assistant'; content: string }[] = [];
-    if (!isFormatMode && !experienceGranted && Array.isArray(body.messages)) {
+    if (!isFormatMode && Array.isArray(body.messages)) {
+      const turnLimit = experienceGranted ? EXPERIENCE_MAX_HISTORY : MAX_HISTORY_TURNS;
       history = body.messages
         .filter(
           (m: any) =>
@@ -253,7 +261,7 @@ export const POST: RequestHandler = async ({ request, platform, cookies }) => {
             typeof m.content === 'string' &&
             m.content.trim().length > 0
         )
-        .slice(-MAX_HISTORY_TURNS)
+        .slice(-turnLimit)
         .map((m: any) => ({
           role: m.role,
           content: String(m.content).slice(0, MAX_HISTORY_MESSAGE_CHARS)
@@ -310,10 +318,10 @@ export const POST: RequestHandler = async ({ request, platform, cookies }) => {
       );
     }
 
-    // Spend the one-use preview only on a successful answer, so a failed
+    // Count a preview turn only on a successful answer, so a failed
     // attempt never burns the visitor's experience.
     if (experienceGranted) {
-      cookies.set(EXPERIENCE_COOKIE, '1', {
+      cookies.set(EXPERIENCE_COOKIE, String(experienceCount + 1), {
         path: '/',
         httpOnly: true,
         sameSite: 'lax',

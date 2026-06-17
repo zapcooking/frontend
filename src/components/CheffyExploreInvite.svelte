@@ -30,16 +30,15 @@
   const DISMISS_KEY = 'zapcooking:cheffy-experience-dismissed:v1';
   const REVEAL_DELAY_MS = 6500;
 
-  // Quick chips — each opens Cheffy and sends one discovery prompt.
+  // Quick chips — each opens Cheffy and sends one actionable prompt that
+  // returns something useful (a real recipe), not just a conversation.
   const CHIPS: { label: string; prompt: string; mode: 'chat' | 'hungry' }[] = [
-    { label: 'Quick dinner', prompt: 'I need a quick dinner idea.', mode: 'chat' },
+    { label: 'Recipe for chicken', prompt: 'Give me a recipe for chicken.', mode: 'chat' },
     {
-      label: 'Use what I have',
-      prompt: 'Help me make something with what I already have at home.',
+      label: 'Quick weeknight dinner',
+      prompt: 'Give me a quick weeknight dinner recipe I can make in about 30 minutes.',
       mode: 'chat'
     },
-    { label: 'Healthy', prompt: 'I want something healthy for dinner.', mode: 'chat' },
-    { label: 'Comfort food', prompt: "I'm in the mood for comfort food.", mode: 'chat' },
     { label: 'Surprise me', prompt: '', mode: 'hungry' }
   ];
 
