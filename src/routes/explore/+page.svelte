@@ -19,6 +19,7 @@
   import LongformFoodFeed from '../../components/LongformFoodFeed.svelte';
   import LandingImportHero from '../../components/LandingImportHero.svelte';
   import CheffyHomeCard from '../../components/CheffyHomeCard.svelte';
+  import CheffyExploreInvite from '../../components/CheffyExploreInvite.svelte';
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
   import { nip19 } from 'nostr-tools';
   import { init, markOnce } from '$lib/perf/explorePerf';
@@ -532,7 +533,7 @@
       </section>
 
       <!-- What are you cooking? — Intent Cards -->
-      <section class="flex flex-col gap-3">
+      <section class="flex flex-col gap-3" data-cheffy-invite-anchor>
         <h2 class="text-lg font-semibold" style="color: var(--color-text-primary);">
           What are you cooking?
         </h2>
@@ -596,6 +597,9 @@
     </div>
   </div>
 </PullToRefresh>
+
+<!-- First-use Cheffy experience invite (non-members only; self-gating) -->
+<CheffyExploreInvite />
 
 <!-- One-time Cooking Tools tip (4.2 first-60-seconds) -->
 {#if showCookingToolsTip}

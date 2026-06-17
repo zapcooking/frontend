@@ -28,6 +28,10 @@
     cheffyLoading,
     cheffyDraft,
     cheffyAnnounce,
+    cheffyExperienceMode,
+    cheffyExperienceUsed,
+    cheffyExperienceCount,
+    cheffyConversion,
     sendCheffy,
     retryCheffy,
     startOverCheffy,
@@ -62,6 +66,53 @@
     .toLowerCase();
   $: signedIn = $userPublickey !== '';
   $: hasMembership = Boolean(membershipMap[normalizedPk]?.active);
+
+  // ── First-use experience (non-member preview) ───────────────────
+  // A non-member (logged out OR logged-in without a membership) who
+  // entered via the /explore invite, or who has any preview turns spent
+  // (so a mid-chat reload keeps them in the preview rather than dropping
+  // to the gate), sees the preview flow + a soft conversion card instead
+  // of the hard sign-in / membership gate. Members are never affected.
+  $: inExperience =
+    !hasMembership &&
+    ($cheffyExperienceMode || $cheffyExperienceCount > 0 || $cheffyConversion !== null);
+  // Re-assert preview mode so follow-up sends stay tagged as experience
+  // requests (e.g. after a mid-chat reload, where the flag would reset).
+  $: if (inExperience && !$cheffyExperienceMode) cheffyExperienceMode.set(true);
+  // If membership resolves true mid-session, drop the preview flags so a
+  // new member never lands on a blank surface (conversion card hidden by
+  // `inExperience`, composer hidden by `$cheffyConversion`) and their
+  // sends are no longer tagged as a preview.
+  $: if (hasMembership && ($cheffyConversion !== null || $cheffyExperienceMode)) {
+    cheffyConversion.set(null);
+    cheffyExperienceMode.set(false);
+  }
+  // Opening Cheffy again after the experience was spent (e.g. via the
+  // launcher) lands on the friendly card, never a technical wall.
+  $: if (
+    $cheffyOpen &&
+    inExperience &&
+    $cheffyExperienceUsed &&
+    $cheffyThread.length === 0 &&
+    $cheffyConversion === null
+  ) {
+    cheffyConversion.set('used');
+  }
+  // Gates apply only outside the experience flow.
+  $: showSignInGate = !inExperience && !signedIn;
+  $: showMembershipGate = !inExperience && signedIn && !hasMembership;
+
+  function convCreateKitchen() {
+    closeCheffy();
+    goto('/login?redirect=/explore');
+  }
+  function convUnlockKitchenPlus() {
+    closeCheffy();
+    goto('/membership');
+  }
+  function convKeepExploring() {
+    closeCheffy();
+  }
 
   // ── Layout mode ────────────────────────────────────────────────
   let isDesktop = false; // ≥1024px → non-modal floating panel
@@ -407,7 +458,7 @@
       </div>
     </header>
 
-    {#if !signedIn}
+    {#if showSignInGate}
       <!-- Sign-in gate -->
       <div class="cheffy-gate">
         <CheffyAvatar size={72} expression="neutral" variant="character" />
@@ -424,7 +475,7 @@
           Sign in
         </button>
       </div>
-    {:else if !hasMembership}
+    {:else if showMembershipGate}
       <!-- Membership gate -->
       <div class="cheffy-gate">
         <CheffyAvatar size={72} expression="neutral" variant="character" />
@@ -444,7 +495,7 @@
     {:else}
       <!-- Conversation -->
       <div class="cheffy-list" bind:this={listEl}>
-        {#if $cheffyThread.length === 0}
+        {#if $cheffyThread.length === 0 && !$cheffyConversion}
           <!-- Minimal welcome — the starter chips live above the
                composer, not here, so users can also just start typing. -->
           <div class="welcome">
@@ -493,8 +544,10 @@
                   {/if}
 
                   <!-- Context-aware follow-ups: only under the latest
-                       response, never while a turn is in flight. -->
-                  {#if m.id === lastMsgId && !$cheffyLoading && (m.kind === 'text' || m.kind === 'recipe')}
+                       response, never while a turn is in flight, and not
+                       during the non-member preview (the composer carries
+                       the preview turns). -->
+                  {#if m.id === lastMsgId && !$cheffyLoading && !inExperience && (m.kind === 'text' || m.kind === 'recipe')}
                     <div class="context-row">
                       <CheffySuggestionChips
                         compact
@@ -509,11 +562,58 @@
             {/if}
           {/each}
         {/if}
+
+        {#if inExperience && $cheffyConversion}
+          <!-- Soft conversion card — shown once the preview turns are
+               spent (or when the experience was already used): invites the
+               visitor to create a free kitchen or unlock Kitchen+. Never a
+               paywall — this is the gentle next step. -->
+          <div class="conversion" role="group" aria-label="Keep cooking with Cheffy">
+            <CheffyAvatar size={44} expression="happy" variant="character" />
+            {#if $cheffyConversion === 'used'}
+              <h3 class="conv-title">Cheffy already helped you get started</h3>
+              <p class="conv-body">
+                Create your free kitchen to save ideas, or unlock Kitchen+ to keep cooking with
+                Cheffy.
+              </p>
+            {:else if signedIn}
+              <h3 class="conv-title">Keep cooking with Cheffy</h3>
+              <p class="conv-body">
+                Kitchen+ gives you Cheffy, Nourish, saved drafts, recipe tools, and more ways to
+                build your kitchen.
+              </p>
+            {:else}
+              <h3 class="conv-title">Save this to your kitchen</h3>
+              <p class="conv-body">
+                Create a free Zap Cooking account to save meals, follow cooks, and come back to what
+                Cheffy helped you make.
+              </p>
+            {/if}
+            <div class="conv-actions">
+              {#if !signedIn}
+                <button type="button" class="conv-primary" on:click={convCreateKitchen}>
+                  Create your free kitchen
+                </button>
+                <button type="button" class="conv-secondary" on:click={convUnlockKitchenPlus}>
+                  Unlock Kitchen+
+                </button>
+              {:else}
+                <button type="button" class="conv-primary" on:click={convUnlockKitchenPlus}>
+                  Unlock Kitchen+
+                </button>
+              {/if}
+              <button type="button" class="conv-ghost" on:click={convKeepExploring}>
+                Keep exploring
+              </button>
+            </div>
+          </div>
+        {/if}
       </div>
 
       <!-- Starter suggestions — a single scrollable row directly above
-           the composer; removed once the conversation begins. -->
-      {#if $cheffyThread.length === 0}
+           the composer; removed once the conversation begins or the
+           conversion card takes over. -->
+      {#if $cheffyThread.length === 0 && !$cheffyConversion}
         <div class="starter-row">
           <CheffySuggestionChips
             suggestions={STARTER_SUGGESTIONS}
@@ -523,27 +623,33 @@
         </div>
       {/if}
 
+      <!-- Composer — usable during a member chat and during the preview
+           turns; replaced by the conversion card once they're spent. -->
+      {#if !$cheffyConversion}
       <!-- Fixed composer -->
       <div class="cheffy-composer">
         {#if scanError}
           <p class="scan-error" role="alert">{scanError}</p>
         {/if}
         <div class="composer-row">
-          <button
-            type="button"
-            class="composer-icon"
-            aria-label="Add ingredients, photo, or recipe"
-            aria-haspopup="menu"
-            aria-expanded={attachOpen}
-            on:click|stopPropagation={() => (attachOpen = !attachOpen)}
-            disabled={isScanning}
-          >
-            {#if isScanning}
-              <ArrowsClockwiseIcon size={20} class="animate-spin" />
-            {:else}
-              <PaperclipIcon size={20} />
-            {/if}
-          </button>
+          {#if !inExperience}
+            <!-- Attach (scan / photo / paste) is a member-only tool. -->
+            <button
+              type="button"
+              class="composer-icon"
+              aria-label="Add ingredients, photo, or recipe"
+              aria-haspopup="menu"
+              aria-expanded={attachOpen}
+              on:click|stopPropagation={() => (attachOpen = !attachOpen)}
+              disabled={isScanning}
+            >
+              {#if isScanning}
+                <ArrowsClockwiseIcon size={20} class="animate-spin" />
+              {:else}
+                <PaperclipIcon size={20} />
+              {/if}
+            </button>
+          {/if}
           <label class="sr-only" for="cheffy-composer-input">Message Cheffy</label>
           <textarea
             id="cheffy-composer-input"
@@ -571,6 +677,7 @@
         </div>
       </div>
 
+      {#if !inExperience}
       <!-- Hidden file inputs for scan/photo/upload -->
       <input
         bind:this={cameraInput}
@@ -612,6 +719,8 @@
             <LinkIcon size={20} /> Import a link
           </button>
         </div>
+      {/if}
+      {/if}
       {/if}
     {/if}
   </div>
@@ -1116,6 +1225,77 @@
     font-weight: 600;
     font-size: 0.95rem;
     cursor: pointer;
+  }
+
+  /* ── Soft conversion card (post-experience) ────────────────── */
+  .conversion {
+    margin: 6px auto 4px;
+    width: 100%;
+    max-width: 30ch;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    text-align: center;
+    padding: 18px 16px;
+    border-radius: 16px;
+    background-color: var(--color-bg-secondary);
+    border: 1px solid var(--color-input-border);
+  }
+  .conv-title {
+    font-size: 1.05rem;
+    font-weight: 700;
+    margin: 0;
+    color: var(--color-text-primary);
+  }
+  .conv-body {
+    font-size: 0.88rem;
+    line-height: 1.45;
+    color: var(--color-text-secondary);
+    margin: 0;
+  }
+  .conv-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    width: 100%;
+    margin-top: 4px;
+  }
+  .conv-primary,
+  .conv-secondary,
+  .conv-ghost {
+    min-height: 44px;
+    padding: 0 18px;
+    border-radius: 999px;
+    font-weight: 600;
+    font-size: 0.9rem;
+    cursor: pointer;
+  }
+  .conv-primary {
+    border: 0;
+    background-color: var(--color-primary);
+    color: #fff;
+    transition: filter 140ms ease;
+  }
+  .conv-primary:hover {
+    filter: brightness(1.06);
+  }
+  .conv-secondary {
+    background: transparent;
+    border: 1px solid var(--color-primary);
+    color: var(--color-primary);
+    transition: background-color 140ms ease;
+  }
+  .conv-secondary:hover {
+    background-color: color-mix(in srgb, var(--color-primary) 10%, transparent);
+  }
+  .conv-ghost {
+    background: transparent;
+    border: 0;
+    color: var(--color-text-secondary);
+  }
+  .conv-ghost:hover {
+    color: var(--color-text-primary);
   }
 
   @keyframes cheffy-fade {
