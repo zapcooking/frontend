@@ -138,10 +138,7 @@
         .filter((n) => n.type === 'comment' || n.type === 'mention')
         .map((n) => ({ kind: 'notification' as const, notification: n }));
     } else {
-      list = [
-        ...sortedNotifs.map((n) => ({ kind: 'notification' as const, notification: n })),
-        ...dmRows.map((dm) => ({ kind: 'dm' as const, ...dm }))
-      ].sort((a, b) => rowTimestamp(b) - rowTimestamp(a));
+      list = sortedNotifs.map((n) => ({ kind: 'notification' as const, notification: n }));
     }
     return list.slice(0, MAX_PREVIEW);
   })();

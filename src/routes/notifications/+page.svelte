@@ -777,7 +777,7 @@
             <button
               on:click={() => item.kind === 'single' ? handleNotificationClick(item.notification) : handleGroupedClick(item)}
               class="notif-row"
-              class:notif-read={isRead}
+              class:notif-unread={!isRead}
               class:notif-zap-accent={isLargeZap(item)}
             >
               <!-- Left gutter: icon + avatar -->
@@ -902,8 +902,11 @@
   .notif-row:hover {
     background-color: var(--color-input-bg);
   }
-  .notif-read {
-    opacity: 0.55;
+  .notif-unread {
+    background-color: color-mix(in srgb, #f97316 6%, transparent);
+  }
+  .notif-unread:hover {
+    background-color: color-mix(in srgb, #f97316 10%, transparent);
   }
   .notif-zap-accent {
     border-left: 2.5px solid #f59e0b;
