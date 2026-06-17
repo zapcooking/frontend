@@ -584,7 +584,7 @@
        (clipped via the dialog's overflow-hidden); bottom is squared so
        the banner sits flush against the avatar / form below instead of
        carving an awkward curve into the modal content area. -->
-  <div class="relative h-40 overflow-hidden -mx-2 md:-mx-8 -mt-6" style="background-color: var(--color-input-bg);">
+  <div class="relative h-40 overflow-hidden -mx-4 md:-mx-8 -mt-6" style="background-color: var(--color-input-bg);">
     {#if formData.banner}
       <img src={formData.banner} alt="Banner" class="w-full h-full object-cover" />
     {:else}

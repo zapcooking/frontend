@@ -176,7 +176,7 @@
   }
 </script>
 
-<span class={class_}>
+<span class={class_} style="white-space: pre-wrap;">
   {#if loading}
     <span class="opacity-50">{text}</span>
   {:else}
