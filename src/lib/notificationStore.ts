@@ -228,36 +228,63 @@ export function subscribeToNotifications(ndk: NDK, userPubkey: string, forceFull
     { closeOnEose: false }
   );
 
-  activeSubscription.on('event', async (event: NDKEvent) => {
+  // Buffer events received before EOSE so we can insert them in one
+  // addBulk() call (one sort + one localStorage write) instead of doing
+  // a full sort + localStorage write for every individual event.
+  let eoseReceived = false;
+  const preEoseBuffer: NDKEvent[] = [];
+
+  function handleEvent(event: NDKEvent, isRealtime: boolean) {
     // For zap receipts (9735), the pubkey is the zapper service, not the sender.
     // Self-zap filtering happens in parseNotification after extracting the real sender.
-    if (event.kind !== 9735 && event.pubkey === userPubkey) {
-      return;
-    }
-
-    // Filter out hellthreads (events with excessive p tags)
-    if (isHellthread(event)) {
-      return;
-    }
+    if (event.kind !== 9735 && event.pubkey === userPubkey) return;
+    if (isHellthread(event)) return;
 
     const notification = parseNotification(event, userPubkey);
-    if (notification) {
-      // Add to store
-      notifications.add(notification);
+    if (!notification) return;
 
-      // Record NIP-57 zap data to Spark SDK for received zaps
-      if (event.kind === 9735) {
-        recordZapToSparkSdk(event);
-      }
+    if (!isRealtime) {
+      // Pre-EOSE: buffer for bulk insert
+      preEoseBuffer.push(event);
+      return;
+    }
 
-      // Send local notification if app is backgrounded and permissions are granted
-      if (browser) {
-        try {
-          await sendLocalNotificationForNostrEvent(notification);
-        } catch (error) {
-          console.error('[Notifications] Error sending local notification:', error);
-        }
+    // Post-EOSE realtime event: add individually (rare, no perf issue)
+    notifications.add(notification);
+
+    if (event.kind === 9735) recordZapToSparkSdk(event);
+
+    if (browser) {
+      sendLocalNotificationForNostrEvent(notification).catch((error) => {
+        console.error('[Notifications] Error sending local notification:', error);
+      });
+    }
+  }
+
+  activeSubscription.on('event', (event: NDKEvent) => {
+    handleEvent(event, eoseReceived);
+  });
+
+  activeSubscription.on('eose', () => {
+    eoseReceived = true;
+    if (preEoseBuffer.length === 0) return;
+
+    // Parse + dedup the buffer, then bulk-insert (one sort + one localStorage write)
+    const parsed: Notification[] = [];
+    const seenIds = new Set<string>();
+    for (const event of preEoseBuffer) {
+      if (seenIds.has(event.id)) continue;
+      seenIds.add(event.id);
+      const notification = parseNotification(event, userPubkey);
+      if (notification) {
+        parsed.push(notification);
+        if (event.kind === 9735) recordZapToSparkSdk(event);
       }
+    }
+    preEoseBuffer.length = 0;
+
+    if (parsed.length > 0) {
+      notifications.addBulk(parsed);
     }
   });
 

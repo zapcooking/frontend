@@ -34,7 +34,6 @@
 	import { uploadImage, uploadVideo } from '$lib/mediaUpload';
 	import { postComment as postCommentLib } from '$lib/comments/postComment';
 	import { showToast } from '$lib/toast';
-	import { detectHaiku } from '$lib/haiku';
 
 	/**
 	 * Root event for NIP-22 / NIP-10 tag-building. Passed verbatim to
@@ -263,11 +262,6 @@
 		posting ||
 		uploadingImage ||
 		uploadingVideo;
-
-	// Replies to recipes (kind 30023) become NIP-22 comments (kind 1111),
-	// which the haiku bot doesn't process. Gate the warning to non-recipe
-	// parents so it only appears when the reply will be a kind 1 note.
-	$: haikuDetected = parentEvent?.kind !== 30023 && detectHaiku(composerText);
 </script>
 
 <div class="reply-composer" class:reply-composer--compact={compact}>
@@ -297,11 +291,6 @@
 		/>
 	</div>
 
-	{#if haikuDetected}
-		<p class="px-1 text-[11px] text-amber-600 dark:text-amber-400">
-			🍃 This looks like a haiku. Expect a visit from the haiku bot.
-		</p>
-	{/if}
 
 	{#if uploadError}
 		<p class="text-red-500 text-xs">{uploadError}</p>
