@@ -1,7 +1,6 @@
 <script lang="ts">
   import { ndk } from '$lib/nostr';
-  import { NDKEvent } from '@nostr-dev-kit/ndk';
-  import { Fetch } from 'hurdak';
+  import { uploadToNostrBuild as nostrBuildUpload } from '$lib/mediaUpload';
 
   export let setUrl: (url: string) => void;
   export let name = 'file';
@@ -39,41 +38,10 @@
     input?.click();
   }
 
-  export async function uploadToNostrBuild(body: any) {
-    const uploadUrl = 'https://nostr.build/api/v2/upload/files';
-    const template = new NDKEvent($ndk);
-    template.kind = 27235;
-    template.created_at = Math.floor(Date.now() / 1000);
-    template.content = '';
-    template.tags = [
-      ['u', uploadUrl],
-      ['method', 'POST']
-    ];
-
-    // Sign with a timeout — extension popups can get blocked in overlays
-    const signResult = await Promise.race([
-      template.sign().then(() => true).catch(() => { throw new Error('Signing failed — are you signed in?'); }),
-      new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Signing timed out — check your Nostr extension popup.')), 30000))
-    ]);
-
-    // Ensure all fields are properly formatted according to NIP-98
-    const authEvent = {
-      id: template.id,
-      pubkey: template.pubkey,
-      created_at: template.created_at,
-      kind: template.kind,
-      tags: template.tags,
-      content: template.content,
-      sig: template.sig
-    };
-
-    return Fetch.fetchJson(uploadUrl, {
-      body,
-      method: 'POST',
-      headers: {
-        Authorization: `Nostr ${btoa(JSON.stringify(authEvent))}`
-      }
-    });
+  export async function uploadToNostrBuild(body: FormData) {
+    // Shared helper warms the signer and retries once on a stale NIP-98 token
+    // (remote signers like Primal add latency that can expire the first one).
+    return nostrBuildUpload($ndk, body);
   }
 </script>
 
@@ -93,7 +61,7 @@
       <div class="flex flex-col items-center gap-2 py-2">
         <div class="upload-spinner"></div>
         <p class="text-sm text-caption">Uploading...</p>
-        <p class="text-xs text-caption" style="opacity: 0.6;">Check for a signing popup from your Nostr extension</p>
+        <p class="text-xs text-caption" style="opacity: 0.6;">Approve the signing request in your signer (extension, Amber, or Primal)</p>
       </div>
     {:else}
       <div class="flex gap-0.5 text-sm leading-6 items-center">

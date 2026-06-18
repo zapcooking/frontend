@@ -420,6 +420,7 @@ export class AuthManager {
       // rather than log the session in as the signer service.
       const userPubkey = await this.fetchNip46UserPubkey();
       const user = this.ndk.getUser({ pubkey: userPubkey });
+      this.bindUserToSigner(user);
 
       console.log('[NIP-46] Signer pubkey:', signerPubkey);
       console.log('[NIP-46] User pubkey (from get_public_key):', userPubkey);
@@ -570,6 +571,7 @@ export class AuthManager {
       }
 
       const user = this.ndk.getUser({ pubkey: userPubkey });
+      this.bindUserToSigner(user);
 
       console.log('[NIP-46] Reconnected as user:', userPubkey);
 
@@ -1010,6 +1012,7 @@ export class AuthManager {
       }
 
       const user = this.ndk.getUser({ pubkey: userPubkey });
+      this.bindUserToSigner(user);
 
       const nip46Info: NIP46ConnectionInfo = {
         signerPubkey,
@@ -1078,6 +1081,28 @@ export class AuthManager {
     this.startNip46ResponseListener(pendingInfo.localPubkey);
 
     console.log('[NIP-46] Listener restarted, waiting for signer response...');
+  }
+
+  /**
+   * Bind the authenticated user onto the NIP-46 signer and NDK.
+   *
+   * NDKNip46Signer.user() returns its `remoteUser`, which it initializes to the
+   * SIGNER pubkey in the constructor and never updates — not even after a
+   * successful connect. For bunkers whose signer pubkey differs from the user
+   * pubkey (e.g. Primal remote signing), every event we sign would otherwise be
+   * stamped (via NDKEvent.toNostrEvent → signer.user()) with the signer's
+   * pubkey while the bunker signs with the user's key — producing an event
+   * whose signature fails verification. That silently breaks relay NIP-42 auth,
+   * NIP-98 uploads (nostr.build 401), notes, reactions — everything.
+   *
+   * Point the signer's reported user at the real user. `remotePubkey` (used to
+   * route the signing RPC to the bunker) is intentionally left untouched.
+   */
+  private bindUserToSigner(user: NDKUser): void {
+    if (this.nip46Signer) {
+      (this.nip46Signer as unknown as { remoteUser: NDKUser }).remoteUser = user;
+    }
+    this.ndk.activeUser = user;
   }
 
   // Ensure NIP-46 signer is ready (call before signing operations)
