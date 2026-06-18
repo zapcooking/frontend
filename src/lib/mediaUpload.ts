@@ -7,16 +7,51 @@ const MAX_VIDEO_SIZE = 50 * 1024 * 1024; // 50MB
 const MAX_VIDEO_DURATION = 60; // seconds
 
 /**
- * Upload files to nostr.build with NIP-98 authentication.
+ * Bring the (possibly remote) signer to a ready state. NIP-46 bunkers such
+ * as Primal need a relay round-trip — and, the first time the app asks them
+ * to sign a kind:27235 event, a one-time user-approval prompt. We block on
+ * that here, BEFORE stamping the NIP-98 timestamp, so the slow connect/
+ * approval doesn't eat into the auth token's freshness window. Local-key and
+ * extension signers resolve effectively instantly. Non-fatal on timeout —
+ * the subsequent sign attempt surfaces any real error.
  */
-export async function uploadToNostrBuild(ndk: NDK, body: FormData) {
+async function warmSigner(ndk: NDK): Promise<void> {
+	const signer = ndk.signer as { blockUntilReady?: () => Promise<unknown> } | undefined;
+	if (!signer?.blockUntilReady) return;
+	try {
+		await Promise.race([
+			signer.blockUntilReady(),
+			new Promise((_, reject) =>
+				setTimeout(() => reject(new Error('signer warm timeout')), 30000)
+			)
+		]);
+	} catch {
+		// Ignore — proceed and let the sign attempt report the real problem.
+	}
+}
+
+/** True if a failed upload response looks like a rejected/expired NIP-98 token. */
+function isAuthFailure(status: number, bodyText: string): boolean {
+	if (status === 401 || status === 403) return true;
+	// nostr.build sometimes returns 400 for a stale/invalid auth event.
+	const t = bodyText.toLowerCase();
+	return /nip[\s-]?98|unauthor|expired|timestamp|created_at|invalid auth/.test(t);
+}
+
+/**
+ * Build + sign a fresh NIP-98 Authorization header for the given URL. Stamps
+ * `created_at` at call time, so re-invoking on a retry yields a fresh token.
+ */
+async function buildAuthHeader(ndk: NDK, url: string): Promise<string> {
 	const template = new NDKEvent(ndk);
 	template.kind = 27235;
-	template.created_at = Math.floor(Date.now() / 1000);
+	const now = Math.floor(Date.now() / 1000);
+	template.created_at = now;
 	template.content = '';
 	template.tags = [
-		['u', NOSTR_BUILD_URL],
-		['method', 'POST']
+		['u', url],
+		['method', 'POST'],
+		['expiration', String(now + 60)]
 	];
 
 	await template.sign();
@@ -31,25 +66,65 @@ export async function uploadToNostrBuild(ndk: NDK, body: FormData) {
 		sig: template.sig
 	};
 
-	const response = await fetch(NOSTR_BUILD_URL, {
-		body,
-		method: 'POST',
-		headers: {
-			Authorization: `Nostr ${btoa(JSON.stringify(authEvent))}`
-		}
-	});
+	return `Nostr ${btoa(JSON.stringify(authEvent))}`;
+}
+
+function parseUploadError(bodyText: string, status: number, statusText: string): string {
+	try {
+		const data = JSON.parse(bodyText);
+		return data.message || data.error || `Upload failed with status ${status}`;
+	} catch {
+		return bodyText || `HTTP ${status}: ${statusText}`;
+	}
+}
+
+/**
+ * Upload files to nostr.build with NIP-98 authentication.
+ *
+ * nostr.build verifies that the NIP-98 event's `created_at` is recent
+ * (~60s). Remote signers (NIP-46, e.g. Primal) add round-trip + first-time
+ * approval latency, so a token signed up front can arrive already expired.
+ * To handle that we warm the signer first, then build a freshly-signed,
+ * freshly-stamped header on each attempt and retry once on an auth failure —
+ * by the retry the signer auto-approves kind:27235, so the new timestamp
+ * lands well inside the window.
+ *
+ * @param opts.url override endpoint (defaults to the general files endpoint;
+ *   ProfileEditModal uses the profile endpoint for square-cropped avatars).
+ */
+export async function uploadToNostrBuild(
+	ndk: NDK,
+	body: FormData,
+	opts: { url?: string } = {}
+) {
+	if (!ndk.signer) {
+		throw new Error('You must be signed in to upload.');
+	}
+
+	const url = opts.url ?? NOSTR_BUILD_URL;
+
+	await warmSigner(ndk);
+
+	const attempt = async () => {
+		const authorization = await buildAuthHeader(ndk, url);
+		return fetch(url, { method: 'POST', body, headers: { Authorization: authorization } });
+	};
+
+	let response = await attempt();
 
 	if (!response.ok) {
-		const errorText = await response.text();
-		let errorData;
-		try {
-			errorData = JSON.parse(errorText);
-		} catch {
-			errorData = { message: errorText || `HTTP ${response.status}: ${response.statusText}` };
+		const firstText = await response.text();
+		if (isAuthFailure(response.status, firstText)) {
+			// Token likely arrived stale (slow remote sign). Retry once with a
+			// fresh timestamp — the signer is warm and approval is now granted.
+			response = await attempt();
+			if (!response.ok) {
+				const text = await response.text();
+				throw new Error(parseUploadError(text, response.status, response.statusText));
+			}
+		} else {
+			throw new Error(parseUploadError(firstText, response.status, response.statusText));
 		}
-		throw new Error(
-			errorData.message || errorData.error || `Upload failed with status ${response.status}`
-		);
 	}
 
 	return await response.json();

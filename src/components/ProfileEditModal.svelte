@@ -11,7 +11,7 @@
   import Button from './Button.svelte';
   import { ndk, userPublickey } from '$lib/nostr';
   import { NDKEvent } from '@nostr-dev-kit/ndk';
-  import { Fetch } from 'hurdak';
+  import { uploadToNostrBuild } from '$lib/mediaUpload';
   import { profileCacheManager } from '$lib/profileCache';
   import {
     backupProfile,
@@ -311,38 +311,13 @@
       throw new Error('Image must be less than 10MB');
     }
 
-    // Create NIP-98 auth event
-    const template = new NDKEvent($ndk);
-    template.kind = 27235;
-    template.created_at = Math.floor(Date.now() / 1000);
-    template.content = '';
-    template.tags = [
-      ['u', url],
-      ['method', 'POST']
-    ];
-    await template.sign();
-
-    const authEvent = {
-      id: template.id,
-      pubkey: template.pubkey,
-      created_at: template.created_at,
-      kind: template.kind,
-      tags: template.tags,
-      content: template.content,
-      sig: template.sig
-    };
-
     const body = new FormData();
     body.append('file[]', file);
     body.append('media_type', type === 'picture' ? 'avatar' : 'banner');
 
-    const result = await Fetch.fetchJson(url, {
-      body,
-      method: 'POST',
-      headers: {
-        Authorization: `Nostr ${btoa(JSON.stringify(authEvent))}`
-      }
-    });
+    // Shared helper handles NIP-98 auth, warms the signer, and retries once on
+    // a stale token (remote signers like Primal add latency that can expire it).
+    const result = await uploadToNostrBuild($ndk, body, { url });
 
     if (result?.data?.[0]?.url) {
       return result.data[0].url;

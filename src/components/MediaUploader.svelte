@@ -1,8 +1,7 @@
 <script lang="ts">
   import type { Writable } from 'svelte/store';
   import { ndk } from '$lib/nostr';
-  import { NDKEvent } from '@nostr-dev-kit/ndk';
-  import { Fetch } from 'hurdak';
+  import { uploadToNostrBuild } from '$lib/mediaUpload';
   import XIcon from 'phosphor-svelte/lib/X';
   import PlayIcon from 'phosphor-svelte/lib/Play';
   import ImageIcon from 'phosphor-svelte/lib/Image';
@@ -66,43 +65,14 @@
     return /\.(mp4|webm|mov|avi)$/i.test(url);
   }
 
-  // Upload to nostr.build
-  async function uploadToNostrBuild(file: File): Promise<string | null> {
-    const body = new FormData();
-    body.append('file[]', file);
-    
-    const url = 'https://nostr.build/api/v2/upload/files';
-    const template = new NDKEvent($ndk);
-    template.kind = 27235;
-    template.created_at = Math.floor(Date.now() / 1000);
-    template.content = '';
-    template.tags = [
-      ['u', url],
-      ['method', 'POST']
-    ];
-
-    await template.sign();
-    
-    const authEvent = {
-      id: template.id,
-      pubkey: template.pubkey,
-      created_at: template.created_at,
-      kind: template.kind,
-      tags: template.tags,
-      content: template.content,
-      sig: template.sig
-    };
-
+  // Upload a single file to nostr.build (shared NIP-98 helper handles auth +
+  // remote-signer retry). Returns the URL, or null on failure.
+  async function uploadFile(file: File): Promise<string | null> {
     try {
-      const result = await Fetch.fetchJson(url, {
-        body,
-        method: 'POST',
-        headers: {
-          Authorization: `Nostr ${btoa(JSON.stringify(authEvent))}`
-        }
-      });
-      
-      if (result && result.data && result.data[0]?.url) {
+      const body = new FormData();
+      body.append('file[]', file);
+      const result = await uploadToNostrBuild($ndk, body);
+      if (result?.data?.[0]?.url) {
         return result.data[0].url;
       }
     } catch (error) {
@@ -113,31 +83,31 @@
 
   async function handleFiles(files: FileList) {
     if (files.length === 0) return;
-    
+
     isUploading = true;
     const totalFiles = files.length;
     let uploaded = 0;
-    
+
     for (const file of Array.from(files)) {
       // Check file type
       if (!file.type.startsWith('image/') && !file.type.startsWith('video/')) {
         continue;
       }
-      
+
       // Check limit
       if (limit > 0 && $uploadedImages.length >= limit) {
         break;
       }
-      
+
       uploadProgress = `Uploading ${uploaded + 1} of ${totalFiles}...`;
-      const url = await uploadToNostrBuild(file);
-      
+      const url = await uploadFile(file);
+
       if (url) {
         uploadedImages.update(imgs => [...imgs, url]);
         uploaded++;
       }
     }
-    
+
     isUploading = false;
     uploadProgress = '';
   }
