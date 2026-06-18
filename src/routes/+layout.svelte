@@ -195,6 +195,10 @@
   let feedInitialLoadTimeout: ReturnType<typeof setTimeout> | null = null;
   let walletWelcomeSeen = false;
   let walletWelcomeForce = false;
+  // Measured height of the fixed header overlay. Drives the scroll
+  // container's top padding (so content isn't hidden behind the header)
+  // and the --header-h var that sticky sub-headers offset against.
+  let headerHeight = 64;
   let oneTapZapLoadedForPubkey = '';
   const WALLET_WELCOME_KEY = 'zapcooking_wallet_welcome_seen';
   const WALLET_WELCOME_FORCE_KEY = 'zapcooking_wallet_welcome_force';
@@ -526,16 +530,26 @@
       {/if}
       <!-- Fixed sidebar -->
       <DesktopSideNav />
-      <!-- Full-page scroll container: clip horizontal overflow to prevent Safari horizontal scroll/gap -->
+      <!-- Header with blur. Fixed to the viewport (not sticky inside the
+           scroll container) so it stays put while the page content scrolls
+           and rubber-band-bounces behind it. -->
+      <div
+        class="header-blur fixed top-0 left-0 right-0 xl:left-[calc(20rem_+_5px)] z-30 py-3 px-4"
+        bind:clientHeight={headerHeight}
+      >
+        <Header />
+        <!-- Decorative connector (desktop): a vertical line just left of
+             the search box that curves into the header's bottom divider. -->
+        <span class="header-pipe" aria-hidden="true"></span>
+      </div>
+      <!-- Full-page scroll container: clip horizontal overflow to prevent Safari horizontal scroll/gap.
+           Top padding clears the fixed header; --header-h lets sticky
+           sub-headers sit directly below it. -->
       <div
         id="app-scroll"
-        class="flex-1 min-h-0 min-w-0 overflow-y-auto overflow-x-hidden xl:ml-80"
-        style="background-color: var(--color-bg-primary);"
+        class="flex-1 min-h-0 min-w-0 overflow-y-auto overflow-x-hidden xl:ml-[calc(20rem_+_5px)]"
+        style="background-color: var(--color-bg-primary); padding-top: {headerHeight}px; --header-h: {headerHeight}px;"
       >
-        <!-- Sticky header with blur -->
-        <div class="header-blur sticky top-0 z-20 py-3 px-4">
-          <Header />
-        </div>
         <div
           class="px-4 min-w-0 max-w-full {$page.url.pathname.startsWith('/messages') ||
           $page.url.pathname.startsWith('/groups')
@@ -581,24 +595,35 @@
     }
   }
 
-  /* Header with frosted glass effect */
+  /* Header with frosted glass effect. The bottom divider is drawn by
+     ::after (not border-bottom) so it can be cleanly swapped for the pipe
+     connector at xl without leaving a leftover full-width line behind. */
   .header-blur {
     /* Fallback for browsers that don't support color-mix */
     background-color: var(--color-bg-primary);
     background-color: color-mix(in srgb, var(--color-bg-primary) 70%, transparent);
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
-    border-bottom: 1px solid color-mix(in srgb, var(--color-input-border) 60%, transparent);
+  }
+  .header-blur::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 1px;
+    background: color-mix(in srgb, var(--color-input-border) 60%, transparent);
+    pointer-events: none;
   }
 
-  /* Dark-mode header gets a subtle navy lean + thin glow band so the
-     header reads as its own surface, not just a tinted body. Light
-     mode is left clean. */
+  /* Dark-mode header gets a subtle navy lean; the divider uses a faint
+     white line. */
   :global(.dark) .header-blur {
     background-color: rgba(14, 21, 41, 0.78);
     background-image: linear-gradient(to bottom, rgba(33, 39, 73, 0.45), rgba(14, 21, 41, 0.65));
-    border-bottom-color: rgba(255, 255, 255, 0.06);
-    box-shadow: 0 1px 0 rgba(168, 85, 247, 0.04);
+  }
+  :global(.dark) .header-blur::after {
+    background: rgba(255, 255, 255, 0.06);
   }
 
   /* Safe area padding for header on mobile.
@@ -624,6 +649,41 @@
       width: 10%;
       background: linear-gradient(to right, var(--color-bg-primary) 0%, transparent 100%);
       pointer-events: none;
+    }
+  }
+
+  /* Decorative pipe connector — only on xl, where the logo lives in the
+     sidebar and the search box sits at the content's left edge. ONE element
+     draws the vertical line (from the very top of the header), the rounded
+     elbow, and the full-width horizontal divider, so all three share the
+     same color/weight and meet by construction. The header's own
+     border-bottom (and dark-mode glow) are removed at xl so there's no
+     second, misaligned line. */
+  .header-pipe {
+    display: none;
+  }
+  @media (min-width: 1280px) {
+    /* Swap the full-width divider for the pipe: one element draws the
+       vertical line (from the top), the rounded elbow, and the horizontal
+       divider running right from the elbow — nothing to the left of it. */
+    .header-blur::after {
+      display: none;
+    }
+    .header-pipe {
+      display: block;
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      left: 16px;
+      right: 0;
+      border-left: 1px solid color-mix(in srgb, var(--color-input-border) 60%, transparent);
+      border-bottom: 1px solid color-mix(in srgb, var(--color-input-border) 60%, transparent);
+      border-bottom-left-radius: 16px;
+      pointer-events: none;
+    }
+    :global(.dark) .header-pipe {
+      border-left-color: rgba(255, 255, 255, 0.06);
+      border-bottom-color: rgba(255, 255, 255, 0.06);
     }
   }
 </style>
