@@ -16,26 +16,47 @@ const MAX_VIDEO_DURATION = 60; // seconds
  * the subsequent sign attempt surfaces any real error.
  */
 async function warmSigner(ndk: NDK): Promise<void> {
-	const signer = ndk.signer as { blockUntilReady?: () => Promise<unknown> } | undefined;
-	if (!signer?.blockUntilReady) return;
-	try {
-		await Promise.race([
-			signer.blockUntilReady(),
-			new Promise((_, reject) =>
-				setTimeout(() => reject(new Error('signer warm timeout')), 30000)
-			)
-		]);
-	} catch {
-		// Ignore — proceed and let the sign attempt report the real problem.
-	}
+  const signer = ndk.signer as { blockUntilReady?: () => Promise<unknown> } | undefined;
+  if (!signer?.blockUntilReady) return;
+  try {
+    await Promise.race([
+      signer.blockUntilReady(),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('signer warm timeout')), 30000))
+    ]);
+  } catch {
+    // Ignore — proceed and let the sign attempt report the real problem.
+  }
+}
+
+/**
+ * Sign the event with a timeout so a blocked extension popup or an unanswered
+ * remote-signer approval surfaces an error instead of hanging the upload
+ * forever. Generous (60s) because remote signers (Amber/Primal) require manual
+ * approval; warmSigner has already absorbed the connection latency by now.
+ */
+async function signWithTimeout(template: NDKEvent, ms = 60000): Promise<void> {
+  await Promise.race([
+    template.sign(),
+    new Promise<never>((_, reject) =>
+      setTimeout(
+        () =>
+          reject(
+            new Error(
+              'Signing timed out — approve the request in your signer (extension, Amber, or Primal).'
+            )
+          ),
+        ms
+      )
+    )
+  ]);
 }
 
 /** True if a failed upload response looks like a rejected/expired NIP-98 token. */
 function isAuthFailure(status: number, bodyText: string): boolean {
-	if (status === 401 || status === 403) return true;
-	// nostr.build sometimes returns 400 for a stale/invalid auth event.
-	const t = bodyText.toLowerCase();
-	return /nip[\s-]?98|unauthor|expired|timestamp|created_at|invalid auth/.test(t);
+  if (status === 401 || status === 403) return true;
+  // nostr.build sometimes returns 400 for a stale/invalid auth event.
+  const t = bodyText.toLowerCase();
+  return /nip[\s-]?98|unauthor|expired|timestamp|created_at|invalid auth/.test(t);
 }
 
 /**
@@ -43,39 +64,39 @@ function isAuthFailure(status: number, bodyText: string): boolean {
  * `created_at` at call time, so re-invoking on a retry yields a fresh token.
  */
 async function buildAuthHeader(ndk: NDK, url: string): Promise<string> {
-	const template = new NDKEvent(ndk);
-	template.kind = 27235;
-	const now = Math.floor(Date.now() / 1000);
-	template.created_at = now;
-	template.content = '';
-	template.tags = [
-		['u', url],
-		['method', 'POST'],
-		['expiration', String(now + 60)]
-	];
+  const template = new NDKEvent(ndk);
+  template.kind = 27235;
+  const now = Math.floor(Date.now() / 1000);
+  template.created_at = now;
+  template.content = '';
+  template.tags = [
+    ['u', url],
+    ['method', 'POST'],
+    ['expiration', String(now + 60)]
+  ];
 
-	await template.sign();
+  await signWithTimeout(template);
 
-	const authEvent = {
-		id: template.id,
-		pubkey: template.pubkey,
-		created_at: template.created_at,
-		kind: template.kind,
-		tags: template.tags,
-		content: template.content,
-		sig: template.sig
-	};
+  const authEvent = {
+    id: template.id,
+    pubkey: template.pubkey,
+    created_at: template.created_at,
+    kind: template.kind,
+    tags: template.tags,
+    content: template.content,
+    sig: template.sig
+  };
 
-	return `Nostr ${btoa(JSON.stringify(authEvent))}`;
+  return `Nostr ${btoa(JSON.stringify(authEvent))}`;
 }
 
 function parseUploadError(bodyText: string, status: number, statusText: string): string {
-	try {
-		const data = JSON.parse(bodyText);
-		return data.message || data.error || `Upload failed with status ${status}`;
-	} catch {
-		return bodyText || `HTTP ${status}: ${statusText}`;
-	}
+  try {
+    const data = JSON.parse(bodyText);
+    return data.message || data.error || `Upload failed with status ${status}`;
+  } catch {
+    return bodyText || `HTTP ${status}: ${statusText}`;
+  }
 }
 
 /**
@@ -92,42 +113,38 @@ function parseUploadError(bodyText: string, status: number, statusText: string):
  * @param opts.url override endpoint (defaults to the general files endpoint;
  *   ProfileEditModal uses the profile endpoint for square-cropped avatars).
  */
-export async function uploadToNostrBuild(
-	ndk: NDK,
-	body: FormData,
-	opts: { url?: string } = {}
-) {
-	if (!ndk.signer) {
-		throw new Error('You must be signed in to upload.');
-	}
+export async function uploadToNostrBuild(ndk: NDK, body: FormData, opts: { url?: string } = {}) {
+  if (!ndk.signer) {
+    throw new Error('You must be signed in to upload.');
+  }
 
-	const url = opts.url ?? NOSTR_BUILD_URL;
+  const url = opts.url ?? NOSTR_BUILD_URL;
 
-	await warmSigner(ndk);
+  await warmSigner(ndk);
 
-	const attempt = async () => {
-		const authorization = await buildAuthHeader(ndk, url);
-		return fetch(url, { method: 'POST', body, headers: { Authorization: authorization } });
-	};
+  const attempt = async () => {
+    const authorization = await buildAuthHeader(ndk, url);
+    return fetch(url, { method: 'POST', body, headers: { Authorization: authorization } });
+  };
 
-	let response = await attempt();
+  let response = await attempt();
 
-	if (!response.ok) {
-		const firstText = await response.text();
-		if (isAuthFailure(response.status, firstText)) {
-			// Token likely arrived stale (slow remote sign). Retry once with a
-			// fresh timestamp — the signer is warm and approval is now granted.
-			response = await attempt();
-			if (!response.ok) {
-				const text = await response.text();
-				throw new Error(parseUploadError(text, response.status, response.statusText));
-			}
-		} else {
-			throw new Error(parseUploadError(firstText, response.status, response.statusText));
-		}
-	}
+  if (!response.ok) {
+    const firstText = await response.text();
+    if (isAuthFailure(response.status, firstText)) {
+      // Token likely arrived stale (slow remote sign). Retry once with a
+      // fresh timestamp — the signer is warm and approval is now granted.
+      response = await attempt();
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(parseUploadError(text, response.status, response.statusText));
+      }
+    } else {
+      throw new Error(parseUploadError(firstText, response.status, response.statusText));
+    }
+  }
 
-	return await response.json();
+  return await response.json();
 }
 
 /**
@@ -135,18 +152,18 @@ export async function uploadToNostrBuild(
  * Throws on validation failure or upload error.
  */
 export async function uploadImage(ndk: NDK, file: File): Promise<string> {
-	if (file.size > MAX_IMAGE_SIZE) {
-		throw new Error('Image must be less than 5MB');
-	}
+  if (file.size > MAX_IMAGE_SIZE) {
+    throw new Error('Image must be less than 5MB');
+  }
 
-	const body = new FormData();
-	body.append('file[]', file);
-	const result = await uploadToNostrBuild(ndk, body);
+  const body = new FormData();
+  body.append('file[]', file);
+  const result = await uploadToNostrBuild(ndk, body);
 
-	if (result?.data?.[0]?.url) {
-		return result.data[0].url;
-	}
-	throw new Error(result?.message || result?.error || 'Failed to upload image');
+  if (result?.data?.[0]?.url) {
+    return result.data[0].url;
+  }
+  throw new Error(result?.message || result?.error || 'Failed to upload image');
 }
 
 /**
@@ -154,43 +171,43 @@ export async function uploadImage(ndk: NDK, file: File): Promise<string> {
  * Validates size and duration. Throws on failure.
  */
 export async function uploadVideo(ndk: NDK, file: File): Promise<string> {
-	if (file.size > MAX_VIDEO_SIZE) {
-		throw new Error('Video must be less than 50MB');
-	}
+  if (file.size > MAX_VIDEO_SIZE) {
+    throw new Error('Video must be less than 50MB');
+  }
 
-	// Validate video duration
-	try {
-		const video = document.createElement('video');
-		video.preload = 'metadata';
-		const objectUrl = URL.createObjectURL(file);
+  // Validate video duration
+  try {
+    const video = document.createElement('video');
+    video.preload = 'metadata';
+    const objectUrl = URL.createObjectURL(file);
 
-		try {
-			const duration = await new Promise<number>((resolve, reject) => {
-				video.onloadedmetadata = () => resolve(video.duration);
-				video.onerror = () => reject(new Error('Failed to load video metadata'));
-				video.src = objectUrl;
-			});
+    try {
+      const duration = await new Promise<number>((resolve, reject) => {
+        video.onloadedmetadata = () => resolve(video.duration);
+        video.onerror = () => reject(new Error('Failed to load video metadata'));
+        video.src = objectUrl;
+      });
 
-			if (duration > 0 && duration > MAX_VIDEO_DURATION) {
-				throw new Error('Video must be less than 60 seconds');
-			}
-		} finally {
-			URL.revokeObjectURL(objectUrl);
-		}
-	} catch (metaError) {
-		// Re-throw validation errors, but ignore metadata read failures
-		if (metaError instanceof Error && metaError.message.includes('less than')) {
-			throw metaError;
-		}
-		console.warn('Could not read video metadata:', metaError);
-	}
+      if (duration > 0 && duration > MAX_VIDEO_DURATION) {
+        throw new Error('Video must be less than 60 seconds');
+      }
+    } finally {
+      URL.revokeObjectURL(objectUrl);
+    }
+  } catch (metaError) {
+    // Re-throw validation errors, but ignore metadata read failures
+    if (metaError instanceof Error && metaError.message.includes('less than')) {
+      throw metaError;
+    }
+    console.warn('Could not read video metadata:', metaError);
+  }
 
-	const body = new FormData();
-	body.append('file[]', file);
-	const result = await uploadToNostrBuild(ndk, body);
+  const body = new FormData();
+  body.append('file[]', file);
+  const result = await uploadToNostrBuild(ndk, body);
 
-	if (result?.data?.[0]?.url) {
-		return result.data[0].url;
-	}
-	throw new Error(result?.message || result?.error || 'Failed to upload video');
+  if (result?.data?.[0]?.url) {
+    return result.data[0].url;
+  }
+  throw new Error(result?.message || result?.error || 'Failed to upload video');
 }
