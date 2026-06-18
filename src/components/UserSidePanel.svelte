@@ -246,19 +246,19 @@
   >
     <!-- Header section with user info -->
     <div class="flex-shrink-0 p-6 border-b" style="border-color: var(--color-input-border);">
-      <div class="flex items-start justify-between">
+      <div class="flex items-center justify-between gap-2">
         <button
           on:click={() => navigate(`/user/${nip19.npubEncode($userPublickey)}`)}
-          class="profile-header-btn flex items-center gap-4 cursor-pointer bg-transparent border-0 p-0"
+          class="profile-header-btn flex items-center gap-4 cursor-pointer bg-transparent border-0 p-0 min-w-0 flex-1"
         >
-          <CustomAvatar pubkey={$userPublickey} size={48} imageUrl={$userProfilePictureOverride} />
-          <span class="font-semibold text-base" style="color: var(--color-text-primary);">
+          <CustomAvatar pubkey={$userPublickey} size={48} imageUrl={$userProfilePictureOverride} className="flex-shrink-0" />
+          <span class="font-semibold text-base truncate min-w-0" style="color: var(--color-text-primary);">
             {displayName}
           </span>
         </button>
         <button
           on:click={close}
-          class="p-2 rounded-full hover:bg-opacity-10 hover:bg-gray-500 transition-colors cursor-pointer"
+          class="flex-shrink-0 p-2 rounded-full hover:bg-opacity-10 hover:bg-gray-500 transition-colors cursor-pointer"
           style="color: var(--color-text-primary);"
           aria-label="Close menu"
         >
