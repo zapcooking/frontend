@@ -1833,10 +1833,15 @@
 </Modal>
 
 <div class="max-w-4xl mx-auto w-full">
-  <!-- Profile Banner -->
-  <div class="relative -mx-4 sm:-mx-6 lg:-mx-8 mb-4">
+  <!-- Profile Banner. Below xl (no sidebar) it's full-bleed and flush under
+       the top bar with square corners. At xl it's a contained, fixed-size
+       rounded card constrained to the content column — never wider than the
+       top bar — with a gap below the header. The outer wrapper stays the
+       container width so the overlapping avatar aligns with the name/content
+       below it (left edge), regardless of the banner's bleed. -->
+  <div class="relative mb-4 xl:mt-4">
     <div
-      class="h-32 sm:h-40 overflow-hidden rounded-2xl"
+      class="banner-fullbleed h-32 sm:h-40 overflow-hidden rounded-none xl:rounded-2xl"
       style="background: {profile?.banner
         ? 'transparent'
         : 'linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary-hover) 100%)'}"
@@ -1846,8 +1851,8 @@
       {/if}
     </div>
 
-    <!-- Avatar overlapping banner -->
-    <div class="absolute -bottom-10 left-4 sm:left-6 lg:left-8">
+    <!-- Avatar overlapping banner; left edge aligns with the name/content. -->
+    <div class="absolute -bottom-10 left-4">
       <button
         class="hover:opacity-90 transition-opacity flex-shrink-0 rounded-full ring-4 ring-[var(--color-bg-primary)]"
         on:click={() => (qrModal = true)}
@@ -1865,12 +1870,11 @@
     </div>
   </div>
 
-  <!-- Profile Header -->
-  <div class="flex items-start gap-5 pb-5 pt-8">
-    <!-- Spacer for avatar (hidden on mobile where avatar overlaps banner) -->
-    <div class="hidden sm:block w-20 flex-shrink-0"></div>
-
-    <!-- Profile Info (right side) -->
+  <!-- Profile Header. Name/bio align to the container's left edge (under
+       the avatar) so they share the same margin as the stats, tabs and
+       note body text below. pt-12 clears the avatar's overhang. -->
+  <div class="flex items-start pb-5 pt-12">
+    <!-- Profile Info -->
     <div class="flex-1 min-w-0 flex flex-col gap-2">
       <!-- Name Row with Action Buttons on Right -->
       <div class="flex items-start justify-between gap-3">
@@ -2392,6 +2396,22 @@
 {/if}
 
 <style>
+  /* Below xl (no sidebar) the banner is full-bleed: symmetric
+     viewport-relative margins stretch it to the viewport width (= the top
+     bar), clipped by #app-scroll's overflow-x-hidden. At xl it's contained to
+     the content container (margins reset to 0) so it's a fixed-size card that
+     is never wider than the top bar. */
+  .banner-fullbleed {
+    margin-left: calc(50% - 50vw);
+    margin-right: calc(50% - 50vw);
+  }
+  @media (min-width: 1280px) {
+    .banner-fullbleed {
+      margin-left: 0;
+      margin-right: 0;
+    }
+  }
+
   /* Ensure line-clamp works for bio text */
   :global(.line-clamp-2) {
     display: -webkit-box;

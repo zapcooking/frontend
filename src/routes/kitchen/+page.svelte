@@ -123,10 +123,10 @@
 </PullToRefresh>
 
 <style>
-  /* Keep relay tabs pinned; feed scrolls beneath them */
+  /* Keep relay tabs pinned below the fixed header; feed scrolls beneath them */
   .kitchen-tabs {
     position: sticky;
-    top: 0;
+    top: var(--header-h, 0px);
     z-index: 20;
     background-color: var(--color-bg-primary);
   }

@@ -154,9 +154,12 @@
     />
   </button>
 
-  <!-- Center: search bar (desktop) -->
+  <!-- Center: search bar (desktop). Left padding at xl sets the gap from
+       the pipe's vertical line to 12px (10px here + the input's 2px margin),
+       matching the header's 12px top/bottom padding so the search box has
+       equal visual padding on all three framed sides. -->
   <div
-    class="hidden sm:flex flex-1 self-center print:hidden max-w-2xl min-w-[280px] lg:min-w-[500px]"
+    class="hidden sm:flex flex-1 self-center print:hidden max-w-2xl min-w-[280px] lg:min-w-[500px] xl:pl-2.5"
   >
     <TagsSearchAutocomplete
       placeholderString={'Search recipes, tags, or users...'}
