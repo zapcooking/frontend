@@ -364,9 +364,10 @@
   /* Keep relay tabs pinned below the glass header */
   .tabs-container {
     position: sticky;
-    /* Position below the glass header (~60px on desktop) */
-    top: 60px;
-    z-index: 15; /* Below header (z-20) but above content */
+    /* Sit directly below the fixed header (height published as --header-h
+       by the root layout; 60px fallback). */
+    top: var(--header-h, 60px);
+    z-index: 15; /* Below header (z-30) but above content */
     /* Frosted glass effect - matches header */
     /* Fallback for browsers that don't support color-mix */
     background-color: var(--color-bg-primary);
