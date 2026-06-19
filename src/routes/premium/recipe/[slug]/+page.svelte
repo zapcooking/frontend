@@ -9,6 +9,7 @@
   import Recipe from '../../../../components/Recipe/Recipe.svelte';
   import PanLoader from '../../../../components/PanLoader.svelte';
   import { GATED_RECIPE_KIND } from '$lib/consts';
+  import { stripTrackingParams } from '$lib/utils/stripTrackingParams';
   import { checkIfGated, checkAccess, backfillGatedRecipe } from '$lib/nip108/client';
   import type { GatedRecipeMetadata } from '$lib/nip108/types';
   import LightningIcon from 'phosphor-svelte/lib/Lightning';
@@ -32,6 +33,8 @@
   let purchasing = false;
   let purchaseError: string | null = null;
   let isAuthor = false;
+
+  onMount(() => stripTrackingParams($page.url));
 
   $: {
     if (browser && $page.params.slug) {

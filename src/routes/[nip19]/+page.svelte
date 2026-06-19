@@ -13,6 +13,7 @@
   import ClientAttribution from '../../components/ClientAttribution.svelte';
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
   import { createCommentFilter } from '$lib/commentFilters';
+  import { stripTrackingParams } from '$lib/utils/stripTrackingParams';
   import PostActionsMenu from '../../components/PostActionsMenu.svelte';
   import ReplyComposer from '../../components/comments/ReplyComposer.svelte';
 
@@ -310,6 +311,7 @@
 
 
   onMount(() => {
+    stripTrackingParams($page.url);
     if ($userPublickey) {
       muteListStore.load();
     }

@@ -4,16 +4,20 @@
   import { ndk } from '$lib/nostr';
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
   import { nip19 } from 'nostr-tools';
+  import { onMount } from 'svelte';
   import Recipe from '../../../components/Recipe/Recipe.svelte';
   import PanLoader from '../../../components/PanLoader.svelte';
   import { RECIPE_TAGS } from '$lib/consts';
   import { validateMarkdownTemplate } from '$lib/parser';
   import ArrowLeftIcon from 'phosphor-svelte/lib/ArrowLeft';
+  import { stripTrackingParams } from '$lib/utils/stripTrackingParams';
 
   let event: NDKEvent | null = null;
   let naddr: string = '';
   let loading = true;
   let error: string | null = null;
+
+  onMount(() => stripTrackingParams($page.url));
 
   $: {
     if (browser && $page.params.naddr) {

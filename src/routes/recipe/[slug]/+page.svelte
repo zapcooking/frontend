@@ -5,14 +5,18 @@
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
   import { nip19 } from 'nostr-tools';
   import { goto } from '$app/navigation';
+  import { onMount } from 'svelte';
   import Recipe from '../../../components/Recipe/Recipe.svelte';
   import PanLoader from '../../../components/PanLoader.svelte';
   import { GATED_RECIPE_KIND } from '$lib/consts';
+  import { stripTrackingParams } from '$lib/utils/stripTrackingParams';
 
   let event: NDKEvent | null = null;
   let naddr: string = '';
   let loading = true;
   let error: string | null = null;
+
+  onMount(() => stripTrackingParams($page.url));
 
   $: {
     if (browser && $page.params.slug) {
