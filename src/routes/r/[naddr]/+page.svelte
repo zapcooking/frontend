@@ -4,18 +4,19 @@
   import { ndk } from '$lib/nostr';
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
   import { nip19 } from 'nostr-tools';
+  import { onMount } from 'svelte';
   import Recipe from '../../../components/Recipe/Recipe.svelte';
   import PanLoader from '../../../components/PanLoader.svelte';
-  import type { PageData } from './$types';
   import { GATED_RECIPE_KIND, RECIPE_TAGS } from '$lib/consts';
   import ArrowLeftIcon from 'phosphor-svelte/lib/ArrowLeft';
-
-  export let data: PageData;
+  import { stripTrackingParams } from '$lib/utils/stripTrackingParams';
 
   let event: NDKEvent | null = null;
   let naddr: string = '';
   let loading = true;
   let error: string | null = null;
+
+  onMount(() => stripTrackingParams($page.url));
 
   $: {
     if (browser && $page.params.naddr) {
@@ -76,14 +77,15 @@
     }
   }
 
-  // Use server-loaded metadata for initial SSR, then client data once loaded
+  // OG/meta derived entirely from the client-fetched NDK event, with static
+  // defaults until it loads. No server load — see <svelte:head>.
   $: pageHeading = event
     ? event.tags.find((e) => e[0] == 'title')?.[1] || event.tags.find((e) => e[0] == 'd')?.[1] || '...'
-    : (data.ogMeta?.title?.replace(' - zap.cooking', '') || 'Recipe');
+    : 'Recipe';
 
   $: metaTitleBase = event
     ? event.tags.find((tag) => tag[0] === 'title')?.[1] || event.content.slice(0, 60) + '...'
-    : (data.ogMeta?.title?.replace(' - zap.cooking', '') || 'Recipe');
+    : 'Recipe';
 
   $: fullPageTitle = `${pageHeading} - zap.cooking`;
   $: fullMetaTitle = `${metaTitleBase} - zap.cooking`;
@@ -91,7 +93,7 @@
   // OG title: raw title without site suffix (site_name handles branding)
   $: og_title = event
     ? metaTitleBase
-    : (data?.ogMeta?.title || 'Recipe');
+    : 'Recipe';
 
   // Description: prefer summary, then build from recipe metadata, then clean content
   $: og_description = event
@@ -164,11 +166,11 @@
         }
         return 'A delicious recipe shared on zap.cooking';
       })()
-    : (data?.ogMeta?.description || 'A recipe shared on zap.cooking - Food. Friends. Freedom.');
+    : 'A recipe shared on zap.cooking - Food. Friends. Freedom.';
   
   $: og_image = event
     ? (event.tags?.find((tag) => tag[0] === 'image')?.[1] || 'https://zap.cooking/social-share.png')
-    : (data?.ogMeta?.image || 'https://zap.cooking/social-share.png');
+    : 'https://zap.cooking/social-share.png';
 
   // Cap description at ~155 chars for Facebook/social preview
   $: og_desc = (() => {
@@ -180,7 +182,7 @@
     const sp = t.lastIndexOf(' ');
     return (sp > 80 ? t.slice(0, sp) : t) + '...';
   })();
-  $: publishedAt = event?.created_at ?? data?.ogMeta?.created_at ?? null;
+  $: publishedAt = event?.created_at ?? null;
 
   // Check if this is a longform article (not a recipe) to show "Back to Reads" link
   $: isLongformArticle = event && event.kind === 30023 && !event.tags.some(
@@ -203,8 +205,8 @@
   {#if publishedAt !== null}
     <meta property="article:published_time" content={new Date(publishedAt * 1000).toISOString()} />
   {/if}
-  {#if event?.pubkey || data?.ogMeta?.pubkey}
-    <meta property="article:author" content={`https://zap.cooking/p/${event?.pubkey || data?.ogMeta?.pubkey}`} />
+  {#if event?.pubkey}
+    <meta property="article:author" content={`https://zap.cooking/p/${event.pubkey}`} />
   {/if}
 
   <!-- Twitter -->

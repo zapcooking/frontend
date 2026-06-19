@@ -12,24 +12,82 @@
   import NoteActionBar from '../../components/NoteActionBar.svelte';
   import ClientAttribution from '../../components/ClientAttribution.svelte';
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
-  import type { PageData } from './$types';
   import { createCommentFilter } from '$lib/commentFilters';
+  import { stripTrackingParams } from '$lib/utils/stripTrackingParams';
   import PostActionsMenu from '../../components/PostActionsMenu.svelte';
   import ReplyComposer from '../../components/comments/ReplyComposer.svelte';
-
-  export let data: PageData;
-
-  // OG meta from server (for crawlers/SSR)
-  $: ogTitle = data?.ogMeta?.title || 'Note Thread - zap.cooking';
-  $: ogDescription = data?.ogMeta?.description || 'A note shared on zap.cooking - Food. Friends. Freedom.';
-  $: ogImage = data?.ogMeta?.image || 'https://zap.cooking/social-share.png';
-  $: ogCreatedAt =
-    data?.ogMeta && 'created_at' in data.ogMeta ? (data.ogMeta.created_at ?? null) : null;
 
   let decoded: any = null;
   let event: NDKEvent | null = null;
   let loading = true;
   let error = false;
+  let authorName: string | null = null;
+
+  // ── Client-side OG meta (no server load) ──────────────────────────
+  // Derived from the note we fetch over NDK. Crawler-grade SSR OG was
+  // removed with the +page.server.ts that caused the __data.json 500s.
+  const IMG_EXT = /\.(jpg|jpeg|png|gif|webp|svg|bmp|avif)(\?.*)?$/i;
+  const VID_EXT = /\.(mp4|webm|mov|avi|mkv|ogv)(\?.*)?$/i;
+  const IMG_HOSTS = [
+    'image.nostr.build', 'nostr.build', 'imgur.com', 'imgproxy',
+    'primal.b-cdn.net', 'media.tenor.com', 'i.ibb.co'
+  ];
+
+  function extractFirstImageUrl(content: string): string | null {
+    const urls = (content || '').match(/https?:\/\/[^\s<>"')\]]+/gi) || [];
+    for (const url of urls) {
+      try {
+        const u = new URL(url);
+        if (VID_EXT.test(u.pathname)) continue;
+        if (IMG_EXT.test(u.pathname)) return url;
+        if (IMG_HOSTS.some((h) => u.hostname.includes(h))) {
+          if (u.hostname.includes('nostr.build') && !u.pathname.includes('/i/')) continue;
+          return url;
+        }
+      } catch {
+        continue;
+      }
+    }
+    return null;
+  }
+
+  function cleanNoteContent(content: string): string {
+    const text = (content || '')
+      .replace(/nostr:[a-z0-9]+/gi, '')
+      .replace(/https?:\/\/[^\s]+\.(jpg|jpeg|png|gif|webp|svg|bmp|avif|mp4|webm|mov)(\?[^\s]*)?/gi, '')
+      .replace(/https?:\/\/[^\s]+/gi, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (text.length > 155) {
+      const truncated = text.slice(0, 155);
+      const lastSpace = truncated.lastIndexOf(' ');
+      const lastSentence = Math.max(
+        truncated.lastIndexOf('.'),
+        truncated.lastIndexOf('!'),
+        truncated.lastIndexOf('?')
+      );
+      if (lastSentence > 80) return text.slice(0, lastSentence + 1);
+      return (lastSpace > 80 ? truncated.slice(0, lastSpace) : truncated) + '...';
+    }
+    return text || 'A note shared on zap.cooking';
+  }
+
+  // Resolve the author's display name for the OG title once the note loads.
+  $: if (event?.author) {
+    event.author
+      .fetchProfile()
+      .then((p) => {
+        authorName = p?.displayName || p?.name || null;
+      })
+      .catch(() => {});
+  }
+
+  $: ogTitle = authorName ? `${authorName} on zap.cooking` : 'Note on zap.cooking';
+  $: ogDescription = event
+    ? cleanNoteContent(event.content)
+    : 'A note shared on zap.cooking - Food. Friends. Freedom.';
+  $: ogImage = (event && extractFirstImageUrl(event.content)) || 'https://zap.cooking/social-share.png';
+  $: ogCreatedAt = event?.created_at ?? null;
 
   // Thread hierarchy
   let parentThread: NDKEvent[] = []; // Parent notes above this one
@@ -137,6 +195,27 @@
       nip19Id = nip19Id.split('nostr:')[1];
     }
 
+    // Plain zap.cooking NIP-05 username (not a NIP-19 identifier): resolve to
+    // a pubkey via /.well-known/nostr.json and redirect to the profile page.
+    // This mirrors the behavior the deleted +page.server.ts used to provide.
+    const isNip19 = /^(?:npub1|nprofile1|note1|nevent1|naddr1)/.test(nip19Id);
+    if (!isNip19 && /^[a-zA-Z0-9_]{3,20}$/.test(nip19Id)) {
+      const username = nip19Id.toLowerCase();
+      try {
+        const res = await fetch('/.well-known/nostr.json?name=' + encodeURIComponent(username));
+        if (res.ok) {
+          const json = await res.json();
+          const pubkey = json?.names?.[username];
+          if (pubkey) {
+            goto(`/user/${nip19.npubEncode(pubkey)}`);
+            return;
+          }
+        }
+      } catch {
+        // Resolution failed — fall through to the not-found state below.
+      }
+    }
+
     // Validate NIP-19 identifier format
     if (nip19Id.length < 8 || !nip19Id.match(/^[a-z0-9]+$/)) {
       error = true;
@@ -232,6 +311,7 @@
 
 
   onMount(() => {
+    stripTrackingParams($page.url);
     if ($userPublickey) {
       muteListStore.load();
     }
