@@ -37,7 +37,6 @@
   import BookOpenIcon from 'phosphor-svelte/lib/BookOpen';
   import ImageSquareIcon from 'phosphor-svelte/lib/ImageSquare';
   import PlayIcon from 'phosphor-svelte/lib/Play';
-  import type { PageData } from './$types';
   import { onMount, onDestroy } from 'svelte';
   import { Fetch } from 'hurdak';
   import { profileCacheManager } from '$lib/profileCache';
@@ -45,8 +44,6 @@
   import ArticleFeed from '../../../components/ArticleFeed.svelte';
   import MembershipBeltBadge from '../../../components/MembershipBeltBadge.svelte';
   import { fetchUserStatsFromPrimal, getPrimalCache, type PrimalUserStats } from '$lib/primalCache';
-
-  export let data: PageData;
 
   let hexpubkey: string | undefined = undefined;
   let events: NDKEvent[] = [];
@@ -1493,15 +1490,16 @@
     ? profile.name || (user ? user.npub.slice(0, 10) + '...' : 'Unknown User')
     : 'Unknown User';
 
-  // OG meta: prefer server-provided data (for crawlers), fall back to client data when loaded
+  // OG meta derived entirely from client-side NDK profile data once loaded,
+  // with static defaults before load. No server load — see <svelte:head>.
   $: og_meta = {
-    title: loaded ? `${profileTitleBase} - zap.cooking` : (data?.ogMeta?.title || 'User Profile - zap.cooking'),
+    title: loaded ? `${profileTitleBase} - zap.cooking` : 'User Profile - zap.cooking',
     description: loaded
       ? (profile?.about ? profile.about.slice(0, 155) : "View this user's recipes on zap.cooking")
-      : (data?.ogMeta?.description || "A user on zap.cooking - Food. Friends. Freedom."),
+      : 'A user on zap.cooking - Food. Friends. Freedom.',
     image: loaded
       ? (profile?.picture || 'https://zap.cooking/social-share.png')
-      : (data?.ogMeta?.image || 'https://zap.cooking/social-share.png')
+      : 'https://zap.cooking/social-share.png'
   };
 
   // Setup IntersectionObserver for infinite scroll

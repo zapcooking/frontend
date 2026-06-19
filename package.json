@@ -1,13 +1,13 @@
 {
   "name": "zap.cooking",
   "license": "MIT",
-  "version": "4.2.529",
+  "version": "4.2.530",
   "private": true,
   "scripts": {
     "dev": "vite dev",
-    "build": "vite build",
-    "build:mobile": "SKIP_ENV_VALIDATION=1 ADAPTER=static vite build",
-    "build:android": "SKIP_ENV_VALIDATION=1 CAPACITOR=true vite build",
+    "build": "NODE_OPTIONS=--max-old-space-size=6144 vite build",
+    "build:mobile": "NODE_OPTIONS=--max-old-space-size=6144 SKIP_ENV_VALIDATION=1 ADAPTER=static vite build",
+    "build:android": "NODE_OPTIONS=--max-old-space-size=6144 SKIP_ENV_VALIDATION=1 CAPACITOR=true vite build",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",

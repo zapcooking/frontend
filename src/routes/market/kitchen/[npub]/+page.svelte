@@ -12,9 +12,6 @@
 	import PanLoader from '../../../../components/PanLoader.svelte';
 	import PackageIcon from 'phosphor-svelte/lib/Package';
 	import ArrowLeftIcon from 'phosphor-svelte/lib/ArrowLeft';
-	import type { PageData } from './$types';
-
-	export let data: PageData;
 
 	let kitchen: KitchenDisplay | null = null;
 	let products: Product[] = [];
@@ -90,19 +87,22 @@
 </script>
 
 <svelte:head>
-	{#if data?.ogMeta}
-		<title>{data.ogMeta.title}</title>
-		<meta name="description" content={data.ogMeta.description} />
-		<meta property="og:title" content={data.ogMeta.title} />
-		<meta property="og:description" content={data.ogMeta.description} />
-		<meta property="og:image" content={data.ogMeta.image} />
+	{#if kitchen}
+		{@const kTitle = kitchen.name ? `${kitchen.name}'s Store - zap.cooking` : 'Store - zap.cooking Marketplace'}
+		{@const kDesc = kitchen.description || 'A store on the zap.cooking marketplace.'}
+		{@const kImage = kitchen.avatar || kitchen.banner || 'https://zap.cooking/social-share.png'}
+		<title>{kTitle}</title>
+		<meta name="description" content={kDesc} />
+		<meta property="og:title" content={kTitle} />
+		<meta property="og:description" content={kDesc} />
+		<meta property="og:image" content={kImage} />
 		<meta property="og:type" content="profile" />
 		<meta name="twitter:card" content="summary_large_image" />
-		<meta name="twitter:title" content={data.ogMeta.title} />
-		<meta name="twitter:description" content={data.ogMeta.description} />
-		<meta name="twitter:image" content={data.ogMeta.image} />
+		<meta name="twitter:title" content={kTitle} />
+		<meta name="twitter:description" content={kDesc} />
+		<meta name="twitter:image" content={kImage} />
 	{:else}
-		<title>{kitchen?.name ? `${kitchen.name} | The Market` : 'Store'} | zap.cooking</title>
+		<title>Store - zap.cooking Marketplace</title>
 	{/if}
 </svelte:head>
 

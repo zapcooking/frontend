@@ -6,12 +6,9 @@
   import { nip19 } from 'nostr-tools';
   import Recipe from '../../../components/Recipe/Recipe.svelte';
   import PanLoader from '../../../components/PanLoader.svelte';
-  import type { PageData } from './$types';
   import { RECIPE_TAGS } from '$lib/consts';
   import { validateMarkdownTemplate } from '$lib/parser';
   import ArrowLeftIcon from 'phosphor-svelte/lib/ArrowLeft';
-
-  export let data: PageData;
 
   let event: NDKEvent | null = null;
   let naddr: string = '';
@@ -83,22 +80,22 @@
     }
   }
 
-  // Use server-loaded metadata for initial SSR, then client data once loaded
+  // OG/meta derived entirely from the client-fetched NDK event, with static
+  // defaults until it loads. No server load — see <svelte:head>.
   $: pageHeading = event
     ? event.tags.find((e) => e[0] == 'title')?.[1] || event.tags.find((e) => e[0] == 'd')?.[1] || '...'
-    : (data.ogMeta?.title?.replace(' - zap.cooking', '') || 'Article');
+    : 'Article';
 
   $: metaTitleBase = event
     ? event.tags.find((tag) => tag[0] === 'title')?.[1] || event.content.slice(0, 60) + '...'
-    : (data.ogMeta?.title?.replace(' - zap.cooking', '') || 'Article');
+    : 'Article';
 
   $: fullPageTitle = `${pageHeading} - zap.cooking`;
   $: fullMetaTitle = `${metaTitleBase} - zap.cooking`;
 
-  // Use server-loaded metadata for initial SSR, then client data once loaded
   $: og_title = event 
     ? fullMetaTitle 
-    : (data?.ogMeta?.title || 'Article - zap.cooking');
+    : 'Article - zap.cooking';
   
   // Better description extraction from event content
   $: og_description = event
@@ -130,11 +127,11 @@
         }
         return 'An article shared on zap.cooking';
       })()
-    : (data?.ogMeta?.description || 'An article shared on zap.cooking');
+    : 'An article shared on zap.cooking';
   
   $: og_image = event
     ? (event.tags?.find((tag) => tag[0] === 'image')?.[1] || 'https://zap.cooking/social-share.png')
-    : (data?.ogMeta?.image || 'https://zap.cooking/social-share.png');
+    : 'https://zap.cooking/social-share.png';
 
   // Cap description at ~155 chars for Facebook/social preview
   $: og_desc = (() => {
