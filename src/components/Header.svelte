@@ -331,6 +331,14 @@
 </div>
 
 <style>
+  /* Pin the content row to the CSS-deterministic header token so the painted
+     header height equals --header-h on the first frame, independent of font or
+     logo image load timing. The token is >= the natural content height at each
+     breakpoint, so children center within it and never clip. */
+  .zh-root {
+    height: var(--header-row-h);
+  }
+
   /* Shared icon button — minimal, balanced tap target, subtle hover.
      Wrapped in :where() so Tailwind responsive utilities (sm:hidden,
      etc.) can override individual properties without specificity
