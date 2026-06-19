@@ -364,9 +364,14 @@
   /* Keep relay tabs pinned below the glass header */
   .tabs-container {
     position: sticky;
-    /* Sit directly below the fixed header (height published as --header-h
-       by the root layout; 60px fallback). */
-    top: var(--header-h, 60px);
+    /* top:0 — NOT var(--header-h). The scroll container (#app-scroll) already
+       reserves the header height via padding-top: var(--header-h), and a
+       sticky child's offset is measured from that container's content box
+       (i.e. AFTER its padding). Setting top: var(--header-h) here would stack
+       a second header-height on top, pinning the tabs at 2x the header height
+       and leaving a header-tall gap that clips the top of the feed. top:0 pins
+       the tabs flush at the bottom of the header on every breakpoint. */
+    top: 0;
     z-index: 15; /* Below header (z-30) but above content */
     /* Frosted glass effect - matches header */
     /* Fallback for browsers that don't support color-mix */
@@ -381,13 +386,6 @@
       opacity 0.3s ease-in-out,
       transform 0.3s ease-in-out;
     will-change: opacity, transform;
-  }
-
-  /* On mobile, account for safe area inset that the header uses */
-  @media (max-width: 1023px) {
-    .tabs-container {
-      top: calc(56px + env(safe-area-inset-top, 0px));
-    }
   }
 
   /* Bottom padding to prevent fixed mobile nav from covering content */

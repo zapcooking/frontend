@@ -20,6 +20,35 @@ body {
   --safe-area-inset-bottom: env(safe-area-inset-bottom, 0px);
   --safe-area-inset-left: env(safe-area-inset-left, 0px);
   --safe-area-inset-right: env(safe-area-inset-right, 0px);
+
+  /*
+   * Fixed-header geometry — single, CSS-deterministic source of truth.
+   *
+   * --header-row-h is the height of the header's content row (.zh-root). It is
+   * a fixed value the row is pinned to, so the painted header height never
+   * depends on font/image load timing (no ResizeObserver race). The two values
+   * are the measured content heights, rounded up so nothing inside clips:
+   *   - compact icon row (< 640px):                ~37.77px -> 38px
+   *   - search-bar row (>= 640px, sm: breakpoint):  ~50.36px -> 51px
+   * The content height changes at 640px (where the search bar toggles), NOT at
+   * 1023px, so that is the breakpoint used here.
+   *
+   * --header-h is the total painted height of .header-blur and is the single
+   * value consumed by BOTH #app-scroll's padding-top AND .tabs-container's top:
+   *   row height + bottom padding (0.75rem) + top padding.
+   * Top padding mirrors .header-blur exactly: max(env(safe-area-inset-top),
+   * 0.75rem) — 0.75rem on desktop/non-notched, growing with the notch inset.
+   * Because the header is pinned to these same tokens, the reserved space and
+   * the sticky tab-bar top are always equal on the first frame.
+   */
+  --header-row-h: 38px;
+  --header-h: calc(var(--header-row-h) + 0.75rem + max(env(safe-area-inset-top, 0px), 0.75rem));
+}
+
+@media (min-width: 640px) {
+  :root {
+    --header-row-h: 51px;
+  }
 }
 
 .page-loader {

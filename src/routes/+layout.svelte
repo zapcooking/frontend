@@ -195,10 +195,6 @@
   let feedInitialLoadTimeout: ReturnType<typeof setTimeout> | null = null;
   let walletWelcomeSeen = false;
   let walletWelcomeForce = false;
-  // Measured height of the fixed header overlay. Drives the scroll
-  // container's top padding (so content isn't hidden behind the header)
-  // and the --header-h var that sticky sub-headers offset against.
-  let headerHeight = 64;
   let oneTapZapLoadedForPubkey = '';
   const WALLET_WELCOME_KEY = 'zapcooking_wallet_welcome_seen';
   const WALLET_WELCOME_FORCE_KEY = 'zapcooking_wallet_welcome_force';
@@ -533,22 +529,20 @@
       <!-- Header with blur. Fixed to the viewport (not sticky inside the
            scroll container) so it stays put while the page content scrolls
            and rubber-band-bounces behind it. -->
-      <div
-        class="header-blur fixed top-0 left-0 right-0 xl:left-[calc(20rem_+_5px)] z-30 py-3 px-4"
-        bind:clientHeight={headerHeight}
-      >
+      <div class="header-blur fixed top-0 left-0 right-0 xl:left-[calc(20rem_+_5px)] z-30 py-3 px-4">
         <Header />
         <!-- Decorative connector (desktop): a vertical line just left of
              the search box that curves into the header's bottom divider. -->
         <span class="header-pipe" aria-hidden="true"></span>
       </div>
       <!-- Full-page scroll container: clip horizontal overflow to prevent Safari horizontal scroll/gap.
-           Top padding clears the fixed header; --header-h lets sticky
+           Top padding clears the fixed header via the CSS-deterministic
+           --header-h (defined in app.css); the same var lets sticky
            sub-headers sit directly below it. -->
       <div
         id="app-scroll"
         class="flex-1 min-h-0 min-w-0 overflow-y-auto overflow-x-hidden xl:ml-[calc(20rem_+_5px)]"
-        style="background-color: var(--color-bg-primary); padding-top: {headerHeight}px; --header-h: {headerHeight}px;"
+        style="background-color: var(--color-bg-primary); padding-top: var(--header-h);"
       >
         <div
           class="px-4 min-w-0 max-w-full {$page.url.pathname.startsWith('/messages') ||
@@ -626,16 +620,15 @@
     background: rgba(255, 255, 255, 0.06);
   }
 
-  /* Safe area padding for header on mobile.
-     `env(safe-area-inset-top, 0px)` alone would collapse to 0 on
-     non-notched browsers (regular Chrome/Safari/Firefox on mobile
-     and desktop-narrow), making the avatar touch the viewport top.
-     `max()` keeps the baseline 0.75rem (matches the `py-3` from the
-     wrapper) and grows for devices with a real notch inset. */
-  @media (max-width: 1023px) {
-    .header-blur {
-      padding-top: max(env(safe-area-inset-top, 0px), 0.75rem);
-    }
+  /* Safe-area-aware top padding, applied at ALL widths so the painted header
+     height always equals the CSS-computed --header-h (single source of truth
+     in app.css — same max() expression). `env(safe-area-inset-top, 0px)` alone
+     would collapse to 0 on non-notched browsers (regular Chrome/Safari/Firefox
+     on mobile and desktop), making the avatar touch the viewport top; `max()`
+     keeps the baseline 0.75rem (matching the wrapper's `py-3`) and grows for
+     devices with a real notch inset. */
+  .header-blur {
+    padding-top: max(env(safe-area-inset-top, 0px), 0.75rem);
   }
 
   /* Left edge gradient for smooth transition from sidebar (desktop only) */
