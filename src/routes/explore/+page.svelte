@@ -559,7 +559,7 @@
         <h2 class="text-lg font-semibold" style="color: var(--color-text-primary);">
           Browse by category
         </h2>
-        <div class="flex gap-2.5 overflow-x-auto pb-2 -mx-4 px-4 scrollbar-hide touch-pan-x" use:dragScroll>
+        <div class="flex gap-2.5 overflow-x-auto py-2 -mx-4 px-4 scrollbar-hide touch-pan-x" use:dragScroll>
           {#each [{ emoji: '🥩', label: 'Beef' }, { emoji: '🍗', label: 'Chicken' }, { emoji: '🐟', label: 'Fish' }, { emoji: '🌱', label: 'Vegan' }, { emoji: '🍝', label: 'Pasta' }, { emoji: '🍕', label: 'Pizza' }, { emoji: '🥘', label: 'Soup' }, { emoji: '🥪', label: 'Sandwich' }, { emoji: '🍚', label: 'Rice' }, { emoji: '🥚', label: 'Eggs' }, { emoji: '🥔', label: 'Potato' }, { emoji: '🧀', label: 'Cheese' }] as cat}
             <button type="button" class="category-chip" on:click={() => goto(`/tag/${cat.label}`)}>
               <span class="text-xl">{cat.emoji}</span>
