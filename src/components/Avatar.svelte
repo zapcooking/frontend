@@ -131,7 +131,7 @@
   on:keydown={handleKeydown}
 >
   <div class="avatar-inner">
-    <CustomAvatar pubkey={pubkey} size={innerSize} imageUrl={avatarSrc} className="" interactive={false} />
+    <CustomAvatar pubkey={pubkey} size={innerSize} imageUrl={avatarSrc} className="" />
   </div>
 
   {#if isActiveMember && openTooltip}
