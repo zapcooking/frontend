@@ -22,6 +22,7 @@
   import { MentionComposerController, type MentionState } from '$lib/mentionComposer';
   import { uploadImage, uploadVideo } from '$lib/mediaUpload';
   import { clickOutside } from '$lib/clickOutside';
+  import { showToast } from '$lib/toast';
 
   // Clear stuck posts from the publish queue
   async function clearPendingQueue() {
@@ -53,7 +54,6 @@
   let content = '';
   let posting = false;
   let success = false;
-  let successQueued = false; // True when post was queued for retry
   let error = '';
   let composerEl: HTMLDivElement;
   let lastRenderedContent = '';
@@ -200,7 +200,6 @@
     content = '';
     lastRenderedContent = '';
     error = '';
-    successQueued = false;
     showPreview = false;
     draftSaved = false;
     isMinimized = false;
@@ -422,40 +421,23 @@
       console.log('[PostComposer] Publish result:', result);
 
       if (result.success) {
-        // Published successfully on first attempt
-        success = true;
-        successQueued = false;
+        const noteLink = event.id ? `/${nip19.noteEncode(event.id)}` : null;
+        showToast('success', 'Note published', 12000, noteLink ? { label: 'View', href: noteLink } : undefined);
         resetComposerState();
-
-        const closeDelay = variant === 'modal' ? 1500 : 2500;
-        setTimeout(() => {
-          success = false;
-          if (variant === 'modal') {
-            dispatch('close');
-          } else {
-            isComposerOpen = false;
-          }
-        }, closeDelay);
+        if (variant === 'modal') {
+          dispatch('close');
+        } else {
+          isComposerOpen = false;
+        }
       } else if (result.queued) {
-        // Failed initial publish, but queued for background retry
-        // Show optimistic success - the post will be published when connection improves
-        success = true;
-        successQueued = true;
+        showToast('info', 'Note queued — will publish when connection improves', 5000);
         resetComposerState();
-
-        // Log for debugging
         console.log('[PostComposer] Post queued for background retry:', result.error);
-
-        const closeDelay = variant === 'modal' ? 2000 : 3000; // Slightly longer to read the message
-        setTimeout(() => {
-          success = false;
-          successQueued = false;
-          if (variant === 'modal') {
-            dispatch('close');
-          } else {
-            isComposerOpen = false;
-          }
-        }, closeDelay);
+        if (variant === 'modal') {
+          dispatch('close');
+        } else {
+          isComposerOpen = false;
+        }
       } else {
         error = result.error || 'Failed to publish';
       }
@@ -544,7 +526,7 @@
 
 {#if $userPublickey !== '' || variant === 'modal'}
   <div
-    class={`bg-input rounded-xl transition-all ${variant === 'inline' ? 'mb-4' : 'flex-1 flex flex-col'}`}
+    class={`bg-input rounded-xl transition-all relative ${variant === 'inline' ? 'mb-4' : 'flex-1 flex flex-col'}`}
     class:overflow-hidden={!isComposerOpen}
     class:overflow-visible={isComposerOpen}
     style="border: 1px solid var(--color-input-border)"
@@ -628,16 +610,6 @@
 
               {#if error}
                 <p class="text-red-500 text-xs mb-2">{error}</p>
-              {/if}
-
-              {#if success}
-                {#if successQueued}
-                  <p class="text-amber-600 text-xs mb-2">
-                    Post queued — will publish when connection improves
-                  </p>
-                {:else}
-                  <p class="text-green-600 text-xs mb-2">Posted!</p>
-                {/if}
               {/if}
 
               {#if !showPreview && quotedNote}
@@ -935,6 +907,10 @@
         </div>
       </div>
     {/if}
+
+    {#if posting}
+      <div class="posting-dim" aria-hidden="true"></div>
+    {/if}
   </div>
 {/if}
 
@@ -1165,5 +1141,14 @@
 
   .media-menu-item:hover {
     background: var(--color-accent-gray);
+  }
+
+  .posting-dim {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.45);
+    border-radius: inherit;
+    z-index: 10;
+    pointer-events: none;
   }
 </style>
