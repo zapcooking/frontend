@@ -187,6 +187,28 @@ function createNdk(mode: RelayMode, relayUrls: string[]): NDK {
   });
 }
 
+/**
+ * Server-side NDK stub.
+ *
+ * In SSR we never want to open relays or instantiate full NDK internals.
+ * Some route/layout code still imports the `ndk` store during SSR, so provide
+ * a minimal no-op shape that is safe to call and returns empty results.
+ */
+function createServerNdkStub(): NDK {
+  const noopSubscription = {
+    on: () => noopSubscription,
+    stop: () => {}
+  };
+
+  return {
+    fetchEvent: async () => null,
+    fetchEvents: async () => new Set(),
+    subscribe: () => noopSubscription,
+    connect: async () => {},
+    getUser: ({ pubkey }: { pubkey: string }) => ({ pubkey })
+  } as unknown as NDK;
+}
+
 // ═══════════════════════════════════════════════════════════════
 // STATE
 // ═══════════════════════════════════════════════════════════════
@@ -225,8 +247,9 @@ const initialRelays = getCurrentRelays();
 // Note: This is now a snapshot; for dynamic relays use getCurrentRelays()
 export const relays = initialRelays;
 
-// Create initial NDK instance (default mode)
-let currentNdk: NDK = createNdk('default', initialRelays);
+// Create initial NDK instance (default mode).
+// IMPORTANT: never construct real NDK on the server; use a no-op stub for SSR.
+let currentNdk: NDK = browser ? createNdk('default', initialRelays) : createServerNdkStub();
 let currentRelayMode: RelayMode = 'default';
 
 // NDK ready state - resolves when NDK is connected
