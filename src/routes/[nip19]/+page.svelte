@@ -1,6 +1,7 @@
 <script lang="ts">
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
+  import { browser } from '$app/environment';
   import { nip19 } from 'nostr-tools';
   import { ndk, userPublickey } from '$lib/nostr';
   import { mutedPubkeys, muteListStore } from '$lib/muteListStore';
@@ -22,6 +23,11 @@
   let loading = true;
   let error = false;
   let authorName: string | null = null;
+  // Track the identifier we've already loaded so the reactive block below
+  // only fires loadEvent() when the nip19 param actually changes — not on
+  // every $page update (e.g. the stripTrackingParams goto in onMount, which
+  // strips query params but leaves the route param unchanged).
+  let loadedNip19: string | undefined;
 
   // ── Client-side OG meta (no server load) ──────────────────────────
   // Derived from the note we fetch over NDK. Crawler-grade SSR OG was
@@ -286,12 +292,9 @@
     }
   }
 
-  $: {
-    if ($page.params.nip19) {
-      (async () => {
-        await loadEvent($page.params.nip19!);
-      })();
-    }
+  $: if (browser && $page.params.nip19 && $page.params.nip19 !== loadedNip19) {
+    loadedNip19 = $page.params.nip19;
+    loadEvent($page.params.nip19);
   }
 
   // Compact "X-unit-ago" formatter for note headers (e.g. "10m", "3h",
