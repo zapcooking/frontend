@@ -10,6 +10,7 @@
   import { validateMarkdownTemplate } from '$lib/parser';
   import { goto } from '$app/navigation';
   import { page } from '$app/stores';
+  import { browser } from '$app/environment';
   import Avatar from '../../../components/Avatar.svelte';
   import CustomName from '../../../components/CustomName.svelte';
   import Button from '../../../components/Button.svelte';
@@ -156,7 +157,7 @@
 
   // Track slug changes and reload data when navigating between profiles
   let currentSlug: string | undefined;
-  $: if ($page.params.slug && $page.params.slug !== currentSlug) {
+  $: if (browser && $page.params.slug && $page.params.slug !== currentSlug) {
     currentSlug = $page.params.slug;
     loadData();
   }

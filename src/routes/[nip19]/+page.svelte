@@ -1,6 +1,7 @@
 <script lang="ts">
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
+  import { browser } from '$app/environment';
   import { nip19 } from 'nostr-tools';
   import { ndk, userPublickey } from '$lib/nostr';
   import { mutedPubkeys, muteListStore } from '$lib/muteListStore';
@@ -287,7 +288,7 @@
   }
 
   $: {
-    if ($page.params.nip19) {
+    if (browser && $page.params.nip19) {
       (async () => {
         await loadEvent($page.params.nip19!);
       })();
