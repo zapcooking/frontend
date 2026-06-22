@@ -37,6 +37,7 @@
   import { browser } from '$app/environment';
   import type { PageData } from './$types';
   import { exploreNavTick } from '$lib/exploreNav';
+  import { dragScroll } from '$lib/dragScroll';
 
   // Accept SvelteKit props to prevent warnings
   export let data: PageData;
@@ -373,7 +374,7 @@
               linkUrl={sponsorBanners[0].linkUrl}
             />
           {:else}
-            <div class="flex gap-4 overflow-x-auto pb-2 -mx-4 px-4 scrollbar-hide touch-pan-x">
+            <div class="flex gap-4 overflow-x-auto pb-2 -mx-4 px-4 scrollbar-hide touch-pan-x" use:dragScroll>
               {#each sponsorBanners as sponsor (sponsor.id)}
                 <div class="flex-shrink-0 sponsor-scroll-item">
                   <SponsorBanner
@@ -409,7 +410,7 @@
             {/each}
           </div>
         {:else if discoverRecipes.length > 0}
-          <div class="flex gap-4 overflow-x-auto pb-2 -mx-4 px-4 scrollbar-hide touch-pan-x">
+          <div class="flex gap-4 overflow-x-auto pb-2 -mx-4 px-4 scrollbar-hide touch-pan-x" use:dragScroll>
             {#each boostedRecipes as boost (boost.naddr)}
               <BoostedRecipeCard
                 naddr={boost.naddr}
@@ -464,6 +465,7 @@
         {:else if popularCooks.length > 0}
           <div
             class="flex gap-4 overflow-x-auto pt-8 pb-4 -mt-6 -mx-4 px-4 scrollbar-hide touch-pan-x"
+            use:dragScroll
           >
             {#each popularCooks as cook}
               <ProfileAvatar pubkey={cook.pubkey} showZapIndicator={false} />
@@ -519,7 +521,7 @@
             {/each}
           </div>
         {:else if collections.length > 0}
-          <div class="flex gap-4 overflow-x-auto pb-2 -mx-4 px-4 scrollbar-hide touch-pan-x">
+          <div class="flex gap-4 overflow-x-auto pb-2 -mx-4 px-4 scrollbar-hide touch-pan-x" use:dragScroll>
             {#each collections as collection}
               <CollectionCard
                 title={collection.title}
@@ -557,7 +559,7 @@
         <h2 class="text-lg font-semibold" style="color: var(--color-text-primary);">
           Browse by category
         </h2>
-        <div class="flex gap-2.5 overflow-x-auto pb-2 -mx-4 px-4 scrollbar-hide touch-pan-x">
+        <div class="flex gap-2.5 overflow-x-auto py-2 -mx-4 px-4 scrollbar-hide touch-pan-x" use:dragScroll>
           {#each [{ emoji: '🥩', label: 'Beef' }, { emoji: '🍗', label: 'Chicken' }, { emoji: '🐟', label: 'Fish' }, { emoji: '🌱', label: 'Vegan' }, { emoji: '🍝', label: 'Pasta' }, { emoji: '🍕', label: 'Pizza' }, { emoji: '🥘', label: 'Soup' }, { emoji: '🥪', label: 'Sandwich' }, { emoji: '🍚', label: 'Rice' }, { emoji: '🥚', label: 'Eggs' }, { emoji: '🥔', label: 'Potato' }, { emoji: '🧀', label: 'Cheese' }] as cat}
             <button type="button" class="category-chip" on:click={() => goto(`/tag/${cat.label}`)}>
               <span class="text-xl">{cat.emoji}</span>

@@ -1,6 +1,7 @@
 <script lang="ts">
   import ArticleCard from './ArticleCard.svelte';
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
+  import { dragScroll } from '$lib/dragScroll';
 
   export let articles: Array<{
     event: NDKEvent;
@@ -13,7 +14,7 @@
   }> = [];
 </script>
 
-<div class="article-feed-horizontal">
+<div class="article-feed-horizontal" use:dragScroll>
   {#each articles as article (article.event.id)}
     <div class="article-card-wrapper">
       <ArticleCard

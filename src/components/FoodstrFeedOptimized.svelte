@@ -16,6 +16,7 @@
   import { onMount, onDestroy } from 'svelte';
   import { get } from 'svelte/store';
   import { browser } from '$app/environment';
+  import { goto } from '$app/navigation';
   import {
     ndk,
     userPublickey,
@@ -4947,10 +4948,10 @@
                 {#if !hideAvatar}
                   <a
                     href="/user/{nip19.npubEncode(event.author?.hexpubkey || event.pubkey)}"
-                    class="flex-shrink-0"
+                    class="flex-shrink-0 cursor-pointer"
+                    on:click|stopPropagation={() => goto(`/user/${nip19.npubEncode(event.author?.hexpubkey || event.pubkey)}`)}
                   >
                     <Avatar
-                      className="cursor-pointer"
                       pubkey={event.author?.hexpubkey || event.pubkey}
                       size={40}
                     />
