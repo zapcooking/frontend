@@ -21,12 +21,14 @@
 	import { NDKEvent } from '@nostr-dev-kit/ndk';
 	import { ndk, userPublickey } from '$lib/nostr';
 	import { createEventDispatcher, onDestroy } from 'svelte';
+	import { get } from 'svelte/store';
 	import MentionDropdown from '../MentionDropdown.svelte';
 	import { MentionComposerController, type MentionState } from '$lib/mentionComposer';
 	import { clickOutside } from '$lib/clickOutside';
 	import GifIcon from 'phosphor-svelte/lib/Gif';
 	import ImageIcon from 'phosphor-svelte/lib/Image';
 	import VideoIcon from 'phosphor-svelte/lib/Video';
+	import ClockIcon from 'phosphor-svelte/lib/Clock';
 	import GifPicker from '../GifPicker.svelte';
 	import ChartBarHorizontalIcon from 'phosphor-svelte/lib/ChartBarHorizontal';
 	import PollCreator from '../PollCreator.svelte';
@@ -34,6 +36,8 @@
 	import { uploadImage, uploadVideo } from '$lib/mediaUpload';
 	import { postComment as postCommentLib } from '$lib/comments/postComment';
 	import { showToast } from '$lib/toast';
+	import { timerSettings, saveTimerSettings } from '$lib/timerSettings';
+	import NoteContent from '../NoteContent.svelte';
 
 	/**
 	 * Root event for NIP-22 / NIP-10 tag-building. Passed verbatim to
@@ -49,7 +53,7 @@
 	export let replyTo: NDKEvent | undefined = undefined;
 
 	/** contenteditable placeholder. */
-	export let placeholder = 'Write a comment...';
+	export let placeholder = 'Write a reply...';
 
 	/** Submit button label when idle. The pending state always reads "Posting...". */
 	export let submitLabel = 'Post';
@@ -84,6 +88,58 @@
 	let imageInputEl: HTMLInputElement;
 	let videoInputEl: HTMLInputElement;
 	let showMediaMenu = false;
+
+	// Send countdown
+	let showCountdown = false;
+	let countdownStartedAt = 0;
+	let countdownTotal = 0;
+	let countdownFraction = 1;
+	let countdownDisplayNum = 0;
+	let rafHandle: number | null = null;
+	let showCountdownSettings = false;
+
+	function startCountdown(secs: number) {
+		countdownTotal = secs;
+		countdownStartedAt = Date.now();
+		countdownFraction = 1;
+		countdownDisplayNum = secs;
+		showCountdown = true;
+		showCountdownSettings = false;
+
+		function tick() {
+			const elapsed = (Date.now() - countdownStartedAt) / 1000;
+			const remaining = Math.max(0, countdownTotal - elapsed);
+			countdownFraction = remaining / countdownTotal;
+			countdownDisplayNum = Math.ceil(remaining);
+			if (remaining <= 0) {
+				showCountdown = false;
+				handleSubmit();
+				return;
+			}
+			rafHandle = requestAnimationFrame(tick);
+		}
+		rafHandle = requestAnimationFrame(tick);
+	}
+
+	function cancelCountdown() {
+		if (rafHandle !== null) { cancelAnimationFrame(rafHandle); rafHandle = null; }
+		showCountdown = false;
+	}
+
+	function postNow() {
+		if (rafHandle !== null) { cancelAnimationFrame(rafHandle); rafHandle = null; }
+		showCountdown = false;
+		handleSubmit();
+	}
+
+	function handleSubmitClick() {
+		const settings = get(timerSettings);
+		if (settings.postCountdownEnabled && settings.postCountdownIncludesReplies) {
+			startCountdown(settings.postCountdownSecs);
+		} else {
+			handleSubmit();
+		}
+	}
 
 	function openImagePicker() {
 		showMediaMenu = false;
@@ -134,6 +190,7 @@
 		// Clears any pending mention-search timeout so it can't fire after
 		// unmount and trigger state updates on a destroyed component.
 		mentionCtrl.destroy();
+		if (rafHandle !== null) cancelAnimationFrame(rafHandle);
 	});
 
 	async function handleImageUpload(e: Event) {
@@ -189,6 +246,7 @@
 		uploadedVideos = [];
 		pollConfig = null;
 		uploadError = '';
+		showPreview = false;
 		if (composerEl) {
 			composerEl.innerHTML = '';
 		}
@@ -254,6 +312,16 @@
 		}
 	}
 
+	let showPreview = false;
+
+	$: previewContent = (() => {
+		const resolved = mentionCtrl.replacePlainMentions(composerText);
+		let preview = resolved.trim();
+		const media = [...uploadedImages, ...uploadedVideos];
+		if (media.length) preview = preview ? `${preview}\n\n${media.join('\n')}` : media.join('\n');
+		return preview;
+	})();
+
 	$: isDisabled =
 		(!composerText.trim() &&
 			uploadedImages.length === 0 &&
@@ -265,31 +333,61 @@
 </script>
 
 <div class="reply-composer" class:reply-composer--compact={compact}>
-	<div class="relative">
-		<div
-			bind:this={composerEl}
-			class="reply-composer-input"
-			contenteditable={!posting}
-			role="textbox"
-			tabindex="0"
-			aria-multiline="true"
-			aria-label={placeholder}
-			data-placeholder={placeholder}
-			on:input={() => mentionCtrl.handleInput()}
-			on:keydown={(e) => mentionCtrl.handleKeydown(e)}
-			on:beforeinput={(e) => mentionCtrl.handleBeforeInput(e)}
-			on:paste={(e) => mentionCtrl.handlePaste(e)}
-		></div>
-
-		<MentionDropdown
-			show={mentionState.showMentionSuggestions}
-			suggestions={mentionState.mentionSuggestions}
-			selectedIndex={mentionState.selectedMentionIndex}
-			searching={mentionState.mentionSearching}
-			query={mentionState.mentionQuery}
-			on:select={(e) => mentionCtrl.insertMention(e.detail)}
-		/>
+	<!-- Write / Preview tab bar -->
+	<div class="rc-tab-bar">
+		<button
+			type="button"
+			class="rc-tab"
+			class:rc-tab--active={!showPreview}
+			on:click={() => (showPreview = false)}
+		>Write</button>
+		<button
+			type="button"
+			class="rc-tab"
+			class:rc-tab--active={showPreview}
+			on:click={() => (showPreview = true)}
+		>Preview</button>
 	</div>
+
+	<!-- Write pane — kept in DOM so contenteditable state is preserved -->
+	<div class:hidden={showPreview}>
+		<div class="relative">
+			<div
+				bind:this={composerEl}
+				class="reply-composer-input"
+				contenteditable={!posting}
+				role="textbox"
+				tabindex="0"
+				aria-multiline="true"
+				aria-label={placeholder}
+				data-placeholder={placeholder}
+				on:input={() => mentionCtrl.handleInput()}
+				on:keydown={(e) => mentionCtrl.handleKeydown(e)}
+				on:beforeinput={(e) => mentionCtrl.handleBeforeInput(e)}
+				on:paste={(e) => mentionCtrl.handlePaste(e)}
+			></div>
+
+			<MentionDropdown
+				show={mentionState.showMentionSuggestions}
+				suggestions={mentionState.mentionSuggestions}
+				selectedIndex={mentionState.selectedMentionIndex}
+				searching={mentionState.mentionSearching}
+				query={mentionState.mentionQuery}
+				on:select={(e) => mentionCtrl.insertMention(e.detail)}
+			/>
+		</div>
+	</div>
+
+	<!-- Preview pane -->
+	{#if showPreview}
+		<div class="reply-composer-input reply-composer-preview">
+			{#if previewContent.trim()}
+				<NoteContent content={previewContent} collapsible={false} showLinkPreviews={true} />
+			{:else}
+				<p class="text-caption italic text-sm">Nothing to preview yet.</p>
+			{/if}
+		</div>
+	{/if}
 
 
 	{#if uploadError}
@@ -363,112 +461,187 @@
 		</div>
 	{/if}
 
-	<div class="reply-composer-actions">
-		<div
-			class="media-menu"
-			use:clickOutside
-			on:click_outside={() => (showMediaMenu = false)}
-		>
-			<button
-				type="button"
-				class="btn-media"
-				class:opacity-50={uploadingImage || uploadingVideo || posting}
-				title="Upload photo or video"
-				aria-label="Upload photo or video"
-				aria-haspopup="menu"
-				aria-expanded={showMediaMenu}
-				disabled={posting || uploadingImage || uploadingVideo}
-				on:click={() => (showMediaMenu = !showMediaMenu)}
-			>
-				<ImageIcon size={compact ? 16 : 22} />
-			</button>
-			{#if showMediaMenu}
-				<div class="media-menu-panel" role="menu">
-					<button
-						type="button"
-						class="media-menu-item"
-						role="menuitem"
-						on:click={openImagePicker}
-					>
-						<ImageIcon size={16} />
-						<span>Photo</span>
-					</button>
-					<button
-						type="button"
-						class="media-menu-item"
-						role="menuitem"
-						on:click={openVideoPicker}
-					>
-						<VideoIcon size={16} />
-						<span>Video</span>
-					</button>
-				</div>
-			{/if}
-			<input
-				bind:this={imageInputEl}
-				type="file"
-				accept="image/*"
-				class="sr-only"
-				on:change={handleImageUpload}
-				disabled={posting || uploadingImage || uploadingVideo}
-			/>
-			<input
-				bind:this={videoInputEl}
-				type="file"
-				accept="video/*"
-				class="sr-only"
-				on:change={handleVideoUpload}
-				disabled={posting || uploadingImage || uploadingVideo}
-			/>
-		</div>
-		<button
-			type="button"
-			on:click={() => (showGifPicker = true)}
-			class="btn-gif"
-			title="Add GIF"
-			aria-label="Add GIF"
-			disabled={posting || uploadingImage || uploadingVideo}
-			class:opacity-50={uploadingImage || uploadingVideo}
-		>
-			<GifIcon size={compact ? 16 : 22} />
-		</button>
-		<button
-			type="button"
-			on:click={() => (showPollCreator = true)}
-			class="btn-gif"
-			title="Create poll"
-			aria-label="Create poll"
-			disabled={posting || uploadingImage || uploadingVideo}
-			class:opacity-50={posting || uploadingImage || uploadingVideo}
-		>
-			<ChartBarHorizontalIcon size={compact ? 16 : 22} class={pollConfig ? 'text-primary' : ''} />
-		</button>
-
-		{#if uploadingImage}
-			<span class="text-xs text-caption">Uploading image...</span>
-		{:else if uploadingVideo}
-			<span class="text-xs text-caption">Uploading video...</span>
-		{/if}
-		{#if pollConfig}
-			<span class="text-xs text-orange-600 flex items-center gap-1">
-				<ChartBarHorizontalIcon size={12} />
-				Poll ({pollConfig.options.length})
-				<button type="button" on:click={() => (pollConfig = null)} class="hover:text-orange-800"
-					>×</button
+	<div class="rc-toolbar">
+		<!-- Row 1: tools -->
+		<div class="rc-tools-row">
+			<div class="flex items-center gap-1">
+				<div
+					class="media-menu"
+					use:clickOutside
+					on:click_outside={() => (showMediaMenu = false)}
 				>
-			</span>
-		{/if}
+					<button
+						type="button"
+						class="btn-media"
+						class:opacity-50={uploadingImage || uploadingVideo || posting || showCountdown}
+						title="Upload photo or video"
+						aria-label="Upload photo or video"
+						aria-haspopup="menu"
+						aria-expanded={showMediaMenu}
+						disabled={posting || uploadingImage || uploadingVideo || showCountdown}
+						on:click={() => (showMediaMenu = !showMediaMenu)}
+					>
+						<ImageIcon size={20} />
+					</button>
+					{#if showMediaMenu}
+						<div class="media-menu-panel" role="menu">
+							<button
+								type="button"
+								class="media-menu-item"
+								role="menuitem"
+								on:click={openImagePicker}
+							>
+								<ImageIcon size={16} />
+								<span>Photo</span>
+							</button>
+							<button
+								type="button"
+								class="media-menu-item"
+								role="menuitem"
+								on:click={openVideoPicker}
+							>
+								<VideoIcon size={16} />
+								<span>Video</span>
+							</button>
+						</div>
+					{/if}
+					<input
+						bind:this={imageInputEl}
+						type="file"
+						accept="image/*"
+						class="sr-only"
+						on:change={handleImageUpload}
+						disabled={posting || uploadingImage || uploadingVideo}
+					/>
+					<input
+						bind:this={videoInputEl}
+						type="file"
+						accept="video/*"
+						class="sr-only"
+						on:change={handleVideoUpload}
+						disabled={posting || uploadingImage || uploadingVideo}
+					/>
+				</div>
+				<button
+					type="button"
+					on:click={() => (showGifPicker = true)}
+					class="btn-gif"
+					title="Add GIF"
+					aria-label="Add GIF"
+					disabled={posting || uploadingImage || uploadingVideo || showCountdown}
+					class:opacity-50={uploadingImage || uploadingVideo || showCountdown}
+				>
+					<GifIcon size={20} />
+				</button>
+				<button
+					type="button"
+					on:click={() => (showPollCreator = true)}
+					class="btn-gif"
+					title="Create poll"
+					aria-label="Create poll"
+					disabled={posting || uploadingImage || uploadingVideo || showCountdown}
+					class:opacity-50={posting || uploadingImage || uploadingVideo || showCountdown}
+				>
+					<ChartBarHorizontalIcon size={20} class={pollConfig ? 'text-primary' : ''} />
+				</button>
+			</div>
 
-		<slot name="submit" submit={handleSubmit} disabled={isDisabled} {posting}>
-			<!-- Default submit button: callers can override via `slot="submit"`. -->
-			<button type="button" class="btn-post" on:click={handleSubmit} disabled={isDisabled}>
-				{posting ? 'Posting...' : submitLabel}
-			</button>
-		</slot>
+			<!-- Right: status + clock settings -->
+			<div class="flex items-center gap-2">
+				{#if uploadingImage}
+					<span class="text-xs text-caption">Uploading image...</span>
+				{:else if uploadingVideo}
+					<span class="text-xs text-caption">Uploading video...</span>
+				{:else if showCountdown}
+					<span class="text-xs text-caption">Sending in {countdownDisplayNum}s…</span>
+				{/if}
+				{#if pollConfig}
+					<span class="text-xs text-orange-600 flex items-center gap-1">
+						<ChartBarHorizontalIcon size={12} />
+						Poll ({pollConfig.options.length})
+						<button type="button" on:click={() => (pollConfig = null)} class="hover:text-orange-800">×</button>
+					</span>
+				{/if}
 
-		{#if showCancel}
-			<button type="button" class="btn-cancel" on:click={handleCancel}>Cancel</button>
-		{/if}
+				<div class="countdown-settings-wrap" use:clickOutside on:click_outside={() => (showCountdownSettings = false)}>
+					<button
+						class="countdown-clock-btn"
+						class:active={showCountdownSettings || ($timerSettings.postCountdownEnabled && $timerSettings.postCountdownIncludesReplies)}
+						aria-label="Send countdown settings"
+						on:click|stopPropagation={() => (showCountdownSettings = !showCountdownSettings)}
+					>
+						<ClockIcon size={20} />
+					</button>
+					{#if showCountdownSettings}
+						<div class="countdown-settings-popover">
+							<div class="countdown-settings-row">
+								<span class="countdown-settings-label">Send countdown</span>
+								<button
+									class="countdown-toggle"
+									class:active={$timerSettings.postCountdownEnabled}
+									on:click={() => { const s = get(timerSettings); saveTimerSettings({ ...s, postCountdownEnabled: !s.postCountdownEnabled }); }}
+									aria-label="Toggle send countdown"
+								>
+									<span class="countdown-toggle-thumb"></span>
+								</button>
+							</div>
+							{#if $timerSettings.postCountdownEnabled}
+								<div class="countdown-settings-row">
+									<span class="countdown-settings-label">Include replies</span>
+									<button
+										class="countdown-toggle"
+										class:active={$timerSettings.postCountdownIncludesReplies}
+										on:click={() => { const s = get(timerSettings); saveTimerSettings({ ...s, postCountdownIncludesReplies: !s.postCountdownIncludesReplies }); }}
+										aria-label="Toggle countdown for replies"
+									>
+										<span class="countdown-toggle-thumb"></span>
+									</button>
+								</div>
+								{#if $timerSettings.postCountdownIncludesReplies}
+									<div class="countdown-secs-row">
+										{#each [5, 10, 15, 30] as secs}
+											<button
+												class="countdown-secs-btn"
+												class:active={$timerSettings.postCountdownSecs === secs}
+												on:click={() => { const s = get(timerSettings); saveTimerSettings({ ...s, postCountdownSecs: secs }); }}
+											>{secs}s</button>
+										{/each}
+									</div>
+								{/if}
+							{/if}
+						</div>
+					{/if}
+				</div>
+			</div>
+		</div>
+
+		<!-- Row 2: cancel + submit -->
+		<div class="rc-action-row">
+			{#if showCountdown}
+				<button class="rc-cancel rc-cancel--countdown" on:click={cancelCountdown} disabled={posting}>
+					Cancel
+				</button>
+				<button
+					class="rc-post rc-post--countdown"
+					style="--fill: {(1 - countdownFraction) * 100}%"
+					on:click={postNow}
+					disabled={posting}
+				>
+					<span class="rc-post-fill" aria-hidden="true"></span>
+					<span class="rc-post-label">{`${submitLabel} (${countdownDisplayNum}s)`}</span>
+				</button>
+			{:else}
+				{#if showCancel}
+					<button type="button" class="rc-cancel" on:click={handleCancel}>Cancel</button>
+				{/if}
+				<slot name="submit" submit={handleSubmitClick} disabled={isDisabled} {posting}>
+					<!-- Default submit button: callers can override via `slot="submit"`. -->
+					<button type="button" class="rc-post rc-post--solid" on:click={handleSubmitClick} disabled={isDisabled}>
+						{posting ? 'Posting...' : submitLabel}
+					</button>
+				</slot>
+			{/if}
+		</div>
 	</div>
 </div>
 
@@ -528,48 +701,219 @@
 		pointer-events: none;
 	}
 
-	.reply-composer-actions {
+	.rc-toolbar {
 		display: flex;
-		gap: 0.5rem;
+		flex-direction: column;
+		gap: 0.375rem;
+	}
+
+	.rc-tools-row {
+		display: flex;
 		align-items: center;
-		flex-wrap: wrap;
+		justify-content: space-between;
 	}
 
-	.btn-post {
-		padding: 0.5rem 1rem;
+	.rc-action-row {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+	}
+
+	/* Cancel pill — same shape in both states */
+	.rc-cancel {
+		flex-shrink: 0;
+		padding: 0.5rem 0.875rem;
+		border-radius: 9999px;
+		font-size: 0.9375rem;
+		font-weight: 600;
+		color: var(--color-text-secondary);
+		background: var(--color-accent-gray);
+		transition: opacity 0.15s;
+	}
+
+	.rc-cancel:hover:not(:disabled) { opacity: 0.8; }
+	.rc-cancel:disabled { opacity: 0.5; cursor: not-allowed; }
+
+	.rc-cancel--countdown {
+		background: #ef4444;
+		color: #fff;
+	}
+
+	/* Post pill — fills remaining space, same shape in both states */
+	.rc-post {
+		flex: 1;
+		position: relative;
+		overflow: hidden;
+		border-radius: 9999px;
+		padding: 0.5rem 1.25rem;
+		font-size: 0.9375rem;
+		font-weight: 600;
+		color: #fff;
+		text-align: center;
+		white-space: nowrap;
+		cursor: pointer;
+		transition: opacity 0.15s;
+	}
+
+	.reply-composer--compact .rc-post {
+		padding: 0.375rem 1rem;
 		font-size: 0.875rem;
-		font-weight: 500;
-		color: white;
-		background: var(--color-primary);
-		border-radius: 0.5rem;
 	}
 
-	.reply-composer--compact .btn-post {
-		padding: 0.375rem 0.75rem;
-		font-size: 0.75rem;
+	.rc-post:disabled { opacity: 0.5; cursor: not-allowed; }
+
+	.rc-post--solid {
+		background-image: linear-gradient(to right, #f97316, #f59e0b);
 	}
 
-	.btn-post:disabled {
-		opacity: 0.5;
-		cursor: not-allowed;
+	.rc-post--solid:hover:not(:disabled) {
+		background-image: linear-gradient(to right, #ea6c0a, #d97706);
 	}
 
-	.btn-cancel {
-		padding: 0.5rem 1rem;
-		font-size: 0.875rem;
-		font-weight: 500;
+	.rc-post--countdown {
+		background: var(--color-accent-gray);
+	}
+
+	.rc-post-fill {
+		position: absolute;
+		inset: 0;
+		border-radius: inherit;
+		background-image: linear-gradient(to right, #f97316, #f59e0b);
+		width: var(--fill, 0%);
+		pointer-events: none;
+	}
+
+	.rc-post-label {
+		position: relative;
+	}
+
+	/* Clock settings popover */
+	.countdown-clock-btn {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 28px;
+		height: 28px;
+		border-radius: 9999px;
+		color: var(--color-text-secondary);
+		transition: color 0.15s, background 0.15s;
+	}
+
+	.countdown-clock-btn:hover,
+	.countdown-clock-btn.active {
 		color: var(--color-text-primary);
-		background: var(--color-input-bg);
-		border-radius: 0.5rem;
+		background: var(--color-accent-gray);
 	}
 
-	.reply-composer--compact .btn-cancel {
-		padding: 0.375rem 0.75rem;
+	.countdown-settings-wrap {
+		position: relative;
+	}
+
+	.countdown-settings-popover {
+		position: absolute;
+		bottom: calc(100% + 0.5rem);
+		right: 0;
+		background: var(--color-bg-secondary);
+		border: 1px solid var(--color-input-border);
+		border-radius: 0.75rem;
+		padding: 0.75rem;
+		min-width: 220px;
+		box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+		z-index: 100;
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+	}
+
+	.countdown-settings-row {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.5rem;
+	}
+
+	.countdown-settings-label {
+		font-size: 0.8125rem;
+		color: var(--color-text-primary);
+		white-space: nowrap;
+	}
+
+	.countdown-toggle {
+		position: relative;
+		width: 36px;
+		height: 20px;
+		border-radius: 9999px;
+		background: var(--color-input-border);
+		transition: background 0.2s;
+		flex-shrink: 0;
+	}
+
+	.countdown-toggle.active {
+		background: #ef4444;
+	}
+
+	.countdown-toggle-thumb {
+		position: absolute;
+		top: 2px;
+		left: 2px;
+		width: 16px;
+		height: 16px;
+		border-radius: 9999px;
+		background: #fff;
+		transition: transform 0.2s;
+	}
+
+	.countdown-toggle.active .countdown-toggle-thumb {
+		transform: translateX(16px);
+	}
+
+	.countdown-secs-row {
+		display: flex;
+		gap: 0.25rem;
+	}
+
+	.countdown-secs-btn {
+		padding: 0.2rem 0.5rem;
+		border-radius: 0.375rem;
 		font-size: 0.75rem;
+		color: var(--color-text-secondary);
+		background: var(--color-accent-gray);
+		transition: background 0.15s, color 0.15s;
 	}
 
-	.btn-cancel:hover {
-		opacity: 0.8;
+	.countdown-secs-btn:hover {
+		color: var(--color-text-primary);
+	}
+
+	.countdown-secs-btn.active {
+		background: #ef4444;
+		color: #fff;
+	}
+
+	/* Write / Preview tabs */
+	.rc-tab-bar {
+		display: flex;
+		border-bottom: 1px solid var(--color-input-border);
+		margin-bottom: 0.25rem;
+	}
+
+	.rc-tab {
+		padding: 0.25rem 0.75rem;
+		font-size: 0.75rem;
+		font-weight: 500;
+		color: var(--color-caption);
+		border-bottom: 2px solid transparent;
+		margin-bottom: -1px;
+		transition: color 0.15s, border-color 0.15s;
+	}
+
+	.rc-tab--active {
+		color: var(--color-primary);
+		border-bottom-color: var(--color-primary);
+	}
+
+	.reply-composer-preview {
+		overflow-y: auto;
 	}
 
 	.btn-gif,

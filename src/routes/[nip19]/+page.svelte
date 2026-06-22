@@ -831,9 +831,11 @@
       <!-- Reply Input -->
       {#if $userPublickey}
         <div class="mt-4 p-3 rounded-lg" style="background-color: var(--color-bg-secondary)">
-          <div class="flex gap-3">
-            <Avatar pubkey={$userPublickey} size={32} />
-            <div class="flex-1">
+          <div class="flex gap-3 items-start">
+            <div class="flex-shrink-0">
+              <Avatar pubkey={$userPublickey} size={32} />
+            </div>
+            <div class="flex-1 min-w-0 -mt-3">
               <ReplyComposer
                 parentEvent={event}
                 placeholder="Write a reply..."

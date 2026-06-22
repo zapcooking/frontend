@@ -26,6 +26,9 @@ export interface TimerSettings {
   soundEnabled: boolean;
   positionX: number | null;
   positionY: number | null;
+  postCountdownEnabled: boolean;
+  postCountdownSecs: number;
+  postCountdownIncludesReplies: boolean;
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -41,6 +44,9 @@ const DEFAULT_SETTINGS: TimerSettings = {
   soundEnabled: true,
   positionX: null,
   positionY: null,
+  postCountdownEnabled: false,
+  postCountdownSecs: 10,
+  postCountdownIncludesReplies: false,
 };
 
 // ═══════════════════════════════════════════════════════════════

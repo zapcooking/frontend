@@ -13,9 +13,9 @@
   import { ndk, userPublickey } from '$lib/nostr';
   import { NDKEvent } from '@nostr-dev-kit/ndk';
   import { writable, type Readable } from 'svelte/store';
-  import Button from '../Button.svelte';
   import CommentCard from './CommentCard.svelte';
   import ReplyComposer from './ReplyComposer.svelte';
+  import CustomAvatar from '../CustomAvatar.svelte';
   import {
     createCommentSubscription,
     type CommentSubscription
@@ -91,6 +91,8 @@
     if (variant === 'recipe') sub?.addLocal(posted);
   }
 
+  let anyReplyOpen = false;
+
   let loginRedirectHref = '';
   $: loginRedirectHref = `/login?redirect=${encodeURIComponent($page.url.pathname)}`;
 </script>
@@ -109,38 +111,38 @@
             event={comment}
             allComments={$events}
             rootEvent={event}
+            on:replyopen={() => (anyReplyOpen = true)}
+            on:replyclose={() => (anyReplyOpen = false)}
           />
         {/each}
       {/if}
     </div>
 
-    <div class="space-y-3 pt-4 border-t">
-      <h3 class="text-lg font-semibold">Add a comment</h3>
-      {#if $ndk?.signer}
-        <ReplyComposer
-          parentEvent={event}
-          placeholder="Share your thoughts..."
-          submitLabel="Post Comment"
-          onPosted={handlePosted}
-        >
-          <Button
-            slot="submit"
-            let:submit
-            let:disabled
-            on:click={(e) => {
-              e.preventDefault?.();
-              submit();
-            }}
-            {disabled}
-          >
-            Post Comment
-          </Button>
-        </ReplyComposer>
-      {:else}
-        <p class="text-sm text-caption">Sign in to comment.</p>
-        <a href={loginRedirectHref} class="text-sm underline hover:opacity-80">Sign in</a>
-      {/if}
-    </div>
+    {#if !anyReplyOpen}
+      <div class="space-y-3 pt-4 border-t">
+        <h3 class="text-lg font-semibold">Add a comment</h3>
+        {#if $ndk?.signer}
+          <div class="p-3 rounded-lg" style="background-color: var(--color-bg-secondary)">
+            <div class="flex gap-3 items-start">
+              <div class="flex-shrink-0">
+                <CustomAvatar pubkey={$userPublickey} size={36} />
+              </div>
+              <div class="flex-1 min-w-0 -mt-3">
+                <ReplyComposer
+                  parentEvent={event}
+                  placeholder="Write a comment..."
+                  submitLabel="Comment"
+                  onPosted={handlePosted}
+                />
+              </div>
+            </div>
+          </div>
+        {:else}
+          <p class="text-sm text-caption">Sign in to comment.</p>
+          <a href={loginRedirectHref} class="text-sm underline hover:opacity-80">Sign in</a>
+        {/if}
+      </div>
+    {/if}
   </section>
 {:else}
   <div class="inline-comments" data-event-id={event.id}>
@@ -149,12 +151,12 @@
         <div class="comments-list">
           {#if $events.length === 0}
             <p class="text-sm text-caption">
-              No comments yet.
+              No replies yet.
               {#if !$userPublickey}
                 <a href={loginRedirectHref} class="underline hover:opacity-80">Sign in</a>
-                to comment!
+                to reply!
               {:else}
-                Be the first to comment!
+                Be the first to reply!
               {/if}
             </p>
           {:else}
@@ -164,27 +166,39 @@
                 event={comment}
                 allComments={$events}
                 rootEvent={event}
+                on:replyopen={() => (anyReplyOpen = true)}
+                on:replyclose={() => (anyReplyOpen = false)}
               />
             {/each}
           {/if}
         </div>
 
-        {#if $userPublickey}
-          <div class="space-y-2 pt-2" style="border-top: 1px solid var(--color-input-border)">
-            <ReplyComposer
-              parentEvent={event}
-              placeholder="Add a comment..."
-              submitLabel="Post Comment"
-              compact
-            />
-          </div>
-        {:else}
-          <div
-            class="text-sm text-caption pt-2"
-            style="border-top: 1px solid var(--color-input-border)"
-          >
-            <a href={loginRedirectHref} class="text-primary hover:underline">Log in</a> to comment
-          </div>
+        {#if !anyReplyOpen}
+          {#if $userPublickey}
+            <div>
+              <div class="p-3 rounded-lg" style="background-color: var(--color-bg-secondary)">
+                <div class="flex gap-3 items-start">
+                  <div class="flex-shrink-0">
+                    <CustomAvatar pubkey={$userPublickey} size={32} />
+                  </div>
+                  <div class="flex-1 min-w-0 -mt-3">
+                    <ReplyComposer
+                      parentEvent={event}
+                      placeholder="Write a reply..."
+                      submitLabel="Reply"
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+          {:else}
+            <div
+              class="text-sm text-caption pt-2"
+              style="border-top: 1px solid var(--color-input-border)"
+            >
+              <a href={loginRedirectHref} class="text-primary hover:underline">Log in</a> to reply
+            </div>
+          {/if}
         {/if}
       </div>
     {/if}

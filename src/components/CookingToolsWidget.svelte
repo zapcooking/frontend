@@ -28,6 +28,7 @@
     updateTimerSetting,
     saveTimerSettings
   } from '$lib/timerSettings';
+  import { get } from 'svelte/store';
 
   // Converter imports
   import {
@@ -511,7 +512,7 @@
     document.removeEventListener('touchend', handleDragEnd);
 
     if (browser && posX !== null && posY !== null) {
-      saveTimerSettings({ soundEnabled, positionX: posX, positionY: posY });
+      saveTimerSettings({ ...get(timerSettings), soundEnabled, positionX: posX, positionY: posY });
     }
   }
 
