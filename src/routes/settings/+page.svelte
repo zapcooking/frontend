@@ -46,6 +46,7 @@
     MAX_ZAP_MESSAGE_LENGTH
   } from '$lib/autoZapSettings';
   import { hellthreadThreshold } from '$lib/hellthreadFilterSettings';
+  import { timerSettings, saveTimerSettings, loadTimerSettings } from '$lib/timerSettings';
   import {
     fetchUserTrustProvider,
     publishTrustProvider,
@@ -53,6 +54,7 @@
     type TrustProvider
   } from '$lib/marketplace/kitchens';
   import LightningIcon from 'phosphor-svelte/lib/Lightning';
+  import ClockIcon from 'phosphor-svelte/lib/Clock';
   import { getConnectionManager } from '$lib/connectionManager';
   import SparkLogo from '../../components/icons/SparkLogo.svelte';
   import NwcLogo from '../../components/icons/NwcLogo.svelte';
@@ -293,6 +295,7 @@
     fetchNIP65Relays();
     fetchMembershipStatus();
     loadWotProvider();
+    loadTimerSettings();
     // Update connection status periodically
     const interval = setInterval(updateConnectedRelays, 5000);
     return () => clearInterval(interval);
@@ -561,6 +564,70 @@
           >
             System
           </button>
+        </div>
+      </div>
+    </Accordion>
+
+    <!-- Posting Section -->
+    <Accordion title="Posting" open={false}>
+      <div class="flex flex-col gap-4">
+        <p class="text-xs text-caption">Configure how notes are sent.</p>
+
+        <div class="p-4 rounded-xl" style="border: 1px solid var(--color-input-border);">
+          <div class="flex items-center justify-between">
+            <div class="flex-1">
+              <div class="flex items-center gap-2">
+                <ClockIcon size={18} class="text-orange-500" />
+                <span class="font-medium" style="color: var(--color-text-primary)">Send countdown</span>
+              </div>
+              <p class="text-sm text-caption mt-1">Shows a timer before posting so you can cancel or send immediately.</p>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={$timerSettings.postCountdownEnabled}
+              aria-label="Enable send countdown"
+              class="relative w-12 h-7 rounded-full transition-colors cursor-pointer {$timerSettings.postCountdownEnabled ? 'bg-orange-500' : 'bg-gray-300 dark:bg-gray-600'}"
+              on:click={() => saveTimerSettings({ ...$timerSettings, postCountdownEnabled: !$timerSettings.postCountdownEnabled })}
+            >
+              <span class="absolute top-1 left-1 w-5 h-5 bg-white rounded-full shadow transition-transform {$timerSettings.postCountdownEnabled ? 'translate-x-5' : ''}"></span>
+            </button>
+          </div>
+
+          {#if $timerSettings.postCountdownEnabled}
+            <div class="mt-4 pt-4 border-t" style="border-color: var(--color-input-border);">
+              <p class="text-sm font-medium mb-2" style="color: var(--color-text-primary)">Duration</p>
+              <div class="flex gap-2 flex-wrap">
+                {#each [5, 10, 15, 30] as secs}
+                  <button
+                    type="button"
+                    aria-pressed={$timerSettings.postCountdownSecs === secs}
+                    class="px-3 py-1.5 rounded-full text-sm font-medium transition-colors {$timerSettings.postCountdownSecs === secs ? 'bg-orange-500 text-white' : 'bg-secondary hover:bg-accent-gray'}"
+                    style={$timerSettings.postCountdownSecs !== secs ? 'color: var(--color-text-primary)' : ''}
+                    on:click={() => saveTimerSettings({ ...$timerSettings, postCountdownSecs: secs })}
+                  >{secs}s</button>
+                {/each}
+              </div>
+            </div>
+            <div class="mt-3 pt-3 border-t" style="border-color: var(--color-input-border);">
+              <div class="flex items-center justify-between">
+                <div class="flex-1">
+                  <p class="text-sm font-medium" style="color: var(--color-text-primary)">Include replies</p>
+                  <p class="text-xs text-caption mt-0.5">Also apply countdown when posting replies.</p>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={$timerSettings.postCountdownIncludesReplies}
+                  aria-label="Apply countdown to replies"
+                  class="relative w-12 h-7 rounded-full transition-colors cursor-pointer {$timerSettings.postCountdownIncludesReplies ? 'bg-orange-500' : 'bg-gray-300 dark:bg-gray-600'}"
+                  on:click={() => saveTimerSettings({ ...$timerSettings, postCountdownIncludesReplies: !$timerSettings.postCountdownIncludesReplies })}
+                >
+                  <span class="absolute top-1 left-1 w-5 h-5 bg-white rounded-full shadow transition-transform {$timerSettings.postCountdownIncludesReplies ? 'translate-x-5' : ''}"></span>
+                </button>
+              </div>
+            </div>
+          {/if}
         </div>
       </div>
     </Accordion>

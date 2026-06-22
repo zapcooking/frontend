@@ -22,6 +22,10 @@
   import { MentionComposerController, type MentionState } from '$lib/mentionComposer';
   import { uploadImage, uploadVideo } from '$lib/mediaUpload';
   import { clickOutside } from '$lib/clickOutside';
+  import { showToast } from '$lib/toast';
+  import { timerSettings, loadTimerSettings, saveTimerSettings } from '$lib/timerSettings';
+  import { get } from 'svelte/store';
+  import ClockIcon from 'phosphor-svelte/lib/Clock';
 
   // Clear stuck posts from the publish queue
   async function clearPendingQueue() {
@@ -41,7 +45,7 @@
   export let selectedRelay: RelaySelection | undefined = undefined;
   export let initialQuotedNote: { nevent: string; event: NDKEventType } | null = null;
 
-  const dispatch = createEventDispatcher<{ close: void; minimize: { preview: string } }>();
+  const dispatch = createEventDispatcher<{ close: void; minimize: { preview: string }; posting: boolean }>();
 
   // Exposed so the wrapping modal's X button routes through the same
   // close/minimize logic as the composer's own Cancel button.
@@ -53,8 +57,16 @@
   let content = '';
   let posting = false;
   let success = false;
-  let successQueued = false; // True when post was queued for retry
   let error = '';
+
+  // Send countdown
+  let showCountdown = false;
+  let countdownStartedAt = 0;
+  let countdownTotal = 0;
+  let countdownFraction = 1;
+  let countdownDisplayNum = 0;
+  let rafHandle: number | null = null;
+  let showCountdownSettings = false;
   let composerEl: HTMLDivElement;
   let lastRenderedContent = '';
   let uploadedImages: string[] = [];
@@ -171,6 +183,8 @@
       }
     } catch (_) {}
 
+    loadTimerSettings();
+
     if (variant === 'modal') {
       // Set initial quoted note if provided (from store via PostModal)
       if (initialQuotedNote) {
@@ -186,6 +200,7 @@
     }
     // Cancel any pending debounced draft save so it can't fire after unmount
     if (draftTimer) clearTimeout(draftTimer);
+    if (rafHandle !== null) cancelAnimationFrame(rafHandle);
     mentionCtrl.destroy();
   });
 
@@ -200,7 +215,6 @@
     content = '';
     lastRenderedContent = '';
     error = '';
-    successQueued = false;
     showPreview = false;
     draftSaved = false;
     isMinimized = false;
@@ -301,6 +315,53 @@
     uploadedVideos = uploadedVideos.filter((_, i) => i !== index);
   }
 
+  // ── Send countdown ────────────────────────────────────────────
+
+  function startCountdown(secs: number) {
+    countdownTotal = secs;
+    countdownStartedAt = Date.now();
+    countdownFraction = 1;
+    countdownDisplayNum = secs;
+    showCountdown = true;
+    showCountdownSettings = false;
+
+    function tick() {
+      const elapsed = (Date.now() - countdownStartedAt) / 1000;
+      const remaining = Math.max(0, countdownTotal - elapsed);
+      countdownFraction = remaining / countdownTotal;
+      countdownDisplayNum = Math.ceil(remaining);
+      if (remaining <= 0) {
+        showCountdown = false;
+        postToFeed();
+        return;
+      }
+      rafHandle = requestAnimationFrame(tick);
+    }
+    rafHandle = requestAnimationFrame(tick);
+  }
+
+  function cancelCountdown() {
+    if (rafHandle !== null) { cancelAnimationFrame(rafHandle); rafHandle = null; }
+    showCountdown = false;
+  }
+
+  function postNow() {
+    if (rafHandle !== null) { cancelAnimationFrame(rafHandle); rafHandle = null; }
+    showCountdown = false;
+    postToFeed();
+  }
+
+  function handlePostClick() {
+    const settings = get(timerSettings);
+    if (settings.postCountdownEnabled) {
+      startCountdown(settings.postCountdownSecs);
+    } else {
+      postToFeed();
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────
+
   async function postToFeed() {
     console.log('[PostComposer] postToFeed called');
     console.log('[PostComposer] content:', content);
@@ -329,6 +390,7 @@
 
     console.log('[PostComposer] Starting post process...');
     posting = true;
+    dispatch('posting', true);
     error = '';
 
     try {
@@ -422,40 +484,23 @@
       console.log('[PostComposer] Publish result:', result);
 
       if (result.success) {
-        // Published successfully on first attempt
-        success = true;
-        successQueued = false;
+        const noteLink = event.id ? `/${nip19.noteEncode(event.id)}` : null;
+        showToast('success', 'Note published', 12000, noteLink ? { label: 'View', href: noteLink } : undefined);
         resetComposerState();
-
-        const closeDelay = variant === 'modal' ? 1500 : 2500;
-        setTimeout(() => {
-          success = false;
-          if (variant === 'modal') {
-            dispatch('close');
-          } else {
-            isComposerOpen = false;
-          }
-        }, closeDelay);
+        if (variant === 'modal') {
+          dispatch('close');
+        } else {
+          isComposerOpen = false;
+        }
       } else if (result.queued) {
-        // Failed initial publish, but queued for background retry
-        // Show optimistic success - the post will be published when connection improves
-        success = true;
-        successQueued = true;
+        showToast('info', 'Note queued — will publish when connection improves', 5000);
         resetComposerState();
-
-        // Log for debugging
         console.log('[PostComposer] Post queued for background retry:', result.error);
-
-        const closeDelay = variant === 'modal' ? 2000 : 3000; // Slightly longer to read the message
-        setTimeout(() => {
-          success = false;
-          successQueued = false;
-          if (variant === 'modal') {
-            dispatch('close');
-          } else {
-            isComposerOpen = false;
-          }
-        }, closeDelay);
+        if (variant === 'modal') {
+          dispatch('close');
+        } else {
+          isComposerOpen = false;
+        }
       } else {
         error = result.error || 'Failed to publish';
       }
@@ -464,6 +509,7 @@
       error = err instanceof Error ? err.message : 'Failed to post. Please try again.';
     } finally {
       posting = false;
+      dispatch('posting', false);
     }
   }
 
@@ -544,10 +590,10 @@
 
 {#if $userPublickey !== '' || variant === 'modal'}
   <div
-    class={`bg-input rounded-xl transition-all ${variant === 'inline' ? 'mb-4' : 'flex-1 flex flex-col'}`}
+    class={`rounded-xl relative ${variant === 'inline' ? 'mb-4' : 'flex-1 flex flex-col'} ${posting ? '' : 'bg-input transition-all'}`}
     class:overflow-hidden={!isComposerOpen}
     class:overflow-visible={isComposerOpen}
-    style="border: 1px solid var(--color-input-border)"
+    style={posting ? '' : 'border: 1px solid var(--color-input-border)'}
   >
     {#if variant === 'inline' && !isComposerOpen}
       <button
@@ -565,6 +611,14 @@
       <div class="p-4">
         <p class="text-sm text-caption">Sign in to post.</p>
         <a href="/login" class="text-sm underline hover:opacity-80">Sign in</a>
+      </div>
+    {:else if posting}
+      <div class="posting-indicator">
+        <svg class="posting-spinner" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3"/>
+          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+        </svg>
+        <span>Posting…</span>
       </div>
     {:else}
       <div class={`${variant === 'modal' ? 'flex-1 flex flex-col min-h-0' : 'p-3'}`}>
@@ -628,16 +682,6 @@
 
               {#if error}
                 <p class="text-red-500 text-xs mb-2">{error}</p>
-              {/if}
-
-              {#if success}
-                {#if successQueued}
-                  <p class="text-amber-600 text-xs mb-2">
-                    Post queued — will publish when connection improves
-                  </p>
-                {:else}
-                  <p class="text-green-600 text-xs mb-2">Posted!</p>
-                {/if}
               {/if}
 
               {#if !showPreview && quotedNote}
@@ -768,173 +812,156 @@
         </div>
 
         <!-- Action bar — pinned at bottom in modal, inline otherwise -->
-        <div
-          class="{variant === 'modal' ? 'flex-shrink-0 px-3 pb-3' : ''}"
-        >
-          <div
-            class="flex items-center justify-between pt-2"
-            style="border-top: 1px solid var(--color-input-border)"
-          >
-          <div class="flex items-center gap-3">
-            <div
-              class="media-menu"
-              use:clickOutside
-              on:click_outside={() => (showMediaMenu = false)}
-            >
-              <button
-                type="button"
-                class="cursor-pointer p-1.5 rounded-full hover:bg-accent-gray transition-colors"
-                class:opacity-50={posting || uploadingImage || uploadingVideo}
-                class:cursor-not-allowed={posting || uploadingImage || uploadingVideo}
-                disabled={posting || uploadingImage || uploadingVideo}
-                aria-haspopup="menu"
-                aria-expanded={showMediaMenu}
-                aria-label="Upload photo or video"
-                title="Upload photo or video"
-                on:click={() => (showMediaMenu = !showMediaMenu)}
-              >
-                <ImageIcon size={18} class="text-caption" />
+        <div class="composer-footer {variant === 'modal' ? 'px-3 pb-3' : ''}">
+
+          <!-- Row 1: tools + status -->
+          <div class="composer-tools-row">
+            <div class="flex items-center gap-1">
+              <!-- Media upload -->
+              <div class="media-menu" use:clickOutside on:click_outside={() => (showMediaMenu = false)}>
+                <button
+                  type="button"
+                  class="tool-btn"
+                  class:opacity-50={posting || uploadingImage || uploadingVideo || showCountdown}
+                  disabled={posting || uploadingImage || uploadingVideo || showCountdown}
+                  aria-haspopup="menu"
+                  aria-expanded={showMediaMenu}
+                  aria-label="Upload photo or video"
+                  title="Upload photo or video"
+                  on:click={() => (showMediaMenu = !showMediaMenu)}
+                >
+                  <ImageIcon size={20} class="text-caption" />
+                </button>
+                {#if showMediaMenu}
+                  <div class="media-menu-panel" role="menu">
+                    <button type="button" class="media-menu-item" role="menuitem" on:click={openImagePicker}>
+                      <ImageIcon size={16} /><span>Photo</span>
+                    </button>
+                    <button type="button" class="media-menu-item" role="menuitem" on:click={openVideoPicker}>
+                      <VideoIcon size={16} /><span>Video</span>
+                    </button>
+                  </div>
+                {/if}
+                <input bind:this={imageInputEl} type="file" accept="image/*" class="sr-only" on:change={handleImageUpload} disabled={posting || uploadingImage || uploadingVideo} />
+                <input bind:this={videoInputEl} type="file" accept="video/*" class="sr-only" on:change={handleVideoUpload} disabled={posting || uploadingImage || uploadingVideo} />
+              </div>
+
+              <button on:click={() => (showGifPicker = true)} class="tool-btn" class:opacity-50={posting || showCountdown} disabled={posting || showCountdown} title="Add GIF">
+                <GifIcon size={20} class="text-caption" />
               </button>
-              {#if showMediaMenu}
-                <div class="media-menu-panel" role="menu">
-                  <button
-                    type="button"
-                    class="media-menu-item"
-                    role="menuitem"
-                    on:click={openImagePicker}
-                  >
-                    <ImageIcon size={16} />
-                    <span>Photo</span>
-                  </button>
-                  <button
-                    type="button"
-                    class="media-menu-item"
-                    role="menuitem"
-                    on:click={openVideoPicker}
-                  >
-                    <VideoIcon size={16} />
-                    <span>Video</span>
-                  </button>
-                </div>
-              {/if}
-              <input
-                bind:this={imageInputEl}
-                type="file"
-                accept="image/*"
-                class="sr-only"
-                on:change={handleImageUpload}
-                disabled={posting || uploadingImage || uploadingVideo}
-              />
-              <input
-                bind:this={videoInputEl}
-                type="file"
-                accept="video/*"
-                class="sr-only"
-                on:change={handleVideoUpload}
-                disabled={posting || uploadingImage || uploadingVideo}
-              />
+
+              <button on:click={() => (showPollCreator = true)} class="tool-btn" class:opacity-50={posting || showCountdown} disabled={posting || showCountdown} title="Create poll">
+                <ChartBarHorizontalIcon size={20} class={pollConfig || zapPollConfig ? 'text-primary' : 'text-caption'} />
+              </button>
             </div>
 
-            <button
-              on:click={() => (showGifPicker = true)}
-              class="p-1.5 rounded-full hover:bg-accent-gray transition-colors"
-              class:opacity-50={posting}
-              class:cursor-not-allowed={posting}
-              disabled={posting}
-              title="Add GIF"
-            >
-              <GifIcon size={18} class="text-caption" />
-            </button>
+            <!-- Right: status indicators -->
+            <div class="flex items-center gap-2 text-xs text-caption">
+              {#if uploadingImage}
+                <span>Uploading image…</span>
+              {:else if uploadingVideo}
+                <span>Uploading video…</span>
+              {:else if showCountdown}
+                <span>Sending in {countdownDisplayNum}s…</span>
+              {:else if draftSaved && !posting && !success}
+                <span class="flex items-center gap-0.5">
+                  <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
+                  Saved
+                </span>
+              {/if}
+              {#if $publishQueueState.pending > 0}
+                <span class="text-amber-600 flex items-center gap-1">
+                  <svg class="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                  {$publishQueueState.pending} pending
+                </span>
+                <button on:click={clearPendingQueue} class="text-red-500 hover:text-red-600 underline">clear</button>
+              {/if}
 
-            <button
-              on:click={() => (showPollCreator = true)}
-              class="p-1.5 rounded-full hover:bg-accent-gray transition-colors"
-              class:opacity-50={posting}
-              class:cursor-not-allowed={posting}
-              disabled={posting}
-              title="Create poll"
-            >
-              <ChartBarHorizontalIcon size={18} class={pollConfig || zapPollConfig ? 'text-primary' : 'text-caption'} />
-            </button>
-
-            {#if uploadingImage}
-              <span class="text-xs text-caption">Uploading image...</span>
-            {:else if uploadingVideo}
-              <span class="text-xs text-caption">Uploading video...</span>
-            {/if}
+              <!-- Clock settings always in tools row -->
+              <div class="countdown-settings-wrap" use:clickOutside on:click_outside={() => (showCountdownSettings = false)}>
+                <button
+                  class="countdown-clock-btn"
+                  class:active={showCountdownSettings}
+                  aria-label="Send countdown settings"
+                  on:click|stopPropagation={() => (showCountdownSettings = !showCountdownSettings)}
+                >
+                  <ClockIcon size={20} />
+                </button>
+                {#if showCountdownSettings}
+                  <div class="countdown-settings-popover">
+                    <div class="countdown-settings-row">
+                      <span class="countdown-settings-label">Send countdown</span>
+                      <button
+                        class="countdown-toggle"
+                        class:active={$timerSettings.postCountdownEnabled}
+                        on:click={() => { const s = get(timerSettings); saveTimerSettings({ ...s, postCountdownEnabled: !s.postCountdownEnabled }); }}
+                        aria-label="Toggle send countdown"
+                      >
+                        <span class="countdown-toggle-thumb"></span>
+                      </button>
+                    </div>
+                    {#if $timerSettings.postCountdownEnabled}
+                      <div class="countdown-secs-row">
+                        {#each [5, 10, 15, 30] as secs}
+                          <button
+                            class="countdown-secs-btn"
+                            class:active={$timerSettings.postCountdownSecs === secs}
+                            on:click={() => { const s = get(timerSettings); saveTimerSettings({ ...s, postCountdownSecs: secs }); }}
+                          >{secs}s</button>
+                        {/each}
+                      </div>
+                    {/if}
+                  </div>
+                {/if}
+              </div>
+            </div>
           </div>
 
-          <div class="flex items-center gap-2">
-            {#if draftSaved && !posting && !success}
-              <span class="text-xs text-caption flex items-center gap-0.5" title="Draft autosaved">
-                <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
-                  <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/>
-                </svg>
-                Saved
-              </span>
-            {/if}
-            {#if $publishQueueState.pending > 0}
-              <span
-                class="text-xs text-amber-600 flex items-center gap-1"
-                title="Posts queued for retry"
-              >
-                <svg class="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24">
-                  <circle
-                    class="opacity-25"
-                    cx="12"
-                    cy="12"
-                    r="10"
-                    stroke="currentColor"
-                    stroke-width="4"
-                  ></circle>
-                  <path
-                    class="opacity-75"
-                    fill="currentColor"
-                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                  ></path>
-                </svg>
-                {$publishQueueState.pending} pending
-              </span>
-              <button
-                on:click={clearPendingQueue}
-                class="text-xs text-red-500 hover:text-red-600 underline"
-                title="Clear stuck posts from queue"
-              >
-                clear
+          <!-- Row 2: cancel + post — same layout in both states -->
+          <div class="composer-action-row">
+            <!-- Cancel / X — same pill in both states -->
+            {#if showCountdown}
+              <button class="action-cancel action-cancel--countdown" on:click={cancelCountdown} disabled={posting}>
+                Cancel
+              </button>
+            {:else}
+              <button class="action-cancel" on:click={closeComposer} disabled={posting}>
+                Cancel
               </button>
             {/if}
-            <button
-              on:click={closeComposer}
-              class="px-3 py-1.5 text-xs text-caption hover:opacity-80 transition-colors"
-              disabled={posting}
-            >
-              Cancel
-            </button>
-            <button
-              on:click={postToFeed}
-              disabled={posting ||
-                uploadingImage ||
-                uploadingVideo ||
-                (!content.trim() &&
-                  uploadedImages.length === 0 &&
-                  uploadedVideos.length === 0 &&
-                  !quotedNote &&
-                  !pollConfig &&
-                  !zapPollConfig)}
-              class="px-4 py-1.5 text-xs font-medium text-white bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 rounded-full disabled:opacity-50 disabled:cursor-not-allowed transition-all"
-            >
-              {posting ? 'Posting...' : 'Post'}
-            </button>
+
+            <!-- Post button — same size/shape in both states -->
+            {#if showCountdown}
+              <button
+                class="action-post action-post--countdown"
+                style="--fill: {(1 - countdownFraction) * 100}%"
+                on:click={postNow}
+                disabled={posting}
+              >
+                <span class="action-post-fill" aria-hidden="true"></span>
+                <span class="action-post-label">{posting ? 'Posting…' : `Post Now (${countdownDisplayNum}s)`}</span>
+              </button>
+            {:else}
+              <button
+                class="action-post action-post--solid"
+                on:click={handlePostClick}
+                disabled={posting || uploadingImage || uploadingVideo ||
+                  (!content.trim() && uploadedImages.length === 0 && uploadedVideos.length === 0 && !quotedNote && !pollConfig && !zapPollConfig)}
+              >
+                {posting ? 'Posting…' : 'Post'}
+              </button>
+            {/if}
+
           </div>
-          </div>
+
           {#if variant === 'inline' && (activeTab === 'members' || selectedRelay === 'pantry')}
-            <p class="pt-1.5 text-[11px] text-caption">
-              <span class="mr-1">🏪</span>Posting to the Pantry — if you're seeing this, you're early.
-            </p>
+            <p class="pt-1 text-[11px] text-caption"><span class="mr-1">🏪</span>Posting to the Pantry — if you're seeing this, you're early.</p>
           {/if}
         </div>
       </div>
     {/if}
+
+
   </div>
 {/if}
 
@@ -1165,5 +1192,229 @@
 
   .media-menu-item:hover {
     background: var(--color-accent-gray);
+  }
+
+  /* ── Post button group ──────────────────────────────────────── */
+  .countdown-clock-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 9999px;
+    color: var(--color-text-secondary);
+    transition: color 0.15s, background 0.15s;
+  }
+
+  .countdown-clock-btn:hover,
+  .countdown-clock-btn.active {
+    color: var(--color-text-primary);
+    background: var(--color-accent-gray);
+  }
+
+  .countdown-settings-wrap {
+    position: relative;
+  }
+
+  .countdown-settings-popover {
+    position: absolute;
+    bottom: calc(100% + 0.5rem);
+    right: 0;
+    background: var(--color-bg-secondary);
+    border: 1px solid var(--color-input-border);
+    border-radius: 0.75rem;
+    padding: 0.75rem;
+    min-width: 220px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+    z-index: 100;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .countdown-settings-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+  }
+
+  .countdown-settings-label {
+    font-size: 0.8125rem;
+    color: var(--color-text-primary);
+    white-space: nowrap;
+  }
+
+  .countdown-toggle {
+    position: relative;
+    width: 36px;
+    height: 20px;
+    border-radius: 9999px;
+    background: var(--color-input-border);
+    transition: background 0.2s;
+    flex-shrink: 0;
+  }
+
+  .countdown-toggle.active {
+    background: #ef4444;
+  }
+
+  .countdown-toggle-thumb {
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 16px;
+    height: 16px;
+    border-radius: 9999px;
+    background: #fff;
+    transition: transform 0.2s;
+  }
+
+  .countdown-toggle.active .countdown-toggle-thumb {
+    transform: translateX(16px);
+  }
+
+  .countdown-secs-row {
+    display: flex;
+    gap: 0.25rem;
+  }
+
+  .countdown-secs-btn {
+    padding: 0.2rem 0.5rem;
+    border-radius: 0.375rem;
+    font-size: 0.75rem;
+    color: var(--color-text-secondary);
+    background: var(--color-accent-gray);
+    transition: background 0.15s, color 0.15s;
+  }
+
+  .countdown-secs-btn:hover {
+    color: var(--color-text-primary);
+  }
+
+  .countdown-secs-btn.active {
+    background: #ef4444;
+    color: #fff;
+  }
+
+  /* ── Countdown overlay ──────────────────────────────────────── */
+
+  /* ── Posting indicator ──────────────────────────────────────── */
+  .posting-indicator {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.625rem;
+    flex: 1;
+    min-height: 4rem;
+    font-size: 0.9375rem;
+    font-weight: 500;
+    color: var(--color-text-secondary);
+  }
+
+  .posting-spinner {
+    width: 1.25rem;
+    height: 1.25rem;
+    animation: spin 0.8s linear infinite;
+    color: var(--color-text-secondary);
+  }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── Composer footer ────────────────────────────────────────── */
+  .composer-footer {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    padding-top: 0.75rem;
+    border-top: 1px solid var(--color-input-border);
+  }
+
+  .composer-tools-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .tool-btn {
+    padding: 0.375rem;
+    border-radius: 9999px;
+    transition: background 0.15s;
+  }
+
+  .tool-btn:hover:not(:disabled) {
+    background: var(--color-accent-gray);
+  }
+
+  .composer-action-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  /* Cancel — same pill shape in both states */
+  .action-cancel {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 0.5rem 1rem;
+    border-radius: 9999px;
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: var(--color-text-secondary);
+    background: var(--color-accent-gray);
+    transition: opacity 0.15s;
+  }
+
+  .action-cancel:hover:not(:disabled) { opacity: 0.8; }
+  .action-cancel:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  .action-cancel--countdown {
+    background: #ef4444;
+    color: #fff;
+  }
+
+  /* Post — same pill shape in both states, fills remaining space */
+  .action-post {
+    flex: 1;
+    position: relative;
+    overflow: hidden;
+    border-radius: 9999px;
+    padding: 0.5rem 1.25rem;
+    font-size: 0.9375rem;
+    font-weight: 600;
+    color: #fff;
+    text-align: center;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: opacity 0.15s;
+  }
+
+  .action-post:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  .action-post--solid {
+    background-image: linear-gradient(to right, #f97316, #f59e0b);
+  }
+
+  .action-post--solid:hover:not(:disabled) {
+    background-image: linear-gradient(to right, #ea6c0a, #d97706);
+  }
+
+  .action-post--countdown {
+    background: var(--color-accent-gray);
+  }
+
+  .action-post-fill {
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background-image: linear-gradient(to right, #f97316, #f59e0b);
+    width: var(--fill, 0%);
+    pointer-events: none;
+  }
+
+  .action-post-label {
+    position: relative;
   }
 </style>

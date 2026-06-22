@@ -1,5 +1,7 @@
 <script lang="ts">
-  import XIcon from 'phosphor-svelte/lib/X';
+  import CheckCircleIcon from 'phosphor-svelte/lib/CheckCircle';
+  import WarningCircleIcon from 'phosphor-svelte/lib/WarningCircle';
+  import InfoIcon from 'phosphor-svelte/lib/Info';
   import type { ToastMessage } from '$lib/toast';
   import { dismissToast } from '$lib/toast';
 
@@ -11,14 +13,28 @@
   role={toast.variant === 'error' ? 'alert' : 'status'}
   aria-live={toast.variant === 'error' ? 'assertive' : 'polite'}
 >
+  <span class="toast-icon">
+    {#if toast.variant === 'success'}
+      <CheckCircleIcon size={20} weight="fill" />
+    {:else if toast.variant === 'error'}
+      <WarningCircleIcon size={20} weight="fill" />
+    {:else}
+      <InfoIcon size={20} weight="fill" />
+    {/if}
+  </span>
   <span class="toast-message">{toast.message}</span>
+  {#if toast.link}
+    <a href={toast.link.href} class="toast-link" on:click={() => dismissToast(toast.id)}>
+      {toast.link.label}
+    </a>
+  {/if}
   <button
     type="button"
     class="toast-dismiss"
     aria-label="Dismiss"
     on:click={() => dismissToast(toast.id)}
   >
-    <XIcon size={14} weight="bold" />
+    Dismiss
   </button>
 </div>
 
@@ -27,46 +43,70 @@
     display: flex;
     align-items: center;
     gap: 0.75rem;
-    padding: 0.75rem 1rem;
+    padding: 1rem;
     border-radius: 0.5rem;
-    background: var(--color-bg-secondary);
-    color: var(--color-text-primary);
-    border: 1px solid var(--color-input-border);
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+    background-color: var(--color-bg-primary);
+    border: 1px solid currentColor;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
     font-size: 0.875rem;
     line-height: 1.4;
-    min-width: 240px;
-    max-width: 420px;
-    pointer-events: auto; /* override container's pointer-events: none */
-  }
-
-  .toast--error {
-    border-color: rgba(239, 68, 68, 0.45);
-    background: rgba(239, 68, 68, 0.1);
+    pointer-events: auto;
+    width: 100%;
   }
 
   .toast--success {
-    border-color: rgba(34, 197, 94, 0.45);
-    background: rgba(34, 197, 94, 0.1);
+    color: #22c55e;
+  }
+
+  .toast--error {
+    color: #ef4444;
+  }
+
+  .toast--info {
+    color: #3b82f6;
+  }
+
+  .toast-icon {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
   }
 
   .toast-message {
     flex: 1 1 0%;
+    color: var(--color-text-primary, #fff);
     overflow-wrap: anywhere;
     word-break: break-word;
   }
 
-  .toast-dismiss {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 0.25rem;
-    border-radius: 0.25rem;
-    color: var(--color-text-secondary);
+  .toast-link {
+    flex-shrink: 0;
+    font-size: 0.8125rem;
+    font-weight: 700;
+    color: currentColor;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    white-space: nowrap;
+    opacity: 0.9;
     transition: opacity 0.15s;
   }
 
+  .toast-link:hover {
+    opacity: 1;
+  }
+
+  .toast-dismiss {
+    flex-shrink: 0;
+    font-size: 0.8125rem;
+    color: currentColor;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    opacity: 0.8;
+    transition: opacity 0.15s;
+    white-space: nowrap;
+  }
+
   .toast-dismiss:hover {
-    opacity: 0.7;
+    opacity: 1;
   }
 </style>

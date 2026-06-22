@@ -25,6 +25,7 @@
     updateTimerSetting,
     saveTimerSettings
   } from '$lib/timerSettings';
+  import { get } from 'svelte/store';
   import PlayIcon from 'phosphor-svelte/lib/Play';
   import PauseIcon from 'phosphor-svelte/lib/Pause';
   import TrashIcon from 'phosphor-svelte/lib/Trash';
@@ -276,11 +277,7 @@
 
     // Save position to settings (syncs to relay if logged in)
     if (browser && posX !== null && posY !== null) {
-      saveTimerSettings({
-        soundEnabled,
-        positionX: posX,
-        positionY: posY
-      });
+      saveTimerSettings({ ...get(timerSettings), soundEnabled, positionX: posX, positionY: posY });
     }
   }
 

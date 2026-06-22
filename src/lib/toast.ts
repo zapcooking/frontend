@@ -14,12 +14,19 @@ import { writable } from 'svelte/store';
 
 export type ToastVariant = 'error' | 'info' | 'success';
 
+export interface ToastLink {
+  label: string;
+  href: string;
+}
+
 export interface ToastMessage {
   id: string;
   variant: ToastVariant;
   message: string;
   /** Auto-dismiss after this many ms. Pass 0 to disable auto-dismiss. */
   durationMs: number;
+  /** Optional CTA link rendered next to the message. */
+  link?: ToastLink;
 }
 
 export const toasts = writable<ToastMessage[]>([]);
@@ -30,10 +37,11 @@ export const toasts = writable<ToastMessage[]>([]);
 export function showToast(
   variant: ToastVariant,
   message: string,
-  durationMs = 4000
+  durationMs = 4000,
+  link?: ToastLink
 ): string {
   const id = `toast-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-  toasts.update((list) => [...list, { id, variant, message, durationMs }]);
+  toasts.update((list) => [...list, { id, variant, message, durationMs, link }]);
   if (durationMs > 0) {
     setTimeout(() => dismissToast(id), durationMs);
   }

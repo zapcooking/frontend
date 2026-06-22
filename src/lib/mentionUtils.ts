@@ -128,26 +128,71 @@ export function replacePlainMentions(
 
 // --- DOM utilities ---
 
+// Block-level tags that introduce a line break when a contenteditable surface
+// (or pasted HTML) is serialized back to plain text. Browsers and embedded
+// WebViews disagree on the paragraph separator they emit on Enter \u2014 Chrome/
+// Safari typically wrap lines in <div>, but iOS/Capacitor WebViews and pasted
+// rich text often use <p> (and lists/headings/etc.). Treating only <div> as a
+// line boundary dropped those breaks, concatenating lines with no separator
+// (e.g. "\uD83E\uDD69\uD83C\uDF73#brunchstr"). Keep this list focused on tags that realistically
+// appear inside the composer or in pasted content.
+const BLOCK_TAGS = new Set([
+	'DIV',
+	'P',
+	'LI',
+	'UL',
+	'OL',
+	'BLOCKQUOTE',
+	'PRE',
+	'SECTION',
+	'ARTICLE',
+	'H1',
+	'H2',
+	'H3',
+	'H4',
+	'H5',
+	'H6'
+]);
+
 export function htmlToPlainText(element: Node): string {
 	let text = '';
+	// `isFirstChild` suppresses a leading newline before the first block so the
+	// output doesn't start with "\n". `prevWasBlock` records whether the last
+	// emitted node was a block element: a block only emits a newline *before*
+	// itself, so an inline/text node following a block (e.g. `<div>L1</div>L2`)
+	// would otherwise merge onto the block's line. The flag lets us insert the
+	// missing separator on that trailing edge too.
 	let isFirstChild = true;
+	let prevWasBlock = false;
+
+	const breakAfterBlock = () => {
+		if (prevWasBlock && text && !text.endsWith('\n')) {
+			text += '\n';
+		}
+	};
 
 	element.childNodes.forEach((node) => {
 		if (node.nodeType === Node.TEXT_NODE) {
 			const content = (node.textContent || '').replace(/\u200B/g, '');
-			text += content;
 			if (content) {
+				breakAfterBlock();
+				text += content;
 				isFirstChild = false;
+				prevWasBlock = false;
 			}
 		} else if (node.nodeType === Node.ELEMENT_NODE) {
 			const el = node as HTMLElement;
 
 			if (el.dataset.mention) {
+				breakAfterBlock();
 				text += el.dataset.mention;
 				isFirstChild = false;
+				prevWasBlock = false;
 			} else if (el.tagName === 'BR') {
 				text += '\n';
-			} else if (el.tagName === 'DIV') {
+				isFirstChild = false;
+				prevWasBlock = false;
+			} else if (BLOCK_TAGS.has(el.tagName)) {
 				if (!isFirstChild) {
 					text += '\n';
 				}
@@ -157,17 +202,22 @@ export function htmlToPlainText(element: Node): string {
 					text += htmlToPlainText(node);
 				}
 				isFirstChild = false;
+				prevWasBlock = true;
 			} else if (el.tagName === 'SPAN') {
 				const spanContent = htmlToPlainText(node);
-				text += spanContent;
 				if (spanContent) {
+					breakAfterBlock();
+					text += spanContent;
 					isFirstChild = false;
+					prevWasBlock = false;
 				}
 			} else {
 				const childContent = htmlToPlainText(node);
-				text += childContent;
 				if (childContent) {
+					breakAfterBlock();
+					text += childContent;
 					isFirstChild = false;
+					prevWasBlock = false;
 				}
 			}
 		}

@@ -31,7 +31,8 @@
   import { addClientTagToEvent } from '$lib/nip89';
   import HeartIcon from 'phosphor-svelte/lib/Heart';
   import LightningIcon from 'phosphor-svelte/lib/Lightning';
-  import { onMount, onDestroy } from 'svelte';
+  import { onMount, onDestroy, createEventDispatcher } from 'svelte';
+  const dispatch = createEventDispatcher();
   import { extractZapAmountSats } from '$lib/zapAmount';
 
   /** The comment event rendered by this card. */
@@ -276,8 +277,13 @@
     }
   }
 
+  function setReplyBox(open: boolean) {
+    showReplyBox = open;
+    dispatch(open ? 'replyopen' : 'replyclose');
+  }
+
   function handleReplyPosted() {
-    showReplyBox = false;
+    setReplyBox(false);
   }
 
   // Anon users see a "Sign in to reply" link styled as the Reply button.
@@ -394,7 +400,7 @@
           <!-- Reply button (signed in) or sign-in link (anon) — both variants. -->
           {#if $userPublickey}
             <button
-              on:click={() => (showReplyBox = !showReplyBox)}
+              on:click={() => setReplyBox(!showReplyBox)}
               class="action-btn action-btn-text"
             >
               {showReplyBox ? 'Cancel' : 'Reply'}
@@ -406,15 +412,25 @@
 
         <!-- Inline Reply Composer -->
         {#if showReplyBox}
-          <ReplyComposer
-            parentEvent={rootEvent}
-            replyTo={event}
-            placeholder="Add a reply..."
-            compact
-            showCancel
-            onPosted={handleReplyPosted}
-            on:cancel={() => (showReplyBox = false)}
-          />
+          <div class="mt-2 p-3 rounded-lg" style="background-color: var(--color-bg-secondary)">
+            <p class="text-xs text-caption mb-3">Replying to <span class="font-medium" style="color: var(--color-text-primary)">{displayName}</span></p>
+            <div class="flex gap-3 items-start">
+              <div class="flex-shrink-0">
+                <CustomAvatar pubkey={$userPublickey} size={32} />
+              </div>
+              <div class="flex-1 min-w-0 -mt-3">
+                <ReplyComposer
+                  parentEvent={rootEvent}
+                  replyTo={event}
+                  placeholder="Write a reply..."
+                  submitLabel="Reply"
+                  showCancel
+                  onPosted={handleReplyPosted}
+                  on:cancel={() => setReplyBox(false)}
+                />
+              </div>
+            </div>
+          </div>
         {/if}
       </div>
     </div>

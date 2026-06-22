@@ -4,10 +4,8 @@
    * (see src/routes/+layout.svelte). Subscribes to the `toasts` store in
    * $lib/toast and renders each message via the Toast component.
    *
-   * Positioning: bottom-right on desktop, above the BottomNav on mobile
-   * (where bottom-right would overlap the 64px-tall bottom navigation).
-   * z-index 9999 matches the highest convention in this codebase
-   * (MobileSearchOverlay) and sits above all modals (~50-100).
+   * Positioning: top-center, capped at the same width as the composer modal
+   * (max-w-xl / 36rem). z-index 9999 sits above all modals and the fixed header.
    */
   import { toasts } from '$lib/toast';
   import Toast from './Toast.svelte';
@@ -28,21 +26,15 @@
 <style>
   .toast-container {
     position: fixed;
-    bottom: 1rem;
-    right: 1rem;
+    top: 1rem;
+    left: 50%;
+    transform: translateX(-50%);
+    width: calc(100vw - 2rem);
+    max-width: 36rem;
     z-index: 9999;
     display: flex;
     flex-direction: column;
     gap: 0.5rem;
-    pointer-events: none; /* toasts re-enable pointer-events */
-  }
-
-  @media (max-width: 640px) {
-    .toast-container {
-      left: 1rem;
-      right: 1rem;
-      /* BottomNav is ~64px tall; clear it + leave breathing room. */
-      bottom: calc(64px + 1rem);
-    }
+    pointer-events: none;
   }
 </style>
