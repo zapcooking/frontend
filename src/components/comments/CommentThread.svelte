@@ -91,7 +91,8 @@
     if (variant === 'recipe') sub?.addLocal(posted);
   }
 
-  let anyReplyOpen = false;
+  let openReplyCount = 0;
+  $: anyReplyOpen = openReplyCount > 0;
 
   let loginRedirectHref = '';
   $: loginRedirectHref = `/login?redirect=${encodeURIComponent($page.url.pathname)}`;
@@ -111,8 +112,8 @@
             event={comment}
             allComments={$events}
             rootEvent={event}
-            on:replyopen={() => (anyReplyOpen = true)}
-            on:replyclose={() => (anyReplyOpen = false)}
+            on:replyopen={() => openReplyCount++}
+            on:replyclose={() => openReplyCount = Math.max(0, openReplyCount - 1)}
           />
         {/each}
       {/if}

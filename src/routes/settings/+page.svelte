@@ -583,8 +583,10 @@
               <p class="text-sm text-caption mt-1">Shows a timer before posting so you can cancel or send immediately.</p>
             </div>
             <button
+              type="button"
               role="switch"
               aria-checked={$timerSettings.postCountdownEnabled}
+              aria-label="Enable send countdown"
               class="relative w-12 h-7 rounded-full transition-colors cursor-pointer {$timerSettings.postCountdownEnabled ? 'bg-orange-500' : 'bg-gray-300 dark:bg-gray-600'}"
               on:click={() => saveTimerSettings({ ...$timerSettings, postCountdownEnabled: !$timerSettings.postCountdownEnabled })}
             >
@@ -598,6 +600,8 @@
               <div class="flex gap-2 flex-wrap">
                 {#each [5, 10, 15, 30] as secs}
                   <button
+                    type="button"
+                    aria-pressed={$timerSettings.postCountdownSecs === secs}
                     class="px-3 py-1.5 rounded-full text-sm font-medium transition-colors {$timerSettings.postCountdownSecs === secs ? 'bg-orange-500 text-white' : 'bg-secondary hover:bg-accent-gray'}"
                     style={$timerSettings.postCountdownSecs !== secs ? 'color: var(--color-text-primary)' : ''}
                     on:click={() => saveTimerSettings({ ...$timerSettings, postCountdownSecs: secs })}
@@ -612,8 +616,10 @@
                   <p class="text-xs text-caption mt-0.5">Also apply countdown when posting replies.</p>
                 </div>
                 <button
+                  type="button"
                   role="switch"
                   aria-checked={$timerSettings.postCountdownIncludesReplies}
+                  aria-label="Apply countdown to replies"
                   class="relative w-12 h-7 rounded-full transition-colors cursor-pointer {$timerSettings.postCountdownIncludesReplies ? 'bg-orange-500' : 'bg-gray-300 dark:bg-gray-600'}"
                   on:click={() => saveTimerSettings({ ...$timerSettings, postCountdownIncludesReplies: !$timerSettings.postCountdownIncludesReplies })}
                 >

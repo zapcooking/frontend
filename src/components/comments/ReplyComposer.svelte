@@ -20,7 +20,7 @@
 	 */
 	import { NDKEvent } from '@nostr-dev-kit/ndk';
 	import { ndk, userPublickey } from '$lib/nostr';
-	import { createEventDispatcher, onDestroy } from 'svelte';
+	import { createEventDispatcher, onMount, onDestroy } from 'svelte';
 	import { get } from 'svelte/store';
 	import MentionDropdown from '../MentionDropdown.svelte';
 	import { MentionComposerController, type MentionState } from '$lib/mentionComposer';
@@ -36,7 +36,7 @@
 	import { uploadImage, uploadVideo } from '$lib/mediaUpload';
 	import { postComment as postCommentLib } from '$lib/comments/postComment';
 	import { showToast } from '$lib/toast';
-	import { timerSettings, saveTimerSettings } from '$lib/timerSettings';
+	import { timerSettings, saveTimerSettings, loadTimerSettings } from '$lib/timerSettings';
 	import NoteContent from '../NoteContent.svelte';
 
 	/**
@@ -185,6 +185,10 @@
 	$: if ($userPublickey) {
 		mentionCtrl.preloadFollowList();
 	}
+
+	onMount(() => {
+		loadTimerSettings();
+	});
 
 	onDestroy(() => {
 		// Clears any pending mention-search timeout so it can't fire after

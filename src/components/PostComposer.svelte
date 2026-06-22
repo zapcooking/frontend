@@ -26,7 +26,6 @@
   import { timerSettings, loadTimerSettings, saveTimerSettings } from '$lib/timerSettings';
   import { get } from 'svelte/store';
   import ClockIcon from 'phosphor-svelte/lib/Clock';
-  import XCircleIcon from 'phosphor-svelte/lib/XCircle';
 
   // Clear stuck posts from the publish queue
   async function clearPendingQueue() {
