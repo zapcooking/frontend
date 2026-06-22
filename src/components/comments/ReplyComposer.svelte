@@ -277,6 +277,7 @@
 			}
 
 			let content = mentionCtrl.replacePlainMentions(composerText.trim());
+			clearState();
 			const mediaUrls = [...uploadedImages, ...uploadedVideos];
 			if (mediaUrls.length > 0) {
 				const mediaText = mediaUrls.join('\n');
@@ -301,7 +302,6 @@
 				signingStrategy: 'explicit-with-timeout'
 			});
 
-			clearState();
 			onPosted?.(posted);
 		} catch (error) {
 			// Technical details to console; human-friendly message to the user.
