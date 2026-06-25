@@ -120,7 +120,12 @@ html {
   color: var(--color-text-primary);
 }
 
+body {
+  font-family: 'Albert Sans', ui-sans-serif, system-ui, sans-serif;
+}
+
 @theme {
+  --font-sans: 'Albert Sans', ui-sans-serif, system-ui, sans-serif;
   --font-display: 'Geist', sans;
   --breakpoint-print: print;
 
