@@ -219,8 +219,8 @@
       aria-label="Close"
       on:click={() => (open = false)}
     >
-      <img src="/zap_cooking_logo_black.svg" alt="" aria-hidden="true" class="dark:hidden" />
-      <img src="/zap_cooking_logo_white.svg" alt="" aria-hidden="true" class="hidden dark:block" />
+      <img src="/zapcooking-text-light.svg" alt="" aria-hidden="true" class="dark:hidden" />
+      <img src="/zapcooking-text-dark.svg" alt="" aria-hidden="true" class="hidden dark:block" />
     </button>
     <button
       type="button"

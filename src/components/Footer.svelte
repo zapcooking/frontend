@@ -37,12 +37,12 @@
     <div class="flex flex-col items-center footer-content">
       <!-- Logo (dual-img CSS swap; matches app.html pre-paint rule for no flash) -->
       <img
-        src="/zap_cooking_logo_black.svg"
+        src="/zapcooking-text-light.svg"
         alt="zap.cooking"
         class="footer-logo logo-light dark:hidden"
       />
       <img
-        src="/zap_cooking_logo_white.svg"
+        src="/zapcooking-text-dark.svg"
         alt=""
         aria-hidden="true"
         class="footer-logo logo-dark hidden dark:block"

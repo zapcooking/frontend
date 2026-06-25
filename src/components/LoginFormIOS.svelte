@@ -401,8 +401,8 @@
 <Modal bind:open={nsecModal} cleanup={modalCleanup} noHeader>
   <div class="login-modal-body">
     <button type="button" class="login-modal-logo-btn" aria-label="Close" on:click={modalCleanup}>
-      <img src="/zap_cooking_logo_black.svg" alt="" aria-hidden="true" class="dark:hidden" />
-      <img src="/zap_cooking_logo_white.svg" alt="" aria-hidden="true" class="hidden dark:block" />
+      <img src="/zapcooking-text-light.svg" alt="" aria-hidden="true" class="dark:hidden" />
+      <img src="/zapcooking-text-dark.svg" alt="" aria-hidden="true" class="hidden dark:block" />
     </button>
     <button type="button" class="login-modal-close-btn" aria-label="Close" on:click={modalCleanup}>
       <CloseIcon size={24} />
@@ -438,8 +438,8 @@
 <Modal bind:open={bunkerModal} cleanup={modalCleanup} noHeader>
   <div class="login-modal-body">
     <button type="button" class="login-modal-logo-btn" aria-label="Close" on:click={modalCleanup}>
-      <img src="/zap_cooking_logo_black.svg" alt="" aria-hidden="true" class="dark:hidden" />
-      <img src="/zap_cooking_logo_white.svg" alt="" aria-hidden="true" class="hidden dark:block" />
+      <img src="/zapcooking-text-light.svg" alt="" aria-hidden="true" class="dark:hidden" />
+      <img src="/zapcooking-text-dark.svg" alt="" aria-hidden="true" class="hidden dark:block" />
     </button>
     <button type="button" class="login-modal-close-btn" aria-label="Close" on:click={modalCleanup}>
       <CloseIcon size={24} />
@@ -515,8 +515,8 @@
 <Modal bind:open={generateModal} cleanup={modalCleanup} noHeader>
   <div class="login-modal-body">
     <button type="button" class="login-modal-logo-btn" aria-label="Close" on:click={modalCleanup}>
-      <img src="/zap_cooking_logo_black.svg" alt="" aria-hidden="true" class="dark:hidden" />
-      <img src="/zap_cooking_logo_white.svg" alt="" aria-hidden="true" class="hidden dark:block" />
+      <img src="/zapcooking-text-light.svg" alt="" aria-hidden="true" class="dark:hidden" />
+      <img src="/zapcooking-text-dark.svg" alt="" aria-hidden="true" class="hidden dark:block" />
     </button>
     <button type="button" class="login-modal-close-btn" aria-label="Close" on:click={modalCleanup}>
       <CloseIcon size={24} />
@@ -874,7 +874,7 @@
     <section class="signin-card" aria-labelledby="ios-signin-title">
       <p class="signin-eyebrow">Welcome to</p>
       <h1 id="ios-signin-title" class="signin-wordmark">
-        <img src="/zap_cooking_logo_white.svg" alt="Zap Cooking" />
+        <img src="/zapcooking-text-dark.svg" alt="Zap Cooking" />
       </h1>
       <p class="signin-tagline">Share recipes and get paid by your community.</p>
 
