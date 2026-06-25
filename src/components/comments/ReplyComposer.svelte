@@ -305,8 +305,8 @@
 			}
 
 			let content = mentionCtrl.replacePlainMentions(composerText.trim());
-			clearState();
 			const mediaUrls = [...uploadedImages, ...uploadedVideos];
+			clearState();
 			if (mediaUrls.length > 0) {
 				const mediaText = mediaUrls.join('\n');
 				content = content ? `${content}\n\n${mediaText}` : mediaText;
