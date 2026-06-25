@@ -29,7 +29,7 @@
   import ChatCircleIcon from 'phosphor-svelte/lib/ChatCircle';
   import { resolveProfileByPubkey, formatDisplayName } from '$lib/profileResolver';
   import { getAnonChefName } from '$lib/anonName';
-  import { onMount, onDestroy, createEventDispatcher } from 'svelte';
+  import { onMount, createEventDispatcher } from 'svelte';
   const dispatch = createEventDispatcher();
 
   /** The comment event rendered by this card. */
@@ -172,7 +172,6 @@
 
   });
 
-  onDestroy(() => {});
 
   function setReplyBox(open: boolean) {
     showReplyBox = open;

@@ -433,10 +433,10 @@
 {:else if event}
   <div
     class="parent-quote-embed my-2 cursor-pointer hover:opacity-90 transition-opacity"
-    on:click|stopPropagation={handleCardClick}
+    on:click|stopPropagation={(e) => { if ((e.target as HTMLElement).closest('a, button')) return; handleCardClick(); }}
     role="link"
     tabindex="0"
-    on:keydown={(e) => e.key === 'Enter' && handleCardClick()}
+    on:keydown|self={(e) => e.key === 'Enter' && handleCardClick()}
   >
     <div class="parent-quote-header">
       <CustomAvatar pubkey={event.author.hexpubkey} size={16} />
