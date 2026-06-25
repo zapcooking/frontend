@@ -210,6 +210,6 @@
   .comments-list {
     display: flex;
     flex-direction: column;
-    gap: 1rem;
+    gap: 0;
   }
 </style>

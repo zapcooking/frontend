@@ -1,6 +1,7 @@
 import { writable, derived, get } from 'svelte/store';
 import { browser } from '$app/environment';
 import type NDK from '@nostr-dev-kit/ndk';
+import { NDKKind } from '@nostr-dev-kit/ndk';
 import type { NDKEvent, NDKSubscription } from '@nostr-dev-kit/ndk';
 import { mutedPubkeys } from '$lib/muteListStore';
 import { isHellthread } from '$lib/notificationUtils';
@@ -223,7 +224,11 @@ export function subscribeToNotifications(ndk: NDK, userPubkey: string, forceFull
       // Reposts of kind 1 notes (NIP-18)
       { kinds: [6], '#p': [userPubkey], since },
       // Generic reposts — recipes, etc. (NIP-18 kind 16)
-      { kinds: [16], '#p': [userPubkey], since }
+      { kinds: [16], '#p': [userPubkey], since },
+      // NIP-22 comments on my recipes (uppercase P = root event author)
+      { kinds: [1111 as NDKKind], '#P': [userPubkey], since },
+      // NIP-22 replies to my comments (lowercase p = parent comment author)
+      { kinds: [1111 as NDKKind], '#p': [userPubkey], since }
     ],
     { closeOnEose: false }
   );
@@ -331,7 +336,9 @@ export async function fetchOlderNotifications(
         { kinds: [9735], '#p': [userPubkey], since, until },
         { kinds: [1], '#p': [userPubkey], since, until },
         { kinds: [6], '#p': [userPubkey], since, until },
-        { kinds: [16], '#p': [userPubkey], since, until }
+        { kinds: [16], '#p': [userPubkey], since, until },
+        { kinds: [1111 as NDKKind], '#P': [userPubkey], since, until },
+        { kinds: [1111 as NDKKind], '#p': [userPubkey], since, until }
       ],
       { closeOnEose: true }
     );
@@ -508,6 +515,18 @@ function parseNotification(event: NDKEvent, userPubkey: string): Notification | 
         type: isReply ? 'comment' : 'mention',
         eventId: event.id,
         targetEventId: replyToEvent,
+        content: cleanContentForPreview(event.content || '')
+      };
+    }
+
+    case 1111: { // NIP-22 comment on a recipe or reply to a comment
+      // lowercase 'e' tag = parent comment id (present when replying to a comment)
+      const parentETag = event.tags.find((t) => t[0] === 'e');
+      return {
+        ...baseNotification,
+        type: 'comment',
+        eventId: event.id,
+        targetEventId: parentETag?.[1],
         content: cleanContentForPreview(event.content || '')
       };
     }

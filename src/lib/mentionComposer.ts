@@ -25,6 +25,7 @@ import {
 	parseMentions as parseMentionsUtil,
 	escapeRegex
 } from '$lib/mentionUtils';
+import { seedProfileCache } from '$lib/profileResolver';
 
 export type { CachedProfile } from '$lib/followListCache';
 
@@ -421,6 +422,7 @@ export class MentionComposerController {
 		this.insertMentionNode(mention, user.name, true);
 
 		addToCache(user);
+		seedProfileCache(user.pubkey, { name: user.name, picture: user.picture });
 		this.updateContentFromComposer();
 		this.showMentionSuggestions = false;
 		this.mentionSuggestions = [];

@@ -12,6 +12,7 @@
   import PollDisplay from '../../components/PollDisplay.svelte';
   import NoteActionBar from '../../components/NoteActionBar.svelte';
   import ClientAttribution from '../../components/ClientAttribution.svelte';
+  import { NDKRelaySet } from '@nostr-dev-kit/ndk';
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
   import { createCommentFilter } from '$lib/commentFilters';
   import { stripTrackingParams } from '$lib/utils/stripTrackingParams';
@@ -156,6 +157,20 @@
     loadingParents = false;
   }
 
+  // Encode a note/reply event as nevent1 with relay hints for better discoverability.
+  function noteUrl(evt: NDKEvent): string {
+    const relayUrl = evt.relay?.url ?? (evt as any).onRelays?.[0]?.url;
+    try {
+      return '/' + nip19.neventEncode({
+        id: evt.id,
+        relays: relayUrl ? [relayUrl] : [],
+        kind: evt.kind ?? 1
+      });
+    } catch {
+      return '/' + nip19.noteEncode(evt.id);
+    }
+  }
+
   // Fetch replies to this note
   function fetchReplies(eventId: string) {
     loadingReplies = true;
@@ -165,7 +180,29 @@
     if (!event) return;
 
     const filter = createCommentFilter(event);
-    const sub = $ndk.subscribe(filter, { closeOnEose: false });
+
+    // Build a wider relay set: NDK's default pool + the relay that served the
+    // main event + any relay hints embedded in the event's e/p tags.
+    // This handles the common case where replies live on the author's write
+    // relay but not on all of NDK's default pool relays.
+    let relaySet: NDKRelaySet | undefined;
+    try {
+      const extraUrls = new Set<string>();
+      // Relay that served the main event
+      const sourceRelay = event.relay?.url || event.onRelays?.[0]?.url;
+      if (sourceRelay) extraUrls.add(sourceRelay);
+      // Relay hints in event e/p tags (NIP-10 clients often include them)
+      for (const tag of event.tags) {
+        if ((tag[0] === 'e' || tag[0] === 'p') && tag[2]?.startsWith('wss://')) {
+          extraUrls.add(tag[2]);
+        }
+      }
+      if (extraUrls.size > 0 && $ndk) {
+        relaySet = NDKRelaySet.fromRelayUrls([...extraUrls].slice(0, 3), $ndk, true);
+      }
+    } catch { /* non-fatal */ }
+
+    const sub = $ndk.subscribe(filter, { closeOnEose: false }, relaySet);
 
     sub.on('event', (e: NDKEvent) => {
       if (processedReplies.has(e.id)) return;
@@ -236,9 +273,13 @@
       if (decoded.type === 'nevent' || decoded.type === 'note') {
         // Fetch the referenced event
         let eventId = '';
+        let neventRelays: string[] = [];
         switch (decoded.type) {
           case 'nevent':
             eventId = (decoded as nip19.DecodedNevent).data.id;
+            neventRelays = ((decoded as nip19.DecodedNevent).data.relays ?? [])
+              .filter((r) => r.startsWith('wss://'))
+              .slice(0, 3);
             break;
           case 'note':
             eventId = (decoded as nip19.DecodedNote).data;
@@ -248,7 +289,15 @@
           ids: [eventId]
         };
 
-        const subscription = $ndk.subscribe(filter, { closeOnEose: false });
+        // Include relay hints from nevent1 when fetching the main event
+        let eventRelaySet: NDKRelaySet | undefined;
+        if (neventRelays.length > 0 && $ndk) {
+          try {
+            eventRelaySet = NDKRelaySet.fromRelayUrls(neventRelays, $ndk, true);
+          } catch { /* non-fatal */ }
+        }
+
+        const subscription = $ndk.subscribe(filter, { closeOnEose: false }, eventRelaySet);
         let resolved = false;
 
         subscription.on('event', async (receivedEvent: NDKEvent) => {
@@ -557,16 +606,10 @@
     {:else if parentThread.length > 0}
       <div class="space-y-0">
         {#each parentThread as parentNote, index}
-          <div class="relative">
-            <!-- Thread line connecting to next note -->
-            <div
-              class="absolute left-5 top-12 bottom-0 w-0.5"
-              style="background-color: var(--color-input-border)"
-            ></div>
-
+          <div>
             <article class="py-3">
               <div class="flex space-x-3 -mx-2 px-2 py-2 rounded-lg">
-                <div class="flex-shrink-0 z-10">
+                <div class="flex-shrink-0">
                   <a
                     href="/user/{nip19.npubEncode(
                       parentNote.author?.hexpubkey || parentNote.pubkey
@@ -601,11 +644,11 @@
                     <PollDisplay event={parentNote} />
                   {:else}
                     <a
-                      href="/{nip19.noteEncode(parentNote.id)}"
-                      class="block text-sm leading-relaxed hover:opacity-80"
+                      href="{noteUrl(parentNote)}"
+                      class="block text-base leading-relaxed hover:opacity-80"
                       style="color: var(--color-text-secondary)"
                     >
-                      <NoteContent content={parentNote.content} />
+                      <NoteContent content={parentNote.content} showNostrEmbeds={false} />
                     </a>
                   {/if}
                   <!-- Parent note actions -->
@@ -621,7 +664,7 @@
     {/if}
 
     <!-- Main Note -->
-    <article class="py-4 border-b" style="border-color: var(--color-input-border)">
+    <article class="py-6">
       <div class="flex space-x-3">
         <a
           href="/user/{nip19.npubEncode(event.author?.hexpubkey || event.pubkey)}"
@@ -650,7 +693,7 @@
                 </span>
                 <ClientAttribution tags={event.tags} enableEnrichment={true} />
               </div>
-              <div class="text-sm leading-relaxed mb-3" style="color: var(--color-text-primary)">
+              <div class="text-base leading-relaxed mb-3" style="color: var(--color-text-primary)">
                 {#if event.kind === 1068}
                   <PollDisplay {event} />
                 {:else}
@@ -666,21 +709,8 @@
     </article>
 
     <!-- Replies Section -->
-    <div class="mt-4">
-      <div
-        class="flex items-center gap-2 text-sm font-medium mb-3"
-        style="color: var(--color-text-secondary)"
-      >
-        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            stroke-width="2"
-            d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"
-          />
-        </svg>
-        <span>Replies ({directReplies.length})</span>
-      </div>
+    <div class="border-t mt-2" style="border-color: var(--color-input-border)">
+
 
       <!-- Replies List -->
       {#if loadingReplies}
@@ -705,13 +735,18 @@
             {#if !$mutedPubkeys.has(reply.author?.hexpubkey || reply.pubkey)}
               <div>
                 <article
-                  class="py-3 border-b last:border-0"
+                  class="py-8 border-b last:border-0 cursor-pointer hover:bg-[var(--color-bg-hover,rgba(255,255,255,0.03))]"
                   style="border-color: var(--color-input-border)"
+                  on:click={(e) => { if ((e.target as HTMLElement).closest('a, button')) return; goto(noteUrl(reply)); }}
+                  role="link"
+                  tabindex="0"
+                  on:keydown|self={(e) => e.key === 'Enter' && goto(noteUrl(reply))}
                 >
                   <div class="flex space-x-3">
                     <a
                       href="/user/{nip19.npubEncode(reply.author?.hexpubkey || reply.pubkey)}"
                       class="flex-shrink-0"
+                      on:click|stopPropagation
                     >
                       <Avatar pubkey={reply.author?.hexpubkey || reply.pubkey} size={32} />
                     </a>
@@ -722,6 +757,7 @@
                             href="/user/{nip19.npubEncode(reply.author?.hexpubkey || reply.pubkey)}"
                             class="font-medium text-sm transition-colors username-link truncate min-w-0"
                             style="color: var(--color-text-primary)"
+                            on:click|stopPropagation
                           >
                             <CustomName pubkey={reply.author?.hexpubkey || reply.pubkey} />
                           </a>
@@ -730,20 +766,22 @@
                             {reply.created_at ? formatTimeAgo(reply.created_at) : ''}
                           </span>
                         </div>
-                        <PostActionsMenu event={reply} />
+                        <span on:click|stopPropagation>
+                          <PostActionsMenu event={reply} />
+                        </span>
                       </div>
                       <div
-                        class="text-sm leading-relaxed"
-                        style="color: var(--color-text-secondary)"
+                        class="text-base leading-relaxed"
+                        style="color: var(--color-text-primary)"
                       >
                         {#if reply.kind === 1068}
                           <PollDisplay event={reply} />
                         {:else}
-                          <NoteContent content={reply.content} />
+                          <NoteContent content={reply.content} showNostrEmbeds={false} />
                         {/if}
                       </div>
                       <!-- Reply actions -->
-                      <div class="mt-2">
+                      <div class="mt-2" on:click|stopPropagation>
                         <NoteActionBar event={reply} />
                       </div>
                     </div>
@@ -754,13 +792,20 @@
                 {#each getNestedReplies(reply.id).slice(0, 2) as nestedReply (nestedReply.id)}
                   {#if !$mutedPubkeys.has(nestedReply.author?.hexpubkey || nestedReply.pubkey)}
                     <div class="ml-8 pl-3">
-                      <article class="py-2">
+                      <article
+                        class="py-2 cursor-pointer hover:bg-[var(--color-bg-hover,rgba(255,255,255,0.03))] rounded"
+                        on:click={(e) => { if ((e.target as HTMLElement).closest('a, button')) return; goto(noteUrl(nestedReply)); }}
+                        role="link"
+                        tabindex="0"
+                        on:keydown|self={(e) => e.key === 'Enter' && goto(noteUrl(nestedReply))}
+                      >
                         <div class="flex space-x-2">
                           <a
                             href="/user/{nip19.npubEncode(
                               nestedReply.author?.hexpubkey || nestedReply.pubkey
                             )}"
                             class="flex-shrink-0"
+                            on:click|stopPropagation
                           >
                             <Avatar
                               pubkey={nestedReply.author?.hexpubkey || nestedReply.pubkey}
@@ -774,8 +819,9 @@
                                   href="/user/{nip19.npubEncode(
                                     nestedReply.author?.hexpubkey || nestedReply.pubkey
                                   )}"
-                                  class="font-medium text-xs transition-colors username-link truncate min-w-0"
+                                  class="font-medium text-sm transition-colors username-link truncate min-w-0"
                                   style="color: var(--color-text-primary)"
+                                  on:click|stopPropagation
                                 >
                                   <CustomName
                                     pubkey={nestedReply.author?.hexpubkey || nestedReply.pubkey}
@@ -788,20 +834,22 @@
                                     : ''}
                                 </span>
                               </div>
-                              <PostActionsMenu event={nestedReply} />
+                              <span on:click|stopPropagation>
+                                <PostActionsMenu event={nestedReply} />
+                              </span>
                             </div>
                             <div
-                              class="text-xs leading-relaxed"
-                              style="color: var(--color-text-secondary)"
+                              class="text-sm leading-relaxed"
+                              style="color: var(--color-text-primary)"
                             >
                               {#if nestedReply.kind === 1068}
                                 <PollDisplay event={nestedReply} />
                               {:else}
-                                <NoteContent content={nestedReply.content} />
+                                <NoteContent content={nestedReply.content} showNostrEmbeds={false} />
                               {/if}
                             </div>
                             <!-- Nested reply actions -->
-                            <div class="mt-1.5">
+                            <div class="mt-1.5" on:click|stopPropagation>
                               <NoteActionBar event={nestedReply} variant="compact" />
                             </div>
                           </div>
@@ -814,7 +862,7 @@
                 <!-- Show more nested replies link -->
                 {#if getNestedReplies(reply.id).length > 2}
                   <a
-                    href="/{nip19.noteEncode(reply.id)}"
+                    href="{noteUrl(reply)}"
                     class="ml-8 pl-3 py-2 block text-xs text-primary hover:opacity-80"
                   >
                     Show {getNestedReplies(reply.id).length - 2} more {getNestedReplies(reply.id)
