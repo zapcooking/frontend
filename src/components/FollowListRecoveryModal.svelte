@@ -9,6 +9,7 @@
   import WarningCircleIcon from 'phosphor-svelte/lib/WarningCircle';
   import WarningIcon from 'phosphor-svelte/lib/Warning';
   import UsersIcon from 'phosphor-svelte/lib/Users';
+  import ClockCounterClockwiseIcon from 'phosphor-svelte/lib/ClockCounterClockwise';
   import {
     scanFollowListHistory,
     recoverFollowList,
@@ -110,7 +111,10 @@
 </script>
 
 <Modal bind:open on:close={handleClose}>
-  <div slot="title">Restore Follow List</div>
+  <div slot="title" class="flex items-center gap-2">
+    <ClockCounterClockwiseIcon size={20} style="color: var(--color-accent-orange)" />
+    Restore Follow List
+  </div>
 
   <div class="flex flex-col gap-5">
 
