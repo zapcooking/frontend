@@ -14,6 +14,7 @@
   export let content: string;
   export let className: string = '';
   export let showLinkPreviews: boolean = true;
+  export let showNostrEmbeds: boolean = true;
   export let embedDepth: number = 0; // Track nesting depth to prevent infinite recursion
   export let collapsible: boolean = true; // Enable collapsible long content
   export let maxLength: number = 500; // Character limit before collapse
@@ -389,10 +390,14 @@
           colorClass="text-orange-500 hover:text-orange-600"
         />
       {:else if part.prefix === 'nevent1' || part.prefix === 'note1'}
-        <NoteEmbed nostrString={part.content} depth={embedDepth} />
+        {#if showNostrEmbeds}
+          <NoteEmbed nostrString={part.content} depth={embedDepth} />
+        {/if}
       {:else if part.prefix === 'naddr1'}
         <!-- Addressable event (recipe, article, etc.) - render as embedded content -->
-        <NoteEmbed nostrString={part.content} depth={embedDepth} />
+        {#if showNostrEmbeds}
+          <NoteEmbed nostrString={part.content} depth={embedDepth} />
+        {/if}
       {:else if part.prefix === 'noffer1'}
         <!-- CLINK static offer — render an inline "⚡ Pay" pill that opens
              NofferPayModal. Matches the bxrd.app affordance. -->

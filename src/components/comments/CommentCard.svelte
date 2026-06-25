@@ -22,18 +22,15 @@
   import { format as formatDate } from 'timeago.js';
   import Avatar from '../Avatar.svelte';
   import CustomAvatar from '../CustomAvatar.svelte';
+  import ClientAttribution from '../ClientAttribution.svelte';
   import NoteContent from '../NoteContent.svelte';
-  import ZapModal from '../ZapModal.svelte';
   import ReplyComposer from './ReplyComposer.svelte';
+  import ThreadCommentActions from '../ThreadCommentActions.svelte';
+  import ChatCircleIcon from 'phosphor-svelte/lib/ChatCircle';
   import { resolveProfileByPubkey, formatDisplayName } from '$lib/profileResolver';
   import { getAnonChefName } from '$lib/anonName';
-  import { formatAmount } from '$lib/utils';
-  import { addClientTagToEvent } from '$lib/nip89';
-  import HeartIcon from 'phosphor-svelte/lib/Heart';
-  import LightningIcon from 'phosphor-svelte/lib/Lightning';
   import { onMount, onDestroy, createEventDispatcher } from 'svelte';
   const dispatch = createEventDispatcher();
-  import { extractZapAmountSats } from '$lib/zapAmount';
 
   /** The comment event rendered by this card. */
   export let event: NDKEvent;
@@ -63,12 +60,18 @@
    */
   export let allComments: NDKEvent[] = [];
 
-  // Variant-indexed scalar props (passed as JS numbers, not CSS).
+  // Variant-indexed avatar sizes (CSS font sizes are now unified across variants).
   const sizes = {
-    recipe: { avatar: 40, parentQuoteAvatar: 16, actionIcon: 16 },
-    feed: { avatar: 32, parentQuoteAvatar: 16, actionIcon: 14 }
+    recipe: { avatar: 40 },
+    feed: { avatar: 32 }
   } as const;
   const s = sizes[variant];
+
+  // True when any sibling comment is a direct reply to this one — drives
+  // the vertical thread line below this card's avatar.
+  $: hasReplies = allComments.some(
+    (c) => c.id !== event.id && c.getMatchingTags('e').some((t) => t[1] === event.id)
+  );
 
   // Avatar / CustomAvatar both accept the pubkey/size/className subset
   // we need, so we swap the component rather than branch with {#if}.
@@ -86,19 +89,6 @@
   // Reply box state — the composer itself owns everything inside the form.
   let showReplyBox = false;
 
-  // Like state
-  let liked = false;
-  let likeCount = 0;
-  let likesLoading = true;
-  let processedLikes = new Set();
-  let likeSubscription: any = null;
-
-  // Zap state
-  let zapModalOpen = false;
-  let totalZapAmount = 0;
-  let hasUserZapped = false;
-  let processedZaps = new Set<string>();
-  let zapSubscription: any = null;
 
   /**
    * Unified parent-comment detection. Merges the pre-Stage-4 strategies:
@@ -124,33 +114,6 @@
     if (matchInVisible) return matchInVisible[1];
 
     return candidates[candidates.length - 1][1];
-  }
-
-  function loadZaps() {
-    if (!event?.id || !$ndk) return;
-
-    totalZapAmount = 0;
-    processedZaps.clear();
-    hasUserZapped = false;
-
-    zapSubscription = $ndk.subscribe({
-      kinds: [9735],
-      '#e': [event.id]
-    });
-
-    zapSubscription.on('event', (zapEvent: NDKEvent) => {
-      if (!zapEvent.sig || processedZaps.has(zapEvent.sig)) return;
-
-      const { sats } = extractZapAmountSats(zapEvent);
-      if (sats <= 0) return;
-
-      totalZapAmount += sats;
-      processedZaps.add(zapEvent.sig);
-
-      if (zapEvent.tags.some((tag) => tag[0] === 'P' && tag[1] === $userPublickey)) {
-        hasUserZapped = true;
-      }
-    });
   }
 
   onMount(async () => {
@@ -207,75 +170,9 @@
       parentLoading = false;
     }
 
-    // Likes subscription — default closeOnEose per pre-Stage-4 behaviour.
-    // (Live-count staleness is tracked as a FOLLOWUPS item.)
-    likeSubscription = $ndk.subscribe({
-      kinds: [7],
-      '#e': [event.id]
-    });
-
-    likeSubscription.on('event', (e: NDKEvent) => {
-      if (processedLikes.has(e.id)) return;
-      processedLikes.add(e.id);
-      if (e.pubkey === $userPublickey) liked = true;
-      likeCount++;
-      likesLoading = false;
-    });
-
-    likeSubscription.on('eose', () => {
-      likesLoading = false;
-    });
-
-    loadZaps();
   });
 
-  onDestroy(() => {
-    if (likeSubscription) likeSubscription.stop();
-    if (zapSubscription) zapSubscription.stop();
-  });
-
-  async function toggleLike() {
-    if (liked || !$userPublickey) return;
-
-    const reactionEvent = new NDKEvent($ndk);
-    reactionEvent.kind = 7;
-    reactionEvent.content = '+';
-    reactionEvent.tags = [
-      ['e', event.id, '', 'reply'],
-      ['p', event.pubkey]
-    ];
-    addClientTagToEvent(reactionEvent);
-
-    // Sign first so we have the event id, then register it in the
-    // component's `processedLikes` Set BEFORE the publish await. The
-    // subscription echo of our own reaction can arrive synchronously
-    // once the relay receives it; without the pre-registration, the
-    // echo passes the `processedLikes.has(e.id)` guard on line 206,
-    // runs its own `likeCount++` on line 209, and the post-publish
-    // `likeCount++` below brings the total to +2.
-    try {
-      await reactionEvent.sign();
-    } catch {
-      return;
-    }
-    if (!reactionEvent.id) return;
-    processedLikes.add(reactionEvent.id);
-
-    // Optimistic UI — bump before publish resolves so the click
-    // feels instant. Revert in the catch if publish fails.
-    likeCount++;
-    liked = true;
-
-    try {
-      await reactionEvent.publish();
-    } catch {
-      // Rollback both the optimistic count AND the dedup sentinel so a
-      // retry can register cleanly under the same event id.
-      processedLikes.delete(reactionEvent.id);
-      likeCount--;
-      liked = false;
-    }
-  }
+  onDestroy(() => {});
 
   function setReplyBox(open: boolean) {
     showReplyBox = open;
@@ -291,10 +188,6 @@
   let loginRedirectHref = '';
   $: loginRedirectHref = `/login?redirect=${encodeURIComponent($page.url.pathname)}`;
 
-  function openZapModal() {
-    zapModalOpen = true;
-  }
-
   function truncateContent(content: string, maxLength: number = 100): string {
     const cleaned = content
       .replace(/https?:\/\/[^\s]+/g, '[link]')
@@ -307,33 +200,34 @@
 </script>
 
 {#if variant !== 'feed' || !$mutedPubkeys.has(event.pubkey)}
-  <div class="comment-card comment-card--{variant}">
-    <!-- Embedded parent quote (if replying to another comment) -->
+  <div class="comment-card comment-card--{variant}" class:nested={!parentLoading && parentComment !== null}>
+    <!-- Replying-to indicator + indent for nested replies -->
     {#if !parentLoading && parentComment}
-      <div class="parent-quote">
-        <div class="parent-quote-header">
-          <svelte:component
-            this={AvatarComp}
-            pubkey={parentComment.pubkey}
-            size={s.parentQuoteAvatar}
-          />
-          <span class="parent-quote-author">{parentDisplayName || 'Loading...'}</span>
-        </div>
-        <p class="parent-quote-content">{truncateContent(parentComment.content)}</p>
+      <div class="reply-to-indicator">
+        Replying to <a
+          href="/user/{nip19.npubEncode(parentComment.pubkey)}"
+          class="reply-to-name"
+          on:click|stopPropagation
+        >{parentDisplayName || '...'}</a>
       </div>
     {/if}
 
     <!-- Main comment row -->
     <div class="comment-row">
-      <!-- Avatar -->
-      <a href="/user/{nip19.npubEncode(event.pubkey)}" class="comment-avatar">
-        <svelte:component
-          this={AvatarComp}
-          className="rounded-full"
-          pubkey={event.pubkey}
-          size={s.avatar}
-        />
-      </a>
+      <!-- Avatar column: avatar + optional thread line to children -->
+      <div class="avatar-col">
+        <a href="/user/{nip19.npubEncode(event.pubkey)}" class="comment-avatar">
+          <svelte:component
+            this={AvatarComp}
+            className="rounded-full"
+            pubkey={event.pubkey}
+            size={s.avatar}
+          />
+        </a>
+        {#if hasReplies}
+          <div class="thread-line"></div>
+        {/if}
+      </div>
 
       <!-- Content -->
       <div class="comment-content">
@@ -349,6 +243,7 @@
           <span class="comment-time">
             {formatDate(new Date((event.created_at || 0) * 1000))}
           </span>
+          <ClientAttribution tags={event.tags} enableEnrichment={false} />
         </div>
 
         <!-- Comment Text -->
@@ -358,55 +253,23 @@
 
         <!-- Actions -->
         <div class="comment-actions">
-          <!-- Like Button -->
-          <button
-            on:click={toggleLike}
-            class="action-btn"
-            class:text-red-500={liked}
-            disabled={!$userPublickey}
-            aria-label={liked ? 'Liked' : 'Like comment'}
-          >
-            <HeartIcon size={s.actionIcon} weight={liked ? 'fill' : 'regular'} />
-            {#if !likesLoading && likeCount > 0}
-              <span>{likeCount}</span>
-            {/if}
-          </button>
-
-          <!-- Zap Button -->
-          {#if $userPublickey}
-            <button
-              on:click={openZapModal}
-              class="action-btn zap-btn"
-              class:text-yellow-500={hasUserZapped}
-              aria-label="Zap comment"
-            >
-              <LightningIcon size={s.actionIcon} weight={hasUserZapped ? 'fill' : 'regular'} />
-              {#if totalZapAmount > 0}
-                <span>{formatAmount(totalZapAmount)}</span>
-              {/if}
-            </button>
-          {:else}
-            <span class="action-btn zap-display">
-              <LightningIcon
-                size={s.actionIcon}
-                class={totalZapAmount > 0 ? 'text-yellow-500' : ''}
-              />
-              {#if totalZapAmount > 0}
-                <span>{formatAmount(totalZapAmount)}</span>
-              {/if}
-            </span>
-          {/if}
+          <ThreadCommentActions {event} compact={variant === 'feed'} showReplyButton={false} />
 
           <!-- Reply button (signed in) or sign-in link (anon) — both variants. -->
           {#if $userPublickey}
             <button
+              type="button"
               on:click={() => setReplyBox(!showReplyBox)}
-              class="action-btn action-btn-text"
+              class="reply-btn"
             >
-              {showReplyBox ? 'Cancel' : 'Reply'}
+              <ChatCircleIcon size={variant === 'feed' ? 16 : 18} weight="regular" />
+              <span>{showReplyBox ? 'Cancel' : 'Reply'}</span>
             </button>
           {:else}
-            <a href={loginRedirectHref} class="action-btn action-btn-text">Sign in to reply</a>
+            <a href={loginRedirectHref} class="reply-btn">
+              <ChatCircleIcon size={variant === 'feed' ? 16 : 18} weight="regular" />
+              <span>Sign in to reply</span>
+            </a>
           {/if}
         </div>
 
@@ -436,9 +299,6 @@
     </div>
   </div>
 
-  {#if zapModalOpen}
-    <ZapModal bind:open={zapModalOpen} {event} />
-  {/if}
 {/if}
 
 <style>
@@ -446,6 +306,7 @@
 
   .comment-card {
     width: 100%;
+    padding: 0.5rem 0;
   }
 
   .comment-row {
@@ -459,8 +320,27 @@
     }
   }
 
+  /* Avatar column: stacks avatar above the optional thread line */
+  .avatar-col {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    flex: 0 0 auto;
+  }
+
   .comment-avatar {
     flex: 0 0 auto;
+  }
+
+  /* Vertical thread line that runs from the parent avatar down to the
+     bottom of its card, meeting the border-left of the first nested reply */
+  .thread-line {
+    flex: 1;
+    width: 2px;
+    background-color: var(--color-input-border);
+    margin-top: 4px;
+    border-radius: 1px;
+    min-height: 0.5rem;
   }
 
   .comment-content {
@@ -479,6 +359,7 @@
   }
 
   .comment-author {
+    font-size: 0.875rem;
     font-weight: 600;
     color: var(--color-text-primary);
     overflow-wrap: anywhere;
@@ -490,11 +371,14 @@
   }
 
   .comment-time {
+    font-size: 0.75rem;
     color: var(--color-text-secondary);
     white-space: nowrap;
   }
 
   .comment-body {
+    font-size: 1rem;
+    line-height: 1.6;
     margin-bottom: 0.5rem;
     color: var(--color-text-primary);
     overflow-wrap: anywhere;
@@ -504,68 +388,60 @@
   .comment-actions {
     display: flex;
     align-items: center;
+    gap: 0.25rem;
   }
 
-  .action-btn {
+  .reply-btn {
     display: flex;
     align-items: center;
     gap: 0.25rem;
+    padding: 0.25rem 0.375rem;
+    border-radius: 0.25rem;
+    font-size: 0.75rem;
+    color: var(--color-caption);
+    transition: background-color 0.15s, color 0.15s;
+    cursor: pointer;
+  }
+
+  .reply-btn:hover {
+    background-color: var(--color-input);
     color: var(--color-text-primary);
-    transition: color 0.15s;
   }
 
-  .action-btn:hover {
-    color: var(--color-primary);
+  /* ── Nested reply indentation ───────────────────────────────────── */
+  /* margin-left = avatar-center so border-left aligns with the thread */
+  /* line drawn below the parent avatar, creating one continuous line. */
+  /* padding-left bridges from the border to the content start.        */
+
+  .comment-card--feed.nested {
+    margin-left: 1rem;     /* 16px = center of 32px avatar */
+    border-left: 2px solid var(--color-input-border);
+    padding-left: 1.375rem; /* 22px → content at 16+2+22 = 40px = parent content start */
   }
 
-  .action-btn-text {
-    font-weight: 500;
+  .comment-card--recipe.nested {
+    margin-left: 1.25rem;   /* 20px = center of 40px avatar */
+    border-left: 2px solid var(--color-input-border);
+    padding-left: 1.875rem; /* 30px → content at 20+2+30 = 52px = parent content start */
   }
 
-  .zap-btn:hover {
-    color: #eab308; /* yellow-500 */
-  }
+  /* ── Replying-to indicator ──────────────────────────────────────── */
 
-  .zap-display {
-    display: flex;
-    align-items: center;
-    gap: 0.25rem;
-    color: var(--color-text-secondary);
-  }
-
-  /* ── Parent-quote embed (shared sizing across variants) ─────────── */
-
-  .parent-quote {
-    margin-bottom: 0.5rem;
-    padding: 0.5rem 0.75rem;
-    background: var(--color-input);
-    border-left: 3px solid var(--color-primary, #f97316);
-    border-radius: 0.375rem;
-  }
-
-  .parent-quote-header {
-    display: flex;
-    align-items: center;
-    gap: 0.375rem;
+  .reply-to-indicator {
+    font-size: 0.75rem;
+    color: var(--color-caption);
     margin-bottom: 0.25rem;
   }
 
-  .parent-quote-author {
-    font-size: 0.75rem;
-    font-weight: 500;
-    color: var(--color-text-secondary);
+  .reply-to-name {
+    color: var(--color-primary, #f97316);
   }
 
-  .parent-quote-content {
-    font-size: 0.75rem;
-    color: var(--color-text-secondary);
-    line-height: 1.4;
-    margin: 0;
-    overflow-wrap: anywhere;
-    word-break: break-word;
+  .reply-to-name:hover {
+    text-decoration: underline;
   }
 
-  /* ── Variant modifiers — sizing & typography ─────────────────────── */
+  /* ── Variant modifiers — avatar width only (typography is now unified) */
 
   .comment-card--recipe .comment-avatar {
     width: 40px;
@@ -574,33 +450,4 @@
     width: 32px;
   }
 
-  .comment-card--recipe .comment-author {
-    font-size: 1rem;
-  }
-  .comment-card--feed .comment-author {
-    font-size: 0.875rem;
-  }
-
-  .comment-card--recipe .comment-time {
-    font-size: 0.875rem;
-  }
-  .comment-card--feed .comment-time {
-    font-size: 0.75rem;
-  }
-
-  .comment-card--recipe .comment-body {
-    font-size: 1rem;
-  }
-  .comment-card--feed .comment-body {
-    font-size: 0.875rem;
-  }
-
-  .comment-card--recipe .comment-actions {
-    gap: 1rem;
-    font-size: 0.875rem;
-  }
-  .comment-card--feed .comment-actions {
-    gap: 0.75rem;
-    font-size: 0.75rem;
-  }
 </style>

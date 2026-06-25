@@ -431,10 +431,12 @@
     </div>
   </div>
 {:else if event}
-  <a
-    href={getNoteUrl()}
-    class="parent-quote-embed my-2 block hover:opacity-90 transition-opacity"
-    on:click|stopPropagation
+  <div
+    class="parent-quote-embed my-2 cursor-pointer hover:opacity-90 transition-opacity"
+    on:click|stopPropagation={handleCardClick}
+    role="link"
+    tabindex="0"
+    on:keydown={(e) => e.key === 'Enter' && handleCardClick()}
   >
     <div class="parent-quote-header">
       <CustomAvatar pubkey={event.author.hexpubkey} size={16} />
@@ -451,19 +453,13 @@
       </div>
     {/if}
 
-    <!-- Content preview -->
-    {#if getContentWithoutMedia(event.content).trim()}
-      <p class="parent-quote-content">
-        {getContentWithoutMedia(event.content).trim().slice(0, 200)}{getContentWithoutMedia(
-          event.content
-        ).trim().length > 200
-          ? '...'
-          : ''}
-      </p>
+    <!-- Full note content with truncation for long posts -->
+    {#if event.content.trim()}
+      <div class="parent-quote-content" on:click|stopPropagation>
+        <NoteContent content={event.content} collapsible={true} embedDepth={depth + 1} showLinkPreviews={false} />
+      </div>
     {/if}
-
-    <span class="parent-quote-link">View quoted note →</span>
-  </a>
+  </div>
 {:else}
   <div class="parent-quote-embed my-2">
     <div class="parent-quote-header">
@@ -503,23 +499,8 @@
   }
 
   .parent-quote-content {
-    font-size: 0.75rem;
-    color: var(--color-text-secondary);
-    line-height: 1.4;
-    margin-top: 0.25rem;
-    display: -webkit-box;
-    -webkit-line-clamp: 3;
-    line-clamp: 3;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
-  }
-
-  .parent-quote-link {
-    font-size: 0.75rem;
-    font-weight: 500;
-    color: #f97316;
-    margin-top: 0.25rem;
-    display: inline-block;
+    font-size: 0.875rem;
+    margin-top: 0.375rem;
   }
 
   .parent-quote-loading {
