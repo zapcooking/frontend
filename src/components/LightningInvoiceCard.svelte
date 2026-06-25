@@ -51,11 +51,11 @@
         paySuccess = true;
       } else {
         payFailed = true;
-        showToast(result.error || 'Payment failed');
+        showToast('error', result.error || 'Payment failed');
       }
     } catch (e: any) {
       payFailed = true;
-      showToast(e?.message || 'Payment failed');
+      showToast('error', e?.message || 'Payment failed');
     } finally {
       paying = false;
     }
@@ -64,7 +64,7 @@
   function copyInvoice(e: MouseEvent) {
     e.stopPropagation();
     navigator.clipboard.writeText(invoice);
-    showToast('Copied');
+    showToast('success', 'Copied');
   }
 
   // --- QR popup ---
@@ -143,7 +143,7 @@
     {#if showQr}
       <div class="ln-qr-inline">
         <div class="ln-qr-inner">
-          <svg use:qr={{ data: invoice.toUpperCase(), width: 192, height: 192 }} style="color: black"></svg>
+          <svg use:qr={{ data: invoice.toUpperCase() }} style="color: black; width: 192px; height: 192px;"></svg>
         </div>
         <p class="ln-qr-hint">Scan to pay</p>
       </div>
