@@ -350,6 +350,15 @@ export async function resolveProfiles(nostrStrings: string[], ndkInstance: NDK):
   return results;
 }
 
+// Pre-populate the cache with a known profile (e.g. from mention autocomplete)
+// so ProfileLink can resolve it immediately without a relay fetch.
+export function seedProfileCache(pubkey: string, data: { name?: string; display_name?: string; picture?: string; nip05?: string }): void {
+  if (!pubkey) return;
+  const existing = profileCache[pubkey];
+  if (existing && isCacheValid(existing)) return;
+  profileCache[pubkey] = { pubkey, ...data, lastFetched: Date.now() };
+}
+
 // Clear cache (useful for testing or manual refresh)
 export function clearProfileCache(): void {
   profileCache = {};
