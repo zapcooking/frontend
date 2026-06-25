@@ -1046,7 +1046,6 @@
     --signin-flame: #f7931a;
     --signin-ember: #ff5f1f;
     --signin-cream: #f5ebdd;
-    --signin-wheat: #c5b8a3;
     --signin-mute: #7e8597;
   }
 
@@ -1117,7 +1116,7 @@
   .signin-tagline {
     font-size: 0.9375rem;
     font-weight: 400;
-    color: var(--signin-wheat);
+    color: var(--color-caption);
     margin: 0 0 1.75rem;
     line-height: 1.5;
   }

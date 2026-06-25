@@ -1421,7 +1421,6 @@
     --signin-flame: #f7931a; /* brand orange — theme-agnostic */
     --signin-ember: #ff5f1f; /* brand orange — theme-agnostic */
     --signin-cream: #0f172a; /* primary text on light surface */
-    --signin-wheat: #475569; /* secondary text */
     --signin-mute: #94a3b8; /* muted text */
   }
 
@@ -1432,7 +1431,6 @@
     --signin-elevated: #1b202b;
     --signin-line: #262c3a;
     --signin-cream: #f5ebdd;
-    --signin-wheat: #c5b8a3;
     --signin-mute: #7e8597;
   }
 
@@ -1524,7 +1522,7 @@
   .signin-tagline {
     font-size: 0.9375rem;
     font-weight: 400;
-    color: var(--signin-wheat);
+    color: var(--color-caption);
     margin: 0 0 1.75rem;
     line-height: 1.5;
   }
@@ -1645,7 +1643,7 @@
     background: var(--signin-elevated);
     border: 1px solid var(--signin-line);
     font-size: 0.8125rem;
-    color: var(--signin-wheat);
+    color: var(--color-caption);
     line-height: 1.5;
     text-align: left;
   }
