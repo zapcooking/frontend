@@ -19,12 +19,12 @@
          when the user scrolls. -->
     <button type="button" class="wallet-logo-btn" aria-label="Close wallet" on:click={closeWallet}>
       <img
-        src="/zap_cooking_logo_black.svg"
+        src="/zapcooking-text-light.svg"
         alt="zap.cooking"
         class="wallet-logo-img wallet-logo-img--light dark:hidden"
       />
       <img
-        src="/zap_cooking_logo_white.svg"
+        src="/zapcooking-text-dark.svg"
         alt=""
         aria-hidden="true"
         class="wallet-logo-img wallet-logo-img--dark hidden dark:block"

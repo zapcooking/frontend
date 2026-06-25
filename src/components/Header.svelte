@@ -3,7 +3,6 @@
   import { page } from '$app/stores';
   import { userPublickey, userProfilePictureOverride } from '$lib/nostr';
   import { triggerExploreNav } from '$lib/exploreNav';
-  import SVGNostrCookingWithText from '../assets/nostr.cooking-withtext.svg';
   import SearchIcon from 'phosphor-svelte/lib/MagnifyingGlass';
   import CookingPotIcon from 'phosphor-svelte/lib/CookingPot';
   import TagsSearchAutocomplete from './TagsSearchAutocomplete.svelte';
@@ -143,12 +142,12 @@
     aria-label="zap.cooking home"
   >
     <img
-      src={SVGNostrCookingWithText}
+      src="/zapcooking-text-light.svg"
       class="w-24 sm:w-32 my-1.5 sm:my-2 dark:hidden"
       alt="zap.cooking"
     />
     <img
-      src="/zap_cooking_logo_white.svg"
+      src="/zapcooking-text-dark.svg"
       class="w-24 sm:w-32 my-1.5 sm:my-2 hidden dark:block"
       alt="zap.cooking"
     />
