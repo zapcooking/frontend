@@ -1,7 +1,6 @@
 import type { NDKEvent } from '@nostr-dev-kit/ndk';
 import { get } from 'svelte/store';
 import { ndk } from '$lib/nostr';
-import { nip04 } from 'nostr-tools';
 
 // Type definitions (from mutable)
 export interface MutedPubkey {
@@ -120,16 +119,28 @@ export async function parseMuteListEvent(event: NDKEvent): Promise<MuteList> {
 		}
 	}
 
-	// Parse private mutes from encrypted content (NIP-04)
+	// Parse private mutes from encrypted content
+	// Try NIP-44 first (used by Wisp/zap.cooking Android), fall back to NIP-04 (legacy)
 	if (event.content && event.content.trim()) {
 		try {
 			const authorPubkey = event.author?.hexpubkey || event.pubkey;
+			let decrypted: string | null = null;
 
-			// Check if NIP-07 extension is available
-			if (typeof window !== 'undefined' && window.nostr?.nip04) {
-				// Decrypt content (user decrypts their own mute list)
-				const decrypted = await window.nostr.nip04.decrypt(authorPubkey, event.content);
+			if (typeof window !== 'undefined') {
+				const nostr = (window as any).nostr;
+				if (nostr?.nip44) {
+					try {
+						decrypted = await nostr.nip44.decrypt(authorPubkey, event.content);
+					} catch {
+						// NIP-44 failed, try NIP-04 below
+					}
+				}
+				if (decrypted === null && nostr?.nip04) {
+					decrypted = await nostr.nip04.decrypt(authorPubkey, event.content);
+				}
+			}
 
+			if (decrypted) {
 				const privateData = JSON.parse(decrypted);
 
 				// Merge private items (marked as private: true)
