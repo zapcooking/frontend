@@ -298,10 +298,11 @@
     uploadingImage = true;
     error = '';
     try {
+      const newUrls: string[] = [];
       for (const file of imageFiles) {
-        const url = await uploadImage($ndk, file);
-        uploadedImages = [...uploadedImages, url];
+        newUrls.push(await uploadImage($ndk, file));
       }
+      uploadedImages = [...uploadedImages, ...newUrls];
     } catch (err: any) {
       error = err?.message || 'Failed to upload image. Please try again.';
     } finally {

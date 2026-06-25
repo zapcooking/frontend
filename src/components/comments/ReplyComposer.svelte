@@ -229,10 +229,11 @@
 		uploadingImage = true;
 		uploadError = '';
 		try {
+			const newUrls: string[] = [];
 			for (const file of imageFiles) {
-				const url = await uploadImage($ndk, file);
-				uploadedImages = [...uploadedImages, url];
+				newUrls.push(await uploadImage($ndk, file));
 			}
+			uploadedImages = [...uploadedImages, ...newUrls];
 		} catch (err: unknown) {
 			uploadError = (err as Error)?.message || 'Failed to upload image.';
 		} finally {
@@ -306,6 +307,7 @@
 
 			let content = mentionCtrl.replacePlainMentions(composerText.trim());
 			const mediaUrls = [...uploadedImages, ...uploadedVideos];
+			const capturedPollConfig = pollConfig;
 			clearState();
 			if (mediaUrls.length > 0) {
 				const mediaText = mediaUrls.join('\n');
@@ -317,8 +319,8 @@
 			for (const pubkey of mentions.values()) {
 				extraTags.push(['p', pubkey]);
 			}
-			if (pollConfig) {
-				extraTags.push(...buildPollTags(pollConfig));
+			if (capturedPollConfig) {
+				extraTags.push(...buildPollTags(capturedPollConfig));
 			}
 
 			const { event: posted } = await postCommentLib($ndk, {
@@ -326,7 +328,7 @@
 				replyTo,
 				content,
 				extraTags,
-				contentKind: pollConfig ? 1068 : undefined,
+				contentKind: capturedPollConfig ? 1068 : undefined,
 				signingStrategy: 'explicit-with-timeout'
 			});
 
