@@ -3,7 +3,6 @@
   import { triggerExploreNav } from '$lib/exploreNav';
   import { goto } from '$app/navigation';
   import { theme } from '$lib/themeStore';
-  import SVGNostrCookingWithText from '../assets/nostr.cooking-withtext.svg';
   import { walletConnected, openWallet, walletModalOpen } from '$lib/wallet';
   import { weblnConnected } from '$lib/wallet/webln';
   import { bitcoinConnectEnabled, bitcoinConnectWalletInfo } from '$lib/wallet/bitcoinConnect';
@@ -168,9 +167,9 @@
       on:click={handleLogoClick}
       class="block pl-2 py-2 cursor-pointer transition-transform duration-150 active:scale-95 active:opacity-80"
     >
-      <img src={SVGNostrCookingWithText} class="logo-light w-40 dark:hidden" alt="Zap Cooking" />
+      <img src="/zapcooking-text-light.svg" class="logo-light w-40 dark:hidden" alt="Zap Cooking" />
       <img
-        src="/zap_cooking_logo_white.svg"
+        src="/zapcooking-text-dark.svg"
         class="logo-dark w-40 hidden dark:block"
         alt="Zap Cooking"
       />

@@ -497,9 +497,9 @@
   <Modal bind:open={nsecModal} cleanup={modalCleanup} noHeader>
     <div class="login-modal-body">
       <button type="button" class="login-modal-logo-btn" aria-label="Close" on:click={modalCleanup}>
-        <img src="/zap_cooking_logo_black.svg" alt="" aria-hidden="true" class="dark:hidden" />
+        <img src="/zapcooking-text-light.svg" alt="" aria-hidden="true" class="dark:hidden" />
         <img
-          src="/zap_cooking_logo_white.svg"
+          src="/zapcooking-text-dark.svg"
           alt=""
           aria-hidden="true"
           class="hidden dark:block"
@@ -544,9 +544,9 @@
   <Modal bind:open={bunkerModal} cleanup={modalCleanup} noHeader>
     <div class="login-modal-body">
       <button type="button" class="login-modal-logo-btn" aria-label="Close" on:click={modalCleanup}>
-        <img src="/zap_cooking_logo_black.svg" alt="" aria-hidden="true" class="dark:hidden" />
+        <img src="/zapcooking-text-light.svg" alt="" aria-hidden="true" class="dark:hidden" />
         <img
-          src="/zap_cooking_logo_white.svg"
+          src="/zapcooking-text-dark.svg"
           alt=""
           aria-hidden="true"
           class="hidden dark:block"
@@ -636,9 +636,9 @@
   <Modal bind:open={nip46UniversalModal} cleanup={modalCleanup} noHeader>
     <div class="login-modal-body">
       <button type="button" class="login-modal-logo-btn" aria-label="Close" on:click={modalCleanup}>
-        <img src="/zap_cooking_logo_black.svg" alt="" aria-hidden="true" class="dark:hidden" />
+        <img src="/zapcooking-text-light.svg" alt="" aria-hidden="true" class="dark:hidden" />
         <img
-          src="/zap_cooking_logo_white.svg"
+          src="/zapcooking-text-dark.svg"
           alt=""
           aria-hidden="true"
           class="hidden dark:block"
@@ -726,9 +726,9 @@
   <Modal bind:open={generateModal} cleanup={modalCleanup} noHeader>
     <div class="login-modal-body">
       <button type="button" class="login-modal-logo-btn" aria-label="Close" on:click={modalCleanup}>
-        <img src="/zap_cooking_logo_black.svg" alt="" aria-hidden="true" class="dark:hidden" />
+        <img src="/zapcooking-text-light.svg" alt="" aria-hidden="true" class="dark:hidden" />
         <img
-          src="/zap_cooking_logo_white.svg"
+          src="/zapcooking-text-dark.svg"
           alt=""
           aria-hidden="true"
           class="hidden dark:block"
@@ -1122,12 +1122,12 @@
       <p class="signin-eyebrow">Welcome to</p>
       <h1 id="signin-title" class="signin-wordmark">
         <img
-          src="/zap_cooking_logo_black.svg"
+          src="/zapcooking-text-light.svg"
           alt="Zap Cooking"
           class="signin-wordmark-img signin-wordmark-img--light"
         />
         <img
-          src="/zap_cooking_logo_white.svg"
+          src="/zapcooking-text-dark.svg"
           alt=""
           aria-hidden="true"
           class="signin-wordmark-img signin-wordmark-img--dark"
