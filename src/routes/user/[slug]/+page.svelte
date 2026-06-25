@@ -114,9 +114,14 @@
     about?: string;
   };
   let followingProfiles: FollowingProfile[] = [];
+  let followingAllPubkeys: string[] = [];
+  let followingPageOffset = 0;
+  let followingLoadingMore = false;
   let followingLoaded = false;
   let followingLoading = false;
   let followingCount: number | null = null;
+  let followingFetchFailed = false;
+  const FOLLOWING_PAGE_SIZE = 50;
 
   // Infinite scroll state for recipes
   let hasMoreRecipes = true;
@@ -221,9 +226,13 @@
       profileStats = null;
       // Reset following tab state
       followingProfiles = [];
+      followingAllPubkeys = [];
+      followingPageOffset = 0;
+      followingLoadingMore = false;
       followingLoaded = false;
       followingLoading = false;
       followingCount = null;
+      followingFetchFailed = false;
       // Reset mute state
       isMuted = false;
       mutedUsers = [];
@@ -1112,6 +1121,83 @@
     });
   }
 
+  async function fetchFollowingPage(pubkeys: string[]): Promise<FollowingProfile[]> {
+    const profiles: FollowingProfile[] = [];
+    const resolvedPubkeys = new Set<string>();
+    const batchSize = 100;
+
+    for (let i = 0; i < pubkeys.length; i += batchSize) {
+      const batch = pubkeys.slice(i, i + batchSize);
+      try {
+        const profileEvents = await fetchEventsWithTimeout({ kinds: [0], authors: batch }, 8000);
+        for (const event of profileEvents) {
+          try {
+            const profileData = JSON.parse(event.content);
+            resolvedPubkeys.add(event.pubkey);
+            profiles.push({
+              pubkey: event.pubkey,
+              npub: nip19.npubEncode(event.pubkey),
+              name: profileData.display_name || profileData.name || nip19.npubEncode(event.pubkey).slice(0, 12) + '...',
+              picture: profileData.picture,
+              nip05: profileData.nip05,
+              about: profileData.about
+            });
+          } catch {
+            resolvedPubkeys.add(event.pubkey);
+            profiles.push({
+              pubkey: event.pubkey,
+              npub: nip19.npubEncode(event.pubkey),
+              name: nip19.npubEncode(event.pubkey).slice(0, 12) + '...'
+            });
+          }
+        }
+      } catch {
+        console.debug('[Following] Profile batch failed, continuing with what we have');
+      }
+    }
+
+    // Placeholders for pubkeys with no kind:0
+    for (const pk of pubkeys) {
+      if (!resolvedPubkeys.has(pk)) {
+        profiles.push({
+          pubkey: pk,
+          npub: nip19.npubEncode(pk),
+          name: nip19.npubEncode(pk).slice(0, 12) + '...'
+        });
+      }
+    }
+
+    // Resolved names first, truncated npubs last
+    profiles.sort((a, b) => {
+      const aIsNpub = a.name.startsWith('npub1');
+      const bIsNpub = b.name.startsWith('npub1');
+      if (aIsNpub && !bIsNpub) return 1;
+      if (!aIsNpub && bIsNpub) return -1;
+      return a.name.toLowerCase().localeCompare(b.name.toLowerCase());
+    });
+
+    return profiles;
+  }
+
+  async function loadMoreFollowing() {
+    if (followingLoadingMore || followingPageOffset >= followingAllPubkeys.length) return;
+    followingLoadingMore = true;
+    try {
+      const nextSlice = followingAllPubkeys.slice(
+        followingPageOffset,
+        followingPageOffset + FOLLOWING_PAGE_SIZE
+      );
+      const nextPage = await fetchFollowingPage(nextSlice);
+      followingProfiles = [...followingProfiles, ...nextPage];
+      followingPageOffset = Math.min(
+        followingPageOffset + FOLLOWING_PAGE_SIZE,
+        followingAllPubkeys.length
+      );
+    } finally {
+      followingLoadingMore = false;
+    }
+  }
+
   async function loadFollowing() {
     if (!hexpubkey || followingLoading) return;
 
@@ -1121,28 +1207,34 @@
     try {
       // Step 1: Get the followed pubkeys — try Primal first (fast), fall back to NDK
       let followPubkeys: string[] = [];
+      let fetchSucceeded = false;
 
       const primal = getPrimalCache();
       if (primal) {
         try {
           followPubkeys = await primal.fetchContactList(requestedPubkey, 5000);
+          fetchSucceeded = true;
         } catch (e) {
           console.debug('[Following] Primal contact list failed, trying NDK:', e);
         }
       }
 
       if (followPubkeys.length === 0) {
-        // NDK fallback with a resolving timeout (empty set = timed out)
+        // NDK fallback — use a longer timeout for large contact lists
         try {
           const contactEvents = await fetchEventsWithTimeout(
             { authors: [requestedPubkey], kinds: [3], limit: 1 },
-            8000
+            20000
           );
           const contactList = Array.from(contactEvents)[0];
           if (contactList) {
             followPubkeys = contactList.tags
               .filter((t) => t[0] === 'p' && t[1])
               .map((t) => t[1]);
+            fetchSucceeded = true;
+          } else if (!fetchSucceeded) {
+            // Neither source returned data — may be a network/relay issue
+            console.warn('[Following] Could not fetch contact list from Primal or NDK');
           }
         } catch (e) {
           console.debug('[Following] NDK contact list also failed:', e);
@@ -1156,77 +1248,25 @@
 
       if (followPubkeys.length === 0) {
         followingProfiles = [];
+        // Only mark as a confirmed "no follows" if fetch actually succeeded
+        followingFetchFailed = !fetchSucceeded;
         followingLoaded = true;
         followingLoading = false;
         return;
       }
 
-      // Step 2: Fetch profile metadata via NDK with resolving timeouts per batch
-      const profiles: FollowingProfile[] = [];
-      const resolvedPubkeys = new Set<string>();
-      const batchSize = 100;
-      for (let i = 0; i < followPubkeys.length; i += batchSize) {
-        const batch = followPubkeys.slice(i, i + batchSize);
-
-        // Bail if user navigated away mid-batch
-        if (hexpubkey !== requestedPubkey) return;
-
-        try {
-          const profileEvents = await fetchEventsWithTimeout(
-            { kinds: [0], authors: batch },
-            8000
-          );
-
-          for (const event of profileEvents) {
-            try {
-              const profileData = JSON.parse(event.content);
-              resolvedPubkeys.add(event.pubkey);
-              profiles.push({
-                pubkey: event.pubkey,
-                npub: nip19.npubEncode(event.pubkey),
-                name: profileData.display_name || profileData.name || nip19.npubEncode(event.pubkey).slice(0, 12) + '...',
-                picture: profileData.picture,
-                nip05: profileData.nip05,
-                about: profileData.about
-              });
-            } catch (e) {
-              resolvedPubkeys.add(event.pubkey);
-              profiles.push({
-                pubkey: event.pubkey,
-                npub: nip19.npubEncode(event.pubkey),
-                name: nip19.npubEncode(event.pubkey).slice(0, 12) + '...'
-              });
-            }
-          }
-        } catch (e) {
-          console.debug('[Following] Profile batch failed, continuing with what we have');
-        }
-      }
+      // Step 2: Store all pubkeys and load first page of profiles
+      followingAllPubkeys = followPubkeys;
 
       // Bail if user navigated away
       if (hexpubkey !== requestedPubkey) return;
 
-      // Add placeholder entries for pubkeys we couldn't resolve
-      for (const pk of followPubkeys) {
-        if (!resolvedPubkeys.has(pk)) {
-          profiles.push({
-            pubkey: pk,
-            npub: nip19.npubEncode(pk),
-            name: nip19.npubEncode(pk).slice(0, 12) + '...'
-          });
-        }
-      }
+      const firstPage = await fetchFollowingPage(followPubkeys.slice(0, FOLLOWING_PAGE_SIZE));
 
-      // Sort: resolved names first, then truncated npubs at the end
-      profiles.sort((a, b) => {
-        const aIsNpub = a.name.startsWith('npub1');
-        const bIsNpub = b.name.startsWith('npub1');
-        if (aIsNpub && !bIsNpub) return 1;
-        if (!aIsNpub && bIsNpub) return -1;
-        return a.name.toLowerCase().localeCompare(b.name.toLowerCase());
-      });
+      if (hexpubkey !== requestedPubkey) return;
 
-      followingProfiles = profiles;
+      followingProfiles = firstPage;
+      followingPageOffset = Math.min(FOLLOWING_PAGE_SIZE, followPubkeys.length);
       followingLoaded = true;
     } catch (error) {
       console.error('Error loading following list:', error);
@@ -2333,7 +2373,7 @@
       </div>
     {/if}
   {:else if activeTab === 'following'}
-    {#if followingLoading && !followingLoaded}
+    {#if !followingLoaded}
       <!-- Loading skeleton -->
       <div class="flex flex-col gap-3">
         {#each Array(6) as _}
@@ -2345,6 +2385,12 @@
             </div>
           </div>
         {/each}
+      </div>
+    {:else if followingFetchFailed}
+      <div class="py-12 text-center">
+        <UsersIcon size={48} class="mx-auto mb-4 opacity-30" />
+        <p class="text-lg font-medium" style="color: var(--color-text-secondary)">Couldn't load following list</p>
+        <p class="text-sm mt-1" style="color: var(--color-text-secondary)">Relay didn't respond in time. Try again later.</p>
       </div>
     {:else if followingProfiles.length === 0}
       <div class="py-12 text-center">
@@ -2369,6 +2415,21 @@
           </a>
         {/each}
       </div>
+      {#if followingPageOffset < followingAllPubkeys.length}
+        <div class="py-4 text-center">
+          {#if followingLoadingMore}
+            <div class="text-sm" style="color: var(--color-text-secondary)">Loading more...</div>
+          {:else}
+            <button
+              on:click={loadMoreFollowing}
+              class="px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+              style="background: var(--color-bg-secondary); color: var(--color-text-primary);"
+            >
+              Load more ({followingAllPubkeys.length - followingPageOffset} remaining)
+            </button>
+          {/if}
+        </div>
+      {/if}
     {/if}
   {:else if activeTab === 'drafts'}
     {#if $userPublickey === hexpubkey}
