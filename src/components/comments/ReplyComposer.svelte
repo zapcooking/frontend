@@ -216,6 +216,31 @@
 		}
 	}
 
+	async function handlePaste(e: ClipboardEvent) {
+		const imageFiles = Array.from(e.clipboardData?.items ?? [])
+			.filter((item) => item.kind === 'file' && item.type.startsWith('image/'))
+			.map((item) => item.getAsFile())
+			.filter((f): f is File => f !== null);
+		if (imageFiles.length === 0) {
+			mentionCtrl.handlePaste(e);
+			return;
+		}
+		e.preventDefault();
+		uploadingImage = true;
+		uploadError = '';
+		try {
+			const newUrls: string[] = [];
+			for (const file of imageFiles) {
+				newUrls.push(await uploadImage($ndk, file));
+			}
+			uploadedImages = [...uploadedImages, ...newUrls];
+		} catch (err: unknown) {
+			uploadError = (err as Error)?.message || 'Failed to upload image.';
+		} finally {
+			uploadingImage = false;
+		}
+	}
+
 	async function handleVideoUpload(e: Event) {
 		const target = e.target as HTMLInputElement;
 		const files = target.files;
@@ -281,8 +306,9 @@
 			}
 
 			let content = mentionCtrl.replacePlainMentions(composerText.trim());
-			clearState();
 			const mediaUrls = [...uploadedImages, ...uploadedVideos];
+			const capturedPollConfig = pollConfig;
+			clearState();
 			if (mediaUrls.length > 0) {
 				const mediaText = mediaUrls.join('\n');
 				content = content ? `${content}\n\n${mediaText}` : mediaText;
@@ -293,8 +319,8 @@
 			for (const pubkey of mentions.values()) {
 				extraTags.push(['p', pubkey]);
 			}
-			if (pollConfig) {
-				extraTags.push(...buildPollTags(pollConfig));
+			if (capturedPollConfig) {
+				extraTags.push(...buildPollTags(capturedPollConfig));
 			}
 
 			const { event: posted } = await postCommentLib($ndk, {
@@ -302,7 +328,7 @@
 				replyTo,
 				content,
 				extraTags,
-				contentKind: pollConfig ? 1068 : undefined,
+				contentKind: capturedPollConfig ? 1068 : undefined,
 				signingStrategy: 'explicit-with-timeout'
 			});
 
@@ -368,7 +394,7 @@
 				on:input={() => mentionCtrl.handleInput()}
 				on:keydown={(e) => mentionCtrl.handleKeydown(e)}
 				on:beforeinput={(e) => mentionCtrl.handleBeforeInput(e)}
-				on:paste={(e) => mentionCtrl.handlePaste(e)}
+				on:paste={handlePaste}
 			></div>
 
 			<MentionDropdown
