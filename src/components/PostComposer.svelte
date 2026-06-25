@@ -285,6 +285,30 @@
     }
   }
 
+  async function handlePaste(e: ClipboardEvent) {
+    const imageFiles = Array.from(e.clipboardData?.items ?? [])
+      .filter((item) => item.kind === 'file' && item.type.startsWith('image/'))
+      .map((item) => item.getAsFile())
+      .filter((f): f is File => f !== null);
+    if (imageFiles.length === 0) {
+      mentionCtrl.handlePaste(e);
+      return;
+    }
+    e.preventDefault();
+    uploadingImage = true;
+    error = '';
+    try {
+      for (const file of imageFiles) {
+        const url = await uploadImage($ndk, file);
+        uploadedImages = [...uploadedImages, url];
+      }
+    } catch (err: any) {
+      error = err?.message || 'Failed to upload image. Please try again.';
+    } finally {
+      uploadingImage = false;
+    }
+  }
+
   async function handleVideoUpload(e: Event) {
     const target = e.target as HTMLInputElement;
     const files = target.files;
@@ -655,7 +679,7 @@
                     on:keydown={handleKeydown}
                     on:input={() => mentionCtrl.handleInput()}
                     on:beforeinput={(e) => mentionCtrl.handleBeforeInput(e)}
-                    on:paste={(e) => mentionCtrl.handlePaste(e)}
+                    on:paste={handlePaste}
                   ></div>
 
                   <MentionDropdown
