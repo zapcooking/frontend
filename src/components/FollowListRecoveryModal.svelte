@@ -115,10 +115,18 @@
       <p class="text-sm" style="color: var(--color-text-secondary)">
         If another Nostr client accidentally overwrote your follow list, this tool scans
         relays for older versions and lets you restore one. It queries your connected relays
-        plus a broad set of archival relays using the technique from
-        <a href="https://github.com/dmnyc/mutable" target="_blank" rel="noopener"
-           class="underline hover:opacity-80" style="color: var(--color-accent-orange)">Mutable</a>.
+        plus a broad set of archival relays.
       </p>
+      <a
+        href="https://github.com/dmnyc/mutable"
+        target="_blank"
+        rel="noopener"
+        class="flex items-center gap-1.5 self-start text-xs hover:opacity-80 transition-opacity"
+        style="color: var(--color-text-secondary)"
+      >
+        <img src="/mutable_logo.svg" alt="Mutable" class="w-4 h-4 rounded-sm" />
+        <span>Powered by Mutable</span>
+      </a>
       <p class="text-sm" style="color: var(--color-text-secondary)">
         Restoring publishes a fresh kind:3 event with the chosen version's follow set,
         replacing your current list on all relays.
