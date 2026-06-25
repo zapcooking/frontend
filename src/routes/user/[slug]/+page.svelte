@@ -45,6 +45,9 @@
   import ArticleFeed from '../../../components/ArticleFeed.svelte';
   import MembershipBeltBadge from '../../../components/MembershipBeltBadge.svelte';
   import { fetchUserStatsFromPrimal, getPrimalCache, type PrimalUserStats } from '$lib/primalCache';
+  import FollowListRecoveryModal from '../../../components/FollowListRecoveryModal.svelte';
+  import QuestionIcon from 'phosphor-svelte/lib/Question';
+  import ArrowCounterClockwiseIcon from 'phosphor-svelte/lib/ArrowCounterClockwise';
 
   let hexpubkey: string | undefined = undefined;
   let events: NDKEvent[] = [];
@@ -52,6 +55,7 @@
   let profile: NDKUserProfile | null = null;
   let loaded = false;
   let zapModal = false;
+  let followRecoveryModal = false;
   let isZapping = false;
 
   // CLINK noffer pulled from the user's kind:0 custom field. NDK
@@ -1717,6 +1721,11 @@
   <ZapModal bind:open={zapModal} event={user} />
 {/if}
 
+<!-- Follow List Recovery Modal -->
+{#if hexpubkey}
+  <FollowListRecoveryModal bind:open={followRecoveryModal} pubkey={hexpubkey} />
+{/if}
+
 <!-- Profile Edit Modal -->
 <ProfileEditModal
   bind:open={profileEditModal}
@@ -2051,7 +2060,7 @@
 
   <!-- Profile Stats -->
   {#if profileStats}
-    <div class="flex items-center gap-5 pb-3">
+    <div class="flex flex-wrap items-center gap-x-5 gap-y-1.5 pb-3">
       <button
         on:click={() => (activeTab = 'following')}
         class="flex items-center gap-1.5 text-sm transition-colors hover:opacity-70"
@@ -2067,6 +2076,18 @@
         <span class="font-semibold" style="color: var(--color-text-primary)">{profileStats.followers_count.toLocaleString()}</span>
         <span>Followers</span>
       </div>
+      {#if $userPublickey === hexpubkey}
+        <button
+          on:click={() => (followRecoveryModal = true)}
+          class="flex items-center gap-1 text-xs transition-colors hover:opacity-80"
+          style="color: var(--color-text-secondary)"
+          title="If another client clobbered your follow list, scan relays to find and restore an older version"
+        >
+          <ArrowCounterClockwiseIcon size={13} />
+          <span>Restore Follow List</span>
+          <QuestionIcon size={13} class="opacity-60" />
+        </button>
+      {/if}
     </div>
   {/if}
 
