@@ -333,6 +333,11 @@
     }
   }
 
+  function handleCardClickEvent(e: MouseEvent) {
+    if ((e.target as HTMLElement).closest('a, button')) return;
+    handleCardClick();
+  }
+
   function getImageUrls(event: NDKEvent): string[] {
     // Extract image URLs from event content (not tags)
     const content = event.content || '';
@@ -433,7 +438,7 @@
 {:else if event}
   <div
     class="parent-quote-embed my-2 cursor-pointer hover:opacity-90 transition-opacity"
-    on:click|stopPropagation={(e) => { if ((e.target as HTMLElement).closest('a, button')) return; handleCardClick(); }}
+    on:click|stopPropagation={handleCardClickEvent}
     role="link"
     tabindex="0"
     on:keydown|self={(e) => e.key === 'Enter' && handleCardClick()}
