@@ -10,6 +10,7 @@
   import MediaCarousel from './MediaCarousel.svelte';
   import { processContentWithProfiles } from '$lib/contentProcessor';
   import MediaLightbox from './MediaLightbox.svelte';
+  import LightningInvoiceCard from './LightningInvoiceCard.svelte';
 
   export let content: string;
   export let className: string = '';
@@ -312,8 +313,32 @@
     return cut;
   }
   $: displayContent = shouldCollapse && !isExpanded ? truncateAtUrlBoundary(content, maxLength) : content;
-  $: finalParsedContent = parseContent(displayContent);
+  $: finalParsedContent = splitLightningInvoices(parseContent(displayContent));
   $: renderParts = groupMediaRuns(finalParsedContent);
+
+  const LIGHTNING_REGEX = /(?:(?:lightning|nostr):)?((lnbc|lntb|lnbcrt)[a-z0-9]{50,})/gi;
+
+  function splitLightningInvoices(parts: any[]): any[] {
+    const out: any[] = [];
+    let keyCounter = 0;
+    for (const part of parts) {
+      if (part.type !== 'text') { out.push(part); continue; }
+      LIGHTNING_REGEX.lastIndex = 0;
+      const text: string = part.content;
+      let last = 0;
+      let m;
+      while ((m = LIGHTNING_REGEX.exec(text)) !== null) {
+        if (m.index > last) {
+          out.push({ type: 'text', content: text.slice(last, m.index), key: `text-ln-${keyCounter++}` });
+        }
+        out.push({ type: 'lightning', invoice: m[0].replace(/^(?:lightning|nostr):/i, ''), key: `ln-${keyCounter++}` });
+        last = m.index + m[0].length;
+      }
+      if (last < text.length) out.push({ type: 'text', content: text.slice(last), key: `text-ln-${keyCounter++}` });
+      if (last === 0) out.push(part);
+    }
+    return out;
+  }
 
   // Preload profiles when content changes
   $: if (content) {
@@ -405,6 +430,8 @@
           {part.content}
         </button>
       {/if}
+    {:else if part.type === 'lightning'}
+      <LightningInvoiceCard invoice={part.invoice} />
     {/if}
   {/each}
 
