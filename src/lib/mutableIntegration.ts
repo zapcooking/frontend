@@ -1,6 +1,7 @@
 import { NDKEvent } from '@nostr-dev-kit/ndk';
 import { get } from 'svelte/store';
 import { ndk } from '$lib/nostr';
+import { encrypt, decrypt, detectEncryptionMethod } from '$lib/encryptionService';
 
 // Type definitions (from mutable)
 export interface MutedPubkey {
@@ -126,18 +127,11 @@ export async function parseMuteListEvent(event: NDKEvent): Promise<MuteList> {
 			const authorPubkey = event.author?.hexpubkey || event.pubkey;
 			let decrypted: string | null = null;
 
-			if (typeof window !== 'undefined') {
-				const nostr = (window as any).nostr;
-				if (nostr?.nip44) {
-					try {
-						decrypted = await nostr.nip44.decrypt(authorPubkey, event.content);
-					} catch {
-						// NIP-44 failed, try NIP-04 below
-					}
-				}
-				if (decrypted === null && nostr?.nip04) {
-					decrypted = await nostr.nip04.decrypt(authorPubkey, event.content);
-				}
+			try {
+				const method = detectEncryptionMethod(event.content);
+				decrypted = await decrypt(authorPubkey, event.content, method);
+			} catch {
+				// decrypt() handles all signer types; failure means key unavailable or denied
 			}
 
 			if (decrypted) {
@@ -253,10 +247,10 @@ export async function publishMuteList(muteList: MuteList, authorPubkey: string):
 	};
 
 	const tags: string[][] = [];
-	for (const item of publicItems.pubkeys) tags.push(['p', item.value]);
-	for (const item of publicItems.words) tags.push(['word', item.value]);
-	for (const item of publicItems.tags) tags.push(['t', item.value]);
-	for (const item of publicItems.threads) tags.push(['e', item.value]);
+	for (const item of publicItems.pubkeys) tags.push(item.reason ? ['p', item.value, item.reason] : ['p', item.value]);
+	for (const item of publicItems.words) tags.push(item.reason ? ['word', item.value, item.reason] : ['word', item.value]);
+	for (const item of publicItems.tags) tags.push(item.reason ? ['t', item.value, item.reason] : ['t', item.value]);
+	for (const item of publicItems.threads) tags.push(item.reason ? ['e', item.value, item.reason] : ['e', item.value]);
 
 	let content = '';
 	const hasPrivate =
@@ -265,22 +259,16 @@ export async function publishMuteList(muteList: MuteList, authorPubkey: string):
 		privateItems.tags.length > 0 ||
 		privateItems.threads.length > 0;
 
-	if (hasPrivate && typeof window !== 'undefined') {
+	if (hasPrivate) {
 		// NIP-51: encrypt as array of tag arrays, not an object
 		const privateTags: string[][] = [];
-		for (const item of privateItems.pubkeys) privateTags.push(['p', item.value]);
-		for (const item of privateItems.words) privateTags.push(['word', item.value]);
-		for (const item of privateItems.tags) privateTags.push(['t', item.value]);
-		for (const item of privateItems.threads) privateTags.push(['e', item.value]);
+		for (const item of privateItems.pubkeys) privateTags.push(item.reason ? ['p', item.value, item.reason] : ['p', item.value]);
+		for (const item of privateItems.words) privateTags.push(item.reason ? ['word', item.value, item.reason] : ['word', item.value]);
+		for (const item of privateItems.tags) privateTags.push(item.reason ? ['t', item.value, item.reason] : ['t', item.value]);
+		for (const item of privateItems.threads) privateTags.push(item.reason ? ['e', item.value, item.reason] : ['e', item.value]);
 		const plaintext = JSON.stringify(privateTags);
-		const nostr = (window as any).nostr;
-		if (nostr?.nip44) {
-			content = await nostr.nip44.encrypt(authorPubkey, plaintext);
-		} else if (nostr?.nip04) {
-			content = await nostr.nip04.encrypt(authorPubkey, plaintext);
-		} else {
-			throw new Error('No encryption available — cannot save private mutes');
-		}
+		const { ciphertext } = await encrypt(authorPubkey, plaintext);
+		content = ciphertext;
 	}
 
 	const event = new NDKEvent(ndkInstance);
