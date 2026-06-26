@@ -16,6 +16,7 @@
   import LightningIcon from 'phosphor-svelte/lib/Lightning';
   import WalletIcon from 'phosphor-svelte/lib/Wallet';
   import { userSidePanelOpen } from '$lib/stores/userSidePanel';
+  import { loginOverlayOpen } from '$lib/stores/loginOverlay';
   import { mobileSearchOpen } from '$lib/stores/mobileSearch';
   import { timerStore } from '$lib/timerStore';
   import {
@@ -318,11 +319,12 @@
           </span>
         </button>
       {:else}
-        <a
-          href="/login"
+        <button
+          type="button"
+          on:click={() => loginOverlayOpen.set(true)}
           class="px-3 py-1.5 sm:px-4 sm:py-2 rounded-full border font-medium transition duration-300 text-xs sm:text-sm signin-button"
-          style="color: var(--color-text-primary); border-color: var(--color-input-border);"
-          >Sign in</a
+          style="color: var(--color-text-primary); border-color: var(--color-input-border); background: none; cursor: pointer;"
+          >Sign in</button
         >
       {/if}
     </div>

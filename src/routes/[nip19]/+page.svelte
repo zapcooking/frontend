@@ -172,7 +172,7 @@
   }
 
   function gotoNoteUnlessInteractive(e: MouseEvent, evt: NDKEvent) {
-    if ((e.target as HTMLElement).closest('a, button')) return;
+    if (e.target instanceof Element && e.target.closest('a, button')) return;
     goto(noteUrl(evt));
   }
 

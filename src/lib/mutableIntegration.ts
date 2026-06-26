@@ -1,7 +1,7 @@
-import type { NDKEvent } from '@nostr-dev-kit/ndk';
+import { NDKEvent } from '@nostr-dev-kit/ndk';
 import { get } from 'svelte/store';
 import { ndk } from '$lib/nostr';
-import { nip04 } from 'nostr-tools';
+import { encrypt, decrypt, detectEncryptionMethod } from '$lib/encryptionService';
 
 // Type definitions (from mutable)
 export interface MutedPubkey {
@@ -120,38 +120,65 @@ export async function parseMuteListEvent(event: NDKEvent): Promise<MuteList> {
 		}
 	}
 
-	// Parse private mutes from encrypted content (NIP-04)
+	// Parse private mutes from encrypted content
+	// Try NIP-44 first (used by Wisp/zap.cooking Android), fall back to NIP-04 (legacy)
 	if (event.content && event.content.trim()) {
 		try {
 			const authorPubkey = event.author?.hexpubkey || event.pubkey;
+			let decrypted: string | null = null;
 
-			// Check if NIP-07 extension is available
-			if (typeof window !== 'undefined' && window.nostr?.nip04) {
-				// Decrypt content (user decrypts their own mute list)
-				const decrypted = await window.nostr.nip04.decrypt(authorPubkey, event.content);
+			try {
+				const method = detectEncryptionMethod(event.content);
+				decrypted = await decrypt(authorPubkey, event.content, method);
+			} catch {
+				// decrypt() handles all signer types; failure means key unavailable or denied
+			}
 
+			if (decrypted) {
 				const privateData = JSON.parse(decrypted);
 
-				// Merge private items (marked as private: true)
-				if (privateData.pubkeys) {
-					muteList.pubkeys.push(
-						...privateData.pubkeys.map((p: MutedPubkey) => ({ ...p, private: true }))
-					);
-				}
-				if (privateData.words) {
-					muteList.words.push(
-						...privateData.words.map((w: MutedWord) => ({ ...w, private: true }))
-					);
-				}
-				if (privateData.tags) {
-					muteList.tags.push(
-						...privateData.tags.map((t: MutedTag) => ({ ...t, private: true }))
-					);
-				}
-				if (privateData.threads) {
-					muteList.threads.push(
-						...privateData.threads.map((t: MutedThread) => ({ ...t, private: true }))
-					);
+				if (Array.isArray(privateData)) {
+					// NIP-51 standard: array of tag arrays [["p","hex"],["word","bad"],...]
+					for (const tag of privateData) {
+						if (!Array.isArray(tag) || tag.length < 2) continue;
+						const [tagType, value, reason] = tag;
+						switch (tagType) {
+							case 'p':
+								muteList.pubkeys.push({ type: 'pubkey', value, reason, private: true });
+								break;
+							case 'word':
+								muteList.words.push({ type: 'word', value, reason, private: true });
+								break;
+							case 't':
+								muteList.tags.push({ type: 'tag', value, reason, private: true });
+								break;
+							case 'e':
+								muteList.threads.push({ type: 'thread', value, reason, private: true });
+								break;
+						}
+					}
+				} else {
+					// Legacy Mutable object format: {pubkeys:[...], words:[...], ...}
+					if (privateData.pubkeys) {
+						muteList.pubkeys.push(
+							...privateData.pubkeys.map((p: MutedPubkey) => ({ ...p, private: true }))
+						);
+					}
+					if (privateData.words) {
+						muteList.words.push(
+							...privateData.words.map((w: MutedWord) => ({ ...w, private: true }))
+						);
+					}
+					if (privateData.tags) {
+						muteList.tags.push(
+							...privateData.tags.map((t: MutedTag) => ({ ...t, private: true }))
+						);
+					}
+					if (privateData.threads) {
+						muteList.threads.push(
+							...privateData.threads.map((t: MutedThread) => ({ ...t, private: true }))
+						);
+					}
 				}
 			}
 		} catch (error) {
@@ -195,4 +222,58 @@ export function hasMutedTag(muteList: MuteList, eventTags: string[][]): boolean 
  */
 export function isThreadMuted(muteList: MuteList, eventId: string): boolean {
 	return muteList.threads.some((item) => item.value === eventId);
+}
+
+/**
+ * Publish an updated mute list (kind:10000).
+ * Public items go into plaintext tags; private items are encrypted into .content
+ * using NIP-44 (preferred) or NIP-04 (fallback) — self-encrypted to the author's pubkey.
+ */
+export async function publishMuteList(muteList: MuteList, authorPubkey: string): Promise<void> {
+	const ndkInstance = get(ndk);
+	if (!ndkInstance) throw new Error('NDK not ready');
+
+	const publicItems = {
+		pubkeys: muteList.pubkeys.filter((i) => !i.private),
+		words: muteList.words.filter((i) => !i.private),
+		tags: muteList.tags.filter((i) => !i.private),
+		threads: muteList.threads.filter((i) => !i.private)
+	};
+	const privateItems = {
+		pubkeys: muteList.pubkeys.filter((i) => i.private),
+		words: muteList.words.filter((i) => i.private),
+		tags: muteList.tags.filter((i) => i.private),
+		threads: muteList.threads.filter((i) => i.private)
+	};
+
+	const tags: string[][] = [];
+	for (const item of publicItems.pubkeys) tags.push(item.reason ? ['p', item.value, item.reason] : ['p', item.value]);
+	for (const item of publicItems.words) tags.push(item.reason ? ['word', item.value, item.reason] : ['word', item.value]);
+	for (const item of publicItems.tags) tags.push(item.reason ? ['t', item.value, item.reason] : ['t', item.value]);
+	for (const item of publicItems.threads) tags.push(item.reason ? ['e', item.value, item.reason] : ['e', item.value]);
+
+	let content = '';
+	const hasPrivate =
+		privateItems.pubkeys.length > 0 ||
+		privateItems.words.length > 0 ||
+		privateItems.tags.length > 0 ||
+		privateItems.threads.length > 0;
+
+	if (hasPrivate) {
+		// NIP-51: encrypt as array of tag arrays, not an object
+		const privateTags: string[][] = [];
+		for (const item of privateItems.pubkeys) privateTags.push(item.reason ? ['p', item.value, item.reason] : ['p', item.value]);
+		for (const item of privateItems.words) privateTags.push(item.reason ? ['word', item.value, item.reason] : ['word', item.value]);
+		for (const item of privateItems.tags) privateTags.push(item.reason ? ['t', item.value, item.reason] : ['t', item.value]);
+		for (const item of privateItems.threads) privateTags.push(item.reason ? ['e', item.value, item.reason] : ['e', item.value]);
+		const plaintext = JSON.stringify(privateTags);
+		const { ciphertext } = await encrypt(authorPubkey, plaintext);
+		content = ciphertext;
+	}
+
+	const event = new NDKEvent(ndkInstance);
+	event.kind = 10000;
+	event.tags = tags;
+	event.content = content;
+	await event.publish();
 }

@@ -90,6 +90,16 @@ body {
   --color-skeleton-base: #e5e7eb;
   --color-skeleton-highlight: #f3f4f6;
 
+  /* Mute editor privacy cards */
+  --mute-private-bg: #ede9fe;
+  --mute-private-border: #c4b5fd;
+  --mute-private-text: #6d28d9;
+  --mute-private-badge-bg: #ddd6fe;
+  --mute-public-bg: #fff7ed;
+  --mute-public-border: #fdba74;
+  --mute-public-text: #ea580c;
+  --mute-public-badge-bg: #fed7aa;
+
   /* Bitcoin Connect theming */
   --bc-color-brand: #ec4700;
   --bc-color-brand-dark: #ff5722;
@@ -104,7 +114,7 @@ html.dark {
   --color-input-bg: #374151;
   --color-input-border: #4b5563;
   --color-accent-gray: #4b5563;
-  --color-caption: #c5b8a3;
+  --color-caption: #94a3b8;
   --color-danger: #ef4444;
   --color-text-primary: #f3f4f6;
   --color-text-secondary: #d1d5db;
@@ -112,6 +122,16 @@ html.dark {
   --color-bg-secondary: #1f2937;
   --color-skeleton-base: #1f2937;
   --color-skeleton-highlight: #374151;
+
+  /* Mute editor privacy cards */
+  --mute-private-bg: #2e1f4a;
+  --mute-private-border: #6d28d9;
+  --mute-private-text: #c4b5fd;
+  --mute-private-badge-bg: #3b1f6e;
+  --mute-public-bg: #2d1a0e;
+  --mute-public-border: #c2410c;
+  --mute-public-text: #fb923c;
+  --mute-public-badge-bg: #431d07;
 }
 
 /* Base document styling */

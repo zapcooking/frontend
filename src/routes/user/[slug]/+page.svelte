@@ -48,6 +48,7 @@
   import FollowListRecoveryModal from '../../../components/FollowListRecoveryModal.svelte';
   import QuestionIcon from 'phosphor-svelte/lib/Question';
   import ArrowCounterClockwiseIcon from 'phosphor-svelte/lib/ArrowCounterClockwise';
+  import MuteListEditor from '../../../components/MuteListEditor.svelte';
 
   let hexpubkey: string | undefined = undefined;
   let events: NDKEvent[] = [];
@@ -82,7 +83,8 @@
     | 'media'
     | 'reads'
     | 'following'
-    | 'drafts' = 'posts';
+    | 'drafts'
+    | 'muted' = 'posts';
 
   // Reads tab state (longform articles)
   let readsEvents: NDKEvent[] = [];
@@ -2046,12 +2048,12 @@
       <!-- Bio -->
       {#if profile?.about}
         {@const bioText = profile.about.trim()}
-        {@const needsTruncation = bioText.length > 200}
+        {@const needsTruncation = bioText.length > 400}
 
         <div class="max-w-2xl">
           <p
             class="text-sm text-caption leading-relaxed"
-            class:line-clamp-2={!bioExpanded && needsTruncation}
+            class:line-clamp-4={!bioExpanded && needsTruncation}
           >
             <ParsedBio text={bioText} />
           </p>
@@ -2189,6 +2191,21 @@
         {/if}
       </button>
       {#if $userPublickey && $userPublickey === hexpubkey}
+        <button
+          on:click={() => (activeTab = 'muted')}
+          class="px-4 py-2 text-sm font-medium transition-colors relative flex items-center gap-1"
+          style="color: {activeTab === 'muted'
+            ? 'var(--color-text-primary)'
+            : 'var(--color-text-secondary)'}"
+        >
+          <SpeakerSimpleSlashIcon size={16} />
+          Muted
+          {#if activeTab === 'muted'}
+            <span
+              class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-orange-500 to-amber-500"
+            ></span>
+          {/if}
+        </button>
         <button
           on:click={() => (activeTab = 'drafts')}
           class="px-4 py-2 text-sm font-medium transition-colors relative flex items-center gap-1"
@@ -2475,6 +2492,8 @@
         </div>
       {/if}
     {/if}
+  {:else if activeTab === 'muted' && $userPublickey === hexpubkey && hexpubkey}
+    <MuteListEditor pubkey={hexpubkey} />
   {/if}
 </div>
 
@@ -2504,10 +2523,10 @@
   }
 
   /* Ensure line-clamp works for bio text */
-  :global(.line-clamp-2) {
+  :global(.line-clamp-4) {
     display: -webkit-box;
-    -webkit-line-clamp: 2;
-    line-clamp: 2;
+    -webkit-line-clamp: 4;
+    line-clamp: 4;
     -webkit-box-orient: vertical;
     overflow: hidden;
   }

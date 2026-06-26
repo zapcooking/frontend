@@ -334,7 +334,7 @@
   }
 
   function handleCardClickEvent(e: MouseEvent) {
-    if ((e.target as HTMLElement).closest('a, button')) return;
+    if (e.target instanceof Element && e.target.closest('a, button')) return;
     handleCardClick();
   }
 
