@@ -14,7 +14,12 @@
   import { clickOutside } from '$lib/clickOutside';
   import LockIcon from 'phosphor-svelte/lib/Lock';
   import LockOpenIcon from 'phosphor-svelte/lib/LockOpen';
+  import EyeSlashIcon from 'phosphor-svelte/lib/EyeSlash';
+  import EyeIcon from 'phosphor-svelte/lib/Eye';
+  import ArrowLeftIcon from 'phosphor-svelte/lib/ArrowLeft';
+  import ArrowRightIcon from 'phosphor-svelte/lib/ArrowRight';
   import XIcon from 'phosphor-svelte/lib/X';
+  import SpeakerSimpleSlashIcon from 'phosphor-svelte/lib/SpeakerSimpleSlash';
   import PlusIcon from 'phosphor-svelte/lib/Plus';
   import SpinnerGapIcon from 'phosphor-svelte/lib/SpinnerGap';
   import CheckCircleIcon from 'phosphor-svelte/lib/CheckCircle';
@@ -51,11 +56,35 @@
   let addTagInput = '';
   let addNoteInput = '';
 
-  $: allPrivate = [...muteList.pubkeys, ...muteList.words, ...muteList.tags, ...muteList.threads]
-    .every((i) => i.private);
-  $: allPublic = [...muteList.pubkeys, ...muteList.words, ...muteList.tags, ...muteList.threads]
-    .every((i) => !i.private);
-  $: totalItems = muteList.pubkeys.length + muteList.words.length + muteList.tags.length + muteList.threads.length;
+  $: privateCount = [...muteList.pubkeys, ...muteList.words, ...muteList.tags, ...muteList.threads].filter((i) => i.private).length;
+  $: publicCount  = [...muteList.pubkeys, ...muteList.words, ...muteList.tags, ...muteList.threads].filter((i) => !i.private).length;
+  $: totalItems   = muteList.pubkeys.length + muteList.words.length + muteList.tags.length + muteList.threads.length;
+
+  // Counts per category
+  $: privateBreakdown = {
+    people: muteList.pubkeys.filter((i) => i.private).length,
+    words:  muteList.words.filter((i) => i.private).length,
+    tags:   muteList.tags.filter((i) => i.private).length,
+    notes:  muteList.threads.filter((i) => i.private).length,
+  };
+  $: publicBreakdown = {
+    people: muteList.pubkeys.filter((i) => !i.private).length,
+    words:  muteList.words.filter((i) => !i.private).length,
+    tags:   muteList.tags.filter((i) => !i.private).length,
+    notes:  muteList.threads.filter((i) => !i.private).length,
+  };
+
+  // Default privacy for new items
+  let defaultPrivate = true; // recommended for mobile compat
+
+  function breakdownLabel(b: {people:number,words:number,tags:number,notes:number}): string {
+    const parts = [];
+    if (b.people) parts.push(`${b.people} ${b.people === 1 ? 'person' : 'people'}`);
+    if (b.words)  parts.push(`${b.words} ${b.words === 1 ? 'word' : 'words'}`);
+    if (b.tags)   parts.push(`${b.tags} ${b.tags === 1 ? 'hashtag' : 'hashtags'}`);
+    if (b.notes)  parts.push(`${b.notes} ${b.notes === 1 ? 'note' : 'notes'}`);
+    return parts.join(', ') || 'none';
+  }
 
   onMount(() => { load(); });
 
@@ -98,10 +127,14 @@
   }
 
   function setAllPrivacy(makePrivate: boolean) {
+    const count = makePrivate ? publicCount : privateCount;
+    if (count === 0) return;
+    const label = makePrivate ? 'private (encrypted)' : 'public (visible to everyone)';
+    if (!confirm(`Make all ${count} mutes ${label}?`)) return;
     muteList = {
       pubkeys: muteList.pubkeys.map((i) => ({ ...i, private: makePrivate })),
-      words: muteList.words.map((i) => ({ ...i, private: makePrivate })),
-      tags: muteList.tags.map((i) => ({ ...i, private: makePrivate })),
+      words:   muteList.words.map((i) => ({ ...i, private: makePrivate })),
+      tags:    muteList.tags.map((i) => ({ ...i, private: makePrivate })),
       threads: muteList.threads.map((i) => ({ ...i, private: makePrivate }))
     };
   }
@@ -121,8 +154,7 @@
   }
 
   function newItemPrivacy(): boolean {
-    // New items inherit the current majority privacy
-    return allPrivate || !allPublic;
+    return defaultPrivate;
   }
 
   function addWord() {
@@ -220,32 +252,106 @@
 
   {:else}
 
-    <!-- Top bar: move-all + save -->
-    <div class="flex items-center gap-2 flex-wrap">
-      {#if totalItems > 0}
-        <div class="flex items-center gap-1.5 text-xs rounded-lg px-2.5 py-1.5 flex-1 min-w-0" style="background: var(--color-bg-secondary)">
-          <LockIcon size={12} weight="fill" style="color: var(--color-accent-orange); flex-shrink:0" />
-          <span class="truncate" style="color: var(--color-text-secondary)">Private recommended for mobile</span>
-          <div class="flex gap-1 ml-auto flex-shrink-0">
-            <button
-              on:click={() => setAllPrivacy(true)}
-              class="px-2 py-0.5 rounded text-xs font-medium transition-all"
-              style="background: {allPrivate ? 'var(--color-accent-orange)' : 'var(--color-input-border)'}; color: {allPrivate ? 'white' : 'var(--color-text-secondary)'};"
-            >Private</button>
-            <button
-              on:click={() => setAllPrivacy(false)}
-              class="px-2 py-0.5 rounded text-xs font-medium transition-all"
-              style="background: {allPublic ? 'var(--color-input-border)' : 'var(--color-input-border)'}; color: var(--color-text-secondary);"
-            >Public</button>
-          </div>
-        </div>
-      {/if}
+    <!-- Privacy controls -->
+    {#if totalItems > 0}
+      <div class="grid gap-3" style="grid-template-columns: 1fr auto 1fr">
 
-      <!-- Pending changes label + save -->
-      <div class="flex items-center gap-2 flex-shrink-0">
-        {#if hasChanges && saveState !== 'saving' && saveState !== 'saved'}
-          <span class="text-xs font-medium" style="color: var(--color-accent-orange)">Unsaved changes</span>
-        {/if}
+        <!-- Private card -->
+        <div class="rounded-lg p-3 border" style="background: var(--mute-private-bg); border-color: var(--mute-private-border);">
+          <div class="flex items-center gap-1.5 mb-1">
+            <EyeSlashIcon size={15} style="color: var(--mute-private-text); flex-shrink:0" />
+            <span class="text-xs font-semibold" style="color: var(--mute-private-text)">Private</span>
+            <span class="text-xs rounded px-1.5 py-0.5 ml-auto" style="background: var(--mute-private-badge-bg); color: var(--mute-private-text)">encrypted</span>
+          </div>
+          <p class="text-2xl font-bold" style="color: var(--mute-private-text)">{privateCount}</p>
+          <p class="text-xs mt-0.5" style="color: var(--mute-private-text); opacity: 0.75">{breakdownLabel(privateBreakdown)}</p>
+        </div>
+
+        <!-- Arrow buttons -->
+        <div class="flex flex-col items-center justify-center gap-2">
+          <button
+            on:click={() => setAllPrivacy(true)}
+            disabled={publicCount === 0}
+            title="Move all public mutes to private"
+            class="flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-medium transition-opacity disabled:opacity-30"
+            style="background: var(--mute-private-border); color: white;"
+          >
+            <ArrowLeftIcon size={12} />
+            All
+          </button>
+          <button
+            on:click={() => setAllPrivacy(false)}
+            disabled={privateCount === 0}
+            title="Move all private mutes to public"
+            class="flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-medium transition-opacity disabled:opacity-30"
+            style="background: var(--mute-public-border); color: white;"
+          >
+            All
+            <ArrowRightIcon size={12} />
+          </button>
+        </div>
+
+        <!-- Public card -->
+        <div class="rounded-lg p-3 border" style="background: var(--mute-public-bg); border-color: var(--mute-public-border);">
+          <div class="flex items-center gap-1.5 mb-1">
+            <EyeIcon size={15} style="color: var(--mute-public-text); flex-shrink:0" />
+            <span class="text-xs font-semibold" style="color: var(--mute-public-text)">Public</span>
+            <span class="text-xs rounded px-1.5 py-0.5 ml-auto" style="background: var(--mute-public-badge-bg); color: var(--mute-public-text)">visible</span>
+          </div>
+          <p class="text-2xl font-bold" style="color: var(--mute-public-text)">{publicCount}</p>
+          <p class="text-xs mt-0.5" style="color: var(--mute-public-text); opacity: 0.75">{breakdownLabel(publicBreakdown)}</p>
+        </div>
+      </div>
+
+      <!-- Default for new items + Publish + Mutable attribution -->
+      <div class="flex items-center gap-3 flex-wrap rounded-lg px-3 py-2" style="background: var(--color-bg-secondary)">
+        <span class="text-xs" style="color: var(--color-text-secondary)">New mutes:</span>
+        <div class="inline-flex rounded-lg p-0.5" style="background: var(--color-input-border)">
+          <button
+            on:click={() => (defaultPrivate = true)}
+            class="flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium transition-all"
+            style="background: {defaultPrivate ? 'var(--mute-private-border)' : 'transparent'}; color: {defaultPrivate ? 'white' : 'var(--color-text-secondary)'};"
+          >
+            <EyeSlashIcon size={11} />Private
+          </button>
+          <button
+            on:click={() => (defaultPrivate = false)}
+            class="flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium transition-all"
+            style="background: {!defaultPrivate ? 'var(--mute-public-border)' : 'transparent'}; color: {!defaultPrivate ? 'white' : 'var(--color-text-secondary)'};"
+          >
+            <EyeIcon size={11} />Public
+          </button>
+        </div>
+        <div class="flex items-center gap-2 flex-shrink-0 ml-auto">
+          {#if hasChanges && saveState !== 'saving' && saveState !== 'saved'}
+            <span class="text-xs font-medium" style="color: var(--color-accent-orange)">Unsaved changes</span>
+          {/if}
+          <!-- Mutable attribution -->
+          <div class="flex items-center gap-1 flex-shrink-0" style="color: var(--color-caption)">
+            <span class="text-xs">Powered by</span>
+            <img src="/mutable_logo.svg" alt="" class="w-3.5 h-3.5 rounded-sm opacity-70" />
+            <span class="text-xs">Mutable</span>
+          </div>
+          <button
+            on:click={save}
+            disabled={saveState === 'saving' || (!hasChanges && saveState !== 'saved')}
+            title="Publishes your mute list to Nostr relays so all your clients stay in sync"
+            class="flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-sm font-medium transition-all disabled:opacity-40"
+            style="background: {hasChanges || saveState === 'saving' ? 'linear-gradient(135deg, #f97316, #f59e0b)' : 'var(--color-input-border)'}; color: {hasChanges || saveState === 'saving' ? 'white' : 'var(--color-text-secondary)'};"
+          >
+            {#if saveState === 'saving'}
+              <SpinnerGapIcon size={14} class="animate-spin" />Saving…
+            {:else if saveState === 'saved'}
+              <CheckCircleIcon size={14} weight="fill" />Saved
+            {:else}
+              Publish
+            {/if}
+          </button>
+        </div>
+      </div>
+    {:else}
+      <!-- No items yet: just save button -->
+      <div class="flex justify-end">
         <button
           on:click={save}
           disabled={saveState === 'saving' || (!hasChanges && saveState !== 'saved')}
@@ -262,7 +368,7 @@
           {/if}
         </button>
       </div>
-    </div>
+    {/if}
 
     {#if saveState === 'error'}
       <p class="text-sm rounded-lg px-3 py-2" style="background: color-mix(in srgb, #ef4444 10%, transparent); color: #ef4444;">{saveError}</p>
@@ -327,7 +433,7 @@
                     class="p-1 rounded transition-opacity hover:opacity-70 flex-shrink-0"
                     style="color: var(--color-text-secondary)" title="Unmute"
                   >
-                    <XIcon size={14} />
+                    <SpeakerSimpleSlashIcon size={14} />
                   </button>
                 </div>
 
@@ -395,8 +501,8 @@
                   style="color: {item.private ? 'var(--color-accent-orange)' : 'var(--color-caption)'}">
                   {#if item.private}<LockIcon size={11} weight="fill" />{:else}<LockOpenIcon size={11} />{/if}
                 </button>
-                <button on:click={() => removeWord(i)} class="transition-opacity hover:opacity-70" style="color: var(--color-caption)" title="Remove">
-                  <XIcon size={11} />
+                <button on:click={() => removeWord(i)} class="transition-opacity hover:opacity-70" style="color: var(--color-caption)" title="Unmute">
+                  <SpeakerSimpleSlashIcon size={11} />
                 </button>
               </span>
             {/each}
@@ -425,8 +531,8 @@
                   style="color: {item.private ? 'var(--color-accent-orange)' : 'var(--color-caption)'}">
                   {#if item.private}<LockIcon size={11} weight="fill" />{:else}<LockOpenIcon size={11} />{/if}
                 </button>
-                <button on:click={() => removeTag(i)} class="transition-opacity hover:opacity-70" style="color: var(--color-caption)" title="Remove">
-                  <XIcon size={11} />
+                <button on:click={() => removeTag(i)} class="transition-opacity hover:opacity-70" style="color: var(--color-caption)" title="Unmute">
+                  <SpeakerSimpleSlashIcon size={11} />
                 </button>
               </span>
             {/each}
@@ -456,8 +562,8 @@
                   {#if item.private}<LockIcon size={14} weight="fill" />{:else}<LockOpenIcon size={14} />{/if}
                 </button>
                 <button on:click={() => removeThread(i)} class="p-1 rounded transition-opacity hover:opacity-70 flex-shrink-0"
-                  style="color: var(--color-text-secondary)" title="Remove">
-                  <XIcon size={14} />
+                  style="color: var(--color-text-secondary)" title="Unmute">
+                  <SpeakerSimpleSlashIcon size={14} />
                 </button>
               </li>
             {/each}
@@ -476,13 +582,6 @@
         </form>
 
       {/if}
-    </div>
-
-    <!-- Mutable attribution -->
-    <div class="flex items-center justify-end gap-1.5 pt-2 border-t" style="border-color: var(--color-input-border); color: var(--color-caption)">
-      <span class="text-xs">Powered by</span>
-      <img src="/mutable_logo.svg" alt="" class="w-3.5 h-3.5 rounded-sm" />
-      <span class="text-xs font-medium">Mutable</span>
     </div>
 
   {/if}
