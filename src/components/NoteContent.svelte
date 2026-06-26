@@ -335,8 +335,13 @@
         out.push({ type: 'lightning', invoice: m[0].replace(/^(?:lightning|nostr):/i, ''), key: `ln-${keyCounter++}` });
         last = m.index + m[0].length;
       }
-      if (last < text.length) out.push({ type: 'text', content: text.slice(last), key: `text-ln-${keyCounter++}` });
-      if (last === 0) out.push(part);
+      if (last === 0) {
+        // No invoice matched — keep the original text part untouched.
+        out.push(part);
+      } else if (last < text.length) {
+        // Trailing text after the final match.
+        out.push({ type: 'text', content: text.slice(last), key: `text-ln-${keyCounter++}` });
+      }
     }
     return out;
   }

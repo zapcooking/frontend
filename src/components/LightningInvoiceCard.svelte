@@ -23,9 +23,13 @@
     if (amountSection?.value) amountSats = Math.floor(Number(amountSection.value) / 1000);
     const descSection = decoded.sections.find((s: any) => s.name === 'description');
     description = descSection?.value ?? null;
-    const ts = decoded.sections.find((s: any) => s.name === 'timestamp')?.value ?? 0;
-    const exp = decoded.sections.find((s: any) => s.name === 'expiry')?.value ?? 3600;
-    isExpired = Math.floor(Date.now() / 1000) > ts + exp;
+    // Coerce to Number: bolt11-decode section values can be strings, and
+    // `string + string` would concatenate and mis-flag expiry.
+    const ts = Number(decoded.sections.find((s: any) => s.name === 'timestamp')?.value ?? 0);
+    const exp = Number(decoded.sections.find((s: any) => s.name === 'expiry')?.value ?? 3600);
+    if (Number.isFinite(ts) && Number.isFinite(exp)) {
+      isExpired = Math.floor(Date.now() / 1000) > ts + exp;
+    }
   } catch {
     decodeError = true;
   }
@@ -42,7 +46,7 @@
   let payFailed = false;
 
   async function pay() {
-    if (isExpired || paying || paySuccess) return;
+    if (isExpired || paying || paySuccess || !hasWallet) return;
     paying = true;
     payFailed = false;
     try {
@@ -114,7 +118,8 @@
       <button
         class="ln-pay-btn"
         class:ln-pay-btn--disabled={isExpired || paySuccess || !hasWallet}
-        disabled={isExpired || paySuccess || paying}
+        disabled={isExpired || paySuccess || paying || !hasWallet}
+        title={!hasWallet && !isExpired && !paySuccess ? 'Connect a wallet to pay' : undefined}
         on:click|stopPropagation={pay}
       >
         {#if paying}
@@ -149,6 +154,10 @@
       </div>
     {/if}
   </div>
+{:else}
+  <!-- Decode failed (e.g. a false-positive regex match). Fall back to the raw
+       text so note content is never silently dropped. -->
+  <span class="ln-invalid">{invoice}</span>
 {/if}
 
 <style>
@@ -300,5 +309,10 @@
   .ln-icon-btn--active {
     background-color: color-mix(in srgb, var(--color-primary) 15%, var(--color-input-bg));
     color: var(--color-primary);
+  }
+
+  /* Fallback when the invoice can't be decoded — render raw text inline. */
+  .ln-invalid {
+    word-break: break-all;
   }
 </style>
