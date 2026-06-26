@@ -123,6 +123,12 @@ function createNotificationStore() {
 export const notifications = createNotificationStore();
 
 /**
+ * True while the initial subscription is fetching (pre-EOSE / pre-timeout).
+ * Components should show a spinner instead of "Nothing here yet" while this is true.
+ */
+export const notificationsLoading = writable(false);
+
+/**
  * Notifications with muted users excluded.
  * Components should use this for display; raw `notifications` is for persistence/dedup only.
  */
@@ -195,6 +201,8 @@ export function subscribeToNotifications(ndk: NDK, userPubkey: string, forceFull
     activeSubscription.stop();
   }
 
+  notificationsLoading.set(true);
+
   // Use a longer lookback window (7 days) for better notification coverage
   // On force refresh, go back 7 days regardless of existing notifications
   const sevenDaysAgo = Math.floor(Date.now() / 1000) - 7 * 24 * 60 * 60;
@@ -239,6 +247,23 @@ export function subscribeToNotifications(ndk: NDK, userPubkey: string, forceFull
   let eoseReceived = false;
   const preEoseBuffer: NDKEvent[] = [];
 
+  function flushPreEoseBuffer() {
+    if (preEoseBuffer.length === 0) return;
+    const parsed: Notification[] = [];
+    const seenIds = new Set<string>();
+    for (const event of preEoseBuffer) {
+      if (seenIds.has(event.id)) continue;
+      seenIds.add(event.id);
+      const notification = parseNotification(event, userPubkey);
+      if (notification) {
+        parsed.push(notification);
+        if (event.kind === 9735) recordZapToSparkSdk(event);
+      }
+    }
+    preEoseBuffer.length = 0;
+    if (parsed.length > 0) notifications.addBulk(parsed);
+  }
+
   function handleEvent(event: NDKEvent, isRealtime: boolean) {
     // For zap receipts (9735), the pubkey is the zapper service, not the sender.
     // Self-zap filtering happens in parseNotification after extracting the real sender.
@@ -272,26 +297,20 @@ export function subscribeToNotifications(ndk: NDK, userPubkey: string, forceFull
 
   activeSubscription.on('eose', () => {
     eoseReceived = true;
-    if (preEoseBuffer.length === 0) return;
-
-    // Parse + dedup the buffer, then bulk-insert (one sort + one localStorage write)
-    const parsed: Notification[] = [];
-    const seenIds = new Set<string>();
-    for (const event of preEoseBuffer) {
-      if (seenIds.has(event.id)) continue;
-      seenIds.add(event.id);
-      const notification = parseNotification(event, userPubkey);
-      if (notification) {
-        parsed.push(notification);
-        if (event.kind === 9735) recordZapToSparkSdk(event);
-      }
-    }
-    preEoseBuffer.length = 0;
-
-    if (parsed.length > 0) {
-      notifications.addBulk(parsed);
-    }
+    flushPreEoseBuffer();
+    notificationsLoading.set(false);
   });
+
+  // Safety valve: some relays never send EOSE (or send it very late).
+  // After 10 s, flush whatever accumulated so history is always persisted
+  // to localStorage and shown in the UI — even if EOSE never arrives.
+  setTimeout(() => {
+    if (!eoseReceived) {
+      eoseReceived = true;
+      flushPreEoseBuffer();
+    }
+    notificationsLoading.set(false);
+  }, 10000);
 
   return activeSubscription;
 }
