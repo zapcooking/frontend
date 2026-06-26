@@ -22,12 +22,21 @@ import { getRecipeOgMeta, FALLBACK_RECIPE_OG, type RecipeOgMeta } from './recipe
 import { fetchRecipeEventForOg } from './recipeOg.server';
 
 /**
- * Crawler / link-unfurl User-Agents. Matched case-insensitively. Kept broad on
- * purpose: a false positive only means a bot-style minimal document is served
- * to a non-bot, which still renders fine; a false negative means a missing card.
+ * Crawler / link-unfurl User-Agents. Matched case-insensitively.
+ *
+ * A false positive is NOT harmless: a real human matched here would get the
+ * empty-body crawler document instead of the SPA, breaking the page for them.
+ * So tokens that also appear in human in-app browser UAs are matched only in
+ * their dedicated-crawler form, never as a bare word:
+ *   - `WhatsApp/<n>`  — the link-preview fetcher; the WhatsApp in-app webview
+ *     carries a normal `Mozilla/…` UA and must fall through to the SPA.
+ *   - `Pinterest/<n>` / `Pinterestbot` — likewise (bare "Pinterest" appears in
+ *     the Pinterest in-app browser).
+ * Snapchat and bare "Yahoo" are intentionally omitted: their in-app browsers
+ * carry those words and neither is a recipe link-unfurler worth the risk.
  */
 const CRAWLER_UA =
-  /(facebookexternalhit|facebookcatalog|Facebot|Twitterbot|LinkedInBot|Slackbot|Slack-ImgProxy|Discordbot|TelegramBot|WhatsApp|Pinterest|redditbot|Googlebot|Google-InspectionTool|bingbot|Applebot|Embedly|Quora Link Preview|vkShare|W3C_Validator|outbrain|SkypeUriPreview|nuzzel|Bitlybot|Yahoo|Baiduspider|ia_archiver|MetaInspector|Iframely|SummalyBot|TelegramBot|Mastodon|Pleroma|Snapchat|Yeti)/i;
+  /(facebookexternalhit|facebookcatalog|Facebot|Twitterbot|LinkedInBot|Slackbot|Slack-ImgProxy|Discordbot|TelegramBot|WhatsApp\/\d|Pinterest\/\d|Pinterestbot|redditbot|Googlebot|Google-InspectionTool|bingbot|Applebot|Embedly|Quora Link Preview|vkShare|W3C_Validator|outbrain|SkypeUriPreview|nuzzel|Bitlybot|Baiduspider|ia_archiver|MetaInspector|Iframely|SummalyBot|Mastodon|Pleroma|Yeti)/i;
 
 /** Only these route prefixes get bot OG injection. */
 const ROUTE_RE = /^\/(recipe|r)\/([^/]+)\/?$/;
@@ -39,13 +48,11 @@ export function isCrawler(userAgent: string | null): boolean {
 export function matchRecipeOgRoute(pathname: string): { prefix: string; slug: string } | null {
   const m = pathname.match(ROUTE_RE);
   if (!m) return null;
-  let slug = m[2];
-  try {
-    slug = decodeURIComponent(slug);
-  } catch {
-    /* keep raw on malformed escape */
-  }
-  return { prefix: m[1], slug };
+  // Use the raw, still-encoded path segment. naddr1…/hex slugs are URL-safe so
+  // there is nothing to decode, and decoding could fold in a space or a '%2F'
+  // → '/' that corrupts the canonical/og:url or makes it mismatch the request.
+  // nip19.decode() and the hex test in recipeOg.server.ts both accept it as-is.
+  return { prefix: m[1], slug: m[2] };
 }
 
 function escapeAttr(value: string): string {
