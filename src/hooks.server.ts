@@ -1,5 +1,6 @@
 import type { Handle, HandleServerError } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
+import { isCrawler, matchRecipeOgRoute, renderRecipeOgForCrawler } from '$lib/recipeOgHtml.server';
 
 /**
  * Log the real server-side error (with stack) instead of letting SvelteKit
@@ -28,13 +29,13 @@ const ALLOW_METHODS = 'GET, POST, PATCH, OPTIONS';
 const ALLOW_HEADERS = 'Content-Type, Authorization, Nostr-Authorization';
 
 const TRUSTED_ORIGINS = env.CORS_ORIGIN
-  ? env.CORS_ORIGIN.split(',').map(o => o.trim())
+  ? env.CORS_ORIGIN.split(',').map((o) => o.trim())
   : [
       'https://zap.cooking',
       'https://www.zap.cooking',
       'http://localhost:5173',
       'http://localhost:5174',
-      'capacitor://localhost',
+      'capacitor://localhost'
     ];
 
 function isTrustedOrigin(origin: string | null): boolean {
@@ -62,9 +63,7 @@ function applyVaryOrigin(headers: Headers): void {
     return;
   }
 
-  const varyValues = existingVary
-    .split(',')
-    .map(value => value.trim().toLowerCase());
+  const varyValues = existingVary.split(',').map((value) => value.trim().toLowerCase());
 
   if (!varyValues.includes('origin')) {
     headers.set('Vary', `${existingVary}, Origin`);
@@ -76,7 +75,7 @@ function buildCorsHeaders(origin: string | null, useWildcard: boolean): Headers 
     'Access-Control-Allow-Origin': useWildcard ? '*' : (origin ?? ''),
     'Access-Control-Allow-Methods': ALLOW_METHODS,
     'Access-Control-Allow-Headers': ALLOW_HEADERS,
-    'Access-Control-Max-Age': '86400',
+    'Access-Control-Max-Age': '86400'
   });
 
   if (!useWildcard && origin) {
@@ -86,7 +85,50 @@ function buildCorsHeaders(origin: string | null, useWildcard: boolean): Headers 
   return headers;
 }
 
+/**
+ * Bot-only OG injection. Social crawlers don't run JS, so the client-fetched
+ * recipe event never populates the OG tags for them — they'd only ever see the
+ * static placeholders. For a crawler UA on a recipe route we resolve the recipe
+ * SERVER-SIDE (raw WebSocket, no NDK) and return a minimal standalone document.
+ *
+ * This deliberately does NOT use a `+page.server.ts` / server `data` dependency:
+ * that is what made #454 request `__data.json` against an OOM'd worker and 500.
+ * Crawlers issue a single document GET and never request `__data.json`, so this
+ * path cannot reintroduce that. Returns null (→ normal SPA resolve) for humans,
+ * non-matching routes, or ANY error — it must never throw or 500.
+ */
+async function maybeRenderBotOg(event: Parameters<Handle>[0]['event']): Promise<Response | null> {
+  try {
+    if (event.request.method !== 'GET') return null;
+    if (!isCrawler(event.request.headers.get('user-agent'))) return null;
+    const matched = matchRecipeOgRoute(event.url.pathname);
+    if (!matched) return null;
+
+    const html = await renderRecipeOgForCrawler(matched.prefix, matched.slug, event.url.origin);
+    return new Response(html, {
+      status: 200,
+      headers: {
+        'content-type': 'text/html; charset=utf-8',
+        // CRITICAL: never let this UA-specific document into a shared cache.
+        // Cloudflare's edge cache keys on URL and does NOT honour
+        // `Vary: User-Agent`, so a `public` bot document could be replayed to a
+        // real browser (serving humans the SPA-less crawler shell) or vice
+        // versa. `no-store` keeps the bot path fully separate from the human
+        // SPA path. Crawlers re-fetch on each scrape anyway; the fetch is fast.
+        'cache-control': 'no-store',
+        vary: 'User-Agent'
+      }
+    });
+  } catch (e) {
+    console.error('[bot OG] falling through to SPA', e);
+    return null;
+  }
+}
+
 export const handle: Handle = async ({ event, resolve }) => {
+  const botOg = await maybeRenderBotOg(event);
+  if (botOg) return botOg;
+
   const isApiRoute = event.url.pathname.startsWith('/api/');
   const origin = event.request.headers.get('origin');
   const trustedOrigin = isTrustedOrigin(origin);

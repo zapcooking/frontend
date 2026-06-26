@@ -54,7 +54,7 @@
       <!-- Social Icons -->
       <div class="flex footer-icons">
         <a
-          href="https://primal.net/p/npub1xxdd8eusvdxmaph3fkuu9x2mymhrcc3ghe2l38zv0l4f4nqp659qskkt7a"
+          href="/user/npub1xxdd8eusvdxmaph3fkuu9x2mymhrcc3ghe2l38zv0l4f4nqp659qskkt7a"
           target="_blank"
           rel="noopener noreferrer"
           class="w-8 h-8 rounded-full flex items-center justify-center text-caption hover:text-primary transition-colors"
@@ -96,7 +96,7 @@
       <!-- Branta Guardrail -->
       <p class="text-xs text-caption">
         Running Guardrail by <a
-          href="https://primal.net/p/npub16ndruwfg7dsdhnp3w8zvqrg0r2rn3wucnttgrg5acm2lhqpkepkqncr9qr"
+          href="/user/npub16ndruwfg7dsdhnp3w8zvqrg0r2rn3wucnttgrg5acm2lhqpkepkqncr9qr"
           target="_blank"
           rel="noopener noreferrer"
           class="hover:text-primary transition-colors">@branta</a

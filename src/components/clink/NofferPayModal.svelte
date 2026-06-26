@@ -303,6 +303,7 @@
             <svg
               use:qr={{ data: lightningUri, shape: 'square' }}
               class="w-48 h-48"
+              style="color: black"
               aria-label="QR code for {lightningUri}"
             />
           </div>

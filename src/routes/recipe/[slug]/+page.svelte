@@ -9,6 +9,7 @@
   import Recipe from '../../../components/Recipe/Recipe.svelte';
   import PanLoader from '../../../components/PanLoader.svelte';
   import { GATED_RECIPE_KIND } from '$lib/consts';
+  import { getRecipeOgMeta } from '$lib/recipeOgMeta';
   import { stripTrackingParams } from '$lib/utils/stripTrackingParams';
 
   let event: NDKEvent | null = null;
@@ -26,10 +27,10 @@
 
   async function loadData() {
     if (!$page.params.slug) return;
-    
+
     loading = true;
     error = null;
-    
+
     try {
       if ($page.params.slug.startsWith('naddr1')) {
         const a = nip19.decode($page.params.slug);
@@ -37,16 +38,16 @@
           throw new Error('Invalid naddr format');
         }
         const b = a.data;
-        
+
         // Support both regular recipes (30023) and premium recipes (35000)
         const recipeKind = b.kind === GATED_RECIPE_KIND ? GATED_RECIPE_KIND : 30023;
-        
+
         naddr = nip19.naddrEncode({
           identifier: b.identifier,
           pubkey: b.pubkey,
           kind: recipeKind
         });
-        
+
         // Add timeout protection for recipe loading
         const fetchPromise: Promise<NDKEvent | null> = $ndk.fetchEvent({
           '#d': [b.identifier],
@@ -54,9 +55,12 @@
           kinds: [recipeKind as number]
         });
         const timeoutPromise = new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error('Recipe loading timeout - relays may be unreachable')), 10000)
+          setTimeout(
+            () => reject(new Error('Recipe loading timeout - relays may be unreachable')),
+            10000
+          )
         );
-        
+
         const e = await Promise.race<NDKEvent | null>([fetchPromise, timeoutPromise]);
         if (e) {
           event = e;
@@ -69,9 +73,12 @@
         // Add timeout protection for direct event ID loading
         const fetchPromise: Promise<NDKEvent | null> = $ndk.fetchEvent($page.params.slug);
         const timeoutPromise = new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error('Recipe loading timeout - relays may be unreachable')), 10000)
+          setTimeout(
+            () => reject(new Error('Recipe loading timeout - relays may be unreachable')),
+            10000
+          )
         );
-        
+
         const e = await Promise.race<NDKEvent | null>([fetchPromise, timeoutPromise]);
         if (e) {
           event = e;
@@ -101,127 +108,29 @@
   }
 
   // OG/meta derived entirely from the client-fetched NDK event, with static
-  // defaults until it loads. No server load — see <svelte:head>.
-  $: pageHeading = event
-    ? event.tags.find((e) => e[0] == 'title')?.[1] || event.tags.find((e) => e[0] == 'd')?.[1] || '...'
-    : 'Recipe';
-
-  $: metaTitleBase = event
-    ? event.tags.find((tag) => tag[0] === 'title')?.[1] || event.content.slice(0, 60) + '...'
-    : 'Recipe';
-
-  $: fullPageTitle = `${pageHeading} - zap.cooking`;
-  $: fullMetaTitle = `${metaTitleBase} - zap.cooking`;
-
-  // OG title: raw title without site suffix (site_name handles branding)
-  $: og_title = event
-    ? metaTitleBase
-    : 'Recipe';
-
-  // Description: prefer summary, then build from recipe metadata, then clean content
-  $: og_description = event
-    ? (() => {
-        // Try summary tag first
-        const summary = event.tags?.find((tag) => tag[0] === 'summary')?.[1];
-        if (summary) return summary;
-
-        // Try to build structured description from recipe metadata in content
-        if (event.content) {
-          const title = event.tags?.find((tag) => tag[0] === 'title')?.[1] || '';
-          const parts: string[] = [];
-
-          const servingsMatch = event.content.match(/##\s*Servings\s*\n+([^\n#]+)/i);
-          if (servingsMatch) {
-            const servings = servingsMatch[1].trim();
-            if (servings) parts.push(servings);
-          }
-
-          const totalMatch = event.content.match(/Total:\s*([^\n,]+)/i);
-          const prepMatch = event.content.match(/Prep:\s*([^\n,]+)/i);
-          const cookMatch = event.content.match(/Cook:\s*([^\n,]+)/i);
-          if (totalMatch) {
-            parts.push(`Ready in ${totalMatch[1].trim()}`);
-          } else if (prepMatch && cookMatch) {
-            parts.push(`Prep: ${prepMatch[1].trim()}, Cook: ${cookMatch[1].trim()}`);
-          }
-
-          const ingredientsSection = event.content.match(/##\s*Ingredients\s*\n([\s\S]*?)(?=##|$)/i);
-          if (ingredientsSection) {
-            const ingredients = ingredientsSection[1]
-              .split('\n')
-              .filter((line: string) => line.trim().startsWith('-') || line.trim().startsWith('*'))
-              .map((line: string) => line.replace(/^[\s*-]+/, '').replace(/\s*\(.*?\)\s*/g, '').trim())
-              .filter((i: string) => i.length > 0 && i.length < 80);
-
-            if (ingredients.length > 0) {
-              const preview = ingredients.slice(0, 3).join(', ');
-              if (ingredients.length > 3) {
-                parts.push(`${ingredients.length} ingredients including ${preview}`);
-              } else {
-                parts.push(`Made with ${preview}`);
-              }
-            }
-          }
-
-          if (parts.length > 0) {
-            return title ? `${title}. ${parts.join('. ')}.` : parts.join('. ') + '.';
-          }
-
-          // Fall back to cleaned content extraction
-          let text = event.content
-            .replace(/^#+\s+/gm, '')
-            .replace(/\[([^\]]+)\]\([^\)]+\)/g, '$1')
-            .replace(/!\[([^\]]*)\]\([^\)]+\)/g, '')
-            .replace(/\*\*([^\*]+)\*\*/g, '$1')
-            .replace(/\*([^\*]+)\*/g, '$1')
-            .replace(/`([^`]+)`/g, '$1')
-            .replace(/\n+/g, ' ')
-            .trim();
-
-          if (text.length > 155) {
-            const truncated = text.slice(0, 155);
-            const lastSpace = truncated.lastIndexOf(' ');
-            const lastSentence = Math.max(truncated.lastIndexOf('.'), truncated.lastIndexOf('!'), truncated.lastIndexOf('?'));
-            if (lastSentence > 80) return text.slice(0, lastSentence + 1);
-            return (lastSpace > 80 ? truncated.slice(0, lastSpace) : truncated) + '...';
-          }
-          return text || 'A delicious recipe shared on zap.cooking';
-        }
-        return 'A delicious recipe shared on zap.cooking';
-      })()
-    : 'A recipe shared on zap.cooking - Food. Friends. Freedom.';
-  
-  $: og_image = event
-    ? (event.tags?.find((tag) => tag[0] === 'image')?.[1] || 'https://zap.cooking/social-share.png')
-    : 'https://zap.cooking/social-share.png';
-
-  // Cap description at ~155 chars for Facebook/social preview
-  $: og_desc = (() => {
-    const d = og_description;
-    if (!d || d.length <= 155) return d;
-    const t = d.slice(0, 155);
-    const ls = Math.max(t.lastIndexOf('.'), t.lastIndexOf('!'), t.lastIndexOf('?'));
-    if (ls > 80) return d.slice(0, ls + 1);
-    const sp = t.lastIndexOf(' ');
-    return (sp > 80 ? t.slice(0, sp) : t) + '...';
-  })();
-  $: publishedAt = event?.created_at ?? null;
+  // defaults until it loads. No server load — see <svelte:head>. The same
+  // derivation runs server-side for crawler UAs in src/hooks.server.ts, so both
+  // paths share getRecipeOgMeta() and can't drift.
+  $: ogMeta = getRecipeOgMeta(event);
 </script>
 
 <svelte:head>
-  <title>{fullPageTitle || 'Recipe - zap.cooking'}</title>
-  <meta name="description" content={og_desc} />
+  <title>{ogMeta.pageTitle}</title>
+  <meta name="description" content={ogMeta.description} />
 
   <!-- Open Graph / Facebook -->
   <meta property="og:type" content="article" />
   <meta property="og:url" content={`https://zap.cooking/recipe/${$page.params.slug}`} />
-  <meta property="og:title" content={og_title} />
-  <meta property="og:description" content={og_desc} />
-  <meta property="og:image" content={og_image} />
-  <meta property="og:image:secure_url" content={og_image} />
+  <meta property="og:title" content={ogMeta.ogTitle} />
+  <meta property="og:description" content={ogMeta.description} />
+  <meta property="og:image" content={ogMeta.image} />
+  <meta property="og:image:secure_url" content={ogMeta.image} />
   <meta property="og:site_name" content="zap.cooking" />
-  {#if publishedAt !== null}
-    <meta property="article:published_time" content={new Date(publishedAt * 1000).toISOString()} />
+  {#if ogMeta.publishedAt !== null}
+    <meta
+      property="article:published_time"
+      content={new Date(ogMeta.publishedAt * 1000).toISOString()}
+    />
   {/if}
   {#if event?.pubkey}
     <meta property="article:author" content={`https://zap.cooking/p/${event.pubkey}`} />
@@ -230,9 +139,9 @@
   <!-- Twitter -->
   <meta name="twitter:card" content="summary_large_image" />
   <meta name="twitter:url" content={`https://zap.cooking/recipe/${$page.params.slug}`} />
-  <meta name="twitter:title" content={og_title} />
-  <meta name="twitter:description" content={og_desc} />
-  <meta name="twitter:image" content={og_image} />
+  <meta name="twitter:title" content={ogMeta.ogTitle} />
+  <meta name="twitter:description" content={ogMeta.description} />
+  <meta name="twitter:image" content={ogMeta.image} />
 </svelte:head>
 
 {#if loading}
@@ -250,7 +159,7 @@
       Try Again
     </button>
   </div>
-{:else if event && (event.tags.some(t => t[0] === 'deleted') || !event.content || event.content.trim() === '')}
+{:else if event && (event.tags.some((t) => t[0] === 'deleted') || !event.content || event.content.trim() === '')}
   <div class="flex flex-col justify-center items-center page-loader gap-4">
     <h1 class="text-2xl font-bold" style="color: var(--color-text-primary);">Recipe Deleted</h1>
     <p class="text-caption">This recipe has been deleted by its author.</p>

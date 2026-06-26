@@ -31,9 +31,10 @@ export interface RecipePreview {
 	image?: string;
 }
 
-interface RelayFilter {
+export interface RelayFilter {
 	kinds?: number[];
 	authors?: string[];
+	ids?: string[];
 	'#d'?: string[];
 	[k: string]: unknown;
 }
@@ -136,7 +137,7 @@ function fetchEventFromRelay(
  * Uses a single AbortController so winning settles all pending fetches
  * immediately — no zombie sockets waiting on FETCH_TIMEOUT_MS.
  */
-async function raceRelays(filter: RelayFilter): Promise<any | null> {
+export async function raceRelays(filter: RelayFilter): Promise<any | null> {
 	if (typeof WebSocket === 'undefined') return null;
 	const controller = new AbortController();
 	return new Promise((resolve) => {

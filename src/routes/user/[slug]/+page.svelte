@@ -1185,6 +1185,7 @@
 
   async function loadMoreFollowing() {
     if (followingLoadingMore || followingPageOffset >= followingAllPubkeys.length) return;
+    const requestedPubkey = hexpubkey;
     followingLoadingMore = true;
     try {
       const nextSlice = followingAllPubkeys.slice(
@@ -1192,7 +1193,16 @@
         followingPageOffset + FOLLOWING_PAGE_SIZE
       );
       const nextPage = await fetchFollowingPage(nextSlice);
-      followingProfiles = [...followingProfiles, ...nextPage];
+      if (hexpubkey !== requestedPubkey) return;
+      const combined = [...followingProfiles, ...nextPage];
+      combined.sort((a, b) => {
+        const aIsNpub = a.name.startsWith('npub1');
+        const bIsNpub = b.name.startsWith('npub1');
+        if (aIsNpub && !bIsNpub) return 1;
+        if (!aIsNpub && bIsNpub) return -1;
+        return a.name.toLowerCase().localeCompare(b.name.toLowerCase());
+      });
+      followingProfiles = combined;
       followingPageOffset = Math.min(
         followingPageOffset + FOLLOWING_PAGE_SIZE,
         followingAllPubkeys.length

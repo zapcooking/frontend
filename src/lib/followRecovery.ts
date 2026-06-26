@@ -81,15 +81,18 @@ async function queryRelayForFollowEvents(
 	pubkey: string,
 	timeoutMs: number
 ): Promise<Event[]> {
+	let timeoutId: ReturnType<typeof setTimeout> | undefined;
 	try {
 		const events = await Promise.race([
 			pool.querySync([relay], { kinds: [FOLLOW_LIST_KIND], authors: [pubkey], limit: 10 }),
-			new Promise<Event[]>((_, reject) =>
-				setTimeout(() => reject(new Error(`timeout: ${relay}`)), timeoutMs)
-			)
+			new Promise<Event[]>((_, reject) => {
+				timeoutId = setTimeout(() => reject(new Error(`timeout: ${relay}`)), timeoutMs);
+			})
 		]);
+		clearTimeout(timeoutId);
 		return events;
 	} catch {
+		clearTimeout(timeoutId);
 		return [];
 	}
 }
@@ -156,7 +159,7 @@ export async function scanFollowListHistory(
 
 	const count = allCandidates.length;
 	onProgress?.(
-		`Found ${count} distinct version${count === 1 ? '' : 's'} across ${respondingRelays.length}/${relays.length} relays.`
+		`Found ${count} distinct version${count === 1 ? '' : 's'} — ${respondingRelays.length} of ${relays.length} relays had versions.`
 	);
 
 	return { current, candidates: allCandidates, recommended, queriedRelays: relays, respondingRelays };
