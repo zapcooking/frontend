@@ -48,6 +48,7 @@
   import FollowListRecoveryModal from '../../../components/FollowListRecoveryModal.svelte';
   import QuestionIcon from 'phosphor-svelte/lib/Question';
   import ArrowCounterClockwiseIcon from 'phosphor-svelte/lib/ArrowCounterClockwise';
+  import MuteListEditor from '../../../components/MuteListEditor.svelte';
 
   let hexpubkey: string | undefined = undefined;
   let events: NDKEvent[] = [];
@@ -82,7 +83,8 @@
     | 'media'
     | 'reads'
     | 'following'
-    | 'drafts' = 'posts';
+    | 'drafts'
+    | 'muted' = 'posts';
 
   // Reads tab state (longform articles)
   let readsEvents: NDKEvent[] = [];
@@ -2204,6 +2206,21 @@
             ></span>
           {/if}
         </button>
+        <button
+          on:click={() => (activeTab = 'muted')}
+          class="px-4 py-2 text-sm font-medium transition-colors relative flex items-center gap-1"
+          style="color: {activeTab === 'muted'
+            ? 'var(--color-text-primary)'
+            : 'var(--color-text-secondary)'}"
+        >
+          <SpeakerSimpleSlashIcon size={16} />
+          Muted
+          {#if activeTab === 'muted'}
+            <span
+              class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-orange-500 to-amber-500"
+            ></span>
+          {/if}
+        </button>
       {/if}
     </div>
   </div>
@@ -2475,6 +2492,8 @@
         </div>
       {/if}
     {/if}
+  {:else if activeTab === 'muted' && $userPublickey === hexpubkey && hexpubkey}
+    <MuteListEditor pubkey={hexpubkey} />
   {/if}
 </div>
 

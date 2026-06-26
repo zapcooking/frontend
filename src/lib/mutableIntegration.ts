@@ -1,4 +1,4 @@
-import type { NDKEvent } from '@nostr-dev-kit/ndk';
+import { NDKEvent } from '@nostr-dev-kit/ndk';
 import { get } from 'svelte/store';
 import { ndk } from '$lib/nostr';
 
@@ -143,26 +143,48 @@ export async function parseMuteListEvent(event: NDKEvent): Promise<MuteList> {
 			if (decrypted) {
 				const privateData = JSON.parse(decrypted);
 
-				// Merge private items (marked as private: true)
-				if (privateData.pubkeys) {
-					muteList.pubkeys.push(
-						...privateData.pubkeys.map((p: MutedPubkey) => ({ ...p, private: true }))
-					);
-				}
-				if (privateData.words) {
-					muteList.words.push(
-						...privateData.words.map((w: MutedWord) => ({ ...w, private: true }))
-					);
-				}
-				if (privateData.tags) {
-					muteList.tags.push(
-						...privateData.tags.map((t: MutedTag) => ({ ...t, private: true }))
-					);
-				}
-				if (privateData.threads) {
-					muteList.threads.push(
-						...privateData.threads.map((t: MutedThread) => ({ ...t, private: true }))
-					);
+				if (Array.isArray(privateData)) {
+					// NIP-51 standard: array of tag arrays [["p","hex"],["word","bad"],...]
+					for (const tag of privateData) {
+						if (!Array.isArray(tag) || tag.length < 2) continue;
+						const [tagType, value, reason] = tag;
+						switch (tagType) {
+							case 'p':
+								muteList.pubkeys.push({ type: 'pubkey', value, reason, private: true });
+								break;
+							case 'word':
+								muteList.words.push({ type: 'word', value, reason, private: true });
+								break;
+							case 't':
+								muteList.tags.push({ type: 'tag', value, reason, private: true });
+								break;
+							case 'e':
+								muteList.threads.push({ type: 'thread', value, reason, private: true });
+								break;
+						}
+					}
+				} else {
+					// Legacy Mutable object format: {pubkeys:[...], words:[...], ...}
+					if (privateData.pubkeys) {
+						muteList.pubkeys.push(
+							...privateData.pubkeys.map((p: MutedPubkey) => ({ ...p, private: true }))
+						);
+					}
+					if (privateData.words) {
+						muteList.words.push(
+							...privateData.words.map((w: MutedWord) => ({ ...w, private: true }))
+						);
+					}
+					if (privateData.tags) {
+						muteList.tags.push(
+							...privateData.tags.map((t: MutedTag) => ({ ...t, private: true }))
+						);
+					}
+					if (privateData.threads) {
+						muteList.threads.push(
+							...privateData.threads.map((t: MutedThread) => ({ ...t, private: true }))
+						);
+					}
 				}
 			}
 		} catch (error) {
@@ -206,4 +228,64 @@ export function hasMutedTag(muteList: MuteList, eventTags: string[][]): boolean 
  */
 export function isThreadMuted(muteList: MuteList, eventId: string): boolean {
 	return muteList.threads.some((item) => item.value === eventId);
+}
+
+/**
+ * Publish an updated mute list (kind:10000).
+ * Public items go into plaintext tags; private items are encrypted into .content
+ * using NIP-44 (preferred) or NIP-04 (fallback) — self-encrypted to the author's pubkey.
+ */
+export async function publishMuteList(muteList: MuteList, authorPubkey: string): Promise<void> {
+	const ndkInstance = get(ndk);
+	if (!ndkInstance) throw new Error('NDK not ready');
+
+	const publicItems = {
+		pubkeys: muteList.pubkeys.filter((i) => !i.private),
+		words: muteList.words.filter((i) => !i.private),
+		tags: muteList.tags.filter((i) => !i.private),
+		threads: muteList.threads.filter((i) => !i.private)
+	};
+	const privateItems = {
+		pubkeys: muteList.pubkeys.filter((i) => i.private),
+		words: muteList.words.filter((i) => i.private),
+		tags: muteList.tags.filter((i) => i.private),
+		threads: muteList.threads.filter((i) => i.private)
+	};
+
+	const tags: string[][] = [];
+	for (const item of publicItems.pubkeys) tags.push(['p', item.value]);
+	for (const item of publicItems.words) tags.push(['word', item.value]);
+	for (const item of publicItems.tags) tags.push(['t', item.value]);
+	for (const item of publicItems.threads) tags.push(['e', item.value]);
+
+	let content = '';
+	const hasPrivate =
+		privateItems.pubkeys.length > 0 ||
+		privateItems.words.length > 0 ||
+		privateItems.tags.length > 0 ||
+		privateItems.threads.length > 0;
+
+	if (hasPrivate && typeof window !== 'undefined') {
+		// NIP-51: encrypt as array of tag arrays, not an object
+		const privateTags: string[][] = [];
+		for (const item of privateItems.pubkeys) privateTags.push(['p', item.value]);
+		for (const item of privateItems.words) privateTags.push(['word', item.value]);
+		for (const item of privateItems.tags) privateTags.push(['t', item.value]);
+		for (const item of privateItems.threads) privateTags.push(['e', item.value]);
+		const plaintext = JSON.stringify(privateTags);
+		const nostr = (window as any).nostr;
+		if (nostr?.nip44) {
+			content = await nostr.nip44.encrypt(authorPubkey, plaintext);
+		} else if (nostr?.nip04) {
+			content = await nostr.nip04.encrypt(authorPubkey, plaintext);
+		} else {
+			throw new Error('No encryption available — cannot save private mutes');
+		}
+	}
+
+	const event = new NDKEvent(ndkInstance);
+	event.kind = 10000;
+	event.tags = tags;
+	event.content = content;
+	await event.publish();
 }
