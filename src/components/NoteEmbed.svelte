@@ -433,7 +433,7 @@
 {:else if event}
   <div
     class="parent-quote-embed my-2 cursor-pointer hover:opacity-90 transition-opacity"
-    on:click|stopPropagation={(e) => { if ((e.target as HTMLElement).closest('a, button')) return; handleCardClick(); }}
+    on:click|stopPropagation={(e) => { if (e.target instanceof Element && e.target.closest('a, button')) return; handleCardClick(); }}
     role="link"
     tabindex="0"
     on:keydown|self={(e) => e.key === 'Enter' && handleCardClick()}

@@ -737,7 +737,7 @@
                 <article
                   class="py-8 border-b last:border-0 cursor-pointer hover:bg-[var(--color-bg-hover,rgba(255,255,255,0.03))]"
                   style="border-color: var(--color-input-border)"
-                  on:click={(e) => { if ((e.target as HTMLElement).closest('a, button')) return; goto(noteUrl(reply)); }}
+                  on:click={(e) => { if (e.target instanceof Element && e.target.closest('a, button')) return; goto(noteUrl(reply)); }}
                   role="link"
                   tabindex="0"
                   on:keydown|self={(e) => e.key === 'Enter' && goto(noteUrl(reply))}
@@ -794,7 +794,7 @@
                     <div class="ml-8 pl-3">
                       <article
                         class="py-2 cursor-pointer hover:bg-[var(--color-bg-hover,rgba(255,255,255,0.03))] rounded"
-                        on:click={(e) => { if ((e.target as HTMLElement).closest('a, button')) return; goto(noteUrl(nestedReply)); }}
+                        on:click={(e) => { if (e.target instanceof Element && e.target.closest('a, button')) return; goto(noteUrl(nestedReply)); }}
                         role="link"
                         tabindex="0"
                         on:keydown|self={(e) => e.key === 'Enter' && goto(noteUrl(nestedReply))}
