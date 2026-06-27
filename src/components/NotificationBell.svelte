@@ -19,6 +19,7 @@
   import {
     notifications,
     visibleNotifications,
+    notificationsLoading,
     type Notification
   } from '$lib/notificationStore';
   import {
@@ -334,6 +335,8 @@
         {#if rows.length === 0}
           {#if activeTab === 'dms' && $messagesLoading}
             <p class="notif-empty">Loading messages…</p>
+          {:else if activeTab !== 'dms' && $notificationsLoading}
+            <p class="notif-empty">Loading notifications…</p>
           {:else}
             <p class="notif-empty">Nothing here yet</p>
           {/if}

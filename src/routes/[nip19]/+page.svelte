@@ -157,6 +157,11 @@
     loadingParents = false;
   }
 
+  function gotoNoteUnlessInteractive(e: MouseEvent, evt: NDKEvent) {
+    if (e.target instanceof Element && e.target.closest('a, button')) return;
+    goto(noteUrl(evt));
+  }
+
   // Encode a note/reply event as nevent1 with relay hints for better discoverability.
   function noteUrl(evt: NDKEvent): string {
     const relayUrl = evt.relay?.url ?? (evt as any).onRelays?.[0]?.url;
@@ -169,11 +174,6 @@
     } catch {
       return '/' + nip19.noteEncode(evt.id);
     }
-  }
-
-  function gotoNoteUnlessInteractive(e: MouseEvent, evt: NDKEvent) {
-    if (e.target instanceof Element && e.target.closest('a, button')) return;
-    goto(noteUrl(evt));
   }
 
   // Fetch replies to this note

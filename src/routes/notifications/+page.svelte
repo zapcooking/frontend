@@ -2,6 +2,7 @@
   import {
     notifications,
     visibleNotifications,
+    notificationsLoading,
     subscribeToNotifications,
     fetchOlderNotifications,
     type Notification
@@ -736,7 +737,12 @@
         </div>
       </div>
 
-      {#if $visibleNotifications.length === 0}
+      {#if $visibleNotifications.length === 0 && $notificationsLoading}
+      <div class="flex flex-col items-center text-center py-12 text-caption">
+        <BellIcon size={48} weight="regular" aria-hidden="true" />
+        <p class="mt-4 text-lg">Loading notifications…</p>
+      </div>
+    {:else if $visibleNotifications.length === 0}
       <div class="flex flex-col items-center text-center py-12 text-caption">
         <BellIcon size={48} weight="regular" aria-hidden="true" />
         <p class="mt-4 text-lg">No notifications yet</p>
