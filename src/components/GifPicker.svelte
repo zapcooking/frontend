@@ -88,7 +88,7 @@
       const res = await fetch(gifUrl);
       const blob = await res.blob();
       const file = new File([blob], `${gif.id}.gif`, { type: blob.type || 'image/gif' });
-      const hostedUrl = await uploadImage(get(ndk), file);
+      const hostedUrl = await uploadGif(get(ndk), file);
       dispatch('select', { url: hostedUrl, title: gif.title });
       close();
     } catch (e) {
