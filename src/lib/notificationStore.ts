@@ -295,7 +295,11 @@ export function subscribeToNotifications(ndk: NDK, userPubkey: string, forceFull
     handleEvent(event, eoseReceived);
   });
 
+  const thisSubscription = activeSubscription;
+
   activeSubscription.on('eose', () => {
+    if (activeSubscription !== thisSubscription) return;
+    clearTimeout(eoseTimer);
     eoseReceived = true;
     flushPreEoseBuffer();
     notificationsLoading.set(false);
@@ -304,7 +308,9 @@ export function subscribeToNotifications(ndk: NDK, userPubkey: string, forceFull
   // Safety valve: some relays never send EOSE (or send it very late).
   // After 10 s, flush whatever accumulated so history is always persisted
   // to localStorage and shown in the UI — even if EOSE never arrives.
-  setTimeout(() => {
+  // Guard against stale timers firing for a replaced subscription.
+  const eoseTimer = setTimeout(() => {
+    if (activeSubscription !== thisSubscription) return;
     if (!eoseReceived) {
       eoseReceived = true;
       flushPreEoseBuffer();

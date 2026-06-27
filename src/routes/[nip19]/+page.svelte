@@ -176,11 +176,6 @@
     }
   }
 
-  function gotoNoteUnlessInteractive(e: MouseEvent, evt: NDKEvent) {
-    if (e.target instanceof Element && e.target.closest('a, button')) return;
-    goto(noteUrl(evt));
-  }
-
   // Fetch replies to this note
   function fetchReplies(eventId: string) {
     loadingReplies = true;
