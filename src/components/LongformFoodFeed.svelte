@@ -24,6 +24,17 @@
     loading = false;
   }
 
+  // Guard against multiple load attempts (handles race between mount and connection)
+  let _loadAttempted = false;
+
+  // Trigger load as soon as NDK is connected — covers both "already connected on mount"
+  // and "connected after mount" cases. Without this, if the component mounts before
+  // the first relay connects, loadLongformArticles() exits early and never retries.
+  $: if ($ndkConnected && !_loadAttempted) {
+    _loadAttempted = true;
+    loadLongformArticles();
+  }
+
   // Display the best source — shared store or local fetch
   $: displayArticles = sharedFoodArticles.length > localArticles.length
     ? sharedFoodArticles
@@ -118,7 +129,9 @@
   }
 
   onMount(() => {
-    loadLongformArticles();
+    // Load is triggered by the $ndkConnected reactive above.
+    // If already connected, it fires synchronously during initialization.
+    // `loading` stays true (skeleton visible) until connection is ready.
   });
 
   onDestroy(() => {
