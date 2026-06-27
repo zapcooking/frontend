@@ -249,8 +249,23 @@ export async function hasNwcBackupInNostr(pubkey: string): Promise<boolean> {
       '#d': [NWC_BACKUP_D_TAG]
     };
 
-    const events = await ndkInstance.fetchEvents(filter, { closeOnEose: true });
-    return !!events && events.size > 0;
+    // Use a live subscription rather than fetchEvents so NDK automatically
+    // forwards it to relays that connect after this call. fetchEvents with
+    // closeOnEose:true only queries currently-connected relays, missing any
+    // that join late. Resolve true the moment any matching event arrives;
+    // false after 7 s if nothing shows up.
+    return await new Promise<boolean>((resolve) => {
+      const sub = ndkInstance.subscribe(filter, { closeOnEose: false });
+      const timer = setTimeout(() => { sub.stop(); resolve(false); }, 7000);
+
+      sub.on('event', (event: any) => {
+        // Ignore delete markers (empty replacements published to overwrite a backup).
+        if (!event.content) return;
+        clearTimeout(timer);
+        sub.stop();
+        resolve(true);
+      });
+    });
   } catch (error) {
     console.warn('[NWC Backup] Failed to check backup status:', error);
     return false;

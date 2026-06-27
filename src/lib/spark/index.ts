@@ -1843,7 +1843,16 @@ export async function restoreSparkBackup(
 
   const normalizedMnemonic = normalizeMnemonic(mnemonic);
   if (!validateMnemonic(normalizedMnemonic)) {
-    throw new Error('Decrypted backup contains invalid mnemonic');
+    // The most common cause is a backup that was created by a NIP-46 remote
+    // signer before the guard was added. Those signers encrypted with an
+    // ephemeral session key, so decrypting with the user's identity key
+    // produces garbage that passes decrypt() but fails BIP-39 validation.
+    throw new Error(
+      'Backup decrypted but the recovery phrase is unreadable. ' +
+      'This usually means the backup was created while signed in with a remote signer (Amber, Primal) ' +
+      'that used a temporary session key. Sign in with the same signer app you used when the ' +
+      'backup was created, then try again. If that is not possible, restore from a written recovery phrase instead.'
+    );
   }
 
   await saveMnemonic(pubkey, normalizedMnemonic);
@@ -1895,8 +1904,32 @@ export async function hasSparkBackupInNostr(pubkey: string): Promise<boolean> {
   if (!browser) return false;
 
   try {
-    const backups = await listSparkBackups(pubkey);
-    return backups.length > 0;
+    const { ndk, ndkReady } = await import('$lib/nostr');
+    const { get } = await import('svelte/store');
+
+    await ndkReady;
+    const ndkInstance = get(ndk);
+
+    // Live subscription so NDK forwards it to relays that connect after this
+    // call — resolves true on the first non-deleted Spark backup event found,
+    // false after 7 s. listSparkBackups uses fetchEvents which only hits
+    // relays already connected at call time and is too slow for UI detection.
+    return await new Promise<boolean>((resolve) => {
+      const sub = ndkInstance.subscribe(
+        { kinds: [BACKUP_EVENT_KIND], authors: [pubkey] },
+        { closeOnEose: false }
+      );
+      const timer = setTimeout(() => { sub.stop(); resolve(false); }, 7000);
+
+      sub.on('event', (event: any) => {
+        const dTag = event.tags?.find((t: string[]) => t[0] === 'd')?.[1];
+        if (!dTag || !parseBackupTag(dTag)) return;
+        if (isDeletedBackupEvent(event) || !event.content) return;
+        clearTimeout(timer);
+        sub.stop();
+        resolve(true);
+      });
+    });
   } catch (error) {
     logger.warn('[Spark] Failed to check backup status:', String(error));
     return false;
