@@ -3,6 +3,9 @@
   import Modal from './Modal.svelte';
   import MagnifyingGlassIcon from 'phosphor-svelte/lib/MagnifyingGlass';
   import SpinnerIcon from 'phosphor-svelte/lib/SpinnerGap';
+  import { uploadGif } from '$lib/mediaUpload';
+  import { ndk } from '$lib/nostr';
+  import { get } from 'svelte/store';
 
   export let open = false;
 
@@ -23,6 +26,7 @@
   let query = '';
   let gifs: GiphyGif[] = [];
   let loading = false;
+  let uploading = false;
   let debounceTimer: ReturnType<typeof setTimeout>;
   let searchInputEl: HTMLInputElement;
 
@@ -76,10 +80,28 @@
     }, 300);
   }
 
-  function selectGif(gif: GiphyGif) {
-    const url = gif.images.downsized?.url || gif.images.original?.url;
-    dispatch('select', { url, title: gif.title });
-    close();
+  async function selectGif(gif: GiphyGif) {
+    if (uploading) return;
+    const gifUrl = gif.images.downsized?.url || gif.images.original?.url;
+    if (!gifUrl) return;
+    uploading = true;
+    try {
+      const res = await fetch(gifUrl);
+      if (!res.ok) throw new Error(`Failed to fetch GIF: HTTP ${res.status}`);
+      const blob = await res.blob();
+      const contentType = res.headers.get('content-type') || blob.type || 'image/gif';
+      const ext = contentType.includes('webp') ? 'webp' : 'gif';
+      const file = new File([blob], `${gif.id}.${ext}`, { type: contentType });
+      const hostedUrl = await uploadGif(get(ndk), file);
+      dispatch('select', { url: hostedUrl, title: gif.title });
+      close();
+    } catch (e) {
+      console.error('[GifPicker] Upload failed, falling back to Giphy URL:', e);
+      dispatch('select', { url: gifUrl, title: gif.title });
+      close();
+    } finally {
+      uploading = false;
+    }
   }
 
   function close() {
@@ -109,15 +131,35 @@
     </div>
 
     <!-- Grid -->
-    <div class="gif-grid-container">
+    <div class="gif-grid-container" class:gif-grid-uploading={uploading}>
+      {#if uploading}
+        <div class="gif-upload-overlay">
+          <SpinnerIcon size={28} class="animate-spin" />
+          <span>Uploading…</span>
+        </div>
+      {/if}
       {#if loading && gifs.length === 0}
         <div class="gif-loading">
           <SpinnerIcon size={24} class="animate-spin" />
         </div>
       {:else if !API_KEY}
-        <div class="gif-empty">
-          <p>GIPHY API key not configured</p>
-        </div>
+        {#if import.meta.env.DEV}
+          <div class="gif-grid">
+            {#each [
+              { id: 'test-gif', title: 'Test GIF', url: 'https://c.tenor.com/ozqCVlQw6M4AAAAd/tenor.gif' },
+              { id: 'test-webp', title: 'Test WebP', url: 'https://i.giphy.com/xT5LMzIK1AdZJ4cYW4.webp' },
+            ] as t}
+              <button class="gif-tile" disabled={uploading} title={t.title}
+                on:click={() => selectGif({ id: t.id, title: t.title, images: { fixed_width_small: { url: t.url, width: '200', height: '200' }, downsized: { url: t.url }, original: { url: t.url } } })}>
+                <img src={t.url} alt={t.title} class="gif-thumb" />
+              </button>
+            {/each}
+          </div>
+        {:else}
+          <div class="gif-empty">
+            <p>GIF search is not available</p>
+          </div>
+        {/if}
       {:else if gifs.length === 0 && query}
         <div class="gif-empty">
           <p>No GIFs found for "{query}"</p>
@@ -128,6 +170,7 @@
             <button
               class="gif-tile"
               on:click={() => selectGif(gif)}
+              disabled={uploading}
               title={gif.title}
             >
               <img
@@ -197,9 +240,30 @@
   }
 
   .gif-grid-container {
+    position: relative;
     max-height: 50vh;
     overflow-y: auto;
     border-radius: 8px;
+  }
+
+  .gif-grid-uploading {
+    pointer-events: none;
+  }
+
+  .gif-upload-overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 10;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    background: rgba(0, 0, 0, 0.55);
+    border-radius: 8px;
+    color: #fff;
+    font-size: 14px;
+    font-weight: 500;
   }
 
   .gif-grid {
