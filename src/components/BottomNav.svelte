@@ -4,7 +4,7 @@
   import ForkKnifeIcon from 'phosphor-svelte/lib/ForkKnife';
   import FlameIcon from 'phosphor-svelte/lib/Flame';
   import BellIcon from 'phosphor-svelte/lib/Bell';
-  import ChartBarHorizontalIcon from 'phosphor-svelte/lib/ChartBarHorizontal';
+  import NewspaperIcon from 'phosphor-svelte/lib/Newspaper';
   import StorefrontIcon from 'phosphor-svelte/lib/Storefront';
   import { page } from '$app/stores';
   import { unreadCount } from '$lib/notificationStore';
@@ -67,9 +67,9 @@
     <StorefrontIcon class="self-center" size={22} />
     <span class="sr-only">Market</span>
   </a>
-  <a href="/polls" class="nav-tab" class:active={pathname.startsWith('/polls')}>
-    <ChartBarHorizontalIcon class="self-center" size={22} />
-    <span class="sr-only">Polls</span>
+  <a href="/reads" class="nav-tab" class:active={pathname.startsWith('/reads') || pathname.startsWith('/r/')}>
+    <NewspaperIcon class="self-center" size={22} />
+    <span class="sr-only">Reads</span>
   </a>
   <a
     href="/notifications"

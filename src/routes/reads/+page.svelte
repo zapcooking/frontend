@@ -271,7 +271,19 @@
     }, 2000);
   }
 
-  // Fetch general (all-topic) articles to fill non-food categories
+  // Non-food category hashtags (Bitcoin, Nostr, Travel, Philosophy, Health).
+  // High-signal tags per category, kept under the ~25-tag relay cap. Using
+  // targeted tags instead of an open firehose keeps off-topic longform (crime,
+  // war news, sports, cross-posted blockchain spam) out of the feed and cache.
+  const NON_FOOD_HASHTAGS = [
+    'bitcoin', 'btc', 'lightning', 'sats',
+    'nostr', 'grownostr', 'zap',
+    'travel', 'adventure', 'wanderlust', 'roadtrip', 'backpacking',
+    'philosophy', 'stoicism', 'mindfulness', 'meditation', 'ethics',
+    'health', 'wellness', 'nutrition', 'fitness', 'exercise'
+  ];
+
+  // Fetch non-food category articles to fill the Bitcoin/Nostr/Travel/etc tabs
   async function fetchGeneralArticles(startGeneration: number) {
     if (!$ndk || !browser) return;
 
@@ -279,7 +291,7 @@
       const newArticles: ArticleData[] = [];
 
       const { events } = await fetchArticles($ndk, {
-        hashtags: [], // No hashtag filter — all topics
+        hashtags: NON_FOOD_HASHTAGS,
         limit: 500,
         skipPrimal: true,
         onEvent: (event: NDKEvent) => {
