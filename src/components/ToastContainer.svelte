@@ -5,7 +5,7 @@
    * $lib/toast and renders each message via the Toast component.
    *
    * Positioning: top-center, capped at the same width as the composer modal
-   * (max-w-xl / 36rem). z-index 9999 sits above all modals and the fixed header.
+   * (max-w-xl / 36rem). z-index 10001 sits above all modals (10000) and the fixed header.
    */
   import { toasts } from '$lib/toast';
   import Toast from './Toast.svelte';
@@ -31,7 +31,7 @@
     transform: translateX(-50%);
     width: calc(100vw - 2rem);
     max-width: 36rem;
-    z-index: 9999;
+    z-index: 10001;
     display: flex;
     flex-direction: column;
     gap: 0.5rem;
