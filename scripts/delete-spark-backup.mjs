@@ -53,10 +53,10 @@ console.log(`\nPubkey: ${nip19.npubEncode(pubkey)}`);
 const pool = new SimplePool();
 
 console.log('\nSearching for Spark backup events on relays...');
-const events = await pool.querySync(RELAYS, {
-  kinds:   [BACKUP_EVENT_KIND],
-  authors: [pubkey],
-});
+const events = await Promise.race([
+  pool.querySync(RELAYS, { kinds: [BACKUP_EVENT_KIND], authors: [pubkey] }),
+  new Promise(resolve => setTimeout(() => resolve([]), 10_000))
+]);
 
 const backups = events.filter(e =>
   e.tags.some(t => t[0] === 'd' && (t[1] === SPARK_D_TAG || t[1]?.startsWith(SPARK_D_TAG + ':')))
@@ -80,7 +80,11 @@ for (const e of backups) {
 console.log('\nOverwriting each backup with an empty replacement event...');
 
 for (const e of backups) {
-  const dTag = e.tags.find(t => t[0] === 'd')?.[1];
+  const dTag = e.tags.find(t => t[0] === 'd' && (t[1] === SPARK_D_TAG || t[1]?.startsWith(SPARK_D_TAG + ':')))?.[1];
+  if (!dTag) {
+    console.warn('  Skipping event with no matching Spark d-tag');
+    continue;
+  }
 
   const template = {
     kind:       BACKUP_EVENT_KIND,

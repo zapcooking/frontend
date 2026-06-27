@@ -258,7 +258,9 @@ export async function hasNwcBackupInNostr(pubkey: string): Promise<boolean> {
       const sub = ndkInstance.subscribe(filter, { closeOnEose: false });
       const timer = setTimeout(() => { sub.stop(); resolve(false); }, 7000);
 
-      sub.on('event', () => {
+      sub.on('event', (event: any) => {
+        // Ignore delete markers (empty replacements published to overwrite a backup).
+        if (!event.content) return;
         clearTimeout(timer);
         sub.stop();
         resolve(true);
