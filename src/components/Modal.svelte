@@ -146,7 +146,7 @@
       on:click|self={close}
       role="presentation"
       transition:blur={{ duration: 250 }}
-      class="fixed top-0 left-0 z-50 w-full h-full backdrop-brightness-50 backdrop-blur"
+      class="fixed top-0 left-0 z-[10000] w-full h-full backdrop-brightness-50 backdrop-blur"
     >
       <dialog
         bind:this={dialogEl}
