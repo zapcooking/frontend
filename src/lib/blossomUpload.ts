@@ -77,22 +77,20 @@ export async function fetchBlossomServers(ndk: NDK, pubkey: string): Promise<str
 export async function uploadWithBlossom(ndk: NDK, file: File, servers: string[]): Promise<string> {
   const buffer = await file.arrayBuffer();
   const hash = await sha256Hex(buffer);
+  const authorization = await buildAuthHeader(ndk, hash);
 
   let lastError: unknown;
   for (const server of servers) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), UPLOAD_TIMEOUT_MS);
     try {
-      const authorization = await buildAuthHeader(ndk, hash);
-
-      const response = await Promise.race([
-        fetch(`${server}/upload`, {
-          method: 'PUT',
-          body: file,
-          headers: { Authorization: authorization, 'Content-Type': file.type }
-        }),
-        new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error('Upload timed out')), UPLOAD_TIMEOUT_MS)
-        )
-      ]);
+      const response = await fetch(`${server}/upload`, {
+        method: 'PUT',
+        body: file,
+        headers: { Authorization: authorization, 'Content-Type': file.type },
+        signal: controller.signal
+      });
+      clearTimeout(timer);
 
       if (!response.ok) {
         const text = await response.text().catch(() => '');
@@ -103,6 +101,7 @@ export async function uploadWithBlossom(ndk: NDK, file: File, servers: string[])
       if (data?.url) return data.url;
       throw new Error('No URL in Blossom response');
     } catch (e) {
+      clearTimeout(timer);
       console.warn(`[Blossom] Upload to ${server} failed:`, e);
       lastError = e;
     }
