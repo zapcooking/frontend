@@ -83,15 +83,11 @@
   async function selectGif(gif: GiphyGif) {
     if (uploading) return;
     const gifUrl = gif.images.downsized?.url || gif.images.original?.url;
-    if (!gifUrl) return;
     uploading = true;
     try {
       const res = await fetch(gifUrl);
-      if (!res.ok) throw new Error(`Failed to fetch GIF: HTTP ${res.status}`);
       const blob = await res.blob();
-      const contentType = res.headers.get('content-type') || blob.type || 'image/gif';
-      const ext = contentType.includes('webp') ? 'webp' : 'gif';
-      const file = new File([blob], `${gif.id}.${ext}`, { type: contentType });
+      const file = new File([blob], `${gif.id}.gif`, { type: blob.type || 'image/gif' });
       const hostedUrl = await uploadGif(get(ndk), file);
       dispatch('select', { url: hostedUrl, title: gif.title });
       close();
@@ -143,23 +139,17 @@
           <SpinnerIcon size={24} class="animate-spin" />
         </div>
       {:else if !API_KEY}
-        {#if import.meta.env.DEV}
-          <div class="gif-grid">
-            {#each [
-              { id: 'test-gif', title: 'Test GIF', url: 'https://c.tenor.com/ozqCVlQw6M4AAAAd/tenor.gif' },
-              { id: 'test-webp', title: 'Test WebP', url: 'https://i.giphy.com/xT5LMzIK1AdZJ4cYW4.webp' },
-            ] as t}
-              <button class="gif-tile" disabled={uploading} title={t.title}
-                on:click={() => selectGif({ id: t.id, title: t.title, images: { fixed_width_small: { url: t.url, width: '200', height: '200' }, downsized: { url: t.url }, original: { url: t.url } } })}>
-                <img src={t.url} alt={t.title} class="gif-thumb" />
-              </button>
-            {/each}
-          </div>
-        {:else}
-          <div class="gif-empty">
-            <p>GIF search is not available</p>
-          </div>
-        {/if}
+        <div class="gif-grid">
+          {#each [
+            { id: 'test-gif', title: 'Test GIF', url: 'https://c.tenor.com/ozqCVlQw6M4AAAAd/tenor.gif' },
+            { id: 'test-webp', title: 'Test WebP', url: 'https://i.giphy.com/xT5LMzIK1AdZJ4cYW4.webp' },
+          ] as t}
+            <button class="gif-tile" disabled={uploading} title={t.title}
+              on:click={() => selectGif({ id: t.id, title: t.title, images: { fixed_width_small: { url: t.url, width: '200', height: '200' }, downsized: { url: t.url }, original: { url: t.url } } })}>
+              <img src={t.url} alt={t.title} class="gif-thumb" />
+            </button>
+          {/each}
+        </div>
       {:else if gifs.length === 0 && query}
         <div class="gif-empty">
           <p>No GIFs found for "{query}"</p>

@@ -150,11 +150,25 @@ export async function uploadToNostrBuild(ndk: NDK, body: FormData, opts: { url?:
 
 /**
  * Upload an image file, returning the URL on success.
+ * Tries the user's Blossom servers (kind:10063) first; falls back to nostr.build.
  * Throws on validation failure or upload error.
  */
 export async function uploadImage(ndk: NDK, file: File): Promise<string> {
   if (file.size > MAX_IMAGE_SIZE) {
     throw new Error('Image must be less than 5MB');
+  }
+
+  if (ndk.signer) {
+    try {
+      const { fetchBlossomServers, uploadWithBlossom } = await import('./blossomUpload');
+      const user = await ndk.signer.user();
+      const servers = await fetchBlossomServers(ndk, user.pubkey);
+      if (servers.length > 0) {
+        return await uploadWithBlossom(ndk, file, servers);
+      }
+    } catch (e) {
+      console.warn('[Upload] Blossom failed, falling back to nostr.build:', e);
+    }
   }
 
   const body = new FormData();
@@ -189,7 +203,8 @@ export async function uploadGif(ndk: NDK, file: File): Promise<string> {
 
 /**
  * Upload a video file, returning the URL on success.
- * Validates size and duration. Throws on failure.
+ * Validates size and duration. Tries Blossom first, falls back to nostr.build.
+ * Throws on failure.
  */
 export async function uploadVideo(ndk: NDK, file: File): Promise<string> {
   if (file.size > MAX_VIDEO_SIZE) {
@@ -221,6 +236,19 @@ export async function uploadVideo(ndk: NDK, file: File): Promise<string> {
       throw metaError;
     }
     console.warn('Could not read video metadata:', metaError);
+  }
+
+  if (ndk.signer) {
+    try {
+      const { fetchBlossomServers, uploadWithBlossom } = await import('./blossomUpload');
+      const user = await ndk.signer.user();
+      const servers = await fetchBlossomServers(ndk, user.pubkey);
+      if (servers.length > 0) {
+        return await uploadWithBlossom(ndk, file, servers);
+      }
+    } catch (e) {
+      console.warn('[Upload] Blossom failed, falling back to nostr.build:', e);
+    }
   }
 
   const body = new FormData();
