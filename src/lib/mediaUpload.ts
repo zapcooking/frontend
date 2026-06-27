@@ -3,6 +3,7 @@ import type NDK from '@nostr-dev-kit/ndk';
 
 const NOSTR_BUILD_URL = 'https://nostr.build/api/v2/upload/files';
 const MAX_IMAGE_SIZE = 5 * 1024 * 1024; // 5MB
+const MAX_GIF_SIZE = 15 * 1024 * 1024; // 15MB — animated files are often larger than static images
 const MAX_VIDEO_SIZE = 50 * 1024 * 1024; // 50MB
 const MAX_VIDEO_DURATION = 60; // seconds
 
@@ -178,6 +179,26 @@ export async function uploadImage(ndk: NDK, file: File): Promise<string> {
     return result.data[0].url;
   }
   throw new Error(result?.message || result?.error || 'Failed to upload image');
+}
+
+/**
+ * Upload a GIF or animated WebP, returning the URL on success.
+ * Uses a higher 15MB limit since animated files are often larger than static images.
+ * Throws on validation failure or upload error.
+ */
+export async function uploadGif(ndk: NDK, file: File): Promise<string> {
+  if (file.size > MAX_GIF_SIZE) {
+    throw new Error('GIF must be less than 15MB');
+  }
+
+  const body = new FormData();
+  body.append('file[]', file);
+  const result = await uploadToNostrBuild(ndk, body);
+
+  if (result?.data?.[0]?.url) {
+    return result.data[0].url;
+  }
+  throw new Error(result?.message || result?.error || 'Failed to upload GIF');
 }
 
 /**

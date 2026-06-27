@@ -313,10 +313,17 @@
     errorMessage = '';
   }
 
-  async function checkSparkBackupStatus(pubkey: string) {
+  // ndkReady fires on the FIRST relay WebSocket open. The rest of the pool
+  // connects incrementally, so an immediate scan may only hit 1-2 relays.
+  // We retry up to 3 times at increasing delays so slower relays have time
+  // to join before we give up. Retries stop as soon as a backup is found or
+  // the user connects a wallet.
+  const BACKUP_RELAY_RETRY_DELAYS = [3000, 8000, 14000];
+
+  async function checkSparkBackupStatus(pubkey: string, retryIndex = 0) {
     if (sparkBackupChecking) return;
     sparkBackupChecking = true;
-    sparkBackupExists = null;
+    if (retryIndex === 0) sparkBackupExists = null;
     try {
       sparkBackupExists = await Promise.race([
         hasSparkBackupInNostr(pubkey),
@@ -329,13 +336,21 @@
     } finally {
       sparkBackupChecking = false;
       lastSparkBackupCheckPubkey = pubkey;
+      const nextDelay = BACKUP_RELAY_RETRY_DELAYS[retryIndex];
+      if (!sparkBackupExists && nextDelay !== undefined && !$walletConnected) {
+        setTimeout(() => {
+          if (!$walletConnected && lastSparkBackupCheckPubkey === pubkey) {
+            checkSparkBackupStatus(pubkey, retryIndex + 1);
+          }
+        }, nextDelay);
+      }
     }
   }
 
-  async function checkNwcBackupStatus(pubkey: string) {
+  async function checkNwcBackupStatus(pubkey: string, retryIndex = 0) {
     if (nwcBackupChecking) return;
     nwcBackupChecking = true;
-    nwcBackupExists = null;
+    if (retryIndex === 0) nwcBackupExists = null;
     try {
       nwcBackupExists = await Promise.race([
         hasNwcBackupInNostr(pubkey),
@@ -348,6 +363,14 @@
     } finally {
       nwcBackupChecking = false;
       lastNwcBackupCheckPubkey = pubkey;
+      const nextDelay = BACKUP_RELAY_RETRY_DELAYS[retryIndex];
+      if (!nwcBackupExists && nextDelay !== undefined && !$walletConnected) {
+        setTimeout(() => {
+          if (!$walletConnected && lastNwcBackupCheckPubkey === pubkey) {
+            checkNwcBackupStatus(pubkey, retryIndex + 1);
+          }
+        }, nextDelay);
+      }
     }
   }
 

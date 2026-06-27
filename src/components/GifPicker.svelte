@@ -3,7 +3,7 @@
   import Modal from './Modal.svelte';
   import MagnifyingGlassIcon from 'phosphor-svelte/lib/MagnifyingGlass';
   import SpinnerIcon from 'phosphor-svelte/lib/SpinnerGap';
-  import { uploadImage } from '$lib/mediaUpload';
+  import { uploadGif } from '$lib/mediaUpload';
   import { ndk } from '$lib/nostr';
   import { get } from 'svelte/store';
 
