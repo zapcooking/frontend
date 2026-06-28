@@ -236,10 +236,10 @@
 
       const startGen = getCurrentRelayGeneration();
 
-      // General (all-topic) fetch so non-food categories aren't empty
+      // Non-food category fetch so Bitcoin/Nostr/Travel/etc. tabs aren't empty
       setTimeout(() => {
         if (getCurrentRelayGeneration() === startGen) {
-          fetchGeneralArticles(startGen);
+          fetchNonFoodArticles(startGen);
         }
       }, 1000);
 
@@ -262,11 +262,11 @@
     // Primary: food-tagged articles for cover + Food/Farming categories
     fetchWithOutbox(forceRefresh, startGeneration);
 
-    // Secondary: general articles (no hashtag filter) for All/Bitcoin/Nostr/etc.
+    // Secondary: non-food articles (targeted category hashtags) for Bitcoin/Nostr/etc.
     // Runs in parallel, slightly delayed so food articles paint first
     setTimeout(() => {
       if (getCurrentRelayGeneration() === startGeneration) {
-        fetchGeneralArticles(startGeneration);
+        fetchNonFoodArticles(startGeneration);
       }
     }, 2000);
   }
@@ -284,7 +284,7 @@
   ];
 
   // Fetch non-food category articles to fill the Bitcoin/Nostr/Travel/etc tabs
-  async function fetchGeneralArticles(startGeneration: number) {
+  async function fetchNonFoodArticles(startGeneration: number) {
     if (!$ndk || !browser) return;
 
     try {
@@ -319,12 +319,12 @@
         articles = [...articles, ...newArticles].sort((a, b) => b.publishedAt - a.publishedAt);
       }
 
-      // Cache the general articles too
+      // Cache the non-food articles too
       if (events.length > 0 && browser) {
         cacheFeedEvents(events).catch(() => {});
       }
     } catch (err) {
-      console.warn('[Reads] General article fetch error:', err);
+      console.warn('[Reads] Non-food article fetch error:', err);
     }
   }
 

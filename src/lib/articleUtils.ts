@@ -730,12 +730,21 @@ const READS_BLOCKLIST_TAGS = new Set<string>([
  * articles matching none of the topics are treated as off-topic and excluded.
  */
 export function isRelevantToReads(article: ArticleData): boolean {
-  // Exclusion takes priority: drop altcoin/other-chain promo even if it also
-  // carries a curated tag like `nostr` or `bitcoin`.
-  if (article.tags.some((tag) => READS_BLOCKLIST_TAGS.has(tag.toLowerCase()))) {
-    return false;
+  // Single pass over tags: enforce the blocklist (which takes priority) and
+  // record whether any curated tag was present, lowercasing each tag once.
+  let hasRelevantTag = false;
+  for (const tag of article.tags) {
+    const normalized = tag.toLowerCase();
+    // Exclusion takes priority: drop altcoin/other-chain promo even if it also
+    // carries a curated tag like `nostr` or `bitcoin`.
+    if (READS_BLOCKLIST_TAGS.has(normalized)) {
+      return false;
+    }
+    if (RELEVANT_READS_TAGS.has(normalized)) {
+      hasRelevantTag = true;
+    }
   }
-  if (article.tags.some((tag) => RELEVANT_READS_TAGS.has(tag.toLowerCase()))) {
+  if (hasRelevantTag) {
     return true;
   }
   return hasFoodKeywordsInTitle(article.title);

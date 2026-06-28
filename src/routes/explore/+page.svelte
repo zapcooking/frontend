@@ -404,7 +404,7 @@
           href="/recipes"
           class="group flex items-center gap-2 w-fit transition-colors hover:text-primary"
         >
-          <h2 class="text-2xl font-bold flex items-center gap-2">
+          <h2 class="text-2xl font-bold flex items-center gap-2 transition-colors group-hover:text-primary">
             <span>🍳</span>
             <span>Fresh from the Kitchen</span>
           </h2>
@@ -510,7 +510,7 @@
             href="/reads"
             class="group flex items-center gap-2 w-fit transition-colors hover:text-primary"
           >
-            <h2 class="text-2xl font-bold flex items-center gap-2">
+            <h2 class="text-2xl font-bold flex items-center gap-2 transition-colors group-hover:text-primary">
               <span>📖</span>
               <span>Food Stories & Articles</span>
             </h2>
