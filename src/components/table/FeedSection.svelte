@@ -2,7 +2,7 @@
   import { createEventDispatcher, onMount, onDestroy } from 'svelte';
   import FilterBar from './FilterBar.svelte';
   import ArticleCard from '../ArticleCard.svelte';
-  import { filterByCategory, sortArticles, limitArticlesPerAuthor, deduplicatePreviewArticles, type ArticleData, type SortOption } from '$lib/articleUtils';
+  import { filterByCategory, sortArticles, limitArticlesPerAuthor, deduplicatePreviewArticles, isRelevantToReads, type ArticleData, type SortOption } from '$lib/articleUtils';
 
   export let articles: ArticleData[] = [];
   export let loading: boolean = false;
@@ -25,8 +25,11 @@
     selectedSort = 'newest';
   }
 
-  // Filter out cover articles and articles without real images (no placeholders in reads)
-  $: feedArticles = articles.filter((a) => !coverArticleIds.includes(a.id) && a.imageUrl);
+  // Filter out cover articles, articles without real images (no placeholders in
+  // reads), and off-topic content that doesn't match any curated reads topic.
+  $: feedArticles = articles.filter(
+    (a) => !coverArticleIds.includes(a.id) && a.imageUrl && isRelevantToReads(a)
+  );
   $: dedupedArticles = deduplicatePreviewArticles(feedArticles);
   $: authorLimitedArticles = limitArticlesPerAuthor(dedupedArticles, 3); // Max 3 per author
   $: filteredArticles = filterByCategory(authorLimitedArticles, selectedCategory);

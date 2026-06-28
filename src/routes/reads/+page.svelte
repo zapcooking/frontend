@@ -236,10 +236,10 @@
 
       const startGen = getCurrentRelayGeneration();
 
-      // General (all-topic) fetch so non-food categories aren't empty
+      // Non-food category fetch so Bitcoin/Nostr/Travel/etc. tabs aren't empty
       setTimeout(() => {
         if (getCurrentRelayGeneration() === startGen) {
-          fetchGeneralArticles(startGen);
+          fetchNonFoodArticles(startGen);
         }
       }, 1000);
 
@@ -262,24 +262,36 @@
     // Primary: food-tagged articles for cover + Food/Farming categories
     fetchWithOutbox(forceRefresh, startGeneration);
 
-    // Secondary: general articles (no hashtag filter) for All/Bitcoin/Nostr/etc.
+    // Secondary: non-food articles (targeted category hashtags) for Bitcoin/Nostr/etc.
     // Runs in parallel, slightly delayed so food articles paint first
     setTimeout(() => {
       if (getCurrentRelayGeneration() === startGeneration) {
-        fetchGeneralArticles(startGeneration);
+        fetchNonFoodArticles(startGeneration);
       }
     }, 2000);
   }
 
-  // Fetch general (all-topic) articles to fill non-food categories
-  async function fetchGeneralArticles(startGeneration: number) {
+  // Non-food category hashtags (Bitcoin, Nostr, Travel, Philosophy, Health).
+  // High-signal tags per category, kept under the ~25-tag relay cap. Using
+  // targeted tags instead of an open firehose keeps off-topic longform (crime,
+  // war news, sports, cross-posted blockchain spam) out of the feed and cache.
+  const NON_FOOD_HASHTAGS = [
+    'bitcoin', 'btc', 'lightning', 'sats',
+    'nostr', 'grownostr', 'zap',
+    'travel', 'adventure', 'wanderlust', 'roadtrip', 'backpacking',
+    'philosophy', 'stoicism', 'mindfulness', 'meditation', 'ethics',
+    'health', 'wellness', 'nutrition', 'fitness', 'exercise'
+  ];
+
+  // Fetch non-food category articles to fill the Bitcoin/Nostr/Travel/etc tabs
+  async function fetchNonFoodArticles(startGeneration: number) {
     if (!$ndk || !browser) return;
 
     try {
       const newArticles: ArticleData[] = [];
 
       const { events } = await fetchArticles($ndk, {
-        hashtags: [], // No hashtag filter — all topics
+        hashtags: NON_FOOD_HASHTAGS,
         limit: 500,
         skipPrimal: true,
         onEvent: (event: NDKEvent) => {
@@ -307,12 +319,12 @@
         articles = [...articles, ...newArticles].sort((a, b) => b.publishedAt - a.publishedAt);
       }
 
-      // Cache the general articles too
+      // Cache the non-food articles too
       if (events.length > 0 && browser) {
         cacheFeedEvents(events).catch(() => {});
       }
     } catch (err) {
-      console.warn('[Reads] General article fetch error:', err);
+      console.warn('[Reads] Non-food article fetch error:', err);
     }
   }
 

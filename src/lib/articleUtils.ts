@@ -701,6 +701,55 @@ export function filterByCategory(articles: ArticleData[], category: string): Art
   );
 }
 
+// Union of every curated category tag (Food, Farming, Bitcoin, Nostr, Travel,
+// Philosophy, Health). Used as a relevance gate so the reads feed only shows
+// content belonging to one of its topics — keeping out crime, war news, sports,
+// cross-posted blockchain spam, and other off-topic longform.
+const RELEVANT_READS_TAGS = new Set<string>(
+  Object.entries(ARTICLE_TAG_CATEGORIES)
+    .filter(([category]) => category !== 'All')
+    .flatMap(([, tags]) => tags)
+    .map((tag) => tag.toLowerCase())
+);
+
+// Off-topic markers that exclude an article even when it also carries a curated
+// tag. Altcoin/other-chain promo (BCH, Bitcoin Cash, Hive, etc.) routinely
+// piggybacks a `nostr` or `bitcoin` tag to reach Nostr feeds; this blocklist
+// keeps that content out of the reads page regardless of its other tags.
+const READS_BLOCKLIST_TAGS = new Set<string>([
+  'bch', 'bitcoincash', 'bcash',
+  'hive', 'hiveblockchain', 'leofinance',
+  'steem', 'steemit'
+]);
+
+/**
+ * Check whether an article belongs to one of the reads page's curated topics.
+ * An article is relevant if it carries a tag for any category, or its title
+ * contains food keywords (mirroring the Food category's title matching).
+ * Articles carrying a blocklisted off-topic tag are always excluded, and
+ * articles matching none of the topics are treated as off-topic and excluded.
+ */
+export function isRelevantToReads(article: ArticleData): boolean {
+  // Single pass over tags: enforce the blocklist (which takes priority) and
+  // record whether any curated tag was present, lowercasing each tag once.
+  let hasRelevantTag = false;
+  for (const tag of article.tags) {
+    const normalized = tag.toLowerCase();
+    // Exclusion takes priority: drop altcoin/other-chain promo even if it also
+    // carries a curated tag like `nostr` or `bitcoin`.
+    if (READS_BLOCKLIST_TAGS.has(normalized)) {
+      return false;
+    }
+    if (RELEVANT_READS_TAGS.has(normalized)) {
+      hasRelevantTag = true;
+    }
+  }
+  if (hasRelevantTag) {
+    return true;
+  }
+  return hasFoodKeywordsInTitle(article.title);
+}
+
 // ═══════════════════════════════════════════════════════════════
 // ARTICLE DATA CONVERSION
 // ═══════════════════════════════════════════════════════════════

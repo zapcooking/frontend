@@ -12,6 +12,7 @@
   import FlameIcon from 'phosphor-svelte/lib/Flame';
   import EnvelopeSimpleIcon from 'phosphor-svelte/lib/EnvelopeSimple';
 
+  import NewspaperIcon from 'phosphor-svelte/lib/Newspaper';
   import CookbookIcon from 'phosphor-svelte/lib/BookOpen';
   import ShoppingCartIcon from 'phosphor-svelte/lib/ShoppingCart';
   import WalletIcon from 'phosphor-svelte/lib/Wallet';
@@ -55,6 +56,12 @@
       // URL redirects through to /recipes — avoids a flash of unhighlighted
       // tab during the 301 round-trip on cold links.
       match: (p) => p.startsWith('/recipes') || p.startsWith('/recent')
+    },
+    {
+      href: '/reads',
+      label: 'Reads',
+      icon: NewspaperIcon,
+      match: (p) => p.startsWith('/reads') || p.startsWith('/r/')
     },
     {
       href: '/polls',
