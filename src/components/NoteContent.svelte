@@ -446,21 +446,23 @@
   {/each}
 
   {#if shouldCollapse}
-    <button
-      on:click={toggleExpanded}
-      class="mt-2 text-sm font-medium transition-colors inline-flex items-center gap-1"
-      style="color: var(--color-primary);"
-    >
-      {isExpanded ? 'View less' : 'View more'}
-      <svg
-        class="w-4 h-4 transition-transform {isExpanded ? 'rotate-180' : ''}"
-        fill="none"
-        stroke="currentColor"
-        viewBox="0 0 24 24"
+    <div class="mt-3 flex justify-center">
+      <button
+        on:click={toggleExpanded}
+        class="text-sm font-medium transition-colors inline-flex items-center gap-1"
+        style="color: var(--color-primary);"
       >
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
-      </svg>
-    </button>
+        {isExpanded ? 'View less' : 'View more'}
+        <svg
+          class="w-4 h-4 transition-transform {isExpanded ? 'rotate-180' : ''}"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+        >
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+    </div>
   {/if}
 </div>
 

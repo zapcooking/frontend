@@ -547,12 +547,16 @@
         style="background-color: var(--color-bg-primary); padding-top: var(--header-h);"
       >
         <div
-          class="px-4 min-w-0 max-w-full {$page.url.pathname.startsWith('/messages') ||
+          class="px-4 min-w-0 max-w-full flex flex-col min-h-full {$page.url.pathname.startsWith('/messages') ||
           $page.url.pathname.startsWith('/groups')
             ? ''
             : 'pb-16 xl:pb-8'}"
         >
-          <slot />
+          <!-- Grow the page content so the footer is pushed to the bottom on
+               short pages instead of floating mid-viewport. -->
+          <div class="flex-1 min-w-0 max-w-full">
+            <slot />
+          </div>
           {#if !$page.url.pathname.startsWith('/messages') && !$page.url.pathname.startsWith('/groups')}
             <Footer />
           {/if}
