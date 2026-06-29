@@ -926,6 +926,17 @@
     }
   }
 
+  // Click anywhere on a feed card (except on a link, button, or while
+  // selecting text) to open the single-note view.
+  function gotoNoteFromCard(e: MouseEvent, ev: NDKEvent) {
+    if (e.target instanceof Element && e.target.closest('a, button, input, textarea, [role="button"]')) {
+      return;
+    }
+    if (typeof window !== 'undefined' && window.getSelection()?.toString()) return;
+    const href = noteHrefFromEventId(ev.id);
+    if (href) goto(href);
+  }
+
   // Extract the first quoted note ID from content (for quote reposts)
   function getQuotedNoteId(event: NDKEvent): string | null {
     try {
@@ -4908,8 +4919,18 @@
             reactions: { count: engagementStoreValue.reactions.count },
             comments: { count: engagementStoreValue.comments.count }
           }}
+          <!-- svelte-ignore a11y-no-noninteractive-element-to-interactive-role -->
           <article
-            class="w-full"
+            class="w-full cursor-pointer"
+            on:click={(e) => gotoNoteFromCard(e, event)}
+            role="link"
+            tabindex="0"
+            on:keydown|self={(e) => {
+              if (e.key === 'Enter') {
+                const href = noteHrefFromEventId(event.id);
+                if (href) goto(href);
+              }
+            }}
           >
             {#if getRepostedBy(event)}
               {@const reposterPubkey = getRepostedBy(event) || ''}
