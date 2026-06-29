@@ -5370,11 +5370,10 @@
     contain: layout style;
     content-visibility: auto;
     contain-intrinsic-size: auto 400px;
-    /* Each note is its own subtle card (slightly elevated surface) instead of
-       being separated by a hairline rule — easier to scan mixed-length notes. */
+    /* Each note is its own card on a sunken (slightly darker) surface, no
+       border — easier to scan mixed-length notes without hairline clutter. */
     padding: 1.125rem 1.25rem;
-    background-color: var(--color-bg-secondary);
-    border: 1px solid var(--color-input-border);
+    background-color: var(--color-card-sunken);
     border-radius: 1rem;
   }
 

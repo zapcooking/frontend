@@ -1892,7 +1892,7 @@
   </div>
 </Modal>
 
-<div class="max-w-4xl mx-auto w-full">
+<div class="max-w-4xl w-full px-4">
   <!-- Profile Banner. Below xl (no sidebar) it's full-bleed and flush under
        the top bar with square corners. At xl it's a contained, fixed-size
        rounded card constrained to the content column — never wider than the
