@@ -300,10 +300,10 @@
 
   // Check if content should be collapsed
   $: shouldCollapse = collapsible && content.length > maxLength;
-  // Extend the truncation point to include any URL that was cut mid-way,
-  // so its file extension survives and isImageUrl() classifies it correctly.
+  // Truncate the preview at a word boundary so we never slice through a word.
+  // If a URL straddles the limit, extend to include the whole URL instead, so
+  // its file extension survives and isImageUrl() classifies it correctly.
   function truncateAtUrlBoundary(text: string, limit: number): string {
-    const cut = text.substring(0, limit);
     const urlRegex = /https?:\/\/[^\s]+/g;
     let m;
     while ((m = urlRegex.exec(text)) !== null) {
@@ -311,7 +311,11 @@
         return text.substring(0, m.index + m[0].length);
       }
     }
-    return cut;
+    // Back up to the last whitespace before the limit so the cut lands between
+    // words, not mid-word.
+    const cut = text.substring(0, limit);
+    const boundary = Math.max(cut.lastIndexOf(' '), cut.lastIndexOf('\n'));
+    return (boundary > 0 ? cut.substring(0, boundary) : cut).trimEnd();
   }
   $: displayContent = shouldCollapse && !isExpanded ? truncateAtUrlBoundary(content, maxLength) : content;
   $: finalParsedContent = splitLightningInvoices(parseContent(displayContent));

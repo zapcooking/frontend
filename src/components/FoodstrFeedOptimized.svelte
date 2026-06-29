@@ -4885,7 +4885,7 @@
         </div>
       </div>
     {:else}
-      <div class="space-y-0 w-full">
+      <div class="space-y-3 w-full">
         {#each events as event (event.id)}
           <div
             use:renderZoneAction={event.id}
@@ -5370,8 +5370,12 @@
     contain: layout style;
     content-visibility: auto;
     contain-intrinsic-size: auto 400px;
-    padding: 24px 0 24px 4px;
-    border-bottom: 1px solid var(--color-input-border);
+    /* Each note is its own subtle card (slightly elevated surface) instead of
+       being separated by a hairline rule — easier to scan mixed-length notes. */
+    padding: 1.125rem 1.25rem;
+    background-color: var(--color-bg-secondary);
+    border: 1px solid var(--color-input-border);
+    border-radius: 1rem;
   }
 
   /* Carousel touch behavior - allow both vertical (feed) and horizontal (carousel) scrolling */

@@ -741,7 +741,7 @@
     </article>
 
     <!-- Replies Section -->
-    <div class="border-t mt-2" style="border-color: var(--color-input-border)">
+    <div class="mt-2">
 
 
       <!-- Replies List -->
@@ -762,13 +762,12 @@
           No replies yet. {#if !$userPublickey}<a href="/login?redirect={encodeURIComponent($page.url.pathname)}" class="underline hover:opacity-80" style="color: var(--color-primary)">Sign in</a> to reply!{:else}Be the first to reply!{/if}
         </p>
       {:else}
-        <div class="space-y-0">
+        <div class="space-y-3">
           {#each directReplies as reply (reply.id)}
             {#if !$mutedPubkeys.has(reply.author?.hexpubkey || reply.pubkey)}
-              <div>
+              <div class="reply-card">
                 <article
-                  class="py-8 border-b last:border-0 cursor-pointer hover:bg-[var(--color-bg-hover,rgba(255,255,255,0.03))]"
-                  style="border-color: var(--color-input-border)"
+                  class="cursor-pointer"
                   on:click={(e) => gotoNoteUnlessInteractive(e, reply)}
                   role="link"
                   tabindex="0"
@@ -913,8 +912,8 @@
 
       <!-- Reply Input -->
       {#if $userPublickey}
-        <div class="mt-4 p-3 rounded-lg" style="background-color: var(--color-bg-secondary)">
-          <div class="flex gap-3 items-start">
+        <div class="mt-4 px-4 py-3.5 rounded-lg" style="background-color: var(--color-card-sunken)">
+          <div class="flex space-x-3 items-start">
             <div class="flex-shrink-0">
               <Avatar pubkey={$userPublickey} size={32} />
             </div>
@@ -930,8 +929,8 @@
         </div>
       {:else}
         <div
-          class="mt-4 p-3 rounded-lg text-sm"
-          style="background-color: var(--color-bg-secondary); color: var(--color-caption)"
+          class="mt-4 px-4 py-3.5 rounded-lg text-sm"
+          style="background-color: var(--color-card-sunken); color: var(--color-caption)"
         >
           <a href="/login" class="text-primary hover:underline font-medium">Log in</a> to reply
         </div>
@@ -961,6 +960,14 @@
     display: flex;
     align-items: flex-start;
     gap: 3rem;
+  }
+
+  /* Each reply is a filled panel (no border), a shade darker than the page,
+     matching the reply composer box below the list. */
+  .reply-card {
+    background-color: var(--color-card-sunken);
+    border-radius: 0.5rem;
+    padding: 0.875rem 1rem;
   }
 
   /* Username hover - orange color */
