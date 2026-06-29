@@ -2506,17 +2506,19 @@
 {/if}
 
 <style>
-  /* Below xl (no sidebar) the banner is full-bleed: symmetric
-     viewport-relative margins stretch it to the viewport width (= the top
-     bar), clipped by #app-scroll's overflow-x-hidden. At xl it's contained to
-     the content container (margins reset to 0) so it's a fixed-size card that
-     is never wider than the top bar. */
+  /* Below xl (no sidebar) the banner is full-bleed to the viewport width.
+     The content column is left-aligned (Option A) and inset by the layout +
+     page horizontal padding (1rem + 1rem = 2rem), so pull the banner left by
+     that amount and span the full viewport; #app-scroll's overflow-x-hidden
+     clips any scrollbar overshoot. At xl it's contained to the content
+     container (a fixed-size card, never wider than the top bar). */
   .banner-fullbleed {
-    margin-left: calc(50% - 50vw);
-    margin-right: calc(50% - 50vw);
+    width: 100vw;
+    margin-left: -2rem;
   }
   @media (min-width: 1280px) {
     .banner-fullbleed {
+      width: auto;
       margin-left: 0;
       margin-right: 0;
     }
