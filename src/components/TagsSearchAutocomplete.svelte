@@ -49,9 +49,9 @@
 
   function handleInputChange(event: Event) {
     const input = event.target as HTMLInputElement;
-    tagquery = input.value.trim();
+    tagquery = input.value;
 
-    const rawQuery = tagquery;
+    const rawQuery = tagquery.trim();
     const normalizedQuery = rawQuery.toLowerCase();
 
     // Clear previous timeout
@@ -393,7 +393,7 @@
   <form
     class="flex"
     on:submit|preventDefault={() => {
-      if (tagquery) {
+      if (tagquery.trim()) {
         // If it's a note identifier, navigate directly
         if (searchResults.note) {
           selectNote(searchResults.note.id);
@@ -417,7 +417,7 @@
         }
 
         // Fallback: treat as tag search if no results
-        action(tagquery);
+        action(tagquery.trim());
         tagquery = '';
         searchResults = { tags: [], recipes: [], users: [], note: null };
       }
