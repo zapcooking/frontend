@@ -287,7 +287,7 @@
     {#each visibleZappers as zapper (zapper.pubkey)}
       <button
         on:click|stopPropagation={handleCountClick}
-        class="zap-pill flex items-center gap-1 h-6 pl-1 pr-2 rounded-full bg-accent-gray hover:bg-yellow-500/20 transition-colors cursor-pointer flex-shrink-0 {zapper.pubkey ===
+        class="zap-pill flex items-center gap-1 h-6 pl-1 pr-2 rounded-full transition-colors cursor-pointer flex-shrink-0 {zapper.pubkey ===
         $userPublickey
           ? 'ring-1 ring-yellow-500'
           : ''}"
@@ -301,7 +301,7 @@
     {#if hiddenCount > 0}
       <button
         on:click|stopPropagation={handleCountClick}
-        class="zap-pill flex items-center gap-1 h-6 pl-1.5 pr-2 rounded-full bg-accent-gray hover:bg-yellow-500/20 text-caption text-xs font-semibold cursor-pointer transition-colors flex-shrink-0"
+        class="zap-pill flex items-center gap-1 h-6 pl-1.5 pr-2 rounded-full text-caption text-xs font-semibold cursor-pointer transition-colors flex-shrink-0"
         title="{hiddenCount} more zappers ({formatAmount(totalSats)} sats total)"
       >
         <LightningIcon size={12} class="text-yellow-500 flex-shrink-0" weight="fill" />
@@ -366,7 +366,7 @@
     {#each visibleZappers as zapper (zapper.pubkey)}
       <button
         on:click|stopPropagation={handleCountClick}
-        class="zap-pill flex items-center gap-1 h-6 pl-1 pr-2 rounded-full bg-accent-gray hover:bg-yellow-500/20 transition-colors cursor-pointer flex-shrink-0 {zapper.pubkey ===
+        class="zap-pill flex items-center gap-1 h-6 pl-1 pr-2 rounded-full transition-colors cursor-pointer flex-shrink-0 {zapper.pubkey ===
         $userPublickey
           ? 'ring-1 ring-yellow-500'
           : ''}"
@@ -382,7 +382,7 @@
     {#if hiddenCount > 0}
       <button
         on:click|stopPropagation={handleCountClick}
-        class="zap-pill flex items-center gap-1 h-6 pl-1.5 pr-2 rounded-full bg-accent-gray hover:bg-yellow-500/20 text-caption text-xs font-semibold cursor-pointer transition-colors flex-shrink-0"
+        class="zap-pill flex items-center gap-1 h-6 pl-1.5 pr-2 rounded-full text-caption text-xs font-semibold cursor-pointer transition-colors flex-shrink-0"
         title="{hiddenCount} more zappers ({formatAmount(totalSats)} sats total)"
       >
         <LightningIcon size={12} class="text-yellow-500 flex-shrink-0" weight="fill" />
@@ -464,8 +464,12 @@
 
 <style>
   .zap-pill {
-    border: 1px solid rgba(245, 158, 11, 0.4);
-    box-shadow: 0 0 10px rgba(245, 158, 11, 0.25);
+    background-color: var(--color-input-bg);
+    box-shadow: inset 0 0 0 1px transparent;
+    transition: background-color 140ms ease, box-shadow 140ms ease;
+  }
+  .zap-pill:hover {
+    box-shadow: inset 0 0 0 1px rgba(245, 158, 11, 0.55);
   }
 
   /* Contain horizontal scroll so Safari doesn't pull the whole page sideways */

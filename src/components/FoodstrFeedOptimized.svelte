@@ -5375,6 +5375,9 @@
     padding: 1.125rem 1.25rem;
     background-color: var(--color-card-sunken);
     border-radius: 1rem;
+    /* Horizontal padding exposed so full-bleed media (image galleries) can
+       pull out to the card edges. */
+    --media-bleed-x: 1.25rem;
   }
 
   /* Carousel touch behavior - allow both vertical (feed) and horizontal (carousel) scrolling */
