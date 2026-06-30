@@ -27,16 +27,14 @@
   }
 
   // When the initial fetch times out (relay not ready on cold load),
-  // retry once using NDK's native user.fetchProfile() which has no
-  // hard timeout and will resolve when the relay catches up.
-  async function backgroundRetry(pk: string) {
+  // retry via resolveProfile which uses nprofile relay hints + purplepag.es.
+  // Null is not cached, so this re-hits the network.
+  async function backgroundRetry() {
     if (destroyed || !$ndk) return;
     try {
-      const user = $ndk.getUser({ pubkey: pk });
-      const profile = await user.fetchProfile();
+      const profile = await resolveProfile(nostrString, $ndk);
       if (destroyed) return;
-      const name = profile?.displayName || profile?.name;
-      if (name) displayName = name;
+      if (profile) displayName = formatDisplayName(profile);
     } catch { /* ignore */ }
   }
 
@@ -58,13 +56,13 @@
           displayName = getAnonChefName(pubkey);
           // Initial fetch timed out — profile may exist but relay wasn't
           // ready yet. Retry in background; update if we find the name.
-          if (pubkey) backgroundRetry(pubkey);
+          backgroundRetry();
         }
       } else if (fallbackToRaw) {
         displayName = nostrString;
       } else {
         displayName = getAnonChefName(pubkey);
-        if (pubkey) backgroundRetry(pubkey);
+        backgroundRetry();
       }
     } catch (err) {
       console.error('Failed to resolve profile:', err);
@@ -75,7 +73,7 @@
         // Same friendly fallback on resolution error — the user doesn't
         // care that it was a network blip vs. a missing profile.
         displayName = getAnonChefName(pubkey);
-        if (pubkey) backgroundRetry(pubkey);
+        backgroundRetry();
       }
     } finally {
       isLoading = false;
