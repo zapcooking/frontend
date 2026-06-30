@@ -418,6 +418,7 @@
         <ProfileLink
           nostrString={part.content}
           colorClass="text-orange-500 hover:text-orange-600"
+          fallbackToRaw={false}
         />
       {:else if part.prefix === 'nevent1' || part.prefix === 'note1'}
         {#if showNostrEmbeds}
