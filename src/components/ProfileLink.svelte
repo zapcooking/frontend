@@ -26,15 +26,20 @@
     pubkey = decodeNostrProfile(nostrString);
   }
 
-  // When the initial fetch times out (relay not ready on cold load),
-  // retry via resolveProfile which uses nprofile relay hints + purplepag.es.
-  // Null is not cached, so this re-hits the network.
+  // Initial fetch times out because relay connections aren't established
+  // yet on cold page load. Wait 3s for the pool to stabilize, then
+  // retry via NDKUser.fetchProfile() which checks Dexie cache first and
+  // then queries the connected pool — no hard timeout, resolves on EOSE.
   async function backgroundRetry() {
-    if (destroyed || !$ndk) return;
+    if (destroyed || !$ndk || !pubkey) return;
+    await new Promise(r => setTimeout(r, 3000));
+    if (destroyed) return;
     try {
-      const profile = await resolveProfile(nostrString, $ndk);
+      const user = $ndk.getUser({ pubkey });
+      const ndkProfile = await user.fetchProfile();
       if (destroyed) return;
-      if (profile) displayName = formatDisplayName(profile);
+      const name = ndkProfile?.displayName || ndkProfile?.name;
+      if (name) displayName = name;
     } catch { /* ignore */ }
   }
 
