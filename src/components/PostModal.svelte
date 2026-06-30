@@ -12,7 +12,6 @@
 
   let composer: PostComposer;
   let minimized = false;
-  let isPosting = false;
   let minimizedPreview = '';
 
   const DRAFT_KEY = 'zapcooking_note_draft';
@@ -64,10 +63,9 @@
   }
 </script>
 
-<Modal bind:open allowOverflow={false} noHeader={true} wide={!isPosting} maxWidth={isPosting ? '22rem' : null} autoHeight={isPosting} cleanup={handleBackdropClose} locked={isPosting}>
+<Modal bind:open allowOverflow={false} noHeader={true} wide cleanup={handleBackdropClose}>
   <div class="flex flex-col gap-4 flex-1 min-h-0 overflow-hidden">
     <!-- Header: relay selector + contextual hint on left, X on right -->
-    {#if !isPosting}
     <div class="flex items-start justify-between gap-2">
       <div class="flex items-center flex-wrap gap-x-2 gap-y-1">
         <label for="relay-select" class="text-xs text-caption whitespace-nowrap">Post to:</label>
@@ -100,7 +98,6 @@
         <CloseIcon size={24} />
       </button>
     </div>
-    {/if}
 
     <PostComposer
       bind:this={composer}
@@ -109,7 +106,6 @@
       initialQuotedNote={$quotedNoteStore}
       on:close={handleClose}
       on:minimize={handleMinimize}
-      on:posting={(e) => (isPosting = e.detail)}
     />
   </div>
 </Modal>
