@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import { goto } from '$app/navigation';
   import { nip19 } from 'nostr-tools';
   import { profileActions, profiles, loadingProfiles, profileErrors } from '$lib/profileStore';
@@ -17,10 +17,27 @@
   let isLoading: boolean = false;
   let error: string | null = null;
   let pubkey: string | null = null;
+  let destroyed = false;
+
+  onDestroy(() => { destroyed = true; });
 
   // Get pubkey for navigation
   $: {
     pubkey = decodeNostrProfile(nostrString);
+  }
+
+  // When the initial fetch times out (relay not ready on cold load),
+  // retry once using NDK's native user.fetchProfile() which has no
+  // hard timeout and will resolve when the relay catches up.
+  async function backgroundRetry(pk: string) {
+    if (destroyed || !$ndk) return;
+    try {
+      const user = $ndk.getUser({ pubkey: pk });
+      const profile = await user.fetchProfile();
+      if (destroyed) return;
+      const name = profile?.displayName || profile?.name;
+      if (name) displayName = name;
+    } catch { /* ignore */ }
   }
 
   // Load profile on mount
@@ -39,11 +56,15 @@
           // through to a generic "Anon Chef" if we couldn't decode a
           // pubkey from nostrString.
           displayName = getAnonChefName(pubkey);
+          // Initial fetch timed out — profile may exist but relay wasn't
+          // ready yet. Retry in background; update if we find the name.
+          if (pubkey) backgroundRetry(pubkey);
         }
       } else if (fallbackToRaw) {
         displayName = nostrString;
       } else {
         displayName = getAnonChefName(pubkey);
+        if (pubkey) backgroundRetry(pubkey);
       }
     } catch (err) {
       console.error('Failed to resolve profile:', err);
@@ -54,6 +75,7 @@
         // Same friendly fallback on resolution error — the user doesn't
         // care that it was a network blip vs. a missing profile.
         displayName = getAnonChefName(pubkey);
+        if (pubkey) backgroundRetry(pubkey);
       }
     } finally {
       isLoading = false;
