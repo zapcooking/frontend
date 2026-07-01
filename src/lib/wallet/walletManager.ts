@@ -559,6 +559,7 @@ export async function lookupInvoice(
 export interface Transaction {
   id: string;
   txid?: string; // On-chain transaction id when available
+  isOnchain?: boolean; // True when payment is on-chain (even if txid is unavailable)
   type: 'incoming' | 'outgoing';
   amount: number; // in sats
   description?: string;
@@ -743,6 +744,8 @@ function mapSparkPayment(p: any): Transaction {
     p.onchain_txid ||
     p.onchain?.txid ||
     p.onchain?.txId ||
+    // Breez SDK: deposit/withdraw payment details carry txId here
+    (p.details?.type === 'deposit' || p.details?.type === 'withdraw' ? p.details?.txId : undefined) ||
     p.paymentMethod?.txid ||
     p.paymentMethod?.txId ||
     p.paymentMethod?.transactionId ||
@@ -750,28 +753,33 @@ function mapSparkPayment(p: any): Transaction {
     p.paymentMethod?.txHash ||
     p.paymentMethod?.tx_hash;
 
-  if (!txid) {
-    const isOnchain =
-      p.paymentMethod?.type === 'bitcoinAddress' ||
-      p.payment_method?.type === 'bitcoinAddress' ||
-      p.onchain ||
-      p.onchainTxid ||
-      p.onchain_txid ||
-      String(paymentType).toLowerCase().includes('onchain');
+  const isOnchain =
+    !!txid ||
+    // Breez SDK PaymentMethod enum: "deposit" = on-chain receive, "withdraw" = on-chain send
+    p.method === 'deposit' ||
+    p.method === 'withdraw' ||
+    p.details?.type === 'deposit' ||
+    p.details?.type === 'withdraw' ||
+    p.paymentMethod?.type === 'bitcoinAddress' ||
+    p.payment_method?.type === 'bitcoinAddress' ||
+    !!p.onchain ||
+    !!p.onchainTxid ||
+    !!p.onchain_txid ||
+    String(paymentType).toLowerCase().includes('onchain');
+
+  if (!txid && isOnchain) {
     const paymentId = p.id || p.paymentHash || p.payment_hash || '';
-    if (isOnchain) {
-      try {
-        console.warn(
-          '[WalletManager] Spark on-chain payment missing txid:',
-          JSON.stringify(
-            { id: paymentId, payment: p },
-            (key, value) => (typeof value === 'bigint' ? value.toString() : value),
-            2
-          )
-        );
-      } catch (e) {
-        console.warn('[WalletManager] Spark on-chain payment missing txid:', paymentId, p);
-      }
+    try {
+      console.warn(
+        '[WalletManager] Spark on-chain payment missing txid:',
+        JSON.stringify(
+          { id: paymentId, payment: p },
+          (key, value) => (typeof value === 'bigint' ? value.toString() : value),
+          2
+        )
+      );
+    } catch (e) {
+      console.warn('[WalletManager] Spark on-chain payment missing txid:', paymentId, p);
     }
   }
 
@@ -810,6 +818,7 @@ function mapSparkPayment(p: any): Transaction {
   return {
     id: p.id || p.paymentHash || p.payment_hash || txid || String(Math.random()),
     txid,
+    isOnchain: isOnchain || undefined,
     type: isIncoming ? 'incoming' : ('outgoing' as 'incoming' | 'outgoing'),
     amount: Number(amountSat),
     description: p.description || p.memo || p.bolt11?.substring(0, 20),

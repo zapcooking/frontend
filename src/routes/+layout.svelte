@@ -15,6 +15,7 @@
   import LongformEditorModal from '../components/reads/LongformEditorModal.svelte';
   import WalletModal from '../components/wallet/WalletModal.svelte';
   import ToastContainer from '../components/ToastContainer.svelte';
+  import PendingIndicator from '../components/PendingIndicator.svelte';
   import LoginOverlay from '../components/LoginOverlay.svelte';
   import { loginOverlayOpen } from '$lib/stores/loginOverlay';
   import { createAuthManager, type AuthState } from '$lib/authManager';
@@ -548,23 +549,32 @@
       >
         <div
           class="px-4 lg:pl-[26px] min-w-0 max-w-full {$page.url.pathname.startsWith('/messages') ||
+          class="px-4 min-w-0 max-w-full flex flex-col min-h-full {$page.url.pathname.startsWith('/messages') ||
           $page.url.pathname.startsWith('/groups')
             ? ''
             : 'pb-16 lg:pb-8'}"
         >
-          <slot />
+          <!-- Grow the page content so the footer is pushed to the bottom on
+               short pages instead of floating mid-viewport. -->
+          <div class="flex-1 min-w-0 max-w-full">
+            <slot />
+          </div>
           {#if !$page.url.pathname.startsWith('/messages') && !$page.url.pathname.startsWith('/groups')}
             <Footer />
           {/if}
         </div>
       </div>
-      {#if !$page.url.pathname.startsWith('/messages') && !$page.url.pathname.startsWith('/groups')}
+      {#if !$page.url.pathname.startsWith('/messages') && !$page.url.pathname.startsWith('/groups') && !$postComposerOpen}
         <CreateMenuButton variant="floating" />
       {/if}
       <BottomNav />
       <CookingToolsWidget />
       {#if showCheffy}
-        <CheffyLauncher />
+        <!-- Hide the floating Cheffy launcher while the composer is open so
+             it doesn't float over the inset composer panel. -->
+        {#if !$postComposerOpen}
+          <CheffyLauncher />
+        {/if}
         <CheffyMessenger />
       {/if}
       <UserSidePanel />
@@ -576,6 +586,7 @@
         <LoginOverlay />
       {/if}
       <ToastContainer />
+      <PendingIndicator />
     </div>
   </div>
 </ErrorBoundary>

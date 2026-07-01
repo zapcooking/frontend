@@ -40,7 +40,11 @@
   async function handleCopy() {
     if (!browser) return;
 
-    const noteId = nip19.noteEncode(event.id);
+    const noteId = nip19.neventEncode({
+      id: event.id,
+      author: event.pubkey,
+      kind: event.kind
+    });
     try {
       await navigator.clipboard.writeText(noteId);
       copied = true;
@@ -60,7 +64,11 @@
 
   async function handleCopyLink() {
     if (!browser) return;
-    const noteId = nip19.noteEncode(event.id);
+    const noteId = nip19.neventEncode({
+      id: event.id,
+      author: event.pubkey,
+      kind: event.kind
+    });
     const url = `${window.location.origin}/${noteId}`;
 
     try {
@@ -157,7 +165,7 @@
     title="More options"
     aria-label="More options"
   >
-    <DotsThree size={20} class="text-caption" weight="regular" />
+    <DotsThree size={24} weight="bold" style="color: var(--color-text-secondary);" />
   </button>
 
   {#if menuOpen}

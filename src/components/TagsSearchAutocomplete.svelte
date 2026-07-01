@@ -3,7 +3,7 @@
   import { recipeTags, type recipeTagSimple, RECIPE_TAGS } from '$lib/consts';
   import { ndk, userPublickey } from '$lib/nostr';
   import { nip19 } from 'nostr-tools';
-  import type { NDKEvent } from '@nostr-dev-kit/ndk';
+  import { NDKRelaySet, type NDKEvent } from '@nostr-dev-kit/ndk';
   import { get } from 'svelte/store';
   import { searchProfiles, getDisplayName, type SearchProfile } from '$lib/profileSearchService';
   import { feedCacheService } from '$lib/feedCache';
@@ -35,6 +35,12 @@
   // Prevent stale user search results
   let userSearchVersion = 0;
 
+  // NIP-50 full-text search via search.nostrarchives.com
+  const NIP50_SEARCH_RELAY = 'wss://search.nostrarchives.com';
+  let networkSearchSub: any = null;
+  let networkSearchVersion = 0;
+  let networkSearchTimeout: ReturnType<typeof setTimeout> | null = null;
+
   // Recipe cache for fast client-side search
   let recipeCache: Array<{ title: string; summary: string; naddr: string; author: string }> = [];
   let recipeCacheLoaded = false;
@@ -43,9 +49,9 @@
 
   function handleInputChange(event: Event) {
     const input = event.target as HTMLInputElement;
-    tagquery = input.value.trim();
+    tagquery = input.value;
 
-    const rawQuery = tagquery;
+    const rawQuery = tagquery.trim();
     const normalizedQuery = rawQuery.toLowerCase();
 
     // Clear previous timeout
@@ -55,6 +61,7 @@
     if (normalizedQuery.length === 0) {
       searchResults = { tags: [], recipes: [], users: [], note: null };
       showAutocomplete = false;
+      cancelNetworkSearch();
       return;
     }
 
@@ -89,10 +96,12 @@
     // Immediate recipe search (client-side cache)
     searchRecipes(normalizedQuery);
 
-    // Debounced user search (API call)
+    // Debounced network searches (user API + NIP-50 relay)
     searchTimeout = setTimeout(async () => {
       isSearching = true;
       try {
+        // NIP-50 recipe search fires and streams results independently
+        searchNetworkRecipes(normalizedQuery);
         await searchUsers(normalizedQuery);
       } catch (e) {
         console.debug('Search error:', e);
@@ -301,6 +310,67 @@
     showAutocomplete = false;
   }
 
+  function cancelNetworkSearch() {
+    if (networkSearchSub) {
+      try { networkSearchSub.stop(); } catch { /* ignore */ }
+      networkSearchSub = null;
+    }
+    if (networkSearchTimeout) {
+      clearTimeout(networkSearchTimeout);
+      networkSearchTimeout = null;
+    }
+  }
+
+  async function searchNetworkRecipes(query: string) {
+    const thisVersion = ++networkSearchVersion;
+    cancelNetworkSearch();
+
+    const ndkInstance = get(ndk);
+    if (!ndkInstance) return;
+
+    // Pre-connect so the first REQ doesn't miss the relay
+    try {
+      const relay = ndkInstance.pool.getRelay(NIP50_SEARCH_RELAY, true, true);
+      if (relay.connectivity?.status !== 1) await relay.connect();
+    } catch { /* non-fatal */ }
+
+    if (thisVersion !== networkSearchVersion) return;
+
+    const relaySet = NDKRelaySet.fromRelayUrls([NIP50_SEARCH_RELAY], ndkInstance, false);
+    const sub = ndkInstance.subscribe(
+      { kinds: [30023], search: query, limit: 50 },
+      { closeOnEose: true },
+      relaySet
+    );
+    networkSearchSub = sub;
+
+    sub.on('event', (event: NDKEvent) => {
+      if (thisVersion !== networkSearchVersion) return;
+      const d = event.tags.find((t: string[]) => t[0] === 'd')?.[1];
+      const title = event.tags.find((t: string[]) => t[0] === 'title')?.[1];
+      if (!d || !title) return;
+
+      const naddr = nip19.naddrEncode({ kind: 30023, pubkey: event.pubkey, identifier: d });
+      if (searchResults.recipes.some((r) => r.naddr === naddr)) return;
+
+      searchResults.recipes = [...searchResults.recipes, { title, naddr, author: event.pubkey }].slice(0, 8);
+      searchResults = searchResults;
+    });
+
+    const cleanup = () => {
+      if (networkSearchTimeout) { clearTimeout(networkSearchTimeout); networkSearchTimeout = null; }
+      if (networkSearchSub === sub) networkSearchSub = null;
+    };
+
+    sub.on('eose', cleanup);
+
+    // Hard 5s timeout — matches Android app behaviour
+    networkSearchTimeout = setTimeout(() => {
+      cleanup();
+      try { sub.stop(); } catch { /* ignore */ }
+    }, 5000);
+  }
+
   onMount(() => {
     // Initialize empty search results
     searchResults = { tags: [], recipes: [], users: [], note: null };
@@ -315,6 +385,7 @@
       recipeSubscription.stop();
       recipeSubscription = null;
     }
+    cancelNetworkSearch();
   });
 </script>
 
@@ -322,7 +393,7 @@
   <form
     class="flex"
     on:submit|preventDefault={() => {
-      if (tagquery) {
+      if (tagquery.trim()) {
         // If it's a note identifier, navigate directly
         if (searchResults.note) {
           selectNote(searchResults.note.id);
@@ -346,7 +417,7 @@
         }
 
         // Fallback: treat as tag search if no results
-        action(tagquery);
+        action(tagquery.trim());
         tagquery = '';
         searchResults = { tags: [], recipes: [], users: [], note: null };
       }
