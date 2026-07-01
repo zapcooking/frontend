@@ -72,6 +72,8 @@
   let uploadedImages: string[] = [];
   let uploadedVideos: string[] = [];
   let uploadingImage = false;
+  let uploadImageIndex = 0;
+  let uploadImageTotal = 0;
   let uploadingVideo = false;
   let imageInputEl: HTMLInputElement;
   let videoInputEl: HTMLInputElement;
@@ -269,10 +271,13 @@
     if (!files || files.length === 0) return;
 
     uploadingImage = true;
+    uploadImageTotal = files.length;
+    uploadImageIndex = 0;
     error = '';
 
     try {
       for (const file of Array.from(files)) {
+        uploadImageIndex += 1;
         const url = await uploadImage($ndk, file);
         uploadedImages = [...uploadedImages, url];
       }
@@ -838,6 +843,18 @@
 
         <!-- Action bar — pinned at bottom in modal, inline otherwise -->
         <div class="composer-footer {variant === 'modal' ? 'px-3 pb-3' : ''}">
+          {#if uploadingImage}
+            <div class="w-full h-1 rounded-full bg-input-border overflow-hidden -mt-1 mb-1">
+              {#if uploadImageTotal > 1}
+                <div
+                  class="h-full rounded-full bg-orange-500 transition-all duration-500"
+                  style="width: {(uploadImageIndex / uploadImageTotal) * 100}%"
+                ></div>
+              {:else}
+                <div class="h-full rounded-full bg-orange-500 upload-sweep"></div>
+              {/if}
+            </div>
+          {/if}
 
           <!-- Row 1: tools + status -->
           <div class="composer-tools-row">
@@ -867,7 +884,7 @@
                     </button>
                   </div>
                 {/if}
-                <input bind:this={imageInputEl} type="file" accept="image/*" class="sr-only" on:change={handleImageUpload} disabled={posting || uploadingImage || uploadingVideo} />
+                <input bind:this={imageInputEl} type="file" accept="image/*" multiple class="sr-only" on:change={handleImageUpload} disabled={posting || uploadingImage || uploadingVideo} />
                 <input bind:this={videoInputEl} type="file" accept="video/*" class="sr-only" on:change={handleVideoUpload} disabled={posting || uploadingImage || uploadingVideo} />
               </div>
 
@@ -883,7 +900,10 @@
             <!-- Right: status indicators -->
             <div class="flex items-center gap-2 text-xs text-caption">
               {#if uploadingImage}
-                <span>Uploading image…</span>
+                <span class="flex items-center gap-1">
+                  <svg class="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                  {uploadImageTotal > 1 ? `Uploading image ${uploadImageIndex} of ${uploadImageTotal}…` : 'Uploading image…'}
+                </span>
               {:else if uploadingVideo}
                 <span>Uploading video…</span>
               {:else if showCountdown}
@@ -1353,6 +1373,16 @@
     gap: 0.5rem;
     padding-top: 0.75rem;
     border-top: 1px solid var(--color-input-border);
+  }
+
+  @keyframes upload-sweep {
+    0% { width: 0%; margin-left: 0%; }
+    50% { width: 60%; margin-left: 20%; }
+    100% { width: 0%; margin-left: 100%; }
+  }
+
+  .upload-sweep {
+    animation: upload-sweep 1.4s ease-in-out infinite;
   }
 
   .composer-tools-row {
