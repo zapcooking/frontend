@@ -194,14 +194,14 @@
       overflow: hidden;
       touch-action: none;
     }
-    :global(.modal-auto-height) {
+    .modal-auto-height {
       min-height: 0 !important;
     }
-    :global(.compact-padding) {
+    .compact-padding {
       padding: 1rem 1rem 1.25rem;
     }
     @media (min-width: 768px) {
-      :global(.compact-padding) {
+      .compact-padding {
         padding-left: 1.5rem;
         padding-right: 1.5rem;
       }

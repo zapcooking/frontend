@@ -286,6 +286,8 @@
       error = err?.message || 'Failed to upload image. Please try again.';
     } finally {
       uploadingImage = false;
+      uploadImageIndex = 0;
+      uploadImageTotal = 0;
       if (imageInputEl) imageInputEl.value = '';
     }
   }
@@ -312,6 +314,8 @@
       error = err?.message || 'Failed to upload image. Please try again.';
     } finally {
       uploadingImage = false;
+      uploadImageIndex = 0;
+      uploadImageTotal = 0;
     }
   }
 

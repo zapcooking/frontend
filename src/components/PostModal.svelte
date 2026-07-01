@@ -64,7 +64,7 @@
   }
 </script>
 
-<Modal bind:open allowOverflow={false} noHeader={true} wide={!isPosting} maxWidth={isPosting ? '22rem' : null} autoHeight={isPosting} cleanup={handleBackdropClose} locked={isPosting} fullScreenMobile={!isPosting}>
+<Modal bind:open allowOverflow={false} noHeader={true} wide={!isPosting} maxWidth={isPosting ? '22rem' : null} autoHeight={isPosting} cleanup={handleBackdropClose} locked={isPosting} fullScreenMobile={true}>
   <div class="flex flex-col gap-4 flex-1 min-h-0 overflow-hidden">
     <!-- Header: relay selector + contextual hint on left, X on right -->
     {#if !isPosting}
