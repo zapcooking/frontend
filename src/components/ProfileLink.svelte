@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import { goto } from '$app/navigation';
   import { nip19 } from 'nostr-tools';
   import { profileActions, profiles, loadingProfiles, profileErrors } from '$lib/profileStore';
@@ -17,10 +17,30 @@
   let isLoading: boolean = false;
   let error: string | null = null;
   let pubkey: string | null = null;
+  let destroyed = false;
+
+  onDestroy(() => { destroyed = true; });
 
   // Get pubkey for navigation
   $: {
     pubkey = decodeNostrProfile(nostrString);
+  }
+
+  // Initial fetch times out because relay connections aren't established
+  // yet on cold page load. Wait 3s for the pool to stabilize, then
+  // retry via NDKUser.fetchProfile() which checks Dexie cache first and
+  // then queries the connected pool — no hard timeout, resolves on EOSE.
+  async function backgroundRetry() {
+    if (destroyed || !$ndk || !pubkey) return;
+    await new Promise(r => setTimeout(r, 3000));
+    if (destroyed) return;
+    try {
+      const user = $ndk.getUser({ pubkey });
+      const ndkProfile = await user.fetchProfile();
+      if (destroyed) return;
+      const name = ndkProfile?.displayName || ndkProfile?.name;
+      if (name) displayName = name;
+    } catch { /* ignore */ }
   }
 
   // Load profile on mount
@@ -39,11 +59,15 @@
           // through to a generic "Anon Chef" if we couldn't decode a
           // pubkey from nostrString.
           displayName = getAnonChefName(pubkey);
+          // Initial fetch timed out — profile may exist but relay wasn't
+          // ready yet. Retry in background; update if we find the name.
+          backgroundRetry();
         }
       } else if (fallbackToRaw) {
         displayName = nostrString;
       } else {
         displayName = getAnonChefName(pubkey);
+        backgroundRetry();
       }
     } catch (err) {
       console.error('Failed to resolve profile:', err);
@@ -54,6 +78,7 @@
         // Same friendly fallback on resolution error — the user doesn't
         // care that it was a network blip vs. a missing profile.
         displayName = getAnonChefName(pubkey);
+        backgroundRetry();
       }
     } finally {
       isLoading = false;

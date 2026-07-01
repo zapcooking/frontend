@@ -230,7 +230,7 @@
         {token.content}
       </button>
     {:else if token.type === 'npub'}
-      <ProfileLink nostrString={token.raw || `nostr:${token.content}`} />
+      <ProfileLink nostrString={token.raw || `nostr:${token.content}`} fallbackToRaw={false} />
     {:else if token.type === 'naddr'}
       <div class="my-2">
         <NoteEmbed nostrString={token.raw || token.content} depth={0} />
