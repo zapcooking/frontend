@@ -531,7 +531,7 @@
       <!-- Header with blur. Fixed to the viewport (not sticky inside the
            scroll container) so it stays put while the page content scrolls
            and rubber-band-bounces behind it. -->
-      <div class="header-blur fixed top-0 left-0 right-0 xl:left-[calc(20rem_+_5px)] z-30 py-3 px-4">
+      <div class="header-blur fixed top-0 left-0 right-0 lg:left-[calc(16rem_+_5px)] xl:left-[calc(20rem_+_5px)] z-30 py-3 px-4">
         <Header />
         <!-- Decorative connector (desktop): a vertical line just left of
              the search box that curves into the header's bottom divider. -->
@@ -543,14 +543,14 @@
            sub-headers sit directly below it. -->
       <div
         id="app-scroll"
-        class="flex-1 min-h-0 min-w-0 overflow-y-auto overflow-x-hidden xl:ml-[calc(20rem_+_5px)]"
+        class="flex-1 min-h-0 min-w-0 overflow-y-auto overflow-x-hidden lg:ml-[calc(16rem_+_5px)] xl:ml-[calc(20rem_+_5px)]"
         style="background-color: var(--color-bg-primary); padding-top: var(--header-h);"
       >
         <div
-          class="px-4 min-w-0 max-w-full {$page.url.pathname.startsWith('/messages') ||
+          class="px-4 lg:pl-[26px] min-w-0 max-w-full {$page.url.pathname.startsWith('/messages') ||
           $page.url.pathname.startsWith('/groups')
             ? ''
-            : 'pb-16 xl:pb-8'}"
+            : 'pb-16 lg:pb-8'}"
         >
           <slot />
           {#if !$page.url.pathname.startsWith('/messages') && !$page.url.pathname.startsWith('/groups')}
@@ -660,7 +660,7 @@
   .header-pipe {
     display: none;
   }
-  @media (min-width: 1280px) {
+  @media (min-width: 1024px) {
     /* Swap the full-width divider for the pipe: one element draws the
        vertical line (from the top), the rounded elbow, and the horizontal
        divider running right from the elbow — nothing to the left of it. */
