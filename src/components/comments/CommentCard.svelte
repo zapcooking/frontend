@@ -308,6 +308,14 @@
     padding: 0.5rem 0;
   }
 
+  /* Recipe comments render as sunken cards (a shade darker than the page),
+     matching the note-thread reply treatment. */
+  .comment-card--recipe {
+    background-color: var(--color-card-sunken);
+    border-radius: 0.5rem;
+    padding: 0.875rem 1rem;
+  }
+
   .comment-row {
     display: flex;
     gap: 0.5rem;
@@ -418,10 +426,14 @@
     padding-left: 1.375rem; /* 22px → content at 16+2+22 = 40px = parent content start */
   }
 
+  /* Nested recipe replies indent as sunken cards; the indent conveys nesting
+     so no border-left thread line is needed inside the card. */
   .comment-card--recipe.nested {
-    margin-left: 1.25rem;   /* 20px = center of 40px avatar */
-    border-left: 2px solid var(--color-input-border);
-    padding-left: 1.875rem; /* 30px → content at 20+2+30 = 52px = parent content start */
+    margin-left: 1.5rem;
+    padding-left: 1rem;
+  }
+  .comment-card--recipe .thread-line {
+    display: none;
   }
 
   /* ── Replying-to indicator ──────────────────────────────────────── */

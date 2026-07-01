@@ -87,6 +87,8 @@ body {
   --color-text-secondary: #4b5563;
   --color-bg-primary: #ffffff;
   --color-bg-secondary: #f9fafb;
+  /* Sunken surface — a shade DARKER than the page (recessed panels). */
+  --color-card-sunken: #f1f2f4;
   --color-skeleton-base: #e5e7eb;
   --color-skeleton-highlight: #f3f4f6;
 
@@ -120,6 +122,8 @@ html.dark {
   --color-text-secondary: #d1d5db;
   --color-bg-primary: #111827;
   --color-bg-secondary: #1f2937;
+  /* Sunken surface — a shade DARKER than the page (recessed panels). */
+  --color-card-sunken: #0c111c;
   --color-skeleton-base: #1f2937;
   --color-skeleton-highlight: #374151;
 

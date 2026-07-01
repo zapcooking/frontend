@@ -926,6 +926,17 @@
     }
   }
 
+  // Click anywhere on a feed card (except on a link, button, or while
+  // selecting text) to open the single-note view.
+  function gotoNoteFromCard(e: MouseEvent, ev: NDKEvent) {
+    if (e.target instanceof Element && e.target.closest('a, button, input, textarea, [role="button"]')) {
+      return;
+    }
+    if (typeof window !== 'undefined' && window.getSelection()?.toString()) return;
+    const href = noteHrefFromEventId(ev.id);
+    if (href) goto(href);
+  }
+
   // Extract the first quoted note ID from content (for quote reposts)
   function getQuotedNoteId(event: NDKEvent): string | null {
     try {
@@ -4885,7 +4896,7 @@
         </div>
       </div>
     {:else}
-      <div class="space-y-0 w-full">
+      <div class="space-y-3 w-full">
         {#each events as event (event.id)}
           <div
             use:renderZoneAction={event.id}
@@ -4908,8 +4919,18 @@
             reactions: { count: engagementStoreValue.reactions.count },
             comments: { count: engagementStoreValue.comments.count }
           }}
+          <!-- svelte-ignore a11y-no-noninteractive-element-to-interactive-role -->
           <article
-            class="w-full"
+            class="w-full cursor-pointer"
+            on:click={(e) => gotoNoteFromCard(e, event)}
+            role="link"
+            tabindex="0"
+            on:keydown|self={(e) => {
+              if (e.key === 'Enter') {
+                const href = noteHrefFromEventId(event.id);
+                if (href) goto(href);
+              }
+            }}
           >
             {#if getRepostedBy(event)}
               {@const reposterPubkey = getRepostedBy(event) || ''}
@@ -5370,8 +5391,14 @@
     contain: layout style;
     content-visibility: auto;
     contain-intrinsic-size: auto 400px;
-    padding: 24px 0 24px 4px;
-    border-bottom: 1px solid var(--color-input-border);
+    /* Each note is its own card on a sunken (slightly darker) surface, no
+       border — easier to scan mixed-length notes without hairline clutter. */
+    padding: 1.125rem 1.25rem;
+    background-color: var(--color-card-sunken);
+    border-radius: 1rem;
+    /* Horizontal padding exposed so full-bleed media (image galleries) can
+       pull out to the card edges. */
+    --media-bleed-x: 1.25rem;
   }
 
   /* Carousel touch behavior - allow both vertical (feed) and horizontal (carousel) scrolling */
