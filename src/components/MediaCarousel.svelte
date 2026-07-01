@@ -190,7 +190,7 @@
     </button>
   {/if}
 {:else if items.length > 1}
-  <div class="relative group">
+  <div class="relative group gallery-bleed">
     <!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
     <div
       bind:this={scroller}
@@ -297,6 +297,22 @@
   }
 
   /* ── Multi-item gallery ──────────────────────────────────────── */
+  /* Bleed the gallery out to the card edges by the host's horizontal padding
+     (exposed as --media-bleed-x), but pad the scroller's left so the first
+     tile rests INSET (rounded corners + left margin preserved) at rest. The
+     right side reaches the card edge so the peek shows, and as you scroll the
+     images slide past both edges. Falls back to no bleed outside a card. */
+  .gallery-bleed {
+    margin-inline: calc(-1 * var(--media-bleed-x, 0px));
+  }
+  .gallery-bleed .media-carousel {
+    /* Equal inset on both ends: first tile rests inset-left, last tile rests
+       inset-right. The right padding is trailing content (off-screen at rest),
+       so the initial peek still reaches the right card edge. */
+    padding-inline: var(--media-bleed-x, 0px);
+    scroll-padding-inline: var(--media-bleed-x, 0px);
+  }
+
   .media-carousel {
     display: flex;
     gap: 6px; /* keep in sync with TILE_GAP_PX */

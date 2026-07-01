@@ -155,10 +155,9 @@
 {/if}
 
 <style>
-	/* PR #143 fix #3: z-index 50 -> 1000 */
 	.mention-dropdown {
 		position: absolute;
-		z-index: 1000;
+		z-index: 10001;
 		width: 280px;
 		max-width: calc(100vw - 2rem);
 		background: var(--color-input-bg);
