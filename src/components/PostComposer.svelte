@@ -624,7 +624,7 @@
 
 {#if $userPublickey !== '' || variant === 'modal'}
   <div
-    class={`rounded-xl relative ${variant === 'inline' ? 'mb-4' : 'flex-1 flex flex-col'} ${posting ? '' : 'bg-input transition-all'}`}
+    class={`rounded-xl relative ${variant === 'inline' ? 'mb-4' : 'flex-1 flex flex-col composer-modal'} ${posting ? '' : 'bg-input transition-all'}`}
     class:overflow-hidden={!isComposerOpen}
     class:overflow-visible={isComposerOpen}
     style={posting ? '' : 'border: 1px solid var(--color-input-border)'}
@@ -666,12 +666,12 @@
                 <button
                   type="button"
                   on:click={() => (showPreview = false)}
-                  class="px-3 py-1.5 text-xs font-medium transition-colors -mb-px border-b-2 {!showPreview ? 'text-primary border-primary' : 'text-caption border-transparent'}"
+                  class="composer-tab px-3 py-1.5 text-xs font-medium transition-colors -mb-px border-b-2 {!showPreview ? 'text-primary border-primary' : 'text-caption border-transparent'}"
                 >Write</button>
                 <button
                   type="button"
                   on:click={() => (showPreview = true)}
-                  class="px-3 py-1.5 text-xs font-medium transition-colors -mb-px border-b-2 {showPreview ? 'text-primary border-primary' : 'text-caption border-transparent'}"
+                  class="composer-tab px-3 py-1.5 text-xs font-medium transition-colors -mb-px border-b-2 {showPreview ? 'text-primary border-primary' : 'text-caption border-transparent'}"
                 >Preview</button>
               </div>
 
@@ -1475,5 +1475,32 @@
 
   .action-post-label {
     position: relative;
+  }
+
+  /* Upsize the fullscreen mobile composer for touch — bigger text, tabs,
+     tool icons, and action buttons. Scoped to the modal variant (which is
+     the fullscreen mobile sheet) at phone widths only. */
+  @media (max-width: 767.98px) {
+    .composer-modal .composer-input {
+      font-size: 18px;
+      line-height: 1.55;
+    }
+    .composer-modal .composer-tab {
+      font-size: 0.9375rem;
+      padding: 0.5rem 0.875rem;
+    }
+    .composer-modal .tool-btn {
+      padding: 0.5rem;
+    }
+    .composer-modal .tool-btn :global(svg),
+    .composer-modal .countdown-clock-btn :global(svg) {
+      width: 26px;
+      height: 26px;
+    }
+    .composer-modal .action-cancel,
+    .composer-modal .action-post {
+      padding: 0.75rem 1.5rem;
+      font-size: 1.0625rem;
+    }
   }
 </style>
