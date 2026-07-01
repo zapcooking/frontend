@@ -15,6 +15,7 @@
   import LongformEditorModal from '../components/reads/LongformEditorModal.svelte';
   import WalletModal from '../components/wallet/WalletModal.svelte';
   import ToastContainer from '../components/ToastContainer.svelte';
+  import PendingIndicator from '../components/PendingIndicator.svelte';
   import LoginOverlay from '../components/LoginOverlay.svelte';
   import { loginOverlayOpen } from '$lib/stores/loginOverlay';
   import { createAuthManager, type AuthState } from '$lib/authManager';
@@ -580,6 +581,7 @@
         <LoginOverlay />
       {/if}
       <ToastContainer />
+      <PendingIndicator />
     </div>
   </div>
 </ErrorBoundary>
