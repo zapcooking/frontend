@@ -38,6 +38,7 @@
   import type { PageData } from './$types';
   import { exploreNavTick } from '$lib/exploreNav';
   import { dragScroll } from '$lib/dragScroll';
+  import CaretRightIcon from 'phosphor-svelte/lib/CaretRight';
 
   // Accept SvelteKit props to prevent warnings
   export let data: PageData;
@@ -399,10 +400,20 @@
 
       <!-- Fresh from the Kitchen -->
       <section class="flex flex-col gap-4" data-section="fresh-kitchen">
-        <h2 class="text-2xl font-bold flex items-center gap-2">
-          <span>🍳</span>
-          <span>Fresh from the Kitchen</span>
-        </h2>
+        <a
+          href="/recipes"
+          class="group flex items-center gap-2 w-fit transition-colors hover:text-primary"
+        >
+          <h2 class="text-2xl font-bold flex items-center gap-2 transition-colors group-hover:text-primary">
+            <span>🍳</span>
+            <span>Fresh from the Kitchen</span>
+          </h2>
+          <CaretRightIcon
+            size={18}
+            weight="bold"
+            class="opacity-50 transition-all group-hover:opacity-100 group-hover:translate-x-0.5"
+          />
+        </a>
         {#if loadingDiscover}
           <div class="flex gap-4 overflow-x-auto pb-2 -mx-4 px-4">
             {#each Array(6) as _}
@@ -495,10 +506,20 @@
       <!-- Food Stories & Articles -->
       <section class="flex flex-col gap-4">
         <div class="px-4 -mx-4 sm:px-0 sm:mx-0">
-          <h2 class="text-2xl font-bold flex items-center gap-2">
-            <span>📖</span>
-            <span>Food Stories & Articles</span>
-          </h2>
+          <a
+            href="/reads"
+            class="group flex items-center gap-2 w-fit transition-colors hover:text-primary"
+          >
+            <h2 class="text-2xl font-bold flex items-center gap-2 transition-colors group-hover:text-primary">
+              <span>📖</span>
+              <span>Food Stories & Articles</span>
+            </h2>
+            <CaretRightIcon
+              size={18}
+              weight="bold"
+              class="opacity-50 transition-all group-hover:opacity-100 group-hover:translate-x-0.5"
+            />
+          </a>
           <p class="text-sm text-caption">
             Recent longform articles about food, farming, homesteading, and food culture.
           </p>
@@ -560,7 +581,7 @@
           Browse by category
         </h2>
         <div class="flex gap-2.5 overflow-x-auto py-2 -mx-4 px-4 scrollbar-hide touch-pan-x" use:dragScroll>
-          {#each [{ emoji: '🥩', label: 'Beef' }, { emoji: '🍗', label: 'Chicken' }, { emoji: '🐟', label: 'Fish' }, { emoji: '🌱', label: 'Vegan' }, { emoji: '🍝', label: 'Pasta' }, { emoji: '🍕', label: 'Pizza' }, { emoji: '🥘', label: 'Soup' }, { emoji: '🥪', label: 'Sandwich' }, { emoji: '🍚', label: 'Rice' }, { emoji: '🥚', label: 'Eggs' }, { emoji: '🥔', label: 'Potato' }, { emoji: '🧀', label: 'Cheese' }] as cat}
+          {#each [{ emoji: '🥩', label: 'Beef' }, { emoji: '🍗', label: 'Chicken' }, { emoji: '🥓', label: 'Pork' }, { emoji: '🐟', label: 'Fish' }, { emoji: '🦐', label: 'Seafood' }, { emoji: '🦃', label: 'Turkey' }, { emoji: '🌱', label: 'Vegan' }, { emoji: '🥗', label: 'Salad' }, { emoji: '🍝', label: 'Pasta' }, { emoji: '🍜', label: 'Noodles' }, { emoji: '🍕', label: 'Pizza' }, { emoji: '🥘', label: 'Soup' }, { emoji: '🥪', label: 'Sandwich' }, { emoji: '🍚', label: 'Rice' }, { emoji: '🍞', label: 'Bread' }, { emoji: '🥚', label: 'Eggs' }, { emoji: '🥔', label: 'Potato' }, { emoji: '🧀', label: 'Cheese' }, { emoji: '🍄', label: 'Mushrooms' }, { emoji: '🍅', label: 'Tomato' }, { emoji: '🧄', label: 'Garlic' }, { emoji: '🌶️', label: 'Peppers' }, { emoji: '🍫', label: 'Chocolate' }, { emoji: '🍎', label: 'Apple' }] as cat}
             <button type="button" class="category-chip" on:click={() => goto(`/tag/${cat.label}`)}>
               <span class="text-xl">{cat.emoji}</span>
               <span class="text-xs font-medium" style="color: var(--color-text-primary);"
