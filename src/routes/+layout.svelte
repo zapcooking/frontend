@@ -549,7 +549,7 @@
         style="background-color: var(--color-bg-primary); padding-top: var(--header-h);"
       >
         <div
-          class="px-4 min-w-0 max-w-full flex flex-col min-h-full {$page.url.pathname.startsWith('/messages') ||
+          class="px-4 lg:pl-[26px] min-w-0 max-w-full flex flex-col min-h-full {$page.url.pathname.startsWith('/messages') ||
           $page.url.pathname.startsWith('/groups')
             ? ''
             : 'pb-16 lg:pb-8'}"
@@ -564,13 +564,17 @@
           {/if}
         </div>
       </div>
-      {#if !$page.url.pathname.startsWith('/messages') && !$page.url.pathname.startsWith('/groups')}
+      {#if !$page.url.pathname.startsWith('/messages') && !$page.url.pathname.startsWith('/groups') && !$postComposerOpen}
         <CreateMenuButton variant="floating" />
       {/if}
       <BottomNav />
       <CookingToolsWidget />
       {#if showCheffy}
-        <CheffyLauncher />
+        <!-- Hide the floating Cheffy launcher while the composer is open so
+             it doesn't float over the inset composer panel. -->
+        {#if !$postComposerOpen}
+          <CheffyLauncher />
+        {/if}
         <CheffyMessenger />
       {/if}
       <MobileNavDrawer />

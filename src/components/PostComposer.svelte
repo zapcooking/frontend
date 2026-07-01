@@ -73,6 +73,8 @@
   let uploadedImages: string[] = [];
   let uploadedVideos: string[] = [];
   let uploadingImage = false;
+  let uploadImageIndex = 0;
+  let uploadImageTotal = 0;
   let uploadingVideo = false;
   let imageInputEl: HTMLInputElement;
   let videoInputEl: HTMLInputElement;
@@ -270,10 +272,13 @@
     if (!files || files.length === 0) return;
 
     uploadingImage = true;
+    uploadImageTotal = files.length;
+    uploadImageIndex = 0;
     error = '';
 
     try {
       for (const file of Array.from(files)) {
+        uploadImageIndex += 1;
         const url = await uploadImage($ndk, file);
         uploadedImages = [...uploadedImages, url];
       }
@@ -282,6 +287,8 @@
       error = err?.message || 'Failed to upload image. Please try again.';
     } finally {
       uploadingImage = false;
+      uploadImageIndex = 0;
+      uploadImageTotal = 0;
       if (imageInputEl) imageInputEl.value = '';
     }
   }
@@ -308,6 +315,8 @@
       error = err?.message || 'Failed to upload image. Please try again.';
     } finally {
       uploadingImage = false;
+      uploadImageIndex = 0;
+      uploadImageTotal = 0;
     }
   }
 
@@ -631,7 +640,7 @@
 
 {#if $userPublickey !== '' || variant === 'modal'}
   <div
-    class={`rounded-xl relative ${variant === 'inline' ? 'mb-4' : 'flex-1 flex flex-col'} ${posting ? '' : 'bg-input transition-all'}`}
+    class={`rounded-xl relative ${variant === 'inline' ? 'mb-4' : 'flex-1 flex flex-col composer-modal'} ${posting ? '' : 'bg-input transition-all'}`}
     class:overflow-hidden={!isComposerOpen}
     class:overflow-visible={isComposerOpen}
     style={posting ? '' : 'border: 1px solid var(--color-input-border)'}
@@ -665,20 +674,27 @@
       <div class={`${variant === 'modal' ? 'flex-1 flex flex-col min-h-0' : 'p-3'}`}>
         <!-- Scrollable content area -->
         <div class={variant === 'modal' ? 'composer-scroll-area flex-1 overflow-y-auto min-h-0 p-3' : ''}>
-          <div class="flex gap-3">
-            <CustomAvatar pubkey={$userPublickey} size={36} />
+          <div class={variant === 'modal' ? 'min-w-0' : 'flex gap-3'}>
+            {#if variant === 'inline'}
+              <CustomAvatar pubkey={$userPublickey} size={36} />
+            {/if}
             <div class="flex-1 min-w-0">
-              <!-- Write / Preview tab bar -->
-              <div class="flex border-b mb-1" style="border-color: var(--color-input-border)">
+              <!-- Write / Preview tab bar. In the modal the avatar sits
+                   inline here so the write area can span the full width
+                   below it instead of being indented past the avatar. -->
+              <div class="flex items-center gap-2 border-b mb-1" style="border-color: var(--color-input-border)">
+                {#if variant === 'modal'}
+                  <CustomAvatar pubkey={$userPublickey} size={32} />
+                {/if}
                 <button
                   type="button"
                   on:click={() => (showPreview = false)}
-                  class="px-3 py-1.5 text-xs font-medium transition-colors -mb-px border-b-2 {!showPreview ? 'text-primary border-primary' : 'text-caption border-transparent'}"
+                  class="composer-tab px-3 py-1.5 text-xs font-medium transition-colors -mb-px border-b-2 {!showPreview ? 'text-primary border-primary' : 'text-caption border-transparent'}"
                 >Write</button>
                 <button
                   type="button"
                   on:click={() => (showPreview = true)}
-                  class="px-3 py-1.5 text-xs font-medium transition-colors -mb-px border-b-2 {showPreview ? 'text-primary border-primary' : 'text-caption border-transparent'}"
+                  class="composer-tab px-3 py-1.5 text-xs font-medium transition-colors -mb-px border-b-2 {showPreview ? 'text-primary border-primary' : 'text-caption border-transparent'}"
                 >Preview</button>
               </div>
 
@@ -688,7 +704,7 @@
                   <div
                     bind:this={composerEl}
                     class={`composer-input w-full overflow-y-auto p-2 border-0 focus:outline-none focus:ring-0 bg-transparent ${variant === 'modal' ? 'min-h-[200px] max-h-[45vh]' : 'min-h-[120px] sm:min-h-[100px] max-h-[40vh]'}`}
-                    style="color: var(--color-text-primary);"
+                    style="color: var(--color-text-primary); touch-action: auto; user-select: text; -webkit-user-select: text;"
                     contenteditable={!posting}
                     role="textbox"
                     aria-multiline="true"
@@ -854,6 +870,18 @@
 
         <!-- Action bar — pinned at bottom in modal, inline otherwise -->
         <div class="composer-footer {variant === 'modal' ? 'px-3 pb-3' : ''}">
+          {#if uploadingImage}
+            <div class="w-full h-1 rounded-full bg-input-border overflow-hidden -mt-1 mb-1">
+              {#if uploadImageTotal > 1}
+                <div
+                  class="h-full rounded-full bg-orange-500 transition-all duration-500"
+                  style="width: {(uploadImageIndex / uploadImageTotal) * 100}%"
+                ></div>
+              {:else}
+                <div class="h-full rounded-full bg-orange-500 upload-sweep"></div>
+              {/if}
+            </div>
+          {/if}
 
           <!-- Row 1: tools + status -->
           <div class="composer-tools-row">
@@ -883,7 +911,7 @@
                     </button>
                   </div>
                 {/if}
-                <input bind:this={imageInputEl} type="file" accept="image/*" class="sr-only" on:change={handleImageUpload} disabled={posting || uploadingImage || uploadingVideo} />
+                <input bind:this={imageInputEl} type="file" accept="image/*" multiple class="sr-only" on:change={handleImageUpload} disabled={posting || uploadingImage || uploadingVideo} />
                 <input bind:this={videoInputEl} type="file" accept="video/*" class="sr-only" on:change={handleVideoUpload} disabled={posting || uploadingImage || uploadingVideo} />
               </div>
 
@@ -899,7 +927,10 @@
             <!-- Right: status indicators -->
             <div class="flex items-center gap-2 text-xs text-caption">
               {#if uploadingImage}
-                <span>Uploading image…</span>
+                <span class="flex items-center gap-1">
+                  <svg class="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                  {uploadImageTotal > 1 ? `Uploading image ${uploadImageIndex} of ${uploadImageTotal}…` : 'Uploading image…'}
+                </span>
               {:else if uploadingVideo}
                 <span>Uploading video…</span>
               {:else if showCountdown}
@@ -1070,6 +1101,14 @@
     word-break: break-word;
     /* 16px on mobile avoids iOS focus-zoom; slightly smaller on desktop reads better */
     font-size: 16px;
+  }
+
+  /* Suppress the global branded focus-visible outline on the writing area —
+     the blinking caret already signals focus, and the box reads as an
+     unwanted border around the field. */
+  .composer-input:focus,
+  .composer-input:focus-visible {
+    outline: none;
   }
 
   @media (min-width: 768px) {
@@ -1371,6 +1410,16 @@
     border-top: 1px solid var(--color-input-border);
   }
 
+  @keyframes upload-sweep {
+    0% { width: 0%; margin-left: 0%; }
+    50% { width: 60%; margin-left: 20%; }
+    100% { width: 0%; margin-left: 100%; }
+  }
+
+  .upload-sweep {
+    animation: upload-sweep 1.4s ease-in-out infinite;
+  }
+
   .composer-tools-row {
     display: flex;
     align-items: center;
@@ -1457,5 +1506,32 @@
 
   .action-post-label {
     position: relative;
+  }
+
+  /* Upsize the fullscreen mobile composer for touch — bigger text, tabs,
+     tool icons, and action buttons. Scoped to the modal variant (which is
+     the fullscreen mobile sheet) at phone widths only. */
+  @media (max-width: 767.98px) {
+    .composer-modal .composer-input {
+      font-size: 18px;
+      line-height: 1.55;
+    }
+    .composer-modal .composer-tab {
+      font-size: 0.9375rem;
+      padding: 0.5rem 0.875rem;
+    }
+    .composer-modal .tool-btn {
+      padding: 0.5rem;
+    }
+    .composer-modal .tool-btn :global(svg),
+    .composer-modal .countdown-clock-btn :global(svg) {
+      width: 26px;
+      height: 26px;
+    }
+    .composer-modal .action-cancel,
+    .composer-modal .action-post {
+      padding: 0.75rem 1.5rem;
+      font-size: 1.0625rem;
+    }
   }
 </style>
