@@ -157,7 +157,7 @@
     title="More options"
     aria-label="More options"
   >
-    <DotsThree size={20} class="text-caption" weight="regular" />
+    <DotsThree size={24} weight="bold" style="color: var(--color-text-secondary);" />
   </button>
 
   {#if menuOpen}

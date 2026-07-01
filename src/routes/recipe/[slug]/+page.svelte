@@ -8,7 +8,9 @@
   import { onMount } from 'svelte';
   import Recipe from '../../../components/Recipe/Recipe.svelte';
   import PanLoader from '../../../components/PanLoader.svelte';
-  import { GATED_RECIPE_KIND } from '$lib/consts';
+  import RightRail from '../../../components/RightRail.svelte';
+  import RailCard from '../../../components/RailCard.svelte';
+  import { GATED_RECIPE_KIND, RECIPE_TAGS } from '$lib/consts';
   import { getRecipeOgMeta } from '$lib/recipeOgMeta';
   import { stripTrackingParams } from '$lib/utils/stripTrackingParams';
 
@@ -16,6 +18,56 @@
   let naddr: string = '';
   let loading = true;
   let error: string | null = null;
+
+  // "More from this chef" rail — other recipes by the same author.
+  let moreRecipes: { naddr: string; title: string; image: string }[] = [];
+  let moreFetchedFor = '';
+
+  $: if (event && event.id !== moreFetchedFor) {
+    moreFetchedFor = event.id;
+    loadMoreFromChef(event);
+  }
+
+  async function loadMoreFromChef(current: NDKEvent) {
+    moreRecipes = [];
+    if (!$ndk || !current.pubkey) return;
+    try {
+      const events = await $ndk.fetchEvents({
+        kinds: [30023],
+        authors: [current.pubkey],
+        limit: 30
+      });
+      const items: { naddr: string; title: string; image: string }[] = [];
+      for (const ev of events) {
+        if (ev.id === current.id) continue;
+        const isRecipe = ev.tags.some(
+          (t) => t[0] === 't' && RECIPE_TAGS.includes((t[1] || '').toLowerCase())
+        );
+        if (!isRecipe) continue;
+        const dTag = ev.tags.find((t) => t[0] === 'd')?.[1];
+        if (!dTag) continue;
+        let naddrEnc = '';
+        try {
+          naddrEnc = nip19.naddrEncode({
+            identifier: dTag,
+            kind: ev.kind || 30023,
+            pubkey: ev.pubkey
+          });
+        } catch {
+          continue;
+        }
+        items.push({
+          naddr: naddrEnc,
+          title: ev.tags.find((t) => t[0] === 'title')?.[1] || dTag,
+          image: ev.tags.find((t) => t[0] === 'image')?.[1] || ''
+        });
+        if (items.length >= 5) break;
+      }
+      moreRecipes = items;
+    } catch (err) {
+      console.error('[recipe] Failed to load more from chef:', err);
+    }
+  }
 
   onMount(() => stripTrackingParams($page.url));
 
@@ -168,9 +220,66 @@
     </a>
   </div>
 {:else if event}
-  <Recipe {event} />
+  <div class="recipe-page-layout">
+    <div class="recipe-main flex-1 min-w-0">
+      <Recipe {event} />
+    </div>
+    {#if moreRecipes.length > 0}
+      <RightRail>
+        <RailCard title="More from this chef">
+          {#each moreRecipes as r (r.naddr)}
+            <a class="recipe-rail-row" href="/recipe/{r.naddr}">
+              <span
+                class="recipe-rail-thumb"
+                style:background-image={r.image ? `url('${r.image}')` : 'none'}
+              ></span>
+              <span class="recipe-rail-title">{r.title}</span>
+            </a>
+          {/each}
+        </RailCard>
+      </RightRail>
+    {/if}
+  </div>
 {:else}
   <div class="flex justify-center items-center page-loader">
     <PanLoader />
   </div>
 {/if}
+
+<style>
+  .recipe-page-layout {
+    display: flex;
+    align-items: flex-start;
+    gap: 3rem;
+  }
+  .recipe-rail-row {
+    display: flex;
+    align-items: center;
+    gap: 0.625rem;
+    min-width: 0;
+  }
+  .recipe-rail-thumb {
+    flex-shrink: 0;
+    width: 2.75rem;
+    height: 2.75rem;
+    border-radius: 0.5rem;
+    background-color: var(--color-input-bg);
+    background-size: cover;
+    background-position: center;
+  }
+  .recipe-rail-title {
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: var(--color-text-primary);
+    line-height: 1.3;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    transition: color 140ms ease;
+  }
+  .recipe-rail-row:hover .recipe-rail-title {
+    color: var(--color-primary);
+  }
+</style>

@@ -102,7 +102,7 @@
   <section id="comments-section" class="space-y-6">
     <h2 class="text-2xl font-bold">Comments</h2>
 
-    <div class="comments-list">
+    <div class="comments-list comments-list--recipe">
       {#if $events.length === 0}
         <p class="text-caption">No comments yet. Be the first to comment!</p>
       {:else}
@@ -211,5 +211,10 @@
     display: flex;
     flex-direction: column;
     gap: 0;
+  }
+
+  /* Recipe comments are sunken cards — space them out. */
+  .comments-list--recipe {
+    gap: 0.75rem;
   }
 </style>
