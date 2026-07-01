@@ -139,7 +139,7 @@
   <!-- Left: compact logo -->
   <button
     on:click={handleLogoClick}
-    class="zh-logo flex-none xl:hidden cursor-pointer transition-transform duration-150 active:scale-95"
+    class="zh-logo flex-none lg:hidden cursor-pointer transition-transform duration-150 active:scale-95"
     aria-label="zap.cooking home"
   >
     <img
@@ -159,14 +159,14 @@
        matching the header's 12px top/bottom padding so the search box has
        equal visual padding on all three framed sides. -->
   <div
-    class="hidden sm:flex flex-1 self-center print:hidden max-w-2xl min-w-[280px] lg:min-w-[500px] xl:pl-2.5"
+    class="hidden sm:flex flex-1 self-center print:hidden min-w-[280px] lg:max-w-xs xl:max-w-2xl xl:min-w-[500px] lg:pl-2.5"
   >
     <TagsSearchAutocomplete
       placeholderString={'Search recipes, tags, or users...'}
       action={openTag}
     />
   </div>
-  <span class="hidden lg:max-xl:flex lg:max-xl:grow"></span>
+  <span class="hidden sm:max-lg:flex sm:max-lg:grow"></span>
 
   <!-- Right: action cluster -->
   <div class="flex items-center gap-1.5 sm:gap-2.5 self-center flex-none print:hidden">
