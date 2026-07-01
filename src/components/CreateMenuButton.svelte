@@ -279,8 +279,11 @@
   .create-menu-floating {
     position: fixed;
     right: 1.25rem;
-    /* Bottom nav is 40px tall, positioned at safe-area-inset-bottom */
-    bottom: calc(40px + env(safe-area-inset-bottom, 0px) + 1rem + var(--timer-widget-offset, 0px));
+    /* Sit a comfortable gap above the bottom nav. --bottom-nav-height is
+       set by BottomNav and already includes the iOS safe-area inset, so we
+       don't add it again here (that double-counted and, with the taller
+       redesigned nav, left the FAB hugging the bar). */
+    bottom: calc(var(--bottom-nav-height, 56px) + 1rem + var(--timer-widget-offset, 0px));
     z-index: 40;
   }
 

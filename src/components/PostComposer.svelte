@@ -658,11 +658,18 @@
       <div class={`${variant === 'modal' ? 'flex-1 flex flex-col min-h-0' : 'p-3'}`}>
         <!-- Scrollable content area -->
         <div class={variant === 'modal' ? 'composer-scroll-area flex-1 overflow-y-auto min-h-0 p-3' : ''}>
-          <div class="flex gap-3">
-            <CustomAvatar pubkey={$userPublickey} size={36} />
+          <div class={variant === 'modal' ? 'min-w-0' : 'flex gap-3'}>
+            {#if variant === 'inline'}
+              <CustomAvatar pubkey={$userPublickey} size={36} />
+            {/if}
             <div class="flex-1 min-w-0">
-              <!-- Write / Preview tab bar -->
-              <div class="flex border-b mb-1" style="border-color: var(--color-input-border)">
+              <!-- Write / Preview tab bar. In the modal the avatar sits
+                   inline here so the write area can span the full width
+                   below it instead of being indented past the avatar. -->
+              <div class="flex items-center gap-2 border-b mb-1" style="border-color: var(--color-input-border)">
+                {#if variant === 'modal'}
+                  <CustomAvatar pubkey={$userPublickey} size={32} />
+                {/if}
                 <button
                   type="button"
                   on:click={() => (showPreview = false)}
@@ -1078,6 +1085,14 @@
     word-break: break-word;
     /* 16px on mobile avoids iOS focus-zoom; slightly smaller on desktop reads better */
     font-size: 16px;
+  }
+
+  /* Suppress the global branded focus-visible outline on the writing area —
+     the blinking caret already signals focus, and the box reads as an
+     unwanted border around the field. */
+  .composer-input:focus,
+  .composer-input:focus-visible {
+    outline: none;
   }
 
   @media (min-width: 768px) {

@@ -558,13 +558,17 @@
           {/if}
         </div>
       </div>
-      {#if !$page.url.pathname.startsWith('/messages') && !$page.url.pathname.startsWith('/groups')}
+      {#if !$page.url.pathname.startsWith('/messages') && !$page.url.pathname.startsWith('/groups') && !$postComposerOpen}
         <CreateMenuButton variant="floating" />
       {/if}
       <BottomNav />
       <CookingToolsWidget />
       {#if showCheffy}
-        <CheffyLauncher />
+        <!-- Hide the floating Cheffy launcher while the composer is open so
+             it doesn't float over the inset composer panel. -->
+        {#if !$postComposerOpen}
+          <CheffyLauncher />
+        {/if}
         <CheffyMessenger />
       {/if}
       <UserSidePanel />
