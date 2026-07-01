@@ -531,7 +531,7 @@
       <!-- Header with blur. Fixed to the viewport (not sticky inside the
            scroll container) so it stays put while the page content scrolls
            and rubber-band-bounces behind it. -->
-      <div class="header-blur fixed top-0 left-0 right-0 lg:left-[calc(16rem_+_5px)] xl:left-[calc(20rem_+_5px)] z-30 py-3 px-4">
+      <div class="header-blur fixed top-0 left-0 right-0 lg:left-[calc(14rem_+_5px)] xl:left-[calc(20rem_+_5px)] z-30 py-3 px-4">
         <Header />
         <!-- Decorative connector (desktop): a vertical line just left of
              the search box that curves into the header's bottom divider. -->
@@ -543,7 +543,7 @@
            sub-headers sit directly below it. -->
       <div
         id="app-scroll"
-        class="flex-1 min-h-0 min-w-0 overflow-y-auto overflow-x-hidden lg:ml-[calc(16rem_+_5px)] xl:ml-[calc(20rem_+_5px)]"
+        class="flex-1 min-h-0 min-w-0 overflow-y-auto overflow-x-hidden lg:ml-[calc(14rem_+_5px)] xl:ml-[calc(20rem_+_5px)]"
         style="background-color: var(--color-bg-primary); padding-top: var(--header-h);"
       >
         <div
