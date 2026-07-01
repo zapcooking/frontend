@@ -95,11 +95,12 @@
   .cheffy-launcher {
     position: fixed;
     right: 1.25rem;
-    /* One button above the create FAB: its bottom (40px nav + safe-area
-       + 1rem) + the 56px FAB + a 0.75rem gap. Mobile / tablet. */
+    /* One button above the create FAB: its bottom (--bottom-nav-height,
+       which already includes the safe-area inset, + 1rem) + the 56px FAB
+       + a 0.75rem gap. Mobile / tablet. Kept in sync with
+       CreateMenuButton's .create-menu-floating bottom. */
     bottom: calc(
-      40px + env(safe-area-inset-bottom, 0px) + 1rem + var(--timer-widget-offset, 0px) + 56px +
-        0.75rem
+      var(--bottom-nav-height, 56px) + 1rem + var(--timer-widget-offset, 0px) + 56px + 0.75rem
     );
     /* One below the create FAB / its expanded menu (both at z-index 40,
        with the menu's inner panel at z-index 45 within that stacking
