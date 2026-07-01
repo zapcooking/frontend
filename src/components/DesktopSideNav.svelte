@@ -21,7 +21,12 @@
   import StorefrontIcon from 'phosphor-svelte/lib/Storefront';
   import LeafIcon from 'phosphor-svelte/lib/Leaf';
   import ClockCounterClockwiseIcon from 'phosphor-svelte/lib/ClockCounterClockwise';
+  import CookingPotIcon from 'phosphor-svelte/lib/CookingPot';
+  import TimerIcon from 'phosphor-svelte/lib/Timer';
+  import CalculatorIcon from 'phosphor-svelte/lib/Calculator';
+  import CaretDownIcon from 'phosphor-svelte/lib/CaretDown';
   import { totalUnreadCount } from '$lib/stores/messages';
+  import { cookingToolsStore, cookingToolsOpen } from '$lib/stores/cookingToolsWidget';
 
   $: pathname = $page.url.pathname;
   $: resolvedTheme = $theme === 'system' ? theme.getResolvedTheme() : $theme;
@@ -31,6 +36,12 @@
     $weblnConnected ||
     ($bitcoinConnectEnabled && $bitcoinConnectWalletInfo.connected);
 
+  type NavChild = {
+    label: string;
+    icon: any;
+    onClick: () => void;
+  };
+
   type NavItem = {
     href: string;
     label: string;
@@ -39,7 +50,18 @@
     badge?: 'walletConnect' | 'members' | 'messagesDot';
     external?: boolean;
     onClick?: () => void;
+    children?: NavChild[];
   };
+
+  let expandedItems = new Set<string>();
+  function toggleExpanded(href: string) {
+    if (expandedItems.has(href)) {
+      expandedItems.delete(href);
+    } else {
+      expandedItems.add(href);
+    }
+    expandedItems = expandedItems;
+  }
 
   const primary: NavItem[] = [
     {
@@ -85,6 +107,12 @@
       icon: EnvelopeSimpleIcon,
       match: (p) => p.startsWith('/messages'),
       badge: 'messagesDot'
+    },
+    {
+      href: '/memories',
+      label: 'Memories',
+      icon: ClockCounterClockwiseIcon,
+      match: (p) => p.startsWith('/memories')
     }
   ];
 
@@ -116,10 +144,14 @@
       match: (p) => p.startsWith('/nourish')
     },
     {
-      href: '/memories',
-      label: 'Memories',
-      icon: ClockCounterClockwiseIcon,
-      match: (p) => p.startsWith('/memories')
+      href: '#cooking-tools',
+      label: 'Gadgets',
+      icon: CookingPotIcon,
+      match: () => $cookingToolsOpen,
+      children: [
+        { label: 'Timer', icon: TimerIcon, onClick: () => cookingToolsStore.open('timer') },
+        { label: 'Unit Converter', icon: CalculatorIcon, onClick: () => cookingToolsStore.open('converter') }
+      ]
     },
     {
       href: '/membership',
@@ -242,34 +274,66 @@
         <ul class="flex flex-col gap-1">
           {#each kitchen as item (item.href)}
             {@const active = item.match ? item.match(pathname) : pathname === item.href}
+            {@const expanded = expandedItems.has(item.href)}
             <li>
-              <a
-                href={item.href}
-                class={linkClasses(active)}
-                style="color: var(--color-text-primary);"
-                aria-current={active ? 'page' : undefined}
-                on:click={(e) => {
-                  if (item.onClick && !(e.metaKey || e.ctrlKey || e.shiftKey || e.altKey)) {
-                    e.preventDefault();
-                    item.onClick();
-                  }
-                }}
-              >
-                <span class="relative flex items-center justify-center w-9 h-9 rounded-xl">
-                  <svelte:component this={item.icon} size={20} />
-                </span>
-                <span class="font-medium">{item.label}</span>
-                {#if item.badge === 'walletConnect' && !hasWallet}
-                  <span class="text-xs px-2 py-0.5 rounded-full bg-primary/20 text-primary"
-                    >Connect</span
-                  >
-                {:else if item.badge === 'members'}
-                  <span
-                    class="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary font-medium"
-                    >Members</span
-                  >
+              {#if item.children}
+                <button
+                  type="button"
+                  class="{linkClasses(active)} w-full"
+                  style="color: var(--color-text-primary);"
+                  on:click={() => toggleExpanded(item.href)}
+                >
+                  <span class="flex items-center justify-center w-9 h-9 rounded-xl">
+                    <svelte:component this={item.icon} size={20} />
+                  </span>
+                  <span class="font-medium">{item.label}</span>
+                  <span class="ml-auto transition-transform duration-200" class:rotate-180={expanded}>
+                    <CaretDownIcon size={14} />
+                  </span>
+                </button>
+                {#if expanded}
+                  <ul class="mt-0.5 ml-3 flex flex-col gap-0.5">
+                    {#each item.children as child}
+                      <li>
+                        <button
+                          type="button"
+                          class="{linkClasses(false)} w-full"
+                          style="color: var(--color-text-primary);"
+                          on:click={child.onClick}
+                        >
+                          <span class="flex items-center justify-center w-9 h-9 rounded-xl">
+                            <svelte:component this={child.icon} size={18} />
+                          </span>
+                          <span class="font-medium">{child.label}</span>
+                        </button>
+                      </li>
+                    {/each}
+                  </ul>
                 {/if}
-              </a>
+              {:else}
+                <a
+                  href={item.href}
+                  class={linkClasses(active)}
+                  style="color: var(--color-text-primary);"
+                  aria-current={active ? 'page' : undefined}
+                  on:click={(e) => {
+                    if (item.onClick && !(e.metaKey || e.ctrlKey || e.shiftKey || e.altKey)) {
+                      e.preventDefault();
+                      item.onClick();
+                    }
+                  }}
+                >
+                  <span class="relative flex items-center justify-center w-9 h-9 rounded-xl">
+                    <svelte:component this={item.icon} size={20} />
+                  </span>
+                  <span class="font-medium">{item.label}</span>
+                  {#if item.badge === 'walletConnect' && !hasWallet}
+                    <span class="text-xs px-2 py-0.5 rounded-full bg-primary/20 text-primary">Connect</span>
+                  {:else if item.badge === 'members'}
+                    <span class="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary font-medium">Members</span>
+                  {/if}
+                </a>
+              {/if}
             </li>
           {/each}
         </ul>
