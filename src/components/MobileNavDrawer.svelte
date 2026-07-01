@@ -17,25 +17,18 @@
   import ShoppingCartIcon from 'phosphor-svelte/lib/ShoppingCart';
   import WalletIcon from 'phosphor-svelte/lib/Wallet';
   import LeafIcon from 'phosphor-svelte/lib/Leaf';
-  import MeasuringCupIcon from './icons/MeasuringCupIcon.svelte';
-  import TimerIcon from 'phosphor-svelte/lib/Timer';
-  import CalculatorIcon from 'phosphor-svelte/lib/Calculator';
   import CrownSimpleIcon from 'phosphor-svelte/lib/CrownSimple';
   import HandshakeIcon from 'phosphor-svelte/lib/Handshake';
-  import CaretDownIcon from 'phosphor-svelte/lib/CaretDown';
   import { totalUnreadCount } from '$lib/stores/messages';
   import { walletConnected, openWallet, walletModalOpen } from '$lib/wallet';
   import { weblnConnected } from '$lib/wallet/webln';
   import { bitcoinConnectEnabled, bitcoinConnectWalletInfo } from '$lib/wallet/bitcoinConnect';
-  import { cookingToolsStore, cookingToolsOpen } from '$lib/stores/cookingToolsWidget';
 
   $: pathname = $page.url.pathname;
   $: hasWallet =
     $walletConnected ||
     $weblnConnected ||
     ($bitcoinConnectEnabled && $bitcoinConnectWalletInfo.connected);
-
-  let gadgetsExpanded = false;
 
   function close() {
     mobileNavOpen.set(false);
@@ -141,61 +134,26 @@
             { href: '/cookbook', label: 'Cookbook', icon: CookbookIcon, match: (p) => p.startsWith('/cookbook') },
             { href: '/grocery', label: 'Grocery Lists', icon: ShoppingCartIcon, match: (p) => p.startsWith('/grocery') },
             { href: '/wallet', label: 'Wallet', icon: WalletIcon, match: () => $walletModalOpen, badge: 'wallet' },
-            { href: '#cooking-tools', label: 'Gadgets', icon: MeasuringCupIcon, match: () => $cookingToolsOpen, gadgets: true },
             { href: '/nourish', label: 'Nourish', icon: LeafIcon, match: (p) => p.startsWith('/nourish') },
             { href: '/membership', label: 'Membership', icon: CrownSimpleIcon, match: (p) => p.startsWith('/membership') },
             { href: '/sponsors', label: 'Sponsors', icon: HandshakeIcon, match: (p) => p.startsWith('/sponsors') },
           ] as item}
-            {#if item.gadgets}
-              <!-- Gadgets (expandable) -->
-              <li>
-                <button
-                  on:click={() => (gadgetsExpanded = !gadgetsExpanded)}
-                  class="nav-row w-full {$cookingToolsOpen ? 'nav-row-active' : ''}"
-                  style="color: var(--color-text-primary);"
-                >
-                  <span class="flex items-center justify-center w-9 h-9 rounded-xl flex-shrink-0">
-                    <MeasuringCupIcon size={20} />
-                  </span>
-                  <span class="font-medium">Gadgets</span>
-                  <span class="ml-auto transition-transform duration-200" class:rotate-180={gadgetsExpanded}>
-                    <CaretDownIcon size={14} />
-                  </span>
-                </button>
-                {#if gadgetsExpanded}
-                  <ul class="mt-0.5 ml-3 flex flex-col gap-0.5">
-                    <li>
-                      <button on:click={() => { close(); cookingToolsStore.open('timer'); }} class="nav-row w-full" style="color: var(--color-text-primary);">
-                        <span class="flex items-center justify-center w-9 h-9 rounded-xl flex-shrink-0"><TimerIcon size={18} /></span>
-                        <span class="font-medium">Timer</span>
-                      </button>
-                    </li>
-                    <li>
-                      <button on:click={() => { close(); cookingToolsStore.open('converter'); }} class="nav-row w-full" style="color: var(--color-text-primary);">
-                        <span class="flex items-center justify-center w-9 h-9 rounded-xl flex-shrink-0"><CalculatorIcon size={18} /></span>
-                        <span class="font-medium">Unit Converter</span>
-                      </button>
-                    </li>
-                  </ul>
+            {@const active = item.match(pathname)}
+            <li>
+              <button
+                on:click={() => { if (item.badge === 'wallet') { close(); openWallet(); } else { navigate(item.href); } }}
+                class="nav-row w-full {active ? 'nav-row-active' : ''}"
+                style="color: var(--color-text-primary);"
+              >
+                <span class="flex items-center justify-center w-9 h-9 rounded-xl flex-shrink-0">
+                  <svelte:component this={item.icon} size={20} />
+                </span>
+                <span class="font-medium">{item.label}</span>
+                {#if item.badge === 'wallet' && !hasWallet}
+                  <span class="ml-auto text-xs px-2 py-0.5 rounded-full bg-primary/20 text-primary">Connect</span>
                 {/if}
-              </li>
-            {:else}
-              <li>
-                <button
-                  on:click={() => { if (item.badge === 'wallet') { close(); openWallet(); } else { navigate(item.href); } }}
-                  class="nav-row w-full {item.match(pathname) ? 'nav-row-active' : ''}"
-                  style="color: var(--color-text-primary);"
-                >
-                  <span class="flex items-center justify-center w-9 h-9 rounded-xl flex-shrink-0">
-                    <svelte:component this={item.icon} size={20} />
-                  </span>
-                  <span class="font-medium">{item.label}</span>
-                  {#if item.badge === 'wallet' && !hasWallet}
-                    <span class="ml-auto text-xs px-2 py-0.5 rounded-full bg-primary/20 text-primary">Connect</span>
-                  {/if}
-                </button>
-              </li>
-            {/if}
+              </button>
+            </li>
           {/each}
         </ul>
       </div>

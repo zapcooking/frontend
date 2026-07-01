@@ -9,6 +9,9 @@
   import XIcon from 'phosphor-svelte/lib/X';
   import UserIcon from 'phosphor-svelte/lib/User';
   import CookbookIcon from 'phosphor-svelte/lib/BookOpen';
+  import MeasuringCupIcon from './icons/MeasuringCupIcon.svelte';
+  import TimerIcon from 'phosphor-svelte/lib/Timer';
+  import CalculatorIcon from 'phosphor-svelte/lib/Calculator';
   import ShoppingCartIcon from 'phosphor-svelte/lib/ShoppingCart';
   import FloppyDiskIcon from 'phosphor-svelte/lib/FloppyDisk';
   import WalletIcon from 'phosphor-svelte/lib/Wallet';
@@ -35,6 +38,7 @@
   import { getAuthManager } from '$lib/authManager';
   import { profileCacheManager } from '$lib/profileCache';
   import { userSidePanelOpen } from '$lib/stores/userSidePanel';
+  import { cookingToolsStore } from '$lib/stores/cookingToolsWidget';
   import { walletConnected } from '$lib/wallet/walletStore';
   import { openWallet, type WalletView } from '$lib/wallet/walletModalStore';
   import { weblnConnected } from '$lib/wallet/webln';
@@ -128,6 +132,25 @@
   function openWalletPanel(view: WalletView = 'main') {
     close();
     openWallet(view);
+  }
+
+  // Gadgets (cooking tools) expandable section
+  let gadgetsExpanded = false;
+
+  function openTimerWidget() {
+    cookingToolsStore.open('timer');
+    close();
+  }
+
+  function openConverterWidget() {
+    cookingToolsStore.open('converter');
+    close();
+  }
+
+  function toggleGadgets(e: Event) {
+    e.preventDefault();
+    e.stopPropagation();
+    gadgetsExpanded = !gadgetsExpanded;
   }
 
   function toggleTheme(e: Event) {
@@ -329,6 +352,48 @@
                 >
               {/if}
             </button>
+          </li>
+          <!-- Gadgets (cooking tools) — expandable -->
+          <li>
+            <button
+              on:click={toggleGadgets}
+              class="w-full flex items-center justify-between px-4 py-3 rounded-xl hover:bg-opacity-50 transition-colors cursor-pointer"
+              style="color: var(--color-text-primary);"
+              aria-expanded={gadgetsExpanded}
+            >
+              <div class="flex items-center gap-4">
+                <MeasuringCupIcon size={22} />
+                <span class="font-medium">Gadgets</span>
+              </div>
+              <CaretDownIcon
+                size={18}
+                class="transition-transform duration-200 {gadgetsExpanded ? 'rotate-180' : ''}"
+              />
+            </button>
+            {#if gadgetsExpanded}
+              <ul class="flex flex-col gap-1 mt-1 ml-4" transition:slide={{ duration: 200 }}>
+                <li>
+                  <button
+                    on:click={openTimerWidget}
+                    class="w-full flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-opacity-50 transition-colors cursor-pointer"
+                    style="color: var(--color-text-primary);"
+                  >
+                    <TimerIcon size={20} />
+                    <span class="font-medium">Timer</span>
+                  </button>
+                </li>
+                <li>
+                  <button
+                    on:click={openConverterWidget}
+                    class="w-full flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-opacity-50 transition-colors cursor-pointer"
+                    style="color: var(--color-text-primary);"
+                  >
+                    <CalculatorIcon size={20} />
+                    <span class="font-medium">Unit Converter</span>
+                  </button>
+                </li>
+              </ul>
+            {/if}
           </li>
           <li>
             <button
