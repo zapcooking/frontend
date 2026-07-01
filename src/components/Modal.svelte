@@ -27,6 +27,7 @@
   export let wide = false;
   export let maxWidth: string | null = null;
   export let autoHeight = false;
+  export let fullScreenMobile = false;
 
   // Portal target - render at document body level. Initialized
   // synchronously when document is available so the dialog can mount
@@ -154,7 +155,7 @@
         transition:scale={{ duration: 250 }}
         aria-labelledby="title"
         aria-modal="true"
-        class="absolute m-0 top-1/2 left-1/2 px-4 md:px-8 pt-6 pb-8 rounded-3xl w-[calc(100%-2rem)] md:w-[calc(100vw-4em)] min-h-[50vh] md:min-h-0 max-h-[85dvh] md:max-h-[90dvh] -translate-x-1/2 -translate-y-1/2 flex flex-col"
+        class={`absolute m-0 px-4 md:px-8 pt-6 pb-8 flex flex-col md:top-1/2 md:left-1/2 md:-translate-x-1/2 md:-translate-y-1/2 md:rounded-3xl md:w-[calc(100vw-4em)] md:min-h-0 md:max-h-[90dvh] ${fullScreenMobile ? 'fullscreen-dialog-mobile' : 'top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 rounded-3xl w-[calc(100%-2rem)] min-h-[50vh] max-h-[85dvh]'}`}
         class:modal-auto-height={autoHeight}
         class:max-w-xl={!wide && !maxWidth}
         class:max-w-2xl={wide && !maxWidth}
@@ -207,3 +208,26 @@
     }
   </style>
 {/if}
+
+<!-- Top-level style block — unlike the one above (nested inside the {#if},
+     which Svelte only renders as a literal DOM <style> tag rather than
+     compiling, so its :global() rules never apply), this one is a real
+     root-level style block and gets compiled/scoped normally. -->
+<style>
+  @media (max-width: 767.98px) {
+    :global(.fullscreen-dialog-mobile) {
+      top: 0;
+      left: 0;
+      transform: none;
+      width: 100%;
+      height: 100dvh;
+      max-height: 100dvh;
+      min-height: 100dvh;
+      border-radius: 0;
+      padding-top: max(1.5rem, env(safe-area-inset-top));
+      padding-bottom: max(2rem, env(safe-area-inset-bottom));
+      padding-left: max(1rem, env(safe-area-inset-left));
+      padding-right: max(1rem, env(safe-area-inset-right));
+    }
+  }
+</style>

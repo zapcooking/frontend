@@ -672,7 +672,7 @@
                   <div
                     bind:this={composerEl}
                     class={`composer-input w-full overflow-y-auto p-2 border-0 focus:outline-none focus:ring-0 bg-transparent ${variant === 'modal' ? 'min-h-[200px] max-h-[45vh]' : 'min-h-[120px] sm:min-h-[100px] max-h-[40vh]'}`}
-                    style="color: var(--color-text-primary);"
+                    style="color: var(--color-text-primary); touch-action: auto; user-select: text; -webkit-user-select: text;"
                     contenteditable={!posting}
                     role="textbox"
                     aria-multiline="true"
