@@ -10,7 +10,7 @@
   import { unreadCount } from '$lib/notificationStore';
   import { totalUnreadCount } from '$lib/stores/messages';
   import { triggerNotificationsNav } from '$lib/notificationsNav';
-  import { openWallet, walletModalOpen } from '$lib/wallet';
+  import { openWallet, closeWallet, walletModalOpen } from '$lib/wallet';
 
   $: pathname = $page.url.pathname;
 
@@ -66,7 +66,7 @@
          above the bar's top edge and floats over the scrolling content. -->
     <div class="zap-cell">
       <button
-        on:click={() => openWallet()}
+        on:click={() => ($walletModalOpen ? closeWallet() : openWallet())}
         class="zap-center"
         class:active={$walletModalOpen}
         aria-label="Wallet"

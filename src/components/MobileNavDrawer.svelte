@@ -17,7 +17,7 @@
   import ShoppingCartIcon from 'phosphor-svelte/lib/ShoppingCart';
   import WalletIcon from 'phosphor-svelte/lib/Wallet';
   import LeafIcon from 'phosphor-svelte/lib/Leaf';
-  import CookingPotIcon from 'phosphor-svelte/lib/CookingPot';
+  import MeasuringCupIcon from './icons/MeasuringCupIcon.svelte';
   import TimerIcon from 'phosphor-svelte/lib/Timer';
   import CalculatorIcon from 'phosphor-svelte/lib/Calculator';
   import CrownSimpleIcon from 'phosphor-svelte/lib/CrownSimple';
@@ -141,60 +141,62 @@
             { href: '/cookbook', label: 'Cookbook', icon: CookbookIcon, match: (p) => p.startsWith('/cookbook') },
             { href: '/grocery', label: 'Grocery Lists', icon: ShoppingCartIcon, match: (p) => p.startsWith('/grocery') },
             { href: '/wallet', label: 'Wallet', icon: WalletIcon, match: () => $walletModalOpen, badge: 'wallet' },
+            { href: '#cooking-tools', label: 'Gadgets', icon: MeasuringCupIcon, match: () => $cookingToolsOpen, gadgets: true },
             { href: '/nourish', label: 'Nourish', icon: LeafIcon, match: (p) => p.startsWith('/nourish') },
             { href: '/membership', label: 'Membership', icon: CrownSimpleIcon, match: (p) => p.startsWith('/membership') },
             { href: '/sponsors', label: 'Sponsors', icon: HandshakeIcon, match: (p) => p.startsWith('/sponsors') },
           ] as item}
-            {@const active = item.match(pathname)}
-            <li>
-              <button
-                on:click={() => { if (item.badge === 'wallet') { close(); openWallet(); } else { navigate(item.href); } }}
-                class="nav-row w-full {active ? 'nav-row-active' : ''}"
-                style="color: var(--color-text-primary);"
-              >
-                <span class="flex items-center justify-center w-9 h-9 rounded-xl flex-shrink-0">
-                  <svelte:component this={item.icon} size={20} />
-                </span>
-                <span class="font-medium">{item.label}</span>
-                {#if item.badge === 'wallet' && !hasWallet}
-                  <span class="ml-auto text-xs px-2 py-0.5 rounded-full bg-primary/20 text-primary">Connect</span>
+            {#if item.gadgets}
+              <!-- Gadgets (expandable) -->
+              <li>
+                <button
+                  on:click={() => (gadgetsExpanded = !gadgetsExpanded)}
+                  class="nav-row w-full {$cookingToolsOpen ? 'nav-row-active' : ''}"
+                  style="color: var(--color-text-primary);"
+                >
+                  <span class="flex items-center justify-center w-9 h-9 rounded-xl flex-shrink-0">
+                    <MeasuringCupIcon size={20} />
+                  </span>
+                  <span class="font-medium">Gadgets</span>
+                  <span class="ml-auto transition-transform duration-200" class:rotate-180={gadgetsExpanded}>
+                    <CaretDownIcon size={14} />
+                  </span>
+                </button>
+                {#if gadgetsExpanded}
+                  <ul class="mt-0.5 ml-3 flex flex-col gap-0.5">
+                    <li>
+                      <button on:click={() => { close(); cookingToolsStore.open('timer'); }} class="nav-row w-full" style="color: var(--color-text-primary);">
+                        <span class="flex items-center justify-center w-9 h-9 rounded-xl flex-shrink-0"><TimerIcon size={18} /></span>
+                        <span class="font-medium">Timer</span>
+                      </button>
+                    </li>
+                    <li>
+                      <button on:click={() => { close(); cookingToolsStore.open('converter'); }} class="nav-row w-full" style="color: var(--color-text-primary);">
+                        <span class="flex items-center justify-center w-9 h-9 rounded-xl flex-shrink-0"><CalculatorIcon size={18} /></span>
+                        <span class="font-medium">Unit Converter</span>
+                      </button>
+                    </li>
+                  </ul>
                 {/if}
-              </button>
-            </li>
-          {/each}
-
-          <!-- Gadgets (expandable) -->
-          <li>
-            <button
-              on:click={() => (gadgetsExpanded = !gadgetsExpanded)}
-              class="nav-row w-full {$cookingToolsOpen ? 'nav-row-active' : ''}"
-              style="color: var(--color-text-primary);"
-            >
-              <span class="flex items-center justify-center w-9 h-9 rounded-xl flex-shrink-0">
-                <CookingPotIcon size={20} />
-              </span>
-              <span class="font-medium">Gadgets</span>
-              <span class="ml-auto transition-transform duration-200" class:rotate-180={gadgetsExpanded}>
-                <CaretDownIcon size={14} />
-              </span>
-            </button>
-            {#if gadgetsExpanded}
-              <ul class="mt-0.5 ml-3 flex flex-col gap-0.5">
-                <li>
-                  <button on:click={() => { close(); cookingToolsStore.open('timer'); }} class="nav-row w-full" style="color: var(--color-text-primary);">
-                    <span class="flex items-center justify-center w-9 h-9 rounded-xl flex-shrink-0"><TimerIcon size={18} /></span>
-                    <span class="font-medium">Timer</span>
-                  </button>
-                </li>
-                <li>
-                  <button on:click={() => { close(); cookingToolsStore.open('converter'); }} class="nav-row w-full" style="color: var(--color-text-primary);">
-                    <span class="flex items-center justify-center w-9 h-9 rounded-xl flex-shrink-0"><CalculatorIcon size={18} /></span>
-                    <span class="font-medium">Unit Converter</span>
-                  </button>
-                </li>
-              </ul>
+              </li>
+            {:else}
+              <li>
+                <button
+                  on:click={() => { if (item.badge === 'wallet') { close(); openWallet(); } else { navigate(item.href); } }}
+                  class="nav-row w-full {item.match(pathname) ? 'nav-row-active' : ''}"
+                  style="color: var(--color-text-primary);"
+                >
+                  <span class="flex items-center justify-center w-9 h-9 rounded-xl flex-shrink-0">
+                    <svelte:component this={item.icon} size={20} />
+                  </span>
+                  <span class="font-medium">{item.label}</span>
+                  {#if item.badge === 'wallet' && !hasWallet}
+                    <span class="ml-auto text-xs px-2 py-0.5 rounded-full bg-primary/20 text-primary">Connect</span>
+                  {/if}
+                </button>
+              </li>
             {/if}
-          </li>
+          {/each}
         </ul>
       </div>
 

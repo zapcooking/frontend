@@ -21,7 +21,7 @@
   import StorefrontIcon from 'phosphor-svelte/lib/Storefront';
   import LeafIcon from 'phosphor-svelte/lib/Leaf';
   import ClockCounterClockwiseIcon from 'phosphor-svelte/lib/ClockCounterClockwise';
-  import CookingPotIcon from 'phosphor-svelte/lib/CookingPot';
+  import MeasuringCupIcon from './icons/MeasuringCupIcon.svelte';
   import TimerIcon from 'phosphor-svelte/lib/Timer';
   import CalculatorIcon from 'phosphor-svelte/lib/Calculator';
   import CaretDownIcon from 'phosphor-svelte/lib/CaretDown';
@@ -138,20 +138,20 @@
       onClick: () => openWallet()
     },
     {
-      href: '/nourish',
-      label: 'Nourish',
-      icon: LeafIcon,
-      match: (p) => p.startsWith('/nourish')
-    },
-    {
       href: '#cooking-tools',
       label: 'Gadgets',
-      icon: CookingPotIcon,
+      icon: MeasuringCupIcon,
       match: () => $cookingToolsOpen,
       children: [
         { label: 'Timer', icon: TimerIcon, onClick: () => cookingToolsStore.open('timer') },
         { label: 'Unit Converter', icon: CalculatorIcon, onClick: () => cookingToolsStore.open('converter') }
       ]
+    },
+    {
+      href: '/nourish',
+      label: 'Nourish',
+      icon: LeafIcon,
+      match: (p) => p.startsWith('/nourish')
     },
     {
       href: '/membership',
