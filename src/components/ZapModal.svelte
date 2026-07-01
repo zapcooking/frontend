@@ -2,21 +2,14 @@
   import { NDKEvent, NDKUser } from '@nostr-dev-kit/ndk';
   import { ndk } from '$lib/nostr';
   import Modal from './Modal.svelte';
-  import PanLoader from './PanLoader.svelte';
   import Button from './Button.svelte';
-  import Checkmark from 'phosphor-svelte/lib/CheckFat';
   import LightningIcon from 'phosphor-svelte/lib/LightningSlash';
-
-  import CustomAvatar from './CustomAvatar.svelte';
-  import CustomName from './CustomName.svelte';
   import { browser } from '$app/environment';
   import { onMount, createEventDispatcher } from 'svelte';
   import { get } from 'svelte/store';
   import { ZapManager } from '$lib/zapManager';
   import { lightningService } from '$lib/lightningService';
   import { hapticSuccess } from '$lib/haptics';
-  import { displayCurrency } from '$lib/currencyStore';
-  import { convertSatsToFiat, formatFiatValue } from '$lib/currencyConversion';
 
   const dispatch = createEventDispatcher<{
     'zap-complete': { amount: number; pollOptionId?: string; comment?: string };
@@ -25,6 +18,8 @@
   import { sendPayment } from '$lib/wallet/walletManager';
   import { weblnConnected } from '$lib/wallet/webln';
   import { defaultZapMessage } from '$lib/autoZapSettings';
+  import { addPendingOp, removePendingOp } from '$lib/stores/pendingOps';
+  import { showToast } from '$lib/toast';
 
   // True when we can pay an invoice directly without launching the
   // Bitcoin Connect payment modal:
@@ -95,7 +90,9 @@
   // creating a subscription that re-fires on later store updates.
   let message: string = get(defaultZapMessage);
 
-  let state: 'pre' | 'pending' | 'success' | 'error' = 'pre';
+  let state: 'pre' | 'error' = 'pre';
+  let isSendingInApp = false;
+  let sendingOpId: string | null = null;
   let error: Error | null = null;
 
   // Friendly mapping for the error state. The raw error message can be
@@ -151,11 +148,8 @@
 
   let zapManager: ZapManager;
   let pendingTimeout: ReturnType<typeof setTimeout> | null = null;
-  let successTimeout: ReturnType<typeof setTimeout> | null = null;
-  let recipientPubkeyForDisplay: string = '';
 
   const PENDING_TIMEOUT_MS = 45000; // 45 second timeout for entire zap process
-  const SUCCESS_DISPLAY_MS = 2500; // 2.5s to show success before auto-closing
 
   function clearPendingTimeout() {
     if (pendingTimeout) {
@@ -164,31 +158,23 @@
     }
   }
 
-  function clearSuccessTimeout() {
-    if (successTimeout) {
-      clearTimeout(successTimeout);
-      successTimeout = null;
-    }
-  }
-
   function startPendingTimeout() {
     clearPendingTimeout();
     pendingTimeout = setTimeout(() => {
-      if (state === 'pending') {
-        error = new Error(
-          'Zap request timed out. The payment service may be unavailable. Please try again.'
-        );
-        state = 'error';
+      if (isSendingInApp) {
+        isSendingInApp = false;
+        if (sendingOpId) { removePendingOp(sendingOpId); sendingOpId = null; }
+        // Modal is already closed — surface via toast rather than error UI.
+        showToast('error', 'Zap timed out. The payment service may be unavailable.');
       }
     }, PENDING_TIMEOUT_MS);
   }
 
   onMount(() => {
-    // Cleanup on unmount
-    return () => {
-      clearPendingTimeout();
-      clearSuccessTimeout();
-    };
+    // Do NOT clear the pending timeout on unmount — for in-app zaps the
+    // modal closes immediately while the payment runs in the background,
+    // so the hang-protection timeout must outlive the component.
+    return () => { /* intentionally empty */ };
   });
 
   // Initialize zap manager only in browser
@@ -206,8 +192,14 @@
   }
 
   async function submitWithInAppWallet() {
-    state = 'pending';
+    isSendingInApp = true;
     error = null;
+    sendingOpId = addPendingOp('Sending zap ⚡');
+    // Dispatch optimistically before closing so the event reaches the parent
+    // while the component is still mounted. Callers use {#if open} which
+    // destroys the component on the next tick after open=false.
+    dispatch('zap-complete', { amount, pollOptionId, comment: message || undefined });
+    open = false;
     startPendingTimeout();
 
     try {
@@ -236,7 +228,7 @@
         throw new Error('Invalid event or user provided to ZapModal');
       }
 
-      recipientPubkeyForDisplay = recipientPubkey;
+
 
       // Get the invoice from zapManager
       const extraTags = pollOptionId
@@ -267,22 +259,17 @@
       }
 
       clearPendingTimeout();
-      state = 'success';
       hapticSuccess();
-
-      // Notify parent that zap completed so it can refresh zap totals.
-      // Include the user-typed message so the optimistic pill shows it.
-      dispatch('zap-complete', { amount, pollOptionId, comment: message || undefined });
-
-      // Auto-close modal after 2.5s; user can also tap anywhere to dismiss
-      successTimeout = setTimeout(() => {
-        open = false;
-      }, SUCCESS_DISPLAY_MS);
+      showToast('success', `⚡ Sent ${amount.toLocaleString()} sats`);
     } catch (e) {
       clearPendingTimeout();
       console.error('In-app wallet payment failed:', e);
-      error = e as Error;
-      state = 'error';
+      // Modal is already closed — surface the failure via toast.
+      const msg = e instanceof Error ? e.message : 'Payment failed';
+      showToast('error', msg);
+    } finally {
+      isSendingInApp = false;
+      if (sendingOpId) { removePendingOp(sendingOpId); sendingOpId = null; }
     }
   }
 
@@ -314,7 +301,7 @@
         throw new Error('No recipient pubkey found');
       }
 
-      recipientPubkeyForDisplay = recipientPubkey;
+
 
       // Get the invoice from zapManager
       const extraTags = pollOptionId
@@ -361,8 +348,10 @@
 
   // Clean up when modal closes
   $: if (!open) {
-    clearPendingTimeout();
-    clearSuccessTimeout();
+    // Only clear the hang-protection timeout if we're NOT mid-payment.
+    // For in-app zaps the modal closes before the payment resolves, so
+    // clearPendingTimeout here would kill the 45s safety net.
+    if (!isSendingInApp) clearPendingTimeout();
     // Reset state when modal closes (with small delay to allow animation to trigger)
     setTimeout(() => {
       if (!open && state !== 'pre') {
@@ -372,31 +361,12 @@
     }, 100);
   }
 
-  function dismissSuccess() {
-    clearSuccessTimeout();
-    open = false;
-  }
-
-  // Optional USD equivalent for success message (when display currency is not SATS)
-  let successFiatStr: string | null = null;
-  $: if (state === 'success' && amount != null && $displayCurrency !== 'SATS' && browser) {
-    convertSatsToFiat(amount).then((v) => {
-      successFiatStr = v != null ? formatFiatValue(v) : null;
-    });
-  }
-  $: if (state !== 'success') successFiatStr = null;
 </script>
 
-<Modal bind:open compact={state === 'success'}>
+<Modal bind:open>
   <h1 slot="title">Zap</h1>
   <div class="flex flex-col gap-3">
-    {#if state == 'pending'}
-      <!-- Only shows for in-app wallet payments -->
-      <div class="flex flex-col text-2xl items-center">
-        <PanLoader size="md" />
-        <span class="self-center mt-4" style="color: var(--color-text-primary)">Sending Zap!</span>
-      </div>
-    {:else if state == 'pre'}
+    {#if state == 'pre'}
       <div class="flex flex-col gap-3">
         {#if pollOptionLabel}
           <div class="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium" style="background: rgba(250, 204, 21, 0.1); color: var(--color-text-primary); border: 1px solid rgba(250, 204, 21, 0.3);">
@@ -469,28 +439,20 @@
             <p class="text-xs text-caption mt-1">Scan QR code or connect wallet</p>
           </div>
         {/if}
-        <Button class="w-full py-3 text-lg" on:click={submitZap} disabled={isCreatingInvoice || (pollMinSats != null && amount < pollMinSats) || (pollMaxSats != null && pollMaxSats > 0 && amount > pollMaxSats)}>
-          {#if isCreatingInvoice}
+        <Button class="w-full py-3 text-lg" on:click={submitZap} disabled={isSendingInApp || isCreatingInvoice || (pollMinSats != null && amount < pollMinSats) || (pollMaxSats != null && pollMaxSats > 0 && amount > pollMaxSats)}>
+          {#if isSendingInApp}
             <span class="flex items-center justify-center gap-2">
-              <svg
-                class="animate-spin h-5 w-5"
-                xmlns="http://www.w3.org/2000/svg"
-                fill="none"
-                viewBox="0 0 24 24"
-              >
-                <circle
-                  class="opacity-25"
-                  cx="12"
-                  cy="12"
-                  r="10"
-                  stroke="currentColor"
-                  stroke-width="4"
-                ></circle>
-                <path
-                  class="opacity-75"
-                  fill="currentColor"
-                  d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                ></path>
+              <svg class="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+              </svg>
+              Sending...
+            </span>
+          {:else if isCreatingInvoice}
+            <span class="flex items-center justify-center gap-2">
+              <svg class="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
               </svg>
               Creating Invoice...
             </span>
@@ -527,82 +489,6 @@
           {/if}
         </div>
       </div>
-    {:else if state == 'success'}
-      <!-- Payment Success: tap anywhere to dismiss, auto-closes in 2.5s -->
-      <button
-        type="button"
-        class="zap-success-tap-target flex flex-col items-center justify-center cursor-pointer text-left w-full focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--color-bg-secondary)] rounded-2xl"
-        on:click={dismissSuccess}
-        on:keydown={(e) => {
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault();
-            dismissSuccess();
-          }
-        }}
-      >
-        {#if recipientPubkeyForDisplay}
-          <div class="flex gap-3 items-center mb-3">
-            <CustomAvatar className="flex-shrink-0" pubkey={recipientPubkeyForDisplay} size={48} />
-            <div class="flex flex-col gap-0.5">
-              <span
-                class="text-base font-semibold"
-                style="color: var(--color-text-primary)"
-              >
-                <CustomName pubkey={recipientPubkeyForDisplay} />
-              </span>
-            </div>
-          </div>
-        {/if}
-        <div class="zap-success-checkmark-wrap relative my-1">
-          <svg class="zap-success-progress-ring" viewBox="0 0 100 100" aria-hidden="true">
-            <circle
-              class="zap-success-progress-ring-bg"
-              cx="50"
-              cy="50"
-              r="46"
-              fill="none"
-              stroke-width="2"
-            />
-            <circle
-              class="zap-success-progress-ring-fg"
-              cx="50"
-              cy="50"
-              r="46"
-              fill="none"
-              stroke-width="2"
-              stroke-dasharray="289"
-              stroke-dashoffset="0"
-            />
-          </svg>
-          <span class="zap-success-checkmark">
-            <Checkmark color="#90EE90" weight="fill" class="w-24 h-24 block" />
-          </span>
-        </div>
-        <span
-          class="text-xl font-semibold text-center mt-2"
-          style="color: var(--color-text-primary)"
-        >
-          Payment Sent!
-        </span>
-        <div class="flex flex-col items-center gap-1.5 mt-2">
-          <span
-            class="inline-flex items-center px-3 py-1.5 rounded-full text-base font-semibold bg-emerald-500/20 text-emerald-400 border border-emerald-500/40"
-          >
-            {amount != null ? amount.toLocaleString() : ''} sats
-          </span>
-          {#if successFiatStr}
-            <span class="text-sm text-caption">{successFiatStr}</span>
-          {/if}
-          {#if message.trim()}
-            <p
-              class="text-sm italic text-center max-w-xs mt-1 break-words"
-              style="color: var(--color-text-secondary)"
-            >
-              "{message}"
-            </p>
-          {/if}
-        </div>
-      </button>
     {/if}
   </div>
 </Modal>

@@ -487,6 +487,22 @@
   let oldestTransactionTimestamp: number | undefined = undefined; // Cursor for pagination
   const TRANSACTIONS_PER_PAGE = 30;
 
+  // Transaction history detail drawers
+  let copiedTxId: string | null = null;
+  let expandedTxIds = new Set<string>();
+
+  $: pendingTxsFromSDK = transactions.filter((tx) => tx.status === 'pending');
+  $: completedTxs = transactions.filter((tx) => tx.status !== 'pending');
+
+  function toggleTxDetails(id: string) {
+    if (expandedTxIds.has(id)) {
+      expandedTxIds.delete(id);
+    } else {
+      expandedTxIds.add(id);
+    }
+    expandedTxIds = expandedTxIds;
+  }
+
   // Send/Receive view state — these flows render INLINE inside the
   // wallet modal's scroll area instead of as stacked sub-modals. The
   // existing `showSendModal` / `showReceiveModal` flags are retained as
@@ -1241,6 +1257,13 @@
     }
   }
 
+  function formatDetailDate(timestamp: number): string {
+    const date = new Date(timestamp * 1000);
+    const dateStr = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    const timeStr = date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+    return `${dateStr} · ${timeStr}`;
+  }
+
   function formatTransactionDate(timestamp: number): string {
     const date = new Date(timestamp * 1000);
     const now = new Date();
@@ -1277,6 +1300,14 @@
     } catch (e) {
       console.error('Failed to copy:', e);
       return false;
+    }
+  }
+
+  async function copyTxId(id: string) {
+    const ok = await copyToClipboard(id);
+    if (ok) {
+      copiedTxId = id;
+      setTimeout(() => { copiedTxId = null; }, 1500);
     }
   }
 
@@ -4081,12 +4112,12 @@
               </div>
             {:else}
               <div>
-                <!-- Pending/completed transactions shown first (filtered to active wallet) -->
+                <!-- Pending transactions from store (shown first, filtered to active wallet) -->
                 {#each filteredPendingTransactions as tx (tx.id)}
                   {#if tx.status === 'completed'}
                     <!-- Completed but not yet in history (outgoing = orange) -->
                     <div
-                      class="py-4 flex items-center gap-4 border-b border-l-2 border-orange-500/50 pl-3"
+                      class="py-4 flex items-center gap-4 border-l-2 border-orange-500/50 pl-3"
                       style="border-bottom-color: var(--color-input-border);"
                     >
                       {#if tx.pubkey}
@@ -4117,6 +4148,15 @@
                           </div>
                         {/if}
                         <div class="text-sm text-orange-500">✓ Payment sent</div>
+                        {#if tx.txid}
+                          <div class="mt-2 mb-1.5"></div>
+                          <a
+                            href="https://mempool.space/tx/{tx.txid}"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            class="flex items-center gap-1.5 text-sm font-medium text-orange-500 hover:text-orange-400 transition-colors"
+                          ><LinkIcon size={14} />View on mempool.space</a>
+                        {/if}
                       </div>
                       <div class="text-right">
                         <div class="font-semibold text-orange-500">
@@ -4131,7 +4171,7 @@
                   {:else}
                     <!-- Still pending -->
                     <div
-                      class="py-4 flex items-center gap-4 border-b border-l-2 border-amber-500/50 pl-3 animate-pulse"
+                      class="py-4 flex items-center gap-4 border-l-2 border-amber-500/50 pl-3 animate-pulse"
                       style="border-bottom-color: var(--color-input-border);"
                     >
                       {#if tx.pubkey}
@@ -4176,116 +4216,110 @@
                   {/if}
                 {/each}
 
-                <!-- Transactions from SDK (includes pending) -->
-                {#each transactions as tx (tx.id)}
-                  {#if tx.status === 'pending'}
-                    <!-- Pending transaction from SDK -->
-                    <div
-                      class="py-4 flex items-center gap-4 border-b border-l-2 border-amber-500/50 pl-3 animate-pulse"
-                      style="border-bottom-color: var(--color-input-border);"
-                    >
-                      {#if tx.pubkey}
-                        <a href="/user/{nip19.npubEncode(tx.pubkey)}" class="flex-shrink-0">
-                          <CustomAvatar pubkey={tx.pubkey} size={40} />
-                        </a>
-                      {:else}
-                        <div
-                          class="w-10 h-10 rounded-full flex items-center justify-center bg-amber-500/20"
-                        >
-                          {#if tx.type === 'incoming'}
-                            <ArrowDownIcon size={20} class="text-amber-500" />
-                          {:else}
-                            <ArrowUpIcon size={20} class="text-amber-500" />
-                          {/if}
+                <!-- Pending transactions from SDK -->
+                {#each pendingTxsFromSDK as tx (tx.id)}
+                  <div
+                    class="py-4 flex items-center gap-4 border-l-2 border-amber-500/50 pl-3 animate-pulse"
+                    style="border-bottom-color: var(--color-input-border);"
+                  >
+                    {#if tx.pubkey}
+                      <a href="/user/{nip19.npubEncode(tx.pubkey)}" class="flex-shrink-0">
+                        <CustomAvatar pubkey={tx.pubkey} size={40} />
+                      </a>
+                    {:else}
+                      <div
+                        class="w-10 h-10 rounded-full flex items-center justify-center bg-amber-500/20"
+                      >
+                        {#if tx.type === 'incoming'}
+                          <ArrowDownIcon size={20} class="text-amber-500" />
+                        {:else}
+                          <ArrowUpIcon size={20} class="text-amber-500" />
+                        {/if}
+                      </div>
+                    {/if}
+                    <div class="flex-1 min-w-0">
+                      <div class="font-medium truncate text-primary-color">
+                        {#if tx.pubkey}
+                          <span class="text-amber-500">
+                            {tx.type === 'incoming' ? '⚡ from' : '⚡ to'}
+                          </span>
+                          <a href="/user/{nip19.npubEncode(tx.pubkey)}" class="hover:underline">
+                            <CustomName pubkey={tx.pubkey} />
+                          </a>
+                        {:else}
+                          {tx.description || (tx.type === 'incoming' ? 'Receiving...' : 'Sending...')}
+                        {/if}
+                      </div>
+                      {#if tx.comment}
+                        <div class="text-sm text-primary-color italic truncate">
+                          "{tx.comment}"
                         </div>
                       {/if}
-                      <div class="flex-1 min-w-0">
-                        <div class="font-medium truncate text-primary-color">
-                          {#if tx.pubkey}
-                            <span class="text-amber-500">
-                              {tx.type === 'incoming' ? '⚡ from' : '⚡ to'}
-                            </span>
-                            <a href="/user/{nip19.npubEncode(tx.pubkey)}" class="hover:underline">
-                              <CustomName pubkey={tx.pubkey} />
-                            </a>
-                          {:else}
-                            {tx.description ||
-                              (tx.type === 'incoming' ? 'Receiving...' : 'Sending...')}
-                          {/if}
-                        </div>
-                        {#if tx.comment}
-                          <div class="text-sm text-primary-color italic truncate">
-                            "{tx.comment}"
-                          </div>
-                        {/if}
-                        <div class="text-sm text-amber-500">
-                          {tx.type === 'incoming' ? 'Receiving payment...' : 'Sending payment...'}
-                        </div>
+                      <div class="text-sm text-amber-500">
+                        {tx.type === 'incoming' ? 'Receiving payment...' : 'Sending payment...'}
                       </div>
-                      <div class="text-right">
-                        <div class="font-semibold text-amber-500">
-                          {#if $balanceVisible}
-                            {tx.type === 'incoming' ? '+' : '-'}{tx.amount.toLocaleString()} sats
-                          {:else}
-                            {tx.type === 'incoming' ? '+' : '-'}*** sats
-                          {/if}
-                        </div>
+                      {#if tx.txid}
+                        <div class="mt-2 mb-1.5"></div>
+                        <a
+                          href="https://mempool.space/tx/{tx.txid}"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          class="flex items-center gap-1.5 text-sm font-medium text-orange-500 hover:text-orange-400 transition-colors"
+                        ><LinkIcon size={14} />View on mempool.space</a>
+                      {/if}
+                    </div>
+                    <div class="text-right">
+                      <div class="font-semibold text-amber-500">
+                        {#if $balanceVisible}
+                          {tx.type === 'incoming' ? '+' : '-'}{tx.amount.toLocaleString()} sats
+                        {:else}
+                          {tx.type === 'incoming' ? '+' : '-'}*** sats
+                        {/if}
                       </div>
                     </div>
-                  {:else}
-                    <!-- Completed transaction -->
-                    <div
-                      class="py-4 flex items-center gap-4 border-b"
-                      style="border-color: var(--color-input-border);"
+                  </div>
+                {/each}
+
+                <!-- Separator + spacer below the pending block -->
+                {#if filteredPendingTransactions.length > 0 || pendingTxsFromSDK.length > 0}
+                  <div class="mt-5 mb-3" style="border-top: 1px solid var(--color-input-border);"></div>
+                {/if}
+
+                <!-- Unified transaction history -->
+                {#each completedTxs as tx (tx.id)}
+                  {@const isOnchainTx = !!tx.txid || !!tx.isOnchain}
+                  <div class="border-b" style="border-color: var(--color-input-border);">
+                    <button
+                      class="w-full py-4 flex items-center gap-4 text-left"
+                      on:click={() => toggleTxDetails(tx.id)}
                     >
-                      {#if tx.pubkey}
-                        <a href="/user/{nip19.npubEncode(tx.pubkey)}" class="flex-shrink-0">
-                          <CustomAvatar pubkey={tx.pubkey} size={40} />
-                        </a>
-                      {:else}
-                        <div
-                          class="w-10 h-10 rounded-full flex items-center justify-center {tx.type ===
-                          'incoming'
-                            ? 'bg-green-500/20'
-                            : 'bg-orange-500/20'}"
-                        >
-                          {#if tx.type === 'incoming'}
-                            <ArrowDownIcon size={20} class="text-green-500" />
-                          {:else}
-                            <ArrowUpIcon size={20} class="text-orange-500" />
-                          {/if}
-                        </div>
-                      {/if}
+                      <div
+                        class="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 {tx.type === 'incoming'
+                          ? 'bg-green-500/20'
+                          : 'bg-orange-500/20'}"
+                      >
+                        {#if tx.type === 'incoming'}
+                          <ArrowDownIcon size={20} class="text-green-500" />
+                        {:else}
+                          <ArrowUpIcon size={20} class="text-orange-500" />
+                        {/if}
+                      </div>
                       <div class="flex-1 min-w-0">
-                        <div class="font-medium truncate text-primary-color">
-                          {#if tx.pubkey}
-                            <span
-                              class={tx.type === 'incoming' ? 'text-green-500' : 'text-orange-500'}
-                            >
-                              {tx.type === 'incoming' ? '⚡ from' : '⚡ to'}
-                            </span>
-                            <a href="/user/{nip19.npubEncode(tx.pubkey)}" class="hover:underline">
-                              <CustomName pubkey={tx.pubkey} />
-                            </a>
-                          {:else}
-                            {tx.description || (tx.type === 'incoming' ? 'Received' : 'Sent')}
-                          {/if}
+                        <div class="font-medium text-primary-color">
+                          {tx.type === 'incoming' ? 'Received' : 'Sent'}
                         </div>
-                        {#if tx.comment}
-                          <div class="text-sm text-primary-color italic truncate">
-                            "{tx.comment}"
+                        {#if tx.comment || tx.description}
+                          <div class="text-sm text-caption truncate">
+                            {tx.comment ? `"${tx.comment}"` : tx.description}
                           </div>
                         {/if}
                         <div class="text-sm text-caption">
-                          {formatTransactionDate(tx.timestamp)}
-                          {#if tx.fees && $balanceVisible}
-                            <span class="ml-2">• Fee: {tx.fees} sats</span>
-                          {/if}
+                          {formatTransactionDate(tx.timestamp)}{#if tx.fees && $balanceVisible} · Fee: {tx.fees} sats{/if}
                         </div>
                       </div>
-                      <div class="text-right">
+                      <div class="flex items-center gap-2 flex-shrink-0">
                         <div
-                          class="font-semibold {tx.type === 'incoming'
+                          class="font-semibold text-right {tx.type === 'incoming'
                             ? 'text-green-500'
                             : 'text-orange-500'}"
                         >
@@ -4295,9 +4329,107 @@
                             {tx.type === 'incoming' ? '+' : '-'}*** sats
                           {/if}
                         </div>
+                        <CaretDownIcon
+                          size={14}
+                          class="text-caption transition-transform flex-shrink-0 {expandedTxIds.has(tx.id)
+                            ? 'rotate-180'
+                            : ''}"
+                        />
                       </div>
-                    </div>
-                  {/if}
+                    </button>
+                    {#if expandedTxIds.has(tx.id)}
+                      <div
+                        class="mb-3 px-4 py-1 rounded-xl text-sm"
+                        style="background: var(--color-input-bg); border: 1px solid var(--color-input-border);"
+                      >
+                        <div
+                          class="flex justify-between py-2.5 border-b"
+                          style="border-color: var(--color-input-border);"
+                        >
+                          <span class="text-caption">Status</span>
+                          <span class="{tx.status === 'failed' ? 'text-red-500' : 'text-primary-color'}">{tx.status === 'failed' ? 'Failed' : 'Completed'}</span>
+                        </div>
+                        <div
+                          class="flex justify-between py-2.5 border-b"
+                          style="border-color: var(--color-input-border);"
+                        >
+                          <span class="text-caption">Type</span>
+                          <span class="text-primary-color">{isOnchainTx ? 'On-chain' : 'Lightning'}</span>
+                        </div>
+                        {#if $balanceVisible}
+                          <div
+                            class="flex justify-between py-2.5 border-b"
+                            style="border-color: var(--color-input-border);"
+                          >
+                            <span class="text-caption">Amount</span>
+                            <span class="text-primary-color">{tx.amount.toLocaleString()} sats</span>
+                          </div>
+                          {#if tx.fees}
+                            <div
+                              class="flex justify-between py-2.5 border-b"
+                              style="border-color: var(--color-input-border);"
+                            >
+                              <span class="text-caption">{isOnchainTx ? 'Network fee' : 'Fee'}</span>
+                              <span class="text-primary-color">{tx.fees} sats</span>
+                            </div>
+                          {/if}
+                        {/if}
+                        <div
+                          class="flex justify-between py-2.5 border-b"
+                          style="border-color: var(--color-input-border);"
+                        >
+                          <span class="text-caption">Date</span>
+                          <span class="text-primary-color text-right ml-4">{formatDetailDate(tx.timestamp)}</span>
+                        </div>
+                        {#if isOnchainTx && tx.txid}
+                          <div class="py-2.5 border-b" style="border-color: var(--color-input-border);">
+                            <div class="text-caption mb-1.5">Transaction ID</div>
+                            <div class="flex items-start gap-2">
+                              <span class="text-primary-color font-mono text-xs break-all flex-1 leading-relaxed">{tx.txid}</span>
+                              <button
+                                class="flex-shrink-0 p-1 rounded transition-colors text-caption hover:text-primary mt-0.5"
+                                on:click={() => copyTxId(tx.txid ?? '')}
+                                title="Copy transaction ID"
+                              >
+                                {#if copiedTxId === tx.txid}
+                                  <CheckIcon size={14} class="text-green-500" />
+                                {:else}
+                                  <CopyIcon size={14} />
+                                {/if}
+                              </button>
+                            </div>
+                          </div>
+                          <a
+                            href="https://mempool.space/tx/{tx.txid}"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            class="flex items-center gap-2 py-2.5 text-orange-500 hover:text-orange-400 transition-colors text-sm font-medium"
+                          >
+                            <LinkIcon size={15} />
+                            View on mempool.space
+                          </a>
+                        {:else if !isOnchainTx}
+                          <div class="py-2.5">
+                            <div class="text-caption mb-1.5">Payment hash</div>
+                            <div class="flex items-start gap-2">
+                              <span class="text-primary-color font-mono text-xs break-all flex-1 leading-relaxed">{tx.id}</span>
+                              <button
+                                class="flex-shrink-0 p-1 rounded transition-colors text-caption hover:text-primary mt-0.5"
+                                on:click={() => copyTxId(tx.id)}
+                                title="Copy payment hash"
+                              >
+                                {#if copiedTxId === tx.id}
+                                  <CheckIcon size={14} class="text-green-500" />
+                                {:else}
+                                  <CopyIcon size={14} />
+                                {/if}
+                              </button>
+                            </div>
+                          </div>
+                        {/if}
+                      </div>
+                    {/if}
+                  </div>
                 {/each}
               </div>
 

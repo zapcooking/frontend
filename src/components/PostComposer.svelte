@@ -23,6 +23,7 @@
   import { uploadImage, uploadVideo } from '$lib/mediaUpload';
   import { clickOutside } from '$lib/clickOutside';
   import { showToast } from '$lib/toast';
+  import { addPendingOp, removePendingOp } from '$lib/stores/pendingOps';
   import { timerSettings, loadTimerSettings, saveTimerSettings } from '$lib/timerSettings';
   import { get } from 'svelte/store';
   import ClockIcon from 'phosphor-svelte/lib/Clock';
@@ -426,6 +427,7 @@
     posting = true;
     dispatch('posting', true);
     error = '';
+    let opId: string | null = null;
 
     try {
       if (composerEl) {
@@ -512,6 +514,14 @@
       console.log('[PostComposer] Event content:', event.content);
       console.log('[PostComposer] Event tags:', event.tags);
 
+      // For modal: close immediately so the user can keep browsing; publish runs
+      // in the background and surfaces result via toast + pending indicator.
+      if (variant === 'modal') {
+        opId = addPendingOp('Posting...');
+        resetComposerState();
+        dispatch('close');
+      }
+
       // Use the resilient publish queue with automatic retry
       console.log('[PostComposer] Calling publishQueue.publishWithRetry...');
       const result = await publishQueue.publishWithRetry(event, relayMode);
@@ -520,28 +530,34 @@
       if (result.success) {
         const noteLink = event.id ? `/${nip19.noteEncode(event.id)}` : null;
         showToast('success', 'Note published', 12000, noteLink ? { label: 'View', href: noteLink } : undefined);
-        resetComposerState();
-        if (variant === 'modal') {
-          dispatch('close');
-        } else {
+        if (variant !== 'modal') {
+          resetComposerState();
           isComposerOpen = false;
         }
       } else if (result.queued) {
         showToast('info', 'Note queued — will publish when connection improves', 5000);
-        resetComposerState();
         console.log('[PostComposer] Post queued for background retry:', result.error);
-        if (variant === 'modal') {
-          dispatch('close');
-        } else {
+        if (variant !== 'modal') {
+          resetComposerState();
           isComposerOpen = false;
         }
       } else {
-        error = result.error || 'Failed to publish';
+        if (variant === 'modal') {
+          showToast('error', result.error || 'Failed to publish');
+        } else {
+          error = result.error || 'Failed to publish';
+        }
       }
     } catch (err) {
       console.error('Error posting to feed:', err);
-      error = err instanceof Error ? err.message : 'Failed to post. Please try again.';
+      const errMsg = err instanceof Error ? err.message : 'Failed to post. Please try again.';
+      if (variant === 'modal') {
+        showToast('error', errMsg);
+      } else {
+        error = errMsg;
+      }
     } finally {
+      if (opId) removePendingOp(opId);
       posting = false;
       dispatch('posting', false);
     }

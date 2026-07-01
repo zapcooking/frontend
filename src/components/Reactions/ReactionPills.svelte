@@ -109,24 +109,22 @@
 </script>
 
 {#if $store.reactions.groups.length > 0}
-  <div class="flex flex-wrap gap-1 mb-2">
+  <div class="flex flex-wrap gap-1.5 mb-2">
     {#each visibleGroups as group (group.emoji)}
       <button
         type="button"
-        class="flex items-center gap-1 h-6 px-1.5 rounded-full border text-sm transition-colors cursor-pointer {group.userReacted
-          ? 'border-primary bg-primary/20'
-          : 'border-transparent bg-accent-gray hover:border-primary hover:bg-primary/20'}"
+        class="reaction-pill {group.userReacted ? 'is-active' : ''}"
         on:click={() => handlePillClick(group.emoji)}
         title={group.userReacted ? `You reacted with ${group.emoji}` : `React with ${group.emoji}`}
       >
-        <span class="text-base">{group.emoji}</span>
-        <span class="text-caption text-xs">{group.count}</span>
+        <span class="reaction-emoji">{group.emoji}</span>
+        <span class="reaction-count">{group.count}</span>
       </button>
     {/each}
 
     {#if hiddenCount > 0}
       <span
-        class="flex items-center gap-1 h-6 px-2 rounded-full bg-accent-gray text-caption text-xs"
+        class="reaction-pill reaction-pill--more"
         title="{hiddenCount} more emoji types ({hiddenReactionCount} reactions)"
       >
         +{hiddenReactionCount}
@@ -134,3 +132,39 @@
     {/if}
   </div>
 {/if}
+
+<style>
+  .reaction-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3125rem;
+    height: 1.625rem;
+    padding: 0 0.625rem;
+    border-radius: 999px;
+    background-color: var(--color-input-bg);
+    box-shadow: inset 0 0 0 1px transparent;
+    cursor: pointer;
+    transition: background-color 140ms ease, box-shadow 140ms ease;
+  }
+  .reaction-pill:hover {
+    box-shadow: inset 0 0 0 1px var(--color-primary);
+  }
+  .reaction-pill.is-active {
+    background-color: color-mix(in srgb, var(--color-primary) 16%, transparent);
+    box-shadow: inset 0 0 0 1px var(--color-primary);
+  }
+  .reaction-pill--more {
+    cursor: default;
+  }
+  .reaction-emoji {
+    font-size: 0.875rem;
+    line-height: 1;
+  }
+  .reaction-count {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--color-text-secondary);
+    font-variant-numeric: tabular-nums;
+  }
+</style>
+

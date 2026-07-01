@@ -18,6 +18,9 @@
   import { stripTrackingParams } from '$lib/utils/stripTrackingParams';
   import PostActionsMenu from '../../components/PostActionsMenu.svelte';
   import ReplyComposer from '../../components/comments/ReplyComposer.svelte';
+  import RightRail from '../../components/RightRail.svelte';
+  import RailCard from '../../components/RailCard.svelte';
+  import PersonRow from '../../components/PersonRow.svelte';
 
   let decoded: any = null;
   let event: NDKEvent | null = null;
@@ -436,6 +439,26 @@
     return false;
   });
 
+  // People in this note: author first, then anyone mentioned (p-tags), then
+  // reply authors — deduped, mute-filtered, and capped for the rail.
+  $: participants = (() => {
+    const order: string[] = [];
+    const seen = new Set<string>();
+    const add = (pk?: string | null) => {
+      if (!pk || seen.has(pk) || $mutedPubkeys.has(pk)) return;
+      seen.add(pk);
+      order.push(pk);
+    };
+    if (event) {
+      add(event.author?.hexpubkey || event.pubkey);
+      for (const t of event.tags || []) {
+        if (t[0] === 'p' && t[1]) add(t[1]);
+      }
+    }
+    for (const r of directReplies) add(r.author?.hexpubkey || r.pubkey);
+    return order.slice(0, 12);
+  })();
+
   // Get nested replies for a comment
   function getNestedReplies(parentId: string): NDKEvent[] {
     return replies.filter((r) => {
@@ -492,7 +515,8 @@
   <meta name="twitter:image" content={ogImage} />
 </svelte:head>
 
-<div class="max-w-2xl mx-auto px-4">
+<div class="note-page-layout">
+  <div class="max-w-2xl px-4 w-full min-w-0">
   <!-- Back link -->
   {#if !loading}
     <div class="pt-4 pb-2">
@@ -669,52 +693,55 @@
     {/if}
 
     <!-- Main Note -->
+    <!-- Focused note uses a header-on-top, full-width-body layout (avatar +
+         name/time in a row, content spanning the full column below). This
+         matches the focused-note presentation in Jumble, Primal, YakiHonne,
+         and Iris, and gives a wider, more readable reading column than
+         indenting the body under the avatar. Parent-thread context notes
+         above keep the compact indented layout. -->
     <article class="py-6">
-      <div class="flex space-x-3">
-        <a
-          href="/user/{nip19.npubEncode(event.author?.hexpubkey || event.pubkey)}"
-          class="flex-shrink-0"
-        >
-          <Avatar
-            className="cursor-pointer"
-            pubkey={event.author?.hexpubkey || event.pubkey}
-            size={40}
-          />
-        </a>
-        <div class="flex-1 min-w-0">
-          <div class="flex items-start justify-between">
-            <div class="flex-1 min-w-0">
-              <div class="flex items-center space-x-2 mb-2 flex-wrap">
-                <a
-                  href="/user/{nip19.npubEncode(event.author?.hexpubkey || event.pubkey)}"
-                  class="font-semibold text-sm transition-colors username-link truncate min-w-0"
-                  style="color: var(--color-text-primary)"
-                >
-                  <CustomName pubkey={event.author?.hexpubkey || event.pubkey} />
-                </a>
-                <span class="text-sm flex-shrink-0" style="color: var(--color-caption)">·</span>
-                <span class="text-sm whitespace-nowrap flex-shrink-0" style="color: var(--color-caption)">
-                  {event.created_at ? formatTimeAgo(event.created_at) : 'Unknown time'}
-                </span>
-                <ClientAttribution tags={event.tags} enableEnrichment={true} />
-              </div>
-              <div class="text-base leading-relaxed mb-3" style="color: var(--color-text-primary)">
-                {#if event.kind === 1068}
-                  <PollDisplay {event} />
-                {:else}
-                  <NoteContent content={event.content} />
-                {/if}
-              </div>
+      <div class="flex items-start justify-between gap-3 mb-3">
+        <div class="flex items-center gap-3 min-w-0">
+          <a
+            href="/user/{nip19.npubEncode(event.author?.hexpubkey || event.pubkey)}"
+            class="flex-shrink-0"
+          >
+            <Avatar
+              className="cursor-pointer"
+              pubkey={event.author?.hexpubkey || event.pubkey}
+              size={44}
+            />
+          </a>
+          <div class="flex flex-col min-w-0">
+            <a
+              href="/user/{nip19.npubEncode(event.author?.hexpubkey || event.pubkey)}"
+              class="font-semibold text-base transition-colors username-link truncate min-w-0"
+              style="color: var(--color-text-primary)"
+            >
+              <CustomName pubkey={event.author?.hexpubkey || event.pubkey} />
+            </a>
+            <div class="flex items-center space-x-2 flex-wrap">
+              <span class="text-sm whitespace-nowrap flex-shrink-0" style="color: var(--color-caption)">
+                {event.created_at ? formatTimeAgo(event.created_at) : 'Unknown time'}
+              </span>
+              <ClientAttribution tags={event.tags} enableEnrichment={true} />
             </div>
-            <PostActionsMenu {event} />
           </div>
-          <NoteActionBar {event} />
         </div>
+        <PostActionsMenu {event} />
       </div>
+      <div class="text-[17px] leading-relaxed mb-4" style="color: var(--color-text-primary)">
+        {#if event.kind === 1068}
+          <PollDisplay {event} />
+        {:else}
+          <NoteContent content={event.content} />
+        {/if}
+      </div>
+      <NoteActionBar {event} />
     </article>
 
     <!-- Replies Section -->
-    <div class="border-t mt-2" style="border-color: var(--color-input-border)">
+    <div class="mt-2">
 
 
       <!-- Replies List -->
@@ -735,13 +762,12 @@
           No replies yet. {#if !$userPublickey}<a href="/login?redirect={encodeURIComponent($page.url.pathname)}" class="underline hover:opacity-80" style="color: var(--color-primary)">Sign in</a> to reply!{:else}Be the first to reply!{/if}
         </p>
       {:else}
-        <div class="space-y-0">
+        <div class="space-y-3">
           {#each directReplies as reply (reply.id)}
             {#if !$mutedPubkeys.has(reply.author?.hexpubkey || reply.pubkey)}
-              <div>
+              <div class="reply-card">
                 <article
-                  class="py-8 border-b last:border-0 cursor-pointer hover:bg-[var(--color-bg-hover,rgba(255,255,255,0.03))]"
-                  style="border-color: var(--color-input-border)"
+                  class="cursor-pointer"
                   on:click={(e) => gotoNoteUnlessInteractive(e, reply)}
                   role="link"
                   tabindex="0"
@@ -886,8 +912,8 @@
 
       <!-- Reply Input -->
       {#if $userPublickey}
-        <div class="mt-4 p-3 rounded-lg" style="background-color: var(--color-bg-secondary)">
-          <div class="flex gap-3 items-start">
+        <div class="mt-4 px-4 py-3.5 rounded-lg" style="background-color: var(--color-card-sunken)">
+          <div class="flex space-x-3 items-start">
             <div class="flex-shrink-0">
               <Avatar pubkey={$userPublickey} size={32} />
             </div>
@@ -903,19 +929,46 @@
         </div>
       {:else}
         <div
-          class="mt-4 p-3 rounded-lg text-sm"
-          style="background-color: var(--color-bg-secondary); color: var(--color-caption)"
+          class="mt-4 px-4 py-3.5 rounded-lg text-sm"
+          style="background-color: var(--color-card-sunken); color: var(--color-caption)"
         >
           <a href="/login" class="text-primary hover:underline font-medium">Log in</a> to reply
         </div>
       {/if}
     </div>
   {/if}
+  </div>
+
+  {#if event && !error && participants.length > 0}
+    <RightRail>
+      <RailCard title="People in this thread">
+        {#each participants as pk (pk)}
+          <PersonRow pubkey={pk} />
+        {/each}
+      </RailCard>
+    </RightRail>
+  {/if}
 </div>
 
 
 <style>
   /* Thread page styles */
+
+  /* Two-column layout: reading column + right rail (rail self-hides below
+     2xl via RightRail's own media query). Left-aligned to the content grid. */
+  .note-page-layout {
+    display: flex;
+    align-items: flex-start;
+    gap: 3rem;
+  }
+
+  /* Each reply is a filled panel (no border), a shade darker than the page,
+     matching the reply composer box below the list. */
+  .reply-card {
+    background-color: var(--color-card-sunken);
+    border-radius: 0.5rem;
+    padding: 0.875rem 1rem;
+  }
 
   /* Username hover - orange color */
   .username-link:hover {
