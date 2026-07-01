@@ -5,6 +5,8 @@
   import LightningIcon from 'phosphor-svelte/lib/Lightning';
   import { formatAmount } from '$lib/utils';
   import { canOneTapZap, sendOneTapZap, getOneTapAmount } from '$lib/oneTapZap';
+  import { addPendingOp, removePendingOp } from '$lib/stores/pendingOps';
+  import { showToast } from '$lib/toast';
 
   export let event: NDKEvent | null = null;
   export let user: NDKUser | null = null;
@@ -21,24 +23,27 @@
   $: zapTarget = event ?? user;
 
   async function handleZapClick() {
+    if (isZapping) return;
     const target = event || user;
     if (!target) return;
 
-    // If one-tap zap is available, send immediately
     if (canOneTapZap()) {
       isZapping = true;
-      const result = await sendOneTapZap(target);
-      isZapping = false;
-
-      if (result.success) {
-        dispatch('zap-complete', { amount: result.amount });
-      } else {
-        // If one-tap fails, fall back to opening the modal
-        console.warn('[ZapButton] One-tap zap failed, opening modal:', result.error);
-        zapModalOpen = true;
+      const opId = addPendingOp('Sending zap ⚡');
+      try {
+        const result = await sendOneTapZap(target);
+        if (result.success) {
+          showToast('success', result.amount ? `⚡ Sent ${result.amount.toLocaleString()} sats` : '⚡ Zap sent');
+          dispatch('zap-complete', { amount: result.amount });
+        } else {
+          console.warn('[ZapButton] One-tap zap failed, opening modal:', result.error);
+          zapModalOpen = true;
+        }
+      } finally {
+        removePendingOp(opId);
+        isZapping = false;
       }
     } else {
-      // No one-tap available, open the modal
       zapModalOpen = true;
     }
   }
@@ -75,16 +80,14 @@
 
 <button
   class="flex items-center gap-2 {sizeClasses[size]} {variantClasses[variant]}"
-  class:opacity-50={isZapping}
-  class:cursor-wait={isZapping}
   on:click={handleZapClick}
   disabled={isZapping}
   title={canOneTapZap() ? `Zap ${getOneTapAmount()} sats` : 'Send Lightning zap'}
 >
-  <LightningIcon class="{iconSizeClasses[size]} {isZapping ? 'animate-pulse' : ''}" weight="fill" />
+  <LightningIcon class={iconSizeClasses[size]} weight="fill" />
 
   {#if variant !== 'icon-only'}
-    <span>{isZapping ? 'Zapping...' : 'Zap'}</span>
+    <span>Zap</span>
 
     {#if showAmount && zapCount > 0}
       <span class="text-xs opacity-75">

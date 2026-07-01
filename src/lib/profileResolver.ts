@@ -61,17 +61,20 @@ function cleanupCache(): void {
 
 // Decode nostr profile string to get pubkey
 export function decodeNostrProfile(nostrString: string): string | null {
+  return decodeNostrProfileFull(nostrString)?.pubkey ?? null;
+}
+
+// Decode nostr profile string to get pubkey AND any embedded relay hints.
+export function decodeNostrProfileFull(nostrString: string): { pubkey: string; relays: string[] } | null {
   try {
-    // Handle both nprofile1 and npub1 formats
     if (!nostrString.startsWith('nostr:nprofile1') && !nostrString.startsWith('nostr:npub1')) {
       return null;
     }
-    
     const decoded = nip19.decode(nostrString.replace('nostr:', ''));
     if (decoded.type === 'nprofile') {
-      return decoded.data.pubkey;
+      return { pubkey: decoded.data.pubkey, relays: decoded.data.relays ?? [] };
     } else if (decoded.type === 'npub') {
-      return decoded.data;
+      return { pubkey: decoded.data, relays: [] };
     }
     return null;
   } catch (error) {
@@ -97,7 +100,7 @@ const PROFILE_RELAY_URLS = [
 ];
 
 // Fetch profile data from relays
-async function fetchProfileFromRelays(pubkey: string, ndkInstance: NDK): Promise<ProfileData | null> {
+async function fetchProfileFromRelays(pubkey: string, ndkInstance: NDK, hintRelays?: string[]): Promise<ProfileData | null> {
   try {
     if (!ndkInstance) {
       return null;
@@ -109,15 +112,17 @@ async function fetchProfileFromRelays(pubkey: string, ndkInstance: NDK): Promise
 
     // Build an explicit relay set: NDK's connected pool relays
     // (whatever the page already has open — nos.lol, damus, primal
-    // in default mode) plus the canonical profile relays.
-    // NDK's `user.fetchProfile()` doesn't let us widen the relay set,
-    // so we drop down to fetchEvent + parse the kind:0 manually.
+    // in default mode) plus the canonical profile relays plus any
+    // relay hints embedded in the nprofile string.
     const { NDKRelaySet } = await import('@nostr-dev-kit/ndk');
     const relayUrls = new Set<string>();
     if (ndkInstance.pool?.relays) {
       for (const [url] of ndkInstance.pool.relays) relayUrls.add(url);
     }
     for (const url of PROFILE_RELAY_URLS) relayUrls.add(url);
+    if (hintRelays) {
+      for (const url of hintRelays) relayUrls.add(url);
+    }
 
     const relays = [];
     for (const url of relayUrls) {
@@ -212,10 +217,11 @@ export async function resolveProfile(nostrString: string, ndkInstance: NDK): Pro
       return null;
     }
 
-    const pubkey = decodeNostrProfile(nostrString);
-    if (!pubkey) {
+    const decoded = decodeNostrProfileFull(nostrString);
+    if (!decoded) {
       return null;
     }
+    const { pubkey, relays: hintRelays } = decoded;
 
     // Check cache first
     const cached = profileCache[pubkey];
@@ -223,8 +229,8 @@ export async function resolveProfile(nostrString: string, ndkInstance: NDK): Pro
       return cached;
     }
 
-    // Fetch from relays
-    const profile = await fetchProfileFromRelays(pubkey, ndkInstance);
+    // Fetch from relays, including any hint relays embedded in the nprofile.
+    const profile = await fetchProfileFromRelays(pubkey, ndkInstance, hintRelays);
     if (profile) {
       profileCache[pubkey] = profile;
       cleanupCache();
