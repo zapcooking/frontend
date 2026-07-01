@@ -5,6 +5,7 @@
   import { triggerExploreNav } from '$lib/exploreNav';
   import SearchIcon from 'phosphor-svelte/lib/MagnifyingGlass';
   import CookingPotIcon from 'phosphor-svelte/lib/CookingPot';
+  import ListIcon from 'phosphor-svelte/lib/List';
   import TagsSearchAutocomplete from './TagsSearchAutocomplete.svelte';
   import CustomAvatar from './CustomAvatar.svelte';
   import IntelligenceIcon from './icons/IntelligenceIcon.svelte';
@@ -16,6 +17,7 @@
   import LightningIcon from 'phosphor-svelte/lib/Lightning';
   import WalletIcon from 'phosphor-svelte/lib/Wallet';
   import { userSidePanelOpen } from '$lib/stores/userSidePanel';
+  import { mobileNavOpen } from '$lib/stores/mobileNav';
   import { loginOverlayOpen } from '$lib/stores/loginOverlay';
   import { mobileSearchOpen } from '$lib/stores/mobileSearch';
   import { timerStore } from '$lib/timerStore';
@@ -136,23 +138,34 @@
 
 <!-- Mobile-first sleek header -->
 <div class="zh-root relative flex items-center gap-3 sm:gap-6 lg:gap-10 justify-between overflow-visible">
-  <!-- Left: compact logo -->
-  <button
-    on:click={handleLogoClick}
-    class="zh-logo flex-none lg:hidden cursor-pointer transition-transform duration-150 active:scale-95"
-    aria-label="zap.cooking home"
-  >
-    <img
-      src="/zapcooking-text-light.svg"
-      class="w-24 sm:w-32 my-1.5 sm:my-2 dark:hidden"
-      alt="zap.cooking"
-    />
-    <img
-      src="/zapcooking-text-dark.svg"
-      class="w-24 sm:w-32 my-1.5 sm:my-2 hidden dark:block"
-      alt="zap.cooking"
-    />
-  </button>
+  <!-- Burger + logo group (mobile only, tightly paired) -->
+  <div class="flex items-center gap-1 flex-none lg:hidden">
+    <button
+      on:click={() => mobileNavOpen.set(true)}
+      class="p-2 cursor-pointer transition-transform duration-150 active:scale-90"
+      style="color: var(--color-text-primary);"
+      aria-label="Open navigation menu"
+    >
+      <ListIcon size={22} weight="bold" />
+    </button>
+
+    <button
+      on:click={handleLogoClick}
+      class="zh-logo cursor-pointer transition-transform duration-150 active:scale-95"
+      aria-label="zap.cooking home"
+    >
+      <img
+        src="/zapcooking-text-light.svg"
+        class="w-24 sm:w-32 my-1.5 sm:my-2 dark:hidden"
+        alt="zap.cooking"
+      />
+      <img
+        src="/zapcooking-text-dark.svg"
+        class="w-24 sm:w-32 my-1.5 sm:my-2 hidden dark:block"
+        alt="zap.cooking"
+      />
+    </button>
+  </div>
 
   <!-- Center: search bar (desktop). Left padding at xl sets the gap from
        the pipe's vertical line to 12px (10px here + the input's 2px margin),
@@ -225,40 +238,11 @@
     <!-- Wallet (logged in) -->
     {#if $userPublickey && $navBalanceVisible}
       {#if hasNavWallet}
-        <!-- Mobile compact wallet pill — single tap target so anywhere
-             on the pill opens the wallet. Currency cycling and
-             show/hide live inside the wallet panel itself, since
-             accidental taps on a small split control were preventing
-             users from completing the "open wallet" action. -->
-        <button
-          type="button"
-          on:click={() => openWallet()}
-          class="zh-wallet-mobile sm:hidden"
-          aria-label="Open wallet"
-        >
-          <LightningIcon size={14} weight="fill" class="text-amber-400" />
-          <span class="zh-wallet-amount">
-            <DenominatedBalance
-              sats={$walletBalance}
-              visible={$balanceVisible}
-              loading={$walletLoading}
-            />
-          </span>
-        </button>
         <!-- Desktop full WalletBalance widget -->
         <div class="hidden sm:block">
           <WalletBalance />
         </div>
       {:else}
-        <button
-          type="button"
-          on:click={() => openWallet('setup')}
-          class="zh-wallet-mobile sm:hidden"
-          aria-label="Set up a wallet"
-        >
-          <LightningIcon size={14} weight="fill" class="text-amber-400" />
-          <span class="zh-wallet-amount">Set up</span>
-        </button>
         <button
           type="button"
           on:click={() => openWallet('setup')}
@@ -269,17 +253,6 @@
           <span>Set up a Wallet</span>
         </button>
       {/if}
-    {:else if $userPublickey && hasNavWallet}
-      <!-- Wallet exists but balance is hidden via $navBalanceVisible: still
-           expose a compact tap-to-open affordance on mobile. -->
-      <button
-        type="button"
-        on:click={() => openWallet()}
-        class="zh-iconbtn sm:hidden"
-        aria-label="Open wallet"
-      >
-        <WalletIcon size={18} weight="bold" />
-      </button>
     {/if}
 
     <!-- Notifications bell + dropdown (desktop only — mobile keeps the
