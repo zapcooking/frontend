@@ -41,6 +41,7 @@
     onClick?: () => void;
   };
 
+
   const primary: NavItem[] = [
     {
       href: '/community',
@@ -85,6 +86,12 @@
       icon: EnvelopeSimpleIcon,
       match: (p) => p.startsWith('/messages'),
       badge: 'messagesDot'
+    },
+    {
+      href: '/memories',
+      label: 'Memories',
+      icon: ClockCounterClockwiseIcon,
+      match: (p) => p.startsWith('/memories')
     }
   ];
 
@@ -114,12 +121,6 @@
       label: 'Nourish',
       icon: LeafIcon,
       match: (p) => p.startsWith('/nourish')
-    },
-    {
-      href: '/memories',
-      label: 'Memories',
-      icon: ClockCounterClockwiseIcon,
-      match: (p) => p.startsWith('/memories')
     },
     {
       href: '/membership',
@@ -260,14 +261,9 @@
                 </span>
                 <span class="font-medium">{item.label}</span>
                 {#if item.badge === 'walletConnect' && !hasWallet}
-                  <span class="text-xs px-2 py-0.5 rounded-full bg-primary/20 text-primary"
-                    >Connect</span
-                  >
+                  <span class="text-xs px-2 py-0.5 rounded-full bg-primary/20 text-primary">Connect</span>
                 {:else if item.badge === 'members'}
-                  <span
-                    class="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary font-medium"
-                    >Members</span
-                  >
+                  <span class="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary font-medium">Members</span>
                 {/if}
               </a>
             </li>

@@ -1470,7 +1470,10 @@
     border-radius: 16px 16px 0 0;
     border-bottom: none;
     max-height: 70vh;
-    z-index: 50;
+    /* Sit below the bottom nav (z-40) so its raised zap circle, which
+       pokes above the bar into this widget's docked area, stays in
+       front of the widget rather than being covered by it. */
+    z-index: 30;
   }
 
   .tools-widget.mobile.minimized {
