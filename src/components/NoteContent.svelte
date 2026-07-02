@@ -412,7 +412,7 @@
           href={part.url}
           target="_blank"
           rel="noopener noreferrer"
-          class="text-blue-500 hover:text-blue-700 hover:underline break-all"
+          class="text-orange-500 hover:text-orange-600 hover:underline break-all"
         >
           {part.content}
         </a>
@@ -439,7 +439,7 @@
         <NofferButton noffer={part.content} />
       {:else}
         <button
-          class="text-blue-500 hover:text-blue-700 hover:underline cursor-pointer"
+          class="text-orange-500 hover:text-orange-600 hover:underline cursor-pointer"
           on:click={() => handleNostrClick(part.content)}
         >
           {part.content}
