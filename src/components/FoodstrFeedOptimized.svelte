@@ -3788,12 +3788,40 @@
           authorName = npub; // Use full npub, not truncated
         }
 
-        // Get note preview (50-80 characters, prefer 70)
-        const content = parentNote.content || '';
-        // Remove URLs and media tags for cleaner preview
+        // Get note preview
+        let content = parentNote.content || '';
+
+        // Resolve inline profile mentions (nostr:npub / nprofile) to @name
+        // so the preview keeps the mention instead of dropping it when the
+        // nostr: token is stripped below.
+        const mentionTokens = content.match(/nostr:(?:npub1|nprofile1)[0-9a-z]+/g) || [];
+        for (const token of [...new Set(mentionTokens)]) {
+          try {
+            const decoded = nip19.decode(token.replace(/^nostr:/, ''));
+            const pk =
+              decoded.type === 'npub'
+                ? (decoded.data as string)
+                : decoded.type === 'nprofile'
+                  ? (decoded.data as { pubkey: string }).pubkey
+                  : '';
+            if (!pk) continue;
+            const mentioned = $ndk.getUser({ hexpubkey: pk });
+            await mentioned.fetchProfile();
+            const handle =
+              mentioned.profile?.displayName ||
+              mentioned.profile?.name ||
+              nip19.npubEncode(pk).slice(0, 12) + '…';
+            content = content.split(token).join('@' + handle);
+          } catch {
+            // Leave the token; it'll be stripped below if unresolved.
+          }
+        }
+
+        // Remove URLs and any remaining nostr refs (nevent/note/naddr) for a
+        // clean text preview.
         const cleanContent = content
           .replace(/https?:\/\/[^\s]+/g, '') // Remove URLs
-          .replace(/nostr:[^\s]+/g, '') // Remove nostr: links
+          .replace(/nostr:[^\s]+/g, '') // Remove remaining nostr: links
           .replace(/\s+/g, ' ')
           .trim();
         // Expose a meaningful chunk of the quoted note rather than a
