@@ -5,31 +5,26 @@
   import { weblnConnected } from '$lib/wallet/webln';
   import { bitcoinConnectEnabled } from '$lib/wallet/bitcoinConnect';
   import CloseIcon from 'phosphor-svelte/lib/XCircle';
+  import { afterNavigate } from '$app/navigation';
+  import { get } from 'svelte/store';
 
   // WebLN and Bitcoin Connect views have less content (no transaction
   // list, no Send/Receive flow) — shrink the modal accordingly.
   $: externalWallet = $weblnConnected || $bitcoinConnectEnabled;
+
+  // On mobile the wallet is framed by the nav strips rather than a
+  // full-screen sheet, so tapping another nav destination is the natural
+  // way to leave it — close the modal whenever a navigation completes.
+  afterNavigate(() => {
+    if (get(walletModalOpen)) closeWallet();
+  });
 </script>
 
 <Modal bind:open={$walletModalOpen} cleanup={closeWallet} compact noHeader>
   <div class="wallet-modal-body" class:wallet-modal-body--external={externalWallet}>
-    <!-- Floating logo (left) and close button (right) — both dismiss the
-         sheet. Overlay style (no opaque banner) so content can start at
-         the very top of the modal and neither button covers content
-         when the user scrolls. -->
-    <button type="button" class="wallet-logo-btn" aria-label="Close wallet" on:click={closeWallet}>
-      <img
-        src="/zapcooking-text-light.svg"
-        alt="zap.cooking"
-        class="wallet-logo-img wallet-logo-img--light dark:hidden"
-      />
-      <img
-        src="/zapcooking-text-dark.svg"
-        alt=""
-        aria-hidden="true"
-        class="wallet-logo-img wallet-logo-img--dark hidden dark:block"
-      />
-    </button>
+    <!-- Floating close button (desktop only). On mobile the panel is
+         framed between the header and bottom-nav strips and is dismissed
+         by tapping outside it, so the close button is hidden there. -->
     <button type="button" class="wallet-close-btn" aria-label="Close" on:click={closeWallet}>
       <CloseIcon size={24} />
     </button>
@@ -66,21 +61,21 @@
     padding-top: 0;
     padding-bottom: 0;
   }
-  /* Floating logo (left) + close button (right) — both sit on top of
-     content in the top corners of the modal. No opaque banner — the
-     buttons hover over scroll content with a subtle hover tint, so
-     the wallet content can start at the very top of the dialog. */
-  .wallet-logo-btn,
+  /* Floating close button — sits on top of content in the top-right
+     corner of the modal. No opaque banner — it hovers over scroll
+     content with a subtle hover tint, so the wallet content can start
+     at the very top of the dialog. */
   .wallet-close-btn {
     position: absolute;
     top: 0.5rem;
-    min-width: 44px;
-    min-height: 44px;
+    right: 0.5rem;
+    width: 44px;
+    height: 44px;
     display: flex;
     align-items: center;
     justify-content: center;
     /* Must sit above .balance-frame (z-index: 10) which otherwise
-       paints over these buttons due to source-order tie-breaking. */
+       paints over the button due to source-order tie-breaking. */
     z-index: 100;
     color: var(--color-text-primary);
     background-color: transparent;
@@ -89,33 +84,9 @@
     cursor: pointer;
     transition: background-color 0.15s ease-out;
   }
-  .wallet-logo-btn {
-    left: 0.5rem;
-    padding: 0 0.75rem;
-    /* Mobile-only branding/dismiss affordance. On desktop the wallet
-       is a centered modal with the X always visible — the logo is
-       redundant. */
-    display: none;
-  }
-  @media (max-width: 767.98px) {
-    .wallet-logo-btn {
-      display: flex;
-    }
-  }
-  .wallet-close-btn {
-    right: 0.5rem;
-    width: 44px;
-    height: 44px;
-  }
-  .wallet-logo-img {
-    height: 24px;
-    width: auto;
-  }
-  .wallet-logo-btn:hover,
   .wallet-close-btn:hover {
     background-color: rgba(255, 255, 255, 0.06);
   }
-  .wallet-logo-btn:focus-visible,
   .wallet-close-btn:focus-visible {
     outline: 2px solid var(--color-text-primary);
     outline-offset: 2px;
@@ -138,11 +109,6 @@
      same surface rather than as a viewport-wide banner. */
   :global(.wallet-toast) {
     max-width: 480px !important;
-  }
-  @media (min-width: 768px) {
-    :global(.wallet-toast) {
-      max-width: 640px !important;
-    }
   }
   @media (min-width: 1024px) {
     :global(.wallet-toast) {
@@ -168,13 +134,6 @@
     padding: 0 !important;
     gap: 0 !important;
   }
-  @media (min-width: 768px) {
-    :global(dialog:has(.wallet-modal-body)) {
-      width: 640px !important;
-      height: 720px !important;
-      max-height: 84vh !important;
-    }
-  }
   @media (min-width: 1024px) {
     :global(dialog:has(.wallet-modal-body)) {
       width: 720px !important;
@@ -187,12 +146,6 @@
      default 720 / 780 px dialog clips "Maybe later" at the bottom.
      Give the picker home its own larger desktop heights. Excludes
      --connect-step which has its own (smaller) auto-sized rules. */
-  @media (min-width: 768px) {
-    :global(dialog:has(.wallet-scroll.picker-view:not(.picker-view--connect-step))) {
-      height: 960px !important;
-      max-height: 92vh !important;
-    }
-  }
   @media (min-width: 1024px) {
     :global(dialog:has(.wallet-scroll.picker-view:not(.picker-view--connect-step))) {
       height: 1000px !important;
@@ -240,7 +193,7 @@
      the balance card's top-right corner just like the Spark/NWC view.
      Mobile already gets its insets from env(safe-area-inset-*) in the
      bottom @media block. */
-  @media (min-width: 768px) {
+  @media (min-width: 1024px) {
     :global(.wallet-modal-body--external) {
       padding-top: 0 !important;
       padding-bottom: 2rem !important;
@@ -261,11 +214,6 @@
   :global(dialog:has(.picker-view--connect-step)) {
     height: 480px !important;
   }
-  @media (min-width: 768px) {
-    :global(dialog:has(.picker-view--connect-step)) {
-      height: 520px !important;
-    }
-  }
   @media (min-width: 1024px) {
     :global(dialog:has(.picker-view--connect-step)) {
       height: 560px !important;
@@ -276,58 +224,80 @@
      margins needed since the wrapper has zero padding. */
 
   /* =========================================================
-     Mobile (< 768px): full-screen sheet
+     Mobile + tablet (< lg / 1024px): inset panel framed by nav
      =========================================================
-     Override all the desktop rules above only at narrow widths.
-     Keeping these mobile rules in a single @media (max-width)
-     block at the end of the stylesheet ensures desktop layout
-     is untouched. */
-  @media (max-width: 767.98px) {
-    /* Full-screen sheet — fill 100dvw × 100dvh, no rounded corners,
-       no centering. Modal.svelte's dialog has Tailwind classes
-       `top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2`. Tailwind
-       composes its transform via CSS custom properties — to fully
-       neutralise the centering we have to zero out both the
+     This matches the bottom nav's `lg:hidden` visibility — wherever the
+     mobile header + bottom nav are shown, the wallet is an inset panel
+     between them rather than the desktop centered modal. Override all the
+     desktop rules above only below lg. */
+  @media (max-width: 1023.98px) {
+    /* Drop the whole overlay (backdrop + dialog) below the nav strips so
+       the header (z-30) and bottom nav (z-40) paint crisply on top and
+       stay tappable, framing the wallet. The backdrop's dim/blur is fully
+       hidden behind the opaque panel in the middle region anyway.
+       NB: :has() can't be nested, so we match the backdrop by its
+       child dialog containing a descendant .wallet-modal-body. */
+    :global(div:has(> dialog .wallet-modal-body)) {
+      z-index: 20 !important;
+    }
+
+    /* Inset panel — instead of a full-screen sheet, the wallet fills only
+       the region between the fixed header (--header-h) and the bottom nav
+       (--bottom-nav-height), so both nav strips frame it. Modal.svelte's
+       dialog has Tailwind classes `top-1/2 left-1/2 -translate-x-1/2
+       -translate-y-1/2`; Tailwind composes its transform via CSS custom
+       properties, so to neutralise the centering we zero the
        --tw-translate-* vars AND set an explicit transform. */
     :global(dialog:has(.wallet-modal-body)) {
       width: 100dvw !important;
       max-width: 100dvw !important;
-      height: 100dvh !important;
-      max-height: 100dvh !important;
-      min-height: 100dvh !important;
-      top: 0 !important;
+      top: var(--header-h) !important;
+      bottom: auto !important;
+      height: calc(100dvh - var(--header-h) - var(--bottom-nav-height, 0px)) !important;
+      max-height: calc(100dvh - var(--header-h) - var(--bottom-nav-height, 0px)) !important;
+      min-height: 0 !important;
       left: 0 !important;
       right: auto !important;
-      bottom: auto !important;
       --tw-translate-x: 0px !important;
       --tw-translate-y: 0px !important;
       transform: translate(0px, 0px) !important;
       border-radius: 0 !important;
       margin: 0 !important;
+      /* Darker panel on mobile — match the page background (bg-primary)
+         so cards pop against it. Overrides Modal's inline bg-secondary. */
+      background-color: var(--color-bg-primary) !important;
     }
 
     /* Short-content modes (BC/WebLN connected, NWC connect step,
-       Spark options) don't get shrunken dialogs on mobile — the
-       full-screen sheet has plenty of room. Override the desktop
-       380/420/460 px and 480/520/560 px heights back to full sheet. */
+       Spark options) fill the same inset region on mobile. */
     :global(dialog:has(.wallet-modal-body--external)),
     :global(dialog:has(.picker-view--connect-step)) {
-      height: 100dvh !important;
-      max-height: 100dvh !important;
+      top: var(--header-h) !important;
+      bottom: auto !important;
+      height: calc(100dvh - var(--header-h) - var(--bottom-nav-height, 0px)) !important;
+      max-height: calc(100dvh - var(--header-h) - var(--bottom-nav-height, 0px)) !important;
     }
 
-    /* iOS safe-area: push the floating logo + X below the notch / status
-       bar, and the wallet body content above the home indicator. */
-    .wallet-logo-btn,
+    /* No logo, and the close button is redundant now that the panel is
+       framed by the nav strips (tap outside to dismiss) — hide it. */
     .wallet-close-btn {
-      top: max(0.5rem, env(safe-area-inset-top));
+      display: none;
     }
+
+    /* Content fills the inset panel edge-to-edge — no reserved header
+       band since the floating logo/close are gone. Darker bg-primary
+       matches the page background behind the nav strips. */
     .wallet-modal-body {
-      /* Mobile: reserve 4 rem for the floating header plus add the
-         iOS safe-area-inset-top on top of that so content clears the
-         notch / status bar with the same buffer below the buttons. */
-      padding-top: calc(4rem + env(safe-area-inset-top));
-      padding-bottom: env(safe-area-inset-bottom);
+      padding-top: 0;
+      padding-bottom: 0;
+      background-color: var(--color-bg-primary);
+    }
+
+    /* The balance frame's default bg-secondary would show as a lighter
+       band behind the balance card against the now-darker panel — match
+       it to the panel so the balance card sits flush on bg-primary. */
+    .wallet-modal-body :global(.balance-frame) {
+      background-color: var(--color-bg-primary) !important;
     }
 
     /* Toasts flip to the bottom on mobile so they don't cover the
