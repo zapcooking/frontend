@@ -729,7 +729,7 @@ function mapSparkPayment(p: any): Transaction {
     p.fees ||
     (feesMsat ? Math.floor(Number(feesMsat) / 1000) : undefined);
   const rawStatus = p.status || 'completed';
-  const status =
+  let status: 'pending' | 'completed' | 'failed' =
     rawStatus === 'pending' ? 'pending' : rawStatus === 'failed' ? 'failed' : 'completed';
 
   const txid =
@@ -766,6 +766,17 @@ function mapSparkPayment(p: any): Transaction {
     !!p.onchainTxid ||
     !!p.onchain_txid ||
     String(paymentType).toLowerCase().includes('onchain');
+
+  // Breez Spark unreliably reports on-chain SEND confirmation — outgoing
+  // on-chain payments can stay "pending" indefinitely even after the tx
+  // has confirmed on-chain. Disregard Spark's status for these and treat
+  // them as completed (the send is already broadcast and irreversible;
+  // the mempool link lets the user verify). This matches the mobile app's
+  // decision to ignore Spark's on-chain confirmation state. Incoming
+  // on-chain deposits still need claiming, so they're left as-is.
+  if (status === 'pending' && isOnchain && !isIncoming) {
+    status = 'completed';
+  }
 
   if (!txid && isOnchain) {
     const paymentId = p.id || p.paymentHash || p.payment_hash || '';
