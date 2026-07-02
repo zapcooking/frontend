@@ -1,6 +1,12 @@
 import type { Handle, HandleServerError } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
-import { isCrawler, matchRecipeOgRoute, renderRecipeOgForCrawler } from '$lib/recipeOgHtml.server';
+import {
+  isCrawler,
+  matchRecipeOgRoute,
+  renderRecipeOgForCrawler,
+  matchNoteOgRoute,
+  renderNoteOgForCrawler
+} from '$lib/recipeOgHtml.server';
 
 /**
  * Log the real server-side error (with stack) instead of letting SvelteKit
@@ -101,10 +107,14 @@ async function maybeRenderBotOg(event: Parameters<Handle>[0]['event']): Promise<
   try {
     if (event.request.method !== 'GET') return null;
     if (!isCrawler(event.request.headers.get('user-agent'))) return null;
-    const matched = matchRecipeOgRoute(event.url.pathname);
-    if (!matched) return null;
 
-    const html = await renderRecipeOgForCrawler(matched.prefix, matched.slug, event.url.origin);
+    const recipe = matchRecipeOgRoute(event.url.pathname);
+    const note = recipe ? null : matchNoteOgRoute(event.url.pathname);
+    if (!recipe && !note) return null;
+
+    const html = recipe
+      ? await renderRecipeOgForCrawler(recipe.prefix, recipe.slug, event.url.origin)
+      : await renderNoteOgForCrawler(note!.slug, event.url.origin);
     return new Response(html, {
       status: 200,
       headers: {
