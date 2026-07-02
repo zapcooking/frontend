@@ -380,7 +380,7 @@
       </div>
     {:else if part.type === 'hashtag'}
       <button
-        class="hashtag-pill inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium transition-colors cursor-pointer"
+        class="hashtag-pill inline-flex items-center px-2 py-0.5 rounded-full font-medium transition-colors cursor-pointer"
         on:click={() => handleHashtagClick(part.content)}
       >
         {part.content}
