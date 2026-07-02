@@ -20,6 +20,7 @@
 
 import { getRecipeOgMeta, FALLBACK_RECIPE_OG, type RecipeOgMeta } from './recipeOgMeta';
 import { fetchRecipeEventForOg } from './recipeOg.server';
+import { fetchNoteForOg, getNoteOgMeta, FALLBACK_NOTE_OG } from './noteOg.server';
 
 /**
  * Crawler / link-unfurl User-Agents. Matched case-insensitively.
@@ -53,6 +54,15 @@ export function matchRecipeOgRoute(pathname: string): { prefix: string; slug: st
   // → '/' that corrupts the canonical/og:url or makes it mismatch the request.
   // nip19.decode() and the hex test in recipeOg.server.ts both accept it as-is.
   return { prefix: m[1], slug: m[2] };
+}
+
+/** Top-level note routes (`/note1…`, `/nevent1…`) get bot OG injection too. */
+const NOTE_ROUTE_RE = /^\/((?:note1|nevent1)[0-9a-z]+)\/?$/i;
+
+export function matchNoteOgRoute(pathname: string): { slug: string } | null {
+  const m = pathname.match(NOTE_ROUTE_RE);
+  if (!m) return null;
+  return { slug: m[1] };
 }
 
 function escapeAttr(value: string): string {
@@ -125,6 +135,23 @@ export async function renderRecipeOgForCrawler(
   try {
     const event = await fetchRecipeEventForOg(slug);
     if (event) meta = getRecipeOgMeta(event);
+  } catch {
+    /* keep fallback meta */
+  }
+  return renderDocument(meta, canonicalUrl);
+}
+
+/**
+ * Build the standalone crawler document for a matched note route. Never throws
+ * and never hangs: on any failure or relay timeout it emits a safe generic
+ * note card so the bot still gets a valid 200.
+ */
+export async function renderNoteOgForCrawler(slug: string, origin: string): Promise<string> {
+  const canonicalUrl = `${origin}/${slug}`;
+  let meta: RecipeOgMeta = FALLBACK_NOTE_OG;
+  try {
+    const data = await fetchNoteForOg(slug);
+    if (data) meta = getNoteOgMeta(data);
   } catch {
     /* keep fallback meta */
   }
