@@ -4308,9 +4308,9 @@
                         <div class="font-medium text-primary-color">
                           {tx.type === 'incoming' ? 'Received' : 'Sent'}
                         </div>
-                        {#if tx.comment || tx.description}
+                        {#if tx.comment}
                           <div class="text-sm text-caption truncate">
-                            {tx.comment ? `"${tx.comment}"` : tx.description}
+                            "{tx.comment}"
                           </div>
                         {/if}
                         <div class="text-sm text-caption">
