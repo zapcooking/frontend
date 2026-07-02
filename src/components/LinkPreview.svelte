@@ -33,24 +33,46 @@
     error = false;
 
     try {
-      // Try microlink.io first (more reliable, has free tier)
       let data: any = null;
 
+      // Prefer our own server-side unfurler — no CORS, no third-party quota.
       try {
-        const response = await fetch(`https://api.microlink.io?url=${encodeURIComponent(url)}`);
+        const response = await fetch(`/api/link-preview?url=${encodeURIComponent(url)}`);
         if (response.ok) {
           const result = await response.json();
-          if (result.status === 'success' && result.data) {
+          if (result && !result.error && (result.title || result.description || result.image)) {
             data = {
-              title: result.data.title || '',
-              description: result.data.description || '',
-              image: result.data.image?.url || result.data.logo?.url || '',
-              favicon: result.data.logo?.url || `https://www.google.com/s2/favicons?domain=${new URL(url).hostname}&sz=32`
+              title: result.title || '',
+              description: result.description || '',
+              image: result.image || '',
+              favicon:
+                result.favicon ||
+                `https://www.google.com/s2/favicons?domain=${new URL(url).hostname}&sz=32`
             };
           }
         }
       } catch (e) {
-        // Microlink failed - will fall back to showing plain URL
+        // Internal endpoint failed — fall back to microlink below.
+      }
+
+      // Fallback: microlink.io (free tier, rate-limited) if ours came up empty.
+      if (!data) {
+        try {
+          const response = await fetch(`https://api.microlink.io?url=${encodeURIComponent(url)}`);
+          if (response.ok) {
+            const result = await response.json();
+            if (result.status === 'success' && result.data) {
+              data = {
+                title: result.data.title || '',
+                description: result.data.description || '',
+                image: result.data.image?.url || result.data.logo?.url || '',
+                favicon: result.data.logo?.url || `https://www.google.com/s2/favicons?domain=${new URL(url).hostname}&sz=32`
+              };
+            }
+          }
+        } catch (e) {
+          // Microlink failed - will fall back to showing plain URL
+        }
       }
 
       if (data) {
@@ -117,7 +139,7 @@
     href={url}
     target="_blank"
     rel="noopener noreferrer"
-    class="text-blue-500 hover:text-blue-700 hover:underline break-all"
+    class="text-orange-500 hover:text-orange-600 hover:underline break-all"
   >
     {url}
   </a>
