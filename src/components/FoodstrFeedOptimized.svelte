@@ -489,6 +489,7 @@
       authorName: string;
       authorPubkey: string;
       notePreview: string;
+      previewImage?: string;
       noteId: string;
       loading: boolean;
       error?: string;
@@ -3692,6 +3693,7 @@
     authorName: string;
     authorPubkey: string;
     notePreview: string;
+    previewImage?: string;
     noteId: string;
     error?: string;
   }> {
@@ -3702,6 +3704,7 @@
         authorName: cached.authorName,
         authorPubkey: cached.authorPubkey,
         notePreview: cached.notePreview,
+        previewImage: cached.previewImage,
         noteId: cached.noteId,
         error: cached.error
       });
@@ -3718,6 +3721,7 @@
               authorName: updated.authorName,
               authorPubkey: updated.authorPubkey,
               notePreview: updated.notePreview,
+              previewImage: updated.previewImage,
               noteId: updated.noteId,
               error: updated.error
             });
@@ -3784,24 +3788,60 @@
           authorName = npub; // Use full npub, not truncated
         }
 
-        // Get note preview (50-80 characters, prefer 70)
-        const content = parentNote.content || '';
-        // Remove URLs and media tags for cleaner preview
+        // Get note preview
+        let content = parentNote.content || '';
+
+        // Resolve inline profile mentions (nostr:npub / nprofile) to @name
+        // so the preview keeps the mention instead of dropping it when the
+        // nostr: token is stripped below.
+        const mentionTokens = content.match(/nostr:(?:npub1|nprofile1)[0-9a-z]+/g) || [];
+        for (const token of [...new Set(mentionTokens)]) {
+          try {
+            const decoded = nip19.decode(token.replace(/^nostr:/, ''));
+            const pk =
+              decoded.type === 'npub'
+                ? (decoded.data as string)
+                : decoded.type === 'nprofile'
+                  ? (decoded.data as { pubkey: string }).pubkey
+                  : '';
+            if (!pk) continue;
+            const mentioned = $ndk.getUser({ hexpubkey: pk });
+            await mentioned.fetchProfile();
+            const handle =
+              mentioned.profile?.displayName ||
+              mentioned.profile?.name ||
+              nip19.npubEncode(pk).slice(0, 12) + '…';
+            content = content.split(token).join('@' + handle);
+          } catch {
+            // Leave the token; it'll be stripped below if unresolved.
+          }
+        }
+
+        // Remove URLs and any remaining nostr refs (nevent/note/naddr) for a
+        // clean text preview.
         const cleanContent = content
           .replace(/https?:\/\/[^\s]+/g, '') // Remove URLs
-          .replace(/nostr:[^\s]+/g, '') // Remove nostr: links
+          .replace(/nostr:[^\s]+/g, '') // Remove remaining nostr: links
           .replace(/\s+/g, ' ')
           .trim();
-        const previewLength = Math.min(70, Math.max(50, cleanContent.length));
+        // Expose a meaningful chunk of the quoted note rather than a
+        // one-line teaser — the CSS line-clamp caps the visible height,
+        // so a generous character budget just lets those lines fill.
+        const previewLength = 280;
         const notePreview =
           cleanContent.length > previewLength
             ? cleanContent.substring(0, previewLength) + '...'
             : cleanContent;
 
+        // First image in the quoted note, so the embed can show a media
+        // preview rather than only stripped text.
+        const previewImage = getImageUrls(parentNote).find((u) => isImageUrl(u));
+
         const result = {
           authorName,
           authorPubkey,
           notePreview,
+          previewImage,
           noteId: eventId
         };
 
@@ -5054,6 +5094,14 @@
                         {#if context.notePreview && !context.error}
                           <p class="parent-quote-content">{context.notePreview}</p>
                         {/if}
+                        {#if context.previewImage && !context.error}
+                          <img
+                            src={getOptimizedImageUrl(context.previewImage)}
+                            class="parent-quote-image"
+                            loading="lazy"
+                            alt=""
+                          />
+                        {/if}
                         <span class="parent-quote-link"> View full thread → </span>
                       </a>
                     {:catch}
@@ -5148,6 +5196,14 @@
                         </div>
                         {#if context.notePreview && !context.error}
                           <p class="parent-quote-content">{context.notePreview}</p>
+                        {/if}
+                        {#if context.previewImage && !context.error}
+                          <img
+                            src={getOptimizedImageUrl(context.previewImage)}
+                            class="parent-quote-image"
+                            loading="lazy"
+                            alt=""
+                          />
                         {/if}
                         <span class="parent-quote-link"> View quoted note → </span>
                       </a>
@@ -5424,23 +5480,37 @@
   }
 
   .parent-quote-content {
-    font-size: 0.75rem;
-    color: var(--color-text-secondary);
-    line-height: 1.4;
+    /* Read like actual embedded content, not a buried gray teaser. */
+    font-size: 0.9375rem;
+    color: var(--color-text-primary);
+    line-height: 1.5;
     margin: 0 0 0.375rem 0;
     overflow-wrap: anywhere;
     word-break: break-word;
     display: -webkit-box;
-    -webkit-line-clamp: 2;
-    line-clamp: 2;
+    -webkit-line-clamp: 6;
+    line-clamp: 6;
     -webkit-box-orient: vertical;
     overflow: hidden;
   }
 
+  /* Media preview from the quoted note. */
+  .parent-quote-image {
+    display: block;
+    width: 100%;
+    max-height: 220px;
+    object-fit: cover;
+    border-radius: 0.375rem;
+    margin: 0 0 0.375rem 0;
+  }
+
+  /* De-emphasized now that the content itself carries the embed — the
+     whole quote card is the click target. */
   .parent-quote-link {
-    font-size: 0.75rem;
+    font-size: 0.6875rem;
     font-weight: 500;
-    color: var(--color-primary, #3b82f6);
+    color: var(--color-text-secondary);
+    opacity: 0.75;
   }
 
   .parent-quote-loading {
