@@ -30,6 +30,33 @@
     $weblnConnected ||
     ($bitcoinConnectEnabled && $bitcoinConnectWalletInfo.connected);
 
+  type NavItem = {
+    href: string;
+    label: string;
+    icon: any;
+    match: (path: string) => boolean;
+    badge?: 'messages' | 'wallet';
+  };
+
+  const homeItems: NavItem[] = [
+    { href: '/community', label: 'Feed', icon: FlameIcon, match: (p) => p === '/' || p.startsWith('/community') },
+    { href: '/recipes', label: 'Recipes', icon: ForkKnifeIcon, match: (p) => p.startsWith('/recipes') || p.startsWith('/recent') },
+    { href: '/reads', label: 'Reads', icon: NewspaperIcon, match: (p) => p.startsWith('/reads') || p.startsWith('/r/') },
+    { href: '/polls', label: 'Polls', icon: ChartBarHorizontalIcon, match: (p) => p.startsWith('/polls') },
+    { href: '/market', label: 'Market', icon: StorefrontIcon, match: (p) => p.startsWith('/market') || p.startsWith('/my-store') },
+    { href: '/messages', label: 'Messages', icon: EnvelopeSimpleIcon, match: (p) => p.startsWith('/messages'), badge: 'messages' },
+    { href: '/memories', label: 'Memories', icon: ClockCounterClockwiseIcon, match: (p) => p.startsWith('/memories') },
+  ];
+
+  const kitchenItems: NavItem[] = [
+    { href: '/cookbook', label: 'Cookbook', icon: CookbookIcon, match: (p) => p.startsWith('/cookbook') },
+    { href: '/grocery', label: 'Grocery Lists', icon: ShoppingCartIcon, match: (p) => p.startsWith('/grocery') },
+    { href: '/wallet', label: 'Wallet', icon: WalletIcon, match: () => $walletModalOpen, badge: 'wallet' },
+    { href: '/nourish', label: 'Nourish', icon: LeafIcon, match: (p) => p.startsWith('/nourish') },
+    { href: '/membership', label: 'Membership', icon: CrownSimpleIcon, match: (p) => p.startsWith('/membership') },
+    { href: '/sponsors', label: 'Sponsors', icon: HandshakeIcon, match: (p) => p.startsWith('/sponsors') },
+  ];
+
   function close() {
     mobileNavOpen.set(false);
   }
@@ -97,15 +124,7 @@
       <div>
         <h3 class="px-3 pb-2 font-semibold uppercase tracking-wider" style="color: var(--color-caption); font-size: 11px;">Home</h3>
         <ul class="flex flex-col gap-0.5">
-          {#each [
-            { href: '/community', label: 'Feed', icon: FlameIcon, match: (p) => p === '/' || p.startsWith('/community') },
-            { href: '/recipes', label: 'Recipes', icon: ForkKnifeIcon, match: (p) => p.startsWith('/recipes') || p.startsWith('/recent') },
-            { href: '/reads', label: 'Reads', icon: NewspaperIcon, match: (p) => p.startsWith('/reads') || p.startsWith('/r/') },
-            { href: '/polls', label: 'Polls', icon: ChartBarHorizontalIcon, match: (p) => p.startsWith('/polls') },
-            { href: '/market', label: 'Market', icon: StorefrontIcon, match: (p) => p.startsWith('/market') || p.startsWith('/my-store') },
-            { href: '/messages', label: 'Messages', icon: EnvelopeSimpleIcon, match: (p) => p.startsWith('/messages'), badge: 'messages' },
-            { href: '/memories', label: 'Memories', icon: ClockCounterClockwiseIcon, match: (p) => p.startsWith('/memories') },
-          ] as item}
+          {#each homeItems as item}
             {@const active = item.match(pathname)}
             <li>
               <button
@@ -130,14 +149,7 @@
       <div>
         <h3 class="px-3 pb-2 font-semibold uppercase tracking-wider" style="color: var(--color-caption); font-size: 11px;">My Kitchen</h3>
         <ul class="flex flex-col gap-0.5">
-          {#each [
-            { href: '/cookbook', label: 'Cookbook', icon: CookbookIcon, match: (p) => p.startsWith('/cookbook') },
-            { href: '/grocery', label: 'Grocery Lists', icon: ShoppingCartIcon, match: (p) => p.startsWith('/grocery') },
-            { href: '/wallet', label: 'Wallet', icon: WalletIcon, match: () => $walletModalOpen, badge: 'wallet' },
-            { href: '/nourish', label: 'Nourish', icon: LeafIcon, match: (p) => p.startsWith('/nourish') },
-            { href: '/membership', label: 'Membership', icon: CrownSimpleIcon, match: (p) => p.startsWith('/membership') },
-            { href: '/sponsors', label: 'Sponsors', icon: HandshakeIcon, match: (p) => p.startsWith('/sponsors') },
-          ] as item}
+          {#each kitchenItems as item}
             {@const active = item.match(pathname)}
             <li>
               <button
