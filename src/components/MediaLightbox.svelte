@@ -11,10 +11,18 @@
    * backdrop gutters, outside the photo frame.
    */
   import { onMount, onDestroy } from 'svelte';
+  import { portal } from './Modal.svelte';
 
   export let images: string[] = [];
   export let index = 0;
   export let onClose: () => void = () => {};
+
+  // Render at document.body so the lightbox escapes any transformed /
+  // stacking-context ancestor (e.g. the composer modal dialog, which uses
+  // a CSS transform — that would otherwise size our fixed overlay to the
+  // dialog and let the nav strips paint over it, hiding the close button).
+  const portalTarget: HTMLElement | null =
+    typeof document !== 'undefined' ? document.body : null;
 
   $: count = images.length;
   $: multiple = count > 1;
@@ -143,7 +151,8 @@
 
 <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-noninteractive-element-interactions -->
 <div
-  class="fixed inset-0 z-50 bg-black/85 overflow-hidden"
+  class="fixed inset-0 z-[10001] bg-black/85 overflow-hidden"
+  use:portal={portalTarget ?? document.body}
   on:click={onClose}
   role="dialog"
   aria-modal="true"
