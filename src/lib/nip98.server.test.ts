@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import {
   finalizeEvent,
   generateSecretKey,
@@ -12,13 +12,8 @@ import { normalizeUrl, sha256Hex } from './nip98';
 const ENDPOINT = 'https://zap.cooking/api/extract-recipe';
 const METHOD = 'POST';
 
-let sk: Uint8Array;
-let pubkey: string;
-
-beforeAll(() => {
-  sk = generateSecretKey();
-  pubkey = getPublicKey(sk);
-});
+const sk = generateSecretKey();
+const pubkey = getPublicKey(sk);
 
 async function signEvent(
   template: EventTemplate,
