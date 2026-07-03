@@ -18,6 +18,8 @@ declare global {
           NOTIFICATION_PRIVATE_KEY?: string;
           CRON_SECRET?: string;
           MEMBERSHIP_ENABLED?: string;
+          /** Temporary rollout flag for /api/extract-recipe legacy body-pubkey auth. */
+          EXTRACT_LEGACY_AUTH?: string;
           /** OpenAI API key — used by /api/extract-recipe and /api/nourish. */
           OPENAI_API_KEY?: string;
           MEMBERSHIP_LIGHTNING_ADDRESS?: string;

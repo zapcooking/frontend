@@ -18,6 +18,7 @@
     type AnonImportHandoff
   } from '$lib/anonImport';
   import { detectMode } from '$lib/souschefDetect';
+  import { signNip98AuthHeader } from '$lib/nip98';
   import Button from '../../components/Button.svelte';
   import TagsComboBox from '../../components/TagsComboBox.svelte';
   import StringComboBox from '../../components/StringComboBox.svelte';
@@ -381,10 +382,21 @@
         extractionProgress = 'Fetching and extracting recipe from URL...';
       }
 
+      const bodyString = JSON.stringify(requestBody);
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+
+      if (mode === 'image' || mode === 'text') {
+        headers.Authorization = await signNip98AuthHeader($ndk, {
+          method: 'POST',
+          url: `${location.origin}/api/extract-recipe`,
+          bodyString
+        });
+      }
+
       const response = await fetch('/api/extract-recipe', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(requestBody)
+        headers,
+        body: bodyString
       });
 
       const data = await response.json();
