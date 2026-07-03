@@ -16,8 +16,10 @@
  *                            endpoint can't be used as a quieter bypass
  *                            of /public's cap.
  *   - type: 'image'|'text' — requires active membership (any tier).
- *                            `pubkey` is required and checked via
- *                            `hasActiveMembership`.
+ *                            Identity is proven via NIP-98 HTTP Auth
+ *                            (kind-27235 Authorization header). Legacy
+ *                            body-pubkey auth remains behind
+ *                            EXTRACT_LEGACY_AUTH for rollout compatibility.
  *
  * The "pubkey optional" part: for URL imports `pubkey` is no longer
  * required in the request body. The field is still accepted so existing
@@ -31,6 +33,7 @@ import { json, type RequestHandler } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
 import { parseRecipe, type ParseInput } from '$lib/parseRecipe.server';
 import { checkPerIpRateLimit } from '$lib/ipRateLimit.server';
+import { verifyNip98 } from '$lib/nip98.server';
 
 // URL imports on this endpoint share the same per-IP cap as the public
 // sibling so a caller can't route around /public/'s rate limit by
@@ -46,9 +49,16 @@ export const POST: RequestHandler = async ({ request, getClientAddress, platform
       return json({ success: false, error: 'OpenAI API key not configured' }, { status: 500 });
     }
 
+    let bodyBytes: Uint8Array;
+    try {
+      bodyBytes = new Uint8Array(await request.arrayBuffer());
+    } catch {
+      return json({ success: false, error: 'Invalid request body' }, { status: 400 });
+    }
+
     let body: Record<string, unknown>;
     try {
-      body = (await request.json()) as Record<string, unknown>;
+      body = JSON.parse(new TextDecoder().decode(bodyBytes)) as Record<string, unknown>;
     } catch {
       return json({ success: false, error: 'Invalid JSON body' }, { status: 400 });
     }
@@ -64,20 +74,44 @@ export const POST: RequestHandler = async ({ request, getClientAddress, platform
 
     // Gate — image/text remain premium, URL is free for everyone.
     if (type === 'image' || type === 'text') {
+      let authPubkey: string;
+
+      if (request.headers.get('Authorization')) {
+        const verification = await verifyNip98(request, { bodyBytes });
+        if (!verification.ok) {
+          return json(
+            { success: false, error: 'Authentication required for AI recipe extraction' },
+            { status: 401 }
+          );
+        }
+        authPubkey = verification.pubkey;
+      } else {
+        const legacyAuth = platform?.env?.EXTRACT_LEGACY_AUTH || env.EXTRACT_LEGACY_AUTH;
+        if (legacyAuth?.toLowerCase() === 'true') {
+          console.log('extract-recipe: legacy body-pubkey auth used');
+          if (typeof pubkey !== 'string' || pubkey.trim().length === 0) {
+            return json(
+              { success: false, error: 'Authentication required for AI recipe extraction' },
+              { status: 401 }
+            );
+          }
+          authPubkey = pubkey.trim();
+        } else {
+          return json(
+            { success: false, error: 'Authentication required for AI recipe extraction' },
+            { status: 401 }
+          );
+        }
+      }
+
       const MEMBERSHIP_ENABLED =
         platform?.env?.MEMBERSHIP_ENABLED || env.MEMBERSHIP_ENABLED;
       if (MEMBERSHIP_ENABLED?.toLowerCase() === 'true') {
-        if (typeof pubkey !== 'string' || pubkey.trim().length === 0) {
-          return json(
-            { success: false, error: 'Premium membership required for AI recipe extraction' },
-            { status: 403 }
-          );
-        }
         const API_SECRET = platform?.env?.RELAY_API_SECRET || env.RELAY_API_SECRET;
         if (API_SECRET) {
           try {
             const { hasActiveMembership } = await import('$lib/membershipApi.server');
-            const isActive = await hasActiveMembership(pubkey, API_SECRET);
+            const isActive = await hasActiveMembership(authPubkey, API_SECRET);
             if (!isActive) {
               return json(
                 { success: false, error: 'Premium membership required for AI recipe extraction' },
