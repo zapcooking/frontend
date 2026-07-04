@@ -7,6 +7,7 @@
   import NofferButton from './clink/NofferButton.svelte';
   import LinkPreview from './LinkPreview.svelte';
   import VideoPreview from './VideoPreview.svelte';
+  import YouTubeEmbed from './YouTubeEmbed.svelte';
   import MediaCarousel from './MediaCarousel.svelte';
   import { processContentWithProfiles } from '$lib/contentProcessor';
   import MediaLightbox from './MediaLightbox.svelte';
@@ -85,6 +86,49 @@
     if (target) target.style.display = 'none';
   }
 
+  // Parse a start-time token (?t= / &start=) into seconds. Accepts a bare
+  // number ("90") or a duration ("1m30s", "1h2m3s").
+  function parseYouTubeStart(t: string | null): number {
+    if (!t) return 0;
+    if (/^\d+$/.test(t)) return parseInt(t, 10);
+    const m = t.match(/^(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?$/);
+    if (!m || !m[0]) return 0;
+    return (+(m[1] || 0)) * 3600 + (+(m[2] || 0)) * 60 + (+(m[3] || 0));
+  }
+
+  // Extract a YouTube video id (+ optional start offset) from the common URL
+  // shapes: youtu.be/ID, youtube.com/watch?v=ID, /embed/ID, /shorts/ID,
+  // /live/ID, /v/ID. Returns null for anything that isn't a YouTube video.
+  function parseYouTube(url: string): { id: string; start: number } | null {
+    let u: URL;
+    try {
+      u = new URL(url);
+    } catch {
+      return null;
+    }
+    const host = u.hostname.replace(/^www\./, '');
+    let id = '';
+    if (host === 'youtu.be') {
+      id = u.pathname.slice(1).split('/')[0];
+    } else if (
+      host === 'youtube.com' ||
+      host === 'm.youtube.com' ||
+      host === 'music.youtube.com' ||
+      host === 'youtube-nocookie.com'
+    ) {
+      if (u.pathname === '/watch') {
+        id = u.searchParams.get('v') || '';
+      } else {
+        const m = u.pathname.match(/^\/(?:embed|shorts|live|v)\/([^/?#]+)/);
+        if (m) id = m[1];
+      }
+    }
+    if (!/^[A-Za-z0-9_-]{11}$/.test(id)) return null;
+    return { id, start: parseYouTubeStart(u.searchParams.get('t') || u.searchParams.get('start')) };
+  }
+
+  const isYouTube = (url?: string): boolean => !!url && parseYouTube(url) !== null;
+
   function isMediaPart(part?: { type?: string; url?: string }): boolean {
     return Boolean(
       part?.type === 'url' && part.url && (isImageUrl(part.url) || isVideoUrl(part.url))
@@ -142,7 +186,7 @@
     }
     if (part.type === 'url') {
       if (!part.url) return false;
-      return isImageUrl(part.url) || isVideoUrl(part.url) || showLinkPreviews;
+      return isImageUrl(part.url) || isVideoUrl(part.url) || isYouTube(part.url) || showLinkPreviews;
     }
     return false;
   }
@@ -403,6 +447,11 @@
             />
           </button>
         </div>
+      {:else if part.url && isYouTube(part.url)}
+        {@const yt = parseYouTube(part.url)}
+        {#if yt}
+          <YouTubeEmbed videoId={yt.id} start={yt.start} />
+        {/if}
       {:else if part.url && isVideoUrl(part.url)}
         <VideoPreview url={part.url} />
       {:else if showLinkPreviews && part.url}
