@@ -205,10 +205,18 @@
           extraUrls.add(tag[2]);
         }
       }
+      // Query the default pool AND the extra relays. A relaySet passed to
+      // subscribe() is queried exclusively, so restricting to the extras alone
+      // (as before) meant replies on the default pool were missed whenever an
+      // event carried hints — and none at all if those hints were unreachable.
       if (extraUrls.size > 0 && $ndk) {
-        relaySet = NDKRelaySet.fromRelayUrls([...extraUrls].slice(0, 3), $ndk, true);
+        const poolUrls = Array.from($ndk.pool?.relays?.keys?.() ?? []);
+        const merged = [...new Set([...poolUrls, ...extraUrls])];
+        if (merged.length > 0) {
+          relaySet = NDKRelaySet.fromRelayUrls(merged, $ndk, true);
+        }
       }
-    } catch { /* non-fatal */ }
+    } catch { /* non-fatal — fall back to the default pool */ }
 
     const sub = $ndk.subscribe(filter, { closeOnEose: false }, relaySet);
 
@@ -297,12 +305,22 @@
           ids: [eventId]
         };
 
-        // Include relay hints from nevent1 when fetching the main event
+        // Include relay hints from nevent1 when fetching the main event — but
+        // ADDITIVELY, on top of the default pool. NDK queries a passed relaySet
+        // exclusively, so building it from the hints alone means a note whose
+        // hints are dead or paywalled (e.g. 503/403) never loads even though it
+        // lives on the default relays. Merge the current pool with the hints so
+        // both are queried; if the pool can't be read, fall back to no set
+        // (default pool) rather than a hints-only set.
         let eventRelaySet: NDKRelaySet | undefined;
         if (neventRelays.length > 0 && $ndk) {
           try {
-            eventRelaySet = NDKRelaySet.fromRelayUrls(neventRelays, $ndk, true);
-          } catch { /* non-fatal */ }
+            const poolUrls = Array.from($ndk.pool?.relays?.keys?.() ?? []);
+            const merged = [...new Set([...poolUrls, ...neventRelays])];
+            if (merged.length > 0) {
+              eventRelaySet = NDKRelaySet.fromRelayUrls(merged, $ndk, true);
+            }
+          } catch { /* non-fatal — fall back to the default pool */ }
         }
 
         const subscription = $ndk.subscribe(filter, { closeOnEose: false }, eventRelaySet);
