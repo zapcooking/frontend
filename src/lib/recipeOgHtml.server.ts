@@ -20,6 +20,8 @@
 
 import { getRecipeOgMeta, FALLBACK_RECIPE_OG, type RecipeOgMeta } from './recipeOgMeta';
 import { fetchRecipeEventForOg } from './recipeOg.server';
+import { fetchNoteForOg, getNoteOgMeta, FALLBACK_NOTE_OG } from './noteOg.server';
+import { fetchProfileOgMeta, FALLBACK_PROFILE_OG } from './profileOg.server';
 
 /**
  * Crawler / link-unfurl User-Agents. Matched case-insensitively.
@@ -54,6 +56,43 @@ export function matchRecipeOgRoute(pathname: string): { prefix: string; slug: st
   // nip19.decode() and the hex test in recipeOg.server.ts both accept it as-is.
   return { prefix: m[1], slug: m[2] };
 }
+
+/** Top-level note routes (`/note1…`, `/nevent1…`) get bot OG injection too. */
+const NOTE_ROUTE_RE = /^\/((?:note1|nevent1)[0-9a-z]+)\/?$/i;
+
+export function matchNoteOgRoute(pathname: string): { slug: string } | null {
+  const m = pathname.match(NOTE_ROUTE_RE);
+  if (!m) return null;
+  return { slug: m[1] };
+}
+
+/** Long-form article routes (`/reads/naddr1…`). */
+const READS_ROUTE_RE = /^\/reads\/([^/]+)\/?$/;
+
+export function matchReadsOgRoute(pathname: string): { slug: string } | null {
+  const m = pathname.match(READS_ROUTE_RE);
+  if (!m) return null;
+  return { slug: m[1] };
+}
+
+/** Profile routes: `/npub1…`, `/nprofile1…`, and `/user/npub1…`. */
+const PROFILE_ROUTE_RE = /^\/(?:user\/)?((?:npub1|nprofile1)[0-9a-z]+)\/?$/i;
+
+export function matchProfileOgRoute(pathname: string): { slug: string } | null {
+  const m = pathname.match(PROFILE_ROUTE_RE);
+  if (!m) return null;
+  return { slug: m[1] };
+}
+
+/** Generic article card when a `/reads/` event can't be resolved. */
+const FALLBACK_ARTICLE_OG: RecipeOgMeta = {
+  pageTitle: 'Article - zap.cooking',
+  ogTitle: 'An article on Zap Cooking',
+  description: 'A long-form article shared on zap.cooking - Food. Friends. Freedom.',
+  image: 'https://zap.cooking/social-share.png',
+  publishedAt: null,
+  authorPubkey: null
+};
 
 function escapeAttr(value: string): string {
   return value
@@ -125,6 +164,61 @@ export async function renderRecipeOgForCrawler(
   try {
     const event = await fetchRecipeEventForOg(slug);
     if (event) meta = getRecipeOgMeta(event);
+  } catch {
+    /* keep fallback meta */
+  }
+  return renderDocument(meta, canonicalUrl);
+}
+
+/**
+ * Build the standalone crawler document for a matched note route. Never throws
+ * and never hangs: on any failure or relay timeout it emits a safe generic
+ * note card so the bot still gets a valid 200.
+ */
+export async function renderNoteOgForCrawler(slug: string, origin: string): Promise<string> {
+  const canonicalUrl = `${origin}/${slug}`;
+  let meta: RecipeOgMeta = FALLBACK_NOTE_OG;
+  try {
+    const data = await fetchNoteForOg(slug);
+    if (data) meta = getNoteOgMeta(data);
+  } catch {
+    /* keep fallback meta */
+  }
+  return renderDocument(meta, canonicalUrl);
+}
+
+/**
+ * Build the standalone crawler document for a `/reads/naddr…` article. Reuses
+ * the recipe resolver/derivation (both are kind:30023 with title/summary/image
+ * tags), with a generic article fallback. Never throws or hangs.
+ */
+export async function renderReadsOgForCrawler(slug: string, origin: string): Promise<string> {
+  const canonicalUrl = `${origin}/reads/${slug}`;
+  let meta: RecipeOgMeta = FALLBACK_ARTICLE_OG;
+  try {
+    const event = await fetchRecipeEventForOg(slug);
+    if (event) meta = getRecipeOgMeta(event);
+  } catch {
+    /* keep fallback meta */
+  }
+  return renderDocument(meta, canonicalUrl);
+}
+
+/**
+ * Build the standalone crawler document for a profile route (`/npub1…`,
+ * `/nprofile1…`, `/user/npub1…`). `pathname` is passed through so the canonical
+ * URL matches the actual route (top-level vs `/user/`). Never throws or hangs.
+ */
+export async function renderProfileOgForCrawler(
+  slug: string,
+  origin: string,
+  pathname: string
+): Promise<string> {
+  const canonicalUrl = `${origin}${pathname}`;
+  let meta: RecipeOgMeta = FALLBACK_PROFILE_OG;
+  try {
+    const resolved = await fetchProfileOgMeta(slug);
+    if (resolved) meta = resolved;
   } catch {
     /* keep fallback meta */
   }
