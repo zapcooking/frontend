@@ -42,12 +42,12 @@
         await authManager.ensureNip46SignerReady();
       }
 
-      // Create a note event with #zapcooking tag
+      // Create a note event
       const event = new NDKEvent($ndk);
       event.kind = 1;
       event.content = content.trim();
-      event.tags = [['t', 'zapcooking']];
-      
+      event.tags = [];
+
       // Add NIP-89 client tag
       addClientTagToEvent(event);
 
@@ -135,11 +135,7 @@
       </div>
     </div>
 
-    <div class="flex items-center justify-between">
-      <div class="text-sm text-gray-500">
-        Your post will include the <span class="font-medium text-yellow-600">#zapcooking</span> tag
-      </div>
-      
+    <div class="flex items-center justify-end">
       <div class="flex gap-3">
         <Button
           on:click={() => goto('/feed')}

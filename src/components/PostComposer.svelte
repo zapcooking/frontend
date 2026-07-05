@@ -477,7 +477,7 @@
       const mentions = mentionCtrl.parseMentions(postContent);
 
       event.content = postContent;
-      event.tags = [['t', 'zapcooking']];
+      event.tags = [];
 
       for (const pubkey of mentions.values()) {
         if (!event.tags.some((t) => t[0] === 'p' && t[1] === pubkey)) {
