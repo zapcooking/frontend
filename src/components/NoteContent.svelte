@@ -7,6 +7,7 @@
   import NofferButton from './clink/NofferButton.svelte';
   import LinkPreview from './LinkPreview.svelte';
   import VideoPreview from './VideoPreview.svelte';
+  import TwitterEmbed from './TwitterEmbed.svelte';
   import MediaCarousel from './MediaCarousel.svelte';
   import { processContentWithProfiles } from '$lib/contentProcessor';
   import MediaLightbox from './MediaLightbox.svelte';
@@ -85,6 +86,12 @@
     if (target) target.style.display = 'none';
   }
 
+  // x.com/USER/status/ID or twitter.com/USER/status/ID, tolerating a
+  // trailing /photo/1, /video/1, or query string.
+  const TWITTER_STATUS_RE =
+    /^https?:\/\/(?:www\.|mobile\.)?(?:x|twitter)\.com\/[^/]+\/status(?:es)?\/\d+/i;
+  const isTwitterStatus = (url?: string): boolean => !!url && TWITTER_STATUS_RE.test(url);
+
   function isMediaPart(part?: { type?: string; url?: string }): boolean {
     return Boolean(
       part?.type === 'url' && part.url && (isImageUrl(part.url) || isVideoUrl(part.url))
@@ -142,7 +149,7 @@
     }
     if (part.type === 'url') {
       if (!part.url) return false;
-      return isImageUrl(part.url) || isVideoUrl(part.url) || showLinkPreviews;
+      return isImageUrl(part.url) || isVideoUrl(part.url) || isTwitterStatus(part.url) || showLinkPreviews;
     }
     return false;
   }
@@ -405,6 +412,8 @@
         </div>
       {:else if part.url && isVideoUrl(part.url)}
         <VideoPreview url={part.url} />
+      {:else if part.url && isTwitterStatus(part.url)}
+        <TwitterEmbed tweetUrl={part.url} />
       {:else if showLinkPreviews && part.url}
         <LinkPreview url={part.url} />
       {:else}
