@@ -129,8 +129,8 @@ const URI_NO_SECRET = `bunker://${SIGNER}?relay=${RELAY}`;
 
 function makeNdk() {
   return {
-    signer: null,
-    activeUser: null,
+    signer: null as any,
+    activeUser: null as any,
     addExplicitRelay: vi.fn(),
     connect: vi.fn().mockResolvedValue(undefined),
     getUser: ({ pubkey }: { pubkey: string }) => ({ pubkey })
@@ -139,6 +139,7 @@ function makeNdk() {
 
 let store: Map<string, string>;
 let authManager: AuthManager;
+let ndk: ReturnType<typeof makeNdk>;
 
 beforeEach(() => {
   store = new Map();
@@ -150,7 +151,8 @@ beforeEach(() => {
   };
   (globalThis as any).window = { open: vi.fn(() => null) };
   ndkTest.reset();
-  authManager = new AuthManager(makeNdk());
+  ndk = makeNdk();
+  authManager = new AuthManager(ndk);
 });
 
 afterEach(() => {
@@ -252,6 +254,8 @@ describe('connect handshake', () => {
       /single-use.*Not authorized/is
     );
     expect(ndkTest.calls.some((c) => c.method === 'get_public_key')).toBe(false);
+    // The abandoned signer must not linger on NDK once auth failed.
+    expect(ndk.signer).toBeNull();
   });
 
   it('rejects with timeout guidance when no response arrives', async () => {
@@ -329,6 +333,25 @@ describe('authUrl handling', () => {
     await expect(p).rejects.toThrow(/approval pending/i);
     // Popup opened, so the URL is not surfaced in state.
     expect(authManager.getState().authChallengeUrl).toBeUndefined();
+  });
+
+  it('ignores an auth challenge with a non-http(s) scheme (untrusted signer input)', async () => {
+    vi.useFakeTimers();
+    (window as any).open = vi.fn(() => null);
+    ndkTest.setImpl(({ signer, method }: any) => {
+      if (method === 'connect') {
+        signer.authUrlHandlers.forEach((h: any) => h('javascript:alert(document.cookie)'));
+        // No ack — falls through to timeout.
+      }
+    });
+    const p = authManager.authenticateWithNIP46(URI_WITH_SECRET);
+    p.catch(() => {});
+    await vi.advanceTimersByTimeAsync(60000);
+    // Never opened, never surfaced, and authUrlSeen stayed false so the
+    // timeout is the plain "didn't respond" message, not "approval pending".
+    expect(window.open).not.toHaveBeenCalled();
+    expect(authManager.getState().authChallengeUrl).toBeUndefined();
+    await expect(p).rejects.toThrow(/didn't respond/i);
   });
 
   it('surfaces the URL in state and gives approval-pending guidance when popup is blocked', async () => {

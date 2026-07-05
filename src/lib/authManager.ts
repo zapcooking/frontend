@@ -451,16 +451,45 @@ export class AuthManager {
       let authUrlSeen = false;
       (this.nip46Signer as any).rpc.on('authUrl', (url: string) => {
         console.log('[NIP-46] auth challenge:', url);
+        // The URL comes from the remote signer's response — untrusted input.
+        // Only accept http(s) so a malicious/compromised signer cannot smuggle
+        // a javascript:/data: (or other-scheme) URL into window.open() or the
+        // modal's <a href>, which would be an XSS/phishing vector.
+        let safeUrl: string | null = null;
+        try {
+          const parsed = new URL(url);
+          if (parsed.protocol === 'https:' || parsed.protocol === 'http:') {
+            safeUrl = parsed.href;
+          }
+        } catch {
+          /* not a parseable URL */
+        }
+        if (!safeUrl) {
+          console.warn('[NIP-46] Ignoring auth challenge with unsupported URL:', url);
+          return;
+        }
         authUrlSeen = true;
         let popup: Window | null = null;
         try {
-          popup = window.open(url, '_blank', 'width=420,height=640');
+          // Not using the `noopener` window feature: it forces window.open to
+          // return null even on success, which would defeat the popup-blocked
+          // detection below. Instead sever `opener` on the returned handle to
+          // block reverse-tabnabbing. The manual <a> fallback in the modal
+          // carries rel="noopener noreferrer".
+          popup = window.open(safeUrl, '_blank', 'width=420,height=640');
+          if (popup) {
+            try {
+              popup.opener = null;
+            } catch {
+              /* cross-origin after navigation — best effort */
+            }
+          }
         } catch (e) {
           console.warn('[NIP-46] window.open threw:', e);
         }
         if (!popup) {
           // Popup blocked — surface the URL so the user can tap it manually.
-          this.updateState({ authChallengeUrl: url });
+          this.updateState({ authChallengeUrl: safeUrl });
         }
       });
 
@@ -581,6 +610,11 @@ export class AuthManager {
     } catch (error) {
       console.error('[NIP-46] Authentication failed:', error);
       this.nip46Signer = null;
+      // Also drop the abandoned signer from NDK. We set this.ndk.signer to the
+      // bunker signer before the handshake, so on failure it would otherwise
+      // dangle and let later app code sign through a stale/unauthorized signer
+      // while AuthState reports unauthenticated.
+      this.ndk.signer = null;
       this.updateState({
         isAuthenticated: false,
         user: null,
@@ -695,6 +729,10 @@ export class AuthManager {
     } catch (error) {
       console.error('[NIP-46] Reconnection failed:', error);
       this.nip46Signer = null;
+      // Same stale-signer hazard as authenticateWithNIP46: the signer was
+      // assigned to NDK before the handshake, so drop it here to keep NDK
+      // consistent with the unauthenticated state.
+      this.ndk.signer = null;
 
       // Don't clear storage immediately - user might want to retry
       this.updateState({
