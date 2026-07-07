@@ -37,7 +37,7 @@
       return;
     }
     try {
-      const res = await fetch(`/api/youtube-oembed?v=${videoId}`);
+      const res = await fetch(`/api/youtube-oembed?v=${encodeURIComponent(videoId)}`);
       if (res.ok) {
         const data = await res.json();
         if (data && !data.error && data.title) {

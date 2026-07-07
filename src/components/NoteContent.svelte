@@ -102,7 +102,9 @@
   function parseYouTube(url: string): { id: string; start: number } | null {
     let u: URL;
     try {
-      u = new URL(url);
+      // Notes sometimes carry HTML-escaped query separators (`&amp;t=`);
+      // unescape them so searchParams sees `t`/`start` rather than `amp;t`.
+      u = new URL(url.replace(/&amp;/g, '&'));
     } catch {
       return null;
     }
