@@ -720,8 +720,8 @@
          and Iris, and gives a wider, more readable reading column than
          indenting the body under the avatar. Parent-thread context notes
          above keep the compact indented layout. -->
-    <article class="py-6">
-      <div class="flex items-start justify-between gap-3 mb-3">
+    <article class="py-4">
+      <div class="flex items-start justify-between gap-3 mb-2">
         <div class="flex items-center gap-3 min-w-0">
           <a
             href="/user/{nip19.npubEncode(event.author?.hexpubkey || event.pubkey)}"
@@ -751,7 +751,7 @@
         </div>
         <PostActionsMenu {event} />
       </div>
-      <div class="text-[17px] leading-relaxed mb-4" style="color: var(--color-text-primary)">
+      <div class="text-[17px] leading-normal mb-2" style="color: var(--color-text-primary)">
         {#if event.kind === 1068}
           <PollDisplay {event} />
         {:else}
@@ -762,9 +762,7 @@
     </article>
 
     <!-- Replies Section -->
-    <div class="mt-2">
-
-
+    <div class="mt-1">
       <!-- Replies List -->
       {#if loadingReplies}
         <div class="space-y-3">
@@ -794,56 +792,53 @@
                   tabindex="0"
                   on:keydown|self={(e) => e.key === 'Enter' && goto(noteUrl(reply))}
                 >
-                  <div class="flex space-x-3">
-                    <a
-                      href="/user/{nip19.npubEncode(reply.author?.hexpubkey || reply.pubkey)}"
-                      class="flex-shrink-0"
-                      on:click|stopPropagation
-                    >
-                      <Avatar pubkey={reply.author?.hexpubkey || reply.pubkey} size={32} />
-                    </a>
-                    <div class="flex-1 min-w-0">
-                      <div class="flex items-center justify-between mb-1">
-                        <div class="flex items-center space-x-2 min-w-0">
-                          <a
-                            href="/user/{nip19.npubEncode(reply.author?.hexpubkey || reply.pubkey)}"
-                            class="font-medium text-sm transition-colors username-link truncate min-w-0"
-                            style="color: var(--color-text-primary)"
-                            on:click|stopPropagation
-                          >
-                            <CustomName pubkey={reply.author?.hexpubkey || reply.pubkey} />
-                          </a>
-                          <span class="text-xs flex-shrink-0" style="color: var(--color-caption)">·</span>
-                          <span class="text-xs whitespace-nowrap flex-shrink-0" style="color: var(--color-caption)">
-                            {reply.created_at ? formatTimeAgo(reply.created_at) : ''}
-                          </span>
-                        </div>
-                        <span on:click|stopPropagation>
-                          <PostActionsMenu event={reply} />
+                  <div class="flex items-center justify-between gap-3 mb-2">
+                    <div class="flex items-center gap-3 min-w-0">
+                      <a
+                        href="/user/{nip19.npubEncode(reply.author?.hexpubkey || reply.pubkey)}"
+                        class="flex-shrink-0"
+                        on:click|stopPropagation
+                      >
+                        <Avatar pubkey={reply.author?.hexpubkey || reply.pubkey} size={32} />
+                      </a>
+                      <div class="flex flex-col min-w-0">
+                        <a
+                          href="/user/{nip19.npubEncode(reply.author?.hexpubkey || reply.pubkey)}"
+                          class="font-semibold text-[15px] transition-colors username-link truncate min-w-0"
+                          style="color: var(--color-text-primary)"
+                          on:click|stopPropagation
+                        >
+                          <CustomName pubkey={reply.author?.hexpubkey || reply.pubkey} />
+                        </a>
+                        <span class="text-xs" style="color: var(--color-caption)">
+                          {reply.created_at ? formatTimeAgo(reply.created_at) : ''}
                         </span>
                       </div>
-                      <div
-                        class="text-base leading-relaxed"
-                        style="color: var(--color-text-primary)"
-                      >
-                        {#if reply.kind === 1068}
-                          <PollDisplay event={reply} />
-                        {:else}
-                          <NoteContent content={reply.content} showNostrEmbeds={false} />
-                        {/if}
-                      </div>
-                      <!-- Reply actions -->
-                      <div class="mt-2" on:click|stopPropagation>
-                        <NoteActionBar event={reply} />
-                      </div>
                     </div>
+                    <span on:click|stopPropagation>
+                      <PostActionsMenu event={reply} />
+                    </span>
+                  </div>
+                  <div
+                    class="text-[14px] leading-normal"
+                    style="color: var(--color-text-primary)"
+                  >
+                    {#if reply.kind === 1068}
+                      <PollDisplay event={reply} />
+                    {:else}
+                      <NoteContent content={reply.content} showNostrEmbeds={false} />
+                    {/if}
+                  </div>
+                  <!-- Reply actions -->
+                  <div class="mt-2" on:click|stopPropagation>
+                    <NoteActionBar event={reply} />
                   </div>
                 </article>
 
                 <!-- Nested Replies (1 level deep shown inline) -->
                 {#each getNestedReplies(reply.id).slice(0, 2) as nestedReply (nestedReply.id)}
                   {#if !$mutedPubkeys.has(nestedReply.author?.hexpubkey || nestedReply.pubkey)}
-                    <div class="ml-8 pl-3">
+                    <div class="ml-4 pl-4 border-l-2" style="border-color: var(--color-input-border)">
                       <article
                         class="py-2 cursor-pointer hover:bg-[var(--color-bg-hover,rgba(255,255,255,0.03))] rounded"
                         on:click={(e) => gotoNoteUnlessInteractive(e, nestedReply)}
@@ -851,60 +846,57 @@
                         tabindex="0"
                         on:keydown|self={(e) => e.key === 'Enter' && goto(noteUrl(nestedReply))}
                       >
-                        <div class="flex space-x-2">
-                          <a
-                            href="/user/{nip19.npubEncode(
-                              nestedReply.author?.hexpubkey || nestedReply.pubkey
-                            )}"
-                            class="flex-shrink-0"
-                            on:click|stopPropagation
-                          >
-                            <Avatar
-                              pubkey={nestedReply.author?.hexpubkey || nestedReply.pubkey}
-                              size={24}
-                            />
-                          </a>
-                          <div class="flex-1 min-w-0">
-                            <div class="flex items-center justify-between mb-0.5">
-                              <div class="flex items-center space-x-2 min-w-0">
-                                <a
-                                  href="/user/{nip19.npubEncode(
-                                    nestedReply.author?.hexpubkey || nestedReply.pubkey
-                                  )}"
-                                  class="font-medium text-sm transition-colors username-link truncate min-w-0"
-                                  style="color: var(--color-text-primary)"
-                                  on:click|stopPropagation
-                                >
-                                  <CustomName
-                                    pubkey={nestedReply.author?.hexpubkey || nestedReply.pubkey}
-                                  />
-                                </a>
-                                <span class="text-xs flex-shrink-0" style="color: var(--color-caption)">·</span>
-                                <span class="text-xs whitespace-nowrap flex-shrink-0" style="color: var(--color-caption)">
-                                  {nestedReply.created_at
-                                    ? formatTimeAgo(nestedReply.created_at)
-                                    : ''}
-                                </span>
-                              </div>
-                              <span on:click|stopPropagation>
-                                <PostActionsMenu event={nestedReply} />
+                        <div class="flex items-center justify-between gap-2 mb-2">
+                          <div class="flex items-center gap-2 min-w-0">
+                            <a
+                              href="/user/{nip19.npubEncode(
+                                nestedReply.author?.hexpubkey || nestedReply.pubkey
+                              )}"
+                              class="flex-shrink-0"
+                              on:click|stopPropagation
+                            >
+                              <Avatar
+                                pubkey={nestedReply.author?.hexpubkey || nestedReply.pubkey}
+                                size={24}
+                              />
+                            </a>
+                            <div class="flex flex-col min-w-0">
+                              <a
+                                href="/user/{nip19.npubEncode(
+                                  nestedReply.author?.hexpubkey || nestedReply.pubkey
+                                )}"
+                                class="font-semibold text-sm transition-colors username-link truncate min-w-0"
+                                style="color: var(--color-text-primary)"
+                                on:click|stopPropagation
+                              >
+                                <CustomName
+                                  pubkey={nestedReply.author?.hexpubkey || nestedReply.pubkey}
+                                />
+                              </a>
+                              <span class="text-xs" style="color: var(--color-caption)">
+                                {nestedReply.created_at
+                                  ? formatTimeAgo(nestedReply.created_at)
+                                  : ''}
                               </span>
                             </div>
-                            <div
-                              class="text-sm leading-relaxed"
-                              style="color: var(--color-text-primary)"
-                            >
-                              {#if nestedReply.kind === 1068}
-                                <PollDisplay event={nestedReply} />
-                              {:else}
-                                <NoteContent content={nestedReply.content} showNostrEmbeds={false} />
-                              {/if}
-                            </div>
-                            <!-- Nested reply actions -->
-                            <div class="mt-1.5" on:click|stopPropagation>
-                              <NoteActionBar event={nestedReply} variant="compact" />
-                            </div>
                           </div>
+                          <span on:click|stopPropagation>
+                            <PostActionsMenu event={nestedReply} />
+                          </span>
+                        </div>
+                        <div
+                          class="text-[13px] leading-normal"
+                          style="color: var(--color-text-primary)"
+                        >
+                          {#if nestedReply.kind === 1068}
+                            <PollDisplay event={nestedReply} />
+                          {:else}
+                            <NoteContent content={nestedReply.content} showNostrEmbeds={false} />
+                          {/if}
+                        </div>
+                        <!-- Nested reply actions -->
+                        <div class="mt-1.5" on:click|stopPropagation>
+                          <NoteActionBar event={nestedReply} variant="compact" />
                         </div>
                       </article>
                     </div>
@@ -915,7 +907,8 @@
                 {#if getNestedReplies(reply.id).length > 2}
                   <a
                     href="{noteUrl(reply)}"
-                    class="ml-8 pl-3 py-2 block text-xs text-primary hover:opacity-80"
+                    class="ml-4 pl-4 border-l-2 py-2 block text-xs text-primary hover:opacity-80"
+                    style="border-color: var(--color-input-border)"
                   >
                     Show {getNestedReplies(reply.id).length - 2} more {getNestedReplies(reply.id)
                       .length -
@@ -988,7 +981,7 @@
   .reply-card {
     background-color: var(--color-card-sunken);
     border-radius: 0.5rem;
-    padding: 0.875rem 1rem;
+    padding: 0.75rem 1rem;
   }
 
   /* Username hover - orange color */

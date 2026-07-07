@@ -38,6 +38,15 @@
 	import { showToast } from '$lib/toast';
 	import { timerSettings, saveTimerSettings, loadTimerSettings } from '$lib/timerSettings';
 	import NoteContent from '../NoteContent.svelte';
+	import CustomName from '../CustomName.svelte';
+
+	// Who this composer actually replies to: the specific comment (replyTo)
+	// when set, otherwise the root/parent event. Surfaced in the UI so the
+	// user can't accidentally reply to the wrong note (e.g. the thread root /
+	// themselves) without noticing.
+	$: replyTargetPubkey =
+		(replyTo ?? parentEvent)?.author?.pubkey || (replyTo ?? parentEvent)?.pubkey || '';
+	$: replyingToSelf = !!replyTargetPubkey && replyTargetPubkey === $userPublickey;
 
 	/**
 	 * Root event for NIP-22 / NIP-10 tag-building. Passed verbatim to
@@ -363,6 +372,17 @@
 </script>
 
 <div class="reply-composer" class:reply-composer--compact={compact}>
+	{#if replyTargetPubkey}
+		<div class="rc-replying-to">
+			<span class="rc-replying-to-label">Replying to</span>
+			{#if replyingToSelf}
+				<span>your own post</span>
+			{:else}
+				<CustomName pubkey={replyTargetPubkey} interactive={false} />
+			{/if}
+		</div>
+	{/if}
+
 	<!-- Write / Preview tab bar -->
 	<div class="rc-tab-bar">
 		<button
@@ -695,6 +715,21 @@
 		flex-direction: column;
 		gap: 0.5rem;
 		margin-top: 0.75rem;
+	}
+
+	/* Makes the reply target explicit so you can't accidentally answer the
+	   wrong note (e.g. the thread root / yourself). */
+	.rc-replying-to {
+		display: flex;
+		align-items: center;
+		gap: 0.3rem;
+		font-size: 0.8125rem;
+		font-weight: 500;
+		color: var(--color-text-primary);
+	}
+	.rc-replying-to-label {
+		color: var(--color-caption);
+		font-weight: 400;
 	}
 
 	.reply-composer--compact {

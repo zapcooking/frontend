@@ -365,7 +365,43 @@
   }
   $: displayContent = shouldCollapse && !isExpanded ? truncateAtUrlBoundary(content, maxLength) : content;
   $: finalParsedContent = splitLightningInvoices(parseContent(displayContent));
-  $: renderParts = groupMediaRuns(finalParsedContent);
+  // Whitespace, including zero-width / BOM characters that String.trim() leaves
+  // behind but that still occupy a line box under white-space: pre-wrap.
+  const WHITESPACE_ONLY = /^[\s\u200B\u200C\u200D\u2060\uFEFF]*$/;
+  const isWhitespaceText = (p?: { type?: string; content?: string }) =>
+    p?.type === 'text' && WHITESPACE_ONLY.test(p.content ?? '');
+  const isBlockOrMedia = (p?: { type?: string; prefix?: string; url?: string }) =>
+    p?.type === 'media-gallery' || isBlockPart(p);
+  // Edge trims remove only *complete* blank lines (everything up to/from the
+  // newline nearest the content, zero-width chars included) so same-line
+  // indentation before the first character or after the last is preserved.
+  const LEADING_BLANK_LINES = /^[\s\u200B\u200C\u200D\u2060\uFEFF]*\n/;
+  const TRAILING_BLANK_LINES = /\n[\s\u200B\u200C\u200D\u2060\uFEFF]*$/;
+
+  // Strip whitespace-only text parts that only add dead vertical space: the
+  // ones at the very start/end of the note, and the blank lines authors leave
+  // around images/embeds (which bring their own margins). Under pre-wrap those
+  // render as full empty lines — e.g. the big gap between a trailing image and
+  // the action bar. Blank lines strictly between two text runs are kept so
+  // intentional paragraph breaks survive.
+  function normalizeParts<T extends { type: string; content?: string }>(parts: T[]): T[] {
+    const out = parts.filter((p, i) => {
+      if (!isWhitespaceText(p)) return true;
+      const atEdge = i === 0 || i === parts.length - 1;
+      const nearBlock = isBlockOrMedia(parts[i - 1]) || isBlockOrMedia(parts[i + 1]);
+      return !(atEdge || nearBlock);
+    });
+    if (out.length && out[0].type === 'text') {
+      out[0] = { ...out[0], content: (out[0].content ?? '').replace(LEADING_BLANK_LINES, '') };
+    }
+    if (out.length && out[out.length - 1].type === 'text') {
+      const last = out[out.length - 1];
+      out[out.length - 1] = { ...last, content: (last.content ?? '').replace(TRAILING_BLANK_LINES, '') };
+    }
+    return out;
+  }
+
+  $: renderParts = normalizeParts(groupMediaRuns(finalParsedContent));
 
   const LIGHTNING_REGEX = /(?:(?:lightning|nostr):)?((lnbc|lntb|lnbcrt)[a-z0-9]{50,})/gi;
 
@@ -406,12 +442,15 @@
   }
 </script>
 
-<div
-  class="whitespace-pre-wrap break-words note-content {className} w-full"
-  style="white-space: pre-wrap;"
->
+<!-- white-space: pre-wrap lives on the text spans, NOT this container. On the
+     container it would also render the template's own inter-block whitespace
+     (newlines/indentation between the {#each}/{#if} branches) as literal text,
+     leaving a ~1-line dead gap after the last block element (e.g. below a
+     trailing image) on every note. Per-span pre-wrap keeps the author's real
+     newlines while letting the container collapse template whitespace. -->
+<div class="break-words note-content {className} w-full">
   {#each renderParts as part, i}
-    {#if part.type === 'text'}<span>{part.content}</span>
+    {#if part.type === 'text'}<span class="whitespace-pre-wrap break-words">{part.content}</span>
     {:else if part.type === 'media-gallery'}
       <!-- Consecutive media URLs render as a swipeable carousel:
            peeking 4:5 tiles with a count badge. -->
