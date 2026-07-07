@@ -378,7 +378,7 @@
 			{#if replyingToSelf}
 				<span>your own post</span>
 			{:else}
-				<CustomName pubkey={replyTargetPubkey} />
+				<CustomName pubkey={replyTargetPubkey} interactive={false} />
 			{/if}
 		</div>
 	{/if}

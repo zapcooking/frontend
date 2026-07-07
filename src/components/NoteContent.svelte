@@ -326,6 +326,11 @@
     p?.type === 'text' && WHITESPACE_ONLY.test(p.content ?? '');
   const isBlockOrMedia = (p?: { type?: string; prefix?: string; url?: string }) =>
     p?.type === 'media-gallery' || isBlockPart(p);
+  // Edge trims remove only *complete* blank lines (everything up to/from the
+  // newline nearest the content, zero-width chars included) so same-line
+  // indentation before the first character or after the last is preserved.
+  const LEADING_BLANK_LINES = /^[\s\u200B\u200C\u200D\u2060\uFEFF]*\n/;
+  const TRAILING_BLANK_LINES = /\n[\s\u200B\u200C\u200D\u2060\uFEFF]*$/;
 
   // Strip whitespace-only text parts that only add dead vertical space: the
   // ones at the very start/end of the note, and the blank lines authors leave
@@ -341,11 +346,11 @@
       return !(atEdge || nearBlock);
     });
     if (out.length && out[0].type === 'text') {
-      out[0] = { ...out[0], content: (out[0].content ?? '').replace(/^\s+/, '') };
+      out[0] = { ...out[0], content: (out[0].content ?? '').replace(LEADING_BLANK_LINES, '') };
     }
     if (out.length && out[out.length - 1].type === 'text') {
       const last = out[out.length - 1];
-      out[out.length - 1] = { ...last, content: (last.content ?? '').replace(/\s+$/, '') };
+      out[out.length - 1] = { ...last, content: (last.content ?? '').replace(TRAILING_BLANK_LINES, '') };
     }
     return out;
   }

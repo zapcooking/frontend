@@ -7,6 +7,9 @@
   export let pubkey: string;
   export let className: string = '';
   export let showNpub: boolean = false;
+  // Set false when the name is purely informational (no click behavior) so we
+  // don't render a keyboard-focusable button that does nothing.
+  export let interactive: boolean = true;
 
   const dispatch = createEventDispatcher();
 
@@ -72,35 +75,44 @@
   $: npub = formatNpub(pubkey);
 </script>
 
-<span
-  class="name {className}"
-  on:click={() => dispatch('click')}
-  role="button"
-  tabindex="0"
-  on:keydown={(e) => {
-    if (e.key === 'Enter' || e.key === ' ') {
-      e.preventDefault();
-      dispatch('click');
-    }
-  }}
->
-  {displayName}
-  {#if showNpub}
-    <span class="npub">({npub})</span>
-  {/if}
-</span>
+{#if interactive}
+  <span
+    class="name name--interactive {className}"
+    on:click={() => dispatch('click')}
+    role="button"
+    tabindex="0"
+    on:keydown={(e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        dispatch('click');
+      }
+    }}
+  >
+    {displayName}
+    {#if showNpub}
+      <span class="npub">({npub})</span>
+    {/if}
+  </span>
+{:else}
+  <span class="name {className}">
+    {displayName}
+    {#if showNpub}
+      <span class="npub">({npub})</span>
+    {/if}
+  </span>
+{/if}
 
 <style>
-  .name {
+  .name--interactive {
     cursor: pointer;
     transition: color 0.2s ease;
   }
 
-  .name:hover {
+  .name--interactive:hover {
     color: #ec4700;
   }
 
-  .name:focus {
+  .name--interactive:focus {
     outline: 2px solid #ec4700;
     outline-offset: 2px;
     border-radius: 2px;
