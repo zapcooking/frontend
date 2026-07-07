@@ -1,0 +1,26 @@
+{
+  "_comment": "Cross-platform parity fixture for Zap Cooking Google Drive nsec backup. Generated to match Android BackupCrypto.kt + Nip44.kt. Web impl MUST reproduce backupKeyHex and payloadBase64 exactly from (sub, pin, nsecHex, nonceHex).",
+  "params": {
+    "salt": "wisp-google-backup",
+    "pbkdf2Iterations": 600000,
+    "pbkdf2Hash": "SHA-256",
+    "dkLenBytes": 32,
+    "nip44Version": 2,
+    "kdf": "HKDF-Expand only (prk=conversationKey, info=nonce, len=76), conversationKey = the PBKDF2 output"
+  },
+  "input": {
+    "sub": "107654321098765432109",
+    "pin": "4729",
+    "nsecHex": "7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f",
+    "nonceHex": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "expected": {
+    "perAccountSaltHex": "7aa70bc39b8359ceef433412c45efb842dcf44dc06a18b59298773e601114700",
+    "backupKeyHex": "21b5a950135e3d00741c1fe140aae88bd3eac263fa21b80bc4e474a6592c9c41",
+    "payloadBase64": "AqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqRR7d6JiqB7AkC1q4WJkT4eWL/zrZX4qM3T+xg64cdE6/jsBjEQRlslkzRHncHGA+cH3CblFn5D121oqFw/j2obVDYQxlh5Hc3qvs8Rq+b3TEtd/I7PVi0iI3+UhXHPZTtZc="
+  },
+  "roundtripCheck": {
+    "decryptedNsecHex": "7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f",
+    "matches": true
+  }
+}

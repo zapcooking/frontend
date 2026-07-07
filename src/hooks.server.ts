@@ -1,6 +1,16 @@
 import type { Handle, HandleServerError } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
-import { isCrawler, matchRecipeOgRoute, renderRecipeOgForCrawler } from '$lib/recipeOgHtml.server';
+import {
+  isCrawler,
+  matchRecipeOgRoute,
+  renderRecipeOgForCrawler,
+  matchNoteOgRoute,
+  renderNoteOgForCrawler,
+  matchReadsOgRoute,
+  renderReadsOgForCrawler,
+  matchProfileOgRoute,
+  renderProfileOgForCrawler
+} from '$lib/recipeOgHtml.server';
 
 /**
  * Log the real server-side error (with stack) instead of letting SvelteKit
@@ -101,10 +111,21 @@ async function maybeRenderBotOg(event: Parameters<Handle>[0]['event']): Promise<
   try {
     if (event.request.method !== 'GET') return null;
     if (!isCrawler(event.request.headers.get('user-agent'))) return null;
-    const matched = matchRecipeOgRoute(event.url.pathname);
-    if (!matched) return null;
 
-    const html = await renderRecipeOgForCrawler(matched.prefix, matched.slug, event.url.origin);
+    const path = event.url.pathname;
+    const recipe = matchRecipeOgRoute(path);
+    const note = recipe ? null : matchNoteOgRoute(path);
+    const reads = recipe || note ? null : matchReadsOgRoute(path);
+    const profile = recipe || note || reads ? null : matchProfileOgRoute(path);
+    if (!recipe && !note && !reads && !profile) return null;
+
+    const html = recipe
+      ? await renderRecipeOgForCrawler(recipe.prefix, recipe.slug, event.url.origin)
+      : note
+        ? await renderNoteOgForCrawler(note.slug, event.url.origin)
+        : reads
+          ? await renderReadsOgForCrawler(reads.slug, event.url.origin)
+          : await renderProfileOgForCrawler(profile!.slug, event.url.origin, path);
     return new Response(html, {
       status: 200,
       headers: {
