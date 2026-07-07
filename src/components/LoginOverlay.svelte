@@ -11,7 +11,8 @@
 
   import { nip19 } from 'nostr-tools';
   import { createAuthManager, type AuthState } from '$lib/authManager';
-  import { onMount, onDestroy } from 'svelte';
+  import { onMount, onDestroy, tick } from 'svelte';
+  import { env as publicEnv } from '$env/dynamic/public';
   import { platformIsIOS } from '$lib/platform';
   import LoginFormIOS from './LoginFormIOS.svelte';
   import SuggestedFollowsModal from './SuggestedFollowsModal.svelte';
@@ -65,7 +66,10 @@
   let nip46PairingStatus = 'Waiting for approval…';
   let nip46PairingError = '';
 
-  // Google Drive backup states
+  // Google Drive backup states. The entry point is only shown when a web
+  // OAuth client is configured; unset PUBLIC_GOOGLE_WEB_CLIENT_ID hides the
+  // tile rather than leading users into a flow that would immediately error.
+  $: googleBackupEnabled = !!publicEnv.PUBLIC_GOOGLE_WEB_CLIENT_ID;
   let googleModal = false;
   let googleStep: 'signin' | 'setPin' | 'enterPin' = 'signin';
   let googleSession: GoogleSession | null = null;
@@ -242,6 +246,10 @@
     }
     googleError = '';
     googleBusy = true;
+    // Let the loading state paint before the synchronous PBKDF2(600k) blocks
+    // the main thread, so the button doesn't feel frozen.
+    await tick();
+    await new Promise((resolve) => setTimeout(resolve, 0));
     try {
       // Fresh nsec generated locally; encrypted with the PIN-derived key and
       // uploaded to Drive, then logged in via the private-key path.
@@ -267,6 +275,10 @@
     }
     googleError = '';
     googleBusy = true;
+    // Let the loading state paint before the synchronous PBKDF2(600k) blocks
+    // the main thread, so the button doesn't feel frozen.
+    await tick();
+    await new Promise((resolve) => setTimeout(resolve, 0));
     try {
       const nsecHex = await restoreFromBackup(
         googleSession,
@@ -1020,7 +1032,7 @@
 
       <div class="signin-divider" aria-hidden="true"><span>or</span></div>
 
-      <div class="signin-tiles" role="group" aria-label="Other sign-in methods">
+      <div class="signin-tiles" class:signin-tiles--four={googleBackupEnabled} role="group" aria-label="Other sign-in methods">
         <button type="button" on:click={startUniversalPairing} disabled={authState.isLoading} aria-label="Sign in by scanning a QR code with your phone signer" class="signin-tile">
           <svg class="signin-tile-icon" width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
             <rect x="3" y="3" width="7" height="7" rx="1" stroke="currentColor" stroke-width="1.6" />
@@ -1051,16 +1063,18 @@
           <span class="signin-tile-sub">Paste nsec</span>
         </button>
 
-        <button type="button" on:click={openGoogleModal} disabled={authState.isLoading} aria-label="Back up or restore your key with Google Drive" class="signin-tile">
-          <svg class="signin-tile-icon" width="22" height="22" viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M21.6 12.227c0-.71-.064-1.393-.182-2.049H12v3.874h5.382a4.6 4.6 0 0 1-1.996 3.018v2.51h3.229c1.89-1.74 2.985-4.303 2.985-7.353Z" fill="#4285F4" />
-            <path d="M12 22c2.7 0 4.964-.895 6.615-2.42l-3.229-2.51c-.895.6-2.04.955-3.386.955-2.605 0-4.81-1.76-5.596-4.124H3.064v2.59A9.996 9.996 0 0 0 12 22Z" fill="#34A853" />
-            <path d="M6.404 13.9a5.99 5.99 0 0 1-.313-1.9c0-.66.114-1.3.313-1.9V7.51H3.064A9.996 9.996 0 0 0 2 12c0 1.614.386 3.14 1.064 4.49l3.34-2.59Z" fill="#FBBC05" />
-            <path d="M12 5.977c1.468 0 2.786.505 3.823 1.496l2.868-2.868C16.96 2.99 14.696 2 12 2A9.996 9.996 0 0 0 3.064 7.51l3.34 2.59C7.19 7.736 9.395 5.977 12 5.977Z" fill="#EA4335" />
-          </svg>
-          <span class="signin-tile-title">Google</span>
-          <span class="signin-tile-sub">Drive backup</span>
-        </button>
+        {#if googleBackupEnabled}
+          <button type="button" on:click={openGoogleModal} disabled={authState.isLoading} aria-label="Back up or restore your key with Google Drive" class="signin-tile">
+            <svg class="signin-tile-icon" width="22" height="22" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M21.6 12.227c0-.71-.064-1.393-.182-2.049H12v3.874h5.382a4.6 4.6 0 0 1-1.996 3.018v2.51h3.229c1.89-1.74 2.985-4.303 2.985-7.353Z" fill="#4285F4" />
+              <path d="M12 22c2.7 0 4.964-.895 6.615-2.42l-3.229-2.51c-.895.6-2.04.955-3.386.955-2.605 0-4.81-1.76-5.596-4.124H3.064v2.59A9.996 9.996 0 0 0 12 22Z" fill="#34A853" />
+              <path d="M6.404 13.9a5.99 5.99 0 0 1-.313-1.9c0-.66.114-1.3.313-1.9V7.51H3.064A9.996 9.996 0 0 0 2 12c0 1.614.386 3.14 1.064 4.49l3.34-2.59Z" fill="#FBBC05" />
+              <path d="M12 5.977c1.468 0 2.786.505 3.823 1.496l2.868-2.868C16.96 2.99 14.696 2 12 2A9.996 9.996 0 0 0 3.064 7.51l3.34 2.59C7.19 7.736 9.395 5.977 12 5.977Z" fill="#EA4335" />
+            </svg>
+            <span class="signin-tile-title">Google</span>
+            <span class="signin-tile-sub">Drive backup</span>
+          </button>
+        {/if}
       </div>
 
       <footer class="signin-footer">
@@ -1345,8 +1359,14 @@
 
   .signin-tiles {
     display: grid;
-    grid-template-columns: repeat(2, 1fr);
+    grid-template-columns: repeat(3, 1fr);
     gap: 0.625rem;
+  }
+
+  /* With the Google tile present there are 4 methods; lay them out 2×2 so the
+     grid stays balanced. Without it (env unset) the default 3-column row holds. */
+  .signin-tiles--four {
+    grid-template-columns: repeat(2, 1fr);
   }
 
   .signin-tile {

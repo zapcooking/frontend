@@ -42,11 +42,16 @@ function assertOk(res: Response, op: string): void {
   if (!res.ok) throw new Error(`Drive ${op} failed: ${res.status} ${res.statusText}`);
 }
 
-/** List backup files in appDataFolder, matching the `wisp_bk_…​.bin` naming. */
+/**
+ * List backup files in appDataFolder, matching the `wisp_bk_…​.bin` naming.
+ * Excludes trashed files and orders newest-first so callers that take the first
+ * entry restore the most recent backup rather than an arbitrary or stale one.
+ */
 export async function listBackups(accessToken: string): Promise<BackupFile[]> {
   const params = new URLSearchParams({
     spaces: APP_DATA_FOLDER,
-    q: `name contains '${BACKUP_PREFIX}'`,
+    q: `name contains '${BACKUP_PREFIX}' and trashed = false`,
+    orderBy: 'modifiedTime desc',
     fields: 'files(id,name,modifiedTime)',
     pageSize: '100'
   });

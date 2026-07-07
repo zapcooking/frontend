@@ -177,9 +177,13 @@ export function getGoogleIdentity(
           callback: (res: GisCredentialResponse) => {
             try {
               const sub = decodeJwtSub(res.credential);
-              // Raw-sub logging retained for the cross-device parity test:
-              // eyeball this against Android's logged `sub` — they MUST match.
-              console.log('[GoogleBackup] Google sub (verify parity with Android):', sub);
+              // Raw-sub logging for the cross-device parity test — DEV ONLY.
+              // `sub` is a stable per-account identifier, so it must never reach
+              // production logs; in dev, eyeball it against Android's logged
+              // `sub` — they MUST match.
+              if (import.meta.env.DEV) {
+                console.log('[GoogleBackup] Google sub (verify parity with Android):', sub);
+              }
               resolve({ sub, idToken: res.credential });
             } catch (e) {
               reject(e instanceof Error ? e : new Error('Failed to decode Google identity'));
