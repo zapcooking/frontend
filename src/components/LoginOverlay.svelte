@@ -19,7 +19,8 @@
   import { showToast } from '$lib/toast';
   import { loginOverlayOpen } from '$lib/stores/loginOverlay';
   import {
-    signInToGoogle,
+    getGoogleSub,
+    connectDrive,
     restoreFromBackup,
     createAndUploadBackup,
     type GoogleSession
@@ -71,7 +72,12 @@
   // tile rather than leading users into a flow that would immediately error.
   $: googleBackupEnabled = !!publicEnv.PUBLIC_GOOGLE_WEB_CLIENT_ID;
   let googleModal = false;
-  let googleStep: 'signin' | 'setPin' | 'enterPin' = 'signin';
+  // Two-tap flow (iOS-safe): 'signin' renders the SIWG button (identity →
+  // `sub`); 'connectDrive' shows an explicit button whose tap opens the Drive
+  // token popup synchronously (mobile Safari blocks popups opened after an
+  // async gap). Then set/enter-PIN.
+  let googleStep: 'signin' | 'connectDrive' | 'setPin' | 'enterPin' = 'signin';
+  let googleSub: string | null = null;
   let googleSession: GoogleSession | null = null;
   let googleButtonContainer: HTMLDivElement | null = null;
   let googleSignInStarted = false;
@@ -207,6 +213,7 @@
   function openGoogleModal() {
     googleModal = true;
     googleStep = 'signin';
+    googleSub = null;
     googleSession = null;
     googlePin = '';
     googlePinConfirm = '';
@@ -215,19 +222,42 @@
     googleSignInStarted = false;
   }
 
+  // Step 1: identity. The GSI button resolves via its own callback; on success
+  // we advance to the explicit Drive-connect tap (step 2).
   async function renderAndAwaitGoogle() {
     if (!authManager || !googleButtonContainer) return;
     googleError = '';
     try {
-      const session = await signInToGoogle(googleButtonContainer);
+      googleSub = await getGoogleSub(googleButtonContainer);
+      googleStep = 'connectDrive';
+    } catch (error: any) {
+      googleError = error?.message || 'Google sign-in failed';
+      // Leave googleSignInStarted=true so the reactive block doesn't re-fire in
+      // a loop; the modal shows a "Try again" button that re-opens the flow.
+    }
+  }
+
+  // Step 2: Drive authorization. connectDrive() must run synchronously in this
+  // tap — do NOT await anything before it, or mobile Safari blocks the popup.
+  // (`googleBusy = true` is a synchronous assignment; it doesn't insert an await
+  // before connectDrive, so the popup still opens inside the gesture.)
+  async function connectGoogleDrive() {
+    if (!authManager || !googleSub) {
+      googleError = 'Please sign in with Google first.';
+      return;
+    }
+    googleError = '';
+    googleBusy = true;
+    try {
+      const session = await connectDrive(googleSub);
       googleSession = session;
       googlePin = '';
       googlePinConfirm = '';
       googleStep = session.existingFileId ? 'enterPin' : 'setPin';
     } catch (error: any) {
-      googleError = error?.message || 'Google sign-in failed';
-      // Leave googleSignInStarted=true so the reactive block doesn't re-fire in
-      // a loop; the modal shows a "Try again" button that re-opens the flow.
+      googleError = error?.message || 'Could not connect to Google Drive. Please try again.';
+    } finally {
+      googleBusy = false;
     }
   }
 
@@ -414,6 +444,7 @@
     nip46UniversalModal = false;
     googleModal = false;
     googleStep = 'signin';
+    googleSub = null;
     googleSession = null;
     googleSignInStarted = false;
     googlePin = '';
@@ -704,6 +735,7 @@
       <h2 class="login-modal-title">
         {#if googleStep === 'setPin'}🔐 Set a backup PIN
         {:else if googleStep === 'enterPin'}🔓 Enter your backup PIN
+        {:else if googleStep === 'connectDrive'}☁️ Connect Google Drive
         {:else}☁️ Continue with Google{/if}
       </h2>
       <div class="flex flex-col gap-4">
@@ -718,12 +750,25 @@
         {#if googleStep === 'signin'}
           <div class="flex flex-col items-center gap-3 py-2">
             <div bind:this={googleButtonContainer} class="min-h-[44px]"></div>
-            {#if !googleError && !googleSession}
+            {#if !googleError && !googleSub}
               <p class="text-xs text-caption text-center">
-                Approve Google sign-in, then Drive access — two quick prompts.
+                Step 1 of 2 — sign in with Google, then authorize Drive access.
               </p>
             {/if}
           </div>
+        {:else if googleStep === 'connectDrive'}
+          <div class="bg-input border rounded-lg p-3" style="border-color: var(--color-input-border)">
+            <p class="text-sm" style="color: var(--color-text-primary)">
+              ✓ Signed in with Google. Step 2 of 2 — authorize access to your private Drive backup
+              folder so we can store or read your encrypted key.
+            </p>
+          </div>
+          {#if googleBusy}
+            <div class="flex items-center justify-center gap-2 py-2">
+              <div class="animate-spin h-4 w-4 border-2 border-orange-500 border-t-transparent rounded-full"></div>
+              <p class="text-sm" style="color: var(--color-text-primary)">Connecting to Google Drive…</p>
+            </div>
+          {/if}
         {:else if googleStep === 'setPin'}
           <div
             class="bg-input border rounded-lg p-3"
@@ -808,6 +853,10 @@
 
         {#if googleStep === 'signin' && googleError}
           <Button on:click={openGoogleModal} primary={true}>Try again</Button>
+        {:else if googleStep === 'connectDrive'}
+          <Button on:click={connectGoogleDrive} primary={true} disabled={googleBusy}>
+            {googleBusy ? 'Connecting…' : 'Connect Google Drive'}
+          </Button>
         {:else if googleStep === 'setPin'}
           <Button
             on:click={submitGoogleSetPin}
