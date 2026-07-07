@@ -110,6 +110,10 @@ export function getVaultRecord(): VaultRecord | null {
 }
 
 export function saveVaultRecord(record: VaultRecord): void {
+  // Throw rather than silently return outside the browser: a silent no-op
+  // here would let an enrollment "succeed" without a persisted record, and
+  // AuthManager deletes the plaintext key right after.
+  if (!browser) throw new Error('saveVaultRecord requires a browser environment');
   localStorage.setItem(VAULT_STORAGE_KEY, JSON.stringify(record));
 }
 
@@ -188,7 +192,20 @@ function getPrfResult(cred: PublicKeyCredential): Uint8Array | null {
   const ext = (cred.getClientExtensionResults() as any)?.prf;
   const first = ext?.results?.first;
   if (!first) return null;
-  const bytes = first instanceof ArrayBuffer ? new Uint8Array(first) : new Uint8Array(first.buffer ?? first);
+  // Spec says ArrayBuffer, but tolerate TypedArray/DataView results from
+  // authenticator bridges — honoring byteOffset/byteLength, since a view
+  // into a larger buffer must not be read whole (it would fail the 32-byte
+  // check on a valid PRF output). Deliberately kept as a VIEW, not a copy:
+  // callers zeroize the returned bytes, and scrubbing in place also clears
+  // the extension-result buffer itself.
+  let bytes: Uint8Array;
+  if (first instanceof ArrayBuffer) {
+    bytes = new Uint8Array(first);
+  } else if (ArrayBuffer.isView(first)) {
+    bytes = new Uint8Array(first.buffer, first.byteOffset, first.byteLength);
+  } else {
+    return null;
+  }
   return bytes.length === 32 ? bytes : null;
 }
 

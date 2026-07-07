@@ -32,7 +32,7 @@ const NEW_CRED_ID = 'bmV3LWNyZWQtaWQtMDE'; // b64url of "new-cred-id-01"
 
 function fakeCredential(
   idB64url: string,
-  ext: { prfResult?: Uint8Array; prfEnabled?: boolean } = {}
+  ext: { prfResult?: Uint8Array; prfEnabled?: boolean; prfAsOffsetView?: boolean } = {}
 ) {
   const raw = b64urlToBytes(idB64url);
   return {
@@ -41,6 +41,16 @@ function fakeCredential(
     type: 'public-key',
     getClientExtensionResults: () => {
       if (ext.prfResult) {
+        if (ext.prfAsOffsetView) {
+          // Some authenticator bridges hand back a TypedArray VIEW at a
+          // nonzero offset inside a larger buffer instead of a bare
+          // ArrayBuffer. getPrfResult must honor byteOffset/byteLength.
+          const padded = new Uint8Array(8 + ext.prfResult.length + 8);
+          padded.set(ext.prfResult, 8);
+          return {
+            prf: { results: { first: new Uint8Array(padded.buffer, 8, ext.prfResult.length) } }
+          };
+        }
         // Return a copy: production zeroizes the PRF buffer after use, and
         // reusing one Uint8Array across mocked ceremonies would leak that.
         return { prf: { results: { first: ext.prfResult.slice().buffer } } };
@@ -223,6 +233,13 @@ describe('unlockPasskey', () => {
     let caught: unknown;
     await unlockPasskey(fixtureRecord()).catch((e) => (caught = e));
     expect(isCeremonyCancelled(caught)).toBe(true);
+  });
+
+  it('accepts a PRF result delivered as a TypedArray view at a nonzero offset', async () => {
+    credentials.get.mockResolvedValue(
+      fakeCredential(fixture.credentialIdB64url, { prfResult: PRF_BYTES(), prfAsOffsetView: true })
+    );
+    await expect(unlockPasskey(fixtureRecord())).resolves.toBe(fixture.nsecHex);
   });
 });
 
