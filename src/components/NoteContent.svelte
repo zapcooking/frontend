@@ -149,7 +149,7 @@
     }
     if (part.type === 'url') {
       if (!part.url) return false;
-      return isImageUrl(part.url) || isVideoUrl(part.url) || isTwitterStatus(part.url) || showLinkPreviews;
+      return isImageUrl(part.url) || isVideoUrl(part.url) || showLinkPreviews;
     }
     return false;
   }

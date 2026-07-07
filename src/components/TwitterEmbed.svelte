@@ -1,12 +1,4 @@
-<script lang="ts">
-  import { onMount } from 'svelte';
-  import SealCheckIcon from 'phosphor-svelte/lib/SealCheck';
-  import HeartIcon from 'phosphor-svelte/lib/Heart';
-  import ChatCircleIcon from 'phosphor-svelte/lib/ChatCircle';
-
-  // Original x.com/twitter.com status URL found in the note.
-  export let tweetUrl: string;
-
+<script lang="ts" context="module">
   interface TwitterMedia {
     type: 'photo' | 'video';
     url: string;
@@ -26,7 +18,19 @@
     media: TwitterMedia | null;
   }
 
+  // Module-level so every instance shares it — the same tweet appearing in
+  // the feed and again in the note view fetches the proxy only once.
   const cache = new Map<string, TwitterMeta | null>();
+</script>
+
+<script lang="ts">
+  import { onMount } from 'svelte';
+  import SealCheckIcon from 'phosphor-svelte/lib/SealCheck';
+  import HeartIcon from 'phosphor-svelte/lib/Heart';
+  import ChatCircleIcon from 'phosphor-svelte/lib/ChatCircle';
+
+  // Original x.com/twitter.com status URL found in the note.
+  export let tweetUrl: string;
   let meta: TwitterMeta | null = null;
   let loading = true;
   let playingVideo = false;
