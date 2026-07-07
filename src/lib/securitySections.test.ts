@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { resolveSecuritySections } from './securitySections';
+import {
+  resolveSecuritySections,
+  resolveVaultSection,
+  resolveDisplayPubkey
+} from './securitySections';
 
 /**
  * Settings → Security per-method section rendering. Regression tests for the
@@ -65,5 +69,79 @@ describe('resolveSecuritySections', () => {
     expect(
       resolveSecuritySections({ sk: null, storedAuthMethod: null, sessionMethod: 'anonymous' })
     ).toBe(null);
+  });
+});
+
+describe('resolveVaultSection — identity-bound gating matrix', () => {
+  const SESSION_PK = 'a7'.repeat(32);
+  const OTHER_PK = '77'.repeat(32);
+
+  function ctx(
+    sessionMethod: string | null,
+    recordPubkey: string | null,
+    support: 'full' | 'no-prf' | 'none' = 'full'
+  ) {
+    return {
+      support,
+      sessionMethod,
+      sessionPubkey: sessionMethod ? SESSION_PK : '',
+      recordPubkey
+    };
+  }
+
+  // 5 methods × {no record, matching record, mismatched record}, support 'full'.
+  // Only nsec sessions ever see the card; enrolled additionally requires the
+  // session to OWN the record (the staging bug: nip07 + foreign record
+  // rendered "Remove passkey protection…").
+  const matrix: Array<[string | null, [string | null, string | null, string | null]]> = [
+    //  method            no record   matching     mismatched
+    ['privateKey', ['offer', 'enrolled', null]],
+    ['passkey', [null, 'enrolled', null]], // passkey session without a record is unreachable
+    ['nip07', [null, null, null]],
+    ['nip46', [null, null, null]],
+    [null, [null, null, null]] // anonymous / not authenticated
+  ];
+
+  for (const [method, [noRecord, matching, mismatched]] of matrix) {
+    const label = method ?? 'anonymous';
+    it(`${label}: no record → ${noRecord}, matching → ${matching}, mismatched → ${mismatched}`, () => {
+      expect(resolveVaultSection(ctx(method, null))).toBe(noRecord);
+      expect(resolveVaultSection(ctx(method, SESSION_PK))).toBe(matching);
+      expect(resolveVaultSection(ctx(method, OTHER_PK))).toBe(mismatched);
+    });
+  }
+
+  it("support 'none' hides everything, even a matching enrolled record", () => {
+    expect(resolveVaultSection(ctx('privateKey', SESSION_PK, 'none'))).toBe(null);
+    expect(resolveVaultSection(ctx('privateKey', null, 'none'))).toBe(null);
+  });
+
+  it("support 'no-prf' never offers enrollment but still shows a matching enrolled record", () => {
+    expect(resolveVaultSection(ctx('privateKey', null, 'no-prf'))).toBe(null);
+    expect(resolveVaultSection(ctx('privateKey', SESSION_PK, 'no-prf'))).toBe('enrolled');
+  });
+});
+
+describe('resolveDisplayPubkey — npub display source', () => {
+  const STATE_PK = 'a7'.repeat(32);
+  const STORED_PK = '77'.repeat(32);
+
+  it('prefers live session state (regression: state fires before storage persists)', () => {
+    // The bug shape: subscription fired during updateState(), localStorage
+    // write had not happened yet — the display must still show the pubkey.
+    expect(resolveDisplayPubkey(STATE_PK, null)).toBe(STATE_PK);
+  });
+
+  it('state wins over a stale stored value', () => {
+    expect(resolveDisplayPubkey(STATE_PK, STORED_PK)).toBe(STATE_PK);
+  });
+
+  it('falls back to the stored value when logged out (pre-existing behavior)', () => {
+    expect(resolveDisplayPubkey('', STORED_PK)).toBe(STORED_PK);
+    expect(resolveDisplayPubkey(undefined, STORED_PK)).toBe(STORED_PK);
+  });
+
+  it('null when neither exists', () => {
+    expect(resolveDisplayPubkey('', null)).toBe(null);
   });
 });

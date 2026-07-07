@@ -33,10 +33,18 @@ import { getPublicKey } from 'nostr-tools';
 export const VAULT_STORAGE_KEY = 'nostrcooking_vault_v1';
 export const VAULT_PROMPT_DISMISSED_KEY = 'nostrcooking_vault_prompt_dismissed';
 
-/** rp.id: fixed on production (related-origins file already deployed), host-default elsewhere (dev). */
-function rpIdForOrigin(): string | undefined {
+/**
+ * All credentials bind to the production rp id — never the current origin.
+ * A hostname-derived rp.id (the previous behavior) let preview/pages.dev
+ * builds mint working passkeys bound to throwaway origins; per the C ruling
+ * the feature is instead cleanly ABSENT off zap.cooking/*.zap.cooking (see
+ * isSupportedOrigin), and staging.zap.cooking is the pre-prod test surface.
+ */
+export const RP_ID = 'zap.cooking';
+
+function isSupportedOrigin(): boolean {
   const host = typeof location !== 'undefined' ? location.hostname : '';
-  return host === 'zap.cooking' || host.endsWith('.zap.cooking') ? 'zap.cooking' : undefined;
+  return host === RP_ID || host.endsWith(`.${RP_ID}`);
 }
 
 export interface VaultKeyEntry {
@@ -122,6 +130,7 @@ export type VaultSupport = 'full' | 'no-prf' | 'none';
  */
 export async function detectSupport(): Promise<VaultSupport> {
   if (!browser || isNative()) return 'none';
+  if (!isSupportedOrigin()) return 'none';
   if (!window.isSecureContext) return 'none';
   const pkc = (window as any).PublicKeyCredential;
   if (!pkc || !navigator.credentials?.create) return 'none';
@@ -193,7 +202,7 @@ async function assertWithPrf(
   const assertion = (await navigator.credentials.get({
     publicKey: {
       challenge: randomChallenge() as BufferSource,
-      rpId: rpIdForOrigin(),
+      rpId: RP_ID,
       allowCredentials: credentialIds.map((id) => ({
         type: 'public-key' as const,
         id: b64urlToBytes(id) as BufferSource
@@ -238,7 +247,7 @@ export async function enrollPasskey(
   const created = (await navigator.credentials.create({
     publicKey: {
       challenge: randomChallenge() as BufferSource,
-      rp: { id: rpIdForOrigin(), name: 'Zap Cooking' },
+      rp: { id: RP_ID, name: 'Zap Cooking' },
       user: {
         id: hexToBytes(pubkey) as BufferSource,
         name: userLabel,

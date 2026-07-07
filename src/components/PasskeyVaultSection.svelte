@@ -10,15 +10,17 @@
   import { getAuthManager, type AuthState } from '$lib/authManager';
   import {
     detectSupport,
+    getVaultRecord,
     isCeremonyCancelled,
     type VaultSupport
   } from '$lib/passkeyVault';
+  import { resolveVaultSection } from '$lib/securitySections';
   import ShieldCheckIcon from 'phosphor-svelte/lib/ShieldCheck';
 
   const dispatch = createEventDispatcher();
 
   let support: VaultSupport = 'none';
-  let status: 'none' | 'locked' | 'unlocked' = 'none';
+  let recordPubkey: string | null = null;
   let authState: AuthState | null = null;
   let unsubscribe: (() => void) | null = null;
   let busy = false;
@@ -28,8 +30,8 @@
 
   function refresh() {
     const am = getAuthManager();
-    status = am?.getVaultStatus() ?? 'none';
     authState = am?.getState() ?? null;
+    recordPubkey = getVaultRecord()?.pubkey ?? null;
   }
 
   onMount(async () => {
@@ -40,11 +42,15 @@
 
   onDestroy(() => unsubscribe?.());
 
-  $: canEnroll =
-    support === 'full' &&
-    status === 'none' &&
-    !!authState?.isAuthenticated &&
-    authState?.authMethod === 'privateKey';
+  // Identity-bound gating: enrolled UI only when the live session owns the
+  // record; offer only for plaintext nsec sessions. Foreign records and
+  // nip07/nip46/anonymous sessions render nothing (vault inert there).
+  $: card = resolveVaultSection({
+    support,
+    sessionMethod: authState?.isAuthenticated ? authState.authMethod : null,
+    sessionPubkey: authState?.publicKey ?? '',
+    recordPubkey
+  });
 
   function friendlyError(e: unknown, fallback: string): string {
     if (isCeremonyCancelled(e)) return '';
@@ -93,18 +99,18 @@
   }
 </script>
 
-{#if status !== 'none' || canEnroll}
+{#if card}
   <div class="border-t border-[var(--color-input-border)] pt-5">
     <div class="flex items-center gap-2 mb-1">
       <ShieldCheckIcon
         size={18}
-        class={status !== 'none' ? 'text-green-500' : 'text-caption'}
-        weight={status !== 'none' ? 'fill' : 'regular'}
+        class={card === 'enrolled' ? 'text-green-500' : 'text-caption'}
+        weight={card === 'enrolled' ? 'fill' : 'regular'}
       />
       <p class="text-sm font-medium" style="color: var(--color-text-primary)">Passkey Protection</p>
     </div>
 
-    {#if status !== 'none'}
+    {#if card === 'enrolled'}
       <p class="text-xs text-caption mb-3">
         Your Nostr key is encrypted on this device and unlocked with your passkey. The passkey is
         <strong>not</strong> a backup of your key — if you lose both the passkey and your nsec

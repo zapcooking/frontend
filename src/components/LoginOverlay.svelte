@@ -11,7 +11,12 @@
 
   import { nip19 } from 'nostr-tools';
   import { createAuthManager, VaultConflictError, type AuthState } from '$lib/authManager';
-  import { getVaultRecord, isCeremonyCancelled, type VaultRecord } from '$lib/passkeyVault';
+  import {
+    detectSupport,
+    getVaultRecord,
+    isCeremonyCancelled,
+    type VaultRecord
+  } from '$lib/passkeyVault';
   import { onMount, onDestroy, tick } from 'svelte';
   import { env as publicEnv } from '$env/dynamic/public';
   import { platformIsIOS } from '$lib/platform';
@@ -118,6 +123,10 @@
   let vaultNpub = '';
   let vaultUnlockBusy = false;
   let vaultUnlockError = '';
+  // Unlock card is also gated on platform support: a leftover record on an
+  // unsupported origin (e.g. an old preview build's localStorage) must not
+  // offer an unlock that can no longer bind to the real rp id.
+  let vaultSupported = false;
 
   // Vault conflict confirmation: signing in with a key that differs from the
   // enrolled vault's account requires an explicit "replace" confirmation
@@ -181,6 +190,7 @@
         } catch {
           vaultNpub = '';
         }
+        detectSupport().then((s) => (vaultSupported = s !== 'none'));
       }
       authManager = createAuthManager($ndk);
       if (authManager) {
@@ -1223,7 +1233,7 @@
       </h1>
       <p class="signin-tagline">Share recipes and get paid by your community.</p>
 
-      {#if vaultRecord && !authState.isAuthenticated}
+      {#if vaultRecord && vaultSupported && !authState.isAuthenticated}
         <!-- Locked passkey vault: unlock is the primary action, but every
              other method stays below — cancelling here is never a dead end,
              and nothing can delete the vault from this screen. -->

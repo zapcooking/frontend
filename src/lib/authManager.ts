@@ -1559,17 +1559,26 @@ export class AuthManager {
     const record = getVaultRecord();
     if (!record) return;
 
+    // Defense-in-depth (B ruling): removal is only valid inside the session
+    // that owns the record. Without this, a user in a DIFFERENT account's
+    // session (e.g. NIP-07) who completed the foreign ceremony would get the
+    // other account's nsec written to plaintext and their live session
+    // silently switched to it. Refuse BEFORE any ceremony, independent of
+    // whatever UI gating exists above.
+    if (!this.authState.isAuthenticated || this.authState.publicKey !== record.pubkey) {
+      throw new Error(
+        'This passkey vault belongs to a different account than the current session. ' +
+          'Sign in as that account to remove it.'
+      );
+    }
+
     const privkeyHex = await unlockPasskey(record);
     localStorage.setItem('nostrcooking_privateKey', privkeyHex);
     localStorage.setItem('nostrcooking_loggedInPublicKey', record.pubkey);
     deleteVaultRecord();
 
-    if (this.authState.isAuthenticated && this.authState.publicKey === record.pubkey) {
-      if (!this.ndk.signer) this.ndk.signer = new NDKPrivateKeySigner(privkeyHex);
-      this.updateState({ authMethod: 'privateKey' });
-    } else {
-      await this.authenticateWithPrivateKey(privkeyHex);
-    }
+    if (!this.ndk.signer) this.ndk.signer = new NDKPrivateKeySigner(privkeyHex);
+    this.updateState({ authMethod: 'privateKey' });
   }
 
   // Logout and clear all authentication data

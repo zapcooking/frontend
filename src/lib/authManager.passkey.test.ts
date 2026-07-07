@@ -371,9 +371,38 @@ describe('removeVault (downgrade)', () => {
   it('a cancelled removal ceremony changes nothing', async () => {
     seedVault();
     const am = new AuthManager(ndk);
+    credentials.get.mockResolvedValue(fakeAssertion(hexToBytes(fixture.prfOutputHex)));
+    await am.unlockVault(); // matching session — the guard is not what's under test here
     credentials.get.mockRejectedValue(new DOMException('cancelled', 'NotAllowedError'));
+
     await expect(am.removeVault()).rejects.toThrow();
     expect(store.get(PK_KEY)).toBeUndefined();
+    expect(JSON.parse(vaultInStore()!)).toEqual(fixtureRecord());
+    expect(am.getState().authMethod).toBe('passkey'); // session unchanged
+  });
+
+  it('refuses when the session belongs to a different account — no ceremony, nothing written (B ruling)', async () => {
+    // Shape of the staging repro: live session for account B, vault record
+    // for account A sitting in the same browser.
+    const am = new AuthManager(ndk);
+    await am.authenticateWithPrivateKey(OTHER_NSEC);
+    seedVault(); // fixture-pubkey record appears "later" (multi-account browser)
+    const sessionPubkeyBefore = am.getState().publicKey;
+
+    await expect(am.removeVault()).rejects.toThrow(/different account/);
+
+    expect(credentials.get).not.toHaveBeenCalled(); // refused BEFORE any passkey prompt
+    expect(JSON.parse(vaultInStore()!)).toEqual(fixtureRecord()); // record intact
+    expect(store.get(PK_KEY)).toBe(OTHER_NSEC); // B's own legacy key untouched
+    expect(am.getState().publicKey).toBe(sessionPubkeyBefore); // no identity switch
+    expect(am.getState().authMethod).toBe('privateKey');
+  });
+
+  it('refuses when not authenticated at all', async () => {
+    seedVault();
+    const am = new AuthManager(ndk);
+    await expect(am.removeVault()).rejects.toThrow(/different account/);
+    expect(credentials.get).not.toHaveBeenCalled();
     expect(JSON.parse(vaultInStore()!)).toEqual(fixtureRecord());
   });
 });

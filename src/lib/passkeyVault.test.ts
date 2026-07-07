@@ -85,6 +85,10 @@ beforeEach(() => {
     isSecureContext: true,
     PublicKeyCredential: function PublicKeyCredential() {}
   });
+  // The feature is origin-gated (C ruling): rp.id is always 'zap.cooking'
+  // and detectSupport() is 'none' anywhere else, so tests must declare an
+  // on-domain origin. Off-domain cases are covered explicitly below.
+  vi.stubGlobal('location', { hostname: 'zap.cooking' });
 });
 
 describe('vault record storage', () => {
@@ -116,8 +120,12 @@ describe('enrollPasskey', () => {
     expect(record.keys).toHaveLength(1);
     expect(record.keys[0].credentialId).toBe(NEW_CRED_ID);
     expect(getVaultRecord()).toEqual(record);
+    // Credentials bind to the fixed production rp id, never the origin.
+    const createArgs = credentials.create.mock.calls[0][0].publicKey;
+    expect(createArgs.rp.id).toBe('zap.cooking');
     // The verify-get must have pinned allowCredentials to the new credential.
     const getArgs = credentials.get.mock.calls[0][0].publicKey;
+    expect(getArgs.rpId).toBe('zap.cooking');
     expect(getArgs.allowCredentials).toHaveLength(1);
     expect(getArgs.userVerification).toBe('required');
 
@@ -278,6 +286,24 @@ describe('detectSupport', () => {
 
   it("returns provisional 'full' when getClientCapabilities resolves to a non-object", async () => {
     stubCapabilities(async () => undefined);
+    expect(await detectSupport()).toBe('full');
+  });
+
+  it("returns 'none' on unsupported origins regardless of WebAuthn availability (C ruling)", async () => {
+    for (const hostname of [
+      'feat-passkey-nsec-vault.frontend-hvd.pages.dev',
+      'localhost',
+      'zap.cooking.evil.example' // suffix must not match via substring tricks
+    ]) {
+      vi.stubGlobal('location', { hostname });
+      stubCapabilities(async () => ({ 'extension:prf': true }));
+      expect(await detectSupport()).toBe('none');
+    }
+  });
+
+  it("staging.zap.cooking is a supported origin (the pre-prod test surface)", async () => {
+    vi.stubGlobal('location', { hostname: 'staging.zap.cooking' });
+    stubCapabilities(async () => ({ 'extension:prf': true }));
     expect(await detectSupport()).toBe('full');
   });
 });

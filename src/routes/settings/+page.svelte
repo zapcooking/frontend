@@ -18,7 +18,7 @@
   import Accordion from '../../components/Accordion.svelte';
   import NostrBackupSection from '../../components/NostrBackupSection.svelte';
   import PasskeyVaultSection from '../../components/PasskeyVaultSection.svelte';
-  import { resolveSecuritySections } from '$lib/securitySections';
+  import { resolveSecuritySections, resolveDisplayPubkey } from '$lib/securitySections';
   import { nip19 } from 'nostr-tools';
   import { theme, type Theme } from '$lib/themeStore';
   import { displayCurrency, SUPPORTED_CURRENCIES, type CurrencyCode } from '$lib/currencyStore';
@@ -292,10 +292,16 @@
   function refreshKeyState() {
     if (!browser) return;
     const authManager = getAuthManager();
+    const state = authManager?.getState();
     sk = authManager?.getSessionPrivateKeyHex() ?? localStorage.getItem('nostrcooking_privateKey');
-    pk = localStorage.getItem('nostrcooking_loggedInPublicKey');
+    // Live state first: auth flows notify subscribers BEFORE persisting, so
+    // a localStorage-only read here can race the write and miss the pubkey.
+    pk = resolveDisplayPubkey(
+      state?.publicKey,
+      localStorage.getItem('nostrcooking_loggedInPublicKey')
+    );
     authMethod = localStorage.getItem('nostrcooking_authMethod');
-    sessionMethod = authManager?.getState().authMethod ?? null;
+    sessionMethod = state?.authMethod ?? null;
   }
 
   $: securitySection = resolveSecuritySections({ sk, storedAuthMethod: authMethod, sessionMethod });

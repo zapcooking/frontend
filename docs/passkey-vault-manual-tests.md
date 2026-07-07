@@ -4,6 +4,13 @@ Feature: passkey-wrapped nsec vault replacing plaintext `nostrcooking_privateKey
 storage. Run on **Chrome desktop** (Google Password Manager or local profile
 passkeys) and **Android Chrome** (GPM passkey). Status column: fill in per run.
 
+**Test surface: `zap.cooking` / `staging.zap.cooking` ONLY.** rp.id is fixed to
+`zap.cooking`; the feature is deliberately absent (no prompt, no settings card,
+no unlock card) on previews (`*.pages.dev`), localhost, and any other origin —
+seeing no passkey UI there is expected behavior, not a bug. Passkeys created by
+pre-ruling preview builds are orphans bound to their preview origin; delete
+them from your password manager.
+
 Setup for most cases: log in by pasting an nsec (a throwaway test key) on a
 browser profile with clean site data for zap.cooking.
 
