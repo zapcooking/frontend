@@ -209,10 +209,13 @@
       // subscribe() is queried exclusively, so restricting to the extras alone
       // (as before) meant replies on the default pool were missed whenever an
       // event carried hints — and none at all if those hints were unreachable.
+      // If the pool is empty or unreadable (e.g. during startup), leave the
+      // set undefined so NDK uses its default pool — a set built from hints
+      // alone would reintroduce the exclusive hints-only behavior.
       if (extraUrls.size > 0 && $ndk) {
         const poolUrls = Array.from($ndk.pool?.relays?.keys?.() ?? []);
-        const merged = [...new Set([...poolUrls, ...extraUrls])];
-        if (merged.length > 0) {
+        if (poolUrls.length > 0) {
+          const merged = [...new Set([...poolUrls, ...[...extraUrls].slice(0, 3)])];
           relaySet = NDKRelaySet.fromRelayUrls(merged, $ndk, true);
         }
       }
@@ -310,14 +313,14 @@
         // exclusively, so building it from the hints alone means a note whose
         // hints are dead or paywalled (e.g. 503/403) never loads even though it
         // lives on the default relays. Merge the current pool with the hints so
-        // both are queried; if the pool can't be read, fall back to no set
-        // (default pool) rather than a hints-only set.
+        // both are queried; if the pool is empty or can't be read, fall back
+        // to no set (default pool) rather than a hints-only set.
         let eventRelaySet: NDKRelaySet | undefined;
         if (neventRelays.length > 0 && $ndk) {
           try {
             const poolUrls = Array.from($ndk.pool?.relays?.keys?.() ?? []);
-            const merged = [...new Set([...poolUrls, ...neventRelays])];
-            if (merged.length > 0) {
+            if (poolUrls.length > 0) {
+              const merged = [...new Set([...poolUrls, ...neventRelays])];
               eventRelaySet = NDKRelaySet.fromRelayUrls(merged, $ndk, true);
             }
           } catch { /* non-fatal — fall back to the default pool */ }
