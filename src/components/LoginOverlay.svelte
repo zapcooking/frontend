@@ -10,7 +10,8 @@
   import QRCode from 'svelte-qrcode';
 
   import { nip19 } from 'nostr-tools';
-  import { createAuthManager, type AuthState } from '$lib/authManager';
+  import { createAuthManager, VaultConflictError, type AuthState } from '$lib/authManager';
+  import { getVaultRecord, isCeremonyCancelled, type VaultRecord } from '$lib/passkeyVault';
   import { onMount, onDestroy, tick } from 'svelte';
   import { env as publicEnv } from '$env/dynamic/public';
   import { platformIsIOS } from '$lib/platform';
@@ -110,8 +111,77 @@
   // UX state for extension detection warning
   let showMissingSignerNotice = false;
 
+  // Passkey vault: unlock card state (shown when a vault record exists and
+  // the user isn't authenticated). All other login methods stay visible
+  // below it — a cancelled/failed unlock is never a dead end.
+  let vaultRecord: VaultRecord | null = null;
+  let vaultNpub = '';
+  let vaultUnlockBusy = false;
+  let vaultUnlockError = '';
+
+  // Vault conflict confirmation: signing in with a key that differs from the
+  // enrolled vault's account requires an explicit "replace" confirmation
+  // (see VaultConflictError in authManager).
+  let vaultConflictOpen = false;
+  let vaultConflictMessage = '';
+  let vaultConflictRetry: (() => Promise<void>) | null = null;
+  let vaultConflictBusy = false;
+
+  function raiseVaultConflict(message: string, retry: () => Promise<void>) {
+    vaultConflictMessage = message;
+    vaultConflictRetry = retry;
+    vaultConflictOpen = true;
+  }
+
+  async function confirmVaultConflict() {
+    if (!vaultConflictRetry) return;
+    vaultConflictBusy = true;
+    try {
+      await vaultConflictRetry();
+      vaultConflictOpen = false;
+      vaultConflictRetry = null;
+      vaultRecord = getVaultRecord();
+    } catch (error: any) {
+      vaultConflictMessage = error?.message || 'Sign-in failed. Please try again.';
+    } finally {
+      vaultConflictBusy = false;
+    }
+  }
+
+  function cancelVaultConflict() {
+    vaultConflictOpen = false;
+    vaultConflictRetry = null;
+    vaultConflictBusy = false;
+  }
+
+  async function unlockVaultPasskey() {
+    if (!authManager) return;
+    vaultUnlockBusy = true;
+    vaultUnlockError = '';
+    try {
+      // Success closes the overlay via the auth-state subscription.
+      await authManager.unlockVault();
+    } catch (error: any) {
+      // A dismissed passkey sheet is a normal outcome — no error banner; the
+      // other sign-in methods below remain available either way.
+      vaultUnlockError = isCeremonyCancelled(error)
+        ? ''
+        : error?.message || 'Could not unlock with this passkey.';
+    } finally {
+      vaultUnlockBusy = false;
+    }
+  }
+
   onMount(() => {
     try {
+      vaultRecord = getVaultRecord();
+      if (vaultRecord) {
+        try {
+          vaultNpub = `${nip19.npubEncode(vaultRecord.pubkey).slice(0, 16)}…`;
+        } catch {
+          vaultNpub = '';
+        }
+      }
       authManager = createAuthManager($ndk);
       if (authManager) {
         authState = authManager.getState();
@@ -173,10 +243,20 @@
     try {
       nsecError = '';
       if (!nsecInput.trim()) { nsecError = 'Please enter a private key'; return; }
-      await authManager.authenticateWithPrivateKey(nsecInput.trim());
+      const nsec = nsecInput.trim();
+      await authManager.authenticateWithPrivateKey(nsec);
       nsecModal = false;
       nsecInput = '';
     } catch (error) {
+      if (error instanceof VaultConflictError) {
+        const nsec = nsecInput.trim();
+        raiseVaultConflict(error.message, async () => {
+          await authManager.authenticateWithPrivateKey(nsec, { replaceVault: true });
+          nsecModal = false;
+          nsecInput = '';
+        });
+        return;
+      }
       nsecError = authState.error || 'Invalid private key';
       console.error('Private key login failed:', error);
     }
@@ -275,6 +355,28 @@
       return;
     }
     googleError = '';
+
+    // A fresh keypair always differs from any enrolled vault account, so
+    // confirm the replacement BEFORE uploading anything to Drive. Plain
+    // "saved login" copy: this is a signup surface, not a vault settings UI.
+    if (getVaultRecord()) {
+      raiseVaultConflict(
+        'This browser has a saved login for another account. Creating a new profile will ' +
+          "remove that saved login — make sure the other account's key is backed up first.",
+        () => runGoogleSetPin(true)
+      );
+      return;
+    }
+    // Errors surface via googleError inside; swallow the rethrow that only
+    // exists for the conflict-confirm dialog's error display.
+    await runGoogleSetPin(false).catch(() => {});
+  }
+
+  async function runGoogleSetPin(replaceVault: boolean) {
+    if (!authManager || !googleSession) {
+      googleError = 'Google session expired. Please try again.';
+      return;
+    }
     googleBusy = true;
     // Let the loading state paint before the synchronous PBKDF2(600k) blocks
     // the main thread, so the button doesn't feel frozen.
@@ -285,10 +387,11 @@
       // uploaded to Drive, then logged in via the private-key path.
       const keypair = authManager.generateKeyPair();
       const nsecHex = await createAndUploadBackup(googleSession, googlePin, keypair.privateKey);
-      await authManager.authenticateWithPrivateKey(nsecHex);
+      await authManager.authenticateWithPrivateKey(nsecHex, { replaceVault });
       modalCleanup();
     } catch (error: any) {
       googleError = error?.message || 'Could not create your backup. Please try again.';
+      throw error;
     } finally {
       googleBusy = false;
     }
@@ -318,6 +421,20 @@
       await authManager.authenticateWithPrivateKey(nsecHex);
       modalCleanup();
     } catch (error) {
+      if (error instanceof VaultConflictError) {
+        // The restored backup belongs to a different account than the
+        // enrolled vault. Same-account restores adopt the vault silently.
+        raiseVaultConflict(error.message, async () => {
+          const nsecHex = await restoreFromBackup(
+            googleSession!,
+            googleSession!.existingFileId!,
+            googlePin
+          );
+          await authManager.authenticateWithPrivateKey(nsecHex, { replaceVault: true });
+          modalCleanup();
+        });
+        return;
+      }
       // A wrong PIN fails the NIP-44 HMAC and throws — never a silent wrong-key
       // login. Don't echo the raw crypto error to the user.
       console.error('[GoogleBackup] restore failed:', error);
@@ -365,7 +482,7 @@
     backupDownloaded = true;
   }
 
-  async function useGeneratedKeys(skipProfile = false) {
+  async function useGeneratedKeys(skipProfile = false, replaceVault = false) {
     if (!generatedKeys || !authManager) return;
     const profileName = newAccountUsername.trim();
     const profileBio = newAccountBio.trim();
@@ -374,7 +491,20 @@
       const privateKeyHex = Array.from(generatedKeys.privateKey)
         .map((b) => b.toString(16).padStart(2, '0'))
         .join('');
-      await authManager.authenticateWithPrivateKey(privateKeyHex);
+      try {
+        await authManager.authenticateWithPrivateKey(privateKeyHex, { replaceVault });
+      } catch (error) {
+        if (error instanceof VaultConflictError) {
+          // Signup surface — plain "saved login" copy, no vault jargon.
+          raiseVaultConflict(
+            'This browser has a saved login for another account. Creating a new profile will ' +
+              "remove that saved login — make sure the other account's key is backed up first.",
+            () => useGeneratedKeys(skipProfile, true)
+          );
+          return;
+        }
+        throw error;
+      }
       const hasProfileData = !skipProfile && (profileName || profileBio || profilePicture);
       if (hasProfileData) {
         const { NDKEvent } = await import('@nostr-dev-kit/ndk');
@@ -470,6 +600,9 @@
     nip46PairingUri = '';
     nip46PairingStatus = 'Waiting for approval…';
     nip46PairingError = '';
+    vaultConflictOpen = false;
+    vaultConflictRetry = null;
+    vaultConflictBusy = false;
   }
 
   let showPictureUrlInput = false;
@@ -1021,6 +1154,28 @@
     </div>
   </Modal>
 
+  <!-- Vault conflict confirmation: replacing the enrolled passkey login
+       requires an explicit decision — it deletes the wrapped key for the
+       other account on this device. -->
+  <Modal bind:open={vaultConflictOpen} cleanup={cancelVaultConflict} noHeader>
+    <div class="login-modal-body">
+      <h2 class="login-modal-title">⚠️ Replace saved login?</h2>
+      <div class="flex flex-col gap-4">
+        <div class="bg-input border rounded-lg p-3" style="border-color: var(--color-input-border)">
+          <p class="text-sm text-caption">{vaultConflictMessage}</p>
+        </div>
+        <div class="flex gap-2">
+          <Button on:click={confirmVaultConflict} primary={true} disabled={vaultConflictBusy}>
+            {vaultConflictBusy ? 'Signing in…' : 'Replace saved login'}
+          </Button>
+          <Button on:click={cancelVaultConflict} primary={false} disabled={vaultConflictBusy}>
+            Cancel
+          </Button>
+        </div>
+      </div>
+    </div>
+  </Modal>
+
   <SuggestedFollowsModal
     bind:open={showSuggestedFollows}
     userPubkey={newAccountPubkey}
@@ -1067,6 +1222,28 @@
         <img src="/zapcooking-text-dark.svg" alt="" aria-hidden="true" class="signin-wordmark-img signin-wordmark-img--dark" />
       </h1>
       <p class="signin-tagline">Share recipes and get paid by your community.</p>
+
+      {#if vaultRecord && !authState.isAuthenticated}
+        <!-- Locked passkey vault: unlock is the primary action, but every
+             other method stays below — cancelling here is never a dead end,
+             and nothing can delete the vault from this screen. -->
+        <button
+          type="button"
+          on:click={unlockVaultPasskey}
+          disabled={vaultUnlockBusy || authState.isLoading}
+          aria-label="Unlock your saved key with a passkey"
+          class="signin-cta-primary"
+        >
+          <span>{vaultUnlockBusy ? 'Waiting for passkey…' : '🔒 Unlock with passkey'}</span>
+        </button>
+        <p class="signin-vault-hint">
+          Welcome back{vaultNpub ? ` ${vaultNpub}` : ''} — your key is encrypted on this device.
+        </p>
+        {#if vaultUnlockError}
+          <div class="signin-error" role="alert">{vaultUnlockError}</div>
+        {/if}
+        <div class="signin-divider" aria-hidden="true"><span>or sign in another way</span></div>
+      {/if}
 
       <button type="button" on:click={loginWithNIP07} disabled={authState.isLoading} aria-label="Sign in to Zap Cooking using your Nostr browser extension" class="signin-cta-primary">
         <span>{authState.isLoading ? 'Connecting…' : 'Sign in with Browser Signer'}</span>
@@ -1308,6 +1485,13 @@
     font-weight: 400;
     color: var(--color-caption);
     margin: 0 0 1.75rem;
+    line-height: 1.5;
+  }
+
+  .signin-vault-hint {
+    font-size: 0.8125rem;
+    color: var(--color-caption);
+    margin: 0.625rem 0 0;
     line-height: 1.5;
   }
 

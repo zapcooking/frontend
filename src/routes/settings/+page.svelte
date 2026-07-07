@@ -17,6 +17,7 @@
   import Modal from '../../components/Modal.svelte';
   import Accordion from '../../components/Accordion.svelte';
   import NostrBackupSection from '../../components/NostrBackupSection.svelte';
+  import PasskeyVaultSection from '../../components/PasskeyVaultSection.svelte';
   import { nip19 } from 'nostr-tools';
   import { theme, type Theme } from '$lib/themeStore';
   import { displayCurrency, SUPPORTED_CURRENCIES, type CurrencyCode } from '$lib/currencyStore';
@@ -278,11 +279,20 @@
   let showDisconnectConfirm = false;
   let privateKeyRevealed = false;
 
-  if (browser) {
-    relays = getCurrentRelays();
-    sk = localStorage.getItem('nostrcooking_privateKey');
+  // The private key comes from the auth manager (in-memory signer first):
+  // passkey-vault sessions keep the nsec ONLY in memory, so reading
+  // localStorage alone would hide the reveal/export UI from enrolled users.
+  function refreshKeyState() {
+    if (!browser) return;
+    const authManager = getAuthManager();
+    sk = authManager?.getSessionPrivateKeyHex() ?? localStorage.getItem('nostrcooking_privateKey');
     pk = localStorage.getItem('nostrcooking_loggedInPublicKey');
     authMethod = localStorage.getItem('nostrcooking_authMethod');
+  }
+
+  if (browser) {
+    relays = getCurrentRelays();
+    refreshKeyState();
 
     const authManager = getAuthManager();
     if (authManager) {
@@ -298,7 +308,13 @@
     loadTimerSettings();
     // Update connection status periodically
     const interval = setInterval(updateConnectedRelays, 5000);
-    return () => clearInterval(interval);
+    // Keep the key display in sync with auth changes (e.g. a passkey unlock
+    // or enrollment happening while this page is mounted).
+    const unsubAuth = getAuthManager()?.subscribe(() => refreshKeyState());
+    return () => {
+      clearInterval(interval);
+      unsubAuth?.();
+    };
   });
 
   async function disconnectBunker() {
@@ -1423,6 +1439,9 @@
             <p class="text-caption text-sm italic">No public key found</p>
           {/if}
         </div>
+
+        <!-- Passkey Vault (renders nothing when unsupported/not applicable) -->
+        <PasskeyVaultSection on:changed={refreshKeyState} />
 
         <!-- Private Key -->
         {#if sk}

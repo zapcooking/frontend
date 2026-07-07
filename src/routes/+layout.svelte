@@ -17,7 +17,13 @@
   import ToastContainer from '../components/ToastContainer.svelte';
   import PendingIndicator from '../components/PendingIndicator.svelte';
   import LoginOverlay from '../components/LoginOverlay.svelte';
+  import PasskeyEnrollPrompt from '../components/PasskeyEnrollPrompt.svelte';
   import { loginOverlayOpen } from '$lib/stores/loginOverlay';
+
+  // Soft-launch gate for the passkey migration prompt. While false, existing
+  // plaintext-key users are never prompted — enrollment is reachable only
+  // via Settings → Security. Flip to true to start actively migrating users.
+  const PASSKEY_ENROLL_PROMPT_ENABLED = false;
   import { createAuthManager, type AuthState } from '$lib/authManager';
   import { stopMessageSubscription, clearMessages } from '$lib/stores/messages';
   import { clearDecryptCache } from '$lib/encryptionService';
@@ -344,6 +350,21 @@
       authManager = createAuthManager($ndk);
       authState = authManager.getState();
 
+      // Locked passkey vault (record present, no plaintext key, no bunker):
+      // surface the unlock overlay once on startup. The user can dismiss it
+      // and browse anonymously; the Login button re-opens it. Guarded on the
+      // other restore inputs so an in-flight plaintext/NIP-46 restore doesn't
+      // flash the overlay.
+      if (
+        browser &&
+        !authState.isAuthenticated &&
+        authManager.getVaultStatus?.() === 'locked' &&
+        !localStorage.getItem('nostrcooking_privateKey') &&
+        localStorage.getItem('nostrcooking_authMethod') !== 'nip46'
+      ) {
+        loginOverlayOpen.set(true);
+      }
+
       // Subscribe to auth state changes
       unsubscribe = authManager.subscribe((state: AuthState) => {
         authState = state;
@@ -585,6 +606,9 @@
       <WalletModal />
       {#if $loginOverlayOpen}
         <LoginOverlay />
+      {/if}
+      {#if PASSKEY_ENROLL_PROMPT_ENABLED && authManager}
+        <PasskeyEnrollPrompt />
       {/if}
       <ToastContainer />
       <PendingIndicator />

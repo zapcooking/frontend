@@ -13,6 +13,14 @@ import * as nip44 from 'nostr-tools/nip44';
 import * as nip04 from 'nostr-tools/nip04';
 import { fetchNip46UserPubkey, sendNip46Rpc } from './nip46Rpc';
 import { Nip44LocalSigner } from './nip44LocalSigner';
+import {
+  getVaultRecord,
+  deleteVaultRecord,
+  enrollPasskey,
+  unlockPasskey,
+  isCeremonyCancelled
+} from './passkeyVault';
+import { hexToBytes } from './passkeyVaultCrypto';
 
 // Permissions requested in the NIP-46 connect handshake. NDK 2.10's
 // blockUntilReady omits the perms param entirely, so permission-enforcing
@@ -35,7 +43,10 @@ export interface AuthState {
   isAuthenticated: boolean;
   user: NDKUser | null;
   publicKey: string;
-  authMethod: 'nip07' | 'privateKey' | 'anonymous' | 'nip46' | null;
+  // 'passkey' = an nsec session whose key lives ONLY in memory, restored by
+  // unlocking the passkey vault (nostrcooking_vault_v1) instead of plaintext
+  // localStorage. Same signer type as 'privateKey' underneath.
+  authMethod: 'nip07' | 'privateKey' | 'anonymous' | 'nip46' | 'passkey' | null;
   isLoading: boolean;
   error: string | null;
   // NIP-46 auth-challenge URL surfaced when a popup blocker prevents us
@@ -62,6 +73,32 @@ export interface AuthOptions {
   method: 'nip07' | 'privateKey' | 'anonymous' | 'nip46';
   privateKey?: string;
   bunkerConnectionString?: string;
+}
+
+/**
+ * Thrown by authenticateWithPrivateKey when a passkey vault exists for a
+ * DIFFERENT pubkey than the key being logged in. Replacing the vault deletes
+ * the wrapped nsec for that other account, so it requires explicit user
+ * confirmation (retry with { replaceVault: true }). The message is written
+ * for end users so unhandled callers still surface something sane.
+ */
+export class VaultConflictError extends Error {
+  vaultPubkey: string;
+  constructor(vaultPubkey: string) {
+    let label = vaultPubkey;
+    try {
+      label = `${nip19.npubEncode(vaultPubkey).slice(0, 16)}…`;
+    } catch {
+      /* keep hex */
+    }
+    super(
+      `This browser has a saved passkey login for another account (${label}). ` +
+        `Signing in with a different key will remove that saved login — make sure the other ` +
+        `account's key is backed up first.`
+    );
+    this.name = 'VaultConflictError';
+    this.vaultPubkey = vaultPubkey;
+  }
 }
 
 export class AuthManager {
@@ -143,8 +180,24 @@ export class AuthManager {
           await this.authenticateWithPrivateKey(storedPrivateKey);
         } catch (error) {
           console.error('Failed to restore authentication:', error);
-          this.clearStorage();
+          // A vault/plaintext pubkey mismatch shouldn't be reachable, but if
+          // it ever is (multi-tab race), wiping storage here would destroy a
+          // real key. Leave both in place and stay unauthenticated instead.
+          if (!(error instanceof VaultConflictError)) {
+            this.clearStorage();
+          }
         }
+      } else if (getVaultRecord()) {
+        // Passkey vault present with no plaintext key: the session is LOCKED.
+        // Deliberately stay unauthenticated (the app browses anonymously) and
+        // let the UI offer "Unlock with passkey" — WebAuthn get() needs a user
+        // gesture (Safari requires transient activation), so restore cannot
+        // drive the ceremony itself. This is a resting state, not an error:
+        // never clearStorage here, a locked vault must survive reloads and
+        // cancelled unlocks. Must precede the pubkey-only branch below, which
+        // would otherwise attempt a NIP-07 restore (unlock persists
+        // nostrcooking_loggedInPublicKey) and wipe storage when none exists.
+        return;
       } else if (storedPublicKey) {
         try {
           await this.authenticateWithNIP07();
@@ -204,8 +257,18 @@ export class AuthManager {
     }
   }
 
-  // Authenticate with private key
-  async authenticateWithPrivateKey(privateKey: string): Promise<void> {
+  // Authenticate with private key.
+  //
+  // Vault interplay: when a passkey vault exists for the SAME pubkey, the
+  // vault is adopted — the key stays memory-only (authMethod 'passkey') and
+  // plaintext is never (re)persisted, so pasting your nsec after a cancelled
+  // unlock doesn't reopen the XSS hole enrollment closed. A vault for a
+  // DIFFERENT pubkey throws VaultConflictError unless opts.replaceVault,
+  // which callers may only set after explicit user confirmation.
+  async authenticateWithPrivateKey(
+    privateKey: string,
+    opts?: { replaceVault?: boolean }
+  ): Promise<void> {
     this.updateState({ isLoading: true, error: null });
 
     try {
@@ -235,6 +298,22 @@ export class AuthManager {
       if (!/^[0-9a-fA-F]{64}$/.test(pk)) {
         throw new Error('Invalid private key format - expected 64 hex characters or nsec1 key');
       }
+      pk = pk.toLowerCase();
+
+      // Vault check happens BEFORE any signer/state mutation so a conflict
+      // abort leaves both NDK and storage exactly as they were.
+      const derivedPubkey = getPublicKey(hexToBytes(pk));
+      const vault = getVaultRecord();
+      let adoptVault = false;
+      if (vault) {
+        if (vault.pubkey === derivedPubkey) {
+          adoptVault = true;
+        } else if (opts?.replaceVault) {
+          deleteVaultRecord();
+        } else {
+          throw new VaultConflictError(vault.pubkey);
+        }
+      }
 
       const signer = new NDKPrivateKeySigner(pk);
       this.ndk.signer = signer;
@@ -246,13 +325,22 @@ export class AuthManager {
         isAuthenticated: true,
         user,
         publicKey,
-        authMethod: 'privateKey',
+        authMethod: adoptVault ? 'passkey' : 'privateKey',
         isLoading: false,
         error: null
       });
 
       localStorage.setItem('nostrcooking_loggedInPublicKey', publicKey);
-      localStorage.setItem('nostrcooking_privateKey', pk);
+      if (adoptVault) {
+        // Pubkey equality proves the verified vault wraps this same key, so
+        // any plaintext copy here is a leftover from an interrupted
+        // enrollment (record written, deletion crashed) — removing it
+        // completes that verified enrollment rather than violating the
+        // "delete only on verified success" rule.
+        localStorage.removeItem('nostrcooking_privateKey');
+      } else {
+        localStorage.setItem('nostrcooking_privateKey', pk);
+      }
     } catch (error) {
       console.error('Private key authentication failed:', error);
       this.updateState({
@@ -1364,6 +1452,126 @@ export class AuthManager {
     }
   }
 
+  // ============================================================
+  // Passkey vault (see src/lib/passkeyVault.ts)
+  // ============================================================
+
+  // Vault status for UI gating. 'locked' = a record exists but the current
+  // session isn't the unlocked vault session (including: not logged in at
+  // all, or logged in via another method while someone's vault sits here).
+  getVaultStatus(): 'none' | 'locked' | 'unlocked' {
+    if (!getVaultRecord()) return 'none';
+    return this.authState.isAuthenticated && this.authState.authMethod === 'passkey'
+      ? 'unlocked'
+      : 'locked';
+  }
+
+  // The session's private key, memory-first. Backs the settings nsec reveal
+  // for passkey sessions (whose key exists nowhere in storage) and stays
+  // compatible with legacy plaintext sessions via the localStorage fallback.
+  getSessionPrivateKeyHex(): string | null {
+    if (!browser) return null;
+    const method = this.authState.authMethod;
+    if (method === 'privateKey' || method === 'passkey') {
+      // Duck-typed on the value, not the class name — minification mangles
+      // constructor names in production builds.
+      const hex = (this.ndk?.signer as { privateKey?: string } | null)?.privateKey;
+      if (typeof hex === 'string' && /^[0-9a-fA-F]{64}$/.test(hex)) return hex.toLowerCase();
+    }
+    const stored = localStorage.getItem('nostrcooking_privateKey');
+    if (stored && /^[0-9a-fA-F]{64}$/.test(stored)) return stored.toLowerCase();
+    return null;
+  }
+
+  // Unlock the vault via a passkey ceremony and start the nsec session with
+  // the key in memory only. Failure (including user cancel) is NEVER
+  // destructive: the record and all storage stay untouched.
+  async unlockVault(): Promise<void> {
+    if (!browser) throw new Error('Browser environment required');
+    const record = getVaultRecord();
+    if (!record) throw new Error('No passkey vault found on this device');
+
+    this.updateState({ isLoading: true, error: null });
+    try {
+      const privkeyHex = await unlockPasskey(record);
+      const signer = new NDKPrivateKeySigner(privkeyHex);
+      this.ndk.signer = signer;
+      const user = await signer.user();
+
+      this.updateState({
+        isAuthenticated: true,
+        user,
+        publicKey: user.hexpubkey,
+        authMethod: 'passkey',
+        isLoading: false,
+        error: null
+      });
+      localStorage.setItem('nostrcooking_loggedInPublicKey', user.hexpubkey);
+    } catch (error) {
+      this.ndk.signer = null;
+      this.updateState({
+        isAuthenticated: false,
+        user: null,
+        publicKey: '',
+        authMethod: null,
+        isLoading: false,
+        // A dismissed passkey sheet is a normal outcome, not an error banner.
+        error: isCeremonyCancelled(error)
+          ? null
+          : error instanceof Error
+            ? error.message
+            : 'Passkey unlock failed'
+      });
+      throw error;
+    }
+  }
+
+  // Enroll a passkey for the current nsec session. The plaintext key is
+  // deleted ONLY after enrollPasskey has verified a full round-trip on a
+  // real get() assertion; any earlier failure leaves storage untouched.
+  async enrollVault(): Promise<void> {
+    if (!browser) throw new Error('Browser environment required');
+    const { isAuthenticated, authMethod, publicKey } = this.authState;
+    if (!isAuthenticated || (authMethod !== 'privateKey' && authMethod !== 'passkey')) {
+      throw new Error('Passkey protection requires an active private-key session');
+    }
+    const privkeyHex = this.getSessionPrivateKeyHex();
+    if (!privkeyHex) throw new Error('Session private key unavailable');
+
+    let label = 'Zap Cooking';
+    try {
+      label = `Zap Cooking · ${nip19.npubEncode(publicKey).slice(0, 13)}…`;
+    } catch {
+      /* keep default */
+    }
+    await enrollPasskey(privkeyHex, publicKey, label);
+    localStorage.removeItem('nostrcooking_privateKey');
+    this.updateState({ authMethod: 'passkey' });
+  }
+
+  // Remove the vault (downgrade to plaintext-localStorage sessions). Requires
+  // a FRESH unlock ceremony even when the session is already unlocked — it
+  // proves user presence at removal time and guarantees we hold the nsec for
+  // the downgrade. Write order: plaintext first, record deletion second, so
+  // there is never a moment where neither exists.
+  async removeVault(): Promise<void> {
+    if (!browser) throw new Error('Browser environment required');
+    const record = getVaultRecord();
+    if (!record) return;
+
+    const privkeyHex = await unlockPasskey(record);
+    localStorage.setItem('nostrcooking_privateKey', privkeyHex);
+    localStorage.setItem('nostrcooking_loggedInPublicKey', record.pubkey);
+    deleteVaultRecord();
+
+    if (this.authState.isAuthenticated && this.authState.publicKey === record.pubkey) {
+      if (!this.ndk.signer) this.ndk.signer = new NDKPrivateKeySigner(privkeyHex);
+      this.updateState({ authMethod: 'privateKey' });
+    } else {
+      await this.authenticateWithPrivateKey(privkeyHex);
+    }
+  }
+
   // Logout and clear all authentication data
   async logout(): Promise<void> {
     // Clear NIP-46 signer if present
@@ -1388,7 +1596,10 @@ export class AuthManager {
     this.ndk.signer = null;
   }
 
-  // Clear localStorage
+  // Clear localStorage. The passkey vault record (nostrcooking_vault_v1) is
+  // deliberately NOT in this list: logout ends the session but must leave the
+  // vault intact so the user can unlock again later. Removal is an explicit,
+  // unlock-gated settings action (removeVault).
   private clearStorage(): void {
     if (browser) {
       if (this.nip46ResponseSub) {
