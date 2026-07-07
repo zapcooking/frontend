@@ -6,7 +6,7 @@
   import { ndk, userPublickey } from '$lib/nostr';
   import { onMount, onDestroy } from 'svelte';
   import Button from '../../components/Button.svelte';
-  import { createAuthManager, type AuthState } from '$lib/authManager';
+  import { createAuthManager, VaultConflictError, type AuthState } from '$lib/authManager';
   import { Fetch } from 'hurdak';
   import { DEFAULT_PROFILE_IMAGE } from '$lib/consts';
 
@@ -19,6 +19,11 @@
   let npub = '';
 
   let disableStepButtons = false;
+  // Set when a passkey vault for another account exists on this browser:
+  // the first Continue surfaces the warning, a second Continue confirms the
+  // replacement (see VaultConflictError in authManager).
+  let vaultConflictMessage = '';
+  let confirmReplaceVault = false;
   let name = '';
   let username = '';
   let picture = DEFAULT_PROFILE_IMAGE;
@@ -73,7 +78,23 @@
         const privateKeyHex = Array.from(generatedKeys.privateKey)
           .map((b) => b.toString(16).padStart(2, '0'))
           .join('');
-        await authManager.authenticateWithPrivateKey(privateKeyHex);
+        try {
+          await authManager.authenticateWithPrivateKey(privateKeyHex, {
+            replaceVault: confirmReplaceVault
+          });
+          vaultConflictMessage = '';
+        } catch (error) {
+          if (error instanceof VaultConflictError) {
+            vaultConflictMessage =
+              'This browser has a saved login for another account. Continuing will remove that ' +
+              "saved login — make sure the other account's key is backed up first. Press " +
+              'Continue again to proceed.';
+            confirmReplaceVault = true;
+            disableStepButtons = false;
+            return;
+          }
+          throw error;
+        }
       }
     }
 
@@ -425,6 +446,10 @@
     </div>
   {:else}
     <p>Okay, now you are ready to explore Nostr.</p>
+  {/if}
+
+  {#if vaultConflictMessage}
+    <p class="text-sm text-red-500 mb-3" role="alert">{vaultConflictMessage}</p>
   {/if}
 
   <div class="flex mb-4">
