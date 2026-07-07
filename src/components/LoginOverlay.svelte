@@ -11,12 +11,20 @@
 
   import { nip19 } from 'nostr-tools';
   import { createAuthManager, type AuthState } from '$lib/authManager';
-  import { onMount, onDestroy } from 'svelte';
+  import { onMount, onDestroy, tick } from 'svelte';
+  import { env as publicEnv } from '$env/dynamic/public';
   import { platformIsIOS } from '$lib/platform';
   import LoginFormIOS from './LoginFormIOS.svelte';
   import SuggestedFollowsModal from './SuggestedFollowsModal.svelte';
   import { showToast } from '$lib/toast';
   import { loginOverlayOpen } from '$lib/stores/loginOverlay';
+  import {
+    signInToGoogle,
+    restoreFromBackup,
+    createAndUploadBackup,
+    type GoogleSession
+  } from '$lib/googleBackup/googleBackupFlow';
+  import { isValidPin } from '$lib/googleBackup/googleBackupCrypto';
 
   let authManager: any = null;
   let authState: AuthState = {
@@ -57,6 +65,28 @@
   let nip46PairingUri = '';
   let nip46PairingStatus = 'Waiting for approval…';
   let nip46PairingError = '';
+
+  // Google Drive backup states. The entry point is only shown when a web
+  // OAuth client is configured; unset PUBLIC_GOOGLE_WEB_CLIENT_ID hides the
+  // tile rather than leading users into a flow that would immediately error.
+  $: googleBackupEnabled = !!publicEnv.PUBLIC_GOOGLE_WEB_CLIENT_ID;
+  let googleModal = false;
+  let googleStep: 'signin' | 'setPin' | 'enterPin' = 'signin';
+  let googleSession: GoogleSession | null = null;
+  let googleButtonContainer: HTMLDivElement | null = null;
+  let googleSignInStarted = false;
+  let googlePin = '';
+  let googlePinConfirm = '';
+  let googleError = '';
+  let googleBusy = false;
+
+  // Render the Sign In With Google button once the modal's container is in the
+  // DOM. getGoogleIdentity resolves only after the user clicks it, then the
+  // flow fetches the Drive token and lists existing backups.
+  $: if (googleModal && googleStep === 'signin' && googleButtonContainer && !googleSignInStarted) {
+    googleSignInStarted = true;
+    renderAndAwaitGoogle();
+  }
 
   // Check if running on Android via Capacitor
   $: isAndroid =
@@ -174,6 +204,99 @@
     bunkerConnectionString = '';
   }
 
+  function openGoogleModal() {
+    googleModal = true;
+    googleStep = 'signin';
+    googleSession = null;
+    googlePin = '';
+    googlePinConfirm = '';
+    googleError = '';
+    googleBusy = false;
+    googleSignInStarted = false;
+  }
+
+  async function renderAndAwaitGoogle() {
+    if (!authManager || !googleButtonContainer) return;
+    googleError = '';
+    try {
+      const session = await signInToGoogle(googleButtonContainer);
+      googleSession = session;
+      googlePin = '';
+      googlePinConfirm = '';
+      googleStep = session.existingFileId ? 'enterPin' : 'setPin';
+    } catch (error: any) {
+      googleError = error?.message || 'Google sign-in failed';
+      // Leave googleSignInStarted=true so the reactive block doesn't re-fire in
+      // a loop; the modal shows a "Try again" button that re-opens the flow.
+    }
+  }
+
+  async function submitGoogleSetPin() {
+    if (!authManager || !googleSession) {
+      googleError = 'Google session expired. Please try again.';
+      return;
+    }
+    if (!isValidPin(googlePin)) {
+      googleError = 'PIN must be 4–8 digits.';
+      return;
+    }
+    if (googlePin !== googlePinConfirm) {
+      googleError = 'PINs do not match.';
+      return;
+    }
+    googleError = '';
+    googleBusy = true;
+    // Let the loading state paint before the synchronous PBKDF2(600k) blocks
+    // the main thread, so the button doesn't feel frozen.
+    await tick();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    try {
+      // Fresh nsec generated locally; encrypted with the PIN-derived key and
+      // uploaded to Drive, then logged in via the private-key path.
+      const keypair = authManager.generateKeyPair();
+      const nsecHex = await createAndUploadBackup(googleSession, googlePin, keypair.privateKey);
+      await authManager.authenticateWithPrivateKey(nsecHex);
+      modalCleanup();
+    } catch (error: any) {
+      googleError = error?.message || 'Could not create your backup. Please try again.';
+    } finally {
+      googleBusy = false;
+    }
+  }
+
+  async function submitGoogleEnterPin() {
+    if (!authManager || !googleSession?.existingFileId) {
+      googleError = 'No backup found. Please try again.';
+      return;
+    }
+    if (!isValidPin(googlePin)) {
+      googleError = 'PIN must be 4–8 digits.';
+      return;
+    }
+    googleError = '';
+    googleBusy = true;
+    // Let the loading state paint before the synchronous PBKDF2(600k) blocks
+    // the main thread, so the button doesn't feel frozen.
+    await tick();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    try {
+      const nsecHex = await restoreFromBackup(
+        googleSession,
+        googleSession.existingFileId,
+        googlePin
+      );
+      await authManager.authenticateWithPrivateKey(nsecHex);
+      modalCleanup();
+    } catch (error) {
+      // A wrong PIN fails the NIP-44 HMAC and throws — never a silent wrong-key
+      // login. Don't echo the raw crypto error to the user.
+      console.error('[GoogleBackup] restore failed:', error);
+      googleError = 'Incorrect PIN or unreadable backup. Please try again.';
+    } finally {
+      googleBusy = false;
+    }
+  }
+
   function generateNewKeys() {
     if (!authManager) return;
     generatedKeys = authManager.generateKeyPair();
@@ -289,6 +412,14 @@
     generateModal = false;
     bunkerModal = false;
     nip46UniversalModal = false;
+    googleModal = false;
+    googleStep = 'signin';
+    googleSession = null;
+    googleSignInStarted = false;
+    googlePin = '';
+    googlePinConfirm = '';
+    googleError = '';
+    googleBusy = false;
     showPrivateKey = false;
     backupStep = 1;
     backupDownloaded = false;
@@ -560,6 +691,140 @@
     </div>
   </Modal>
 
+  <!-- Google Drive Backup Modal -->
+  <Modal bind:open={googleModal} cleanup={modalCleanup} noHeader>
+    <div class="login-modal-body">
+      <button type="button" class="login-modal-logo-btn" aria-label="Close" on:click={modalCleanup}>
+        <img src="/zapcooking-text-light.svg" alt="" aria-hidden="true" class="dark:hidden" />
+        <img src="/zapcooking-text-dark.svg" alt="" aria-hidden="true" class="hidden dark:block" />
+      </button>
+      <button type="button" class="login-modal-close-btn" aria-label="Close" on:click={modalCleanup}>
+        <CloseIcon size={24} />
+      </button>
+      <h2 class="login-modal-title">
+        {#if googleStep === 'setPin'}🔐 Set a backup PIN
+        {:else if googleStep === 'enterPin'}🔓 Enter your backup PIN
+        {:else}☁️ Continue with Google{/if}
+      </h2>
+      <div class="flex flex-col gap-4">
+        <div class="bg-input border rounded-lg p-3" style="border-color: var(--color-input-border)">
+          <p class="text-sm text-caption">
+            Google sign-in isn't a separate account — it securely backs up your Nostr key to your
+            private Google Drive, unlocked by a PIN. The same key works on the Zap Cooking Android
+            app.
+          </p>
+        </div>
+
+        {#if googleStep === 'signin'}
+          <div class="flex flex-col items-center gap-3 py-2">
+            <div bind:this={googleButtonContainer} class="min-h-[44px]"></div>
+            {#if !googleError && !googleSession}
+              <p class="text-xs text-caption text-center">
+                Approve Google sign-in, then Drive access — two quick prompts.
+              </p>
+            {/if}
+          </div>
+        {:else if googleStep === 'setPin'}
+          <div
+            class="bg-input border rounded-lg p-3"
+            style="border-color: var(--color-danger, #ef4444)"
+          >
+            <p class="text-sm" style="color: var(--color-text-primary)">
+              ⚠️ Choose a PIN you'll remember. If you forget it and have no other copy of your key,
+              your account is <strong>permanently unrecoverable</strong> — no one can reset it.
+            </p>
+          </div>
+          <div>
+            <label
+              for="google-pin"
+              class="block text-sm font-medium mb-1.5"
+              style="color: var(--color-text-primary)"
+            >
+              PIN (4–8 digits)
+            </label>
+            <input
+              id="google-pin"
+              bind:value={googlePin}
+              type="password"
+              inputmode="numeric"
+              autocomplete="new-password"
+              placeholder="••••"
+              class="input block w-full sm:text-sm p-3"
+              disabled={googleBusy}
+            />
+          </div>
+          <div>
+            <label
+              for="google-pin-confirm"
+              class="block text-sm font-medium mb-1.5"
+              style="color: var(--color-text-primary)"
+            >
+              Confirm PIN
+            </label>
+            <input
+              id="google-pin-confirm"
+              bind:value={googlePinConfirm}
+              type="password"
+              inputmode="numeric"
+              autocomplete="new-password"
+              placeholder="••••"
+              class="input block w-full sm:text-sm p-3"
+              disabled={googleBusy}
+            />
+          </div>
+        {:else}
+          <p class="text-sm text-caption">
+            Enter the PIN you set when you first backed up your key to unlock your account.
+          </p>
+          <div>
+            <label
+              for="google-pin-unlock"
+              class="block text-sm font-medium mb-1.5"
+              style="color: var(--color-text-primary)"
+            >
+              Backup PIN
+            </label>
+            <input
+              id="google-pin-unlock"
+              bind:value={googlePin}
+              type="password"
+              inputmode="numeric"
+              autocomplete="current-password"
+              placeholder="••••"
+              class="input block w-full sm:text-sm p-3"
+              disabled={googleBusy}
+            />
+          </div>
+        {/if}
+
+        {#if googleError}
+          <div
+            class="bg-input border rounded-lg p-2.5"
+            style="border-color: var(--color-danger, #ef4444)"
+          >
+            <p class="text-sm" style="color: var(--color-danger, #ef4444)">{googleError}</p>
+          </div>
+        {/if}
+
+        {#if googleStep === 'signin' && googleError}
+          <Button on:click={openGoogleModal} primary={true}>Try again</Button>
+        {:else if googleStep === 'setPin'}
+          <Button
+            on:click={submitGoogleSetPin}
+            primary={true}
+            disabled={googleBusy || !googlePin || !googlePinConfirm}
+          >
+            {googleBusy ? 'Backing up…' : 'Create & back up'}
+          </Button>
+        {:else if googleStep === 'enterPin'}
+          <Button on:click={submitGoogleEnterPin} primary={true} disabled={googleBusy || !googlePin}>
+            {googleBusy ? 'Unlocking…' : 'Unlock'}
+          </Button>
+        {/if}
+      </div>
+    </div>
+  </Modal>
+
   <!-- Generate Keys Modal -->
   <Modal bind:open={generateModal} cleanup={modalCleanup} noHeader>
     <div class="login-modal-body">
@@ -783,7 +1048,7 @@
 
       <div class="signin-divider" aria-hidden="true"><span>or</span></div>
 
-      <div class="signin-tiles" role="group" aria-label="Other sign-in methods">
+      <div class="signin-tiles" class:signin-tiles--four={googleBackupEnabled} role="group" aria-label="Other sign-in methods">
         <button type="button" on:click={startUniversalPairing} disabled={authState.isLoading} aria-label="Sign in by scanning a QR code with your phone signer" class="signin-tile">
           <svg class="signin-tile-icon" width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
             <rect x="3" y="3" width="7" height="7" rx="1" stroke="currentColor" stroke-width="1.6" />
@@ -813,6 +1078,19 @@
           <span class="signin-tile-title">Import key</span>
           <span class="signin-tile-sub">Paste nsec</span>
         </button>
+
+        {#if googleBackupEnabled}
+          <button type="button" on:click={openGoogleModal} disabled={authState.isLoading} aria-label="Back up or restore your key with Google Drive" class="signin-tile">
+            <svg class="signin-tile-icon" width="22" height="22" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M21.6 12.227c0-.71-.064-1.393-.182-2.049H12v3.874h5.382a4.6 4.6 0 0 1-1.996 3.018v2.51h3.229c1.89-1.74 2.985-4.303 2.985-7.353Z" fill="#4285F4" />
+              <path d="M12 22c2.7 0 4.964-.895 6.615-2.42l-3.229-2.51c-.895.6-2.04.955-3.386.955-2.605 0-4.81-1.76-5.596-4.124H3.064v2.59A9.996 9.996 0 0 0 12 22Z" fill="#34A853" />
+              <path d="M6.404 13.9a5.99 5.99 0 0 1-.313-1.9c0-.66.114-1.3.313-1.9V7.51H3.064A9.996 9.996 0 0 0 2 12c0 1.614.386 3.14 1.064 4.49l3.34-2.59Z" fill="#FBBC05" />
+              <path d="M12 5.977c1.468 0 2.786.505 3.823 1.496l2.868-2.868C16.96 2.99 14.696 2 12 2A9.996 9.996 0 0 0 3.064 7.51l3.34 2.59C7.19 7.736 9.395 5.977 12 5.977Z" fill="#EA4335" />
+            </svg>
+            <span class="signin-tile-title">Google</span>
+            <span class="signin-tile-sub">Drive backup</span>
+          </button>
+        {/if}
       </div>
 
       <footer class="signin-footer">
@@ -1099,6 +1377,12 @@
     display: grid;
     grid-template-columns: repeat(3, 1fr);
     gap: 0.625rem;
+  }
+
+  /* With the Google tile present there are 4 methods; lay them out 2×2 so the
+     grid stays balanced. Without it (env unset) the default 3-column row holds. */
+  .signin-tiles--four {
+    grid-template-columns: repeat(2, 1fr);
   }
 
   .signin-tile {
