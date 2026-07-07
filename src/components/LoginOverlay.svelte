@@ -604,6 +604,22 @@
             <p class="text-sm" style="color: var(--color-danger, #ef4444)">{bunkerError}</p>
           </div>
         {/if}
+        {#if authState.authChallengeUrl}
+          <div class="bg-input border rounded-lg p-2.5" style="border-color: var(--color-primary, #f97316)">
+            <p class="text-sm mb-1.5" style="color: var(--color-text-primary)">
+              Your signer needs browser approval. If a window didn't open, tap the link below:
+            </p>
+            <a
+              href={authState.authChallengeUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              class="text-sm underline break-all"
+              style="color: var(--color-primary, #f97316)"
+            >
+              {authState.authChallengeUrl}
+            </a>
+          </div>
+        {/if}
         {#if bunkerConnecting}
           <div class="bg-input border rounded-lg p-3" style="border-color: var(--color-primary, #f97316)">
             <div class="flex items-center gap-2">

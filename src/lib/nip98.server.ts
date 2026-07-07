@@ -53,7 +53,8 @@ const DEFAULT_MAX_SKEW_SECONDS = 60;
 export async function verifyNip98(
   request: Request,
   opts: {
-    expectedPubkey: string;
+    /** When set, the signing pubkey must match (admin / check-status). Omitted → return event pubkey. */
+    expectedPubkey?: string;
     bodyBytes?: Uint8Array;
     maxSkewSeconds?: number;
   }
@@ -120,10 +121,9 @@ export async function verifyNip98(
     }
   }
 
-  // Identity gate — only the expected pubkey is authorized for this
-  // endpoint. Signature was valid (the caller proved they hold some
-  // key), but only ADMIN_PUBKEY is allowed to rescore.
-  if (event.pubkey !== opts.expectedPubkey) {
+  // Identity gate — when callers supply expectedPubkey (admin routes,
+  // check-status owner lookup), only that pubkey is authorized.
+  if (opts.expectedPubkey !== undefined && event.pubkey !== opts.expectedPubkey) {
     return { ok: false, reason: 'pubkey-mismatch' };
   }
 

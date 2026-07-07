@@ -3,6 +3,7 @@ import {
   NDKNip07Signer,
   NDKPrivateKeySigner,
   NDKNip46Signer,
+  NDKRelaySet,
   NDKSubscriptionCacheUsage,
   type NDKSubscription,
   type NDKUser
@@ -10,8 +11,25 @@ import {
 import { nip19, getPublicKey, generateSecretKey } from 'nostr-tools';
 import * as nip44 from 'nostr-tools/nip44';
 import * as nip04 from 'nostr-tools/nip04';
-import { fetchNip46UserPubkey } from './nip46Rpc';
+import { fetchNip46UserPubkey, sendNip46Rpc } from './nip46Rpc';
 import { Nip44LocalSigner } from './nip44LocalSigner';
+
+// Permissions requested in the NIP-46 connect handshake. NDK 2.10's
+// blockUntilReady omits the perms param entirely, so permission-enforcing
+// signers pre-grant nothing; sending them explicitly lets the signer
+// authorize the whole session in one approval.
+const NIP46_CONNECT_PERMS =
+  'get_public_key,sign_event,nip04_encrypt,nip04_decrypt,nip44_encrypt,nip44_decrypt';
+
+// localStorage key holding the in-flight ephemeral client key for a
+// bunker paste-login. NIP-46 authorizations bind to the client key, so a
+// retry with a fresh bunker URI (new single-use secret) can re-authorize
+// the SAME client key. Distinct from `nostrcooking_nip46_pending`, which
+// belongs to the nostrconnect:// QR flow — do not conflate them.
+const NIP46_BUNKER_PENDING_KEY = 'nostrcooking_nip46_bunker_pending';
+
+// How long a pending ephemeral client key may be reused across retries.
+const NIP46_BUNKER_PENDING_TTL_MS = 15 * 60 * 1000;
 
 export interface AuthState {
   isAuthenticated: boolean;
@@ -20,6 +38,10 @@ export interface AuthState {
   authMethod: 'nip07' | 'privateKey' | 'anonymous' | 'nip46' | null;
   isLoading: boolean;
   error: string | null;
+  // NIP-46 auth-challenge URL surfaced when a popup blocker prevents us
+  // from opening the signer's browser-approval window automatically. The
+  // bunker modal renders it as a tappable link. Undefined when not pending.
+  authChallengeUrl?: string;
 }
 
 export interface NIP46ConnectionInfo {
@@ -330,7 +352,8 @@ export class AuthManager {
 
   // Authenticate with NIP-46 bunker
   async authenticateWithNIP46(connectionString: string): Promise<void> {
-    this.updateState({ isLoading: true, error: null });
+    // Clear any stale auth-challenge link from a prior attempt.
+    this.updateState({ isLoading: true, error: null, authChallengeUrl: undefined });
 
     try {
       if (!browser) {
@@ -342,18 +365,56 @@ export class AuthManager {
       console.log('[NIP-46] Signer pubkey:', signerPubkey);
       console.log('[NIP-46] Relays:', relays);
 
-      // Generate a local ephemeral key for NIP-46 communication
-      const localPrivateKeyBytes = generateSecretKey();
-      const localPrivateKey = Array.from(localPrivateKeyBytes)
-        .map((b) => b.toString(16).padStart(2, '0'))
-        .join('');
+      // Resolve the local ephemeral client key. NIP-46 authorizations are
+      // bound to this key, so on retry we reuse a recently-stored key for
+      // the same signer: the user can generate a fresh bunker URI (with a
+      // new single-use secret) and re-authorize the SAME client without a
+      // second identity approval. Only reuse when the signer matches and
+      // the stored key is < 15 minutes old; otherwise generate + overwrite.
+      let localPrivateKey: string | null = null;
+      try {
+        const rawPending = localStorage.getItem(NIP46_BUNKER_PENDING_KEY);
+        if (rawPending) {
+          const pending = JSON.parse(rawPending) as {
+            signerPubkey?: string;
+            localPrivateKey?: string;
+            createdAt?: number;
+          };
+          const fresh =
+            typeof pending.createdAt === 'number' &&
+            Date.now() - pending.createdAt < NIP46_BUNKER_PENDING_TTL_MS;
+          if (
+            pending.signerPubkey === signerPubkey &&
+            typeof pending.localPrivateKey === 'string' &&
+            /^[0-9a-f]{64}$/i.test(pending.localPrivateKey) &&
+            fresh
+          ) {
+            localPrivateKey = pending.localPrivateKey;
+            console.log('[NIP-46] Reusing pending ephemeral client key for retry');
+          }
+        }
+      } catch (e) {
+        console.warn('[NIP-46] Could not read pending bunker key:', e);
+      }
+
+      if (!localPrivateKey) {
+        const localPrivateKeyBytes = generateSecretKey();
+        localPrivateKey = Array.from(localPrivateKeyBytes)
+          .map((b) => b.toString(16).padStart(2, '0'))
+          .join('');
+        localStorage.setItem(
+          NIP46_BUNKER_PENDING_KEY,
+          JSON.stringify({ signerPubkey, localPrivateKey, createdAt: Date.now() })
+        );
+      }
 
       // Create a local signer for the NIP-46 client. NIP-44-aware
       // wrapper: NDK 2.10's NDKPrivateKeySigner is NIP-04-only and the
       // RPC channel inherits its encrypt/decrypt — see Nip44LocalSigner.
       const localSigner = new Nip44LocalSigner(localPrivateKey);
 
-      // Add relays to NDK if not already present
+      // Add relays to NDK and connect BEFORE constructing the signer so the
+      // scoped RPC relay set (below) references relays already in the pool.
       for (const relay of relays) {
         try {
           this.ndk.addExplicitRelay(relay);
@@ -372,44 +433,129 @@ export class AuthManager {
       const signerToken = secret ? `${signerPubkey}#${secret}` : signerPubkey;
       this.nip46Signer = new NDKNip46Signer(this.ndk, signerToken, localSigner);
 
-      // Set internal properties that NDKNip46Signer needs
-      try {
-        (this.nip46Signer as any).bunkerPubkey = signerPubkey;
-        (this.nip46Signer as any)._bunkerPubkey = signerPubkey;
-        (this.nip46Signer as any).userPubkey = signerPubkey;
-        (this.nip46Signer as any)._userPubkey = signerPubkey;
-        const remoteUser = this.ndk.getUser({ pubkey: signerPubkey });
-        (this.nip46Signer as any)._remoteUser = remoteUser;
-        console.log('[NIP-46] Set signer internal properties');
-      } catch (e) {
-        console.warn('[NIP-46] Could not set signer properties:', e);
-      }
+      // Scope the RPC relay set to the bunker's relays. In the bunker-token
+      // construction path NDK leaves rpc.relaySet undefined, so NIP-46 RPC
+      // traffic would otherwise publish/subscribe against the entire pool.
+      (this.nip46Signer as any).rpc.relaySet = NDKRelaySet.fromRelayUrls(relays, this.ndk);
 
-      // Set the signer on NDK BEFORE blockUntilReady
+      // Handle auth-challenge (nsec.app-style browser approval). NDK emits
+      // 'authUrl' on the rpc instance (with the URL as the event arg) when a
+      // signer responds result:"auth_url". We bypass blockUntilReady, which
+      // is what normally bridges this event, so listen on rpc directly. This
+      // MUST be attached before connect is sent.
+      //
+      // authUrlSeen tags the human-in-the-loop case: once an auth challenge
+      // is issued, a subsequent connect timeout means the signer is alive
+      // and waiting on the user (not unreachable), so the timeout message
+      // and retry guidance differ (see below).
+      let authUrlSeen = false;
+      (this.nip46Signer as any).rpc.on('authUrl', (url: string) => {
+        console.log('[NIP-46] auth challenge:', url);
+        // The URL comes from the remote signer's response — untrusted input.
+        // Only accept http(s) so a malicious/compromised signer cannot smuggle
+        // a javascript:/data: (or other-scheme) URL into window.open() or the
+        // modal's <a href>, which would be an XSS/phishing vector.
+        let safeUrl: string | null = null;
+        try {
+          const parsed = new URL(url);
+          if (parsed.protocol === 'https:' || parsed.protocol === 'http:') {
+            safeUrl = parsed.href;
+          }
+        } catch {
+          /* not a parseable URL */
+        }
+        if (!safeUrl) {
+          console.warn('[NIP-46] Ignoring auth challenge with unsupported URL:', url);
+          return;
+        }
+        authUrlSeen = true;
+        let popup: Window | null = null;
+        try {
+          // Not using the `noopener` window feature: it forces window.open to
+          // return null even on success, which would defeat the popup-blocked
+          // detection below. Instead sever `opener` on the returned handle to
+          // block reverse-tabnabbing. The manual <a> fallback in the modal
+          // carries rel="noopener noreferrer".
+          popup = window.open(safeUrl, '_blank', 'width=420,height=640');
+          if (popup) {
+            try {
+              popup.opener = null;
+            } catch {
+              /* cross-origin after navigation — best effort */
+            }
+          }
+        } catch (e) {
+          console.warn('[NIP-46] window.open threw:', e);
+        }
+        if (!popup) {
+          // Popup blocked — surface the URL so the user can tap it manually.
+          this.updateState({ authChallengeUrl: safeUrl });
+        }
+      });
+
+      // Set the signer on NDK before driving the handshake.
       this.ndk.signer = this.nip46Signer;
 
-      console.log('[NIP-46] Connecting to bunker (this may take a moment)...');
-
-      // Some signers are inconsistent about connect "ack" semantics.
-      // Try blockUntilReady first, but still attempt get_public_key even
-      // if it times out — the RPC listener stays live, so get_public_key
-      // can succeed even when the connect ack didn't arrive.
+      // Arm the kind-24133 response subscription. startListening() arms it
+      // the moment ndk.subscribe is called; its promise only resolves on
+      // EOSE. With the RPC relay set scoped to the bunker's relays, a single
+      // slow/unreachable relay could hang that EOSE forever — so race a
+      // timeout and proceed, since the listener is live regardless of EOSE.
+      // (Trading the old silent failure for a silent hang would be no fix.)
       try {
-        const connectionTimeout = 30000; // 30 seconds
-        const timeoutPromise = new Promise<never>((_, reject) => {
-          setTimeout(
-            () => reject(new Error('Connection timeout - bunker not responding')),
-            connectionTimeout
-          );
-        });
-        await Promise.race([this.nip46Signer.blockUntilReady(), timeoutPromise]);
-        console.log('[NIP-46] Session established via connect');
+        const listenTimeout = new Promise<void>((resolve) => setTimeout(resolve, 10000));
+        await Promise.race([(this.nip46Signer as any).startListening(), listenTimeout]);
       } catch (e) {
-        console.warn(
-          '[NIP-46] connect phase timed out/failed, will still try get_public_key:',
-          e
+        console.warn('[NIP-46] startListening error (continuing, listener is live):', e);
+      }
+
+      console.log('[NIP-46] Sending connect handshake...');
+
+      // Explicit connect RPC with perms. Accept 'ack', or the echoed secret
+      // (spec-compliant for some signers) but ONLY when a secret was sent —
+      // otherwise an unexpected echo could pass as a false positive. Any
+      // other outcome fails the auth with actionable guidance; we no longer
+      // proceed to get_public_key on a failed/absent connect (which is what
+      // produced the "get_public_key: no permission" error).
+      let ack: string;
+      try {
+        // 60s: human-in-the-loop approval (popup or browser tab) is tight in
+        // 30s even without a popup blocker. Still a bounded wait.
+        ack = await sendNip46Rpc(
+          this.nip46Signer,
+          'connect',
+          [signerPubkey, secret ?? '', NIP46_CONNECT_PERMS],
+          60000
+        );
+      } catch (e) {
+        const raw = e instanceof Error ? e.message : String(e);
+        if (/timed out/i.test(raw)) {
+          // If an auth challenge was issued, the signer is alive and waiting
+          // on the user — NDK's re-armed handler would deliver a late ack,
+          // but our timer has already rejected. The persisted client key
+          // means the now-granted authorization carries over, so a plain
+          // retry (tap Connect again) succeeds.
+          if (authUrlSeen) {
+            throw new Error(
+              `Approval pending — finish approving in your signer, then tap Connect again. (${raw})`
+            );
+          }
+          throw new Error(
+            `Bunker didn't respond. Check that your signer app is open and online. (${raw})`
+          );
+        }
+        throw new Error(
+          `Connect was rejected. Bunker secrets are single-use — generate a fresh bunker URI in your signer app and try again. (${raw})`
         );
       }
+
+      const connectOk = ack === 'ack' || (secret !== undefined && ack === secret);
+      if (!connectOk) {
+        throw new Error(
+          `Connect was rejected. Bunker secrets are single-use — generate a fresh bunker URI in your signer app and try again. (unexpected connect response: ${JSON.stringify(ack)})`
+        );
+      }
+      console.log('[NIP-46] Connect acknowledged');
 
       console.log('[NIP-46] Getting user pubkey via get_public_key...');
 
@@ -436,7 +582,8 @@ export class AuthManager {
         publicKey: userPubkey,
         authMethod: 'nip46',
         isLoading: false,
-        error: null
+        error: null,
+        authChallengeUrl: undefined
       });
 
       // Store connection info for reconnection (redact secret for security)
@@ -456,9 +603,18 @@ export class AuthManager {
       localStorage.setItem('nostrcooking_loggedInPublicKey', userPubkey);
       localStorage.setItem('nostrcooking_authMethod', 'nip46');
       localStorage.setItem('nostrcooking_nip46', JSON.stringify(nip46Info));
+      // Success supersedes the pending ephemeral key (now persisted in
+      // nostrcooking_nip46 for reconnect). On FAILURE we deliberately keep
+      // it, so a retry with a fresh bunker URI reuses this authorized key.
+      localStorage.removeItem(NIP46_BUNKER_PENDING_KEY);
     } catch (error) {
       console.error('[NIP-46] Authentication failed:', error);
       this.nip46Signer = null;
+      // Also drop the abandoned signer from NDK. We set this.ndk.signer to the
+      // bunker signer before the handshake, so on failure it would otherwise
+      // dangle and let later app code sign through a stale/unauthorized signer
+      // while AuthState reports unauthenticated.
+      this.ndk.signer = null;
       this.updateState({
         isAuthenticated: false,
         user: null,
@@ -513,19 +669,6 @@ export class AuthManager {
         ? `${nip46Info.signerPubkey}#${nip46Info.secret}`
         : nip46Info.signerPubkey;
       this.nip46Signer = new NDKNip46Signer(this.ndk, signerToken, localSigner);
-
-      // Set internal properties that NDKNip46Signer needs
-      try {
-        (this.nip46Signer as any).bunkerPubkey = nip46Info.signerPubkey;
-        (this.nip46Signer as any)._bunkerPubkey = nip46Info.signerPubkey;
-        (this.nip46Signer as any).userPubkey = nip46Info.signerPubkey;
-        (this.nip46Signer as any)._userPubkey = nip46Info.signerPubkey;
-        const remoteUser = this.ndk.getUser({ pubkey: nip46Info.signerPubkey });
-        (this.nip46Signer as any)._remoteUser = remoteUser;
-        console.log('[NIP-46] Set signer internal properties on reconnect');
-      } catch (e) {
-        console.warn('[NIP-46] Could not set signer properties:', e);
-      }
 
       // Set the signer on NDK BEFORE blockUntilReady
       this.ndk.signer = this.nip46Signer;
@@ -586,6 +729,10 @@ export class AuthManager {
     } catch (error) {
       console.error('[NIP-46] Reconnection failed:', error);
       this.nip46Signer = null;
+      // Same stale-signer hazard as authenticateWithNIP46: the signer was
+      // assigned to NDK before the handshake, so drop it here to keep NDK
+      // consistent with the unauthenticated state.
+      this.ndk.signer = null;
 
       // Don't clear storage immediately - user might want to retry
       this.updateState({
@@ -624,7 +771,8 @@ export class AuthManager {
       publicKey: '',
       authMethod: null,
       isLoading: false,
-      error: null
+      error: null,
+      authChallengeUrl: undefined
     });
 
     this.clearStorage();
@@ -1252,6 +1400,7 @@ export class AuthManager {
       localStorage.removeItem('nostrcooking_authMethod');
       localStorage.removeItem('nostrcooking_nip46');
       localStorage.removeItem('nostrcooking_nip46_pending');
+      localStorage.removeItem(NIP46_BUNKER_PENDING_KEY);
     }
   }
 
