@@ -1,0 +1,18 @@
+{
+  "description": "Passkey vault v1 parity fixtures. Deterministic vectors for the web implementation (passkeyVaultCrypto.ts) and the future Android port (Phase 3). Do not regenerate: these values are the cross-platform contract.",
+  "constants": {
+    "prfInput": "zap.cooking/nsec-vault/v1",
+    "hkdfSalt": "zap.cooking/nsec-vault/v1",
+    "hkdfInfo": "kek-aes256-gcm"
+  },
+  "prfOutputHex": "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20",
+  "expectedKekHex": "e4f2820a862d28b465b54c306f91fdd08c62f71e75978aedf3e8a0c8d05a08c2",
+  "dekHex": "a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebf",
+  "dekIvHex": "101112131415161718191a1b",
+  "expectedWrappedDekB64": "QbqCNc5eZfFDmHYDoD2BFDdQLmq7+Nd9iVrAzj8gmu9LkbCcYwTiY1PIblOqEc4X",
+  "nsecHex": "e8b4f3c2a1d05e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f",
+  "pubkeyHex": "06cc216aff26ab90fd977ee70307cee8eae8b2ca5f990e3093b2a4a1320ba1e3",
+  "nip44NonceHex": "404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f",
+  "expectedNsecCiphertextB64": "AkBBQkNERUZHSElKS0xNTk9QUVJTVFVWV1hZWltcXV5fiHr8ke7GBO64K6zEpQALvthQqX1T4tbgc4smBdOowQjgRbWXSdVATYWPJp2p7TH6BEI//bL2YRGzQGDMbBPi9lFvlEqrRRqrhPp+EAVXBJ1KgkHO16qKcI1Qsa2yTv3vg9Y=",
+  "credentialIdB64url": "wMHCw8TFxsfIycrLzM3Ozw"
+}

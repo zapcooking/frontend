@@ -3,6 +3,7 @@ import {
   NDKNip07Signer,
   NDKPrivateKeySigner,
   NDKNip46Signer,
+  NDKRelaySet,
   NDKSubscriptionCacheUsage,
   type NDKSubscription,
   type NDKUser
@@ -10,16 +11,48 @@ import {
 import { nip19, getPublicKey, generateSecretKey } from 'nostr-tools';
 import * as nip44 from 'nostr-tools/nip44';
 import * as nip04 from 'nostr-tools/nip04';
-import { fetchNip46UserPubkey } from './nip46Rpc';
+import { fetchNip46UserPubkey, sendNip46Rpc } from './nip46Rpc';
 import { Nip44LocalSigner } from './nip44LocalSigner';
+import {
+  getVaultRecord,
+  deleteVaultRecord,
+  enrollPasskey,
+  unlockPasskey,
+  isCeremonyCancelled
+} from './passkeyVault';
+import { hexToBytes } from './passkeyVaultCrypto';
+
+// Permissions requested in the NIP-46 connect handshake. NDK 2.10's
+// blockUntilReady omits the perms param entirely, so permission-enforcing
+// signers pre-grant nothing; sending them explicitly lets the signer
+// authorize the whole session in one approval.
+const NIP46_CONNECT_PERMS =
+  'get_public_key,sign_event,nip04_encrypt,nip04_decrypt,nip44_encrypt,nip44_decrypt';
+
+// localStorage key holding the in-flight ephemeral client key for a
+// bunker paste-login. NIP-46 authorizations bind to the client key, so a
+// retry with a fresh bunker URI (new single-use secret) can re-authorize
+// the SAME client key. Distinct from `nostrcooking_nip46_pending`, which
+// belongs to the nostrconnect:// QR flow — do not conflate them.
+const NIP46_BUNKER_PENDING_KEY = 'nostrcooking_nip46_bunker_pending';
+
+// How long a pending ephemeral client key may be reused across retries.
+const NIP46_BUNKER_PENDING_TTL_MS = 15 * 60 * 1000;
 
 export interface AuthState {
   isAuthenticated: boolean;
   user: NDKUser | null;
   publicKey: string;
-  authMethod: 'nip07' | 'privateKey' | 'anonymous' | 'nip46' | null;
+  // 'passkey' = an nsec session whose key lives ONLY in memory, restored by
+  // unlocking the passkey vault (nostrcooking_vault_v1) instead of plaintext
+  // localStorage. Same signer type as 'privateKey' underneath.
+  authMethod: 'nip07' | 'privateKey' | 'anonymous' | 'nip46' | 'passkey' | null;
   isLoading: boolean;
   error: string | null;
+  // NIP-46 auth-challenge URL surfaced when a popup blocker prevents us
+  // from opening the signer's browser-approval window automatically. The
+  // bunker modal renders it as a tappable link. Undefined when not pending.
+  authChallengeUrl?: string;
 }
 
 export interface NIP46ConnectionInfo {
@@ -40,6 +73,32 @@ export interface AuthOptions {
   method: 'nip07' | 'privateKey' | 'anonymous' | 'nip46';
   privateKey?: string;
   bunkerConnectionString?: string;
+}
+
+/**
+ * Thrown by authenticateWithPrivateKey when a passkey vault exists for a
+ * DIFFERENT pubkey than the key being logged in. Replacing the vault deletes
+ * the wrapped nsec for that other account, so it requires explicit user
+ * confirmation (retry with { replaceVault: true }). The message is written
+ * for end users so unhandled callers still surface something sane.
+ */
+export class VaultConflictError extends Error {
+  vaultPubkey: string;
+  constructor(vaultPubkey: string) {
+    let label = vaultPubkey;
+    try {
+      label = `${nip19.npubEncode(vaultPubkey).slice(0, 16)}…`;
+    } catch {
+      /* keep hex */
+    }
+    super(
+      `This browser has a saved passkey login for another account (${label}). ` +
+        `Signing in with a different key will remove that saved login — make sure the other ` +
+        `account's key is backed up first.`
+    );
+    this.name = 'VaultConflictError';
+    this.vaultPubkey = vaultPubkey;
+  }
 }
 
 export class AuthManager {
@@ -121,8 +180,24 @@ export class AuthManager {
           await this.authenticateWithPrivateKey(storedPrivateKey);
         } catch (error) {
           console.error('Failed to restore authentication:', error);
-          this.clearStorage();
+          // A vault/plaintext pubkey mismatch shouldn't be reachable, but if
+          // it ever is (multi-tab race), wiping storage here would destroy a
+          // real key. Leave both in place and stay unauthenticated instead.
+          if (!(error instanceof VaultConflictError)) {
+            this.clearStorage();
+          }
         }
+      } else if (getVaultRecord()) {
+        // Passkey vault present with no plaintext key: the session is LOCKED.
+        // Deliberately stay unauthenticated (the app browses anonymously) and
+        // let the UI offer "Unlock with passkey" — WebAuthn get() needs a user
+        // gesture (Safari requires transient activation), so restore cannot
+        // drive the ceremony itself. This is a resting state, not an error:
+        // never clearStorage here, a locked vault must survive reloads and
+        // cancelled unlocks. Must precede the pubkey-only branch below, which
+        // would otherwise attempt a NIP-07 restore (unlock persists
+        // nostrcooking_loggedInPublicKey) and wipe storage when none exists.
+        return;
       } else if (storedPublicKey) {
         try {
           await this.authenticateWithNIP07();
@@ -182,8 +257,18 @@ export class AuthManager {
     }
   }
 
-  // Authenticate with private key
-  async authenticateWithPrivateKey(privateKey: string): Promise<void> {
+  // Authenticate with private key.
+  //
+  // Vault interplay: when a passkey vault exists for the SAME pubkey, the
+  // vault is adopted — the key stays memory-only (authMethod 'passkey') and
+  // plaintext is never (re)persisted, so pasting your nsec after a cancelled
+  // unlock doesn't reopen the XSS hole enrollment closed. A vault for a
+  // DIFFERENT pubkey throws VaultConflictError unless opts.replaceVault,
+  // which callers may only set after explicit user confirmation.
+  async authenticateWithPrivateKey(
+    privateKey: string,
+    opts?: { replaceVault?: boolean }
+  ): Promise<void> {
     this.updateState({ isLoading: true, error: null });
 
     try {
@@ -213,6 +298,22 @@ export class AuthManager {
       if (!/^[0-9a-fA-F]{64}$/.test(pk)) {
         throw new Error('Invalid private key format - expected 64 hex characters or nsec1 key');
       }
+      pk = pk.toLowerCase();
+
+      // Vault check happens BEFORE any signer/state mutation so a conflict
+      // abort leaves both NDK and storage exactly as they were.
+      const derivedPubkey = getPublicKey(hexToBytes(pk));
+      const vault = getVaultRecord();
+      let adoptVault = false;
+      if (vault) {
+        if (vault.pubkey === derivedPubkey) {
+          adoptVault = true;
+        } else if (opts?.replaceVault) {
+          deleteVaultRecord();
+        } else {
+          throw new VaultConflictError(vault.pubkey);
+        }
+      }
 
       const signer = new NDKPrivateKeySigner(pk);
       this.ndk.signer = signer;
@@ -224,13 +325,22 @@ export class AuthManager {
         isAuthenticated: true,
         user,
         publicKey,
-        authMethod: 'privateKey',
+        authMethod: adoptVault ? 'passkey' : 'privateKey',
         isLoading: false,
         error: null
       });
 
       localStorage.setItem('nostrcooking_loggedInPublicKey', publicKey);
-      localStorage.setItem('nostrcooking_privateKey', pk);
+      if (adoptVault) {
+        // Pubkey equality proves the verified vault wraps this same key, so
+        // any plaintext copy here is a leftover from an interrupted
+        // enrollment (record written, deletion crashed) — removing it
+        // completes that verified enrollment rather than violating the
+        // "delete only on verified success" rule.
+        localStorage.removeItem('nostrcooking_privateKey');
+      } else {
+        localStorage.setItem('nostrcooking_privateKey', pk);
+      }
     } catch (error) {
       console.error('Private key authentication failed:', error);
       this.updateState({
@@ -330,7 +440,8 @@ export class AuthManager {
 
   // Authenticate with NIP-46 bunker
   async authenticateWithNIP46(connectionString: string): Promise<void> {
-    this.updateState({ isLoading: true, error: null });
+    // Clear any stale auth-challenge link from a prior attempt.
+    this.updateState({ isLoading: true, error: null, authChallengeUrl: undefined });
 
     try {
       if (!browser) {
@@ -342,18 +453,56 @@ export class AuthManager {
       console.log('[NIP-46] Signer pubkey:', signerPubkey);
       console.log('[NIP-46] Relays:', relays);
 
-      // Generate a local ephemeral key for NIP-46 communication
-      const localPrivateKeyBytes = generateSecretKey();
-      const localPrivateKey = Array.from(localPrivateKeyBytes)
-        .map((b) => b.toString(16).padStart(2, '0'))
-        .join('');
+      // Resolve the local ephemeral client key. NIP-46 authorizations are
+      // bound to this key, so on retry we reuse a recently-stored key for
+      // the same signer: the user can generate a fresh bunker URI (with a
+      // new single-use secret) and re-authorize the SAME client without a
+      // second identity approval. Only reuse when the signer matches and
+      // the stored key is < 15 minutes old; otherwise generate + overwrite.
+      let localPrivateKey: string | null = null;
+      try {
+        const rawPending = localStorage.getItem(NIP46_BUNKER_PENDING_KEY);
+        if (rawPending) {
+          const pending = JSON.parse(rawPending) as {
+            signerPubkey?: string;
+            localPrivateKey?: string;
+            createdAt?: number;
+          };
+          const fresh =
+            typeof pending.createdAt === 'number' &&
+            Date.now() - pending.createdAt < NIP46_BUNKER_PENDING_TTL_MS;
+          if (
+            pending.signerPubkey === signerPubkey &&
+            typeof pending.localPrivateKey === 'string' &&
+            /^[0-9a-f]{64}$/i.test(pending.localPrivateKey) &&
+            fresh
+          ) {
+            localPrivateKey = pending.localPrivateKey;
+            console.log('[NIP-46] Reusing pending ephemeral client key for retry');
+          }
+        }
+      } catch (e) {
+        console.warn('[NIP-46] Could not read pending bunker key:', e);
+      }
+
+      if (!localPrivateKey) {
+        const localPrivateKeyBytes = generateSecretKey();
+        localPrivateKey = Array.from(localPrivateKeyBytes)
+          .map((b) => b.toString(16).padStart(2, '0'))
+          .join('');
+        localStorage.setItem(
+          NIP46_BUNKER_PENDING_KEY,
+          JSON.stringify({ signerPubkey, localPrivateKey, createdAt: Date.now() })
+        );
+      }
 
       // Create a local signer for the NIP-46 client. NIP-44-aware
       // wrapper: NDK 2.10's NDKPrivateKeySigner is NIP-04-only and the
       // RPC channel inherits its encrypt/decrypt — see Nip44LocalSigner.
       const localSigner = new Nip44LocalSigner(localPrivateKey);
 
-      // Add relays to NDK if not already present
+      // Add relays to NDK and connect BEFORE constructing the signer so the
+      // scoped RPC relay set (below) references relays already in the pool.
       for (const relay of relays) {
         try {
           this.ndk.addExplicitRelay(relay);
@@ -372,44 +521,129 @@ export class AuthManager {
       const signerToken = secret ? `${signerPubkey}#${secret}` : signerPubkey;
       this.nip46Signer = new NDKNip46Signer(this.ndk, signerToken, localSigner);
 
-      // Set internal properties that NDKNip46Signer needs
-      try {
-        (this.nip46Signer as any).bunkerPubkey = signerPubkey;
-        (this.nip46Signer as any)._bunkerPubkey = signerPubkey;
-        (this.nip46Signer as any).userPubkey = signerPubkey;
-        (this.nip46Signer as any)._userPubkey = signerPubkey;
-        const remoteUser = this.ndk.getUser({ pubkey: signerPubkey });
-        (this.nip46Signer as any)._remoteUser = remoteUser;
-        console.log('[NIP-46] Set signer internal properties');
-      } catch (e) {
-        console.warn('[NIP-46] Could not set signer properties:', e);
-      }
+      // Scope the RPC relay set to the bunker's relays. In the bunker-token
+      // construction path NDK leaves rpc.relaySet undefined, so NIP-46 RPC
+      // traffic would otherwise publish/subscribe against the entire pool.
+      (this.nip46Signer as any).rpc.relaySet = NDKRelaySet.fromRelayUrls(relays, this.ndk);
 
-      // Set the signer on NDK BEFORE blockUntilReady
+      // Handle auth-challenge (nsec.app-style browser approval). NDK emits
+      // 'authUrl' on the rpc instance (with the URL as the event arg) when a
+      // signer responds result:"auth_url". We bypass blockUntilReady, which
+      // is what normally bridges this event, so listen on rpc directly. This
+      // MUST be attached before connect is sent.
+      //
+      // authUrlSeen tags the human-in-the-loop case: once an auth challenge
+      // is issued, a subsequent connect timeout means the signer is alive
+      // and waiting on the user (not unreachable), so the timeout message
+      // and retry guidance differ (see below).
+      let authUrlSeen = false;
+      (this.nip46Signer as any).rpc.on('authUrl', (url: string) => {
+        console.log('[NIP-46] auth challenge:', url);
+        // The URL comes from the remote signer's response — untrusted input.
+        // Only accept http(s) so a malicious/compromised signer cannot smuggle
+        // a javascript:/data: (or other-scheme) URL into window.open() or the
+        // modal's <a href>, which would be an XSS/phishing vector.
+        let safeUrl: string | null = null;
+        try {
+          const parsed = new URL(url);
+          if (parsed.protocol === 'https:' || parsed.protocol === 'http:') {
+            safeUrl = parsed.href;
+          }
+        } catch {
+          /* not a parseable URL */
+        }
+        if (!safeUrl) {
+          console.warn('[NIP-46] Ignoring auth challenge with unsupported URL:', url);
+          return;
+        }
+        authUrlSeen = true;
+        let popup: Window | null = null;
+        try {
+          // Not using the `noopener` window feature: it forces window.open to
+          // return null even on success, which would defeat the popup-blocked
+          // detection below. Instead sever `opener` on the returned handle to
+          // block reverse-tabnabbing. The manual <a> fallback in the modal
+          // carries rel="noopener noreferrer".
+          popup = window.open(safeUrl, '_blank', 'width=420,height=640');
+          if (popup) {
+            try {
+              popup.opener = null;
+            } catch {
+              /* cross-origin after navigation — best effort */
+            }
+          }
+        } catch (e) {
+          console.warn('[NIP-46] window.open threw:', e);
+        }
+        if (!popup) {
+          // Popup blocked — surface the URL so the user can tap it manually.
+          this.updateState({ authChallengeUrl: safeUrl });
+        }
+      });
+
+      // Set the signer on NDK before driving the handshake.
       this.ndk.signer = this.nip46Signer;
 
-      console.log('[NIP-46] Connecting to bunker (this may take a moment)...');
-
-      // Some signers are inconsistent about connect "ack" semantics.
-      // Try blockUntilReady first, but still attempt get_public_key even
-      // if it times out — the RPC listener stays live, so get_public_key
-      // can succeed even when the connect ack didn't arrive.
+      // Arm the kind-24133 response subscription. startListening() arms it
+      // the moment ndk.subscribe is called; its promise only resolves on
+      // EOSE. With the RPC relay set scoped to the bunker's relays, a single
+      // slow/unreachable relay could hang that EOSE forever — so race a
+      // timeout and proceed, since the listener is live regardless of EOSE.
+      // (Trading the old silent failure for a silent hang would be no fix.)
       try {
-        const connectionTimeout = 30000; // 30 seconds
-        const timeoutPromise = new Promise<never>((_, reject) => {
-          setTimeout(
-            () => reject(new Error('Connection timeout - bunker not responding')),
-            connectionTimeout
-          );
-        });
-        await Promise.race([this.nip46Signer.blockUntilReady(), timeoutPromise]);
-        console.log('[NIP-46] Session established via connect');
+        const listenTimeout = new Promise<void>((resolve) => setTimeout(resolve, 10000));
+        await Promise.race([(this.nip46Signer as any).startListening(), listenTimeout]);
       } catch (e) {
-        console.warn(
-          '[NIP-46] connect phase timed out/failed, will still try get_public_key:',
-          e
+        console.warn('[NIP-46] startListening error (continuing, listener is live):', e);
+      }
+
+      console.log('[NIP-46] Sending connect handshake...');
+
+      // Explicit connect RPC with perms. Accept 'ack', or the echoed secret
+      // (spec-compliant for some signers) but ONLY when a secret was sent —
+      // otherwise an unexpected echo could pass as a false positive. Any
+      // other outcome fails the auth with actionable guidance; we no longer
+      // proceed to get_public_key on a failed/absent connect (which is what
+      // produced the "get_public_key: no permission" error).
+      let ack: string;
+      try {
+        // 60s: human-in-the-loop approval (popup or browser tab) is tight in
+        // 30s even without a popup blocker. Still a bounded wait.
+        ack = await sendNip46Rpc(
+          this.nip46Signer,
+          'connect',
+          [signerPubkey, secret ?? '', NIP46_CONNECT_PERMS],
+          60000
+        );
+      } catch (e) {
+        const raw = e instanceof Error ? e.message : String(e);
+        if (/timed out/i.test(raw)) {
+          // If an auth challenge was issued, the signer is alive and waiting
+          // on the user — NDK's re-armed handler would deliver a late ack,
+          // but our timer has already rejected. The persisted client key
+          // means the now-granted authorization carries over, so a plain
+          // retry (tap Connect again) succeeds.
+          if (authUrlSeen) {
+            throw new Error(
+              `Approval pending — finish approving in your signer, then tap Connect again. (${raw})`
+            );
+          }
+          throw new Error(
+            `Bunker didn't respond. Check that your signer app is open and online. (${raw})`
+          );
+        }
+        throw new Error(
+          `Connect was rejected. Bunker secrets are single-use — generate a fresh bunker URI in your signer app and try again. (${raw})`
         );
       }
+
+      const connectOk = ack === 'ack' || (secret !== undefined && ack === secret);
+      if (!connectOk) {
+        throw new Error(
+          `Connect was rejected. Bunker secrets are single-use — generate a fresh bunker URI in your signer app and try again. (unexpected connect response: ${JSON.stringify(ack)})`
+        );
+      }
+      console.log('[NIP-46] Connect acknowledged');
 
       console.log('[NIP-46] Getting user pubkey via get_public_key...');
 
@@ -436,7 +670,8 @@ export class AuthManager {
         publicKey: userPubkey,
         authMethod: 'nip46',
         isLoading: false,
-        error: null
+        error: null,
+        authChallengeUrl: undefined
       });
 
       // Store connection info for reconnection (redact secret for security)
@@ -456,9 +691,18 @@ export class AuthManager {
       localStorage.setItem('nostrcooking_loggedInPublicKey', userPubkey);
       localStorage.setItem('nostrcooking_authMethod', 'nip46');
       localStorage.setItem('nostrcooking_nip46', JSON.stringify(nip46Info));
+      // Success supersedes the pending ephemeral key (now persisted in
+      // nostrcooking_nip46 for reconnect). On FAILURE we deliberately keep
+      // it, so a retry with a fresh bunker URI reuses this authorized key.
+      localStorage.removeItem(NIP46_BUNKER_PENDING_KEY);
     } catch (error) {
       console.error('[NIP-46] Authentication failed:', error);
       this.nip46Signer = null;
+      // Also drop the abandoned signer from NDK. We set this.ndk.signer to the
+      // bunker signer before the handshake, so on failure it would otherwise
+      // dangle and let later app code sign through a stale/unauthorized signer
+      // while AuthState reports unauthenticated.
+      this.ndk.signer = null;
       this.updateState({
         isAuthenticated: false,
         user: null,
@@ -513,19 +757,6 @@ export class AuthManager {
         ? `${nip46Info.signerPubkey}#${nip46Info.secret}`
         : nip46Info.signerPubkey;
       this.nip46Signer = new NDKNip46Signer(this.ndk, signerToken, localSigner);
-
-      // Set internal properties that NDKNip46Signer needs
-      try {
-        (this.nip46Signer as any).bunkerPubkey = nip46Info.signerPubkey;
-        (this.nip46Signer as any)._bunkerPubkey = nip46Info.signerPubkey;
-        (this.nip46Signer as any).userPubkey = nip46Info.signerPubkey;
-        (this.nip46Signer as any)._userPubkey = nip46Info.signerPubkey;
-        const remoteUser = this.ndk.getUser({ pubkey: nip46Info.signerPubkey });
-        (this.nip46Signer as any)._remoteUser = remoteUser;
-        console.log('[NIP-46] Set signer internal properties on reconnect');
-      } catch (e) {
-        console.warn('[NIP-46] Could not set signer properties:', e);
-      }
 
       // Set the signer on NDK BEFORE blockUntilReady
       this.ndk.signer = this.nip46Signer;
@@ -586,6 +817,10 @@ export class AuthManager {
     } catch (error) {
       console.error('[NIP-46] Reconnection failed:', error);
       this.nip46Signer = null;
+      // Same stale-signer hazard as authenticateWithNIP46: the signer was
+      // assigned to NDK before the handshake, so drop it here to keep NDK
+      // consistent with the unauthenticated state.
+      this.ndk.signer = null;
 
       // Don't clear storage immediately - user might want to retry
       this.updateState({
@@ -624,7 +859,8 @@ export class AuthManager {
       publicKey: '',
       authMethod: null,
       isLoading: false,
-      error: null
+      error: null,
+      authChallengeUrl: undefined
     });
 
     this.clearStorage();
@@ -1216,6 +1452,135 @@ export class AuthManager {
     }
   }
 
+  // ============================================================
+  // Passkey vault (see src/lib/passkeyVault.ts)
+  // ============================================================
+
+  // Vault status for UI gating. 'locked' = a record exists but the current
+  // session isn't the unlocked vault session (including: not logged in at
+  // all, or logged in via another method while someone's vault sits here).
+  getVaultStatus(): 'none' | 'locked' | 'unlocked' {
+    if (!getVaultRecord()) return 'none';
+    return this.authState.isAuthenticated && this.authState.authMethod === 'passkey'
+      ? 'unlocked'
+      : 'locked';
+  }
+
+  // The session's private key, memory-first. Backs the settings nsec reveal
+  // for passkey sessions (whose key exists nowhere in storage) and stays
+  // compatible with legacy plaintext sessions via the localStorage fallback.
+  getSessionPrivateKeyHex(): string | null {
+    if (!browser) return null;
+    const method = this.authState.authMethod;
+    if (method === 'privateKey' || method === 'passkey') {
+      // Duck-typed on the value, not the class name — minification mangles
+      // constructor names in production builds.
+      const hex = (this.ndk?.signer as { privateKey?: string } | null)?.privateKey;
+      if (typeof hex === 'string' && /^[0-9a-fA-F]{64}$/.test(hex)) return hex.toLowerCase();
+    }
+    const stored = localStorage.getItem('nostrcooking_privateKey');
+    if (stored && /^[0-9a-fA-F]{64}$/.test(stored)) return stored.toLowerCase();
+    return null;
+  }
+
+  // Unlock the vault via a passkey ceremony and start the nsec session with
+  // the key in memory only. Failure (including user cancel) is NEVER
+  // destructive: the record and all storage stay untouched.
+  async unlockVault(): Promise<void> {
+    if (!browser) throw new Error('Browser environment required');
+    const record = getVaultRecord();
+    if (!record) throw new Error('No passkey vault found on this device');
+
+    this.updateState({ isLoading: true, error: null });
+    try {
+      const privkeyHex = await unlockPasskey(record);
+      const signer = new NDKPrivateKeySigner(privkeyHex);
+      this.ndk.signer = signer;
+      const user = await signer.user();
+
+      this.updateState({
+        isAuthenticated: true,
+        user,
+        publicKey: user.hexpubkey,
+        authMethod: 'passkey',
+        isLoading: false,
+        error: null
+      });
+      localStorage.setItem('nostrcooking_loggedInPublicKey', user.hexpubkey);
+    } catch (error) {
+      this.ndk.signer = null;
+      this.updateState({
+        isAuthenticated: false,
+        user: null,
+        publicKey: '',
+        authMethod: null,
+        isLoading: false,
+        // A dismissed passkey sheet is a normal outcome, not an error banner.
+        error: isCeremonyCancelled(error)
+          ? null
+          : error instanceof Error
+            ? error.message
+            : 'Passkey unlock failed'
+      });
+      throw error;
+    }
+  }
+
+  // Enroll a passkey for the current nsec session. The plaintext key is
+  // deleted ONLY after enrollPasskey has verified a full round-trip on a
+  // real get() assertion; any earlier failure leaves storage untouched.
+  async enrollVault(): Promise<void> {
+    if (!browser) throw new Error('Browser environment required');
+    const { isAuthenticated, authMethod, publicKey } = this.authState;
+    if (!isAuthenticated || (authMethod !== 'privateKey' && authMethod !== 'passkey')) {
+      throw new Error('Passkey protection requires an active private-key session');
+    }
+    const privkeyHex = this.getSessionPrivateKeyHex();
+    if (!privkeyHex) throw new Error('Session private key unavailable');
+
+    let label = 'Zap Cooking';
+    try {
+      label = `Zap Cooking · ${nip19.npubEncode(publicKey).slice(0, 13)}…`;
+    } catch {
+      /* keep default */
+    }
+    await enrollPasskey(privkeyHex, publicKey, label);
+    localStorage.removeItem('nostrcooking_privateKey');
+    this.updateState({ authMethod: 'passkey' });
+  }
+
+  // Remove the vault (downgrade to plaintext-localStorage sessions). Requires
+  // a FRESH unlock ceremony even when the session is already unlocked — it
+  // proves user presence at removal time and guarantees we hold the nsec for
+  // the downgrade. Write order: plaintext first, record deletion second, so
+  // there is never a moment where neither exists.
+  async removeVault(): Promise<void> {
+    if (!browser) throw new Error('Browser environment required');
+    const record = getVaultRecord();
+    if (!record) return;
+
+    // Defense-in-depth (B ruling): removal is only valid inside the session
+    // that owns the record. Without this, a user in a DIFFERENT account's
+    // session (e.g. NIP-07) who completed the foreign ceremony would get the
+    // other account's nsec written to plaintext and their live session
+    // silently switched to it. Refuse BEFORE any ceremony, independent of
+    // whatever UI gating exists above.
+    if (!this.authState.isAuthenticated || this.authState.publicKey !== record.pubkey) {
+      throw new Error(
+        'This passkey vault belongs to a different account than the current session. ' +
+          'Sign in as that account to remove it.'
+      );
+    }
+
+    const privkeyHex = await unlockPasskey(record);
+    localStorage.setItem('nostrcooking_privateKey', privkeyHex);
+    localStorage.setItem('nostrcooking_loggedInPublicKey', record.pubkey);
+    deleteVaultRecord();
+
+    if (!this.ndk.signer) this.ndk.signer = new NDKPrivateKeySigner(privkeyHex);
+    this.updateState({ authMethod: 'privateKey' });
+  }
+
   // Logout and clear all authentication data
   async logout(): Promise<void> {
     // Clear NIP-46 signer if present
@@ -1240,7 +1605,10 @@ export class AuthManager {
     this.ndk.signer = null;
   }
 
-  // Clear localStorage
+  // Clear localStorage. The passkey vault record (nostrcooking_vault_v1) is
+  // deliberately NOT in this list: logout ends the session but must leave the
+  // vault intact so the user can unlock again later. Removal is an explicit,
+  // unlock-gated settings action (removeVault).
   private clearStorage(): void {
     if (browser) {
       if (this.nip46ResponseSub) {
@@ -1252,6 +1620,7 @@ export class AuthManager {
       localStorage.removeItem('nostrcooking_authMethod');
       localStorage.removeItem('nostrcooking_nip46');
       localStorage.removeItem('nostrcooking_nip46_pending');
+      localStorage.removeItem(NIP46_BUNKER_PENDING_KEY);
     }
   }
 
