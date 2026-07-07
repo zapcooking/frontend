@@ -52,6 +52,7 @@ vi.mock('@nostr-dev-kit/ndk', async () => {
 import { AuthManager, VaultConflictError } from './authManager';
 import { VAULT_STORAGE_KEY, type VaultRecord } from './passkeyVault';
 import { hexToBytes, bytesToB64 } from './passkeyVaultCrypto';
+import { resolveSecuritySections } from './securitySections';
 
 const PK_KEY = 'nostrcooking_privateKey';
 const PUB_KEY = 'nostrcooking_loggedInPublicKey';
@@ -218,6 +219,24 @@ describe('unlockVault', () => {
     expect(store.get(PK_KEY)).toBeUndefined();
     expect(store.get(PUB_KEY)).toBe(fixture.pubkeyHex);
     expect(am.getSessionPrivateKeyHex()).toBe(fixture.nsecHex);
+  });
+
+  it('settings reveal in an unlocked passkey session shows the enrolled nsec, never a NIP-07 section', async () => {
+    seedVault();
+    const am = new AuthManager(ndk);
+    credentials.get.mockResolvedValue(fakeAssertion(hexToBytes(fixture.prfOutputHex)));
+    await am.unlockVault();
+
+    // Exactly the inputs Settings → Security derives after unlock.
+    const sk = am.getSessionPrivateKeyHex();
+    const section = resolveSecuritySections({
+      sk,
+      storedAuthMethod: store.get('nostrcooking_authMethod') ?? null,
+      sessionMethod: am.getState().authMethod
+    });
+    expect(section).toBe('privateKey');
+    expect(sk).toBe(fixture.nsecHex); // revealed value === enrolled nsec
+    expect(store.get(PK_KEY)).toBeUndefined(); // and it never came from storage
   });
 });
 

@@ -18,6 +18,7 @@
   import Accordion from '../../components/Accordion.svelte';
   import NostrBackupSection from '../../components/NostrBackupSection.svelte';
   import PasskeyVaultSection from '../../components/PasskeyVaultSection.svelte';
+  import { resolveSecuritySections } from '$lib/securitySections';
   import { nip19 } from 'nostr-tools';
   import { theme, type Theme } from '$lib/themeStore';
   import { displayCurrency, SUPPORTED_CURRENCIES, type CurrencyCode } from '$lib/currencyStore';
@@ -279,6 +280,12 @@
   let showDisconnectConfirm = false;
   let privateKeyRevealed = false;
 
+  // Live AuthManager session method ('nip07' | 'privateKey' | 'passkey' |
+  // 'nip46' | null). Drives which per-method Security section renders — see
+  // resolveSecuritySections. Distinct from `authMethod` (the persisted
+  // localStorage flag, which only ever holds 'nip46').
+  let sessionMethod: string | null = null;
+
   // The private key comes from the auth manager (in-memory signer first):
   // passkey-vault sessions keep the nsec ONLY in memory, so reading
   // localStorage alone would hide the reveal/export UI from enrolled users.
@@ -288,7 +295,10 @@
     sk = authManager?.getSessionPrivateKeyHex() ?? localStorage.getItem('nostrcooking_privateKey');
     pk = localStorage.getItem('nostrcooking_loggedInPublicKey');
     authMethod = localStorage.getItem('nostrcooking_authMethod');
+    sessionMethod = authManager?.getState().authMethod ?? null;
   }
+
+  $: securitySection = resolveSecuritySections({ sk, storedAuthMethod: authMethod, sessionMethod });
 
   if (browser) {
     relays = getCurrentRelays();
@@ -309,10 +319,39 @@
     // Update connection status periodically
     const interval = setInterval(updateConnectedRelays, 5000);
     // Keep the key display in sync with auth changes (e.g. a passkey unlock
-    // or enrollment happening while this page is mounted).
-    const unsubAuth = getAuthManager()?.subscribe(() => refreshKeyState());
+    // or enrollment happening while this page is mounted). On a HARD load of
+    // /settings the page mounts before the layout's onMount has created the
+    // AuthManager (Svelte mounts children first), so a one-shot subscribe
+    // here silently attaches nothing and the post-unlock state change is
+    // never observed — retry briefly until the manager exists.
+    // TODO(follow-up): expose an AuthManager-ready signal from the layout
+    // instead of polling for it here.
+    let unsubAuth: (() => void) | null = null;
+    let authRetry: ReturnType<typeof setInterval> | null = null;
+    const attachAuthSubscription = (): boolean => {
+      const am = getAuthManager();
+      if (!am) return false;
+      unsubAuth = am.subscribe(() => refreshKeyState());
+      refreshKeyState();
+      return true;
+    };
+    if (!attachAuthSubscription()) {
+      let tries = 0;
+      authRetry = setInterval(() => {
+        if (attachAuthSubscription() || ++tries >= 20) {
+          if (authRetry) clearInterval(authRetry);
+          authRetry = null;
+          if (!unsubAuth) {
+            console.warn(
+              '[Settings] AuthManager never became available — session key display may be stale'
+            );
+          }
+        }
+      }, 500);
+    }
     return () => {
       clearInterval(interval);
+      if (authRetry) clearInterval(authRetry);
       unsubAuth?.();
     };
   });
@@ -1443,8 +1482,8 @@
         <!-- Passkey Vault (renders nothing when unsupported/not applicable) -->
         <PasskeyVaultSection on:changed={refreshKeyState} />
 
-        <!-- Private Key -->
-        {#if sk}
+        <!-- Private Key (legacy plaintext OR unlocked passkey session) -->
+        {#if securitySection === 'privateKey'}
           <div class="border-t border-[var(--color-input-border)] pt-5">
             <p class="text-sm font-medium mb-1 text-red-500">Private Key (nsec)</p>
             <p class="text-xs text-caption mb-3">Never share this with anyone. Keep it secret.</p>
@@ -1515,7 +1554,7 @@
               </button>
             {/if}
           </div>
-        {:else if authMethod === 'nip46'}
+        {:else if securitySection === 'nip46'}
           <div class="border-t border-[var(--color-input-border)] pt-5">
             <div class="flex items-center gap-2 mb-2">
               <ShieldCheckIcon size={18} class="text-green-500" weight="fill" />
@@ -1528,7 +1567,7 @@
               app.
             </p>
           </div>
-        {:else if pk}
+        {:else if securitySection === 'nip07'}
           <div class="border-t border-[var(--color-input-border)] pt-5">
             <div class="flex items-center gap-2 mb-2">
               <ShieldCheckIcon size={18} class="text-green-500" weight="fill" />
