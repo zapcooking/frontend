@@ -130,7 +130,13 @@ export async function detectSupport(): Promise<VaultSupport> {
       const caps = await pkc.getClientCapabilities();
       const prf = caps?.['extension:prf'];
       if (prf === false) return 'no-prf';
-      return 'full'; // true, or capability not reported → provisional
+      // true → full; ABSENT → provisional 'full'. Safari omits extension
+      // keys from getClientCapabilities entirely, and per the WebAuthn spec
+      // an absent capability means "unknown", not "unsupported" — only an
+      // explicit false may hide the feature. The enrollment ceremony
+      // (prf.enabled on create + PRF output verified on get) remains the
+      // authoritative check either way.
+      return 'full';
     }
   } catch {
     /* capability probe failed — fall through to provisional */

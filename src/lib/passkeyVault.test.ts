@@ -219,6 +219,12 @@ describe('unlockPasskey', () => {
 });
 
 describe('detectSupport', () => {
+  function stubCapabilities(caps: (() => Promise<unknown>) | undefined) {
+    const pkc: any = function PublicKeyCredential() {};
+    if (caps) pkc.getClientCapabilities = caps;
+    vi.stubGlobal('window', { isSecureContext: true, PublicKeyCredential: pkc });
+  }
+
   it("returns 'none' when PublicKeyCredential is absent", async () => {
     vi.stubGlobal('window', { isSecureContext: true });
     expect(await detectSupport()).toBe('none');
@@ -232,14 +238,46 @@ describe('detectSupport', () => {
     expect(await detectSupport()).toBe('none');
   });
 
+  it("returns 'full' when getClientCapabilities reports extension:prf true", async () => {
+    stubCapabilities(async () => ({ 'extension:prf': true }));
+    expect(await detectSupport()).toBe('full');
+  });
+
   it("returns 'no-prf' when getClientCapabilities reports extension:prf false", async () => {
-    const pkc: any = function PublicKeyCredential() {};
-    pkc.getClientCapabilities = async () => ({ 'extension:prf': false });
-    vi.stubGlobal('window', { isSecureContext: true, PublicKeyCredential: pkc });
+    stubCapabilities(async () => ({ 'extension:prf': false }));
     expect(await detectSupport()).toBe('no-prf');
   });
 
-  it("returns provisional 'full' when capabilities are unavailable", async () => {
+  it("returns provisional 'full' when the extension:prf key is ABSENT (Safari shape)", async () => {
+    // Verbatim getClientCapabilities() result observed on Safari/macOS:
+    // Safari omits extension keys entirely. Per the WebAuthn spec an absent
+    // capability means "unknown", not "unsupported" — the feature must be
+    // shown and the enrollment ceremony stays the authoritative check.
+    stubCapabilities(async () => ({
+      conditionalCreate: true,
+      conditionalGet: true,
+      hybridTransport: true,
+      passkeyPlatformAuthenticator: true,
+      relatedOrigins: true,
+      userVerifyingPlatformAuthenticator: true
+    }));
+    expect(await detectSupport()).toBe('full');
+  });
+
+  it("returns provisional 'full' when getClientCapabilities is missing (pre-17.4 browsers)", async () => {
+    stubCapabilities(undefined);
+    expect(await detectSupport()).toBe('full');
+  });
+
+  it("returns provisional 'full' when getClientCapabilities throws", async () => {
+    stubCapabilities(async () => {
+      throw new Error('boom');
+    });
+    expect(await detectSupport()).toBe('full');
+  });
+
+  it("returns provisional 'full' when getClientCapabilities resolves to a non-object", async () => {
+    stubCapabilities(async () => undefined);
     expect(await detectSupport()).toBe('full');
   });
 });
