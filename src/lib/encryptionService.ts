@@ -120,10 +120,28 @@ type SignerWithEncryption = {
 };
 
 /**
- * Get private key from localStorage if available
+ * Get the session private key: in-memory signer first, localStorage second.
+ *
+ * Passkey-vault sessions keep the nsec ONLY in the NDK signer — nothing in
+ * localStorage — so the signer must be consulted first. Detection is
+ * duck-typed on the value (a 64-hex `privateKey` property, which in NDK 2.10
+ * only NDKPrivateKeySigner and its subclasses expose): class-name checks are
+ * mangled by minification in production, and NDKNip46Signer has no such
+ * getter so a bunker session can never leak its ephemeral client key here.
  */
 function getPrivateKey(): string | null {
   if (!browser) return null;
+
+  try {
+    const signer = get(ndk).signer as { privateKey?: string } | null | undefined;
+    const hex = signer?.privateKey;
+    if (typeof hex === 'string' && /^[0-9a-fA-F]{64}$/.test(hex)) {
+      return hex.toLowerCase();
+    }
+  } catch {
+    /* fall through to stored key */
+  }
+
   const stored = localStorage.getItem('nostrcooking_privateKey');
   if (!stored) return null;
 

@@ -17,6 +17,8 @@
   import Modal from '../../components/Modal.svelte';
   import Accordion from '../../components/Accordion.svelte';
   import NostrBackupSection from '../../components/NostrBackupSection.svelte';
+  import PasskeyVaultSection from '../../components/PasskeyVaultSection.svelte';
+  import { resolveSecuritySections, resolveDisplayPubkey } from '$lib/securitySections';
   import { nip19 } from 'nostr-tools';
   import { theme, type Theme } from '$lib/themeStore';
   import { displayCurrency, SUPPORTED_CURRENCIES, type CurrencyCode } from '$lib/currencyStore';
@@ -278,11 +280,35 @@
   let showDisconnectConfirm = false;
   let privateKeyRevealed = false;
 
+  // Live AuthManager session method ('nip07' | 'privateKey' | 'passkey' |
+  // 'nip46' | null). Drives which per-method Security section renders — see
+  // resolveSecuritySections. Distinct from `authMethod` (the persisted
+  // localStorage flag, which only ever holds 'nip46').
+  let sessionMethod: string | null = null;
+
+  // The private key comes from the auth manager (in-memory signer first):
+  // passkey-vault sessions keep the nsec ONLY in memory, so reading
+  // localStorage alone would hide the reveal/export UI from enrolled users.
+  function refreshKeyState() {
+    if (!browser) return;
+    const authManager = getAuthManager();
+    const state = authManager?.getState();
+    sk = authManager?.getSessionPrivateKeyHex() ?? localStorage.getItem('nostrcooking_privateKey');
+    // Live state first: auth flows notify subscribers BEFORE persisting, so
+    // a localStorage-only read here can race the write and miss the pubkey.
+    pk = resolveDisplayPubkey(
+      state?.publicKey,
+      localStorage.getItem('nostrcooking_loggedInPublicKey')
+    );
+    authMethod = localStorage.getItem('nostrcooking_authMethod');
+    sessionMethod = state?.authMethod ?? null;
+  }
+
+  $: securitySection = resolveSecuritySections({ sk, storedAuthMethod: authMethod, sessionMethod });
+
   if (browser) {
     relays = getCurrentRelays();
-    sk = localStorage.getItem('nostrcooking_privateKey');
-    pk = localStorage.getItem('nostrcooking_loggedInPublicKey');
-    authMethod = localStorage.getItem('nostrcooking_authMethod');
+    refreshKeyState();
 
     const authManager = getAuthManager();
     if (authManager) {
@@ -298,7 +324,42 @@
     loadTimerSettings();
     // Update connection status periodically
     const interval = setInterval(updateConnectedRelays, 5000);
-    return () => clearInterval(interval);
+    // Keep the key display in sync with auth changes (e.g. a passkey unlock
+    // or enrollment happening while this page is mounted). On a HARD load of
+    // /settings the page mounts before the layout's onMount has created the
+    // AuthManager (Svelte mounts children first), so a one-shot subscribe
+    // here silently attaches nothing and the post-unlock state change is
+    // never observed — retry briefly until the manager exists.
+    // TODO(follow-up): expose an AuthManager-ready signal from the layout
+    // instead of polling for it here.
+    let unsubAuth: (() => void) | null = null;
+    let authRetry: ReturnType<typeof setInterval> | null = null;
+    const attachAuthSubscription = (): boolean => {
+      const am = getAuthManager();
+      if (!am) return false;
+      unsubAuth = am.subscribe(() => refreshKeyState());
+      refreshKeyState();
+      return true;
+    };
+    if (!attachAuthSubscription()) {
+      let tries = 0;
+      authRetry = setInterval(() => {
+        if (attachAuthSubscription() || ++tries >= 20) {
+          if (authRetry) clearInterval(authRetry);
+          authRetry = null;
+          if (!unsubAuth) {
+            console.warn(
+              '[Settings] AuthManager never became available — session key display may be stale'
+            );
+          }
+        }
+      }, 500);
+    }
+    return () => {
+      clearInterval(interval);
+      if (authRetry) clearInterval(authRetry);
+      unsubAuth?.();
+    };
   });
 
   async function disconnectBunker() {
@@ -1410,7 +1471,7 @@
                 type="button"
                 class="px-3 py-2 bg-secondary hover:bg-accent-gray rounded-lg text-sm transition-colors flex items-center gap-1.5"
                 style="color: var(--color-text-primary)"
-                on:click={() => copyToClipboard(nip19.npubEncode(pk), 'public')}
+                on:click={() => pk && copyToClipboard(nip19.npubEncode(pk), 'public')}
               >
                 {#if copiedKey === 'public'}
                   <CheckIcon size={16} class="text-green-500" />
@@ -1424,8 +1485,11 @@
           {/if}
         </div>
 
-        <!-- Private Key -->
-        {#if sk}
+        <!-- Passkey Vault (renders nothing when unsupported/not applicable) -->
+        <PasskeyVaultSection on:changed={refreshKeyState} />
+
+        <!-- Private Key (legacy plaintext OR unlocked passkey session) -->
+        {#if securitySection === 'privateKey'}
           <div class="border-t border-[var(--color-input-border)] pt-5">
             <p class="text-sm font-medium mb-1 text-red-500">Private Key (nsec)</p>
             <p class="text-xs text-caption mb-3">Never share this with anyone. Keep it secret.</p>
@@ -1496,7 +1560,7 @@
               </button>
             {/if}
           </div>
-        {:else if authMethod === 'nip46'}
+        {:else if securitySection === 'nip46'}
           <div class="border-t border-[var(--color-input-border)] pt-5">
             <div class="flex items-center gap-2 mb-2">
               <ShieldCheckIcon size={18} class="text-green-500" weight="fill" />
@@ -1509,7 +1573,7 @@
               app.
             </p>
           </div>
-        {:else if pk}
+        {:else if securitySection === 'nip07'}
           <div class="border-t border-[var(--color-input-border)] pt-5">
             <div class="flex items-center gap-2 mb-2">
               <ShieldCheckIcon size={18} class="text-green-500" weight="fill" />
