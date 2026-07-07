@@ -208,41 +208,52 @@ export function getGoogleIdentity(
  * Request an OAuth access token scoped to drive.appdata via the GIS token
  * client. Separate popup from getGoogleIdentity (see file header). Returns the
  * access token string used as the Bearer for Drive REST calls.
+ *
+ * ⚠️ iOS-CRITICAL: this MUST be invoked synchronously inside a user-gesture
+ * handler (a real tap), with NO `await`/`.then` between the tap and this call.
+ * The token client opens a popup via window.open, and mobile Safari blocks any
+ * popup opened after an async gap ("Failed to open popup window"). We therefore
+ * do NOT await loadGoogleIdentityServices() here — GIS must already be loaded
+ * (getGoogleIdentity loads it during the identity step). The Promise executor
+ * below runs synchronously when the Promise is constructed, so requestAccessToken
+ * fires in the same tick as the caller's tap. `await requestDriveAccessToken()`
+ * is safe because the call expression is evaluated (opening the popup) before
+ * the await suspends.
  */
-export function getDriveAccessToken(): Promise<string> {
-  return loadGoogleIdentityServices().then(
-    () =>
-      new Promise<string>((resolve, reject) => {
-        const accounts = googleAccounts();
-        if (!accounts) {
-          reject(new Error('Google Identity Services unavailable'));
-          return;
+export function requestDriveAccessToken(): Promise<string> {
+  return new Promise<string>((resolve, reject) => {
+    const accounts = googleAccounts();
+    if (!accounts) {
+      reject(
+        new Error('Google Identity Services is not loaded yet. Please sign in with Google first.')
+      );
+      return;
+    }
+    const clientId = getWebClientId();
+    let settled = false;
+    const client = accounts.oauth2.initTokenClient({
+      client_id: clientId,
+      scope: DRIVE_APPDATA_SCOPE,
+      callback: (res: GisTokenResponse) => {
+        if (settled) return;
+        settled = true;
+        if (res.access_token) {
+          resolve(res.access_token);
+        } else {
+          reject(
+            new Error(
+              res.error_description || res.error || 'Google did not return a Drive access token'
+            )
+          );
         }
-        const clientId = getWebClientId();
-        let settled = false;
-        const client = accounts.oauth2.initTokenClient({
-          client_id: clientId,
-          scope: DRIVE_APPDATA_SCOPE,
-          callback: (res: GisTokenResponse) => {
-            if (settled) return;
-            settled = true;
-            if (res.access_token) {
-              resolve(res.access_token);
-            } else {
-              reject(
-                new Error(
-                  res.error_description || res.error || 'Google did not return a Drive access token'
-                )
-              );
-            }
-          },
-          error_callback: (err) => {
-            if (settled) return;
-            settled = true;
-            reject(new Error(err.message || err.type || 'Google authorization was cancelled'));
-          }
-        });
-        client.requestAccessToken();
-      })
-  );
+      },
+      error_callback: (err) => {
+        if (settled) return;
+        settled = true;
+        reject(new Error(err.message || err.type || 'Google authorization was cancelled'));
+      }
+    });
+    // Synchronous — opens the consent popup in the caller's gesture (see above).
+    client.requestAccessToken();
+  });
 }

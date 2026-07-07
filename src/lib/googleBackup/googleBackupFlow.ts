@@ -9,7 +9,7 @@
  * authMethod.
  */
 
-import { getDriveAccessToken, getGoogleIdentity } from './gis';
+import { requestDriveAccessToken, getGoogleIdentity } from './gis';
 import { listBackups, downloadBackup, uploadBackup } from './driveBackup';
 import { deriveBackupKey, encryptNsec, decryptNsec } from './googleBackupCrypto';
 import { bytesToHex } from '@noble/hashes/utils.js';
@@ -22,13 +22,24 @@ export interface GoogleSession {
 }
 
 /**
- * Sign in to Google (renders the SIWG button into `container`), obtain the
- * Drive access token, and check for an existing backup. Two Google prompts:
- * identity, then Drive authorization (Approach A).
+ * Step 1 of the two-tap flow: render the SIWG button into `container` and
+ * resolve with the decoded ID-token `sub`. Loads GIS as a side effect, so by
+ * the time step 2 runs the token client can be invoked synchronously.
  */
-export async function signInToGoogle(container: HTMLElement): Promise<GoogleSession> {
+export async function getGoogleSub(container: HTMLElement): Promise<string> {
   const { sub } = await getGoogleIdentity(container);
-  const accessToken = await getDriveAccessToken();
+  return sub;
+}
+
+/**
+ * Step 2 of the two-tap flow: request the drive.appdata token and check for an
+ * existing backup. MUST be called from a user-gesture handler with no `await`
+ * before it — requestDriveAccessToken opens a popup that mobile Safari blocks
+ * outside a gesture. The `await requestDriveAccessToken()` expression evaluates
+ * (opening the popup) before the await suspends, so the gesture is preserved.
+ */
+export async function connectDrive(sub: string): Promise<GoogleSession> {
+  const accessToken = await requestDriveAccessToken();
   const backups = await listBackups(accessToken);
   return { sub, accessToken, existingFileId: backups[0]?.fileId ?? null };
 }
