@@ -7,6 +7,7 @@
   import NofferButton from './clink/NofferButton.svelte';
   import LinkPreview from './LinkPreview.svelte';
   import VideoPreview from './VideoPreview.svelte';
+  import TwitterEmbed from './TwitterEmbed.svelte';
   import YouTubeEmbed from './YouTubeEmbed.svelte';
   import MediaCarousel from './MediaCarousel.svelte';
   import { processContentWithProfiles } from '$lib/contentProcessor';
@@ -85,6 +86,12 @@
     const target = e.target as HTMLImageElement;
     if (target) target.style.display = 'none';
   }
+
+  // x.com/USER/status/ID or twitter.com/USER/status/ID, tolerating a
+  // trailing /photo/1, /video/1, or query string.
+  const TWITTER_STATUS_RE =
+    /^https?:\/\/(?:www\.|mobile\.)?(?:x|twitter)\.com\/[^/]+\/status(?:es)?\/\d+/i;
+  const isTwitterStatus = (url?: string): boolean => !!url && TWITTER_STATUS_RE.test(url);
 
   // Parse a start-time token (?t= / &start=) into seconds. Accepts a bare
   // number ("90") or a duration ("1m30s", "1h2m3s").
@@ -495,6 +502,8 @@
         {/if}
       {:else if part.url && isVideoUrl(part.url)}
         <VideoPreview url={part.url} />
+      {:else if part.url && isTwitterStatus(part.url)}
+        <TwitterEmbed tweetUrl={part.url} />
       {:else if showLinkPreviews && part.url}
         <LinkPreview url={part.url} />
       {:else}
