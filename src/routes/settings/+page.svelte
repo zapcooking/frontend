@@ -1465,7 +1465,7 @@
                 type="button"
                 class="px-3 py-2 bg-secondary hover:bg-accent-gray rounded-lg text-sm transition-colors flex items-center gap-1.5"
                 style="color: var(--color-text-primary)"
-                on:click={() => copyToClipboard(nip19.npubEncode(pk), 'public')}
+                on:click={() => pk && copyToClipboard(nip19.npubEncode(pk), 'public')}
               >
                 {#if copiedKey === 'public'}
                   <CheckIcon size={16} class="text-green-500" />
