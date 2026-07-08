@@ -95,7 +95,7 @@
   $: ogTitle = authorName ? `${authorName} on zap.cooking` : 'Note on zap.cooking';
   $: ogDescription = event
     ? cleanNoteContent(event.content)
-    : 'A note shared on zap.cooking - Food. Friends. Freedom.';
+    : 'A note shared on zap.cooking - Food is Open Source';
   $: ogImage = (event && extractFirstImageUrl(event.content)) || 'https://zap.cooking/social-share.png';
   $: ogCreatedAt = event?.created_at ?? null;
 

@@ -54,7 +54,7 @@ export interface NoteOgData {
 export const FALLBACK_NOTE_OG: RecipeOgMeta = {
   pageTitle: 'Note - zap.cooking',
   ogTitle: 'A note on Zap Cooking',
-  description: 'A note shared on zap.cooking - Food. Friends. Freedom.',
+  description: 'A note shared on zap.cooking - Food is Open Source',
   image: FALLBACK_IMAGE,
   publishedAt: null,
   authorPubkey: null
@@ -138,7 +138,7 @@ export function getNoteOgMeta({ event, author }: NoteOgData): RecipeOgMeta {
     pageTitle: name ? `${name} on zap.cooking` : 'Note - zap.cooking',
     ogTitle: name ? `${name} on Zap Cooking` : 'A note on Zap Cooking',
     description:
-      capRecipeDescription(text) || 'A note shared on zap.cooking - Food. Friends. Freedom.',
+      capRecipeDescription(text) || 'A note shared on zap.cooking - Food is Open Source',
     image: imageInBody || author.picture || FALLBACK_IMAGE,
     publishedAt: typeof event.created_at === 'number' ? event.created_at : null,
     authorPubkey: typeof event.pubkey === 'string' ? event.pubkey : null
