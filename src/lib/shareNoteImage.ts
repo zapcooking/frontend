@@ -27,7 +27,15 @@ const URL_REGEX = /(https?:\/\/[^\s]+)/g;
  */
 function stripImageUrls(content: string): string {
   return content
-    .replace(URL_REGEX, (url) => (isImageUrl(url) ? '' : url))
+    .replace(URL_REGEX, (match) => {
+      // URL_REGEX runs to the next whitespace, so a URL embedded in
+      // prose carries its trailing punctuation ("...a.jpg," / "...a.jpg)").
+      // The shared isImageUrl anchors the extension to the pathname, so
+      // test with the punctuation stripped — but drop the whole match,
+      // punctuation included, like the pre-migration behavior did.
+      const core = match.replace(/[.,;:!?)\]]+$/, '');
+      return isImageUrl(core) ? '' : match;
+    })
     .replace(/\s+/g, ' ')
     .trim();
 }

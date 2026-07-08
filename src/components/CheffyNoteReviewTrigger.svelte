@@ -18,6 +18,7 @@
   export let size = 18;
 
   let open = false;
+  let imageUrls: string[] = [];
 
   $: imageUrls = extractImageUrls(event?.content || '');
 </script>
