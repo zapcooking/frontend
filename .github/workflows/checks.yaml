@@ -42,13 +42,13 @@ jobs:
             exit 1
           fi
 
-      - name: NOTE_REVIEW_POST_ENABLED must be false on main 🚫
+      - name: NOTE_REVIEW_POST_ENABLED must be true on main 🚫
         run: |
-          if ! grep -q "export const NOTE_REVIEW_POST_ENABLED = false" src/lib/noteReview.ts; then
-            echo "::error file=src/lib/noteReview.ts::NOTE_REVIEW_POST_ENABLED is not false."
-            echo "The Post button ships dark until Phase 3 wires postComment()."
-            echo "Flip it in the Phase 3 PR that adds the publish path AND updates"
-            echo "this guard — a stray flip must not reach main."
+          if ! grep -q "export const NOTE_REVIEW_POST_ENABLED = true" src/lib/noteReview.ts; then
+            echo "::error file=src/lib/noteReview.ts::NOTE_REVIEW_POST_ENABLED is not true."
+            echo "Posting launched in Phase 3 (flag flipped with the postComment"
+            echo "wiring). An un-flip silently dark-ships the Post button — if you"
+            echo "mean to kill the publish path, update this guard in the same PR."
             exit 1
           fi
 

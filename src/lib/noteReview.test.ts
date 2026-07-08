@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import {
   phaseForResult,
   requestNoteReview,
-  PHOTO_UNCLEAR_LINE,
+  DEAD_END_LINES,
   SIGN_FAILED_LINE,
   NOTE_REVIEW_POST_ENABLED,
   NOTE_TEXT_MAX_CHARS
@@ -10,8 +10,21 @@ import {
 import { extractImageUrls } from './imageUrls';
 
 describe('NOTE_REVIEW_POST_ENABLED', () => {
-  it('ships dark — posting is Phase 3', () => {
-    expect(NOTE_REVIEW_POST_ENABLED).toBe(false);
+  it('is live — posting shipped in Phase 3', () => {
+    expect(NOTE_REVIEW_POST_ENABLED).toBe(true);
+  });
+});
+
+describe('DEAD_END_LINES pool', () => {
+  it('every line hedges — no confident "not food" verdict anywhere in the pool', () => {
+    expect(DEAD_END_LINES.length).toBeGreaterThanOrEqual(3);
+    for (const line of DEAD_END_LINES) {
+      expect(line.toLowerCase()).not.toContain('not food');
+      expect(line.toLowerCase()).not.toContain("isn't food");
+      // Stay in the "couldn't get a good look" register: hedged, about
+      // the photo/visibility, not a verdict on the subject.
+      expect(line).toMatch(/couldn't|can't|may|might/i);
+    }
   });
 });
 
@@ -31,22 +44,22 @@ describe('phaseForResult — modal state machine', () => {
   it('NOT_FOOD hedges — never echoes the server line as a confident verdict', () => {
     // The server line can be a confident "that's a cat" even when the
     // real cause is a CDN fallback image for a dead link (Phase 1
-    // finding). The client must show the hedged line instead.
+    // finding). The client must show a hedged pool line instead.
     const { phase, message } = phaseForResult({
       ok: false,
       code: 'NOT_FOOD',
       error: 'A very photogenic cat.'
     });
     expect(phase).toBe('dead-end');
-    expect(message).toBe(PHOTO_UNCLEAR_LINE);
+    expect(DEAD_END_LINES).toContain(message);
     expect(message).not.toContain('cat');
     expect(message.toLowerCase()).not.toContain('not food');
   });
 
-  it('IMAGE_UNREADABLE → same hedged dead-end', () => {
+  it('IMAGE_UNREADABLE → same hedged dead-end pool', () => {
     const { phase, message } = phaseForResult({ ok: false, code: 'IMAGE_UNREADABLE' });
     expect(phase).toBe('dead-end');
-    expect(message).toBe(PHOTO_UNCLEAR_LINE);
+    expect(DEAD_END_LINES).toContain(message);
   });
 
   it('SIGN_FAILED → error with signer-flavored copy', () => {
@@ -191,5 +204,254 @@ describe('trigger visibility gating (image detection)', () => {
     expect(extractImageUrls('a link https://zap.cooking/recipe/1 but no photo')).toHaveLength(0);
     expect(extractImageUrls('video https://example.com/cooking.mp4')).toHaveLength(0);
     expect(extractImageUrls('')).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Publish path (Phase 3)
+// ---------------------------------------------------------------------------
+
+vi.mock('$lib/nip65Routing', () => ({
+  buildInboxAwareRelaySet: vi.fn(async () => undefined)
+}));
+
+// postComment → tagUtils imports $lib/nostr, which pulls $app/environment
+// and the Dexie cache adapter — neither loads under the node test env.
+// buildNip22CommentTags never touches these stores, so a light stub is
+// safe and keeps the client-tag test running the REAL tag builder.
+vi.mock('$lib/nostr', async () => {
+  const { writable } = await import('svelte/store');
+  return {
+    ndk: writable({}),
+    ndkConnected: writable(false),
+    userPublickey: writable('')
+  };
+});
+
+import { NDKEvent } from '@nostr-dev-kit/ndk';
+import {
+  canPost,
+  publishNoteReviewReply,
+  retryPublishSignedEvent,
+  noteLinkFor,
+  POST_TIMEOUT_LINE,
+  PUBLISH_FAILED_LINE,
+  type NoteReviewPhase
+} from './noteReview';
+import { PostCommentError } from './comments/postComment';
+import { CLIENT_TAG_IDENTIFIER } from './consts';
+
+const HEX_ID = 'e'.repeat(64);
+const HEX_PK = 'a'.repeat(64);
+
+function fakeSignedEvent(): NDKEvent {
+  return { id: HEX_ID, pubkey: HEX_PK, kind: 1, publish: vi.fn() } as unknown as NDKEvent;
+}
+
+describe('canPost — double-post guard', () => {
+  it('allows posting only from the draft phase', () => {
+    expect(canPost('draft')).toBe(true);
+    const blocked: NoteReviewPhase[] = [
+      'choose',
+      'signing',
+      'loading',
+      'posting',
+      'post-timeout',
+      'posted',
+      'dead-end',
+      'upsell',
+      'preview-used',
+      'error'
+    ];
+    for (const phase of blocked) expect(canPost(phase), phase).toBe(false);
+  });
+});
+
+describe('noteLinkFor', () => {
+  it('builds a thread-view link with nevent (author + kind hints)', () => {
+    const link = noteLinkFor(fakeSignedEvent());
+    expect(link.startsWith('/nevent1')).toBe(true);
+  });
+});
+
+describe('publishNoteReviewReply — outcome mapping', () => {
+  const ndk = {} as never;
+  const parentEvent = { id: 'c'.repeat(64), pubkey: 'd'.repeat(64), kind: 1 } as never;
+
+  function failingPostComment(err: unknown) {
+    return vi.fn().mockRejectedValue(err) as never;
+  }
+
+  it('success → ok with the published event and a thread link', async () => {
+    const event = fakeSignedEvent();
+    const outcome = await publishNoteReviewReply({
+      ndk,
+      parentEvent,
+      content: 'lovely crust!',
+      postCommentFn: vi.fn().mockResolvedValue({ event, publishedRelays: ['wss://r'] }) as never
+    });
+    expect(outcome).toMatchObject({ ok: true, event });
+    if (outcome.ok) expect(outcome.noteLink.startsWith('/nevent1')).toBe(true);
+  });
+
+  it('sign-failed → signer-flavored message, draft preserved by caller', async () => {
+    const outcome = await publishNoteReviewReply({
+      ndk,
+      parentEvent,
+      content: 'x',
+      postCommentFn: failingPostComment(new PostCommentError('sign-failed', 'nope'))
+    });
+    expect(outcome).toMatchObject({ ok: false, code: 'sign-failed', message: SIGN_FAILED_LINE });
+  });
+
+  it('publish-timeout with signedEvent → recovery outcome carrying the signed event', async () => {
+    const signed = fakeSignedEvent();
+    const outcome = await publishNoteReviewReply({
+      ndk,
+      parentEvent,
+      content: 'x',
+      postCommentFn: failingPostComment(
+        new PostCommentError('publish-timeout', 'slow relays', { signedEvent: signed })
+      )
+    });
+    expect(outcome).toMatchObject({
+      ok: false,
+      code: 'publish-timeout',
+      message: POST_TIMEOUT_LINE
+    });
+    if (!outcome.ok && outcome.code === 'publish-timeout') {
+      expect(outcome.signedEvent).toBe(signed);
+    }
+  });
+
+  it('publish-timeout WITHOUT signedEvent degrades to plain publish-failed', async () => {
+    const outcome = await publishNoteReviewReply({
+      ndk,
+      parentEvent,
+      content: 'x',
+      postCommentFn: failingPostComment(new PostCommentError('publish-timeout', 'slow'))
+    });
+    expect(outcome).toMatchObject({
+      ok: false,
+      code: 'publish-failed',
+      message: PUBLISH_FAILED_LINE
+    });
+  });
+
+  it('publish-failed and invalid-parent map to their Cheffy-voice messages', async () => {
+    const failed = await publishNoteReviewReply({
+      ndk,
+      parentEvent,
+      content: 'x',
+      postCommentFn: failingPostComment(new PostCommentError('publish-failed', 'rejected'))
+    });
+    expect(failed).toMatchObject({ ok: false, code: 'publish-failed' });
+
+    const invalid = await publishNoteReviewReply({
+      ndk,
+      parentEvent,
+      content: 'x',
+      postCommentFn: failingPostComment(new PostCommentError('invalid-parent', 'bad parent'))
+    });
+    expect(invalid).toMatchObject({ ok: false, code: 'invalid-parent' });
+  });
+
+  it('non-PostCommentError throws map to unknown', async () => {
+    const outcome = await publishNoteReviewReply({
+      ndk,
+      parentEvent,
+      content: 'x',
+      postCommentFn: failingPostComment(new Error('boom'))
+    });
+    expect(outcome).toMatchObject({ ok: false, code: 'unknown', message: 'boom' });
+  });
+});
+
+describe('retryPublishSignedEvent — timeout recovery', () => {
+  const ndk = {} as never;
+
+  it('re-publishes the already-signed event (no re-sign) and succeeds', async () => {
+    const signed = fakeSignedEvent();
+    (signed.publish as ReturnType<typeof vi.fn>).mockResolvedValue(new Set());
+    const buildRelaySetFn = vi.fn(async () => undefined) as never;
+    const outcome = await retryPublishSignedEvent({ ndk, signedEvent: signed, buildRelaySetFn });
+    expect(outcome).toMatchObject({ ok: true, event: signed });
+    expect(buildRelaySetFn).toHaveBeenCalledWith({ event: signed, ndk });
+    expect(signed.publish).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the signed event when the retry fails, so the member can push again', async () => {
+    const signed = fakeSignedEvent();
+    (signed.publish as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('still down'));
+    const outcome = await retryPublishSignedEvent({
+      ndk,
+      signedEvent: signed,
+      buildRelaySetFn: vi.fn(async () => undefined) as never
+    });
+    expect(outcome).toMatchObject({ ok: false, code: 'publish-timeout' });
+    if (!outcome.ok && outcome.code === 'publish-timeout') {
+      expect(outcome.signedEvent).toBe(signed);
+    }
+  });
+
+  it('times out a hung retry and keeps the signed event', async () => {
+    const signed = fakeSignedEvent();
+    (signed.publish as ReturnType<typeof vi.fn>).mockReturnValue(new Promise(() => {}));
+    const outcome = await retryPublishSignedEvent({
+      ndk,
+      signedEvent: signed,
+      timeoutMs: 20,
+      buildRelaySetFn: vi.fn(async () => undefined) as never
+    });
+    expect(outcome).toMatchObject({ ok: false, code: 'publish-timeout' });
+  });
+});
+
+describe('client tag on the built event (real postComment)', () => {
+  it('published replies carry the NIP-89 client tag and NIP-10 parent reference', async () => {
+    const signSpy = vi.spyOn(NDKEvent.prototype, 'sign').mockImplementation(async function (
+      this: NDKEvent
+    ) {
+      this.id = HEX_ID;
+      this.sig = 'f'.repeat(128);
+      this.pubkey = HEX_PK;
+      return this.sig;
+    });
+    const publishSpy = vi
+      .spyOn(NDKEvent.prototype, 'publish')
+      .mockResolvedValue(new Set() as never);
+
+    try {
+      // parentEvent.author (used by postComment's rootInput) calls
+      // ndk.getUser — the only NDK surface this test needs.
+      const mockNdk = {
+        getUser: (opts: { pubkey: string }) => ({ pubkey: opts.pubkey })
+      } as never;
+      const parentEvent = new NDKEvent(mockNdk as never);
+      parentEvent.kind = 1;
+      parentEvent.id = 'c'.repeat(64);
+      parentEvent.pubkey = 'd'.repeat(64);
+      parentEvent.tags = [];
+
+      // Default postCommentFn — the REAL postComment builds the event.
+      const outcome = await publishNoteReviewReply({
+        ndk: mockNdk,
+        parentEvent,
+        content: 'Those crispy edges are a feature.'
+      });
+
+      expect(outcome.ok).toBe(true);
+      if (outcome.ok) {
+        expect(outcome.event.kind).toBe(1); // plain NIP-10 reply to a kind-1 note
+        expect(outcome.event.tags).toContainEqual(['client', CLIENT_TAG_IDENTIFIER]);
+        const eTag = outcome.event.tags.find((t) => t[0] === 'e' && t[1] === parentEvent.id);
+        expect(eTag).toBeDefined();
+        const pTag = outcome.event.tags.find((t) => t[0] === 'p' && t[1] === parentEvent.pubkey);
+        expect(pTag).toBeDefined();
+      }
+    } finally {
+      signSpy.mockRestore();
+      publishSpy.mockRestore();
+    }
   });
 });
