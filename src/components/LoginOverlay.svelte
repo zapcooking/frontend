@@ -32,6 +32,7 @@
     type GoogleSession
   } from '$lib/googleBackup/googleBackupFlow';
   import { isValidPin } from '$lib/googleBackup/googleBackupCrypto';
+  import { PASSKEY_SYNC_ENABLED, shouldOfferSyncSignIn } from '$lib/passkeySync';
 
   let authManager: any = null;
   let authState: AuthState = {
@@ -181,16 +182,46 @@
     }
   }
 
+  // Cross-device sign-in (Phase 2, behind PASSKEY_SYNC_ENABLED): only on
+  // devices WITHOUT a local record — the unlock card owns that surface and
+  // needs no network. Every failure falls through to the normal methods
+  // below; nothing is persisted on failure.
+  $: showSyncSignIn = shouldOfferSyncSignIn({
+    flagEnabled: PASSKEY_SYNC_ENABLED,
+    hasLocalRecord: !!vaultRecord,
+    supported: vaultSupported,
+    isAuthenticated: authState.isAuthenticated
+  });
+
+  async function signInWithSyncedPasskey() {
+    if (!authManager) return;
+    vaultUnlockBusy = true;
+    vaultUnlockError = '';
+    try {
+      await authManager.signInWithPasskeySync();
+      vaultRecord = getVaultRecord(); // device is a Phase 1 device now
+    } catch (error: any) {
+      vaultUnlockError = isCeremonyCancelled(error)
+        ? ''
+        : error?.message ||
+          'Passkey sign-in did not complete. You can sign in another way below.';
+    } finally {
+      vaultUnlockBusy = false;
+    }
+  }
+
   onMount(() => {
     try {
       vaultRecord = getVaultRecord();
+      if (vaultRecord || PASSKEY_SYNC_ENABLED) {
+        detectSupport().then((s) => (vaultSupported = s !== 'none'));
+      }
       if (vaultRecord) {
         try {
           vaultNpub = `${nip19.npubEncode(vaultRecord.pubkey).slice(0, 16)}…`;
         } catch {
           vaultNpub = '';
         }
-        detectSupport().then((s) => (vaultSupported = s !== 'none'));
       }
       authManager = createAuthManager($ndk);
       if (authManager) {
@@ -1248,6 +1279,26 @@
         </button>
         <p class="signin-vault-hint">
           Welcome back{vaultNpub ? ` ${vaultNpub}` : ''} — your key is encrypted on this device.
+        </p>
+        {#if vaultUnlockError}
+          <div class="signin-error" role="alert">{vaultUnlockError}</div>
+        {/if}
+        <div class="signin-divider" aria-hidden="true"><span>or sign in another way</span></div>
+      {:else if showSyncSignIn}
+        <!-- New-device sign-in via a provider-synced passkey (Phase 2). One
+             biometric ceremony; every failure leaves the normal methods
+             below fully available and persists nothing. -->
+        <button
+          type="button"
+          on:click={signInWithSyncedPasskey}
+          disabled={vaultUnlockBusy || authState.isLoading}
+          aria-label="Sign in with a passkey synced from another device"
+          class="signin-cta-primary"
+        >
+          <span>{vaultUnlockBusy ? 'Waiting for passkey…' : '🔑 Sign in with passkey'}</span>
+        </button>
+        <p class="signin-vault-hint">
+          Set up passkey protection on another device? Sign in with the same passkey here.
         </p>
         {#if vaultUnlockError}
           <div class="signin-error" role="alert">{vaultUnlockError}</div>

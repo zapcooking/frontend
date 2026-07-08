@@ -15,6 +15,11 @@
     type VaultSupport
   } from '$lib/passkeyVault';
   import { resolveVaultSection } from '$lib/securitySections';
+  import {
+    PASSKEY_SYNC_ENABLED,
+    isSyncEnabled,
+    syncableKeyEntry
+  } from '$lib/passkeySync';
   import ShieldCheckIcon from 'phosphor-svelte/lib/ShieldCheck';
 
   const dispatch = createEventDispatcher();
@@ -28,10 +33,19 @@
   let errorMsg = '';
   let confirmingRemoval = false;
 
+  // Cross-device sync state (Phase 2, behind PASSKEY_SYNC_ENABLED).
+  let syncOn = false;
+  let recordSyncable = false;
+  // R1: toggle at enrollment, DEFAULT ON.
+  let enrollWithSync = true;
+
   function refresh() {
     const am = getAuthManager();
     authState = am?.getState() ?? null;
-    recordPubkey = getVaultRecord()?.pubkey ?? null;
+    const record = getVaultRecord();
+    recordPubkey = record?.pubkey ?? null;
+    syncOn = isSyncEnabled();
+    recordSyncable = !!syncableKeyEntry(record);
   }
 
   onMount(async () => {
@@ -64,13 +78,57 @@
     errorMsg = '';
     notice = '';
     try {
-      await am.enrollVault();
+      await am.enrollVault(PASSKEY_SYNC_ENABLED ? { sync: enrollWithSync } : undefined);
       notice =
         'Passkey protection is on. Your key is no longer stored in plain text in this browser. ' +
         'The passkey is not a backup — keep your revealed nsec somewhere safe.';
       dispatch('changed');
     } catch (e) {
       errorMsg = friendlyError(e, 'Could not set up the passkey. Nothing was changed.');
+    } finally {
+      busy = false;
+      refresh();
+    }
+  }
+
+  async function toggleSync() {
+    const am = getAuthManager();
+    if (!am) return;
+    busy = true;
+    errorMsg = '';
+    notice = '';
+    const turningOn = !syncOn;
+    try {
+      await am.setVaultSync(turningOn);
+      notice = turningOn
+        ? 'Cross-device sign-in is on. An encrypted copy of your key is stored on Zap Cooking servers.'
+        : 'Cross-device sign-in is off. The encrypted copy was removed from Zap Cooking servers.';
+      dispatch('changed');
+    } catch (e) {
+      errorMsg = friendlyError(e, 'Could not change cross-device sign-in. Nothing was changed.');
+    } finally {
+      busy = false;
+      refresh();
+    }
+  }
+
+  async function migrateForSync() {
+    const am = getAuthManager();
+    if (!am) return;
+    busy = true;
+    errorMsg = '';
+    notice = '';
+    try {
+      // Guided re-enrollment: new credential, fresh DEK, record replaced,
+      // then uploaded. The OLD passkey becomes an orphan in the user's
+      // provider (copy below tells them it is safe to delete).
+      await am.enrollVault({ sync: true, migrate: true });
+      notice =
+        'Done — your passkey was re-created with cross-device sign-in. The previous ' +
+        '"Zap Cooking" passkey in your password manager is no longer used and can be deleted.';
+      dispatch('changed');
+    } catch (e) {
+      errorMsg = friendlyError(e, 'Could not re-create the passkey. Nothing was changed.');
     } finally {
       busy = false;
       refresh();
@@ -116,6 +174,63 @@
         <strong>not</strong> a backup of your key — if you lose both the passkey and your nsec
         backup, the account is unrecoverable.
       </p>
+
+      {#if PASSKEY_SYNC_ENABLED && !confirmingRemoval}
+        <div
+          class="bg-input border rounded-lg p-3 mb-3"
+          style="border-color: var(--color-input-border)"
+        >
+          <div class="flex items-center justify-between gap-3">
+            <div>
+              <p class="text-sm font-medium" style="color: var(--color-text-primary)">
+                Sign in on other devices
+              </p>
+              <p class="text-xs text-caption mt-0.5">
+                {#if recordSyncable}
+                  {syncOn
+                    ? 'On — an encrypted copy of your key is stored on Zap Cooking servers. Only your passkey can unlock it. Turning this off requires a quick passkey confirmation.'
+                    : 'Off — your key exists only on this device. Turning this on stores an encrypted copy on Zap Cooking servers and requires a quick passkey confirmation.'}
+                {:else}
+                  This passkey was created before cross-device sign-in existed.
+                {/if}
+              </p>
+            </div>
+            {#if recordSyncable}
+              <button
+                type="button"
+                role="switch"
+                aria-checked={syncOn}
+                aria-label="Sign in on other devices"
+                class="flex-shrink-0 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors {syncOn
+                  ? 'bg-green-500/15 text-green-600'
+                  : 'bg-secondary text-caption'}"
+                on:click={toggleSync}
+                disabled={busy}
+              >
+                {busy ? 'Waiting…' : syncOn ? 'On' : 'Off'}
+              </button>
+            {/if}
+          </div>
+          {#if !recordSyncable}
+            <div class="mt-2">
+              <p class="text-xs text-caption mb-2">
+                To enable it, the passkey needs to be re-created: one extra passkey prompt, and the
+                old "Zap Cooking" passkey left in your password manager can be deleted afterwards.
+                Your Nostr key does not change.
+              </p>
+              <button
+                type="button"
+                class="px-3 py-1.5 bg-secondary hover:bg-accent-gray rounded-lg text-xs font-medium transition-colors disabled:opacity-50"
+                style="color: var(--color-text-primary)"
+                on:click={migrateForSync}
+                disabled={busy}
+              >
+                {busy ? 'Waiting for passkey…' : 'Re-create passkey & enable'}
+              </button>
+            </div>
+          {/if}
+        </div>
+      {/if}
 
       {#if !confirmingRemoval}
         <button
@@ -163,6 +278,20 @@
         you can unlock it. The passkey is <strong>not</strong> a backup — reveal and save your nsec
         below first.
       </p>
+      {#if PASSKEY_SYNC_ENABLED}
+        <!-- R1(b): opt-in toggle at enrollment, default ON, plain disclosure. -->
+        <label class="flex items-start gap-2 mb-3 cursor-pointer">
+          <input type="checkbox" bind:checked={enrollWithSync} disabled={busy} class="mt-0.5" />
+          <span class="text-xs text-caption">
+            <span class="font-medium" style="color: var(--color-text-primary)">
+              Enable sign-in on other devices.
+            </span>
+            Stores an encrypted copy of your key on Zap Cooking's servers — only your passkey can
+            unlock it, and you can turn this off any time in Settings (turning it off later
+            requires a quick passkey confirmation).
+          </span>
+        </label>
+      {/if}
       <button
         type="button"
         class="px-4 py-2 bg-secondary hover:bg-accent-gray rounded-lg text-sm font-medium transition-colors disabled:opacity-50"

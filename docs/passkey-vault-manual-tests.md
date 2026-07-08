@@ -59,6 +59,26 @@ browser profile with clean site data for zap.cooking.
 | 19 | With a vault enrolled, Google Drive restore of the SAME account | Logs in silently adopting the vault; no plaintext written | ☐ | ☐ |
 | 20 | With a vault enrolled, Google Drive restore of a DIFFERENT account | Replace confirmation, then legacy login on confirm | ☐ | ☐ |
 
+## Phase 2 — cross-device sign-in (requires PASSKEY_SYNC_ENABLED = true build)
+
+Prereqs: staging or production only (previews have no passkey UI by design);
+`VAULT_SYNC` bound and `VAULT_SYNC_CHALLENGE_SECRET` set in the environment.
+
+| # | Steps | Expected | Status |
+|---|-------|----------|--------|
+| P2-1 | Enroll with "Enable sign-in on other devices" checked (default) | Exactly TWO passkey prompts (create + verify); Settings shows sync On; server has the blob | ☐ |
+| P2-2 | Enroll with the toggle unchecked | Two prompts; no network calls to /api/vault-sync; Settings shows sync Off | ☐ |
+| P2-3 | New-device sign-in, same ecosystem: Safari↔Safari (iCloud) | Device B: "Sign in with passkey" → one biometric → signed in as the real identity; localStorage has the record, NO plaintext key; subsequent reloads unlock locally (no network) | ☐ |
+| P2-4 | Same, Chrome desktop ↔ Android Chrome (GPM) | Same as P2-3 | ☐ |
+| P2-5 | Cross-ecosystem miss (enrolled in iCloud, try on Android/GPM) | Passkey not offered by the provider — EXPECTED, not a bug; user falls through to nsec/other login | ☐ |
+| P2-6 | Hybrid/QR cross-device assertion (scan QR to phone) | If the provider drops PRF: clean "did not provide the required key material" error, normal methods still available, nothing persisted | ☐ |
+| P2-7 | Settings → toggle sync OFF | One passkey confirmation (disclosed in copy); blob gone (verify: sign-in fails on a cleared second device); toggle Off | ☐ |
+| P2-8 | Settings → toggle sync back ON | One passkey confirmation (disclosed in copy); blob re-uploaded; new-device sign-in works again | ☐ |
+| P2-9 | Remove passkey protection while sync is on | Single ceremony (no extra prompt for the delete); server blob gone; local downgrade as Phase 1 | ☐ |
+| P2-10 | Pre-Phase-2 vault (enrolled before this build): Settings sync area | "Re-create passkey & enable" card with orphan-passkey + extra-prompt copy; completing it enables sync; old provider passkey deletable | ☐ |
+| P2-11 | Enrollment with the network blocked (devtools offline after page load) | Enrollment still succeeds locally; sync retries silently on next unlock (verify with devtools online: PUT fires during unlock, single prompt) | ☐ |
+| P2-12 | Conflict-replace (different account's nsec over a synced vault) | Local record replaced after confirm; NO vault-sync network call; original owner's other devices still sign in (R4) | ☐ |
+
 ## Non-regression
 
 | # | Steps | Expected | Chrome desktop | Android Chrome |

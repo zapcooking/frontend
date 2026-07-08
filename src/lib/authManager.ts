@@ -15,12 +15,25 @@ import { fetchNip46UserPubkey, sendNip46Rpc } from './nip46Rpc';
 import { Nip44LocalSigner } from './nip44LocalSigner';
 import {
   getVaultRecord,
+  saveVaultRecord,
   deleteVaultRecord,
   enrollPasskey,
   unlockPasskey,
   isCeremonyCancelled
 } from './passkeyVault';
 import { hexToBytes } from './passkeyVaultCrypto';
+import {
+  PASSKEY_SYNC_ENABLED,
+  isSyncEnabled,
+  setSyncEnabled,
+  isUploadPending,
+  setUploadPending,
+  syncableKeyEntry,
+  fetchChallengeSafe,
+  uploadVault,
+  deleteVaultBlob,
+  signInWithPasskey
+} from './passkeySync';
 
 // Permissions requested in the NIP-46 connect handshake. NDK 2.10's
 // blockUntilReady omits the perms param entirely, so permission-enforcing
@@ -1493,7 +1506,24 @@ export class AuthManager {
 
     this.updateState({ isLoading: true, error: null });
     try {
-      const privkeyHex = await unlockPasskey(record);
+      // Pending-upload retry piggybacks on THIS ceremony: fetch a server
+      // challenge first so the unlock assertion is redeemable for the PUT.
+      // Challenge fetch failure degrades to a normal (offline-capable)
+      // unlock and the flag simply stays set. Never a second prompt.
+      let serverChallenge: string | null = null;
+      if (
+        PASSKEY_SYNC_ENABLED &&
+        isSyncEnabled() &&
+        isUploadPending() &&
+        syncableKeyEntry(record)
+      ) {
+        serverChallenge = await fetchChallengeSafe();
+      }
+
+      const { privkeyHex, assertion } = await unlockPasskey(
+        record,
+        serverChallenge ? { serverChallenge } : undefined
+      );
       const signer = new NDKPrivateKeySigner(privkeyHex);
       this.ndk.signer = signer;
       const user = await signer.user();
@@ -1507,6 +1537,11 @@ export class AuthManager {
         error: null
       });
       localStorage.setItem('nostrcooking_loggedInPublicKey', user.hexpubkey);
+
+      if (serverChallenge && assertion) {
+        // Fire-and-forget: uploadVault manages the pending flag itself.
+        void uploadVault(record, assertion);
+      }
     } catch (error) {
       this.ndk.signer = null;
       this.updateState({
@@ -1529,7 +1564,19 @@ export class AuthManager {
   // Enroll a passkey for the current nsec session. The plaintext key is
   // deleted ONLY after enrollPasskey has verified a full round-trip on a
   // real get() assertion; any earlier failure leaves storage untouched.
-  async enrollVault(): Promise<void> {
+  //
+  // opts.sync (R1 toggle, default ON in the UI): when true, the verify-get
+  // ceremony signs over a server challenge so its assertion doubles as the
+  // vault-sync TOFU PUT — enrollment is ALWAYS exactly two prompts (create
+  // + verify-get), sync on or off. Upload failure never fails enrollment:
+  // the pending flag retries on the next unlock's ceremony.
+  //
+  // opts.migrate: guided re-enrollment for pre-Phase-2 records (no stored
+  // SPKI). Mints a NEW credential (excludeCredentials must be empty — the
+  // provider would refuse otherwise), re-encrypts under a fresh DEK, and
+  // replaces the record; the old passkey becomes a provider-side orphan
+  // (disclosed in the UI copy).
+  async enrollVault(opts?: { sync?: boolean; migrate?: boolean }): Promise<void> {
     if (!browser) throw new Error('Browser environment required');
     const { isAuthenticated, authMethod, publicKey } = this.authState;
     if (!isAuthenticated || (authMethod !== 'privateKey' && authMethod !== 'passkey')) {
@@ -1544,9 +1591,31 @@ export class AuthManager {
     } catch {
       /* keep default */
     }
-    await enrollPasskey(privkeyHex, publicKey, label);
+
+    const wantSync = PASSKEY_SYNC_ENABLED && opts?.sync === true;
+    const serverChallenge = wantSync ? await fetchChallengeSafe() : null;
+
+    const { record, assertion } = await enrollPasskey(privkeyHex, publicKey, label, {
+      ...(serverChallenge ? { serverChallenge } : {}),
+      ...(opts?.migrate ? { excludeExisting: false } : {})
+    });
     localStorage.removeItem('nostrcooking_privateKey');
     this.updateState({ authMethod: 'passkey' });
+
+    if (wantSync) {
+      setSyncEnabled(true);
+      if (serverChallenge && assertion && syncableKeyEntry(record)) {
+        void uploadVault(record, assertion);
+      } else if (syncableKeyEntry(record)) {
+        // Challenge fetch failed — the local vault is complete; the upload
+        // retries on the next unlock's ceremony (pending flag).
+        setUploadPending(true);
+      }
+      // No syncable entry (provider without getPublicKey): sync simply
+      // cannot happen for this credential — nothing to retry.
+    } else if (opts?.sync === false) {
+      setSyncEnabled(false);
+    }
   }
 
   // Remove the vault (downgrade to plaintext-localStorage sessions). Requires
@@ -1572,13 +1641,120 @@ export class AuthManager {
       );
     }
 
-    const privkeyHex = await unlockPasskey(record);
+    // Removal's fresh unlock ceremony doubles as the server-blob DELETE
+    // assertion (single prompt — never a second). Challenge fetch failure
+    // degrades to local-only removal; the orphaned blob expires via the
+    // server's 370-day TTL (R4 backstop).
+    let serverChallenge: string | null = null;
+    if (PASSKEY_SYNC_ENABLED && isSyncEnabled() && syncableKeyEntry(record)) {
+      serverChallenge = await fetchChallengeSafe();
+    }
+
+    const { privkeyHex, assertion } = await unlockPasskey(
+      record,
+      serverChallenge ? { serverChallenge } : undefined
+    );
     localStorage.setItem('nostrcooking_privateKey', privkeyHex);
     localStorage.setItem('nostrcooking_loggedInPublicKey', record.pubkey);
     deleteVaultRecord();
+    setSyncEnabled(false);
+    setUploadPending(false);
+
+    if (serverChallenge && assertion) {
+      // Best-effort, never blocks the downgrade; 404 = already gone.
+      void deleteVaultBlob(assertion);
+    }
 
     if (!this.ndk.signer) this.ndk.signer = new NDKPrivateKeySigner(privkeyHex);
     this.updateState({ authMethod: 'privateKey' });
+  }
+
+  // New-device sign-in via a synced passkey (Phase 2). ONE ceremony: the
+  // discoverable get() carries both the server challenge (gates the blob
+  // fetch) and prf.eval (decrypts it). Only after the decrypted key
+  // byte-verifies against the record pubkey do we establish the session and
+  // persist the record — the device then behaves as a Phase 1 device
+  // (subsequent unlocks are local, no network). Any failure leaves storage
+  // untouched and the caller falls through to normal login.
+  async signInWithPasskeySync(): Promise<void> {
+    if (!browser) throw new Error('Browser environment required');
+    if (!PASSKEY_SYNC_ENABLED) throw new Error('Passkey sign-in is not enabled');
+
+    this.updateState({ isLoading: true, error: null });
+    try {
+      const { privkeyHex, record } = await signInWithPasskey();
+
+      const signer = new NDKPrivateKeySigner(privkeyHex);
+      this.ndk.signer = signer;
+      const user = await signer.user();
+
+      this.updateState({
+        isAuthenticated: true,
+        user,
+        publicKey: user.hexpubkey,
+        authMethod: 'passkey',
+        isLoading: false,
+        error: null
+      });
+      localStorage.setItem('nostrcooking_loggedInPublicKey', user.hexpubkey);
+      // Session is live — NOW persist (a failed decrypt never reaches here).
+      saveVaultRecord(record);
+      setSyncEnabled(true);
+    } catch (error) {
+      this.ndk.signer = null;
+      this.updateState({
+        isAuthenticated: false,
+        user: null,
+        publicKey: '',
+        authMethod: null,
+        isLoading: false,
+        error: isCeremonyCancelled(error)
+          ? null
+          : error instanceof Error
+            ? error.message
+            : 'Passkey sign-in failed'
+      });
+      throw error;
+    }
+  }
+
+  // Toggle cross-device sync for an enrolled vault (R1 kill-switch). Both
+  // directions need one passkey ceremony (disclosed in the UI copy): OFF
+  // must produce a DELETE assertion; ON-later must produce the TOFU PUT
+  // assertion. Same ownership guard as removeVault.
+  async setVaultSync(on: boolean): Promise<void> {
+    if (!browser) throw new Error('Browser environment required');
+    if (!PASSKEY_SYNC_ENABLED) throw new Error('Passkey sync is not enabled');
+    const record = getVaultRecord();
+    if (!record) throw new Error('No passkey vault found on this device');
+    if (!this.authState.isAuthenticated || this.authState.publicKey !== record.pubkey) {
+      throw new Error('Vault sync can only be changed from the account that owns the vault.');
+    }
+    if (!syncableKeyEntry(record)) {
+      throw new Error(
+        'This vault was created before cross-device sign-in existed. Re-create the passkey to enable it.'
+      );
+    }
+
+    const serverChallenge = await fetchChallengeSafe();
+    if (!serverChallenge) {
+      throw new Error('Could not reach the sync service. Nothing was changed.');
+    }
+    const { assertion } = await unlockPasskey(record, { serverChallenge });
+    if (!assertion) throw new Error('Passkey did not produce a usable confirmation.');
+
+    if (on) {
+      const ok = await uploadVault(record, assertion);
+      if (!ok) {
+        setUploadPending(false); // uploadVault set it; a failed opt-in stays OFF
+        throw new Error('Could not upload the encrypted vault. Sync remains off.');
+      }
+      setSyncEnabled(true);
+    } else {
+      await deleteVaultBlob(assertion); // 404 = already gone (idempotent)
+      setSyncEnabled(false);
+      setUploadPending(false);
+    }
   }
 
   // Logout and clear all authentication data
