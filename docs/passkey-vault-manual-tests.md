@@ -64,6 +64,11 @@ browser profile with clean site data for zap.cooking.
 Prereqs: staging or production only (previews have no passkey UI by design);
 `VAULT_SYNC` bound and `VAULT_SYNC_CHALLENGE_SECRET` set in the environment.
 
+Note on failed blob deletes (P2-7/P2-9): if the server DELETE fails, the
+orphaned blob is not retried — it remains assertion-gated (unreadable without
+the passkey ceremony) and expires via the 370-day KV TTL. This is by design,
+not data loss.
+
 | # | Steps | Expected | Status |
 |---|-------|----------|--------|
 | P2-1 | Enroll with "Enable sign-in on other devices" checked (default) | Exactly TWO passkey prompts (create + verify); Settings shows sync On; server has the blob | ☐ |
