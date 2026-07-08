@@ -1,15 +1,17 @@
 <script lang="ts">
   /**
-   * Cheffy Note Photo Review modal (Phase 2).
+   * Cheffy Note Photo Review modal.
    *
-   * Draft-only in this phase: the member picks a mode, Cheffy drafts a
-   * comment or recipe from the note's photo, and the member edits it in
-   * place. Posting is Phase 3 — the Post button ships dark behind
-   * NOTE_REVIEW_POST_ENABLED. Multi-image notes use the first image;
-   * the picker strip is Phase 4.
+   * The member picks a mode, Cheffy drafts a comment or recipe from the
+   * note's photo, the member edits in place, then posts it as their own
+   * NIP-10 reply via postComment() (D1: mandatory edit-before-post, no
+   * auto-publish). Publish failures keep the draft; a publish timeout
+   * keeps the SIGNED event so retry never asks the signer twice.
+   * Multi-image notes use the first image; the picker strip is Phase 4.
    *
    * All branching logic (phase transitions, error mapping, hedged
-   * copy) lives in $lib/noteReview so it stays unit-testable.
+   * copy, publish outcomes) lives in $lib/noteReview so it stays
+   * unit-testable.
    */
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
   import { goto } from '$app/navigation';
@@ -21,9 +23,13 @@
   import {
     requestNoteReview,
     phaseForResult,
+    publishNoteReviewReply,
+    retryPublishSignedEvent,
+    canPost,
     NOTE_REVIEW_POST_ENABLED,
     type NoteReviewMode,
-    type NoteReviewPhase
+    type NoteReviewPhase,
+    type PublishOutcome
   } from '$lib/noteReview';
 
   export let open = false;
@@ -39,6 +45,9 @@
   let message = '';
   let loadingLine = '';
   let errorLine = '';
+  let postError = '';
+  let noteLink = '';
+  let timeoutSignedEvent: NDKEvent | null = null;
 
   $: signedIn = $userPublickey !== '';
   $: normalizedPk = $userPublickey.trim().toLowerCase();
@@ -66,10 +75,54 @@
     if (phase === 'error') errorLine = pickLine(ERROR_LINES, errorLine);
   }
 
+  function handlePublishOutcome(outcome: PublishOutcome) {
+    if (outcome.ok) {
+      noteLink = outcome.noteLink;
+      phase = 'posted';
+      return;
+    }
+    if (outcome.code === 'publish-timeout') {
+      timeoutSignedEvent = outcome.signedEvent;
+      message = outcome.message;
+      phase = 'post-timeout';
+      return;
+    }
+    // Draft is preserved — the member's edits are never lost to a
+    // publish failure.
+    postError = outcome.message;
+    phase = 'draft';
+  }
+
+  async function post() {
+    if (!canPost(phase)) return; // double-click guard (with the disabled attr)
+    postError = '';
+    phase = 'posting';
+    handlePublishOutcome(
+      await publishNoteReviewReply({ ndk: $ndk, parentEvent: event, content: draft })
+    );
+  }
+
+  async function retryPost() {
+    if (!timeoutSignedEvent) return;
+    phase = 'posting';
+    handlePublishOutcome(
+      await retryPublishSignedEvent({ ndk: $ndk, signedEvent: timeoutSignedEvent })
+    );
+  }
+
+  function viewReply() {
+    const target = noteLink;
+    open = false;
+    goto(target);
+  }
+
   function reset() {
     phase = 'choose';
     draft = '';
     message = '';
+    postError = '';
+    noteLink = '';
+    timeoutSignedEvent = null;
   }
 
   function signIn() {
@@ -127,25 +180,56 @@
         <CheffyAvatar size={64} expression="cooking" variant="character" animate />
         <p>{loadingLine}</p>
       </div>
-    {:else if phase === 'draft'}
-      <p class="nr-hint">
-        Cheffy's draft — make it yours. {#if !NOTE_REVIEW_POST_ENABLED}Copy it into a reply for now;
-          one-tap posting is coming soon.{/if}
-      </p>
+    {:else if phase === 'draft' || phase === 'posting'}
+      {@const posting = phase === 'posting'}
+      <p class="nr-hint">Cheffy's draft — make it yours, then post it as your own reply.</p>
       <textarea
         class="nr-draft"
         class:nr-draft-recipe={mode === 'recipe'}
         bind:value={draft}
         rows={mode === 'recipe' ? 16 : 5}
         aria-label="Cheffy's draft"
+        disabled={posting}
       ></textarea>
+      {#if postError}
+        <p class="nr-post-error">{postError}</p>
+      {/if}
       <div class="nr-actions">
-        <button type="button" class="nr-secondary" on:click={() => run(mode)}>Regenerate</button>
-        <button type="button" class="nr-ghost" on:click={reset}>Start over</button>
+        <button type="button" class="nr-secondary" on:click={() => run(mode)} disabled={posting}>
+          Regenerate
+        </button>
+        <button type="button" class="nr-ghost" on:click={reset} disabled={posting}>
+          Start over
+        </button>
         {#if NOTE_REVIEW_POST_ENABLED}
-          <!-- Phase 3 wires this to postComment(); flag-guarded until then. -->
-          <button type="button" class="nr-primary" disabled>Post reply</button>
+          <button
+            type="button"
+            class="nr-primary"
+            on:click={post}
+            disabled={posting || !draft.trim()}
+          >
+            {posting ? 'Posting…' : 'Post reply'}
+          </button>
         {/if}
+      </div>
+    {:else if phase === 'post-timeout'}
+      <div class="nr-wait">
+        <CheffyAvatar size={64} expression="thinking" variant="character" />
+        <p>{message}</p>
+        <div class="nr-actions">
+          <button type="button" class="nr-primary" on:click={retryPost}>Give it another push</button
+          >
+          <button type="button" class="nr-ghost" on:click={() => (open = false)}>Close</button>
+        </div>
+      </div>
+    {:else if phase === 'posted'}
+      <div class="nr-wait">
+        <CheffyAvatar size={64} expression="excited" variant="character" />
+        <p>Posted! Cheffy tips his toque to you.</p>
+        <div class="nr-actions">
+          <button type="button" class="nr-primary" on:click={viewReply}>View your reply</button>
+          <button type="button" class="nr-ghost" on:click={() => (open = false)}>Done</button>
+        </div>
       </div>
     {:else if phase === 'dead-end'}
       <div class="nr-wait">
@@ -271,6 +355,14 @@
   .nr-sub {
     color: var(--color-text-secondary);
     font-size: 0.85rem;
+  }
+
+  .nr-post-error {
+    color: var(--color-text-secondary);
+    font-size: 0.9rem;
+    padding: 8px 12px;
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--color-primary) 8%, transparent);
   }
 
   .nr-draft {

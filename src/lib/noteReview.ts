@@ -8,15 +8,20 @@
  */
 
 import type NDK from '@nostr-dev-kit/ndk';
+import type { NDKEvent } from '@nostr-dev-kit/ndk';
+import { nip19 } from 'nostr-tools';
 import { signNip98AuthHeader } from './nip98';
+import { pickLine } from './cheffy';
+import { postComment, PostCommentError } from './comments/postComment';
+import { buildInboxAwareRelaySet } from './nip65Routing';
 
 /**
- * Ship-dark flag: the Post button in CheffyNoteReview renders only when
- * this is true. Publish wiring (postComment) is Phase 3 — flipping this
- * before Phase 3 lands shows a button that does nothing. Guarded by CI
- * (flag-guard in checks.yaml) so a stray flip can't reach main.
+ * Post-button flag, flipped ON in Phase 3 alongside the postComment()
+ * wiring. Kept (rather than deleted) as the kill switch for the publish
+ * path; the flag-guard in checks.yaml now asserts it stays true so an
+ * accidental un-flip can't silently dark-ship posting either.
  */
-export const NOTE_REVIEW_POST_ENABLED = false;
+export const NOTE_REVIEW_POST_ENABLED = true;
 
 export type NoteReviewMode = 'comment' | 'recipe';
 
@@ -25,10 +30,18 @@ export type NoteReviewPhase =
   | 'signing' // waiting on the user's signer (NIP-46 round trips are slow)
   | 'loading' // request in flight
   | 'draft' // editable draft ready
+  | 'posting' // publish in flight — Post disabled, no double-post
+  | 'post-timeout' // signed but relay round-trip timed out — retry without re-signing
+  | 'posted' // published — success state with a link to the reply
   | 'dead-end' // friendly stop — nothing postable (unclear/unreadable photo)
   | 'upsell' // NOT_MEMBER — membership gate
   | 'preview-used' // preview turns spent — conversion nudge
   | 'error'; // retryable failure
+
+/** The only phase a publish may start from — the double-post guard. */
+export function canPost(phase: NoteReviewPhase): boolean {
+  return phase === 'draft';
+}
 
 export type NoteReviewResult =
   | { ok: true; output: string }
@@ -38,13 +51,19 @@ export type NoteReviewResult =
 export const NOTE_TEXT_MAX_CHARS = 1000;
 
 /**
- * Hedged dead-end copy. Phase 1 finding: the server's NOT_FOOD path also
- * fires for CDN fallback images served in place of dead links (e.g.
- * nostr.build never 404s), so the client must never confidently claim
- * "that's not food" — and never echo the model's confident line.
+ * Hedged dead-end copy pool. Phase 1 finding: the server's NOT_FOOD path
+ * also fires for CDN fallback images served in place of dead links
+ * (e.g. nostr.build never 404s), so every line here must stay in the
+ * "couldn't get a good look" register — never a confident "that's not
+ * food", and the model's line is never echoed. Rotated via pickLine so
+ * regenerate attempts don't repeat the same dead-end verbatim.
  */
-export const PHOTO_UNCLEAR_LINE =
-  "Cheffy couldn't get a good look at that photo. It might be a broken link — or just not clearly a dish.";
+export const DEAD_END_LINES = [
+  "Cheffy couldn't get a good look at that photo. It might be a broken link — or just not clearly a dish.",
+  "That photo's playing hard to get — Cheffy can't quite make out a dish in it.",
+  "Cheffy squinted, but couldn't spot a dish in there. The photo may not have come through.",
+  "Hmm — Cheffy couldn't see this one clearly. The link may be stale, or the dish is camera-shy."
+];
 
 export const SIGN_FAILED_LINE =
   "Cheffy couldn't get your signer's autograph. Check your signer and try again.";
@@ -69,7 +88,7 @@ export function phaseForResult(result: NoteReviewResult): {
     case 'IMAGE_UNREADABLE':
       // Deliberately ignore the server-provided line here — it can be a
       // confident "that's a cat" while the truth is a dead link.
-      return { phase: 'dead-end', message: PHOTO_UNCLEAR_LINE };
+      return { phase: 'dead-end', message: pickLine(DEAD_END_LINES) };
     case 'SIGN_FAILED':
       return { phase: 'error', message: SIGN_FAILED_LINE };
     default:
@@ -161,5 +180,136 @@ export async function requestNoteReview(opts: NoteReviewRequestOpts): Promise<No
       code: 'NETWORK',
       error: err instanceof Error ? err.message : 'Network error'
     };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Publish path (Phase 3) — Post → postComment() with the kind-1 parent
+// ---------------------------------------------------------------------------
+
+export const POST_TIMEOUT_LINE =
+  "The relays are taking their time. Your reply is signed and may already be out there — give it another push, and Cheffy won't ask your signer twice.";
+
+export const PUBLISH_FAILED_LINE =
+  "The relays didn't take that one. Your draft is safe — give it another go.";
+
+export type PublishOutcome =
+  | { ok: true; event: NDKEvent; noteLink: string }
+  | { ok: false; code: 'publish-timeout'; message: string; signedEvent: NDKEvent }
+  | {
+      ok: false;
+      code: 'sign-failed' | 'publish-failed' | 'invalid-parent' | 'unknown';
+      message: string;
+    };
+
+/**
+ * Thread-view link for a published reply. House pattern: nevent with
+ * author + kind hints, falling back to a bare note1 encoding.
+ */
+export function noteLinkFor(event: NDKEvent): string {
+  try {
+    return '/' + nip19.neventEncode({ id: event.id, author: event.pubkey, kind: event.kind ?? 1 });
+  } catch {
+    return '/' + nip19.noteEncode(event.id);
+  }
+}
+
+export interface PublishNoteReviewOpts {
+  ndk: NDK;
+  /** The kind-1 note being replied to. */
+  parentEvent: NDKEvent;
+  /** The member-edited draft (D1: never raw model output on auto-pilot). */
+  content: string;
+  /** Test injection. */
+  postCommentFn?: typeof postComment;
+}
+
+/**
+ * Publish the edited draft as a NIP-10 reply, signed by the member.
+ * postComment owns tagging (NIP-10 via buildNip22CommentTags), the
+ * NIP-89 client tag, inbox-aware relay routing, and signing. Never
+ * throws — every PostCommentError code maps to a typed outcome so the
+ * modal can branch in Cheffy voice, including the publish-timeout
+ * signed-event recovery path.
+ */
+export async function publishNoteReviewReply(opts: PublishNoteReviewOpts): Promise<PublishOutcome> {
+  const { ndk, parentEvent, content, postCommentFn = postComment } = opts;
+  try {
+    const { event } = await postCommentFn(ndk, {
+      parentEvent,
+      content,
+      signingStrategy: 'explicit-with-timeout'
+    });
+    return { ok: true, event, noteLink: noteLinkFor(event) };
+  } catch (err) {
+    if (err instanceof PostCommentError) {
+      switch (err.code) {
+        case 'sign-failed':
+          return { ok: false, code: 'sign-failed', message: SIGN_FAILED_LINE };
+        case 'publish-timeout':
+          if (err.signedEvent) {
+            return {
+              ok: false,
+              code: 'publish-timeout',
+              message: POST_TIMEOUT_LINE,
+              signedEvent: err.signedEvent
+            };
+          }
+          return { ok: false, code: 'publish-failed', message: PUBLISH_FAILED_LINE };
+        case 'publish-failed':
+          return { ok: false, code: 'publish-failed', message: PUBLISH_FAILED_LINE };
+        case 'invalid-parent':
+          return {
+            ok: false,
+            code: 'invalid-parent',
+            message: "Cheffy lost track of the note you're replying to. Close and try again."
+          };
+      }
+    }
+    return {
+      ok: false,
+      code: 'unknown',
+      message: err instanceof Error ? err.message : PUBLISH_FAILED_LINE
+    };
+  }
+}
+
+const RETRY_PUBLISH_TIMEOUT_MS = 15_000;
+
+export interface RetryPublishOpts {
+  ndk: NDK;
+  /** The already-signed event from a publish-timeout outcome. */
+  signedEvent: NDKEvent;
+  timeoutMs?: number;
+  /** Test injection. */
+  buildRelaySetFn?: typeof buildInboxAwareRelaySet;
+}
+
+/**
+ * Recovery path for publish-timeout: re-publish the ALREADY-SIGNED
+ * event (same id, no second signer round trip) to the inbox-aware
+ * relay set. Relays deduplicate by event id, so if the first attempt
+ * actually landed this is a harmless no-op.
+ */
+export async function retryPublishSignedEvent(opts: RetryPublishOpts): Promise<PublishOutcome> {
+  const {
+    ndk,
+    signedEvent,
+    timeoutMs = RETRY_PUBLISH_TIMEOUT_MS,
+    buildRelaySetFn = buildInboxAwareRelaySet
+  } = opts;
+  try {
+    const relaySet = await buildRelaySetFn({ event: signedEvent, ndk });
+    await Promise.race([
+      signedEvent.publish(relaySet ?? undefined),
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('publish retry timed out')), timeoutMs)
+      )
+    ]);
+    return { ok: true, event: signedEvent, noteLink: noteLinkFor(signedEvent) };
+  } catch {
+    // Still no relay ack — keep the signed event so the member can try
+    // again or safely close (it may have landed regardless).
+    return { ok: false, code: 'publish-timeout', message: POST_TIMEOUT_LINE, signedEvent };
   }
 }
