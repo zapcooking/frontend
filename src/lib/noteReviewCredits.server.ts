@@ -7,7 +7,7 @@
  *
  * KV key scheme (no collision with `inv:` / `invhash:` / promo keys):
  *   credit:note-review:{pubkey}      → integer balance (no TTL — paid money)
- *   nrcredit:inv:{receiveRequestId}  → CreditInvoiceMetadata JSON (TTL 2h)
+ *   nrcredit:inv:{receiveRequestId}  → CreditInvoiceMetadata JSON (TTL 48h)
  *   nrcredit:done:{receiveRequestId} → '1' idempotency mark (TTL 7d)
  *
  * Concurrency: KV read-then-write is non-atomic. A raced double-spend or
@@ -24,7 +24,12 @@ export const NOTE_REVIEW_CREDIT_BTC = '0.00000021';
 /** Lightning invoice lifetime — an in-modal purchase, not a 24h bill. */
 export const CREDIT_INVOICE_EXPIRY_SECONDS = 600;
 
-const INVOICE_TTL_SECONDS = 7200; // metadata outlives the invoice comfortably
+// The 600s invoice expiry bounds when a PAYMENT can happen; this TTL
+// only bounds how long a completed payment stays verifiable and
+// creditable. 48h so a payer who paid and closed the modal before the
+// poll observed COMPLETED can still be made whole (resume flow, next
+// modal open) — a short TTL here orphans real money.
+const INVOICE_TTL_SECONDS = 48 * 60 * 60;
 const DONE_TTL_SECONDS = 7 * 24 * 60 * 60;
 
 export interface CreditInvoiceMetadata {
