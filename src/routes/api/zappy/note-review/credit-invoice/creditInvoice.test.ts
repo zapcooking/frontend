@@ -34,6 +34,17 @@ function makeEvent() {
   });
   // GATED_CONTENT deliberately absent → credits lib uses its dev
   // fallback, so stored metadata is observable via getCreditInvoice.
+  return {
+    request,
+    platform: { env: { MEMBERSHIP_ENABLED: 'true', NOURISH_FLAGS: { kv: true } } }
+  } as never;
+}
+
+function makeEventGatingOff() {
+  const request = new Request('https://zap.cooking/api/zappy/note-review/credit-invoice', {
+    method: 'POST',
+    body: '{}'
+  });
   return { request, platform: { env: { NOURISH_FLAGS: { kv: true } } } } as never;
 }
 
@@ -58,6 +69,15 @@ beforeEach(() => {
 });
 
 describe('credit-invoice endpoint', () => {
+  it('409s CREDITS_NOT_NEEDED while membership gating is off — never sell credits when drafting is free', async () => {
+    const res = await POST(makeEventGatingOff());
+    expect(res.status).toBe(409);
+    const data = await res.json();
+    expect(data.code).toBe('CREDITS_NOT_NEEDED');
+    expect(mocks.createInvoice).not.toHaveBeenCalled();
+    expect(mocks.verifyNip98).not.toHaveBeenCalled(); // refused before any work
+  });
+
   it('503s when Strike is not configured', async () => {
     mocks.isStrikeConfigured.mockReturnValue(false);
     const { res } = await call();

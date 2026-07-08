@@ -15,6 +15,7 @@
  */
 
 import { json, type RequestHandler } from '@sveltejs/kit';
+import { env } from '$env/dynamic/private';
 import { verifyNip98 } from '$lib/nip98.server';
 import { checkPerIpRateLimit } from '$lib/ipRateLimit.server';
 import { createInvoice, isStrikeConfigured } from '$lib/strikeService.server';
@@ -30,6 +31,23 @@ const PER_DAY = 20;
 
 export const POST: RequestHandler = async ({ request, platform }) => {
   try {
+    // Never sell credits while drafting is free: with membership gating
+    // off, note-review serves everyone at no charge, so a purchased
+    // credit would buy nothing. 409 — the request conflicts with the
+    // current access state, and a healthy client never sends it (the
+    // payment card only renders after a 403 NOT_MEMBER).
+    const MEMBERSHIP_ENABLED = platform?.env?.MEMBERSHIP_ENABLED || env.MEMBERSHIP_ENABLED;
+    if (MEMBERSHIP_ENABLED?.toLowerCase() !== 'true') {
+      return json(
+        {
+          ok: false,
+          code: 'CREDITS_NOT_NEEDED',
+          error: 'Drafting is currently free — no credits needed.'
+        },
+        { status: 409 }
+      );
+    }
+
     if (!isStrikeConfigured(platform)) {
       return json(
         { ok: false, error: 'Lightning payments are not available right now.' },
