@@ -16,6 +16,7 @@ import {
   fetchChallengeSafe,
   syncableKeyEntry,
   shouldOfferSyncSignIn,
+  shouldOfferSignupEnrollment,
   isUploadPending,
   setUploadPending,
   SyncSignInError,
@@ -248,6 +249,13 @@ describe('helpers', () => {
     const badAlg = fixtureRecord();
     (badAlg.keys[0] as any).alg = -8;
     expect(syncableKeyEntry(badAlg)).toBeNull();
+  });
+
+  it('shouldOfferSignupEnrollment: flag AND full support only (step absent, never disabled)', () => {
+    expect(shouldOfferSignupEnrollment({ flagEnabled: true, support: 'full' })).toBe(true);
+    expect(shouldOfferSignupEnrollment({ flagEnabled: false, support: 'full' })).toBe(false);
+    expect(shouldOfferSignupEnrollment({ flagEnabled: true, support: 'no-prf' })).toBe(false);
+    expect(shouldOfferSignupEnrollment({ flagEnabled: true, support: 'none' })).toBe(false);
   });
 
   it('shouldOfferSyncSignIn matrix', () => {

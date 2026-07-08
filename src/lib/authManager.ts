@@ -24,6 +24,7 @@ import {
 import { hexToBytes } from './passkeyVaultCrypto';
 import {
   PASSKEY_SYNC_ENABLED,
+  PASSKEY_SIGNUP_ENABLED,
   isSyncEnabled,
   setSyncEnabled,
   isUploadPending,
@@ -1613,6 +1614,68 @@ export class AuthManager {
       }
       // No syncable entry (provider without getPublicKey): sync simply
       // cannot happen for this credential — nothing to retry.
+    } else if (opts?.sync === false) {
+      setSyncEnabled(false);
+    }
+  }
+
+  // Passkey-first signup (Phase 3): enroll a JUST-GENERATED key, then start
+  // the session through the same-pubkey ADOPTION branch of
+  // authenticateWithPrivateKey — the plaintext key is never written to
+  // storage at any instant (pinned by test with a setItem spy). Composition
+  // of three merged primitives: enrollPasskey → authenticate(adopts) →
+  // uploadVault. Two prompts total; with opts.sync the verify-get carries
+  // the TOFU PUT assertion (Phase 2 pattern).
+  //
+  // Failure at any point is non-destructive: nothing persisted, no session
+  // — the caller (signup UI) lets the user retry, or skip into today's
+  // plaintext path, which still works unchanged.
+  async enrollAtSignup(
+    privkeyHex: string,
+    pubkey: string,
+    opts?: { sync?: boolean }
+  ): Promise<void> {
+    if (!browser) throw new Error('Browser environment required');
+    if (!PASSKEY_SIGNUP_ENABLED) throw new Error('Passkey signup is not enabled');
+
+    // Defense-in-depth (same philosophy as removeVault's guard): a fresh
+    // keypair can never own an existing record, so any record here is a
+    // FOREIGN vault — enrolling would silently overwrite it. The signup UI
+    // pre-empts this with the conflict dialog; the method refuses
+    // independently in case that gating ever regresses.
+    const existing = getVaultRecord();
+    if (existing && existing.pubkey !== pubkey) {
+      throw new VaultConflictError(existing.pubkey);
+    }
+
+    let label = 'Zap Cooking';
+    try {
+      label = `Zap Cooking · ${nip19.npubEncode(pubkey).slice(0, 13)}…`;
+    } catch {
+      /* keep default */
+    }
+
+    const wantSync = PASSKEY_SYNC_ENABLED && opts?.sync === true;
+    const serverChallenge = wantSync ? await fetchChallengeSafe() : null;
+
+    const { record, assertion } = await enrollPasskey(
+      privkeyHex,
+      pubkey,
+      label,
+      serverChallenge ? { serverChallenge } : undefined
+    );
+
+    // Record exists for this pubkey now — this authenticates via adoption:
+    // authMethod 'passkey', plaintext never persisted.
+    await this.authenticateWithPrivateKey(privkeyHex);
+
+    if (wantSync) {
+      setSyncEnabled(true);
+      if (serverChallenge && assertion && syncableKeyEntry(record)) {
+        void uploadVault(record, assertion);
+      } else if (syncableKeyEntry(record)) {
+        setUploadPending(true);
+      }
     } else if (opts?.sync === false) {
       setSyncEnabled(false);
     }

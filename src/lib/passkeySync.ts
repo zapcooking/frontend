@@ -42,6 +42,14 @@ import { getPublicKey } from 'nostr-tools';
  */
 export const PASSKEY_SYNC_ENABLED = false;
 
+/**
+ * Phase 3 gate: passkey enrollment offered inside account creation
+ * ("Secure your account" step). Launch-coupled with PASSKEY_SYNC_ENABLED —
+ * the launch PR flips BOTH together and updates the CI flag-guard in the
+ * same change (R3 ruling). Guarded on main by .github/workflows/checks.yaml.
+ */
+export const PASSKEY_SIGNUP_ENABLED = false;
+
 /** '1' = user opted in (R1 default-ON at enrollment); '0' = explicitly off.
  * ABSENT = off — pre-Phase-2 enrollments must never surprise-upload. */
 export const SYNC_ENABLED_KEY = 'nostrcooking_vault_sync_enabled';
@@ -278,6 +286,19 @@ export async function signInWithPasskey(): Promise<SyncSignInResult> {
   } finally {
     zeroize(kek, dek, prfOutput);
   }
+}
+
+/**
+ * Predicate for the signup "Secure your account" step (unit-tested).
+ * 'full' only: signup must never render a step that the enrollment
+ * ceremony would immediately fail — unsupported browsers get today's
+ * signup byte-identical (R4: absent, not disabled).
+ */
+export function shouldOfferSignupEnrollment(ctx: {
+  flagEnabled: boolean;
+  support: 'full' | 'no-prf' | 'none';
+}): boolean {
+  return ctx.flagEnabled && ctx.support === 'full';
 }
 
 /** Predicate for the LoginOverlay button (unit-tested). */
