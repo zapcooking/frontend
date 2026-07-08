@@ -209,10 +209,19 @@ export const POST: RequestHandler = async ({ request, platform, cookies, url }) 
       }
     }
 
-    // Per-pubkey rate limit. The helper's `ip` param is just the string
-    // that gets salted + hashed into the bucket key — a verified pubkey
-    // is a strictly better identity for it than an IP here.
+    // Per-pubkey rate limit, backed by the NOURISH_FLAGS KV namespace
+    // (the same binding extract-recipe uses). The helper's `ip` param is
+    // just the string that gets salted + hashed into the bucket key — a
+    // verified pubkey is a strictly better identity for it than an IP.
+    // checkPerIpRateLimit fails open silently when no KV is bound; be
+    // loud about it here so a missing binding shows up in logs instead
+    // of quietly unmetering the endpoint.
     const kv = platform?.env?.NOURISH_FLAGS;
+    if (!kv) {
+      console.warn(
+        '[Note Review] NOURISH_FLAGS KV not bound — note-review rate limiting is disabled'
+      );
+    }
     const rl = await checkPerIpRateLimit(kv, {
       ip: authPubkey,
       scope: 'note-review',
@@ -253,7 +262,11 @@ export const POST: RequestHandler = async ({ request, platform, cookies, url }) 
                 type: 'image_url',
                 image_url: {
                   url: imageUrl,
-                  detail: 'low' // scanner precedent: cheaper, plenty for a dish photo
+                  // Scanner precedent: cheaper, plenty for a dish photo.
+                  // First quality knob if recipe-mode drafts feel
+                  // underspecified: raise detail before touching prompts
+                  // or token caps.
+                  detail: 'low'
                 }
               }
             ]

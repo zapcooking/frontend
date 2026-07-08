@@ -235,6 +235,21 @@ describe('rate limiting', () => {
     expect(params).toEqual({ ip: PUBKEY, scope: 'note-review', perHour: 8, perDay: 30 });
   });
 
+  it('warns loudly when the KV binding is absent (helper fails open silently)', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { res } = await call(validBody(), {
+      env: {
+        OPENAI_API_KEY: 'test-key',
+        MEMBERSHIP_ENABLED: 'true',
+        RELAY_API_SECRET: 'secret'
+        // no NOURISH_FLAGS
+      }
+    });
+    expect(res.status).toBe(200);
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('NOURISH_FLAGS KV not bound'));
+    warnSpy.mockRestore();
+  });
+
   it('429s RATE_LIMITED when the budget is spent', async () => {
     mocks.checkPerIpRateLimit.mockResolvedValue({
       limited: true,
