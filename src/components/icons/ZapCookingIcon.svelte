@@ -25,9 +25,11 @@
       d="M190.999 60C263.386 60.2119 321.999 118.78 321.999 191C321.999 263.221 263.386 321.788 190.999 322C118.613 321.787 60 263.22 60 191C60.0002 118.78 118.613 60.2127 190.999 60Z"
       fill="url(#zci-grad)"
     />
-    <!-- Bolt -->
+    <!-- Bolt: always white, matching the rest of the brand mark — it sits
+         on the gradient circle, not the nav's background, so it doesn't
+         need to adapt to light/dark mode like the outer ring does. -->
     <path
-      class="accent-mark"
+      class="bolt-mark"
       d="M256.47 170.22C255.44 168.04 253.31 166.69 250.9 166.69H208.99L208.79 166.43L225.04 103.91C225.78 101.04 224.51 98.2101 221.87 96.8701C219.23 95.5301 216.2 96.1601 214.32 98.4501L125.94 206.16C124.41 208.02 124.1 210.53 125.13 212.7C126.16 214.88 128.29 216.23 130.7 216.23H172.61L172.81 216.49L156.56 279.01C155.82 281.88 157.09 284.71 159.73 286.05C160.65 286.52 161.62 286.75 162.57 286.75C164.34 286.75 166.06 285.96 167.28 284.47L255.66 176.76C257.19 174.9 257.5 172.39 256.47 170.22Z"
     />
     <!-- Outer ring -->
@@ -61,7 +63,9 @@
 {/if}
 
 <style>
-  /* Bolt and ring color: black in light mode, white in dark mode */
+  /* Outer ring needs to contrast against the nav disc behind it, which
+     flips between light and dark — so it stays theme-adaptive. */
   .accent-mark { fill: black; }
   :global(.dark) .accent-mark { fill: white; }
+  .bolt-mark { fill: white; }
 </style>
