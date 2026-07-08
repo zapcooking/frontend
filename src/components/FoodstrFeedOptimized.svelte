@@ -43,6 +43,7 @@
   import NoteTotalComments from './NoteTotalComments.svelte';
   import NoteTotalZaps from './NoteTotalZaps.svelte';
   import NoteRepost from './NoteRepost.svelte';
+  import CheffyNoteReviewTrigger from './CheffyNoteReviewTrigger.svelte';
   import CommentThread from './comments/CommentThread.svelte';
   import ZapModal from './ZapModal.svelte';
   import ShareModal from './ShareModal.svelte';
@@ -5296,6 +5297,12 @@
                     <div class="hover:bg-accent-gray rounded-full p-1.5 transition-colors">
                       <NoteRepost {event} />
                     </div>
+
+                    <!-- Renders nothing for imageless notes — the trigger owns detection. -->
+                    <CheffyNoteReviewTrigger
+                      {event}
+                      wrapClass="hover:bg-accent-gray rounded-full p-1.5 transition-colors"
+                    />
 
                     <div class="hover:bg-amber-50/50 rounded-full p-1 transition-colors">
                       <NoteTotalZaps

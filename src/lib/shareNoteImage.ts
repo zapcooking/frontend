@@ -1,6 +1,6 @@
 /**
  * Share Note as Image
- * 
+ *
  * Generates shareable PNG images from Nostr notes using html2canvas
  */
 
@@ -10,32 +10,24 @@ import type { NDKEvent } from '@nostr-dev-kit/ndk';
 import { nip19 } from 'nostr-tools';
 import { sanitizeHTML } from '$lib/sanitize';
 
-// URL and image detection patterns
+// Image detection lives in $lib/imageUrls (shared source of truth).
+// Migration note: the shared isImageUrl is host-aware and anchors the
+// extension to the pathname (the old local copy matched '.jpg' anywhere
+// in the string), and the shared extractImageUrls dedupes — safe here
+// because only imageUrls[0] is ever rendered and stripImageUrls only
+// cares about a per-URL yes/no.
+import { isImageUrl, extractImageUrls } from '$lib/imageUrls';
+
+// URL pattern for stripping — kept local: stripImageUrls replaces over
+// the whole content string, which is a different job than extraction.
 const URL_REGEX = /(https?:\/\/[^\s]+)/g;
-const IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.avif', '.svg'];
-
-/**
- * Check if a URL is an image
- */
-function isImageUrl(url: string): boolean {
-  const lower = url.toLowerCase();
-  return IMAGE_EXTENSIONS.some((ext) => lower.includes(ext));
-}
-
-/**
- * Extract image URLs from content
- */
-function extractImageUrls(content: string): string[] {
-  const urls = content.match(URL_REGEX) || [];
-  return urls.filter((url) => isImageUrl(url));
-}
 
 /**
  * Remove image URLs from content
  */
 function stripImageUrls(content: string): string {
   return content
-    .replace(URL_REGEX, (url) => isImageUrl(url) ? '' : url)
+    .replace(URL_REGEX, (url) => (isImageUrl(url) ? '' : url))
     .replace(/\s+/g, ' ')
     .trim();
 }
@@ -68,7 +60,7 @@ export function decodeNostrReference(ref: string): string | null {
     // Remove the "nostr:" prefix
     const bech32 = ref.replace(/^nostr:/i, '');
     const decoded = nip19.decode(bech32);
-    
+
     if (decoded.type === 'note') {
       return decoded.data as string;
     } else if (decoded.type === 'nevent') {
@@ -98,10 +90,10 @@ export interface ReferencedNote {
  */
 function generateAvatarColor(pubkey: string): string {
   const hash = pubkey.split('').reduce((a, b) => {
-    a = ((a << 5) - a) + b.charCodeAt(0);
+    a = (a << 5) - a + b.charCodeAt(0);
     return a & a;
   }, 0);
-  
+
   const hue = Math.abs(hash) % 360;
   return `hsl(${hue}, 70%, 50%)`;
 }
@@ -138,7 +130,7 @@ export function generateImageFilename(event: NDKEvent): string {
     .filter((word) => word.length > 0)
     .join('-')
     .toLowerCase();
-  
+
   const prefix = words || 'note';
   return `zap-cooking-${prefix}-${event.id.substring(0, 8)}.png`;
 }
@@ -149,7 +141,7 @@ export function generateImageFilename(event: NDKEvent): string {
  */
 async function generateQRCode(url: string, size: number = 200): Promise<string | null> {
   if (!browser) return null;
-  
+
   try {
     // Try to use a QR code library if available, otherwise return null
     // For now, we'll skip QR code generation and add it later if needed
@@ -175,12 +167,12 @@ async function generateSafariImage(
 ): Promise<Blob | null> {
   const width = 540;
   const height = 540;
-  
+
   const canvas = document.createElement('canvas');
   canvas.width = width;
   canvas.height = height;
   const ctx = canvas.getContext('2d');
-  
+
   if (!ctx) {
     console.error('[ShareImage] Failed to get canvas context');
     return null;
@@ -188,7 +180,7 @@ async function generateSafariImage(
 
   // Polyfill for roundRect if not available (for older browsers)
   if (!ctx.roundRect) {
-    (ctx as any).roundRect = function(x: number, y: number, w: number, h: number, r: number) {
+    (ctx as any).roundRect = function (x: number, y: number, w: number, h: number, r: number) {
       if (w < 2 * r) r = w / 2;
       if (h < 2 * r) r = h / 2;
       this.beginPath();
@@ -229,7 +221,14 @@ async function generateSafariImage(
   ctx.fillRect(0, 0, width, height);
 
   // Add subtle glow effect
-  const radialGradient = ctx.createRadialGradient(width * 0.8, height * 0.2, 0, width * 0.8, height * 0.2, width);
+  const radialGradient = ctx.createRadialGradient(
+    width * 0.8,
+    height * 0.2,
+    0,
+    width * 0.8,
+    height * 0.2,
+    width
+  );
   radialGradient.addColorStop(0, 'rgba(251, 191, 36, 0.1)');
   radialGradient.addColorStop(1, 'transparent');
   ctx.fillStyle = radialGradient;
@@ -242,14 +241,14 @@ async function generateSafariImage(
   // Author section
   const authorPubkey = event.author?.hexpubkey || event.pubkey;
   const displayName = authorName || authorPubkey.substring(0, 12) + '...';
-  
+
   // Avatar
   const avatarSize = 36;
   const avatarX = padding;
   const avatarY = y;
   const avatarCenterX = avatarX + avatarSize / 2;
   const avatarCenterY = avatarY + avatarSize / 2;
-  
+
   // Try to load profile picture
   let pfpLoaded = false;
   if (authorPicture) {
@@ -266,10 +265,10 @@ async function generateSafariImage(
       pfpLoaded = true;
     }
   }
-  
+
   // Fallback to colored circle with initials
   if (!pfpLoaded) {
-    const avatarColor = `hsl(${Math.abs(authorPubkey.split('').reduce((a, b) => ((a << 5) - a) + b.charCodeAt(0), 0)) % 360}, 70%, 50%)`;
+    const avatarColor = `hsl(${Math.abs(authorPubkey.split('').reduce((a, b) => (a << 5) - a + b.charCodeAt(0), 0)) % 360}, 70%, 50%)`;
     ctx.fillStyle = avatarColor;
     ctx.beginPath();
     ctx.arc(avatarCenterX, avatarCenterY, avatarSize / 2, 0, Math.PI * 2);
@@ -316,7 +315,7 @@ async function generateSafariImage(
   const imageUrlRegex = /https?:\/\/[^\s]+\.(jpg|jpeg|png|gif|webp|avif)(\?[^\s]*)?/gi;
   const imageUrls = rawContent.match(imageUrlRegex) || [];
   const firstImageUrl = imageUrls.length > 0 ? imageUrls[0] : null;
-  
+
   // Load the first image if available
   let noteImage: HTMLImageElement | null = null;
   if (firstImageUrl) {
@@ -330,34 +329,38 @@ async function generateSafariImage(
     .replace(/https?:\/\/[^\s]+/gi, '🔗') // Replace other URLs with link emoji
     .replace(/\n\s*\n/g, '\n') // Collapse multiple newlines
     .trim();
-  
+
   const hasReferencedNote = referencedNoteContent && referencedNoteAuthor;
   const hasNoteImage = noteImage !== null;
-  
+
   // Adjust content length based on what we're showing
   let maxContentLength = 300;
   if (hasNoteImage && hasReferencedNote) maxContentLength = 100;
   else if (hasNoteImage) maxContentLength = 150;
   else if (hasReferencedNote) maxContentLength = 200;
-  
-  const displayContent = content.length > maxContentLength 
-    ? content.substring(0, maxContentLength) + '...' 
-    : content;
+
+  const displayContent =
+    content.length > maxContentLength ? content.substring(0, maxContentLength) + '...' : content;
 
   ctx.fillStyle = '#f3f4f6';
   ctx.font = '16px -apple-system, BlinkMacSystemFont, sans-serif';
-  
+
   // Define maxWidth for word wrapping
   const maxWidth = width - padding * 2;
-  
+
   // Word wrap helper
-  const wrapText = (text: string, maxY: number, fontSize: number = 16, color: string = '#f3f4f6') => {
+  const wrapText = (
+    text: string,
+    maxY: number,
+    fontSize: number = 16,
+    color: string = '#f3f4f6'
+  ) => {
     ctx.font = `${fontSize}px -apple-system, BlinkMacSystemFont, sans-serif`;
     ctx.fillStyle = color;
     const lineHeight = fontSize * 1.5;
     const words = text.split(' ');
     let line = '';
-    
+
     for (const word of words) {
       const testLine = line + word + ' ';
       const metrics = ctx.measureText(testLine);
@@ -375,28 +378,30 @@ async function generateSafariImage(
       y += lineHeight;
     }
   };
-  
+
   // Calculate available space for content vs image
   const footerHeight = 100; // engagement + branding
   const refNoteHeight = hasReferencedNote ? 90 : 0;
   const availableHeight = height - y - footerHeight - refNoteHeight - padding;
-  
+
   // Draw main content (limit height if we have an image)
-  const textMaxY = hasNoteImage ? y + Math.min(availableHeight * 0.3, 80) : height - footerHeight - refNoteHeight - 10;
+  const textMaxY = hasNoteImage
+    ? y + Math.min(availableHeight * 0.3, 80)
+    : height - footerHeight - refNoteHeight - 10;
   wrapText(displayContent, textMaxY);
-  
+
   // Draw note image if available
   if (noteImage) {
     y += 10;
-    
+
     // Calculate image dimensions to fit
     const imgMaxWidth = width - padding * 2;
     const imgMaxHeight = Math.min(availableHeight * 0.6, 180);
-    
+
     let imgWidth = noteImage.width;
     let imgHeight = noteImage.height;
     const imgAspect = imgWidth / imgHeight;
-    
+
     // Scale to fit
     if (imgWidth > imgMaxWidth) {
       imgWidth = imgMaxWidth;
@@ -406,10 +411,10 @@ async function generateSafariImage(
       imgHeight = imgMaxHeight;
       imgWidth = imgHeight * imgAspect;
     }
-    
+
     // Center horizontally
     const imgX = padding + (imgMaxWidth - imgWidth) / 2;
-    
+
     // Draw with rounded corners
     ctx.save();
     ctx.beginPath();
@@ -418,21 +423,21 @@ async function generateSafariImage(
     ctx.clip();
     ctx.drawImage(noteImage, imgX, y, imgWidth, imgHeight);
     ctx.restore();
-    
+
     // Add subtle border
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
     ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.roundRect(imgX, y, imgWidth, imgHeight, 8);
     ctx.stroke();
-    
+
     y += imgHeight + 10;
   }
-  
+
   // Draw referenced note if present
   if (hasReferencedNote && y < height - footerHeight - 10) {
     y += 5;
-    
+
     // Quote box background
     const quoteBoxY = y;
     const quoteBoxHeight = Math.min(80, height - y - footerHeight - 5);
@@ -443,9 +448,9 @@ async function generateSafariImage(
     ctx.roundRect(padding, quoteBoxY, width - padding * 2, quoteBoxHeight, 8);
     ctx.fill();
     ctx.stroke();
-    
+
     y = quoteBoxY + 12;
-    
+
     // Referenced note author
     ctx.fillStyle = '#9ca3af';
     ctx.font = 'bold 12px -apple-system, BlinkMacSystemFont, sans-serif';
@@ -453,32 +458,36 @@ async function generateSafariImage(
     ctx.textBaseline = 'top';
     ctx.fillText(`↩ ${referencedNoteAuthor}`, padding + 10, y);
     y += 18;
-    
+
     // Referenced note content (truncated)
-    const refContent = referencedNoteContent.length > 80 
-      ? referencedNoteContent.substring(0, 80) + '...'
-      : referencedNoteContent;
+    const refContent =
+      referencedNoteContent.length > 80
+        ? referencedNoteContent.substring(0, 80) + '...'
+        : referencedNoteContent;
     ctx.fillStyle = '#d1d5db';
     ctx.font = '13px -apple-system, BlinkMacSystemFont, sans-serif';
-    
+
     // Simple single-line truncation for quote
     const refMetrics = ctx.measureText(refContent);
     if (refMetrics.width > width - padding * 2 - 20) {
       let truncated = refContent;
-      while (ctx.measureText(truncated + '...').width > width - padding * 2 - 20 && truncated.length > 0) {
+      while (
+        ctx.measureText(truncated + '...').width > width - padding * 2 - 20 &&
+        truncated.length > 0
+      ) {
         truncated = truncated.slice(0, -1);
       }
       ctx.fillText(truncated + '...', padding + 10, y);
     } else {
       ctx.fillText(refContent, padding + 10, y);
     }
-    
+
     y = quoteBoxY + quoteBoxHeight + 5;
   }
 
   // Engagement metrics at bottom
   y = height - 100;
-  
+
   // Divider line
   ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
   ctx.lineWidth = 1;
@@ -486,7 +495,7 @@ async function generateSafariImage(
   ctx.moveTo(padding, y);
   ctx.lineTo(width - padding, y);
   ctx.stroke();
-  
+
   y += 20;
 
   // Zaps
@@ -526,7 +535,7 @@ async function generateSafariImage(
   const iconSize = 36;
   const iconX = width - padding - iconSize;
   const iconY = height - padding - iconSize;
-  
+
   // Try to load the icon
   const iconImg = await loadImage('/icon.png', 2000);
   if (iconImg) {
@@ -560,8 +569,8 @@ async function generateSafariImage(
         // Fallback to toDataURL
         const dataUrl = canvas.toDataURL('image/png');
         fetch(dataUrl)
-          .then(res => res.blob())
-          .then(b => resolve(b))
+          .then((res) => res.blob())
+          .then((b) => resolve(b))
           .catch(() => resolve(null));
       }
     }, 'image/png');
@@ -576,7 +585,7 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, errorMessage: st
     const timer = setTimeout(() => {
       reject(new Error(errorMessage));
     }, timeoutMs);
-    
+
     promise
       .then((result) => {
         clearTimeout(timer);
@@ -609,7 +618,15 @@ export async function generateNoteImage(
   // Wrap entire generation with a 15-second timeout
   try {
     return await withTimeout(
-      generateNoteImageInternal(event, engagementData, format, showQR, authorName, authorPicture, referencedNote),
+      generateNoteImageInternal(
+        event,
+        engagementData,
+        format,
+        showQR,
+        authorName,
+        authorPicture,
+        referencedNote
+      ),
       15000,
       'Image generation timed out. Please try again.'
     );
@@ -634,8 +651,8 @@ async function generateNoteImageInternal(
   // For Safari, use simple canvas drawing instead of html2canvas
   if (isSafari) {
     return generateSafariImage(
-      event, 
-      engagementData, 
+      event,
+      engagementData,
       authorName,
       authorPicture,
       referencedNote?.content,
@@ -650,8 +667,8 @@ async function generateNoteImageInternal(
     const imageUrls = isSafari ? [] : extractImageUrls(event.content || '');
 
     // Use smaller dimensions for Safari
-    const width = isSafari ? 540 : (format === 'square' ? 1080 : 1200);
-    const height = isSafari ? 540 : (format === 'square' ? 1080 : 675);
+    const width = isSafari ? 540 : format === 'square' ? 1080 : 1200;
+    const height = isSafari ? 540 : format === 'square' ? 1080 : 675;
 
     // Create a temporary container for the card
     container = document.createElement('div');
@@ -664,13 +681,13 @@ async function generateNoteImageInternal(
 
     // Create the HTML structure manually - skip all images on Safari
     const cardHTML = createNoteCardHTML(
-      event, 
-      engagementData, 
-      format, 
-      showQR, 
-      authorName, 
+      event,
+      engagementData,
+      format,
+      showQR,
+      authorName,
       isSafari ? undefined : authorPicture,
-      imageUrls, 
+      imageUrls,
       isSafari ? undefined : referencedNote,
       isSafari // skipAllImages flag for Safari
     );
@@ -683,7 +700,10 @@ async function generateNoteImageInternal(
     if (showQR) {
       const qrContainer = container.querySelector('#qr-code-container');
       if (qrContainer) {
-        const qrDataUrl = await generateQRCode(`https://zap.cooking/${nip19.noteEncode(event.id)}`, 120);
+        const qrDataUrl = await generateQRCode(
+          `https://zap.cooking/${nip19.noteEncode(event.id)}`,
+          120
+        );
         if (qrDataUrl) {
           qrContainer.innerHTML = `<img src="${qrDataUrl}" style="width: 100%; height: 100%;" />`;
         }
@@ -692,7 +712,7 @@ async function generateNoteImageInternal(
 
     // Generate canvas with Safari-specific options
     console.log('[ShareImage] Generating canvas with html2canvas...');
-    
+
     const canvas = await html2canvas(container, {
       width,
       height,
@@ -703,27 +723,31 @@ async function generateNoteImageInternal(
       logging: false,
       foreignObjectRendering: false,
       removeContainer: false,
-      imageTimeout: isSafari ? 0 : 15000,
+      imageTimeout: isSafari ? 0 : 15000
     });
 
     // Convert to blob - use toDataURL as fallback for Safari
     let blob: Blob | null = null;
-    
+
     // Try toBlob first (faster when it works)
     try {
       blob = await new Promise<Blob | null>((resolve, reject) => {
         const timeout = setTimeout(() => {
           reject(new Error('toBlob timeout'));
         }, 3000);
-        
-        canvas.toBlob((b) => {
-          clearTimeout(timeout);
-          if (b) {
-            resolve(b);
-          } else {
-            reject(new Error('toBlob returned null'));
-          }
-        }, 'image/png', 1.0);
+
+        canvas.toBlob(
+          (b) => {
+            clearTimeout(timeout);
+            if (b) {
+              resolve(b);
+            } else {
+              reject(new Error('toBlob returned null'));
+            }
+          },
+          'image/png',
+          1.0
+        );
       });
     } catch (e) {
       // Fallback to toDataURL (works better on Safari)
@@ -773,10 +797,11 @@ function createNoteCardHTML(
     const diffMs = now.getTime() - date.getTime();
     const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
     const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-    
+
     if (diffHours < 1) {
       const diffMins = Math.floor(diffMs / (1000 * 60));
-      timestamp = diffMins < 1 ? 'Just now' : `${diffMins} ${diffMins === 1 ? 'minute' : 'minutes'} ago`;
+      timestamp =
+        diffMins < 1 ? 'Just now' : `${diffMins} ${diffMins === 1 ? 'minute' : 'minutes'} ago`;
     } else if (diffHours < 24) {
       timestamp = `${diffHours} ${diffHours === 1 ? 'hour' : 'hours'} ago`;
     } else if (diffDays < 7) {
@@ -785,11 +810,11 @@ function createNoteCardHTML(
       timestamp = date.toLocaleDateString('en-US', {
         month: 'short',
         day: 'numeric',
-        year: date.getFullYear() !== now.getFullYear() ? 'numeric' : undefined,
+        year: date.getFullYear() !== now.getFullYear() ? 'numeric' : undefined
       });
     }
   }
-  
+
   const zapAmount = Math.floor(engagementData.zaps.totalAmount / 1000);
   const hasZaps = zapAmount > 0;
   const hasReactions = engagementData.reactions.count > 0;
@@ -801,29 +826,28 @@ function createNoteCardHTML(
 
   // Get author pubkey for avatar fallback
   const authorPubkey = event.author?.hexpubkey || event.pubkey;
-  
+
   // Get display name - don't truncate, show full name
-  const displayName = authorName || (() => {
-    try {
-      const npub = nip19.npubEncode(authorPubkey);
-      return npub.substring(0, 16) + '...';
-    } catch {
-      return authorPubkey.substring(0, 16) + '...';
-    }
-  })();
-  
+  const displayName =
+    authorName ||
+    (() => {
+      try {
+        const npub = nip19.npubEncode(authorPubkey);
+        return npub.substring(0, 16) + '...';
+      } catch {
+        return authorPubkey.substring(0, 16) + '...';
+      }
+    })();
+
   // Strip image URLs and nostr references from content
   let cleanContent = stripImageUrls(event.content || '');
   cleanContent = stripNostrReferences(cleanContent);
-  
+
   // Truncate content - shorter if we have images or referenced note to display
   const hasMedia = hasImages || hasReferencedNote;
-  const maxLength = hasMedia 
-    ? (format === 'square' ? 250 : 350)
-    : (format === 'square' ? 500 : 800);
-  const displayContent = cleanContent.length > maxLength
-    ? cleanContent.substring(0, maxLength) + '...'
-    : cleanContent;
+  const maxLength = hasMedia ? (format === 'square' ? 250 : 350) : format === 'square' ? 500 : 800;
+  const displayContent =
+    cleanContent.length > maxLength ? cleanContent.substring(0, maxLength) + '...' : cleanContent;
 
   // Format content - escape HTML, keep newlines as actual line breaks (using pre-wrap)
   const formattedContent = displayContent
@@ -831,21 +855,20 @@ function createNoteCardHTML(
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;');
   // Note: newlines are preserved by white-space: pre-wrap in CSS
-  
+
   // Format referenced note content if present
   let refNoteContent = '';
   let refNoteAuthor = '';
   if (referencedNote) {
-    const refContent = referencedNote.content.length > 200 
-      ? referencedNote.content.substring(0, 200) + '...'
-      : referencedNote.content;
-    refNoteContent = refContent
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;');
-    refNoteAuthor = referencedNote.authorName || referencedNote.authorPubkey.substring(0, 12) + '...';
+    const refContent =
+      referencedNote.content.length > 200
+        ? referencedNote.content.substring(0, 200) + '...'
+        : referencedNote.content;
+    refNoteContent = refContent.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    refNoteAuthor =
+      referencedNote.authorName || referencedNote.authorPubkey.substring(0, 12) + '...';
   }
-  
+
   // Get the origin for absolute URLs (needed for html2canvas to load images)
   const origin = browser ? window.location.origin : '';
 
@@ -883,7 +906,9 @@ function createNoteCardHTML(
         z-index: 1;
       ">
         <!-- Profile Picture -->
-        ${hasProfilePicture ? `
+        ${
+          hasProfilePicture
+            ? `
           <img 
             src="${authorPicture}" 
             crossorigin="anonymous"
@@ -910,7 +935,8 @@ function createNoteCardHTML(
             font-weight: bold;
             color: white;
           ">${getInitials(displayName)}</div>
-        ` : `
+        `
+            : `
           <div style="
             width: 72px;
             height: 72px;
@@ -924,7 +950,8 @@ function createNoteCardHTML(
             font-weight: bold;
             color: white;
           ">${getInitials(displayName)}</div>
-        `}
+        `
+        }
         <div style="flex: 1; min-width: 0;">
           <div style="font-size: 28px; font-weight: 600; margin-bottom: 4px; line-height: 1.3;">
             ${displayName}
@@ -936,7 +963,9 @@ function createNoteCardHTML(
       </div>
 
       <!-- Content -->
-      ${formattedContent ? `
+      ${
+        formattedContent
+          ? `
         <div style="
           font-size: ${hasImages ? '26px' : '32px'};
           line-height: 1.7;
@@ -950,10 +979,14 @@ function createNoteCardHTML(
           letter-spacing: 0.01em;
           ${hasImages ? 'max-height: 200px;' : 'flex: 1;'}
         ">${formattedContent}</div>
-      ` : ''}
+      `
+          : ''
+      }
 
       <!-- Image (first one only for now) -->
-      ${hasImages ? `
+      ${
+        hasImages
+          ? `
         <div style="
           flex: 1;
           display: flex;
@@ -977,10 +1010,14 @@ function createNoteCardHTML(
             onerror="this.style.display='none'"
           />
         </div>
-      ` : ''}
+      `
+          : ''
+      }
 
       <!-- Referenced/Quoted Note -->
-      ${hasReferencedNote && referencedNote ? `
+      ${
+        hasReferencedNote && referencedNote
+          ? `
         <div style="
           ${!hasImages ? 'flex: 1;' : ''}
           background: rgba(255, 255, 255, 0.05);
@@ -998,7 +1035,9 @@ function createNoteCardHTML(
             gap: 12px;
             margin-bottom: 12px;
           ">
-            ${referencedNote.authorPicture ? `
+            ${
+              referencedNote.authorPicture
+                ? `
               <img 
                 src="${referencedNote.authorPicture}" 
                 crossorigin="anonymous"
@@ -1010,7 +1049,8 @@ function createNoteCardHTML(
                 "
                 onerror="this.style.display='none'"
               />
-            ` : `
+            `
+                : `
               <div style="
                 width: 36px;
                 height: 36px;
@@ -1023,7 +1063,8 @@ function createNoteCardHTML(
                 font-weight: bold;
                 color: white;
               ">${getInitials(refNoteAuthor)}</div>
-            `}
+            `
+            }
             <div style="font-size: 18px; font-weight: 600; color: #e5e7eb;">
               ${refNoteAuthor}
             </div>
@@ -1037,7 +1078,9 @@ function createNoteCardHTML(
             word-wrap: break-word;
           ">${refNoteContent}</div>
         </div>
-      ` : ''}
+      `
+          : ''
+      }
 
       <!-- Engagement metrics - always show all three -->
       <div style="
@@ -1096,7 +1139,9 @@ function createNoteCardHTML(
             Found on zap.cooking ⚡
           </div>
         </div>
-        ${showLogo ? `
+        ${
+          showLogo
+            ? `
           <!-- Pan logo in bottom right -->
           <img 
             src="${origin}/icon.png" 
@@ -1108,14 +1153,16 @@ function createNoteCardHTML(
             "
             onerror="this.style.display='none'"
           />
-        ` : `
+        `
+            : `
           <!-- Text logo fallback for Safari -->
           <div style="
             font-size: 48px;
             font-weight: bold;
             color: #fbbf24;
           ">🍳</div>
-        `}
+        `
+        }
       </div>
     </div>
   `;
@@ -1170,10 +1217,7 @@ function waitForImages(container: HTMLElement, timeoutMs: number = 5000): Promis
 /**
  * Share or download the image
  */
-export async function shareNoteImage(
-  blob: Blob,
-  filename: string
-): Promise<boolean> {
+export async function shareNoteImage(blob: Blob, filename: string): Promise<boolean> {
   if (!browser) return false;
 
   try {
@@ -1183,7 +1227,7 @@ export async function shareNoteImage(
       if (navigator.canShare({ files: [file] })) {
         await navigator.share({
           files: [file],
-          title: 'Found on zap.cooking ⚡',
+          title: 'Found on zap.cooking ⚡'
         });
         return true;
       }

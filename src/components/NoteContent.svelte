@@ -11,6 +11,7 @@
   import YouTubeEmbed from './YouTubeEmbed.svelte';
   import MediaCarousel from './MediaCarousel.svelte';
   import { processContentWithProfiles } from '$lib/contentProcessor';
+  import { isImageUrl, filterImageUrls } from '$lib/imageUrls';
   import MediaLightbox from './MediaLightbox.svelte';
   import LightningInvoiceCard from './LightningInvoiceCard.svelte';
 
@@ -40,38 +41,16 @@
     selectedImageIndex = 0;
   }
 
-  // Extract all image URLs from parsed content for navigation
-  function extractImageUrls(parts: any[]): string[] {
-    return parts
-      .filter((part) => part.type === 'url' && part.url && isImageUrl(part.url))
-      .map((part) => part.url);
-  }
+  // Image URLs from parsed content, deduplicated ($lib/imageUrls is the
+  // shared source of truth for detection). Dedup keeps the lightbox
+  // correct for notes that post the same image twice: every open site
+  // resolves its pane via allImageUrls.indexOf(url), so both rendered
+  // occurrences land on the single pane that shows that image.
+  $: allImageUrls = filterImageUrls(
+    finalParsedContent.filter((part: any) => part.type === 'url' && part.url).map((p: any) => p.url)
+  );
 
-  // Update allImageUrls when content changes
-  $: allImageUrls = extractImageUrls(finalParsedContent);
-
-  // Image extensions to detect
-  const IMAGE_EXTENSIONS = /\.(jpg|jpeg|png|gif|webp|svg|bmp|avif)(\?.*)?$/i;
   const VIDEO_EXTENSIONS = /\.(mp4|webm|mov|avi|mkv)(\?.*)?$/i;
-
-  function isImageUrl(url: string): boolean {
-    try {
-      const urlObj = new URL(url);
-      // Check extension
-      if (IMAGE_EXTENSIONS.test(urlObj.pathname)) return true;
-      // Check common image hosting patterns
-      if (urlObj.hostname.includes('image.nostr.build')) return true;
-      if (urlObj.hostname.includes('nostr.build') && urlObj.pathname.includes('/i/')) return true;
-      if (urlObj.hostname.includes('imgur.com')) return true;
-      if (urlObj.hostname.includes('imgproxy')) return true;
-      if (urlObj.hostname.includes('primal.b-cdn.net')) return true;
-      if (urlObj.hostname.includes('media.tenor.com')) return true;
-      if (urlObj.hostname.includes('i.ibb.co')) return true;
-      return false;
-    } catch {
-      return false;
-    }
-  }
 
   function isVideoUrl(url: string): boolean {
     try {

@@ -60,6 +60,25 @@ export function isImageUrl(url: string): boolean {
 }
 
 /**
+ * Filter candidate URLs down to image URLs, preserving first-occurrence
+ * order and deduplicating. Dedup is load-bearing for lightbox
+ * navigation: NoteContent resolves the pane index via
+ * `allImageUrls.indexOf(url)`, so every occurrence of a repeated URL
+ * must resolve to the single pane that renders it.
+ */
+export function filterImageUrls(urls: string[]): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const url of urls) {
+    if (url && !seen.has(url) && isImageUrl(url)) {
+      seen.add(url);
+      result.push(url);
+    }
+  }
+  return result;
+}
+
+/**
  * Extract image URLs from raw note content (kind-1 text), in order of
  * appearance, deduplicated. Works on the raw string — unlike
  * NoteContent's internal parts-based extraction, this needs no parser
@@ -67,15 +86,7 @@ export function isImageUrl(url: string): boolean {
  */
 export function extractImageUrls(content: string): string[] {
   if (!content) return [];
-  const seen = new Set<string>();
-  const result: string[] = [];
-  for (const raw of content.match(URL_REGEX) ?? []) {
-    // Strip punctuation that trails a URL embedded in prose.
-    const url = raw.replace(/[.,;:!?]+$/, '');
-    if (!seen.has(url) && isImageUrl(url)) {
-      seen.add(url);
-      result.push(url);
-    }
-  }
-  return result;
+  // Strip punctuation that trails a URL embedded in prose.
+  const candidates = (content.match(URL_REGEX) ?? []).map((raw) => raw.replace(/[.,;:!?]+$/, ''));
+  return filterImageUrls(candidates);
 }

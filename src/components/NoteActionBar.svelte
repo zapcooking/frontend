@@ -4,6 +4,7 @@
   import NoteTotalComments from './NoteTotalComments.svelte';
   import NoteRepost from './NoteRepost.svelte';
   import NoteTotalZaps from './NoteTotalZaps.svelte';
+  import CheffyNoteReviewTrigger from './CheffyNoteReviewTrigger.svelte';
   import ZapModal from './ZapModal.svelte';
   import { ndk, userPublickey } from '$lib/nostr';
   import { fetchEngagement, optimisticZapUpdate, markSelfZapCompleted } from '$lib/engagementCache';
@@ -25,6 +26,9 @@
 
   /** Show the repost/quote button */
   export let showRepost: boolean = true;
+
+  /** Show the "Ask Cheffy about this dish" trigger (image-bearing notes only) */
+  export let showCheffy: boolean = true;
 
   let zapModalOpen = false;
 
@@ -103,6 +107,11 @@
       </div>
     {/if}
 
+    {#if showCheffy}
+      <!-- Renders nothing for imageless notes — the trigger owns detection. -->
+      <CheffyNoteReviewTrigger {event} wrapClass={iconWrapClass} />
+    {/if}
+
     <div class={zapWrapClass}>
       <NoteTotalZaps {event} onZapClick={openZapModal} />
     </div>
@@ -138,5 +147,4 @@
   .full .zap-pills-row {
     padding: 0;
   }
-
 </style>
