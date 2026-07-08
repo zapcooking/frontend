@@ -33,6 +33,15 @@ jobs:
             exit 1
           fi
 
+      - name: PASSKEY_SIGNUP_ENABLED must be false on main 🚫
+        run: |
+          if ! grep -q "export const PASSKEY_SIGNUP_ENABLED = false" src/lib/passkeySync.ts; then
+            echo "::error file=src/lib/passkeySync.ts::PASSKEY_SIGNUP_ENABLED is not false."
+            echo "Launch flips SIGNUP and SYNC together in one deliberate PR that"
+            echo "updates this guard (R3 ruling). A stray flip must not reach main."
+            exit 1
+          fi
+
   lint:
     runs-on: ubuntu-latest
     timeout-minutes: 10

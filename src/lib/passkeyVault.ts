@@ -73,7 +73,15 @@ export interface VaultRecord {
   keys: VaultKeyEntry[];
 }
 
-export class PasskeyVaultError extends Error {}
+export class PasskeyVaultError extends Error {
+  /**
+   * True when the failure happened AFTER create() completed: a credential
+   * may exist in the user's provider even though nothing was persisted on
+   * our side. UI copy shows the "safe to delete" orphan note only when
+   * this is set (we cannot delete authenticator-side credentials).
+   */
+  orphanPasskeyLikely = false;
+}
 /** Authenticator/provider has no usable PRF — enrollment must not proceed. */
 export class PrfUnsupportedError extends PasskeyVaultError {}
 /** Post-enroll round-trip verification failed — nothing was persisted. */
@@ -356,9 +364,16 @@ export async function enrollPasskey(
   })) as PublicKeyCredential | null;
   if (!created) throw new PasskeyVaultError('Passkey creation returned no credential');
 
+  // Everything past this point fails with orphanPasskeyLikely: the
+  // credential exists provider-side even though we persist nothing.
+  const tagOrphan = (e: unknown): never => {
+    if (e instanceof PasskeyVaultError) e.orphanPasskeyLikely = true;
+    throw e;
+  };
+
   const createExt = (created.getClientExtensionResults() as any)?.prf;
   if (createExt && createExt.enabled === false) {
-    throw new PrfUnsupportedError('Passkey provider reported PRF unsupported on create()');
+    tagOrphan(new PrfUnsupportedError('Passkey provider reported PRF unsupported on create()'));
   }
 
   // Capture the credential public key for vault-sync (SPKI DER — no CBOR
@@ -381,7 +396,9 @@ export async function enrollPasskey(
   // Verify-on-get: derive the KEK from a real assertion, never from create().
   // With opts.serverChallenge this same prompt also produces the TOFU PUT
   // assertion — enrollment must never grow a third ceremony.
-  const { credentialId, prfOutput, assertion } = await assertWithPrf([created.id], opts);
+  const { credentialId, prfOutput, assertion } = await assertWithPrf([created.id], opts).catch(
+    tagOrphan
+  );
 
   const kek = deriveKek(prfOutput);
   const dek = generateDek();
@@ -415,10 +432,13 @@ export async function enrollPasskey(
     saveVaultRecord(record);
     return { record, assertion };
   } catch (e) {
-    if (e instanceof PasskeyVaultError) throw e;
-    throw new EnrollVerifyError(
-      `Vault verification failed: ${e instanceof Error ? e.message : String(e)}`
+    if (e instanceof PasskeyVaultError) tagOrphan(e);
+    tagOrphan(
+      new EnrollVerifyError(
+        `Vault verification failed: ${e instanceof Error ? e.message : String(e)}`
+      )
     );
+    throw e; // unreachable — tagOrphan always throws; keeps TS control-flow happy
   } finally {
     zeroize(kek, dek, verifyDek, prfOutput);
   }
