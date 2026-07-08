@@ -27,6 +27,7 @@
 
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
+import { CHEFFY_VISION_MODEL } from '$lib/cheffyPrompt.server';
 
 const SCAN_PROMPT = `You are analyzing a photo of a refrigerator, pantry, or food items for the Zap Cooking app.
 
@@ -121,7 +122,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
         Authorization: `Bearer ${OPENAI_API_KEY}`
       },
       body: JSON.stringify({
-        model: 'gpt-4o-mini',
+        model: CHEFFY_VISION_MODEL,
         messages: [
           {
             role: 'user',
