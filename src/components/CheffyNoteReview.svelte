@@ -26,6 +26,10 @@
     publishNoteReviewReply,
     retryPublishSignedEvent,
     canPost,
+    withDisclosureFooter,
+    loadDisclosurePref,
+    saveDisclosurePref,
+    DISCLOSURE_FOOTER,
     NOTE_REVIEW_POST_ENABLED,
     type NoteReviewMode,
     type NoteReviewPhase,
@@ -36,8 +40,11 @@
   export let event: NDKEvent;
   export let imageUrls: string[] = [];
 
-  // Multi-image notes default to the first image (picker strip: Phase 4).
-  $: imageUrl = imageUrls[0] ?? '';
+  // Multi-image picker: defaults to the first image; selection persists
+  // across Regenerate (only reset() clears it). One imageUrl per server
+  // call — the picker is purely client-side selection.
+  let selectedImageIndex = 0;
+  $: imageUrl = imageUrls[selectedImageIndex] ?? imageUrls[0] ?? '';
 
   let phase: NoteReviewPhase = 'choose';
   let mode: NoteReviewMode = 'comment';
@@ -48,6 +55,12 @@
   let postError = '';
   let noteLink = '';
   let timeoutSignedEvent: NDKEvent | null = null;
+  // Disclosure footer toggle — per-mode preference, applied at publish
+  // time only (never part of the editable draft).
+  let disclosureOn = false;
+  // Remaining free drafts, from the server's additive previewRemaining
+  // field (preview-granted requests only).
+  let previewRemaining: number | null = null;
 
   $: signedIn = $userPublickey !== '';
   $: normalizedPk = $userPublickey.trim().toLowerCase();
@@ -56,6 +69,7 @@
 
   async function run(selected: NoteReviewMode) {
     mode = selected;
+    disclosureOn = loadDisclosurePref(selected);
     phase = 'signing';
     loadingLine = pickLine(selected === 'recipe' ? COOKING_LINES : THINKING_LINES, loadingLine);
     const result = await requestNoteReview({
@@ -68,11 +82,19 @@
       experience: signedIn && !hasMembership,
       onSigned: () => (phase = 'loading')
     });
-    if (result.ok) draft = result.output;
+    if (result.ok) {
+      draft = result.output;
+      previewRemaining = result.previewRemaining ?? null;
+    }
     const next = phaseForResult(result);
     phase = next.phase;
     message = next.message;
     if (phase === 'error') errorLine = pickLine(ERROR_LINES, errorLine);
+  }
+
+  function toggleDisclosure() {
+    disclosureOn = !disclosureOn;
+    saveDisclosurePref(mode, disclosureOn);
   }
 
   function handlePublishOutcome(outcome: PublishOutcome) {
@@ -98,7 +120,13 @@
     postError = '';
     phase = 'posting';
     handlePublishOutcome(
-      await publishNoteReviewReply({ ndk: $ndk, parentEvent: event, content: draft })
+      await publishNoteReviewReply({
+        ndk: $ndk,
+        parentEvent: event,
+        // Footer joins the content only here, at publish time — the
+        // textarea's value (draft) never contains it.
+        content: withDisclosureFooter(draft, disclosureOn)
+      })
     );
   }
 
@@ -123,6 +151,8 @@
     postError = '';
     noteLink = '';
     timeoutSignedEvent = null;
+    selectedImageIndex = 0;
+    previewRemaining = null;
   }
 
   function signIn() {
@@ -158,6 +188,21 @@
       {#if imageUrl}
         <img class="nr-thumb" src={imageUrl} alt="Dish from the note" loading="lazy" />
       {/if}
+      {#if imageUrls.length > 1}
+        <div class="nr-picker" role="group" aria-label="Choose which photo Cheffy looks at">
+          {#each imageUrls as url, i (url)}
+            <button
+              type="button"
+              class="nr-picker-thumb"
+              class:nr-picker-selected={i === selectedImageIndex}
+              aria-pressed={i === selectedImageIndex}
+              on:click={() => (selectedImageIndex = i)}
+            >
+              <img src={url} alt="Photo {i + 1} of {imageUrls.length}" loading="lazy" />
+            </button>
+          {/each}
+        </div>
+      {/if}
       <p class="nr-hint">What should Cheffy draft? You'll edit it before anything is posted.</p>
       <div class="nr-choices">
         <button type="button" class="nr-choice" on:click={() => run('comment')}>
@@ -182,7 +227,14 @@
       </div>
     {:else if phase === 'draft' || phase === 'posting'}
       {@const posting = phase === 'posting'}
-      <p class="nr-hint">Cheffy's draft — make it yours, then post it as your own reply.</p>
+      <div class="nr-draft-head">
+        <p class="nr-hint">Cheffy's draft — make it yours, then post it as your own reply.</p>
+        {#if previewRemaining !== null}
+          <span class="nr-preview-chip">
+            {previewRemaining === 1 ? '1 free draft left' : `${previewRemaining} free drafts left`}
+          </span>
+        {/if}
+      </div>
       <textarea
         class="nr-draft"
         class:nr-draft-recipe={mode === 'recipe'}
@@ -191,6 +243,21 @@
         aria-label="Cheffy's draft"
         disabled={posting}
       ></textarea>
+      <label class="nr-disclosure">
+        <input
+          type="checkbox"
+          checked={disclosureOn}
+          on:change={toggleDisclosure}
+          disabled={posting}
+        />
+        <span>Add a small "via Cheffy" note</span>
+      </label>
+      {#if disclosureOn}
+        <!-- Publish-time footer preview — never part of the textarea. -->
+        <div class="nr-footer-preview" aria-label="Footer added when posting">
+          {DISCLOSURE_FOOTER}
+        </div>
+      {/if}
       {#if postError}
         <p class="nr-post-error">{postError}</p>
       {/if}
@@ -363,6 +430,77 @@
     padding: 8px 12px;
     border-radius: 8px;
     background: color-mix(in srgb, var(--color-primary) 8%, transparent);
+  }
+
+  .nr-picker {
+    display: flex;
+    gap: 8px;
+    overflow-x: auto;
+    padding-bottom: 4px;
+  }
+
+  .nr-picker-thumb {
+    flex: 0 0 auto;
+    width: 56px;
+    height: 56px;
+    padding: 0;
+    border: 2px solid transparent;
+    border-radius: 10px;
+    overflow: hidden;
+    background: none;
+    cursor: pointer;
+  }
+
+  .nr-picker-thumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+
+  .nr-picker-selected {
+    border-color: var(--color-primary);
+  }
+
+  .nr-draft-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  .nr-preview-chip {
+    flex: 0 0 auto;
+    font-size: 0.75rem;
+    font-weight: 600;
+    padding: 3px 10px;
+    border-radius: 999px;
+    color: var(--color-primary);
+    background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+  }
+
+  .nr-disclosure {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.85rem;
+    color: var(--color-text-secondary);
+    cursor: pointer;
+    user-select: none;
+  }
+
+  .nr-disclosure input {
+    accent-color: var(--color-primary);
+  }
+
+  .nr-footer-preview {
+    font-size: 0.85rem;
+    color: var(--color-text-secondary);
+    padding: 6px 12px;
+    border-radius: 8px;
+    border: 1px dashed var(--color-input-border);
+    width: fit-content;
   }
 
   .nr-draft {

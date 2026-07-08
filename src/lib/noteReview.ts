@@ -44,7 +44,7 @@ export function canPost(phase: NoteReviewPhase): boolean {
 }
 
 export type NoteReviewResult =
-  | { ok: true; output: string }
+  | { ok: true; output: string; previewRemaining?: number }
   | { ok: false; code?: string; error?: string; status?: number };
 
 // Mirrors the server cap — a longer note just loses its tail.
@@ -166,7 +166,14 @@ export async function requestNoteReview(opts: NoteReviewRequestOpts): Promise<No
     });
     const data: Record<string, unknown> = await resp.json().catch(() => ({}));
     if (resp.ok && data.ok === true && typeof data.output === 'string') {
-      return { ok: true, output: data.output };
+      return {
+        ok: true,
+        output: data.output,
+        // Additive server field on preview-granted requests only.
+        ...(typeof data.previewRemaining === 'number'
+          ? { previewRemaining: data.previewRemaining }
+          : {})
+      };
     }
     return {
       ok: false,
@@ -311,5 +318,60 @@ export async function retryPublishSignedEvent(opts: RetryPublishOpts): Promise<P
     // Still no relay ack — keep the signed event so the member can try
     // again or safely close (it may have landed regardless).
     return { ok: false, code: 'publish-timeout', message: POST_TIMEOUT_LINE, signedEvent };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Disclosure footer (Phase 4) — optional "via Cheffy" attribution
+// ---------------------------------------------------------------------------
+
+/**
+ * Appended at publish time when the member's toggle is on — NEVER
+ * embedded in the editable textarea (the modal shows it as a separate
+ * non-editable preview). Exact string is part of the product spec.
+ */
+export const DISCLOSURE_FOOTER = '⚡🍳 via Cheffy · zap.cooking';
+
+/**
+ * Build the publish content: the member's draft, untouched, plus the
+ * footer on its own line after one blank line when the toggle is on.
+ * Trailing whitespace on the draft is normalized so the footer never
+ * drifts more than one blank line away.
+ */
+export function withDisclosureFooter(draft: string, on: boolean): string {
+  if (!on) return draft;
+  return `${draft.replace(/\s+$/, '')}\n\n${DISCLOSURE_FOOTER}`;
+}
+
+// Per-mode preference, house pattern: zapcooking_* localStorage keys.
+// Defaults differ by mode: a recipe is Cheffy's structured work product
+// (attribution on), a comment is the member's own voice (off).
+const DISCLOSURE_PREF_KEYS: Record<NoteReviewMode, string> = {
+  comment: 'zapcooking_note_review_disclosure_comment',
+  recipe: 'zapcooking_note_review_disclosure_recipe'
+};
+
+export const DISCLOSURE_DEFAULTS: Record<NoteReviewMode, boolean> = {
+  comment: false,
+  recipe: true
+};
+
+export function loadDisclosurePref(mode: NoteReviewMode): boolean {
+  if (typeof localStorage === 'undefined') return DISCLOSURE_DEFAULTS[mode];
+  try {
+    const raw = localStorage.getItem(DISCLOSURE_PREF_KEYS[mode]);
+    return raw === null ? DISCLOSURE_DEFAULTS[mode] : raw === '1';
+  } catch {
+    return DISCLOSURE_DEFAULTS[mode];
+  }
+}
+
+export function saveDisclosurePref(mode: NoteReviewMode, on: boolean): void {
+  if (typeof localStorage === 'undefined') return;
+  try {
+    localStorage.setItem(DISCLOSURE_PREF_KEYS[mode], on ? '1' : '0');
+  } catch {
+    // Storage unavailable (private mode) — the toggle still works for
+    // the session; it just won't be remembered.
   }
 }

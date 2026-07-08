@@ -850,6 +850,14 @@
                   </div>
                 </li>
                 <li>
+                  <span class="feature-icon">📸</span>
+                  <div class="feature-content">
+                    <span class="feature-text"
+                      >Cheffy photo review - draft a reply or recipe from any dish photo on the feed</span
+                    >
+                  </div>
+                </li>
+                <li>
                   <span class="feature-icon">✨</span>
                   <div class="feature-content">
                     <span class="feature-text">Sous Chef features</span>

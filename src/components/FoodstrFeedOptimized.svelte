@@ -101,7 +101,7 @@
   import {
     fetchFeedFromPrimal,
     fetchGlobalFromPrimal,
-    fetchContactListFromPrimal,
+    fetchContactListFromPrimal
   } from '$lib/primalCache';
 
   // Membership checking for member feed
@@ -455,7 +455,12 @@
   const RELAY_POOLS = {
     recipes: ['wss://nos.lol', 'wss://relay.damus.io'], // General relays with recipe content
     fallback: ['wss://relay.primal.net', 'wss://nostr.wine', 'wss://antiprimal.net'], // Fast general relays for broader discovery
-    discovery: ['wss://nostr.wine', 'wss://relay.primal.net', 'wss://purplepag.es', 'wss://antiprimal.net'], // Additional relays for discovery
+    discovery: [
+      'wss://nostr.wine',
+      'wss://relay.primal.net',
+      'wss://purplepag.es',
+      'wss://antiprimal.net'
+    ], // Additional relays for discovery
     profiles: ['wss://purplepag.es'], // Profile metadata (356ms, specialized for kind:0)
     members: ['wss://pantry.zap.cooking'] // Private member relay (The Pantry)
   };
@@ -704,7 +709,9 @@
         ) {
           // Fix C: Single-fire per intersection — reset after rAF
           sentinelFiredThisFrame = true;
-          requestAnimationFrame(() => { if (!isDestroyed) sentinelFiredThisFrame = false; });
+          requestAnimationFrame(() => {
+            if (!isDestroyed) sentinelFiredThisFrame = false;
+          });
           loadMore();
         }
       },
@@ -931,7 +938,10 @@
   // Click anywhere on a feed card (except on a link, button, or while
   // selecting text) to open the single-note view.
   function gotoNoteFromCard(e: MouseEvent, ev: NDKEvent) {
-    if (e.target instanceof Element && e.target.closest('a, button, input, textarea, [role="button"]')) {
+    if (
+      e.target instanceof Element &&
+      e.target.closest('a, button, input, textarea, [role="button"]')
+    ) {
       return;
     }
     if (typeof window !== 'undefined' && window.getSelection()?.toString()) return;
@@ -1363,11 +1373,7 @@
       const staleKeys: string[] = [];
       for (let i = 0; i < localStorage.length; i++) {
         const k = localStorage.key(i);
-        if (
-          k &&
-          k.startsWith(INSTANT_CACHE_LEGACY_PREFIX) &&
-          !k.startsWith(INSTANT_CACHE_PREFIX)
-        ) {
+        if (k && k.startsWith(INSTANT_CACHE_LEGACY_PREFIX) && !k.startsWith(INSTANT_CACHE_PREFIX)) {
           staleKeys.push(k);
         }
       }
@@ -2056,7 +2062,9 @@
         // Start Primal fetch (non-blocking)
         const primalPromise = (async (): Promise<NDKEvent[] | null> => {
           try {
-            const primalFollows = (primalPrefetch ? await primalPrefetch : null) || await fetchContactListFromPrimal($userPublickey);
+            const primalFollows =
+              (primalPrefetch ? await primalPrefetch : null) ||
+              (await fetchContactListFromPrimal($userPublickey));
             primalPrefetch = null; // Consumed
 
             if (!primalFollows || primalFollows.length === 0) return null;
@@ -2093,11 +2101,7 @@
           };
         }
 
-        const outboxPromise = fetchFollowingEvents(
-          $ndk,
-          $userPublickey,
-          outboxOptions
-        );
+        const outboxPromise = fetchFollowingEvents($ndk, $userPublickey, outboxOptions);
 
         // Race: use whichever resolves with good data first
         const primalResult = await Promise.race([
@@ -2187,9 +2191,10 @@
         const repliesPrimalPromise = (async (): Promise<NDKEvent[] | null> => {
           try {
             // Use already-cached follow list instead of re-fetching from Primal
-            const follows = followedPubkeysForRealtime.length > 0
-              ? followedPubkeysForRealtime
-              : await fetchContactListFromPrimal($userPublickey);
+            const follows =
+              followedPubkeysForRealtime.length > 0
+                ? followedPubkeysForRealtime
+                : await fetchContactListFromPrimal($userPublickey);
 
             if (!follows || follows.length === 0) return null;
 
@@ -2427,7 +2432,10 @@
       }
 
       // Start relay pool fetch immediately (runs in parallel with Primal)
-      const relayPoolPromise = fetchFromRelays(hashtagFilter, [...RELAY_POOLS.recipes, ...RELAY_POOLS.fallback]);
+      const relayPoolPromise = fetchFromRelays(hashtagFilter, [
+        ...RELAY_POOLS.recipes,
+        ...RELAY_POOLS.fallback
+      ]);
 
       // Start Primal fetch concurrently (only for community global, not profile views)
       let primalGlobalResult: NDKEvent[] | null = null;
@@ -2436,10 +2444,12 @@
           // Race: Primal vs relay pools — use whichever finishes with good data first
           const primalPromise = (async (): Promise<NDKEvent[] | null> => {
             try {
-              const result = primalPrefetch ? await primalPrefetch : await fetchGlobalFromPrimal($ndk, {
-                limit: 200,
-                since: sevenDaysAgo()
-              });
+              const result = primalPrefetch
+                ? await primalPrefetch
+                : await fetchGlobalFromPrimal($ndk, {
+                    limit: 200,
+                    since: sevenDaysAgo()
+                  });
               primalPrefetch = null;
               if (!result) return null;
               const { events: primalEvents } = result;
@@ -2527,12 +2537,11 @@
       // freshness gap (e.g., newest is 3+ hours old while unhashtagged food posts
       // exist from minutes ago).
       if (!authorPubkey) {
-        const newestHashtagTime = hashtagEvents.length > 0
-          ? Math.max(...hashtagEvents.map((e) => e.created_at || 0))
-          : 0;
+        const newestHashtagTime =
+          hashtagEvents.length > 0 ? Math.max(...hashtagEvents.map((e) => e.created_at || 0)) : 0;
         const THIRTY_MINUTES = 30 * 60;
         const now = Math.floor(Date.now() / 1000);
-        const resultsAreStale = newestHashtagTime > 0 && (now - newestHashtagTime) > THIRTY_MINUTES;
+        const resultsAreStale = newestHashtagTime > 0 && now - newestHashtagTime > THIRTY_MINUTES;
 
         if (hashtagEvents.length < 30 || resultsAreStale) {
           try {
@@ -2875,7 +2884,10 @@
     } else if (filterMode !== 'members') {
       // Global feed: always apply food filter
       // Profile view: respect the foodFilterEnabled toggle (matches initial load)
-      if (authorPubkey ? (foodFilterEnabled && !shouldIncludeEvent(event)) : !shouldIncludeEvent(event)) return;
+      if (
+        authorPubkey ? foodFilterEnabled && !shouldIncludeEvent(event) : !shouldIncludeEvent(event)
+      )
+        return;
     }
     // Members mode: no food filter
 
@@ -3062,9 +3074,10 @@
         if (!$userPublickey) return;
 
         // Reuse cached follow list — avoid redundant Primal call
-        const follows = followedPubkeysForRealtime.length > 0
-          ? followedPubkeysForRealtime
-          : await fetchContactListFromPrimal($userPublickey);
+        const follows =
+          followedPubkeysForRealtime.length > 0
+            ? followedPubkeysForRealtime
+            : await fetchContactListFromPrimal($userPublickey);
 
         if (filterMode !== startMode) return;
         if (follows.length === 0) return;
@@ -3319,9 +3332,7 @@
 
       if (validNew.length > 0) {
         validNew.forEach((e) => seenEventIds.add(e.id));
-        events = [...validNew, ...events].sort(
-          (a, b) => getEventSortTime(b) - getEventSortTime(a)
-        );
+        events = [...validNew, ...events].sort((a, b) => getEventSortTime(b) - getEventSortTime(a));
         lastEventTime = Math.max(lastEventTime, ...validNew.map(getEventSortTime));
         await cacheEvents();
       }
@@ -4676,7 +4687,13 @@
   // either way. Letting the batch run for everyone warms/populates the
   // engagement store first, so subsequent per-card fetchEngagement calls can
   // see already-fetched fresh data and no-op instead of fanning out.
-  $: if (typeof window !== 'undefined' && $ndk && events.length > 0 && !loading && renderedNotes.size > 0) {
+  $: if (
+    typeof window !== 'undefined' &&
+    $ndk &&
+    events.length > 0 &&
+    !loading &&
+    renderedNotes.size > 0
+  ) {
     // Clear any pending preload
     if (engagementPreloadTimeout) {
       clearTimeout(engagementPreloadTimeout);
@@ -4684,7 +4701,9 @@
 
     // Only preload engagement for items near the viewport (in renderedNotes)
     engagementPreloadTimeout = setTimeout(async () => {
-      const allEventIds = events.map((e) => e.id).filter((id): id is string => Boolean(id) && renderedNotes.has(id));
+      const allEventIds = events
+        .map((e) => e.id)
+        .filter((id): id is string => Boolean(id) && renderedNotes.has(id));
 
       // Filter to only fetch events that aren't already fresh
       // Cached data loads instantly via getEngagementStore, so only preload if missing/stale
@@ -4723,12 +4742,7 @@
   // VISIBILITY UPDATE: When items become visible, ensure they're fresh.
   // Same anon-friendly rationale as the preload reactive above — batching
   // benefits everyone, not just logged-in users.
-  $: if (
-    typeof window !== 'undefined' &&
-    $ndk &&
-    visibleNotes.size > 0 &&
-    events.length > 0
-  ) {
+  $: if (typeof window !== 'undefined' && $ndk && visibleNotes.size > 0 && events.length > 0) {
     // Debounce batch fetching to avoid too many calls
     if (engagementBatchTimeout) {
       clearTimeout(engagementBatchTimeout);
@@ -4942,398 +4956,408 @@
           <div
             use:renderZoneAction={event.id}
             class="feed-post-wrapper"
-            style="{!renderedNotes.has(event.id) && measuredHeights.has(event.id) ? `height: ${measuredHeights.get(event.id)}px;` : ''}"
+            style={!renderedNotes.has(event.id) && measuredHeights.has(event.id)
+              ? `height: ${measuredHeights.get(event.id)}px;`
+              : ''}
           >
-          {#if renderedNotes.has(event.id)}
-          <!-- Get engagement info - always check cache, subscribe only when visible -->
-          {@const isVisible = visibleNotes.has(event.id)}
-          {@const engagementInfo = getEngagementRenderInfo(event.id, isVisible)}
-          <!-- Glow/animation disabled on community feed to reduce bandwidth -->
-          <!-- {@const isZapAnimating = zapAnimatingNotes.has(event.id)} -->
-          <!-- {@const zapGlowTier = engagementInfo.zapGlowTier} -->
-          {@const engagementStoreValue = get(getEngagementStore(event.id))}
-          {@const engagementData = {
-            zaps: {
-              totalAmount: engagementStoreValue.zaps.totalAmount,
-              count: engagementStoreValue.zaps.count
-            },
-            reactions: { count: engagementStoreValue.reactions.count },
-            comments: { count: engagementStoreValue.comments.count }
-          }}
-          <!-- svelte-ignore a11y-no-noninteractive-element-to-interactive-role -->
-          <article
-            class="w-full cursor-pointer"
-            on:click={(e) => gotoNoteFromCard(e, event)}
-            role="link"
-            tabindex="0"
-            on:keydown|self={(e) => {
-              if (e.key === 'Enter') {
-                const href = noteHrefFromEventId(event.id);
-                if (href) goto(href);
-              }
-            }}
-          >
-            {#if getRepostedBy(event)}
-              {@const reposterPubkey = getRepostedBy(event) || ''}
-              <a
-                href="/user/{nip19.npubEncode(reposterPubkey)}"
-                class="flex items-center gap-1.5 text-xs mb-3 px-2 sm:px-0 hover:opacity-80 transition-opacity"
-                style="color: var(--color-caption)"
-                on:click|stopPropagation
+            {#if renderedNotes.has(event.id)}
+              <!-- Get engagement info - always check cache, subscribe only when visible -->
+              {@const isVisible = visibleNotes.has(event.id)}
+              {@const engagementInfo = getEngagementRenderInfo(event.id, isVisible)}
+              <!-- Glow/animation disabled on community feed to reduce bandwidth -->
+              <!-- {@const isZapAnimating = zapAnimatingNotes.has(event.id)} -->
+              <!-- {@const zapGlowTier = engagementInfo.zapGlowTier} -->
+              {@const engagementStoreValue = get(getEngagementStore(event.id))}
+              {@const engagementData = {
+                zaps: {
+                  totalAmount: engagementStoreValue.zaps.totalAmount,
+                  count: engagementStoreValue.zaps.count
+                },
+                reactions: { count: engagementStoreValue.reactions.count },
+                comments: { count: engagementStoreValue.comments.count }
+              }}
+              <!-- svelte-ignore a11y-no-noninteractive-element-to-interactive-role -->
+              <article
+                class="w-full cursor-pointer"
+                on:click={(e) => gotoNoteFromCard(e, event)}
+                role="link"
+                tabindex="0"
+                on:keydown|self={(e) => {
+                  if (e.key === 'Enter') {
+                    const href = noteHrefFromEventId(event.id);
+                    if (href) goto(href);
+                  }
+                }}
               >
-                <svg
-                  class="w-3.5 h-3.5"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="2"
-                    d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-                  />
-                </svg>
-                <span>Reposted by</span>
-                <!--
+                {#if getRepostedBy(event)}
+                  {@const reposterPubkey = getRepostedBy(event) || ''}
+                  <a
+                    href="/user/{nip19.npubEncode(reposterPubkey)}"
+                    class="flex items-center gap-1.5 text-xs mb-3 px-2 sm:px-0 hover:opacity-80 transition-opacity"
+                    style="color: var(--color-caption)"
+                    on:click|stopPropagation
+                  >
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="2"
+                        d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                      />
+                    </svg>
+                    <span>Reposted by</span>
+                    <!--
                   Use CustomName (renders <span>) here, not AuthorName which
                   renders a <button>. Nesting <button> inside <a> is invalid
                   HTML and breaks keyboard / screen-reader behavior.
                 -->
-                <CustomName pubkey={reposterPubkey} className="text-xs font-medium" />
-              </a>
-            {/if}
-
-            <!-- User header with avatar and name -->
-            <div class="flex items-center justify-between mb-3 px-2 sm:px-0">
-              <div class="flex items-center space-x-3 flex-1 min-w-0">
-                {#if !hideAvatar}
-                  <a
-                    href="/user/{nip19.npubEncode(event.author?.hexpubkey || event.pubkey)}"
-                    class="flex-shrink-0 cursor-pointer"
-                    on:click|stopPropagation={() => goto(`/user/${nip19.npubEncode(event.author?.hexpubkey || event.pubkey)}`)}
-                  >
-                    <Avatar
-                      pubkey={event.author?.hexpubkey || event.pubkey}
-                      size={40}
-                    />
+                    <CustomName pubkey={reposterPubkey} className="text-xs font-medium" />
                   </a>
                 {/if}
 
-                <div class="flex items-center space-x-2 flex-wrap min-w-0">
-                  {#if !hideAuthorName}
-                    <!-- truncate + min-w-0 lets a long display name shrink with an
+                <!-- User header with avatar and name -->
+                <div class="flex items-center justify-between mb-3 px-2 sm:px-0">
+                  <div class="flex items-center space-x-3 flex-1 min-w-0">
+                    {#if !hideAvatar}
+                      <a
+                        href="/user/{nip19.npubEncode(event.author?.hexpubkey || event.pubkey)}"
+                        class="flex-shrink-0 cursor-pointer"
+                        on:click|stopPropagation={() =>
+                          goto(
+                            `/user/${nip19.npubEncode(event.author?.hexpubkey || event.pubkey)}`
+                          )}
+                      >
+                        <Avatar pubkey={event.author?.hexpubkey || event.pubkey} size={40} />
+                      </a>
+                    {/if}
+
+                    <div class="flex items-center space-x-2 flex-wrap min-w-0">
+                      {#if !hideAuthorName}
+                        <!-- truncate + min-w-0 lets a long display name shrink with an
                          ellipsis instead of pushing the timestamp onto a new line
                          (or worse, splitting "about 3 hours ago" mid-phrase). -->
-                    <AuthorName {event} className="font-semibold text-sm truncate min-w-0" />
-                    <span class="text-sm flex-shrink-0" style="color: var(--color-caption)">·</span>
-                  {/if}
-                  <span class="text-sm whitespace-nowrap flex-shrink-0" style="color: var(--color-caption)">
-                    {event.created_at ? formatTimeAgo(event.created_at) : 'Unknown time'}
-                  </span>
-                  <ClientAttribution tags={event.tags} enableEnrichment={false} />
-                </div>
-              </div>
-
-              <!-- Post actions menu (top right) -->
-              <div class="flex-shrink-0 ml-2">
-                <PostActionsMenu
-                  {event}
-                  {engagementData}
-                  on:copy={(e) => {
-                    selectedEvent = event;
-                    handlePostCopy(e);
-                  }}
-                  on:share={(e) => {
-                    selectedEvent = event;
-                    handlePostShare(e, event);
-                  }}
-                  on:downloadImage={handleDownloadImage}
-                />
-              </div>
-            </div>
-
-            <!-- Main content area - full width below header -->
-            <div class="px-2 sm:px-0">
-              <!-- Reply context (orange bracket at top for replies) -->
-              {#if isReply(event)}
-                {@const parentNoteId = getParentNoteId(event)}
-                {#if parentNoteId}
-                  {@const parentHref = noteHrefFromEventId(parentNoteId)}
-                  {#if parentHref}
-                    {#await resolveReplyContext(parentNoteId)}
-                      <!-- Loading state -->
-                      <div class="parent-quote-embed mb-3">
-                        <div class="parent-quote-loading">
-                          <div class="w-4 h-4 bg-accent-gray rounded-full animate-pulse"></div>
-                          <div class="h-3 bg-accent-gray rounded w-20 animate-pulse"></div>
-                        </div>
-                      </div>
-                    {:then context}
-                      <!-- Always-visible embedded parent quote -->
-                      <a
-                        href={parentHref}
-                        class="parent-quote-embed mb-3 block hover:opacity-90 transition-opacity"
-                        on:click|stopPropagation
+                        <AuthorName {event} className="font-semibold text-sm truncate min-w-0" />
+                        <span class="text-sm flex-shrink-0" style="color: var(--color-caption)"
+                          >·</span
+                        >
+                      {/if}
+                      <span
+                        class="text-sm whitespace-nowrap flex-shrink-0"
+                        style="color: var(--color-caption)"
                       >
-                        <div class="parent-quote-header">
-                          {#if context.authorPubkey}
-                            <Avatar pubkey={context.authorPubkey} size={16} />
-                          {/if}
-                          <span class="parent-quote-author">
-                            {#if context.error === 'deleted'}
-                              <span class="italic">deleted note</span>
-                            {:else if context.error === 'Failed to load'}
-                              a note
-                            {:else}
-                              {context.authorName.startsWith('npub')
-                                ? context.authorName.substring(0, 12) + '...'
-                                : context.authorName}
-                            {/if}
-                          </span>
-                        </div>
-                        {#if context.notePreview && !context.error}
-                          <p class="parent-quote-content">{context.notePreview}</p>
-                        {/if}
-                        {#if context.previewImage && !context.error}
-                          <img
-                            src={getOptimizedImageUrl(context.previewImage)}
-                            class="parent-quote-image"
-                            loading="lazy"
-                            alt=""
-                          />
-                        {/if}
-                        <span class="parent-quote-link"> View full thread → </span>
-                      </a>
-                    {:catch}
-                      <!-- Fallback - simple link -->
-                      <a href={parentHref} class="parent-quote-embed mb-3 block">
-                        <div class="parent-quote-header">
-                          <svg
-                            class="w-4 h-4"
-                            fill="none"
-                            stroke="currentColor"
-                            viewBox="0 0 24 24"
-                          >
-                            <path
-                              stroke-linecap="round"
-                              stroke-linejoin="round"
-                              stroke-width="2"
-                              d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6"
-                            />
-                          </svg>
-                          <span class="parent-quote-author">Replying to a note</span>
-                        </div>
-                      </a>
-                    {/await}
-                  {:else}
-                    <div class="parent-quote-embed mb-3">
-                      <div class="parent-quote-header">
-                        <span class="parent-quote-author">Replying to a note</span>
-                      </div>
+                        {event.created_at ? formatTimeAgo(event.created_at) : 'Unknown time'}
+                      </span>
+                      <ClientAttribution tags={event.tags} enableEnrichment={false} />
                     </div>
-                  {/if}
-                {/if}
-              {/if}
-
-              <!-- Content - strip quoted note reference if present to avoid bubble embed -->
-              {#if event.kind === 1068}
-                <PollDisplay {event} />
-              {:else if hasQuotedNote(event)}
-                {@const cleanContent = getContentWithoutMedia(
-                  getContentWithoutQuote(event.content)
-                )}
-                {#if cleanContent}
-                  <div
-                    class="text-sm leading-relaxed mb-3"
-                    style="color: var(--color-text-primary)"
-                  >
-                    <NoteContent content={cleanContent} />
                   </div>
-                {/if}
-              {:else if getContentWithoutMedia(event.content)}
-                {@const cleanContent = getContentWithoutMedia(event.content)}
-                <div class="text-sm leading-relaxed mb-3" style="color: var(--color-text-primary)">
-                  <NoteContent content={cleanContent} />
-                </div>
-              {/if}
 
-              <!-- Quoted note embed (appears below user's content) -->
-              {#if hasQuotedNote(event)}
-                {@const quotedNoteId = getQuotedNoteId(event)}
-                {#if quotedNoteId}
-                  {@const quotedHref = noteHrefFromEventId(quotedNoteId)}
-                  {#if quotedHref}
-                    {#await resolveReplyContext(quotedNoteId)}
-                      <!-- Loading state -->
-                      <div class="parent-quote-embed mb-3">
-                        <div class="parent-quote-loading">
-                          <div class="w-4 h-4 bg-accent-gray rounded-full animate-pulse"></div>
-                          <div class="h-3 bg-accent-gray rounded w-20 animate-pulse"></div>
-                        </div>
-                      </div>
-                    {:then context}
-                      <!-- Quoted note with orange bracket style -->
-                      <a
-                        href={quotedHref}
-                        class="parent-quote-embed mb-3 block hover:opacity-90 transition-opacity"
-                        on:click|stopPropagation
-                      >
-                        <div class="parent-quote-header">
-                          {#if context.authorPubkey}
-                            <Avatar pubkey={context.authorPubkey} size={16} />
-                          {/if}
-                          <span class="parent-quote-author">
-                            {#if context.error === 'deleted'}
-                              <span class="italic">deleted note</span>
-                            {:else if context.error === 'Failed to load'}
-                              a note
-                            {:else}
-                              {context.authorName.startsWith('npub')
-                                ? context.authorName.substring(0, 12) + '...'
-                                : context.authorName}
-                            {/if}
-                          </span>
-                        </div>
-                        {#if context.notePreview && !context.error}
-                          <p class="parent-quote-content">{context.notePreview}</p>
-                        {/if}
-                        {#if context.previewImage && !context.error}
-                          <img
-                            src={getOptimizedImageUrl(context.previewImage)}
-                            class="parent-quote-image"
-                            loading="lazy"
-                            alt=""
-                          />
-                        {/if}
-                        <span class="parent-quote-link"> View quoted note → </span>
-                      </a>
-                    {:catch}
-                      <!-- Fallback - simple link -->
-                      <a href={quotedHref} class="parent-quote-embed mb-3 block">
-                        <div class="parent-quote-header">
-                          <svg
-                            class="w-4 h-4"
-                            fill="none"
-                            stroke="currentColor"
-                            viewBox="0 0 24 24"
+                  <!-- Post actions menu (top right) -->
+                  <div class="flex-shrink-0 ml-2">
+                    <PostActionsMenu
+                      {event}
+                      {engagementData}
+                      on:copy={(e) => {
+                        selectedEvent = event;
+                        handlePostCopy(e);
+                      }}
+                      on:share={(e) => {
+                        selectedEvent = event;
+                        handlePostShare(e, event);
+                      }}
+                      on:downloadImage={handleDownloadImage}
+                    />
+                  </div>
+                </div>
+
+                <!-- Main content area - full width below header -->
+                <div class="px-2 sm:px-0">
+                  <!-- Reply context (orange bracket at top for replies) -->
+                  {#if isReply(event)}
+                    {@const parentNoteId = getParentNoteId(event)}
+                    {#if parentNoteId}
+                      {@const parentHref = noteHrefFromEventId(parentNoteId)}
+                      {#if parentHref}
+                        {#await resolveReplyContext(parentNoteId)}
+                          <!-- Loading state -->
+                          <div class="parent-quote-embed mb-3">
+                            <div class="parent-quote-loading">
+                              <div class="w-4 h-4 bg-accent-gray rounded-full animate-pulse"></div>
+                              <div class="h-3 bg-accent-gray rounded w-20 animate-pulse"></div>
+                            </div>
+                          </div>
+                        {:then context}
+                          <!-- Always-visible embedded parent quote -->
+                          <a
+                            href={parentHref}
+                            class="parent-quote-embed mb-3 block hover:opacity-90 transition-opacity"
+                            on:click|stopPropagation
                           >
-                            <path
-                              stroke-linecap="round"
-                              stroke-linejoin="round"
-                              stroke-width="2"
-                              d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"
-                            />
-                          </svg>
-                          <span class="parent-quote-author">Quoting a note</span>
+                            <div class="parent-quote-header">
+                              {#if context.authorPubkey}
+                                <Avatar pubkey={context.authorPubkey} size={16} />
+                              {/if}
+                              <span class="parent-quote-author">
+                                {#if context.error === 'deleted'}
+                                  <span class="italic">deleted note</span>
+                                {:else if context.error === 'Failed to load'}
+                                  a note
+                                {:else}
+                                  {context.authorName.startsWith('npub')
+                                    ? context.authorName.substring(0, 12) + '...'
+                                    : context.authorName}
+                                {/if}
+                              </span>
+                            </div>
+                            {#if context.notePreview && !context.error}
+                              <p class="parent-quote-content">{context.notePreview}</p>
+                            {/if}
+                            {#if context.previewImage && !context.error}
+                              <img
+                                src={getOptimizedImageUrl(context.previewImage)}
+                                class="parent-quote-image"
+                                loading="lazy"
+                                alt=""
+                              />
+                            {/if}
+                            <span class="parent-quote-link"> View full thread → </span>
+                          </a>
+                        {:catch}
+                          <!-- Fallback - simple link -->
+                          <a href={parentHref} class="parent-quote-embed mb-3 block">
+                            <div class="parent-quote-header">
+                              <svg
+                                class="w-4 h-4"
+                                fill="none"
+                                stroke="currentColor"
+                                viewBox="0 0 24 24"
+                              >
+                                <path
+                                  stroke-linecap="round"
+                                  stroke-linejoin="round"
+                                  stroke-width="2"
+                                  d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6"
+                                />
+                              </svg>
+                              <span class="parent-quote-author">Replying to a note</span>
+                            </div>
+                          </a>
+                        {/await}
+                      {:else}
+                        <div class="parent-quote-embed mb-3">
+                          <div class="parent-quote-header">
+                            <span class="parent-quote-author">Replying to a note</span>
+                          </div>
                         </div>
-                      </a>
-                    {/await}
-                  {:else}
-                    <div class="parent-quote-embed mb-3">
-                      <div class="parent-quote-header">
-                        <span class="parent-quote-author">Quoting a note</span>
+                      {/if}
+                    {/if}
+                  {/if}
+
+                  <!-- Content - strip quoted note reference if present to avoid bubble embed -->
+                  {#if event.kind === 1068}
+                    <PollDisplay {event} />
+                  {:else if hasQuotedNote(event)}
+                    {@const cleanContent = getContentWithoutMedia(
+                      getContentWithoutQuote(event.content)
+                    )}
+                    {#if cleanContent}
+                      <div
+                        class="text-sm leading-relaxed mb-3"
+                        style="color: var(--color-text-primary)"
+                      >
+                        <NoteContent content={cleanContent} />
                       </div>
+                    {/if}
+                  {:else if getContentWithoutMedia(event.content)}
+                    {@const cleanContent = getContentWithoutMedia(event.content)}
+                    <div
+                      class="text-sm leading-relaxed mb-3"
+                      style="color: var(--color-text-primary)"
+                    >
+                      <NoteContent content={cleanContent} />
                     </div>
                   {/if}
-                {/if}
-              {/if}
 
-              {#if getImageUrlsCached(event).length > 0}
-                {@const mediaUrls = getImageUrlsCached(event)}
+                  <!-- Quoted note embed (appears below user's content) -->
+                  {#if hasQuotedNote(event)}
+                    {@const quotedNoteId = getQuotedNoteId(event)}
+                    {#if quotedNoteId}
+                      {@const quotedHref = noteHrefFromEventId(quotedNoteId)}
+                      {#if quotedHref}
+                        {#await resolveReplyContext(quotedNoteId)}
+                          <!-- Loading state -->
+                          <div class="parent-quote-embed mb-3">
+                            <div class="parent-quote-loading">
+                              <div class="w-4 h-4 bg-accent-gray rounded-full animate-pulse"></div>
+                              <div class="h-3 bg-accent-gray rounded w-20 animate-pulse"></div>
+                            </div>
+                          </div>
+                        {:then context}
+                          <!-- Quoted note with orange bracket style -->
+                          <a
+                            href={quotedHref}
+                            class="parent-quote-embed mb-3 block hover:opacity-90 transition-opacity"
+                            on:click|stopPropagation
+                          >
+                            <div class="parent-quote-header">
+                              {#if context.authorPubkey}
+                                <Avatar pubkey={context.authorPubkey} size={16} />
+                              {/if}
+                              <span class="parent-quote-author">
+                                {#if context.error === 'deleted'}
+                                  <span class="italic">deleted note</span>
+                                {:else if context.error === 'Failed to load'}
+                                  a note
+                                {:else}
+                                  {context.authorName.startsWith('npub')
+                                    ? context.authorName.substring(0, 12) + '...'
+                                    : context.authorName}
+                                {/if}
+                              </span>
+                            </div>
+                            {#if context.notePreview && !context.error}
+                              <p class="parent-quote-content">{context.notePreview}</p>
+                            {/if}
+                            {#if context.previewImage && !context.error}
+                              <img
+                                src={getOptimizedImageUrl(context.previewImage)}
+                                class="parent-quote-image"
+                                loading="lazy"
+                                alt=""
+                              />
+                            {/if}
+                            <span class="parent-quote-link"> View quoted note → </span>
+                          </a>
+                        {:catch}
+                          <!-- Fallback - simple link -->
+                          <a href={quotedHref} class="parent-quote-embed mb-3 block">
+                            <div class="parent-quote-header">
+                              <svg
+                                class="w-4 h-4"
+                                fill="none"
+                                stroke="currentColor"
+                                viewBox="0 0 24 24"
+                              >
+                                <path
+                                  stroke-linecap="round"
+                                  stroke-linejoin="round"
+                                  stroke-width="2"
+                                  d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"
+                                />
+                              </svg>
+                              <span class="parent-quote-author">Quoting a note</span>
+                            </div>
+                          </a>
+                        {/await}
+                      {:else}
+                        <div class="parent-quote-embed mb-3">
+                          <div class="parent-quote-header">
+                            <span class="parent-quote-author">Quoting a note</span>
+                          </div>
+                        </div>
+                      {/if}
+                    {/if}
+                  {/if}
 
-                <!-- Swipeable gallery: peeking 4:5 tiles with a count
+                  {#if getImageUrlsCached(event).length > 0}
+                    {@const mediaUrls = getImageUrlsCached(event)}
+
+                    <!-- Swipeable gallery: peeking 4:5 tiles with a count
                      badge; single media shrink-wraps to the photo.
                      The lightbox only renders images, so it gets an
                      images-only list (videos play inline in their
                      tiles) with the index remapped accordingly. -->
-                <div class="mb-3">
-                  <MediaCarousel
-                    items={mediaUrls}
-                    optimizeUrl={getOptimizedImageUrl}
-                    onItemClick={(url) => {
-                      const imageUrls = mediaUrls.filter((u) => isImageUrl(u));
-                      const imageIndex = imageUrls.indexOf(url);
-                      openImageModal(url, imageUrls, imageIndex >= 0 ? imageIndex : 0);
-                    }}
-                  />
-                </div>
-              {/if}
+                    <div class="mb-3">
+                      <MediaCarousel
+                        items={mediaUrls}
+                        optimizeUrl={getOptimizedImageUrl}
+                        onItemClick={(url) => {
+                          const imageUrls = mediaUrls.filter((u) => isImageUrl(u));
+                          const imageIndex = imageUrls.indexOf(url);
+                          openImageModal(url, imageUrls, imageIndex >= 0 ? imageIndex : 0);
+                        }}
+                      />
+                    </div>
+                  {/if}
 
-              <!-- Reaction pills row -->
-              {#if visibleNotes.has(event.id)}
-                <div class="px-2 sm:px-0">
-                  <NoteReactionPills {event} />
-                </div>
-              {/if}
-
-              <!-- Zap pills row: above action icons to avoid cutoff on the right -->
-              {#if visibleNotes.has(event.id)}
-                <div class="px-2 sm:px-0">
-                  <NoteTotalZaps
-                    {event}
-                    onZapClick={() => openZapModal(event)}
-                    showPills={true}
-                    onlyPills={true}
-                    maxPills={10}
-                  />
-                </div>
-              {/if}
-
-              <div
-                class="flex items-center justify-between flex-wrap gap-2 px-2 sm:px-0 py-1"
-                use:lazyLoadAction={event.id}
-              >
-                <div class="flex items-center space-x-1 flex-shrink-0">
+                  <!-- Reaction pills row -->
                   {#if visibleNotes.has(event.id)}
-                    <div class="hover:bg-accent-gray rounded-full p-1.5 transition-colors">
-                      <NoteTotalLikes {event} />
+                    <div class="px-2 sm:px-0">
+                      <NoteReactionPills {event} />
                     </div>
+                  {/if}
 
-                    <div class="hover:bg-accent-gray rounded-full p-1.5 transition-colors">
-                      <NoteTotalComments {event} />
-                    </div>
-
-                    <div class="hover:bg-accent-gray rounded-full p-1.5 transition-colors">
-                      <NoteRepost {event} />
-                    </div>
-
-                    <!-- Renders nothing for imageless notes — the trigger owns detection. -->
-                    <CheffyNoteReviewTrigger
-                      {event}
-                      wrapClass="hover:bg-accent-gray rounded-full p-1.5 transition-colors"
-                    />
-
-                    <div class="hover:bg-amber-50/50 rounded-full p-1 transition-colors">
+                  <!-- Zap pills row: above action icons to avoid cutoff on the right -->
+                  {#if visibleNotes.has(event.id)}
+                    <div class="px-2 sm:px-0">
                       <NoteTotalZaps
                         {event}
                         onZapClick={() => openZapModal(event)}
-                        showPills={false}
+                        showPills={true}
+                        onlyPills={true}
+                        maxPills={10}
                       />
                     </div>
-                  {:else}
-                    <span class="text-caption p-1.5 opacity-40">♡</span>
-                    <span class="text-caption p-1.5 opacity-40">💬</span>
-                    <span class="text-caption p-1.5 opacity-40">🔁</span>
-                    <span class="text-caption p-1.5 opacity-40">⚡</span>
                   {/if}
-                </div>
-              </div>
 
-              <div class="px-2 sm:px-0">
-                {#if visibleNotes.has(event.id)}
-                  <CommentThread variant="feed" {event} />
-                {/if}
+                  <div
+                    class="flex items-center justify-between flex-wrap gap-2 px-2 sm:px-0 py-1"
+                    use:lazyLoadAction={event.id}
+                  >
+                    <div class="flex items-center space-x-1 flex-shrink-0">
+                      {#if visibleNotes.has(event.id)}
+                        <div class="hover:bg-accent-gray rounded-full p-1.5 transition-colors">
+                          <NoteTotalLikes {event} />
+                        </div>
+
+                        <div class="hover:bg-accent-gray rounded-full p-1.5 transition-colors">
+                          <NoteTotalComments {event} />
+                        </div>
+
+                        <div class="hover:bg-accent-gray rounded-full p-1.5 transition-colors">
+                          <NoteRepost {event} />
+                        </div>
+
+                        <div class="hover:bg-amber-50/50 rounded-full p-1 transition-colors">
+                          <NoteTotalZaps
+                            {event}
+                            onZapClick={() => openZapModal(event)}
+                            showPills={false}
+                          />
+                        </div>
+                      {:else}
+                        <span class="text-caption p-1.5 opacity-40">♡</span>
+                        <span class="text-caption p-1.5 opacity-40">💬</span>
+                        <span class="text-caption p-1.5 opacity-40">🔁</span>
+                        <span class="text-caption p-1.5 opacity-40">⚡</span>
+                      {/if}
+                    </div>
+
+                    {#if visibleNotes.has(event.id)}
+                      <!-- Bottom-right of the card. ml-auto keeps it
+                       right-aligned even when the narrow mobile content
+                       column wraps it onto its own line (column width
+                       < action cluster + trigger at ~390px). Renders
+                       nothing for imageless notes — the trigger owns
+                       detection. -->
+                      <CheffyNoteReviewTrigger
+                        {event}
+                        wrapClass="ml-auto hover:bg-accent-gray rounded-full p-1.5 transition-colors"
+                      />
+                    {/if}
+                  </div>
+
+                  <div class="px-2 sm:px-0">
+                    {#if visibleNotes.has(event.id)}
+                      <CommentThread variant="feed" {event} />
+                    {/if}
+                  </div>
+                </div>
+              </article>
+            {:else}
+              <div style="min-height: 380px;">
+                <FeedPostSkeleton />
               </div>
-            </div>
-          </article>
-          {:else}
-            <div
-              style="min-height: 380px;"
-            >
-              <FeedPostSkeleton />
-            </div>
-          {/if}
+            {/if}
           </div>
         {/each}
 

@@ -22,7 +22,8 @@
  * }
  *
  * Returns:
- *   { ok: true, output: string, mode: string }
+ *   { ok: true, output: string, mode: string, previewRemaining?: number }
+ *   (previewRemaining only on preview-granted requests)
  *   { ok: false, error: string, code?: "NOT_MEMBER" | "PREVIEW_USED" |
  *     "MEMBERSHIP_UNAVAILABLE" | "RATE_LIMITED" | "NOT_FOOD" | "IMAGE_UNREADABLE" }
  *
@@ -344,7 +345,16 @@ export const POST: RequestHandler = async ({ request, platform, cookies, url }) 
       });
     }
 
-    return json({ ok: true, output: trimmed, mode });
+    // previewRemaining is additive (preview requests only) — the client
+    // surfaces the remaining free-draft budget without a second call.
+    return json({
+      ok: true,
+      output: trimmed,
+      mode,
+      ...(experienceGranted
+        ? { previewRemaining: Math.max(0, EXPERIENCE_MAX_TURNS - (experienceCount + 1)) }
+        : {})
+    });
   } catch (error: any) {
     console.error('[Note Review] Error:', error);
     return json(

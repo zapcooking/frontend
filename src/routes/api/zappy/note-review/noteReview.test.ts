@@ -161,10 +161,11 @@ describe('NIP-98 auth', () => {
 
 describe('membership gate', () => {
   it('lets members through with full access', async () => {
-    const { res, setCookies } = await call(validBody());
+    const { res, data, setCookies } = await call(validBody());
     expect(res.status).toBe(200);
     expect(mocks.hasActiveMembership).toHaveBeenCalledWith(PUBKEY, 'secret');
     expect(setCookies).toEqual([]); // members never touch the preview budget
+    expect(data.previewRemaining).toBeUndefined(); // additive field is preview-only
   });
 
   it('403s NOT_MEMBER for a non-member without the experience flag', async () => {
@@ -175,14 +176,24 @@ describe('membership gate', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it('grants a preview turn and success-counts the cookie', async () => {
+  it('grants a preview turn, success-counts the cookie, and reports the remaining budget', async () => {
     mocks.hasActiveMembership.mockResolvedValue(false);
-    const { res, setCookies } = await call(validBody({ experience: true }));
+    const { res, data, setCookies } = await call(validBody({ experience: true }));
     expect(res.status).toBe(200);
     expect(setCookies).toHaveLength(1);
     expect(setCookies[0].name).toBe('zapcooking_cheffy_note_review_experience_used');
     expect(setCookies[0].value).toBe('1');
     expect(setCookies[0].opts.httpOnly).toBe(true);
+    expect(data.previewRemaining).toBe(2); // 3-turn budget, first just spent
+  });
+
+  it('reports zero remaining on the final preview turn', async () => {
+    mocks.hasActiveMembership.mockResolvedValue(false);
+    const { res, data } = await call(validBody({ experience: true }), {
+      cookies: { zapcooking_cheffy_note_review_experience_used: '2' }
+    });
+    expect(res.status).toBe(200);
+    expect(data.previewRemaining).toBe(0);
   });
 
   it('429s PREVIEW_USED once the preview budget is spent', async () => {

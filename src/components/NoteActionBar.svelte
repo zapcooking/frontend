@@ -107,14 +107,15 @@
       </div>
     {/if}
 
-    {#if showCheffy}
-      <!-- Renders nothing for imageless notes — the trigger owns detection. -->
-      <CheffyNoteReviewTrigger {event} wrapClass={iconWrapClass} />
-    {/if}
-
     <div class={zapWrapClass}>
       <NoteTotalZaps {event} onZapClick={openZapModal} />
     </div>
+
+    {#if showCheffy}
+      <!-- Bottom-right of the card (ml-auto). Renders nothing for
+           imageless notes — the trigger owns detection. -->
+      <CheffyNoteReviewTrigger {event} wrapClass={`${iconWrapClass} ml-auto`} />
+    {/if}
   </div>
 </div>
 
