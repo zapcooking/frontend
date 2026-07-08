@@ -18,6 +18,7 @@ import {
   PRF_INPUT,
   b64urlToBytes,
   bytesToB64,
+  bytesToB64url,
   b64ToBytes,
   hexToBytes,
   deriveKek,
@@ -52,6 +53,16 @@ export interface VaultKeyEntry {
   wrappedDek: string; // base64
   dekIv: string; // base64
   addedAt: number;
+  /**
+   * Credential public key (SPKI DER, base64url) + COSE alg, captured from
+   * create()'s getPublicKey() at enrollment. OPTIONAL extension over the
+   * frozen v1 shape (Phase 1 records lack it; validation never requires
+   * it): public material only, needed for the vault-sync TOFU upload and
+   * for re-enabling sync after toggle-off. Records missing it can only
+   * gain sync via guided re-enrollment.
+   */
+  spki?: string;
+  alg?: number;
 }
 
 export interface VaultRecord {
@@ -210,15 +221,53 @@ function getPrfResult(cred: PublicKeyCredential): Uint8Array | null {
 }
 
 /**
- * Assert with the given credentials + PRF eval and return {credentialId, prfOutput}.
- * Shared by enrollment-verify and unlock.
+ * Wire form of a WebAuthn assertion (all base64url), matching what the
+ * vault-sync endpoints verify. Only meaningful server-side when the
+ * ceremony used a SERVER-issued challenge; assertions over local random
+ * challenges are returned too but are not redeemable.
+ */
+export interface AssertionWire {
+  credentialId: string;
+  signature: string;
+  authenticatorData: string;
+  clientDataJSON: string;
+}
+
+export interface CeremonyOptions {
+  /**
+   * Server-issued challenge (base64url, from POST /api/vault-sync/challenge).
+   * When set, the ceremony signs over it so the SAME prompt's assertion can
+   * authenticate a vault-sync request — this is how enrollment stays at two
+   * prompts (verify-get doubles as the TOFU PUT assertion) and how removal
+   * reuses its single unlock ceremony for DELETE.
+   */
+  serverChallenge?: string;
+}
+
+function wireAssertion(cred: PublicKeyCredential): AssertionWire | null {
+  const res = cred.response as AuthenticatorAssertionResponse | undefined;
+  if (!res?.signature || !res?.authenticatorData || !res?.clientDataJSON) return null;
+  return {
+    credentialId: cred.id,
+    signature: bytesToB64url(new Uint8Array(res.signature)),
+    authenticatorData: bytesToB64url(new Uint8Array(res.authenticatorData)),
+    clientDataJSON: bytesToB64url(new Uint8Array(res.clientDataJSON))
+  };
+}
+
+/**
+ * Assert with the given credentials + PRF eval. Shared by enrollment-verify
+ * and unlock. Returns the assertion wire form alongside the PRF output.
  */
 async function assertWithPrf(
-  credentialIds: string[]
-): Promise<{ credentialId: string; prfOutput: Uint8Array }> {
+  credentialIds: string[],
+  opts?: CeremonyOptions
+): Promise<{ credentialId: string; prfOutput: Uint8Array; assertion: AssertionWire | null }> {
   const assertion = (await navigator.credentials.get({
     publicKey: {
-      challenge: randomChallenge() as BufferSource,
+      challenge: (opts?.serverChallenge
+        ? b64urlToBytes(opts.serverChallenge)
+        : randomChallenge()) as BufferSource,
       rpId: RP_ID,
       allowCredentials: credentialIds.map((id) => ({
         type: 'public-key' as const,
@@ -233,7 +282,7 @@ async function assertWithPrf(
   if (!prfOutput) {
     throw new PrfUnsupportedError('Passkey provider did not return a PRF result on get()');
   }
-  return { credentialId: assertion.id, prfOutput };
+  return { credentialId: assertion.id, prfOutput, assertion: wireAssertion(assertion) };
 }
 
 /**
@@ -244,11 +293,30 @@ async function assertWithPrf(
  * vault storage is left untouched (an orphan passkey may remain in the user's
  * provider; we cannot delete authenticator-side credentials).
  */
+export interface EnrollResult {
+  record: VaultRecord;
+  /**
+   * The verify-get assertion. When opts.serverChallenge was provided this is
+   * redeemable as the vault-sync TOFU PUT assertion (two-prompt budget).
+   */
+  assertion: AssertionWire | null;
+}
+
+export interface EnrollOptions extends CeremonyOptions {
+  /**
+   * Set false for guided re-enrollment (migration of pre-Phase-2 records):
+   * the point is to mint a NEW credential while the old one still exists on
+   * the provider, and excludeCredentials would make the provider refuse.
+   */
+  excludeExisting?: boolean;
+}
+
 export async function enrollPasskey(
   privkeyHex: string,
   pubkey: string,
-  userLabel: string
-): Promise<VaultRecord> {
+  userLabel: string,
+  opts?: EnrollOptions
+): Promise<EnrollResult> {
   const normalizedKey = privkeyHex.toLowerCase();
   if (getPublicKey(hexToBytes(normalizedKey)) !== pubkey) {
     throw new PasskeyVaultError('private key does not match the session pubkey');
@@ -256,10 +324,13 @@ export async function enrollPasskey(
 
   // Exclude credentials already in a record so providers refuse duplicates.
   const existing = getVaultRecord();
-  const excludeCredentials = (existing?.keys ?? []).map((k) => ({
-    type: 'public-key' as const,
-    id: b64urlToBytes(k.credentialId) as BufferSource
-  }));
+  const excludeCredentials =
+    opts?.excludeExisting === false
+      ? []
+      : (existing?.keys ?? []).map((k) => ({
+          type: 'public-key' as const,
+          id: b64urlToBytes(k.credentialId) as BufferSource
+        }));
 
   const created = (await navigator.credentials.create({
     publicKey: {
@@ -290,8 +361,27 @@ export async function enrollPasskey(
     throw new PrfUnsupportedError('Passkey provider reported PRF unsupported on create()');
   }
 
+  // Capture the credential public key for vault-sync (SPKI DER — no CBOR
+  // attestation parsing anywhere). Public material; absence just means sync
+  // is unavailable for this entry.
+  let spki: string | undefined;
+  let alg: number | undefined;
+  try {
+    const attRes = created.response as AuthenticatorAttestationResponse;
+    const spkiDer = attRes.getPublicKey?.();
+    const algNum = attRes.getPublicKeyAlgorithm?.();
+    if (spkiDer && (algNum === -7 || algNum === -257)) {
+      spki = bytesToB64url(new Uint8Array(spkiDer));
+      alg = algNum;
+    }
+  } catch {
+    /* provider without getPublicKey — sync unavailable, vault still fine */
+  }
+
   // Verify-on-get: derive the KEK from a real assertion, never from create().
-  const { credentialId, prfOutput } = await assertWithPrf([created.id]);
+  // With opts.serverChallenge this same prompt also produces the TOFU PUT
+  // assertion — enrollment must never grow a third ceremony.
+  const { credentialId, prfOutput, assertion } = await assertWithPrf([created.id], opts);
 
   const kek = deriveKek(prfOutput);
   const dek = generateDek();
@@ -317,12 +407,13 @@ export async function enrollPasskey(
           credentialId,
           wrappedDek: bytesToB64(wrappedDek),
           dekIv: bytesToB64(iv),
-          addedAt: now
+          addedAt: now,
+          ...(spki && alg !== undefined ? { spki, alg } : {})
         }
       ]
     };
     saveVaultRecord(record);
-    return record;
+    return { record, assertion };
   } catch (e) {
     if (e instanceof PasskeyVaultError) throw e;
     throw new EnrollVerifyError(
@@ -333,14 +424,28 @@ export async function enrollPasskey(
   }
 }
 
+export interface UnlockResult {
+  /** Decrypted 64-hex private key — memory only, callers must never persist it. */
+  privkeyHex: string;
+  credentialId: string;
+  /** Redeemable server-side only when opts.serverChallenge was provided. */
+  assertion: AssertionWire | null;
+}
+
 /**
  * Unlock ceremony: assert with any enrolled credential, unwrap the DEK, and
- * return the decrypted 64-hex private key (memory only — callers must never
- * persist it). Fails closed on any mismatch; never mutates storage.
+ * return the decrypted private key. Fails closed on any mismatch; never
+ * mutates storage. With opts.serverChallenge the same single prompt also
+ * yields a vault-sync-redeemable assertion (used by removal's DELETE and
+ * the pending-upload retry — no second prompt, ever).
  */
-export async function unlockPasskey(record: VaultRecord): Promise<string> {
-  const { credentialId, prfOutput } = await assertWithPrf(
-    record.keys.map((k) => k.credentialId)
+export async function unlockPasskey(
+  record: VaultRecord,
+  opts?: CeremonyOptions
+): Promise<UnlockResult> {
+  const { credentialId, prfOutput, assertion } = await assertWithPrf(
+    record.keys.map((k) => k.credentialId),
+    opts
   );
   const entry = record.keys.find((k) => k.credentialId === credentialId);
   if (!entry) {
@@ -356,7 +461,7 @@ export async function unlockPasskey(record: VaultRecord): Promise<string> {
     if (getPublicKey(hexToBytes(privkeyHex)) !== record.pubkey) {
       throw new UnlockFailedError('Decrypted key does not match the vault pubkey');
     }
-    return privkeyHex;
+    return { privkeyHex, credentialId, assertion };
   } catch (e) {
     if (e instanceof PasskeyVaultError) throw e;
     throw new UnlockFailedError(

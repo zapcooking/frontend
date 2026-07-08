@@ -32,13 +32,27 @@ const NEW_CRED_ID = 'bmV3LWNyZWQtaWQtMDE'; // b64url of "new-cred-id-01"
 
 function fakeCredential(
   idB64url: string,
-  ext: { prfResult?: Uint8Array; prfEnabled?: boolean; prfAsOffsetView?: boolean } = {}
+  ext: {
+    prfResult?: Uint8Array;
+    prfEnabled?: boolean;
+    prfAsOffsetView?: boolean;
+    spki?: Uint8Array;
+  } = {}
 ) {
   const raw = b64urlToBytes(idB64url);
   return {
     id: idB64url,
     rawId: raw.buffer,
     type: 'public-key',
+    response: {
+      // Assertion-shaped fields (harmlessly present on create-shaped mocks).
+      signature: new Uint8Array([1]).buffer,
+      authenticatorData: new Uint8Array([2]).buffer,
+      clientDataJSON: new Uint8Array([3]).buffer,
+      // Attestation-shaped accessors, used when this mocks a create() result.
+      getPublicKey: () => (ext.spki ? ext.spki.buffer : null),
+      getPublicKeyAlgorithm: () => -7
+    },
     getClientExtensionResults: () => {
       if (ext.prfResult) {
         if (ext.prfAsOffsetView) {
@@ -124,7 +138,8 @@ describe('enrollPasskey', () => {
     credentials.create.mockResolvedValue(fakeCredential(NEW_CRED_ID, { prfEnabled: true }));
     credentials.get.mockResolvedValue(fakeCredential(NEW_CRED_ID, { prfResult: PRF_BYTES() }));
 
-    const record = await enrollPasskey(fixture.nsecHex, fixture.pubkeyHex, 'Test');
+    const { record, assertion } = await enrollPasskey(fixture.nsecHex, fixture.pubkeyHex, 'Test');
+    expect(assertion?.credentialId).toBe(NEW_CRED_ID); // verify-get assertion captured
 
     expect(record.pubkey).toBe(fixture.pubkeyHex);
     expect(record.keys).toHaveLength(1);
@@ -143,7 +158,7 @@ describe('enrollPasskey', () => {
     credentials.get.mockResolvedValue(
       fakeCredential(NEW_CRED_ID, { prfResult: PRF_BYTES() })
     );
-    await expect(unlockPasskey(record)).resolves.toBe(fixture.nsecHex);
+    await expect(unlockPasskey(record)).resolves.toMatchObject({ privkeyHex: fixture.nsecHex });
   });
 
   it('aborts without persisting when create() reports prf.enabled === false', async () => {
@@ -172,6 +187,47 @@ describe('enrollPasskey', () => {
     expect(getVaultRecord()).toBeNull();
   });
 
+  it('captures SPKI/alg into the key entry when the provider exposes getPublicKey', async () => {
+    const spkiBytes = new Uint8Array([0xde, 0xad, 0xbe, 0xef]);
+    credentials.create.mockResolvedValue(
+      fakeCredential(NEW_CRED_ID, { prfEnabled: true, spki: spkiBytes })
+    );
+    credentials.get.mockResolvedValue(fakeCredential(NEW_CRED_ID, { prfResult: PRF_BYTES() }));
+    const { record } = await enrollPasskey(fixture.nsecHex, fixture.pubkeyHex, 'Test');
+    expect(record.keys[0].spki).toBe('3q2-7w'); // b64url(deadbeef)
+    expect(record.keys[0].alg).toBe(-7);
+    // Enrollment without getPublicKey still succeeds — fields just absent.
+    credentials.create.mockResolvedValue(fakeCredential(NEW_CRED_ID, { prfEnabled: true }));
+    credentials.get.mockResolvedValue(fakeCredential(NEW_CRED_ID, { prfResult: PRF_BYTES() }));
+    const { record: plain } = await enrollPasskey(fixture.nsecHex, fixture.pubkeyHex, 'Test');
+    expect(plain.keys[0].spki).toBeUndefined();
+  });
+
+  it('signs the verify-get over a server challenge when provided (two-prompt budget)', async () => {
+    credentials.create.mockResolvedValue(fakeCredential(NEW_CRED_ID, { prfEnabled: true }));
+    credentials.get.mockResolvedValue(fakeCredential(NEW_CRED_ID, { prfResult: PRF_BYTES() }));
+    const serverChallenge = 'c2VydmVyLWNoYWxsZW5nZQ';
+    const { assertion } = await enrollPasskey(fixture.nsecHex, fixture.pubkeyHex, 'Test', {
+      serverChallenge
+    });
+    // Exactly one create + one get: the TOFU PUT assertion comes from the
+    // SAME verify-get prompt, never a third ceremony.
+    expect(credentials.create).toHaveBeenCalledTimes(1);
+    expect(credentials.get).toHaveBeenCalledTimes(1);
+    const getArgs = credentials.get.mock.calls[0][0].publicKey;
+    expect(new Uint8Array(getArgs.challenge)).toEqual(b64urlToBytes(serverChallenge));
+    expect(assertion?.credentialId).toBe(NEW_CRED_ID);
+  });
+
+  it('migration opt-out of excludeCredentials (excludeExisting: false)', async () => {
+    saveVaultRecord(fixtureRecord());
+    credentials.create.mockResolvedValue(fakeCredential(NEW_CRED_ID, { prfEnabled: true }));
+    credentials.get.mockResolvedValue(fakeCredential(NEW_CRED_ID, { prfResult: PRF_BYTES() }));
+    await enrollPasskey(fixture.nsecHex, fixture.pubkeyHex, 'Test', { excludeExisting: false });
+    const createArgs = credentials.create.mock.calls[0][0].publicKey;
+    expect(createArgs.excludeCredentials).toEqual([]);
+  });
+
   it('rejects a private key that does not match the pubkey', async () => {
     await expect(enrollPasskey('11'.repeat(32), fixture.pubkeyHex, 'Test')).rejects.toThrow(
       /does not match/
@@ -197,7 +253,9 @@ describe('unlockPasskey', () => {
     credentials.get.mockResolvedValue(
       fakeCredential(fixture.credentialIdB64url, { prfResult: PRF_BYTES() })
     );
-    await expect(unlockPasskey(fixtureRecord())).resolves.toBe(fixture.nsecHex);
+    await expect(unlockPasskey(fixtureRecord())).resolves.toMatchObject({
+      privkeyHex: fixture.nsecHex
+    });
     const getArgs = credentials.get.mock.calls[0][0].publicKey;
     expect(new Uint8Array(getArgs.allowCredentials[0].id)).toEqual(
       b64urlToBytes(fixture.credentialIdB64url)
@@ -239,7 +297,9 @@ describe('unlockPasskey', () => {
     credentials.get.mockResolvedValue(
       fakeCredential(fixture.credentialIdB64url, { prfResult: PRF_BYTES(), prfAsOffsetView: true })
     );
-    await expect(unlockPasskey(fixtureRecord())).resolves.toBe(fixture.nsecHex);
+    await expect(unlockPasskey(fixtureRecord())).resolves.toMatchObject({
+      privkeyHex: fixture.nsecHex
+    });
   });
 });
 

@@ -11,6 +11,28 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Guard against the staging-only PASSKEY_SYNC_ENABLED flip reaching main
+  # (e.g. via a staging→main merge or cherry-pick). The flip is committed
+  # directly on the staging branch and must never merge back; production
+  # launch of vault sync is a deliberate main-side change that also updates
+  # this guard.
+  flag-guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Checkout 🛎️
+        uses: actions/checkout@v4
+
+      - name: PASSKEY_SYNC_ENABLED must be false on main 🚫
+        run: |
+          if ! grep -q "export const PASSKEY_SYNC_ENABLED = false" src/lib/passkeySync.ts; then
+            echo "::error file=src/lib/passkeySync.ts::PASSKEY_SYNC_ENABLED is not false."
+            echo "The staging-only flag flip must never reach main. If this is the"
+            echo "deliberate production launch of passkey vault sync, update this guard"
+            echo "in the same PR."
+            exit 1
+          fi
+
   lint:
     runs-on: ubuntu-latest
     timeout-minutes: 10
