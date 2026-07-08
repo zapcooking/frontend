@@ -84,6 +84,20 @@ not data loss.
 | P2-11 | Enrollment with the network blocked (devtools offline after page load) | Enrollment still succeeds locally; sync retries silently on next unlock (verify with devtools online: PUT fires during unlock, single prompt) | ☐ |
 | P2-12 | Conflict-replace (different account's nsec over a synced vault) | Local record replaced after confirm; NO vault-sync network call; original owner's other devices still sign in (R4) | ☐ |
 
+## Phase 3 — passkey-first signup (requires PASSKEY_SIGNUP_ENABLED + PASSKEY_SYNC_ENABLED = true build)
+
+| # | Steps | Expected | Status |
+|---|-------|----------|--------|
+| P3-1 | Full signup, Safari desktop: Create Profile → Secure your account (sync checked) → two biometric prompts → backup (download) → profile → land. **Then immediately "Sign in with passkey" on the paired iPhone.** | The launch-story demo end to end: signed up with a fingerprint, signed in on the phone with a face. No plaintext key in desktop localStorage at any point (verify devtools). Backup banner reads "Passkey created… this key is your account". | ☐ |
+| P3-2 | Same on Chrome desktop → Android phone (GPM) | Same | ☐ |
+| P3-3 | Skip path: tap "Skip for now" | Remainder of signup is byte-identical to today (plaintext path); Settings enrollment still offered later | ☐ |
+| P3-4 | Cancel the biometric sheet mid-step | Stays on the step, no error banner; retry works; skip still available | ☐ |
+| P3-5 | Failure recovery: provider without PRF (e.g. security key selected) | Friendly error + orphan-passkey note as a separate line; continue → account created on plaintext path | ☐ |
+| P3-6 | Unsupported browser (e.g. Firefox ESR) or preview origin | Secure step never renders — flow identical to today, not a disabled step | ☐ |
+| P3-7 | Conflict at signup: browser holds another account's vault → Create Profile | "Replace saved login?" dialog BEFORE the secure step; confirm → local record replaced (no network call), step proceeds; cancel → step skipped, plaintext signup | ☐ |
+| P3-8 | Sync checkbox unchecked at signup | Enrolled locally, zero /api/vault-sync traffic (devtools network) | ☐ |
+| P3-9 | Abandon the modal right after enrolling (before backup) | User lands logged in (passkey session); Settings shows enrolled vault; nsec reveal available for backup | ☐ |
+
 ## Non-regression
 
 | # | Steps | Expected | Chrome desktop | Android Chrome |

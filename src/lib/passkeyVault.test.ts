@@ -187,6 +187,28 @@ describe('enrollPasskey', () => {
     expect(getVaultRecord()).toBeNull();
   });
 
+  it('tags orphanPasskeyLikely ONLY on failures after create() completed', async () => {
+    // Before create: no credential exists, no orphan possible.
+    let pre: unknown;
+    await enrollPasskey('11'.repeat(32), fixture.pubkeyHex, 'Test').catch((e) => (pre = e));
+    expect((pre as PrfUnsupportedError).orphanPasskeyLikely).toBeFalsy();
+
+    // After create, PRF missing on verify-get: a provider-side credential
+    // may exist — the UI's "safe to delete" note keys off this flag.
+    credentials.create.mockResolvedValue(fakeCredential(NEW_CRED_ID, { prfEnabled: true }));
+    credentials.get.mockResolvedValue(fakeCredential(NEW_CRED_ID, {}));
+    let post: unknown;
+    await enrollPasskey(fixture.nsecHex, fixture.pubkeyHex, 'Test').catch((e) => (post = e));
+    expect(post).toBeInstanceOf(PrfUnsupportedError);
+    expect((post as PrfUnsupportedError).orphanPasskeyLikely).toBe(true);
+
+    // create() itself reporting prf disabled: credential was created.
+    credentials.create.mockResolvedValue(fakeCredential(NEW_CRED_ID, { prfEnabled: false }));
+    let created: unknown;
+    await enrollPasskey(fixture.nsecHex, fixture.pubkeyHex, 'Test').catch((e) => (created = e));
+    expect((created as PrfUnsupportedError).orphanPasskeyLikely).toBe(true);
+  });
+
   it('captures SPKI/alg into the key entry when the provider exposes getPublicKey', async () => {
     const spkiBytes = new Uint8Array([0xde, 0xad, 0xbe, 0xef]);
     credentials.create.mockResolvedValue(

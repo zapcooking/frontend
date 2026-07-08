@@ -14,8 +14,12 @@
   import {
     detectSupport,
     getVaultRecord,
+    deleteVaultRecord,
     isCeremonyCancelled,
-    type VaultRecord
+    PrfUnsupportedError,
+    PasskeyVaultError,
+    type VaultRecord,
+    type VaultSupport
   } from '$lib/passkeyVault';
   import { onMount, onDestroy, tick } from 'svelte';
   import { env as publicEnv } from '$env/dynamic/public';
@@ -32,7 +36,12 @@
     type GoogleSession
   } from '$lib/googleBackup/googleBackupFlow';
   import { isValidPin } from '$lib/googleBackup/googleBackupCrypto';
-  import { PASSKEY_SYNC_ENABLED, shouldOfferSyncSignIn } from '$lib/passkeySync';
+  import {
+    PASSKEY_SYNC_ENABLED,
+    PASSKEY_SIGNUP_ENABLED,
+    shouldOfferSyncSignIn,
+    shouldOfferSignupEnrollment
+  } from '$lib/passkeySync';
 
   let authManager: any = null;
   let authState: AuthState = {
@@ -128,6 +137,17 @@
   // unsupported origin (e.g. an old preview build's localStorage) must not
   // offer an unlock that can no longer bind to the real rp id.
   let vaultSupported = false;
+  // Full detection level — the signup step needs 'full' (PRF confirmed
+  // plausible), stricter than the unlock card's !== 'none'.
+  let vaultSupportLevel: VaultSupport = 'none';
+
+  // "Secure your account" signup step (Phase 3, behind PASSKEY_SIGNUP_ENABLED).
+  let securePending = false; // step renders between generate and backup
+  let secureEnrolled = false; // switches the backup banner copy
+  let secureBusy = false;
+  let secureError = '';
+  let secureOrphanNote = false;
+  let secureSyncOn = true; // R1: default ON
 
   // Vault conflict confirmation: signing in with a key that differs from the
   // enrolled vault's account requires an explicit "replace" confirmation
@@ -213,8 +233,11 @@
   onMount(() => {
     try {
       vaultRecord = getVaultRecord();
-      if (vaultRecord || PASSKEY_SYNC_ENABLED) {
-        detectSupport().then((s) => (vaultSupported = s !== 'none'));
+      if (vaultRecord || PASSKEY_SYNC_ENABLED || PASSKEY_SIGNUP_ENABLED) {
+        detectSupport().then((s) => {
+          vaultSupported = s !== 'none';
+          vaultSupportLevel = s;
+        });
       }
       if (vaultRecord) {
         try {
@@ -490,6 +513,70 @@
     generatedKeys = authManager.generateKeyPair();
     backupStep = 1;
     backupDownloaded = false;
+    secureEnrolled = false;
+    secureError = '';
+    secureOrphanNote = false;
+    secureSyncOn = true;
+
+    // "Secure your account" step eligibility (Phase 3). Ineligible →
+    // securePending stays false and the rendered flow is byte-identical to
+    // today (R4: the step is absent, never disabled).
+    securePending = shouldOfferSignupEnrollment({
+      flagEnabled: PASSKEY_SIGNUP_ENABLED,
+      support: vaultSupportLevel
+    });
+
+    // Conflict pre-check (§3 ruling): a fresh keypair can never own an
+    // existing record, so any record here is a FOREIGN vault. Surface the
+    // existing replace dialog BEFORE the secure step — enrolling first
+    // would silently overwrite it. Confirm → local-only delete (never a
+    // network call — R4 Phase 2) and the step proceeds; cancel → the step
+    // is skipped and signup continues on today's plaintext path.
+    if (securePending && getVaultRecord()) {
+      securePending = false;
+      raiseVaultConflict(
+        'This browser has a saved login for another account. Creating a new profile will ' +
+          "remove that saved login — make sure the other account's key is backed up first.",
+        async () => {
+          deleteVaultRecord();
+          securePending = true;
+        }
+      );
+    }
+  }
+
+  async function secureWithPasskey() {
+    if (!authManager || !generatedKeys) return;
+    secureBusy = true;
+    secureError = '';
+    secureOrphanNote = false;
+    try {
+      const privateKeyHex = Array.from(generatedKeys.privateKey)
+        .map((b) => b.toString(16).padStart(2, '0'))
+        .join('');
+      await authManager.enrollAtSignup(privateKeyHex, generatedKeys.publicKey, {
+        sync: secureSyncOn
+      });
+      secureEnrolled = true;
+      securePending = false; // advance to the backup step
+    } catch (error: any) {
+      if (isCeremonyCancelled(error)) {
+        // Dismissed sheet: stay on the step silently; skip link remains.
+      } else {
+        secureOrphanNote = error instanceof PasskeyVaultError && error.orphanPasskeyLikely;
+        secureError =
+          error instanceof PrfUnsupportedError
+            ? "Your password manager doesn't support this feature yet. Nothing was changed — " +
+              'continue below and your account will work normally.'
+            : error?.message || 'Could not set up the passkey. Nothing was changed.';
+      }
+    } finally {
+      secureBusy = false;
+    }
+  }
+
+  function skipSecureStep() {
+    securePending = false;
   }
 
   function downloadKeysBackup() {
@@ -612,6 +699,12 @@
     nsecModal = false;
     generateModal = false;
     bunkerModal = false;
+    securePending = false;
+    secureEnrolled = false;
+    secureBusy = false;
+    secureError = '';
+    secureOrphanNote = false;
+    secureSyncOn = true;
     nip46UniversalModal = false;
     googleModal = false;
     googleStep = 'signin';
@@ -1067,7 +1160,11 @@
         </div>
       {:else}
         <h2 class="login-modal-title">
-          {backupStep === 2 ? 'Add a display name and bio (optional)' : '🔐 Save your backup key'}
+          {securePending
+            ? '🔐 Secure your account'
+            : backupStep === 2
+              ? 'Add a display name and bio (optional)'
+              : '🔐 Save your backup key'}
         </h2>
       {/if}
       <div class="flex flex-col gap-4">
@@ -1088,11 +1185,72 @@
               <p class="text-xs text-caption text-center mt-2">Takes less than 10 seconds</p>
             </div>
           </div>
+        {:else if securePending}
+          <!-- Phase 3 "Secure your account" step. Renders only when
+               PASSKEY_SIGNUP_ENABLED and detectSupport() === 'full'; skip
+               continues into today's flow unchanged. -->
+          <div class="space-y-4">
+            <p class="text-sm text-caption">
+              Protect your new account with a passkey — Face ID, Touch ID, or your device screen
+              lock. You'll sign in with a tap instead of a key, on this device and your other
+              devices through your password manager.
+            </p>
+            <p class="text-sm text-caption">
+              <strong style="color: var(--color-text-primary)">A passkey is not a backup.</strong>
+              You'll save your account key in the next step — keep both.
+            </p>
+
+            {#if PASSKEY_SYNC_ENABLED}
+              <label class="flex items-start gap-2 cursor-pointer">
+                <input type="checkbox" bind:checked={secureSyncOn} disabled={secureBusy} class="mt-0.5" />
+                <span class="text-xs text-caption">
+                  <span class="font-medium" style="color: var(--color-text-primary)">
+                    Sign in on other devices.
+                  </span>
+                  Stores an encrypted copy of your key on Zap Cooking's servers — only your passkey
+                  can unlock it. You can turn this off any time in Settings.
+                </span>
+              </label>
+            {/if}
+
+            {#if secureError}
+              <div class="signin-error" role="alert">
+                <p>{secureError}</p>
+                {#if secureOrphanNote}
+                  <p class="mt-1">
+                    (A passkey may have been created in your password manager; it's safe to delete.)
+                  </p>
+                {/if}
+              </div>
+            {/if}
+
+            <div>
+              <Button on:click={secureWithPasskey} primary={true} disabled={secureBusy} class="w-full">
+                {secureBusy ? 'Waiting for passkey…' : 'Set up passkey'}
+              </Button>
+              <button
+                type="button"
+                class="block mx-auto mt-3 text-xs text-caption hover:opacity-80 underline"
+                on:click={skipSecureStep}
+                disabled={secureBusy}
+              >
+                Skip for now — you can turn this on later in Settings
+              </button>
+            </div>
+          </div>
         {:else}
           <div class="space-y-4">
             {#if backupStep === 1}
               <div class="bg-green-50 border border-green-200 rounded-lg p-3">
-                <p class="text-sm text-green-700">✓ Your profile has been created. Save your backup key below to recover it later.</p>
+                <p class="text-sm text-green-700">
+                  {#if secureEnrolled}
+                    ✓ Passkey created. Now save your account key — the passkey signs you in, but
+                    <strong>this key is your account</strong>, and it's the only way back in if you
+                    ever lose access to your passkeys.
+                  {:else}
+                    ✓ Your profile has been created. Save your backup key below to recover it later.
+                  {/if}
+                </p>
               </div>
             {/if}
             {#if backupStep === 1}
