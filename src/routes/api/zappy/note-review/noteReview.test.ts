@@ -246,7 +246,12 @@ describe('rate limiting', () => {
       }
     });
     expect(res.status).toBe(200);
-    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('NOURISH_FLAGS KV not bound'));
+    // expect.stringContaining doesn't typecheck under svelte-check's TS
+    // setup (same limitation as it.each) — assert on the calls directly.
+    const warned = warnSpy.mock.calls.some((c: unknown[]) =>
+      String(c[0]).includes('NOURISH_FLAGS KV not bound')
+    );
+    expect(warned).toBe(true);
     warnSpy.mockRestore();
   });
 
