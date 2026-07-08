@@ -356,6 +356,17 @@ export const DISCLOSURE_DEFAULTS: Record<NoteReviewMode, boolean> = {
   recipe: true
 };
 
+/**
+ * The stored preference seeds the toggle only on the initial mode
+ * selection (from the choose phase). Regenerate / try-again re-runs
+ * must preserve the member's in-session toggle — reloading would reset
+ * it to the default wherever localStorage can't persist (private
+ * mode), and the live toggle state is the fresher signal anyway.
+ */
+export function shouldSeedDisclosureFromPref(phase: NoteReviewPhase): boolean {
+  return phase === 'choose';
+}
+
 export function loadDisclosurePref(mode: NoteReviewMode): boolean {
   if (typeof localStorage === 'undefined') return DISCLOSURE_DEFAULTS[mode];
   try {

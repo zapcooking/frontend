@@ -464,6 +464,7 @@ import { afterEach } from 'vitest';
 import {
   withDisclosureFooter,
   loadDisclosurePref,
+  shouldSeedDisclosureFromPref,
   saveDisclosurePref,
   DISCLOSURE_FOOTER,
   DISCLOSURE_DEFAULTS
@@ -601,5 +602,17 @@ describe('previewRemaining passthrough', () => {
     });
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.previewRemaining).toBeUndefined();
+  });
+});
+
+describe('shouldSeedDisclosureFromPref', () => {
+  it('seeds only on initial mode selection — Regenerate/try-again keep the in-session toggle', () => {
+    expect(shouldSeedDisclosureFromPref('choose')).toBe(true);
+    // Regenerate runs from 'draft', try-again from 'error' — an
+    // in-session toggle must survive both even when localStorage
+    // cannot persist it (private mode).
+    for (const phase of ['draft', 'error', 'posting', 'dead-end'] as NoteReviewPhase[]) {
+      expect(shouldSeedDisclosureFromPref(phase), phase).toBe(false);
+    }
   });
 });

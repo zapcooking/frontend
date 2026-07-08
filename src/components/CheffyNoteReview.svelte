@@ -28,6 +28,7 @@
     canPost,
     withDisclosureFooter,
     loadDisclosurePref,
+    shouldSeedDisclosureFromPref,
     saveDisclosurePref,
     DISCLOSURE_FOOTER,
     NOTE_REVIEW_POST_ENABLED,
@@ -69,7 +70,9 @@
 
   async function run(selected: NoteReviewMode) {
     mode = selected;
-    disclosureOn = loadDisclosurePref(selected);
+    // Seed the toggle from the stored pref only on initial mode
+    // selection; Regenerate / try-again keep the in-session toggle.
+    if (shouldSeedDisclosureFromPref(phase)) disclosureOn = loadDisclosurePref(selected);
     phase = 'signing';
     loadingLine = pickLine(selected === 'recipe' ? COOKING_LINES : THINKING_LINES, loadingLine);
     const result = await requestNoteReview({
