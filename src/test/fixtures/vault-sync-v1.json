@@ -1,0 +1,41 @@
+{
+  "description": "Vault-sync v1 server test vectors. TEST-ONLY P-256 keypair (private JWK committed deliberately so tests can mint assertions over fresh challenges). Canned vectors pin byte-level verification; blob is the frozen vault-v1 record verbatim (Android Phase 3 contract).",
+  "secret": "test-vault-sync-secret",
+  "issuedAtMs": 1750000000000,
+  "origin": "https://zap.cooking",
+  "rpId": "zap.cooking",
+  "challenge": "gZTPg4Acnrnc--OyxKN1WvnE28JebgGhUDqMOFhYxLUAAAGXdCDcAF4D00w1Yrd7lHYOY064pIHZPoDyimSviLlGuwAXy3j6",
+  "credentialIdB64url": "wMHCw8TFxsfIycrLzM3Ozw",
+  "spkiB64url": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAETU3CMUFHlctzU4_wRvwyu7qnatxT_Yd3xofJip38ilh1pFhGxNvZ-46K4S5ZrfPmFqd5S4br4ys2PHaekFeEyA",
+  "alg": -7,
+  "privateJwk": {
+    "key_ops": [
+      "sign"
+    ],
+    "ext": true,
+    "kty": "EC",
+    "x": "TU3CMUFHlctzU4_wRvwyu7qnatxT_Yd3xofJip38ilg",
+    "y": "daRYRsTb2fuOiuEuWa3z5haneUuG6-MrNjx2npBXhMg",
+    "crv": "P-256",
+    "d": "QRTd4InEg8q6u2ZVXyhV5UQLSBFh8po7UbOWEPUsEko"
+  },
+  "wrongPrivateJwk": {
+    "key_ops": [
+      "sign"
+    ],
+    "ext": true,
+    "kty": "EC",
+    "x": "b3aPTSbPZ2t66P23xTuyJa9GhXPeSazH3h6BXggOBhw",
+    "y": "tGRrdeUNIU7Ce8C3gfLrqjqCD8rUd1pequ6_Im0OW4I",
+    "crv": "P-256",
+    "d": "q-sUIHnb7UUZ-iUb7wYdGkT7lV7-8OV4HjV5266Ta60"
+  },
+  "authenticatorDataB64url": "w7vfwSkcuTFumtH0b-b4RgU9NaqWWuny2Wjw6adj-sEFAAAAAA",
+  "authenticatorDataNoUvB64url": "w7vfwSkcuTFumtH0b-b4RgU9NaqWWuny2Wjw6adj-sEBAAAAAA",
+  "clientDataJSONB64url": "eyJ0eXBlIjoid2ViYXV0aG4uZ2V0IiwiY2hhbGxlbmdlIjoiZ1pUUGc0QWNucm5jLS1PeXhLTjFXdm5FMjhKZWJnR2hVRHFNT0ZoWXhMVUFBQUdYZENEY0FGNEQwMHcxWXJkN2xIWU9ZMDY0cElIWlBvRHlpbVN2aUxsR3V3QVh5M2o2Iiwib3JpZ2luIjoiaHR0cHM6Ly96YXAuY29va2luZyJ9",
+  "signatureB64url": "MEYCIQC8wWE9ymAf_76qI5-7gGLgOV4uRtYokOmBxiWPJlt-5gIhANKz0bCa1MtbyoAaDpupre9g4fEGumm2xZcO3_iGWgaD",
+  "signatureNoUvB64url": "MEUCIQC5DiUeFzkmXNsZAHtRQnA8rnfXQNGYzCbtAfzXpt-GlwIgSCbh45OHhC6VI4u_6Y6g_3bVmlA4nuV1cGH0aNl5cS4",
+  "wrongKeySignatureB64url": "MEUCIQC3Qhcu7rgTcEY19pRiRfcJckHQLEDcyKpSHMB97u6svAIgbODSVPmdWLJj4DuVt7epQ6E_IQVY03QyPQiqrovX1Xs",
+  "tamperedSignatureB64url": "MEYCIQC8wWE9ymAf_76qI5-7gGLgOV4uRtYokOmBxiWPJlt-5gIhANKz0bCa1MtbyoAaDpupre9g4fEGumm2xZcO3_iGWgaC",
+  "blob": "{\"version\":1,\"pubkey\":\"06cc216aff26ab90fd977ee70307cee8eae8b2ca5f990e3093b2a4a1320ba1e3\",\"nsecCiphertext\":\"AkBBQkNERUZHSElKS0xNTk9QUVJTVFVWV1hZWltcXV5fiHr8ke7GBO64K6zEpQALvthQqX1T4tbgc4smBdOowQjgRbWXSdVATYWPJp2p7TH6BEI//bL2YRGzQGDMbBPi9lFvlEqrRRqrhPp+EAVXBJ1KgkHO16qKcI1Qsa2yTv3vg9Y=\",\"createdAt\":1,\"keys\":[{\"credentialId\":\"wMHCw8TFxsfIycrLzM3Ozw\",\"wrappedDek\":\"QbqCNc5eZfFDmHYDoD2BFDdQLmq7+Nd9iVrAzj8gmu9LkbCcYwTiY1PIblOqEc4X\",\"dekIv\":\"EBESExQVFhcYGRob\",\"addedAt\":1}]}"
+}

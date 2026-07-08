@@ -47,6 +47,19 @@ declare global {
             delete(key: string): Promise<void>;
             list(options?: { prefix?: string; limit?: number }): Promise<{ keys: { name: string }[] }>;
           };
+          /**
+           * KV namespace for passkey vault-sync blobs, keyed by
+           * sha256(credentialId) hex ONLY — never indexed by pubkey (R2).
+           * Also holds the vault-sync routes' rate-limit buckets and
+           * challenge tombstones.
+           */
+          VAULT_SYNC?: {
+            get(key: string, type?: 'text' | 'json'): Promise<string | unknown | null>;
+            put(key: string, value: string, options?: { expirationTtl?: number }): Promise<void>;
+            delete(key: string): Promise<void>;
+          };
+          /** HMAC key for vault-sync challenges. Distinct values in Production and Preview. */
+          VAULT_SYNC_CHALLENGE_SECRET?: string;
         };
       }
   }

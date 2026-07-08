@@ -19,6 +19,14 @@
     {
       "binding": "NOURISH_FLAGS",
       "id": "62b1fc47ff274697923fc65e51592734"
+    },
+    {
+      // Passkey vault-sync blobs (plus the routes' rate-limit buckets and
+      // challenge tombstones). preview_id is REQUIRED: preview deployments
+      // must never read or write production vault blobs.
+      "binding": "VAULT_SYNC",
+      "id": "4f550842d84c45549c4d30a3cd3f10c3",
+      "preview_id": "97815021dedf4b3483669f99e6aa1347"
     }
   ]
 }
